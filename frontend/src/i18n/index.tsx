@@ -34,6 +34,7 @@ import {
   LS_THEME_SCHEDULE,
   LS_SCHEDULE_PAINT,
   paintRecordFor,
+  colourPaintRecordFor,
   applyThemeToRoot,
   readValidatedPaint,
   readValidatedSchedulePaint,
@@ -361,6 +362,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const seasonalThemeName =
     (seasonalId && seasonalBundles[seasonalId]?.name) || null;
+  // While the seasonal theme is shown, its current day part is the only record
+  // with a picture: two seasonal pictures plus the schedule's and the display
+  // theme's exceed Safari's ~2.5M-character origin quota.
+  const seasonalShown = seasonalId !== null;
+  const seasonalShownRef = useRef(seasonalShown);
+  seasonalShownRef.current = seasonalShown;
 
   const t = useMemo(() => {
     const base = DICTS[locale];
@@ -479,15 +486,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   // Loads the day part `pick` of the open window once; a record is kept per
   // day part seen in this window, so a later page load in any of them paints.
-  // Same tiering as the schedule's records: whole for the day part shown now
-  // and the next one, colours-only for the others seen, none for other windows.
+  // Whole for the day part shown now, colours-only for the others seen (the
+  // next one's bundle is still prefetched into memory), none for other windows;
+  // all colours-only while the window is open but the seasonal theme is not
+  // shown.
   const writeSeasonalRecords = useCallback((w: LoadableSeasonalWindow) => {
     const at = new Date(Math.max(Date.now(), w.start.getTime()));
-    const next = w.schedule?.length ? nextDayPart(at, w.schedule) : null;
-    const full = new Set([
-      seasonalPickAt(at, w).id,
-      ...(next && next.at.getTime() < w.end.getTime() ? [themeIdOfFile(next.row.theme)] : []),
-    ]);
+    const hidden = !seasonalShownRef.current && Date.now() >= w.start.getTime();
+    const full = new Set(hidden ? [] : [seasonalPickAt(at, w).id]);
     const records = tieredPaintRecords(
       seasonalThemeIds(w),
       full,
@@ -629,7 +635,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // longer held in full — and the thing being cached was always the active
   // bundle, so passing it directly removes the lookup rather than hiding it.
   const writePaint = useCallback((b: ThemeBundle | null) => {
-    writeStored(LS_THEME_PAINT, b ? JSON.stringify(paintRecordFor(b)) : null);
+    const rec = b && (seasonalShownRef.current ? colourPaintRecordFor(b) : paintRecordFor(b));
+    if (!writeStored(LS_THEME_PAINT, rec ? JSON.stringify(rec) : null)) {
+      writeStored(LS_THEME_PAINT, null);
+    }
   }, []);
 
   const cacheTheme = useCallback((next: string) => {
@@ -684,9 +693,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       scheduleBundlesRef.current = bundles;
       const now = new Date();
       const full = new Set(
-        [activeScheduleEntry(now, schedule)?.theme, nextDayPart(now, schedule)?.row.theme].filter(
-          (id): id is string => !!id
-        )
+        seasonalShownRef.current
+          ? []
+          : [activeScheduleEntry(now, schedule)?.theme, nextDayPart(now, schedule)?.row.theme].filter(
+              (id): id is string => !!id
+            )
       );
       const records = tieredPaintRecords(
         scheduledCustomThemes(schedule),
@@ -839,6 +850,33 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     },
     [writePaint]
   );
+
+  // Re-tier every paint record when the seasonal theme comes on screen (window
+  // open, page load mid-window with older whole records stored, turned on) or
+  // leaves it (window end, turned off, its day part failed to load). The side
+  // losing pictures is written first, so the other side's write has the room;
+  // the seasonal records are rewritten after, as an earlier write of them may
+  // have been refused for want of it.
+  useEffect(() => {
+    const held = activeThemeBundleRef.current;
+    const display = held && held.id === themeRef.current ? held : null;
+    const schedule = themeScheduleRef.current;
+    // An empty schedule may only be the cache before reconcile: adopting it
+    // would drop records reconcile is about to keep.
+    const retierSchedule = () => {
+      if (schedule.length) adoptScheduleBundles(schedule, scheduleBundlesRef.current);
+    };
+    if (seasonalShown) {
+      retierSchedule();
+      const cached = schedule.length ? null : (display ?? readValidatedPaint());
+      if (cached) writePaint(cached);
+      if (openSeasonalWindow) writeSeasonalRecords(openSeasonalWindow);
+      return;
+    }
+    if (openSeasonalWindow) writeSeasonalRecords(openSeasonalWindow);
+    retierSchedule();
+    if (display && displayShownRef.current) writePaint(display);
+  }, [seasonalShown, openSeasonalWindow, adoptScheduleBundles, writePaint, writeSeasonalRecords]);
 
   // display_theme coming on screen with its bundle not in hand (the schedule
   // turned off, a seasonal window ending): fetch it now.

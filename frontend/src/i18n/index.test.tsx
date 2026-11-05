@@ -5,6 +5,8 @@
 // data-theme> reconcile wiring; the geometry-free bits a real browser is not
 // needed for (the visual pre-auth guard lives in the Playwright CT suite).
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { I18nProvider, useI18n } from "./index";
@@ -15,7 +17,8 @@ import { api } from "../api";
 import { setToken, TOKEN_KEY } from "../api/auth";
 import type { LoadableSeasonalWindow } from "../lib/seasonalTheme";
 import type { ThemeBundle } from "../lib/themeBundleCore";
-import { paintRecordFor } from "../lib/themePaint";
+import { paintRecordFor, readValidatedSchedulePaint } from "../lib/themePaint";
+import { scheduleFrom } from "../lib/seasonalSchedule";
 
 const seasonalWindows = vi.hoisted(() => [] as LoadableSeasonalWindow[]);
 vi.mock("../lib/seasonalTheme", () => ({ SEASONAL_WINDOWS: seasonalWindows }));
@@ -1140,7 +1143,19 @@ describe("I18nProvider seasonal theme with day parts", () => {
     ).toEqual(["harvest-day", "harvest-night"]);
   });
 
-  it("prefetches the next day part ten minutes before its start and switches to it with no further load", async () => {
+  it("prefetches the next day part ten minutes before its start and switches to it with no further load, keeping the picture only in the shown part's record", async () => {
+    const withImage = () =>
+      Object.fromEntries(
+        (
+          JSON.parse(localStorage.getItem("oc.seasonalPaint") ?? "[]") as {
+            bundle: { id: string; backgrounds?: unknown };
+          }[]
+        ).map((r) => [r.bundle.id, r.bundle.backgrounds !== undefined])
+      );
+    const LIT_DAY = { ...DAY, backgrounds: { canvas: PNG } };
+    load.mockImplementation((file?: string) =>
+      Promise.resolve(file === "harvest-day.theme.json" ? LIT_DAY : NIGHT)
+    );
     at(new Date(2030, 9, 25, 5, 40));
     await mount();
     await waitFor(() => expect(ctx.seasonalThemeName).toBe("豐收之夜"));
@@ -1153,6 +1168,7 @@ describe("I18nProvider seasonal theme with day parts", () => {
       expect(load.mock.calls).toEqual([["harvest-night.theme.json"], ["harvest-day.theme.json"]])
     );
     expect(ctx.seasonalThemeName).toBe("豐收之夜");
+    await waitFor(() => expect(withImage()).toEqual({ "harvest-day": false, "harvest-night": true }));
 
     await act(async () => {
       vi.advanceTimersByTime(10 * 60 * 1000);
@@ -1160,6 +1176,40 @@ describe("I18nProvider seasonal theme with day parts", () => {
     expect(ctx.seasonalThemeName).toBe("豐收白天");
     expect(root.style.getPropertyValue("--color-bg")).toBe("#f5f0e6");
     expect(load).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(withImage()).toEqual({ "harvest-day": true, "harvest-night": false }));
+  });
+
+  it("when the next day part's prefetch fails, keeps showing this part until its start, then the user's schedule for the rest of the page, without retrying", async () => {
+    load.mockImplementation((file?: string) =>
+      file === "harvest-day.theme.json" ? Promise.reject(new Error("chunk gone")) : Promise.resolve(NIGHT)
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    at(new Date(2030, 9, 25, 5, 40));
+    await mount();
+    await waitFor(() => expect(ctx.seasonalThemeName).toBe("豐收之夜"));
+
+    await act(async () => {
+      vi.advanceTimersByTime(10 * 60 * 1000);
+    });
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(ctx.seasonalThemeName).toBe("豐收之夜");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#101014");
+
+    await act(async () => {
+      vi.advanceTimersByTime(10 * 60 * 1000);
+    });
+    expect(ctx.seasonalThemeName).toBeNull();
+    expect(ctx.scheduledTheme).toBe("office");
+    expect(root.dataset.theme).toBe("office");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("");
+
+    await act(async () => {
+      vi.advanceTimersByTime(60 * 60 * 1000);
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(ctx.scheduledTheme).toBe("office");
+    expect(load).toHaveBeenCalledTimes(2);
+    vi.mocked(console.warn).mockRestore();
   });
 
   it("keeps records only for this window's day parts, dropping any other window's", async () => {
@@ -1808,5 +1858,138 @@ describe("I18nProvider under the desk default", () => {
     expect(localStorage.getItem("oc.themePaint")).toBeNull();
     expect(Math.min(...sizes)).toBeGreaterThan(1_000_000);
     expect(Math.max(...sizes)).toBeLessThan(1_600_000);
+  });
+
+  describe("inside the Thanksgiving window", () => {
+    const THEMES_DIR = resolve(__dirname, "../../../themes");
+    const themeFile = (name: string) =>
+      JSON.parse(readFileSync(resolve(THEMES_DIR, name), "utf8")) as ThemeBundle;
+    const TG_DAY = "thanksgiving-2026-day";
+    const TG_DUSK = "thanksgiving-2026-dusk";
+    const TG_NIGHT = "thanksgiving-2026-night";
+    const SAFARI_QUOTA = 2_500_000;
+    const themeRecord = () =>
+      JSON.parse(localStorage.getItem("oc.themePaint") ?? "null") as Rec | null;
+
+    function openThanksgiving() {
+      const raw = JSON.parse(
+        readFileSync(resolve(THEMES_DIR, "seasonal-schedule.json"), "utf8")
+      ) as Parameters<typeof scheduleFrom>[0];
+      const [w] = scheduleFrom(raw.filter((e) => e.id === "thanksgiving-2026"));
+      seasonalWindows.push({ ...w, load: async (file?: string) => themeFile(file!) });
+    }
+    function storeWholeRecords(key: string, ids: string[]) {
+      localStorage.setItem(
+        key,
+        JSON.stringify(ids.map((id) => paintRecordFor(themeFile(`${id}.theme.json`))))
+      );
+    }
+
+    beforeEach(() => {
+      openThanksgiving();
+      storeWholeRecords("oc.seasonalPaint", [TG_DAY, TG_DUSK, TG_NIGHT]);
+    });
+
+    for (const [hour, shown] of [
+      [10, TG_DAY],
+      [17, TG_DUSK],
+    ] as const) {
+      it(`at ${hour}:00 with the desk schedule, only the shown day part keeps a picture and everything stored fits Safari's 2,500,000 characters`, async () => {
+        storeWholeRecords("oc.schedulePaint", [DAY, DUSK, NIGHT]);
+        at(new Date(2026, 10, 18, hour, 0));
+        await mount();
+
+        await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe(shown));
+        await waitFor(() =>
+          expect(withImage("oc.seasonalPaint")).toEqual({
+            [TG_DAY]: shown === TG_DAY,
+            [TG_DUSK]: shown === TG_DUSK,
+            [TG_NIGHT]: false,
+          })
+        );
+        expect(withImage("oc.schedulePaint")).toEqual({ [DAY]: false, [DUSK]: false, [NIGHT]: false });
+        expect(localStorage.getItem("oc.themePaint")).toBeNull();
+        expect(storedChars()).toBeLessThanOrEqual(SAFARI_QUOTA);
+      });
+
+      it(`at ${hour}:00 with a custom display theme carrying a 1 MiB background and no schedule, its record keeps only colours and everything stored fits Safari's 2,500,000 characters`, async () => {
+        const tg = themeFile(`${TG_DAY}.theme.json`);
+        const custom = { ...paintRecordFor(tg).bundle, id: "harvest-desk", name: "Harvest desk" };
+        await mockApi.putTheme(custom);
+        await mockApi.patchServerSettings({ displayTheme: "harvest-desk", displayThemeSchedule: [] });
+        localStorage.setItem("oc.theme", "harvest-desk");
+        localStorage.setItem("oc.themePaint", JSON.stringify(paintRecordFor(custom)));
+        at(new Date(2026, 10, 18, hour, 0));
+        await mount();
+
+        await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe(shown));
+        await waitFor(() => expect(withImage("oc.seasonalPaint")[shown]).toBe(true));
+        expect(themeRecord()?.bundle.id).toBe("harvest-desk");
+        expect(themeRecord()?.bundle.backgrounds).toBeUndefined();
+        expect(storedChars()).toBeLessThanOrEqual(SAFARI_QUOTA);
+      });
+    }
+
+    it("when the window ends, the user's slot gets its picture back for the next page load, and the next slot its own before it starts", async () => {
+      storeWholeRecords("oc.schedulePaint", [DAY, DUSK, NIGHT]);
+      at(new Date(2026, 10, 26, 23, 55));
+      await mount();
+      await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe(TG_NIGHT));
+      await waitFor(() => expect(builtinLoads).toEqual([NIGHT]));
+      expect(withImage("oc.schedulePaint")).toEqual({ [DAY]: false, [DUSK]: false, [NIGHT]: false });
+
+      await act(async () => {
+        vi.advanceTimersByTime(5 * 60 * 1000);
+      });
+      await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe(NIGHT));
+      await waitFor(() => expect(withImage("oc.schedulePaint")[NIGHT]).toBe(true));
+      expect(localStorage.getItem("oc.seasonalPaint")).toBeNull();
+      expect(readValidatedSchedulePaint(NIGHT)?.backgrounds?.canvas).toBeTruthy();
+
+      await act(async () => {
+        vi.advanceTimersByTime((5 * 60 + 50) * 60 * 1000);
+      });
+      await waitFor(() =>
+        expect(withImage("oc.schedulePaint")).toEqual({ [DAY]: true, [DUSK]: false, [NIGHT]: true })
+      );
+    });
+
+    it("turning the seasonal theme off brings the schedule back to pictures for the slot on screen and the next one, and leaves the seasonal records colours only", async () => {
+      storeWholeRecords("oc.schedulePaint", [DAY, DUSK, NIGHT]);
+      at(new Date(2026, 10, 18, 15, 55));
+      await mount();
+      await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe(TG_DAY));
+      await waitFor(() => expect(withImage("oc.schedulePaint")[DAY]).toBe(false));
+
+      await act(async () => {
+        ctx.setSeasonalTheme(false);
+      });
+
+      await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe(DAY));
+      await waitFor(() =>
+        expect(withImage("oc.schedulePaint")).toEqual({ [DAY]: true, [DUSK]: true, [NIGHT]: false })
+      );
+      expect(withImage("oc.seasonalPaint")).toEqual({ [TG_DAY]: false, [TG_DUSK]: false, [TG_NIGHT]: false });
+      expect(storedChars()).toBeLessThanOrEqual(SAFARI_QUOTA);
+    });
+
+    it("turning the seasonal theme off brings back the custom display theme's picture", async () => {
+      const custom = { id: "dawn", name: "Dawn", colors: { "--color-bg": "#fafaf0" }, backgrounds: { canvas: PNG } };
+      await mockApi.putTheme(custom);
+      await mockApi.patchServerSettings({ displayTheme: "dawn", displayThemeSchedule: [] });
+      localStorage.setItem("oc.theme", "dawn");
+      localStorage.setItem("oc.themePaint", JSON.stringify(paintRecordFor(custom)));
+      at(new Date(2026, 10, 18, 10, 0));
+      await mount();
+      await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe(TG_DAY));
+      await waitFor(() => expect(themeRecord()?.bundle.backgrounds).toBeUndefined());
+
+      await act(async () => {
+        ctx.setSeasonalTheme(false);
+      });
+
+      await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe("dawn"));
+      await waitFor(() => expect(themeRecord()?.bundle.backgrounds).toEqual({ canvas: PNG }));
+    });
   });
 });
