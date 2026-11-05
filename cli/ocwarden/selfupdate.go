@@ -592,6 +592,10 @@ func buildSelfUpdater(cfg Config, env rawEnv, logf func(string, ...any), executa
 	// Short-timeout client: the announce runs on the swap→exec path, where a hung
 	// station must not hold up the exec.
 	reportClient := &http.Client{Timeout: selfUpdateReportBudget}
+	execSelf := func() error {
+		markDescriptorsCloseOnExec()
+		return execImage(selfPath, os.Args, os.Environ())
+	}
 	u := &updater{
 		get:          httpGetter(selfUpdateRequestClient, cfg.Base, cfg.Token),
 		download:     httpDownloader(cfg.Base, cfg.Token),
@@ -605,15 +609,12 @@ func buildSelfUpdater(cfg Config, env rawEnv, logf func(string, ...any), executa
 
 		kick: make(chan struct{}, 1),
 
-		execSelf: func() error {
-			markDescriptorsCloseOnExec()
-			return execImage(selfPath, os.Args, os.Environ())
-		},
-		exit:    os.Exit,
-		logf:    logf,
-		post:    httpPoster(reportClient, cfg.Base, cfg.Token),
-		agentID: cfg.ID,
-		now:     time.Now,
+		execSelf: execSelf,
+		exit:     os.Exit,
+		logf:     logf,
+		post:     httpPoster(reportClient, cfg.Base, cfg.Token),
+		agentID:  cfg.ID,
+		now:      time.Now,
 	}
 	// newRenewalWiring builds its own HTTP client: the short announce budget
 	// beside the station request client is one character away.
