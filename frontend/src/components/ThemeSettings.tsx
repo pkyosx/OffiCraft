@@ -1617,6 +1617,8 @@ function useThemeSwatches(wanted: string[]) {
   const { themeList, loadTheme, activeThemeBundle } = useI18n();
   const [loaded, setLoaded] = useState<Record<string, ThemeSwatch | null>>({});
   const inFlight = useRef(new Set<string>());
+  // A save during a fetch already holds the newer bundle; the late reply must not win.
+  const remembered = useRef(new Set<string>());
   const loadRef = useRef(loadTheme);
   loadRef.current = loadTheme;
   const activeRef = useRef(activeThemeBundle);
@@ -1639,7 +1641,10 @@ function useThemeSwatches(wanted: string[]) {
       loadRef
         .current(id)
         .then(
-          (b) => setLoaded((m) => ({ ...m, [id]: swatchOfBundle(b) })),
+          (b) => {
+            if (remembered.current.has(id)) return;
+            setLoaded((m) => ({ ...m, [id]: swatchOfBundle(b) }));
+          },
           (e) => {
             console.warn("theme thumbnail: load failed", id, e);
             setLoaded((m) => ({ ...m, [id]: null }));
@@ -1652,8 +1657,10 @@ function useThemeSwatches(wanted: string[]) {
   return {
     swatchOf: (id: string): ThemeSwatch | null =>
       BUILTIN_SWATCHES[id] ?? loaded[id] ?? null,
-    remember: (bundle: ThemeBundle) =>
-      setLoaded((m) => ({ ...m, [bundle.id]: swatchOfBundle(bundle) })),
+    remember: (bundle: ThemeBundle) => {
+      remembered.current.add(bundle.id);
+      setLoaded((m) => ({ ...m, [bundle.id]: swatchOfBundle(bundle) }));
+    },
   };
 }
 
@@ -1891,7 +1898,7 @@ function ThemeAppearance({
           {status === "failed" && <div className="set-error">{t.settings.themeScheduleSaveFailed}</div>}
         </div>
       ) : (
-        <div className="param-row">
+        <div className="param-row ts-pick-row">
           <div className="param-row__body">
             <span className="param-row__name">{t.settings.themePick}</span>
             <div className="param-row__sub">{t.settings.themePickHint}</div>

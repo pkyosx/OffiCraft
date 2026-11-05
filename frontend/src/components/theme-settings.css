@@ -512,4 +512,12 @@
   .ts-timeline__labels {
     display: none;
   }
+  /* Same trap as .param-input--wide: the label column takes all the shrink and
+   * stacks one CJK character per line unless the select gets its own line. */
+  .ts-theme-select {
+    flex: 1 1 0;
+  }
+  .ts-pick-row .param-row__body {
+    flex-basis: 100%;
+  }
 }

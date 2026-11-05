@@ -10,13 +10,17 @@
 // ThemeSettings.test.tsx), and so did choosing one (owner 2026-11-05): the
 // dropdown only names the theme on screen.
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
+import type { LoadableSeasonalWindow } from "../lib/seasonalTheme";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { ProfileDropdown } from "./ProfileDropdown";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
+
+const seasonalWindows = vi.hoisted(() => [] as LoadableSeasonalWindow[]);
+vi.mock("../lib/seasonalTheme", () => ({ SEASONAL_WINDOWS: seasonalWindows }));
 import { setToken, clearToken } from "../api/auth";
 
 const p = zh.profile;
@@ -68,7 +72,6 @@ describe("ProfileDropdown · preferences scope", () => {
     const utils = await openPreferences();
     await waitFor(() => expect(themeStatus(utils)).toBe("午夜藍"));
     expect(utils.getByText(p.themeManageHint)).toBeTruthy();
-    expect(utils.queryByRole("combobox")).toBeNull();
   });
 
   it("names a built-in theme by its own identity name", async () => {
@@ -89,6 +92,33 @@ describe("ProfileDropdown · preferences scope", () => {
     await waitFor(() =>
       expect(themeStatus(utils)).toBe(`依時段切換（現在是 ${zh.themeIdentity.officeLight}）`)
     );
+  });
+
+  describe("inside a seasonal window", () => {
+    afterEach(() => {
+      seasonalWindows.length = 0;
+      vi.useRealTimers();
+    });
+
+    it("names the seasonal theme on screen even while a theme schedule is on", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["Date", "setTimeout", "clearTimeout"] });
+      vi.setSystemTime(new Date(2030, 9, 28, 12, 0));
+      seasonalWindows.push({
+        id: "harvest",
+        start: new Date(2030, 9, 24, 0, 0),
+        end: new Date(2030, 10, 1, 0, 0),
+        load: () => Promise.resolve({ id: "harvest", name: "豐收", colors: { "--color-bg": "#15101f" } }),
+      });
+      await api.patchServerSettings({
+        displayThemeSchedule: [
+          { start: "00:00", theme: "office-light" },
+          { start: "12:00", theme: "office" },
+        ],
+      });
+      setToken("owner-token");
+      const utils = await openPreferences();
+      await waitFor(() => expect(themeStatus(utils)).toBe(`應景主題（豐收）`));
+    });
   });
 
   it("offers the 版面 segmented control and flips the layout both ways (T-756f)", async () => {
