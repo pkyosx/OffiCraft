@@ -203,7 +203,7 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
     expect(u.queryByTestId("secret-face")).toBeNull();
   });
 
-  it("reads the same after the author's retrieval", async () => {
+  it("follows the author's retrieval in place", async () => {
     const u = await opened();
     await provideInBox(u);
     expect((await u.findByTestId("secret-face")).textContent).toBe("已提供");
@@ -213,9 +213,50 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
     await waitFor(() =>
       expect(u.getByTestId("secret-face").getAttribute("data-secret-state")).toBe("retrieved"),
     );
-    expect(u.getByTestId("secret-face").textContent).toBe("已提供");
+    expect(u.getByTestId("secret-face").textContent).toBe("已取得");
   });
 
+});
+
+describe("the replies page's handled pane", () => {
+  it("stamps a settled secret card with its state and no time", async () => {
+    const ts = Date.now() / 1000 - 60;
+    const settled = { status: "answered" as const, answeredTs: ts };
+    const answer = { optionIdxs: null, text: "", attachments: [] };
+    const held = (state: "provided" | "retrieved") => ({
+      state,
+      providedTs: ts,
+      retrievedTs: state === "retrieved" ? ts : null,
+      expiresTs: ts + 3600,
+    });
+    __injectMockReplyCard(mkCard({ id: "rc-aaaaaaaaaaa1", ...settled, answer, secret: held("provided") }));
+    __injectMockReplyCard(mkCard({ id: "rc-aaaaaaaaaaa2", ...settled, answer, secret: held("retrieved") }));
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-aaaaaaaaaaa3",
+        status: "expired",
+        expiredTs: ts,
+        secret: { state: "expired", providedTs: ts, retrievedTs: null, expiresTs: null },
+      }),
+    );
+    const u = render(
+      withBystander(
+        <ReplyCardsProvider>
+          <RepliesPage />
+        </ReplyCardsProvider>,
+      ),
+    );
+    fireEvent.click(await u.findByTestId("answered-toggle"));
+    const stamp = async (id: string) =>
+      waitFor(() => {
+        const el = u.container.querySelector(`[data-reply-card-id="${id}"] .reply-card__answered-at`);
+        expect(el).not.toBeNull();
+        return el!.textContent;
+      });
+    expect(await stamp("rc-aaaaaaaaaaa1")).toBe("已提供");
+    expect(await stamp("rc-aaaaaaaaaaa2")).toBe("已取得");
+    expect(await stamp("rc-aaaaaaaaaaa3")).toBe("已失效");
+  });
 });
 
 describe("arrival", () => {

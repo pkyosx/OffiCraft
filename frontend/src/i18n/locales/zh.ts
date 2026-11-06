@@ -670,6 +670,7 @@ export const zh = {
     secretSend: "送出密鑰",
     secretProvideError: "送出失敗，內容還留在框裡，請再送一次",
     secretProvidedTag: "已提供",
+    secretRetrievedTag: "已取得",
     secretExpiredTag: "已失效",
     secretExpiredNote: "沒有可以取得的內容；若還需要，成員會重新開卡",
     // 帶 ai_pick 的那個選項才是 AI 的建議;位置不再有任何意義。

@@ -109,6 +109,7 @@ import {
   ReplyCardQuestionAttachments,
   ReplyCardTaskRef,
   ReplyCardWaitingBody,
+  replyCardSecretTag,
 } from "./ReplyCardBody";
 import { formatDuration } from "../lib/duration";
 import { formatAbsolute } from "../lib/dateFormat";
@@ -1402,10 +1403,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         ts !== null ? (
           <span className="reply-card__answered-at">
             {expired
-              ? msg.replyExpiredAt(formatAbsolute(ts, nowTs))
-              : row.secret?.state === "provided" || row.secret?.state === "retrieved"
-                ? msg.replySecretProvidedAt(formatAbsolute(ts, nowTs))
-                : msg.replyAnsweredAt(formatAbsolute(ts, nowTs))}
+              ? row.kind === "secret"
+                ? t.replies.secretExpiredTag
+                : msg.replyExpiredAt(formatAbsolute(ts, nowTs))
+              : (replyCardSecretTag(row, t) ?? msg.replyAnsweredAt(formatAbsolute(ts, nowTs)))}
           </span>
         ) : undefined,
       body: (card) => (

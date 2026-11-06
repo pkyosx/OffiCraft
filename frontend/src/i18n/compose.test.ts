@@ -158,7 +158,6 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "replyOpenedAt", ["7/13 09:05"], "開卡 7/13 09:05"],
     ["zh", "replyAnsweredAt", ["7/13 09:05"], "已回覆 7/13 09:05"],
     ["zh", "replyExpiredAt", ["7/13 09:05"], "已過期 7/13 09:05"],
-    ["zh", "replySecretProvidedAt", ["7/13 09:05"], "已提供 7/13 09:05"],
     ["zh", "replyExpireConfirmBody", ["要不要買新的"], "要把「要不要買新的」標為過期嗎?此動作不可復原、也不算回答——成員會收到通知,問題還在的話他會重新開一張新卡。"],
     ["zh", "replySelectedCount", [0], "已選 0 項"],
     ["zh", "replySelectedCount", [1], "已選 1 項"],
@@ -344,7 +343,6 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "replyOpenedAt", ["7/13 09:05"], "Opened 7/13 09:05"],
     ["en", "replyAnsweredAt", ["7/13 09:05"], "Answered 7/13 09:05"],
     ["en", "replyExpiredAt", ["7/13 09:05"], "Expired 7/13 09:05"],
-    ["en", "replySecretProvidedAt", ["7/13 09:05"], "Provided 7/13 09:05"],
     ["en", "replyExpireConfirmBody", ["要不要買新的"], "Mark \"要不要買新的\" as expired? This cannot be undone and does not count as an answer — the member is notified and will open a fresh card if the question still matters."],
     ["en", "replySelectedCount", [0], "Selected 0 options"],
     // n=1 is its own row: en inflects and the other two rows cannot see it.

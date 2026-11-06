@@ -229,14 +229,14 @@ describe("the settled faces", () => {
       </I18nProvider>,
     );
 
-  it("holding a value: reads as provided, retrieved or not", () => {
-    for (const secret of [
-      { state: "provided", providedTs: now - 60, retrievedTs: null, expiresTs: now + 3600 },
-      { state: "retrieved", providedTs: now - 60, retrievedTs: now - 30, expiresTs: now + 570 },
-      { state: "retrieved", providedTs: now - 60, retrievedTs: now - 30, expiresTs: null },
+  it("holding a value: reads as its state, without a time", () => {
+    for (const [secret, want] of [
+      [{ state: "provided", providedTs: now - 60, retrievedTs: null, expiresTs: now + 3600 }, "已提供"],
+      [{ state: "retrieved", providedTs: now - 60, retrievedTs: now - 30, expiresTs: now + 570 }, "已取得"],
+      [{ state: "retrieved", providedTs: now - 60, retrievedTs: now - 30, expiresTs: null }, "已取得"],
     ] as const) {
       const { getByTestId, queryByTestId, unmount } = renderAnswered(answered(secret));
-      expect(getByTestId("secret-face").textContent).toBe("已提供");
+      expect(getByTestId("secret-face").textContent).toBe(want);
       expect(queryByTestId("final-answer")).toBeNull();
       unmount();
     }

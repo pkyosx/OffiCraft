@@ -1072,6 +1072,7 @@ var messageKeys = map[string]bool{
 	"replies.secretPlaceholder":                        true,
 	"replies.secretProvideError":                       true,
 	"replies.secretProvidedTag":                        true,
+	"replies.secretRetrievedTag":                       true,
 	"replies.secretSend":                               true,
 	"replies.selectedCountLead":                        true,
 	"replies.selectedCountTailMany":                    true,
