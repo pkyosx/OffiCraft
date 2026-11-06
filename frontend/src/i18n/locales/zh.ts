@@ -679,7 +679,7 @@ export const zh = {
     secretRetrievedAtLabel: "取得時間",
     secretDeleted: "內容已刪除",
     secretExpiredTag: "已失效",
-    secretExpiredNote: "沒有可以取得的內容;若還需要,成員會重新開卡",
+    secretExpiredNote: "沒有可以取得的內容；若還需要，成員會重新開卡",
     // 帶 ai_pick 的那個選項才是 AI 的建議;位置不再有任何意義。
     aiPick: "AI 建議",
     // 多選卡的暫存計數:勾了幾項在送出前就寫出來——多選卡上「什麼都沒勾」與
