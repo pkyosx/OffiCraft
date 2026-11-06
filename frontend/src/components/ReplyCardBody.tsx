@@ -58,7 +58,6 @@ import { useReplyCardQuoteTarget } from "./ChatSelectionReply";
 import { MentionText } from "./MentionText";
 import { useMentionRosterContext } from "../hooks/useMentionComposer";
 import { ChevronRightIcon } from "./icons";
-import { formatAbsolute } from "../lib/dateFormat";
 import "./replies.css";
 import { autosizeTextarea } from "../lib/autosize";
 import { SecretValueInput } from "./SecretValueInput";
@@ -580,27 +579,18 @@ export function replyCardSecretTag(
   t: ReturnType<typeof useI18n>["t"],
 ): string | null {
   const state = card?.kind === "secret" ? card.secret?.state : undefined;
-  if (state === "provided") return t.replies.secretProvidedTag;
-  if (state === "retrieved") return t.replies.secretRetrievedTag;
-  return null;
+  return state === "provided" || state === "retrieved" ? t.replies.secretProvidedTag : null;
 }
 
-/** A secret card holding (or having held) the owner's value: where it stands. */
+/** A secret card holding (or having held) the owner's value. Retrieval stays off
+ * this face by owner ruling: whether the member has taken it is not the owner's concern. */
 function ReplyCardSecretValueFace({ card }: { card: ReplyCard }) {
-  const { t, msg } = useI18n();
-  const secret = card.secret!;
-  const retrieved = secret.state === "retrieved";
-
+  const { t } = useI18n();
   return (
-    <div className="reply-card__answer" data-testid="secret-face" data-secret-state={secret.state}>
+    <div className="reply-card__answer" data-testid="secret-face" data-secret-state={card.secret!.state}>
       <span className="reply-tag reply-tag--answered" data-testid="secret-tag">
-        {retrieved ? t.replies.secretRetrievedTag : t.replies.secretProvidedTag}
+        {t.replies.secretProvidedTag}
       </span>
-      {retrieved && secret.retrievedTs !== null && (
-        <span className="reply-secret__fact" data-testid="secret-retrieved-at">
-          {msg.replySecretRetrievedTime(formatAbsolute(secret.retrievedTs, Date.now() / 1000))}
-        </span>
-      )}
     </div>
   );
 }

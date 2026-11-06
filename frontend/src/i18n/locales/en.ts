@@ -656,8 +656,6 @@ export const en: Dict = {
     secretSend: "Send secret",
     secretProvideError: "Sending failed. What you entered is still in the box; please send it again.",
     secretProvidedTag: "Provided",
-    secretRetrievedTag: "Retrieved",
-    secretRetrievedAtLabel: "Retrieved",
     secretExpiredTag: "No longer valid",
     secretExpiredNote: "There is nothing to retrieve; the member opens a new card if it is still needed",
     aiPick: "AI pick",

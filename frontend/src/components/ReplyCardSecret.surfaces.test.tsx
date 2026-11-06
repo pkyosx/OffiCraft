@@ -203,16 +203,17 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
     expect(u.queryByTestId("secret-face")).toBeNull();
   });
 
-  it("follows the author's retrieval in place", async () => {
+  it("reads the same after the author's retrieval", async () => {
     const u = await opened();
     await provideInBox(u);
-    expect((await u.findByTestId("secret-face")).getAttribute("data-secret-state")).toBe("provided");
+    expect((await u.findByTestId("secret-face")).textContent).toBe("已提供");
     await act(async () => {
       __mockRetrieveSecretCard(CARD_ID);
     });
     await waitFor(() =>
       expect(u.getByTestId("secret-face").getAttribute("data-secret-state")).toBe("retrieved"),
     );
+    expect(u.getByTestId("secret-face").textContent).toBe("已提供");
   });
 
 });

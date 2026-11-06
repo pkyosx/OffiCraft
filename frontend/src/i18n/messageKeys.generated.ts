@@ -1071,8 +1071,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "replies.secretPlaceholder",
   "replies.secretProvideError",
   "replies.secretProvidedTag",
-  "replies.secretRetrievedAtLabel",
-  "replies.secretRetrievedTag",
   "replies.secretSend",
   "replies.selectedCountLead",
   "replies.selectedCountTailMany",

@@ -72,7 +72,6 @@ export interface Messages {
   replyAnsweredAt: (time: string) => string;
   replyExpiredAt: (time: string) => string;
   replySecretProvidedAt: (time: string) => string;
-  replySecretRetrievedTime: (time: string) => string;
   replyExpireConfirmBody: (summary: string) => string;
   replySelectedCount: (n: number) => string;
   replyPickedOptions: (options: string[]) => string;
@@ -405,7 +404,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     replyAnsweredAt: (time) => `${replies.answeredAtLabel} ${time}`,
     replyExpiredAt: (time) => `${replies.expiredAtLabel} ${time}`,
     replySecretProvidedAt: (time) => `${replies.secretProvidedTag} ${time}`,
-    replySecretRetrievedTime: (time) => `${replies.secretRetrievedAtLabel} ${time}`,
     replyExpireConfirmBody: (summary) =>
       `${replies.expireConfirmBodyLead}${summary}${replies.expireConfirmBodyTail}`,
     // How many options are ticked on a multi-select card. LITERAL spaces on

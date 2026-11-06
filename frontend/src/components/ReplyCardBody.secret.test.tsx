@@ -6,7 +6,6 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
-import { formatAbsolute } from "../lib/dateFormat";
 import { watchSecretValue } from "../test/secretValueWatch";
 import {
   ReplyCardAnsweredBody,
@@ -230,22 +229,15 @@ describe("the settled faces", () => {
       </I18nProvider>,
     );
 
-  it("provided: reads only as provided", () => {
-    const { getByTestId, queryByTestId } = renderAnswered(
-      answered({ state: "provided", providedTs: now - 60, retrievedTs: null, expiresTs: now + 3600 }),
-    );
-    expect(getByTestId("secret-face").textContent).toBe("已提供");
-    expect(queryByTestId("final-answer")).toBeNull();
-  });
-
-  it("retrieved: reads as retrieved with the time, whether or not the value is still held", () => {
-    const retrievedTs = now - 30;
-    const expected = `已取得取得時間 ${formatAbsolute(retrievedTs, now)}`;
-    for (const expiresTs of [now + 570, null]) {
-      const { getByTestId, unmount } = renderAnswered(
-        answered({ state: "retrieved", providedTs: now - 60, retrievedTs, expiresTs }),
-      );
-      expect(getByTestId("secret-face").textContent).toBe(expected);
+  it("holding a value: reads as provided, retrieved or not", () => {
+    for (const secret of [
+      { state: "provided", providedTs: now - 60, retrievedTs: null, expiresTs: now + 3600 },
+      { state: "retrieved", providedTs: now - 60, retrievedTs: now - 30, expiresTs: now + 570 },
+      { state: "retrieved", providedTs: now - 60, retrievedTs: now - 30, expiresTs: null },
+    ] as const) {
+      const { getByTestId, queryByTestId, unmount } = renderAnswered(answered(secret));
+      expect(getByTestId("secret-face").textContent).toBe("已提供");
+      expect(queryByTestId("final-answer")).toBeNull();
       unmount();
     }
   });
