@@ -264,35 +264,85 @@ describe("the replies page's handled pane", () => {
     expect(input.value).toBe(SENTINEL);
   });
 
-  it("an older re-read does not overwrite a newer one", async () => {
+  const providedById = (over: Partial<ReplyCard> = {}) => {
     const ts = Date.now() / 1000 - 60;
-    const provided = mkCard({
+    return mkCard({
       status: "answered",
       answeredTs: ts,
       answer: { optionIdxs: null, text: "", attachments: [] },
       secret: { state: "provided", providedTs: ts, retrievedTs: null, expiresTs: ts + 3600 },
+      ...over,
     });
-    __injectMockReplyCard(provided);
+  };
+  const retrievedById = () => {
+    const ts = Date.now() / 1000 - 60;
+    return providedById({
+      secret: { state: "retrieved", providedTs: ts, retrievedTs: ts, expiresTs: ts + 600 },
+    });
+  };
+  const anyDelta = (id: string) =>
+    act(async () => {
+      __injectMockReplyCard(mkCard({ id }));
+    });
+
+  it("an older re-read landing last does not take the card back", async () => {
+    __injectMockReplyCard(providedById());
     const u = mountPage();
     await openById(u);
-    expect((await u.findByTestId("secret-face")).textContent).toBe("已提供");
+    await u.findByTestId("secret-face");
     let releaseOlder: (card: ReplyCard) => void = () => {};
-    const reads = vi.spyOn(api, "getReplyCard");
-    reads.mockImplementationOnce(() => new Promise<ReplyCard>((resolve) => (releaseOlder = resolve)));
-    await act(async () => {
-      __mockRetrieveSecretCard(CARD_ID);
-    });
-    await act(async () => {
-      __injectMockReplyCard(mkCard({ id: "rc-aaaaaaaaaaa5" }));
-    });
+    const reads = vi
+      .spyOn(api, "getReplyCard")
+      .mockImplementationOnce(() => new Promise<ReplyCard>((resolve) => (releaseOlder = resolve)))
+      .mockImplementation(() => Promise.resolve(retrievedById()));
+    await anyDelta("rc-aaaaaaaaaaa5");
+    await anyDelta("rc-aaaaaaaaaaa6");
     await waitFor(() => expect(u.getByTestId("secret-face").textContent).toBe("已取得"));
-    const readsBefore = reads.mock.calls.length;
+    // Every later read answers provided too, so an adopted older read has nothing to correct it.
+    reads.mockImplementation(() => Promise.resolve(providedById()));
     await act(async () => {
-      releaseOlder(provided);
+      releaseOlder(providedById());
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
     });
     expect(u.getByTestId("secret-face").textContent).toBe("已取得");
-    // A stale card that lands moves the row's version back, which reads the card again.
-    expect(reads.mock.calls.length).toBe(readsBefore);
+  });
+
+  it("a re-read still in flight when another id is opened does not replace that card", async () => {
+    __injectMockReplyCard(providedById());
+    __injectMockReplyCard(providedById({ id: "rc-aaaaaaaaaaa7", summary: "第二張" }));
+    const u = mountPage();
+    await openById(u);
+    await u.findByTestId("secret-face");
+    let releaseOlder: (card: ReplyCard) => void = () => {};
+    vi.spyOn(api, "getReplyCard").mockImplementationOnce(
+      () => new Promise<ReplyCard>((resolve) => (releaseOlder = resolve)),
+    );
+    await anyDelta("rc-aaaaaaaaaaa8");
+    const idField = u.getByTestId("filter-reply-card-id");
+    fireEvent.change(idField, { target: { value: "rc-aaaaaaaaaaa7" } });
+    fireEvent.keyDown(idField, { key: "Enter" });
+    await waitFor(() =>
+      expect(u.container.querySelector('[data-reply-card-id="rc-aaaaaaaaaaa7"]')).not.toBeNull(),
+    );
+    await act(async () => {
+      releaseOlder(providedById());
+    });
+    expect(u.container.querySelector('[data-reply-card-id="rc-aaaaaaaaaaa7"]')).not.toBeNull();
+    expect(u.container.querySelector(`[data-reply-card-id="${CARD_ID}"]`)).toBeNull();
+  });
+
+  it("a failed re-read leaves the card on screen", async () => {
+    __injectMockReplyCard(providedById());
+    const u = mountPage();
+    await openById(u);
+    await u.findByTestId("secret-face");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(api, "getReplyCard").mockRejectedValue(new Error("http 500"));
+    await anyDelta("rc-aaaaaaaaaaa9");
+    await waitFor(() => expect(warn).toHaveBeenCalledWith("RepliesPage: card re-read failed", expect.any(Error)));
+    expect(u.getByTestId("secret-face").textContent).toBe("已提供");
   });
 
   it("a card opened by its link follows the author's retrieval in place", async () => {
