@@ -93,7 +93,20 @@ export function SuggestedRepliesEditor({
   const full = rows.length >= SUGGESTED_REPLIES_MAX_ENTRIES;
 
   return (
-    <div className="sugg-edit" ref={rootRef}>
+    <div
+      className="sugg-edit"
+      ref={rootRef}
+      onBlur={(e) => {
+        // Saving drops a blank row and the rest slide up under the pointer, so a
+        // click already on its way to a lower row would land on the next sentence:
+        // typing edits it, its trash button deletes it. The blank row waits until
+        // focus leaves the list, from whichever control it leaves.
+        const stayingInList = rootRef.current?.contains(e.relatedTarget);
+        const fromRow = e.target instanceof HTMLInputElement;
+        if (stayingInList && (!fromRow || rows.some((v) => v.trim().length === 0))) return;
+        commit(rows);
+      }}
+    >
       {rows.length === 0 && emptyNote && <div className="sugg-edit__note">{emptyNote}</div>}
       {rows.map((text, i) => (
         <Fragment key={`${idPrefix}-${i}`}>
@@ -115,15 +128,6 @@ export function SuggestedRepliesEditor({
               const next = [...rows];
               next[i] = e.target.value;
               setDraft(next);
-            }}
-            onBlur={(e) => {
-              // Saving drops a blank row and the rest slide up under the pointer,
-              // so a click already on its way to a lower row would land on the
-              // next sentence: typing edits it, its trash button deletes it. The
-              // blank row waits until focus leaves the list.
-              const stayingInList = rootRef.current?.contains(e.relatedTarget);
-              if (stayingInList && rows.some((v) => v.trim().length === 0)) return;
-              commit(rows);
             }}
             onCompositionStart={() => {
               composingRef.current = true;

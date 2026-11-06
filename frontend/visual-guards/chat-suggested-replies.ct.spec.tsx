@@ -119,6 +119,54 @@ test("editing a row and moving to another row saves at once when no row is blank
   await expect(cmp.locator(".suggested-replies__chip").first()).toHaveText("甲改");
 });
 
+test("a row edited before pressing add is saved when Esc closes the dialog", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲", "乙"]} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  await page.locator(".sugg-edit__add").click();
+  await page.locator(".sugg-edit__input").nth(0).fill("甲改");
+  await page.locator(".sugg-edit__add").click();
+  await page.keyboard.press("Escape");
+
+  await expect(cmp.locator(".suggested-replies__chip")).toHaveText(["甲改", "乙"]);
+});
+
+test("a row edited before pressing add is saved when blank dialog space is clicked, and the blank rows go", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲", "乙"]} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  await page.locator(".sugg-edit__add").click();
+  await page.locator(".sugg-edit__input").nth(0).fill("甲改");
+  await page.locator(".sugg-edit__add").click();
+  await page.locator("#chat-suggested-replies-title").click();
+
+  await expect(page.locator(".sugg-edit__input")).toHaveCount(2);
+  await expect(cmp.locator(".suggested-replies__chip")).toHaveText(["甲改", "乙"]);
+});
+
+test("a row emptied before tabbing to its buttons is removed when Esc closes the dialog", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲", "乙", "丙"]} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  await page.locator(".sugg-edit__input").nth(1).fill("");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Escape");
+
+  await expect(cmp.locator(".suggested-replies__chip")).toHaveText(["甲", "丙"]);
+});
+
+test("a row emptied before pressing add is removed when blank dialog space is clicked", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲", "乙", "丙", "丁"]} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  await page.locator(".sugg-edit__input").nth(1).fill("");
+  await page.locator(".sugg-edit__add").click();
+  await page.locator("#chat-suggested-replies-title").click();
+
+  await expect(page.locator(".sugg-edit__input")).toHaveCount(3);
+  await expect(cmp.locator(".suggested-replies__chip")).toHaveText(["甲", "丙", "丁"]);
+});
+
 test("the dialog is 520px wide on a desktop", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 790 });
   const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲"]} />);
