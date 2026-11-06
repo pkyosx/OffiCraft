@@ -167,6 +167,49 @@ test("a row emptied before pressing add is removed when blank dialog space is cl
   await expect(cmp.locator(".suggested-replies__chip")).toHaveText(["甲", "丙", "丁"]);
 });
 
+test("pressing add puts the cursor on the new row", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲"]} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  await page.locator(".sugg-edit__add").click();
+  const inputs = page.locator(".sugg-edit__input");
+
+  await expect(inputs).toHaveCount(2);
+  await expect(inputs.nth(1)).toBeFocused();
+  await page.keyboard.type("乙");
+  await page.keyboard.press("Escape");
+  await expect(cmp.locator(".suggested-replies__chip")).toHaveText(["甲", "乙"]);
+});
+
+test("a row edited before the add that fills the list to twenty is saved when Esc closes the dialog", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const nineteen = Array.from({ length: 19 }, (_, i) => `句${i + 1}`);
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={nineteen} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  await page.locator(".sugg-edit__input").nth(0).fill("改");
+  await page.locator(".sugg-edit__add").click();
+  await expect(page.locator(".sugg-edit__input")).toHaveCount(20);
+  await expect(page.locator(".sugg-edit__input").nth(19)).toBeFocused();
+  await page.keyboard.press("Escape");
+
+  await expect(cmp.locator(".suggested-replies__chip").first()).toHaveText("改");
+  await expect(cmp.locator(".suggested-replies__chip")).toHaveCount(19);
+});
+
+test("a row of only spaces waits like an empty one, so clicking the row below edits the sentence clicked", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲", "乙", "丙"]} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  const inputs = page.locator(".sugg-edit__input");
+  await inputs.nth(1).fill("   ");
+  await inputs.nth(2).click();
+  await page.keyboard.press("End");
+  await page.keyboard.type("x");
+  await page.locator("#chat-suggested-replies-title").click();
+
+  expect(await inputs.evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value))).toEqual(["甲", "丙x"]);
+});
+
 test("the dialog is 520px wide on a desktop", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 790 });
   const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲"]} />);

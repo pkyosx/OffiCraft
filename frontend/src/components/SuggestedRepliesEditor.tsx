@@ -49,7 +49,13 @@ export function SuggestedRepliesEditor({
   const rootRef = useRef<HTMLDivElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
   const removedRef = useRef(false);
+  const addedRef = useRef(false);
   useLayoutEffect(() => {
+    if (addedRef.current) {
+      addedRef.current = false;
+      const inputs = rootRef.current?.querySelectorAll("input");
+      inputs?.[inputs.length - 1]?.focus();
+    }
     if (!removedRef.current) return;
     removedRef.current = false;
     if (!rootRef.current?.contains(document.activeElement)) addRef.current?.focus();
@@ -208,6 +214,9 @@ export function SuggestedRepliesEditor({
         title={full ? t.settings.suggestedRepliesFull : undefined}
         onClick={() => {
           onTouch?.();
+          // The twentieth row disables this button, and focus falling off a
+          // disabled button leaves no blur behind to save the list on.
+          addedRef.current = true;
           setDraft([...rows, ""]);
         }}
       >
