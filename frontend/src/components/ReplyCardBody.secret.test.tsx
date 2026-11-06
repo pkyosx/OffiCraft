@@ -8,6 +8,7 @@ import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { formatAbsolute } from "../lib/dateFormat";
 import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
+import { watchSecretValue } from "../test/secretValueWatch";
 import {
   ReplyCardAnsweredBody,
   ReplyCardExpiredBody,
@@ -113,8 +114,7 @@ describe("the waiting box", () => {
   });
 
   it("keeps the value on failure so the owner can retry, and logs none of it", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const placesHoldingValue = watchSecretValue(SENTINEL);
     const onProvideSecret = vi.fn(() => Promise.reject(new Error("http 500")));
     const { getByTestId } = renderWaiting({ onProvideSecret });
     const input = getByTestId("reply-secret-input") as HTMLTextAreaElement;
@@ -123,20 +123,41 @@ describe("the waiting box", () => {
     await waitFor(() => expect(onProvideSecret).toHaveBeenCalledTimes(1));
     await waitFor(() => expect((getByTestId("reply-secret-send") as HTMLButtonElement).disabled).toBe(false));
     expect(input.value).toBe(SENTINEL);
-    for (const spy of [warn, error]) {
-      expect(JSON.stringify(spy.mock.calls)).not.toContain(SENTINEL);
-    }
+    expect(placesHoldingValue()).toEqual([]);
   });
 
-  it("the value never reaches local storage or the composer's draft", async () => {
+  it("the value stays in the box: no storage, console, global or composer draft", async () => {
+    const placesHoldingValue = watchSecretValue(SENTINEL);
     const { getByTestId, container, onProvideSecret } = renderWaiting();
     fireEvent.change(getByTestId("reply-secret-input"), { target: { value: SENTINEL } });
-    expect(JSON.stringify({ ...localStorage })).not.toContain(SENTINEL);
-    expect(JSON.stringify({ ...sessionStorage })).not.toContain(SENTINEL);
+    expect(placesHoldingValue()).toEqual([]);
     expect((container.querySelector(".reply-composer textarea") as HTMLTextAreaElement).value).toBe("");
     fireEvent.click(getByTestId("reply-secret-send"));
     await waitFor(() => expect(onProvideSecret).toHaveBeenCalled());
-    expect(JSON.stringify({ ...localStorage })).not.toContain(SENTINEL);
+    expect(placesHoldingValue()).toEqual([]);
+  });
+
+  it("the watch used above names every place a value could land", () => {
+    const placesHoldingValue = watchSecretValue(SENTINEL);
+    const globals = globalThis as Record<string, unknown>;
+    localStorage.setItem("oc_probe", `x${SENTINEL}x`);
+    sessionStorage.setItem("oc_probe", SENTINEL);
+    console.log({ value: SENTINEL });
+    console.error(new Error(SENTINEL));
+    globals.__secretProbe = { value: SENTINEL };
+    try {
+      expect(placesHoldingValue()).toEqual([
+        "localStorage",
+        "sessionStorage",
+        "console.log",
+        "console.error",
+        "globalThis.__secretProbe",
+      ]);
+    } finally {
+      localStorage.removeItem("oc_probe");
+      sessionStorage.removeItem("oc_probe");
+      delete globals.__secretProbe;
+    }
   });
 
   it("takes focus only when the caller says the owner opened the card", () => {

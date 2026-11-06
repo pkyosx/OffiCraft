@@ -30,7 +30,12 @@ type apiTestSecretFixture struct {
 
 func newAPITestSecretFixture(t *testing.T) apiTestSecretFixture {
 	t.Helper()
-	api, h, d, owner := newAPITestServer(t)
+	return newAPITestSecretFixtureOn(t, newAPITestDAL(t))
+}
+
+func newAPITestSecretFixtureOn(t *testing.T, d *DAL) apiTestSecretFixture {
+	t.Helper()
+	api, h, d, owner := newAPITestServerOn(t, d)
 	keyPath := filepath.Join(t.TempDir(), vaultKeyFileName)
 	api.vault = newSecretVault(keyPath)
 	return apiTestSecretFixture{

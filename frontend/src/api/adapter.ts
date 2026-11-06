@@ -345,6 +345,15 @@ export interface ReplyCardAnswer {
   attachments: ChatAttachmentView[];
 }
 
+/** Where a `secret` card's value stands (wire `ReplyCardSecretDTO`). Never the value. */
+export interface ReplyCardSecretView {
+  state: "waiting" | "provided" | "retrieved" | "replied" | "expired";
+  providedTs: number | null;
+  retrievedTs: number | null;
+  /** When the value is destroyed; null when there is none to destroy. */
+  expiresTs: number | null;
+}
+
 /**
  * One reply card (等我回覆卡) in view-model form. `status` is the closed set
  * `waiting` | `answered` | `expired` — the only transitions are
@@ -359,15 +368,6 @@ export interface ReplyCardAnswer {
  * the member's chat; B2 only navigates to the chat room). `answeredTs`/
  * `answer` are null unless answered; `expiredTs` is null unless expired.
  */
-/** Where a `secret` card's value stands (wire `ReplyCardSecretDTO`). Never the value. */
-export interface ReplyCardSecretView {
-  state: "waiting" | "provided" | "retrieved" | "replied" | "expired";
-  providedTs: number | null;
-  retrievedTs: number | null;
-  /** When the value is destroyed; null when there is none to destroy. */
-  expiresTs: number | null;
-}
-
 export interface ReplyCard {
   id: string;
   /** The initiating member id (verified JWT sub at create time). */

@@ -369,6 +369,43 @@ line2-aaaaaaaa`
 		}
 	})
 
+	t.Run("a value needing HTML or non-ASCII escapes reaches stdin unescaped", func(t *testing.T) {
+		const value = "a<b&c>-dummy\n密碼😀"
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{{"id": "rc-00000000000a", "value": value}}})
+		file := filepath.Join(t.TempDir(), "in.json")
+		rc, out, errOut := run(canned(200, string(body)), nil, "rc-00000000000a", "cat > "+file)
+		if rc != 0 || out != "" || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+		got, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := `"a<b&c>-dummy\n密碼😀"`; string(got) != want {
+			t.Fatalf("stdin = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a command re-encoding the value with its own JSON library shows the mask", func(t *testing.T) {
+		const value = "a<b&c>-dummy\n密碼😀"
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{{"id": "rc-00000000000a", "value": value}}})
+		for _, printed := range []struct{ name, text string }{
+			{"as read from stdin", `"a<b&c>-dummy\n密碼😀"`},
+			{"as read from stdin, unquoted", `a<b&c>-dummy\n密碼😀`},
+			{"HTML-escaped like Go", `"a\u003cb\u0026c\u003e-dummy\n密碼😀"`},
+			{"HTML-escaped like Go, unquoted", `a\u003cb\u0026c\u003e-dummy\n密碼😀`},
+			{"ASCII-only like Python", `"a<b&c>-dummy\n\u5bc6\u78bc\ud83d\ude00"`},
+			{"ASCII-only like Python, unquoted", `a<b&c>-dummy\n\u5bc6\u78bc\ud83d\ude00`},
+		} {
+			t.Run(printed.name, func(t *testing.T) {
+				rc, out, errOut := run(canned(200, string(body)), nil, "rc-00000000000a", "printf '%s' '"+printed.text+"'")
+				if rc != 0 || out != "***" || errOut != "" {
+					t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+				}
+			})
+		}
+	})
+
 	t.Run("a malformed id fetches nothing", func(t *testing.T) {
 		client := reveal("rc-00000000000a")
 		rc, out, errOut := run(client, nil, "not-an-id", "true")
@@ -381,7 +418,7 @@ line2-aaaaaaaa`
 	t.Run("neither flag is a usage error", func(t *testing.T) {
 		client := reveal("rc-00000000000a")
 		rc, _, errOut := run(client, nil, "", "true")
-		want := "[ocagent] secret run: at least one --env VAR=<ID> is required\n"
+		want := "[ocagent] secret run: at least one --env VAR=<ID> or --stdin-json <ID> is required\n"
 		if rc != 2 || errOut != want || len(client.sent) != 0 {
 			t.Fatalf("rc=%d err=%q calls=%d", rc, errOut, len(client.sent))
 		}
@@ -548,6 +585,22 @@ func TestCmdSecretWrite(t *testing.T) {
 		rc := cmdSecretWrite(client, secretCfg, "rc-00000000000a", filepath.Join(t.TempDir(), "missing", "deploy.key"), false, &out, &errOut)
 		if rc != 1 || len(client.sent) != 0 {
 			t.Fatalf("got (%d, sent %v), want (1, nothing sent)", rc, client.sent)
+		}
+	})
+
+	t.Run("a directory that cannot take the file is refused before anything is fetched", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(dir, 0o700) })
+		path := filepath.Join(dir, "deploy.key")
+		var out, errOut bytes.Buffer
+		client := canned(200, revealBody("rc-00000000000a", fakeValue1))
+		rc := cmdSecretWrite(client, secretCfg, "rc-00000000000a", path, false, &out, &errOut)
+		const wantPrefix = "[ocagent] secret write: cannot create a temporary file next to "
+		if rc != 1 || len(client.sent) != 0 || !strings.HasPrefix(errOut.String(), wantPrefix+path+": ") {
+			t.Fatalf("got (%d, sent %v, err %q), want (1, nothing sent, %q...)", rc, client.sent, errOut.String(), wantPrefix)
 		}
 	})
 

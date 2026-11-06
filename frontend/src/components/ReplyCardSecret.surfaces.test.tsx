@@ -17,6 +17,7 @@ import {
   mockApi,
 } from "../api/mock";
 import type { ReplyCard } from "../api/adapter";
+import { watchSecretValue } from "../test/secretValueWatch";
 
 const SENTINEL = "dummy-aaaaaaaaaaaa";
 const CARD_ID = "rc-aaaaaaaaaaaa";
@@ -161,10 +162,12 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
   });
 
   it("provides through the secret route, clears the box and shows the provided face", async () => {
+    const placesHoldingValue = watchSecretValue(SENTINEL);
     const provide = vi.spyOn(api, "provideReplyCardSecret");
     const answer = vi.spyOn(api, "answerReplyCard");
     const u = await opened();
     await provideInBox(u);
+    expect(placesHoldingValue()).toEqual([]);
     const face = await u.findByTestId("secret-face");
     expect(face.getAttribute("data-secret-state")).toBe("provided");
     expect(provide).toHaveBeenCalledWith(CARD_ID, SENTINEL);
@@ -175,7 +178,7 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
   });
 
   it("keeps the value and says so when the write fails, without quoting it", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const placesHoldingValue = watchSecretValue(SENTINEL);
     vi.spyOn(api, "provideReplyCardSecret").mockRejectedValue(new ApiError("http 500", 500, "internal_error", "boom"));
     const u = await opened();
     const input = u.getByTestId("reply-secret-input") as HTMLTextAreaElement;
@@ -186,6 +189,7 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
     const errors = u.container.querySelectorAll(".reply-card__error, .replies__error");
     expect(errors.length).toBeGreaterThan(0);
     for (const line of errors) expect(line.textContent).not.toContain(SENTINEL);
+    expect(placesHoldingValue()).toEqual([]);
   });
 
   it("a typed answer goes through the composer as usual and reads as replied", async () => {

@@ -19,6 +19,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // The secret routes are off the MCP surface on purpose: a value revealed
@@ -449,7 +451,7 @@ type envBinding struct{ name, id string }
 
 func parseEnvBindings(envs []string) ([]envBinding, []string, error) {
 	if len(envs) == 0 {
-		return nil, nil, errors.New("at least one --env VAR=<ID> is required")
+		return nil, nil, errors.New("at least one --env VAR=<ID> or --stdin-json <ID> is required")
 	}
 	seenVar := map[string]bool{}
 	seenID := map[string]bool{}
@@ -540,16 +542,14 @@ func runSecretCommand(client httpClient, cfg Config, envs []string, stdinJSONID 
 	}
 	stdin := in
 	if stdinJSONID != "" {
-		encoded, err := json.Marshal(values[stdinJSONID])
+		encoded, forms, err := encodeSecretForStdin(values[stdinJSONID])
 		if err != nil {
 			// The error names a type, never the value.
 			fmt.Fprintf(errOut, "[ocagent] secret run: cannot encode the value: %v\n", err)
 			return 1
 		}
 		stdin = bytes.NewReader(encoded)
-		// A child that echoes its stdin prints the encoded form, which holds neither
-		// the stored bytes nor their trimmed form once the value needs escaping.
-		maskValues = append(maskValues, string(encoded), string(encoded[1:len(encoded)-1]))
+		maskValues = append(maskValues, forms...)
 	}
 
 	stdout := newMaskWriter(out, maskValues)
@@ -597,6 +597,46 @@ func runSecretCommand(client httpClient, cfg Config, envs []string, stdinJSONID 
 	}
 	fmt.Fprintf(errOut, "[ocagent] secret run: waiting for %s failed: %v\n", cmdArgs[0], waitErr)
 	return 1
+}
+
+// encodeSecretForStdin returns the JSON string the command reads, and every form
+// the command's own JSON library may print it back in. None of those forms hold
+// the stored bytes once the value needs escaping, so each one has to be masked:
+// the stdin form, Go's HTML-escaped form, and the ASCII-only form that Python's
+// json.dumps prints by default.
+func encodeSecretForStdin(value string) ([]byte, []string, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(value); err != nil {
+		return nil, nil, err
+	}
+	encoded := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
+	htmlEscaped, err := json.Marshal(value)
+	if err != nil {
+		return nil, nil, err
+	}
+	var forms []string
+	for _, quoted := range []string{string(encoded), string(htmlEscaped), asciiOnlyJSON(string(encoded))} {
+		forms = append(forms, quoted, quoted[1:len(quoted)-1])
+	}
+	return encoded, forms, nil
+}
+
+func asciiOnlyJSON(encoded string) string {
+	var b strings.Builder
+	for _, r := range encoded {
+		switch {
+		case r < utf8.RuneSelf:
+			b.WriteRune(r)
+		case r > 0xFFFF:
+			hi, lo := utf16.EncodeRune(r)
+			fmt.Fprintf(&b, `\u%04x\u%04x`, hi, lo)
+		default:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		}
+	}
+	return b.String()
 }
 
 // secretRunWaitDelay bounds how long run waits, after the command exits, for a
@@ -762,6 +802,15 @@ func cmdSecretWrite(client httpClient, cfg Config, id, path string, force bool, 
 	if !secretPreflight(cfg, "secret write", errOut) {
 		return 3
 	}
+	// Before the reveal: a retrieval can destroy a card's value, and a directory
+	// that was never going to take the file must not pay for it.
+	probe, err := os.CreateTemp(dir, ".ocagent-secret-*")
+	if err != nil {
+		fmt.Fprintf(errOut, "[ocagent] secret write: cannot create a temporary file next to %s: %v\n", path, err)
+		return 1
+	}
+	probe.Close()
+	os.Remove(probe.Name())
 	values, rerr := revealSecrets(client, cfg, []string{id})
 	if rerr != nil {
 		fmt.Fprintf(errOut, "[ocagent] secret write: %s\n", rerr.msg)

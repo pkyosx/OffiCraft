@@ -570,14 +570,6 @@ export function toReplyCardSnoozeReceipt(
   return { id: w.id, snoozedUntilTs: w.snoozed_until_ts ?? null };
 }
 
-/** Map one wire LIGHT list row → the view-model `ReplyCardRow`. It maps only
- * what the pane draws collapsed (title, who asked, status + its stamps, the
- * task ref); the answered row's decision digest is deliberately dropped —
- * nothing renders it, and the expanded card is a full `getReplyCard` read.
- *
- * 🔴 DO NOT "COMPLETE" THIS INTO A `ReplyCard`. The wire has no body, no option
- * text and no chat anchor here; filling those with "" / [] would produce an
- * object that renders as a card with its question silently missing. */
 function toReplyCardSecret(w: WireReplyCardRow["secret"]): ReplyCardSecretView | undefined {
   if (!w) return undefined;
   return {
@@ -588,6 +580,14 @@ function toReplyCardSecret(w: WireReplyCardRow["secret"]): ReplyCardSecretView |
   };
 }
 
+/** Map one wire LIGHT list row → the view-model `ReplyCardRow`. It maps only
+ * what the pane draws collapsed (title, who asked, status + its stamps, the
+ * task ref); the answered row's decision digest is deliberately dropped —
+ * nothing renders it, and the expanded card is a full `getReplyCard` read.
+ *
+ * 🔴 DO NOT "COMPLETE" THIS INTO A `ReplyCard`. The wire has no body, no option
+ * text and no chat anchor here; filling those with "" / [] would produce an
+ * object that renders as a card with its question silently missing. */
 export function toReplyCardRow(w: WireReplyCardRow): ReplyCardRow {
   return {
     id: w.id,
