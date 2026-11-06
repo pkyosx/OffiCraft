@@ -573,25 +573,14 @@ export function ReplyCardExpiredBody({ card }: { card: ReplyCard }) {
   );
 }
 
-/** A settled secret card's collapsed tag, when its value is what it holds. */
-export function replyCardSecretTag(
-  card: Pick<ReplyCard, "kind" | "secret"> | null | undefined,
-  t: ReturnType<typeof useI18n>["t"],
-): string | null {
-  const state = card?.kind === "secret" ? card.secret?.state : undefined;
-  if (state === "provided") return t.replies.secretProvidedTag;
-  if (state === "retrieved") return t.replies.secretRetrievedTag;
-  return null;
-}
-
-/** A secret card holding (or having held) the owner's value: its state only. No
- * timestamp by owner ruling, here or in the handled pane's stamp. */
+/** A secret card holding (or having held) the owner's value, opened: its state only,
+ * no timestamp, by owner ruling. Collapsed it reads as any answered card. */
 function ReplyCardSecretValueFace({ card }: { card: ReplyCard }) {
   const { t } = useI18n();
   return (
     <div className="reply-card__answer" data-testid="secret-face" data-secret-state={card.secret!.state}>
       <span className="reply-tag reply-tag--answered" data-testid="secret-tag">
-        {replyCardSecretTag(card, t)}
+        {card.secret!.state === "retrieved" ? t.replies.secretRetrievedTag : t.replies.secretProvidedTag}
       </span>
     </div>
   );

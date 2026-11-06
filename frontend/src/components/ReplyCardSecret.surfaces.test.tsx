@@ -252,7 +252,7 @@ describe("the replies page's handled pane", () => {
     await waitFor(() => expect(u.getByTestId("secret-face").textContent).toBe("已取得"));
   });
 
-  it("stamps a settled secret card with its state and no time", async () => {
+  it("stamps a settled secret card as answered or expired, with no time", async () => {
     const ts = Date.now() / 1000 - 60;
     const settled = { status: "answered" as const, answeredTs: ts };
     const answer = { optionIdxs: null, text: "", attachments: [] };
@@ -286,9 +286,56 @@ describe("the replies page's handled pane", () => {
         expect(el).not.toBeNull();
         return el!.textContent;
       });
-    expect(await stamp("rc-aaaaaaaaaaa1")).toBe("已提供");
-    expect(await stamp("rc-aaaaaaaaaaa2")).toBe("已取得");
-    expect(await stamp("rc-aaaaaaaaaaa3")).toBe("已失效");
+    expect(await stamp("rc-aaaaaaaaaaa1")).toBe("已回覆");
+    expect(await stamp("rc-aaaaaaaaaaa2")).toBe("已回覆");
+    expect(await stamp("rc-aaaaaaaaaaa3")).toBe("已過期");
+  });
+});
+
+describe("collapsed", () => {
+  const ts = Date.now() / 1000 - 60;
+  const held = (state: "provided" | "retrieved") =>
+    mkCard({
+      status: "answered",
+      answeredTs: ts,
+      answer: { optionIdxs: null, text: "", attachments: [] },
+      secret: { state, providedTs: ts, retrievedTs: state === "retrieved" ? ts : null, expiresTs: ts + 3600 },
+    });
+  const gone = () =>
+    mkCard({
+      status: "expired",
+      expiredTs: ts,
+      secret: { state: "expired", providedTs: ts, retrievedTs: null, expiresTs: null },
+    });
+
+  it.each([
+    ["provided", () => held("provided"), "已回覆"],
+    ["retrieved", () => held("retrieved"), "已回覆"],
+    ["expired", gone, "已過期"],
+  ] as const)("a chat card holding %s reads as any card, once it has been read too", async (_, make, want) => {
+    const card = make();
+    __injectMockReplyCard(card);
+    const u = render(
+      withBystander(
+        <ChatReplyCard replyCardId={CARD_ID} fallbackSummary="部署金鑰" initialStatus={card.status} />,
+      ),
+    );
+    const tag = () => u.getByTestId("chat-reply-card").querySelector(".reply-tag")!.textContent;
+    expect(tag()).toBe(want);
+    fireEvent.click(u.getByTestId("chat-reply-card-expand"));
+    await u.findByTestId("secret-face");
+    fireEvent.click(u.getByRole("button", { name: "收合回覆卡" }));
+    expect(tag()).toBe(want);
+  });
+
+  it.each([
+    ["provided", () => held("provided"), "已回覆"],
+    ["retrieved", () => held("retrieved"), "已回覆"],
+    ["expired", gone, "已過期"],
+  ] as const)("a task card holding %s reads as any card", async (_, make, want) => {
+    __injectMockReplyCard(make());
+    const u = render(withBystander(<TaskReplyCard replyCardId={CARD_ID} />));
+    await waitFor(() => expect(u.container.querySelector(".reply-tag")?.textContent).toBe(want));
   });
 });
 

@@ -31,7 +31,6 @@ import {
   ReplyCardLinkComments,
   ReplyCardQuestionAttachments,
   ReplyCardWaitingBody,
-  replyCardSecretTag,
 } from "./ReplyCardBody";
 import type { DocCommentRecipient } from "../lib/docComments";
 import { unlinkMentions } from "../lib/mentionLinks";
@@ -269,11 +268,7 @@ export function TaskReplyCard({
                 : "reply-tag reply-tag--answered"
             }
           >
-            {expiredStub
-              ? card?.kind === "secret"
-                ? t.replies.secretExpiredTag
-                : t.replies.expiredTag
-              : (replyCardSecretTag(card, t) ?? t.tasks.replyAnsweredTag)}
+            {expiredStub ? t.replies.expiredTag : t.tasks.replyAnsweredTag}
           </span>
           {card ? (
             <>

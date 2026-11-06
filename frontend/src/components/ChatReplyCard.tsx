@@ -41,7 +41,6 @@ import {
   ReplyCardQuestionAttachments,
   ReplyCardTaskRef,
   ReplyCardWaitingBody,
-  replyCardSecretTag,
 } from "./ReplyCardBody";
 import type { DocCommentRecipient } from "../lib/docComments";
 import { ConfirmModal } from "./ConfirmModal";
@@ -326,12 +325,12 @@ export function ChatReplyCard({
       stubStatus === "expired"
         ? {
             cls: "reply-tag reply-tag--expired",
-            label: card?.kind === "secret" ? t.replies.secretExpiredTag : t.replies.expiredTag,
+            label: t.replies.expiredTag,
           }
         : stubStatus === "answered"
           ? {
               cls: "reply-tag reply-tag--answered",
-              label: replyCardSecretTag(card, t) ?? t.tasks.replyAnsweredTag,
+              label: t.tasks.replyAnsweredTag,
             }
           : { cls: "reply-tag reply-tag--waiting", label: t.tasks.replyWaitingTag };
     return (
