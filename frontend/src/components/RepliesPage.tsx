@@ -47,6 +47,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
+import { secretCardMayStillChange } from "../lib/replyCardReceipt";
 import type {
   OutsourceWorkerView,
   ReplyCard,
@@ -260,6 +261,27 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       alive = false;
     };
   }, [idQuery, lookupNonce]);
+
+  // A secret card's retrieval and destruction move no status, and the lookup above
+  // reads once, so a card opened by id would keep its old state until a reload.
+  const lookupMayChange = lookup.state === "found" && secretCardMayStillChange(lookup.card);
+  useEffect(() => {
+    if (!lookupMayChange) return;
+    let alive = true;
+    const unsubscribe = api.subscribeEvents((topic) => {
+      if (topic !== "reply_card") return;
+      api.getReplyCard(idQuery).then(
+        (card) => {
+          if (alive) setLookup({ state: "found", card });
+        },
+        (e: unknown) => console.warn("RepliesPage: secret card re-read failed", e),
+      );
+    });
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
+  }, [idQuery, lookupMayChange]);
 
   // The live row wins over the fetched one when the page already holds it: the
   // panes are kept in sync by SSE + the write-adoption in useReplyCards, and a

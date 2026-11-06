@@ -219,6 +219,39 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
 });
 
 describe("the replies page's handled pane", () => {
+  it("a card opened by its link follows the author's retrieval in place", async () => {
+    const ts = Date.now() / 1000 - 60;
+    __injectMockReplyCard(
+      mkCard({
+        status: "answered",
+        answeredTs: ts,
+        answer: { optionIdxs: null, text: "", attachments: [] },
+        secret: { state: "provided", providedTs: ts, retrievedTs: null, expiresTs: ts + 3600 },
+      }),
+    );
+    const u = render(
+      withBystander(
+        <ReplyCardsProvider>
+          <RepliesPage />
+        </ReplyCardsProvider>,
+      ),
+    );
+    const idField = await u.findByTestId("filter-reply-card-id");
+    fireEvent.change(idField, { target: { value: CARD_ID } });
+    fireEvent.keyDown(idField, { key: "Enter" });
+    const article = await waitFor(() => {
+      const el = u.container.querySelector(`[data-reply-card-id="${CARD_ID}"][aria-expanded]`);
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    if (article.getAttribute("aria-expanded") === "false") fireEvent.click(article);
+    expect((await u.findByTestId("secret-face")).textContent).toBe("已提供");
+    await act(async () => {
+      __mockRetrieveSecretCard(CARD_ID);
+    });
+    await waitFor(() => expect(u.getByTestId("secret-face").textContent).toBe("已取得"));
+  });
+
   it("stamps a settled secret card with its state and no time", async () => {
     const ts = Date.now() / 1000 - 60;
     const settled = { status: "answered" as const, answeredTs: ts };
