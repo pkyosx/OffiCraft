@@ -210,6 +210,20 @@ test("a row of only spaces waits like an empty one, so clicking the row below ed
   expect(await inputs.evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value))).toEqual(["甲", "丙x"]);
 });
 
+test("after pressing add, typing in another row stays in that row", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲", "乙"]} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  await page.locator(".sugg-edit__add").click();
+  const inputs = page.locator(".sugg-edit__input");
+  await inputs.nth(0).click();
+  await page.keyboard.press("End");
+  await page.keyboard.type("xy");
+
+  await expect(inputs.nth(0)).toBeFocused();
+  await expect(inputs.nth(0)).toHaveValue("甲xy");
+});
+
 test("the dialog is 520px wide on a desktop", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 790 });
   const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲"]} />);

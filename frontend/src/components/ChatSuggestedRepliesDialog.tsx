@@ -88,7 +88,7 @@ export function ChatSuggestedRepliesDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="chat-groups__dialog chat-suggested-replies__dialog"
+        className="chat-groups__dialog chat-groups__dialog--wide chat-suggested-replies__dialog"
         data-testid="chat-suggested-replies-dialog"
         onKeyDown={onKeyDown}
         onFocus={(e) => {
