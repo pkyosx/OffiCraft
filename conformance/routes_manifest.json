@@ -1303,7 +1303,14 @@
   },
   {
     "auth": "gated",
-    "mcp_tool": "put_theme",
+    "mcp_tool": "import_theme",
+    "method": "POST",
+    "path": "/api/themes/import",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
     "method": "PUT",
     "path": "/api/themes/{theme_id}",
     "requires": "admin_agent"

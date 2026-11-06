@@ -1103,6 +1103,29 @@ func (d *DAL) GetChatAttachment(id string) (*ChatAttachment, error) {
 	return &a, nil
 }
 
+var ErrChatAttachmentTooLarge = errors.New("chat attachment is larger than the caller's limit")
+
+// 🔴 Not GetChatAttachment on purpose: that one SELECTs `data` unconditionally,
+// and an attachment can be far larger than maxBytes. The CASE is what keeps an
+// oversized blob out of memory.
+func (d *DAL) GetChatAttachmentDataWithin(id string, maxBytes int64) (data []byte, found bool, err error) {
+	var size int64
+	err = d.rdb.QueryRow(`
+		SELECT length(data), CASE WHEN length(data) <= ? THEN data ELSE NULL END
+		  FROM chat_attachment WHERE id = ?`, maxBytes, id,
+	).Scan(&size, &data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if size > maxBytes {
+		return nil, true, ErrChatAttachmentTooLarge
+	}
+	return data, true, nil
+}
+
 func (d *DAL) ReplaceMemberAvatar(memberID string, avatar ChatAttachment) error {
 	tx, err := d.wdb.Begin()
 	if err != nil {

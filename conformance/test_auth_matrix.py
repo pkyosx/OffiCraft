@@ -792,6 +792,13 @@ MATRIX: dict[str, Route] = {
     # Writing real themes from here would leave rows behind that the list row and
     # the happy suite would then have to reason about.
     "GET /api/themes": Route(requires="admin_agent"),
+    "POST /api/themes/import": Route(
+        requires="admin_agent",
+        # Names no uploaded file: refused for a reason that has nothing to do
+        # with identity, and nothing is stored.
+        body={"attachment_id": "att-conf-missing"},
+        overrides={"owner": 400, "admin_agent": 400},
+    ),
     "GET /api/themes/{theme_id}": Route(
         requires="admin_agent",
         path=lambda ctx, _i: "/api/themes/conf-missing-theme",

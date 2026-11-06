@@ -22,7 +22,7 @@ var (
 	themeFetchTimeout = 8 * time.Second
 	// Generous on purpose: one legitimate bundle carries a 1 MiB background data
 	// URI plus avatars, logo and nav icons.
-	themeFetchMaxBytes int64 = 4 << 20
+	themeFileMaxBytes int64 = 4 << 20
 )
 
 func validThemeFetchURL(raw string) bool {
@@ -67,15 +67,15 @@ func (s *apiServer) HandleFetchThemeApiThemeFetchPost(w http.ResponseWriter, r *
 		return
 	}
 
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, themeFetchMaxBytes+1))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, themeFileMaxBytes+1))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "could not read that link: "+err.Error())
 		return
 	}
-	if int64(len(raw)) > themeFetchMaxBytes {
+	if int64(len(raw)) > themeFileMaxBytes {
 		writeError(w, http.StatusUnprocessableEntity,
 			fmt.Sprintf("that link's content is larger than the %d-byte limit for a theme",
-				themeFetchMaxBytes))
+				themeFileMaxBytes))
 		return
 	}
 
