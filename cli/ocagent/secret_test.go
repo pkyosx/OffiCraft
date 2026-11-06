@@ -495,11 +495,12 @@ func TestMaskWriter(t *testing.T) {
 	})
 
 	t.Run("a line of a multi-line value printed alone is masked, whatever its length", func(t *testing.T) {
-		value := []string{"-----BEGIN KEY-----\r\naaaaaaaaaaaa\n\n   \nab=\n"}
+		value := []string{"-----BEGIN KEY-----\r\naaaaaaaaaaaa\n\n   \nab=\n12\n"}
 		for in, want := range map[string]string{
 			"head: -----BEGIN KEY-----\n": "head: ***\n",
 			"body aaaaaaaaaaaa end":       "body *** end",
 			"tail ab= end":                "tail *** end",
+			"code 12 end":                 "code *** end",
 		} {
 			if got := writeChunks(value, in); got != want {
 				t.Fatalf("output for %q = %q, want %q", in, got, want)
@@ -507,10 +508,27 @@ func TestMaskWriter(t *testing.T) {
 		}
 	})
 
-	t.Run("blank lines of a multi-line value leave spaces and line breaks alone", func(t *testing.T) {
-		text := "a b\n\nc   d\n"
-		if got := writeChunks([]string{"aaaaaaaaaaaa\n\n   \nbbbbbbbbbbbb"}, text); got != text {
+	t.Run("lines of a multi-line value with no letter or digit leave the output alone", func(t *testing.T) {
+		text := "a b\n\nc   d {\"ok\":true},\n-----\n"
+		value := []string{"{\n  \"k\": \"aaaaaaaaaaaa\",\n\n   \n-----\n},\nbbbbbbbbbbbb\n}"}
+		if got := writeChunks(value, text); got != text {
 			t.Fatalf("got %q", got)
+		}
+		if got := writeChunks(value, `x "k": "aaaaaaaaaaaa", y`); got != "x *** y" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("a two-line value masks each line, split across writes too", func(t *testing.T) {
+		value := []string{"aaaaaaaaaaaa\nbb"}
+		if got := writeChunks(value, "x bb y"); got != "x *** y" {
+			t.Fatalf("got %q", got)
+		}
+		text := "x aaaaaaaaaaaa y"
+		for i := 1; i < len(text); i++ {
+			if got := writeChunks(value, text[:i], text[i:]); got != "x *** y" {
+				t.Fatalf("split at %d: got %q", i, got)
+			}
 		}
 	})
 

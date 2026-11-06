@@ -19,6 +19,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -126,7 +127,8 @@ The first retrieval of a card's value starts its retention: the value is
 destroyed when that ends, and until then you may retrieve it again.
 
 The command's stdout and stderr are passed through with every occurrence of
-every value, and of each non-blank line of a multi-line value, replaced by ***.
+every value, and of each line of a multi-line value that has a letter or digit,
+replaced by ***.
 A value split across two writes is still caught,
 which means output can lag by up to one value's length until more output or
 the end of the stream arrives. stdin is passed through untouched unless --stdin-json is given.
@@ -691,16 +693,23 @@ func newMaskWriter(dst io.Writer, values []string) *maskWriter {
 				add(strings.ReplaceAll(strings.ReplaceAll(form, "\r\n", "\n"), "\n", "\r\n"))
 			}
 		}
-		// A command often handles a multi-line value line by line. No minimum length,
-		// owner ruling: a PEM's short last line is still part of the key. A blank line
-		// stays out, or every space in the output would be masked.
+		// A command often handles a multi-line value line by line. Owner ruling: no
+		// minimum length, a PEM's short last line is still part of the key; but a line
+		// with no letter or digit stays out, or a JSON key's lone "{" would mask every
+		// brace in the output.
 		if lines := strings.Split(v, "\n"); len(lines) > 1 {
 			for _, line := range lines {
-				add(strings.TrimSpace(line))
+				if strings.IndexFunc(line, isLetterOrDigit) >= 0 {
+					add(strings.TrimSpace(line))
+				}
 			}
 		}
 	}
 	return m
+}
+
+func isLetterOrDigit(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 func (m *maskWriter) Write(p []byte) (int, error) {
