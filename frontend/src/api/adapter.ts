@@ -359,11 +359,21 @@ export interface ReplyCardAnswer {
  * the member's chat; B2 only navigates to the chat room). `answeredTs`/
  * `answer` are null unless answered; `expiredTs` is null unless expired.
  */
+/** Where a `secret` card's value stands (wire `ReplyCardSecretDTO`). Never the value. */
+export interface ReplyCardSecretView {
+  state: "waiting" | "provided" | "retrieved" | "replied" | "expired";
+  providedTs: number | null;
+  retrievedTs: number | null;
+  /** When the value is destroyed; null when there is none to destroy. */
+  expiresTs: number | null;
+}
+
 export interface ReplyCard {
   id: string;
   /** The initiating member id (verified JWT sub at create time). */
   from: string;
-  /** "decision" (needs the owner's call) | "action" (needs the owner to act). */
+  /** "decision" (needs the owner's call) | "action" (needs the owner to act) |
+   * "secret" (asks the owner for one value only the author can retrieve). */
   kind: string;
   summary: string;
   body: string;
@@ -398,6 +408,8 @@ export interface ReplyCard {
    * time is ahead; null otherwise. OPTIONAL for hand-built fixtures; the mapper
    * always sets it. */
   snoozedUntilTs?: number | null;
+  /** Present only on a `secret` card. */
+  secret?: ReplyCardSecretView | null;
 }
 
 /**
@@ -421,7 +433,7 @@ export interface ReplyCardRow {
   id: string;
   /** The initiating member id — the 開卡人 axis and the identity row. */
   from: string;
-  /** "decision" | "action". */
+  /** "decision" | "action" | "secret". */
   kind: string;
   /** The ask's title: what the collapsed row shows. */
   summary: string;
@@ -435,6 +447,8 @@ export interface ReplyCardRow {
   task?: TaskRefView | null;
   /** Same field as `ReplyCard.snoozedUntilTs`. */
   snoozedUntilTs?: number | null;
+  /** Same field as `ReplyCard.secret`. */
+  secret?: ReplyCardSecretView | null;
 }
 
 /** What `PUT /api/reply-cards/{id}/snooze` answers: the snooze as stored. */
@@ -1287,6 +1301,10 @@ export interface ServerSettingsView {
    * chat message body keep their own 4,000-character server constant. Default
    * and range in `stepNoteCap.ts` (mirroring server/ocserverd/domain.go). */
   stepNoteCapChars: number;
+  /** A `secret` card's two durations, in seconds. Each is stamped on the card
+   * when the event happens, so a change only reaches later events. */
+  secretCardUnretrievedTtlSecs: number;
+  secretCardRetrievedRetentionSecs: number;
   /** T-33: the four 傳承 knobs. The first two are FOLD budgets — how much 傳承
    * one member's boot document carries (its `everyone` entries first, then its
    * own, T-236), and how much `get_task_manual`
@@ -1441,6 +1459,9 @@ export interface ServerSettingsPatch {
   /** T-119 step-note cap; range 1000..100000 (stepNoteCap.ts). The floor is NOT
    * the shipped default — this one may be turned down. */
   stepNoteCapChars?: number;
+  /** Ranges in secretCardSettings.ts. */
+  secretCardUnretrievedTtlSecs?: number;
+  secretCardRetrievedRetentionSecs?: number;
   /** T-33 傳承 knobs. The two FOLD budgets take 100..100000 and the two ENTRY
    * bounds take 10..10000 (loreCap.ts) — two ranges, because a title and a boot
    * document are not the same size of thing. NONE of the four floors is the
@@ -2446,6 +2467,14 @@ export interface Api {
    * fans).
    */
   expireReplyCard(id: string): Promise<ReplyCardWriteReceipt>;
+  /**
+   * The owner provides a WAITING `secret` card's value
+   * (`POST /api/reply-cards/{id}/secret`). The value goes in the request body
+   * and nowhere else; the receipt never echoes it. 400 empty/over the limit,
+   * 403 not the owner, 404 unknown, 409 not a waiting secret card or its task
+   * closed, 503 the vault key is missing.
+   */
+  provideReplyCardSecret(id: string, value: string): Promise<ReplyCardWriteReceipt>;
   /**
    * The owner's 稍後再看 (`PUT /api/reply-cards/{id}/snooze`): keep a WAITING
    * card out of the badge until `untilTs` (epoch seconds, later than now and at

@@ -1601,12 +1601,18 @@ type ReplyCard struct {
 	// 0 = not snoozed. A stamp the clock has passed stays stored; readers
 	// compare it with now (replyCardSnoozedUntil).
 	SnoozedUntilTS float64
+	// Facts about a secret card's value, 0 until they happen. The value itself
+	// never lives on this struct; see ReplyCardSecret.
+	SecretProvidedTS     float64
+	SecretRetrievedTS    float64
+	SecretDestroyAfterTS float64
 }
 
 const replyCardColumns = `id, from_member, kind, summary, body, options,
 	select_mode, status, created_ts, answered_ts, expired_ts, chat_message_id,
 	answer_option_idxs, answer_text, answer_attachments, attachments,
-	task_id, task_step_id, answer_reply_excerpt, snoozed_until_ts`
+	task_id, task_step_id, answer_reply_excerpt, snoozed_until_ts,
+	secret_provided_ts, secret_retrieved_ts, secret_destroy_after_ts`
 
 func scanReplyCard(row interface{ Scan(...any) error }) (ReplyCard, error) {
 	var c ReplyCard
@@ -1618,6 +1624,7 @@ func scanReplyCard(row interface{ Scan(...any) error }) (ReplyCard, error) {
 		&c.ChatMessageID,
 		&optionIdxs, &c.AnswerText, &answerAttachments, &attachments,
 		&c.TaskID, &c.TaskStepID, &c.AnswerReplyExcerpt, &c.SnoozedUntilTS,
+		&c.SecretProvidedTS, &c.SecretRetrievedTS, &c.SecretDestroyAfterTS,
 	)
 	if err != nil {
 		return ReplyCard{}, err
@@ -1848,7 +1855,7 @@ func putReplyCardOn(ex sqlExecer, c ReplyCard) error {
 	}
 	_, err = ex.Exec(`
 		INSERT INTO reply_card (`+replyCardColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			from_member = excluded.from_member, kind = excluded.kind,
 			summary = excluded.summary, body = excluded.body,
@@ -1863,13 +1870,16 @@ func putReplyCardOn(ex sqlExecer, c ReplyCard) error {
 			attachments = excluded.attachments,
 			task_id = excluded.task_id, task_step_id = excluded.task_step_id,
 			answer_reply_excerpt = excluded.answer_reply_excerpt,
-			snoozed_until_ts = excluded.snoozed_until_ts`,
+			snoozed_until_ts = excluded.snoozed_until_ts,
+			secret_provided_ts = excluded.secret_provided_ts,
+			secret_retrieved_ts = excluded.secret_retrieved_ts,
+			secret_destroy_after_ts = excluded.secret_destroy_after_ts`,
 		c.ID, c.FromMember, c.Kind, c.Summary, c.Body, string(optionsBlob),
 		selectMode, c.Status, c.CreatedTS, c.AnsweredTS, c.ExpiredTS,
 		c.ChatMessageID,
 		optionIdxs, c.AnswerText, string(answerAttachmentsBlob),
 		string(attachmentsBlob), c.TaskID, c.TaskStepID, c.AnswerReplyExcerpt,
-		snoozedUntil,
+		snoozedUntil, c.SecretProvidedTS, c.SecretRetrievedTS, c.SecretDestroyAfterTS,
 	)
 	return err
 }

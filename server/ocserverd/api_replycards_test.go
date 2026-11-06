@@ -861,7 +861,7 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error", "kind must be 'decision' or 'action'")
+		apiWantError(t, data, "validation_error", "kind must be 'decision' or 'action' or 'secret'")
 		dashboard.wantFrames()
 		apiTestWantNoReplyCards(t, h, owner)
 	})

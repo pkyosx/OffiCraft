@@ -1645,6 +1645,10 @@ var lifecycleNonRosterTicks = map[string]string{
 		"iterates SCHEDULED MESSAGE rows (ListAllEnabledScheduledMessages), not the " +
 		"member roster. It resolves a member only to deliver to it; no member row is " +
 		"read, stamped or filtered by kind anywhere in the pass.",
+	"runSecretCardSweepTick": "" +
+		"iterates reply cards that hold a sealed value (ListReplyCardsHoldingSecret), not " +
+		"the member roster. It reads a member row only to ask whether that card's author " +
+		"is still active; no member row is written or filtered by kind.",
 	"handoverNoticeTick": "" +
 		"ONE member, not a roster: it is a single quiet tick of the context-high SSE " +
 		"band for the connection it is called on. It does read that member's row (the " +

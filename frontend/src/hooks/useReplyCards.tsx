@@ -165,6 +165,9 @@ interface UseReplyCards {
   /** Mark a WAITING card expired (標為過期 — terminal, not an answer). Same
    * resolve semantics as `answer`. */
   expire: (id: string) => Promise<void>;
+  /** Provide a WAITING `secret` card's value. Same resolve semantics as `answer`;
+   * the value is not kept anywhere here. */
+  provideSecret: (id: string, value: string) => Promise<void>;
 }
 
 /** The one shared reply-cards state, driven by the app-wide provider. Both the
@@ -526,6 +529,13 @@ function useReplyCardsState(): UseReplyCards {
     [adoptWrite]
   );
 
+  const provideSecret = useCallback(
+    async (id: string, value: string) => {
+      adoptWrite(await api.provideReplyCardSecret(id, value));
+    },
+    [adoptWrite]
+  );
+
   const snooze = useCallback(async (id: string, untilTs: number | null) => {
     const receipt = await api.snoozeReplyCard(id, untilTs);
     heldSnoozeRef.current.set(receipt.id, receipt.snoozedUntilTs);
@@ -585,6 +595,7 @@ function useReplyCardsState(): UseReplyCards {
     answer,
     reanswer,
     expire,
+    provideSecret,
   };
 }
 

@@ -902,3 +902,75 @@
   font-size: 12px;
   color: var(--color-danger);
 }
+
+/* A secret card's masked box sits where option chips would be. Masked by CSS, not
+ * a password input: an input strips newlines, which corrupts PEM and SSH keys. */
+.reply-secret {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-overlay) 3%, transparent);
+}
+.reply-secret:focus-within {
+  border-color: var(--color-indigo);
+}
+.reply-secret__input {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  line-height: 1.45;
+  resize: vertical;
+  -webkit-text-security: disc;
+}
+.reply-secret__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.reply-secret__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.reply-secret__hint svg {
+  flex: none;
+}
+.reply-secret__send {
+  height: 30px;
+  margin-left: auto;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-on-indigo);
+  background: var(--color-indigo);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.reply-secret__send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.reply-secret__fact {
+  font-size: 13px;
+  color: var(--color-text);
+}
+.reply-secret__withdraw {
+  margin-left: auto;
+}

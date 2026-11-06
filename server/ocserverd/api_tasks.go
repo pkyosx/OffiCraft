@@ -495,6 +495,8 @@ func (s *apiServer) afterTaskClosed(t *Task, now float64, trigger string) {
 				t.ID, workerID, err)
 		}
 	}
+	// After the dismissals: a dismissed worker's unbound secret cards are due too.
+	s.sweepSecretCardsBestEffort(trigger)
 	s.publishTask(*t, trigger)
 	s.releaseDependentsOnClose(*t, now, trigger)
 	// The text comes only from the 〈任務收尾〉 document; "" (unrenderable) sends

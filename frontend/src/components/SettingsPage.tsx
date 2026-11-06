@@ -63,6 +63,16 @@ import {
 } from "../api/loreCap";
 import { BACKUP_RETAIN_MAX, BACKUP_RETAIN_MIN } from "../api/backupRetain";
 import {
+  DURATION_UNITS,
+  durationSecsFromDraft,
+  splitDurationSecs,
+  SECRET_CARD_RETRIEVED_RETENTION_SECS_MAX,
+  SECRET_CARD_RETRIEVED_RETENTION_SECS_MIN,
+  SECRET_CARD_UNRETRIEVED_TTL_SECS_MAX,
+  SECRET_CARD_UNRETRIEVED_TTL_SECS_MIN,
+  type DurationUnit,
+} from "../api/secretCardSettings";
+import {
   SUGGESTED_REPLIES_MAX_ENTRIES,
   SUGGESTED_REPLY_MAX_LEN,
 } from "../api/suggestedReplies";
@@ -1468,6 +1478,7 @@ function ServerParams({
   const [stepNoteCapDraft, setStepNoteCapDraft] = useState<string | null>(null);
   const [dueSoonLeadDraft, setDueSoonLeadDraft] = useState<string | null>(null);
   const [dueSoonLeadUnitDraft, setDueSoonLeadUnitDraft] = useState<LeadUnit | null>(null);
+  const [secretRangeError, setSecretRangeError] = useState<string | null>(null);
   const dueSoonLeadPairRef = useRef<HTMLDivElement>(null);
   // T-33: four independent 傳承 caps, so four independent drafts — a shared
   // draft would make typing in one field snap the other three back.
@@ -1673,6 +1684,24 @@ function ServerParams({
     if (n !== settings.taskDueSoonLeadMinutes) void onSave({ taskDueSoonLeadMinutes: n });
   }
 
+  function commitSecretDuration(field: "ttl" | "retention", secs: number | null) {
+    if (!settings) return;
+    if (secs === null) {
+      setSecretRangeError(
+        field === "ttl"
+          ? t.settings.secretCardUnretrievedTtlRange
+          : t.settings.secretCardRetentionRange,
+      );
+      return;
+    }
+    setSecretRangeError(null);
+    if (field === "ttl") {
+      if (secs !== settings.secretCardUnretrievedTtlSecs) void onSave({ secretCardUnretrievedTtlSecs: secs });
+    } else if (secs !== settings.secretCardRetrievedRetentionSecs) {
+      void onSave({ secretCardRetrievedRetentionSecs: secs });
+    }
+  }
+
   // T-33: the four 傳承 caps. One commit for all four because the row that is
   // being committed carries its own range — unlike commitDocCap, whose ceiling
   // is a literal 100000 shared by every row it serves.
@@ -1742,6 +1771,10 @@ function ServerParams({
     day: t.tasks.dueLeadDayMany,
     hour: t.tasks.dueLeadHourMany,
     minute: t.tasks.dueLeadMinuteMany,
+  };
+  const durationUnitText: Record<DurationUnit, string> = {
+    ...dueLeadUnitText,
+    second: t.settings.seconds,
   };
 
   return (
@@ -2067,6 +2100,35 @@ function ServerParams({
             </div>
           </div>
 
+          {settings && (
+            <>
+              <SecretDurationRow
+                id="param-secret-card-ttl"
+                label={t.settings.secretCardUnretrievedTtl}
+                sub={t.settings.secretCardUnretrievedTtlSub}
+                unitLabel={t.settings.secretCardDurationUnit}
+                unitText={durationUnitText}
+                secs={settings.secretCardUnretrievedTtlSecs}
+                onTouch={() => { setSecretRangeError(null); setRangeError(false); onClearSaveError(); }}
+                onCommit={(amount, unit) =>
+                  commitSecretDuration("ttl", durationSecsFromDraft(amount, unit,
+                    SECRET_CARD_UNRETRIEVED_TTL_SECS_MIN, SECRET_CARD_UNRETRIEVED_TTL_SECS_MAX))}
+              />
+              <SecretDurationRow
+                id="param-secret-card-retention"
+                label={t.settings.secretCardRetention}
+                sub={t.settings.secretCardRetentionSub}
+                unitLabel={t.settings.secretCardDurationUnit}
+                unitText={durationUnitText}
+                secs={settings.secretCardRetrievedRetentionSecs}
+                onTouch={() => { setSecretRangeError(null); setRangeError(false); onClearSaveError(); }}
+                onCommit={(amount, unit) =>
+                  commitSecretDuration("retention", durationSecsFromDraft(amount, unit,
+                    SECRET_CARD_RETRIEVED_RETENTION_SECS_MIN, SECRET_CARD_RETRIEVED_RETENTION_SECS_MAX))}
+              />
+            </>
+          )}
+
           <div className="param-row">
             <div className="param-row__body">
               <div className="param-row__name">{t.settings.chatBudget}</div>
@@ -2163,6 +2225,11 @@ function ServerParams({
             onCommit={(next) => { void onSave({ suggestedRepliesLoreMessage: next }); }}
           />
 
+          {secretRangeError && (
+            <div className="set-error param-error" data-testid="secret-card-range-error">
+              {secretRangeError}
+            </div>
+          )}
           {(saveError || rangeError) && (
             <div className="set-error param-error">
               {t.settings.paramsSaveError}
@@ -2170,6 +2237,66 @@ function ServerParams({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A duration knob: the number and its unit are one value, so moving between the
+ * two is not leaving the field. */
+function SecretDurationRow({
+  id,
+  label,
+  sub,
+  unitLabel,
+  unitText,
+  secs,
+  onTouch,
+  onCommit,
+}: {
+  id: string;
+  label: string;
+  sub: string;
+  unitLabel: string;
+  unitText: Record<DurationUnit, string>;
+  secs: number;
+  onTouch: () => void;
+  onCommit: (amount: string, unit: DurationUnit) => void;
+}) {
+  const shown = splitDurationSecs(secs);
+  const [amountDraft, setAmountDraft] = useState<string | null>(null);
+  const [unitDraft, setUnitDraft] = useState<DurationUnit | null>(null);
+  const pairRef = useRef<HTMLDivElement>(null);
+  function commit(e?: FocusEvent<HTMLElement>) {
+    if (e && pairRef.current?.contains(e.relatedTarget as Node)) return;
+    if (amountDraft === null && unitDraft === null) return;
+    const amount = amountDraft ?? String(shown.amount);
+    const unit = unitDraft ?? shown.unit;
+    setAmountDraft(null);
+    setUnitDraft(null);
+    onCommit(amount, unit);
+  }
+  return (
+    <div className="param-row">
+      <div className="param-row__body">
+        <div className="param-row__name">{label}</div>
+        <div className="param-row__sub">{sub}</div>
+      </div>
+      <div className="param-pct" ref={pairRef}>
+        <input id={id} className="param-input" type="number" min={0}
+          aria-label={label}
+          value={amountDraft ?? String(shown.amount)}
+          onChange={(e) => { onTouch(); setAmountDraft(e.target.value); }}
+          onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} />
+        <select id={`${id}-unit`} className="param-select param-select--unit"
+          aria-label={`${label} · ${unitLabel}`}
+          value={unitDraft ?? shown.unit}
+          onChange={(e) => { onTouch(); setUnitDraft(e.target.value as DurationUnit); }}
+          onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }}>
+          {DURATION_UNITS.map((unit) => (
+            <option key={unit} value={unit}>{unitText[unit]}</option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }

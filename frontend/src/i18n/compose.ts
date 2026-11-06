@@ -71,6 +71,11 @@ export interface Messages {
   replyOpenedAt: (time: string) => string;
   replyAnsweredAt: (time: string) => string;
   replyExpiredAt: (time: string) => string;
+  replySecretProvidedAt: (time: string) => string;
+  replySecretOnly: (name: string) => string;
+  replySecretProvidedTime: (time: string) => string;
+  replySecretRetrievedTime: (time: string) => string;
+  replySecretDeleteTime: (time: string) => string;
   replyExpireConfirmBody: (summary: string) => string;
   replySelectedCount: (n: number) => string;
   replyPickedOptions: (options: string[]) => string;
@@ -402,6 +407,11 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     replyOpenedAt: (time) => `${replies.openedAtLabel} ${time}`,
     replyAnsweredAt: (time) => `${replies.answeredAtLabel} ${time}`,
     replyExpiredAt: (time) => `${replies.expiredAtLabel} ${time}`,
+    replySecretProvidedAt: (time) => `${replies.secretProvidedTag} ${time}`,
+    replySecretOnly: (name) => `${replies.secretOnlyLead} ${name} ${replies.secretOnlyTail}`.trim(),
+    replySecretProvidedTime: (time) => `${replies.secretProvidedAtLabel} ${time}`,
+    replySecretRetrievedTime: (time) => `${replies.secretRetrievedAtLabel} ${time}`,
+    replySecretDeleteTime: (time) => `${replies.secretDeleteAtLabel} ${time}`,
     replyExpireConfirmBody: (summary) =>
       `${replies.expireConfirmBodyLead}${summary}${replies.expireConfirmBodyTail}`,
     // How many options are ticked on a multi-select card. LITERAL spaces on

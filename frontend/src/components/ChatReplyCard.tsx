@@ -32,7 +32,7 @@ import type {
 } from "../api/adapter";
 import { api } from "../api";
 import { useHashRoute } from "../lib/hashRoute";
-import { mergeReplyCardWrite } from "../lib/replyCardReceipt";
+import { mergeReplyCardWrite, secretCardMayStillChange } from "../lib/replyCardReceipt";
 import { Markdown } from "./Markdown";
 import {
   ReplyCardAnsweredBody,
@@ -41,6 +41,7 @@ import {
   ReplyCardQuestionAttachments,
   ReplyCardTaskRef,
   ReplyCardWaitingBody,
+  replyCardSecretTag,
 } from "./ReplyCardBody";
 import type { DocCommentRecipient } from "../lib/docComments";
 import { ConfirmModal } from "./ConfirmModal";
@@ -93,6 +94,8 @@ export function ChatReplyCard({
   // refetches on a delta, which is how its stub flips 待回覆 → 已回覆 in place
   // when the card is answered from another surface.
   const statusRef = useRef<ReplyCard["status"] | null>(initialStatus ?? null);
+  const cardRef = useRef(card);
+  cardRef.current = card;
 
   // 🔴 READ GENERATION. Every read of this card takes a ticket and only commits
   // if the ticket is still current; adopting a write takes one too (`adopt`
@@ -184,7 +187,10 @@ export function ChatReplyCard({
     // on one unrelated answer).
     const unsubscribe = api.subscribeEvents((topic) => {
       if (topic !== "reply_card") return;
-      if (statusRef.current === "answered" || statusRef.current === "expired")
+      if (
+        (statusRef.current === "answered" || statusRef.current === "expired") &&
+        !secretCardMayStillChange(cardRef.current)
+      )
         return;
       refetch().catch((e) =>
         console.warn("ChatReplyCard: SSE refetch failed", e)
@@ -271,6 +277,39 @@ export function ChatReplyCard({
     }
   }
 
+  // The receipt has no `secret` block, so the deadline only comes with a re-read.
+  async function refetchAfterSecretWrite() {
+    try {
+      await refetch();
+    } catch (e) {
+      console.warn("ChatReplyCard: post-write refetch failed (the write was recorded)", e);
+    }
+  }
+
+  async function doProvideSecret(value: string) {
+    try {
+      mergeWrite(await api.provideReplyCardSecret(replyCardId, value));
+      setActionError(null);
+    } catch (e) {
+      console.warn("ChatReplyCard: secret provide failed");
+      setActionError(t.replies.secretProvideError);
+      throw e;
+    }
+    await refetchAfterSecretWrite();
+  }
+
+  async function doWithdrawSecret() {
+    try {
+      mergeWrite(await api.expireReplyCard(replyCardId));
+      setActionError(null);
+    } catch (e) {
+      console.warn("ChatReplyCard: secret withdraw failed", e);
+      setActionError(t.replies.secretWithdrawError);
+      throw e;
+    }
+    await refetchAfterSecretWrite();
+  }
+
   async function doExpire() {
     if (!card) return;
     setExpireBusy(true);
@@ -297,11 +336,14 @@ export function ChatReplyCard({
     const stubStatus = card?.status ?? initialStatus ?? "waiting";
     const stubTag =
       stubStatus === "expired"
-        ? { cls: "reply-tag reply-tag--expired", label: t.replies.expiredTag }
+        ? {
+            cls: "reply-tag reply-tag--expired",
+            label: card?.kind === "secret" ? t.replies.secretExpiredTag : t.replies.expiredTag,
+          }
         : stubStatus === "answered"
           ? {
               cls: "reply-tag reply-tag--answered",
-              label: t.tasks.replyAnsweredTag,
+              label: replyCardSecretTag(card, t) ?? t.tasks.replyAnsweredTag,
             }
           : { cls: "reply-tag reply-tag--waiting", label: t.tasks.replyWaitingTag };
     return (
@@ -415,11 +457,21 @@ export function ChatReplyCard({
 
           {card &&
             (card.status === "waiting" ? (
-              <ReplyCardWaitingBody card={card} onAnswer={doAnswer} />
+              <ReplyCardWaitingBody
+                card={card}
+                onAnswer={doAnswer}
+                onProvideSecret={doProvideSecret}
+                // This body only exists after the owner pressed the row open.
+                autoFocusSecret
+              />
             ) : card.status === "expired" ? (
               <ReplyCardExpiredBody card={card} />
             ) : (
-              <ReplyCardAnsweredBody card={card} onReanswer={doReanswer} />
+              <ReplyCardAnsweredBody
+                card={card}
+                onReanswer={doReanswer}
+                onWithdrawSecret={doWithdrawSecret}
+              />
             ))}
         </div>
         {expireConfirmOpen && card?.status === "waiting" && (

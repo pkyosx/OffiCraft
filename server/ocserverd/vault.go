@@ -30,8 +30,9 @@ var (
 	// A missing key with rows already sealed must never be "fixed" by minting a
 	// fresh key: the new key cannot open the old rows, and every later reveal
 	// would fail while create kept succeeding.
-	errVaultKeyMissing = errors.New("secret vault key file is missing; existing secrets cannot be opened or changed. " +
-		"Restore vault.key into the data dir, or delete the existing secrets and recreate them")
+	errVaultKeyMissing = errors.New("secret vault key file is missing; existing secrets and provided secret-card values " +
+		"cannot be opened or changed. Restore vault.key into the data dir, or delete the existing secrets and recreate " +
+		"them once every provided secret-card value has been destroyed")
 )
 
 type secretVault struct {

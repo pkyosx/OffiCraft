@@ -663,6 +663,23 @@ export const zh = {
     expireError: "標為過期失敗，請稍後重試",
     expiredTag: "已過期",
     expiredNote: "未被回答、已標為過期;若問題還在,成員會重新開卡",
+    secretInputLabel: "要交給成員的內容",
+    secretPlaceholder: "在這裡貼上內容，畫面上不會顯示",
+    secretOnlyLead: "只有",
+    secretOnlyTail: "能取得",
+    secretSend: "送出 secret",
+    secretProvideError: "送出失敗，內容還留在框裡，請再送一次",
+    secretProvidedTag: "已提供",
+    secretProvidedAtLabel: "提供時間",
+    secretAwaitingRetrieval: "等待取得",
+    secretDeleteAtLabel: "內容刪除時間",
+    secretWithdraw: "撤回",
+    secretWithdrawError: "撤回失敗，請稍後重試",
+    secretRetrievedTag: "已取得",
+    secretRetrievedAtLabel: "取得時間",
+    secretDeleted: "內容已刪除",
+    secretExpiredTag: "已失效",
+    secretExpiredNote: "沒有可以取得的內容;若還需要,成員會重新開卡",
     // 帶 ai_pick 的那個選項才是 AI 的建議;位置不再有任何意義。
     aiPick: "AI 建議",
     // 多選卡的暫存計數:勾了幾項在送出前就寫出來——多選卡上「什麼都沒勾」與
@@ -2715,6 +2732,15 @@ export const zh = {
     loreCapBody: "傳承內容字數上限",
     loreCapBodySub:
       "一筆傳承的內容最多幾個字。超過的寫入會被拒絕,一個字都不會寫進去。可以調低,已經存好的條目不受影響。",
+    secretCardDurationUnit: "單位",
+    secretCardUnretrievedTtl: "Secret 請示卡的等待取得時間",
+    secretCardUnretrievedTtlSub:
+      "你提供內容後，成員多久沒取得就刪除內容、這張卡失效（1 分鐘到 30 天）。只影響之後提供的內容。",
+    secretCardUnretrievedTtlRange: "等待取得時間請填 1 分鐘到 30 天之間的整數",
+    secretCardRetention: "Secret 請示卡的取得後保留時間",
+    secretCardRetentionSub:
+      "成員第一次取得後，內容還保留多久（0 秒到 1 天）；這段時間內成員可以再取得，時間一到就刪除，填 0 是取得當下就刪除。只影響之後的取得。",
+    secretCardRetentionRange: "取得後保留時間請填 0 秒到 1 天之間的整數",
     stepNoteCap: "任務步驟備註字數上限",
     stepNoteCapSub:
       "一個任務步驟的備註可以寫多少字。可以調低,調低不會弄丟已經寫好的內容。",

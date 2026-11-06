@@ -117,6 +117,46 @@ describe("httpApi · PATCH bodies carry ONLY the supplied fields", () => {
   });
 });
 
+describe("httpApi · secret reply cards", () => {
+  it("provideReplyCardSecret posts the value and nothing else, and maps the receipt", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        id: "rc-1", status: "answered", answered_ts: 50, expired_ts: null,
+        answer: { option_idxs: null, text: "", attachments: [] }, task_id: "", step_id: "",
+      })
+    );
+    const receipt = await httpApi.provideReplyCardSecret("rc-1", "dummy-aaaaaaaaaaaa");
+    const { url, method, body } = await lastRequest();
+    expect(url).toBe("/api/reply-cards/rc-1/secret");
+    expect(method).toBe("POST");
+    expect(JSON.parse(String(body))).toEqual({ value: "dummy-aaaaaaaaaaaa" });
+    expect(receipt).toEqual({
+      id: "rc-1", status: "answered", answeredTs: 50, expiredTs: null,
+      answer: { optionIdxs: null, text: "", attachments: [] },
+    });
+  });
+
+  it("patchServerSettings sends the two durations under their wire names", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        owner_token_ttl: 86400, agent_token_ttl: 604800,
+        secret_card_unretrieved_ttl_secs: 120, secret_card_retrieved_retention_secs: 0,
+      })
+    );
+    const s = await httpApi.patchServerSettings({
+      secretCardUnretrievedTtlSecs: 120,
+      secretCardRetrievedRetentionSecs: 0,
+    });
+    const { body } = await lastRequest();
+    expect(JSON.parse(String(body))).toEqual({
+      secret_card_unretrieved_ttl_secs: 120,
+      secret_card_retrieved_retention_secs: 0,
+    });
+    expect(s.secretCardUnretrievedTtlSecs).toBe(120);
+    expect(s.secretCardRetrievedRetentionSecs).toBe(0);
+  });
+});
+
 describe("httpApi · theme schedule wire shape", () => {
   it("patchServerSettings {displayThemeSchedule} sends {display_theme_schedule} only, and [] as []", async () => {
     const schedule = [

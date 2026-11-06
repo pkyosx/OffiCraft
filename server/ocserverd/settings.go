@@ -127,6 +127,9 @@ const (
 	settingChatBudgetChars    = "chat.budget_chars"
 
 	settingStepNoteCapChars = "task.step_note_cap_chars"
+
+	settingSecretCardUnretrievedTTLSecs     = "reply_card.secret_unretrieved_ttl_secs"
+	settingSecretCardRetrievedRetentionSecs = "reply_card.secret_retrieved_retention_secs"
 	// settingBackupRetain has TWO readers: this snapshot (GET/PATCH
 	// /api/settings) and the backup engine, which reads the row directly
 	// (liveBackupRetain in backup.go) because it holds no apiServer. N counts
@@ -243,56 +246,65 @@ const (
 // fleet's age makes every machine due on its next poll — the per-machine
 // stagger does NOT soften that (measured: 40 of 40).
 const (
+	secretCardUnretrievedTTLSecsDefault     = 86400
+	minSecretCardUnretrievedTTLSecs         = 60
+	maxSecretCardUnretrievedTTLSecs         = 2592000
+	secretCardRetrievedRetentionSecsDefault = 600
+	minSecretCardRetrievedRetentionSecs     = 0
+	maxSecretCardRetrievedRetentionSecs     = 86400
+
 	wardenCredLifetimeSecsDefault = 30 * 86400
 	minWardenCredLifetimeSecs     = 86400
 	maxWardenCredLifetimeSecs     = int(maxAgentTTLSecs)
 )
 
 type authSettings struct {
-	secret                          []byte
-	passwordHash                    string
-	passwordChangedAt               int64
-	mfaOffered                      bool
-	totpSecret                      string
-	totpLastStep                    int64
-	ownerTokenTTL                   int64
-	agentTokenTTL                   int64
-	ctxHigh                         SseContextHighConfig
-	codexCompactionThreshold        int // the FINAL round (handover)
-	codexNoticeRound                int // the FIRST, soft notice round
-	monitoringRefreshSeconds        int
-	acceleratedGraceSecs            int
-	wardenCredLifetimeSecs          int
-	outsourceMaxParallel            int
-	taskDueSoonLeadMinutes          int
-	reassignHandoverTimeoutSecs     int
-	runtimeLoginCheckIntervalSecs   int
-	runtimeLoginRecheckIntervalSecs int
-	diskUsageIntervalSecs           int
-	docCapCharsDuty                 int
-	docCapCharsInsight              int
-	docCapCharsManualSop            int
-	docCapCharsSystemInteraction    int
-	docCapCharsBootSequence         int // ONE cap, both runtimes
-	docCapCharsOffboard             int
-	loreCapCharsRole                int
-	loreCapCharsManual              int
-	loreCapCharsTitle               int
-	loreCapCharsBody                int
-	chatBudgetChars                 int
-	stepNoteCapChars                int
-	backupRetain                    int
-	updaterReceiveBeta              bool
-	updaterAutoUpdate               bool
-	updaterCheckIntervalSecs        int
-	orgName                         string
-	ownerName                       string
-	pushContactEmail                string
-	displayTheme                    string
-	displayLanguage                 string
-	displayWide                     bool
-	displaySeasonalTheme            bool
-	displayThemeSchedule            []ThemeScheduleEntryDTO
+	secret                           []byte
+	passwordHash                     string
+	passwordChangedAt                int64
+	mfaOffered                       bool
+	totpSecret                       string
+	totpLastStep                     int64
+	ownerTokenTTL                    int64
+	agentTokenTTL                    int64
+	ctxHigh                          SseContextHighConfig
+	codexCompactionThreshold         int // the FINAL round (handover)
+	codexNoticeRound                 int // the FIRST, soft notice round
+	monitoringRefreshSeconds         int
+	acceleratedGraceSecs             int
+	wardenCredLifetimeSecs           int
+	outsourceMaxParallel             int
+	taskDueSoonLeadMinutes           int
+	reassignHandoverTimeoutSecs      int
+	runtimeLoginCheckIntervalSecs    int
+	runtimeLoginRecheckIntervalSecs  int
+	diskUsageIntervalSecs            int
+	docCapCharsDuty                  int
+	docCapCharsInsight               int
+	docCapCharsManualSop             int
+	docCapCharsSystemInteraction     int
+	docCapCharsBootSequence          int // ONE cap, both runtimes
+	docCapCharsOffboard              int
+	loreCapCharsRole                 int
+	loreCapCharsManual               int
+	loreCapCharsTitle                int
+	loreCapCharsBody                 int
+	chatBudgetChars                  int
+	stepNoteCapChars                 int
+	secretCardUnretrievedTTLSecs     int
+	secretCardRetrievedRetentionSecs int
+	backupRetain                     int
+	updaterReceiveBeta               bool
+	updaterAutoUpdate                bool
+	updaterCheckIntervalSecs         int
+	orgName                          string
+	ownerName                        string
+	pushContactEmail                 string
+	displayTheme                     string
+	displayLanguage                  string
+	displayWide                      bool
+	displaySeasonalTheme             bool
+	displayThemeSchedule             []ThemeScheduleEntryDTO
 
 	suggestedRepliesReplyCard   []string
 	suggestedRepliesTaskMessage []string
@@ -777,6 +789,16 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 
 	if err := loadCap(settingStepNoteCapChars, minStepNoteCapChars, maxStepNoteCapChars,
 		&out.stepNoteCapChars, stepNoteCapCharsDefault); err != nil {
+		return out, err
+	}
+
+	if err := loadCap(settingSecretCardUnretrievedTTLSecs, minSecretCardUnretrievedTTLSecs, maxSecretCardUnretrievedTTLSecs,
+		&out.secretCardUnretrievedTTLSecs, secretCardUnretrievedTTLSecsDefault); err != nil {
+		return out, err
+	}
+
+	if err := loadCap(settingSecretCardRetrievedRetentionSecs, minSecretCardRetrievedRetentionSecs, maxSecretCardRetrievedRetentionSecs,
+		&out.secretCardRetrievedRetentionSecs, secretCardRetrievedRetentionSecsDefault); err != nil {
 		return out, err
 	}
 

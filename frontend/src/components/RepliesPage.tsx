@@ -181,6 +181,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     answer,
     reanswer,
     expire,
+    provideSecret,
   } = useReplyCards();
   const [, setRoute] = useHashRoute();
 
@@ -538,6 +539,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     () => new Map()
   );
   const [openErrors, setOpenErrors] = useState<Set<string>>(() => new Set());
+  // Cards the owner just opened whose secret box has not taken focus yet. Consumed
+  // once: a card that moves between panes while open remounts its body, and that
+  // is not the owner opening it.
+  const secretFocusPendingRef = useRef<Set<string>>(new Set());
 
   // A DEEP LINK OPENS ITS CARD. `#replies/card/<id>` (a notification tap, a
   // shared link) is a request for THAT card, so landing on a collapsed line the
@@ -545,6 +550,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // to do. Only the routed id — everything else on the page stays closed.
   useEffect(() => {
     if (!replyCardId) return;
+    secretFocusPendingRef.current.add(replyCardId);
     setExpandedIds((prev) =>
       prev.has(replyCardId) ? prev : new Set(prev).add(replyCardId)
     );
@@ -555,6 +561,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
    * it also DROPS the read below, so re-opening reads the card again rather
    * than showing whatever it said minutes ago. */
   function toggleCard(id: string) {
+    if (expandedIds.has(id)) secretFocusPendingRef.current.delete(id);
+    else secretFocusPendingRef.current.add(id);
     setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -599,7 +607,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // fetched card must follow or an opened card would keep rendering 待回覆 chips
   // for a card the server has settled.
   const rowVersion = (row: ReplyCardRow) =>
-    `${row.status}:${row.answeredTs ?? 0}:${row.expiredTs ?? 0}`;
+    `${row.status}:${row.answeredTs ?? 0}:${row.expiredTs ?? 0}:${row.secret?.state ?? ""}:${row.secret?.expiresTs ?? 0}`;
 
   const rowsById = new Map<string, ReplyCardRow>();
   for (const row of [...displayedWaiting, ...displayedSnoozed, ...displayedHandled]) {
@@ -1029,6 +1037,31 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     }
   }
 
+  async function doProvideSecret(id: string, value: string) {
+    try {
+      await provideSecret(id, value);
+      setActionError(null);
+      setLookupNonce((n) => n + 1);
+    } catch (e) {
+      console.warn("RepliesPage: secret provide failed");
+      if (isHttpStatus(e, 409)) await reportAnswerFailure(e);
+      else setActionError(t.replies.secretProvideError);
+      throw e;
+    }
+  }
+
+  async function doWithdrawSecret(id: string) {
+    try {
+      await expire(id);
+      setActionError(null);
+      setLookupNonce((n) => n + 1);
+    } catch (e) {
+      console.warn("RepliesPage: secret withdraw failed", e);
+      setActionError(t.replies.secretWithdrawError);
+      throw e;
+    }
+  }
+
   async function doExpire(card: ReplyCardRow) {
     setExpireBusy(true);
     try {
@@ -1355,6 +1388,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
             <ReplyCardWaitingBody
               card={card}
               onAnswer={(input) => doAnswer(card.id, input)}
+              onProvideSecret={(value) => doProvideSecret(card.id, value)}
+              autoFocusSecret={secretFocusPendingRef.current.has(card.id)}
+              onSecretAutoFocused={() => secretFocusPendingRef.current.delete(card.id)}
             />
           )}
         </>
@@ -1379,7 +1415,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           <span className="reply-card__answered-at">
             {expired
               ? msg.replyExpiredAt(formatAbsolute(ts, nowTs))
-              : msg.replyAnsweredAt(formatAbsolute(ts, nowTs))}
+              : row.secret?.state === "provided" || row.secret?.state === "retrieved"
+                ? msg.replySecretProvidedAt(formatAbsolute(ts, nowTs))
+                : msg.replyAnsweredAt(formatAbsolute(ts, nowTs))}
           </span>
         ) : undefined,
       body: (card) => (
@@ -1397,6 +1435,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
             <ReplyCardAnsweredBody
               card={card}
               onReanswer={(input) => doReanswer(card.id, input)}
+              onWithdrawSecret={() => doWithdrawSecret(card.id)}
             />
           ) : null}
         </>

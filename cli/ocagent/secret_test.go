@@ -52,6 +52,36 @@ func TestCmdSecret(t *testing.T) {
 		}
 	})
 
+	t.Run("help explains cards, retention and the argv rule", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		cmdSecret([]string{"--help"}, secretCfg, nil, &out, &errOut)
+		for _, want := range []string{"rc-", "retention", "Never put one on a command line"} {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("secret --help lacks %q:\n%s", want, out.String())
+			}
+		}
+	})
+
+	t.Run("show takes stored secrets only and says what to do with a card id", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		rc := cmdSecret([]string{"show", "rc-00000000000a"}, secretCfg, nil, &out, &errOut)
+		want := "[ocagent] secret show: \"rc-00000000000a\" is a reply card, and show only reads stored secrets; " +
+			"read the card with get_reply_card and retrieve its value with `ocagent secret run` or `write`\n"
+		if rc != 2 || errOut.String() != want {
+			t.Fatalf("got (%d, %q), want (2, %q)", rc, errOut.String(), want)
+		}
+	})
+
+	t.Run("run and write refuse an id of neither shape", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		if rc := cmdSecret([]string{"write", "rc-ABC", "--file", "x"}, secretCfg, nil, &out, &errOut); rc != 2 {
+			t.Fatalf("write rc = %d, want 2 (%q)", rc, errOut.String())
+		}
+		if _, _, err := parseEnvBindings([]string{"A=rc-ABC"}); err == nil {
+			t.Fatal("run accepted a malformed card id")
+		}
+	})
+
 	t.Run("each subcommand's --help prints its own usage", func(t *testing.T) {
 		for _, sub := range []string{"list", "show", "run", "write"} {
 			var out, errOut bytes.Buffer
@@ -252,6 +282,41 @@ func TestCmdSecretRun(t *testing.T) {
 		}
 	})
 
+	t.Run("a card id works like a secret id", func(t *testing.T) {
+		client := canned(200, revealBody("rc-00000000000a", fakeValue1))
+		rc, out, errOut := run(t, client, []string{"A=rc-00000000000a"}, `printf '%s\n' "$A"`)
+		if rc != 0 || out != "***\n" {
+			t.Fatalf("got (%d, %q, %q), want (0, masked value)", rc, out, errOut)
+		}
+		if len(client.sent) != 1 || !strings.Contains(string(client.sent[0].body), `"ids":["rc-00000000000a"]`) {
+			t.Fatalf("reveal sent %+v", client.sent)
+		}
+	})
+
+	t.Run("a command that cannot be found fails before any reveal, so no value is spent", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		client := canned(200, revealBody("rc-00000000000a", fakeValue1))
+		rc := cmdSecretRun(client, secretCfg, []string{"A=rc-00000000000a"},
+			[]string{"oc-no-such-command-anywhere"}, []string{"PATH=" + os.Getenv("PATH")}, nil, &out, &errOut)
+		if rc != 1 || len(client.sent) != 0 {
+			t.Fatalf("got (%d, sent %v), want (1, nothing sent)", rc, client.sent)
+		}
+		if !strings.Contains(errOut.String(), "[ocagent] secret run: cannot start oc-no-such-command-anywhere") {
+			t.Fatalf("stderr = %q", errOut.String())
+		}
+	})
+
+	t.Run("a 409 exits 7 with the station's message and runs nothing", func(t *testing.T) {
+		client := canned(409, `{"error":{"code":"conflict","message":"no retrievable value on secret card(s): rc-00000000000a"}}`)
+		rc, out, errOut := run(t, client, []string{"A=rc-00000000000a"}, `echo ran`)
+		if rc != 7 || out != "" {
+			t.Fatalf("got (%d, %q), want (7, nothing run)", rc, out)
+		}
+		if want := "[ocagent] secret run: refused (HTTP 409): no retrievable value on secret card(s): rc-00000000000a\n"; errOut != want {
+			t.Fatalf("stderr = %q, want %q", errOut, want)
+		}
+	})
+
 	t.Run("no command is a usage error and reveals nothing", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, revealBody("sec-00000000000a", fakeValue1))
@@ -391,6 +456,37 @@ func TestCmdSecretWrite(t *testing.T) {
 		assertNoValue(t, "secret write", out.String(), errOut.String())
 		if got, _ := os.ReadFile(path); string(got) != multi {
 			t.Fatalf("file holds %q, want %q", got, multi)
+		}
+	})
+
+	t.Run("a card id writes like a secret id, and a 409 exits 7 and writes nothing", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "deploy.key")
+		var out, errOut bytes.Buffer
+		if rc := cmdSecretWrite(canned(200, revealBody("rc-00000000000a", fakeValue1)), secretCfg, "rc-00000000000a", path, false, &out, &errOut); rc != 0 {
+			t.Fatalf("rc = %d (stderr %q), want 0", rc, errOut.String())
+		}
+		if got, err := os.ReadFile(path); err != nil || string(got) != fakeValue1 {
+			t.Fatalf("file holds %q (%v)", got, err)
+		}
+		refused := filepath.Join(t.TempDir(), "deploy.key")
+		out.Reset()
+		errOut.Reset()
+		rc := cmdSecretWrite(canned(409, `{"error":{"code":"conflict","message":"no retrievable value on secret card(s): rc-00000000000a"}}`),
+			secretCfg, "rc-00000000000a", refused, false, &out, &errOut)
+		if want := "[ocagent] secret write: refused (HTTP 409): no retrievable value on secret card(s): rc-00000000000a\n"; rc != 7 || errOut.String() != want {
+			t.Fatalf("got (%d, %q), want (7, %q)", rc, errOut.String(), want)
+		}
+		if _, err := os.Stat(refused); !os.IsNotExist(err) {
+			t.Fatalf("a refused write left a file: %v", err)
+		}
+	})
+
+	t.Run("a bad path on a card id is refused before anything is fetched", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		client := canned(200, revealBody("rc-00000000000a", fakeValue1))
+		rc := cmdSecretWrite(client, secretCfg, "rc-00000000000a", filepath.Join(t.TempDir(), "missing", "deploy.key"), false, &out, &errOut)
+		if rc != 1 || len(client.sent) != 0 {
+			t.Fatalf("got (%d, sent %v), want (1, nothing sent)", rc, client.sent)
 		}
 	})
 

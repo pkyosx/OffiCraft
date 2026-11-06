@@ -78,7 +78,7 @@ func (f apiTestSecretFixture) notActiveAIMembers(t *testing.T) []struct {
 	}
 }
 
-func (f apiTestSecretFixture) row(t *testing.T, id string) Secret {
+func (f apiTestSecretFixture) row(t *testing.T, id string) StoredSecret {
 	t.Helper()
 	sec, err := getSecretOn(f.d.rdb, id)
 	if err != nil || sec == nil {
@@ -474,7 +474,8 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 		if status != http.StatusBadRequest {
 			t.Fatalf("status %d %v", status, data)
 		}
-		apiWantError(t, data, "validation_error", "ids must be secret ids (sec- followed by 12 lowercase hex digits)")
+		apiWantError(t, data, "validation_error", "ids must be secret ids (sec- followed by 12 lowercase hex digits) "+
+			"or secret card ids (rc- followed by 12 lowercase hex digits)")
 		f.wantNeverAccessed(t, a)
 	})
 

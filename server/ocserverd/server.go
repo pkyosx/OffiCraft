@@ -337,6 +337,8 @@ func (s *apiServer) adoptSettings(auth authSettings) {
 	s.loreCapCharsBody = auth.loreCapCharsBody
 	s.chatBudgetChars = auth.chatBudgetChars
 	s.stepNoteCapChars = auth.stepNoteCapChars
+	s.secretCardUnretrievedTTLSecs = auth.secretCardUnretrievedTTLSecs
+	s.secretCardRetrievedRetentionSecs = auth.secretCardRetrievedRetentionSecs
 	s.backupRetain = auth.backupRetain
 	s.updaterReceiveBeta = auth.updaterReceiveBeta
 	s.updaterAutoUpdate = auth.updaterAutoUpdate
@@ -364,60 +366,62 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		hub.BindWardenCommandStore(dal)
 	}
 	return &apiServer{
-		processSHA:                      gitSHA(),
-		processTime:                     gitTime(),
-		dal:                             dal,
-		hub:                             hub,
-		telemetry:                       newMemStore(),
-		gauge:                           newMemStore(),
-		activity:                        newActivityStore(),
-		machineClaims:                   newMachineClaimStore(),
-		passkeyCeremonies:               newPasskeyCeremonyStore(),
-		runtimeLogins:                   newRuntimeLoginStore(),
-		runtimeUpgrades:                 newRuntimeUpgradeStore(),
-		keys:                            keys,
-		ownerTokenTTL:                   tokenTTL,
-		agentTokenTTL:                   defaultAgentTokenTTL,
-		acceleratedGraceSecs:            acceleratedGraceSecsDefault,
-		reassignHandoverTimeoutSecs:     reassignHandoverTimeoutSecsDefault,
-		runtimeLoginCheckIntervalSecs:   runtimeLoginCheckIntervalSecsDefault,
-		runtimeLoginRecheckIntervalSecs: runtimeLoginRecheckIntervalSecsDefault,
-		diskUsageIntervalSecs:           diskUsageIntervalSecsDefault,
-		updaterCheckIntervalSecs:        updaterCheckIntervalSecsDefault,
-		wardenCredLifetimeSecs:          wardenCredLifetimeSecsDefault,
-		outsourceMaxParallel:            defaultOutsourceMaxParallel,
-		taskDueSoonLeadMinutes:          defaultTaskDueSoonLeadMinutes,
-		docCapCharsDuty:                 dutyCapCharsDefault,
-		docCapCharsInsight:              contextDocMaxCharsDefault,
-		docCapCharsManualSop:            contextDocMaxCharsDefault,
-		docCapCharsSystemInteraction:    systemInteractionCapCharsDefault,
-		docCapCharsBootSequence:         bootSequenceCapCharsDefault,
-		docCapCharsOffboard:             offboardCapCharsDefault,
-		loreCapCharsRole:                loreRoleCapCharsDefault,
-		loreCapCharsManual:              loreManualCapCharsDefault,
-		loreCapCharsTitle:               loreTitleCapCharsDefault,
-		loreCapCharsBody:                loreBodyCapCharsDefault,
-		chatBudgetChars:                 chatBudgetCharsDefault,
-		stepNoteCapChars:                stepNoteCapCharsDefault,
-		backupRetain:                    backupRetainDefault,
-		suggestedRepliesReplyCard:       []string{},
-		suggestedRepliesTaskMessage:     []string{},
-		suggestedRepliesLoreMessage:     []string{},
-		ctxHigh:                         defaultSseContextHigh(),
-		root:                            root,
-		binHashes:                       bindistBinaryHashesFrom(bindistFS()),
-		reconcileCfg:                    defaultReconcileConfig(),
-		identitySweepAt:                 map[string]float64{},
-		receiptPending:                  map[string]pendingReceipt{},
-		workerSpawnAt:                   map[string]float64{},
-		workerSpawnTarget:               map[string]string{},
-		workerSpawnAttempts:             map[string]int{},
-		workerReclaimed:                 map[string]bool{},
-		robustStops:                     map[string]robustStop{},
-		workerMachinePref:               map[string]string{},
-		workerMachineBench:              map[string]float64{},
-		workerTakeoverBench:             map[string]takeoverBench{},
-		workerTakeoverLiftedAt:          map[string]float64{},
+		processSHA:                       gitSHA(),
+		processTime:                      gitTime(),
+		dal:                              dal,
+		hub:                              hub,
+		telemetry:                        newMemStore(),
+		gauge:                            newMemStore(),
+		activity:                         newActivityStore(),
+		machineClaims:                    newMachineClaimStore(),
+		passkeyCeremonies:                newPasskeyCeremonyStore(),
+		runtimeLogins:                    newRuntimeLoginStore(),
+		runtimeUpgrades:                  newRuntimeUpgradeStore(),
+		keys:                             keys,
+		ownerTokenTTL:                    tokenTTL,
+		agentTokenTTL:                    defaultAgentTokenTTL,
+		acceleratedGraceSecs:             acceleratedGraceSecsDefault,
+		reassignHandoverTimeoutSecs:      reassignHandoverTimeoutSecsDefault,
+		runtimeLoginCheckIntervalSecs:    runtimeLoginCheckIntervalSecsDefault,
+		runtimeLoginRecheckIntervalSecs:  runtimeLoginRecheckIntervalSecsDefault,
+		diskUsageIntervalSecs:            diskUsageIntervalSecsDefault,
+		updaterCheckIntervalSecs:         updaterCheckIntervalSecsDefault,
+		wardenCredLifetimeSecs:           wardenCredLifetimeSecsDefault,
+		outsourceMaxParallel:             defaultOutsourceMaxParallel,
+		taskDueSoonLeadMinutes:           defaultTaskDueSoonLeadMinutes,
+		docCapCharsDuty:                  dutyCapCharsDefault,
+		docCapCharsInsight:               contextDocMaxCharsDefault,
+		docCapCharsManualSop:             contextDocMaxCharsDefault,
+		docCapCharsSystemInteraction:     systemInteractionCapCharsDefault,
+		docCapCharsBootSequence:          bootSequenceCapCharsDefault,
+		docCapCharsOffboard:              offboardCapCharsDefault,
+		loreCapCharsRole:                 loreRoleCapCharsDefault,
+		loreCapCharsManual:               loreManualCapCharsDefault,
+		loreCapCharsTitle:                loreTitleCapCharsDefault,
+		loreCapCharsBody:                 loreBodyCapCharsDefault,
+		chatBudgetChars:                  chatBudgetCharsDefault,
+		stepNoteCapChars:                 stepNoteCapCharsDefault,
+		secretCardUnretrievedTTLSecs:     secretCardUnretrievedTTLSecsDefault,
+		secretCardRetrievedRetentionSecs: secretCardRetrievedRetentionSecsDefault,
+		backupRetain:                     backupRetainDefault,
+		suggestedRepliesReplyCard:        []string{},
+		suggestedRepliesTaskMessage:      []string{},
+		suggestedRepliesLoreMessage:      []string{},
+		ctxHigh:                          defaultSseContextHigh(),
+		root:                             root,
+		binHashes:                        bindistBinaryHashesFrom(bindistFS()),
+		reconcileCfg:                     defaultReconcileConfig(),
+		identitySweepAt:                  map[string]float64{},
+		receiptPending:                   map[string]pendingReceipt{},
+		workerSpawnAt:                    map[string]float64{},
+		workerSpawnTarget:                map[string]string{},
+		workerSpawnAttempts:              map[string]int{},
+		workerReclaimed:                  map[string]bool{},
+		robustStops:                      map[string]robustStop{},
+		workerMachinePref:                map[string]string{},
+		workerMachineBench:               map[string]float64{},
+		workerTakeoverBench:              map[string]takeoverBench{},
+		workerTakeoverLiftedAt:           map[string]float64{},
 	}
 }
 
@@ -537,6 +541,11 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	} else if n > 0 {
 		fmt.Fprintf(out, "[ocserverd] orphan reply-card boot reconcile: retired %d card(s) stranded on closed tasks\n", n)
 	}
+	if n, err := api.sweepSecretCards(nowSecs(), "boot-reconcile"); err != nil {
+		fmt.Fprintf(out, "[ocserverd] WARN: secret-card boot sweep: %v\n", err)
+	} else if n > 0 {
+		fmt.Fprintf(out, "[ocserverd] secret-card boot sweep: destroyed %d value(s)\n", n)
+	}
 	claimToken, err := ensureFirstRunClaimToken(dal, auth.passwordHash != "", func(msg string) {
 		fmt.Fprintf(out, "[ocserverd] settings: %s\n", msg)
 	})
@@ -561,6 +570,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.startLifecycleCadence(time.Duration(lifecycleCadenceSecs * float64(time.Second)))
 	api.startAutoUpdateCadence(autoUpdateCadence)
 	api.startScheduledMessageCadence(scheduledMessageCadence)
+	api.startSecretCardSweepCadence(secretCardSweepCadence)
 	api.startRuntimeLoginSweep(runtimeLoginSweepPeriod)
 	api.startRuntimeUpgradeSweep(runtimeUpgradeSweepPeriod)
 	// The watchdog is armed synchronously and deliberately NOT hung off the backup

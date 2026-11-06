@@ -840,6 +840,17 @@ def _happy_card(ctx: HCtx) -> str:
     return r.json()["id"]
 
 
+def _happy_secret_card(ctx: HCtx) -> str:
+    r = ctx.client.post(
+        "/api/reply-cards",
+        json={"kind": "secret", "summary": "conf happy secret card", "options": [],
+              "linked_task": None},
+        headers=_auth(ctx.agent.token),
+    )
+    assert r.status_code == 200, f"happy secret card failed: {r.status_code} {r.text}"
+    return r.json()["id"]
+
+
 def _happy_answered_card(ctx: HCtx) -> str:
     card_id = _happy_card(ctx)
     r = ctx.client.post(
@@ -2661,6 +2672,18 @@ HAPPY: dict[str, Happy] = {
             and d["status"] == "answered"
             and d["answer"]["text"] == "conf happy revised"
             and d["answer"]["option_idxs"] is None,
+        ),
+    ),
+    "POST /api/reply-cards/{card_id}/secret": Happy(
+        path=lambda ctx: f"/api/reply-cards/{_happy_secret_card(ctx)}/secret",
+        body={"value": "dummy-aaaaaaaaaaaa"},
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: set(d) == _CARD_RECEIPT_KEYS
+            and d["status"] == "answered"
+            and d["answered_ts"]
+            and d["answer"]["text"] == ""
+            and "dummy-aaaaaaaaaaaa" not in r.text,
         ),
     ),
     "PUT /api/reply-cards/{card_id}/snooze": Happy(

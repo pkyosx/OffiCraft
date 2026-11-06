@@ -491,6 +491,22 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 				minStepNoteCapChars, maxStepNoteCapChars))
 		return
 	}
+	if body.SecretCardUnretrievedTtlSecs != nil &&
+		(*body.SecretCardUnretrievedTtlSecs < minSecretCardUnretrievedTTLSecs ||
+			*body.SecretCardUnretrievedTtlSecs > maxSecretCardUnretrievedTTLSecs) {
+		writeError(w, http.StatusUnprocessableEntity,
+			fmt.Sprintf("secret_card_unretrieved_ttl_secs must be between %d and %d seconds",
+				minSecretCardUnretrievedTTLSecs, maxSecretCardUnretrievedTTLSecs))
+		return
+	}
+	if body.SecretCardRetrievedRetentionSecs != nil &&
+		(*body.SecretCardRetrievedRetentionSecs < minSecretCardRetrievedRetentionSecs ||
+			*body.SecretCardRetrievedRetentionSecs > maxSecretCardRetrievedRetentionSecs) {
+		writeError(w, http.StatusUnprocessableEntity,
+			fmt.Sprintf("secret_card_retrieved_retention_secs must be between %d and %d seconds",
+				minSecretCardRetrievedRetentionSecs, maxSecretCardRetrievedRetentionSecs))
+		return
+	}
 	loreRange := []struct {
 		field    *int
 		name     string
@@ -706,6 +722,8 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		{body.DocCapCharsOffboard, settingDocCapCharsOffboard, &s.docCapCharsOffboard},
 		{body.ChatBudgetChars, settingChatBudgetChars, &s.chatBudgetChars},
 		{body.StepNoteCapChars, settingStepNoteCapChars, &s.stepNoteCapChars},
+		{body.SecretCardUnretrievedTtlSecs, settingSecretCardUnretrievedTTLSecs, &s.secretCardUnretrievedTTLSecs},
+		{body.SecretCardRetrievedRetentionSecs, settingSecretCardRetrievedRetentionSecs, &s.secretCardRetrievedRetentionSecs},
 		{body.BackupRetain, settingBackupRetain, &s.backupRetain},
 		{body.LoreCapCharsRole, settingLoreCapCharsRole, &s.loreCapCharsRole},
 		{body.LoreCapCharsManual, settingLoreCapCharsManual, &s.loreCapCharsManual},
@@ -847,45 +865,47 @@ func (s *apiServer) settingsView() settingsDTO {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return settingsDTO{
-		OwnerTokenTTL:                   s.ownerTokenTTL,
-		AgentTokenTTL:                   s.agentTokenTTL,
-		HandoverPct:                     s.ctxHigh.HandoverPct,
-		NoticePct:                       s.ctxHigh.NoticePct,
-		CodexCompactionThreshold:        s.codexCompactionThreshold,
-		CodexNoticeRound:                s.codexNoticeRound,
-		MonitoringRefreshSeconds:        s.monitoringRefreshSeconds,
-		AcceleratedGraceSecs:            s.acceleratedGraceSecs,
-		ReassignHandoverTimeoutSecs:     s.reassignHandoverTimeoutSecs,
-		RuntimeLoginCheckIntervalSecs:   s.runtimeLoginCheckIntervalSecs,
-		RuntimeLoginRecheckIntervalSecs: s.runtimeLoginRecheckIntervalSecs,
-		DiskUsageIntervalSecs:           s.diskUsageIntervalSecs,
-		WardenCredentialLifetimeSecs:    s.wardenCredLifetimeSecs,
-		OutsourceMaxParallel:            s.outsourceMaxParallel,
-		TaskDueSoonLeadMinutes:          s.taskDueSoonLeadMinutes,
-		DocCapCharsDuty:                 s.docCapCharsDuty,
-		DocCapCharsInsight:              s.docCapCharsInsight,
-		DocCapCharsManualSop:            s.docCapCharsManualSop,
-		DocCapCharsSystemInteraction:    s.docCapCharsSystemInteraction,
-		DocCapCharsBootSequence:         s.docCapCharsBootSequence,
-		DocCapCharsOffboard:             s.docCapCharsOffboard,
-		LoreCapCharsRole:                s.loreCapCharsRole,
-		LoreCapCharsManual:              s.loreCapCharsManual,
-		LoreCapCharsTitle:               s.loreCapCharsTitle,
-		LoreCapCharsBody:                s.loreCapCharsBody,
-		ChatBudgetChars:                 s.chatBudgetChars,
-		StepNoteCapChars:                s.stepNoteCapChars,
-		BackupRetain:                    s.backupRetain,
-		UpdaterReceiveBeta:              s.updaterReceiveBeta,
-		UpdaterAutoUpdate:               s.updaterAutoUpdate,
-		UpdaterCheckIntervalSecs:        s.updaterCheckIntervalSecs,
-		OrgName:                         s.orgName,
-		OwnerName:                       s.ownerName,
-		PushContactEmail:                s.pushContactEmail,
-		DisplayTheme:                    s.displayTheme,
-		DisplayLanguage:                 s.displayLanguage,
-		DisplayWide:                     s.displayWide,
-		DisplaySeasonalTheme:            s.displaySeasonalTheme,
-		DisplayThemeSchedule:            append([]ThemeScheduleEntryDTO{}, s.displayThemeSchedule...),
+		OwnerTokenTTL:                    s.ownerTokenTTL,
+		AgentTokenTTL:                    s.agentTokenTTL,
+		HandoverPct:                      s.ctxHigh.HandoverPct,
+		NoticePct:                        s.ctxHigh.NoticePct,
+		CodexCompactionThreshold:         s.codexCompactionThreshold,
+		CodexNoticeRound:                 s.codexNoticeRound,
+		MonitoringRefreshSeconds:         s.monitoringRefreshSeconds,
+		AcceleratedGraceSecs:             s.acceleratedGraceSecs,
+		ReassignHandoverTimeoutSecs:      s.reassignHandoverTimeoutSecs,
+		RuntimeLoginCheckIntervalSecs:    s.runtimeLoginCheckIntervalSecs,
+		RuntimeLoginRecheckIntervalSecs:  s.runtimeLoginRecheckIntervalSecs,
+		DiskUsageIntervalSecs:            s.diskUsageIntervalSecs,
+		WardenCredentialLifetimeSecs:     s.wardenCredLifetimeSecs,
+		OutsourceMaxParallel:             s.outsourceMaxParallel,
+		TaskDueSoonLeadMinutes:           s.taskDueSoonLeadMinutes,
+		DocCapCharsDuty:                  s.docCapCharsDuty,
+		DocCapCharsInsight:               s.docCapCharsInsight,
+		DocCapCharsManualSop:             s.docCapCharsManualSop,
+		DocCapCharsSystemInteraction:     s.docCapCharsSystemInteraction,
+		DocCapCharsBootSequence:          s.docCapCharsBootSequence,
+		DocCapCharsOffboard:              s.docCapCharsOffboard,
+		LoreCapCharsRole:                 s.loreCapCharsRole,
+		LoreCapCharsManual:               s.loreCapCharsManual,
+		LoreCapCharsTitle:                s.loreCapCharsTitle,
+		LoreCapCharsBody:                 s.loreCapCharsBody,
+		ChatBudgetChars:                  s.chatBudgetChars,
+		StepNoteCapChars:                 s.stepNoteCapChars,
+		SecretCardUnretrievedTTLSecs:     s.secretCardUnretrievedTTLSecs,
+		SecretCardRetrievedRetentionSecs: s.secretCardRetrievedRetentionSecs,
+		BackupRetain:                     s.backupRetain,
+		UpdaterReceiveBeta:               s.updaterReceiveBeta,
+		UpdaterAutoUpdate:                s.updaterAutoUpdate,
+		UpdaterCheckIntervalSecs:         s.updaterCheckIntervalSecs,
+		OrgName:                          s.orgName,
+		OwnerName:                        s.ownerName,
+		PushContactEmail:                 s.pushContactEmail,
+		DisplayTheme:                     s.displayTheme,
+		DisplayLanguage:                  s.displayLanguage,
+		DisplayWide:                      s.displayWide,
+		DisplaySeasonalTheme:             s.displaySeasonalTheme,
+		DisplayThemeSchedule:             append([]ThemeScheduleEntryDTO{}, s.displayThemeSchedule...),
 		// Never null on the wire (spec types these as arrays); copied so no response
 		// shares a slice with the live snapshot.
 		SuggestedRepliesReplyCard:   append([]string{}, s.suggestedRepliesReplyCard...),

@@ -40,21 +40,31 @@ Secrets tab). A secret is addressed by its id (sec-…); the name is only a labe
 and need not be unique. Read the note: it is the owner's instruction for how
 that secret may be used.
 
+A value the owner gave on a secret reply card you opened is addressed by the
+card's id (rc-…), on run and write only, and only you, its author, can retrieve
+it. It is destroyed after a retention period that starts at your first
+retrieval (or, if you never retrieve it, after a longer deadline); the first
+retrieval does not end it, and later ones do not extend it.
+
 NO COMMAND EVER PRINTS A VALUE. A value only ever reaches a child process's
-environment (run) or a 0600 file (write). Do not echo it, paste it into chat,
+environment (run) or a 0600 file (write). Never put one on a command line (argv
+is visible to every process on the machine). Do not echo it, paste it into chat,
 or write it anywhere else. The owner sees when each secret was last retrieved.
 
 subcommands:
   list                              every secret: id, name, note
   show <ID>                         one secret: id, name, note
   run --env VAR=<ID> [...] -- cmd   run cmd with the values in its environment;
-                                    every value in its output is shown as ***
-  write <ID> --file <path>          write the value to a new 0600 file
+                                    every value in its output is shown as ***;
+                                    <ID> is sec-… or a secret card's rc-…
+  write <ID> --file <path>          write the value to a new 0600 file; <ID> is
+                                    sec-… or a secret card's rc-…
 
 examples:
   ocagent secret list
   ocagent secret run --env GITHUB_TOKEN=sec-00000000000b -- gh api user
   ocagent secret write sec-00000000000b --file ./deploy.key
+  ocagent secret write rc-00000000000b --file ./deploy.key
 
 Each subcommand takes --help for its flags and exit codes.
 `)
@@ -99,9 +109,14 @@ Exit codes:
 func secretRunUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: ocagent secret run --env VAR=<ID> [--env VAR2=<ID2> ...] -- <cmd> [args...]
 
-Runs <cmd> with each VAR set to the value of secret <ID>, on top of this
-process's own environment. All the values are fetched in ONE request before the
-command starts (at most 16 distinct ids); if any id is unknown nothing runs.
+Runs <cmd> with each VAR set to the value of <ID>, on top of this process's own
+environment: a secret (sec-…) or a secret reply card you opened (rc-…). <cmd> is
+resolved first, so a command that cannot be found does not use up a card's
+value. All the values are fetched in ONE request before the command starts (at
+most 16 distinct ids); if any id is refused nothing runs.
+
+The first retrieval of a card's value starts its retention: the value is
+destroyed when that ends, and until then you may retrieve it again.
 
 The command's stdout and stderr are passed through with every occurrence of
 every value replaced by ***. A value split across two writes is still caught,
@@ -120,13 +135,16 @@ example:
 
 Exit codes: the command's own exit code once it has started (128+N when it
 was killed by signal N). Before it starts:
-  1  the request never got an answer (network), or <cmd> could not be started
+  1  the request never got an answer (network), or <cmd> could not be found or
+     started (nothing is fetched when it cannot be found)
   2  usage: --help itself, no --env, a malformed --env, more than 16 distinct
      ids, or no <cmd>
   3  no OC_TOKEN or no OC_BASE in the environment, or the server answered
      401/403
   4  at least one id is unknown on the station (nothing was revealed)
   5  any other HTTP status, or a body that is not the requested secrets
+  7  a card holds no retrievable value: not provided, already destroyed, or its
+     task is closed; the station's message says which card (nothing was revealed)
 A diagnostic on stderr, prefixed [ocagent] secret run:, tells these apart from
 the command's own codes.
 `)
@@ -135,8 +153,10 @@ the command's own codes.
 func secretWriteUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: ocagent secret write <ID> --file <path> [--force]
 
-Writes the value of secret <ID> to <path> with permissions 0600, for tools that
-only read a credential from a file. The file is written to a temporary name in
+Writes the value of <ID> to <path> with permissions 0600, for tools that only
+read a credential from a file: a secret (sec-…) or a secret reply card you
+opened (rc-…). The first retrieval of a card's value starts its retention. The
+file is written to a temporary name in
 the same directory and moved into place, so <path> never holds a partial value.
 
 --file <path>  destination. Its directory must already exist (it is not
@@ -157,6 +177,8 @@ Exit codes:
   4  no secret with that id on the station
   5  any other HTTP status, or a body that is not the requested secret
   6  <path> already exists and --force was not given
+  7  a card holds no retrievable value: not provided, already destroyed, or its
+     task is closed; the station's message says which card (nothing was revealed)
 `)
 }
 
@@ -209,6 +231,11 @@ func cmdSecret(argv []string, cfg Config, in io.Reader, out, errOut io.Writer) i
 			fmt.Fprintln(errOut, "[ocagent] secret show: exactly one <ID> argument is required")
 			return 2
 		}
+		if secretCardIDShape.MatchString(fs.Arg(0)) {
+			fmt.Fprintf(errOut, "[ocagent] secret show: %q is a reply card, and show only reads stored secrets; "+
+				"read the card with get_reply_card and retrieve its value with `ocagent secret run` or `write`\n", fs.Arg(0))
+			return 2
+		}
 		if !secretIDShape.MatchString(fs.Arg(0)) {
 			fmt.Fprintf(errOut, "[ocagent] secret show: %q is not a secret id (sec- followed by 12 lowercase hex digits)\n", fs.Arg(0))
 			return 2
@@ -244,8 +271,8 @@ func cmdSecret(argv []string, cfg Config, in io.Reader, out, errOut io.Writer) i
 			fmt.Fprintln(errOut, "usage: ocagent secret write <ID> --file <path> [--force]")
 			return 2
 		}
-		if !secretIDShape.MatchString(args[0]) {
-			fmt.Fprintf(errOut, "[ocagent] secret write: %q is not a secret id (sec- followed by 12 lowercase hex digits)\n", args[0])
+		if !revealableIDShape(args[0]) {
+			fmt.Fprintf(errOut, "[ocagent] secret write: %q is not a secret id (sec- or rc- followed by 12 lowercase hex digits)\n", args[0])
 			return 2
 		}
 		return cmdSecretWrite(defaultHTTPClient(), cfg, args[0], *file, *force, out, errOut)
@@ -286,6 +313,8 @@ func statusError(status int, text string) *secretRequestError {
 		return &secretRequestError{3, fmt.Sprintf("auth rejected (HTTP %d): %s", status, msg)}
 	case status == http.StatusNotFound:
 		return &secretRequestError{4, fmt.Sprintf("not found (HTTP 404): %s", msg)}
+	case status == http.StatusConflict:
+		return &secretRequestError{7, fmt.Sprintf("refused (HTTP 409): %s", msg)}
 	default:
 		return &secretRequestError{5, fmt.Sprintf("unexpected HTTP %d: %s", status, msg)}
 	}
@@ -398,7 +427,14 @@ func (e *envFlags) Set(v string) error { *e = append(*e, v); return nil }
 
 var envVarName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-var secretIDShape = regexp.MustCompile(`^sec-[0-9a-f]{12}$`)
+var (
+	secretIDShape     = regexp.MustCompile(`^sec-[0-9a-f]{12}$`)
+	secretCardIDShape = regexp.MustCompile(`^rc-[0-9a-f]{12}$`)
+)
+
+func revealableIDShape(id string) bool {
+	return secretIDShape.MatchString(id) || secretCardIDShape.MatchString(id)
+}
 
 type envBinding struct{ name, id string }
 
@@ -418,8 +454,8 @@ func parseEnvBindings(envs []string) ([]envBinding, []string, error) {
 		if !envVarName.MatchString(name) {
 			return nil, nil, fmt.Errorf("--env %q: %q is not a valid variable name", e, name)
 		}
-		if !secretIDShape.MatchString(id) {
-			return nil, nil, fmt.Errorf("--env %q: %q is not a secret id (sec- followed by 12 lowercase hex digits)", e, id)
+		if !revealableIDShape(id) {
+			return nil, nil, fmt.Errorf("--env %q: %q is not a secret id (sec- or rc- followed by 12 lowercase hex digits)", e, id)
 		}
 		if seenVar[name] {
 			return nil, nil, fmt.Errorf("--env: %s is given more than once", name)
@@ -450,6 +486,12 @@ func cmdSecretRun(client httpClient, cfg Config, envs []string, cmdArgs, environ
 	}
 	if !secretPreflight(cfg, "secret run", errOut) {
 		return 3
+	}
+	// Before the reveal: a retrieval can destroy a card's value, and a command
+	// that was never going to start must not pay for it.
+	if _, err := exec.LookPath(cmdArgs[0]); err != nil {
+		fmt.Fprintf(errOut, "[ocagent] secret run: cannot start %s: %v\n", cmdArgs[0], err)
+		return 1
 	}
 	values, rerr := revealSecrets(client, cfg, ids)
 	if rerr != nil {

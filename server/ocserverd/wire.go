@@ -123,6 +123,10 @@ type settingsDTO struct {
 	// whole), so it is lowerable. Step note ONLY: the handover note and chat body
 	// keep their 4,000-character constant (owner ruling 2026-09-06).
 	StepNoteCapChars int `json:"step_note_cap_chars"`
+	// Both deadlines are stamped on the card when the event happens, so a change
+	// here only reaches later events.
+	SecretCardUnretrievedTTLSecs     int `json:"secret_card_unretrieved_ttl_secs"`
+	SecretCardRetrievedRetentionSecs int `json:"secret_card_retrieved_retention_secs"`
 	// BackupRetain counts VERSIONS, not days, and is PER POOL, not per directory.
 	BackupRetain int `json:"backup_retain"`
 
@@ -932,6 +936,15 @@ type replyCardDTO struct {
 	Task           *taskRefDTO         `json:"task"`
 	TaskExecutor   string              `json:"task_executor"`
 	SnoozedUntilTS *float64            `json:"snoozed_until_ts"`
+	// Secret never carries the value, and is absent on every other kind.
+	Secret *replyCardSecretDTO `json:"secret,omitempty"`
+}
+
+type replyCardSecretDTO struct {
+	State       string   `json:"state"`
+	ProvidedTS  *float64 `json:"provided_ts"`
+	RetrievedTS *float64 `json:"retrieved_ts"`
+	ExpiresTS   *float64 `json:"expires_ts"`
 }
 
 // replyCardListItemDTO is a LIGHT row: summary plus, when answered, the
@@ -949,6 +962,7 @@ type replyCardListItemDTO struct {
 	Task           *taskRefDTO              `json:"task"`
 	TaskExecutor   string                   `json:"task_executor"`
 	SnoozedUntilTS *float64                 `json:"snoozed_until_ts"`
+	Secret         *replyCardSecretDTO      `json:"secret,omitempty"`
 }
 
 // replyCardAnswerBriefDTO: Text is preview-truncated and attachments are a
@@ -2307,6 +2321,7 @@ func newReplyCardDTO(c ReplyCard) replyCardDTO {
 		CreatedTS:     c.CreatedTS,
 		Attachments:   attachmentDTOsFromRefs(c.Attachments),
 		ChatMessageID: c.ChatMessageID,
+		Secret:        replyCardSecretDTOOf(c),
 	}
 	if c.Status == replyCardStatusExpired {
 		ts := c.ExpiredTS
@@ -2461,7 +2476,7 @@ type secretDTO struct {
 	LastAccessedTS *float64 `json:"last_accessed_ts"`
 }
 
-func newSecretDTO(s Secret) secretDTO {
+func newSecretDTO(s StoredSecret) secretDTO {
 	return secretDTO{
 		ID: s.ID, Name: s.Name, Note: s.Note,
 		CreatedTS: s.CreatedTS, UpdatedTS: s.UpdatedTS, LastAccessedTS: s.LastAccessedTS,

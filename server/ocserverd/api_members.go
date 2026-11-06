@@ -1155,6 +1155,7 @@ func (s *apiServer) finishStaffDismissal(m Member, trigger string) {
 	if _, err := s.expireWaitingCardsByAuthor(m.ID, nowSecs(), trigger); err != nil {
 		taskLog("dismiss %s: reply-card sweep failed (cards left waiting): %v", m.ID, err)
 	}
+	s.sweepSecretCardsBestEffort(trigger)
 }
 
 // Does not exclude kind='outsource': workers report through these self endpoints
