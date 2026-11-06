@@ -116,7 +116,15 @@ export function SuggestedRepliesEditor({
               next[i] = e.target.value;
               setDraft(next);
             }}
-            onBlur={() => commit(rows)}
+            onBlur={(e) => {
+              // Saving drops a blank row and the rest slide up under the pointer,
+              // so a click already on its way to a lower row would land on the
+              // next sentence: typing edits it, its trash button deletes it. The
+              // blank row waits until focus leaves the list.
+              const stayingInList = rootRef.current?.contains(e.relatedTarget);
+              if (stayingInList && rows.some((v) => v.trim().length === 0)) return;
+              commit(rows);
+            }}
             onCompositionStart={() => {
               composingRef.current = true;
             }}

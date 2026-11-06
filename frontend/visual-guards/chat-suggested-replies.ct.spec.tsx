@@ -78,19 +78,53 @@ test("390px: the tasks, role, suggested-replies and gallery buttons all fit the 
 
 // Focus order across a blur, a save and a click only exists in a real browser;
 // jsdom never moves focus to what was clicked.
-test("emptying the bottom row and clicking another row leaves focus on the row clicked, and typing goes there", async ({ mount, page }) => {
+test("emptying a row and clicking the row below it edits the sentence clicked", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲", "乙", "丙"]} />);
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲", "乙", "丙", "丁"]} />);
   await cmp.getByTestId("chat-header-suggested-replies").click();
   const inputs = page.locator(".sugg-edit__input");
-  await inputs.nth(2).fill("");
-  await inputs.nth(1).click();
+  await inputs.nth(1).fill("");
+  await inputs.nth(2).click();
+
+  await expect(inputs.nth(2)).toBeFocused();
+  await page.keyboard.press("End");
+  await page.keyboard.type("x");
+  await expect(inputs.nth(2)).toHaveValue("丙x");
+
+  await page.locator("#chat-suggested-replies-title").click();
+  await expect(inputs).toHaveCount(3);
+  expect(await inputs.evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value))).toEqual(["甲", "丙x", "丁"]);
+});
+
+test("emptying a row and pressing delete on the row below it deletes the sentence pressed", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲", "乙", "丙", "丁"]} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  const inputs = page.locator(".sugg-edit__input");
+  await inputs.nth(1).fill("");
+  await page.locator(".sugg-edit__btn--remove").nth(2).click();
 
   await expect(inputs).toHaveCount(2);
-  await expect(inputs.nth(1)).toBeFocused();
-  await page.keyboard.type("x");
-  await expect(inputs.nth(1)).toHaveValue("乙x");
-  await expect(inputs.nth(0)).toHaveValue("甲");
+  expect(await inputs.evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value))).toEqual(["甲", "丁"]);
+});
+
+test("editing a row and moving to another row saves at once when no row is blank", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲", "乙"]} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  const inputs = page.locator(".sugg-edit__input");
+  await inputs.nth(0).fill("甲改");
+  await inputs.nth(1).click();
+
+  await expect(cmp.locator(".suggested-replies__chip").first()).toHaveText("甲改");
+});
+
+test("the dialog is 520px wide on a desktop", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 790 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲"]} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  const dialog = (await page.getByTestId("chat-suggested-replies-dialog").boundingBox())!;
+  expect(dialog.width).toBe(520);
 });
 
 test("emptying the bottom row and clicking blank dialog space leaves nothing focused", async ({ mount, page }) => {

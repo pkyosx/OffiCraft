@@ -64,7 +64,7 @@
 
 /* The chat room's editor: wider than the chat-groups dialog it borrows, because
  * each row also carries three buttons. */
-.chat-suggested-replies__dialog {
+.chat-groups__dialog.chat-suggested-replies__dialog {
   max-width: 520px;
   overflow-y: auto;
 }
