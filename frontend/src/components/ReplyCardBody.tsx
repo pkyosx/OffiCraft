@@ -60,6 +60,7 @@ import { useMentionRosterContext } from "../hooks/useMentionComposer";
 import { ChevronRightIcon, LockIcon } from "./icons";
 import { formatAbsolute } from "../lib/dateFormat";
 import "./replies.css";
+import { autosizeTextarea } from "../lib/autosize";
 
 /** Add or remove `idx` from a MULTI card's staged selection. The result is kept
  * SORTED ASCENDING so the staged set is a function of WHICH chips are ticked and
@@ -429,6 +430,10 @@ function ReplyCardSecretBox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoFocus]);
 
+  useEffect(() => {
+    if (inputRef.current) autosizeTextarea(inputRef.current);
+  }, [value]);
+
   async function send() {
     if (!value || busy) return;
     setBusy(true);
@@ -457,7 +462,7 @@ function ReplyCardSecretBox({
         className="reply-secret__input"
         data-testid="reply-secret-input"
         aria-label={t.replies.secretInputLabel}
-        rows={3}
+        rows={1}
         autoComplete="off"
         autoCorrect="off"
         autoCapitalize="off"

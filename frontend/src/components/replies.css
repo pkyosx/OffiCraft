@@ -920,7 +920,7 @@
 .reply-secret__input {
   display: block;
   width: 100%;
-  min-height: 72px;
+  max-height: 132px;
   padding: 0;
   border: 0;
   outline: none;
@@ -929,7 +929,8 @@
   font-family: var(--font-mono, monospace);
   font-size: 13px;
   line-height: 1.45;
-  resize: vertical;
+  resize: none;
+  overflow-y: auto;
   -webkit-text-security: disc;
 }
 .reply-secret__foot {
