@@ -210,6 +210,8 @@ export const en: Dict = {
     editTitle: "Edit secret",
     nameLabel: "Name",
     valueLabel: "Value",
+    showValue: "Show value",
+    hideValue: "Hide value",
     noteLabel: "Note",
     notePlaceholder: "What the AI should know when using it (optional)",
     valueKeepPlaceholder: "Leave blank to keep the current value",

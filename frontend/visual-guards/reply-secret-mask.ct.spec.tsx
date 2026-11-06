@@ -21,6 +21,18 @@ for (const viewport of [390, 1280]) {
     const mask = await input.evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-text-security"));
     expect(mask).toBe("disc");
 
+    const eye = cmp.getByTestId("secret-reveal-toggle");
+    const maskNow = () => input.evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-text-security"));
+    await input.focus();
+    await eye.click();
+    expect(await maskNow()).toBe("none");
+    await expect(input).toBeFocused();
+    await eye.click();
+    expect(await maskNow()).toBe("disc");
+    const eyeBox = (await eye.boundingBox())!;
+    const inputBox = (await input.boundingBox())!;
+    expect(eyeBox.x + eyeBox.width).toBeLessThanOrEqual(inputBox.x + inputBox.width + 0.5);
+
     const threeLines = "dummy-aaaaaaaaaaaa\nline two\nline three";
     await input.fill(threeLines);
     await expect(input).toHaveValue(threeLines);

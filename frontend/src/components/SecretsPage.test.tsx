@@ -233,6 +233,27 @@ describe("SecretsPage", () => {
     expect(saved.querySelector('[data-testid="secret-last-accessed"]')).toBeTruthy();
   });
 
+  it("the value field starts hidden and its eye toggles it without submitting the form", async () => {
+    const createSpy = vi.spyOn(api, "createSecret");
+    const { container } = renderPage();
+    await firstRow(container);
+
+    fireEvent.click(screen.getByTestId("secrets-add"));
+    const valueInput = screen.getByTestId("secret-value-input") as HTMLTextAreaElement;
+    const eye = screen.getByTestId("secret-reveal-toggle");
+    fireEvent.change(screen.getByTestId("secret-name-input"), { target: { value: "Staging DB" } });
+    expect(valueInput.classList.contains("secret-value-input__field--masked")).toBe(true);
+    expect(eye.getAttribute("aria-label")).toBe("顯示內容");
+    fireEvent.change(valueInput, { target: { value: FAKE_VALUE } });
+    fireEvent.click(eye);
+    expect(valueInput.classList.contains("secret-value-input__field--masked")).toBe(false);
+    expect(eye.getAttribute("aria-label")).toBe("隱藏內容");
+    expect(valueInput.value).toBe(FAKE_VALUE);
+    expect(createSpy).not.toHaveBeenCalled();
+    fireEvent.click(eye);
+    expect(valueInput.classList.contains("secret-value-input__field--masked")).toBe(true);
+  });
+
   it("deleting goes through the confirmation before calling the API", async () => {
     const deleteSpy = vi.spyOn(api, "deleteSecret");
     const { container } = renderPage();

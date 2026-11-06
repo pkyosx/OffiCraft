@@ -73,10 +73,33 @@ describe("the waiting box", () => {
     const { getByTestId } = renderWaiting();
     const input = getByTestId("reply-secret-input") as HTMLTextAreaElement;
     expect(input.tagName).toBe("TEXTAREA");
-    expect(input.className).toBe("reply-secret__input");
+    expect(input.className).toBe("secret-value-input__field secret-value-input__field--masked reply-secret__input");
     expect(input.getAttribute("rows")).toBe("1");
     expect(input.getAttribute("autocomplete")).toBe("off");
     expect(input.getAttribute("spellcheck")).toBe("false");
+  });
+
+  it("starts hidden, the eye shows and hides the value, and a cleared value hides again", async () => {
+    const { getByTestId, onProvideSecret } = renderWaiting();
+    const input = getByTestId("reply-secret-input") as HTMLTextAreaElement;
+    const eye = getByTestId("secret-reveal-toggle");
+    const shown = () => ({
+      masked: input.classList.contains("secret-value-input__field--masked"),
+      pressed: eye.getAttribute("aria-pressed"),
+      label: eye.getAttribute("aria-label"),
+    });
+    expect(shown()).toEqual({ masked: true, pressed: "false", label: "顯示內容" });
+    fireEvent.change(input, { target: { value: SENTINEL } });
+    fireEvent.click(eye);
+    expect(shown()).toEqual({ masked: false, pressed: "true", label: "隱藏內容" });
+    expect(input.value).toBe(SENTINEL);
+    expect(onProvideSecret).not.toHaveBeenCalled();
+    fireEvent.click(eye);
+    expect(shown()).toEqual({ masked: true, pressed: "false", label: "顯示內容" });
+    fireEvent.click(eye);
+    fireEvent.click(getByTestId("reply-secret-send"));
+    await waitFor(() => expect(input.value).toBe(""));
+    expect(shown()).toEqual({ masked: true, pressed: "false", label: "顯示內容" });
   });
 
   it("names its actions without naming the author", () => {

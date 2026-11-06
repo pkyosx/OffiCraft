@@ -205,6 +205,8 @@ export const zh = {
     editTitle: "編輯密鑰",
     nameLabel: "名稱",
     valueLabel: "值",
+    showValue: "顯示內容",
+    hideValue: "隱藏內容",
     noteLabel: "備註",
     notePlaceholder: "給 AI 看的使用注意事項（選填）",
     valueKeepPlaceholder: "留空＝保留原本的值",

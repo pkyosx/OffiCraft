@@ -903,8 +903,7 @@
   color: var(--color-danger);
 }
 
-/* A secret card's masked box sits where option chips would be. Masked by CSS, not
- * a password input: an input strips newlines, which corrupts PEM and SSH keys. */
+/* A secret card's masked box sits where option chips would be. */
 .reply-secret {
   display: flex;
   align-items: flex-end;
@@ -917,23 +916,22 @@
 .reply-secret:focus-within {
   border-color: var(--color-indigo);
 }
-.reply-secret__input {
-  display: block;
-  flex: 1;
-  min-width: 0;
+.reply-secret .secret-value-input {
+  --secret-toggle-top: -2px;
   align-self: center;
+}
+.reply-secret__input {
   max-height: 132px;
   padding: 0;
+  padding-right: 28px;
   border: 0;
   outline: none;
   background: transparent;
   color: var(--color-text);
-  font-family: var(--font-mono, monospace);
   font-size: 13px;
   line-height: 1.45;
   resize: none;
   overflow-y: auto;
-  -webkit-text-security: disc;
 }
 .reply-secret__send {
   flex: none;

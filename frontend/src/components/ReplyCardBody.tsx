@@ -61,6 +61,7 @@ import { ChevronRightIcon } from "./icons";
 import { formatAbsolute } from "../lib/dateFormat";
 import "./replies.css";
 import { autosizeTextarea } from "../lib/autosize";
+import { SecretValueInput } from "./SecretValueInput";
 
 /** Add or remove `idx` from a MULTI card's staged selection. The result is kept
  * SORTED ASCENDING so the staged set is a function of WHICH chips are ticked and
@@ -449,16 +450,12 @@ function ReplyCardSecretBox({
         if (e.target === e.currentTarget) inputRef.current?.focus();
       }}
     >
-      <textarea
+      <SecretValueInput
         ref={inputRef}
         className="reply-secret__input"
         data-testid="reply-secret-input"
         aria-label={t.replies.secretInputLabel}
         rows={1}
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        spellCheck={false}
         value={value}
         placeholder={t.replies.secretPlaceholder}
         onChange={(e) => setValue(e.target.value)}
