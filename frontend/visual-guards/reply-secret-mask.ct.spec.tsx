@@ -1,7 +1,7 @@
 // Whether a typed value is covered on screen, and how tall the box is, comes from a
 // stylesheet, which jsdom does not apply: only a real browser can tell.
 import { test, expect } from "@playwright/experimental-ct-react";
-import { ReplySecretStory } from "./stories/ReplySecretStory";
+import { ReplySecretStory, SecretsValueStory } from "./stories/ReplySecretStory";
 
 for (const viewport of [390, 1280]) {
   test(`${viewport}px: the box masks a value, starts three lines tall beside its send button, grows then scrolls, inside the card above the composer`, async ({
@@ -58,5 +58,18 @@ for (const viewport of [390, 1280]) {
     expect(box.x).toBeGreaterThanOrEqual(card.x - 0.5);
     expect(box.x + box.width).toBeLessThanOrEqual(card.x + card.width + 0.5);
     expect(box.y + box.height).toBeLessThanOrEqual(composer.y + 0.5);
+  });
+
+  test(`${viewport}px: a long value on the secrets page wraps instead of running under the eye`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: viewport, height: 900 });
+    const cmp = await mount(<SecretsValueStory value={"dummy-aaaaaaaa".repeat(40)} />);
+    const scrolls = await page
+      .getByTestId("secrets-value")
+      .evaluate((el) => el.scrollWidth > el.clientWidth);
+    expect(scrolls).toBe(false);
+    await expect(cmp.getByTestId("secret-reveal-toggle")).toBeVisible();
   });
 }
