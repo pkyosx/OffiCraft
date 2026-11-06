@@ -251,6 +251,26 @@ describe("the replies page's handled pane", () => {
     expect((await u.findByTestId("secret-face")).textContent).toBe("已提供");
   });
 
+  it("a link's card keeps focus in the box when another card's event refreshes the lists", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    __injectMockReplyCard(mkCard());
+    const u = render(
+      withBystander(
+        <ReplyCardsProvider>
+          <RepliesPage replyCardId={CARD_ID} />
+        </ReplyCardsProvider>,
+      ),
+    );
+    await waitFor(() => expect(document.activeElement?.id).toBe(`reply-card-${CARD_ID}`));
+    const input = (await u.findByTestId("reply-secret-input")) as HTMLTextAreaElement;
+    input.focus();
+    await act(async () => {
+      __injectMockReplyCard(mkCard({ id: "rc-aaaaaaaaaab1" }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(document.activeElement).toBe(input);
+  });
+
   it("a card opened by its link keeps a half-typed value while it is re-read", async () => {
     __injectMockReplyCard(mkCard());
     const u = mountPage();

@@ -439,10 +439,18 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // never be invisible because a pane is collapsed. The handled pane is
   // therefore FORCE-EXPANDED while a filter is applied (see handledExpanded).
 
+  // Once per link: the lists refresh on any card's event, and landing again would
+  // pull focus out of a box the owner is typing in and lose the keystrokes.
+  const landedOnRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!replyCardId) return;
+    if (!replyCardId) {
+      landedOnRef.current = undefined;
+      return;
+    }
+    if (landedOnRef.current === replyCardId) return;
     const card = document.getElementById(`reply-card-${replyCardId}`);
     if (!card) return;
+    landedOnRef.current = replyCardId;
     card.scrollIntoView({ block: "center" });
     card.focus({ preventScroll: true });
   }, [replyCardId, waiting, handled, handledOpen]);
