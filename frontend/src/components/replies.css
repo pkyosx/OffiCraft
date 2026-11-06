@@ -906,24 +906,22 @@
 /* A secret card's masked box sits where option chips would be. */
 .reply-secret {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 8px;
+}
+.reply-secret__frame {
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-overlay) 3%, transparent);
+  background: var(--color-card);
 }
-.reply-secret:focus-within {
+.reply-secret__frame:focus-within {
   border-color: var(--color-indigo);
-}
-.reply-secret .secret-value-input {
-  --secret-toggle-top: -2px;
-  align-self: center;
 }
 .reply-secret__input {
   max-height: 132px;
   padding: 0;
-  padding-right: 28px;
+  padding-right: 30px;
   border: 0;
   outline: none;
   background: transparent;
@@ -934,21 +932,33 @@
   overflow-y: auto;
 }
 .reply-secret__send {
-  flex: none;
-  height: 30px;
-  padding: 0 12px;
+  width: 100%;
+  height: 40px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--color-on-indigo);
   background: var(--color-indigo);
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
 }
 .reply-secret__send:disabled {
   opacity: 0.5;
   cursor: default;
+}
+.reply-secret__or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.reply-secret__or::before,
+.reply-secret__or::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--color-border);
 }
 .reply-secret__fact {
   font-size: 13px;

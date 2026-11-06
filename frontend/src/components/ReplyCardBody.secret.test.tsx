@@ -106,8 +106,8 @@ describe("the waiting box", () => {
   it("names its actions without naming the author", () => {
     const { getByTestId } = renderWaiting();
     expect(getByTestId("reply-secret-input").getAttribute("placeholder")).toBe("貼上密鑰");
-    expect(getByTestId("reply-secret-send").textContent).toBe("送出");
-    expect(getByTestId("reply-secret-box").textContent).toBe("送出");
+    expect(getByTestId("reply-secret-send").textContent).toBe("送出密鑰");
+    expect(getByTestId("reply-secret-box").textContent).toBe("送出密鑰或回覆訊息");
   });
 
   it("the send button does nothing until there is a value", () => {

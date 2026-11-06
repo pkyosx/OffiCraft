@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/experimental-ct-react";
 import { ReplySecretStory, SecretsValueStory } from "./stories/ReplySecretStory";
 
 for (const viewport of [390, 1280]) {
-  test(`${viewport}px: the box masks a value, starts three lines tall beside its send button, grows then scrolls, inside the card above the composer`, async ({
+  test(`${viewport}px: the box masks a value, starts three lines tall above a full-width send button, grows then scrolls, inside the card above the composer`, async ({
     mount,
     page,
   }) => {
@@ -49,8 +49,11 @@ for (const viewport of [390, 1280]) {
 
     const send = (await cmp.getByTestId("reply-secret-send").boundingBox())!;
     const field = (await input.boundingBox())!;
-    expect(field.x + field.width).toBeLessThanOrEqual(send.x);
-    expect(Math.abs(field.y + field.height - (send.y + send.height))).toBeLessThan(1);
+    const secretBox = (await cmp.getByTestId("reply-secret-box").boundingBox())!;
+    expect(send.y).toBeGreaterThanOrEqual(field.y + field.height);
+    expect(send.width).toBe(secretBox.width);
+    const eyeAtRest = (await eye.boundingBox())!;
+    expect(Math.abs(eyeAtRest.y + eyeAtRest.height / 2 - (field.y + field.height / 2))).toBeLessThan(1);
 
     const card = (await page.getByTestId("card-secret").boundingBox())!;
     const box = (await cmp.getByTestId("reply-secret-box").boundingBox())!;

@@ -445,30 +445,35 @@ function ReplyCardSecretBox({
       className="reply-secret"
       data-testid="reply-secret-box"
       // The box is one control: a click on its frame must not flip the card.
-      onClick={(e) => {
-        e.stopPropagation();
-        if (e.target === e.currentTarget) inputRef.current?.focus();
-      }}
+      onClick={(e) => e.stopPropagation()}
     >
-      <SecretValueInput
-        ref={inputRef}
-        className="reply-secret__input"
-        data-testid="reply-secret-input"
-        aria-label={t.replies.secretInputLabel}
-        rows={3}
-        value={value}
-        placeholder={t.replies.secretPlaceholder}
-        onChange={(e) => setValue(e.target.value)}
-      />
-        <button
-          type="button"
-          className="reply-secret__send"
-          data-testid="reply-secret-send"
-          disabled={!value || busy}
-          onClick={() => void send()}
-        >
-          {t.replies.secretSend}
-        </button>
+      <div
+        className="reply-secret__frame"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) inputRef.current?.focus();
+        }}
+      >
+        <SecretValueInput
+          ref={inputRef}
+          className="reply-secret__input"
+          data-testid="reply-secret-input"
+          aria-label={t.replies.secretInputLabel}
+          rows={3}
+          value={value}
+          placeholder={t.replies.secretPlaceholder}
+          onChange={(e) => setValue(e.target.value)}
+        />
+      </div>
+      <button
+        type="button"
+        className="reply-secret__send"
+        data-testid="reply-secret-send"
+        disabled={!value || busy}
+        onClick={() => void send()}
+      >
+        {t.replies.secretSend}
+      </button>
+      <div className="reply-secret__or">{t.replies.secretOrReply}</div>
     </div>
   );
 }

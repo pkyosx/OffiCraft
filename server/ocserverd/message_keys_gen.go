@@ -1072,6 +1072,7 @@ var messageKeys = map[string]bool{
 	"replies.secretExpiredNote":                        true,
 	"replies.secretExpiredTag":                         true,
 	"replies.secretInputLabel":                         true,
+	"replies.secretOrReply":                            true,
 	"replies.secretPlaceholder":                        true,
 	"replies.secretProvideError":                       true,
 	"replies.secretProvidedAtLabel":                    true,
