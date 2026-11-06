@@ -244,10 +244,10 @@ reply-card mechanism instead of waiting for an unattended TUI:
    would later be refused for. `create_reply_card` now requires an explicit `linked_task`,
    and the only party that knows what the question is about is Codex.
 3. That refusal text CARRIES the secret warning. While the warden opened the card it read
-   `question.isSecret` and put "do not paste the secret into the card" into the card body;
-   nothing executes that path any more, so the sentence moved into the refusal. Without it,
-   Codex would open its own card for a credential with nothing telling it not to type the
-   secret into the body.
+   `question.isSecret` and put a warning into the card body; nothing executes that path any
+   more, so the warning moved into the refusal. Without it, Codex would open a card for a
+   credential with nothing telling it to use a `secret` card rather than type the secret
+   into a body.
 4. The sidecar immediately completes the App Server request with that text and instructs the
    active Codex turn to yield. It MUST NOT leave the JSON-RPC request pending, because that
    request belongs to one App Server client connection and would be fragile across

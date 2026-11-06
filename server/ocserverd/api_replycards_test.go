@@ -851,7 +851,7 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a kind outside decision and action answers 400 and opens no card", func(t *testing.T) {
+	t.Run("a kind outside the closed set answers 400 and opens no card", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "mira", "")
 		dashboard := apiTestListen(t, api, "")
