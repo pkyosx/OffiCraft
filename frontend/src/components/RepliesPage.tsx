@@ -452,8 +452,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     if (!card) return;
     landedOnRef.current = replyCardId;
     card.scrollIntoView({ block: "center" });
-    card.focus({ preventScroll: true });
-  }, [replyCardId, waiting, handled, handledOpen]);
+    if (!card.contains(document.activeElement)) card.focus({ preventScroll: true });
+  }, [replyCardId, waiting, handled, handledOpen, lookup.state]);
 
   const loadHandledForPage = useCallback(async () => {
     setHandledLoadError(false);

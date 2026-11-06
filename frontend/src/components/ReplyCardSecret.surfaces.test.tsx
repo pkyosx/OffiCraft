@@ -271,6 +271,30 @@ describe("the replies page's handled pane", () => {
     expect(document.activeElement).toBe(input);
   });
 
+  it("arriving from another page lands on the link's card at once, and only once per link", async () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    __injectMockReplyCard(mkCard());
+    const page = (node: React.ReactNode) => withBystander(<ReplyCardsProvider>{node}</ReplyCardsProvider>);
+    const u = render(page(null));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    u.rerender(page(<RepliesPage replyCardId={CARD_ID} />));
+    const input = (await u.findByTestId("reply-secret-input")) as HTMLTextAreaElement;
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      __injectMockReplyCard(mkCard({ id: "rc-aaaaaaaaaab2" }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(document.activeElement).toBe(input);
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    u.rerender(page(<RepliesPage />));
+    u.rerender(page(<RepliesPage replyCardId={CARD_ID} />));
+    await waitFor(() => expect(scrolled).toHaveBeenCalledTimes(2));
+  });
+
   it("a card opened by its link keeps a half-typed value while it is re-read", async () => {
     __injectMockReplyCard(mkCard());
     const u = mountPage();
