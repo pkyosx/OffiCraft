@@ -1331,7 +1331,7 @@ describe("RepliesPage", () => {
     ).toEqual([
       ["reply-task-no", "task-card__id-badge"],
       ["reply-task-priority", "task-badge task-badge--prio-high"],
-      ["reply-task-due", "task-card__chip task-card__due-date--overdue"],
+      ["reply-task-due", "task-card__chip task-card__due-chip task-card__due-date--overdue"],
     ]);
     expect(over.querySelector('[data-testid="reply-task-no"]')!.textContent).toBe("#T-11");
     expect(over.querySelector('[data-testid="reply-task-priority"]')!.textContent).toBe("高");
@@ -1350,9 +1350,13 @@ describe("RepliesPage", () => {
     expect(head.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     const tone = (id: string) => rowOf(id).querySelector('[data-testid="reply-task-due"]')!.className;
-    expect(tone("rc-own-lead")).toBe("task-card__chip task-card__due-date--soon");
-    expect(tone("rc-short-lead")).toBe("task-card__chip");
-    expect(tone("rc-workspace-lead")).toBe("task-card__chip task-card__due-date--soon");
+    expect(tone("rc-own-lead")).toBe(
+      "task-card__chip task-card__due-chip task-card__due-date--soon"
+    );
+    expect(tone("rc-short-lead")).toBe("task-card__chip task-card__due-chip");
+    expect(tone("rc-workspace-lead")).toBe(
+      "task-card__chip task-card__due-chip task-card__due-date--soon"
+    );
 
     fireEvent.click(over.querySelector('[data-testid="reply-task-jump"]')!);
     expect(window.location.hash).toBe("#tasks/T-11");

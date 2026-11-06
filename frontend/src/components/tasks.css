@@ -886,6 +886,9 @@ button.task-card__prio-chip:hover {
   align-items: center;
   gap: 2px 6px;
 }
+.task-card__due-chip.task-card__due-date--soon {
+  position: relative;
+}
 /* Declared before the tone classes so a due-soon or overdue tone wins. */
 .task-card__due-remaining {
   font-size: 12.5px;
