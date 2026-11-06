@@ -14,6 +14,7 @@ import (
 const (
 	replyCardKindDecision = "decision"
 	replyCardKindAction   = "action"
+	replyCardKindSecret   = "secret"
 
 	replyCardStatusWaiting  = "waiting"
 	replyCardStatusAnswered = "answered"
@@ -191,8 +192,8 @@ func (s *apiServer) openReplyCard(
 	// closed-set check (and select_mode's below) is the only one, and it must
 	// answer 400, not 422 (conformance/test_reply_cards.py pins it).
 	kind := trimString(string(body.Kind))
-	if kind != replyCardKindDecision && kind != replyCardKindAction {
-		return nil, "kind must be 'decision' or 'action'", nil
+	if kind != replyCardKindDecision && kind != replyCardKindAction && kind != replyCardKindSecret {
+		return nil, "kind must be 'decision' or 'action' or 'secret'", nil
 	}
 	summary := trimString(body.Summary)
 	if summary == "" {
@@ -205,8 +206,14 @@ func (s *apiServer) openReplyCard(
 	if selectMode != replyCardSelectModeSingle && selectMode != replyCardSelectModeMulti {
 		return nil, "select_mode must be 'single' or 'multi'", nil
 	}
-	options, problem := validateReplyCardOptions(body.Options, selectMode)
-	if problem != "" {
+	var options []ReplyCardOption
+	var problem string
+	if kind == replyCardKindSecret {
+		if len(body.Options) > 0 {
+			return nil, "a secret card must not carry options", nil
+		}
+		selectMode = replyCardSelectModeSingle
+	} else if options, problem = validateReplyCardOptions(body.Options, selectMode); problem != "" {
 		return nil, problem, nil
 	}
 	var inputs []ChatAttachmentInputDTO
@@ -319,6 +326,14 @@ func (s *apiServer) openReplyCard(
 		NeedsDecision: card.Status == replyCardStatusWaiting,
 	})
 	return &card, "", nil
+}
+
+func (s *apiServer) publishReplyCardToOwnerOnly(c ReplyCard, trigger string) {
+	_, executor, err := s.cardTaskRef(c)
+	if err != nil {
+		taskLog("reply card %s: task executor lookup failed for an owner-only delta: %v", c.ID, err)
+	}
+	s.publishReplyCardTo(c, executor, audienceOwnerOnly(), trigger)
 }
 
 func (s *apiServer) replyCardDTOOf(c ReplyCard) (replyCardDTO, error) {
@@ -569,6 +584,7 @@ func (s *apiServer) replyCardListItemOf(c ReplyCard) (replyCardListItemDTO, erro
 		Summary:   c.Summary,
 		Status:    c.Status,
 		CreatedTS: c.CreatedTS,
+		Secret:    replyCardSecretDTOOf(c),
 	}
 	if c.Status == replyCardStatusExpired {
 		ts := c.ExpiredTS
@@ -812,6 +828,18 @@ func (s *apiServer) settleReplyCard(
 	cardID string, now float64, atts []ChatAttachment,
 	settle func(cur *ReplyCard, getTask func(string) (*Task, error)) error,
 ) (ReplyCard, cardHoldRelease, error) {
+	return s.settleReplyCardOn(cardID, now, atts,
+		func(_ *writeTx, cur *ReplyCard, getTask func(string) (*Task, error)) error {
+			return settle(cur, getTask)
+		})
+}
+
+// settleReplyCardOn is settleReplyCard for a settle that writes more than the
+// card (a secret card's ciphertext), in the same transaction.
+func (s *apiServer) settleReplyCardOn(
+	cardID string, now float64, atts []ChatAttachment,
+	settle func(tx *writeTx, cur *ReplyCard, getTask func(string) (*Task, error)) error,
+) (ReplyCard, cardHoldRelease, error) {
 	var settled ReplyCard
 	var rel cardHoldRelease
 	err := s.dal.inTx(func(tx *writeTx) error {
@@ -823,7 +851,7 @@ func (s *apiServer) settleReplyCard(
 			return refuseInTx(http.StatusNotFound, "reply card '"+cardID+"' not found")
 		}
 		wasWaiting := cur.Status == replyCardStatusWaiting
-		if err := settle(cur, func(id string) (*Task, error) { return getTaskOn(tx, id) }); err != nil {
+		if err := settle(tx, cur, func(id string) (*Task, error) { return getTaskOn(tx, id) }); err != nil {
 			return err
 		}
 		rel = cardHoldRelease{}
@@ -1040,6 +1068,10 @@ func firstAnswerGate(card ReplyCard, getTask func(string) (*Task, error)) error 
 		return refuseInTx(http.StatusConflict,
 			"reply card '"+card.ID+"' is expired — a terminal state; the agent opens a new card if the question still matters")
 	}
+	if card.SecretProvidedTS > 0 {
+		return refuseInTx(http.StatusConflict,
+			"reply card '"+card.ID+"' already holds the value the owner provided — it takes no answer")
+	}
 	if card.Status != replyCardStatusWaiting {
 		return refuseInTx(http.StatusConflict,
 			"reply card '"+card.ID+"' is already answered — revise it via PUT (重新決定)")
@@ -1084,6 +1116,10 @@ func reanswerGate(card ReplyCard, _ func(string) (*Task, error)) error {
 		return refuseInTx(http.StatusConflict,
 			"reply card '"+card.ID+"' is not answered yet — answer it via POST")
 	}
+	if card.SecretProvidedTS > 0 {
+		return refuseInTx(http.StatusConflict,
+			"reply card '"+card.ID+"' holds a value the owner provided — it has no answer to re-decide")
+	}
 	return nil
 }
 
@@ -1117,9 +1153,14 @@ func (s *apiServer) HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.Re
 		return
 	}
 	now := nowSecs()
-	settled, rel, err := s.settleReplyCard(card.ID, now, nil, func(cur *ReplyCard, _ func(string) (*Task, error)) error {
+	retainedDestroyed := false
+	settled, rel, err := s.settleReplyCardOn(card.ID, now, nil, func(tx *writeTx, cur *ReplyCard, _ func(string) (*Task, error)) error {
 		if err := expireGate(*cur); err != nil {
 			return err
+		}
+		if cur.Status != replyCardStatusWaiting {
+			retainedDestroyed = cur.SecretRetrievedTS > 0
+			return destroySecretCardValueOn(tx, cur, now)
 		}
 		cur.Status = replyCardStatusExpired
 		cur.ExpiredTS = now
@@ -1129,17 +1170,23 @@ func (s *apiServer) HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.Re
 		writeTxError(w, err)
 		return
 	}
-	s.publishReplyCard(settled, requestTrigger(r))
-	s.announceCardHoldRelease(rel, requestTrigger(r))
+	if retainedDestroyed {
+		s.publishReplyCardToOwnerOnly(settled, requestTrigger(r))
+	} else {
+		s.publishReplyCard(settled, requestTrigger(r))
+		s.announceCardHoldRelease(rel, requestTrigger(r))
+	}
 	s.writeReplyCardTransitionReceipt(w, settled)
 }
 
+// Past the waiting card, the route also ends a secret card's live value:
+// provided and unretrieved, or inside the retention after its first retrieval.
 func expireGate(card ReplyCard) error {
-	if card.Status != replyCardStatusWaiting {
-		return refuseInTx(http.StatusConflict,
-			"reply card '"+card.ID+"' is already "+card.Status+" — only a waiting card can expire")
+	if card.Status == replyCardStatusWaiting || secretCardValueIsLive(card) {
+		return nil
 	}
-	return nil
+	return refuseInTx(http.StatusConflict,
+		"reply card '"+card.ID+"' is already "+card.Status+" — only a waiting card can expire")
 }
 
 const replyCardSnoozeMaxAheadSecs = 90 * 24 * 60 * 60
@@ -1194,11 +1241,7 @@ func (s *apiServer) HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(w http.Res
 		writeTxError(w, err)
 		return
 	}
-	_, executor, err := s.cardTaskRef(saved)
-	if err != nil {
-		taskLog("reply card %s: task executor lookup failed for the snooze delta: %v", saved.ID, err)
-	}
-	s.publishReplyCardTo(saved, executor, audienceOwnerOnly(), requestTrigger(r))
+	s.publishReplyCardToOwnerOnly(saved, requestTrigger(r))
 	writeJSON(w, http.StatusOK, replyCardSnoozeReceiptDTO{
 		ID:             saved.ID,
 		SnoozedUntilTS: replyCardSnoozedUntil(saved, now),

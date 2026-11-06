@@ -400,6 +400,17 @@ export function EyeIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function EyeOffIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M9.9 5.2A10.4 10.4 0 0 1 12 5c6 0 9.5 7 9.5 7a15.6 15.6 0 0 1-3 3.9" />
+      <path d="M6.5 6.6A15.5 15.5 0 0 0 2.5 12S6 19 12 19a9.9 9.9 0 0 0 5.4-1.6" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+      <path d="M3 3l18 18" />
+    </svg>
+  );
+}
+
 /** Corner-arrows glyph — the 放大閱讀 action on an incoming chat bubble: open
  * this message body in the full-view overlay. Distinct from EyeIcon (預覽 a
  * FILE): nothing is being previewed here, the same text is being re-laid-out

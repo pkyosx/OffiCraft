@@ -902,3 +902,47 @@
   font-size: 12px;
   color: var(--color-danger);
 }
+
+/* A secret card's masked box sits where option chips would be. */
+.reply-secret {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.reply-secret__frame {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+}
+.reply-secret__frame:focus-within {
+  border-color: var(--color-indigo);
+}
+.reply-secret__input {
+  max-height: 132px;
+  padding: 0;
+  padding-right: 30px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.45;
+  resize: none;
+  overflow-y: auto;
+}
+.reply-secret__send {
+  width: 100%;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--color-on-indigo);
+  background: var(--color-indigo);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.reply-secret__send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

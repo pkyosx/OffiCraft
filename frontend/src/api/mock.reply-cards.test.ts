@@ -9,7 +9,7 @@
 //      answered (never reopens, never re-counts) — and a waiting card is 409.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { mockApi, __resetMock, __injectMockReplyCard, __injectMockTask } from "./mock";
+import { mockApi, __resetMock, __injectMockReplyCard, __injectMockTask, __mockRetrieveSecretCard } from "./mock";
 import { ApiError } from "./errors";
 import type { ReplyCard, TaskView } from "./adapter";
 
@@ -352,5 +352,81 @@ describe("mock reply-card api", () => {
       dueTs: 1793375999,
       dueSoonLeadMinutes: 60,
     });
+  });
+});
+
+describe("a secret card in mock mode", () => {
+  const SENTINEL = "dummy-aaaaaaaaaaaa";
+  const secretCard = (over: Partial<ReplyCard> = {}) =>
+    mkCard({
+      id: "rc-s",
+      kind: "secret",
+      options: [],
+      secret: { state: "waiting", providedTs: null, retrievedTs: null, expiresTs: null },
+      ...over,
+    });
+  const statusOf = (e: unknown) => (e as ApiError).status;
+
+  it("a provide answers with an empty answer, stamps the deadline and keeps no value", async () => {
+    __injectMockReplyCard(secretCard());
+    const receipt = await mockApi.provideReplyCardSecret("rc-s", SENTINEL);
+    expect(receipt.status).toBe("answered");
+    expect(receipt.answer).toEqual({ optionIdxs: null, text: "", attachments: [] });
+    const card = await mockApi.getReplyCard("rc-s");
+    expect(card.secret?.state).toBe("provided");
+    expect(card.secret?.expiresTs).toBe((card.secret?.providedTs ?? 0) + 86400);
+    expect(JSON.stringify(card)).not.toContain(SENTINEL);
+    const rows = await mockApi.listReplyCards("answered");
+    expect(rows[0].secret).toEqual(card.secret);
+    expect(JSON.stringify(rows)).not.toContain(SENTINEL);
+  });
+
+  it("refuses like the server: another kind, a settled card, an empty or oversize value", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-plain" }));
+    __injectMockReplyCard(secretCard());
+    await expect(mockApi.provideReplyCardSecret("rc-plain", "x")).rejects.toSatisfy((e) => statusOf(e) === 409);
+    await expect(mockApi.provideReplyCardSecret("rc-s", "")).rejects.toSatisfy((e) => statusOf(e) === 400);
+    await expect(mockApi.provideReplyCardSecret("rc-s", "a".repeat(65537))).rejects.toSatisfy((e) => statusOf(e) === 400);
+    await mockApi.provideReplyCardSecret("rc-s", "a".repeat(65536));
+    await expect(mockApi.provideReplyCardSecret("rc-s", "x")).rejects.toSatisfy((e) => statusOf(e) === 409);
+  });
+
+  it("a typed answer reads as replied, and re-decide works there but not after a provide", async () => {
+    __injectMockReplyCard(secretCard());
+    __injectMockReplyCard(secretCard({ id: "rc-t" }));
+    await mockApi.answerReplyCard("rc-s", { text: "why?", attachments: [] });
+    expect((await mockApi.getReplyCard("rc-s")).secret?.state).toBe("replied");
+    await mockApi.reanswerReplyCard("rc-s", { text: "changed", attachments: [] });
+    await mockApi.provideReplyCardSecret("rc-t", SENTINEL);
+    await expect(
+      mockApi.reanswerReplyCard("rc-t", { text: "changed", attachments: [] }),
+    ).rejects.toSatisfy((e) => statusOf(e) === 409);
+  });
+
+  it("expire follows the server through provided, retrieved, then the existing 409", async () => {
+    __injectMockReplyCard(secretCard());
+    __injectMockReplyCard(secretCard({ id: "rc-t" }));
+    await mockApi.provideReplyCardSecret("rc-s", SENTINEL);
+    const expired = await mockApi.expireReplyCard("rc-s");
+    expect(expired.status).toBe("expired");
+    expect((await mockApi.getReplyCard("rc-s")).secret?.state).toBe("expired");
+    await expect(mockApi.expireReplyCard("rc-s")).rejects.toSatisfy((e) => statusOf(e) === 409);
+
+    await mockApi.provideReplyCardSecret("rc-t", SENTINEL);
+    __mockRetrieveSecretCard("rc-t");
+    const retained = await mockApi.expireReplyCard("rc-t");
+    expect(retained.status).toBe("answered");
+    const card = await mockApi.getReplyCard("rc-t");
+    expect(card.secret?.state).toBe("retrieved");
+    expect(card.secret?.expiresTs).toBeNull();
+    await expect(mockApi.expireReplyCard("rc-t")).rejects.toSatisfy((e) => statusOf(e) === 409);
+  });
+
+  it("retention 0 leaves nothing to delete after the retrieval", async () => {
+    await mockApi.patchServerSettings({ secretCardRetrievedRetentionSecs: 0 });
+    __injectMockReplyCard(secretCard());
+    await mockApi.provideReplyCardSecret("rc-s", SENTINEL);
+    __mockRetrieveSecretCard("rc-s");
+    expect((await mockApi.getReplyCard("rc-s")).secret?.expiresTs).toBeNull();
   });
 });

@@ -2752,7 +2752,7 @@ export interface paths {
         get: operations["handle_list_reply_cards_api_reply_cards_get"];
         put?: never;
         /**
-         * Open a reply card: an ask the owner must answer (at least one option; options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={"task_id": ..., "step_id": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound 請示. To say WHICH task an ask is about without holding any of its steps — the only way open to an agent that is not that task's executor — send linked_task=null with about_task_id: the task keeps running and does NOT wait, and the receipt's hold_note says so in one sentence. Whenever a card names a task (bound or not) that is still open, the task's acting executor receives the card's reply_card events alongside the card's author, so the answer, a re-answer and an expiry reach the executor through the same reply-card notification the author gets. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no 等我回覆 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. With both ids present the bind is still refused, before anything is written, when the task does not exist (404), when you are not the task's acting executor (the predecessor while it holds the task under the reassign hold) and not the owner or an admin agent (403 — the refusal points you at about_task_id), when the task is not in_progress, waiting_owner or waiting_external, for example not_started or ready_for_done (409) — a task whose OTHER step waits on the outside world still takes a card on this step, when the step does not belong to that task (404), and when the step is already done or superseded (409). Optional attachments ride the question, up to a capped count that a refusal names (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (``id``, ``chat_message_id``, ``created_ts``, ``attachments``, ``hold_note``), not the card — call ``get_reply_card`` when you need the rest.
+         * Open a reply card: an ask the owner must answer (at least one option, except kind=secret, which asks for one value only its author can retrieve, must send options=[], and whose body says what is needed, where it goes and why; options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={"task_id": ..., "step_id": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound 請示. To say WHICH task an ask is about without holding any of its steps — the only way open to an agent that is not that task's executor — send linked_task=null with about_task_id: the task keeps running and does NOT wait, and the receipt's hold_note says so in one sentence. Whenever a card names a task (bound or not) that is still open, the task's acting executor receives the card's reply_card events alongside the card's author, so the answer, a re-answer and an expiry reach the executor through the same reply-card notification the author gets. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no 等我回覆 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. With both ids present the bind is still refused, before anything is written, when the task does not exist (404), when you are not the task's acting executor (the predecessor while it holds the task under the reassign hold) and not the owner or an admin agent (403 — the refusal points you at about_task_id), when the task is not in_progress, waiting_owner or waiting_external, for example not_started or ready_for_done (409) — a task whose OTHER step waits on the outside world still takes a card on this step, when the step does not belong to that task (404), and when the step is already done or superseded (409). Optional attachments ride the question, up to a capped count that a refusal names (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (``id``, ``chat_message_id``, ``created_ts``, ``attachments``, ``hold_note``), not the card — call ``get_reply_card`` when you need the rest.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
          *     - `about_task_id`: OPTIONAL — the task this ask is about, WITHOUT holding any of its steps. Valid with linked_task=null; next to a linked_task object it must name the same task (400 otherwise). The task must exist (404) and be open (409). Nothing waits on the card: no step and no task status changes. While the task is open its executor receives the card's reply-card notifications too, and the card expires when the task closes.
@@ -2833,6 +2833,7 @@ export interface paths {
          *     - A card still waiting is a 409 — answer that one with POST.
          *     - Status stays `answered` and the badge is not re-counted, but `answered_ts` re-stamps, so the card re-enters the 24 h recently-answered window.
          *     - Emits a `reply_card` event; the agent holding the stream learns of the revision without polling.
+         *     - On a `secret` card it rewrites a `replied` answer; a card whose value was provided has no answer to rewrite.
          */
         put: operations["handle_reanswer_reply_card_api_reply_cards__card_id__answer_put"];
         /**
@@ -2841,6 +2842,7 @@ export interface paths {
          *     - Send `option_idxs` and/or `text`; empty (including `[]`), out-of-range, or two indices on a `single` card are 400.
          *     - If bound to a step, the first answer frees the step and task back to in_progress.
          *     - Emits a `reply_card` event; a client holding the stream learns of this without polling.
+         *     - On a `secret` card this route answers WITHOUT a value (a question or a refusal), closing the card as `replied`. The value goes only through `POST /api/reply-cards/{card_id}/secret`.
          */
         post: operations["handle_answer_reply_card_api_reply_cards__card_id__answer_post"];
         delete?: never;
@@ -2859,13 +2861,34 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mark a waiting card expired (its author, the owner, or an admin agent; not an answer; terminal).
-         * @description - Marks a WAITING card expired: a terminal exit that is NOT an answer. No undo.
+         * Mark a waiting card expired, or destroy a secret card's ciphertext (its author, the owner, or an admin agent; not an answer; terminal).
+         * @description - Marks a WAITING card, or a `secret` card whose value is provided but not retrieved, expired (the ciphertext is destroyed in the same write). On a `secret` card already retrieved it destroys the ciphertext now and the card stays retrieved; this is how a member ends the retention early. Otherwise: a terminal exit that is NOT an answer. No undo.
          *     - Callers: author, owner, or admin agent. 404 unknown, 403 not yours, 409 settled.
          *     - If bound to a step, expiring releases the wait like an answer: step and task go back to in_progress.
          *     - Emits a `reply_card` event; a client holding the stream learns of this without polling.
          */
         post: operations["handle_expire_reply_card_api_reply_cards__card_id__expire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reply-cards/{card_id}/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Provide the value of a waiting secret card (owner only).
+         * @description - Seals the value (AES-256-GCM, AAD = the card id) and answers the card: its step resumes and its author is told. The value is never echoed, logged, or put in a chat message or event.
+         *     - Owner only; off the MCP surface.
+         */
+        post: operations["handle_provide_reply_card_secret_api_reply_cards__card_id__secret_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3149,9 +3172,10 @@ export interface paths {
         /**
          * Retrieve secret values (CLI only).
          * @description - For `ocagent secret` only, so a value never lands in an MCP tool result.
-         *     - Every AI member may reveal every secret; there are no per-member grants.
-         *     - Every id must be shaped like a secret id (`sec-` + 12 lowercase hex); any other id is 400 before any lookup.
-         *     - All or nothing: when any id is unknown the call is 404 naming those ids and returns no value.
+         *     - Every AI member may reveal every stored secret; there are no per-member grants.
+         *     - An id is a stored secret (`sec-` + 12 lowercase hex) or a `secret` reply card (`rc-` + 12 lowercase hex); any other id is 400 before any lookup.
+         *     - A card id is retrievable only by the card's author, until the retention after its first retrieval (`secret_card_retrieved_retention_secs`) ends. The first retrieval stamps the time; later retrievals in that window do not extend it.
+         *     - All or nothing: when any id is unknown or refused, the call names those ids, returns no value and destroys nothing.
          *     - A successful call sets `last_accessed_ts` on every revealed secret in the same transaction that reads the values. A refused or failed call returns no value and changes no `last_accessed_ts`.
          *     - The value never reaches a log, an event or a chat message.
          *     - Agents and admin agents only (403 for the owner and for machines); off the MCP surface: AI members use secrets only through `ocagent secret`.
@@ -8182,7 +8206,7 @@ export interface components {
         };
         /**
          * ReplyCardCreateDTO
-         * @description Open one reply card (請示): an ask the OWNER must answer before the agent can proceed. ``kind`` is the closed set ``decision`` (needs a call/approval) | ``action`` (needs the owner to DO something first). ``options`` are the quick-reply choices: 1..4 objects ``{"text": ..., "ai_pick": true|false}`` with non-blank ``text``; ``ai_pick`` is what marks the AI's own recommendation — POSITION CARRIES NO MEANING. ``select_mode`` (``single``, the default, or ``multi``) says how many of them the owner may circle; a ``single`` card may mark at most one option ``ai_pick``. A free-typed answer (with attachments) is always allowed on top — options never close that door. Optional ``attachments`` ride the QUESTION side of the card (same input shape + limits as chat attachments: ``{id}`` references a blob already uploaded via ``POST /api/chat/attachments``, or ``data_b64`` carries small bytes inline; blobs land in the shared chat-attachment store). ``linked_task`` is REQUIRED and has no default: every card must SAY whether it is about a task. There is no inference — the server never guesses a binding from what work you hold, because a guess that misses is silent (the card opens with no 等我回覆 hold and the task runs past your question). ``about_task_id`` is the other way to name a task: it says which task the ask is about WITHOUT holding a step, for an agent that is not that task's executor.
+         * @description Open one reply card (請示): an ask the OWNER must answer before the agent can proceed. ``kind`` is the closed set ``decision`` (needs a call/approval) | ``action`` (needs the owner to DO something first) | ``secret`` (asks the owner for one value that only this card's author can retrieve, with ``ocagent secret``; ``options`` must be empty and the body says what is needed, where it goes and why). ``options`` are the quick-reply choices: 1..4 objects ``{"text": ..., "ai_pick": true|false}`` with non-blank ``text``; ``ai_pick`` is what marks the AI's own recommendation — POSITION CARRIES NO MEANING. ``select_mode`` (``single``, the default, or ``multi``) says how many of them the owner may circle; a ``single`` card may mark at most one option ``ai_pick``. A free-typed answer (with attachments) is always allowed on top — options never close that door. Optional ``attachments`` ride the QUESTION side of the card (same input shape + limits as chat attachments: ``{id}`` references a blob already uploaded via ``POST /api/chat/attachments``, or ``data_b64`` carries small bytes inline; blobs land in the shared chat-attachment store). ``linked_task`` is REQUIRED and has no default: every card must SAY whether it is about a task. There is no inference — the server never guesses a binding from what work you hold, because a guess that misses is silent (the card opens with no 等我回覆 hold and the task runs past your question). ``about_task_id`` is the other way to name a task: it says which task the ask is about WITHOUT holding a step, for an agent that is not that task's executor.
          */
         ReplyCardCreateDTO: {
             /**
@@ -8201,7 +8225,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "decision" | "action";
+            kind: "decision" | "action" | "secret";
             /**
              * Linked Task
              * @description REQUIRED — declare, do not leave it to be inferred. Send ``null`` when the ask is NOT about a task (a plain unbound 請示), or ``{"task_id": ..., "step_id": ...}`` to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. BOTH ids are required in the object form; a task_id with no step_id is a 400, because binding a task without a step places no 等我回覆 hold — the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting the field entirely is a 400 that names both legal shapes: silence used to mean 'the server guesses', and a guess that missed sent a hold-less card with no error at all.
@@ -8285,6 +8309,8 @@ export interface components {
             kind: string;
             /** Options */
             options?: components["schemas"]["ReplyCardOptionDTO"][];
+            /** @description Present only on a ``secret`` card. */
+            secret?: components["schemas"]["ReplyCardSecretDTO"] | null;
             /**
              * Select Mode
              * @description How many options the owner may circle: ``single`` (the default — at most one, and at most one option may carry ``ai_pick``) or ``multi`` (any number). It is a SEPARATE axis from ``kind``: ``kind`` says what the owner must DO (decide / act), ``select_mode`` says how many choices the answer may carry.
@@ -8344,6 +8370,8 @@ export interface components {
             id: string;
             /** Kind */
             kind: string;
+            /** @description Present only on a ``secret`` card. */
+            secret?: components["schemas"]["ReplyCardSecretDTO"] | null;
             /**
              * Snoozed Until Ts
              * @description Epoch seconds until which the owner has put this waiting card aside (稍後再看). Non-null only while the card is ``waiting`` and that time is still ahead when the response is built; ``null`` on a card that was never snoozed, whose snooze has passed, or that is answered or expired. A snoozed card is still waiting: it stays in ``?status=waiting`` and can be answered or expired as usual, but ``GET /api/reply-cards/count`` leaves it out of ``waiting`` until the time passes. Set by the owner only (``PUT /api/reply-cards/{card_id}/snooze``); it changes nothing on the card's task or step.
@@ -8421,6 +8449,34 @@ export interface components {
              * @default
              */
             task_id: string;
+        };
+        /**
+         * ReplyCardSecretDTO
+         * @description Where a ``secret`` card's value stands. Never carries the value. ``state``: ``waiting`` (not provided yet), ``provided`` (sealed on the server, not retrieved yet), ``retrieved`` (the author took it; it stays retrievable by the author until ``expires_ts``, then the ciphertext is gone), ``replied`` (the owner answered with a question, a refusal or anything else instead of a value; the card's answer carries it and no value can be provided on this card any more), ``expired`` (closed without a retrieval; the ciphertext, if any, is gone).
+         */
+        ReplyCardSecretDTO: {
+            /**
+             * Expires Ts
+             * @description When the ciphertext is destroyed; null when there is none. Fixed when the value is provided and again at the first retrieval, so a settings change only affects later events.
+             */
+            expires_ts?: number | null;
+            /** Provided Ts */
+            provided_ts?: number | null;
+            /** Retrieved Ts */
+            retrieved_ts?: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "waiting" | "provided" | "retrieved" | "replied" | "expired";
+        };
+        /**
+         * ReplyCardSecretProvideDTO
+         * @description The value the owner provides on a ``secret`` card.
+         */
+        ReplyCardSecretProvideDTO: {
+            /** Value */
+            value: string;
         };
         /**
          * ReplyCardSnoozeReceiptDTO
@@ -10078,6 +10134,18 @@ export interface components {
              */
             lore_cap_chars_body: number;
             /**
+             * Secret Card Retrieved Retention Secs
+             * @description Seconds a `secret` card's value stays retrievable by its author after the first retrieval. 0 destroys it at the first retrieval. A change applies to retrievals made afterwards.
+             * @default 600
+             */
+            secret_card_retrieved_retention_secs: number;
+            /**
+             * Secret Card Unretrieved Ttl Secs
+             * @description Seconds after the owner provides a `secret` card's value before an unretrieved value is destroyed and the card expires. A change applies to values provided afterwards.
+             * @default 86400
+             */
+            secret_card_unretrieved_ttl_secs: number;
+            /**
              * Suggested Replies Chat
              * @description The one-click 建議回覆 offered under every member's chat box, after that member's own sentences; a sentence in both is shown once. A FOURTH separate list. [] (the default) means this list adds no chips.
              */
@@ -10311,6 +10379,16 @@ export interface components {
              * @description The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
              */
             lore_cap_chars_body?: number | null;
+            /**
+             * Secret Card Retrieved Retention Secs
+             * @description Seconds a `secret` card's value stays retrievable by its author after the first retrieval. 0 destroys it at the first retrieval. A change applies to retrievals made afterwards.
+             */
+            secret_card_retrieved_retention_secs?: number | null;
+            /**
+             * Secret Card Unretrieved Ttl Secs
+             * @description Seconds after the owner provides a `secret` card's value before an unretrieved value is destroyed and the card expires. A change applies to values provided afterwards.
+             */
+            secret_card_unretrieved_ttl_secs?: number | null;
             /**
              * Suggested Replies Chat
              * @description Replace the chat 建議回覆 list that applies to every member, wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED. To clear it, send [].
@@ -18864,6 +18942,59 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplyCardReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_provide_reply_card_secret_api_reply_cards__card_id__secret_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplyCardSecretProvideDTO"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

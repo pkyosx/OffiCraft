@@ -121,3 +121,14 @@ describe("toReplyCardSnoozeReceipt", () => {
     });
   });
 });
+
+describe("the secret block", () => {
+  const block = { state: "retrieved", provided_ts: 10, retrieved_ts: 20, expires_ts: null } as const;
+
+  it("maps on a row and on a card, and is absent elsewhere", () => {
+    const want = { state: "retrieved", providedTs: 10, retrievedTs: 20, expiresTs: null };
+    expect(toReplyCardRow(wireRow({ secret: block })).secret).toEqual(want);
+    expect(toReplyCard({ ...wireRow({}), options: [], attachments: [], select_mode: "single", secret: block } as unknown as WireReplyCard).secret).toEqual(want);
+    expect(toReplyCardRow(wireRow({})).secret).toBeUndefined();
+  });
+});

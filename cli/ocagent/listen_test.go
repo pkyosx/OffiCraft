@@ -1287,6 +1287,28 @@ func TestHandleReplyCard(t *testing.T) {
 		}
 	})
 
+	t.Run("a provided secret card reads the state off the fetched card", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/reply-cards/rc-1": `{"id":"rc-1","from":"m-1","kind":"secret","status":"answered",` +
+				`"answered_ts":1700,"summary":"the deploy key","options":[],` +
+				`"answer":{"option_idxs":null,"text":"","attachments":[]},` +
+				`"secret":{"state":"provided","provided_ts":1700,"retrieved_ts":null,"expires_ts":1800}}`,
+		})
+		var out bytes.Buffer
+		seen := newSeen(t)
+
+		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, "owner", &out)
+
+		want := "[ocagent] reply-card rc-1: the owner provided the secret for card rc-1, " +
+			"retrievable with `ocagent secret run` or `ocagent secret write` | asked: the deploy key · by owner\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+		if !seen.has("rc-1", 1700) {
+			t.Error("the line was printed but not recorded")
+		}
+	})
+
 	t.Run("the same answer never prints twice", func(t *testing.T) {
 		client := newRoutedHTTP(map[string]string{
 			"/api/reply-cards/rc-1": `{"id":"rc-1","from":"m-1","status":"answered",` +
@@ -1473,6 +1495,63 @@ func TestPrintReplyCardAnswered(t *testing.T) {
 		want := "[ocagent] reply-card rc-1 answered: \"改\" | asked: 要不要改 schema?\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+}
+
+func TestPrintReplyCardAnsweredSecretCard(t *testing.T) {
+	card := func(state string, answer map[string]any) map[string]any {
+		return map[string]any{
+			"kind": "secret", "summary": "the deploy key", "answer": answer,
+			"secret": map[string]any{"state": state},
+		}
+	}
+	empty := map[string]any{"text": "", "attachments": []any{}}
+
+	for _, state := range []string{"provided", "retrieved"} {
+		t.Run("a "+state+" card says where the value is, not UNREADABLE ANSWER", func(t *testing.T) {
+			var out bytes.Buffer
+			printReplyCardAnswered(&out, "rc-1", card(state, empty), "", "owner")
+			want := "[ocagent] reply-card rc-1: the owner provided the secret for card rc-1, " +
+				"retrievable with `ocagent secret run` or `ocagent secret write` | asked: the deploy key · by owner\n"
+			if out.String() != want {
+				t.Errorf("printed %q, want %q", out.String(), want)
+			}
+		})
+	}
+
+	t.Run("the task's executor is told it is the author's to retrieve", func(t *testing.T) {
+		var out bytes.Buffer
+		printReplyCardAnswered(&out, "rc-1", card("provided", empty), " | opened by mira about your task T-1", "")
+		want := "[ocagent] reply-card rc-1: the owner provided the secret for card rc-1, only its author can retrieve it" +
+			" | asked: the deploy key | opened by mira about your task T-1\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("a replied card takes the normal answered line", func(t *testing.T) {
+		var out bytes.Buffer
+		printReplyCardAnswered(&out, "rc-1", card("replied", map[string]any{"text": "哪個環境?"}), "", "owner")
+		want := "[ocagent] reply-card rc-1 answered: \"哪個環境?\" | asked: the deploy key · by owner\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("an expired card takes the normal expiry line, after the provided line was already seen", func(t *testing.T) {
+		var out bytes.Buffer
+		printReplyCardExpired(&out, "rc-1", map[string]any{"kind": "secret", "summary": "the deploy key", "secret": map[string]any{"state": "expired"}}, "", "")
+		if !strings.HasPrefix(out.String(), "[ocagent] reply-card rc-1 EXPIRED (no answer) | asked: the deploy key") {
+			t.Errorf("printed %q", out.String())
+		}
+	})
+
+	t.Run("an empty answer on any other kind is still UNREADABLE ANSWER", func(t *testing.T) {
+		var out bytes.Buffer
+		printReplyCardAnswered(&out, "rc-1", map[string]any{"kind": "decision", "summary": "s", "answer": empty}, "", "")
+		if !strings.Contains(out.String(), "UNREADABLE ANSWER") {
+			t.Errorf("printed %q", out.String())
 		}
 	})
 }

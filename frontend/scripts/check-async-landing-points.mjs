@@ -210,9 +210,9 @@ const REGISTRY = [
   {
     file: "components/ChatReplyCard.tsx",
     kind: "await",
-    count: 5,
+    count: 8,
     verdict:
-      "refetch / doAnswer / doReanswer / doExpire; local writes die with the keyed row on room switch",
+      "refetch / doAnswer / doReanswer / doExpire / doProvideSecret and the re-read after it; local writes die with the keyed row on room switch",
   },
   {
     file: "components/ChatReplyCard.tsx",
@@ -229,8 +229,8 @@ const REGISTRY = [
   {
     file: "components/ReplyCardBody.tsx",
     kind: "await",
-    count: 2,
-    verdict: "answer submit; keyed row / keyed card",
+    count: 3,
+    verdict: "answer submit, secret send; keyed row / keyed card",
   },
   {
     file: "components/ReplyComposer.tsx",

@@ -1143,6 +1143,12 @@ MATRIX: dict[str, Route] = {
         ),
         body={"text": "conf matrix revised answer"},
     ),
+    "POST /api/reply-cards/{card_id}/secret": Route(
+        requires="owner",
+        path="/api/reply-cards/rc-000000000000/secret",
+        body={"value": "dummy-aaaaaaaaaaaa"},
+        overrides={"owner": 404},
+    ),
     "PUT /api/reply-cards/{card_id}/snooze": Route(
         # null: an unsnooze is valid on any waiting card and needs no clock.
         requires="owner",
@@ -2129,6 +2135,11 @@ DEGRADED: dict[str, str] = {
         "owner face probed with an unknown secret id (404); the delete round-trip "
         "is pinned in test_rest_happy.py and "
         "the server unit tests (api_secrets_test.go)."
+    ),
+    "POST /api/reply-cards/{card_id}/secret": (
+        "owner face probed with an unknown card (404); the provide, its refusals "
+        "and what it never echoes are pinned in test_reply_cards.py and the "
+        "server unit tests (api_replycards_secret_test.go)."
     ),
     "POST /api/self/secrets/reveal": (
         "every AI face asks for an unknown id (404, all or nothing); revealing a "

@@ -1753,6 +1753,16 @@ export const httpApi: Api = {
     return toReplyCardWriteReceipt(wire);
   },
 
+  async provideReplyCardSecret(id: string, value: string): Promise<ReplyCardWriteReceipt> {
+    const wire = unwrap(
+      await client.POST("/api/reply-cards/{card_id}/secret", {
+        params: { path: { card_id: id } },
+        body: { value },
+      }),
+    );
+    return toReplyCardWriteReceipt(wire);
+  },
+
   async snoozeReplyCard(
     id: string,
     untilTs: number | null,
@@ -2731,6 +2741,8 @@ export const httpApi: Api = {
       doc_cap_chars_offboard?: number;
       chat_budget_chars?: number;
       step_note_cap_chars?: number;
+      secret_card_unretrieved_ttl_secs?: number;
+      secret_card_retrieved_retention_secs?: number;
       lore_cap_chars_role?: number;
       lore_cap_chars_manual?: number;
       lore_cap_chars_title?: number;
@@ -2803,6 +2815,12 @@ export const httpApi: Api = {
     }
     if (patch.stepNoteCapChars !== undefined) {
       body.step_note_cap_chars = patch.stepNoteCapChars;
+    }
+    if (patch.secretCardUnretrievedTtlSecs !== undefined) {
+      body.secret_card_unretrieved_ttl_secs = patch.secretCardUnretrievedTtlSecs;
+    }
+    if (patch.secretCardRetrievedRetentionSecs !== undefined) {
+      body.secret_card_retrieved_retention_secs = patch.secretCardRetrievedRetentionSecs;
     }
     if (patch.loreCapCharsRole !== undefined) {
       body.lore_cap_chars_role = patch.loreCapCharsRole;

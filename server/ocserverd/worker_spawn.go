@@ -1311,4 +1311,5 @@ func (s *apiServer) dismissOutsourceWorkerByID(workerID string, now float64, tri
 	if _, err := s.expireWaitingCardsByAuthor(workerID, now, trigger); err != nil {
 		outsourceLog("dismiss worker %s: card sweep failed: %v", workerID, err)
 	}
+	s.sweepSecretCardsBestEffort(trigger)
 }

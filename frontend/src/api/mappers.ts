@@ -10,6 +10,10 @@ import type { components } from "./generated/schema";
 import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
 import { STEP_NOTE_CAP_CHARS_DEFAULT } from "./stepNoteCap";
+import {
+  SECRET_CARD_RETRIEVED_RETENTION_SECS_DEFAULT,
+  SECRET_CARD_UNRETRIEVED_TTL_SECS_DEFAULT,
+} from "./secretCardSettings";
 import { LORE_CAP_CHARS_DEFAULTS } from "./loreCap";
 import { isLoreType } from "./loreType";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
@@ -138,6 +142,7 @@ import type {
   GalleryAttachment,
   ReplyCard,
   ReplyCardRow,
+  ReplyCardSecretView,
   ReplyCardWriteReceipt,
   ReplyCardOption,
   ReplyCardCounts,
@@ -566,6 +571,16 @@ export function toReplyCardSnoozeReceipt(
   return { id: w.id, snoozedUntilTs: w.snoozed_until_ts ?? null };
 }
 
+function toReplyCardSecret(w: WireReplyCardRow["secret"]): ReplyCardSecretView | undefined {
+  if (!w) return undefined;
+  return {
+    state: w.state,
+    providedTs: w.provided_ts ?? null,
+    retrievedTs: w.retrieved_ts ?? null,
+    expiresTs: w.expires_ts ?? null,
+  };
+}
+
 /** Map one wire LIGHT list row → the view-model `ReplyCardRow`. It maps only
  * what the pane draws collapsed (title, who asked, status + its stamps, the
  * task ref); the answered row's decision digest is deliberately dropped —
@@ -586,6 +601,7 @@ export function toReplyCardRow(w: WireReplyCardRow): ReplyCardRow {
     expiredTs: w.expired_ts,
     task: w.task ? toTaskRef(w.task) : null,
     snoozedUntilTs: w.snoozed_until_ts ?? null,
+    secret: toReplyCardSecret(w.secret),
   };
 }
 
@@ -613,6 +629,7 @@ export function toReplyCard(w: WireReplyCard): ReplyCard {
     expiredTs: w.expired_ts,
     chatMessageId: w.chat_message_id,
     snoozedUntilTs: w.snoozed_until_ts ?? null,
+    secret: toReplyCardSecret(w.secret),
     // The task the ask was armed from (SPEC §3.6 請示 → 任務): the honest null
     // for a pure chat ask — the UI then shows no task info and no jump.
     task: w.task ? toTaskRef(w.task) : null,
@@ -1422,6 +1439,10 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // against a server too old to send the field, 0 would read as "no note may
     // be written at all", which is the one answer that is never right.
     stepNoteCapChars: w.step_note_cap_chars ?? STEP_NOTE_CAP_CHARS_DEFAULT,
+    secretCardUnretrievedTtlSecs:
+      w.secret_card_unretrieved_ttl_secs ?? SECRET_CARD_UNRETRIEVED_TTL_SECS_DEFAULT,
+    secretCardRetrievedRetentionSecs:
+      w.secret_card_retrieved_retention_secs ?? SECRET_CARD_RETRIEVED_RETENTION_SECS_DEFAULT,
     // T-33 傳承 knobs. Same "?? the shipped default, never 0" reasoning: against
     // a server too old to send these, 0 on a fold budget reads as "carry no
     // 傳承 at all" and 0 on an entry bound as "refuse every write" — in both

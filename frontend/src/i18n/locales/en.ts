@@ -210,6 +210,8 @@ export const en: Dict = {
     editTitle: "Edit secret",
     nameLabel: "Name",
     valueLabel: "Value",
+    showValue: "Show value",
+    hideValue: "Hide value",
     noteLabel: "Note",
     notePlaceholder: "What the AI should know when using it (optional)",
     valueKeepPlaceholder: "Leave blank to keep the current value",
@@ -649,6 +651,14 @@ export const en: Dict = {
     expiredTag: "Expired",
     expiredNote:
       "Expired without an answer; the member will re-ask if it still matters",
+    secretInputLabel: "What to hand to the member",
+    secretPlaceholder: "Paste the secret",
+    secretSend: "Send secret",
+    secretProvideError: "Sending failed. What you entered is still in the box; please send it again.",
+    secretProvidedTag: "Provided",
+    secretRetrievedTag: "Retrieved",
+    secretExpiredTag: "No longer valid",
+    secretExpiredNote: "There is nothing to retrieve; the member opens a new card if it is still needed",
     aiPick: "AI pick",
     // The line above the options: what KIND of card this is and, more
     // importantly, what a click DOES. A single-select click answers the card on
@@ -2666,6 +2676,15 @@ export const en: Dict = {
     loreCapBody: "Lore body size cap",
     loreCapBodySub:
       "The longest body one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; stored entries are untouched.",
+    secretCardDurationUnit: "unit",
+    secretCardUnretrievedTtl: "Secret card: time to retrieve",
+    secretCardUnretrievedTtlSub:
+      "How long after you provide a value it waits for the member to retrieve it before it is deleted and the card lapses (1 minute to 30 days). Only affects values provided later.",
+    secretCardUnretrievedTtlRange: "Time to retrieve must be a whole number between 1 minute and 30 days",
+    secretCardRetention: "Secret card: kept after retrieval",
+    secretCardRetentionSub:
+      "How long a value stays after the member first retrieves it (0 seconds to 1 day). The member may retrieve it again until then; 0 deletes it at the first retrieval. Only affects later retrievals.",
+    secretCardRetentionRange: "Kept after retrieval must be a whole number between 0 seconds and 1 day",
     stepNoteCap: "Task step note size cap",
     stepNoteCapSub:
       "How many characters one task step's note may hold. It can be lowered as well as raised, and lowering it loses nothing already written.",

@@ -1186,7 +1186,7 @@
     {
       "id": "ocagent-secret-run-hop",
       "source": "cli/ocagent/secret.go",
-      "callsite": "return cmdSecretRun(defaultHTTPClient(), cfg, envs, fs.Args(), os.Environ(), in, out, errOut)",
+      "callsite": "return runSecretCommand(defaultHTTPClient(), cfg, envs, *stdinJSON, fs.Args(), os.Environ(), in, out, errOut)",
       "kind": "seam",
       "seam_reason": "Dispatch into `secret run`, whose one request is ocagent-secret-reveal."
     },

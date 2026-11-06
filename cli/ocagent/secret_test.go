@@ -52,6 +52,36 @@ func TestCmdSecret(t *testing.T) {
 		}
 	})
 
+	t.Run("help explains cards, retention and the argv rule", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		cmdSecret([]string{"--help"}, secretCfg, nil, &out, &errOut)
+		for _, want := range []string{"rc-", "retention", "Never put one on a command line"} {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("secret --help lacks %q:\n%s", want, out.String())
+			}
+		}
+	})
+
+	t.Run("show takes stored secrets only and says what to do with a card id", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		rc := cmdSecret([]string{"show", "rc-00000000000a"}, secretCfg, nil, &out, &errOut)
+		want := "[ocagent] secret show: \"rc-00000000000a\" is a reply card, and show only reads stored secrets; " +
+			"read the card with get_reply_card and retrieve its value with `ocagent secret run` or `write`\n"
+		if rc != 2 || errOut.String() != want {
+			t.Fatalf("got (%d, %q), want (2, %q)", rc, errOut.String(), want)
+		}
+	})
+
+	t.Run("run and write refuse an id of neither shape", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		if rc := cmdSecret([]string{"write", "rc-ABC", "--file", "x"}, secretCfg, nil, &out, &errOut); rc != 2 {
+			t.Fatalf("write rc = %d, want 2 (%q)", rc, errOut.String())
+		}
+		if _, _, err := parseEnvBindings([]string{"A=rc-ABC"}); err == nil {
+			t.Fatal("run accepted a malformed card id")
+		}
+	})
+
 	t.Run("each subcommand's --help prints its own usage", func(t *testing.T) {
 		for _, sub := range []string{"list", "show", "run", "write"} {
 			var out, errOut bytes.Buffer
@@ -185,7 +215,7 @@ func TestCmdSecretRun(t *testing.T) {
 	run := func(t *testing.T, reply *cannedHTTP, envs []string, script string) (int, string, string) {
 		t.Helper()
 		var out, errOut bytes.Buffer
-		rc := cmdSecretRun(reply, secretCfg, envs, []string{"sh", "-c", script}, []string{"PATH=" + os.Getenv("PATH")}, nil, &out, &errOut)
+		rc := runSecretCommand(reply, secretCfg, envs, "", []string{"sh", "-c", script}, []string{"PATH=" + os.Getenv("PATH")}, nil, &out, &errOut)
 		return rc, out.String(), errOut.String()
 	}
 
@@ -252,12 +282,181 @@ func TestCmdSecretRun(t *testing.T) {
 		}
 	})
 
+	t.Run("a card id works like a secret id", func(t *testing.T) {
+		client := canned(200, revealBody("rc-00000000000a", fakeValue1))
+		rc, out, errOut := run(t, client, []string{"A=rc-00000000000a"}, `printf '%s\n' "$A"`)
+		if rc != 0 || out != "***\n" {
+			t.Fatalf("got (%d, %q, %q), want (0, masked value)", rc, out, errOut)
+		}
+		if len(client.sent) != 1 || !strings.Contains(string(client.sent[0].body), `"ids":["rc-00000000000a"]`) {
+			t.Fatalf("reveal sent %+v", client.sent)
+		}
+	})
+
+	t.Run("a command that cannot be found fails before any reveal, so no value is spent", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		client := canned(200, revealBody("rc-00000000000a", fakeValue1))
+		rc := runSecretCommand(client, secretCfg, []string{"A=rc-00000000000a"}, "",
+			[]string{"oc-no-such-command-anywhere"}, []string{"PATH=" + os.Getenv("PATH")}, nil, &out, &errOut)
+		if rc != 1 || len(client.sent) != 0 {
+			t.Fatalf("got (%d, sent %v), want (1, nothing sent)", rc, client.sent)
+		}
+		if !strings.Contains(errOut.String(), "[ocagent] secret run: cannot start oc-no-such-command-anywhere") {
+			t.Fatalf("stderr = %q", errOut.String())
+		}
+	})
+
+	t.Run("a 409 exits 7 with the station's message and runs nothing", func(t *testing.T) {
+		client := canned(409, `{"error":{"code":"conflict","message":"no retrievable value on secret card(s): rc-00000000000a"}}`)
+		rc, out, errOut := run(t, client, []string{"A=rc-00000000000a"}, `echo ran`)
+		if rc != 7 || out != "" {
+			t.Fatalf("got (%d, %q), want (7, nothing run)", rc, out)
+		}
+		if want := "[ocagent] secret run: refused (HTTP 409): no retrievable value on secret card(s): rc-00000000000a\n"; errOut != want {
+			t.Fatalf("stderr = %q, want %q", errOut, want)
+		}
+	})
+
 	t.Run("no command is a usage error and reveals nothing", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, revealBody("sec-00000000000a", fakeValue1))
-		rc := cmdSecretRun(client, secretCfg, []string{"A=sec-00000000000a"}, nil, nil, nil, &out, &errOut)
+		rc := runSecretCommand(client, secretCfg, []string{"A=sec-00000000000a"}, "", nil, nil, nil, &out, &errOut)
 		if rc != 2 || len(client.sent) != 0 {
 			t.Fatalf("got (%d, sent %v), want (2, nothing sent)", rc, client.sent)
+		}
+	})
+}
+
+func TestRunSecretCommandStdinJSON(t *testing.T) {
+	const raw = `dummy "q" \b
+line2-aaaaaaaa`
+	const encoded = `"dummy \"q\" \\b\nline2-aaaaaaaa"`
+	reveal := func(id string) *cannedHTTP {
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{{"id": id, "value": raw}}})
+		return canned(200, string(body))
+	}
+	run := func(client httpClient, envs []string, id string, script string) (int, string, string) {
+		var out, errOut bytes.Buffer
+		rc := runSecretCommand(client, secretCfg, envs, id, []string{"sh", "-c", script},
+			[]string{"PATH=" + os.Getenv("PATH")}, nil, &out, &errOut)
+		return rc, out.String(), errOut.String()
+	}
+
+	t.Run("the command reads the value on stdin as a JSON string", func(t *testing.T) {
+		dir := t.TempDir()
+		file := filepath.Join(dir, "in.json")
+		client := reveal("rc-00000000000a")
+		rc, out, errOut := run(client, nil, "rc-00000000000a", "cat > "+file)
+		if rc != 0 || out != "" || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+		if len(client.sent) != 1 || client.sent[0].body != `{"ids":["rc-00000000000a"]}` {
+			t.Fatalf("reveal requests = %+v", client.sent)
+		}
+		got, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != encoded {
+			t.Fatalf("stdin = %q, want %q", got, encoded)
+		}
+	})
+
+	t.Run("a command echoing its stdin shows the mask", func(t *testing.T) {
+		rc, out, errOut := run(reveal("rc-00000000000a"), nil, "rc-00000000000a", "cat")
+		if rc != 0 || out != "***" || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+	})
+
+	t.Run("a value needing HTML or non-ASCII escapes reaches stdin unescaped", func(t *testing.T) {
+		const value = "a<b&c>-dummy\n密碼😀"
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{{"id": "rc-00000000000a", "value": value}}})
+		file := filepath.Join(t.TempDir(), "in.json")
+		rc, out, errOut := run(canned(200, string(body)), nil, "rc-00000000000a", "cat > "+file)
+		if rc != 0 || out != "" || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+		got, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := `"a<b&c>-dummy\n密碼😀"`; string(got) != want {
+			t.Fatalf("stdin = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a command re-encoding the value with its own JSON library shows the mask", func(t *testing.T) {
+		const value = "a<b&c>-dummy\n密碼😀"
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{{"id": "rc-00000000000a", "value": value}}})
+		for _, printed := range []struct{ name, text string }{
+			{"as read from stdin", `"a<b&c>-dummy\n密碼😀"`},
+			{"as read from stdin, unquoted", `a<b&c>-dummy\n密碼😀`},
+			{"HTML-escaped like Go", `"a\u003cb\u0026c\u003e-dummy\n密碼😀"`},
+			{"HTML-escaped like Go, unquoted", `a\u003cb\u0026c\u003e-dummy\n密碼😀`},
+			{"ASCII-only like Python", `"a<b&c>-dummy\n\u5bc6\u78bc\ud83d\ude00"`},
+			{"ASCII-only like Python, unquoted", `a<b&c>-dummy\n\u5bc6\u78bc\ud83d\ude00`},
+		} {
+			t.Run(printed.name, func(t *testing.T) {
+				rc, out, errOut := run(canned(200, string(body)), nil, "rc-00000000000a", "printf '%s' '"+printed.text+"'")
+				if rc != 0 || out != "***" || errOut != "" {
+					t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+				}
+			})
+		}
+	})
+
+	t.Run("a command stripping a key before re-encoding it shows the mask", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{{"id": "rc-00000000000a", "value": "-----BEGIN dummy-----\naaaaaaaa\n"}}})
+		rc, out, errOut := run(canned(200, string(body)), nil, "rc-00000000000a", `printf '%s' '"-----BEGIN dummy-----\naaaaaaaa"'`)
+		if rc != 0 || out != "***" || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+	})
+
+	t.Run("a value with surrounding whitespace reaches stdin as is, and its re-encoded form shows the mask", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{{"id": "rc-00000000000a", "value": " dummy-aaaaaaaa\n"}}})
+		file := filepath.Join(t.TempDir(), "in.json")
+		rc, out, errOut := run(canned(200, string(body)), nil, "rc-00000000000a", "cat > "+file)
+		if rc != 0 || out != "" || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+		got, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := `" dummy-aaaaaaaa\n"`; string(got) != want {
+			t.Fatalf("stdin = %q, want %q", got, want)
+		}
+		rc, out, errOut = run(canned(200, string(body)), nil, "rc-00000000000a", `printf '%s' '" dummy-aaaaaaaa\n"'`)
+		if rc != 0 || out != "***" || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+	})
+
+	t.Run("a whitespace-only value leaves empty strings in the output alone", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{{"id": "rc-00000000000a", "value": "  "}}})
+		rc, out, errOut := run(canned(200, string(body)), nil, "rc-00000000000a", `printf '%s' '{"a":"","b":"ok"}'`)
+		if rc != 0 || out != `{"a":"","b":"ok"}` || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+	})
+
+	t.Run("a malformed id fetches nothing", func(t *testing.T) {
+		client := reveal("rc-00000000000a")
+		rc, out, errOut := run(client, nil, "not-an-id", "true")
+		want := "[ocagent] secret run: --stdin-json \"not-an-id\" is not a secret id (sec- or rc- followed by 12 lowercase hex digits)\n"
+		if rc != 2 || out != "" || errOut != want || len(client.sent) != 0 {
+			t.Fatalf("rc=%d out=%q err=%q calls=%d", rc, out, errOut, len(client.sent))
+		}
+	})
+
+	t.Run("neither flag is a usage error", func(t *testing.T) {
+		client := reveal("rc-00000000000a")
+		rc, _, errOut := run(client, nil, "", "true")
+		want := "[ocagent] secret run: at least one --env VAR=<ID> or --stdin-json <ID> is required\n"
+		if rc != 2 || errOut != want || len(client.sent) != 0 {
+			t.Fatalf("rc=%d err=%q calls=%d", rc, errOut, len(client.sent))
 		}
 	})
 }
@@ -291,6 +490,52 @@ func TestMaskWriter(t *testing.T) {
 			chunks = append(chunks, text[i:i+1])
 		}
 		if got := writeChunks([]string{fakeValue1, fakeValue2}, chunks...); got != "******x***" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("a line of a multi-line value printed alone is masked, whatever its length", func(t *testing.T) {
+		value := []string{"-----BEGIN KEY-----\r\naaaaaaaaaaaa\n\n   \nab=\n12\n密語\n"}
+		for in, want := range map[string]string{
+			"head: -----BEGIN KEY-----\n": "head: ***\n",
+			"body aaaaaaaaaaaa end":       "body *** end",
+			"tail ab= end":                "tail *** end",
+			"code 12 end":                 "code *** end",
+			"pass 密語 end":                 "pass *** end",
+		} {
+			if got := writeChunks(value, in); got != want {
+				t.Fatalf("output for %q = %q, want %q", in, got, want)
+			}
+		}
+	})
+
+	t.Run("lines of a multi-line value with no letter or digit leave the output alone", func(t *testing.T) {
+		text := "a b\n\nc   d {\"ok\":true},\n-----\n"
+		value := []string{"{\n  \"k\": \"aaaaaaaaaaaa\",\n\n   \n-----\n},\nbbbbbbbbbbbb\n}"}
+		if got := writeChunks(value, text); got != text {
+			t.Fatalf("got %q", got)
+		}
+		if got := writeChunks(value, `x "k": "aaaaaaaaaaaa", y`); got != "x *** y" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("a two-line value masks each line, split across writes too", func(t *testing.T) {
+		value := []string{"aaaaaaaaaaaa\nbbbbbbbbbbbb"}
+		if got := writeChunks(value, "x aaaaaaaaaaaa y"); got != "x *** y" {
+			t.Fatalf("got %q", got)
+		}
+		// The second line, because the first is also the head of the whole value.
+		text := "x bbbbbbbbbbbb y"
+		for i := 1; i < len(text); i++ {
+			if got := writeChunks(value, text[:i], text[i:]); got != "x *** y" {
+				t.Fatalf("split at %d: got %q", i, got)
+			}
+		}
+	})
+
+	t.Run("a single-line value is masked only whole", func(t *testing.T) {
+		if got := writeChunks([]string{"aaaa bbbb"}, "aaaa and bbbb and aaaa bbbb"); got != "aaaa and bbbb and ***" {
 			t.Fatalf("got %q", got)
 		}
 	})
@@ -391,6 +636,53 @@ func TestCmdSecretWrite(t *testing.T) {
 		assertNoValue(t, "secret write", out.String(), errOut.String())
 		if got, _ := os.ReadFile(path); string(got) != multi {
 			t.Fatalf("file holds %q, want %q", got, multi)
+		}
+	})
+
+	t.Run("a card id writes like a secret id, and a 409 exits 7 and writes nothing", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "deploy.key")
+		var out, errOut bytes.Buffer
+		if rc := cmdSecretWrite(canned(200, revealBody("rc-00000000000a", fakeValue1)), secretCfg, "rc-00000000000a", path, false, &out, &errOut); rc != 0 {
+			t.Fatalf("rc = %d (stderr %q), want 0", rc, errOut.String())
+		}
+		if got, err := os.ReadFile(path); err != nil || string(got) != fakeValue1 {
+			t.Fatalf("file holds %q (%v)", got, err)
+		}
+		refused := filepath.Join(t.TempDir(), "deploy.key")
+		out.Reset()
+		errOut.Reset()
+		rc := cmdSecretWrite(canned(409, `{"error":{"code":"conflict","message":"no retrievable value on secret card(s): rc-00000000000a"}}`),
+			secretCfg, "rc-00000000000a", refused, false, &out, &errOut)
+		if want := "[ocagent] secret write: refused (HTTP 409): no retrievable value on secret card(s): rc-00000000000a\n"; rc != 7 || errOut.String() != want {
+			t.Fatalf("got (%d, %q), want (7, %q)", rc, errOut.String(), want)
+		}
+		if _, err := os.Stat(refused); !os.IsNotExist(err) {
+			t.Fatalf("a refused write left a file: %v", err)
+		}
+	})
+
+	t.Run("a bad path on a card id is refused before anything is fetched", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		client := canned(200, revealBody("rc-00000000000a", fakeValue1))
+		rc := cmdSecretWrite(client, secretCfg, "rc-00000000000a", filepath.Join(t.TempDir(), "missing", "deploy.key"), false, &out, &errOut)
+		if rc != 1 || len(client.sent) != 0 {
+			t.Fatalf("got (%d, sent %v), want (1, nothing sent)", rc, client.sent)
+		}
+	})
+
+	t.Run("a directory that cannot take the file is refused before anything is fetched", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(dir, 0o700) })
+		path := filepath.Join(dir, "deploy.key")
+		var out, errOut bytes.Buffer
+		client := canned(200, revealBody("rc-00000000000a", fakeValue1))
+		rc := cmdSecretWrite(client, secretCfg, "rc-00000000000a", path, false, &out, &errOut)
+		const wantPrefix = "[ocagent] secret write: cannot create a temporary file next to "
+		if rc != 1 || len(client.sent) != 0 || !strings.HasPrefix(errOut.String(), wantPrefix+path+": ") {
+			t.Fatalf("got (%d, sent %v, err %q), want (1, nothing sent, %q...)", rc, client.sent, errOut.String(), wantPrefix)
 		}
 	})
 

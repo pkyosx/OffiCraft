@@ -1167,7 +1167,7 @@ func codexOpenYourOwnCardMessage(question map[string]any) string {
 		"question is about, or null if it is not about a task (add about_task_id to name a task " +
 		"you do not execute)."
 	if secret, _ := question["isSecret"].(bool); secret {
-		message += " 這是秘密資料請求；請只完成所需動作，不要把秘密貼進卡片。"
+		message += " 這是秘密資料請求；開 `secret` 類型的請示卡，不要把秘密貼進一般卡片或訊息。"
 	}
 	return message
 }

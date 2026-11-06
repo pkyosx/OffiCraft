@@ -597,6 +597,13 @@
   {
     "auth": "gated",
     "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/reply-cards/{card_id}/secret",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
     "method": "PUT",
     "path": "/api/reply-cards/{card_id}/snooze",
     "requires": "owner"

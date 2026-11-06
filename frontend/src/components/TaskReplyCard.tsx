@@ -23,6 +23,7 @@ import { useI18n } from "../i18n";
 import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
 import { api } from "../api";
 import { useHashRoute } from "../lib/hashRoute";
+import { secretCardMayStillChange } from "../lib/replyCardReceipt";
 import { Markdown } from "./Markdown";
 import {
   ReplyCardAnsweredBody,
@@ -83,6 +84,8 @@ export function TaskReplyCard({
   const statusRef = useRef<ReplyCard["status"] | null>(
     lazyTerminal ? initialStatus : null
   );
+  const cardRef = useRef(card);
+  cardRef.current = card;
 
   // 🔴 READ GENERATION — the same hazard as ChatReplyCard (see the long note
   // there), found by sweeping for it rather than by a report. This card ALSO
@@ -136,7 +139,10 @@ export function TaskReplyCard({
     // (70+ historical cards no longer each refetch on one unrelated answer).
     const unsubscribe = api.subscribeEvents((topic) => {
       if (topic !== "reply_card") return;
-      if (statusRef.current === "answered" || statusRef.current === "expired")
+      if (
+        (statusRef.current === "answered" || statusRef.current === "expired") &&
+        !secretCardMayStillChange(cardRef.current)
+      )
         return;
       refetch().catch((e) =>
         console.warn("TaskReplyCard: SSE refetch failed", e)
@@ -184,6 +190,23 @@ export function TaskReplyCard({
       console.warn("TaskReplyCard: re-answer failed", e);
       setActionError(t.replies.answerError);
       throw e;
+    }
+  }
+
+  async function doProvideSecret(value: string) {
+    try {
+      await api.provideReplyCardSecret(replyCardId, value);
+      setActionError(null);
+      setAnsweredOpen(true);
+    } catch (e) {
+      console.warn("TaskReplyCard: secret provide failed");
+      setActionError(t.replies.secretProvideError);
+      throw e;
+    }
+    try {
+      await refetch();
+    } catch (e) {
+      console.warn("TaskReplyCard: post-provide refetch failed (the value was recorded)", e);
     }
   }
 
@@ -324,11 +347,16 @@ export function TaskReplyCard({
 
         {card &&
           (card.status === "waiting" ? (
-            <ReplyCardWaitingBody card={card} onAnswer={doAnswer} />
+            // No autoFocusSecret: a waiting card here is on screen without anyone
+            // opening it, including when it arrives while the task card is open.
+            <ReplyCardWaitingBody card={card} onAnswer={doAnswer} onProvideSecret={doProvideSecret} />
           ) : card.status === "expired" ? (
             <ReplyCardExpiredBody card={card} />
           ) : (
-            <ReplyCardAnsweredBody card={card} onReanswer={doReanswer} />
+            <ReplyCardAnsweredBody
+              card={card}
+              onReanswer={doReanswer}
+            />
           ))}
       </div>
     </ReplyCardLinkComments>

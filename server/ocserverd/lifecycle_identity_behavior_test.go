@@ -1184,6 +1184,18 @@ var identityGateLedger = map[string]string{
 		"other), copied from the report onto the stored failure.",
 	"model_call.go :: modelCallWarningOf :: Kind: f.Kind": "" +
 		"NOT an identity gate — the same model-call failure kind, copied onto the warning DTO.",
+	"api_replycards_secret.go :: provideSecretGate :: card.Kind != replyCardKindSecret": "" +
+		"the reply card's own kind vocabulary (decision/action/secret), not a member kind: " +
+		"whoever opened the card, staff or outsource, gets the same behaviour.",
+	"api_replycards_secret.go :: replyCardSecretDTOOf :: c.Kind != replyCardKindSecret": "" +
+		"the reply card's own kind vocabulary (decision/action/secret), not a member kind: " +
+		"whoever opened the card, staff or outsource, gets the same behaviour.",
+	"api_replycards_secret.go :: resolveRevealTargetOn :: card.Kind != replyCardKindSecret": "" +
+		"the reply card's own kind vocabulary (decision/action/secret), not a member kind: " +
+		"whoever opened the card, staff or outsource, gets the same behaviour.",
+	"api_replycards_secret.go :: secretCardValueIsLive :: c.Kind != replyCardKindSecret": "" +
+		"the reply card's own kind vocabulary (decision/action/secret), not a member kind: " +
+		"whoever opened the card, staff or outsource, gets the same behaviour.",
 	"api_replycards.go :: replyCardListItemOf :: Kind: c.Kind": "" +
 		"NOT an identity gate — REPLY-CARD kind (the question's shape), another " +
 		"vocabulary sharing the field name.",
@@ -1649,6 +1661,10 @@ var lifecycleNonRosterTicks = map[string]string{
 		"iterates SCHEDULED MESSAGE rows (ListAllEnabledScheduledMessages), not the " +
 		"member roster. It resolves a member only to deliver to it; no member row is " +
 		"read, stamped or filtered by kind anywhere in the pass.",
+	"runSecretCardSweepTick": "" +
+		"iterates reply cards that hold a sealed value (ListReplyCardsHoldingSecret), not " +
+		"the member roster. It reads a member row only to ask whether that card's author " +
+		"is still active; no member row is written or filtered by kind.",
 	"handoverNoticeTick": "" +
 		"ONE member, not a roster: it is a single quiet tick of the context-high SSE " +
 		"band for the connection it is called on. It does read that member's row (the " +

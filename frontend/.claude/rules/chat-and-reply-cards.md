@@ -98,6 +98,16 @@ RepliesPage 與 ChatReplyCard 共用 ReplyCardBody、ReplyComposer；兩者訂 r
 
 ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意丟棄，拿掉會留下舊答案。不要把它和 doAnswer 對齊，也不要把「delta 是唯一 reconcile trigger」寫回規則。
 
+## Secret 請示卡
+
+`kind: "secret"` 的卡沒有選項：等待中時 `ReplyCardWaitingBody` 在選項的位置畫遮罩框（`-webkit-text-security`，不是 password input，因為 input 會吃掉換行），`ReplyComposer` 原樣不動。三個面的行為都在 `ReplyCardBody`，各面只接寫入。
+
+- `SecretValueInput` 是請示卡與密鑰頁共用的遮罩輸入框：預設隱藏，眼睛切換；顯示中打字不遮回，值清空才遮回，下一個值才不會直接明文顯示。
+- 送出後的卡展開時只顯示狀態（已提供、已取得、已失效）；收合列與近期已處理的時間欄照一般卡顯示已回覆或已過期，且都不帶時間，這是 owner 的裁定。收合列的字只看卡片 status，所以沒讀過卡與讀過後一致。畫面沒有撤回入口；伺服器的標為過期路由仍在，開卡成員用它提早銷毀值，Owner 與 admin agent 也呼叫得到。
+- 🔴 內容只活在遮罩框元件的 state：成功清掉、失敗留著讓 owner 重送；不進 store、草稿、log 或錯誤文字，mock 也不存。
+- 🔴 焦點只在 owner 打開卡時給。聊天卡的 body 只有展開後才存在；請示頁用 `secretFocusPendingRef` 記「剛打開、還沒給焦點」，只消耗一次，卡在 pane 之間搬動重新掛載不算打開；任務卡沒有打開的動作（等待中的卡一到就畫出來），所以永遠不給。
+- ⚠️ 寫入收據沒有 `secret` 區塊，`mergeReplyCardWrite` 從收據推出下一個 state（空答案＝提供），期限仍要靠重讀，它決定卡還會不會變。取得與銷毀都不改 status，所以兩個 status 守衛要多問 `secretCardMayStillChange`，請示頁的 `rowVersion` 要帶 secret 的 state 與期限，否則已打開的卡停在舊狀態；用編號篩出來的卡來自一次性查詢，等待中或還可能變動時也要在 reply_card 事件時重讀，舊回應不能蓋新回應，也不能走 lookupNonce（loading 會卸載輸入框）。
+
 ## 請示卡頁的排序、任務列與稍後再看
 
 - 待回覆預設依開卡時間新到舊；「顯示方式」的排序依據（`lib/replyCardSort.ts`，localStorage `oc_replies_sort`）只排待回覆，已延後依回來時間、近期已處理依處理時間，都不受它影響。任務優先序的順序取 `lib/taskPriority.ts` 的 `priorityRank`（跟任務頁同一份），沒有任務的卡排在凍結後面。

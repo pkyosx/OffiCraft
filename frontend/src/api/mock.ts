@@ -194,6 +194,14 @@ import {
   STEP_NOTE_CAP_CHARS_MIN,
 } from "./stepNoteCap";
 import {
+  SECRET_CARD_RETRIEVED_RETENTION_SECS_DEFAULT,
+  SECRET_CARD_RETRIEVED_RETENTION_SECS_MAX,
+  SECRET_CARD_RETRIEVED_RETENTION_SECS_MIN,
+  SECRET_CARD_UNRETRIEVED_TTL_SECS_DEFAULT,
+  SECRET_CARD_UNRETRIEVED_TTL_SECS_MAX,
+  SECRET_CARD_UNRETRIEVED_TTL_SECS_MIN,
+} from "./secretCardSettings";
+import {
   LORE_CAP_CHARS_DEFAULTS,
   LORE_FOLD_CAP_CHARS_MIN,
   LORE_FOLD_CAP_CHARS_MAX,
@@ -1578,6 +1586,26 @@ function mockTaskRefOf(card: ReplyCard): ReplyCard["task"] {
  * that mock mode must not be able to render a field http mode will not have.
  * The wire receipt also carries `task_id` / `step_id`; the view type drops both
  * (nothing reads them), so there is nothing to build here for them. */
+function mockReleaseCardHold(id: string): void {
+  for (const task of tasks) {
+    const step = task.steps.find((st) => st.replyCardId === id);
+    if (!step) continue;
+    if (TERMINAL_TASK_STATUSES.has(task.status)) break; // orphan: closed task untouched
+    if (step.status === "waiting_owner") step.status = "in_progress";
+    const anotherWaiting = replyCards.some(
+      (c) =>
+        c.id !== id &&
+        c.status === "waiting" &&
+        task.steps.some((st) => st.replyCardId === c.id)
+    );
+    if (task.status === "waiting_owner" && !anotherWaiting) {
+      task.status = "in_progress";
+    }
+    emitTopic("task");
+    break;
+  }
+}
+
 function mockReplyCardWriteReceipt(card: ReplyCard): ReplyCardWriteReceipt {
   return structuredClone({
     id: card.id,
@@ -2368,6 +2396,8 @@ const DEFAULT_MOCK_SETTINGS = {
   chat_budget_chars: CHAT_BUDGET_CHARS_DEFAULT,
   // T-119 step-note cap, served for the same reason as everything above.
   step_note_cap_chars: STEP_NOTE_CAP_CHARS_DEFAULT,
+  secret_card_unretrieved_ttl_secs: SECRET_CARD_UNRETRIEVED_TTL_SECS_DEFAULT,
+  secret_card_retrieved_retention_secs: SECRET_CARD_RETRIEVED_RETENTION_SECS_DEFAULT,
   lore_cap_chars_role: LORE_CAP_CHARS_DEFAULTS.role,
   lore_cap_chars_manual: LORE_CAP_CHARS_DEFAULTS.manual,
   lore_cap_chars_title: LORE_CAP_CHARS_DEFAULTS.title,
@@ -4181,6 +4211,7 @@ const mockApiImpl = {
       expiredTs: c.expiredTs ?? null,
       task: mockTaskRefOf(c),
       snoozedUntilTs: mockSnoozeOf(c),
+      secret: c.secret ?? null,
     });
     const cutoff = Date.now() / 1000 - 24 * 3600;
     if (status === "waiting") {
@@ -4279,6 +4310,7 @@ const mockApiImpl = {
     card.answeredTs = stamp / 1000;
     card.answer = toStoredReplyAnswer(answer, stamp);
     card.snoozedUntilTs = null;
+    if (card.secret) card.secret = { ...card.secret, state: "replied" };
     emitTopic("reply_card");
     return mockReplyCardWriteReceipt(card);
   },
@@ -4297,6 +4329,13 @@ const mockApiImpl = {
         `http 409 for PUT /api/reply-cards/${id}/answer`,
         409,
         `reply card '${id}' is not answered yet`
+      );
+    }
+    if (card.secret && card.secret.state !== "replied") {
+      throw mockApiError(
+        `http 409 for PUT /api/reply-cards/${id}/answer`,
+        409,
+        `reply card '${id}' holds a value the owner provided — it has no answer to re-decide`
       );
     }
     validateReplyAnswer(card, answer);
@@ -4321,33 +4360,73 @@ const mockApiImpl = {
     // follows unless another waiting card still holds it; a terminal task is
     // left untouched (the orphan exit).
     const card = findReplyCard(id);
-    if (card.status !== "waiting") {
+    const secret = card.secret;
+    const valueLive =
+      card.status === "answered" &&
+      !!secret &&
+      (secret.state === "provided" || (secret.state === "retrieved" && secret.expiresTs !== null));
+    if (card.status !== "waiting" && !valueLive) {
       throw mockApiError(
         `http 409 for POST /api/reply-cards/${id}/expire`,
         409,
         `reply card '${id}' is already ${card.status} — only a waiting card can expire`
       );
     }
+    if (valueLive && secret!.state === "retrieved") {
+      card.secret = { ...secret!, expiresTs: null };
+      emitTopic("reply_card");
+      return mockReplyCardWriteReceipt(card);
+    }
+    const wasWaiting = card.status === "waiting";
     card.status = "expired";
     card.expiredTs = Date.now() / 1000;
     card.snoozedUntilTs = null;
-    for (const task of tasks) {
-      const step = task.steps.find((st) => st.replyCardId === id);
-      if (!step) continue;
-      if (TERMINAL_TASK_STATUSES.has(task.status)) break; // orphan: closed task untouched
-      if (step.status === "waiting_owner") step.status = "in_progress";
-      const anotherWaiting = replyCards.some(
-        (c) =>
-          c.id !== id &&
-          c.status === "waiting" &&
-          task.steps.some((st) => st.replyCardId === c.id)
+    if (secret) card.secret = { ...secret, state: "expired", expiresTs: null };
+    if (wasWaiting) mockReleaseCardHold(id);
+    emitTopic("reply_card");
+    return mockReplyCardWriteReceipt(card);
+  },
+
+  async provideReplyCardSecret(id: string, value: string): Promise<ReplyCardWriteReceipt> {
+    // Mirrors handle_provide_reply_card_secret. 🔴 The mock keeps only the state:
+    // the value is dropped here, and nothing in mock mode can read it back.
+    const card = findReplyCard(id);
+    if (card.kind !== "secret") {
+      throw mockApiError(
+        `http 409 for POST /api/reply-cards/${id}/secret`,
+        409,
+        `reply card '${id}' is not a secret card`
       );
-      if (task.status === "waiting_owner" && !anotherWaiting) {
-        task.status = "in_progress";
-      }
-      emitTopic("task");
-      break;
     }
+    if (card.status !== "waiting") {
+      throw mockApiError(
+        `http 409 for POST /api/reply-cards/${id}/secret`,
+        409,
+        `reply card '${id}' is ${card.status} — only a waiting secret card takes a value`
+      );
+    }
+    if (value === "") {
+      throw mockApiError(`http 400 for POST /api/reply-cards/${id}/secret`, 400, "value must not be empty");
+    }
+    if ([...value].length > 65536) {
+      throw mockApiError(
+        `http 400 for POST /api/reply-cards/${id}/secret`,
+        400,
+        "value is over the 65536-char limit"
+      );
+    }
+    const now = Date.now() / 1000;
+    card.status = "answered";
+    card.answeredTs = now;
+    card.answer = { optionIdxs: null, text: "", attachments: [] };
+    card.snoozedUntilTs = null;
+    card.secret = {
+      state: "provided",
+      providedTs: now,
+      retrievedTs: null,
+      expiresTs: now + (mockServerSettings.secret_card_unretrieved_ttl_secs ?? SECRET_CARD_UNRETRIEVED_TTL_SECS_DEFAULT),
+    };
+    mockReleaseCardHold(id);
     emitTopic("reply_card");
     return mockReplyCardWriteReceipt(card);
   },
@@ -6876,6 +6955,28 @@ const mockApiImpl = {
         `step_note_cap_chars must be between ${STEP_NOTE_CAP_CHARS_MIN} and ${STEP_NOTE_CAP_CHARS_MAX} characters`
       );
     }
+    if (
+      patch.secretCardUnretrievedTtlSecs !== undefined &&
+      (patch.secretCardUnretrievedTtlSecs < SECRET_CARD_UNRETRIEVED_TTL_SECS_MIN ||
+        patch.secretCardUnretrievedTtlSecs > SECRET_CARD_UNRETRIEVED_TTL_SECS_MAX)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        `secret_card_unretrieved_ttl_secs must be between ${SECRET_CARD_UNRETRIEVED_TTL_SECS_MIN} and ${SECRET_CARD_UNRETRIEVED_TTL_SECS_MAX} seconds`
+      );
+    }
+    if (
+      patch.secretCardRetrievedRetentionSecs !== undefined &&
+      (patch.secretCardRetrievedRetentionSecs < SECRET_CARD_RETRIEVED_RETENTION_SECS_MIN ||
+        patch.secretCardRetrievedRetentionSecs > SECRET_CARD_RETRIEVED_RETENTION_SECS_MAX)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        `secret_card_retrieved_retention_secs must be between ${SECRET_CARD_RETRIEVED_RETENTION_SECS_MIN} and ${SECRET_CARD_RETRIEVED_RETENTION_SECS_MAX} seconds`
+      );
+    }
     // T-33 傳承 knobs. TWO ranges, not one: the fold budgets are
     // document-sized and the entry bounds are sentence-sized, so a shared range
     // would either let a title grow into a document or stop a fold from holding
@@ -7067,6 +7168,12 @@ const mockApiImpl = {
     }
     if (patch.stepNoteCapChars !== undefined) {
       mockServerSettings.step_note_cap_chars = patch.stepNoteCapChars;
+    }
+    if (patch.secretCardUnretrievedTtlSecs !== undefined) {
+      mockServerSettings.secret_card_unretrieved_ttl_secs = patch.secretCardUnretrievedTtlSecs;
+    }
+    if (patch.secretCardRetrievedRetentionSecs !== undefined) {
+      mockServerSettings.secret_card_retrieved_retention_secs = patch.secretCardRetrievedRetentionSecs;
     }
     if (patch.loreCapCharsRole !== undefined) {
       mockServerSettings.lore_cap_chars_role = patch.loreCapCharsRole;
@@ -8025,6 +8132,23 @@ export function __injectMockChat(msg: ChatMessage): void {
 // create_reply_card would arrive server-side. The mock UI itself never
 // fabricates an agent's ask (see the replyCards note) — this exists so tests
 // can exercise the answer / re-answer / badge seam against real store entries.
+// Test-only hook: the author retrieving a secret card's value, which in production
+// happens through `ocagent secret`, a door the cockpit does not have.
+export function __mockRetrieveSecretCard(id: string): void {
+  const card = findReplyCard(id);
+  if (!card.secret || card.secret.state !== "provided") return;
+  const now = Date.now() / 1000;
+  const retention =
+    mockServerSettings.secret_card_retrieved_retention_secs ?? SECRET_CARD_RETRIEVED_RETENTION_SECS_DEFAULT;
+  card.secret = {
+    ...card.secret,
+    state: "retrieved",
+    retrievedTs: now,
+    expiresTs: retention === 0 ? null : now + retention,
+  };
+  emitTopic("reply_card");
+}
+
 export function __injectMockReplyCard(card: ReplyCard): void {
   replyCards.push(card);
   emitTopic("reply_card");

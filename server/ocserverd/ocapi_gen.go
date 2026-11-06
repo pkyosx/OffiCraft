@@ -148,19 +148,19 @@ func (e MachineDiskUsageMemberDTORosterStatus) Valid() bool {
 
 // Defines values for MemberActivityDTOState.
 const (
-	Busy    MemberActivityDTOState = "busy"
-	Idle    MemberActivityDTOState = "idle"
-	Waiting MemberActivityDTOState = "waiting"
+	MemberActivityDTOStateBusy    MemberActivityDTOState = "busy"
+	MemberActivityDTOStateIdle    MemberActivityDTOState = "idle"
+	MemberActivityDTOStateWaiting MemberActivityDTOState = "waiting"
 )
 
 // Valid indicates whether the value is a known member of the MemberActivityDTOState enum.
 func (e MemberActivityDTOState) Valid() bool {
 	switch e {
-	case Busy:
+	case MemberActivityDTOStateBusy:
 		return true
-	case Idle:
+	case MemberActivityDTOStateIdle:
 		return true
-	case Waiting:
+	case MemberActivityDTOStateWaiting:
 		return true
 	default:
 		return false
@@ -258,6 +258,7 @@ func (e MonitoringSessionDTORuntime) Valid() bool {
 const (
 	Action   ReplyCardCreateDTOKind = "action"
 	Decision ReplyCardCreateDTOKind = "decision"
+	Secret   ReplyCardCreateDTOKind = "secret"
 )
 
 // Valid indicates whether the value is a known member of the ReplyCardCreateDTOKind enum.
@@ -266,6 +267,8 @@ func (e ReplyCardCreateDTOKind) Valid() bool {
 	case Action:
 		return true
 	case Decision:
+		return true
+	case Secret:
 		return true
 	default:
 		return false
@@ -302,6 +305,33 @@ func (e ReplyCardDTOSelectMode) Valid() bool {
 	case ReplyCardDTOSelectModeMulti:
 		return true
 	case ReplyCardDTOSelectModeSingle:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReplyCardSecretDTOState.
+const (
+	ReplyCardSecretDTOStateExpired   ReplyCardSecretDTOState = "expired"
+	ReplyCardSecretDTOStateProvided  ReplyCardSecretDTOState = "provided"
+	ReplyCardSecretDTOStateReplied   ReplyCardSecretDTOState = "replied"
+	ReplyCardSecretDTOStateRetrieved ReplyCardSecretDTOState = "retrieved"
+	ReplyCardSecretDTOStateWaiting   ReplyCardSecretDTOState = "waiting"
+)
+
+// Valid indicates whether the value is a known member of the ReplyCardSecretDTOState enum.
+func (e ReplyCardSecretDTOState) Valid() bool {
+	switch e {
+	case ReplyCardSecretDTOStateExpired:
+		return true
+	case ReplyCardSecretDTOStateProvided:
+		return true
+	case ReplyCardSecretDTOStateReplied:
+		return true
+	case ReplyCardSecretDTOStateRetrieved:
+		return true
+	case ReplyCardSecretDTOStateWaiting:
 		return true
 	default:
 		return false
@@ -2981,7 +3011,7 @@ type ReplyCardCountDTO struct {
 	WaitingNextChangeTs *float64 `json:"waiting_next_change_ts,omitempty"`
 }
 
-// ReplyCardCreateDTO Open one reply card (請示): an ask the OWNER must answer before the agent can proceed. “kind“ is the closed set “decision“ (needs a call/approval) | “action“ (needs the owner to DO something first). “options“ are the quick-reply choices: 1..4 objects “{"text": ..., "ai_pick": true|false}“ with non-blank “text“; “ai_pick“ is what marks the AI's own recommendation — POSITION CARRIES NO MEANING. “select_mode“ (“single“, the default, or “multi“) says how many of them the owner may circle; a “single“ card may mark at most one option “ai_pick“. A free-typed answer (with attachments) is always allowed on top — options never close that door. Optional “attachments“ ride the QUESTION side of the card (same input shape + limits as chat attachments: “{id}“ references a blob already uploaded via “POST /api/chat/attachments“, or “data_b64“ carries small bytes inline; blobs land in the shared chat-attachment store). “linked_task“ is REQUIRED and has no default: every card must SAY whether it is about a task. There is no inference — the server never guesses a binding from what work you hold, because a guess that misses is silent (the card opens with no 等我回覆 hold and the task runs past your question). “about_task_id“ is the other way to name a task: it says which task the ask is about WITHOUT holding a step, for an agent that is not that task's executor.
+// ReplyCardCreateDTO Open one reply card (請示): an ask the OWNER must answer before the agent can proceed. “kind“ is the closed set “decision“ (needs a call/approval) | “action“ (needs the owner to DO something first) | “secret“ (asks the owner for one value that only this card's author can retrieve, with “ocagent secret“; “options“ must be empty and the body says what is needed, where it goes and why). “options“ are the quick-reply choices: 1..4 objects “{"text": ..., "ai_pick": true|false}“ with non-blank “text“; “ai_pick“ is what marks the AI's own recommendation — POSITION CARRIES NO MEANING. “select_mode“ (“single“, the default, or “multi“) says how many of them the owner may circle; a “single“ card may mark at most one option “ai_pick“. A free-typed answer (with attachments) is always allowed on top — options never close that door. Optional “attachments“ ride the QUESTION side of the card (same input shape + limits as chat attachments: “{id}“ references a blob already uploaded via “POST /api/chat/attachments“, or “data_b64“ carries small bytes inline; blobs land in the shared chat-attachment store). “linked_task“ is REQUIRED and has no default: every card must SAY whether it is about a task. There is no inference — the server never guesses a binding from what work you hold, because a guess that misses is silent (the card opens with no 等我回覆 hold and the task runs past your question). “about_task_id“ is the other way to name a task: it says which task the ask is about WITHOUT holding a step, for an agent that is not that task's executor.
 type ReplyCardCreateDTO struct {
 	// AboutTaskId OPTIONAL. Names the task this ask is about WITHOUT holding any of its steps — for an agent that is not that task's executor (only the executor may bind a step) or an executor who does not want a step to wait. Meant for ``linked_task: null``; sent next to a ``linked_task`` object it must name the same task, otherwise 400. The task must exist (404) and must not be closed (409). Effects: the owner's queue shows the card under that task; while the task is open its acting executor receives the card's ``reply_card`` events (``task_executor``) and so the same answered / expired notification as the author; the card expires when the task closes. It places NO 等我回覆 hold — no step and no task status changes — which the create receipt's ``hold_note`` states.
 	AboutTaskId *string                   `json:"about_task_id,omitempty"`
@@ -3038,6 +3068,9 @@ type ReplyCardDTO struct {
 	Kind          string                `json:"kind"`
 	Options       *[]ReplyCardOptionDTO `json:"options,omitempty"`
 
+	// Secret Present only on a ``secret`` card.
+	Secret *ReplyCardSecretDTO `json:"secret,omitempty"`
+
 	// SelectMode How many options the owner may circle: ``single`` (the default — at most one, and at most one option may carry ``ai_pick``) or ``multi`` (any number). It is a SEPARATE axis from ``kind``: ``kind`` says what the owner must DO (decide / act), ``select_mode`` says how many choices the answer may carry.
 	SelectMode ReplyCardDTOSelectMode `json:"select_mode"`
 
@@ -3069,6 +3102,9 @@ type ReplyCardListItemDTO struct {
 	From       string                   `json:"from"`
 	Id         string                   `json:"id"`
 	Kind       string                   `json:"kind"`
+
+	// Secret Present only on a ``secret`` card.
+	Secret *ReplyCardSecretDTO `json:"secret,omitempty"`
 
 	// SnoozedUntilTs Epoch seconds until which the owner has put this waiting card aside (稍後再看). Non-null only while the card is ``waiting`` and that time is still ahead when the response is built; ``null`` on a card that was never snoozed, whose snooze has passed, or that is answered or expired. A snoozed card is still waiting: it stays in ``?status=waiting`` and can be answered or expired as usual, but ``GET /api/reply-cards/count`` leaves it out of ``waiting`` until the time passes. Set by the owner only (``PUT /api/reply-cards/{card_id}/snooze``); it changes nothing on the card's task or step.
 	SnoozedUntilTs *float64    `json:"snoozed_until_ts,omitempty"`
@@ -3109,6 +3145,23 @@ type ReplyCardReceiptDTO struct {
 
 	// TaskId The task this card was bound to, empty for an unbound chat 請示. Present because answering or expiring a bound card RELEASES that task's step from waiting_owner - that release is what the write DID, and it is the caller's next place to act.
 	TaskId *string `json:"task_id,omitempty"`
+}
+
+// ReplyCardSecretDTO Where a “secret“ card's value stands. Never carries the value. “state“: “waiting“ (not provided yet), “provided“ (sealed on the server, not retrieved yet), “retrieved“ (the author took it; it stays retrievable by the author until “expires_ts“, then the ciphertext is gone), “replied“ (the owner answered with a question, a refusal or anything else instead of a value; the card's answer carries it and no value can be provided on this card any more), “expired“ (closed without a retrieval; the ciphertext, if any, is gone).
+type ReplyCardSecretDTO struct {
+	// ExpiresTs When the ciphertext is destroyed; null when there is none. Fixed when the value is provided and again at the first retrieval, so a settings change only affects later events.
+	ExpiresTs   *float64                `json:"expires_ts,omitempty"`
+	ProvidedTs  *float64                `json:"provided_ts,omitempty"`
+	RetrievedTs *float64                `json:"retrieved_ts,omitempty"`
+	State       ReplyCardSecretDTOState `json:"state"`
+}
+
+// ReplyCardSecretDTOState defines model for ReplyCardSecretDTO.State.
+type ReplyCardSecretDTOState string
+
+// ReplyCardSecretProvideDTO The value the owner provides on a “secret“ card.
+type ReplyCardSecretProvideDTO struct {
+	Value string `json:"value"`
 }
 
 // ReplyCardSnoozeReceiptDTO Bounded receipt returned after the owner snoozes or unsnoozes a card. The card's status, task and step are untouched by this write, so only what it decided rides back. Fetch GET /api/reply-cards/{card_id} when the full card is needed.
@@ -4112,6 +4165,12 @@ type SettingsDTO struct {
 	// RuntimeLoginRecheckIntervalSecs How often, in seconds (30 through 3600), each warden re-checks Claude or Codex login on its machine while that runtime last read as logged out or its check failed. The floor is 30 because a warden reports at most every 30 seconds, so 30 means every heartbeat. Wardens learn the value from their heartbeat reply.
 	RuntimeLoginRecheckIntervalSecs *int `json:"runtime_login_recheck_interval_secs,omitempty"`
 
+	// SecretCardRetrievedRetentionSecs Seconds a `secret` card's value stays retrievable by its author after the first retrieval. 0 destroys it at the first retrieval. A change applies to retrievals made afterwards.
+	SecretCardRetrievedRetentionSecs *int `json:"secret_card_retrieved_retention_secs,omitempty"`
+
+	// SecretCardUnretrievedTtlSecs Seconds after the owner provides a `secret` card's value before an unretrieved value is destroyed and the card expires. A change applies to values provided afterwards.
+	SecretCardUnretrievedTtlSecs *int `json:"secret_card_unretrieved_ttl_secs,omitempty"`
+
 	// StepNoteCapChars The size cap on ONE task STEP's working note, in CHARACTERS (Unicode code points — Chinese prose counts one per character). One number serves both faces: it is what `get_task` reports per step and what `get_task_step` reports as `note_cap_chars`, AND it is what both note write faces (the wholesale write and the anchor patch) refuse a longer note against, read from this one setting so the reported ceiling and the enforced one can never drift apart. The adjustable range is 1000..100000. Like `chat_budget_chars`, and unlike the `doc_cap_chars_*` knobs, it may be LOWERED as well as raised: the cap is checked only on WRITE, so a note already stored above a newly lowered cap stays readable in full and simply cannot be edited until it is shortened. Two neighbouring fields are deliberately NOT governed by this setting and keep their own 4,000-character server constant: the task-level handover note and a chat message body (owner ruling 2026-09-06).
 	StepNoteCapChars *int `json:"step_note_cap_chars,omitempty"`
 
@@ -4259,6 +4318,12 @@ type SettingsUpdateDTO struct {
 
 	// RuntimeLoginRecheckIntervalSecs How often, in seconds, each warden re-checks Claude or Codex login on its machine while that runtime last read as logged out or its check failed. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds, so 30 means every heartbeat. Wardens pick a change up from their next heartbeat reply.
 	RuntimeLoginRecheckIntervalSecs *int `json:"runtime_login_recheck_interval_secs,omitempty"`
+
+	// SecretCardRetrievedRetentionSecs Seconds a `secret` card's value stays retrievable by its author after the first retrieval. 0 destroys it at the first retrieval. A change applies to retrievals made afterwards.
+	SecretCardRetrievedRetentionSecs *int `json:"secret_card_retrieved_retention_secs,omitempty"`
+
+	// SecretCardUnretrievedTtlSecs Seconds after the owner provides a `secret` card's value before an unretrieved value is destroyed and the card expires. A change applies to values provided afterwards.
+	SecretCardUnretrievedTtlSecs *int `json:"secret_card_unretrieved_ttl_secs,omitempty"`
 
 	// StepNoteCapChars The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the `doc_cap_chars_*` knobs the floor is NOT the shipped default — this cap may be lowered as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does not govern the task-level handover note or a chat message body, which keep their own 4,000-character constant.
 	StepNoteCapChars *int `json:"step_note_cap_chars,omitempty"`
@@ -5597,6 +5662,9 @@ type HandleAnswerReplyCardApiReplyCardsCardIdAnswerPostJSONRequestBody = ReplyCa
 // HandleReanswerReplyCardApiReplyCardsCardIdAnswerPutJSONRequestBody defines body for HandleReanswerReplyCardApiReplyCardsCardIdAnswerPut for application/json ContentType.
 type HandleReanswerReplyCardApiReplyCardsCardIdAnswerPutJSONRequestBody = ReplyCardAnswerPostDTO
 
+// HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPostJSONRequestBody defines body for HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost for application/json ContentType.
+type HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPostJSONRequestBody = ReplyCardSecretProvideDTO
+
 // HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePutJSONRequestBody defines body for HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut for application/json ContentType.
 type HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePutJSONRequestBody = ReplyCardSnoozeUpdateDTO
 
@@ -6362,7 +6430,7 @@ type ServerInterface interface {
 	// List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened — pass opened_by to narrow a pane to the cards ONE member opened. Read one card in full with get_reply_card.
 	// (GET /api/reply-cards)
 	HandleListReplyCardsApiReplyCardsGet(w http.ResponseWriter, r *http.Request, params HandleListReplyCardsApiReplyCardsGetParams)
-	// Open a reply card: an ask the owner must answer (at least one option; options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={"task_id": ..., "step_id": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound 請示. To say WHICH task an ask is about without holding any of its steps — the only way open to an agent that is not that task's executor — send linked_task=null with about_task_id: the task keeps running and does NOT wait, and the receipt's hold_note says so in one sentence. Whenever a card names a task (bound or not) that is still open, the task's acting executor receives the card's reply_card events alongside the card's author, so the answer, a re-answer and an expiry reach the executor through the same reply-card notification the author gets. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no 等我回覆 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. With both ids present the bind is still refused, before anything is written, when the task does not exist (404), when you are not the task's acting executor (the predecessor while it holds the task under the reassign hold) and not the owner or an admin agent (403 — the refusal points you at about_task_id), when the task is not in_progress, waiting_owner or waiting_external, for example not_started or ready_for_done (409) — a task whose OTHER step waits on the outside world still takes a card on this step, when the step does not belong to that task (404), and when the step is already done or superseded (409). Optional attachments ride the question, up to a capped count that a refusal names (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (“id“, “chat_message_id“, “created_ts“, “attachments“, “hold_note“), not the card — call “get_reply_card“ when you need the rest.
+	// Open a reply card: an ask the owner must answer (at least one option, except kind=secret, which asks for one value only its author can retrieve, must send options=[], and whose body says what is needed, where it goes and why; options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={"task_id": ..., "step_id": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound 請示. To say WHICH task an ask is about without holding any of its steps — the only way open to an agent that is not that task's executor — send linked_task=null with about_task_id: the task keeps running and does NOT wait, and the receipt's hold_note says so in one sentence. Whenever a card names a task (bound or not) that is still open, the task's acting executor receives the card's reply_card events alongside the card's author, so the answer, a re-answer and an expiry reach the executor through the same reply-card notification the author gets. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no 等我回覆 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. With both ids present the bind is still refused, before anything is written, when the task does not exist (404), when you are not the task's acting executor (the predecessor while it holds the task under the reassign hold) and not the owner or an admin agent (403 — the refusal points you at about_task_id), when the task is not in_progress, waiting_owner or waiting_external, for example not_started or ready_for_done (409) — a task whose OTHER step waits on the outside world still takes a card on this step, when the step does not belong to that task (404), and when the step is already done or superseded (409). Optional attachments ride the question, up to a capped count that a refusal names (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (“id“, “chat_message_id“, “created_ts“, “attachments“, “hold_note“), not the card — call “get_reply_card“ when you need the rest.
 	//
 	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
 	// - `about_task_id`: OPTIONAL — the task this ask is about, WITHOUT holding any of its steps. Valid with linked_task=null; next to a linked_task object it must name the same task (400 otherwise). The task must exist (404) and be open (409). Nothing waits on the card: no step and no task status changes. While the task is open its executor receives the card's reply-card notifications too, and the card expires when the task closes.
@@ -6383,9 +6451,12 @@ type ServerInterface interface {
 	// Revise an answered card's answer (重新決定): stays answered. Answers with a bounded receipt (“id“, “status“, “answered_ts“, “expired_ts“, “answer“, “task_id“, “step_id“), not the whole card — call “get_reply_card“ when you need the rest.
 	// (PUT /api/reply-cards/{card_id}/answer)
 	HandleReanswerReplyCardApiReplyCardsCardIdAnswerPut(w http.ResponseWriter, r *http.Request, cardId string)
-	// Mark a waiting card expired (its author, the owner, or an admin agent; not an answer; terminal).
+	// Mark a waiting card expired, or destroy a secret card's ciphertext (its author, the owner, or an admin agent; not an answer; terminal).
 	// (POST /api/reply-cards/{card_id}/expire)
 	HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.ResponseWriter, r *http.Request, cardId string)
+	// Provide the value of a waiting secret card (owner only).
+	// (POST /api/reply-cards/{card_id}/secret)
+	HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost(w http.ResponseWriter, r *http.Request, cardId string)
 	// Snooze or unsnooze a waiting reply card (owner only).
 	// (PUT /api/reply-cards/{card_id}/snooze)
 	HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(w http.ResponseWriter, r *http.Request, cardId string)
@@ -10089,6 +10160,32 @@ func (siw *ServerInterfaceWrapper) HandleExpireReplyCardApiReplyCardsCardIdExpir
 	handler.ServeHTTP(w, r)
 }
 
+// HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "card_id" -------------
+	var cardId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "card_id", r.PathValue("card_id"), &cardId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "card_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost(w, r, cardId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut operation middleware
 func (siw *ServerInterfaceWrapper) HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(w http.ResponseWriter, r *http.Request) {
 
@@ -12247,6 +12344,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/reply-cards/{card_id}/answer", wrapper.HandleAnswerReplyCardApiReplyCardsCardIdAnswerPost)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/reply-cards/{card_id}/answer", wrapper.HandleReanswerReplyCardApiReplyCardsCardIdAnswerPut)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/reply-cards/{card_id}/expire", wrapper.HandleExpireReplyCardApiReplyCardsCardIdExpirePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/reply-cards/{card_id}/secret", wrapper.HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/reply-cards/{card_id}/snooze", wrapper.HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/resume-summary", wrapper.HandleResumeSummaryApiResumeSummaryGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/resume-summary-size", wrapper.HandlePeekResumeSummarySizeApiResumeSummarySizeGet)

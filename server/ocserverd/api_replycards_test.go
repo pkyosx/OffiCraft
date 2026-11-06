@@ -851,7 +851,7 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a kind outside decision and action answers 400 and opens no card", func(t *testing.T) {
+	t.Run("a kind outside the closed set answers 400 and opens no card", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "mira", "")
 		dashboard := apiTestListen(t, api, "")
@@ -861,7 +861,7 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error", "kind must be 'decision' or 'action'")
+		apiWantError(t, data, "validation_error", "kind must be 'decision' or 'action' or 'secret'")
 		dashboard.wantFrames()
 		apiTestWantNoReplyCards(t, h, owner)
 	})

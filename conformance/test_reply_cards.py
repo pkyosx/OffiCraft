@@ -188,7 +188,7 @@ def test_create_validation_rules(client, asker):
         assert r.status_code == 400, f"{r.status_code} {r.text}"
         assert r.json()["error"]["message"] == message, r.text
 
-    refused({**base, "kind": "poll"}, "kind must be 'decision' or 'action'")
+    refused({**base, "kind": "poll"}, "kind must be 'decision' or 'action' or 'secret'")
     refused({**base, "summary": "   "}, "summary must not be blank")
     refused({**base, "options": []}, "options must carry at least one choice")
     refused({**base, "options": [{"text": "a"}, {"text": "b"}, {"text": "c"},
@@ -1157,3 +1157,158 @@ def test_the_snooze_delta_reaches_the_owner_cockpit_but_not_the_author(
         assert _expire(client, owner_token, card).status_code == 200
         first = agent_sse.wait_for_frame("reply_card")["frame"]["data"]["payload"]
         assert first["status"] == "expired", first
+
+
+# ── secret cards ────────────────────────────────────────────────────────────
+
+_SECRET_VALUE = "dummy-aaaaaaaaaaaa"
+_REVEAL = "/api/self/secrets/reveal"
+
+
+def _open_secret_card(client, asker: AgentIdentity, summary="the deploy key") -> str:
+    r = client.post(
+        "/api/reply-cards",
+        json={"kind": "secret", "summary": summary, "body": "where it goes",
+              "options": [], "linked_task": None},
+        headers=_auth(asker.token),
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def _provide(client, owner_token, card_id, value=_SECRET_VALUE):
+    return client.post(f"/api/reply-cards/{card_id}/secret", json={"value": value},
+                       headers=_auth(owner_token))
+
+
+def _reveal(client, token, *ids):
+    return client.post(_REVEAL, json={"ids": list(ids)}, headers=_auth(token))
+
+
+def test_secret_card_create_rules(client, asker):
+    r = client.post("/api/reply-cards",
+                    json={"kind": "secret", "summary": "s", "options": [{"text": "a"}],
+                          "linked_task": None},
+                    headers=_auth(asker.token))
+    assert r.status_code == 400 and r.json()["error"]["message"] == "a secret card must not carry options", r.text
+
+    card = _get_card(client, asker.token, _open_secret_card(client, asker))
+    assert card["kind"] == "secret"
+    assert card["options"] == []
+    assert card["secret"] == {"state": "waiting", "provided_ts": None, "retrieved_ts": None,
+                              "expires_ts": None}
+
+
+def test_other_kinds_carry_no_secret_block(client, asker):
+    assert "secret" not in _open_card(client, asker)
+
+
+def test_secret_card_provide_then_retrieve(client, owner_token, asker):
+    card_id = _open_secret_card(client, asker)
+    r = _provide(client, owner_token, card_id)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "answered"
+    assert r.json()["answer"]["text"] == ""
+
+    card = _get_card(client, owner_token, card_id)
+    assert card["status"] == "answered"
+    assert card["secret"]["state"] == "provided"
+    assert card["secret"]["expires_ts"] > card["secret"]["provided_ts"]
+
+    # Every read that carries the card, and the positive control below it.
+    for path in (f"/api/reply-cards/{card_id}", "/api/reply-cards?status=answered",
+                 f"/api/chat?with={asker.member_id}"):
+        got = client.get(path, headers=_auth(owner_token))
+        assert got.status_code == 200 and card_id in got.text, got.text
+        assert _SECRET_VALUE not in got.text, path
+    resume = client.get("/api/resume-summary", headers=_auth(asker.token))
+    assert resume.status_code == 200 and _SECRET_VALUE not in resume.text
+
+    r = _reveal(client, asker.token, card_id)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"secrets": [{"id": card_id, "name": "the deploy key", "note": "",
+                                     "value": _SECRET_VALUE}]}
+    retrieved = _get_card(client, owner_token, card_id)["secret"]
+    assert retrieved["state"] == "retrieved"
+    assert retrieved["retrieved_ts"] and retrieved["expires_ts"]
+
+    r = _reveal(client, asker.token, card_id)
+    assert r.status_code == 200, r.text
+    assert _get_card(client, owner_token, card_id)["secret"] == retrieved
+
+
+def test_secret_card_provide_refusals_never_echo_the_value(client, owner_token, asker):
+    card_id = _open_secret_card(client, asker)
+    over = "a" * 65537
+    for body, status in (({"value": ""}, 400), ({"value": over}, 400), ({}, 422),
+                         ({"value": _SECRET_VALUE, "note": "x"}, 422)):
+        r = client.post(f"/api/reply-cards/{card_id}/secret", json=body, headers=_auth(owner_token))
+        assert r.status_code == status, f"{body.keys()} {r.status_code}"
+        assert _SECRET_VALUE not in r.text and over not in r.text
+    assert _get_card(client, owner_token, card_id)["status"] == "waiting"
+
+    assert _provide(client, asker.token, card_id).status_code == 403
+    plain = _open_card(client, asker)["id"]
+    assert _provide(client, owner_token, plain).status_code == 409
+
+
+def test_secret_card_reveal_refusals_are_all_or_nothing(client, owner_token, asker):
+    card_id = _open_secret_card(client, asker)
+    assert _provide(client, owner_token, card_id).status_code == 200
+    plain = _open_card(client, asker)["id"]
+
+    r = _reveal(client, asker.token, card_id, "rc-000000000000", plain)
+    assert r.status_code == 404, r.text
+    assert "rc-000000000000" in r.text and plain in r.text and _SECRET_VALUE not in r.text
+    assert _get_card(client, owner_token, card_id)["secret"]["retrieved_ts"] is None
+
+    waiting = _open_secret_card(client, asker)
+    r = _reveal(client, asker.token, card_id, waiting)
+    assert r.status_code == 409 and _SECRET_VALUE not in r.text, r.text
+    assert _get_card(client, owner_token, card_id)["secret"]["retrieved_ts"] is None
+
+    assert _reveal(client, owner_token, card_id).status_code == 403
+    r = _reveal(client, asker.token, "rc-NOTHEX")
+    assert r.status_code == 400, r.text
+
+
+def test_secret_card_answer_expire_and_reanswer(client, owner_token, asker):
+    replied = _open_secret_card(client, asker)
+    assert _answer(client, owner_token, replied, {"text": "which one?"}).status_code == 200
+    assert _get_card(client, owner_token, replied)["secret"]["state"] == "replied"
+    assert _provide(client, owner_token, replied).status_code == 409
+    r = client.put(f"/api/reply-cards/{replied}/answer", json={"text": "that one"},
+                   headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+
+    unretrieved = _open_secret_card(client, asker)
+    assert _provide(client, owner_token, unretrieved).status_code == 200
+    r = client.put(f"/api/reply-cards/{unretrieved}/answer", json={"text": "x"},
+                   headers=_auth(owner_token))
+    assert r.status_code == 409, r.text
+    r = client.post(f"/api/reply-cards/{unretrieved}/expire", headers=_auth(owner_token))
+    assert r.status_code == 200 and r.json()["status"] == "expired", r.text
+    assert _reveal(client, asker.token, unretrieved).status_code == 409
+
+    retained = _open_secret_card(client, asker)
+    assert _provide(client, owner_token, retained).status_code == 200
+    assert _reveal(client, asker.token, retained).status_code == 200
+    r = client.post(f"/api/reply-cards/{retained}/expire", headers=_auth(asker.token))
+    assert r.status_code == 200 and r.json()["status"] == "answered", r.text
+    assert _get_card(client, owner_token, retained)["secret"]["expires_ts"] is None
+    assert _reveal(client, asker.token, retained).status_code == 409
+    assert client.post(f"/api/reply-cards/{retained}/expire",
+                       headers=_auth(asker.token)).status_code == 409
+
+
+def test_secret_card_settings_refuse_out_of_range(client, owner_token):
+    for field, bad in (("secret_card_unretrieved_ttl_secs", 59),
+                       ("secret_card_unretrieved_ttl_secs", 2592001),
+                       ("secret_card_retrieved_retention_secs", -1),
+                       ("secret_card_retrieved_retention_secs", 86401)):
+        r = client.patch("/api/settings", json={field: bad}, headers=_auth(owner_token))
+        assert r.status_code == 422, r.text
+        assert field in r.json()["error"]["message"], r.text
+    got = client.get("/api/settings", headers=_auth(owner_token)).json()
+    assert got["secret_card_unretrieved_ttl_secs"] == 86400
+    assert got["secret_card_retrieved_retention_secs"] == 600
