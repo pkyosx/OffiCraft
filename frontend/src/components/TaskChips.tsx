@@ -47,7 +47,7 @@ export function TaskDueChip({
   const { nowSec, due } = useDueState(dueTs, leadMinutes);
   const tone = due === null || due.kind === "later" ? "" : ` task-card__due-date--${due.kind}`;
   return (
-    <span className={`task-card__chip${tone}`} data-testid={testId}>
+    <span className={`task-card__chip task-card__due-chip${tone}`} data-testid={testId}>
       {hasDueTime(dueTs) ? msg.taskDueDateTime(dueTs) : msg.taskDueDate(dueTs)}
       <span className={`task-card__due-remaining${tone}`}>
         {msg.taskDueRemaining(dueRemaining(dueTs, nowSec))}
