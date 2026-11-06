@@ -1350,7 +1350,7 @@ export const en: Dict = {
     roleSettingsLink: "Open this role's definition settings",
     galleryLabel: "Files & images",
     suggestedRepliesLabel: "Suggested replies",
-    suggestedRepliesSub: "Sentences you can drop in with one tap in this member's chat.",
+    suggestedRepliesSub: "Sentences you can drop in with one tap when chatting with this member.",
     suggestedRepliesEmpty: "No sentences just for this member yet.",
     suggestedRepliesLoadError: "Couldn't load the suggested replies. Press the Suggested replies button in the header to try again.",
     suggestedRepliesSaveError: "Suggested replies did not save. The list now shows what the server holds.",
@@ -2634,7 +2634,7 @@ export const en: Dict = {
     suggestedRepliesLoreMessageSub:
       "Sentences you can drop in with one tap when messaging a lore entry's writer.",
     suggestedRepliesChat: "Chat suggestions",
-    suggestedRepliesChatSub: "Sentences you can drop in with one tap in every member's chat.",
+    suggestedRepliesChatSub: "Sentences you can drop in with one tap when chatting with any member.",
     suggestedReplyPlaceholder: "e.g. Got it, go ahead",
     suggestedReplyAdd: "Add a sentence",
     suggestedReplyRemove: "Remove this sentence",
