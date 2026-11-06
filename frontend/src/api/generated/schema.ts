@@ -977,6 +977,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/suggested-replies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the owner's chat suggested replies.
+         * @description - The owner's chat 建議回覆 for every member who has any; a member with none is not listed.
+         *     - A member who left the roster is not listed.
+         */
+        get: operations["handle_get_chat_suggested_replies_api_chat_suggested_replies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/suggested-replies/{member_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace the owner's chat suggested replies for one member.
+         * @description - Replaces this member's whole list; add, edit, delete and reorder are all this one write. An empty list removes the member's chips. Other members' lists are untouched.
+         *     - Text is stored trimmed; a click in the cockpit only fills the chat box, so a sent message goes through the ordinary chat send.
+         *     - 422 when the member is not an active roster member, an entry is blank or longer than 120 characters, or the list has more than 20 entries. Nothing is written; an over-long entry is refused, never shortened.
+         *     - Emits a `chat_suggested_reply` event to the owner, so another open browser refetches without reloading.
+         *     - No overwrite protection: concurrent writes are last-writer-wins.
+         */
+        put: operations["handle_update_chat_suggested_replies_api_chat_suggested_replies__member_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat/unread-count": {
         parameters: {
             query?: never;
@@ -3231,7 +3276,7 @@ export interface paths {
          *     - `warden_credential_lifetime_secs`: Machine credential lifetime, also stamped as its expiry; wardens renew at two thirds of it and pick a change up at their next poll (~15 min). Lowering it never shortens issued credentials, but lowering it below the fleet's credential age makes every machine renew on its next poll. A machine offline through the whole last third needs a manual re-install.
          *     - `org_name`, `owner_name`: Studio name and owner nickname; "" restores the localized default.
          *     - `push_contact_email`: Web Push contact address; "" stops all Web Push delivery.
-         *     - `suggested_replies_reply_card`, `suggested_replies_task_message`, `suggested_replies_lore_message`: Each replaces that reply box's whole suggestion list (no append). [] empties it; null or omitted leaves it unchanged.
+         *     - `suggested_replies_reply_card`, `suggested_replies_task_message`, `suggested_replies_lore_message`, `suggested_replies_chat`: Each replaces that reply box's whole suggestion list (no append). [] empties it; null or omitted leaves it unchanged.
          *     - `lore_cap_chars_role`: 傳承 characters carried in each member's boot document; `everyone` entries count inside this budget, ahead of the member's own.
          *     - `lore_cap_chars_manual`: 傳承 characters get_task_manual carries; separate from lore_cap_chars_role, never summed.
          *     - `lore_cap_chars_title`, `lore_cap_chars_body`: Max title / body length of one new 傳承 entry; entries are immutable, so lowering never affects stored ones.
@@ -5715,6 +5760,19 @@ export interface components {
             peer_id: string;
         };
         /**
+         * ChatMemberSuggestedRepliesDTO
+         * @description One member's chat 建議回覆.
+         */
+        ChatMemberSuggestedRepliesDTO: {
+            /** Member Id */
+            member_id: string;
+            /**
+             * Replies
+             * @description The sentences in display order.
+             */
+            replies: string[];
+        };
+        /**
          * ChatMessageDTO
          * @description API representation of one ``domain.ChatMessage``. The wire uses ``from`` /
          *     ``to``; ``from`` is a Python reserved word so the field is ``from_`` carrying
@@ -5941,6 +5999,25 @@ export interface components {
              * @default
              */
             to_name: string;
+        };
+        /**
+         * ChatSuggestedRepliesDTO
+         * @description The owner's chat 建議回覆, one list per member.
+         */
+        ChatSuggestedRepliesDTO: {
+            /** Lists */
+            lists: components["schemas"]["ChatMemberSuggestedRepliesDTO"][];
+        };
+        /**
+         * ChatSuggestedRepliesUpdateDTO
+         * @description The complete desired list for one member; it replaces the stored list wholesale.
+         */
+        ChatSuggestedRepliesUpdateDTO: {
+            /**
+             * Replies
+             * @description The sentences in display order.
+             */
+            replies: string[];
         };
         /**
          * ChatUnreadCountDTO
@@ -10001,6 +10078,11 @@ export interface components {
              */
             lore_cap_chars_body: number;
             /**
+             * Suggested Replies Chat
+             * @description The one-click 建議回覆 offered under every member's chat box, after that member's own sentences; a sentence in both is shown once. A FOURTH separate list. [] (the default) means this list adds no chips.
+             */
+            suggested_replies_chat?: string[];
+            /**
              * Suggested Replies Lore Message
              * @description The one-click 建議回覆 offered under a 傳承 entry's message box (T-33) — the box that writes to the person who WROTE that entry. A THIRD separate list, for the same reason the other two are separate: asking 「這條還適用嗎」 about a lesson someone left behind is not answering a 請示卡 and not steering a task in progress, so one list's sentences are wrong in another's box. [] (the default) means no chips are drawn there, and the message box works exactly as it does without them.
              */
@@ -10229,6 +10311,11 @@ export interface components {
              * @description The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
              */
             lore_cap_chars_body?: number | null;
+            /**
+             * Suggested Replies Chat
+             * @description Replace the chat 建議回覆 list that applies to every member, wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED. To clear it, send [].
+             */
+            suggested_replies_chat?: string[] | null;
             /**
              * Suggested Replies Lore Message
              * @description Replace the 傳承 message-box 建議回覆 list wholesale (T-33) — the box that writes to the person who wrote that 傳承 entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
@@ -14630,6 +14717,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_chat_suggested_replies_api_chat_suggested_replies_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSuggestedRepliesDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_update_chat_suggested_replies_api_chat_suggested_replies__member_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatSuggestedRepliesUpdateDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatMemberSuggestedRepliesDTO"];
                 };
             };
             /** @description Client error (unified error envelope). */

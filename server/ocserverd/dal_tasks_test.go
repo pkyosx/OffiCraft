@@ -1711,6 +1711,19 @@ func TestReleaseWorkerByID(t *testing.T) {
 		chatGroupWantMemberRows(t, d, "ow-2")
 	})
 
+	t.Run("the released worker's chat suggested replies are deleted and the other worker's stay", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		dalWorkerOnTask(t, d, "ow-1", "O-1", "T-1", 100)
+		dalWorkerOnTask(t, d, "ow-2", "O-2", "T-1", 200)
+		chatSuggestedRepliesSeed(t, d, "ow-1", "gone")
+		chatSuggestedRepliesSeed(t, d, "ow-2", "stays")
+
+		if _, err := d.ReleaseWorkerByID("ow-1", 1800000000); err != nil {
+			t.Fatalf("ReleaseWorkerByID: %v", err)
+		}
+		chatSuggestedRepliesWantRows(t, d, "ow-2:0:stays")
+	})
+
 	t.Run("an already-released worker is a nil no-op that does not restamp it", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		worker := dalWorkerOnTask(t, d, "ow-1", "O-1", "T-1", 100)

@@ -1335,6 +1335,8 @@ export interface ServerSettingsView {
    * writes to the person who WROTE that entry. A THIRD separate list, for the
    * same reason: one being empty says nothing about the other two. */
   suggestedRepliesLoreMessage: string[];
+  /** The 建議回覆 offered in every member's chat room, after that member's own. */
+  suggestedRepliesChat: string[];
   /** Contact email used as this deployment's Web Push VAPID identity. Empty
    * means delivery is disabled until the owner configures a public address. */
   pushContactEmail: string;
@@ -1476,6 +1478,8 @@ export interface ServerSettingsPatch {
   /** The 傳承 message-box 建議回覆 (T-33), replaced WHOLESALE. Same bounds again,
    * and independent of both: patching one never touches another. */
   suggestedRepliesLoreMessage?: string[];
+  /** The all-member chat 建議回覆, replaced WHOLESALE. Same bounds again. */
+  suggestedRepliesChat?: string[];
   /** Web Push VAPID contact email; empty clears it and disables delivery. */
   pushContactEmail?: string;
   /** The owner's cockpit visual theme (T-0b41-p2); "" (unset) | a built-in id
@@ -2374,6 +2378,13 @@ export interface Api {
    * or wrong-tab member, a staff group with task types, an unknown group or
    * task type; nothing is written then. */
   putChatGroups(groups: ChatGroupWrite[]): Promise<ChatGroupView[]>;
+  /** The owner's chat 建議回覆: member id → sentences in display order. A member
+   * with none, or who left the roster, is absent. */
+  getChatSuggestedReplies(): Promise<Record<string, string[]>>;
+  /** Replace one member's sentences and answer what was stored (trimmed). `[]`
+   * removes them. 422 on a blank or over-long entry, too many entries, or a
+   * member who is not on the roster; nothing is written then. */
+  putChatSuggestedReplies(memberId: string, replies: string[]): Promise<string[]>;
   /**
    * List reply cards (`GET /api/reply-cards?status=`). `waiting` returns every
    * card still waiting for the owner, LONGEST-WAITING FIRST (created_ts

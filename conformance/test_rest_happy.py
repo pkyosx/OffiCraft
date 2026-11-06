@@ -2603,6 +2603,15 @@ HAPPY: dict[str, Happy] = {
     "GET /api/chat/groups": Happy(
         check=lambda _c, r: _expect(r, lambda d: isinstance(d["groups"], list)),
     ),
+    "GET /api/chat/suggested-replies": Happy(
+        check=lambda _c, r: _expect(r, lambda d: isinstance(d["lists"], list)),
+    ),
+    "PUT /api/chat/suggested-replies/{member_id}": Happy(
+        path="/api/chat/suggested-replies/mira",
+        body={"replies": ["  conf happy  "]},
+        check=lambda _c, r: _expect(
+            r, lambda d: d == {"member_id": "mira", "replies": ["conf happy"]}),
+    ),
     "PUT /api/chat/groups": Happy(
         body={"groups": [{"id": None, "tab": "staff", "name": "conf happy",
                           "member_ids": ["mira"], "task_type_keys": []}]},

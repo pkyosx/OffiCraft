@@ -10,6 +10,8 @@ import { useMonitoring } from "../hooks/useMonitoring";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useChatGroups } from "../hooks/useChatGroups";
+import { useChatSuggestedReplies } from "../hooks/useChatSuggestedReplies";
+import { useSuggestedRepliesChat } from "../hooks/useSuggestedReplies";
 import { layoutTab, tabGroups } from "../lib/chatGroups";
 import type { ChatTab } from "../lib/chatGroups";
 import { readCollapsed, writeCollapsed } from "../lib/chatGroupCollapse";
@@ -37,6 +39,10 @@ type ChatSlotName =
   | "onOpenDetail"
   | "onOpenTasks"
   | "onOpenRoleSettings"
+  | "suggestedReplies"
+  | "allMemberSuggestedReplies"
+  | "suggestedRepliesSaveFailed"
+  | "onSaveSuggestedReplies"
   | "onWake"
   | "jumpToMsgId"
   | "draftSeed"
@@ -233,6 +239,9 @@ export function OfficePage({
   // M3 §4: the LIVE outsource workers behind the left rail's 外包 panel (and
   // the outsource chat peers — a worker id rides the SAME chatId hash slot).
   const outsource = useOutsourceWorkers();
+
+  const chatSuggestedReplies = useChatSuggestedReplies();
+  const allMemberSuggestedReplies = useSuggestedRepliesChat();
 
   // Sidebar display order (and the desktop default chat below); the
   // @-mention picker keeps its own order.
@@ -731,6 +740,14 @@ export function OfficePage({
 
   // Every conversation reaches one ChatArea mount. Only this typed projection
   // varies by peer kind; the conversation plumbing below is written once.
+  const suggestedRepliesSlots = (id: string) => ({
+    suggestedReplies: chatSuggestedReplies.lists[id],
+    allMemberSuggestedReplies,
+    suggestedRepliesSaveFailed: chatSuggestedReplies.saveFailed,
+    onSaveSuggestedReplies: chatSuggestedReplies.loaded
+      ? (next: string[]) => chatSuggestedReplies.save(id, next)
+      : undefined,
+  });
   const chatProjection: ChatProjection | undefined = releasedPeer
     ? {
         member: releasedPeer,
@@ -738,6 +755,10 @@ export function OfficePage({
           onOpenDetail: undefined,
           onOpenTasks: undefined,
           onOpenRoleSettings: undefined,
+          suggestedReplies: undefined,
+          allMemberSuggestedReplies: undefined,
+          suggestedRepliesSaveFailed: undefined,
+          onSaveSuggestedReplies: undefined,
           onWake: undefined,
           jumpToMsgId: route.msgId,
           draftSeed: seedFor(releasedPeer.id),
@@ -761,6 +782,7 @@ export function OfficePage({
             onOpenDetail: () => setWorkerDetailId(workerPeer.id),
             onOpenTasks: undefined,
             onOpenRoleSettings: undefined,
+            ...suggestedRepliesSlots(workerPeer.id),
             onWake: () => api.activateMember(workerPeer.id),
             jumpToMsgId: route.msgId,
             draftSeed: seedFor(workerPeer.id),
@@ -795,6 +817,7 @@ export function OfficePage({
                       roleKey: selected.role,
                     })
                 : undefined,
+              ...suggestedRepliesSlots(selected.id),
               onWake: async () => {
                 const result = await api.activateMember(selected.id);
                 try {

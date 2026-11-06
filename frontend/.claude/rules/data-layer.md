@@ -48,7 +48,7 @@ owner unread 只由共享的 lib/ownerUnread.ts 判定：chat.to 或 chat_read.r
 
 ## 共享設定快照
 
-所有 mount 都經 loadServerSettings，不可各自直接呼叫 settings API。共享層負責 single-flight、快取與 generation；同 tab 的 patch echo、登入變更與明確 refresh 要 invalidate。不要加 TTL。別的分頁或裝置存設定時 server 發 `settings` delta（payload null、只給 owner）；目前只有 i18n provider 接它、以 refreshServerSettings 重讀顯示偏好，其他讀設定的地方仍是掛載時那份，不要假定它們跨 tab 即時同步。
+所有 mount 都經 loadServerSettings，不可各自直接呼叫 settings API。共享層負責 single-flight、快取與 generation；同 tab 的 patch echo、登入變更與明確 refresh 要 invalidate。不要加 TTL。別的分頁或裝置存設定時 server 發 `settings` delta（payload null、只給 owner）；目前只有 i18n provider（顯示偏好）與 useSuggestedRepliesChat（全成員的聊天室建議回覆）接它、以 refreshServerSettings 重讀，其他讀設定的地方仍是掛載時那份，不要假定它們跨 tab 即時同步。
 
 舊 GET 不得覆寫已採用的 patch。onboarding: null 是正常終態；running 在 set-password 前要先持久化，輪詢直到 failed/success，讀取錯誤也要繼續輪詢。
 

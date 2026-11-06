@@ -273,6 +273,15 @@ export function UserIcon({ size = 16, className }: IconProps) {
  * outline path: at this size GearIcon's fine detail muddies into a blob, and
  * this control has to read as "role settings" at a glance — the whole reason
  * owner rejected the plain ⚙. */
+export function SuggestedRepliesIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M21 12a8 8 0 0 1-8 8H4l2.2-3.3A8 8 0 1 1 21 12z" />
+      <path d="m13 8-3 4.5h4L11 17" />
+    </svg>
+  );
+}
+
 export function UserGearIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>

@@ -276,21 +276,22 @@ func (h *Hub) AgentsOnMachine(machineID string) []string {
 // instead of "role_def": 200 on the wire, nothing fanned). Every switch mapping a
 // document kind to a topic must learn a new topic too; Go will not tell you.
 var sseTopics = map[string]bool{
-	"member":          true,
-	"chat":            true,
-	"chat_read":       true,
-	"chat_group":      true,
-	"settings":        true,
-	"reply_card":      true,
-	"task":            true,
-	"task_manual":     true,
-	"global_context":  true,
-	"role_def":        true,
-	"insight":         true,
-	"context":         true,
-	"monitoring":      true,
-	"runtime_login":   true,
-	"runtime_upgrade": true,
+	"member":               true,
+	"chat":                 true,
+	"chat_read":            true,
+	"chat_group":           true,
+	"chat_suggested_reply": true,
+	"settings":             true,
+	"reply_card":           true,
+	"task":                 true,
+	"task_manual":          true,
+	"global_context":       true,
+	"role_def":             true,
+	"insight":              true,
+	"context":              true,
+	"monitoring":           true,
+	"runtime_login":        true,
+	"runtime_upgrade":      true,
 }
 
 // jsonFloat: the frame ts is contractually a float; a bare integer literal would
