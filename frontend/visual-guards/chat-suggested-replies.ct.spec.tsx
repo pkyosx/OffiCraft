@@ -33,8 +33,8 @@ for (const width of [390, 1280]) {
       const overflow = await row.evaluate((el) => el.scrollHeight > el.clientHeight);
       expect(overflow).toBe(true);
     }
-    const messages = (await cmp.locator(".chat__messages").boundingBox())!;
-    expect(messages.height).toBeGreaterThan(200);
+    const thread = (await cmp.locator(".chat__body").boundingBox())!;
+    expect(thread.height).toBeGreaterThan(200);
   });
 
   test(`${width}px: the dialog fits the viewport and every row's three buttons are on screen`, async ({ mount, page }) => {
