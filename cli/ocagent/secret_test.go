@@ -494,6 +494,32 @@ func TestMaskWriter(t *testing.T) {
 		}
 	})
 
+	t.Run("a line of a multi-line value printed alone is masked, whatever its length", func(t *testing.T) {
+		value := []string{"-----BEGIN KEY-----\r\naaaaaaaaaaaa\n\n   \nab=\n"}
+		for in, want := range map[string]string{
+			"head: -----BEGIN KEY-----\n": "head: ***\n",
+			"body aaaaaaaaaaaa end":        "body *** end",
+			"tail ab= end":                 "tail *** end",
+		} {
+			if got := writeChunks(value, in); got != want {
+				t.Fatalf("output for %q = %q, want %q", in, got, want)
+			}
+		}
+	})
+
+	t.Run("blank lines of a multi-line value leave spaces and line breaks alone", func(t *testing.T) {
+		text := "a b\n\nc   d\n"
+		if got := writeChunks([]string{"aaaaaaaaaaaa\n\n   \nbbbbbbbbbbbb"}, text); got != text {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("a single-line value is masked only whole", func(t *testing.T) {
+		if got := writeChunks([]string{"aaaa bbbb"}, "aaaa and bbbb and aaaa bbbb"); got != "aaaa and bbbb and ***" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
 	t.Run("a value containing another is masked whole", func(t *testing.T) {
 		if got := writeChunks([]string{"value-1", fakeValue1}, "a "+fakeValue1+" b value-1"); got != "a *** b ***" {
 			t.Fatalf("got %q", got)

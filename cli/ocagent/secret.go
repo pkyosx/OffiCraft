@@ -126,7 +126,8 @@ The first retrieval of a card's value starts its retention: the value is
 destroyed when that ends, and until then you may retrieve it again.
 
 The command's stdout and stderr are passed through with every occurrence of
-every value replaced by ***. A value split across two writes is still caught,
+every value, and of each non-blank line of a multi-line value, replaced by ***.
+A value split across two writes is still caught,
 which means output can lag by up to one value's length until more output or
 the end of the stream arrives. stdin is passed through untouched unless --stdin-json is given.
 
@@ -688,6 +689,14 @@ func newMaskWriter(dst io.Writer, values []string) *maskWriter {
 			add(form)
 			if strings.Contains(form, "\n") {
 				add(strings.ReplaceAll(strings.ReplaceAll(form, "\r\n", "\n"), "\n", "\r\n"))
+			}
+		}
+		// A command often handles a multi-line value line by line. No minimum length,
+		// owner ruling: a PEM's short last line is still part of the key. A blank line
+		// stays out, or every space in the output would be masked.
+		if lines := strings.Split(v, "\n"); len(lines) > 1 {
+			for _, line := range lines {
+				add(strings.TrimSpace(line))
 			}
 		}
 	}
