@@ -1180,6 +1180,18 @@ var identityGateLedger = map[string]string{
 		"other), copied from the report onto the stored failure.",
 	"model_call.go :: modelCallWarningOf :: Kind: f.Kind": "" +
 		"NOT an identity gate — the same model-call failure kind, copied onto the warning DTO.",
+	"api_replycards_secret.go :: provideSecretGate :: card.Kind != replyCardKindSecret": "" +
+		"the reply card's own kind vocabulary (decision/action/secret), not a member kind: " +
+		"whoever opened the card, staff or outsource, gets the same behaviour.",
+	"api_replycards_secret.go :: replyCardSecretDTOOf :: c.Kind != replyCardKindSecret": "" +
+		"the reply card's own kind vocabulary (decision/action/secret), not a member kind: " +
+		"whoever opened the card, staff or outsource, gets the same behaviour.",
+	"api_replycards_secret.go :: resolveRevealTargetOn :: card.Kind != replyCardKindSecret": "" +
+		"the reply card's own kind vocabulary (decision/action/secret), not a member kind: " +
+		"whoever opened the card, staff or outsource, gets the same behaviour.",
+	"api_replycards_secret.go :: secretCardValueIsLive :: c.Kind != replyCardKindSecret": "" +
+		"the reply card's own kind vocabulary (decision/action/secret), not a member kind: " +
+		"whoever opened the card, staff or outsource, gets the same behaviour.",
 	"api_replycards.go :: replyCardListItemOf :: Kind: c.Kind": "" +
 		"NOT an identity gate — REPLY-CARD kind (the question's shape), another " +
 		"vocabulary sharing the field name.",
