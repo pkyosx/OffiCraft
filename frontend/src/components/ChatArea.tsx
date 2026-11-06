@@ -301,8 +301,9 @@ export function ChatArea({
   onOpenRoleSettings,
   suggestedReplies,
   allMemberSuggestedReplies,
-  suggestedRepliesSaveFailed,
+  suggestedRepliesError,
   onSaveSuggestedReplies,
+  onRetrySuggestedReplies,
   onWake,
   jumpToMsgId,
   draftSeed,
@@ -346,10 +347,13 @@ export function ChatArea({
   suggestedReplies?: readonly string[];
   /** The 建議回覆 set for every member, offered after the member's own. */
   allMemberSuggestedReplies?: readonly string[];
-  suggestedRepliesSaveFailed?: boolean;
+  /** "save": THIS member's latest save failed. "load": no list could be read. */
+  suggestedRepliesError?: "load" | "save" | null;
   /** Absent where the sentences cannot be edited: a peer off the roster, or
    * before the first read has answered. */
   onSaveSuggestedReplies?: (next: string[]) => void;
+  /** Present after a failed first read: the header button reads again instead. */
+  onRetrySuggestedReplies?: () => void;
   // T-94c1 就地喚醒: wake this member from the chat itself (calls activateMember
   // in the parent). Optional — absent = no in-chat wake button (an outsource
   // worker is spawn/task-driven, not activate-woken, so the button would lie);
@@ -2397,7 +2401,7 @@ export function ChatArea({
             <UserGearIcon size={17} />
           </button>
         )}
-        {onSaveSuggestedReplies && !composerLocked && (
+        {(onSaveSuggestedReplies || onRetrySuggestedReplies) && !composerLocked && (
           <button
             ref={suggestedRepliesButtonRef}
             type="button"
@@ -2407,7 +2411,8 @@ export function ChatArea({
             data-testid="chat-header-suggested-replies"
             onClick={(e) => {
               e.stopPropagation();
-              setSuggestedRepliesOpen(true);
+              if (onSaveSuggestedReplies) setSuggestedRepliesOpen(true);
+              else onRetrySuggestedReplies?.();
             }}
             onKeyDown={(e) => e.stopPropagation()}
           >
@@ -2618,6 +2623,15 @@ export function ChatArea({
             </button>
           </div>
         )}
+        {/* Outside the locked/unlocked fork: a save that failed after the dialog
+         * closed still has to be told. While the dialog is open it says so
+         * itself, since this row sits behind its backdrop. */}
+        {!suggestedRepliesOpen &&
+          (suggestedRepliesError === "save" || (suggestedRepliesError === "load" && !composerLocked)) && (
+            <div className="chat__suggested-replies-error" role="alert" data-testid="chat-suggested-replies-error">
+              {suggestedRepliesError === "load" ? t.chat.suggestedRepliesLoadError : t.chat.suggestedRepliesSaveError}
+            </div>
+          )}
         {/* ② the new-message preview strip. FIRST child of the composer, so it
          * sits above the 「正在回覆」 banner (owner's requirement) and above the
          * wake row and the attachment previews as well — and it is outside the
@@ -2884,7 +2898,7 @@ export function ChatArea({
         <ChatSuggestedRepliesDialog
           memberName={member.name}
           replies={suggestedReplies ?? []}
-          saveFailed={suggestedRepliesSaveFailed ?? false}
+          saveFailed={suggestedRepliesError === "save"}
           onSave={onSaveSuggestedReplies}
           onClose={() => {
             suggestedRepliesButtonRef.current?.focus();

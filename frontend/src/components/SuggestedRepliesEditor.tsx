@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import {
   SUGGESTED_REPLIES_MAX_ENTRIES,
   SUGGESTED_REPLY_MAX_LEN,
@@ -23,6 +23,7 @@ export function SuggestedRepliesEditor({
   onCommit,
   onTouch,
   emptyNote,
+  keepFocusOnRemove = false,
 }: {
   label: string;
   idPrefix: string;
@@ -33,6 +34,11 @@ export function SuggestedRepliesEditor({
   onTouch?: () => void;
   /** Shown when there are no rows at all. */
   emptyNote?: string;
+  /** For a focus trap around this editor: removing the bottom row unmounts the
+   * focused button and focus falls to <body>, where the trap's keydown no longer
+   * hears Tab. Then the add button takes focus. Any other row keeps it, since the
+   * next row slides into the same button. */
+  keepFocusOnRemove?: boolean;
 }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState<string[] | null>(null);
@@ -40,6 +46,14 @@ export function SuggestedRepliesEditor({
   // An Enter that CONFIRMS a CJK candidate must not be read as "this line is
   // finished, save it".
   const composingRef = useRef(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const addRef = useRef<HTMLButtonElement>(null);
+  const removedRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!removedRef.current) return;
+    removedRef.current = false;
+    if (!rootRef.current?.contains(document.activeElement)) addRef.current?.focus();
+  });
 
   /** RUNES, not UTF-16 units — the same measure the server applies
    * (utf8.RuneCountInString), so a CJK sentence gets the full budget and the
@@ -79,7 +93,7 @@ export function SuggestedRepliesEditor({
   const full = rows.length >= SUGGESTED_REPLIES_MAX_ENTRIES;
 
   return (
-    <div className="sugg-edit">
+    <div className="sugg-edit" ref={rootRef}>
       {rows.length === 0 && emptyNote && <div className="sugg-edit__note">{emptyNote}</div>}
       {rows.map((text, i) => (
         <Fragment key={`${idPrefix}-${i}`}>
@@ -156,7 +170,10 @@ export function SuggestedRepliesEditor({
             className="sugg-edit__btn sugg-edit__btn--remove"
             title={t.settings.suggestedReplyRemove}
             aria-label={`${label} ${t.settings.suggestedReplyRemove} ${i + 1}`}
-            onClick={() => apply(rows.filter((_, j) => j !== i))}
+            onClick={() => {
+              removedRef.current = keepFocusOnRemove;
+              apply(rows.filter((_, j) => j !== i));
+            }}
           >
             <TrashIcon size={14} />
           </button>
@@ -172,6 +189,7 @@ export function SuggestedRepliesEditor({
         </Fragment>
       ))}
       <button
+        ref={addRef}
         type="button"
         className="sugg-edit__add"
         disabled={full}

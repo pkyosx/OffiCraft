@@ -7,20 +7,37 @@ export interface UseChatSuggestedReplies {
   /** A read has answered. Until then an empty list means "not known", and
    * editing from it could wipe what the server holds. */
   loaded: boolean;
-  /** The latest write failed and the lists were re-read from the server; clears
-   * when the next write starts. */
-  saveFailed: boolean;
+  /** No read has answered yet and the latest one failed, so the lists cannot be
+   * edited. `reload` or a delta reads again; a read that lands clears it. */
+  loadFailed: boolean;
+  /** The members whose latest write failed. That member's list went back to what
+   * the server last acknowledged, and their next write clears them from here. */
+  saveFailedFor: ReadonlySet<string>;
   /** Show the list at once and save it. */
   save: (memberId: string, replies: string[]) => void;
+  reload: () => void;
+}
+
+type Lists = Readonly<Record<string, readonly string[]>>;
+
+function withMember(lists: Lists, memberId: string, replies: readonly string[]): Lists {
+  const { [memberId]: _replaced, ...rest } = lists;
+  return replies.length > 0 ? { ...rest, [memberId]: replies } : rest;
 }
 
 /** The owner's chat 建議回覆 (GET /api/chat/suggested-replies), re-read on every
  * `chat_suggested_reply` delta. */
 export function useChatSuggestedReplies(): UseChatSuggestedReplies {
-  const [lists, setLists] = useState<Readonly<Record<string, readonly string[]>>>({});
+  const [lists, setLists] = useState<Lists>({});
   const [loaded, setLoaded] = useState(false);
-  const [saveFailed, setSaveFailed] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [saveFailedFor, setSaveFailedFor] = useState<ReadonlySet<string>>(new Set());
+  const loadedRef = useRef(false);
   const aliveRef = useRef(true);
+  // What the server last answered. A failed save falls back to this, because the
+  // re-read that follows can fail too and the failure message says the screen
+  // shows the server's content.
+  const ackedRef = useRef<Lists>({});
   // One PUT at a time, so two quick edits cannot land in the wrong order. Edits
   // made meanwhile wait, keeping only the newest per member. A delta during a
   // PUT is read after it settles: a read sent now could not see that PUT.
@@ -46,11 +63,15 @@ export function useChatSuggestedReplies(): UseChatSuggestedReplies {
       api.getChatSuggestedReplies().then(
         (next) => {
           if (!aliveRef.current || op !== latestReadRef.current || op < lastWriteRef.current) return;
+          ackedRef.current = next;
+          loadedRef.current = true;
           setLists(next);
           setLoaded(true);
+          setLoadFailed(false);
         },
         (e) => {
           console.warn("useChatSuggestedReplies: load failed", e);
+          if (aliveRef.current && !loadedRef.current) setLoadFailed(true);
         },
       );
     };
@@ -63,6 +84,15 @@ export function useChatSuggestedReplies(): UseChatSuggestedReplies {
       aliveRef.current = false;
       unsubscribe();
     };
+  }, []);
+
+  const clearSaveFailed = useCallback((memberId: string) => {
+    setSaveFailedFor((cur) => {
+      if (!cur.has(memberId)) return cur;
+      const next = new Set(cur);
+      next.delete(memberId);
+      return next;
+    });
   }, []);
 
   const sendNext = useCallback(() => {
@@ -79,30 +109,40 @@ export function useChatSuggestedReplies(): UseChatSuggestedReplies {
     queuedRef.current.delete(memberId);
     inFlightRef.current = true;
     lastWriteRef.current = ++opRef.current;
+    // An edit queued behind a PUT that failed goes out as that member's next save.
+    clearSaveFailed(memberId);
     api.putChatSuggestedReplies(memberId, replies).then(
-      () => {
+      (stored) => {
+        ackedRef.current = withMember(ackedRef.current, memberId, stored);
         if (aliveRef.current) sendNext();
       },
       (e) => {
         console.warn("useChatSuggestedReplies: save failed", e);
         if (!aliveRef.current) return;
-        setSaveFailed(true);
+        setSaveFailedFor((cur) => new Set(cur).add(memberId));
+        // A newer edit for this member is still on its way and decides the screen.
+        if (!queuedRef.current.has(memberId)) {
+          const acked = ackedRef.current[memberId] ?? [];
+          setLists((cur) => withMember(cur, memberId, acked));
+        }
         // What reached the server is unknown: ask it what it holds now.
         rereadRef.current = true;
         sendNext();
       },
     );
-  }, []);
+  }, [clearSaveFailed]);
 
   const save = useCallback(
     (memberId: string, replies: string[]) => {
       setLists((cur) => ({ ...cur, [memberId]: replies }));
-      setSaveFailed(false);
+      clearSaveFailed(memberId);
       queuedRef.current.set(memberId, replies);
       if (!inFlightRef.current) sendNext();
     },
-    [sendNext],
+    [sendNext, clearSaveFailed],
   );
 
-  return { lists, loaded, saveFailed, save };
+  const reload = useCallback(() => loadRef.current(), []);
+
+  return { lists, loaded, loadFailed, saveFailedFor, save, reload };
 }

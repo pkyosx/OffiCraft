@@ -41,8 +41,9 @@ type ChatSlotName =
   | "onOpenRoleSettings"
   | "suggestedReplies"
   | "allMemberSuggestedReplies"
-  | "suggestedRepliesSaveFailed"
+  | "suggestedRepliesError"
   | "onSaveSuggestedReplies"
+  | "onRetrySuggestedReplies"
   | "onWake"
   | "jumpToMsgId"
   | "draftSeed"
@@ -743,10 +744,15 @@ export function OfficePage({
   const suggestedRepliesSlots = (id: string) => ({
     suggestedReplies: chatSuggestedReplies.lists[id],
     allMemberSuggestedReplies,
-    suggestedRepliesSaveFailed: chatSuggestedReplies.saveFailed,
+    suggestedRepliesError: chatSuggestedReplies.loadFailed
+      ? ("load" as const)
+      : chatSuggestedReplies.saveFailedFor.has(id)
+        ? ("save" as const)
+        : null,
     onSaveSuggestedReplies: chatSuggestedReplies.loaded
       ? (next: string[]) => chatSuggestedReplies.save(id, next)
       : undefined,
+    onRetrySuggestedReplies: chatSuggestedReplies.loadFailed ? chatSuggestedReplies.reload : undefined,
   });
   const chatProjection: ChatProjection | undefined = releasedPeer
     ? {
@@ -757,8 +763,9 @@ export function OfficePage({
           onOpenRoleSettings: undefined,
           suggestedReplies: undefined,
           allMemberSuggestedReplies: undefined,
-          suggestedRepliesSaveFailed: undefined,
+          suggestedRepliesError: undefined,
           onSaveSuggestedReplies: undefined,
+          onRetrySuggestedReplies: undefined,
           onWake: undefined,
           jumpToMsgId: route.msgId,
           draftSeed: seedFor(releasedPeer.id),

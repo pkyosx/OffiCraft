@@ -266,13 +266,6 @@ export function UserIcon({ size = 16, className }: IconProps) {
   );
 }
 
-/** Person + gear — 角色設定 (T-dfae, owner 2026-07-17: 「可能是一個人加一個齒
- * 輪的圖案？」). A UserIcon whose torso is cut back to the left half so a small
- * gear can sit in the bottom-right corner without the two glyphs colliding.
- * The gear is a 6-tooth star-of-lines + hub rather than GearIcon's single
- * outline path: at this size GearIcon's fine detail muddies into a blob, and
- * this control has to read as "role settings" at a glance — the whole reason
- * owner rejected the plain ⚙. */
 export function SuggestedRepliesIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>
@@ -282,6 +275,13 @@ export function SuggestedRepliesIcon({ size = 16, className }: IconProps) {
   );
 }
 
+/** Person + gear — 角色設定 (T-dfae, owner 2026-07-17: 「可能是一個人加一個齒
+ * 輪的圖案？」). A UserIcon whose torso is cut back to the left half so a small
+ * gear can sit in the bottom-right corner without the two glyphs colliding.
+ * The gear is a 6-tooth star-of-lines + hub rather than GearIcon's single
+ * outline path: at this size GearIcon's fine detail muddies into a blob, and
+ * this control has to read as "role settings" at a glance — the whole reason
+ * owner rejected the plain ⚙. */
 export function UserGearIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>

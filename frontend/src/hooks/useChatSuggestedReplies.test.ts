@@ -49,20 +49,58 @@ describe("useChatSuggestedReplies", () => {
     const read = deferred<Record<string, string[]>>();
     getChatSuggestedReplies.mockReturnValue(read.promise);
     const { result } = renderHook(() => useChatSuggestedReplies());
-    expect(result.current).toMatchObject({ lists: {}, loaded: false, saveFailed: false });
+    expect(result.current).toMatchObject({ lists: {}, loaded: false, loadFailed: false, saveFailedFor: new Set() });
     await act(async () => read.resolve({ mira: ["繼續"] }));
-    expect(result.current).toMatchObject({ lists: { mira: ["繼續"] }, loaded: true, saveFailed: false });
+    expect(result.current).toMatchObject({
+      lists: { mira: ["繼續"] },
+      loaded: true,
+      loadFailed: false,
+      saveFailedFor: new Set(),
+    });
   });
 
-  it("a failed first read stays not loaded, and the next delta reads again", async () => {
+  it("a failed first read says so and stays not loaded; the next delta reads again and clears it", async () => {
     getChatSuggestedReplies.mockRejectedValueOnce(new Error("down"));
     const { result } = renderHook(() => useChatSuggestedReplies());
-    await waitFor(() => expect(getChatSuggestedReplies).toHaveBeenCalledTimes(1));
-    await act(async () => {});
+    await waitFor(() => expect(result.current.loadFailed).toBe(true));
     expect(result.current.loaded).toBe(false);
     emit("chat_suggested_reply");
     await waitFor(() => expect(result.current.loaded).toBe(true));
     expect(result.current.lists).toEqual({ mira: ["繼續"] });
+    expect(result.current.loadFailed).toBe(false);
+  });
+
+  it("reload reads again after a failed first read, and a second failure keeps saying so", async () => {
+    getChatSuggestedReplies.mockRejectedValueOnce(new Error("down")).mockRejectedValueOnce(new Error("down"));
+    const { result } = renderHook(() => useChatSuggestedReplies());
+    await waitFor(() => expect(result.current.loadFailed).toBe(true));
+    await act(async () => result.current.reload());
+    expect(getChatSuggestedReplies).toHaveBeenCalledTimes(2);
+    expect(result.current).toMatchObject({ loaded: false, loadFailed: true });
+    await act(async () => result.current.reload());
+    expect(getChatSuggestedReplies).toHaveBeenCalledTimes(3);
+    expect(result.current).toMatchObject({ lists: { mira: ["繼續"] }, loaded: true, loadFailed: false });
+  });
+
+  it("a read failing after one has answered keeps the lists and is not a load failure", async () => {
+    const { result } = await mounted();
+    getChatSuggestedReplies.mockRejectedValueOnce(new Error("down"));
+    emit("chat_suggested_reply");
+    await waitFor(() => expect(getChatSuggestedReplies).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+    expect(result.current).toMatchObject({ lists: { mira: ["繼續"] }, loaded: true, loadFailed: false });
+  });
+
+  it("of two reads answering out of order, the newer one's answer stays", async () => {
+    const { result } = await mounted();
+    const older = deferred<Record<string, string[]>>();
+    const newer = deferred<Record<string, string[]>>();
+    getChatSuggestedReplies.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+    emit("chat_suggested_reply");
+    emit("chat_suggested_reply");
+    await act(async () => newer.resolve({ mira: ["新"] }));
+    await act(async () => older.resolve({ mira: ["舊"] }));
+    expect(result.current.lists).toEqual({ mira: ["新"] });
   });
 
   it("re-reads on its own topic and on no other", async () => {
@@ -123,14 +161,62 @@ describe("useChatSuggestedReplies", () => {
     await waitFor(() => expect(result.current.lists).toEqual({ mira: ["新"], beto: ["別的視窗"] }));
   });
 
-  it("a failed save says so and shows what the server holds; the next save clears it", async () => {
+  it("a failed save is that member's, shows what the server holds, and only that member's next save clears it", async () => {
     putChatSuggestedReplies.mockRejectedValueOnce(new Error("no"));
+    getChatSuggestedReplies.mockResolvedValueOnce({ mira: ["繼續"] }).mockResolvedValueOnce({ mira: ["伺服器上的"] });
     const { result } = await mounted();
     await act(async () => result.current.save("mira", ["新"]));
-    await waitFor(() => expect(result.current.lists).toEqual({ mira: ["繼續"] }));
-    expect(result.current.saveFailed).toBe(true);
-    putChatSuggestedReplies.mockResolvedValue(["再一次"]);
+    expect(getChatSuggestedReplies).toHaveBeenCalledTimes(2);
+    expect(result.current.lists).toEqual({ mira: ["伺服器上的"] });
+    expect(result.current.saveFailedFor).toEqual(new Set(["mira"]));
+
+    putChatSuggestedReplies.mockResolvedValue(["好"]);
+    await act(async () => result.current.save("ow-a", ["好"]));
+    expect(result.current.saveFailedFor).toEqual(new Set(["mira"]));
+
     await act(async () => result.current.save("mira", ["再一次"]));
-    expect(result.current.saveFailed).toBe(false);
+    expect(result.current.saveFailedFor).toEqual(new Set());
+  });
+
+  it("a failed save followed by a failed re-read goes back to the last list the server acknowledged", async () => {
+    const { result } = await mounted();
+    putChatSuggestedReplies.mockResolvedValueOnce(["存過"]);
+    await act(async () => result.current.save("mira", [" 存過 "]));
+    putChatSuggestedReplies.mockResolvedValueOnce(["也存過"]);
+    await act(async () => result.current.save("beto", ["也存過"]));
+
+    putChatSuggestedReplies.mockRejectedValueOnce(new Error("offline"));
+    getChatSuggestedReplies.mockRejectedValue(new Error("offline"));
+    await act(async () => result.current.save("mira", ["沒存到"]));
+    expect(result.current.lists).toEqual({ mira: ["存過"], beto: ["也存過"] });
+    expect(result.current.saveFailedFor).toEqual(new Set(["mira"]));
+  });
+
+  it("the same double failure for a member the server held nothing for leaves them with no list", async () => {
+    const { result } = await mounted();
+    putChatSuggestedReplies.mockRejectedValueOnce(new Error("offline"));
+    getChatSuggestedReplies.mockRejectedValue(new Error("offline"));
+    await act(async () => result.current.save("beto", ["沒存到"]));
+    expect(result.current.lists).toEqual({ mira: ["繼續"] });
+  });
+
+  it("an edit queued behind a failed PUT stays on screen and its own success clears the failure", async () => {
+    const first = deferred<string[]>();
+    const second = deferred<string[]>();
+    putChatSuggestedReplies.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { result } = await mounted();
+    act(() => result.current.save("mira", ["a"]));
+    act(() => result.current.save("mira", ["b"]));
+    await act(async () => first.reject(new Error("no")));
+    expect(putChatSuggestedReplies.mock.calls).toEqual([
+      ["mira", ["a"]],
+      ["mira", ["b"]],
+    ]);
+    expect(result.current.lists).toEqual({ mira: ["b"] });
+    expect(result.current.saveFailedFor).toEqual(new Set());
+    getChatSuggestedReplies.mockResolvedValue({ mira: ["b"] });
+    await act(async () => second.resolve(["b"]));
+    expect(result.current.lists).toEqual({ mira: ["b"] });
+    expect(result.current.saveFailedFor).toEqual(new Set());
   });
 });

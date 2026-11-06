@@ -147,6 +147,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "chat.suggestedRepliesClose",
   "chat.suggestedRepliesEmpty",
   "chat.suggestedRepliesLabel",
+  "chat.suggestedRepliesLoadError",
   "chat.suggestedRepliesSaveError",
   "chat.suggestedRepliesSub",
   "chat.systemSender",

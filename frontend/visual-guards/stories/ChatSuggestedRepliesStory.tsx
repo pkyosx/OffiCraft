@@ -29,11 +29,23 @@ const MEMBER = {
 
 const noop = () => {};
 
-export function ChatSuggestedRepliesStory({ replies }: { replies: string[] }) {
+export function ChatSuggestedRepliesStory({
+  replies,
+  allHeaderButtons = false,
+}: {
+  replies: string[];
+  allHeaderButtons?: boolean;
+}) {
   return (
     <I18nProvider>
       <div style={{ height: 700, display: "flex", flexDirection: "column" }} data-testid="host">
-        <ChatArea member={MEMBER} suggestedReplies={replies} onSaveSuggestedReplies={noop} />
+        <ChatArea
+          member={MEMBER}
+          suggestedReplies={replies}
+          onSaveSuggestedReplies={noop}
+          onOpenTasks={allHeaderButtons ? noop : undefined}
+          onOpenRoleSettings={allHeaderButtons ? noop : undefined}
+        />
       </div>
     </I18nProvider>
   );

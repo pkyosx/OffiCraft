@@ -148,6 +148,7 @@ var messageKeys = map[string]bool{
 	"chat.suggestedRepliesClose":                       true,
 	"chat.suggestedRepliesEmpty":                       true,
 	"chat.suggestedRepliesLabel":                       true,
+	"chat.suggestedRepliesLoadError":                   true,
 	"chat.suggestedRepliesSaveError":                   true,
 	"chat.suggestedRepliesSub":                         true,
 	"chat.systemSender":                                true,

@@ -31,7 +31,17 @@ function openRoom(id: string) {
 const chips = () =>
   Array.from(screen.getByTestId("chat-suggested-replies").querySelectorAll("button")).map((b) => b.textContent);
 
+const SAVE_ERROR = "建議回覆沒有存成功，畫面已換回伺服器上的內容。";
+const roomError = () => screen.getByTestId("chat-suggested-replies-error").textContent;
+const go = (id: string) =>
+  act(async () => {
+    window.location.hash = `#office/chat/${id}`;
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+const dialogInput = () => screen.getByTestId("chat-suggested-replies-dialog").querySelector("input") as HTMLInputElement;
+
 beforeEach(() => {
+  vi.restoreAllMocks();
   __resetMock();
   resetAllSharedSnapshots();
   __resetWorkerCodenameCache();
@@ -65,6 +75,70 @@ describe("OfficePage chat 建議回覆", () => {
       await waitFor(() => expect(chips()).toEqual(["別的視窗改的"]));
     });
   }
+
+  it("until the first read answers the room offers no editor, then the dialog holds what the server has", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["繼續"]);
+    const held = await mockApi.getChatSuggestedReplies();
+    let answer!: (v: Record<string, string[]>) => void;
+    vi.spyOn(api, "getChatSuggestedReplies").mockReturnValueOnce(new Promise((res) => (answer = res)));
+    openRoom("mira");
+    await screen.findByTestId("chat-header-presence");
+    expect(screen.queryByTestId("chat-header-suggested-replies")).toBeNull();
+
+    await act(async () => answer(held));
+    fireEvent.click(await screen.findByTestId("chat-header-suggested-replies"));
+    expect(dialogInput().value).toBe("繼續");
+  });
+
+  it("a failed first read is told in the room, and the header button reads again and then edits", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["繼續"]);
+    const read = vi.spyOn(api, "getChatSuggestedReplies");
+    read.mockRejectedValueOnce(new Error("down"));
+    openRoom("mira");
+    await waitFor(() => expect(roomError()).toBe("建議回覆載入失敗，再按一次標頭的建議回覆按鈕會重新載入"));
+
+    fireEvent.click(screen.getByTestId("chat-header-suggested-replies"));
+    await waitFor(() => expect(chips()).toEqual(["繼續"]));
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("chat-suggested-replies-error")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("chat-header-suggested-replies"));
+    expect(dialogInput().value).toBe("繼續");
+  });
+
+  it("a save that fails after Esc is told in that member's room only, the sentence goes, and that member's next save clears it", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["繼續"]);
+    const put = vi.spyOn(api, "putChatSuggestedReplies");
+    put.mockRejectedValueOnce(new Error("no"));
+    openRoom("mira");
+    fireEvent.click(await screen.findByTestId("chat-header-suggested-replies"));
+    dialogInput().focus();
+    fireEvent.change(dialogInput(), { target: { value: "沒存到" } });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("chat-suggested-replies-dialog")).toBeNull();
+
+    await waitFor(() => expect(roomError()).toBe(SAVE_ERROR));
+    await waitFor(() => expect(chips()).toEqual(["繼續"]));
+
+    await go("ow-a");
+    await waitFor(() => expect(document.querySelector(".chat__header-name")?.textContent).toBe("外包 · O-1"));
+    fireEvent.click(await screen.findByTestId("chat-header-suggested-replies"));
+    const dialog = screen.getByTestId("chat-suggested-replies-dialog");
+    expect(dialog.querySelector("h2")?.textContent).toBe("建議回覆 · 外包 · O-1");
+    expect(screen.queryAllByRole("alert").map((a) => a.textContent)).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "關閉" }));
+
+    await go("mira");
+    await waitFor(() => expect(roomError()).toBe(SAVE_ERROR));
+
+    fireEvent.click(screen.getByTestId("chat-header-suggested-replies"));
+    expect(screen.getByTestId("chat-suggested-replies-dialog").contains(screen.getByRole("alert"))).toBe(true);
+    fireEvent.change(dialogInput(), { target: { value: "這次存到" } });
+    fireEvent.blur(dialogInput());
+    await waitFor(() => expect(chips()).toEqual(["這次存到"]));
+    expect(screen.queryAllByRole("alert").map((a) => a.textContent)).toEqual([]);
+    expect(await mockApi.getChatSuggestedReplies()).toEqual({ mira: ["這次存到"] });
+  });
 
   it("a room whose peer left the roster offers neither chips nor the editor", async () => {
     await mockApi.patchServerSettings({ suggestedRepliesChat: ["共用"] });

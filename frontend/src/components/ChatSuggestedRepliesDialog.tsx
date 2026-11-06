@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, type DragEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
@@ -32,7 +32,14 @@ export function ChatSuggestedRepliesDialog({
     boxRef.current?.querySelector<HTMLElement>("input, .sugg-edit__add")?.focus();
   }, []);
 
-  const trapTab = (e: KeyboardEvent<HTMLElement>) => {
+  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    // This Esc cancels the IME's candidates. preventDefault is what tells the
+    // Esc layer the key is spent; without it the dialog closes and blur saves the
+    // half-typed text.
+    if (e.key === "Escape" && (e.nativeEvent.isComposing || e.keyCode === 229)) {
+      e.preventDefault();
+      return;
+    }
     if (e.key !== "Tab" || !boxRef.current) return;
     const items = Array.from(
       boxRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input"),
@@ -43,6 +50,19 @@ export function ChatSuggestedRepliesDialog({
     items[next]?.focus();
   };
 
+  // React bubbles through the portal, so an uncaught drag reaches the chat room
+  // behind this dialog and stages the file in its composer. A file still needs
+  // preventDefault or the browser navigates to it; dragged text stays droppable
+  // on the inputs.
+  const onDragOver = (e: DragEvent<HTMLElement>) => {
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+  };
+  const onDrop = (e: DragEvent<HTMLElement>) => {
+    e.stopPropagation();
+    if (e.dataTransfer.files.length > 0) e.preventDefault();
+  };
+
   return createPortal(
     <div
       className="chat-groups__dialog-backdrop"
@@ -50,6 +70,8 @@ export function ChatSuggestedRepliesDialog({
         if (e.target === e.currentTarget) onClose();
       }}
       onClick={(e) => e.stopPropagation()}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
       <div
         ref={boxRef}
@@ -58,7 +80,7 @@ export function ChatSuggestedRepliesDialog({
         aria-labelledby={titleId}
         className="chat-groups__dialog chat-suggested-replies__dialog"
         data-testid="chat-suggested-replies-dialog"
-        onKeyDown={trapTab}
+        onKeyDown={onKeyDown}
       >
         <div className="chat-suggested-replies__head">
           <div>
@@ -83,6 +105,7 @@ export function ChatSuggestedRepliesDialog({
           value={replies}
           onCommit={onSave}
           emptyNote={t.chat.suggestedRepliesEmpty}
+          keepFocusOnRemove
         />
         {saveFailed && (
           <div className="sugg-edit__error" role="alert">

@@ -1,13 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
-import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
 import { __resetMock, mockApi } from "../api/mock";
 import { api } from "../api";
 
-const s = zh.settings;
-const chatRow = (n: number) => `${s.suggestedRepliesChat} ${n}`;
+const chatRow = (n: number) => `聊天室建議回覆 ${n}`;
 
 async function openParamsPage() {
   const utils = render(
@@ -16,7 +14,7 @@ async function openParamsPage() {
     </I18nProvider>,
   );
   fireEvent.click(utils.getByTestId("settings-params-entry"));
-  await utils.findByText(s.suggestedRepliesReplyCard);
+  await utils.findByText("請示卡建議回覆");
   return utils;
 }
 
@@ -49,7 +47,7 @@ describe("聊天室建議回覆 in 參數調整", () => {
   it("deleting the last sentence saves an empty list", async () => {
     await mockApi.patchServerSettings({ suggestedRepliesChat: ["舊"] });
     const { findByLabelText } = await openParamsPage();
-    fireEvent.click(await findByLabelText(`${s.suggestedRepliesChat} ${s.suggestedReplyRemove} 1`));
+    fireEvent.click(await findByLabelText("聊天室建議回覆 刪除這一句 1"));
     await waitFor(async () => expect((await api.getServerSettings()).suggestedRepliesChat).toEqual([]));
   });
 
@@ -59,7 +57,9 @@ describe("聊天室建議回覆 in 參數調整", () => {
     const input = (await findByLabelText(chatRow(1))) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "句".repeat(121) } });
     fireEvent.blur(input);
-    expect((await findByRole("alert")).textContent).toContain("121");
+    expect((await findByRole("alert")).textContent).toBe(
+      "這一句 121 字,超過上限 120 字。改短一點才會存檔——超過的部分不會被自動截掉,也不會存進去。",
+    );
     expect((await api.getServerSettings()).suggestedRepliesChat).toEqual(["舊"]);
   });
 });

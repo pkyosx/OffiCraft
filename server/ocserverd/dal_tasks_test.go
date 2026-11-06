@@ -1667,6 +1667,21 @@ func TestReleaseWorkersForTask(t *testing.T) {
 		chatGroupWantMemberRows(t, d, "ow-9")
 	})
 
+	t.Run("each released worker's chat suggested replies are deleted and a worker on another task keeps theirs", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		dalWorkerOnTask(t, d, "ow-1", "O-1", "T-1", 100)
+		dalWorkerOnTask(t, d, "ow-2", "O-2", "T-1", 200)
+		dalWorkerOnTask(t, d, "ow-9", "O-9", "T-2", 300)
+		chatSuggestedRepliesSeed(t, d, "ow-1", "gone")
+		chatSuggestedRepliesSeed(t, d, "ow-2", "gone too")
+		chatSuggestedRepliesSeed(t, d, "ow-9", "stays")
+
+		if _, err := d.ReleaseWorkersForTask("T-1", 1800000000); err != nil {
+			t.Fatalf("ReleaseWorkersForTask: %v", err)
+		}
+		chatSuggestedRepliesWantRows(t, d, "ow-9:0:stays")
+	})
+
 	t.Run("a task nobody works on flips nothing", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		worker := dalWorkerOnTask(t, d, "ow-1", "O-1", "T-1", 100)

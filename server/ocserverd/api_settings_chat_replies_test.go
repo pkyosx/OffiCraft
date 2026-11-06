@@ -70,6 +70,19 @@ func TestSuggestedRepliesChatSettingRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBootServesChatSuggestedRepliesFromTheStoredSetting(t *testing.T) {
+	d := newTestDAL(t)
+	if err := d.PutSetting(settingSuggestedRepliesChat, `["繼續","先放著"]`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	auth, _ := loadForTest(t, d, defaultConfig())
+	api := newAPIServer(d, NewHub(), singleKeyring(auth.secret), auth.ownerTokenTTL, "../..")
+	api.adoptSettings(auth)
+	if got := api.settingsView().SuggestedRepliesChat; !reflect.DeepEqual(got, []string{"繼續", "先放著"}) {
+		t.Fatalf("want the stored list served after boot, got %v", got)
+	}
+}
+
 func TestLoadAuthSettingsChatSuggestedReplies(t *testing.T) {
 	d := newTestDAL(t)
 	if err := d.PutSetting(settingSuggestedRepliesChat, `["繼續","先放著"]`); err != nil {

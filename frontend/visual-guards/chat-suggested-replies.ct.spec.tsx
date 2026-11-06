@@ -51,3 +51,27 @@ for (const width of [390, 1280]) {
     expect(remove.x + remove.width).toBeLessThanOrEqual(dialog.x + dialog.width);
   });
 }
+
+test("390px: the tasks, role, suggested-replies and gallery buttons all fit the header, in a row, leaving the name room", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["繼續"]} allHeaderButtons />);
+
+  const header = (await cmp.locator(".chat__header").boundingBox())!;
+  const buttons = [
+    (await cmp.getByTestId("chat-header-tasks").boundingBox())!,
+    (await cmp.getByTestId("chat-header-role-settings").boundingBox())!,
+    (await cmp.getByTestId("chat-header-suggested-replies").boundingBox())!,
+    (await cmp.locator(".chat__gallery-toggle").boundingBox())!,
+  ];
+  buttons.forEach((b, i) => {
+    expect(b.x).toBeGreaterThanOrEqual(header.x);
+    expect(b.x + b.width).toBeLessThanOrEqual(header.x + header.width);
+    expect(b.y).toBeGreaterThanOrEqual(header.y);
+    expect(b.y + b.height).toBeLessThanOrEqual(header.y + header.height);
+    if (i > 0) expect(b.x).toBeGreaterThanOrEqual(buttons[i - 1].x + buttons[i - 1].width);
+  });
+  const name = (await cmp.locator(".chat__header-text").boundingBox())!;
+  expect(name.width).toBeGreaterThan(80);
+  expect(name.x + name.width).toBeLessThanOrEqual(buttons[0].x);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
