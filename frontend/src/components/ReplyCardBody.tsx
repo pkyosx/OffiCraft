@@ -455,7 +455,7 @@ function ReplyCardSecretBox({
         className="reply-secret__input"
         data-testid="reply-secret-input"
         aria-label={t.replies.secretInputLabel}
-        rows={1}
+        rows={3}
         value={value}
         placeholder={t.replies.secretPlaceholder}
         onChange={(e) => setValue(e.target.value)}

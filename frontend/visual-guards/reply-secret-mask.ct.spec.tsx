@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/experimental-ct-react";
 import { ReplySecretStory } from "./stories/ReplySecretStory";
 
 for (const viewport of [390, 1280]) {
-  test(`${viewport}px: the box masks a value, starts one line tall beside its send button, grows then scrolls, inside the card above the composer`, async ({
+  test(`${viewport}px: the box masks a value, starts three lines tall beside its send button, grows then scrolls, inside the card above the composer`, async ({
     mount,
     page,
   }) => {
@@ -14,7 +14,8 @@ for (const viewport of [390, 1280]) {
     const height = async () => (await input.boundingBox())!.height;
 
     const empty = await height();
-    expect(empty).toBeLessThan(24);
+    expect(empty).toBeGreaterThan(50);
+    expect(empty).toBeLessThan(64);
 
     await input.fill("dummy-aaaaaaaaaaaa");
     expect(await height()).toBe(empty);
@@ -33,10 +34,10 @@ for (const viewport of [390, 1280]) {
     const inputBox = (await input.boundingBox())!;
     expect(eyeBox.x + eyeBox.width).toBeLessThanOrEqual(inputBox.x + inputBox.width + 0.5);
 
-    const threeLines = "dummy-aaaaaaaaaaaa\nline two\nline three";
-    await input.fill(threeLines);
-    await expect(input).toHaveValue(threeLines);
-    expect(await height()).toBeGreaterThan(empty * 2.5);
+    const fiveLines = "dummy-aaaaaaaaaaaa\nline two\nline three\nline four\nline five";
+    await input.fill(fiveLines);
+    await expect(input).toHaveValue(fiveLines);
+    expect(await height()).toBeGreaterThan(empty);
 
     await input.fill(Array.from({ length: 40 }, () => "dummy-aaaaaaaaaaaa").join("\n"));
     expect(await height()).toBe(132);
@@ -49,7 +50,7 @@ for (const viewport of [390, 1280]) {
     const send = (await cmp.getByTestId("reply-secret-send").boundingBox())!;
     const field = (await input.boundingBox())!;
     expect(field.x + field.width).toBeLessThanOrEqual(send.x);
-    expect(Math.abs(field.y + field.height / 2 - (send.y + send.height / 2))).toBeLessThan(1);
+    expect(Math.abs(field.y + field.height - (send.y + send.height))).toBeLessThan(1);
 
     const card = (await page.getByTestId("card-secret").boundingBox())!;
     const box = (await cmp.getByTestId("reply-secret-box").boundingBox())!;

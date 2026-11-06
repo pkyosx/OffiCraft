@@ -69,12 +69,12 @@ describe("the waiting box", () => {
     expect(composer.querySelector("textarea")!.getAttribute("placeholder")).toBe(r.inputPlaceholder);
   });
 
-  it("starts one line tall, keeps line breaks, and the browser neither fills nor checks it", () => {
+  it("starts three lines tall, keeps line breaks, and the browser neither fills nor checks it", () => {
     const { getByTestId } = renderWaiting();
     const input = getByTestId("reply-secret-input") as HTMLTextAreaElement;
     expect(input.tagName).toBe("TEXTAREA");
     expect(input.className).toBe("secret-value-input__field secret-value-input__field--masked reply-secret__input");
-    expect(input.getAttribute("rows")).toBe("1");
+    expect(input.getAttribute("rows")).toBe("3");
     expect(input.getAttribute("autocomplete")).toBe("off");
     expect(input.getAttribute("spellcheck")).toBe("false");
   });
