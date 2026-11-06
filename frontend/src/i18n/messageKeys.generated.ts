@@ -1071,8 +1071,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "replies.secretExpiredNote",
   "replies.secretExpiredTag",
   "replies.secretInputLabel",
-  "replies.secretOnlyLead",
-  "replies.secretOnlyTail",
   "replies.secretPlaceholder",
   "replies.secretProvideError",
   "replies.secretProvidedAtLabel",

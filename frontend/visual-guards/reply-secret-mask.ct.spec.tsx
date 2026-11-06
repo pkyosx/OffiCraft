@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/experimental-ct-react";
 import { ReplySecretStory } from "./stories/ReplySecretStory";
 
 for (const viewport of [390, 1280]) {
-  test(`${viewport}px: the box masks a value, starts one line tall, grows then scrolls, inside the card above the composer`, async ({
+  test(`${viewport}px: the box masks a value, starts one line tall beside its send button, grows then scrolls, inside the card above the composer`, async ({
     mount,
     page,
   }) => {
@@ -33,6 +33,11 @@ for (const viewport of [390, 1280]) {
 
     await input.fill("");
     expect(await height()).toBe(empty);
+
+    const send = (await cmp.getByTestId("reply-secret-send").boundingBox())!;
+    const field = (await input.boundingBox())!;
+    expect(field.x + field.width).toBeLessThanOrEqual(send.x);
+    expect(Math.abs(field.y + field.height / 2 - (send.y + send.height / 2))).toBeLessThan(1);
 
     const card = (await page.getByTestId("card-secret").boundingBox())!;
     const box = (await cmp.getByTestId("reply-secret-box").boundingBox())!;

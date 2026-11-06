@@ -72,7 +72,6 @@ export interface Messages {
   replyAnsweredAt: (time: string) => string;
   replyExpiredAt: (time: string) => string;
   replySecretProvidedAt: (time: string) => string;
-  replySecretOnly: (name: string) => string;
   replySecretProvidedTime: (time: string) => string;
   replySecretRetrievedTime: (time: string) => string;
   replySecretDeleteTime: (time: string) => string;
@@ -408,7 +407,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     replyAnsweredAt: (time) => `${replies.answeredAtLabel} ${time}`,
     replyExpiredAt: (time) => `${replies.expiredAtLabel} ${time}`,
     replySecretProvidedAt: (time) => `${replies.secretProvidedTag} ${time}`,
-    replySecretOnly: (name) => `${replies.secretOnlyLead} ${name} ${replies.secretOnlyTail}`.trim(),
     replySecretProvidedTime: (time) => `${replies.secretProvidedAtLabel} ${time}`,
     replySecretRetrievedTime: (time) => `${replies.secretRetrievedAtLabel} ${time}`,
     replySecretDeleteTime: (time) => `${replies.secretDeleteAtLabel} ${time}`,

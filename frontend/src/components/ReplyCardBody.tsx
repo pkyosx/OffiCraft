@@ -57,7 +57,7 @@ import { ReplyComposer } from "./ReplyComposer";
 import { useReplyCardQuoteTarget } from "./ChatSelectionReply";
 import { MentionText } from "./MentionText";
 import { useMentionRosterContext } from "../hooks/useMentionComposer";
-import { ChevronRightIcon, LockIcon } from "./icons";
+import { ChevronRightIcon } from "./icons";
 import { formatAbsolute } from "../lib/dateFormat";
 import "./replies.css";
 import { autosizeTextarea } from "../lib/autosize";
@@ -400,23 +400,15 @@ function useChipPick(
  * merely arrives or re-renders must never pull focus away from what they are
  * typing elsewhere. */
 function ReplyCardSecretBox({
-  card,
   autoFocus,
   onAutoFocused,
   onProvide,
 }: {
-  card: ReplyCard;
   autoFocus: boolean;
   onAutoFocused?: () => void;
   onProvide: (value: string) => Promise<void>;
 }) {
-  const { t, msg } = useI18n();
-  const recipient = useAttachmentLinkComments()?.recipient;
-  const roster = useMentionRosterContext();
-  const authorName =
-    recipient?.name ||
-    roster?.candidates.find((c) => c.id === card.from)?.name ||
-    card.from;
+  const { t } = useI18n();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -471,11 +463,6 @@ function ReplyCardSecretBox({
         placeholder={t.replies.secretPlaceholder}
         onChange={(e) => setValue(e.target.value)}
       />
-      <div className="reply-secret__foot">
-        <span className="reply-secret__hint" data-testid="reply-secret-hint">
-          <LockIcon size={13} />
-          {msg.replySecretOnly(authorName)}
-        </span>
         <button
           type="button"
           className="reply-secret__send"
@@ -485,7 +472,6 @@ function ReplyCardSecretBox({
         >
           {t.replies.secretSend}
         </button>
-      </div>
     </div>
   );
 }
@@ -523,7 +509,6 @@ export function ReplyCardWaitingBody({
       {card.kind === "secret" ? (
         onProvideSecret && (
           <ReplyCardSecretBox
-            card={card}
             autoFocus={autoFocusSecret}
             onAutoFocused={onSecretAutoFocused}
             onProvide={onProvideSecret}

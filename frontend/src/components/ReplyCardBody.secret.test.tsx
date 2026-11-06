@@ -7,7 +7,6 @@ import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { formatAbsolute } from "../lib/dateFormat";
-import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
 import { watchSecretValue } from "../test/secretValueWatch";
 import {
   ReplyCardAnsweredBody,
@@ -80,22 +79,11 @@ describe("the waiting box", () => {
     expect(input.getAttribute("spellcheck")).toBe("false");
   });
 
-  it("names who can retrieve it, by the name the surface knows", () => {
-    const { getByTestId } = render(
-      <I18nProvider>
-        <AttachmentLinkCommentsContext.Provider
-          value={{ recipient: { id: "mira", name: "米拉", roster: "active" } }}
-        >
-          <ReplyCardWaitingBody
-            card={mkCard()}
-            onAnswer={() => Promise.resolve()}
-            onProvideSecret={() => Promise.resolve()}
-          />
-        </AttachmentLinkCommentsContext.Provider>
-      </I18nProvider>,
-    );
-    expect(getByTestId("reply-secret-hint").textContent).toBe("只有 米拉 能取得");
-    expect(getByTestId("reply-secret-send").textContent).toBe("送出 secret");
+  it("names its actions without naming the author", () => {
+    const { getByTestId } = renderWaiting();
+    expect(getByTestId("reply-secret-input").getAttribute("placeholder")).toBe("在這裡貼上內容");
+    expect(getByTestId("reply-secret-send").textContent).toBe("送出");
+    expect(getByTestId("reply-secret-box").textContent).toBe("送出");
   });
 
   it("the send button does nothing until there is a value", () => {
@@ -185,7 +173,6 @@ describe("the waiting box", () => {
       </I18nProvider>,
     );
     fireEvent.click(getByTestId("reply-secret-box"));
-    fireEvent.click(getByTestId("reply-secret-hint"));
     expect(onCardClick).not.toHaveBeenCalled();
   });
 
