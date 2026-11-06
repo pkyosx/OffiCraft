@@ -540,6 +540,7 @@
   border-radius: 12px;
   background: var(--color-card);
 }
+/* The chat room's 建議回覆 editor: each row also carries three buttons. */
 .chat-groups__dialog--wide {
   max-width: 520px;
 }

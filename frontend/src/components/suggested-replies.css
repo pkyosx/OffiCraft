@@ -62,8 +62,6 @@
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
 
-/* The chat room's editor: wider than the chat-groups dialog it borrows, because
- * each row also carries three buttons. */
 .chat-suggested-replies__dialog {
   overflow-y: auto;
 }
