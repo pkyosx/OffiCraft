@@ -666,7 +666,7 @@ export const zh = {
     expiredTag: "已過期",
     expiredNote: "未被回答、已標為過期;若問題還在,成員會重新開卡",
     secretInputLabel: "要交給成員的內容",
-    secretPlaceholder: "在這裡貼上內容",
+    secretPlaceholder: "貼上密鑰",
     secretSend: "送出",
     secretProvideError: "送出失敗，內容還留在框裡，請再送一次",
     secretProvidedTag: "已提供",

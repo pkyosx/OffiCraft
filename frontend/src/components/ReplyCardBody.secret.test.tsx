@@ -87,24 +87,25 @@ describe("the waiting box", () => {
       masked: input.classList.contains("secret-value-input__field--masked"),
       pressed: eye.getAttribute("aria-pressed"),
       label: eye.getAttribute("aria-label"),
+      slashed: eye.innerHTML.includes("M3 3l18 18"),
     });
-    expect(shown()).toEqual({ masked: true, pressed: "false", label: "顯示內容" });
+    expect(shown()).toEqual({ masked: true, pressed: "false", label: "顯示內容", slashed: true });
     fireEvent.change(input, { target: { value: SENTINEL } });
     fireEvent.click(eye);
-    expect(shown()).toEqual({ masked: false, pressed: "true", label: "隱藏內容" });
+    expect(shown()).toEqual({ masked: false, pressed: "true", label: "隱藏內容", slashed: false });
     expect(input.value).toBe(SENTINEL);
     expect(onProvideSecret).not.toHaveBeenCalled();
     fireEvent.click(eye);
-    expect(shown()).toEqual({ masked: true, pressed: "false", label: "顯示內容" });
+    expect(shown()).toEqual({ masked: true, pressed: "false", label: "顯示內容", slashed: true });
     fireEvent.click(eye);
     fireEvent.click(getByTestId("reply-secret-send"));
     await waitFor(() => expect(input.value).toBe(""));
-    expect(shown()).toEqual({ masked: true, pressed: "false", label: "顯示內容" });
+    expect(shown()).toEqual({ masked: true, pressed: "false", label: "顯示內容", slashed: true });
   });
 
   it("names its actions without naming the author", () => {
     const { getByTestId } = renderWaiting();
-    expect(getByTestId("reply-secret-input").getAttribute("placeholder")).toBe("在這裡貼上內容");
+    expect(getByTestId("reply-secret-input").getAttribute("placeholder")).toBe("貼上密鑰");
     expect(getByTestId("reply-secret-send").textContent).toBe("送出");
     expect(getByTestId("reply-secret-box").textContent).toBe("送出");
   });

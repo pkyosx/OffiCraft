@@ -652,7 +652,7 @@ export const en: Dict = {
     expiredNote:
       "Expired without an answer; the member will re-ask if it still matters",
     secretInputLabel: "What to hand to the member",
-    secretPlaceholder: "Paste it here",
+    secretPlaceholder: "Paste the secret",
     secretSend: "Send",
     secretProvideError: "Sending failed. What you entered is still in the box; please send it again.",
     secretProvidedTag: "Provided",

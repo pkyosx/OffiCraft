@@ -45,7 +45,7 @@ export const SecretValueInput = forwardRef<HTMLTextAreaElement, Props>(function 
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setRevealed((r) => !r)}
       >
-        {revealed ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
+        {revealed ? <EyeIcon size={16} /> : <EyeOffIcon size={16} />}
       </button>
     </div>
   );
