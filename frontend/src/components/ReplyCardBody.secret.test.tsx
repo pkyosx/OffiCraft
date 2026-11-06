@@ -107,7 +107,7 @@ describe("the waiting box", () => {
     const { getByTestId } = renderWaiting();
     expect(getByTestId("reply-secret-input").getAttribute("placeholder")).toBe("貼上密鑰");
     expect(getByTestId("reply-secret-send").textContent).toBe("送出密鑰");
-    expect(getByTestId("reply-secret-box").textContent).toBe("送出密鑰或回覆訊息");
+    expect(getByTestId("reply-secret-box").textContent).toBe("送出密鑰");
   });
 
   it("the send button does nothing until there is a value", () => {
@@ -223,50 +223,31 @@ describe("the settled faces", () => {
       secret,
       ...over,
     });
-  const renderAnswered = (card: ReplyCard, onWithdrawSecret?: () => Promise<void>) =>
+  const renderAnswered = (card: ReplyCard) =>
     render(
       <I18nProvider>
-        <ReplyCardAnsweredBody card={card} onReanswer={() => Promise.resolve()} onWithdrawSecret={onWithdrawSecret} />
+        <ReplyCardAnsweredBody card={card} onReanswer={() => Promise.resolve()} />
       </I18nProvider>,
     );
 
-  it("provided: the time, waiting to be retrieved, the deletion time, and withdraw", async () => {
-    const providedTs = now - 60;
-    const expiresTs = now + 3600;
-    const onWithdraw = vi.fn(() => Promise.resolve());
+  it("provided: reads only as provided", () => {
     const { getByTestId, queryByTestId } = renderAnswered(
-      answered({ state: "provided", providedTs, retrievedTs: null, expiresTs }),
-      onWithdraw,
+      answered({ state: "provided", providedTs: now - 60, retrievedTs: null, expiresTs: now + 3600 }),
     );
-    expect(getByTestId("secret-tag").textContent).toBe("已提供");
-    expect(getByTestId("secret-provided-at").textContent).toBe(`提供時間 ${formatAbsolute(providedTs, now)}`);
-    expect(getByTestId("secret-waiting").textContent).toBe("等待取得");
-    expect(getByTestId("secret-delete-at").textContent).toBe(`內容刪除時間 ${formatAbsolute(expiresTs, now)}`);
+    expect(getByTestId("secret-face").textContent).toBe("已提供");
     expect(queryByTestId("final-answer")).toBeNull();
-    fireEvent.click(getByTestId("secret-withdraw"));
-    await waitFor(() => expect(onWithdraw).toHaveBeenCalledTimes(1));
   });
 
-  it("retrieved: the time and the deletion time, and no withdraw", () => {
+  it("retrieved: reads as retrieved with the time, whether or not the value is still held", () => {
     const retrievedTs = now - 30;
-    const expiresTs = now + 570;
-    const { getByTestId, queryByTestId } = renderAnswered(
-      answered({ state: "retrieved", providedTs: now - 60, retrievedTs, expiresTs }),
-      () => Promise.resolve(),
-    );
-    expect(getByTestId("secret-tag").textContent).toBe("已取得");
-    expect(getByTestId("secret-retrieved-at").textContent).toBe(`取得時間 ${formatAbsolute(retrievedTs, now)}`);
-    expect(getByTestId("secret-delete-at").textContent).toBe(`內容刪除時間 ${formatAbsolute(expiresTs, now)}`);
-    expect(queryByTestId("secret-withdraw")).toBeNull();
-    expect(queryByTestId("secret-deleted")).toBeNull();
-  });
-
-  it("retrieved with the value gone says it was deleted", () => {
-    const { getByTestId, queryByTestId } = renderAnswered(
-      answered({ state: "retrieved", providedTs: now - 60, retrievedTs: now - 30, expiresTs: null }),
-    );
-    expect(getByTestId("secret-deleted").textContent).toBe("內容已刪除");
-    expect(queryByTestId("secret-delete-at")).toBeNull();
+    const expected = `已取得取得時間 ${formatAbsolute(retrievedTs, now)}`;
+    for (const expiresTs of [now + 570, null]) {
+      const { getByTestId, unmount } = renderAnswered(
+        answered({ state: "retrieved", providedTs: now - 60, retrievedTs, expiresTs }),
+      );
+      expect(getByTestId("secret-face").textContent).toBe(expected);
+      unmount();
+    }
   });
 
   it("replied: the answer as usual, and re-decide is one press away", () => {

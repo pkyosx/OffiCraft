@@ -211,22 +211,6 @@ export function TaskReplyCard({
     }
   }
 
-  async function doWithdrawSecret() {
-    try {
-      await api.expireReplyCard(replyCardId);
-      setActionError(null);
-    } catch (e) {
-      console.warn("TaskReplyCard: secret withdraw failed", e);
-      setActionError(t.replies.secretWithdrawError);
-      throw e;
-    }
-    try {
-      await refetch();
-    } catch (e) {
-      console.warn("TaskReplyCard: post-withdraw refetch failed (the withdrawal was recorded)", e);
-    }
-  }
-
   // The ask ALWAYS rides a chat message (card.chatMessageId) — the header's
   // 在聊天室回覆 link opens that member's chat located on the ask (same
   // hashRoute contract as RepliesPage's 跳到原訊息).
@@ -377,7 +361,6 @@ export function TaskReplyCard({
             <ReplyCardAnsweredBody
               card={card}
               onReanswer={doReanswer}
-              onWithdrawSecret={doWithdrawSecret}
             />
           ))}
       </div>

@@ -946,24 +946,7 @@
   opacity: 0.5;
   cursor: default;
 }
-.reply-secret__or {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
-.reply-secret__or::before,
-.reply-secret__or::after {
-  content: "";
-  flex: 1;
-  border-top: 1px solid var(--color-border);
-}
 .reply-secret__fact {
   font-size: 13px;
   color: var(--color-text);
-}
-.reply-secret__withdraw {
-  margin-left: auto;
 }

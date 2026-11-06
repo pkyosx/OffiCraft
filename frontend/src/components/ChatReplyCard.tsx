@@ -298,18 +298,6 @@ export function ChatReplyCard({
     await refetchAfterSecretWrite();
   }
 
-  async function doWithdrawSecret() {
-    try {
-      mergeWrite(await api.expireReplyCard(replyCardId));
-      setActionError(null);
-    } catch (e) {
-      console.warn("ChatReplyCard: secret withdraw failed", e);
-      setActionError(t.replies.secretWithdrawError);
-      throw e;
-    }
-    await refetchAfterSecretWrite();
-  }
-
   async function doExpire() {
     if (!card) return;
     setExpireBusy(true);
@@ -470,7 +458,6 @@ export function ChatReplyCard({
               <ReplyCardAnsweredBody
                 card={card}
                 onReanswer={doReanswer}
-                onWithdrawSecret={doWithdrawSecret}
               />
             ))}
         </div>

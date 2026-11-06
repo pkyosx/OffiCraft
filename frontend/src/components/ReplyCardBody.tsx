@@ -473,7 +473,6 @@ function ReplyCardSecretBox({
       >
         {t.replies.secretSend}
       </button>
-      <div className="reply-secret__or">{t.replies.secretOrReply}</div>
     </div>
   );
 }
@@ -586,76 +585,21 @@ export function replyCardSecretTag(
   return null;
 }
 
-/** A secret card holding (or having held) the owner's value: where it stands, and
- * while nobody has retrieved it, the way to take it back. */
-function ReplyCardSecretValueFace({
-  card,
-  onWithdraw,
-}: {
-  card: ReplyCard;
-  onWithdraw?: () => Promise<void>;
-}) {
+/** A secret card holding (or having held) the owner's value: where it stands. */
+function ReplyCardSecretValueFace({ card }: { card: ReplyCard }) {
   const { t, msg } = useI18n();
-  const [busy, setBusy] = useState(false);
   const secret = card.secret!;
-  const now = Date.now() / 1000;
-  const when = (ts: number) => formatAbsolute(ts, now);
   const retrieved = secret.state === "retrieved";
-
-  async function withdraw() {
-    if (!onWithdraw || busy) return;
-    setBusy(true);
-    try {
-      await onWithdraw();
-    } catch {
-      // The caller already said what went wrong.
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <div className="reply-card__answer" data-testid="secret-face" data-secret-state={secret.state}>
       <span className="reply-tag reply-tag--answered" data-testid="secret-tag">
         {retrieved ? t.replies.secretRetrievedTag : t.replies.secretProvidedTag}
       </span>
-      {retrieved
-        ? secret.retrievedTs !== null && (
-            <span className="reply-secret__fact" data-testid="secret-retrieved-at">
-              {msg.replySecretRetrievedTime(when(secret.retrievedTs))}
-            </span>
-          )
-        : secret.providedTs !== null && (
-            <span className="reply-secret__fact" data-testid="secret-provided-at">
-              {msg.replySecretProvidedTime(when(secret.providedTs))}
-            </span>
-          )}
-      {!retrieved && (
-        <span className="reply-secret__fact" data-testid="secret-waiting">
-          {t.replies.secretAwaitingRetrieval}
+      {retrieved && secret.retrievedTs !== null && (
+        <span className="reply-secret__fact" data-testid="secret-retrieved-at">
+          {msg.replySecretRetrievedTime(formatAbsolute(secret.retrievedTs, Date.now() / 1000))}
         </span>
-      )}
-      {secret.expiresTs !== null ? (
-        <span className="reply-secret__fact" data-testid="secret-delete-at">
-          {msg.replySecretDeleteTime(when(secret.expiresTs))}
-        </span>
-      ) : (
-        retrieved && (
-          <span className="reply-secret__fact" data-testid="secret-deleted">
-            {t.replies.secretDeleted}
-          </span>
-        )
-      )}
-      {!retrieved && onWithdraw && (
-        <button
-          type="button"
-          className="reply-card__jump reply-secret__withdraw"
-          data-testid="secret-withdraw"
-          disabled={busy}
-          onClick={() => void withdraw()}
-        >
-          {t.replies.secretWithdraw}
-        </button>
       )}
     </div>
   );
@@ -666,15 +610,13 @@ function ReplyCardSecretValueFace({
 export function ReplyCardAnsweredBody({
   card,
   onReanswer,
-  onWithdrawSecret,
 }: {
   card: ReplyCard;
   onReanswer: (input: ReplyCardAnswerInput) => Promise<void>;
-  onWithdrawSecret?: () => Promise<void>;
 }) {
   const state = card.kind === "secret" ? card.secret?.state : undefined;
   if (state === "provided" || state === "retrieved") {
-    return <ReplyCardSecretValueFace card={card} onWithdraw={onWithdrawSecret} />;
+    return <ReplyCardSecretValueFace card={card} />;
   }
   return <ReplyCardStandingAnswer card={card} onReanswer={onReanswer} />;
 }

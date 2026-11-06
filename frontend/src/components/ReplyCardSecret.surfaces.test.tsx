@@ -14,7 +14,6 @@ import {
   __injectMockReplyCard,
   __mockRetrieveSecretCard,
   __resetMock,
-  mockApi,
 } from "../api/mock";
 import type { ReplyCard } from "../api/adapter";
 import { watchSecretValue } from "../test/secretValueWatch";
@@ -172,7 +171,7 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
     expect(face.getAttribute("data-secret-state")).toBe("provided");
     expect(provide).toHaveBeenCalledWith(CARD_ID, SENTINEL);
     expect(answer).not.toHaveBeenCalled();
-    expect(await u.findByTestId("secret-delete-at")).toBeTruthy();
+    expect(face.textContent).toBe("已提供");
     expect(u.container.textContent).not.toContain(SENTINEL);
     expect(u.queryByTestId("reply-secret-input")).toBeNull();
   });
@@ -204,7 +203,7 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
     expect(u.queryByTestId("secret-face")).toBeNull();
   });
 
-  it("follows the author's retrieval in place, then withdraw is gone", async () => {
+  it("follows the author's retrieval in place", async () => {
     const u = await opened();
     await provideInBox(u);
     expect((await u.findByTestId("secret-face")).getAttribute("data-secret-state")).toBe("provided");
@@ -214,19 +213,8 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
     await waitFor(() =>
       expect(u.getByTestId("secret-face").getAttribute("data-secret-state")).toBe("retrieved"),
     );
-    expect(u.queryByTestId("secret-withdraw")).toBeNull();
   });
 
-  it("withdraw expires the card and it reads as no longer valid", async () => {
-    const u = await opened();
-    await provideInBox(u);
-    fireEvent.click(await u.findByTestId("secret-withdraw"));
-    await waitFor(() =>
-      expect(u.getByTestId("secret-face").getAttribute("data-secret-state")).toBe("expired"),
-    );
-    expect(u.container.textContent).toContain("已失效");
-    expect((await mockApi.getReplyCard(CARD_ID)).status).toBe("expired");
-  });
 });
 
 describe("arrival", () => {

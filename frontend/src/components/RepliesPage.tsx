@@ -1050,18 +1050,6 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     }
   }
 
-  async function doWithdrawSecret(id: string) {
-    try {
-      await expire(id);
-      setActionError(null);
-      setLookupNonce((n) => n + 1);
-    } catch (e) {
-      console.warn("RepliesPage: secret withdraw failed", e);
-      setActionError(t.replies.secretWithdrawError);
-      throw e;
-    }
-  }
-
   async function doExpire(card: ReplyCardRow) {
     setExpireBusy(true);
     try {
@@ -1435,7 +1423,6 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
             <ReplyCardAnsweredBody
               card={card}
               onReanswer={(input) => doReanswer(card.id, input)}
-              onWithdrawSecret={() => doWithdrawSecret(card.id)}
             />
           ) : null}
         </>
