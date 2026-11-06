@@ -169,6 +169,7 @@ const (
 	settingSuggestedRepliesReplyCard   = "suggested_replies.reply_card"
 	settingSuggestedRepliesTaskMessage = "suggested_replies.task_message"
 	settingSuggestedRepliesLoreMessage = "suggested_replies.lore_message"
+	settingSuggestedRepliesChat        = "suggested_replies.chat"
 	// `display.custom_themes` deliberately has NO constant: the themes live in the
 	// custom_theme table (/api/themes), and the old row is kept unread only as the
 	// rollback path (deleting it is gated — see the top of
@@ -309,6 +310,7 @@ type authSettings struct {
 	suggestedRepliesReplyCard   []string
 	suggestedRepliesTaskMessage []string
 	suggestedRepliesLoreMessage []string
+	suggestedRepliesChat        []string
 }
 
 // A suggestion list is a menu read at a glance under a reply box: 20 entries
@@ -830,6 +832,10 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 	}
 	if err := loadSuggestedReplies(settingSuggestedRepliesLoreMessage,
 		&out.suggestedRepliesLoreMessage); err != nil {
+		return out, err
+	}
+	if err := loadSuggestedReplies(settingSuggestedRepliesChat,
+		&out.suggestedRepliesChat); err != nil {
 		return out, err
 	}
 

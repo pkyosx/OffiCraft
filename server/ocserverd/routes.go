@@ -580,6 +580,18 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:    w.HandleUpdateChatGroupsApiChatGroupsPut,
 			MCPExclude: true,
 		}),
+		Gated(principalOwner, routeDef{
+			Method:     "GET",
+			Path:       "/api/chat/suggested-replies",
+			Handler:    w.HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "PUT",
+			Path:       "/api/chat/suggested-replies/{member_id}",
+			Handler:    w.HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut,
+			MCPExclude: true,
+		}),
 		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/reply-cards",

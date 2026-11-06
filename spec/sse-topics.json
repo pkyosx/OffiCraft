@@ -5,6 +5,7 @@
     "chat",
     "chat_group",
     "chat_read",
+    "chat_suggested_reply",
     "context",
     "global_context",
     "insight",

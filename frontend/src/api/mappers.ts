@@ -19,6 +19,7 @@ import { isLoreType } from "./loreType";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
 import {
   readSuggestedRepliesLoreMessage,
+  readSuggestedRepliesChat,
   readSuggestedRepliesReplyCard,
   readSuggestedRepliesTaskMessage,
 } from "./suggestedReplies";
@@ -1475,6 +1476,7 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     suggestedRepliesReplyCard: readSuggestedRepliesReplyCard(w),
     suggestedRepliesTaskMessage: readSuggestedRepliesTaskMessage(w),
     suggestedRepliesLoreMessage: readSuggestedRepliesLoreMessage(w),
+    suggestedRepliesChat: readSuggestedRepliesChat(w),
     pushContactEmail: w.push_contact_email ?? "",
     // Cockpit display prefs (T-0b41-p2; schema-optional for DTO-compat — the Go
     // wire always emits them). "" = never set; the frontend keeps its
@@ -1520,6 +1522,12 @@ export function toChatGroups(w: WireChatGroups): ChatGroupView[] {
     memberIds: [...g.member_ids],
     taskTypeKeys: [...g.task_type_keys],
   }));
+}
+
+export function toChatSuggestedReplies(
+  w: components["schemas"]["ChatSuggestedRepliesDTO"],
+): Record<string, string[]> {
+  return Object.fromEntries(w.lists.map((l) => [l.member_id, [...l.replies]]));
 }
 
 export function toChatGroupWrite(g: ChatGroupWrite): WireChatGroupWrite {

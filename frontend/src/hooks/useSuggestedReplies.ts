@@ -34,9 +34,10 @@
 // the sentence above is only true because it is there.
 
 import { useEffect, useState } from "react";
-import { loadServerSettings } from "./sharedServerSettings";
+import { api } from "../api";
+import { loadServerSettings, refreshServerSettings } from "./sharedServerSettings";
 
-type SuggestedRepliesBox = "replyCard" | "taskMessage" | "loreMessage";
+type SuggestedRepliesBox = "replyCard" | "taskMessage" | "loreMessage" | "chat";
 
 /** box → the `ServerSettingsView` property carrying that box's list. Spelled as
  * literals for the reason the block below explains; the map is here so adding a
@@ -45,6 +46,7 @@ const SETTINGS_FIELD: Record<SuggestedRepliesBox, string> = {
   replyCard: "suggestedRepliesReplyCard",
   taskMessage: "suggestedRepliesTaskMessage",
   loreMessage: "suggestedRepliesLoreMessage",
+  chat: "suggestedRepliesChat",
 };
 
 /** ⚠️ THE FIELD NAMES BELOW ARE STRING LITERALS, DELIBERATELY, AND THAT COSTS
@@ -120,4 +122,37 @@ export function useSuggestedRepliesTaskMessage(): string[] {
  * unless) they arrive. Independent of the other two lists. */
 export function useSuggestedRepliesLoreMessage(): string[] {
   return useSuggestedReplies("loreMessage");
+}
+
+/** The 建議回覆 offered in every member's chat room. Unlike the three box lists
+ * this one follows a `settings` delta: a chat room stays open for a long time,
+ * and its other window's edit has to show without a reload. */
+export function useSuggestedRepliesChat(): string[] {
+  const [replies, setReplies] = useState<string[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    const land = (read: Promise<unknown>) =>
+      read
+        .then((s) => {
+          if (alive) setReplies(listFrom(s, "chat"));
+        })
+        .catch((e) => {
+          console.warn("useSuggestedRepliesChat: load failed", e);
+        });
+    try {
+      land(loadServerSettings());
+    } catch (e) {
+      console.warn("useSuggestedRepliesChat: load threw", e);
+    }
+    const unsubscribe = api.subscribeEvents((topic) => {
+      if (topic === "settings") land(refreshServerSettings());
+    });
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
+  }, []);
+
+  return replies;
 }

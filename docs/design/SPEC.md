@@ -539,11 +539,12 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 | 備份保留份數 | `backupRetain` |
 | 請示卡建議回覆 | `suggestedRepliesReplyCard` |
 | 任務訊息建議回覆 | `suggestedRepliesTaskMessage` |
+| 聊天室建議回覆 | `suggestedRepliesChat` |
 
 ⚠️ **五個字數上限是五個獨立的格子**（`DOC_CAP_ORDER`），不是一個共用值；
 喚醒聊天字數預算與備份保留份數刻意**不在**那張表裡（單位與上下限都不同，各走各的 commit）。
-三份建議回覆也不在那張表裡，而且是**一個訊息框一格、不是共用一格**（owner 裁定：任務跟請示卡要是不同的參數設定；T-33 依同一條裁定加上傳承那一格）：
-DB 三個 key（`suggested_replies.reply_card` / `suggested_replies.task_message` / `suggested_replies.lore_message`）、wire 三個平的頂層欄位，
+四份建議回覆也不在那張表裡，而且是**一個訊息框一格、不是共用一格**（owner 裁定：任務跟請示卡要是不同的參數設定；T-33 依同一條裁定加上傳承那一格，聊天室那一格是所有成員共用）：
+DB 四個 key（`suggested_replies.reply_card` / `suggested_replies.task_message` / `suggested_replies.lore_message` / `suggested_replies.chat`）、wire 四個平的頂層欄位，
 所以「只改其中一份」是一次寫入，不是對一個共用 blob 的 read-modify-write。清單為空是合法值。
 每個參數的意義與範圍見 [docs/guide/settings.md](../guide/settings.md)。
 

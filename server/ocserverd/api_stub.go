@@ -140,6 +140,7 @@ type apiServer struct {
 	suggestedRepliesReplyCard   []string
 	suggestedRepliesTaskMessage []string
 	suggestedRepliesLoreMessage []string
+	suggestedRepliesChat        []string
 
 	selfBase string
 	// listenPort is the port the listener actually bound; "" until serve binds.

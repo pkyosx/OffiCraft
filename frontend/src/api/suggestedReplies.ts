@@ -14,7 +14,7 @@
 // settings page and two composers. The check, which must print THIS FILE AND
 // NOTHING ELSE:
 //
-//     grep -rln 'suggested_replies_\(reply_card\|task_message\|lore_message\)' \
+//     grep -rln 'suggested_replies_\(reply_card\|task_message\|lore_message\|chat\)' \
 //       frontend/src --exclude-dir=generated
 //
 // The two exclusions are load-bearing and were both measured. `generated/` is
@@ -47,6 +47,7 @@ export const SUGGESTED_REPLIES_TASK_MESSAGE_FIELD =
  * that writes to the person who WROTE that entry. */
 export const SUGGESTED_REPLIES_LORE_MESSAGE_FIELD =
   "suggested_replies_lore_message";
+export const SUGGESTED_REPLIES_CHAT_FIELD = "suggested_replies_chat";
 
 /** How many sentences ONE list may hold, and how long ONE sentence may be
  * (runes). Mirrors maxSuggestedReplies / maxSuggestedReplyLen in
@@ -92,6 +93,12 @@ export function readSuggestedRepliesLoreMessage(settings: unknown): string[] {
   return readList(settings, SUGGESTED_REPLIES_LORE_MESSAGE_FIELD);
 }
 
+/** Read the all-member chat suggestions off a settings payload. A separate read
+ * like the others. */
+export function readSuggestedRepliesChat(settings: unknown): string[] {
+  return readList(settings, SUGGESTED_REPLIES_CHAT_FIELD);
+}
+
 /** The PATCH-body fragment for whichever of the two lists a patch names.
  *
  * `http.ts` spreads this into the settings PATCH body rather than spelling the
@@ -103,6 +110,7 @@ export function suggestedRepliesPatchFields(patch: {
   suggestedRepliesReplyCard?: string[];
   suggestedRepliesTaskMessage?: string[];
   suggestedRepliesLoreMessage?: string[];
+  suggestedRepliesChat?: string[];
 }): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   if (patch.suggestedRepliesReplyCard !== undefined) {
@@ -119,6 +127,9 @@ export function suggestedRepliesPatchFields(patch: {
     out[SUGGESTED_REPLIES_LORE_MESSAGE_FIELD] = [
       ...patch.suggestedRepliesLoreMessage,
     ];
+  }
+  if (patch.suggestedRepliesChat !== undefined) {
+    out[SUGGESTED_REPLIES_CHAT_FIELD] = [...patch.suggestedRepliesChat];
   }
   return out;
 }
@@ -154,5 +165,16 @@ export function withSuggestedRepliesLoreMessage<T extends object>(
   return {
     ...settings,
     [SUGGESTED_REPLIES_LORE_MESSAGE_FIELD]: [...replies],
+  };
+}
+
+/** Put the all-member chat list ONTO a settings payload. Mock-only, as above. */
+export function withSuggestedRepliesChat<T extends object>(
+  settings: T,
+  replies: readonly string[]
+): T {
+  return {
+    ...settings,
+    [SUGGESTED_REPLIES_CHAT_FIELD]: [...replies],
   };
 }

@@ -32,6 +32,7 @@ import {
 } from "../hooks/useAttachmentStaging";
 import { useWindowActive } from "../hooks/useWindowActive";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { mergeChatSuggestedReplies } from "../lib/chatSuggestedReplies";
 import { enterShouldSend } from "../lib/composerKeys";
 import { linkMentions, unlinkMentions } from "../lib/mentionLinks";
 import { MentionOpenerContext, type MentionOpener } from "../hooks/useMentionOpener";
@@ -56,7 +57,9 @@ import {
   ChatSelectionReply,
   ReplyCardQuoteProvider,
 } from "./ChatSelectionReply";
+import { ChatSuggestedRepliesDialog } from "./ChatSuggestedRepliesDialog";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
+import { SuggestedReplies, appendSuggestion } from "./SuggestedReplies";
 import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { useQuotedMessageOverlay } from "../hooks/useQuotedMessageOverlay";
@@ -77,6 +80,7 @@ import {
   PaperclipIcon,
   ReplyIcon,
   SendIcon,
+  SuggestedRepliesIcon,
   TasksIcon,
   UserGearIcon,
 } from "./icons";
@@ -295,6 +299,12 @@ export function ChatArea({
   onOpenDetail,
   onOpenTasks,
   onOpenRoleSettings,
+  suggestedReplies,
+  allMemberSuggestedReplies,
+  suggestedRepliesError,
+  onDismissSuggestedRepliesError,
+  onSaveSuggestedReplies,
+  onRetrySuggestedReplies,
   onWake,
   jumpToMsgId,
   draftSeed,
@@ -334,6 +344,18 @@ export function ChatArea({
   // T-dfae 角色設定圖示: jump to this peer's role definition page. Optional —
   // absent = no button (an outsource peer has no role to define).
   onOpenRoleSettings?: () => void;
+  /** This member's own 建議回覆; the dialog edits exactly these. */
+  suggestedReplies?: readonly string[];
+  /** The 建議回覆 set for every member, offered after the member's own. */
+  allMemberSuggestedReplies?: readonly string[];
+  /** "save": THIS member's latest save failed. "load": no list could be read. */
+  suggestedRepliesError?: "load" | "save" | null;
+  onDismissSuggestedRepliesError?: () => void;
+  /** Absent where the sentences cannot be edited: a peer off the roster, or
+   * before the first read has answered. */
+  onSaveSuggestedReplies?: (next: string[]) => void;
+  /** Present after a failed first read: the header button reads again instead. */
+  onRetrySuggestedReplies?: () => void;
   // T-94c1 就地喚醒: wake this member from the chat itself (calls activateMember
   // in the parent). Optional — absent = no in-chat wake button (an outsource
   // worker is spawn/task-driven, not activate-woken, so the button would lie);
@@ -592,6 +614,8 @@ export function ChatArea({
   // conversation switch both MOUNT this component (R13-5), so one lazy init
   // covers both and there is no second restore path to keep consistent with it.
   const [draft, setDraft] = useState(() => getChatDraft(member.id)?.text ?? "");
+  const [suggestedRepliesOpen, setSuggestedRepliesOpen] = useState(false);
+  const suggestedRepliesButtonRef = useRef<HTMLButtonElement>(null);
   // 🔴 THE TEXT IS SUBSCRIBED TOO, NOT JUST READ ONCE (T-48, R14-1.3). The
   // staged files have been a subscription since R13-2; the text was still a
   // lazy init, and a lazy init is a place a message can WAIT but never a place
@@ -2379,6 +2403,24 @@ export function ChatArea({
             <UserGearIcon size={17} />
           </button>
         )}
+        {(onSaveSuggestedReplies || onRetrySuggestedReplies) && !composerLocked && (
+          <button
+            ref={suggestedRepliesButtonRef}
+            type="button"
+            className="chat__header-action"
+            aria-label={t.chat.suggestedRepliesLabel}
+            title={t.chat.suggestedRepliesLabel}
+            data-testid="chat-header-suggested-replies"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onSaveSuggestedReplies) setSuggestedRepliesOpen(true);
+              else onRetrySuggestedReplies?.();
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <SuggestedRepliesIcon size={17} />
+          </button>
+        )}
         {/* M2-3: the conversation's file & image gallery toggle. The header
          * itself may be clickable (open detail) — stopPropagation keeps the
          * gallery click/keys from bubbling into that. */}
@@ -2583,6 +2625,28 @@ export function ChatArea({
             </button>
           </div>
         )}
+        {/* Outside the locked/unlocked fork: a save that failed after the dialog
+         * closed still has to be told. While the dialog is open it says so
+         * itself, since this row sits behind its backdrop. */}
+        {!suggestedRepliesOpen &&
+          (suggestedRepliesError === "save" || (suggestedRepliesError === "load" && !composerLocked)) && (
+            <div className="chat__suggested-replies-error" role="alert" data-testid="chat-suggested-replies-error">
+              <span>
+                {suggestedRepliesError === "load" ? t.chat.suggestedRepliesLoadError : t.chat.suggestedRepliesSaveError}
+              </span>
+              {suggestedRepliesError === "save" && (
+                <button
+                  type="button"
+                  className="chat__reply-banner__x"
+                  aria-label={t.chat.suggestedRepliesClose}
+                  title={t.chat.suggestedRepliesClose}
+                  onClick={onDismissSuggestedRepliesError}
+                >
+                  <CloseIcon size={14} />
+                </button>
+              )}
+            </div>
+          )}
         {/* ② the new-message preview strip. FIRST child of the composer, so it
          * sits above the 「正在回覆」 banner (owner's requirement) and above the
          * wake row and the attachment previews as well — and it is outside the
@@ -2833,9 +2897,30 @@ export function ChatArea({
                 <SendIcon size={16} />
               </button>
             </div>
+            <SuggestedReplies
+              replies={mergeChatSuggestedReplies(suggestedReplies ?? [], allMemberSuggestedReplies ?? [])}
+              testId="chat-suggested-replies"
+              onPick={(suggestion) => {
+                setDraft((cur) => appendSuggestion(cur, suggestion));
+                inputRef.current?.focus();
+              }}
+            />
           </>
         )}
       </footer>
+
+      {suggestedRepliesOpen && onSaveSuggestedReplies && (
+        <ChatSuggestedRepliesDialog
+          memberName={member.name}
+          replies={suggestedReplies ?? []}
+          saveFailed={suggestedRepliesError === "save"}
+          onSave={onSaveSuggestedReplies}
+          onClose={() => {
+            suggestedRepliesButtonRef.current?.focus();
+            setSuggestedRepliesOpen(false);
+          }}
+        />
+      )}
 
       {/* The full-view overlay this component opens (T-f014) — a 放大閱讀
        * message rides the body text this component already holds; a staged

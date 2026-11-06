@@ -215,11 +215,13 @@ import {
 } from "./backupRetain";
 import {
   SUGGESTED_REPLIES_LORE_MESSAGE_FIELD,
+  SUGGESTED_REPLIES_CHAT_FIELD,
   SUGGESTED_REPLIES_MAX_ENTRIES,
   SUGGESTED_REPLIES_REPLY_CARD_FIELD,
   SUGGESTED_REPLIES_TASK_MESSAGE_FIELD,
   SUGGESTED_REPLY_MAX_LEN,
   withSuggestedRepliesLoreMessage,
+  withSuggestedRepliesChat,
   withSuggestedRepliesReplyCard,
   withSuggestedRepliesTaskMessage,
 } from "./suggestedReplies";
@@ -1079,6 +1081,12 @@ let outsourceWorkers: OutsourceWorkerView[] = [];
 // The owner's chat-list groups; none on a fresh station.
 let chatGroups: ChatGroupView[] = [];
 let chatGroupSeq = 0;
+let chatSuggestedReplies = new Map<string, string[]>();
+/** Server parity (hasChatSuggestedReplies): anyone on the roster but a warden. */
+function hasChatSuggestedReplies(id: string): boolean {
+  if (outsourceWorkers.some((w) => w.id === id && w.status !== "released")) return true;
+  return wireMembers.some((m) => m.id === id && m.kind !== "warden" && m.roster_status !== "removed");
+}
 /** Server parity (belongsOnChatGroupTab): an active member of the tab's kind. */
 function onChatGroupTab(id: string, tab: ChatGroupView["tab"]): boolean {
   if (tab === "outsource") return outsourceWorkers.some((w) => w.id === id && w.status !== "released");
@@ -2417,6 +2425,7 @@ const DEFAULT_MOCK_SETTINGS = {
   [SUGGESTED_REPLIES_REPLY_CARD_FIELD]: [] as string[],
   [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD]: [] as string[],
   [SUGGESTED_REPLIES_LORE_MESSAGE_FIELD]: [] as string[],
+  [SUGGESTED_REPLIES_CHAT_FIELD]: [] as string[],
   push_contact_email: "",
   // Cockpit display prefs — mirroring a fresh server: migration 00120 writes
   // the desk default (display theme, schedule, seasonal on); the language is
@@ -4083,6 +4092,36 @@ const mockApiImpl = {
 
   async getChatGroups(): Promise<ChatGroupView[]> {
     return readChatGroups();
+  },
+
+  async getChatSuggestedReplies(): Promise<Record<string, string[]>> {
+    return Object.fromEntries(
+      [...chatSuggestedReplies]
+        .filter(([id, replies]) => replies.length > 0 && hasChatSuggestedReplies(id))
+        .map(([id, replies]) => [id, [...replies]]),
+    );
+  },
+
+  async putChatSuggestedReplies(memberId: string, replies: string[]): Promise<string[]> {
+    // Server parity: the request-only checks in order, then the member.
+    const refuse = (message: string): never => {
+      throw mockApiError(`http 422 for PUT /api/chat/suggested-replies/${memberId}`, 422, message);
+    };
+    const stored = replies.map((v, i) => {
+      const text = v.trim();
+      if (text === "") refuse(`replies[${i}] is blank`);
+      if ([...text].length > SUGGESTED_REPLY_MAX_LEN) {
+        refuse(`replies must be at most ${SUGGESTED_REPLY_MAX_LEN} characters per entry`);
+      }
+      return text;
+    });
+    if (stored.length > SUGGESTED_REPLIES_MAX_ENTRIES) {
+      refuse(`replies must be at most ${SUGGESTED_REPLIES_MAX_ENTRIES} entries`);
+    }
+    if (!hasChatSuggestedReplies(memberId)) refuse(`member '${memberId}' is not an active member`);
+    chatSuggestedReplies.set(memberId, stored);
+    emitTopic("chat_suggested_reply");
+    return [...stored];
   },
 
   async putChatGroups(groups: ChatGroupWrite[]): Promise<ChatGroupView[]> {
@@ -7010,6 +7049,7 @@ const mockApiImpl = {
       [SUGGESTED_REPLIES_REPLY_CARD_FIELD, patch.suggestedRepliesReplyCard],
       [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD, patch.suggestedRepliesTaskMessage],
       [SUGGESTED_REPLIES_LORE_MESSAGE_FIELD, patch.suggestedRepliesLoreMessage],
+      [SUGGESTED_REPLIES_CHAT_FIELD, patch.suggestedRepliesChat],
     ] as const) {
       if (list === undefined) continue;
       const entries = list.map((v) => v.trim()).filter((v) => v.length > 0);
@@ -7179,6 +7219,14 @@ const mockApiImpl = {
       mockServerSettings = withSuggestedRepliesTaskMessage(
         mockServerSettings,
         patch.suggestedRepliesTaskMessage
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0),
+      );
+    }
+    if (patch.suggestedRepliesChat !== undefined) {
+      mockServerSettings = withSuggestedRepliesChat(
+        mockServerSettings,
+        patch.suggestedRepliesChat
           .map((v) => v.trim())
           .filter((v) => v.length > 0),
       );
@@ -8035,6 +8083,7 @@ export function __resetMock(): void {
   outsourceWorkers = [];
   chatGroups = [];
   chatGroupSeq = 0;
+  chatSuggestedReplies = new Map();
   taskManuals = structuredClone([...MOCK_TASK_MANUAL_SEEDS]);
   mockPasswordSet = true;
   mockPassword = "mock-password";

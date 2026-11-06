@@ -354,6 +354,7 @@ func (s *apiServer) adoptSettings(auth authSettings) {
 	s.suggestedRepliesReplyCard = auth.suggestedRepliesReplyCard
 	s.suggestedRepliesTaskMessage = auth.suggestedRepliesTaskMessage
 	s.suggestedRepliesLoreMessage = auth.suggestedRepliesLoreMessage
+	s.suggestedRepliesChat = auth.suggestedRepliesChat
 }
 
 // Build identity is captured ONCE so the probes report the RUNNING code's sha:
@@ -407,6 +408,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		suggestedRepliesReplyCard:        []string{},
 		suggestedRepliesTaskMessage:      []string{},
 		suggestedRepliesLoreMessage:      []string{},
+		suggestedRepliesChat:             []string{},
 		ctxHigh:                          defaultSseContextHigh(),
 		root:                             root,
 		binHashes:                        bindistBinaryHashesFrom(bindistFS()),

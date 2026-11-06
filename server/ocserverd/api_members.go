@@ -1141,6 +1141,9 @@ func dismissStaffOn(tx *writeTx, m *Member, now float64) error {
 	if err := deleteChatGroupMemberOn(tx, m.ID); err != nil {
 		return err
 	}
+	if err := deleteChatSuggestedRepliesOn(tx, m.ID); err != nil {
+		return err
+	}
 	return persistMemberRowOn(tx, before, *m)
 }
 

@@ -606,7 +606,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	// 🔴 An explicit empty array is LEGAL and clears the list — the OPPOSITE of the
 	// scheduled-message custom_* sets, where [] is a 422.
 	var suggestedRepliesReplyCard, suggestedRepliesTaskMessage,
-		suggestedRepliesLoreMessage []string
+		suggestedRepliesLoreMessage, suggestedRepliesChat []string
 	if body.SuggestedRepliesReplyCard != nil {
 		list, err := canonicalSuggestedReplies(*body.SuggestedRepliesReplyCard)
 		if err != nil {
@@ -633,6 +633,15 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 		suggestedRepliesLoreMessage = list
+	}
+	if body.SuggestedRepliesChat != nil {
+		list, err := canonicalSuggestedReplies(*body.SuggestedRepliesChat)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity,
+				fmt.Sprintf("suggested_replies_chat %v", err))
+			return
+		}
+		suggestedRepliesChat = list
 	}
 	// Every row lands in one transaction and the in-memory snapshot moves only
 	// after it commits, so a failed row leaves neither the table nor the
@@ -794,6 +803,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		put(settingSuggestedRepliesLoreMessage, encodeSuggestedReplies(suggestedRepliesLoreMessage),
 			func() { s.suggestedRepliesLoreMessage = suggestedRepliesLoreMessage })
 	}
+	if body.SuggestedRepliesChat != nil {
+		put(settingSuggestedRepliesChat, encodeSuggestedReplies(suggestedRepliesChat),
+			func() { s.suggestedRepliesChat = suggestedRepliesChat })
+	}
 	err := s.dal.inTx(func(tx *writeTx) error {
 		if themeChanged {
 			ok, err := displayThemeExistsOn(tx, displayTheme)
@@ -911,6 +924,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		SuggestedRepliesReplyCard:   append([]string{}, s.suggestedRepliesReplyCard...),
 		SuggestedRepliesTaskMessage: append([]string{}, s.suggestedRepliesTaskMessage...),
 		SuggestedRepliesLoreMessage: append([]string{}, s.suggestedRepliesLoreMessage...),
+		SuggestedRepliesChat:        append([]string{}, s.suggestedRepliesChat...),
 
 		Onboarding: s.onboardingReport(),
 	}

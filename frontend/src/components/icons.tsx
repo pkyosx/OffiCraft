@@ -266,6 +266,15 @@ export function UserIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function SuggestedRepliesIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M21 12a8 8 0 0 1-8 8H4l2.2-3.3A8 8 0 1 1 21 12z" />
+      <path d="m13 8-3 4.5h4L11 17" />
+    </svg>
+  );
+}
+
 /** Person + gear — 角色設定 (T-dfae, owner 2026-07-17: 「可能是一個人加一個齒
  * 輪的圖案？」). A UserIcon whose torso is cut back to the left half so a small
  * gear can sit in the bottom-right corner without the two glyphs colliding.

@@ -537,6 +537,10 @@ var identityGateExpectedCount = map[string]int{
 // The fix applied here was to put the predicate back where the scanners can see
 // it (at each call site) and re-register it, not to widen the scanners.
 var identityGateLedger = map[string]string{
+	"api_chat_suggested_replies.go :: hasChatSuggestedReplies :: m.Kind != machineKind": "" +
+		"not a staff/outsource difference: both kinds get the same list and the same " +
+		"path (owner c-85e6f1d4a233). Only a warden is refused, because it has no chat " +
+		"room to fill a box in.",
 	"api_chat_groups.go :: belongsOnChatGroupTab :: m.Kind == chatGroupTabKind[tab]": "" +
 		"a display projection, not a difference in treatment: the cockpit lists 正職 " +
 		"and 外包 on two tabs, and a chat-list group lives on one tab, so a member " +

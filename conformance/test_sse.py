@@ -407,6 +407,9 @@ def test_every_closed_topic_emits(
         ("chat_group", lambda: client.put(
             "/api/chat/groups", json={"groups": []},
             headers=_auth(owner_token))),
+        ("chat_suggested_reply", lambda: client.put(
+            "/api/chat/suggested-replies/mira", json={"replies": []},
+            headers=_auth(owner_token))),
         ("settings", lambda: client.patch(
             "/api/settings", json={"org_name": f"Topic Probe {tag}"},
             headers=_auth(owner_token))),
@@ -451,6 +454,7 @@ def test_every_closed_topic_emits(
     ]
     expected_op = {
         "member": "patch", "chat": "patch", "chat_read": "patch", "chat_group": "patch",
+        "chat_suggested_reply": "patch",
         "settings": "patch",
         "reply_card": "patch",
         "task": "patch", "task_manual": "patch",

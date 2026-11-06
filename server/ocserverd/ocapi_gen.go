@@ -1413,6 +1413,14 @@ type ChatMarkReadReceiptDTO struct {
 	PeerId string `json:"peer_id"`
 }
 
+// ChatMemberSuggestedRepliesDTO One member's chat 建議回覆.
+type ChatMemberSuggestedRepliesDTO struct {
+	MemberId string `json:"member_id"`
+
+	// Replies The sentences in display order.
+	Replies []string `json:"replies"`
+}
+
 // ChatMessageDTO API representation of one “domain.ChatMessage“. The wire uses “from“ /
 // “to“; “from“ is a Python reserved word so the field is “from_“ carrying
 // the alias “from“ (FastAPI serialises by alias).
@@ -1551,6 +1559,17 @@ type ChatReplyQuoteDTO struct {
 
 	// ToName The quoted ADDRESSEE's DISPLAY name, resolved exactly as ``to_name`` on the message DTO is, and filled by exactly the same reads ``from_name`` is: only the wake snapshot resolves names, every other read leaves it ``""``. Honestly empty, never fabricated, and never a substitute for ``to``, which is always the address.
 	ToName *string `json:"to_name,omitempty"`
+}
+
+// ChatSuggestedRepliesDTO The owner's chat 建議回覆, one list per member.
+type ChatSuggestedRepliesDTO struct {
+	Lists []ChatMemberSuggestedRepliesDTO `json:"lists"`
+}
+
+// ChatSuggestedRepliesUpdateDTO The complete desired list for one member; it replaces the stored list wholesale.
+type ChatSuggestedRepliesUpdateDTO struct {
+	// Replies The sentences in display order.
+	Replies []string `json:"replies"`
 }
 
 // ChatUnreadCountDTO The office nav red-dot signal: the caller's TOTAL unread chat messages across every peer (sum of the per-member unread the roster serves). A dot shows when > 0; kept as its own cheap endpoint so the dot can refetch on “chat“ / “chat_read“ SSE deltas without pulling the roster.
@@ -4155,6 +4174,9 @@ type SettingsDTO struct {
 	// StepNoteCapChars The size cap on ONE task STEP's working note, in CHARACTERS (Unicode code points — Chinese prose counts one per character). One number serves both faces: it is what `get_task` reports per step and what `get_task_step` reports as `note_cap_chars`, AND it is what both note write faces (the wholesale write and the anchor patch) refuse a longer note against, read from this one setting so the reported ceiling and the enforced one can never drift apart. The adjustable range is 1000..100000. Like `chat_budget_chars`, and unlike the `doc_cap_chars_*` knobs, it may be LOWERED as well as raised: the cap is checked only on WRITE, so a note already stored above a newly lowered cap stays readable in full and simply cannot be edited until it is shortened. Two neighbouring fields are deliberately NOT governed by this setting and keep their own 4,000-character server constant: the task-level handover note and a chat message body (owner ruling 2026-09-06).
 	StepNoteCapChars *int `json:"step_note_cap_chars,omitempty"`
 
+	// SuggestedRepliesChat The one-click 建議回覆 offered under every member's chat box, after that member's own sentences; a sentence in both is shown once. A FOURTH separate list. [] (the default) means this list adds no chips.
+	SuggestedRepliesChat *[]string `json:"suggested_replies_chat,omitempty"`
+
 	// SuggestedRepliesLoreMessage The one-click 建議回覆 offered under a 傳承 entry's message box (T-33) — the box that writes to the person who WROTE that entry. A THIRD separate list, for the same reason the other two are separate: asking 「這條還適用嗎」 about a lesson someone left behind is not answering a 請示卡 and not steering a task in progress, so one list's sentences are wrong in another's box. [] (the default) means no chips are drawn there, and the message box works exactly as it does without them.
 	SuggestedRepliesLoreMessage *[]string `json:"suggested_replies_lore_message,omitempty"`
 
@@ -4305,6 +4327,9 @@ type SettingsUpdateDTO struct {
 
 	// StepNoteCapChars The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the `doc_cap_chars_*` knobs the floor is NOT the shipped default — this cap may be lowered as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does not govern the task-level handover note or a chat message body, which keep their own 4,000-character constant.
 	StepNoteCapChars *int `json:"step_note_cap_chars,omitempty"`
+
+	// SuggestedRepliesChat Replace the chat 建議回覆 list that applies to every member, wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED. To clear it, send [].
+	SuggestedRepliesChat *[]string `json:"suggested_replies_chat,omitempty"`
 
 	// SuggestedRepliesLoreMessage Replace the 傳承 message-box 建議回覆 list wholesale (T-33) — the box that writes to the person who wrote that 傳承 entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
 	SuggestedRepliesLoreMessage *[]string `json:"suggested_replies_lore_message,omitempty"`
@@ -5541,6 +5566,9 @@ type HandleUpdateChatGroupsApiChatGroupsPutJSONRequestBody = ChatGroupsUpdateDTO
 // HandleMarkChatReadApiChatMarkReadPostJSONRequestBody defines body for HandleMarkChatReadApiChatMarkReadPost for application/json ContentType.
 type HandleMarkChatReadApiChatMarkReadPostJSONRequestBody = MarkChatReadDTO
 
+// HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPutJSONRequestBody defines body for HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut for application/json ContentType.
+type HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPutJSONRequestBody = ChatSuggestedRepliesUpdateDTO
+
 // HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody defines body for HandleReplaceGlobalContextApiGlobalContextPost for application/json ContentType.
 type HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody = GlobalContextReplaceDTO
 
@@ -6092,6 +6120,12 @@ type ServerInterface interface {
 	// List chat read receipts (?with=<peer>; per-conversation watermark).
 	// (GET /api/chat/reads)
 	HandleListChatReadsApiChatReadsGet(w http.ResponseWriter, r *http.Request, params HandleListChatReadsApiChatReadsGetParams)
+	// Get the owner's chat suggested replies.
+	// (GET /api/chat/suggested-replies)
+	HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet(w http.ResponseWriter, r *http.Request)
+	// Replace the owner's chat suggested replies for one member.
+	// (PUT /api/chat/suggested-replies/{member_id})
+	HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut(w http.ResponseWriter, r *http.Request, memberId string)
 	// Total chat unread count (the office nav red dot).
 	// (GET /api/chat/unread-count)
 	HandleChatUnreadCountApiChatUnreadCountGet(w http.ResponseWriter, r *http.Request)
@@ -6509,7 +6543,7 @@ type ServerInterface interface {
 	// - `warden_credential_lifetime_secs`: Machine credential lifetime, also stamped as its expiry; wardens renew at two thirds of it and pick a change up at their next poll (~15 min). Lowering it never shortens issued credentials, but lowering it below the fleet's credential age makes every machine renew on its next poll. A machine offline through the whole last third needs a manual re-install.
 	// - `org_name`, `owner_name`: Studio name and owner nickname; "" restores the localized default.
 	// - `push_contact_email`: Web Push contact address; "" stops all Web Push delivery.
-	// - `suggested_replies_reply_card`, `suggested_replies_task_message`, `suggested_replies_lore_message`: Each replaces that reply box's whole suggestion list (no append). [] empties it; null or omitted leaves it unchanged.
+	// - `suggested_replies_reply_card`, `suggested_replies_task_message`, `suggested_replies_lore_message`, `suggested_replies_chat`: Each replaces that reply box's whole suggestion list (no append). [] empties it; null or omitted leaves it unchanged.
 	// - `lore_cap_chars_role`: 傳承 characters carried in each member's boot document; `everyone` entries count inside this budget, ahead of the member's own.
 	// - `lore_cap_chars_manual`: 傳承 characters get_task_manual carries; separate from lore_cap_chars_role, never summed.
 	// - `lore_cap_chars_title`, `lore_cap_chars_body`: Max title / body length of one new 傳承 entry; entries are immutable, so lowering never affects stored ones.
@@ -7637,6 +7671,46 @@ func (siw *ServerInterfaceWrapper) HandleListChatReadsApiChatReadsGet(w http.Res
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleListChatReadsApiChatReadsGet(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut operation middleware
+func (siw *ServerInterfaceWrapper) HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "member_id" -------------
+	var memberId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "member_id", r.PathValue("member_id"), &memberId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "member_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut(w, r, memberId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -12178,6 +12252,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/chat/groups", wrapper.HandleUpdateChatGroupsApiChatGroupsPut)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat/mark-read", wrapper.HandleMarkChatReadApiChatMarkReadPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/reads", wrapper.HandleListChatReadsApiChatReadsGet)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/suggested-replies", wrapper.HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/chat/suggested-replies/{member_id}", wrapper.HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/unread-count", wrapper.HandleChatUnreadCountApiChatUnreadCountGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff", wrapper.HandleGetDiffApiDiffGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff/share-link", wrapper.HandleGetDiffShareLinkApiDiffShareLinkGet)

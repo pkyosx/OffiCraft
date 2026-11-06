@@ -89,6 +89,7 @@ func apiTestShippedSettings() map[string]any {
 		"suggested_replies_reply_card":         []any{},
 		"suggested_replies_task_message":       []any{},
 		"suggested_replies_lore_message":       []any{},
+		"suggested_replies_chat":               []any{},
 		"onboarding":                           nil,
 	}
 }
@@ -1391,6 +1392,7 @@ func TestSettingsView(t *testing.T) {
 		SuggestedRepliesReplyCard:   []string{},
 		SuggestedRepliesTaskMessage: []string{},
 		SuggestedRepliesLoreMessage: []string{},
+		SuggestedRepliesChat:        []string{},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("settingsView defaults:\n got %+v\nwant %+v", got, want)
