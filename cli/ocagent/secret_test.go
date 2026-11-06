@@ -498,8 +498,8 @@ func TestMaskWriter(t *testing.T) {
 		value := []string{"-----BEGIN KEY-----\r\naaaaaaaaaaaa\n\n   \nab=\n"}
 		for in, want := range map[string]string{
 			"head: -----BEGIN KEY-----\n": "head: ***\n",
-			"body aaaaaaaaaaaa end":        "body *** end",
-			"tail ab= end":                 "tail *** end",
+			"body aaaaaaaaaaaa end":       "body *** end",
+			"tail ab= end":                "tail *** end",
 		} {
 			if got := writeChunks(value, in); got != want {
 				t.Fatalf("output for %q = %q, want %q", in, got, want)
