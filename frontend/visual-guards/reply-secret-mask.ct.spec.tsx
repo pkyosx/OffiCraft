@@ -19,7 +19,7 @@ for (const viewport of [390, 1280]) {
     );
     expect(mask).toBe("disc");
 
-    const card = (await cmp.getByTestId("card-secret").boundingBox())!;
+    const card = (await page.getByTestId("card-secret").boundingBox())!;
     const box = (await cmp.getByTestId("reply-secret-box").boundingBox())!;
     const composer = (await cmp.locator(".reply-composer").boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(card.x - 0.5);
