@@ -512,6 +512,20 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/chat/suggested-replies",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "PUT",
+    "path": "/api/chat/suggested-replies/{member_id}",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "create_reply_card",
     "method": "POST",
     "path": "/api/reply-cards",

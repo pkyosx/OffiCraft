@@ -153,6 +153,7 @@ type settingsDTO struct {
 	SuggestedRepliesReplyCard   []string `json:"suggested_replies_reply_card"`
 	SuggestedRepliesTaskMessage []string `json:"suggested_replies_task_message"`
 	SuggestedRepliesLoreMessage []string `json:"suggested_replies_lore_message"`
+	SuggestedRepliesChat        []string `json:"suggested_replies_chat"`
 	// Onboarding rides the OWNER-GATED settings read on purpose: a failed step's
 	// Detail carries the raw `ocwarden install` log (local paths), so it must never
 	// reach the public /api/auth/status probe. nil = onboarding never ran.

@@ -134,6 +134,7 @@ import {
   toChatMarkReadReceipt,
   toChatGroups,
   toChatGroupWrite,
+  toChatSuggestedReplies,
   toGalleryAttachment,
   toReplyCard,
   toReplyCardRow,
@@ -443,6 +444,7 @@ export const SSE_RESYNC_TOPICS = [
   "chat",
   "chat_read",
   "chat_group",
+  "chat_suggested_reply",
   "settings",
   "reply_card",
   "task",
@@ -1628,6 +1630,20 @@ export const httpApi: Api = {
 
   async getChatGroups(): Promise<ChatGroupView[]> {
     return toChatGroups(unwrap(await client.GET("/api/chat/groups")));
+  },
+
+  async getChatSuggestedReplies(): Promise<Record<string, string[]>> {
+    return toChatSuggestedReplies(unwrap(await client.GET("/api/chat/suggested-replies")));
+  },
+
+  async putChatSuggestedReplies(memberId: string, replies: string[]): Promise<string[]> {
+    const stored = unwrap(
+      await client.PUT("/api/chat/suggested-replies/{member_id}", {
+        params: { path: { member_id: memberId } },
+        body: { replies },
+      }),
+    );
+    return [...stored.replies];
   },
 
   async putChatGroups(groups: ChatGroupWrite[]): Promise<ChatGroupView[]> {

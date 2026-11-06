@@ -61,3 +61,28 @@
 .suggested-replies__chip:hover {
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
+
+.chat-suggested-replies__dialog {
+  overflow-y: auto;
+}
+.chat-suggested-replies__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.chat-suggested-replies__close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.chat-suggested-replies__close:hover {
+  color: var(--color-text-strong);
+}

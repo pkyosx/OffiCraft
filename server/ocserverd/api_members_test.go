@@ -3946,6 +3946,17 @@ func TestHandleDismissMemberApiMembersMemberIdDelete(t *testing.T) {
 		chatGroupWantMemberRows(t, d, "mira")
 	})
 
+	t.Run("a dismissal deletes the member's chat suggested replies and leaves other members' lists", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		chatSuggestedRepliesSeed(t, d, "kip", "gone")
+		chatSuggestedRepliesSeed(t, d, "mira", "stays")
+
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		chatSuggestedRepliesWantRows(t, d, "mira:0:stays")
+	})
+
 	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")

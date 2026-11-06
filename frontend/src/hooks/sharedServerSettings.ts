@@ -7,7 +7,8 @@
 // its echoed effective values to `adoptServerSettings` — that echo is what
 // keeps this tab's copy true. Another tab's or device's save arrives as a
 // `settings` delta, which the i18n provider answers with `refreshServerSettings`
-// (the display preferences); other consumers keep the copy they mounted with.
+// (the display preferences) and useSuggestedRepliesChat answers the same way;
+// other consumers keep the copy they mounted with.
 // A change to `task_due_soon_lead_minutes` also rides a nameless `task` delta,
 // and useDueSoonLeadMinutes answers it with `refreshServerSettings`.
 //
@@ -17,8 +18,8 @@
 //     answer would make it poll its own memory forever);
 //   - 設定's 存檔測連通 read-back, whose entire job is to prove the server
 //     agrees with what was just written.
-//   - the i18n provider's `settings` delta reconcile, which exists to observe
-//     another tab's write.
+//   - the i18n provider's and useSuggestedRepliesChat's `settings` delta
+//     reconcile, which exist to observe another tab's write.
 
 import { api, type ServerSettingsView } from "../api";
 import { AUTH_LOGIN_EVENT } from "../api/auth";
