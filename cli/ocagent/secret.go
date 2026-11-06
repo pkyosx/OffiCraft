@@ -608,6 +608,9 @@ func encodeSecretForStdin(value string) ([]byte, []string, error) {
 	}
 	var forms []string
 	for _, v := range []string{value, strings.TrimSpace(value)} {
+		if v == "" {
+			continue // the quoted form of "" would mask every empty string in the output
+		}
 		plain, err := jsonWithoutHTMLEscape(v)
 		if err != nil {
 			return nil, nil, err

@@ -129,6 +129,7 @@ describe("httpApi · secret reply cards", () => {
     const placesHoldingValue = watchSecretValue("dummy-aaaaaaaaaaaa");
     const receipt = await httpApi.provideReplyCardSecret("rc-1", "dummy-aaaaaaaaaaaa");
     expect(placesHoldingValue()).toEqual([]);
+    vi.restoreAllMocks();
     const { url, method, body } = await lastRequest();
     expect(url).toBe("/api/reply-cards/rc-1/secret");
     expect(method).toBe("POST");

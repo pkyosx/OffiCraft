@@ -414,6 +414,34 @@ line2-aaaaaaaa`
 		}
 	})
 
+	t.Run("a value with surrounding whitespace reaches stdin as is, and its re-encoded form shows the mask", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{{"id": "rc-00000000000a", "value": " dummy-aaaaaaaa\n"}}})
+		file := filepath.Join(t.TempDir(), "in.json")
+		rc, out, errOut := run(canned(200, string(body)), nil, "rc-00000000000a", "cat > "+file)
+		if rc != 0 || out != "" || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+		got, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := `" dummy-aaaaaaaa\n"`; string(got) != want {
+			t.Fatalf("stdin = %q, want %q", got, want)
+		}
+		rc, out, errOut = run(canned(200, string(body)), nil, "rc-00000000000a", `printf '%s' '" dummy-aaaaaaaa\n"'`)
+		if rc != 0 || out != "***" || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+	})
+
+	t.Run("a whitespace-only value leaves empty strings in the output alone", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{{"id": "rc-00000000000a", "value": "  "}}})
+		rc, out, errOut := run(canned(200, string(body)), nil, "rc-00000000000a", `printf '%s' '{"a":"","b":"ok"}'`)
+		if rc != 0 || out != `{"a":"","b":"ok"}` || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+	})
+
 	t.Run("a malformed id fetches nothing", func(t *testing.T) {
 		client := reveal("rc-00000000000a")
 		rc, out, errOut := run(client, nil, "not-an-id", "true")
