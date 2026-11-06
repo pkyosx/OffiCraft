@@ -144,8 +144,20 @@ describe("ChatArea 建議回覆", () => {
   });
 
   it("a locked room still tells a failed save", () => {
-    renderChat({ member: member({ lifecycle: "stopping" }), suggestedRepliesError: "save", onSaveSuggestedReplies: vi.fn() });
+    renderChat({ member: member({ lifecycle: "offline" }), onWake: undefined, suggestedRepliesError: "save", onSaveSuggestedReplies: vi.fn() });
     expect(screen.getByTestId("chat-suggested-replies-error").textContent).toBe(SAVE_ERROR);
+  });
+
+  it("a locked room says nothing about a failed first read, because its button is hidden", () => {
+    renderChat({ member: member({ lifecycle: "offline" }), onWake: undefined, suggestedRepliesError: "load", onRetrySuggestedReplies: vi.fn() });
+    expect(screen.queryAllByRole("alert").map((a) => a.textContent)).toEqual([]);
+  });
+
+  it("the close button on a failed save calls the dismiss handler", () => {
+    const onDismiss = vi.fn();
+    renderChat({ suggestedRepliesError: "save", onDismissSuggestedRepliesError: onDismiss, onSaveSuggestedReplies: vi.fn() });
+    fireEvent.click(screen.getByRole("button", { name: "關閉" }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
   it("after a failed first read the header button stays and reads again instead of opening an empty dialog", () => {
@@ -164,6 +176,46 @@ describe("ChatArea 建議回覆", () => {
   });
 
   describe("the dialog", () => {
+    const room = (replies: string[]) => (
+      <I18nProvider>
+        <ChatArea
+          member={member()}
+          onWake={() => Promise.resolve({} as never)}
+          suggestedReplies={replies}
+          onSaveSuggestedReplies={vi.fn()}
+        />
+      </I18nProvider>
+    );
+
+    it("a list change that removes the focused row moves focus to the add button", () => {
+      const { rerender } = render(room(["甲"]));
+      openDialog();
+      const dialog = screen.getByTestId("chat-suggested-replies-dialog");
+      expect(document.activeElement).toBe(dialog.querySelector("input"));
+      rerender(room([]));
+      expect(document.activeElement).toBe(dialog.querySelector(".sugg-edit__add"));
+    });
+
+    it("a list change that disables the focused add button moves focus to the first row", () => {
+      const nineteen = Array.from({ length: 19 }, (_, i) => `句 ${i + 1}`);
+      const { rerender } = render(room(nineteen));
+      openDialog();
+      const dialog = screen.getByTestId("chat-suggested-replies-dialog");
+      (dialog.querySelector(".sugg-edit__add") as HTMLElement).focus();
+      rerender(room([...nineteen, "句 20"]));
+      expect(document.activeElement).toBe(dialog.querySelector("input"));
+    });
+
+    it("a list change leaves focus on a row that is still there", () => {
+      const { rerender } = render(room(["甲", "乙"]));
+      openDialog();
+      const dialog = screen.getByTestId("chat-suggested-replies-dialog");
+      const second = dialog.querySelectorAll("input")[1];
+      second.focus();
+      rerender(room(["甲", "乙", "丙"]));
+      expect(document.activeElement).toBe(second);
+    });
+
     it("names the member and lists the sentences", () => {
       renderChat({ suggestedReplies: ["繼續", "先放著"], onSaveSuggestedReplies: vi.fn() });
       openDialog();

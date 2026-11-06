@@ -140,6 +140,21 @@ describe("OfficePage chat 建議回覆", () => {
     expect(await mockApi.getChatSuggestedReplies()).toEqual({ mira: ["這次存到"] });
   });
 
+  it("the close button on a failed save's alert clears it, and the list stays what the server holds", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["繼續"]);
+    vi.spyOn(api, "putChatSuggestedReplies").mockRejectedValueOnce(new Error("no"));
+    openRoom("mira");
+    fireEvent.click(await screen.findByTestId("chat-header-suggested-replies"));
+    dialogInput().focus();
+    fireEvent.change(dialogInput(), { target: { value: "沒存到" } });
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(roomError()).toBe(SAVE_ERROR));
+
+    fireEvent.click(screen.getByRole("button", { name: "關閉" }));
+    expect(screen.queryAllByRole("alert").map((a) => a.textContent)).toEqual([]);
+    await waitFor(() => expect(chips()).toEqual(["繼續"]));
+  });
+
   it("a room whose peer left the roster offers neither chips nor the editor", async () => {
     await mockApi.patchServerSettings({ suggestedRepliesChat: ["共用"] });
     __injectMockChat({

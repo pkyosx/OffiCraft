@@ -192,6 +192,27 @@ describe("useChatSuggestedReplies", () => {
     expect(result.current.saveFailedFor).toEqual(new Set(["mira"]));
   });
 
+  it("the session's first save failing twice goes back to what the first read answered", async () => {
+    const { result } = await mounted();
+    putChatSuggestedReplies.mockRejectedValueOnce(new Error("offline"));
+    getChatSuggestedReplies.mockRejectedValue(new Error("offline"));
+    await act(async () => result.current.save("mira", ["沒存到"]));
+    expect(result.current.lists).toEqual({ mira: ["繼續"] });
+    expect(result.current.saveFailedFor).toEqual(new Set(["mira"]));
+  });
+
+  it("dismissing a failed save clears that member only and leaves the lists", async () => {
+    const { result } = await mounted();
+    putChatSuggestedReplies.mockRejectedValue(new Error("no"));
+    await act(async () => result.current.save("mira", ["甲"]));
+    await act(async () => result.current.save("beto", ["乙"]));
+    await waitFor(() => expect(result.current.saveFailedFor).toEqual(new Set(["mira", "beto"])));
+
+    act(() => result.current.dismissSaveFailed("mira"));
+    expect(result.current.saveFailedFor).toEqual(new Set(["beto"]));
+    expect(result.current.lists).toEqual({ mira: ["繼續"] });
+  });
+
   it("the same double failure for a member the server held nothing for leaves them with no list", async () => {
     const { result } = await mounted();
     putChatSuggestedReplies.mockRejectedValueOnce(new Error("offline"));

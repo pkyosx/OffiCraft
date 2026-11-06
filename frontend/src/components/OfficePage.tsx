@@ -42,6 +42,7 @@ type ChatSlotName =
   | "suggestedReplies"
   | "allMemberSuggestedReplies"
   | "suggestedRepliesError"
+  | "onDismissSuggestedRepliesError"
   | "onSaveSuggestedReplies"
   | "onRetrySuggestedReplies"
   | "onWake"
@@ -749,6 +750,7 @@ export function OfficePage({
       : chatSuggestedReplies.saveFailedFor.has(id)
         ? ("save" as const)
         : null,
+    onDismissSuggestedRepliesError: () => chatSuggestedReplies.dismissSaveFailed(id),
     onSaveSuggestedReplies: chatSuggestedReplies.loaded
       ? (next: string[]) => chatSuggestedReplies.save(id, next)
       : undefined,
@@ -764,6 +766,7 @@ export function OfficePage({
           suggestedReplies: undefined,
           allMemberSuggestedReplies: undefined,
           suggestedRepliesError: undefined,
+          onDismissSuggestedRepliesError: undefined,
           onSaveSuggestedReplies: undefined,
           onRetrySuggestedReplies: undefined,
           onWake: undefined,

@@ -13,6 +13,7 @@ export interface UseChatSuggestedReplies {
   /** The members whose latest write failed. That member's list went back to what
    * the server last acknowledged, and their next write clears them from here. */
   saveFailedFor: ReadonlySet<string>;
+  dismissSaveFailed: (memberId: string) => void;
   /** Show the list at once and save it. */
   save: (memberId: string, replies: string[]) => void;
   reload: () => void;
@@ -144,5 +145,5 @@ export function useChatSuggestedReplies(): UseChatSuggestedReplies {
 
   const reload = useCallback(() => loadRef.current(), []);
 
-  return { lists, loaded, loadFailed, saveFailedFor, save, reload };
+  return { lists, loaded, loadFailed, saveFailedFor, dismissSaveFailed: clearSaveFailed, save, reload };
 }

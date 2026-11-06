@@ -28,9 +28,15 @@ export function ChatSuggestedRepliesDialog({
   const titleId = "chat-suggested-replies-title";
 
   useEscapeLayer(onClose, boxRef);
+  const lastFocusRef = useRef<HTMLElement | null>(null);
+  // A list that changes under the reader (a failed save rolled back, another
+  // window saved) can remove or disable the focused control. Focus then lands on
+  // <body>, where the Tab trap on this dialog no longer hears the key.
   useEffect(() => {
-    boxRef.current?.querySelector<HTMLElement>("input, .sugg-edit__add")?.focus();
-  }, []);
+    const last = lastFocusRef.current;
+    if (last && last.isConnected && !last.matches(":disabled")) return;
+    boxRef.current?.querySelector<HTMLElement>("input, .sugg-edit__add:not(:disabled)")?.focus();
+  }, [replies]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     // This Esc cancels the IME's candidates. preventDefault is what tells the
@@ -81,6 +87,9 @@ export function ChatSuggestedRepliesDialog({
         className="chat-groups__dialog chat-suggested-replies__dialog"
         data-testid="chat-suggested-replies-dialog"
         onKeyDown={onKeyDown}
+        onFocus={(e) => {
+          lastFocusRef.current = e.target;
+        }}
       >
         <div className="chat-suggested-replies__head">
           <div>

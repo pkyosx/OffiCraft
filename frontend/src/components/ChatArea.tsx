@@ -302,6 +302,7 @@ export function ChatArea({
   suggestedReplies,
   allMemberSuggestedReplies,
   suggestedRepliesError,
+  onDismissSuggestedRepliesError,
   onSaveSuggestedReplies,
   onRetrySuggestedReplies,
   onWake,
@@ -349,6 +350,7 @@ export function ChatArea({
   allMemberSuggestedReplies?: readonly string[];
   /** "save": THIS member's latest save failed. "load": no list could be read. */
   suggestedRepliesError?: "load" | "save" | null;
+  onDismissSuggestedRepliesError?: () => void;
   /** Absent where the sentences cannot be edited: a peer off the roster, or
    * before the first read has answered. */
   onSaveSuggestedReplies?: (next: string[]) => void;
@@ -2629,7 +2631,20 @@ export function ChatArea({
         {!suggestedRepliesOpen &&
           (suggestedRepliesError === "save" || (suggestedRepliesError === "load" && !composerLocked)) && (
             <div className="chat__suggested-replies-error" role="alert" data-testid="chat-suggested-replies-error">
-              {suggestedRepliesError === "load" ? t.chat.suggestedRepliesLoadError : t.chat.suggestedRepliesSaveError}
+              <span>
+                {suggestedRepliesError === "load" ? t.chat.suggestedRepliesLoadError : t.chat.suggestedRepliesSaveError}
+              </span>
+              {suggestedRepliesError === "save" && (
+                <button
+                  type="button"
+                  className="chat__suggested-replies-error-close"
+                  aria-label={t.chat.suggestedRepliesClose}
+                  title={t.chat.suggestedRepliesClose}
+                  onClick={onDismissSuggestedRepliesError}
+                >
+                  <CloseIcon size={14} />
+                </button>
+              )}
             </div>
           )}
         {/* ② the new-message preview strip. FIRST child of the composer, so it
