@@ -10,6 +10,12 @@ function storageHolds(storage: Storage, value: string): boolean {
   return false;
 }
 
+function elementAttributesHold(value: string): boolean {
+  return Array.from(document.body.querySelectorAll("*")).some((el) =>
+    Array.from(el.attributes).some((attr) => attr.value.includes(value)),
+  );
+}
+
 function asText(thing: unknown): string {
   try {
     return `${String(thing)} ${JSON.stringify(thing)}`;
@@ -30,6 +36,7 @@ export function watchSecretValue(value: string): () => string[] {
     const places: string[] = [];
     if (storageHolds(localStorage, value)) places.push("localStorage");
     if (storageHolds(sessionStorage, value)) places.push("sessionStorage");
+    if (elementAttributesHold(value)) places.push("element attribute");
     CONSOLE_METHODS.forEach((method, i) => {
       if (spies[i].mock.calls.flat().some((arg) => asText(arg).includes(value))) {
         places.push(`console.${method}`);

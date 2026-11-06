@@ -94,6 +94,8 @@ describe("the waiting box", () => {
     expect(shown()).toEqual({ masked: false, pressed: "true", label: "隱藏內容", slashed: false });
     expect(input.value).toBe(SENTINEL);
     expect(onProvideSecret).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: `${SENTINEL}-edited` } });
+    expect(shown()).toEqual({ masked: false, pressed: "true", label: "隱藏內容", slashed: false });
     fireEvent.click(eye);
     expect(shown()).toEqual({ masked: true, pressed: "false", label: "顯示內容", slashed: true });
     fireEvent.click(eye);
@@ -138,12 +140,14 @@ describe("the waiting box", () => {
     expect(placesHoldingValue()).toEqual([]);
   });
 
-  it("the value stays in the box: no storage, console, global or composer draft", async () => {
+  it("the value stays in the box: no storage, console, global, attribute or composer draft", async () => {
     const placesHoldingValue = watchSecretValue(SENTINEL);
     const { getByTestId, container, onProvideSecret } = renderWaiting();
     fireEvent.change(getByTestId("reply-secret-input"), { target: { value: SENTINEL } });
     expect(placesHoldingValue()).toEqual([]);
     expect((container.querySelector(".reply-composer textarea") as HTMLTextAreaElement).value).toBe("");
+    fireEvent.click(getByTestId("secret-reveal-toggle"));
+    expect(placesHoldingValue()).toEqual([]);
     fireEvent.click(getByTestId("reply-secret-send"));
     await waitFor(() => expect(onProvideSecret).toHaveBeenCalled());
     expect(placesHoldingValue()).toEqual([]);

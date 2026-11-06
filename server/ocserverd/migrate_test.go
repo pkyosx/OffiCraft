@@ -32,7 +32,13 @@ func TestOpenSQLite(t *testing.T) {
 	}
 
 	t.Run("a deleted row's bytes are gone from the database file once checkpointed", func(t *testing.T) {
+		// A new connection per statement, so a setting made on one connection does not
+		// pass for the DSN's; the marker sits past the first page, where FAST mode would
+		// leave it behind.
+		db.SetMaxIdleConns(0)
 		marker := []byte("dummy-marker-aaaaaaaaaaaaaaaaaaaa")
+		filler := bytes.Repeat([]byte("x"), 12000)
+		row := append(append(append([]byte{}, filler...), marker...), filler...)
 		fileHoldsMarker := func() bool {
 			t.Helper()
 			if _, err := db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
@@ -47,7 +53,7 @@ func TestOpenSQLite(t *testing.T) {
 		if _, err := db.Exec(`CREATE TABLE residue (v BLOB)`); err != nil {
 			t.Fatalf("create: %v", err)
 		}
-		if _, err := db.Exec(`INSERT INTO residue (v) VALUES (?)`, marker); err != nil {
+		if _, err := db.Exec(`INSERT INTO residue (v) VALUES (?)`, row); err != nil {
 			t.Fatalf("insert: %v", err)
 		}
 		if !fileHoldsMarker() {
