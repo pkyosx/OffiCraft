@@ -327,6 +327,67 @@ func TestCmdSecretRun(t *testing.T) {
 	})
 }
 
+func TestRunSecretCommandStdinJSON(t *testing.T) {
+	const raw = `dummy "q" \b
+line2-aaaaaaaa`
+	const encoded = `"dummy \"q\" \\b\nline2-aaaaaaaa"`
+	reveal := func(id string) *cannedHTTP {
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{{"id": id, "value": raw}}})
+		return canned(200, string(body))
+	}
+	run := func(client httpClient, envs []string, id string, script string) (int, string, string) {
+		var out, errOut bytes.Buffer
+		rc := runSecretCommand(client, secretCfg, envs, id, []string{"sh", "-c", script},
+			[]string{"PATH=" + os.Getenv("PATH")}, nil, &out, &errOut)
+		return rc, out.String(), errOut.String()
+	}
+
+	t.Run("the command reads the value on stdin as a JSON string", func(t *testing.T) {
+		dir := t.TempDir()
+		file := filepath.Join(dir, "in.json")
+		client := reveal("rc-00000000000a")
+		rc, out, errOut := run(client, nil, "rc-00000000000a", "cat > "+file)
+		if rc != 0 || out != "" || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+		if len(client.sent) != 1 || client.sent[0].body != `{"ids":["rc-00000000000a"]}` {
+			t.Fatalf("reveal requests = %+v", client.sent)
+		}
+		got, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != encoded {
+			t.Fatalf("stdin = %q, want %q", got, encoded)
+		}
+	})
+
+	t.Run("a command echoing its stdin shows the mask", func(t *testing.T) {
+		rc, out, errOut := run(reveal("rc-00000000000a"), nil, "rc-00000000000a", "cat")
+		if rc != 0 || out != "***" || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
+		}
+	})
+
+	t.Run("a malformed id fetches nothing", func(t *testing.T) {
+		client := reveal("rc-00000000000a")
+		rc, out, errOut := run(client, nil, "not-an-id", "true")
+		want := "[ocagent] secret run: --stdin-json \"not-an-id\" is not a secret id (sec- or rc- followed by 12 lowercase hex digits)\n"
+		if rc != 2 || out != "" || errOut != want || len(client.sent) != 0 {
+			t.Fatalf("rc=%d out=%q err=%q calls=%d", rc, out, errOut, len(client.sent))
+		}
+	})
+
+	t.Run("neither flag is a usage error", func(t *testing.T) {
+		client := reveal("rc-00000000000a")
+		rc, _, errOut := run(client, nil, "", "true")
+		want := "[ocagent] secret run: at least one --env VAR=<ID> is required\n"
+		if rc != 2 || errOut != want || len(client.sent) != 0 {
+			t.Fatalf("rc=%d err=%q calls=%d", rc, errOut, len(client.sent))
+		}
+	})
+}
+
 func TestMaskWriter(t *testing.T) {
 	writeChunks := func(values []string, chunks ...string) string {
 		var dst bytes.Buffer

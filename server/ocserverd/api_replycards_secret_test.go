@@ -182,9 +182,23 @@ func TestHandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost(t *testing.T)
 		cardID := apiTestOpenReplyCard(t, f.h, executor,
 			`{"kind":"secret","summary":"key","options":[],"linked_task":{"task_id":"T-1","step_id":"`+steps[0]+`"}}`)
 		apiTestWantStepStatuses(t, f.d, "T-1", "waiting_owner", "pending")
+		dashboard := apiTestListen(t, f.api, "")
 		data := f.provide(t, cardID, apiTestCardSecretValue)
 		apiWantValue(t, "receipt.step_id", data["step_id"], steps[0])
 		apiTestWantStepStatuses(t, f.d, "T-1", "in_progress", "pending")
+		cardFrame := apiTestSecretCardFrame(cardID, "kip", "answered", "owner")
+		cardFrame["data"].(map[string]any)["payload"].(map[string]any)["task_executor"] = "kip"
+		dashboard.wantFrames(
+			cardFrame,
+			map[string]any{
+				"seq": apiAnyNumber, "topic": "task", "op": "patch",
+				"data": map[string]any{
+					"entity": "task", "key": "owner::T-1", "epoch": apiAnyNumber, "deleted": false,
+					"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "in_progress"},
+				},
+				"ts": apiAnyNumber, "trigger": "owner",
+			},
+		)
 	})
 
 	t.Run("only the owner may provide, and the route stays off MCP", func(t *testing.T) {

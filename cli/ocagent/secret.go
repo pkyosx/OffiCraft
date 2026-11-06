@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -44,7 +45,10 @@ A value the owner gave on a secret reply card you opened is addressed by the
 card's id (rc-…), on run and write only, and only you, its author, can retrieve
 it. It is destroyed after a retention period that starts at your first
 retrieval (or, if you never retrieve it, after a longer deadline); the first
-retrieval does not end it, and later ones do not extend it.
+retrieval does not end it, and later ones do not extend it. If a step can fail,
+write the value to a file first. When you are done, delete any file you wrote
+and end the retention early with expire_reply_card. If the owner replies with a
+message instead of a value, or the value expired, open a new card.
 
 NO COMMAND EVER PRINTS A VALUE. A value only ever reaches a child process's
 environment (run) or a 0600 file (write). Never put one on a command line (argv
@@ -107,7 +111,7 @@ Exit codes:
 }
 
 func secretRunUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: ocagent secret run --env VAR=<ID> [--env VAR2=<ID2> ...] -- <cmd> [args...]
+	fmt.Fprint(w, `usage: ocagent secret run [--env VAR=<ID> ...] [--stdin-json <ID>] -- <cmd> [args...]
 
 Runs <cmd> with each VAR set to the value of <ID>, on top of this process's own
 environment: a secret (sec-…) or a secret reply card you opened (rc-…). <cmd> is
@@ -121,24 +125,28 @@ destroyed when that ends, and until then you may retrieve it again.
 The command's stdout and stderr are passed through with every occurrence of
 every value replaced by ***. A value split across two writes is still caught,
 which means output can lag by up to one value's length until more output or
-the end of the stream arrives. stdin is passed through untouched.
+the end of the stream arrives. stdin is passed through untouched unless --stdin-json is given.
 
 Never put a value on the command line yourself (argv is visible to every
 process on the machine): let the command read it from VAR.
 
---env VAR=<ID>  repeatable. VAR must look like a shell variable name
-                ([A-Za-z_][A-Za-z0-9_]*) and may appear once; one <ID> may feed
-                several VARs.
+--env VAR=<ID>      repeatable. VAR must look like a shell variable name
+                    ([A-Za-z_][A-Za-z0-9_]*) and may appear once; one <ID> may
+                    feed several VARs.
+--stdin-json <ID>   give <cmd> the value on stdin as a JSON string, for commands
+                    that read a JSON value there. At least one of --env and
+                    --stdin-json is required.
 
-example:
+examples:
   ocagent secret run --env NPM_TOKEN=sec-00000000000b -- npm publish
+  ocagent secret run --stdin-json rc-00000000000b -- sops set --value-stdin prod.enc.yaml '["db"]["password"]'
 
 Exit codes: the command's own exit code once it has started (128+N when it
 was killed by signal N). Before it starts:
   1  the request never got an answer (network), or <cmd> could not be found or
      started (nothing is fetched when it cannot be found)
-  2  usage: --help itself, no --env, a malformed --env, more than 16 distinct
-     ids, or no <cmd>
+  2  usage: --help itself, neither --env nor --stdin-json, a malformed --env or
+     --stdin-json, more than 16 distinct ids, or no <cmd>
   3  no OC_TOKEN or no OC_BASE in the environment, or the server answered
      401/403
   4  at least one id is unknown on the station (nothing was revealed)
@@ -247,10 +255,11 @@ func cmdSecret(argv []string, cfg Config, in io.Reader, out, errOut io.Writer) i
 		fs.Usage = func() { secretRunUsage(out) }
 		var envs envFlags
 		fs.Var(&envs, "env", "VAR=<ID>, repeatable")
+		stdinJSON := fs.String("stdin-json", "", "give the command this <ID>'s value on stdin as a JSON string")
 		if err := fs.Parse(rest); err != nil {
 			return 2
 		}
-		return cmdSecretRun(defaultHTTPClient(), cfg, envs, fs.Args(), os.Environ(), in, out, errOut)
+		return runSecretCommand(defaultHTTPClient(), cfg, envs, *stdinJSON, fs.Args(), os.Environ(), in, out, errOut)
 	case "write":
 		fs := flag.NewFlagSet("ocagent secret write", flag.ContinueOnError)
 		fs.SetOutput(out)
@@ -475,10 +484,32 @@ func parseEnvBindings(envs []string) ([]envBinding, []string, error) {
 
 func cmdSecretRun(client httpClient, cfg Config, envs []string, cmdArgs, environ []string,
 	in io.Reader, out, errOut io.Writer) int {
-	bindings, ids, err := parseEnvBindings(envs)
-	if err != nil {
-		fmt.Fprintf(errOut, "[ocagent] secret run: %v\n", err)
-		return 2
+	return runSecretCommand(client, cfg, envs, "", cmdArgs, environ, in, out, errOut)
+}
+
+func runSecretCommand(client httpClient, cfg Config, envs []string, stdinJSONID string, cmdArgs, environ []string,
+	in io.Reader, out, errOut io.Writer) int {
+	var bindings []envBinding
+	var ids []string
+	if len(envs) > 0 || stdinJSONID == "" {
+		var err error
+		if bindings, ids, err = parseEnvBindings(envs); err != nil {
+			fmt.Fprintf(errOut, "[ocagent] secret run: %v\n", err)
+			return 2
+		}
+	}
+	if stdinJSONID != "" {
+		if !revealableIDShape(stdinJSONID) {
+			fmt.Fprintf(errOut, "[ocagent] secret run: --stdin-json %q is not a secret id (sec- or rc- followed by 12 lowercase hex digits)\n", stdinJSONID)
+			return 2
+		}
+		if !slices.Contains(ids, stdinJSONID) {
+			ids = append(ids, stdinJSONID)
+		}
+		if len(ids) > secretRevealMaxIDs {
+			fmt.Fprintf(errOut, "[ocagent] secret run: %d distinct ids; at most %d per run\n", len(ids), secretRevealMaxIDs)
+			return 2
+		}
 	}
 	if len(cmdArgs) == 0 {
 		fmt.Fprintln(errOut, "[ocagent] secret run: no command given after --")
@@ -507,12 +538,25 @@ func cmdSecretRun(client httpClient, cfg Config, envs []string, cmdArgs, environ
 	for _, v := range values {
 		maskValues = append(maskValues, v)
 	}
+	stdin := in
+	if stdinJSONID != "" {
+		encoded, err := json.Marshal(values[stdinJSONID])
+		if err != nil {
+			// The error names a type, never the value.
+			fmt.Fprintf(errOut, "[ocagent] secret run: cannot encode the value: %v\n", err)
+			return 1
+		}
+		stdin = bytes.NewReader(encoded)
+		// A child that echoes its stdin prints the encoded form, which holds neither
+		// the stored bytes nor their trimmed form once the value needs escaping.
+		maskValues = append(maskValues, string(encoded), string(encoded[1:len(encoded)-1]))
+	}
 
 	stdout := newMaskWriter(out, maskValues)
 	stderr := newMaskWriter(errOut, maskValues)
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Env = env
-	cmd.Stdin = in
+	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.WaitDelay = secretRunWaitDelay
