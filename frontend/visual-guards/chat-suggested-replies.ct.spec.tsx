@@ -75,3 +75,32 @@ test("390px: the tasks, role, suggested-replies and gallery buttons all fit the 
   expect(name.x + name.width).toBeLessThanOrEqual(buttons[0].x);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+// Focus order across a blur, a save and a click only exists in a real browser;
+// jsdom never moves focus to what was clicked.
+test("emptying the bottom row and clicking another row leaves focus on the row clicked, and typing goes there", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲", "乙", "丙"]} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  const inputs = page.locator(".sugg-edit__input");
+  await inputs.nth(2).fill("");
+  await inputs.nth(1).click();
+
+  await expect(inputs).toHaveCount(2);
+  await expect(inputs.nth(1)).toBeFocused();
+  await page.keyboard.type("x");
+  await expect(inputs.nth(1)).toHaveValue("乙x");
+  await expect(inputs.nth(0)).toHaveValue("甲");
+});
+
+test("emptying the bottom row and clicking blank dialog space leaves nothing focused", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["甲", "乙", "丙"]} />);
+  await cmp.getByTestId("chat-header-suggested-replies").click();
+  const inputs = page.locator(".sugg-edit__input");
+  await inputs.nth(2).fill("");
+  await page.locator("#chat-suggested-replies-title").click();
+
+  await expect(inputs).toHaveCount(2);
+  await expect(page.locator("body")).toBeFocused();
+});

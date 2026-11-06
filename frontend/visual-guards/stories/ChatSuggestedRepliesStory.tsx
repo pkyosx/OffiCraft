@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { I18nProvider } from "../../src/i18n";
 import { ChatArea } from "../../src/components/ChatArea";
 import "../../src/components/office.css";
@@ -36,13 +37,14 @@ export function ChatSuggestedRepliesStory({
   replies: string[];
   allHeaderButtons?: boolean;
 }) {
+  const [saved, setSaved] = useState(replies);
   return (
     <I18nProvider>
       <div style={{ height: 700, display: "flex", flexDirection: "column" }} data-testid="host">
         <ChatArea
           member={MEMBER}
-          suggestedReplies={replies}
-          onSaveSuggestedReplies={noop}
+          suggestedReplies={saved}
+          onSaveSuggestedReplies={setSaved}
           onOpenTasks={allHeaderButtons ? noop : undefined}
           onOpenRoleSettings={allHeaderButtons ? noop : undefined}
         />

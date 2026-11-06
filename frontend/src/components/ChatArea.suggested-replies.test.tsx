@@ -226,11 +226,13 @@ describe("ChatArea 建議回覆", () => {
     });
 
     it("a reader who clicked away is not given focus back when the same list arrives again", () => {
+      const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
       const { rerender } = render(room(["甲"]));
       openDialog();
       const dialog = screen.getByTestId("chat-suggested-replies-dialog");
       (dialog.querySelector("input") as HTMLElement).blur();
       rerender(room(["甲"]));
+      hasFocus.mockRestore();
       expect(document.activeElement).toBe(document.body);
     });
 

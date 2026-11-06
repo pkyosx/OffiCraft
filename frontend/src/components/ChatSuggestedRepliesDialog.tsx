@@ -95,8 +95,12 @@ export function ChatSuggestedRepliesDialog({
           lastFocusRef.current = e.target;
         }}
         onBlur={(e) => {
-          // Switching windows also blurs with no target, and focus comes back on return.
-          if (!e.relatedTarget && document.hasFocus()) lastFocusRef.current = null;
+          // Recorded here, not in onFocus: the save this blur triggers can land
+          // before the clicked control takes focus, and a rescue then would pull
+          // focus away from it. Switching windows also blurs with no target, and a
+          // control being disabled blurs too; neither is the reader leaving.
+          if (e.relatedTarget) lastFocusRef.current = e.relatedTarget as HTMLElement;
+          else if (document.hasFocus() && !e.target.matches(":disabled")) lastFocusRef.current = null;
         }}
       >
         <div className="chat-suggested-replies__head">
