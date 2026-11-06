@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,6 +30,36 @@ func TestOpenSQLite(t *testing.T) {
 	if got, err := assertJournalMode(db, sqliteJournalMode); err != nil {
 		t.Fatalf("assertJournalMode: %v (got %q)", err, got)
 	}
+
+	t.Run("a deleted row's bytes are gone from the database file once checkpointed", func(t *testing.T) {
+		marker := []byte("dummy-marker-aaaaaaaaaaaaaaaaaaaa")
+		fileHoldsMarker := func() bool {
+			t.Helper()
+			if _, err := db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+				t.Fatalf("checkpoint: %v", err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read database file: %v", err)
+			}
+			return bytes.Contains(data, marker)
+		}
+		if _, err := db.Exec(`CREATE TABLE residue (v BLOB)`); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if _, err := db.Exec(`INSERT INTO residue (v) VALUES (?)`, marker); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+		if !fileHoldsMarker() {
+			t.Fatal("the marker is not in the file before the delete, so its absence after proves nothing")
+		}
+		if _, err := db.Exec(`DELETE FROM residue`); err != nil {
+			t.Fatalf("delete: %v", err)
+		}
+		if fileHoldsMarker() {
+			t.Fatal("the deleted bytes are still in the database file")
+		}
+	})
 }
 
 func TestOpenSQLiteReadPool(t *testing.T) {
