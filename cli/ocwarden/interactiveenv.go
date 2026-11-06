@@ -92,6 +92,7 @@ func captureInteractiveEnv(shell string, timeout time.Duration) (string, error) 
 	// stderr is NOT merged into stdout (rc-file chatter must never parse as records)
 	// and is never logged: it can carry anything an rc file printed.
 	cmd.Stderr = &errb
+	markDescriptorsCloseOnExec()
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
 		return "", fmt.Errorf("timed out after %s", timeout)

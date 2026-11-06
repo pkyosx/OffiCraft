@@ -169,6 +169,7 @@ func (r execRunner) exec(caller string, keepStdout bool, name string, args ...st
 	// after the child exits, even past a timeout Kill, and the heartbeat stops.
 	cmd.WaitDelay = subprocessWaitDelay
 	done := make(chan error, 1)
+	markDescriptorsCloseOnExec()
 	if err := cmd.Start(); err != nil {
 		return "", err
 	}
@@ -607,6 +608,10 @@ func wireUpdaterSeams(transport *sseTransport, up *updater) {
 }
 
 func realMain(argv []string, env func(string) string, out io.Writer) int {
+	// A predecessor built before this fix hands its leaked descriptors over on
+	// self-update; marking them here keeps them out of every child until the next
+	// exec drops them.
+	markDescriptorsCloseOnExec()
 	if len(argv) > 0 {
 		switch argv[0] {
 		case "install":

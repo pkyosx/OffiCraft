@@ -95,6 +95,7 @@ func listCodexModels(codexBin string) ([]codexModelEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	markDescriptorsCloseOnExec()
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1211,6 +1212,15 @@ func TestWireLoginCheck(t *testing.T) {
 }
 
 func TestRealMain(t *testing.T) {
+	t.Run("a descriptor handed over without close-on-exec is kept from children from the start", func(t *testing.T) {
+		fd := openInheritableDescriptor(t)
+		var out bytes.Buffer
+		realMain([]string{"version"}, func(string) string { return "" }, &out)
+		if got := descriptorsSeenByChild(t, fd); got != strconv.Itoa(fd)+"=closed\n" {
+			t.Errorf("child saw %q, want %q", got, strconv.Itoa(fd)+"=closed\n")
+		}
+	})
+
 	t.Run("no verb prints the usage banner", func(t *testing.T) {
 		want := "usage: ocwarden {run [--once] | install | teardown [--canonical]}\n" +
 			"  run       officraft per-machine hardware telemetry + command producer.\n" +
@@ -1423,6 +1433,24 @@ func TestExecRunnerFailureOutput(t *testing.T) {
 		}
 		if !strings.Contains(got, answer) {
 			t.Errorf("Run gave %s, want the stderr folded into the error text", got)
+		}
+	})
+
+	t.Run("a descriptor the runner holds without close-on-exec does not reach the command", func(t *testing.T) {
+		fd := openInheritableDescriptor(t)
+		n := strconv.Itoa(fd)
+		check := "if [ -e /dev/fd/" + n + " ]; then printf open; else printf closed; fi"
+		if got := descriptorsSeenByChild(t, fd); got != n+"=open\n" {
+			t.Fatalf("the probe itself would not inherit fd %d (%q), so this case proves nothing", fd, got)
+		}
+		cmd := exec.Command(probe, "plain", "/bin/sh", "-c", check)
+		cmd.Env = append(os.Environ(), "OCWARDEN_EXECPROBE=1")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("run the probe: %v", err)
+		}
+		if want := "OUT<<<closed>>>ERR<<<<nil>>>>"; string(out) != want {
+			t.Errorf("Run gave %s, want %s", out, want)
 		}
 	})
 
