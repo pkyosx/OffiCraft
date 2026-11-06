@@ -441,8 +441,8 @@ func TestSystemInteractionText(t *testing.T) {
 			t.Fatalf("the boot fold and the read face disagree (%d vs %d runes)",
 				utf8.RuneCountInString(got), utf8.RuneCountInString(data["text"].(string)))
 		}
-		if n := utf8.RuneCountInString(got); n != 14261 {
-			t.Fatalf("the shipped block is %d runes, want 14261", n)
+		if n := utf8.RuneCountInString(got); n != 14295 {
+			t.Fatalf("the shipped block is %d runes, want 14295", n)
 		}
 	})
 
@@ -660,8 +660,8 @@ func TestBootSequenceText(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bootSequenceText(codex): %v", err)
 		}
-		if n := utf8.RuneCountInString(codex); n != 2241 {
-			t.Fatalf("the codex sequence is %d runes, want the shipped 2241", n)
+		if n := utf8.RuneCountInString(codex); n != 2230 {
+			t.Fatalf("the codex sequence is %d runes, want the shipped 2230", n)
 		}
 	})
 
@@ -692,8 +692,8 @@ func TestBootSequenceText(t *testing.T) {
 		if got != data["text"] {
 			t.Fatalf("the boot fold and the read face disagree (%d runes)", utf8.RuneCountInString(got))
 		}
-		if n := utf8.RuneCountInString(got); n != 2017 {
-			t.Fatalf("the shipped claude sequence is %d runes, want 2017", n)
+		if n := utf8.RuneCountInString(got); n != 2010 {
+			t.Fatalf("the shipped claude sequence is %d runes, want 2010", n)
 		}
 	})
 }
@@ -1411,7 +1411,7 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "size_chars", data["size_chars"], 14261)
+		apiWantValue(t, "size_chars", data["size_chars"], 14295)
 		apiWantValue(t, "cap_chars", data["cap_chars"], 60000)
 		apiWantValue(t, "kind", data["kind"], "system_interaction")
 		apiWantValue(t, "key", data["key"], "global")
@@ -1421,8 +1421,8 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		apiWantValue(t, "has_seed", data["has_seed"], true)
 		apiWantValue(t, "schema_version", data["schema_version"], 3)
 		text, ok := data["text"].(string)
-		if !ok || utf8.RuneCountInString(text) != 14261 {
-			t.Fatalf("the shipped system-interaction text has %d runes, want 14261", utf8.RuneCountInString(text))
+		if !ok || utf8.RuneCountInString(text) != 14295 {
+			t.Fatalf("the shipped system-interaction text has %d runes, want 14295", utf8.RuneCountInString(text))
 		}
 	})
 
@@ -1576,9 +1576,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 14261,
+			"size_chars": 14295,
 			"cap_chars":  60000,
-			"sha256":     "4ad94e9293fc0c7ed604ab27f5f6b6226ea99883a19b3d9aedc81972e971cc4b",
+			"sha256":     "7814a4befb66e802d5e50fecb84381b000294384b398aef4d2aedd6986648d1f",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -1609,9 +1609,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 14261,
+			"size_chars": 14295,
 			"cap_chars":  60000,
-			"sha256":     "4ad94e9293fc0c7ed604ab27f5f6b6226ea99883a19b3d9aedc81972e971cc4b",
+			"sha256":     "7814a4befb66e802d5e50fecb84381b000294384b398aef4d2aedd6986648d1f",
 		})
 		dashboard.wantFrames()
 	})
@@ -1896,7 +1896,7 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "size_chars", data["size_chars"], 2017)
+		apiWantValue(t, "size_chars", data["size_chars"], 2010)
 		apiWantValue(t, "cap_chars", data["cap_chars"], 15000)
 		apiWantValue(t, "kind", data["kind"], "boot_sequence")
 		apiWantValue(t, "key", data["key"], "claude")
@@ -1906,8 +1906,8 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 		apiWantValue(t, "has_seed", data["has_seed"], true)
 		apiWantValue(t, "schema_version", data["schema_version"], 3)
 		text, ok := data["text"].(string)
-		if !ok || utf8.RuneCountInString(text) != 2017 {
-			t.Fatalf("the shipped claude sequence has %d runes, want 2017", utf8.RuneCountInString(text))
+		if !ok || utf8.RuneCountInString(text) != 2010 {
+			t.Fatalf("the shipped claude sequence has %d runes, want 2010", utf8.RuneCountInString(text))
 		}
 	})
 
@@ -1995,9 +1995,9 @@ func TestHandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost(t *testing.T)
 			"kind":       "boot_sequence",
 			"key":        "claude",
 			"is_default": true,
-			"size_chars": 2017,
+			"size_chars": 2010,
 			"cap_chars":  15000,
-			"sha256":     "6d73050eb49def42c9de53865491644968e17703a2f0f96ae3d8b51752a868ad",
+			"sha256":     "1b8ebb8cc05637455b590debb5951468ae1dbcecb43ccd3d47f4b116e773c39b",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
