@@ -160,6 +160,11 @@ describe("ChatArea 建議回覆", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  it("a failed first read has no close button, because the header button is its way out", () => {
+    renderChat({ suggestedRepliesError: "load", onRetrySuggestedReplies: vi.fn() });
+    expect(screen.getByRole("alert").querySelectorAll("button").length).toBe(0);
+  });
+
   it("after a failed first read the header button stays and reads again instead of opening an empty dialog", () => {
     const onRetry = vi.fn();
     renderChat({ suggestedRepliesError: "load", onRetrySuggestedReplies: onRetry });
@@ -204,6 +209,40 @@ describe("ChatArea 建議回覆", () => {
       (dialog.querySelector(".sugg-edit__add") as HTMLElement).focus();
       rerender(room([...nineteen, "句 20"]));
       expect(document.activeElement).toBe(dialog.querySelector("input"));
+    });
+
+    it("a reader who clicked away is not given focus back when a list change removes the row they left", () => {
+      const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+      const { rerender } = render(room(["甲", "乙"]));
+      openDialog();
+      const dialog = screen.getByTestId("chat-suggested-replies-dialog");
+      const second = dialog.querySelectorAll("input")[1];
+      second.focus();
+      second.blur();
+      expect(document.activeElement).toBe(document.body);
+      rerender(room(["甲"]));
+      hasFocus.mockRestore();
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it("a reader who clicked away is not given focus back when the same list arrives again", () => {
+      const { rerender } = render(room(["甲"]));
+      openDialog();
+      const dialog = screen.getByTestId("chat-suggested-replies-dialog");
+      (dialog.querySelector("input") as HTMLElement).blur();
+      rerender(room(["甲"]));
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it("a window switch that blurs a row does not cancel the rescue when that row goes", () => {
+      const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+      const { rerender } = render(room(["甲"]));
+      openDialog();
+      const dialog = screen.getByTestId("chat-suggested-replies-dialog");
+      (dialog.querySelector("input") as HTMLElement).blur();
+      rerender(room([]));
+      hasFocus.mockRestore();
+      expect(document.activeElement).toBe(dialog.querySelector(".sugg-edit__add"));
     });
 
     it("a list change leaves focus on a row that is still there", () => {

@@ -11,7 +11,7 @@ export interface UseChatSuggestedReplies {
    * edited. `reload` or a delta reads again; a read that lands clears it. */
   loadFailed: boolean;
   /** The members whose latest write failed. That member's list went back to what
-   * the server last acknowledged, and their next write clears them from here. */
+   * the server last acknowledged; their next write or a dismissal clears them. */
   saveFailedFor: ReadonlySet<string>;
   dismissSaveFailed: (memberId: string) => void;
   /** Show the list at once and save it. */

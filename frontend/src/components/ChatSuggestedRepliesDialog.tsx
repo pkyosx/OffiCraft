@@ -29,13 +29,17 @@ export function ChatSuggestedRepliesDialog({
 
   useEscapeLayer(onClose, boxRef);
   const lastFocusRef = useRef<HTMLElement | null>(null);
+  const focusFirstControl = () =>
+    boxRef.current?.querySelector<HTMLElement>("input, .sugg-edit__add:not(:disabled)")?.focus();
+  useEffect(focusFirstControl, []);
   // A list that changes under the reader (a failed save rolled back, another
   // window saved) can remove or disable the focused control. Focus then lands on
-  // <body>, where the Tab trap on this dialog no longer hears the key.
+  // <body>, where the Tab trap on this dialog no longer hears the key. A reader
+  // who clicked away on purpose has no control to rescue: taking focus back would
+  // reopen the phone keyboard they just closed.
   useEffect(() => {
     const last = lastFocusRef.current;
-    if (last && last.isConnected && !last.matches(":disabled")) return;
-    boxRef.current?.querySelector<HTMLElement>("input, .sugg-edit__add:not(:disabled)")?.focus();
+    if (last && (!last.isConnected || last.matches(":disabled"))) focusFirstControl();
   }, [replies]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -89,6 +93,10 @@ export function ChatSuggestedRepliesDialog({
         onKeyDown={onKeyDown}
         onFocus={(e) => {
           lastFocusRef.current = e.target;
+        }}
+        onBlur={(e) => {
+          // Switching windows also blurs with no target, and focus comes back on return.
+          if (!e.relatedTarget && document.hasFocus()) lastFocusRef.current = null;
         }}
       >
         <div className="chat-suggested-replies__head">

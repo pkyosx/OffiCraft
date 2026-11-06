@@ -2637,7 +2637,7 @@ export function ChatArea({
               {suggestedRepliesError === "save" && (
                 <button
                   type="button"
-                  className="chat__suggested-replies-error-close"
+                  className="chat__reply-banner__x"
                   aria-label={t.chat.suggestedRepliesClose}
                   title={t.chat.suggestedRepliesClose}
                   onClick={onDismissSuggestedRepliesError}
