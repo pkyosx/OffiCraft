@@ -1191,13 +1191,6 @@
       "seam_reason": "Dispatch into `secret run`, whose one request is ocagent-secret-reveal."
     },
     {
-      "id": "ocagent-secret-run-env-hop",
-      "source": "cli/ocagent/secret.go",
-      "callsite": "return runSecretCommand(client, cfg, envs, \"\", cmdArgs, environ, in, out, errOut)",
-      "kind": "seam",
-      "seam_reason": "`secret run` without --stdin-json, whose one request is ocagent-secret-reveal."
-    },
-    {
       "id": "ocagent-secret-write-hop",
       "source": "cli/ocagent/secret.go",
       "callsite": "return cmdSecretWrite(defaultHTTPClient(), cfg, args[0], *file, *force, out, errOut)",

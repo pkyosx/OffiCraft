@@ -24,9 +24,9 @@ func TestSecretRevealUplinkBody(t *testing.T) {
 	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t"}
 
 	var out, errOut bytes.Buffer
-	rc := cmdSecretRun(srv.Client(), cfg, []string{"A=sec-000000000001"}, []string{"true"}, nil, nil, &out, &errOut)
+	rc := runSecretCommand(srv.Client(), cfg, []string{"A=sec-000000000001"}, "", []string{"true"}, nil, nil, &out, &errOut)
 	if rc != 0 {
-		t.Fatalf("cmdSecretRun returned %d (stderr %q), want 0", rc, errOut.String())
+		t.Fatalf("runSecretCommand returned %d (stderr %q), want 0", rc, errOut.String())
 	}
 	if len(posts) != 1 {
 		t.Fatalf("sent %v, want exactly one reveal", posts)

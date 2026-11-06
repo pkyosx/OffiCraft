@@ -215,7 +215,7 @@ func TestCmdSecretRun(t *testing.T) {
 	run := func(t *testing.T, reply *cannedHTTP, envs []string, script string) (int, string, string) {
 		t.Helper()
 		var out, errOut bytes.Buffer
-		rc := cmdSecretRun(reply, secretCfg, envs, []string{"sh", "-c", script}, []string{"PATH=" + os.Getenv("PATH")}, nil, &out, &errOut)
+		rc := runSecretCommand(reply, secretCfg, envs, "", []string{"sh", "-c", script}, []string{"PATH=" + os.Getenv("PATH")}, nil, &out, &errOut)
 		return rc, out.String(), errOut.String()
 	}
 
@@ -296,7 +296,7 @@ func TestCmdSecretRun(t *testing.T) {
 	t.Run("a command that cannot be found fails before any reveal, so no value is spent", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, revealBody("rc-00000000000a", fakeValue1))
-		rc := cmdSecretRun(client, secretCfg, []string{"A=rc-00000000000a"},
+		rc := runSecretCommand(client, secretCfg, []string{"A=rc-00000000000a"}, "",
 			[]string{"oc-no-such-command-anywhere"}, []string{"PATH=" + os.Getenv("PATH")}, nil, &out, &errOut)
 		if rc != 1 || len(client.sent) != 0 {
 			t.Fatalf("got (%d, sent %v), want (1, nothing sent)", rc, client.sent)
@@ -320,7 +320,7 @@ func TestCmdSecretRun(t *testing.T) {
 	t.Run("no command is a usage error and reveals nothing", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, revealBody("sec-00000000000a", fakeValue1))
-		rc := cmdSecretRun(client, secretCfg, []string{"A=sec-00000000000a"}, nil, nil, nil, &out, &errOut)
+		rc := runSecretCommand(client, secretCfg, []string{"A=sec-00000000000a"}, "", nil, nil, nil, &out, &errOut)
 		if rc != 2 || len(client.sent) != 0 {
 			t.Fatalf("got (%d, sent %v), want (2, nothing sent)", rc, client.sent)
 		}
@@ -403,6 +403,14 @@ line2-aaaaaaaa`
 					t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
 				}
 			})
+		}
+	})
+
+	t.Run("a command stripping a key before re-encoding it shows the mask", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{{"id": "rc-00000000000a", "value": "-----BEGIN dummy-----\naaaaaaaa\n"}}})
+		rc, out, errOut := run(canned(200, string(body)), nil, "rc-00000000000a", `printf '%s' '"-----BEGIN dummy-----\naaaaaaaa"'`)
+		if rc != 0 || out != "***" || errOut != "" {
+			t.Fatalf("rc=%d out=%q err=%q", rc, out, errOut)
 		}
 	})
 

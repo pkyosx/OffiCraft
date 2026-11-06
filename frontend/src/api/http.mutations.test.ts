@@ -21,6 +21,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { httpApi } from "./http";
 import { ApiError } from "./errors";
 import { codeForStatus } from "./errorCodes";
+import { watchSecretValue } from "../test/secretValueWatch";
 
 /** Still the shape `POST /api/roles` answers under `member` — that route was not
  * part of T-91 and still hands back the roster row it just created. */
@@ -125,7 +126,9 @@ describe("httpApi · secret reply cards", () => {
         answer: { option_idxs: null, text: "", attachments: [] }, task_id: "", step_id: "",
       })
     );
+    const placesHoldingValue = watchSecretValue("dummy-aaaaaaaaaaaa");
     const receipt = await httpApi.provideReplyCardSecret("rc-1", "dummy-aaaaaaaaaaaa");
+    expect(placesHoldingValue()).toEqual([]);
     const { url, method, body } = await lastRequest();
     expect(url).toBe("/api/reply-cards/rc-1/secret");
     expect(method).toBe("POST");

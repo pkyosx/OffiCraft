@@ -63,6 +63,7 @@ subcommands:
   run --env VAR=<ID> [...] -- cmd   run cmd with the values in its environment;
                                     every value in its output is shown as ***;
                                     <ID> is sec-… or a secret card's rc-…
+  run --stdin-json <ID> -- cmd      run cmd with the value on stdin as a JSON string
   write <ID> --file <path>          write the value to a new 0600 file; <ID> is
                                     sec-… or a secret card's rc-…
 
@@ -484,11 +485,6 @@ func parseEnvBindings(envs []string) ([]envBinding, []string, error) {
 	return bindings, ids, nil
 }
 
-func cmdSecretRun(client httpClient, cfg Config, envs []string, cmdArgs, environ []string,
-	in io.Reader, out, errOut io.Writer) int {
-	return runSecretCommand(client, cfg, envs, "", cmdArgs, environ, in, out, errOut)
-}
-
 func runSecretCommand(client httpClient, cfg Config, envs []string, stdinJSONID string, cmdArgs, environ []string,
 	in io.Reader, out, errOut io.Writer) int {
 	var bindings []envBinding
@@ -599,28 +595,42 @@ func runSecretCommand(client httpClient, cfg Config, envs []string, stdinJSONID 
 	return 1
 }
 
-// encodeSecretForStdin returns the JSON string the command reads, and every form
-// the command's own JSON library may print it back in. None of those forms hold
-// the stored bytes once the value needs escaping, so each one has to be masked:
-// the stdin form, Go's HTML-escaped form, and the ASCII-only form that Python's
-// json.dumps prints by default.
+// encodeSecretForStdin returns the JSON string the command reads, and the forms
+// common JSON libraries print it back in, because those forms do not hold the
+// stored bytes once the value needs escaping: the stdin form, Go's HTML-escaped
+// form and Python's default ASCII-only form, each also for the trimmed value (a
+// command reading a key file usually strips it first). Masking stays best effort:
+// a command that encodes the value any other way prints it.
 func encodeSecretForStdin(value string) ([]byte, []string, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(value); err != nil {
-		return nil, nil, err
-	}
-	encoded := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
-	htmlEscaped, err := json.Marshal(value)
+	encoded, err := jsonWithoutHTMLEscape(value)
 	if err != nil {
 		return nil, nil, err
 	}
 	var forms []string
-	for _, quoted := range []string{string(encoded), string(htmlEscaped), asciiOnlyJSON(string(encoded))} {
-		forms = append(forms, quoted, quoted[1:len(quoted)-1])
+	for _, v := range []string{value, strings.TrimSpace(value)} {
+		plain, err := jsonWithoutHTMLEscape(v)
+		if err != nil {
+			return nil, nil, err
+		}
+		htmlEscaped, err := json.Marshal(v)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, quoted := range []string{plain, string(htmlEscaped), asciiOnlyJSON(plain)} {
+			forms = append(forms, quoted, quoted[1:len(quoted)-1])
+		}
 	}
-	return encoded, forms, nil
+	return []byte(encoded), forms, nil
+}
+
+func jsonWithoutHTMLEscape(value string) (string, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(value); err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(buf.String(), "\n"), nil
 }
 
 func asciiOnlyJSON(encoded string) string {
