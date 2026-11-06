@@ -261,19 +261,24 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     };
   }, [idQuery, lookupNonce]);
 
-  // A secret card's retrieval and destruction move no status, and the lookup above
-  // reads once, so a card opened by id would keep its old state until a reload.
-  const lookupMayChange = lookup.state === "found" && secretCardMayStillChange(lookup.card);
+  // The lookup above reads once, so a card opened by id would keep its old state
+  // until a reload. Not through lookupNonce: its loading state unmounts the box and
+  // takes a half-typed value with it.
+  const lookupMayChange =
+    lookup.state === "found" &&
+    (lookup.card.status === "waiting" || secretCardMayStillChange(lookup.card));
   useEffect(() => {
     if (!lookupMayChange) return;
     let alive = true;
+    let latestRead = 0;
     const unsubscribe = api.subscribeEvents((topic) => {
       if (topic !== "reply_card") return;
+      const read = ++latestRead;
       api.getReplyCard(idQuery).then(
         (card) => {
-          if (alive) setLookup({ state: "found", card });
+          if (alive && read === latestRead) setLookup({ state: "found", card });
         },
-        (e: unknown) => console.warn("RepliesPage: secret card re-read failed", e),
+        (e: unknown) => console.warn("RepliesPage: card re-read failed", e),
       );
     });
     return () => {

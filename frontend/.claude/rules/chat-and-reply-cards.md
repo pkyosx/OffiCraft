@@ -106,7 +106,7 @@ ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意
 - 送出後的卡展開時只顯示狀態（已提供、已取得、已失效）；收合列與近期已處理的時間欄照一般卡顯示已回覆或已過期，且都不帶時間，這是 owner 的裁定。收合列的字只看卡片 status，所以沒讀過卡與讀過後一致。畫面沒有撤回入口；伺服器的標為過期路由仍在，開卡成員用它提早銷毀值，Owner 與 admin agent 也呼叫得到。
 - 🔴 內容只活在遮罩框元件的 state：成功清掉、失敗留著讓 owner 重送；不進 store、草稿、log 或錯誤文字，mock 也不存。
 - 🔴 焦點只在 owner 打開卡時給。聊天卡的 body 只有展開後才存在；請示頁用 `secretFocusPendingRef` 記「剛打開、還沒給焦點」，只消耗一次，卡在 pane 之間搬動重新掛載不算打開；任務卡沒有打開的動作（等待中的卡一到就畫出來），所以永遠不給。
-- ⚠️ 寫入收據沒有 `secret` 區塊，`mergeReplyCardWrite` 從收據推出下一個 state（空答案＝提供），期限仍要靠重讀，它決定卡還會不會變。取得與銷毀都不改 status，所以兩個 status 守衛要多問 `secretCardMayStillChange`，請示頁的 `rowVersion` 要帶 secret 的 state 與期限，否則已打開的卡停在舊狀態；用編號篩出來的卡來自一次性查詢，也要在 reply_card 事件時重讀。
+- ⚠️ 寫入收據沒有 `secret` 區塊，`mergeReplyCardWrite` 從收據推出下一個 state（空答案＝提供），期限仍要靠重讀，它決定卡還會不會變。取得與銷毀都不改 status，所以兩個 status 守衛要多問 `secretCardMayStillChange`，請示頁的 `rowVersion` 要帶 secret 的 state 與期限，否則已打開的卡停在舊狀態；用編號篩出來的卡來自一次性查詢，等待中或還可能變動時也要在 reply_card 事件時重讀，舊回應不能蓋新回應，也不能走 lookupNonce（loading 會卸載輸入框）。
 
 ## 請示卡頁的排序、任務列與稍後再看
 

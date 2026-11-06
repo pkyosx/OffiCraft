@@ -219,6 +219,82 @@ describe.each(surfaces)("$name", ({ mount, open, focusesOnOpen, showSettled }) =
 });
 
 describe("the replies page's handled pane", () => {
+  const openById = async (u: Utils) => {
+    const idField = await u.findByTestId("filter-reply-card-id");
+    fireEvent.change(idField, { target: { value: CARD_ID } });
+    fireEvent.keyDown(idField, { key: "Enter" });
+    const article = await waitFor(() => {
+      const el = u.container.querySelector(`[data-reply-card-id="${CARD_ID}"][aria-expanded]`);
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    if (article.getAttribute("aria-expanded") === "false") fireEvent.click(article);
+  };
+  const mountPage = () =>
+    render(
+      withBystander(
+        <ReplyCardsProvider>
+          <RepliesPage />
+        </ReplyCardsProvider>,
+      ),
+    );
+
+  it("a waiting card opened by its link leaves the box once the value arrives elsewhere", async () => {
+    __injectMockReplyCard(mkCard());
+    const u = mountPage();
+    await openById(u);
+    await u.findByTestId("reply-secret-input");
+    await act(async () => {
+      await api.provideReplyCardSecret(CARD_ID, SENTINEL);
+    });
+    await waitFor(() => expect(u.queryByTestId("reply-secret-input")).toBeNull());
+    expect((await u.findByTestId("secret-face")).textContent).toBe("已提供");
+  });
+
+  it("a card opened by its link keeps a half-typed value while it is re-read", async () => {
+    __injectMockReplyCard(mkCard());
+    const u = mountPage();
+    await openById(u);
+    const input = (await u.findByTestId("reply-secret-input")) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: SENTINEL } });
+    await act(async () => {
+      __injectMockReplyCard(mkCard({ id: "rc-aaaaaaaaaaa4" }));
+    });
+    await waitFor(() => expect(u.getByTestId("reply-secret-input")).toBe(input));
+    expect(input.value).toBe(SENTINEL);
+  });
+
+  it("an older re-read does not overwrite a newer one", async () => {
+    const ts = Date.now() / 1000 - 60;
+    const provided = mkCard({
+      status: "answered",
+      answeredTs: ts,
+      answer: { optionIdxs: null, text: "", attachments: [] },
+      secret: { state: "provided", providedTs: ts, retrievedTs: null, expiresTs: ts + 3600 },
+    });
+    __injectMockReplyCard(provided);
+    const u = mountPage();
+    await openById(u);
+    expect((await u.findByTestId("secret-face")).textContent).toBe("已提供");
+    let releaseOlder: (card: ReplyCard) => void = () => {};
+    const reads = vi.spyOn(api, "getReplyCard");
+    reads.mockImplementationOnce(() => new Promise<ReplyCard>((resolve) => (releaseOlder = resolve)));
+    await act(async () => {
+      __mockRetrieveSecretCard(CARD_ID);
+    });
+    await act(async () => {
+      __injectMockReplyCard(mkCard({ id: "rc-aaaaaaaaaaa5" }));
+    });
+    await waitFor(() => expect(u.getByTestId("secret-face").textContent).toBe("已取得"));
+    const readsBefore = reads.mock.calls.length;
+    await act(async () => {
+      releaseOlder(provided);
+    });
+    expect(u.getByTestId("secret-face").textContent).toBe("已取得");
+    // A stale card that lands moves the row's version back, which reads the card again.
+    expect(reads.mock.calls.length).toBe(readsBefore);
+  });
+
   it("a card opened by its link follows the author's retrieval in place", async () => {
     const ts = Date.now() / 1000 - 60;
     __injectMockReplyCard(
@@ -229,22 +305,8 @@ describe("the replies page's handled pane", () => {
         secret: { state: "provided", providedTs: ts, retrievedTs: null, expiresTs: ts + 3600 },
       }),
     );
-    const u = render(
-      withBystander(
-        <ReplyCardsProvider>
-          <RepliesPage />
-        </ReplyCardsProvider>,
-      ),
-    );
-    const idField = await u.findByTestId("filter-reply-card-id");
-    fireEvent.change(idField, { target: { value: CARD_ID } });
-    fireEvent.keyDown(idField, { key: "Enter" });
-    const article = await waitFor(() => {
-      const el = u.container.querySelector(`[data-reply-card-id="${CARD_ID}"][aria-expanded]`);
-      expect(el).not.toBeNull();
-      return el as HTMLElement;
-    });
-    if (article.getAttribute("aria-expanded") === "false") fireEvent.click(article);
+    const u = mountPage();
+    await openById(u);
     expect((await u.findByTestId("secret-face")).textContent).toBe("已提供");
     await act(async () => {
       __mockRetrieveSecretCard(CARD_ID);
@@ -333,8 +395,9 @@ describe("collapsed", () => {
     ["retrieved", () => held("retrieved"), "已回覆"],
     ["expired", gone, "已過期"],
   ] as const)("a task card holding %s reads as any card", async (_, make, want) => {
-    __injectMockReplyCard(make());
-    const u = render(withBystander(<TaskReplyCard replyCardId={CARD_ID} />));
+    const card = make();
+    __injectMockReplyCard(card);
+    const u = render(withBystander(<TaskReplyCard replyCardId={CARD_ID} initialStatus={card.status} />));
     await waitFor(() => expect(u.container.querySelector(".reply-tag")?.textContent).toBe(want));
   });
 });
