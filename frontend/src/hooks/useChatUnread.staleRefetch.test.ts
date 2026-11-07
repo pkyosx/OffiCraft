@@ -23,6 +23,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { StrictMode, createElement } from "react";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import type { SseDelta } from "../api/adapter";
+import { deferred } from "../test/deferred";
 
 const h = vi.hoisted(() => ({
   getChatUnreadCount: vi.fn<() => Promise<number>>(),
@@ -233,5 +234,143 @@ describe("useChatUnread: a failed count fetch is marked and paid on the next eve
       expect(h.getChatUnreadCount).toHaveBeenCalledTimes(afterDebt + 1),
     );
     await waitFor(() => expect(result.current).toBe(7));
+  });
+});
+
+describe("useChatUnread read order", () => {
+  async function settle(work: () => void): Promise<void> {
+    await act(async () => {
+      work();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  async function mounted(count: number) {
+    h.getChatUnreadCount.mockResolvedValueOnce(count);
+    const view = renderHook(() => useChatUnread());
+    await waitFor(() => expect(view.result.current).toBe(count));
+    return view;
+  }
+
+  it("an older count landing after a newer count is dropped", async () => {
+    const { result } = await mounted(3);
+
+    const older = deferred<number>();
+    h.getChatUnreadCount.mockReturnValueOnce(older.promise);
+    await emit(toOwner);
+
+    h.getChatUnreadCount.mockResolvedValueOnce(0);
+    await emit(toOwner);
+    expect(result.current).toBe(0);
+
+    await settle(() => older.resolve(3));
+
+    expect(result.current).toBe(0);
+  });
+
+  it("the mount count landing after a newer count is dropped", async () => {
+    const mountRead = deferred<number>();
+    h.getChatUnreadCount.mockReturnValueOnce(mountRead.promise);
+    const { result } = renderHook(() => useChatUnread());
+
+    h.getChatUnreadCount.mockResolvedValueOnce(2);
+    await emit(toOwner);
+    expect(result.current).toBe(2);
+
+    await settle(() => mountRead.resolve(9));
+
+    expect(result.current).toBe(2);
+  });
+
+  it("an older count landing before the newer one still shows, then the newer one replaces it", async () => {
+    const { result } = await mounted(3);
+
+    const older = deferred<number>();
+    const newer = deferred<number>();
+    h.getChatUnreadCount
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    await emit(toOwner);
+    await emit(toOwner);
+
+    await settle(() => older.resolve(4));
+    expect(result.current).toBe(4);
+
+    await settle(() => newer.resolve(0));
+    expect(result.current).toBe(0);
+  });
+
+  it("an older count landing after the newer read failed shows, and the debt stays owed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { result } = await mounted(3);
+
+    const older = deferred<number>();
+    h.getChatUnreadCount.mockReturnValueOnce(older.promise);
+    await emit(toOwner);
+
+    h.getChatUnreadCount.mockRejectedValueOnce(new Error("network"));
+    await emit(toOwner);
+
+    await settle(() => older.resolve(4));
+    expect(result.current).toBe(4);
+
+    const reads = h.getChatUnreadCount.mock.calls.length;
+    h.getChatUnreadCount.mockResolvedValueOnce(0);
+    await emit(agentToAgent);
+
+    expect(h.getChatUnreadCount).toHaveBeenCalledTimes(reads + 1);
+    expect(result.current).toBe(0);
+    warn.mockRestore();
+  });
+
+  it("failures arriving out of order keep the debt of the newest failed read", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { result } = await mounted(3);
+
+    const oldest = deferred<number>();
+    const middle = deferred<number>();
+    const newest = deferred<number>();
+    h.getChatUnreadCount
+      .mockReturnValueOnce(oldest.promise)
+      .mockReturnValueOnce(middle.promise)
+      .mockReturnValueOnce(newest.promise);
+    await emit(toOwner);
+    await emit(toOwner);
+    await emit(toOwner);
+
+    await settle(() => newest.reject(new Error("network")));
+    await settle(() => oldest.reject(new Error("network")));
+    await settle(() => middle.resolve(5));
+    expect(result.current).toBe(5);
+
+    const reads = h.getChatUnreadCount.mock.calls.length;
+    h.getChatUnreadCount.mockResolvedValueOnce(0);
+    await emit(agentToAgent);
+
+    expect(h.getChatUnreadCount).toHaveBeenCalledTimes(reads + 1);
+    expect(result.current).toBe(0);
+    warn.mockRestore();
+  });
+
+  it("an older read failing after a newer count landed owes nothing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { result } = await mounted(3);
+
+    const older = deferred<number>();
+    h.getChatUnreadCount.mockReturnValueOnce(older.promise);
+    await emit(toOwner);
+
+    h.getChatUnreadCount.mockResolvedValueOnce(0);
+    await emit(toOwner);
+
+    await settle(() => older.reject(new Error("network")));
+
+    const reads = h.getChatUnreadCount.mock.calls.length;
+    await emit(agentToAgent);
+
+    expect(h.getChatUnreadCount).toHaveBeenCalledTimes(reads);
+    expect(result.current).toBe(0);
+    warn.mockRestore();
   });
 });

@@ -67,13 +67,21 @@ export function useChatUnread(): number {
     // starts by fetching unconditionally, so it owes nothing yet.
     staleRef.current = false;
 
+    // Reads are ordered by when they were issued, not by when they answer. An
+    // older answer still shows if nothing newer has landed, but it cannot pay a
+    // debt left by a read issued after it: it may predate what that read missed.
+    let lastIssued = 0;
+    let lastLanded = 0;
+    let lastFailed = 0;
+
     const refetch = () => {
+      const read = ++lastIssued;
       api
         .getChatUnreadCount()
         .then((n) => {
-          if (!alive) return;
-          // Landed ⇒ whatever we owed is paid off.
-          staleRef.current = false;
+          if (!alive || read < lastLanded) return;
+          lastLanded = read;
+          if (read > lastFailed) staleRef.current = false;
           setCount(n);
         })
         .catch((e) => {
@@ -83,7 +91,8 @@ export function useChatUnread(): number {
           // the mark, and without this line it would write its debt onto its
           // SUCCESSOR — which under StrictMode's setup→cleanup→setup is the
           // ordinary case, not an exotic one.
-          if (!alive) return;
+          if (!alive || read < lastLanded) return;
+          lastFailed = Math.max(lastFailed, read);
           // Do NOT retry here. Just record the debt; the sink below pays it on
           // the next relevant burst.
           staleRef.current = true;
