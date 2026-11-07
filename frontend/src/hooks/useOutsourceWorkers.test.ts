@@ -16,23 +16,26 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
-import type { OutsourceWorkerView } from "../api/adapter";
+import type { OutsourceWorkerView, SseDelta } from "../api/adapter";
+import { deferred } from "../test/deferred";
 
 const h = vi.hoisted(() => ({
   listOutsourceWorkers: vi.fn<() => Promise<unknown[]>>(),
+  getOutsourceWorker: vi.fn<(id: string) => Promise<unknown>>(),
   listTasks: vi.fn<() => Promise<unknown[]>>(),
   listTaskTypes: vi.fn<() => Promise<unknown[]>>(),
   getServerSettings: vi.fn(async () => ({ outsourceMaxParallel: 3 })),
-  sseHandler: null as ((topic: string) => void) | null,
+  sseHandler: null as ((topic: string, delta?: SseDelta) => void) | null,
 }));
 
 vi.mock("../api", () => ({
   api: {
     listOutsourceWorkers: h.listOutsourceWorkers,
+    getOutsourceWorker: h.getOutsourceWorker,
     listTasks: h.listTasks,
     listTaskTypes: h.listTaskTypes,
     getServerSettings: h.getServerSettings,
-    subscribeEvents: (cb: (topic: string) => void) => {
+    subscribeEvents: (cb: (topic: string, delta?: SseDelta) => void) => {
       h.sseHandler = cb;
       return () => {
         h.sseHandler = null;
@@ -56,6 +59,7 @@ function worker(over: Partial<OutsourceWorkerView>): OutsourceWorkerView {
 
 beforeEach(() => {
   h.listOutsourceWorkers.mockReset().mockResolvedValue([]);
+  h.getOutsourceWorker.mockReset();
   h.listTasks.mockReset().mockResolvedValue([]);
   h.listTaskTypes.mockReset().mockResolvedValue([]);
   h.sseHandler = null;
@@ -136,5 +140,152 @@ describe("useOutsourceWorkers (T-a3e4)", () => {
     expect(w.taskNo).toBe("T-1111");
     expect(w.taskTypeKey).toBe("tm-review");
     expect(w.taskTypeName).toBe("程式碼審查");
+  });
+});
+
+describe("useOutsourceWorkers read order", () => {
+  const row = (id: string, unreadCount: number, taskCreatedTs = 1) =>
+    worker({ id, unreadCount, taskCreatedTs });
+  const rows = (workers: OutsourceWorkerView[]) =>
+    workers.map((w) => ({ id: w.id, unreadCount: w.unreadCount }));
+
+  const ownerReadW1: SseDelta = {
+    topic: "chat_read",
+    names: { reader: "owner", peer: "ow-1" },
+    ids: ["owner", "ow-1"],
+  };
+  const w1WroteToOwner: SseDelta = {
+    topic: "chat",
+    names: { id: "c-1", from: "ow-1", to: "owner" },
+    ids: ["c-1", "ow-1", "owner"],
+  };
+  const workersChanged: SseDelta = { topic: "member", names: {}, ids: [] };
+
+  async function settle(work: () => void): Promise<void> {
+    await act(async () => {
+      work();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+  const emitDelta = (delta: SseDelta) =>
+    settle(() => h.sseHandler?.(delta.topic, delta));
+
+  async function mounted(initial: OutsourceWorkerView[]) {
+    h.listOutsourceWorkers.mockResolvedValueOnce(initial);
+    const view = renderHook(() => useOutsourceWorkers());
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    return view;
+  }
+
+  it("an older list landing after a newer single read keeps that row's number, updates the others and keeps the order", async () => {
+    const { result } = await mounted([row("ow-1", 3, 2), row("ow-2", 0, 1)]);
+
+    const olderList = deferred<OutsourceWorkerView[]>();
+    h.listOutsourceWorkers.mockReturnValueOnce(olderList.promise);
+    await emitDelta(workersChanged);
+
+    h.getOutsourceWorker.mockResolvedValueOnce(row("ow-1", 0, 2));
+    await emitDelta(ownerReadW1);
+
+    await settle(() =>
+      olderList.resolve([row("ow-2", 5, 1), row("ow-1", 3, 2)])
+    );
+
+    expect(rows(result.current.workers)).toEqual([
+      { id: "ow-1", unreadCount: 0 },
+      { id: "ow-2", unreadCount: 5 },
+    ]);
+  });
+
+  it("an older single read landing after a newer single read is dropped", async () => {
+    const { result } = await mounted([row("ow-1", 3)]);
+
+    const older = deferred<OutsourceWorkerView>();
+    h.getOutsourceWorker.mockReturnValueOnce(older.promise);
+    await emitDelta(w1WroteToOwner);
+
+    h.getOutsourceWorker.mockResolvedValueOnce(row("ow-1", 0));
+    await emitDelta(ownerReadW1);
+
+    await settle(() => older.resolve(row("ow-1", 4)));
+
+    expect(rows(result.current.workers)).toEqual([
+      { id: "ow-1", unreadCount: 0 },
+    ]);
+  });
+
+  it("an older list landing after a newer list is dropped whole", async () => {
+    const { result } = await mounted([row("ow-1", 3)]);
+
+    const older = deferred<OutsourceWorkerView[]>();
+    h.listOutsourceWorkers.mockReturnValueOnce(older.promise);
+    await emitDelta(workersChanged);
+
+    h.listOutsourceWorkers.mockResolvedValueOnce([row("ow-1", 0)]);
+    await emitDelta(workersChanged);
+
+    await settle(() => older.resolve([row("ow-1", 3), row("ow-gone", 9)]));
+
+    expect(rows(result.current.workers)).toEqual([
+      { id: "ow-1", unreadCount: 0 },
+    ]);
+  });
+
+  it("the mount read landing after a newer event read is dropped", async () => {
+    const mountRead = deferred<OutsourceWorkerView[]>();
+    h.listOutsourceWorkers.mockReturnValueOnce(mountRead.promise);
+    const { result } = renderHook(() => useOutsourceWorkers());
+
+    h.listOutsourceWorkers.mockResolvedValueOnce([row("ow-1", 0)]);
+    await emitDelta(workersChanged);
+
+    await settle(() => mountRead.resolve([row("ow-1", 3)]));
+
+    expect(rows(result.current.workers)).toEqual([
+      { id: "ow-1", unreadCount: 0 },
+    ]);
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("a mount read failing after a newer event read landed raises no error; with nothing landed it does", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const mountRead = deferred<OutsourceWorkerView[]>();
+    h.listOutsourceWorkers.mockReturnValueOnce(mountRead.promise);
+    const landed = renderHook(() => useOutsourceWorkers());
+
+    h.listOutsourceWorkers.mockResolvedValueOnce([row("ow-1", 0)]);
+    await emitDelta(workersChanged);
+    await settle(() => mountRead.reject(new Error("network")));
+
+    expect(landed.result.current.error).toBe(false);
+    expect(rows(landed.result.current.workers)).toEqual([
+      { id: "ow-1", unreadCount: 0 },
+    ]);
+    landed.unmount();
+
+    h.listOutsourceWorkers.mockRejectedValueOnce(new Error("network"));
+    const failed = renderHook(() => useOutsourceWorkers());
+    await waitFor(() => expect(failed.result.current.loading).toBe(false));
+
+    expect(failed.result.current.error).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("in order, a new message raises the number and marking it read clears it", async () => {
+    const { result } = await mounted([row("ow-1", 3)]);
+
+    h.getOutsourceWorker.mockResolvedValueOnce(row("ow-1", 4));
+    await emitDelta(w1WroteToOwner);
+    expect(rows(result.current.workers)).toEqual([
+      { id: "ow-1", unreadCount: 4 },
+    ]);
+
+    h.getOutsourceWorker.mockResolvedValueOnce(row("ow-1", 0));
+    await emitDelta(ownerReadW1);
+    expect(rows(result.current.workers)).toEqual([
+      { id: "ow-1", unreadCount: 0 },
+    ]);
   });
 });
