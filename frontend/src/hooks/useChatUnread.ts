@@ -92,7 +92,7 @@ export function useChatUnread(): number {
           // SUCCESSOR — which under StrictMode's setup→cleanup→setup is the
           // ordinary case, not an exotic one.
           if (!alive || read < lastLanded) return;
-          lastFailed = read;
+          lastFailed = Math.max(lastFailed, read);
           // Do NOT retry here. Just record the debt; the sink below pays it on
           // the next relevant burst.
           staleRef.current = true;

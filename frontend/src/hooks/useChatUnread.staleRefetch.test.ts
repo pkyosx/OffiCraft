@@ -324,6 +324,35 @@ describe("useChatUnread read order", () => {
     warn.mockRestore();
   });
 
+  it("failures arriving out of order keep the debt of the newest failed read", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { result } = await mounted(3);
+
+    const oldest = deferred<number>();
+    const middle = deferred<number>();
+    const newest = deferred<number>();
+    h.getChatUnreadCount
+      .mockReturnValueOnce(oldest.promise)
+      .mockReturnValueOnce(middle.promise)
+      .mockReturnValueOnce(newest.promise);
+    await emit(toOwner);
+    await emit(toOwner);
+    await emit(toOwner);
+
+    await settle(() => newest.reject(new Error("network")));
+    await settle(() => oldest.reject(new Error("network")));
+    await settle(() => middle.resolve(5));
+    expect(result.current).toBe(5);
+
+    const reads = h.getChatUnreadCount.mock.calls.length;
+    h.getChatUnreadCount.mockResolvedValueOnce(0);
+    await emit(agentToAgent);
+
+    expect(h.getChatUnreadCount).toHaveBeenCalledTimes(reads + 1);
+    expect(result.current).toBe(0);
+    warn.mockRestore();
+  });
+
   it("an older read failing after a newer count landed owes nothing", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { result } = await mounted(3);

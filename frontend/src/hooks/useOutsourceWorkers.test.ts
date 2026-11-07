@@ -231,6 +231,22 @@ describe("useOutsourceWorkers read order", () => {
     expect(rows(result.current.workers)).toEqual([
       { id: "ow-1", unreadCount: 0 },
     ]);
+
+    // The dropped list must not have moved which ids count as held either: a
+    // delta naming ow-gone stays a no-op, one naming ow-1 is a single read.
+    await emitDelta({
+      topic: "chat",
+      names: { id: "c-3", from: "ow-gone", to: "owner" },
+      ids: ["c-3", "ow-gone", "owner"],
+    });
+    expect(h.getOutsourceWorker).not.toHaveBeenCalled();
+
+    h.getOutsourceWorker.mockResolvedValueOnce(row("ow-1", 2));
+    await emitDelta(w1WroteToOwner);
+    expect(h.getOutsourceWorker).toHaveBeenCalledWith("ow-1");
+    expect(rows(result.current.workers)).toEqual([
+      { id: "ow-1", unreadCount: 2 },
+    ]);
   });
 
   it("the mount read landing after a newer event read is dropped", async () => {
