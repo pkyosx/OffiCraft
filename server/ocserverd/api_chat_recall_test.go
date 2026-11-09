@@ -351,6 +351,36 @@ func TestHandleRecallChatMessageApiChatMessageIdRecallPost(t *testing.T) {
 			[]any{apiTestRecallNoticeRow(noticeID, id, "mira")})
 	})
 
+	t.Run("a notice that cannot be written leaves the message unrecalled, and a retry recalls it with one notice", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		id := apiTestPostChat(t, h, owner, `{"to":"mira","body":"the secret plan"}`)
+		before := apiTestAllChat(t, d)
+		if _, err := d.wdb.Exec(`CREATE TRIGGER test_refuse_system_chat BEFORE INSERT ON chat_message
+			WHEN NEW.sender = 'system' BEGIN SELECT RAISE(ABORT, 'notice refused'); END`); err != nil {
+			t.Fatalf("create trigger: %v", err)
+		}
+		dashboard := apiTestListen(t, api, "")
+		recipient := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/chat/"+id+"/recall", owner, "")
+		if status < 500 {
+			t.Fatalf("want a 5xx, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "by id after the failed recall", apiTestChatMessages(t, h, owner, "/api/chat?ids="+id),
+			[]any{apiTestChatRow(id, "owner", "mira", "the secret plan")})
+		dalWantChats(t, "the stream after the failed recall", apiTestAllChat(t, d), before)
+		dashboard.wantFrames()
+		recipient.wantFrames()
+
+		if _, err := d.wdb.Exec(`DROP TRIGGER test_refuse_system_chat`); err != nil {
+			t.Fatalf("drop trigger: %v", err)
+		}
+		apiTestRecall(t, h, owner, id)
+		noticeID := apiTestNoticeAfter(t, d, len(before))
+		apiWantValue(t, "notice", apiTestChatMessages(t, h, owner, "/api/chat?ids="+noticeID),
+			[]any{apiTestRecallNoticeRow(noticeID, id, "mira")})
+	})
+
 	t.Run("a message whose meta is JSON null is recalled like any other", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		if _, err := d.wdb.Exec(`INSERT INTO chat_message (id, sender, recipient, body, ts, meta)
