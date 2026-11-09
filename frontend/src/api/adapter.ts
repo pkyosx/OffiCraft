@@ -146,9 +146,9 @@ export interface ChatMessage {
    * to the eye whether they are right or wrong. */
   replyToChat?: ChatReplyQuote | null;
   /** Epoch seconds the owner deleted this message (wire `deleted_ts`); `0` =
-   * not deleted. Only the owner's own reads still list a deleted message,
-   * body intact. OPTIONAL so hand-built fixtures stay valid; the mapper always
-   * sets it. */
+   * not deleted. Listings carry a deleted message only when asked
+   * (`include_deleted`), body intact. OPTIONAL so hand-built fixtures stay
+   * valid; the mapper always sets it. */
   deletedTs?: number;
   /** The task this message belongs to (`meta.task_id`), or null. Task messages
    * cannot be deleted. OPTIONAL like `deletedTs`. */

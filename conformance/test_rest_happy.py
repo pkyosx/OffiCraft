@@ -5278,6 +5278,49 @@ def test_chat_sender_and_recipient_narrow_one_side_each(hctx: HCtx) -> None:
     ), "every row must match both filters"
 
 
+def test_chat_listing_leaves_deleted_out_unless_include_deleted(hctx: HCtx) -> None:
+    """A deleted message is left out of every listing for every caller;
+    ``include_deleted=true`` lists it again, flagged by ``deleted_ts``. It never
+    combines with ``unread=true``: a deleted message is never unread."""
+    tag = uuid.uuid4().hex[:8]
+    peer = hctx.agent.member_id
+
+    def post(body: str) -> dict:
+        r = hctx.client.post(
+            "/api/chat", json={"to": peer, "body": body}, headers=_auth(hctx.owner_token)
+        )
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    kept = post(f"deleted-control-{tag}")
+    gone = post(f"deleted-target-{tag}")
+    r = hctx.client.delete(f"/api/chat/{gone['id']}", headers=_auth(hctx.owner_token))
+    assert r.status_code == 200, r.text
+
+    for token in (hctx.owner_token, hctx.agent.token):
+        params = {"sender": "owner", "recipient": peer, "limit": -1}
+        r = hctx.client.get("/api/chat", params=params, headers=_auth(token))
+        assert r.status_code == 200, r.text
+        ids = {m["id"] for m in chat_messages(r)}
+        assert kept["id"] in ids
+        assert gone["id"] not in ids, "the default listing leaves a deleted message out"
+
+        r = hctx.client.get(
+            "/api/chat", params={**params, "include_deleted": "true"}, headers=_auth(token)
+        )
+        assert r.status_code == 200, r.text
+        rows = {m["id"]: m for m in chat_messages(r)}
+        assert rows[kept["id"]]["deleted_ts"] == 0
+        assert rows[gone["id"]]["deleted_ts"] > 0, "include_deleted lists it, flagged"
+
+    r = hctx.client.get(
+        "/api/chat",
+        params={"unread": "true", "include_deleted": "true"},
+        headers=_auth(hctx.agent.token),
+    )
+    assert r.status_code == 422, f"{r.status_code} {r.text}"
+
+
 def test_chat_scrollback_cursor_page_never_marks_read(hctx: HCtx) -> None:
     """T-bf82 scrollback: ``GET /api/chat?with=&before_ts=&before_id=`` serves
     the strictly-older history page (oldest→newest) and NEVER advances the

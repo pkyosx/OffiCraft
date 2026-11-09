@@ -302,6 +302,16 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     expect(q.get("caller_only")).toBeNull();
   });
 
+  it("a scrollback page (listChat with `before`) still asks for deleted rows", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
+    await httpApi.listChat("m-1", 30, { beforeTs: 12.5, beforeId: "c-7" });
+    const { url } = await lastRequest();
+    const q = new URLSearchParams(url.split("?")[1] ?? "");
+    expect(q.get("before_ts")).toBe("12.5");
+    expect(q.get("before_id")).toBe("c-7");
+    expect(q.get("include_deleted")).toBe("true");
+  });
+
   it("listChatWindow asks for deleted rows too, like every owner thread load", async () => {
     fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
     await httpApi.listChatWindow("m-1", { startId: "c-1" }, 30);

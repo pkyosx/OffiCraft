@@ -271,6 +271,39 @@ func TestHandleDeleteChatMessageApiChatMessageIdDelete(t *testing.T) {
 		apiWantValue(t, "owner's view of the wake snapshot", apiTestRowIDs(snap["chat"]), []any{first, notice})
 	})
 
+	t.Run("include_deleted reaches the before_ts/before_id path and a cursor continuation", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		first := apiTestPostChat(t, h, owner, `{"to":"mira","body":"before"}`)
+		deleted := apiTestPostChat(t, h, owner, `{"to":"mira","body":"the secret plan"}`)
+		last := apiTestPostChat(t, h, owner, `{"to":"mira","body":"after"}`)
+		apiTestDelete(t, h, owner, deleted)
+		lastRow := apiTestChatMessages(t, h, owner, "/api/chat?ids="+last).([]any)[0].(map[string]any)
+		before := "/api/chat?with=mira&sender=owner&before_id=" + last + "&before_ts=" +
+			strconv.FormatFloat(lastRow["ts"].(float64), 'f', -1, 64)
+
+		apiWantValue(t, "before, default", apiTestChatMessages(t, h, owner, before),
+			[]any{apiTestChatRow(first, "owner", "mira", "before")})
+		apiWantValue(t, "before, include_deleted", apiTestChatMessages(t, h, owner, before+"&include_deleted=true"),
+			[]any{apiTestChatRow(first, "owner", "mira", "before"), apiTestDeletedRow(deleted, "owner", "mira", "the secret plan")})
+
+		for _, c := range []struct {
+			label, extra string
+			want         []any
+		}{
+			{"cursor, default", "", []any{apiTestChatRow(first, "owner", "mira", "before")}},
+			{"cursor, include_deleted", "&include_deleted=true", []any{apiTestDeletedRow(deleted, "owner", "mira", "the secret plan")}},
+		} {
+			page := apiTestChatPage(t, h, owner, "/api/chat?with=mira&sender=owner&limit=1"+c.extra)
+			apiWantValue(t, c.label+" first page", apiTestRowIDs(page["messages"]), []any{last})
+			cursor, _ := page["next_cursor"].(string)
+			if cursor == "" {
+				t.Fatalf("%s: a one-row page with older rows must carry a cursor: %v", c.label, page)
+			}
+			apiWantValue(t, c.label+" continuation", apiTestChatMessages(t, h, owner,
+				"/api/chat?with=mira&sender=owner&limit=1&cursor="+url.QueryEscape(cursor)+c.extra), c.want)
+		}
+	})
+
 	t.Run("the member's wake snapshot leaves the deleted message out", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		member := apiTestAgentToken(t, api, "mira", "")
