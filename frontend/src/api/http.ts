@@ -463,6 +463,11 @@ export const SSE_RESYNC_TOPICS = [
 // every listing unless asked.
 const CHAT_THREAD_INCLUDE_DELETED = "true";
 
+// Owner rc-432acb8e2706: the owner's chat threads leave out the system notice a
+// delete sends to the member; the chat listing carries it unless asked, because
+// members still need it. (The resume summary leaves it out by default.)
+const HIDE_DELETE_NOTICES = "true";
+
 // The payload fields that name an ENTITY rather than describe one (spec/sse.md
 // §2.2 lists the per-topic payload shapes). Everything else in the payload —
 // `status`, `priority`, `last_read_ts`, `codename`, `name`, `desired_state` — is
@@ -1447,6 +1452,7 @@ export const httpApi: Api = {
             before_ts: before?.beforeTs,
             before_id: before?.beforeId,
             include_deleted: CHAT_THREAD_INCLUDE_DELETED,
+            hide_delete_notices: HIDE_DELETE_NOTICES,
           },
         },
       }),
@@ -1480,6 +1486,7 @@ export const httpApi: Api = {
             start_id: anchor.startId,
             end_id: anchor.endId,
             include_deleted: CHAT_THREAD_INCLUDE_DELETED,
+            hide_delete_notices: HIDE_DELETE_NOTICES,
           },
         },
       }),

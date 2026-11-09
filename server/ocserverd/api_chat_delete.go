@@ -5,6 +5,11 @@ import "net/http"
 const (
 	chatDeletedTSKey = "deleted_ts"
 
+	// Marks the system notice a delete sends, so hide_delete_notices can find it
+	// without matching the wording; migration 00125 backfills the same shape.
+	chatDeleteNoticeMetaKey = "delete_notice"
+	chatDeleteNoticeIDKey   = "message_id"
+
 	chatDeleteWindowSecs = 24 * 60 * 60
 )
 
@@ -109,7 +114,10 @@ func chatDeleteNotice(deleted ChatMessage, now float64) ChatMessage {
 		Recipient: deleted.Recipient,
 		Body:      chatDeleteNoticeBody(deleted.ID),
 		TS:        now,
-		Meta:      map[string]any{chatReplyToMetaKey: deleted.ID},
+		Meta: map[string]any{
+			chatReplyToMetaKey:      deleted.ID,
+			chatDeleteNoticeMetaKey: map[string]any{chatDeleteNoticeIDKey: deleted.ID},
+		},
 	}
 }
 

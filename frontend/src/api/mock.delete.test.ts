@@ -1,10 +1,11 @@
-// Mock twin of POST /api/chat/{id}/delete: the same refusals the server makes,
+// Mock twin of DELETE /api/chat/{id}: the same refusals the server makes,
 // the owner's listing keeps the deleted message (body intact) flagged by
 // `deletedTs`, a quote of it carries no text, and the recipient gets one
-// system notice replying to it.
+// system notice replying to it, which the owner's reads leave out
+// (hide_delete_notices=true at the http seam).
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { mockApi, __resetMock, __injectMockChat } from "./mock";
+import { mockApi, __resetMock, __injectMockChat, __mockDeleteNotices } from "./mock";
 import type { ChatMessage } from "./adapter";
 import { ApiError } from "./errors";
 
@@ -53,8 +54,8 @@ describe("mock deleteChatMessage", () => {
     const kept = thread.find((m) => m.id === sent.id)!;
     expect(kept.body).toBe("打錯了");
     expect(kept.deletedTs).toBe(answered.deletedTs);
-    const notices = thread.filter((m) => m.from === "system");
-    expect(notices.map((m) => [m.to, m.replyTo, m.body])).toEqual([
+    expect(thread.map((m) => m.id)).toEqual([sent.id]);
+    expect(__mockDeleteNotices().map((m) => [m.to, m.replyTo, m.body])).toEqual([
       [
         "mira",
         sent.id,
@@ -65,7 +66,7 @@ describe("mock deleteChatMessage", () => {
     // Again: unchanged, and no second notice.
     const again = await mockApi.deleteChatMessage(sent.id);
     expect(again.deletedTs).toBe(answered.deletedTs);
-    expect((await mockApi.listChat("mira")).filter((m) => m.from === "system")).toHaveLength(1);
+    expect(__mockDeleteNotices()).toHaveLength(1);
   });
 
   it("an ordinary message reads deletedTs 0", async () => {

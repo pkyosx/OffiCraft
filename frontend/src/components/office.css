@@ -1271,6 +1271,13 @@
   color: inherit;
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
+/* On the owner's OWN bubbles the corner slot rests visible (owner 2026-11-09):
+ * the width is reserved there anyway, and an empty reserved corner read as a
+ * stray gap. Incoming bubbles keep the hover reveal. */
+.chat__msg--me .chat__msg-actions > .chat__msg-reply,
+.chat__msg--me .chat__msg-actions > .chat__msg-delete {
+  opacity: 1;
+}
 /* Same correction as .chat__msg-expand above: opacity multiplies the ink's own
  * alpha, and 0.55 × 55% left the only reply entry a touch user has at 2.02:1. */
 @media (hover: none) {

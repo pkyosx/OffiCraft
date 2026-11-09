@@ -3277,7 +3277,7 @@ type ResumeRosterMemberDTO struct {
 }
 
 // ResumeSummaryDTO A BOUNDED, deterministic wake snapshot for the CALLER (the “resume_summary“
-// MCP tool, zero params).
+// MCP tool; its only parameter is “include_delete_notices“).
 //
 // Identity-locked to the caller's VERIFIED JWT “sub“: a waking / handed-over
 // agent pulls ONE bounded block instead of paging every plane by hand. Fields:
@@ -3349,7 +3349,7 @@ type ResumeSummaryDTO struct {
 }
 
 // ResumeSummarySizeDTO The size-only PEEK of the wake snapshot (“peek_resume_summary_size“ MCP
-// tool, zero params; “GET /api/resume-summary-size“) — the FIRST step of the
+// tool, whose only parameter is “include_delete_notices“; “GET /api/resume-summary-size“) — the FIRST step of the
 // two-step boot.
 //
 // Identity-locked to the caller's VERIFIED JWT “sub“, it returns the SAME
@@ -5364,7 +5364,7 @@ type HandleListChatApiChatGetParams struct {
 	// EndId Window anchor, INCLUSIVE, walking TOWARDS THE OLDEST: return this message and the ``limit``-1 that precede it, still answered oldest→newest. Same guardrails as ``start_id`` (404 on an unknown id, 422 when combined with ``before_ts``/``before_id``, 422 when the pair contradicts, ``limit`` bounded to 1..200 on this path). Given TOGETHER with ``start_id`` the two bound one window and ``limit`` still caps it, so a window wider than 200 rows is truncated from the ``start_id`` end rather than silently returning everything.
 	EndId *string `form:"end_id,omitempty" json:"end_id,omitempty"`
 
-	// Cursor Opaque continuation token — copy the previous response's ``next_cursor`` back VERBATIM. It encodes a ``(ts, id)`` POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for ``unread=true`` — and sending one to the other path is 422 rather than a silently wrong page. Sending it with ``before_ts``/``before_id`` is 422 (one keyset walk per request), and so is sending it with ``start_id``/``end_id``, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter. Resend the same filters (``with``, ``sender``, ``recipient``, ``include_deleted``) with it: it carries only the position.
+	// Cursor Opaque continuation token — copy the previous response's ``next_cursor`` back VERBATIM. It encodes a ``(ts, id)`` POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for ``unread=true`` — and sending one to the other path is 422 rather than a silently wrong page. Sending it with ``before_ts``/``before_id`` is 422 (one keyset walk per request), and so is sending it with ``start_id``/``end_id``, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter. Resend the same filters (``with``, ``sender``, ``recipient``, ``include_deleted``, ``hide_delete_notices``) with it: it carries only the position.
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Unread ``true`` (the STRING) selects the unread backfill: only messages addressed to the verified caller, newer than the caller's read watermark FOR THAT SENDER. ``chat_read`` is per ``(reader, peer)``, and this path compares each message against ITS OWN sender's row — never against one global watermark, which would silently drop everything older from a peer you have never opened. Answered OLDEST FIRST and ``limit`` takes the OLDEST batch, because a backfill is re-read in the order it was said; ``next_cursor`` therefore continues TOWARDS THE NEWER. What you sent to SOMEBODY ELSE is not here — ``recipient`` decides that, and it is the caller. What you addressed to YOURSELF is: it is a message sitting in your own inbox, and whether a reader wants to be shown its own note is a question about printing, answered by the reader (``ocagent`` declines to print it and files the receipt anyway). This door only answers one question: newer than my watermark for whoever sent it. Reading this CLEARS NOTHING — no path on this route writes a watermark; ``POST /api/chat/mark-read`` does. Refused with 422 alongside ``before_ts``/``before_id`` or ``start_id``/``end_id``. Any other value reads as not sent. ``limit`` keeps this route's legacy semantics on this path — 0 is an empty page, a NEGATIVE limit is uncapped and mints no cursor — not the window path's 1..200 bound.
@@ -5391,6 +5391,9 @@ type HandleListChatApiChatGetParams struct {
 
 	// IncludeDeleted ``true`` (the STRING) also lists deleted messages, flagged by ``deleted_ts``; by default every listing leaves them out. 422 alongside ``unread=true``. Not consulted on the ``ids`` path, which always returns them. Any other value reads as not sent.
 	IncludeDeleted *string `form:"include_deleted,omitempty" json:"include_deleted,omitempty"`
+
+	// HideDeleteNotices ``true`` (the STRING) leaves out the notices the server sends when the owner deletes a message: messages from ``system`` carrying ``meta.delete_notice``. By default they are listed like any other message. 422 alongside ``unread=true``. Not consulted on the ``ids`` path, which always returns them. Any other value reads as not sent.
+	HideDeleteNotices *string `form:"hide_delete_notices,omitempty" json:"hide_delete_notices,omitempty"`
 }
 
 // HandleListChatAttachmentsApiChatAttachmentsGetParams defines parameters for HandleListChatAttachmentsApiChatAttachmentsGet.
@@ -5469,11 +5472,29 @@ type HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams struct {
 	Mime     *string `form:"mime,omitempty" json:"mime,omitempty"`
 }
 
+// HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGetParams defines parameters for HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet.
+type HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGetParams struct {
+	// IncludeDeleteNotices ``true`` (the STRING) also carries the owner's delete notices (``system`` messages carrying ``meta.delete_notice``) in the chat block; by default they are left out before the block is packed, so the budget, ``chat_earlier_omitted`` and the overview are computed without them. Any other value reads as not sent. The snapshot already leaves deleted messages out, so by default it has no reason to print the notices about them either.
+	IncludeDeleteNotices *string `form:"include_delete_notices,omitempty" json:"include_delete_notices,omitempty"`
+}
+
 // HandleListReplyCardsApiReplyCardsGetParams defines parameters for HandleListReplyCardsApiReplyCardsGet.
 type HandleListReplyCardsApiReplyCardsGetParams struct {
 	Status   *string `form:"status,omitempty" json:"status,omitempty"`
 	OpenedBy *string `form:"opened_by,omitempty" json:"opened_by,omitempty"`
 	Limit    *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// HandleResumeSummaryApiResumeSummaryGetParams defines parameters for HandleResumeSummaryApiResumeSummaryGet.
+type HandleResumeSummaryApiResumeSummaryGetParams struct {
+	// IncludeDeleteNotices ``true`` (the STRING) also carries the owner's delete notices (``system`` messages carrying ``meta.delete_notice``) in the chat block; by default they are left out before the block is packed, so the budget, ``chat_earlier_omitted`` and the overview are computed without them. Any other value reads as not sent. The snapshot already leaves deleted messages out, so by default it has no reason to print the notices about them either.
+	IncludeDeleteNotices *string `form:"include_delete_notices,omitempty" json:"include_delete_notices,omitempty"`
+}
+
+// HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams defines parameters for HandlePeekResumeSummarySizeApiResumeSummarySizeGet.
+type HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams struct {
+	// IncludeDeleteNotices ``true`` (the STRING) sizes the snapshot with the owner's delete notices (``system`` messages carrying ``meta.delete_notice``) counted, exactly as ``resume_summary`` with the same value would pack it. By default they are left out. Any other value reads as not sent. The snapshot already leaves deleted messages out, so by default it has no reason to print the notices about them either.
+	IncludeDeleteNotices *string `form:"include_delete_notices,omitempty" json:"include_delete_notices,omitempty"`
 }
 
 // HandleListTasksApiTasksGetParams defines parameters for HandleListTasksApiTasksGet.
@@ -6066,7 +6087,7 @@ type ServerInterface interface {
 	//
 	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
 	// - `before_ts`: DEPRECATED (T-48) — prefer start_id/end_id. Paging cursor, the ts of the OLDEST message you already hold. Must be sent TOGETHER with before_id - supplying only one is refused with 422, which is the one mistake here that announces itself. The pair is otherwise not validated against anything real: a cursor pointing nowhere in the stream (a fabricated value, or the right instant expressed in the wrong unit - these timestamps are epoch SECONDS, not milliseconds) is not an error, it just answers 200 with an EMPTY page. An empty page is the same answer you get at the true start of history, so it cannot tell you 'you have reached the beginning' apart from 'your cursor was garbage'. Copy both values from a message you actually received rather than constructing them.
-	// - `cursor`: Opaque continuation token — copy the previous response's “next_cursor“ back VERBATIM. It encodes a “(ts, id)“ POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for “unread=true“ — and sending one to the other path is 422 rather than a silently wrong page. Sending it with “before_ts“/“before_id“ is 422 (one keyset walk per request), and so is sending it with “start_id“/“end_id“, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter. Resend the same filters (“with“, “sender“, “recipient“, “include_deleted“) with it: it carries only the position.
+	// - `cursor`: Opaque continuation token — copy the previous response's “next_cursor“ back VERBATIM. It encodes a “(ts, id)“ POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for “unread=true“ — and sending one to the other path is 422 rather than a silently wrong page. Sending it with “before_ts“/“before_id“ is 422 (one keyset walk per request), and so is sending it with “start_id“/“end_id“, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter. Resend the same filters (“with“, “sender“, “recipient“, “include_deleted“, “hide_delete_notices“) with it: it carries only the position.
 	// - `ids`: RE-READ SPECIFIC MESSAGES BY ID — repeatable (“?ids=<id>&ids=<id>“), returning those messages IN FULL (whole body, attachment refs and all), oldest→newest.
 	//
 	// This is what makes the wake snapshot's fold marker honest (T-a828). “ChatMessageDTO.body_omitted_chars“ > 0 says THIS message is here with part of its text folded away and tells the reader to re-read it with get_chat — but until this parameter existed get_chat took only a peer plus a paging cursor, so there was NO WAY TO NAME THE FOLDED MESSAGE. The promise beside the fold was not keepable, which made folding a silent drop.
@@ -6342,9 +6363,9 @@ type ServerInterface interface {
 	// Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or "" is a 400. Answers with a bounded receipt (“id“, “relocation_pending“, “relocation_deferred“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members/{member_id}/relocate)
 	HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.ResponseWriter, r *http.Request, memberId string)
-	// The SAME bounded wake snapshot as resume_summary, for a TARGET member (member_id) instead of the caller — control-others, admin_agent+ only (owner-scope or role=assistant); an ordinary agent gets 403. Same identity/chat/light-task-rows/roster/machines/overview/note shape, assembled by the identical resumeSnapshotParts function (so the roster and machine blocks cannot drift from what that member would get on waking; note that machines.you_are_on resolves for the TARGET member, not for you); resume_summary itself is unchanged and still identity-locked to the caller.
+	// The SAME bounded wake snapshot as resume_summary, for a TARGET member (member_id) instead of the caller — control-others, admin_agent+ only (owner-scope or role=assistant); an ordinary agent gets 403. Same identity/chat/light-task-rows/roster/machines/overview/note shape, assembled by the identical resumeSnapshotParts function (so the roster and machine blocks cannot drift from what that member would get on waking; note that machines.you_are_on resolves for the TARGET member, not for you); resume_summary itself is unchanged and still identity-locked to the caller. The owner's delete notices are left out of the chat block unless include_delete_notices=true.
 	// (GET /api/members/{member_id}/resume-summary)
-	HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(w http.ResponseWriter, r *http.Request, memberId string)
+	HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(w http.ResponseWriter, r *http.Request, memberId string, params HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGetParams)
 	// List one member's scheduled messages — 定期訊息, the wall-clock alarm that wakes that member with a chat message on a repeating cadence. admin_agent floor: the owner, or an admin assistant setting these up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. Rows come oldest→newest and each carries the whole schedule — label, body, cadence, the slot fields `hour`/`minute`/`day_of_week`/`day_of_month`, the four `custom` sets, timezone, and the enabled/disabled toggle — plus the delivery cursor `last_fired_slot`/`last_fired_ts`. Read this before update_scheduled_message: that call is a partial edit against these stored values, and it re-aims the cursor only for a slot field whose value actually CHANGES. 404 if the member is absent or soft-removed.
 	// (GET /api/members/{member_id}/scheduled-messages)
 	HandleListScheduledMessagesApiMembersMemberIdScheduledMessagesGet(w http.ResponseWriter, r *http.Request, memberId string)
@@ -6472,12 +6493,12 @@ type ServerInterface interface {
 	// Snooze or unsnooze a waiting reply card (owner only).
 	// (PUT /api/reply-cards/{card_id}/snooze)
 	HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(w http.ResponseWriter, r *http.Request, cardId string)
-	// Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).
+	// Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname). The owner's delete notices are left out of the chat block unless include_delete_notices=true.
 	// (GET /api/resume-summary)
-	HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request)
-	// Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).
+	HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request, params HandleResumeSummaryApiResumeSummaryGetParams)
+	// Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large). Pass the same include_delete_notices as the resume_summary call it sizes.
 	// (GET /api/resume-summary-size)
-	HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.ResponseWriter, r *http.Request)
+	HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.ResponseWriter, r *http.Request, params HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams)
 	// List role definitions (seed defaults + owner edits) WITHOUT the persona bodies: each row is the role identity plus its definition size and cap, never definition_md itself. Read the one role you want with get_role.
 	// (GET /api/roles)
 	HandleListRolesApiRolesGet(w http.ResponseWriter, r *http.Request)
@@ -7470,6 +7491,19 @@ func (siw *ServerInterfaceWrapper) HandleListChatApiChatGet(w http.ResponseWrite
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_deleted"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_deleted", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "hide_delete_notices" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "hide_delete_notices", r.URL.Query(), &params.HideDeleteNotices, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "hide_delete_notices"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "hide_delete_notices", Err: err})
 		}
 		return
 	}
@@ -9536,8 +9570,24 @@ func (siw *ServerInterfaceWrapper) HandleGetMemberResumeSummaryApiMembersMemberI
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGetParams
+
+	// ------------- Optional query parameter "include_delete_notices" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_delete_notices", r.URL.Query(), &params.IncludeDeleteNotices, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_delete_notices"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_delete_notices", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(w, r, memberId)
+		siw.Handler.HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(w, r, memberId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10266,8 +10316,27 @@ func (siw *ServerInterfaceWrapper) HandleSnoozeReplyCardApiReplyCardsCardIdSnooz
 // HandleResumeSummaryApiResumeSummaryGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleResumeSummaryApiResumeSummaryGetParams
+
+	// ------------- Optional query parameter "include_delete_notices" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_delete_notices", r.URL.Query(), &params.IncludeDeleteNotices, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_delete_notices"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_delete_notices", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleResumeSummaryApiResumeSummaryGet(w, r)
+		siw.Handler.HandleResumeSummaryApiResumeSummaryGet(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10280,8 +10349,27 @@ func (siw *ServerInterfaceWrapper) HandleResumeSummaryApiResumeSummaryGet(w http
 // HandlePeekResumeSummarySizeApiResumeSummarySizeGet operation middleware
 func (siw *ServerInterfaceWrapper) HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams
+
+	// ------------- Optional query parameter "include_delete_notices" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_delete_notices", r.URL.Query(), &params.IncludeDeleteNotices, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_delete_notices"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_delete_notices", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w, r)
+		siw.Handler.HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

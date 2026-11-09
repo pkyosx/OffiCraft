@@ -1016,6 +1016,11 @@ const INSIGHT_SEEDS: Record<string, string> = {
 // shows only the owner's own message. Fabricating an assistant reply here would
 // be as dishonest as a fake lastSeen for a never-online member.
 let chatLog: ChatMessage[] = [];
+// Ids of the delete notices (the server's meta.delete_notice). The owner's
+// thread reads send hide_delete_notices=true and the resume summary leaves them
+// out by default, so every read the mock twins here hides them.
+let mockDeleteNoticeIds = new Set<string>();
+const notDeleteNotice = (m: ChatMessage) => !mockDeleteNoticeIds.has(m.id);
 // The server keeps a reply's excerpt in the message's meta, which the mock's
 // ChatMessage view does not carry; keyed by the REPLYING message's id.
 let chatReplyExcerpts = new Map<string, string>();
@@ -3622,7 +3627,8 @@ const mockApiImpl = {
       .filter(
         (m) =>
           (m.from === memberId || m.to === memberId) &&
-          !((m.deletedTs ?? 0) > 0),
+          !((m.deletedTs ?? 0) > 0) &&
+          notDeleteNotice(m),
       )
       .sort((a, b) => a.ts - b.ts);
     // The cut point: whole messages this payload does NOT carry. TRUNCATION —
@@ -3870,7 +3876,7 @@ const mockApiImpl = {
     // keyset predicate (ts < beforeTs OR (ts == beforeTs AND id < beforeId))
     // BEFORE the recent-window cap — the history page.
     let msgs = chatLog
-      .filter((m) => m.from === withId || m.to === withId)
+      .filter((m) => (m.from === withId || m.to === withId) && notDeleteNotice(m))
       .sort((a, b) => a.ts - b.ts || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     if (before) {
       msgs = msgs.filter(
@@ -3931,7 +3937,7 @@ const mockApiImpl = {
         422,
         "start_id is newer than end_id",
       );
-    let window = msgs.slice(lo, hi + 1);
+    let window = msgs.slice(lo, hi + 1).filter(notDeleteNotice);
     // Truncate at the START (older) end when both anchors are given — the
     // window stays anchored on `end_id`. With only `start_id` the anchor is the
     // OLD end, so the cap keeps the FIRST `limit`.
@@ -4150,8 +4156,10 @@ const mockApiImpl = {
       );
     }
     m.deletedTs = now;
+    const noticeId = `mock-delete-${Date.now()}-${++mockChatSeq}`;
+    mockDeleteNoticeIds.add(noticeId);
     chatLog.push({
-      id: `mock-delete-${Date.now()}-${++mockChatSeq}`,
+      id: noticeId,
       from: "system",
       to: m.to,
       body: `Owner 刪除了訊息 #${id}，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=${id} 讀回。`,
@@ -8158,6 +8166,7 @@ export function __resetMock(): void {
   documentRows.clear();
   nextDocumentHistoryId = 1;
   chatLog = [];
+  mockDeleteNoticeIds = new Set();
   chatReplyExcerpts = new Map();
   chatReads.clear();
   replyCards = [];
@@ -8209,6 +8218,12 @@ export function __setMockFirstRun(): string {
 // unread/read seam (unreadCountOf ↔ markChatRead) against real log entries.
 export function __injectMockChat(msg: ChatMessage): void {
   chatLog.push(msg);
+}
+
+// Test-only hook: the delete notices the mock stored. No owner read lists them
+// (they are hidden on every one), so this is how a test sees they were sent.
+export function __mockDeleteNotices(): ChatMessage[] {
+  return chatLog.filter((m) => !notDeleteNotice(m)).map(mockServedChatMessage);
 }
 
 // Test-only hook: land a reply card in the mock store, the way a live agent's
