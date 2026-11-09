@@ -135,7 +135,7 @@ var messageKeys = map[string]bool{
 	"chat.recallConfirm":                               true,
 	"chat.recallConfirmBody":                           true,
 	"chat.recallFailed":                                true,
-	"chat.recalledNotice":                              true,
+	"chat.recalledPlaceholder":                         true,
 	"chat.recalledQuote":                               true,
 	"chat.removeAttachmentLabel":                       true,
 	"chat.replyAction":                                 true,

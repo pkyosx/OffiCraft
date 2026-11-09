@@ -1477,18 +1477,18 @@ export const en: Dict = {
     // full-view overlay (a long answer is hard to read in the thread column).
     // Own messages do not carry it.
     expandMessage: "Open full view",
-    // Recall: only in the corner of the owner's own ordinary messages younger
-    // than 24 hours; it cannot be undone, so it asks first. recalledNotice is
-    // the recalled row itself (click to see the original), recalledQuote the
-    // quote line of a reply to a recalled message. recallFailed is used only
+    // Delete: only in the corner of the owner's own ordinary messages younger
+    // than 24 hours; it cannot be undone, so it asks first. recalledPlaceholder is
+    // the deleted row itself (click to open the original), recalledQuote the
+    // quote line of a reply to a deleted message. recallFailed is used only
     // when the server gave no reason.
-    recallAction: "Recall",
+    recallAction: "Delete",
     recallConfirmBody:
-      "Recall this message? The recipient will be told it was recalled. This can't be undone.",
-    recallConfirm: "Recall",
-    recallFailed: "Couldn't recall the message. Try again later.",
-    recalledNotice: "This message was recalled",
-    recalledQuote: "Recalled message",
+      "Delete this message? The recipient will be told it was deleted; you can still open the original. This can't be undone.",
+    recallConfirm: "Delete",
+    recallFailed: "Couldn't delete the message. Try again later.",
+    recalledPlaceholder: "This message was deleted",
+    recalledQuote: "Deleted message",
     // T-4e95 reply-to-a-message: the per-row reply entry, the "replying to"
     // banner above the composer and its x, and the quote line that points a
     // message back at the one it answers.

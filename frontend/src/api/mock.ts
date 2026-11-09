@@ -4154,7 +4154,7 @@ const mockApiImpl = {
       id: `mock-recall-${Date.now()}-${++mockChatSeq}`,
       from: "system",
       to: m.to,
-      body: `Owner 收回了訊息 #${id}，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=${id} 讀回。`,
+      body: `Owner 刪除了訊息 #${id}，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=${id} 讀回。`,
       ts: now,
       attachments: [],
       replyCardId: null,

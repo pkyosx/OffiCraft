@@ -1,32 +1,30 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import "./office.css";
 
 /** What a recalled message shows in the owner's thread instead of its bubble:
- * 「此訊息已收回 ▸」, which opens the original below it in quote style. The
- * original is passed in and rendered only while open. */
-export function ChatRecalledRow({ children }: { children: ReactNode }) {
+ * 「此訊息已刪除」, which opens the original in the same overlay as the quote
+ * row's 看原訊息. The row itself never renders any of the original. */
+export function ChatRecalledRow({
+  onOpen,
+  failure,
+}: {
+  onOpen: () => void;
+  /** The overlay's own failure sentence for this message, or null. */
+  failure: ReactNode;
+}) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
   return (
     <div className="chat__msg-recalled" data-testid="msg-recalled">
       <button
         type="button"
-        className="chat__msg-recalled__toggle"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        className="chat__msg-recalled__open"
+        aria-haspopup="dialog"
+        onClick={onOpen}
       >
-        {t.chat.recalledNotice}
-        <span aria-hidden="true">{open ? " ▾" : " ▸"}</span>
+        {t.chat.recalledPlaceholder}
       </button>
-      {open && (
-        <div
-          className="chat__msg-recalled__original"
-          data-testid="msg-recalled-original"
-        >
-          {children}
-        </div>
-      )}
+      {failure}
     </div>
   );
 }

@@ -443,16 +443,6 @@ export function ReplyIcon({
   );
 }
 
-/** Counter-clockwise arrow — the 「收回」 entry in the owner's own bubbles. */
-export function UndoIcon({ size = 16, className }: IconProps) {
-  return (
-    <svg {...base(size)} className={className}>
-      <path d="M9 14 4 9l5-5" />
-      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
-    </svg>
-  );
-}
-
 /** Clock glyph — step 耗時 stamps + the 等待外部 reason row. */
 export function ClockIcon({ size = 16, className }: IconProps) {
   return (

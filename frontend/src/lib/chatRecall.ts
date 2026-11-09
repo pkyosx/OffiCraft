@@ -1,10 +1,9 @@
 import type { ChatMessage } from "../api/adapter";
+import { OWNER_ID } from "./ownerUnread";
 
 /** Mirrors the server's `chatRecallWindowSecs`: a message can be recalled
  * while it is younger than this. */
 export const CHAT_RECALL_WINDOW_SECS = 24 * 60 * 60;
-
-const OWNER_ID = "owner";
 
 /** Whether the owner may still recall `m` — the server's own gate (its sender,
  * no task, no reply card, younger than 24 hours) plus "not already recalled".

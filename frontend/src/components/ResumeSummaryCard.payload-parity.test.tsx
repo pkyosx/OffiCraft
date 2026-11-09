@@ -611,14 +611,14 @@ describe("ResumeSummaryCard renders the SAME snapshot the agent receives", () =>
     expect(txt(u.getAllByTestId("mp-resume-chat-quote-body")[0])).toBe("被選的那段");
   });
 
-  it("says 「已收回的訊息」 in place of the quote line when the original was recalled", async () => {
+  it("says 「已刪除的訊息」 in place of the quote line when the original was recalled", async () => {
     const mapped = MAPPED();
     const chat = mapped.chat.map((m, i) =>
       i === 2 ? { ...m, replyToChat: { ...m.replyToChat!, content: "", recalled: true } } : m,
     );
     OVERRIDE.value = { ...mapped, chat };
     const u = await open();
-    expect(u.getAllByTestId("mp-resume-chat-quote-body").map(txt)).toEqual(["已收回的訊息", ""]);
+    expect(u.getAllByTestId("mp-resume-chat-quote-body").map(txt)).toEqual(["已刪除的訊息", ""]);
   });
 
   it("says the original is gone — the fixed sentence — when the reply has no quote", async () => {

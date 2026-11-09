@@ -82,7 +82,7 @@ import {
   SendIcon,
   SuggestedRepliesIcon,
   TasksIcon,
-  UndoIcon,
+  TrashIcon,
   UserGearIcon,
 } from "./icons";
 import { chatRecallable } from "../lib/chatRecall";
@@ -608,7 +608,7 @@ export function ChatArea({
   // component because it is handed `nameOf`, and `nameOf` needs the roster
   // hooks above it. It is still an unconditional top-level hook call.
   const quotedMessage = useQuotedMessageOverlay(nameOf);
-  const recall = useChatRecall();
+  const recall = useChatRecall(messages);
   // Is the owner ACTUALLY looking (window focused + tab visible)? Read side
   // effects (mark-read below) are gated on this: a backgrounded window must
   // never consume unread state (the roster badge has to survive until the
@@ -720,8 +720,8 @@ export function ChatArea({
   >(null);
   // 「看原訊息」 — reading that one message and showing it whole is NOT this
   // component's business any more (T-0b78). It lives in
-  // hooks/useQuotedMessageOverlay. ⚠️ The quote row on a chat bubble is now the
-  // hook's ONLY caller: the 請示 page and the inline task card went back to
+  // hooks/useQuotedMessageOverlay. ⚠️ The quote row on a chat bubble and the
+  // recalled row are the hook's ONLY openers: the 請示 page and the inline task card went back to
   // NAVIGATING (owner 2026-08-29), so do not describe this as a shared exit.
   // The hook is called below, once `nameOf` exists — it titles the overlay with
   // the roster-aware name this window already resolves.
@@ -1309,7 +1309,7 @@ export function ChatArea({
   // The quote row used to scroll the thread to the quoted row when that row
   // happened to be loaded, and show no control when it was not. Owner ruling
   // 2026-08-21 replaced that with 「撈那一則、跳 modal」
-  // (hooks/useQuotedMessageOverlay — this row is its only caller since the two
+  // (hooks/useQuotedMessageOverlay — this row and the recalled row are its only openers since the two
   // cards went back to navigating on 2026-08-29): one behaviour for every reply
   // in THIS thread, no window-dependent affordance, and
   // no scroll — which also retired the "the jump moves the viewport but not the
@@ -2124,26 +2124,11 @@ export function ChatArea({
       </button>
     );
 
-    const body = m.body && (
-      <AttachmentLinkCommentsContext.Provider value={roomDocComments}>
-        <MentionOpenerContext.Provider value={openMention}>
-          <Markdown
-            source={m.body}
-            className={
-              // Not `.chat__msg-text` on a recalled original: that class is
-              // what 「回覆這段」 offers itself on.
-              (recalled ? "chat__msg-recalled__text" : "chat__msg-text") +
-              " doc-md"
-            }
-            breaks
-          />
-        </MentionOpenerContext.Provider>
-      </AttachmentLinkCommentsContext.Provider>
-    );
-    // Attachments stay out of the recalled row in both states; the expanded
-    // original is the text alone.
     const content = recalled ? (
-      <ChatRecalledRow>{body}</ChatRecalledRow>
+      <ChatRecalledRow
+        onOpen={() => void quotedMessage.open(m.id)}
+        failure={quotedMessage.failureNotice(m.id)}
+      />
     ) : m.replyCardId ? (
       <MentionRosterContext.Provider value={mentionRoster}>
         <ChatReplyCard
@@ -2190,7 +2175,7 @@ export function ChatArea({
               title={t.chat.recallAction}
               onClick={() => recall.ask(m.id)}
             >
-              <UndoIcon size={13} />
+              <TrashIcon size={13} />
             </button>
           )}
           {!mine && m.body && (
@@ -2218,7 +2203,17 @@ export function ChatArea({
          * the reply-card body, which already renders this very field's
          * fallback as markdown. `breaks` keeps Enter meaning "new line", the
          * way the bubble's pre-wrap did before. */}
-        {body}
+        {m.body && (
+          <AttachmentLinkCommentsContext.Provider value={roomDocComments}>
+            <MentionOpenerContext.Provider value={openMention}>
+              <Markdown
+                source={m.body}
+                className="chat__msg-text doc-md"
+                breaks
+              />
+            </MentionOpenerContext.Provider>
+          </AttachmentLinkCommentsContext.Provider>
+        )}
         {/* Stored attachments — one click target, opening the shared popup. */}
         <AttachmentStrip
           attachments={m.attachments}

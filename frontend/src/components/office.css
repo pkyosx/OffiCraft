@@ -1280,10 +1280,9 @@
   }
 }
 
-/* 「收回」 (the corner entry above shares the reply entry's rules). A recalled
- * row replaces its bubble with one muted italic toggle; opened, the original
- * hangs below it in the quote row's muted ink behind a left rule, with no
- * bubble frame — it is no longer a message in the thread. */
+/* 「刪除」 (the corner entry above shares the reply entry's rules). A recalled
+ * row replaces its bubble with one muted italic button that opens the original
+ * in the 看原訊息 overlay; the row itself carries none of the original. */
 .chat__msg-recalled {
   display: flex;
   flex-direction: column;
@@ -1292,7 +1291,7 @@
   min-width: 0;
   max-width: 100%;
 }
-.chat__msg-recalled__toggle {
+.chat__msg-recalled__open {
   padding: 2px 0;
   border: none;
   background: none;
@@ -1303,17 +1302,9 @@
   color: var(--color-text-muted);
   white-space: nowrap;
 }
-.chat__msg-recalled__toggle:hover,
-.chat__msg-recalled__toggle:focus-visible {
+.chat__msg-recalled__open:hover,
+.chat__msg-recalled__open:focus-visible {
   text-decoration: underline;
-}
-.chat__msg-recalled__original {
-  align-self: stretch;
-  min-width: 0;
-  padding-left: 8px;
-  border-left: 2px solid color-mix(in srgb, var(--color-text-muted) 40%, transparent);
-  font-size: 12px;
-  color: var(--color-text-muted);
 }
 
 /* ② THE QUOTE ROW — the reference line at the TOP OF THE BUBBLE naming the

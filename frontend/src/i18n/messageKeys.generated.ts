@@ -134,7 +134,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "chat.recallConfirm",
   "chat.recallConfirmBody",
   "chat.recallFailed",
-  "chat.recalledNotice",
+  "chat.recalledPlaceholder",
   "chat.recalledQuote",
   "chat.removeAttachmentLabel",
   "chat.replyAction",
