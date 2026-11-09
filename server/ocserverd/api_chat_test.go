@@ -1430,7 +1430,7 @@ func TestServeChatByIDs(t *testing.T) {
 func TestChatDeclaredQueryParams(t *testing.T) {
 	t.Run("the accepted set is every parameter the route declares plus the transport token, sorted", func(t *testing.T) {
 		if got := chatDeclaredQueryParams(); !reflect.DeepEqual(got, []string{
-			"before_id", "before_ts", "cursor", "end_id", "ids", "limit",
+			"before_id", "before_ts", "cursor", "end_id", "ids", "include_deleted", "limit",
 			"recipient", "sender", "start_id", "token", "unread", "with",
 		}) {
 			t.Fatalf("chatDeclaredQueryParams = %#v", got)
@@ -1895,7 +1895,7 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 				"refuses parameters it does not declare rather than ignoring them, "+
 				"because an ignored parameter silently answers a question you did "+
 				"not ask; accepted here: before_id, before_ts, cursor, end_id, ids, "+
-				"limit, recipient, sender, start_id, token, unread, with")
+				"include_deleted, limit, recipient, sender, start_id, token, unread, with")
 	})
 
 	t.Run("unread combined with a stream position is refused", func(t *testing.T) {

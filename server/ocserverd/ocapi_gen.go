@@ -1434,7 +1434,7 @@ type ChatMessageDTO struct {
 	// Card The reply card this message carries, FOLDED IN PLACE onto the message that opened it — the options offered and the answer given, so a waking agent reads the decision in the chat stream instead of joining a second list. Omitted (``null``) when the message carries no card, and only ever filled for cards the snapshot's own subject INITIATED.
 	Card *ChatInlineReplyCardDTO `json:"card,omitempty"`
 
-	// DeletedTs When the owner deleted this message (epoch seconds); ``0`` = not deleted. For a member caller a deleted message is left out of chat listings, the unread backfill and the unread count; a by-id read (``ids=``) still returns it with ``body`` intact. The owner's own listings keep it, flagged by this field, so the owner's thread can show where it was.
+	// DeletedTs When the owner deleted this message (epoch seconds); ``0`` = not deleted. A deleted message is left out of chat listings, the unread backfill, the unread count, the wake snapshot and the attachment gallery for every caller; ``include_deleted=true`` lists it again, and a by-id read (``ids=``) always returns it, ``body`` intact.
 	DeletedTs *float64 `json:"deleted_ts,omitempty"`
 	From      string   `json:"from"`
 
@@ -5388,6 +5388,9 @@ type HandleListChatApiChatGetParams struct {
 	//
 	// AT MOST 20 DISTINCT IDS per call (counted after blanks are dropped); more is a 400 that states the limit. The cap is the response bound: 20 × the 4,000-rune body cap is the worst case one call can emit. It is not 'unfold a whole snapshot in one call' — name the ones that matter and call again.
 	Ids *[]string `form:"ids,omitempty" json:"ids,omitempty"`
+
+	// IncludeDeleted ``true`` (the STRING) also lists deleted messages, flagged by ``deleted_ts``; by default every listing leaves them out. 422 alongside ``unread=true``. Not consulted on the ``ids`` path, which always returns them. Any other value reads as not sent.
+	IncludeDeleted *string `form:"include_deleted,omitempty" json:"include_deleted,omitempty"`
 }
 
 // HandleListChatAttachmentsApiChatAttachmentsGetParams defines parameters for HandleListChatAttachmentsApiChatAttachmentsGet.
@@ -7454,6 +7457,19 @@ func (siw *ServerInterfaceWrapper) HandleListChatApiChatGet(w http.ResponseWrite
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ids"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ids", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_deleted" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_deleted", r.URL.Query(), &params.IncludeDeleted, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_deleted"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_deleted", Err: err})
 		}
 		return
 	}

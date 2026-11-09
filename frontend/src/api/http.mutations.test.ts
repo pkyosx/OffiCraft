@@ -285,6 +285,9 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     // `limit=-1` pull. MUTANT: give this call `{ limit: -1 }` and these go red.
     expect(q.get("with")).toBe("m-1");
     expect(q.get("limit")).toBeNull();
+    // The owner's thread shows deleted rows as 「此訊息已刪除」, and the server
+    // lists them only on request.
+    expect(q.get("include_deleted")).toBe("true");
     // T-48 removed ?peek= from the wire: GET /api/chat marks nothing read on
     // any path, so the opt-out has nothing to opt out of — which is also why
     // the `peekChat` twin of this method is gone. Asserting the parameter's
@@ -297,6 +300,24 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     // quietly ignored. Asserting its absence here is what catches that before
     // a user does.
     expect(q.get("caller_only")).toBeNull();
+  });
+
+  it("listChatWindow asks for deleted rows too, like every owner thread load", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
+    await httpApi.listChatWindow("m-1", { startId: "c-1" }, 30);
+    const { url } = await lastRequest();
+    const q = new URLSearchParams(url.split("?")[1] ?? "");
+    expect(q.get("start_id")).toBe("c-1");
+    expect(q.get("include_deleted")).toBe("true");
+  });
+
+  it("the unread probe does not ask for deleted rows (the server refuses that pair)", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
+    await httpApi.getFirstUnreadChat("m-1");
+    const { url } = await lastRequest();
+    const q = new URLSearchParams(url.split("?")[1] ?? "");
+    expect(q.get("unread")).toBe("true");
+    expect(q.get("include_deleted")).toBeNull();
   });
 
   it("listChat reads `messages` out of the T-48 envelope and ignores next_cursor", async () => {

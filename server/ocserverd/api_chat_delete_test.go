@@ -194,7 +194,7 @@ func TestHandleDeleteChatMessageApiChatMessageIdDelete(t *testing.T) {
 			[]any{apiTestDeletedRow(deleted, "owner", "mira", "the secret plan")})
 	})
 
-	t.Run("a deleted row from a sender other than the owner leaves the member's listing and unread count and stays flagged for the owner", func(t *testing.T) {
+	t.Run("a deleted row from a sender other than the owner leaves the member's listing and unread count and is listed flagged only on request", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		member := apiTestAgentToken(t, api, "mira", "")
 		now := nowSecs()
@@ -221,25 +221,54 @@ func TestHandleDeleteChatMessageApiChatMessageIdDelete(t *testing.T) {
 		kept := apiTestChatRow("c-0000000000k1", "kip", "mira", "kept")
 		deleted := apiTestChatRow("c-0000000000k2", "kip", "mira", "the secret plan")
 		deleted["deleted_ts"] = now - 5
-		apiWantValue(t, "owner listing", apiTestChatMessages(t, h, owner, "/api/chat?with=mira"), []any{kept, deleted})
+		apiWantValue(t, "owner listing", apiTestChatMessages(t, h, owner, "/api/chat?with=mira"), []any{kept})
+		apiWantValue(t, "owner listing with include_deleted", apiTestChatMessages(t, h, owner,
+			"/api/chat?with=mira&include_deleted=true"), []any{kept, deleted})
 	})
 
-	t.Run("the owner's own listing keeps the deleted message, flagged", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+	t.Run("every caller's listing leaves a deleted message out unless include_deleted=true asks for it, flagged", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		member := apiTestAgentToken(t, api, "mira", "")
 		first := apiTestPostChat(t, h, owner, `{"to":"mira","body":"before"}`)
 		deleted := apiTestPostChat(t, h, owner, `{"to":"mira","body":"the secret plan"}`)
 		apiTestDelete(t, h, owner, deleted)
+		var notice any
 
-		rows := apiTestChatMessages(t, h, owner, "/api/chat?with=mira")
-		ids := apiTestRowIDs(rows)
-		if len(ids) != 3 {
-			t.Fatalf("want the two messages and the notice, got %v", ids)
+		for _, c := range []struct{ who, token, with string }{{"owner", owner, "mira"}, {"member", member, "mira"}} {
+			rows := apiTestChatMessages(t, h, c.token, "/api/chat?with="+c.with)
+			ids := apiTestRowIDs(rows)
+			if len(ids) != 2 {
+				t.Fatalf("%s default listing: want the kept message and the notice, got %v", c.who, ids)
+			}
+			notice = ids[1]
+			apiWantValue(t, c.who+" default listing", rows, []any{
+				apiTestChatRow(first, "owner", "mira", "before"),
+				apiTestDeleteNoticeRow(ids[1].(string), deleted, "mira"),
+			})
+			apiWantValue(t, c.who+" include_deleted listing", apiTestChatMessages(t, h, c.token,
+				"/api/chat?with="+c.with+"&include_deleted=true"), []any{
+				apiTestChatRow(first, "owner", "mira", "before"),
+				apiTestDeletedRow(deleted, "owner", "mira", "the secret plan"),
+				apiTestDeleteNoticeRow(ids[1].(string), deleted, "mira"),
+			})
+			apiWantValue(t, c.who+" include_deleted=yes reads as not sent", apiTestRowIDs(apiTestChatMessages(t, h, c.token,
+				"/api/chat?with="+c.with+"&include_deleted=yes")), ids)
+			apiWantValue(t, c.who+" include_deleted window", apiTestRowIDs(apiTestChatMessages(t, h, c.token,
+				"/api/chat?with="+c.with+"&start_id="+first+"&limit=10&include_deleted=true")), []any{first, deleted, ids[1]})
 		}
-		apiWantValue(t, "owner listing", rows, []any{
-			apiTestChatRow(first, "owner", "mira", "before"),
-			apiTestDeletedRow(deleted, "owner", "mira", "the secret plan"),
-			apiTestDeleteNoticeRow(ids[2].(string), deleted, "mira"),
-		})
+
+		status, data := apiJSON(t, h, "GET", "/api/chat?unread=true&include_deleted=true", member, "")
+		if status != 422 {
+			t.Fatalf("unread with include_deleted: want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"unread cannot be combined with include_deleted — a deleted message is never unread")
+
+		status, snap := apiJSON(t, h, "GET", "/api/members/mira/resume-summary", owner, "")
+		if status != 200 {
+			t.Fatalf("owner reading mira's resume summary: %d %v", status, snap)
+		}
+		apiWantValue(t, "owner's view of the wake snapshot", apiTestRowIDs(snap["chat"]), []any{first, notice})
 	})
 
 	t.Run("the member's wake snapshot leaves the deleted message out", func(t *testing.T) {

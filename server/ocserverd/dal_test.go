@@ -1049,13 +1049,13 @@ func TestListChatInvolving(t *testing.T) {
 	m4 := dalChat("m4", "ann", "carl", 400)
 	dalPutChats(t, d, m1, m2, m3, m4)
 
-	got, err := d.ListChatInvolving("ann", false, 10)
+	got, err := d.ListChatInvolving("ann", 10)
 	if err != nil {
 		t.Fatalf("ListChatInvolving: %v", err)
 	}
 	dalWantChats(t, "sender OR recipient, oldest first", got, []ChatMessage{m1, m3, m4})
 
-	got, err = d.ListChatInvolving("ann", false, 2)
+	got, err = d.ListChatInvolving("ann", 2)
 	if err != nil {
 		t.Fatalf("ListChatInvolving(limit 2): %v", err)
 	}
@@ -1072,7 +1072,7 @@ func TestListChatInvolving(t *testing.T) {
 		{"a negative limit reads nothing", "ann", -1, nil},
 		{"someone with no line reads nothing", "nobody", 10, []ChatMessage{}},
 	} {
-		got, err := d.ListChatInvolving(tc.participant, false, tc.limit)
+		got, err := d.ListChatInvolving(tc.participant, tc.limit)
 		if err != nil {
 			t.Fatalf("ListChatInvolving(%s): %v", tc.name, err)
 		}
@@ -1092,7 +1092,7 @@ func TestListChatInvolving(t *testing.T) {
 			{"a limit cutting an equal-ts group keeps the larger ids", 4,
 				[]ChatMessage{l.s300, l.self300, l.s400, l.r500}},
 		} {
-			got, err := d.ListChatInvolving("ann", false, tc.limit)
+			got, err := d.ListChatInvolving("ann", tc.limit)
 			if err != nil {
 				t.Fatalf("ListChatInvolving(%s): %v", tc.name, err)
 			}

@@ -8,12 +8,6 @@ const (
 	chatDeleteWindowSecs = 24 * 60 * 60
 )
 
-// Only the owner's own reads keep deleted messages, so the owner's thread can
-// show where one was; a by-id read returns them to everyone.
-func chatListingHidesDeleted(actor string) bool {
-	return actor != wireOwnerID
-}
-
 func chatDeleteGate(m ChatMessage, now float64) error {
 	if m.Sender != wireOwnerID {
 		return refuseInTx(http.StatusConflict, "chat message '"+m.ID+"' was sent by '"+

@@ -1415,6 +1415,10 @@
             },
             "type": "array"
           },
+          "include_deleted": {
+            "description": "``true`` (the STRING) also lists deleted messages, flagged by ``deleted_ts``; by default they are left out. 422 alongside ``unread=true``; not consulted on the ``ids`` path, which always returns them.",
+            "type": "string"
+          },
           "limit": {
             "description": "How many messages to return; default 30. The legacy paths do NOT validate it (0 answers an EMPTY page, a negative value skips truncation), while the ``start_id``/``end_id`` path requires 1..200 (422 otherwise).",
             "type": "integer"

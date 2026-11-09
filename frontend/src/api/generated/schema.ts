@@ -735,6 +735,7 @@ export interface paths {
          *     - `start_id=` / `end_id=`: an inclusive window running newer / older; limit must be 1..200 here; no next_cursor.
          *     - `ids=`: just the set you name; no next_cursor.
          *     - `unread=true`: only what others sent you above your per-sender watermark, oldest first; your own messages are never unread; any value but the string `true` reads as not sent.
+         *     - Deleted messages are left out of every listing; `include_deleted=true` lists them too (not with `unread=true`).
          *     - `before_ts`+`before_id`: deprecated backwards paging, valid only as a pair.
          *     - `limit` bounds rows, not bytes (200 rows measured at 687 KB); on the legacy paths 0 is an empty page and a negative value is uncapped.
          */
@@ -1057,7 +1058,7 @@ export interface paths {
         /**
          * Delete one of the owner's own chat messages sent within the last 24 hours (owner only; no undo).
          * @description - Owner only. Deletes one of the owner's own ordinary chat messages sent less than 24 hours ago; task messages, reply-card messages and messages from anyone else are refused.
-         *     - The original is kept: members stop seeing it in chat listings, the unread backfill and unread counts; a by-id read, and the owner's own listings, still return it with `deleted_ts` set.
+         *     - The original is kept: chat listings, the unread backfill and unread counts leave it out for every caller; a by-id read, or a listing with `include_deleted=true`, still returns it with `deleted_ts` set.
          *     - The recipient immediately gets a `system` notice naming the deleted message id. No undo.
          *     - Deleting an already deleted message changes nothing and sends no second notice.
          *     - Emits a `chat` event; a client holding the stream learns of this without polling.
@@ -5844,7 +5845,7 @@ export interface components {
             card?: components["schemas"]["ChatInlineReplyCardDTO"] | null;
             /**
              * Deleted Ts
-             * @description When the owner deleted this message (epoch seconds); ``0`` = not deleted. For a member caller a deleted message is left out of chat listings, the unread backfill and the unread count; a by-id read (``ids=``) still returns it with ``body`` intact. The owner's own listings keep it, flagged by this field, so the owner's thread can show where it was.
+             * @description When the owner deleted this message (epoch seconds); ``0`` = not deleted. A deleted message is left out of chat listings, the unread backfill, the unread count, the wake snapshot and the attachment gallery for every caller; ``include_deleted=true`` lists it again, and a by-id read (``ids=``) always returns it, ``body`` intact.
              * @default 0
              */
             deleted_ts: number;
@@ -14366,6 +14367,8 @@ export interface operations {
                  *     AT MOST 20 DISTINCT IDS per call (counted after blanks are dropped); more is a 400 that states the limit. The cap is the response bound: 20 × the 4,000-rune body cap is the worst case one call can emit. It is not 'unfold a whole snapshot in one call' — name the ones that matter and call again.
                  */
                 ids?: string[];
+                /** @description ``true`` (the STRING) also lists deleted messages, flagged by ``deleted_ts``; by default every listing leaves them out. 422 alongside ``unread=true``. Not consulted on the ``ids`` path, which always returns them. Any other value reads as not sent. */
+                include_deleted?: string | null;
             };
             header?: never;
             path?: never;

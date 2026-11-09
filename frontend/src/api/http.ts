@@ -458,6 +458,11 @@ export const SSE_RESYNC_TOPICS = [
   "runtime_upgrade",
 ] as const;
 
+// listChat / listChatWindow feed only the owner's chat threads, which show a
+// deleted message as 「此訊息已刪除」; the server leaves deleted rows out of
+// every listing unless asked.
+const CHAT_THREAD_INCLUDE_DELETED = "true";
+
 // The payload fields that name an ENTITY rather than describe one (spec/sse.md
 // §2.2 lists the per-topic payload shapes). Everything else in the payload —
 // `status`, `priority`, `last_read_ts`, `codename`, `name`, `desired_state` — is
@@ -1441,6 +1446,7 @@ export const httpApi: Api = {
             limit,
             before_ts: before?.beforeTs,
             before_id: before?.beforeId,
+            include_deleted: CHAT_THREAD_INCLUDE_DELETED,
           },
         },
       }),
@@ -1473,6 +1479,7 @@ export const httpApi: Api = {
             limit,
             start_id: anchor.startId,
             end_id: anchor.endId,
+            include_deleted: CHAT_THREAD_INCLUDE_DELETED,
           },
         },
       }),

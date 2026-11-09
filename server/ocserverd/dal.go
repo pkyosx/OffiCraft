@@ -667,11 +667,11 @@ func (d *DAL) ListChatByIDs(ids []string) ([]ChatMessage, error) {
 // ListChatInvolving is a global newest-N, not a per-conversation-line quota:
 // owner ruling 「不要管每條對話線」 (the wake-snapshot packer walks it
 // newest-first until its budget).
-func (d *DAL) ListChatInvolving(participant string, hideDeleted bool, limit int) ([]ChatMessage, error) {
+func (d *DAL) ListChatInvolving(participant string, limit int) ([]ChatMessage, error) {
 	if participant == "" || limit <= 0 {
 		return nil, nil
 	}
-	query, args := chatListFilter{participant: participant, hideDeleted: hideDeleted}.selectSQL(
+	query, args := chatListFilter{participant: participant, hideDeleted: true}.selectSQL(
 		`chat_message`, `1=1`, nil, "", true, limit)
 	return d.queryChats(query, args, true)
 }

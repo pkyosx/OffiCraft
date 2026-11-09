@@ -298,6 +298,7 @@ composer 上方的橫幅走同一個形狀（它從已載入視窗解析，是�
 **owner 自己那則已刪除的訊息，列上只畫 `chat.deletedPlaceholder`「此訊息已刪除」，不畫任何原文或附件**；
 點它跟「看原訊息」走同一個 `quotedMessage.open(id)`、開同一片覆蓋層（owner 裁定：不要在列上展開）。
 不要為這一列另寫一份展開或另一個 overlay。
+server 的聊天列表預設不列已刪除訊息（任何呼叫者都一樣）；聊天視窗的讀取（`listChat`／`listChatWindow`）在 http seam 一律帶 `include_deleted=true` 才拿得到這些列，未讀探針（`unread=true`）不能帶，server 會 422。
 
 **橫幅有自己的文案，不准借用訊息列那一句。** composer 上方的「正在回覆」橫幅沒有
 `reply_to_chat` 可讀（那是回覆**送出後**才存在的東西），它只認**已載入視窗**裡的

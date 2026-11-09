@@ -597,7 +597,11 @@ const (
 		"refuses parameters it does not declare rather than ignoring them, because an " +
 		"ignored parameter silently answers a question you did not ask; accepted here: %s"
 
-	chatUnreadTrue = "true"
+	chatUnreadTrue         = "true"
+	chatIncludeDeletedTrue = "true"
+
+	chatUnreadDeletedMsg = "unread cannot be combined with include_deleted — a deleted " +
+		"message is never unread"
 
 	chatCursorOlder = "o"
 	chatCursorNewer = "n"
@@ -858,7 +862,7 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 		participant: strOrEmpty(params.With),
 		sender:      strOrEmpty(params.Sender),
 		recipient:   strOrEmpty(params.Recipient),
-		hideDeleted: chatListingHidesDeleted(actor),
+		hideDeleted: strOrEmpty(params.IncludeDeleted) != chatIncludeDeletedTrue,
 	}
 	limit := chatListDefaultLimit
 	if params.Limit != nil {
@@ -871,6 +875,10 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 	if strOrEmpty(params.Unread) == chatUnreadTrue {
 		if beforeSent || hasStart || hasEnd {
 			writeError(w, http.StatusUnprocessableEntity, chatUnreadMixedMsg)
+			return
+		}
+		if !filter.hideDeleted {
+			writeError(w, http.StatusUnprocessableEntity, chatUnreadDeletedMsg)
 			return
 		}
 		s.serveChatUnread(w, actor, filter, limit, params.Cursor)
@@ -1235,7 +1243,7 @@ func (s *apiServer) resumeSnapshotParts(actor string) (resumeWakeSnapshot, error
 		}
 	}
 
-	msgs, err := s.dal.ListChatInvolving(actor, chatListingHidesDeleted(actor), resumeChatFetch)
+	msgs, err := s.dal.ListChatInvolving(actor, resumeChatFetch)
 	if err != nil {
 		return resumeWakeSnapshot{}, err
 	}
