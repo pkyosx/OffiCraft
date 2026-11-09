@@ -475,6 +475,7 @@ type chatMessageDTO struct {
 	// batch" skip, no opt-in flag (owner ruling 2026-08-21). nil with ReplyTo set
 	// is the permanent answer "the original is gone"; nothing retries.
 	ReplyToChat *chatReplyQuoteDTO `json:"reply_to_chat,omitempty"`
+	RecalledTS  float64            `json:"recalled_ts"`
 }
 
 // chatReplyQuoteDTO: 🔴 To is the QUOTED message's own recipient, not the peer
@@ -491,6 +492,8 @@ type chatReplyQuoteDTO struct {
 	// ReplyExcerpt belongs to the replying message (its meta), not the quoted one,
 	// and is served verbatim — never collapsed or cut like Content.
 	ReplyExcerpt string `json:"reply_excerpt,omitempty"`
+	// A recalled original lends no text: Content and ReplyExcerpt stay empty.
+	Recalled bool `json:"recalled"`
 }
 
 // chatReplyQuoteMaxChars is the quote-line length in runes; the browser cuts
@@ -526,14 +529,19 @@ func newChatReplyQuoteDTO(m ChatMessage, names map[string]string) *chatReplyQuot
 		fromName = resumeDisplayName(m.Sender, names)
 		toName = resumeDisplayName(m.Recipient, names)
 	}
-	return &chatReplyQuoteDTO{
+	quote := &chatReplyQuoteDTO{
 		ID:       m.ID,
 		From:     m.Sender,
 		FromName: fromName,
 		To:       m.Recipient,
 		ToName:   toName,
-		Content:  chatReplyQuoteContent(m.Body),
 	}
+	if chatRecalledTS(m.Meta) > 0 {
+		quote.Recalled = true
+	} else {
+		quote.Content = chatReplyQuoteContent(m.Body)
+	}
+	return quote
 }
 
 type chatGalleryEntryDTO struct {
@@ -2256,7 +2264,7 @@ func attachmentDTOsFromRefs(refs []any) []chatAttachmentDTO {
 func newChatMessageDTO(m ChatMessage) chatMessageDTO {
 	meta := map[string]any{}
 	for k, v := range m.Meta {
-		if k != chatReplyExcerptMetaKey {
+		if k != chatReplyExcerptMetaKey && k != chatRecalledTSMetaKey {
 			meta[k] = v
 		}
 	}
@@ -2271,6 +2279,7 @@ func newChatMessageDTO(m ChatMessage) chatMessageDTO {
 		Meta:        meta,
 		Attachments: attachments,
 		ReplyTo:     replyToFromMeta(meta),
+		RecalledTS:  chatRecalledTS(m.Meta),
 	}
 }
 
@@ -2291,6 +2300,13 @@ func replyToFromMeta(meta map[string]any) string {
 func replyExcerptFromMeta(meta map[string]any) string {
 	excerpt, _ := meta[chatReplyExcerptMetaKey].(string)
 	return excerpt
+}
+
+// Same forgery guard as replyToFromMeta. Served as chatMessageDTO.RecalledTS, so
+// newChatMessageDTO leaves it out of the served meta.
+func chatRecalledTS(meta map[string]any) float64 {
+	ts, _ := meta[chatRecalledTSMetaKey].(float64)
+	return ts
 }
 
 func replyCardIDFromMeta(meta map[string]any) string {

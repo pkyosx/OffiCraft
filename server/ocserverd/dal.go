@@ -436,12 +436,16 @@ func (d *DAL) ListChat() ([]ChatMessage, error) {
 }
 
 type chatListFilter struct {
-	participant string
-	sender      string
-	recipient   string
+	participant  string
+	sender       string
+	recipient    string
+	hideRecalled bool
 }
 
 func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
+	if f.hideRecalled {
+		*query += ` AND NOT ` + chatRecalledSQL(col)
+	}
 	if f.sender != "" {
 		*query += ` AND ` + col + `sender = ?`
 		*args = append(*args, f.sender)
@@ -450,6 +454,17 @@ func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
 		*query += ` AND ` + col + `recipient = ?`
 		*args = append(*args, f.recipient)
 	}
+}
+
+// chatRecalledSQL mirrors chatRecalledTS(meta) > 0. ⚠️ Keep it a CASE: meta is
+// free-form and may not be JSON, json_type raises on malformed input, and SQLite's
+// AND does not short-circuit (migrations/00074 measured both).
+func chatRecalledSQL(col string) string {
+	meta := col + `meta`
+	return `(CASE WHEN NOT json_valid(` + meta + `) THEN 0` +
+		` WHEN json_type(` + meta + `, '$.` + chatRecalledTSMetaKey + `') IN ('integer', 'real')` +
+		` THEN json_extract(` + meta + `, '$.` + chatRecalledTSMetaKey + `') > 0` +
+		` ELSE 0 END)`
 }
 
 // Do not fold the participant branches into `sender = ? OR recipient = ?`: the
@@ -650,11 +665,11 @@ func (d *DAL) ListChatByIDs(ids []string) ([]ChatMessage, error) {
 // ListChatInvolving is a global newest-N, not a per-conversation-line quota:
 // owner ruling 「不要管每條對話線」 (the wake-snapshot packer walks it
 // newest-first until its budget).
-func (d *DAL) ListChatInvolving(participant string, limit int) ([]ChatMessage, error) {
+func (d *DAL) ListChatInvolving(participant string, hideRecalled bool, limit int) ([]ChatMessage, error) {
 	if participant == "" || limit <= 0 {
 		return nil, nil
 	}
-	query, args := chatListFilter{participant: participant}.selectSQL(
+	query, args := chatListFilter{participant: participant, hideRecalled: hideRecalled}.selectSQL(
 		`chat_message`, `1=1`, nil, "", true, limit)
 	return d.queryChats(query, args, true)
 }
@@ -804,6 +819,14 @@ func (d *DAL) GetDocumentHistory(kind, key string, id int64) (*DocumentHistory, 
 }
 
 func (d *DAL) PutChat(m ChatMessage) error { return putChatOn(d.wdb, m) }
+
+// MarkChatRecalled touches only meta.recalled_ts: re-writing the whole meta from
+// a Go round-trip would re-encode every other value in it.
+func (d *DAL) MarkChatRecalled(id string, ts float64) error {
+	_, err := d.wdb.Exec(`UPDATE chat_message SET meta = json_set(meta, '$.`+
+		chatRecalledTSMetaKey+`', ?) WHERE id = ?`, ts, id)
+	return err
+}
 
 func putChatOn(ex sqlExecer, m ChatMessage) error {
 	meta := m.Meta
@@ -1011,9 +1034,13 @@ func chatAttachmentRefSortsFirst(a, b ChatAttachmentRef) bool {
 }
 
 func (d *DAL) listChatAttachmentRefsOneSided(column, peer, extra string) ([]ChatAttachmentRef, error) {
+	// A recalled message's files stay stored and stay on its by-id read; only the
+	// gallery stops listing them (owner ruling).
 	rows, err := d.rdb.Query(
-		`SELECT `+chatAttachmentRefColumns+` FROM chat_attachment_ref
+		`SELECT `+chatAttachmentRefColumns+` FROM chat_attachment_ref ref
 		 WHERE `+column+` = ?`+extra+`
+		 AND NOT EXISTS (SELECT 1 FROM chat_message m
+		                 WHERE m.id = ref.message_id AND `+chatRecalledSQL("m.")+`)
 		 ORDER BY ts DESC, message_id ASC, ord ASC`, peer)
 	if err != nil {
 		return nil, err
@@ -1232,6 +1259,7 @@ func (d *DAL) UnreadCountsFor(reader string) (map[string]int, error) {
 				SELECT count(*) FROM chat_message m
 				WHERE m.recipient = ? AND m.sender = s.sender
 				AND m.ts > COALESCE((SELECT last_read_ts FROM chat_read WHERE reader_id = ? AND peer_id = s.sender), 0)
+				AND NOT `+chatRecalledSQL("m.")+`
 			) AS n
 			FROM s WHERE s.sender IS NOT NULL)
 		WHERE n > 0`, reader, reader, reader, reader)

@@ -526,6 +526,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/chat/{message_id}/recall",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "create_reply_card",
     "method": "POST",
     "path": "/api/reply-cards",

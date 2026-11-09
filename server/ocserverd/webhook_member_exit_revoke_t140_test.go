@@ -75,7 +75,7 @@ func t140PostIn(t *testing.T, api *apiServer, token, body string) int {
 // visible effect.
 func t140ChatCount(t *testing.T, api *apiServer, memberID string) int {
 	t.Helper()
-	msgs, err := api.dal.ListChatInvolving(memberID, 50)
+	msgs, err := api.dal.ListChatInvolving(memberID, false, 50)
 	if err != nil {
 		t.Fatalf("list chat for %s: %v", memberID, err)
 	}

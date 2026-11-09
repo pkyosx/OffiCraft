@@ -1440,6 +1440,9 @@ type ChatMessageDTO struct {
 	Id       string                  `json:"id"`
 	Meta     *map[string]interface{} `json:"meta,omitempty"`
 
+	// RecalledTs When the owner recalled this message (epoch seconds); ``0`` = not recalled. For a member caller a recalled message is left out of chat listings, the unread backfill and the unread count; a by-id read (``ids=``) still returns it with ``body`` intact. The owner's own listings keep it, flagged by this field, so the owner's thread can show where it was.
+	RecalledTs *float64 `json:"recalled_ts,omitempty"`
+
 	// ReplyCardStatus Read-time join: the CURRENT status (``waiting`` | ``answered`` | ``expired``) of the reply card this message carries (``meta.reply_card_id``); ``""`` when the message carries no card. Lets the inline chat card (ChatReplyCard) label its COLLAPSED row (待回覆 / 已回覆 / 已過期) WITHOUT a per-card GET. Since T-48 (owner ruling on card rc-d8844e709f42) every chat card mounts COLLAPSED regardless of status and fetches the full card only on expand, so this field no longer decides eager-vs-lazy — it decides what the row SAYS while nothing has been fetched. TaskStepDTO.reply_card_status is UNCHANGED: the task-embedded card still decides eager-vs-lazy at mount. NOT stored — computed each read from the card's live status (the stored ``meta`` only ever holds the id, stamped ``waiting`` at open and never updated on answer).
 	ReplyCardStatus *string `json:"reply_card_status,omitempty"`
 
@@ -1550,6 +1553,9 @@ type ChatReplyQuoteDTO struct {
 	// FromName The quoted sender's DISPLAY name, resolved server-side exactly as ``ChatMessageDTO.from_name`` is — including the part that is easy to forget: only the reads that resolve names at all (the wake snapshot) fill it, and every other read leaves it ``""``. Honestly empty, never fabricated, and never a substitute for ``from``, which is always the address.
 	FromName *string `json:"from_name,omitempty"`
 	Id       string  `json:"id"`
+
+	// Recalled The quoted message was recalled by the owner. When true, ``content`` and ``reply_excerpt`` are empty: a quote never carries the text of a recalled message.
+	Recalled *bool `json:"recalled,omitempty"`
 
 	// ReplyExcerpt The piece of the quoted message the REPLY selected (``ChatPostDTO.reply_excerpt``), exactly as it was sent: not collapsed and not shortened. ABSENT when the reply quoted the whole message.
 	//
@@ -6129,6 +6135,9 @@ type ServerInterface interface {
 	// Total chat unread count (the office nav red dot).
 	// (GET /api/chat/unread-count)
 	HandleChatUnreadCountApiChatUnreadCountGet(w http.ResponseWriter, r *http.Request)
+	// Recall one of the owner's own chat messages sent within the last 24 hours (owner only; no undo).
+	// (POST /api/chat/{message_id}/recall)
+	HandleRecallChatMessageApiChatMessageIdRecallPost(w http.ResponseWriter, r *http.Request, messageId string)
 	// Resolve both sides of one comparison (?before=&after=; optional labels and ?sig=). Each side carries its text, its column heading, and an honest gone marker when the address resolves to nothing.
 	// (GET /api/diff)
 	HandleGetDiffApiDiffGet(w http.ResponseWriter, r *http.Request, params HandleGetDiffApiDiffGetParams)
@@ -7725,6 +7734,32 @@ func (siw *ServerInterfaceWrapper) HandleChatUnreadCountApiChatUnreadCountGet(w 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleChatUnreadCountApiChatUnreadCountGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleRecallChatMessageApiChatMessageIdRecallPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleRecallChatMessageApiChatMessageIdRecallPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "message_id" -------------
+	var messageId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "message_id", r.PathValue("message_id"), &messageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "message_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleRecallChatMessageApiChatMessageIdRecallPost(w, r, messageId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -12255,6 +12290,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/suggested-replies", wrapper.HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/chat/suggested-replies/{member_id}", wrapper.HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/unread-count", wrapper.HandleChatUnreadCountApiChatUnreadCountGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat/{message_id}/recall", wrapper.HandleRecallChatMessageApiChatMessageIdRecallPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff", wrapper.HandleGetDiffApiDiffGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff/share-link", wrapper.HandleGetDiffShareLinkApiDiffShareLinkGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/doc-sizes", wrapper.HandlePeekDocSizesApiDocSizesGet)

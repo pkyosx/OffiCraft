@@ -276,9 +276,9 @@ func TestDeliverScheduledMessage(t *testing.T) {
 						"slot":        "2026-09-07T09:00",
 					},
 				},
-				"reply_card_status": "",
-				"attachments":       []any{},
-				"reply_to":          "",
+				"recalled_ts": 0, "reply_card_status": "",
+				"attachments": []any{},
+				"reply_to":    "",
 			}},
 		})
 	})

@@ -113,9 +113,9 @@ func TestDeliverPasswordExposedAlert(t *testing.T) {
 						"attempts": 3,
 					},
 				},
-				"reply_card_status": "",
-				"attachments":       []any{},
-				"reply_to":          "",
+				"recalled_ts": 0, "reply_card_status": "",
+				"attachments": []any{},
+				"reply_to":    "",
 			}},
 		})
 	})

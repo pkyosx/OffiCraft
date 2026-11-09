@@ -611,6 +611,34 @@ func TestAppendSQL(t *testing.T) {
 		})
 	}
 
+	t.Run("hideRecalled leaves out a message carrying recalled_ts and keeps a row whose meta is not JSON", func(t *testing.T) {
+		dalPutChats(t, d,
+			ChatMessage{ID: "m5", Sender: "ann", Recipient: "bob", Body: "recalled", TS: 5,
+				Meta: map[string]any{"recalled_ts": 50.5}},
+			ChatMessage{ID: "m6", Sender: "ann", Recipient: "bob", Body: "zero", TS: 6,
+				Meta: map[string]any{"recalled_ts": 0}},
+			ChatMessage{ID: "m7", Sender: "ann", Recipient: "bob", Body: "text", TS: 7,
+				Meta: map[string]any{"recalled_ts": "yes"}})
+		if _, err := d.wdb.Exec(
+			`INSERT INTO chat_message (id, sender, recipient, body, ts, meta) VALUES (?, ?, ?, ?, ?, ?)`,
+			"m8", "ann", "bob", "broken", 8, "{this is not json",
+		); err != nil {
+			t.Fatalf("seed a corrupt meta row: %v", err)
+		}
+		t.Cleanup(func() {
+			if _, err := d.wdb.Exec(`DELETE FROM chat_message WHERE id IN ('m5', 'm6', 'm7', 'm8')`); err != nil {
+				t.Fatalf("cleanup: %v", err)
+			}
+		})
+		query := `SELECT id FROM chat_message WHERE 1=1`
+		var args []any
+		chatListFilter{sender: "ann", hideRecalled: true}.appendSQL(&query, &args, "")
+		want := []string{"m1", "m3", "m6", "m7", "m8"}
+		if got := selectIDs(t, query+` ORDER BY ts, id`, args); !reflect.DeepEqual(got, want) {
+			t.Fatalf("want %v, got %v", want, got)
+		}
+	})
+
 	t.Run("the column prefix qualifies a joined read", func(t *testing.T) {
 		query := `
 			SELECT m.id FROM chat_message m
@@ -1028,13 +1056,13 @@ func TestListChatInvolving(t *testing.T) {
 	m4 := dalChat("m4", "ann", "carl", 400)
 	dalPutChats(t, d, m1, m2, m3, m4)
 
-	got, err := d.ListChatInvolving("ann", 10)
+	got, err := d.ListChatInvolving("ann", false, 10)
 	if err != nil {
 		t.Fatalf("ListChatInvolving: %v", err)
 	}
 	dalWantChats(t, "sender OR recipient, oldest first", got, []ChatMessage{m1, m3, m4})
 
-	got, err = d.ListChatInvolving("ann", 2)
+	got, err = d.ListChatInvolving("ann", false, 2)
 	if err != nil {
 		t.Fatalf("ListChatInvolving(limit 2): %v", err)
 	}
@@ -1051,7 +1079,7 @@ func TestListChatInvolving(t *testing.T) {
 		{"a negative limit reads nothing", "ann", -1, nil},
 		{"someone with no line reads nothing", "nobody", 10, []ChatMessage{}},
 	} {
-		got, err := d.ListChatInvolving(tc.participant, tc.limit)
+		got, err := d.ListChatInvolving(tc.participant, false, tc.limit)
 		if err != nil {
 			t.Fatalf("ListChatInvolving(%s): %v", tc.name, err)
 		}
@@ -1071,7 +1099,7 @@ func TestListChatInvolving(t *testing.T) {
 			{"a limit cutting an equal-ts group keeps the larger ids", 4,
 				[]ChatMessage{l.s300, l.self300, l.s400, l.r500}},
 		} {
-			got, err := d.ListChatInvolving("ann", tc.limit)
+			got, err := d.ListChatInvolving("ann", false, tc.limit)
 			if err != nil {
 				t.Fatalf("ListChatInvolving(%s): %v", tc.name, err)
 			}
@@ -1651,6 +1679,32 @@ func TestListChatAttachmentRefsOneSided(t *testing.T) {
 	}
 }
 
+func TestMarkChatRecalled(t *testing.T) {
+	d := newAPITestDAL(t)
+	msg := dalChatWithAtts("m1", "ann", "bob", 100, dalAttRef("att-1", "image/png", "a.png"))
+	msg.Meta["count"] = 12345678901234.0
+	other := dalChat("m2", "ann", "bob", 200)
+	dalPutChats(t, d, msg, other)
+
+	if err := d.MarkChatRecalled("m1", 300.25); err != nil {
+		t.Fatalf("MarkChatRecalled: %v", err)
+	}
+	var raw string
+	if err := d.rdb.QueryRow(`SELECT meta FROM chat_message WHERE id = 'm1'`).Scan(&raw); err != nil {
+		t.Fatalf("read meta: %v", err)
+	}
+	if want := `{"attachments":[{"filename":"a.png","id":"att-1","mime":"image/png"}],"count":12345678901234,"recalled_ts":300.25}`; raw != want {
+		t.Fatalf("only recalled_ts is added, every other byte of meta kept:\n got %s\nwant %s", raw, want)
+	}
+	msg.Meta["recalled_ts"] = 300.25
+	dalWantChats(t, "the stream after one recall", dalMustListChat(t, d), []ChatMessage{msg, other})
+
+	if err := d.MarkChatRecalled("ghost", 1); err != nil {
+		t.Fatalf("MarkChatRecalled on an unknown id writes nothing and is not an error: %v", err)
+	}
+	dalWantChats(t, "the stream after recalling an unknown id", dalMustListChat(t, d), []ChatMessage{msg, other})
+}
+
 func TestListChatAttachmentRefsFor(t *testing.T) {
 	d := newAPITestDAL(t)
 	dalPutChats(t, d,
@@ -1672,6 +1726,21 @@ func TestListChatAttachmentRefsFor(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("both sides merged, newest first, a self-message counted once:\n got %+v\nwant %+v", got, want)
+	}
+
+	if err := d.MarkChatRecalled("m2", 400); err != nil {
+		t.Fatalf("MarkChatRecalled: %v", err)
+	}
+	got, err = d.ListChatAttachmentRefsFor("ann")
+	if err != nil {
+		t.Fatalf("ListChatAttachmentRefsFor: %v", err)
+	}
+	want = []ChatAttachmentRef{
+		{MessageID: "m3", Ord: 0, AttachmentID: "att-4", Sender: "ann", Recipient: "ann", TS: 200, Mime: "image/png", Filename: "d.png"},
+		{MessageID: "m1", Ord: 0, AttachmentID: "att-1", Sender: "ann", Recipient: "bob", TS: 100, Mime: "image/png", Filename: "a.png"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("a recalled message's attachments leave the gallery:\n got %+v\nwant %+v", got, want)
 	}
 
 	got, err = d.ListChatAttachmentRefsFor("nobody")
@@ -1919,6 +1988,18 @@ func TestUnreadCountsFor(t *testing.T) {
 	want = map[string]int{"ann": 1, "owner": 1}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("a sender with nothing unread is absent: want %v, got %v", want, got)
+	}
+
+	if err := d.MarkChatRecalled("s1", 600); err != nil {
+		t.Fatalf("MarkChatRecalled: %v", err)
+	}
+	got, err = d.UnreadCountsFor("owner")
+	if err != nil {
+		t.Fatalf("UnreadCountsFor: %v", err)
+	}
+	want = map[string]int{"ann": 1}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("a recalled message is not counted: want %v, got %v", want, got)
 	}
 
 	for _, reader := range []string{"nobody", ""} {
