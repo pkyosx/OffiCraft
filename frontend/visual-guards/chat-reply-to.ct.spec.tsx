@@ -4,7 +4,7 @@
 // x 不清字、送出帶對象、引用列點得回去）。這裡補的是 jsdom **量不到**的三件，
 // 每一件都對應一個真的會壞掉的方式：
 //
-//  ① 回覆入口是 hover 才顯形的，但**永遠占著版面**。用 display:none 做隱藏會讓
+//  ① 成員訊息上的回覆入口是 hover 才顯形的（owner 自己的訊息上常駐，2026-11-09），但**永遠占著版面**。用 display:none 做隱藏會讓
 //     氣泡在滑過去的當下橫向跳一格 —— 那是使用者感覺得到、jsdom 完全看不到的。
 //  ② 引用列與「正在回覆」橫幅的**每一行**都必須裁掉溢出。它們攜帶的是別人訊息的
 //     原文，長度不受這一則控制；一旦允許折行，一句長訊息就會把版面撐開，或把輸入
@@ -76,11 +76,7 @@ for (const width of [375, 390, 720, 1280]) {
     const bubble = cmp.getByTestId("row-incoming").locator(".chat__msg-text");
 
     // Hidden by OPACITY, not by display/visibility: it must still occupy space.
-    // Both bubble kinds, because the contrast test downstream measures the ink
-    // on both and describes it as "the colour they are revealed in" — a claim
-    // that needs the resting state pinned on both, not just this one.
     await expect(entry).toHaveCSS("opacity", "0");
-    await expect(cmp.getByTestId("reply-entry-mine")).toHaveCSS("opacity", "0");
     const box = await entry.boundingBox();
     expect(box, "an opacity-hidden control still has a box").not.toBeNull();
     expect(box!.width).toBeGreaterThan(0);
@@ -93,6 +89,40 @@ for (const width of [375, 390, 720, 1280]) {
     const after = await bubble.boundingBox();
     expect(Math.abs(after!.x - before!.x)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(after!.width - before!.width)).toBeLessThanOrEqual(0.5);
+  });
+
+  test(`width ${width}: on the owner's own bubble 回覆這則 and 刪除 rest visible without hover`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    const cmp = await mount(<ChatReplyToStory />);
+
+    // owner 2026-11-09: the corner width is reserved on his own bubbles anyway,
+    // and a reserved corner with no icon in it read as a stray gap. The pointer
+    // is parked on an INCOMING row so nothing here is being hovered.
+    await cmp.getByTestId("row-incoming").hover();
+    for (const id of ["reply-entry-mine", "reply-entry-mine-deletable", "delete-entry-mine"]) {
+      await expect(cmp.getByTestId(id), id).toHaveCSS("opacity", "1");
+    }
+    // Readable at rest, not merely present: the resting state is now the one
+    // the owner sees, so the 3:1 non-text floor applies to it.
+    for (const id of ["reply-entry-mine-deletable", "delete-entry-mine"]) {
+      const { ink, ground } = await cmp.getByTestId(id).evaluate((e) => ({
+        ink: getComputedStyle(e).color,
+        ground: getComputedStyle(e.closest(".chat__msg-bubble")!).backgroundColor,
+      }));
+      expect(contrast(ink, ground), `${id}: resting ink vs its bubble`).toBeGreaterThanOrEqual(3);
+    }
+    // Both controls sit inside the bubble's reserved corner, never over the text.
+    const text = await cmp
+      .getByTestId("row-mine-deletable")
+      .locator(".chat__msg-text")
+      .boundingBox();
+    for (const id of ["reply-entry-mine-deletable", "delete-entry-mine"]) {
+      const b = await cmp.getByTestId(id).boundingBox();
+      expect(b!.x, `${id} starts right of the text`).toBeGreaterThanOrEqual(text!.x + text!.width - 0.5);
+    }
   });
 
   test(`width ${width}: the quote row is two lines, each clipped, and stays inside the thread`, async ({
@@ -296,10 +326,10 @@ for (const width of [375, 390, 720, 1280]) {
     // measured against the bubble each button actually sits on.
     //
     // Precisely: this measures the INK, not the resting appearance. On a fine
-    // pointer these sit at `opacity: 0` until hover, so what is pinned here is
-    // the colour they are revealed IN; the reveal itself is pinned by the
-    // opacity assertion at the top of this file, and the state a touch user
-    // actually gets — where there is no reveal — is pinned by its own test
+    // pointer the incoming one sits at `opacity: 0` until hover, so what is
+    // pinned here is the colour it is revealed IN; the reveal itself is pinned
+    // by the opacity assertion at the top of this file, and the state a touch
+    // user actually gets — where there is no reveal — is pinned by its own test
     // under `hasTouch`, which does fold opacity into the contrast.
     for (const [btn, row] of [
       [incoming, "row-incoming"],

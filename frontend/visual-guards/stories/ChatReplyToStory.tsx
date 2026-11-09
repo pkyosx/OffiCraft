@@ -538,6 +538,45 @@ export function ChatReplyToStory({
               </div>
             </div>
           </div>
+          {/* An own message still inside the delete window: the slot carries
+           * 回覆這則 and 刪除, as ChatArea renders it (acts2). */}
+          <div className="chat__msg chat__msg--me" data-msg-id="c-7" data-testid="row-mine-deletable">
+            <div className="chat__msg-line">
+              <div className="chat__msg-sidemeta">
+                <span className="chat__msg-time">10:09</span>
+              </div>
+              <div className="chat__msg-content">
+                <div className="chat__msg-bubble chat__msg-bubble--acts2">
+                  <div className="chat__msg-actions">
+                    <button
+                      type="button"
+                      className="chat__msg-reply"
+                      aria-label="回覆這則"
+                      data-testid="reply-entry-mine-deletable"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="9 17 4 12 9 7" />
+                        <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className="chat__msg-delete"
+                      aria-label="刪除"
+                      data-testid="delete-entry-mine"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4h8v2" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="chat__msg-text doc-md">剛送出的</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

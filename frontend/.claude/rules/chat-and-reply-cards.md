@@ -300,6 +300,8 @@ composer 上方的橫幅走同一個形狀（它從已載入視窗解析，是�
 不要為這一列另寫一份展開或另一個 overlay。
 server 的聊天列表預設不列已刪除訊息（任何呼叫者都一樣）；聊天視窗的讀取（`listChat`／`listChatWindow`）在 http seam 一律帶 `include_deleted=true` 才拿得到這些列，未讀探針（`unread=true`）不能帶，server 會 422。
 
+**owner 自己訊息角落的「回覆這則」與「刪除」平常就顯示，不等 hover**（owner 2026-11-09：那格寬度本來就預留，空著看起來像多一塊空白）；成員訊息的角落維持 hover 才顯示，觸控裝置兩邊都常駐。「刪除」出不出現仍只看 `chatDeletable`。規則在 `office.css` 的 `.chat__msg--me .chat__msg-actions > …`，CT `chat-reply-to` 量兩邊的靜止 opacity 與對比。
+
 **橫幅有自己的文案，不准借用訊息列那一句。** composer 上方的「正在回覆」橫幅沒有
 `reply_to_chat` 可讀（那是回覆**送出後**才存在的東西），它只認**已載入視窗**裡的
 那則（`messageById`）。而「不在已載入視窗」跟「訊息不存在」是兩件事：往上捲載入
