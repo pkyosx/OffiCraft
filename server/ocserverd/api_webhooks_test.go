@@ -932,7 +932,7 @@ func TestHandleReceiveWebhookInPost(t *testing.T) {
 				"meta": map[string]any{
 					"webhook": map[string]any{"endpoint_id": "alerts", "purpose": "CI"},
 				},
-				"recalled_ts": 0, "reply_card_status": "",
+				"deleted_ts": 0, "reply_card_status": "",
 				"attachments": []any{},
 				"reply_to":    "",
 			}},

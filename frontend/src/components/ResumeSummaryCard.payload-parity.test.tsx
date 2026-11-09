@@ -140,7 +140,7 @@ const WIRE: WireResumeSummary = {
       ts: 1786000001,
       ts_display: "2026-08-12 22:13:04 +08:00",
       body_omitted_chars: 0,
-      recalled_ts: 0,
+      deleted_ts: 0,
       reply_card_status: "answered",
       reply_to: "",
       attachments: [],
@@ -174,7 +174,7 @@ const WIRE: WireResumeSummary = {
       // FOLDED: this message IS here, with this many characters kept back on
       // the server. Not the same thing as chat_earlier_omitted below.
       body_omitted_chars: 1284,
-      recalled_ts: 0,
+      deleted_ts: 0,
       reply_card_status: "",
       reply_to: "",
       attachments: [
@@ -204,7 +204,7 @@ const WIRE: WireResumeSummary = {
       ts: 1786000800,
       ts_display: "2026-08-12 22:40:11 +08:00",
       body_omitted_chars: 0,
-      recalled_ts: 0,
+      deleted_ts: 0,
       reply_card_status: "",
       reply_to: "cm-1",
       reply_to_chat: {
@@ -214,7 +214,7 @@ const WIRE: WireResumeSummary = {
         to: "owner",
         to_name: "Seth",
         content: "已完成後端組裝,等你決定要不要照這個形狀往下做",
-        recalled: false,
+        deleted: false,
       },
       attachments: [],
     },
@@ -231,7 +231,7 @@ const WIRE: WireResumeSummary = {
       ts: 1786000900,
       ts_display: "2026-08-12 22:41:52 +08:00",
       body_omitted_chars: 0,
-      recalled_ts: 0,
+      deleted_ts: 0,
       reply_card_status: "",
       reply_to: "cm-vanished",
       attachments: [],
@@ -250,7 +250,7 @@ const WIRE: WireResumeSummary = {
       ts: 1786000950,
       ts_display: "2026-08-12 22:43:07 +08:00",
       body_omitted_chars: 0,
-      recalled_ts: 0,
+      deleted_ts: 0,
       reply_card_status: "",
       reply_to: "cm-2",
       reply_to_chat: {
@@ -260,7 +260,7 @@ const WIRE: WireResumeSummary = {
         to: "m-planner",
         to_name: "普朗克",
         content: "",
-        recalled: false,
+        deleted: false,
       },
       attachments: [],
     },
@@ -611,10 +611,10 @@ describe("ResumeSummaryCard renders the SAME snapshot the agent receives", () =>
     expect(txt(u.getAllByTestId("mp-resume-chat-quote-body")[0])).toBe("被選的那段");
   });
 
-  it("says 「已刪除的訊息」 in place of the quote line when the original was recalled", async () => {
+  it("says 「已刪除的訊息」 in place of the quote line when the original was deleted", async () => {
     const mapped = MAPPED();
     const chat = mapped.chat.map((m, i) =>
-      i === 2 ? { ...m, replyToChat: { ...m.replyToChat!, content: "", recalled: true } } : m,
+      i === 2 ? { ...m, replyToChat: { ...m.replyToChat!, content: "", deleted: true } } : m,
     );
     OVERRIDE.value = { ...mapped, chat };
     const u = await open();
@@ -1032,7 +1032,7 @@ describe("the roll-call: a field the seam gains cannot stay undrawn", () => {
         // set (the original is gone).
         // Collapsing them into one field is the change this roll-call is here
         // to make announce itself.
-        "recalledTs",
+        "deletedTs",
         "replyTo",
         "replyToChat",
         "taskId",

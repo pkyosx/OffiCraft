@@ -366,10 +366,13 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 		}
 	}
 	// Drop any caller-supplied reply link or excerpt: one arriving pre-made in meta
-	// would bypass the checks below. Likewise the recall mark: only the recall route writes it.
+	// would bypass the checks below. Likewise a deletion mark under either the
+	// current or the legacy name: deletion lives in its own column, and a key in
+	// meta would read as one.
 	delete(meta, chatReplyToMetaKey)
 	delete(meta, chatReplyExcerptMetaKey)
-	delete(meta, chatRecalledTSMetaKey)
+	delete(meta, chatDeletedTSKey)
+	delete(meta, "recalled_ts")
 	replyTo := trimString(strOrEmpty(body.ReplyTo))
 	// ⚠️ Not checked against the quoted body: a selection of the rendered message
 	// need not appear verbatim in its raw markdown.
@@ -522,7 +525,7 @@ func (s *apiServer) chatReplyQuote(replyTo, excerpt string, names map[string]str
 		return nil, nil
 	}
 	quote := newChatReplyQuoteDTO(quoted[0], names)
-	if !quote.Recalled {
+	if !quote.Deleted {
 		quote.ReplyExcerpt = excerpt
 	}
 	return quote, nil
@@ -852,10 +855,10 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 	}
 	actor := currentActor(r)
 	filter := chatListFilter{
-		participant:  strOrEmpty(params.With),
-		sender:       strOrEmpty(params.Sender),
-		recipient:    strOrEmpty(params.Recipient),
-		hideRecalled: chatListingHidesRecalled(actor),
+		participant: strOrEmpty(params.With),
+		sender:      strOrEmpty(params.Sender),
+		recipient:   strOrEmpty(params.Recipient),
+		hideDeleted: chatListingHidesDeleted(actor),
 	}
 	limit := chatListDefaultLimit
 	if params.Limit != nil {
@@ -1232,7 +1235,7 @@ func (s *apiServer) resumeSnapshotParts(actor string) (resumeWakeSnapshot, error
 		}
 	}
 
-	msgs, err := s.dal.ListChatInvolving(actor, chatListingHidesRecalled(actor), resumeChatFetch)
+	msgs, err := s.dal.ListChatInvolving(actor, chatListingHidesDeleted(actor), resumeChatFetch)
 	if err != nil {
 		return resumeWakeSnapshot{}, err
 	}

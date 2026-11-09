@@ -1658,7 +1658,7 @@ function mockReplyToChatOf(
   if (!replyTo) return null;
   const quoted = chatLog.find((m) => m.id === replyTo);
   if (!quoted) return null;
-  if ((quoted.recalledTs ?? 0) > 0) {
+  if ((quoted.deletedTs ?? 0) > 0) {
     return {
       id: quoted.id,
       from: quoted.from,
@@ -1666,7 +1666,7 @@ function mockReplyToChatOf(
       to: quoted.to,
       toName: "",
       content: "",
-      recalled: true,
+      deleted: true,
     };
   }
   const oneLine = quoted.body.split(/\s+/).filter(Boolean).join(" ");
@@ -1692,7 +1692,7 @@ function mockReplyToChatOf(
         ? runes.slice(0, MOCK_REPLY_QUOTE_MAX_CHARS).join("") + "\u2026"
         : oneLine,
     ...(replyExcerpt ? { replyExcerpt } : {}),
-    recalled: false,
+    deleted: false,
   };
 }
 
@@ -1704,13 +1704,13 @@ function mockServedChatMessage(m: ChatMessage): ChatMessage {
     ...m,
     replyCardStatus: mockReplyCardStatusOf(m.replyCardId),
     replyToChat: mockReplyToChatOf(m.replyTo, chatReplyExcerpts.get(m.id)),
-    recalledTs: m.recalledTs ?? 0,
+    deletedTs: m.deletedTs ?? 0,
     taskId: m.taskId ?? null,
   };
 }
 
-/** Mirrors the server's `chatRecallWindowSecs`. */
-const MOCK_CHAT_RECALL_WINDOW_SECS = 24 * 60 * 60;
+/** Mirrors the server's `chatDeleteWindowSecs`. */
+const MOCK_CHAT_DELETE_WINDOW_SECS = 24 * 60 * 60;
 
 /** Terminal task statuses (spec: 已完成/終止 為終態) — shared by the mock's
  * count / terminate / priority guards (mirrors the server's closed-set rule). */
@@ -3622,7 +3622,7 @@ const mockApiImpl = {
       .filter(
         (m) =>
           (m.from === memberId || m.to === memberId) &&
-          !((m.recalledTs ?? 0) > 0),
+          !((m.deletedTs ?? 0) > 0),
       )
       .sort((a, b) => a.ts - b.ts);
     // The cut point: whole messages this payload does NOT carry. TRUNCATION —
@@ -3974,7 +3974,7 @@ const mockApiImpl = {
     const involved = chatLog
       .filter(
         (m) =>
-          (m.from === withId || m.to === withId) && !((m.recalledTs ?? 0) > 0),
+          (m.from === withId || m.to === withId) && !((m.deletedTs ?? 0) > 0),
       )
       .sort((a, b) => b.ts - a.ts);
     return involved.flatMap((m) =>
@@ -4106,52 +4106,52 @@ const mockApiImpl = {
     };
   },
 
-  async recallChatMessage(id: string): Promise<ChatMessage> {
-    // Mirrors HandleRecallChatMessageApiChatMessageIdRecallPost: same refusals
-    // in the same order, an already recalled message answers unchanged, and a
-    // fresh recall leaves the recipient a system notice replying to it.
-    const path = `http 409 for POST /api/chat/${id}/recall`;
+  async deleteChatMessage(id: string): Promise<ChatMessage> {
+    // Mirrors HandleDeleteChatMessageApiChatMessageIdDeletePost: same refusals
+    // in the same order, an already deleted message answers unchanged, and a
+    // fresh delete leaves the recipient a system notice replying to it.
+    const path = `http 409 for DELETE /api/chat/${id}`;
     const m = chatLog.find((x) => x.id === id);
     if (!m) {
       throw mockApiError(
-        `http 404 for POST /api/chat/${id}/recall`,
+        `http 404 for DELETE /api/chat/${id}`,
         404,
         `chat message '${id}' not found`,
       );
     }
-    if ((m.recalledTs ?? 0) > 0) return mockServedChatMessage(m);
+    if ((m.deletedTs ?? 0) > 0) return mockServedChatMessage(m);
     if (m.from !== MOCK_OWNER_ID) {
       throw mockApiError(
         path,
         409,
-        `chat message '${id}' was sent by '${m.from}' — only the owner's own messages can be recalled`,
+        `chat message '${id}' was sent by '${m.from}' — only the owner's own messages can be deleted`,
       );
     }
     if (m.taskId) {
       throw mockApiError(
         path,
         409,
-        `chat message '${id}' is a message on task ${m.taskId} — task messages cannot be recalled`,
+        `chat message '${id}' is a message on task ${m.taskId} — task messages cannot be deleted`,
       );
     }
     if (m.replyCardId) {
       throw mockApiError(
         path,
         409,
-        `chat message '${id}' carries a reply card — expire the card instead; a card message cannot be recalled`,
+        `chat message '${id}' carries a reply card — expire the card instead; a card message cannot be deleted`,
       );
     }
     const now = Date.now() / 1000;
-    if (now - m.ts >= MOCK_CHAT_RECALL_WINDOW_SECS) {
+    if (now - m.ts >= MOCK_CHAT_DELETE_WINDOW_SECS) {
       throw mockApiError(
         path,
         409,
-        `chat message '${id}' was sent more than 24 hours ago — only messages younger than 24 hours can be recalled`,
+        `chat message '${id}' was sent more than 24 hours ago — only messages younger than 24 hours can be deleted`,
       );
     }
-    m.recalledTs = now;
+    m.deletedTs = now;
     chatLog.push({
-      id: `mock-recall-${Date.now()}-${++mockChatSeq}`,
+      id: `mock-delete-${Date.now()}-${++mockChatSeq}`,
       from: "system",
       to: m.to,
       body: `Owner 刪除了訊息 #${id}，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=${id} 讀回。`,

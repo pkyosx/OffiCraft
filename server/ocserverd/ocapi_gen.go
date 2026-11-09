@@ -1433,15 +1433,15 @@ type ChatMessageDTO struct {
 
 	// Card The reply card this message carries, FOLDED IN PLACE onto the message that opened it — the options offered and the answer given, so a waking agent reads the decision in the chat stream instead of joining a second list. Omitted (``null``) when the message carries no card, and only ever filled for cards the snapshot's own subject INITIATED.
 	Card *ChatInlineReplyCardDTO `json:"card,omitempty"`
-	From string                  `json:"from"`
+
+	// DeletedTs When the owner deleted this message (epoch seconds); ``0`` = not deleted. For a member caller a deleted message is left out of chat listings, the unread backfill and the unread count; a by-id read (``ids=``) still returns it with ``body`` intact. The owner's own listings keep it, flagged by this field, so the owner's thread can show where it was.
+	DeletedTs *float64 `json:"deleted_ts,omitempty"`
+	From      string   `json:"from"`
 
 	// FromName The sender's DISPLAY name, resolved server-side from the roster (ANY roster status, so a dismissed member still reads by name). ``from`` stays the ADDRESS and never changes meaning — this field is carried IN ADDITION so a reader gets both the human name and the id it must reply to. ``""`` when the sender does not resolve to a roster row (honest empty — never fabricated).
 	FromName *string                 `json:"from_name,omitempty"`
 	Id       string                  `json:"id"`
 	Meta     *map[string]interface{} `json:"meta,omitempty"`
-
-	// RecalledTs When the owner recalled this message (epoch seconds); ``0`` = not recalled. For a member caller a recalled message is left out of chat listings, the unread backfill and the unread count; a by-id read (``ids=``) still returns it with ``body`` intact. The owner's own listings keep it, flagged by this field, so the owner's thread can show where it was.
-	RecalledTs *float64 `json:"recalled_ts,omitempty"`
 
 	// ReplyCardStatus Read-time join: the CURRENT status (``waiting`` | ``answered`` | ``expired``) of the reply card this message carries (``meta.reply_card_id``); ``""`` when the message carries no card. Lets the inline chat card (ChatReplyCard) label its COLLAPSED row (待回覆 / 已回覆 / 已過期) WITHOUT a per-card GET. Since T-48 (owner ruling on card rc-d8844e709f42) every chat card mounts COLLAPSED regardless of status and fetches the full card only on expand, so this field no longer decides eager-vs-lazy — it decides what the row SAYS while nothing has been fetched. TaskStepDTO.reply_card_status is UNCHANGED: the task-embedded card still decides eager-vs-lazy at mount. NOT stored — computed each read from the card's live status (the stored ``meta`` only ever holds the id, stamped ``waiting`` at open and never updated on answer).
 	ReplyCardStatus *string `json:"reply_card_status,omitempty"`
@@ -1548,14 +1548,14 @@ type ChatReplyQuoteDTO struct {
 	//
 	// ``""`` IS AN ORDINARY, LEGAL VALUE: a message that carried only attachments has no text to quote. It is not a failure and not a placeholder for one — absence of the whole ``reply_to_chat`` object is how a missing original is said.
 	Content *string `json:"content,omitempty"`
-	From    string  `json:"from"`
+
+	// Deleted The quoted message was deleted by the owner. When true, ``content`` and ``reply_excerpt`` are empty: a quote never carries the text of a deleted message.
+	Deleted *bool  `json:"deleted,omitempty"`
+	From    string `json:"from"`
 
 	// FromName The quoted sender's DISPLAY name, resolved server-side exactly as ``ChatMessageDTO.from_name`` is — including the part that is easy to forget: only the reads that resolve names at all (the wake snapshot) fill it, and every other read leaves it ``""``. Honestly empty, never fabricated, and never a substitute for ``from``, which is always the address.
 	FromName *string `json:"from_name,omitempty"`
 	Id       string  `json:"id"`
-
-	// Recalled The quoted message was recalled by the owner. When true, ``content`` and ``reply_excerpt`` are empty: a quote never carries the text of a recalled message.
-	Recalled *bool `json:"recalled,omitempty"`
 
 	// ReplyExcerpt The piece of the quoted message the REPLY selected (``ChatPostDTO.reply_excerpt``), exactly as it was sent: not collapsed and not shortened. ABSENT when the reply quoted the whole message.
 	//
@@ -6135,9 +6135,9 @@ type ServerInterface interface {
 	// Total chat unread count (the office nav red dot).
 	// (GET /api/chat/unread-count)
 	HandleChatUnreadCountApiChatUnreadCountGet(w http.ResponseWriter, r *http.Request)
-	// Recall one of the owner's own chat messages sent within the last 24 hours (owner only; no undo).
-	// (POST /api/chat/{message_id}/recall)
-	HandleRecallChatMessageApiChatMessageIdRecallPost(w http.ResponseWriter, r *http.Request, messageId string)
+	// Delete one of the owner's own chat messages sent within the last 24 hours (owner only; no undo).
+	// (DELETE /api/chat/{message_id})
+	HandleDeleteChatMessageApiChatMessageIdDelete(w http.ResponseWriter, r *http.Request, messageId string)
 	// Resolve both sides of one comparison (?before=&after=; optional labels and ?sig=). Each side carries its text, its column heading, and an honest gone marker when the address resolves to nothing.
 	// (GET /api/diff)
 	HandleGetDiffApiDiffGet(w http.ResponseWriter, r *http.Request, params HandleGetDiffApiDiffGetParams)
@@ -7743,8 +7743,8 @@ func (siw *ServerInterfaceWrapper) HandleChatUnreadCountApiChatUnreadCountGet(w 
 	handler.ServeHTTP(w, r)
 }
 
-// HandleRecallChatMessageApiChatMessageIdRecallPost operation middleware
-func (siw *ServerInterfaceWrapper) HandleRecallChatMessageApiChatMessageIdRecallPost(w http.ResponseWriter, r *http.Request) {
+// HandleDeleteChatMessageApiChatMessageIdDelete operation middleware
+func (siw *ServerInterfaceWrapper) HandleDeleteChatMessageApiChatMessageIdDelete(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7759,7 +7759,7 @@ func (siw *ServerInterfaceWrapper) HandleRecallChatMessageApiChatMessageIdRecall
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleRecallChatMessageApiChatMessageIdRecallPost(w, r, messageId)
+		siw.Handler.HandleDeleteChatMessageApiChatMessageIdDelete(w, r, messageId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -12290,7 +12290,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/suggested-replies", wrapper.HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/chat/suggested-replies/{member_id}", wrapper.HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/unread-count", wrapper.HandleChatUnreadCountApiChatUnreadCountGet)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat/{message_id}/recall", wrapper.HandleRecallChatMessageApiChatMessageIdRecallPost)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/chat/{message_id}", wrapper.HandleDeleteChatMessageApiChatMessageIdDelete)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff", wrapper.HandleGetDiffApiDiffGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff/share-link", wrapper.HandleGetDiffShareLinkApiDiffShareLinkGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/doc-sizes", wrapper.HandlePeekDocSizesApiDocSizesGet)

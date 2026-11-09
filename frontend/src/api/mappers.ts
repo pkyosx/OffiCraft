@@ -486,10 +486,10 @@ export function toChatMessage(w: WireChatMessage): ChatMessage {
           ...(w.reply_to_chat.reply_excerpt
             ? { replyExcerpt: w.reply_to_chat.reply_excerpt }
             : {}),
-          recalled: w.reply_to_chat.recalled ?? false,
+          deleted: w.reply_to_chat.deleted ?? false,
         }
       : null,
-    recalledTs: w.recalled_ts ?? 0,
+    deletedTs: w.deleted_ts ?? 0,
     taskId:
       typeof rawTaskId === "string" && rawTaskId !== "" ? rawTaskId : null,
   };

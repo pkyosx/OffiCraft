@@ -1747,6 +1747,12 @@
             ],
             "description": "The reply card this message carries, FOLDED IN PLACE onto the message that opened it — the options offered and the answer given, so a waking agent reads the decision in the chat stream instead of joining a second list. Omitted (``null``) when the message carries no card, and only ever filled for cards the snapshot's own subject INITIATED."
           },
+          "deleted_ts": {
+            "default": 0,
+            "description": "When the owner deleted this message (epoch seconds); ``0`` = not deleted. For a member caller a deleted message is left out of chat listings, the unread backfill and the unread count; a by-id read (``ids=``) still returns it with ``body`` intact. The owner's own listings keep it, flagged by this field, so the owner's thread can show where it was.",
+            "title": "Deleted Ts",
+            "type": "number"
+          },
           "from": {
             "title": "From",
             "type": "string"
@@ -1765,12 +1771,6 @@
             "additionalProperties": true,
             "title": "Meta",
             "type": "object"
-          },
-          "recalled_ts": {
-            "default": 0,
-            "description": "When the owner recalled this message (epoch seconds); ``0`` = not recalled. For a member caller a recalled message is left out of chat listings, the unread backfill and the unread count; a by-id read (``ids=``) still returns it with ``body`` intact. The owner's own listings keep it, flagged by this field, so the owner's thread can show where it was.",
-            "title": "Recalled Ts",
-            "type": "number"
           },
           "reply_card_status": {
             "default": "",
@@ -1940,6 +1940,12 @@
             "title": "Content",
             "type": "string"
           },
+          "deleted": {
+            "default": false,
+            "description": "The quoted message was deleted by the owner. When true, ``content`` and ``reply_excerpt`` are empty: a quote never carries the text of a deleted message.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
           "from": {
             "title": "From",
             "type": "string"
@@ -1953,12 +1959,6 @@
           "id": {
             "title": "Id",
             "type": "string"
-          },
-          "recalled": {
-            "default": false,
-            "description": "The quoted message was recalled by the owner. When true, ``content`` and ``reply_excerpt`` are empty: a quote never carries the text of a recalled message.",
-            "title": "Recalled",
-            "type": "boolean"
           },
           "reply_excerpt": {
             "description": "The piece of the quoted message the REPLY selected (``ChatPostDTO.reply_excerpt``), exactly as it was sent: not collapsed and not shortened. ABSENT when the reply quoted the whole message.\n\nIt belongs to the reply, not to the quoted message, and is not guaranteed to appear verbatim in either ``content`` or the quoted body (a selection of rendered text). ``content`` beside it is unchanged: still the quoted message's own quote line.",
@@ -15607,10 +15607,10 @@
         }
       }
     },
-    "/api/chat/{message_id}/recall": {
-      "post": {
-        "description": "- Owner only. Recalls one of the owner's own ordinary chat messages sent less than 24 hours ago; task messages, reply-card messages and messages from anyone else are refused.\n- The original is kept: members stop seeing it in chat listings, the unread backfill and unread counts; a by-id read, and the owner's own listings, still return it with `recalled_ts` set.\n- The recipient immediately gets a `system` notice naming the recalled message id. No undo.\n- Recalling an already recalled message changes nothing and sends no second notice.\n- Emits a `chat` event; a client holding the stream learns of this without polling.",
-        "operationId": "handle_recall_chat_message_api_chat__message_id__recall_post",
+    "/api/chat/{message_id}": {
+      "delete": {
+        "description": "- Owner only. Deletes one of the owner's own ordinary chat messages sent less than 24 hours ago; task messages, reply-card messages and messages from anyone else are refused.\n- The original is kept: members stop seeing it in chat listings, the unread backfill and unread counts; a by-id read, and the owner's own listings, still return it with `deleted_ts` set.\n- The recipient immediately gets a `system` notice naming the deleted message id. No undo.\n- Deleting an already deleted message changes nothing and sends no second notice.\n- Emits a `chat` event; a client holding the stream learns of this without polling.",
+        "operationId": "handle_delete_chat_message_api_chat__message_id__delete",
         "parameters": [
           {
             "in": "path",
@@ -15664,7 +15664,7 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Recall one of the owner's own chat messages sent within the last 24 hours (owner only; no undo).",
+        "summary": "Delete one of the owner's own chat messages sent within the last 24 hours (owner only; no undo).",
         "x-mcp": {
           "include": false
         }

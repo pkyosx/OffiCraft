@@ -1,11 +1,11 @@
-// ChatArea 「刪除」 — the owner recalls one of their own ordinary messages sent
+// ChatArea 「刪除」 — the owner deletes one of their own ordinary messages sent
 // less than 24 hours ago. The entry sits in the bubble's corner, asks first,
 // and the row then reads 「此訊息已刪除」, which opens the original in the
 // 看原訊息 overlay.
-// A quote of a recalled message says 「已刪除的訊息」 and carries no text.
+// A quote of a deleted message says 「已刪除的訊息」 and carries no text.
 //
 // The thread comes from a mocked useChat (as in the other ChatArea tests); the
-// recall call goes through the real api seam, spied.
+// delete call goes through the real api seam, spied.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, within, act } from "@testing-library/react";
@@ -70,7 +70,7 @@ function mkMsg(over: Partial<ChatMessage> & { id: string }): ChatMessage {
     replyCardStatus: null,
     replyTo: null,
     replyToChat: null,
-    recalledTs: 0,
+    deletedTs: 0,
     taskId: null,
     ...over,
   };
@@ -86,10 +86,10 @@ function renderChat() {
 
 const rowOf = (c: HTMLElement, id: string) =>
   c.querySelector(`[data-msg-id="${id}"]`) as HTMLElement;
-const recallButtonIn = (row: HTMLElement) =>
+const deleteButtonIn = (row: HTMLElement) =>
   within(row).queryByRole("button", { name: "刪除" });
-const recalledOpenIn = (row: HTMLElement) =>
-  row.querySelector(".chat__msg-recalled__open") as HTMLButtonElement | null;
+const deletedOpenIn = (row: HTMLElement) =>
+  row.querySelector(".chat__msg-deleted__open") as HTMLButtonElement | null;
 
 describe("ChatArea 刪除", () => {
   beforeEach(() => {
@@ -109,11 +109,11 @@ describe("ChatArea 刪除", () => {
       mkMsg({ id: "theirs", from: "m1", to: "owner", body: "對方的訊息" }),
       mkMsg({ id: "task", body: "[TaskID=T-1] 任務訊息", taskId: "T-1" }),
       mkMsg({ id: "card", body: "帶卡的訊息", replyCardId: "rc-1" }),
-      mkMsg({ id: "done", body: "刪除過的", recalledTs: NOW - 30 }),
+      mkMsg({ id: "done", body: "刪除過的", deletedTs: NOW - 30 }),
     ];
     const { container } = renderChat();
     const offered = messages
-      .filter((m) => recallButtonIn(rowOf(container, m.id)) !== null)
+      .filter((m) => deleteButtonIn(rowOf(container, m.id)) !== null)
       .map((m) => m.id);
     expect(offered).toEqual(["own-fresh", "own-23h"]);
     // The corner reserves room for both controls on a bubble that carries it.
@@ -125,49 +125,49 @@ describe("ChatArea 刪除", () => {
     ).toBe("chat__msg-bubble chat__msg-bubble--acts1");
   });
 
-  it("asks first, recalls by id on confirm, and the row turns into 「此訊息已刪除」", async () => {
+  it("asks first, deletes by id on confirm, and the row turns into 「此訊息已刪除」", async () => {
     messages = [mkMsg({ id: "c-9", body: "打錯字的訊息" })];
-    const recall = vi
-      .spyOn(api, "recallChatMessage")
-      .mockResolvedValue({ ...messages[0], recalledTs: NOW });
+    const chatDelete = vi
+      .spyOn(api, "deleteChatMessage")
+      .mockResolvedValue({ ...messages[0], deletedTs: NOW });
     const { container, getByTestId, queryByTestId } = renderChat();
 
-    fireEvent.click(recallButtonIn(rowOf(container, "c-9"))!);
-    const dialog = getByTestId("chat-recall-confirm");
+    fireEvent.click(deleteButtonIn(rowOf(container, "c-9"))!);
+    const dialog = getByTestId("chat-delete-confirm");
     expect(dialog.querySelector(".confirm-modal__body")!.textContent).toBe(
       "刪除這則訊息？對方會收到刪除通知，原文你仍可點開查看。此動作無法復原。",
     );
-    expect(recall).not.toHaveBeenCalled();
+    expect(chatDelete).not.toHaveBeenCalled();
 
-    fireEvent.click(getByTestId("chat-recall-confirm-btn"));
-    await waitFor(() => expect(queryByTestId("chat-recall-confirm")).toBeNull());
-    expect(recall.mock.calls).toEqual([["c-9"]]);
+    fireEvent.click(getByTestId("chat-delete-confirm-btn"));
+    await waitFor(() => expect(queryByTestId("chat-delete-confirm")).toBeNull());
+    expect(chatDelete.mock.calls).toEqual([["c-9"]]);
 
     const row = rowOf(container, "c-9");
-    expect(recalledOpenIn(row)!.textContent).toBe("此訊息已刪除");
-    expect(recalledOpenIn(row)!.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(deletedOpenIn(row)!.textContent).toBe("此訊息已刪除");
+    expect(deletedOpenIn(row)!.getAttribute("aria-haspopup")).toBe("dialog");
     expect(row.textContent).not.toContain("打錯字的訊息");
     expect(row.querySelector(".chat__msg-bubble")).toBeNull();
-    expect(recallButtonIn(row)).toBeNull();
+    expect(deleteButtonIn(row)).toBeNull();
   });
 
   it("cancel closes the dialog without calling the server", () => {
     messages = [mkMsg({ id: "c-9", body: "留著" })];
-    const recall = vi.spyOn(api, "recallChatMessage");
+    const chatDelete = vi.spyOn(api, "deleteChatMessage");
     const { container, getByTestId, queryByTestId } = renderChat();
-    fireEvent.click(recallButtonIn(rowOf(container, "c-9"))!);
-    fireEvent.click(within(getByTestId("chat-recall-confirm")).getByText("取消"));
-    expect(queryByTestId("chat-recall-confirm")).toBeNull();
-    expect(recall).not.toHaveBeenCalled();
+    fireEvent.click(deleteButtonIn(rowOf(container, "c-9"))!);
+    fireEvent.click(within(getByTestId("chat-delete-confirm")).getByText("取消"));
+    expect(queryByTestId("chat-delete-confirm")).toBeNull();
+    expect(chatDelete).not.toHaveBeenCalled();
     expect(rowOf(container, "c-9").textContent).toContain("留著");
   });
 
-  it("a recalled row keeps its send time, drops 已讀, shows none of the original, and opens it in the 看原訊息 overlay", async () => {
+  it("a deleted row keeps its send time, drops 已讀, shows none of the original, and opens it in the 看原訊息 overlay", async () => {
     messages = [
       mkMsg({
         id: "r-1",
         body: "原本的內容",
-        recalledTs: NOW - 10,
+        deletedTs: NOW - 10,
         attachments: [
           { id: "a1", url: "/x", filename: "p.pdf", mime: "application/pdf", isImage: false },
         ],
@@ -190,7 +190,7 @@ describe("ChatArea 刪除", () => {
     expect(document.querySelector(".md-preview")).toBeNull();
 
     await act(async () => {
-      fireEvent.click(recalledOpenIn(row)!);
+      fireEvent.click(deletedOpenIn(row)!);
     });
     expect(get.mock.calls).toEqual([["r-1"]]);
     const overlay = document.querySelector(".md-preview")!;
@@ -201,7 +201,7 @@ describe("ChatArea 刪除", () => {
 
     fireEvent.click(overlay.querySelector(".md-preview__close")!);
     expect(document.querySelector(".md-preview")).toBeNull();
-    expect(recalledOpenIn(rowOf(container, "r-1"))!.textContent).toBe("此訊息已刪除");
+    expect(deletedOpenIn(rowOf(container, "r-1"))!.textContent).toBe("此訊息已刪除");
     expect(rowOf(container, "r-1").textContent).not.toContain("原本的內容");
   });
 
@@ -209,7 +209,7 @@ describe("ChatArea 刪除", () => {
     messages = [
       mkMsg({
         id: "r-2",
-        recalledTs: NOW - 10,
+        deletedTs: NOW - 10,
         attachments: [
           { id: "att-img", url: "/api/chat/attachment/att-img", filename: "shot.png", mime: "image/png", isImage: true },
         ],
@@ -220,19 +220,19 @@ describe("ChatArea 刪除", () => {
     expect(rowOf(container, "r-2").querySelector("img")).toBeNull();
 
     await act(async () => {
-      fireEvent.click(recalledOpenIn(rowOf(container, "r-2"))!);
+      fireEvent.click(deletedOpenIn(rowOf(container, "r-2"))!);
     });
     const overlay = document.querySelector(".md-preview")!;
     expect(overlay.querySelectorAll(".chat__msg-attachments img.chat__msg-image")).toHaveLength(1);
     expect(overlay.querySelector(".md-preview__md")).toBeNull();
   });
 
-  it("says the overlay's own failure sentence beside the recalled row when the read fails", async () => {
-    messages = [mkMsg({ id: "r-1", body: "原本的內容", recalledTs: NOW - 10 })];
+  it("says the overlay's own failure sentence beside the deleted row when the read fails", async () => {
+    messages = [mkMsg({ id: "r-1", body: "原本的內容", deletedTs: NOW - 10 })];
     vi.spyOn(api, "getChatMessage").mockRejectedValue(new Error("offline"));
     const { container } = renderChat();
     await act(async () => {
-      fireEvent.click(recalledOpenIn(rowOf(container, "r-1"))!);
+      fireEvent.click(deletedOpenIn(rowOf(container, "r-1"))!);
     });
     expect(document.querySelector(".md-preview")).toBeNull();
     expect(
@@ -240,7 +240,7 @@ describe("ChatArea 刪除", () => {
     ).not.toBeNull();
   });
 
-  it("a recall made in another owner tab turns a held row deleted from its delta alone, with no request", async () => {
+  it("a delete made in another owner tab turns a held row deleted from its delta alone, with no request", async () => {
     const sinks: Array<(topic: string, delta?: unknown) => void> = [];
     vi.spyOn(api, "subscribeEvents").mockImplementation((fn) => {
       sinks.push(fn as (topic: string, delta?: unknown) => void);
@@ -253,26 +253,26 @@ describe("ChatArea 刪除", () => {
     const get = vi.spyOn(api, "getChatMessage");
     const { container } = renderChat();
 
-    const emit = (names: Record<string, string>, recalledTs?: number) =>
+    const emit = (names: Record<string, string>, deletedTs?: number) =>
       act(async () => {
         for (const sink of sinks)
-          sink("chat", { topic: "chat", names, ids: Object.values(names), ...(recalledTs ? { recalledTs } : {}) });
+          sink("chat", { topic: "chat", names, ids: Object.values(names), ...(deletedTs ? { deletedTs } : {}) });
         await Promise.resolve();
       });
     await emit({ id: "old-2", from: "owner", to: "m1" });
     expect(rowOf(container, "old-2").textContent).toContain("另一則");
 
     await emit({ id: "old-1", from: "owner", to: "m1" }, NOW - 5);
-    expect(recalledOpenIn(rowOf(container, "old-1"))).not.toBeNull();
+    expect(deletedOpenIn(rowOf(container, "old-1"))).not.toBeNull();
     expect(rowOf(container, "old-1").textContent).not.toContain("很早送出的那則");
     expect(rowOf(container, "old-2").textContent).toContain("另一則");
     expect(get).not.toHaveBeenCalled();
   });
 
-  it("a quote of a recalled message says 「已刪除的訊息」 and carries no text", () => {
+  it("a quote of a deleted message says 「已刪除的訊息」 and carries no text", () => {
     messages = [
       mkMsg({
-        id: "q-recalled",
+        id: "q-deleted",
         from: "m1",
         to: "owner",
         body: "回你剛剛那句",
@@ -284,7 +284,7 @@ describe("ChatArea 刪除", () => {
           to: "m1",
           toName: "",
           content: "",
-          recalled: true,
+          deleted: true,
         },
       }),
       mkMsg({
@@ -300,48 +300,48 @@ describe("ChatArea 刪除", () => {
           to: "m1",
           toName: "",
           content: "還在的那句",
-          recalled: false,
+          deleted: false,
         },
       }),
     ];
     const { container } = renderChat();
     const bodyOf = (id: string) =>
       rowOf(container, id).querySelector(".chat__msg-quote__body")!.textContent;
-    expect(bodyOf("q-recalled")).toBe("已刪除的訊息");
+    expect(bodyOf("q-deleted")).toBe("已刪除的訊息");
     expect(bodyOf("q-plain")).toBe("還在的那句");
   });
 
-  it("says the server's reason in the dialog when the recall is refused, and leaves the message alone", async () => {
+  it("says the server's reason in the dialog when the delete is refused, and leaves the message alone", async () => {
     messages = [mkMsg({ id: "c-9", body: "還在" })];
     const reason =
-      "chat message 'c-9' was sent more than 24 hours ago — only messages younger than 24 hours can be recalled";
-    const recall = vi
-      .spyOn(api, "recallChatMessage")
+      "chat message 'c-9' was sent more than 24 hours ago — only messages younger than 24 hours can be deleted";
+    const chatDelete = vi
+      .spyOn(api, "deleteChatMessage")
       .mockRejectedValue(
-        new ApiError("http 409 for POST /api/chat/c-9/recall", 409, codeForStatus(409), reason),
+        new ApiError("http 409 for DELETE /api/chat/c-9", 409, codeForStatus(409), reason),
       );
     const { container, getByTestId } = renderChat();
-    fireEvent.click(recallButtonIn(rowOf(container, "c-9"))!);
-    fireEvent.click(getByTestId("chat-recall-confirm-btn"));
+    fireEvent.click(deleteButtonIn(rowOf(container, "c-9"))!);
+    fireEvent.click(getByTestId("chat-delete-confirm-btn"));
     await waitFor(() =>
       expect(
-        getByTestId("chat-recall-confirm").querySelector(".confirm-modal__error")?.textContent,
+        getByTestId("chat-delete-confirm").querySelector(".confirm-modal__error")?.textContent,
       ).toBe(reason),
     );
-    expect(recall.mock.calls).toEqual([["c-9"]]);
+    expect(chatDelete.mock.calls).toEqual([["c-9"]]);
     expect(rowOf(container, "c-9").textContent).toContain("還在");
-    expect(recalledOpenIn(rowOf(container, "c-9"))).toBeNull();
+    expect(deletedOpenIn(rowOf(container, "c-9"))).toBeNull();
   });
 
   it("falls back to its own sentence when the failure carries no server reason", async () => {
     messages = [mkMsg({ id: "c-9", body: "還在" })];
-    vi.spyOn(api, "recallChatMessage").mockRejectedValue(new Error("offline"));
+    vi.spyOn(api, "deleteChatMessage").mockRejectedValue(new Error("offline"));
     const { container, getByTestId } = renderChat();
-    fireEvent.click(recallButtonIn(rowOf(container, "c-9"))!);
-    fireEvent.click(getByTestId("chat-recall-confirm-btn"));
+    fireEvent.click(deleteButtonIn(rowOf(container, "c-9"))!);
+    fireEvent.click(getByTestId("chat-delete-confirm-btn"));
     await waitFor(() =>
       expect(
-        getByTestId("chat-recall-confirm").querySelector(".confirm-modal__error")?.textContent,
+        getByTestId("chat-delete-confirm").querySelector(".confirm-modal__error")?.textContent,
       ).toBe("刪除失敗，請稍後重試"),
     );
   });

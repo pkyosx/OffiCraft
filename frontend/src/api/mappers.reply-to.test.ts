@@ -74,7 +74,7 @@ describe("toChatMessage · reply_to_chat", () => {
       to: "m2",
       toName: "阿凱",
       content: "被引用的那一行",
-      recalled: false,
+      deleted: false,
     });
   });
 
@@ -86,14 +86,14 @@ describe("toChatMessage · reply_to_chat", () => {
         reply_to: "c-1",
         reply_to_chat: { ...quote, reply_excerpt: "一\n\n二" },
       } as unknown as Parameters<typeof toChatMessage>[0]).replyToChat,
-    ).toEqual({ id: "c-1", from: "m1", fromName: "", to: "owner", toName: "", content: "一 二", replyExcerpt: "一\n\n二", recalled: false });
+    ).toEqual({ id: "c-1", from: "m1", fromName: "", to: "owner", toName: "", content: "一 二", replyExcerpt: "一\n\n二", deleted: false });
     expect(
       toChatMessage({
         ...BASE,
         reply_to: "c-1",
         reply_to_chat: quote,
       } as unknown as Parameters<typeof toChatMessage>[0]).replyToChat,
-    ).toEqual({ id: "c-1", from: "m1", fromName: "", to: "owner", toName: "", content: "一 二", recalled: false });
+    ).toEqual({ id: "c-1", from: "m1", fromName: "", to: "owner", toName: "", content: "一 二", deleted: false });
   });
 
   it("reads an ABSENT quote as null while reply_to survives", () => {

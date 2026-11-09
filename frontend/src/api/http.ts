@@ -472,7 +472,7 @@ const SSE_NAME_FIELDS = ["id", "from", "to", "reader", "peer"] as const;
 export function toSseDelta(topic: string, payload: unknown): SseDelta {
   const names: SseDeltaNames = {};
   const ids: string[] = [];
-  let recalledTs: number | undefined;
+  let deletedTs: number | undefined;
   if (payload && typeof payload === "object") {
     const bag = payload as Record<string, unknown>;
     for (const field of SSE_NAME_FIELDS) {
@@ -481,10 +481,10 @@ export function toSseDelta(topic: string, payload: unknown): SseDelta {
       names[field] = v;
       if (!ids.includes(v)) ids.push(v);
     }
-    const r = bag.recalled_ts;
-    if (topic === "chat" && typeof r === "number" && r > 0) recalledTs = r;
+    const r = bag.deleted_ts;
+    if (topic === "chat" && typeof r === "number" && r > 0) deletedTs = r;
   }
-  return recalledTs === undefined ? { topic, names, ids } : { topic, names, ids, recalledTs };
+  return deletedTs === undefined ? { topic, names, ids } : { topic, names, ids, deletedTs };
 }
 
 // Fan one synthetic delta per closed topic to EVERY current subscriber — the
@@ -1620,10 +1620,10 @@ export const httpApi: Api = {
     return toChatMarkReadReceipt(wire);
   },
 
-  async recallChatMessage(id: string): Promise<ChatMessage> {
+  async deleteChatMessage(id: string): Promise<ChatMessage> {
     return toChatMessage(
       unwrap(
-        await client.POST("/api/chat/{message_id}/recall", {
+        await client.DELETE("/api/chat/{message_id}", {
           params: { path: { message_id: id } },
         }),
       ),

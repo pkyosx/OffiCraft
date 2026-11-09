@@ -1044,7 +1044,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/chat/{message_id}/recall": {
+    "/api/chat/{message_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1053,16 +1053,16 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        post?: never;
         /**
-         * Recall one of the owner's own chat messages sent within the last 24 hours (owner only; no undo).
-         * @description - Owner only. Recalls one of the owner's own ordinary chat messages sent less than 24 hours ago; task messages, reply-card messages and messages from anyone else are refused.
-         *     - The original is kept: members stop seeing it in chat listings, the unread backfill and unread counts; a by-id read, and the owner's own listings, still return it with `recalled_ts` set.
-         *     - The recipient immediately gets a `system` notice naming the recalled message id. No undo.
-         *     - Recalling an already recalled message changes nothing and sends no second notice.
+         * Delete one of the owner's own chat messages sent within the last 24 hours (owner only; no undo).
+         * @description - Owner only. Deletes one of the owner's own ordinary chat messages sent less than 24 hours ago; task messages, reply-card messages and messages from anyone else are refused.
+         *     - The original is kept: members stop seeing it in chat listings, the unread backfill and unread counts; a by-id read, and the owner's own listings, still return it with `deleted_ts` set.
+         *     - The recipient immediately gets a `system` notice naming the deleted message id. No undo.
+         *     - Deleting an already deleted message changes nothing and sends no second notice.
          *     - Emits a `chat` event; a client holding the stream learns of this without polling.
          */
-        post: operations["handle_recall_chat_message_api_chat__message_id__recall_post"];
-        delete?: never;
+        delete: operations["handle_delete_chat_message_api_chat__message_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -5842,6 +5842,12 @@ export interface components {
             body_omitted_chars: number;
             /** @description The reply card this message carries, FOLDED IN PLACE onto the message that opened it — the options offered and the answer given, so a waking agent reads the decision in the chat stream instead of joining a second list. Omitted (``null``) when the message carries no card, and only ever filled for cards the snapshot's own subject INITIATED. */
             card?: components["schemas"]["ChatInlineReplyCardDTO"] | null;
+            /**
+             * Deleted Ts
+             * @description When the owner deleted this message (epoch seconds); ``0`` = not deleted. For a member caller a deleted message is left out of chat listings, the unread backfill and the unread count; a by-id read (``ids=``) still returns it with ``body`` intact. The owner's own listings keep it, flagged by this field, so the owner's thread can show where it was.
+             * @default 0
+             */
+            deleted_ts: number;
             /** From */
             from: string;
             /**
@@ -5856,12 +5862,6 @@ export interface components {
             meta?: {
                 [key: string]: unknown;
             };
-            /**
-             * Recalled Ts
-             * @description When the owner recalled this message (epoch seconds); ``0`` = not recalled. For a member caller a recalled message is left out of chat listings, the unread backfill and the unread count; a by-id read (``ids=``) still returns it with ``body`` intact. The owner's own listings keep it, flagged by this field, so the owner's thread can show where it was.
-             * @default 0
-             */
-            recalled_ts: number;
             /**
              * Reply Card Status
              * @description Read-time join: the CURRENT status (``waiting`` | ``answered`` | ``expired``) of the reply card this message carries (``meta.reply_card_id``); ``""`` when the message carries no card. Lets the inline chat card (ChatReplyCard) label its COLLAPSED row (待回覆 / 已回覆 / 已過期) WITHOUT a per-card GET. Since T-48 (owner ruling on card rc-d8844e709f42) every chat card mounts COLLAPSED regardless of status and fetches the full card only on expand, so this field no longer decides eager-vs-lazy — it decides what the row SAYS while nothing has been fetched. TaskStepDTO.reply_card_status is UNCHANGED: the task-embedded card still decides eager-vs-lazy at mount. NOT stored — computed each read from the card's live status (the stored ``meta`` only ever holds the id, stamped ``waiting`` at open and never updated on answer).
@@ -6028,6 +6028,12 @@ export interface components {
              * @default
              */
             content: string;
+            /**
+             * Deleted
+             * @description The quoted message was deleted by the owner. When true, ``content`` and ``reply_excerpt`` are empty: a quote never carries the text of a deleted message.
+             * @default false
+             */
+            deleted: boolean;
             /** From */
             from: string;
             /**
@@ -6038,12 +6044,6 @@ export interface components {
             from_name: string;
             /** Id */
             id: string;
-            /**
-             * Recalled
-             * @description The quoted message was recalled by the owner. When true, ``content`` and ``reply_excerpt`` are empty: a quote never carries the text of a recalled message.
-             * @default false
-             */
-            recalled: boolean;
             /**
              * Reply Excerpt
              * @description The piece of the quoted message the REPLY selected (``ChatPostDTO.reply_excerpt``), exactly as it was sent: not collapsed and not shortened. ABSENT when the reply quoted the whole message.
@@ -14982,7 +14982,7 @@ export interface operations {
             };
         };
     };
-    handle_recall_chat_message_api_chat__message_id__recall_post: {
+    handle_delete_chat_message_api_chat__message_id__delete: {
         parameters: {
             query?: never;
             header?: never;

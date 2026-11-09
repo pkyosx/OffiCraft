@@ -505,10 +505,11 @@ func TestScanChat(t *testing.T) {
 			"count":       float64(2),
 			"flag":        true,
 		},
+		DeletedTS: 1700000009.25,
 	}
 	dalPutChats(t, d, rich, ChatMessage{ID: "c2", Sender: "bob", Recipient: "ann", Body: "yo", TS: 2})
 
-	query := `SELECT id, sender, recipient, body, ts, meta FROM chat_message WHERE id = ?`
+	query := `SELECT id, sender, recipient, body, ts, meta, deleted_ts FROM chat_message WHERE id = ?`
 	got, err := scanChat(d.rdb.QueryRow(query, "c1"))
 	if err != nil {
 		t.Fatalf("scanChat(c1): %v", err)
@@ -611,29 +612,21 @@ func TestAppendSQL(t *testing.T) {
 		})
 	}
 
-	t.Run("hideRecalled leaves out a message carrying recalled_ts and keeps a row whose meta is not JSON", func(t *testing.T) {
+	t.Run("hideDeleted leaves out a deleted message from any sender", func(t *testing.T) {
 		dalPutChats(t, d,
-			ChatMessage{ID: "m5", Sender: "ann", Recipient: "bob", Body: "recalled", TS: 5,
-				Meta: map[string]any{"recalled_ts": 50.5}},
-			ChatMessage{ID: "m6", Sender: "ann", Recipient: "bob", Body: "zero", TS: 6,
-				Meta: map[string]any{"recalled_ts": 0}},
-			ChatMessage{ID: "m7", Sender: "ann", Recipient: "bob", Body: "text", TS: 7,
-				Meta: map[string]any{"recalled_ts": "yes"}})
-		if _, err := d.wdb.Exec(
-			`INSERT INTO chat_message (id, sender, recipient, body, ts, meta) VALUES (?, ?, ?, ?, ?, ?)`,
-			"m8", "ann", "bob", "broken", 8, "{this is not json",
-		); err != nil {
-			t.Fatalf("seed a corrupt meta row: %v", err)
-		}
+			ChatMessage{ID: "m5", Sender: "ann", Recipient: "bob", Body: "deleted", TS: 5,
+				Meta: map[string]any{}, DeletedTS: 50.5},
+			ChatMessage{ID: "m6", Sender: "ann", Recipient: "bob", Body: "kept", TS: 6,
+				Meta: map[string]any{"deleted_ts": 9}})
 		t.Cleanup(func() {
-			if _, err := d.wdb.Exec(`DELETE FROM chat_message WHERE id IN ('m5', 'm6', 'm7', 'm8')`); err != nil {
+			if _, err := d.wdb.Exec(`DELETE FROM chat_message WHERE id IN ('m5', 'm6')`); err != nil {
 				t.Fatalf("cleanup: %v", err)
 			}
 		})
 		query := `SELECT id FROM chat_message WHERE 1=1`
 		var args []any
-		chatListFilter{sender: "ann", hideRecalled: true}.appendSQL(&query, &args, "")
-		want := []string{"m1", "m3", "m6", "m7", "m8"}
+		chatListFilter{sender: "ann", hideDeleted: true}.appendSQL(&query, &args, "")
+		want := []string{"m1", "m3", "m6"}
 		if got := selectIDs(t, query+` ORDER BY ts, id`, args); !reflect.DeepEqual(got, want) {
 			t.Fatalf("want %v, got %v", want, got)
 		}
@@ -1679,30 +1672,30 @@ func TestListChatAttachmentRefsOneSided(t *testing.T) {
 	}
 }
 
-func TestMarkChatRecalled(t *testing.T) {
+func TestMarkChatDeleted(t *testing.T) {
 	d := newAPITestDAL(t)
 	msg := dalChatWithAtts("m1", "ann", "bob", 100, dalAttRef("att-1", "image/png", "a.png"))
 	msg.Meta["count"] = 12345678901234.0
 	other := dalChat("m2", "ann", "bob", 200)
 	dalPutChats(t, d, msg, other)
 
-	if err := d.MarkChatRecalled("m1", 300.25); err != nil {
-		t.Fatalf("MarkChatRecalled: %v", err)
+	if err := d.MarkChatDeleted("m1", 300.25); err != nil {
+		t.Fatalf("MarkChatDeleted: %v", err)
 	}
 	var raw string
 	if err := d.rdb.QueryRow(`SELECT meta FROM chat_message WHERE id = 'm1'`).Scan(&raw); err != nil {
 		t.Fatalf("read meta: %v", err)
 	}
-	if want := `{"attachments":[{"filename":"a.png","id":"att-1","mime":"image/png"}],"count":12345678901234,"recalled_ts":300.25}`; raw != want {
-		t.Fatalf("only recalled_ts is added, every other byte of meta kept:\n got %s\nwant %s", raw, want)
+	if want := `{"attachments":[{"filename":"a.png","id":"att-1","mime":"image/png"}],"count":12345678901234}`; raw != want {
+		t.Fatalf("meta is left byte for byte:\n got %s\nwant %s", raw, want)
 	}
-	msg.Meta["recalled_ts"] = 300.25
-	dalWantChats(t, "the stream after one recall", dalMustListChat(t, d), []ChatMessage{msg, other})
+	msg.DeletedTS = 300.25
+	dalWantChats(t, "the stream after one delete", dalMustListChat(t, d), []ChatMessage{msg, other})
 
-	if err := d.MarkChatRecalled("ghost", 1); err != nil {
-		t.Fatalf("MarkChatRecalled on an unknown id writes nothing and is not an error: %v", err)
+	if err := d.MarkChatDeleted("ghost", 1); err != nil {
+		t.Fatalf("MarkChatDeleted on an unknown id writes nothing and is not an error: %v", err)
 	}
-	dalWantChats(t, "the stream after recalling an unknown id", dalMustListChat(t, d), []ChatMessage{msg, other})
+	dalWantChats(t, "the stream after deleting an unknown id", dalMustListChat(t, d), []ChatMessage{msg, other})
 }
 
 func TestListChatAttachmentRefsFor(t *testing.T) {
@@ -1728,8 +1721,8 @@ func TestListChatAttachmentRefsFor(t *testing.T) {
 		t.Fatalf("both sides merged, newest first, a self-message counted once:\n got %+v\nwant %+v", got, want)
 	}
 
-	if err := d.MarkChatRecalled("m2", 400); err != nil {
-		t.Fatalf("MarkChatRecalled: %v", err)
+	if err := d.MarkChatDeleted("m2", 400); err != nil {
+		t.Fatalf("MarkChatDeleted: %v", err)
 	}
 	got, err = d.ListChatAttachmentRefsFor("ann")
 	if err != nil {
@@ -1740,7 +1733,7 @@ func TestListChatAttachmentRefsFor(t *testing.T) {
 		{MessageID: "m1", Ord: 0, AttachmentID: "att-1", Sender: "ann", Recipient: "bob", TS: 100, Mime: "image/png", Filename: "a.png"},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("a recalled message's attachments leave the gallery:\n got %+v\nwant %+v", got, want)
+		t.Fatalf("a deleted message's attachments leave the gallery:\n got %+v\nwant %+v", got, want)
 	}
 
 	got, err = d.ListChatAttachmentRefsFor("nobody")
@@ -1990,8 +1983,8 @@ func TestUnreadCountsFor(t *testing.T) {
 		t.Fatalf("a sender with nothing unread is absent: want %v, got %v", want, got)
 	}
 
-	if err := d.MarkChatRecalled("s1", 600); err != nil {
-		t.Fatalf("MarkChatRecalled: %v", err)
+	if err := d.MarkChatDeleted("s1", 600); err != nil {
+		t.Fatalf("MarkChatDeleted: %v", err)
 	}
 	got, err = d.UnreadCountsFor("owner")
 	if err != nil {
@@ -1999,7 +1992,7 @@ func TestUnreadCountsFor(t *testing.T) {
 	}
 	want = map[string]int{"ann": 1}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("a recalled message is not counted: want %v, got %v", want, got)
+		t.Fatalf("a deleted message is not counted: want %v, got %v", want, got)
 	}
 
 	for _, reader := range []string{"nobody", ""} {

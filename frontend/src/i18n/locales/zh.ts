@@ -1523,14 +1523,14 @@ export const zh = {
     // 全幅 overlay 讀（長回覆在對話欄裡很難讀）。自己發的訊息沒有。
     expandMessage: "放大閱讀",
     // 刪除：只出現在 owner 自己 24 小時內的一般訊息角落；無法復原，所以先確認。
-    // recalledPlaceholder 是刪除後那一列本身（點了在彈窗看原文），recalledQuote 是引用到
-    // 已刪除訊息的引用列。recallFailed 只在伺服器沒給理由時用。
-    recallAction: "刪除",
-    recallConfirmBody: "刪除這則訊息？對方會收到刪除通知，原文你仍可點開查看。此動作無法復原。",
-    recallConfirm: "刪除",
-    recallFailed: "刪除失敗，請稍後重試",
-    recalledPlaceholder: "此訊息已刪除",
-    recalledQuote: "已刪除的訊息",
+    // deletedPlaceholder 是刪除後那一列本身（點了在彈窗看原文），deletedQuote 是引用到
+    // 已刪除訊息的引用列。deleteFailed 只在伺服器沒給理由時用。
+    deleteAction: "刪除",
+    deleteConfirmBody: "刪除這則訊息？對方會收到刪除通知，原文你仍可點開查看。此動作無法復原。",
+    deleteConfirm: "刪除",
+    deleteFailed: "刪除失敗，請稍後重試",
+    deletedPlaceholder: "此訊息已刪除",
+    deletedQuote: "已刪除的訊息",
     // T-4e95「回覆這則」：每則訊息角落的回覆入口、輸入框上方的「正在回覆」
     // 橫幅與它的 x，以及訊息上方那條指回原訊息的引用列。
     // replyQuoteGone 是**訊息列**的落空文案，而且是固定的：被引用的那則訊息

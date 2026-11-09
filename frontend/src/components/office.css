@@ -1241,7 +1241,7 @@
  * while the ink was opaque; once the ink became a fraction of the bubble's
  * colour the two fractions multiplied and the control fell under 3:1. */
 .chat__msg-reply,
-.chat__msg-recall {
+.chat__msg-delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1262,12 +1262,12 @@
 }
 .chat__msg:hover .chat__msg-reply,
 .chat__msg-reply:focus-visible,
-.chat__msg:hover .chat__msg-recall,
-.chat__msg-recall:focus-visible {
+.chat__msg:hover .chat__msg-delete,
+.chat__msg-delete:focus-visible {
   opacity: 1;
 }
 .chat__msg-reply:hover,
-.chat__msg-recall:hover {
+.chat__msg-delete:hover {
   color: inherit;
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
@@ -1275,15 +1275,15 @@
  * alpha, and 0.55 × 55% left the only reply entry a touch user has at 2.02:1. */
 @media (hover: none) {
   .chat__msg-reply,
-  .chat__msg-recall {
+  .chat__msg-delete {
     opacity: 1;
   }
 }
 
-/* 「刪除」 (the corner entry above shares the reply entry's rules). A recalled
+/* 「刪除」 (the corner entry above shares the reply entry's rules). A deleted
  * row replaces its bubble with one muted italic button that opens the original
  * in the 看原訊息 overlay; the row itself carries none of the original. */
-.chat__msg-recalled {
+.chat__msg-deleted {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -1291,7 +1291,7 @@
   min-width: 0;
   max-width: 100%;
 }
-.chat__msg-recalled__open {
+.chat__msg-deleted__open {
   padding: 2px 0;
   border: none;
   background: none;
@@ -1302,8 +1302,8 @@
   color: var(--color-text-muted);
   white-space: nowrap;
 }
-.chat__msg-recalled__open:hover,
-.chat__msg-recalled__open:focus-visible {
+.chat__msg-deleted__open:hover,
+.chat__msg-deleted__open:focus-visible {
   text-decoration: underline;
 }
 

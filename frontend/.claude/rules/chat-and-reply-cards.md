@@ -290,12 +290,12 @@ composer 上方的橫幅走同一個形狀（它從已載入視窗解析，是�
 `content` 是空字串是**合法**的（被引用的那則只有附件），要畫成「有名字、內容空
 白」，不可以折進「已不存在」。
 
-**被引訊息已刪除（recalled）時，server 給的快照帶 `recalled: true`、`content` 與 `reply_excerpt` 都是空的**：
-這仍是「server 給了快照」那一態，畫名字＋固定的 `chat.recalledQuote`「已刪除的訊息」，
+**被引訊息已刪除（deleted）時，server 給的快照帶 `deleted: true`、`content` 與 `reply_excerpt` 都是空的**：
+這仍是「server 給了快照」那一態，畫名字＋固定的 `chat.deletedQuote`「已刪除的訊息」，
 「看原訊息」照給（owner 讀得回原文）。它跟 attachment-only 的空 `content` 是兩件事，
 不可互相折疊；每一個引用面（訊息列、`ResumeSummaryCard`）都要分辨。
 
-**owner 自己那則已刪除的訊息，列上只畫 `chat.recalledPlaceholder`「此訊息已刪除」，不畫任何原文或附件**；
+**owner 自己那則已刪除的訊息，列上只畫 `chat.deletedPlaceholder`「此訊息已刪除」，不畫任何原文或附件**；
 點它跟「看原訊息」走同一個 `quotedMessage.open(id)`、開同一片覆蓋層（owner 裁定：不要在列上展開）。
 不要為這一列另寫一份展開或另一個 overlay。
 

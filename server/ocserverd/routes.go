@@ -593,9 +593,9 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPExclude: true,
 		}),
 		Gated(principalOwner, routeDef{
-			Method:     "POST",
-			Path:       "/api/chat/{message_id}/recall",
-			Handler:    w.HandleRecallChatMessageApiChatMessageIdRecallPost,
+			Method:     "DELETE",
+			Path:       "/api/chat/{message_id}",
+			Handler:    w.HandleDeleteChatMessageApiChatMessageIdDelete,
 			MCPExclude: true,
 		}),
 		Gated(principalMachine, routeDef{

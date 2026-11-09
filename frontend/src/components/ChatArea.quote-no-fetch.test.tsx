@@ -76,8 +76,8 @@ vi.mock("../api", () => ({
     {},
     {
       get(_t, prop) {
-        // A subscription is not a request: the recall hook listens for chat
-        // deltas so another owner tab's recall reaches this one.
+        // A subscription is not a request: the delete hook listens for chat
+        // deltas so another owner tab's delete reaches this one.
         if (prop === "subscribeEvents") return () => () => {};
         apiCalls.push(String(prop));
         if (prop === "getChatMessage") {

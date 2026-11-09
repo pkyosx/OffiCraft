@@ -762,7 +762,7 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 
 		quote := map[string]any{
 			"id": quoted, "from": "owner", "from_name": "", "to": "mira", "to_name": "",
-			"recalled": false, "content": "line one line two is **bold**",
+			"deleted": false, "content": "line one line two is **bold**",
 		}
 		excerptQuote := map[string]any{}
 		for k, v := range quote {
@@ -774,15 +774,15 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 			map[string]any{
 				"id": excerpted["id"], "from": "owner", "from_name": "", "to": "mira", "to_name": "",
 				"body": "about that", "body_omitted_chars": 0, "ts": apiAnyNumber, "ts_display": "",
-				"meta":        map[string]any{"reply_to": quoted},
-				"recalled_ts": 0, "reply_card_status": "", "attachments": []any{}, "reply_to": quoted,
+				"meta":       map[string]any{"reply_to": quoted},
+				"deleted_ts": 0, "reply_card_status": "", "attachments": []any{}, "reply_to": quoted,
 				"reply_to_chat": excerptQuote,
 			},
 			map[string]any{
 				"id": whole["id"], "from": "owner", "from_name": "", "to": "mira", "to_name": "",
 				"body": "and that", "body_omitted_chars": 0, "ts": apiAnyNumber, "ts_display": "",
-				"meta":        map[string]any{"reply_to": quoted},
-				"recalled_ts": 0, "reply_card_status": "", "attachments": []any{}, "reply_to": quoted,
+				"meta":       map[string]any{"reply_to": quoted},
+				"deleted_ts": 0, "reply_card_status": "", "attachments": []any{}, "reply_to": quoted,
 				"reply_to_chat": quote,
 			},
 		}
@@ -841,7 +841,7 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 		row, _ := rows[0].(map[string]any)
 		apiWantValue(t, "reply_to_chat", row["reply_to_chat"], map[string]any{
 			"id": quoted, "from": "owner", "from_name": "", "to": "mira", "to_name": "",
-			"recalled": false, "content": "the original", "reply_excerpt": strings.Repeat("字", 1000),
+			"deleted": false, "content": "the original", "reply_excerpt": strings.Repeat("字", 1000),
 		})
 	})
 
@@ -863,22 +863,22 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 			map[string]any{
 				"id": forgedReply["id"], "from": "owner", "from_name": "", "to": "mira", "to_name": "",
 				"body": "quoting", "body_omitted_chars": 0, "ts": apiAnyNumber, "ts_display": "",
-				"meta":        map[string]any{"reply_to": quoted, "source": "cli"},
-				"recalled_ts": 0, "reply_card_status": "", "attachments": []any{}, "reply_to": quoted,
+				"meta":       map[string]any{"reply_to": quoted, "source": "cli"},
+				"deleted_ts": 0, "reply_card_status": "", "attachments": []any{}, "reply_to": quoted,
 				"reply_to_chat": map[string]any{
 					"id": quoted, "from": "owner", "from_name": "", "to": "mira", "to_name": "",
-					"recalled": false, "content": "the original",
+					"deleted": false, "content": "the original",
 				},
 			},
 			apiTestChatRow(forgedPlain["id"].(string), "owner", "mira", "plain"),
 		})
 	})
 
-	t.Run("a recall mark smuggled through meta is discarded, so the message stays listed and unrecalled", func(t *testing.T) {
+	t.Run("a deletion mark smuggled through meta under either name is discarded, so the message stays listed and undeleted", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		member := apiTestAgentToken(t, api, "mira", "")
 		_, posted := apiJSON(t, h, "POST", "/api/chat", owner,
-			`{"to":"mira","body":"plain","meta":{"recalled_ts":123,"source":"cli"}}`)
+			`{"to":"mira","body":"plain","meta":{"deleted_ts":123,"recalled_ts":123,"source":"cli"}}`)
 		id := posted["id"].(string)
 
 		want := apiTestChatRow(id, "owner", "mira", "plain")
@@ -1168,7 +1168,7 @@ func TestServedChatMessageDTO(t *testing.T) {
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
 			"id": posted["id"], "from": "owner", "from_name": "", "to": "mira", "to_name": "",
 			"body": "hi", "body_omitted_chars": 0, "ts": apiAnyNumber, "ts_display": "",
-			"meta": map[string]any{"source": "cli"}, "recalled_ts": 0, "reply_card_status": "",
+			"meta": map[string]any{"source": "cli"}, "deleted_ts": 0, "reply_card_status": "",
 			"attachments": []any{}, "reply_to": "",
 		})
 	})
@@ -1186,11 +1186,11 @@ func TestServedChatMessageDTO(t *testing.T) {
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
 			"id": second["id"], "from": "owner", "from_name": "", "to": "mira", "to_name": "",
 			"body": "quoting you", "body_omitted_chars": 0, "ts": apiAnyNumber, "ts_display": "",
-			"meta": map[string]any{"reply_to": first["id"]}, "recalled_ts": 0, "reply_card_status": "",
+			"meta": map[string]any{"reply_to": first["id"]}, "deleted_ts": 0, "reply_card_status": "",
 			"attachments": []any{}, "reply_to": first["id"],
 			"reply_to_chat": map[string]any{
 				"id": first["id"], "from": "owner", "from_name": "",
-				"to": "mira", "to_name": "", "recalled": false, "content": "the original",
+				"to": "mira", "to_name": "", "deleted": false, "content": "the original",
 			},
 		})
 	})
@@ -1274,7 +1274,7 @@ func TestChatReplyQuote(t *testing.T) {
 		}
 		apiWantValue(t, "quote", apiTestJSONOf(t, *quote), map[string]any{
 			"id": id, "from": "owner", "from_name": "Owner",
-			"to": "mira", "to_name": "Mira", "recalled": false, "content": "the original",
+			"to": "mira", "to_name": "Mira", "deleted": false, "content": "the original",
 		})
 	})
 
@@ -1289,7 +1289,7 @@ func TestChatReplyQuote(t *testing.T) {
 		}
 		apiWantValue(t, "quote", apiTestJSONOf(t, *quote), map[string]any{
 			"id": id, "from": "owner", "from_name": "",
-			"to": "mira", "to_name": "", "recalled": false, "content": "the original",
+			"to": "mira", "to_name": "", "deleted": false, "content": "the original",
 		})
 	})
 
@@ -1304,7 +1304,7 @@ func TestChatReplyQuote(t *testing.T) {
 		}
 		apiWantValue(t, "quote", apiTestJSONOf(t, *quote), map[string]any{
 			"id": id, "from": "owner", "from_name": "Owner",
-			"to": "mira", "to_name": "Mira", "recalled": false, "content": "the original", "reply_excerpt": "the\n\norig",
+			"to": "mira", "to_name": "Mira", "deleted": false, "content": "the original", "reply_excerpt": "the\n\norig",
 		})
 	})
 
@@ -1614,7 +1614,7 @@ func TestWriteChatPage(t *testing.T) {
 		quoting, _ := rows[1].(map[string]any)
 		apiWantValue(t, "reply_to_chat", quoting["reply_to_chat"], map[string]any{
 			"id": messageID, "from": "mira", "from_name": "", "to": "owner",
-			"to_name": "", "recalled": false, "content": "要不要出貨",
+			"to_name": "", "deleted": false, "content": "要不要出貨",
 		})
 	})
 }
@@ -2908,7 +2908,7 @@ func TestHandleResumeSummaryApiResumeSummaryGet(t *testing.T) {
 				"ts":                 apiAnyNumber,
 				"ts_display":         apiAnyString,
 				"meta":               map[string]any{},
-				"recalled_ts":        0, "reply_card_status": "",
+				"deleted_ts":         0, "reply_card_status": "",
 				"attachments": []any{},
 				"reply_to":    "",
 			}},
@@ -2949,7 +2949,7 @@ func TestHandleResumeSummaryApiResumeSummaryGet(t *testing.T) {
 				"ts":                 apiAnyNumber,
 				"ts_display":         apiAnyString,
 				"meta":               map[string]any{},
-				"recalled_ts":        0, "reply_card_status": "",
+				"deleted_ts":         0, "reply_card_status": "",
 				"attachments": []any{},
 				"reply_to":    "",
 			}},
@@ -3180,7 +3180,7 @@ func TestResumeChatMessageDTO(t *testing.T) {
 			"to": "mira", "to_name": "Mira", "body": strings.Repeat("字", 300),
 			"body_omitted_chars": 0, "ts": float64(1700000000),
 			"ts_display": resumeDisplayTime(1700000000), "meta": map[string]any{},
-			"recalled_ts": 0, "reply_card_status": "", "attachments": []any{}, "reply_to": "",
+			"deleted_ts": 0, "reply_card_status": "", "attachments": []any{}, "reply_to": "",
 		})
 	})
 
@@ -3284,11 +3284,11 @@ func TestResumeChatMessageDTO(t *testing.T) {
 			"id": second["id"], "from": "owner", "from_name": "Owner",
 			"to": "mira", "to_name": "Mira", "body": "quoting",
 			"body_omitted_chars": 0, "ts": apiAnyNumber, "ts_display": apiAnyString,
-			"meta": map[string]any{"reply_to": first["id"]}, "recalled_ts": 0, "reply_card_status": "",
+			"meta": map[string]any{"reply_to": first["id"]}, "deleted_ts": 0, "reply_card_status": "",
 			"attachments": []any{}, "reply_to": first["id"],
 			"reply_to_chat": map[string]any{
 				"id": first["id"], "from": "owner", "from_name": "Owner",
-				"to": "mira", "to_name": "Mira", "recalled": false, "content": "the original", "reply_excerpt": "orig",
+				"to": "mira", "to_name": "Mira", "deleted": false, "content": "the original", "reply_excerpt": "orig",
 			},
 		})
 	})
@@ -3822,7 +3822,7 @@ func TestHandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(t *testi
 				"ts":                 apiAnyNumber,
 				"ts_display":         apiAnyString,
 				"meta":               map[string]any{},
-				"recalled_ts":        0, "reply_card_status": "",
+				"deleted_ts":         0, "reply_card_status": "",
 				"attachments": []any{},
 				"reply_to":    "",
 			}},
@@ -4048,7 +4048,7 @@ func apiTestChatRow(id, from, to, body string) map[string]any {
 		"ts":                 apiAnyNumber,
 		"ts_display":         "",
 		"meta":               map[string]any{},
-		"recalled_ts":        0, "reply_card_status": "",
+		"deleted_ts":         0, "reply_card_status": "",
 		"attachments": []any{},
 		"reply_to":    "",
 	}

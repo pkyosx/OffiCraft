@@ -827,16 +827,16 @@ def test_members_default_includes_outsource_workers_and_light_preserves_kind(
     assert light_worker["kind"] == "outsource"
 
 
-def _happy_recall_path(ctx: HCtx) -> str:
+def _happy_delete_path(ctx: HCtx) -> str:
     """A fresh owner message to the happy agent: the only kind the owner may
-    recall, and only while it is younger than 24 hours."""
+    delete, and only while it is younger than 24 hours."""
     r = ctx.client.post(
         "/api/chat",
-        json={"to": ctx.agent.member_id, "body": "conf happy recall"},
+        json={"to": ctx.agent.member_id, "body": "conf happy delete"},
         headers=_auth(ctx.owner_token),
     )
-    assert r.status_code == 200, f"happy recall message failed: {r.status_code} {r.text}"
-    return f"/api/chat/{r.json()['id']}/recall"
+    assert r.status_code == 200, f"happy delete message failed: {r.status_code} {r.text}"
+    return f"/api/chat/{r.json()['id']}"
 
 
 def _happy_card(ctx: HCtx) -> str:
@@ -2647,15 +2647,15 @@ HAPPY: dict[str, Happy] = {
                 "task_type_keys": []},
         ),
     ),
-    "POST /api/chat/{message_id}/recall": Happy(
-        path=_happy_recall_path,
+    "DELETE /api/chat/{message_id}": Happy(
+        path=_happy_delete_path,
         check=lambda ctx, r: _expect(
             r,
             lambda d: d["from"] == "owner"
             and d["to"] == ctx.agent.member_id
-            and d["body"] == "conf happy recall"
-            and d["recalled_ts"] > 0
-            and "recalled_ts" not in d["meta"],
+            and d["body"] == "conf happy delete"
+            and d["deleted_ts"] > 0
+            and "deleted_ts" not in d["meta"],
         ),
     ),
     "GET /api/chat/unread-count": Happy(

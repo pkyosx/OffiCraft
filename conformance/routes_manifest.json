@@ -527,8 +527,8 @@
   {
     "auth": "gated",
     "mcp_tool": null,
-    "method": "POST",
-    "path": "/api/chat/{message_id}/recall",
+    "method": "DELETE",
+    "path": "/api/chat/{message_id}",
     "requires": "owner"
   },
   {

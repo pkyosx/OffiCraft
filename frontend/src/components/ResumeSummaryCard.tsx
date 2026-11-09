@@ -297,8 +297,8 @@ export function ChatRow({
                 className="mp-resume__chatquotebody"
                 data-testid="mp-resume-chat-quote-body"
               >
-                {quoted.recalled
-                  ? t.chat.recalledQuote
+                {quoted.deleted
+                  ? t.chat.deletedQuote
                   : (quoted.replyExcerpt ?? quoted.content)}
               </div>
             </>

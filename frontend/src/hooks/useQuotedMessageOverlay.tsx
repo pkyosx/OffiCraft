@@ -2,7 +2,7 @@
 // pointed at WITHOUT moving them (T-0b78).
 //
 // 🔴 IT HAS EXACTLY ONE CALLER, ChatArea: the chat bubble's quote row
-// 「看原訊息」 and the owner's recalled row 「此訊息已刪除」 open it, and
+// 「看原訊息」 and the owner's deleted row 「此訊息已刪除」 open it, and
 // since T-48 (R14-1.6) that is a machine-checked fact rather than a sentence
 // here — `lint:async-landing`'s QUOTED_OVERLAY_CALLERS sweeps the whole tree.
 // It matters because this hook keeps NO room stamp of its own: `ChatArea` is
