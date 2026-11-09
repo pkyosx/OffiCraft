@@ -827,7 +827,7 @@ def test_members_default_includes_outsource_workers_and_light_preserves_kind(
     assert light_worker["kind"] == "outsource"
 
 
-def _happy_delete_path(ctx: HCtx) -> str:
+def _happy_chat_delete_path(ctx: HCtx) -> str:
     """A fresh owner message to the happy agent: the only kind the owner may
     delete, and only while it is younger than 24 hours."""
     r = ctx.client.post(
@@ -2648,7 +2648,7 @@ HAPPY: dict[str, Happy] = {
         ),
     ),
     "DELETE /api/chat/{message_id}": Happy(
-        path=_happy_delete_path,
+        path=_happy_chat_delete_path,
         check=lambda ctx, r: _expect(
             r,
             lambda d: d["from"] == "owner"
