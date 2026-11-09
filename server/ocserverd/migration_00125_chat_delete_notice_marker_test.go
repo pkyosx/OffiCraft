@@ -43,6 +43,9 @@ func TestMigration00125(t *testing.T) {
 			{"c-x4", "system", chatDeleteNoticeBody("c-gone"), `{this is not json`, 0},
 			{"c-x5", "system", chatDeleteNoticeBody("c-gone"), `null`, 0},
 			{"c-x6", "system", chatDeleteNoticeBody("c-gone"), `{}`, 0},
+			{"c-x7", "system", chatDeleteNoticeBody("c-gone"), `{"reply_to":7}`, 0},
+			{"c-x8", "system", chatDeleteNoticeBody("c-gone"),
+				`{"reply_to":"c-gone","delete_notice":{"message_id":"c-other"}}`, 0},
 		} {
 			if _, err := db.Exec(`INSERT INTO chat_message (id, sender, recipient, body, ts, meta, deleted_ts)
 				VALUES (?, ?, 'kip', ?, 1, ?, ?)`, r.id, r.sender, r.body, r.meta, r.deletedTS); err != nil {
@@ -86,6 +89,8 @@ func TestMigration00125(t *testing.T) {
 			"c-x4":   `{this is not json`,
 			"c-x5":   `null`,
 			"c-x6":   `{}`,
+			"c-x7":   `{"reply_to":7}`,
+			"c-x8":   `{"reply_to":"c-gone","delete_notice":{"message_id":"c-other"}}`,
 		}
 		got := metaOf(t, db)
 		for id, w := range want {

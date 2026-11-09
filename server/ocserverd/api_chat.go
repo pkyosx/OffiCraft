@@ -1215,9 +1215,6 @@ type resumeWakeSnapshot struct {
 	Overview    resumeOverviewDTO
 }
 
-// resume_summary and peek_resume_summary_size both go through this one assembly,
-// and it holds the ONE size estimator — a second one written for the peek is how
-// the peek starts lying.
 func hideDeleteNoticesParam(v *string) bool {
 	return strOrEmpty(v) == chatHideDeleteNoticesTrue
 }
@@ -1228,6 +1225,9 @@ func includeDeleteNoticesParam(v *string) bool {
 	return strOrEmpty(v) == chatIncludeDeleteNoticesTrue
 }
 
+// resume_summary and peek_resume_summary_size both go through this one assembly,
+// and it holds the ONE size estimator — a second one written for the peek is how
+// the peek starts lying.
 func (s *apiServer) resumeSnapshotParts(actor string, hideDeleteNotices bool) (resumeWakeSnapshot, error) {
 	snap := resumeWakeSnapshot{
 		GeneratedAt: resumeDisplayTime(nowSecs()),

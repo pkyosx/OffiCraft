@@ -360,6 +360,15 @@ func TestHandleDeleteChatMessageApiChatMessageIdDelete(t *testing.T) {
 		}
 		apiWantValue(t, "hide_delete_notices", apiTestRowIDs(apiTestChatMessages(t, h, owner,
 			"/api/chat?with=mira&hide_delete_notices=true")), []any{forged, "c-00000000sys1"})
+
+		// An older system row whose meta is not JSON sits outside the page; the
+		// filter still has to evaluate it without raising.
+		if _, err := d.wdb.Exec(`INSERT INTO chat_message (id, sender, recipient, body, ts, meta)
+			VALUES ('c-00000000bad1', 'system', 'mira', 'old', 1, '{not json')`); err != nil {
+			t.Fatalf("insert malformed meta row: %v", err)
+		}
+		apiWantValue(t, "newest page over a malformed older row", apiTestRowIDs(apiTestChatMessages(t, h, owner,
+			"/api/chat?with=mira&hide_delete_notices=true&limit=1")), []any{"c-00000000sys1"})
 	})
 
 	t.Run("every resume-summary face leaves the delete notice out unless include_delete_notices=true, and the peek sizes what that resume carries", func(t *testing.T) {
