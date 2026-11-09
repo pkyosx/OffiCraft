@@ -2301,7 +2301,7 @@ func resumeSnapshot(t *testing.T, api *apiServer, sub string) resumeSummaryDTO {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	api.HandleResumeSummaryApiResumeSummaryGet(rec,
-		taskReq(t, "GET", "/api/resume-summary", nil, sub, "agent"))
+		taskReq(t, "GET", "/api/resume-summary", nil, sub, "agent"), HandleResumeSummaryApiResumeSummaryGetParams{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("resume-summary: %d %s", rec.Code, rec.Body.String())
 	}
@@ -2314,7 +2314,7 @@ func resumeSnapshotRaw(t *testing.T, api *apiServer, sub string) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	api.HandleResumeSummaryApiResumeSummaryGet(rec,
-		taskReq(t, "GET", "/api/resume-summary", nil, sub, "agent"))
+		taskReq(t, "GET", "/api/resume-summary", nil, sub, "agent"), HandleResumeSummaryApiResumeSummaryGetParams{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("resume-summary: %d %s", rec.Code, rec.Body.String())
 	}
@@ -2466,7 +2466,7 @@ func peekResumeSize(t *testing.T, api *apiServer, sub string) resumeSummarySizeD
 	t.Helper()
 	rec := httptest.NewRecorder()
 	api.HandlePeekResumeSummarySizeApiResumeSummarySizeGet(rec,
-		taskReq(t, "GET", "/api/resume-summary-size", nil, sub, "agent"))
+		taskReq(t, "GET", "/api/resume-summary-size", nil, sub, "agent"), HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("peek: %d %s", rec.Code, rec.Body.String())
 	}
@@ -2552,7 +2552,7 @@ func TestPeekResumeSummarySizeIsLightAndConsistent(t *testing.T) {
 	// chat body or plan text.
 	rec := httptest.NewRecorder()
 	api.HandlePeekResumeSummarySizeApiResumeSummarySizeGet(rec,
-		taskReq(t, "GET", "/api/resume-summary-size", nil, "m-exec", "agent"))
+		taskReq(t, "GET", "/api/resume-summary-size", nil, "m-exec", "agent"), HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams{})
 	var raw map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode: %v", err)

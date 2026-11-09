@@ -438,15 +438,20 @@ func (d *DAL) ListChat() ([]ChatMessage, error) {
 }
 
 type chatListFilter struct {
-	participant string
-	sender      string
-	recipient   string
-	hideDeleted bool
+	participant       string
+	sender            string
+	recipient         string
+	hideDeleted       bool
+	hideDeleteNotices bool
 }
 
 func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
 	if f.hideDeleted {
 		*query += ` AND ` + chatNotDeletedSQL(col)
+	}
+	if f.hideDeleteNotices {
+		*query += ` AND ` + chatNotDeleteNoticeSQL(col)
+		*args = append(*args, wireSystemSender)
 	}
 	if f.sender != "" {
 		*query += ` AND ` + col + `sender = ?`
@@ -456,6 +461,15 @@ func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
 		*query += ` AND ` + col + `recipient = ?`
 		*args = append(*args, f.recipient)
 	}
+}
+
+// The sender test is what makes the marker trustworthy: POST /api/chat keeps
+// caller meta, but nobody can post as system. It also comes first so the JSON is
+// only read on system rows. ⚠️ Keep the CASE: meta may not be JSON, json_type
+// raises on malformed input, and SQLite's AND does not short-circuit.
+func chatNotDeleteNoticeSQL(col string) string {
+	return `CASE WHEN ` + col + `sender <> ? THEN 1 WHEN NOT json_valid(` + col + `meta) THEN 1 ` +
+		`ELSE json_type(` + col + `meta, '$.` + chatDeleteNoticeMetaKey + `') IS NULL END`
 }
 
 func chatDeletedSQL(col string) string {
@@ -668,11 +682,15 @@ func (d *DAL) ListChatByIDs(ids []string) ([]ChatMessage, error) {
 // owner ruling 「不要管每條對話線」 (the wake-snapshot packer walks it
 // newest-first until its budget).
 func (d *DAL) ListChatInvolving(participant string, limit int) ([]ChatMessage, error) {
+	return d.listChatInvolving(participant, false, limit)
+}
+
+func (d *DAL) listChatInvolving(participant string, hideDeleteNotices bool, limit int) ([]ChatMessage, error) {
 	if participant == "" || limit <= 0 {
 		return nil, nil
 	}
-	query, args := chatListFilter{participant: participant, hideDeleted: true}.selectSQL(
-		`chat_message`, `1=1`, nil, "", true, limit)
+	f := chatListFilter{participant: participant, hideDeleted: true, hideDeleteNotices: hideDeleteNotices}
+	query, args := f.selectSQL(`chat_message`, `1=1`, nil, "", true, limit)
 	return d.queryChats(query, args, true)
 }
 

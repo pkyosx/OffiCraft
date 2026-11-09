@@ -5321,6 +5321,56 @@ def test_chat_listing_leaves_deleted_out_unless_include_deleted(hctx: HCtx) -> N
     assert r.status_code == 422, f"{r.status_code} {r.text}"
 
 
+def test_delete_notice_hidden_on_request_in_chat_and_by_default_in_resume(hctx: HCtx) -> None:
+    """The notice a delete sends the recipient is listed by ``GET /api/chat``
+    unless ``hide_delete_notices=true`` (422 alongside ``unread=true``); the
+    resume-summary faces leave it out unless ``include_delete_notices=true``."""
+    tag = uuid.uuid4().hex[:8]
+    peer = hctx.agent.member_id
+    r = hctx.client.post(
+        "/api/chat", json={"to": peer, "body": f"notice-target-{tag}"}, headers=_auth(hctx.owner_token)
+    )
+    assert r.status_code == 200, r.text
+    gone = r.json()["id"]
+    r = hctx.client.delete(f"/api/chat/{gone}", headers=_auth(hctx.owner_token))
+    assert r.status_code == 200, r.text
+
+    def notices(rows: list[dict]) -> list[str]:
+        return [
+            m["id"]
+            for m in rows
+            if m["from"] == "system" and (m.get("meta") or {}).get("delete_notice") == {"message_id": gone}
+        ]
+
+    params = {"sender": "system", "recipient": peer, "limit": -1}
+    r = hctx.client.get("/api/chat", params=params, headers=_auth(hctx.owner_token))
+    assert r.status_code == 200, r.text
+    assert len(notices(chat_messages(r))) == 1, "the default listing carries the notice, marked"
+    r = hctx.client.get(
+        "/api/chat", params={**params, "hide_delete_notices": "true"}, headers=_auth(hctx.owner_token)
+    )
+    assert r.status_code == 200, r.text
+    assert notices(chat_messages(r)) == []
+
+    r = hctx.client.get(
+        "/api/chat",
+        params={"unread": "true", "hide_delete_notices": "true"},
+        headers=_auth(hctx.agent.token),
+    )
+    assert r.status_code == 422, f"{r.status_code} {r.text}"
+
+    for target, token in (
+        ("/api/resume-summary", hctx.agent.token),
+        (f"/api/members/{peer}/resume-summary", hctx.owner_token),
+    ):
+        r = hctx.client.get(target, headers=_auth(token))
+        assert r.status_code == 200, r.text
+        assert notices(r.json()["chat"]) == [], f"{target} leaves the notice out by default"
+        r = hctx.client.get(target, params={"include_delete_notices": "true"}, headers=_auth(token))
+        assert r.status_code == 200, r.text
+        assert len(notices(r.json()["chat"])) == 1, f"{target} carries it on request"
+
+
 def test_chat_scrollback_cursor_page_never_marks_read(hctx: HCtx) -> None:
     """T-bf82 scrollback: ``GET /api/chat?with=&before_ts=&before_id=`` serves
     the strictly-older history page (oldest→newest) and NEVER advances the

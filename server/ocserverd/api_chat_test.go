@@ -1430,7 +1430,7 @@ func TestServeChatByIDs(t *testing.T) {
 func TestChatDeclaredQueryParams(t *testing.T) {
 	t.Run("the accepted set is every parameter the route declares plus the transport token, sorted", func(t *testing.T) {
 		if got := chatDeclaredQueryParams(); !reflect.DeepEqual(got, []string{
-			"before_id", "before_ts", "cursor", "end_id", "ids", "include_deleted", "limit",
+			"before_id", "before_ts", "cursor", "end_id", "hide_delete_notices", "ids", "include_deleted", "limit",
 			"recipient", "sender", "start_id", "token", "unread", "with",
 		}) {
 			t.Fatalf("chatDeclaredQueryParams = %#v", got)
@@ -1894,7 +1894,7 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 			"unknown query parameter(s) on GET /api/chat: nope, zzz — this route "+
 				"refuses parameters it does not declare rather than ignoring them, "+
 				"because an ignored parameter silently answers a question you did "+
-				"not ask; accepted here: before_id, before_ts, cursor, end_id, ids, "+
+				"not ask; accepted here: before_id, before_ts, cursor, end_id, hide_delete_notices, ids, "+
 				"include_deleted, limit, recipient, sender, start_id, token, unread, with")
 	})
 
@@ -2988,7 +2988,7 @@ func TestResumeSnapshotParts(t *testing.T) {
 	t.Run("an out-of-box caller wakes to an empty chat, the studio floor, and an overview whose only cost is the header", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 
-		snap, err := api.resumeSnapshotParts("owner")
+		snap, err := api.resumeSnapshotParts("owner", false)
 		if err != nil {
 			t.Fatalf("resumeSnapshotParts: %v", err)
 		}
@@ -3006,7 +3006,7 @@ func TestResumeSnapshotParts(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		_, posted := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"hi"}`)
 
-		snap, err := api.resumeSnapshotParts("owner")
+		snap, err := api.resumeSnapshotParts("owner", false)
 		if err != nil {
 			t.Fatalf("resumeSnapshotParts: %v", err)
 		}
@@ -3023,7 +3023,7 @@ func TestResumeSnapshotParts(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"not mira's"}`)
 		_, posted := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"hi"}`)
 
-		snap, err := api.resumeSnapshotParts("mira")
+		snap, err := api.resumeSnapshotParts("mira", false)
 		if err != nil {
 			t.Fatalf("resumeSnapshotParts: %v", err)
 		}
@@ -3044,7 +3044,7 @@ func TestResumeSnapshotParts(t *testing.T) {
 			t.Fatalf("open kip's card: %d %v", status, data)
 		}
 
-		snap, err := api.resumeSnapshotParts("mira")
+		snap, err := api.resumeSnapshotParts("mira", false)
 		if err != nil {
 			t.Fatalf("resumeSnapshotParts: %v", err)
 		}
@@ -3058,7 +3058,7 @@ func TestResumeSnapshotParts(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"hi"}`)
 
-		snap, err := api.resumeSnapshotParts("")
+		snap, err := api.resumeSnapshotParts("", false)
 		if err != nil {
 			t.Fatalf("resumeSnapshotParts: %v", err)
 		}

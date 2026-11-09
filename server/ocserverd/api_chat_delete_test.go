@@ -21,7 +21,10 @@ func apiTestDeletedRow(id, from, to, body string) map[string]any {
 
 func apiTestDeleteNoticeRow(noticeID, deletedID, deletedTo string) map[string]any {
 	row := apiTestChatRow(noticeID, "system", deletedTo, apiTestDeleteNoticeBody(deletedID))
-	row["meta"] = map[string]any{"reply_to": deletedID}
+	row["meta"] = map[string]any{
+		"reply_to":      deletedID,
+		"delete_notice": map[string]any{"message_id": deletedID},
+	}
 	row["reply_to"] = deletedID
 	row["reply_to_chat"] = map[string]any{
 		"id": deletedID, "from": "owner", "from_name": "", "to": deletedTo, "to_name": "",
@@ -264,7 +267,7 @@ func TestHandleDeleteChatMessageApiChatMessageIdDelete(t *testing.T) {
 		apiWantError(t, data, "validation_error",
 			"unread cannot be combined with include_deleted — a deleted message is never unread")
 
-		status, snap := apiJSON(t, h, "GET", "/api/members/mira/resume-summary", owner, "")
+		status, snap := apiJSON(t, h, "GET", "/api/members/mira/resume-summary?include_delete_notices=true", owner, "")
 		if status != 200 {
 			t.Fatalf("owner reading mira's resume summary: %d %v", status, snap)
 		}
@@ -304,14 +307,112 @@ func TestHandleDeleteChatMessageApiChatMessageIdDelete(t *testing.T) {
 		}
 	})
 
-	t.Run("the member's wake snapshot leaves the deleted message out", func(t *testing.T) {
+	t.Run("hide_delete_notices=true leaves the delete notice out of every listing path; without it the notice is listed", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		member := apiTestAgentToken(t, api, "mira", "")
+		kept := apiTestPostChat(t, h, owner, `{"to":"mira","body":"kept"}`)
+		deleted := apiTestPostChat(t, h, owner, `{"to":"mira","body":"the secret plan"}`)
+		apiTestDelete(t, h, owner, deleted)
+		ids := apiTestRowIDs(apiTestChatMessages(t, h, owner, "/api/chat?with=mira"))
+		if len(ids) != 2 || ids[0] != kept {
+			t.Fatalf("default listing: want the kept message then the notice, got %v", ids)
+		}
+		notice := ids[1].(string)
+		noticeRow := apiTestChatMessages(t, h, owner, "/api/chat?ids="+notice).([]any)[0].(map[string]any)
+		before := "/api/chat?with=mira&before_id=" + notice + "&before_ts=" +
+			strconv.FormatFloat(noticeRow["ts"].(float64)+1, 'f', -1, 64)
+
+		for _, c := range []struct {
+			label, target string
+			plain, hidden []any
+		}{
+			{"latest", "/api/chat?with=mira", []any{kept, notice}, []any{kept}},
+			{"window", "/api/chat?with=mira&start_id=" + kept + "&limit=10", []any{kept, notice}, []any{kept}},
+			{"before", before, []any{kept, notice}, []any{kept}},
+			{"recipient filter", "/api/chat?recipient=mira", []any{kept, notice}, []any{kept}},
+			{"with include_deleted", "/api/chat?with=mira&include_deleted=true",
+				[]any{kept, deleted, notice}, []any{kept, deleted}},
+		} {
+			apiWantValue(t, c.label+", default", apiTestRowIDs(apiTestChatMessages(t, h, owner, c.target)), c.plain)
+			apiWantValue(t, c.label+", hide_delete_notices", apiTestRowIDs(apiTestChatMessages(t, h, owner,
+				c.target+"&hide_delete_notices=true")), c.hidden)
+		}
+		apiWantValue(t, "hide_delete_notices=yes reads as not sent", apiTestRowIDs(apiTestChatMessages(t, h, owner,
+			"/api/chat?with=mira&hide_delete_notices=yes")), []any{kept, notice})
+		apiWantValue(t, "ids ignores hide_delete_notices", apiTestRowIDs(apiTestChatMessages(t, h, member,
+			"/api/chat?ids="+notice+"&hide_delete_notices=true")), []any{notice})
+
+		status, data := apiJSON(t, h, "GET", "/api/chat?unread=true&hide_delete_notices=true", member, "")
+		if status != 422 {
+			t.Fatalf("unread with hide_delete_notices: want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", chatUnreadDeleteNoticesMsg)
+	})
+
+	t.Run("a system message without the marker, and anyone else's message carrying it, stay listed under hide_delete_notices", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		member := apiTestAgentToken(t, api, "mira", "")
+		forged := apiTestPostChat(t, h, member,
+			`{"to":"owner","body":"look","meta":{"delete_notice":{"message_id":"c-x"}}}`)
+		if err := d.PutChat(ChatMessage{ID: "c-00000000sys1", Sender: wireSystemSender, Recipient: "mira",
+			Body: "some other system line", TS: nowSecs(), Meta: map[string]any{}}); err != nil {
+			t.Fatalf("PutChat: %v", err)
+		}
+		apiWantValue(t, "hide_delete_notices", apiTestRowIDs(apiTestChatMessages(t, h, owner,
+			"/api/chat?with=mira&hide_delete_notices=true")), []any{forged, "c-00000000sys1"})
+	})
+
+	t.Run("every resume-summary face leaves the delete notice out unless include_delete_notices=true, and the peek sizes what that resume carries", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		member := apiTestAgentToken(t, api, "mira", "")
+		kept := apiTestPostChat(t, h, owner, `{"to":"mira","body":"kept"}`)
+		deleted := apiTestPostChat(t, h, owner, `{"to":"mira","body":"the secret plan"}`)
+		apiTestDelete(t, h, owner, deleted)
+		get := func(token, target string) map[string]any {
+			t.Helper()
+			status, data := apiJSON(t, h, "GET", target, token, "")
+			if status != 200 {
+				t.Fatalf("GET %s: %d %v", target, status, data)
+			}
+			return data
+		}
+		ids := apiTestRowIDs(get(member, "/api/resume-summary?include_delete_notices=true")["chat"])
+		if len(ids) != 2 || ids[0] != kept {
+			t.Fatalf("snapshot with notices: want the kept message then the notice, got %v", ids)
+		}
+		notice := ids[1]
+
+		for _, c := range []struct{ label, token, target string }{
+			{"resume_summary", member, "/api/resume-summary"},
+			{"get_member_resume_summary", owner, "/api/members/mira/resume-summary"},
+		} {
+			apiWantValue(t, c.label+", default", apiTestRowIDs(get(c.token, c.target)["chat"]), []any{kept})
+			apiWantValue(t, c.label+", include_delete_notices", apiTestRowIDs(get(c.token,
+				c.target+"?include_delete_notices=true")["chat"]), []any{kept, notice})
+			apiWantValue(t, c.label+", include_delete_notices=yes reads as not sent", apiTestRowIDs(get(c.token,
+				c.target+"?include_delete_notices=yes")["chat"]), []any{kept})
+		}
+
+		for _, q := range []string{"", "?include_delete_notices=true"} {
+			resumeOverview := get(member, "/api/resume-summary"+q)["overview"].(map[string]any)
+			peek := get(member, "/api/resume-summary-size"+q)
+			apiWantValue(t, "peek overview"+q, peek["overview"], resumeOverview)
+		}
+		hidden := get(member, "/api/resume-summary-size")["overview"].(map[string]any)["chat_chars"].(float64)
+		shown := get(member, "/api/resume-summary-size?include_delete_notices=true")["overview"].(map[string]any)["chat_chars"].(float64)
+		if hidden >= shown {
+			t.Fatalf("chat_chars by default = %v, want less than %v with the notice included", hidden, shown)
+		}
+	})
+
+	t.Run("the member's wake snapshot leaves the deleted message out, and carries its notice on request", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		member := apiTestAgentToken(t, api, "mira", "")
 		kept := apiTestPostChat(t, h, owner, `{"to":"mira","body":"kept"}`)
 		deleted := apiTestPostChat(t, h, owner, `{"to":"mira","body":"the secret plan"}`)
 		apiTestDelete(t, h, owner, deleted)
 
-		status, snap := apiJSON(t, h, "GET", "/api/resume-summary", member, "")
+		status, snap := apiJSON(t, h, "GET", "/api/resume-summary?include_delete_notices=true", member, "")
 		if status != 200 {
 			t.Fatalf("resume-summary: %d %v", status, snap)
 		}
