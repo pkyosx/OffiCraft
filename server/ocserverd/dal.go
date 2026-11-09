@@ -458,7 +458,7 @@ func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
 
 // chatRecalledSQL mirrors chatRecalledTS(meta) > 0. ⚠️ Keep it a CASE: meta is
 // free-form and may not be JSON, json_type raises on malformed input, and SQLite's
-// AND does not short-circuit (migrations/00074 measured both).
+// AND does not short-circuit.
 func chatRecalledSQL(col string) string {
 	meta := col + `meta`
 	return `(CASE WHEN NOT json_valid(` + meta + `) THEN 0` +
@@ -820,10 +820,16 @@ func (d *DAL) GetDocumentHistory(kind, key string, id int64) (*DocumentHistory, 
 
 func (d *DAL) PutChat(m ChatMessage) error { return putChatOn(d.wdb, m) }
 
-// MarkChatRecalled touches only meta.recalled_ts: re-writing the whole meta from
-// a Go round-trip would re-encode every other value in it.
 func (d *DAL) MarkChatRecalled(id string, ts float64) error {
-	_, err := d.wdb.Exec(`UPDATE chat_message SET meta = json_set(meta, '$.`+
+	return markChatRecalledOn(d.wdb, id, ts)
+}
+
+// Touches only meta.recalled_ts: re-writing the whole meta from a Go round-trip
+// would re-encode every other value in it. ⚠️ A JSON null meta must become {}
+// first: json_set on null is a silent no-op, and the recall would never land.
+func markChatRecalledOn(ex sqlExecer, id string, ts float64) error {
+	_, err := ex.Exec(`UPDATE chat_message SET meta = json_set(`+
+		`CASE WHEN NOT json_valid(meta) THEN meta WHEN json_type(meta) = 'null' THEN '{}' ELSE meta END, '$.`+
 		chatRecalledTSMetaKey+`', ?) WHERE id = ?`, ts, id)
 	return err
 }

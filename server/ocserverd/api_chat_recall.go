@@ -4,7 +4,6 @@ import "net/http"
 
 const (
 	chatRecalledTSMetaKey = "recalled_ts"
-	chatRecallMetaKey     = "chat_recall"
 
 	chatRecallWindowSecs = 24 * 60 * 60
 )
@@ -65,32 +64,41 @@ func (s *apiServer) HandleRecallChatMessageApiChatMessageIdRecallPost(w http.Res
 		writeTxError(w, err)
 		return
 	}
-	var msg *ChatMessage
-	recalledNow := false
+	var msg, notice *ChatMessage
 	now := nowSecs()
+	// The notice commits with the mark: a recall that landed without it would be
+	// final, since a retry answers the already-recalled message and sends nothing.
 	err := s.dal.inTx(func(tx *writeTx) error {
 		m, pending, err := gate(now)
 		if err != nil || !pending {
 			msg = m
 			return err
 		}
-		if err := s.dal.MarkChatRecalled(m.ID, now); err != nil {
+		if err := markChatRecalledOn(tx, m.ID, now); err != nil {
 			return err
 		}
+		n := chatRecallNotice(*m, now)
+		if err := putChatOn(tx, n); err != nil {
+			return err
+		}
+		if m.Meta == nil {
+			m.Meta = map[string]any{}
+		}
 		m.Meta[chatRecalledTSMetaKey] = now
-		msg, recalledNow = m, true
+		msg, notice = m, &n
 		return nil
 	})
 	if err != nil {
 		writeTxError(w, err)
 		return
 	}
-	if recalledNow {
+	if notice != nil {
 		trigger := requestTrigger(r)
-		s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+msg.ID,
-			map[string]any{"id": msg.ID, "from": msg.Sender, "to": msg.Recipient},
-			audienceMembers(msg.Sender, msg.Recipient), trigger)
-		s.postChatRecallNotice(*msg, trigger)
+		for _, c := range []*ChatMessage{msg, notice} {
+			s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+c.ID,
+				map[string]any{"id": c.ID, "from": c.Sender, "to": c.Recipient},
+				audienceMembers(c.Sender, c.Recipient), trigger)
+		}
 	}
 	dto, err := s.servedChatMessageDTO(*msg)
 	if err != nil {
@@ -101,30 +109,19 @@ func (s *apiServer) HandleRecallChatMessageApiChatMessageIdRecallPost(w http.Res
 }
 
 // The notice replies to the recalled message so ocagent prints ↩#id beside it.
-func (s *apiServer) postChatRecallNotice(recalled ChatMessage, trigger string) {
-	msg := ChatMessage{
+func chatRecallNotice(recalled ChatMessage, now float64) ChatMessage {
+	return ChatMessage{
 		ID:        "c-" + newHexID(12),
 		Sender:    wireSystemSender,
 		Recipient: recalled.Recipient,
 		Body:      chatRecallNoticeBody(recalled.ID),
-		TS:        nowSecs(),
-		Meta: map[string]any{
-			chatReplyToMetaKey: recalled.ID,
-			chatRecallMetaKey:  map[string]any{"message_id": recalled.ID},
-		},
+		TS:        now,
+		Meta:      map[string]any{chatReplyToMetaKey: recalled.ID},
 	}
-	if err := s.dal.PutChat(msg); err != nil {
-		outsourceLog("chat-recall %s: durable notice to %s failed (the recipient "+
-			"will NOT be told the message was recalled): %v", recalled.ID, recalled.Recipient, err)
-		return
-	}
-	s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+msg.ID,
-		map[string]any{"id": msg.ID, "from": msg.Sender, "to": msg.Recipient},
-		audienceMembers(msg.Sender, msg.Recipient), trigger)
 }
 
 // Owner-chosen wording; seeds/system_interaction.md teaches members to read it.
 func chatRecallNoticeBody(id string) string {
-	return "Owner 收回了訊息 #" + id + "，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=" +
+	return "Owner 刪除了訊息 #" + id + "，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=" +
 		id + " 讀回。"
 }

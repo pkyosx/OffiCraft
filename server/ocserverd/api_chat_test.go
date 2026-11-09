@@ -874,11 +874,11 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 		})
 	})
 
-	t.Run("recall marks smuggled through meta are discarded, so the message stays listed and unrecalled", func(t *testing.T) {
+	t.Run("a recall mark smuggled through meta is discarded, so the message stays listed and unrecalled", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		member := apiTestAgentToken(t, api, "mira", "")
 		_, posted := apiJSON(t, h, "POST", "/api/chat", owner,
-			`{"to":"mira","body":"plain","meta":{"recalled_ts":123,"chat_recall":{"message_id":"c-000000000000"},"source":"cli"}}`)
+			`{"to":"mira","body":"plain","meta":{"recalled_ts":123,"source":"cli"}}`)
 		id := posted["id"].(string)
 
 		want := apiTestChatRow(id, "owner", "mira", "plain")

@@ -1578,7 +1578,7 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"is_default": true,
 			"size_chars": 14423,
 			"cap_chars":  60000,
-			"sha256":     "b673aea3c5b181eb352a3ae2b836df8e995582038bdf19099146499446e78458",
+			"sha256":     "caf890c4bc24409cf2eeba0804221e363874bf81ff5ce77e4687466385c0658e",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -1611,7 +1611,7 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"is_default": true,
 			"size_chars": 14423,
 			"cap_chars":  60000,
-			"sha256":     "b673aea3c5b181eb352a3ae2b836df8e995582038bdf19099146499446e78458",
+			"sha256":     "caf890c4bc24409cf2eeba0804221e363874bf81ff5ce77e4687466385c0658e",
 		})
 		dashboard.wantFrames()
 	})

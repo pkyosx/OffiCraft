@@ -366,11 +366,10 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 		}
 	}
 	// Drop any caller-supplied reply link or excerpt: one arriving pre-made in meta
-	// would bypass the checks below. Likewise the recall marks: only the recall route writes them.
+	// would bypass the checks below. Likewise the recall mark: only the recall route writes it.
 	delete(meta, chatReplyToMetaKey)
 	delete(meta, chatReplyExcerptMetaKey)
 	delete(meta, chatRecalledTSMetaKey)
-	delete(meta, chatRecallMetaKey)
 	replyTo := trimString(strOrEmpty(body.ReplyTo))
 	// ⚠️ Not checked against the quoted body: a selection of the rendered message
 	// need not appear verbatim in its raw markdown.

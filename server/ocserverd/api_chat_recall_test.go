@@ -1,14 +1,16 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"testing"
 )
 
 func apiTestRecallNoticeBody(id string) string {
-	return "Owner 收回了訊息 #" + id + "，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=" + id + " 讀回。"
+	return "Owner 刪除了訊息 #" + id + "，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=" + id + " 讀回。"
 }
 
 func apiTestRecalledRow(id, from, to, body string) map[string]any {
@@ -19,10 +21,7 @@ func apiTestRecalledRow(id, from, to, body string) map[string]any {
 
 func apiTestRecallNoticeRow(noticeID, recalledID, recalledTo string) map[string]any {
 	row := apiTestChatRow(noticeID, "system", recalledTo, apiTestRecallNoticeBody(recalledID))
-	row["meta"] = map[string]any{
-		"reply_to":    recalledID,
-		"chat_recall": map[string]any{"message_id": recalledID},
-	}
+	row["meta"] = map[string]any{"reply_to": recalledID}
 	row["reply_to"] = recalledID
 	row["reply_to_chat"] = map[string]any{
 		"id": recalledID, "from": "owner", "from_name": "", "to": recalledTo, "to_name": "",
@@ -310,6 +309,65 @@ func TestHandleRecallChatMessageApiChatMessageIdRecallPost(t *testing.T) {
 		dalWantChats(t, "the stream after a second recall", apiTestAllChat(t, d), before)
 		dashboard.wantFrames()
 		recipient.wantFrames()
+	})
+
+	t.Run("parallel recalls of one message all answer 200 recalled and leave exactly one notice", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		id := apiTestPostChat(t, h, owner, `{"to":"mira","body":"the secret plan"}`)
+		before := len(apiTestAllChat(t, d))
+
+		const n = 16
+		type answer struct {
+			status int
+			data   map[string]any
+		}
+		answers := make([]answer, n)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range answers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				rec := apiRequest(t, h, "POST", "/api/chat/"+id+"/recall", owner, "")
+				var data map[string]any
+				_ = json.Unmarshal(rec.Body.Bytes(), &data)
+				answers[i] = answer{rec.Code, data}
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		for i, a := range answers {
+			if a.status != 200 {
+				t.Fatalf("recall %d: want 200, got %d (%v)", i, a.status, a.data)
+			}
+			if ts, _ := a.data["recalled_ts"].(float64); ts <= 0 {
+				t.Fatalf("recall %d: want recalled_ts set, got %v", i, a.data)
+			}
+		}
+		noticeID := apiTestNoticeAfter(t, d, before)
+		apiWantValue(t, "notice", apiTestChatMessages(t, h, owner, "/api/chat?ids="+noticeID),
+			[]any{apiTestRecallNoticeRow(noticeID, id, "mira")})
+	})
+
+	t.Run("a message whose meta is JSON null is recalled like any other", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		if _, err := d.wdb.Exec(`INSERT INTO chat_message (id, sender, recipient, body, ts, meta)
+			VALUES ('c-0000000000bb', 'owner', 'mira', 'legacy', ?, 'null')`, nowSecs()); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		before := len(apiTestAllChat(t, d))
+
+		status, data := apiJSON(t, h, "POST", "/api/chat/c-0000000000bb/recall", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		want := apiTestRecalledRow("c-0000000000bb", "owner", "mira", "legacy")
+		apiWantBody(t, data, want)
+		apiWantValue(t, "by id, read back", apiTestChatMessages(t, h, owner, "/api/chat?ids=c-0000000000bb"),
+			[]any{want})
+		apiTestNoticeAfter(t, d, before)
 	})
 
 	t.Run("an agent caller answers 403 and nothing is recalled", func(t *testing.T) {
