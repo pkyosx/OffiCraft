@@ -285,7 +285,7 @@ def test_delta_frame_shape(client, owner_token, agent_a, owner_sse) -> None:
     assert inner["epoch"] == frame["seq"], "epoch MUST equal seq"
     assert inner["deleted"] is False
     assert isinstance(inner["key"], str) and inner["key"], "key is an opaque hint"
-    # §2.2: the chat convenience payload is exactly {id, from, to}.
+    # §2.2: a new-message chat payload is exactly {id, from, to}.
     payload = inner["payload"]
     assert set(payload) == {"id", "from", "to"}, payload
     assert payload["from"] == "owner" and payload["to"] == agent_a.member_id

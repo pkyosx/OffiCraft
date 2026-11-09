@@ -78,9 +78,11 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
 
 - A delta means "this topic changed → refetch its list/snapshot".
 - `payload` is carried **for convenience only**; a client MUST NOT merge it in place — it
-  lacks server-derived DTO fields. Payloads are deliberately partial. **One field breaks that
-  rule and is named as an exception**: `offboard_notice` (below) is the only payload key that
-  a refetch CANNOT recover — no DTO carries it — so it is the one thing a client may act on
+  lacks server-derived DTO fields. Payloads are deliberately partial. **Two fields break that
+  rule and are named as exceptions**: `offboard_notice` (below) is the only payload key that
+  a refetch CANNOT recover — no DTO carries it; and `recalled_ts` on a `chat` recall delta
+  (below) may be applied to a held message straight off the delta, because a recall cannot be
+  undone and so the value can never go stale. These are the only things a client may act on
   straight off the delta:
   - `member`: `{id, name, status, desired_state, owner_id}` for staff lifecycle and
     outsource assignment / claim / release, plus `offboard_notice` on

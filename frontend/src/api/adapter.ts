@@ -2054,8 +2054,8 @@ export interface SseDelta {
    * something I am holding?" test. Empty ⇒ refetch the lot. */
   ids: string[];
   /** `chat` only: present on the delta of a recall, the recall time (epoch
-   * seconds). The one payload value a hook may apply without a refetch: a
-   * recall cannot be undone, so it cannot go stale. */
+   * seconds). A hook may apply it without a refetch (spec/sse.md §2.2 names it
+   * as an exception): a recall cannot be undone, so it cannot go stale. */
   recalledTs?: number;
 }
 
