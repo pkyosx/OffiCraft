@@ -1522,6 +1522,15 @@ export const zh = {
     // 對方訊息角落的「放大閱讀」小按鈕：把這則訊息本文丟進同一個
     // 全幅 overlay 讀（長回覆在對話欄裡很難讀）。自己發的訊息沒有。
     expandMessage: "放大閱讀",
+    // 收回：只出現在 owner 自己 24 小時內的一般訊息角落；無法復原，所以先確認。
+    // recalledNotice 是收回後那一列本身（可點開看原文），recalledQuote 是引用到
+    // 已收回訊息的引用列。recallFailed 只在伺服器沒給理由時用。
+    recallAction: "收回",
+    recallConfirmBody: "要收回這則訊息嗎？對方會收到收回通知，此動作無法復原。",
+    recallConfirm: "確認收回",
+    recallFailed: "收回失敗，請稍後重試",
+    recalledNotice: "此訊息已收回",
+    recalledQuote: "已收回的訊息",
     // T-4e95「回覆這則」：每則訊息角落的回覆入口、輸入框上方的「正在回覆」
     // 橫幅與它的 x，以及訊息上方那條指回原訊息的引用列。
     // replyQuoteGone 是**訊息列**的落空文案，而且是固定的：被引用的那則訊息

@@ -1240,7 +1240,8 @@
  * .chat__msg-expand keeps. It used to be reduced there, and that was correct
  * while the ink was opaque; once the ink became a fraction of the bubble's
  * colour the two fractions multiplied and the control fell under 3:1. */
-.chat__msg-reply {
+.chat__msg-reply,
+.chat__msg-recall {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1260,19 +1261,59 @@
     opacity 0.15s;
 }
 .chat__msg:hover .chat__msg-reply,
-.chat__msg-reply:focus-visible {
+.chat__msg-reply:focus-visible,
+.chat__msg:hover .chat__msg-recall,
+.chat__msg-recall:focus-visible {
   opacity: 1;
 }
-.chat__msg-reply:hover {
+.chat__msg-reply:hover,
+.chat__msg-recall:hover {
   color: inherit;
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
 /* Same correction as .chat__msg-expand above: opacity multiplies the ink's own
  * alpha, and 0.55 × 55% left the only reply entry a touch user has at 2.02:1. */
 @media (hover: none) {
-  .chat__msg-reply {
+  .chat__msg-reply,
+  .chat__msg-recall {
     opacity: 1;
   }
+}
+
+/* 「收回」 (the corner entry above shares the reply entry's rules). A recalled
+ * row replaces its bubble with one muted italic toggle; opened, the original
+ * hangs below it in the quote row's muted ink behind a left rule, with no
+ * bubble frame — it is no longer a message in the thread. */
+.chat__msg-recalled {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+.chat__msg-recalled__toggle {
+  padding: 2px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.chat__msg-recalled__toggle:hover,
+.chat__msg-recalled__toggle:focus-visible {
+  text-decoration: underline;
+}
+.chat__msg-recalled__original {
+  align-self: stretch;
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--color-text-muted) 40%, transparent);
+  font-size: 12px;
+  color: var(--color-text-muted);
 }
 
 /* ② THE QUOTE ROW — the reference line at the TOP OF THE BUBBLE naming the

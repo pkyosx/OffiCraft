@@ -141,6 +141,7 @@ describe("mock 回覆這則 — server parity", () => {
       to: "mira",
       toName: "",
       content: "被引用的那句",
+      recalled: false,
     });
     // ② the listing — unconditional, and note the quoted message is IN the
     // window too: "it is already here" is not a reason to skip it.
@@ -173,6 +174,7 @@ describe("mock 回覆這則 — server parity", () => {
       toName: "",
       content: "第一段 第二段",
       replyExcerpt: "第二\n段",
+      recalled: false,
     });
     expect(whole.replyToChat).toEqual({
       id: quoted.id,
@@ -181,6 +183,7 @@ describe("mock 回覆這則 — server parity", () => {
       to: "mira",
       toName: "",
       content: "第一段 第二段",
+      recalled: false,
     });
     const snap = await mockApi.getMemberResumeSummary("mira");
     expect(snap.chat.find((m) => m.id === excerpted.id)?.replyToChat?.replyExcerpt).toBe("第二\n段");
@@ -258,6 +261,7 @@ describe("mock 回覆這則 — server parity", () => {
       to: "mira",
       toName: "Mira",
       content: "被引用的那句",
+      recalled: false,
     });
     // …and the browser read of the SAME message leaves those name halves empty,
     // which is what makes the line above a statement about this door.

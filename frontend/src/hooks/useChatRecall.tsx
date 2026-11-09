@@ -1,0 +1,81 @@
+// useChatRecall — the owner's 「收回」 flow for one chat room: ask, confirm,
+// call the server, and remember what it answered.
+//
+// The thread itself is refetched by the `chat` SSE delta the recall emits; the
+// 200 response is kept here so the row turns into 「此訊息已收回」 the moment the
+// server says so, without waiting for that refetch. A recall cannot be undone,
+// so a remembered timestamp can never go stale and is never cleared.
+//
+// State dies with the room: ChatArea is mounted under `key={peerId}`.
+
+import { useCallback, useRef, useState, type ReactNode } from "react";
+import { api } from "../api";
+import type { ChatMessage } from "../api/adapter";
+import { serverMessageOf } from "../api/errors";
+import { useI18n } from "../i18n";
+import { ConfirmModal } from "../components/ConfirmModal";
+
+export type ChatRecall = {
+  /** `m.recalledTs`, or the recall this room just made of `m`; 0 = not recalled. */
+  recalledTsOf: (m: ChatMessage) => number;
+  /** Open the confirm dialog for message `id`. */
+  ask: (id: string) => void;
+  /** The confirm dialog, or null. Render it from the caller's tree. */
+  dialog: ReactNode;
+};
+
+export function useChatRecall(): ChatRecall {
+  const { t } = useI18n();
+  const [recalled, setRecalled] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
+  const [target, setTarget] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Same-tick double clicks both read the pre-update `busy`.
+  const busyRef = useRef(false);
+
+  const recalledTsOf = useCallback(
+    (m: ChatMessage) => m.recalledTs || recalled.get(m.id) || 0,
+    [recalled],
+  );
+
+  const ask = useCallback((id: string) => {
+    setError(null);
+    setTarget(id);
+  }, []);
+
+  async function confirm(id: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      const m = await api.recallChatMessage(id);
+      setRecalled((prev) => new Map(prev).set(m.id, m.recalledTs || Date.now() / 1000));
+      setTarget(null);
+    } catch (e) {
+      setError(serverMessageOf(e) || t.chat.recallFailed);
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  const dialog =
+    target === null ? null : (
+      <ConfirmModal
+        testId="chat-recall-confirm"
+        confirmTestId="chat-recall-confirm-btn"
+        body={t.chat.recallConfirmBody}
+        error={error}
+        cancelLabel={t.common.cancel}
+        confirmLabel={t.chat.recallConfirm}
+        busy={busy}
+        danger
+        onCancel={() => setTarget(null)}
+        onConfirm={() => void confirm(target)}
+      />
+    );
+
+  return { recalledTsOf, ask, dialog };
+}

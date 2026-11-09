@@ -250,6 +250,8 @@ describe("mock adapter getFirstUnreadChat (進房的第一則未讀)", () => {
       replyCardId: null,
       replyCardStatus: null,
       replyToChat: null,
+      recalledTs: 0,
+      taskId: null,
     });
   });
 

@@ -418,6 +418,7 @@ export function toChatMessage(w: WireChatMessage): ChatMessage {
   // wire — surface the id only when it really is a non-empty string, else the
   // honest null (a plain message).
   const rawCardId = w.meta?.["reply_card_id"];
+  const rawTaskId = w.meta?.["task_id"];
   return {
     id: w.id,
     from: w.from,
@@ -485,8 +486,12 @@ export function toChatMessage(w: WireChatMessage): ChatMessage {
           ...(w.reply_to_chat.reply_excerpt
             ? { replyExcerpt: w.reply_to_chat.reply_excerpt }
             : {}),
+          recalled: w.reply_to_chat.recalled ?? false,
         }
       : null,
+    recalledTs: w.recalled_ts ?? 0,
+    taskId:
+      typeof rawTaskId === "string" && rawTaskId !== "" ? rawTaskId : null,
   };
 }
 

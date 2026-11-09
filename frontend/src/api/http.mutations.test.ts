@@ -387,6 +387,8 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
       replyCardStatus: null,
       replyTo: null,
       replyToChat: null,
+      recalledTs: 0,
+      taskId: null,
     });
   });
 

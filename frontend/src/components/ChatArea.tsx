@@ -82,8 +82,12 @@ import {
   SendIcon,
   SuggestedRepliesIcon,
   TasksIcon,
+  UndoIcon,
   UserGearIcon,
 } from "./icons";
+import { chatRecallable } from "../lib/chatRecall";
+import { useChatRecall } from "../hooks/useChatRecall";
+import { ChatRecalledRow } from "./ChatRecalledRow";
 import { DispatchAlert } from "./DispatchAlert";
 
 // The owner's sender id. The real backend stamps a message's `from` from the
@@ -604,6 +608,7 @@ export function ChatArea({
   // component because it is handed `nameOf`, and `nameOf` needs the roster
   // hooks above it. It is still an unconditional top-level hook call.
   const quotedMessage = useQuotedMessageOverlay(nameOf);
+  const recall = useChatRecall();
   // Is the owner ACTUALLY looking (window focused + tab visible)? Read side
   // effects (mark-read below) are gated on this: a backgrounded window must
   // never consume unread state (the roster badge has to survive until the
@@ -1885,7 +1890,9 @@ export function ChatArea({
     // PREVIOUS room's reading for one commit — which lit a 已讀 tick off
     // somebody else's watermark (R8-2). `useChat` is now mounted per room, so
     // the only reading it can hand back is this room's.
-    const read = mine && peerLastReadTs >= m.ts;
+    const recalled = recall.recalledTsOf(m) > 0;
+    const read = mine && !recalled && peerLastReadTs >= m.ts;
+    const recallEntry = chatRecallable(m, Date.now() / 1000) && !recalled;
     // ONE bubble per message (owner feedback): text and attachments share the
     // SAME bubble container — text on top, attachments stacked below — one
     // rounded surface, one background, so a text+attachment message reads as a
@@ -1925,9 +1932,11 @@ export function ChatArea({
     // the truth; it must NOT be folded into the gone sentence, because "there
     // was nothing to quote" and "there is nothing to quote FROM" are different
     // facts about the conversation.
-    const quoteText = quoted
-      ? (quoted.replyExcerpt ?? unlinkMentions(quoted.content))
-      : t.chat.replyQuoteGone;
+    const quoteText = !quoted
+      ? t.chat.replyQuoteGone
+      : quoted.recalled
+        ? t.chat.recalledQuote
+        : (quoted.replyExcerpt ?? unlinkMentions(quoted.content));
     const quoteLine = !m.replyTo ? null : (
       /* 🔴 THE ONE THING THIS ROW EXISTS TO SAY HAS TO REACH THE A11Y TREE TOO.
        * Measured in a real browser on a real <ChatArea>: as a bare <div> this
@@ -2115,7 +2124,27 @@ export function ChatArea({
       </button>
     );
 
-    const content = m.replyCardId ? (
+    const body = m.body && (
+      <AttachmentLinkCommentsContext.Provider value={roomDocComments}>
+        <MentionOpenerContext.Provider value={openMention}>
+          <Markdown
+            source={m.body}
+            className={
+              // Not `.chat__msg-text` on a recalled original: that class is
+              // what 「回覆這段」 offers itself on.
+              (recalled ? "chat__msg-recalled__text" : "chat__msg-text") +
+              " doc-md"
+            }
+            breaks
+          />
+        </MentionOpenerContext.Provider>
+      </AttachmentLinkCommentsContext.Provider>
+    );
+    // Attachments stay out of the recalled row in both states; the expanded
+    // original is the text alone.
+    const content = recalled ? (
+      <ChatRecalledRow>{body}</ChatRecalledRow>
+    ) : m.replyCardId ? (
       <MentionRosterContext.Provider value={mentionRoster}>
         <ChatReplyCard
           replyCardId={m.replyCardId}
@@ -2133,7 +2162,9 @@ export function ChatArea({
           // 放大閱讀 is the one that comes and goes.
           (!mine && m.body
             ? " chat__msg-bubble--expandable chat__msg-bubble--acts2"
-            : " chat__msg-bubble--acts1")
+            : recallEntry
+              ? " chat__msg-bubble--acts2"
+              : " chat__msg-bubble--acts1")
         }
       >
         {/* The bubble's corner actions (T-4e95). ONE slot, so the two controls
@@ -2151,6 +2182,17 @@ export function ChatArea({
          *     out — the file chip already carries its own 預覽 action. */}
         <div className="chat__msg-actions">
           {replyEntry}
+          {recallEntry && (
+            <button
+              type="button"
+              className="chat__msg-recall"
+              aria-label={t.chat.recallAction}
+              title={t.chat.recallAction}
+              onClick={() => recall.ask(m.id)}
+            >
+              <UndoIcon size={13} />
+            </button>
+          )}
           {!mine && m.body && (
             <button
               type="button"
@@ -2176,17 +2218,7 @@ export function ChatArea({
          * the reply-card body, which already renders this very field's
          * fallback as markdown. `breaks` keeps Enter meaning "new line", the
          * way the bubble's pre-wrap did before. */}
-        {m.body && (
-          <AttachmentLinkCommentsContext.Provider value={roomDocComments}>
-            <MentionOpenerContext.Provider value={openMention}>
-              <Markdown
-                source={m.body}
-                className="chat__msg-text doc-md"
-                breaks
-              />
-            </MentionOpenerContext.Provider>
-          </AttachmentLinkCommentsContext.Provider>
-        )}
+        {body}
         {/* Stored attachments — one click target, opening the shared popup. */}
         <AttachmentStrip
           attachments={m.attachments}
@@ -2948,6 +2980,7 @@ export function ChatArea({
        * owner for the read behind it (hooks/useQuotedMessageOverlay). */}
       <AttachmentLinkCommentsContext.Provider value={roomDocComments}>
         {quotedMessage.overlay}
+        {recall.dialog}
       </AttachmentLinkCommentsContext.Provider>
     </div>
   );

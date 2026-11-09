@@ -1617,6 +1617,16 @@ export const httpApi: Api = {
     return toChatMarkReadReceipt(wire);
   },
 
+  async recallChatMessage(id: string): Promise<ChatMessage> {
+    return toChatMessage(
+      unwrap(
+        await client.POST("/api/chat/{message_id}/recall", {
+          params: { path: { message_id: id } },
+        }),
+      ),
+    );
+  },
+
   async listChatReads(peer: string): Promise<ChatReadReceipt[]> {
     // GET /api/chat/reads?with=<peer> -> ChatReadDTO[]. The FE reads the peer's
     // receipt to know how far the peer has read the owner's messages.

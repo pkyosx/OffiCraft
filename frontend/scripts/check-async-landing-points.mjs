@@ -266,6 +266,13 @@ const REGISTRY = [
       "highlight clear; cleared in the effect cleanup, and the state it writes dies with the room. The centring settle timer that used to be the second one was deleted with the jump's re-center loop (T-48, owner rc-6c27f486ef9d)",
   },
   {
+    file: "hooks/useChatRecall.tsx",
+    kind: "await",
+    count: 1,
+    verdict:
+      "the recall POST. Its writes are this hook's own recalled-id map, dialog target and error, all keyed by message id; the hook lives in ChatArea, mounted under `key={peerId}`, so a response that lands after a room switch writes into a discarded component",
+  },
+  {
     file: "components/MemberActivity.tsx",
     kind: "setTimeout/setInterval",
     count: 1,
