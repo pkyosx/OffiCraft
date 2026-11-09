@@ -156,6 +156,29 @@ export function colorSchemeForBackground(bg: string | undefined): "dark" | "ligh
   return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.2 ? "dark" : "light";
 }
 
+/** The body background layering for an image URL (a data: or blob: URL) in
+ * one canvas mode; `image` is the value for --canvas-bg-image. */
+export function canvasLayout(src: string, mode: BackgroundMode) {
+  const url = `url("${src}")`;
+  return {
+    tile: { image: url, repeat: "repeat", position: "0 0", size: "auto", attachment: "scroll" },
+    sides: {
+      image: `${url}, ${url}`,
+      repeat: "no-repeat, no-repeat",
+      position: "left bottom, right bottom",
+      size: "auto, auto",
+      attachment: "fixed, fixed",
+    },
+    cover: {
+      image: url,
+      repeat: "no-repeat",
+      position: "center center",
+      size: "cover",
+      attachment: "fixed",
+    },
+  }[mode];
+}
+
 /** The single DOM applier — used by BOTH the pre-React script and the React
  * apply effect. Returns the token names pushed (the ledger entry). */
 export function applyThemeToRoot(root: HTMLElement, bundle: ThemeBundle): string[] {
@@ -179,26 +202,7 @@ export function applyThemeToRoot(root: HTMLElement, bundle: ThemeBundle): string
   }
   const canvas = bundle.backgrounds?.canvas;
   if (canvas) {
-    const url = `url("${canvas}")`;
-    const mode: BackgroundMode =
-      bundle.backgroundModes?.canvas ?? DEFAULT_BACKGROUND_MODE;
-    const lay = {
-      tile: { image: url, repeat: "repeat", position: "0 0", size: "auto", attachment: "scroll" },
-      sides: {
-        image: `${url}, ${url}`,
-        repeat: "no-repeat, no-repeat",
-        position: "left bottom, right bottom",
-        size: "auto, auto",
-        attachment: "fixed, fixed",
-      },
-      cover: {
-        image: url,
-        repeat: "no-repeat",
-        position: "center center",
-        size: "cover",
-        attachment: "fixed",
-      },
-    }[mode];
+    const lay = canvasLayout(canvas, bundle.backgroundModes?.canvas ?? DEFAULT_BACKGROUND_MODE);
     root.style.setProperty("--canvas-bg-image", lay.image);
     root.style.setProperty("--canvas-bg-repeat", lay.repeat);
     root.style.setProperty("--canvas-bg-position", lay.position);

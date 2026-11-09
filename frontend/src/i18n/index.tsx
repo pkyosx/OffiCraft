@@ -60,6 +60,7 @@ import {
 } from "../lib/themeSchedule";
 import { SEASONAL_WINDOWS, type LoadableSeasonalWindow } from "../lib/seasonalTheme";
 import { loadBundledBuiltinTheme } from "../lib/bundledBuiltinThemes";
+import { watchMobileStillCanvas } from "../lib/stillCanvas";
 import { applyWording } from "./wording";
 import { makeMessages, type Messages } from "./compose";
 
@@ -456,21 +457,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       return;
     }
     root.dataset.theme = "office";
-    if (shownBundle) {
-      appliedTokensRef.current = applyThemeToRoot(root, shownBundle);
-      return;
-    }
+    const paint = (bundle: ThemeBundle) => {
+      appliedTokensRef.current = applyThemeToRoot(root, bundle);
+      return watchMobileStillCanvas(root, bundle, (tok) => appliedTokensRef.current.push(tok));
+    };
+    if (shownBundle) return paint(shownBundle);
     if (seasonalId) {
       const cached = readValidatedSeasonalPaint(seasonalId);
-      if (cached) {
-        appliedTokensRef.current = applyThemeToRoot(root, cached);
-      }
-      return;
+      return cached ? paint(cached) : undefined;
     }
     if (scheduledTheme) {
       const cached = readValidatedSchedulePaint(scheduledTheme);
-      if (cached) appliedTokensRef.current = applyThemeToRoot(root, cached);
-      return;
+      return cached ? paint(cached) : undefined;
     }
     // [T-1500] the bundle is unresolved AND reconcile has not spoken: keep
     // the cached picture standing (it is already on the DOM when the pre-React
@@ -478,9 +476,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     // paths where it did not run — dev, CT, a cold main.tsx).
     if (!themesLoaded) {
       const cached = readValidatedPaint();
-      if (cached && cached.id === theme) {
-        appliedTokensRef.current = applyThemeToRoot(root, cached);
-      }
+      if (cached && cached.id === theme) return paint(cached);
     }
   }, [theme, shownTheme, shownBundle, seasonalId, scheduledTheme, themesLoaded]);
 
