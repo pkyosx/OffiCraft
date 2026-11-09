@@ -205,6 +205,28 @@ describe("ChatArea 刪除", () => {
     expect(rowOf(container, "r-1").textContent).not.toContain("原本的內容");
   });
 
+  it("an attachment-only deleted message opens with its attachment and no text block", async () => {
+    messages = [
+      mkMsg({
+        id: "r-2",
+        recalledTs: NOW - 10,
+        attachments: [
+          { id: "att-img", url: "/api/chat/attachment/att-img", filename: "shot.png", mime: "image/png", isImage: true },
+        ],
+      }),
+    ];
+    vi.spyOn(api, "getChatMessage").mockResolvedValue(messages[0]);
+    const { container } = renderChat();
+    expect(rowOf(container, "r-2").querySelector("img")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(recalledOpenIn(rowOf(container, "r-2"))!);
+    });
+    const overlay = document.querySelector(".md-preview")!;
+    expect(overlay.querySelectorAll(".chat__msg-attachments img.chat__msg-image")).toHaveLength(1);
+    expect(overlay.querySelector(".md-preview__md")).toBeNull();
+  });
+
   it("says the overlay's own failure sentence beside the recalled row when the read fails", async () => {
     messages = [mkMsg({ id: "r-1", body: "原本的內容", recalledTs: NOW - 10 })];
     vi.spyOn(api, "getChatMessage").mockRejectedValue(new Error("offline"));

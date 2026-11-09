@@ -273,6 +273,9 @@ describe("useQuotedMessageOverlay", () => {
         const rel = full.slice(root.length + 1);
         if (rel.startsWith("api/")) continue;
         if (rel === "hooks/useQuotedMessageOverlay.tsx") continue;
+        // Reads a row back only for its recalled_ts (a recall made in another
+        // owner tab); it never shows the message.
+        if (rel === "hooks/useChatRecall.tsx") continue;
         const code = readFileSync(full, "utf8")
           .split("\n")
           .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
