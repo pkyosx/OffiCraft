@@ -1768,7 +1768,7 @@
           },
           "recalled_ts": {
             "default": 0,
-            "description": "When the owner recalled this message (epoch seconds); ``0`` = not recalled. A recalled message is left out of every chat listing, the unread backfill and the unread count; only a by-id read (``ids=``) still returns it, with ``body`` intact so a member can check what was withdrawn.",
+            "description": "When the owner recalled this message (epoch seconds); ``0`` = not recalled. For a member caller a recalled message is left out of chat listings, the unread backfill and the unread count; a by-id read (``ids=``) still returns it with ``body`` intact. The owner's own listings keep it, flagged by this field, so the owner's thread can show where it was.",
             "title": "Recalled Ts",
             "type": "number"
           },
@@ -15609,7 +15609,7 @@
     },
     "/api/chat/{message_id}/recall": {
       "post": {
-        "description": "- Owner only. Recalls one of the owner's own ordinary chat messages sent less than 24 hours ago; task messages, reply-card messages and messages from anyone else are refused.\n- The original is kept: it disappears from chat listings, the unread backfill and unread counts, and a by-id read still returns it with `recalled_ts` set.\n- The recipient immediately gets a `system` notice naming the recalled message id. No undo.\n- Recalling an already recalled message changes nothing and sends no second notice.\n- Emits a `chat` event; a client holding the stream learns of this without polling.",
+        "description": "- Owner only. Recalls one of the owner's own ordinary chat messages sent less than 24 hours ago; task messages, reply-card messages and messages from anyone else are refused.\n- The original is kept: members stop seeing it in chat listings, the unread backfill and unread counts; a by-id read, and the owner's own listings, still return it with `recalled_ts` set.\n- The recipient immediately gets a `system` notice naming the recalled message id. No undo.\n- Recalling an already recalled message changes nothing and sends no second notice.\n- Emits a `chat` event; a client holding the stream learns of this without polling.",
         "operationId": "handle_recall_chat_message_api_chat__message_id__recall_post",
         "parameters": [
           {
