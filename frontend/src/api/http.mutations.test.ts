@@ -288,6 +288,8 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     // The owner's thread shows deleted rows as 「此訊息已刪除」, and the server
     // lists them only on request.
     expect(q.get("include_deleted")).toBe("true");
+    // …and leaves out the system notice a delete sends to the member.
+    expect(q.get("hide_delete_notices")).toBe("true");
     // T-48 removed ?peek= from the wire: GET /api/chat marks nothing read on
     // any path, so the opt-out has nothing to opt out of — which is also why
     // the `peekChat` twin of this method is gone. Asserting the parameter's
@@ -310,6 +312,7 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     expect(q.get("before_ts")).toBe("12.5");
     expect(q.get("before_id")).toBe("c-7");
     expect(q.get("include_deleted")).toBe("true");
+    expect(q.get("hide_delete_notices")).toBe("true");
   });
 
   it("listChatWindow asks for deleted rows too, like every owner thread load", async () => {
@@ -319,15 +322,17 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     const q = new URLSearchParams(url.split("?")[1] ?? "");
     expect(q.get("start_id")).toBe("c-1");
     expect(q.get("include_deleted")).toBe("true");
+    expect(q.get("hide_delete_notices")).toBe("true");
   });
 
-  it("the unread probe does not ask for deleted rows (the server refuses that pair)", async () => {
+  it("the unread probe asks for neither deleted rows nor hidden notices (the server refuses both pairs)", async () => {
     fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
     await httpApi.getFirstUnreadChat("m-1");
     const { url } = await lastRequest();
     const q = new URLSearchParams(url.split("?")[1] ?? "");
     expect(q.get("unread")).toBe("true");
     expect(q.get("include_deleted")).toBeNull();
+    expect(q.get("hide_delete_notices")).toBeNull();
   });
 
   it("listChat reads `messages` out of the T-48 envelope and ignores next_cursor", async () => {
