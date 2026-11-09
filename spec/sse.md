@@ -106,8 +106,10 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     clause are computed per path, and that band's `reason` wording is explicitly not
     contract. Audience is the member itself and — like every delta — any owner/dashboard
     connection, which reads no key of it.
-  - `chat` (new message, or the owner recalling one): `{id, from, to}`; a recall also
-    appends a `system` notice to the recipient, which emits its own `chat` delta
+  - `chat` (new message, or the owner recalling one): `{id, from, to}`; the recall's
+    delta adds `recalled_ts` (epoch seconds), so an owner tab holding the row can mark it
+    without a refetch. A recall also appends a `system` notice to the recipient, which
+    emits its own `chat` delta `{id, from, to}`
   - `chat_read`: `{reader, peer, last_read_ts}`
   - `chat_group`: `payload` is `null`; refetch `GET /api/chat/groups`
   - `chat_suggested_reply`: `payload` is `null`; refetch `GET /api/chat/suggested-replies`

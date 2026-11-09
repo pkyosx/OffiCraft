@@ -608,7 +608,7 @@ export function ChatArea({
   // component because it is handed `nameOf`, and `nameOf` needs the roster
   // hooks above it. It is still an unconditional top-level hook call.
   const quotedMessage = useQuotedMessageOverlay(nameOf);
-  const recall = useChatRecall(messages);
+  const recall = useChatRecall();
   // Is the owner ACTUALLY looking (window focused + tab visible)? Read side
   // effects (mark-read below) are gated on this: a backgrounded window must
   // never consume unread state (the roster badge has to survive until the

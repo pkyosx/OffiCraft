@@ -94,11 +94,13 @@ func (s *apiServer) HandleRecallChatMessageApiChatMessageIdRecallPost(w http.Res
 	}
 	if notice != nil {
 		trigger := requestTrigger(r)
-		for _, c := range []*ChatMessage{msg, notice} {
-			s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+c.ID,
-				map[string]any{"id": c.ID, "from": c.Sender, "to": c.Recipient},
-				audienceMembers(c.Sender, c.Recipient), trigger)
-		}
+		s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+msg.ID,
+			map[string]any{"id": msg.ID, "from": msg.Sender, "to": msg.Recipient,
+				chatRecalledTSMetaKey: chatRecalledTS(msg.Meta)},
+			audienceMembers(msg.Sender, msg.Recipient), trigger)
+		s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+notice.ID,
+			map[string]any{"id": notice.ID, "from": notice.Sender, "to": notice.Recipient},
+			audienceMembers(notice.Sender, notice.Recipient), trigger)
 	}
 	dto, err := s.servedChatMessageDTO(*msg)
 	if err != nil {

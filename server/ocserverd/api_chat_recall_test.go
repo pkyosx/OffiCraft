@@ -47,6 +47,14 @@ func apiTestChatFrame(seq int, id, from, to, trigger string) map[string]any {
 	}
 }
 
+func apiTestRecallFrame(seq int, id, to string, recalledTS any) map[string]any {
+	frame := apiTestChatFrame(seq, id, "owner", to, "owner")
+	frame["data"].(map[string]any)["payload"] = map[string]any{
+		"id": id, "from": "owner", "to": to, "recalled_ts": recalledTS,
+	}
+	return frame
+}
+
 func apiTestPostChat(t *testing.T, h http.Handler, token, body string) string {
 	t.Helper()
 	status, data := apiJSON(t, h, "POST", "/api/chat", token, body)
@@ -127,7 +135,7 @@ func TestHandleRecallChatMessageApiChatMessageIdRecallPost(t *testing.T) {
 
 		noticeID := apiTestNoticeAfter(t, d, before)
 		frames := []map[string]any{
-			apiTestChatFrame(2, id, "owner", "mira", "owner"),
+			apiTestRecallFrame(2, id, "mira", data["recalled_ts"]),
 			apiTestChatFrame(3, noticeID, "system", "mira", "owner"),
 		}
 		dashboard.wantFrames(frames...)
@@ -363,9 +371,10 @@ func TestHandleRecallChatMessageApiChatMessageIdRecallPost(t *testing.T) {
 		recipient := apiTestListen(t, api, "mira")
 
 		status, data := apiJSON(t, h, "POST", "/api/chat/"+id+"/recall", owner, "")
-		if status < 500 {
-			t.Fatalf("want a 5xx, got %d (%v)", status, data)
+		if status != 500 {
+			t.Fatalf("want 500, got %d (%v)", status, data)
 		}
+		apiWantError(t, data, "internal_error", "internal error: constraint failed: notice refused (1811)")
 		apiWantValue(t, "by id after the failed recall", apiTestChatMessages(t, h, owner, "/api/chat?ids="+id),
 			[]any{apiTestChatRow(id, "owner", "mira", "the secret plan")})
 		dalWantChats(t, "the stream after the failed recall", apiTestAllChat(t, d), before)

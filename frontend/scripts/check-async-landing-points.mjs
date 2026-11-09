@@ -268,15 +268,15 @@ const REGISTRY = [
   {
     file: "hooks/useChatRecall.tsx",
     kind: "await",
-    count: 2,
+    count: 1,
     verdict:
-      "the recall POST and the by-id read-back of a row another owner tab recalled. Their writes are this hook's own recalled-id map, dialog target and error, all keyed by message id; the hook lives in ChatArea, mounted under `key={peerId}`, so a response that lands after a room switch writes into a discarded component",
+      "the recall POST. Its writes are this hook's own recalled-id map, dialog target and error, all keyed by message id; the hook lives in ChatArea, mounted under `key={peerId}`, so a response that lands after a room switch writes into a discarded component",
   },
   {
     file: "hooks/useChatRecall.tsx",
     kind: "subscribe",
     count: 1,
-    verdict: "chat SSE for recalls made elsewhere; unsubscribed in the effect cleanup, and the room is this mount",
+    verdict: "chat SSE carrying recalled_ts for recalls made elsewhere; writes only the recalled-id map, unsubscribed in the effect cleanup, and the room is this mount",
   },
   {
     file: "components/MemberActivity.tsx",

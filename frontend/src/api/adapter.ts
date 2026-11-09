@@ -2053,6 +2053,10 @@ export interface SseDelta {
   /** Every value in `names`, de-duplicated — the cheap "does this delta touch
    * something I am holding?" test. Empty ⇒ refetch the lot. */
   ids: string[];
+  /** `chat` only: present on the delta of a recall, the recall time (epoch
+   * seconds). The one payload value a hook may apply without a refetch: a
+   * recall cannot be undone, so it cannot go stale. */
+  recalledTs?: number;
 }
 
 /**

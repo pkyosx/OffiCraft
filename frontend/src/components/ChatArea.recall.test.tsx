@@ -240,7 +240,7 @@ describe("ChatArea 刪除", () => {
     ).not.toBeNull();
   });
 
-  it("a recall made in another owner tab turns a held row recalled when its chat delta arrives", async () => {
+  it("a recall made in another owner tab turns a held row deleted from its delta alone, with no request", async () => {
     const sinks: Array<(topic: string, delta?: unknown) => void> = [];
     vi.spyOn(api, "subscribeEvents").mockImplementation((fn) => {
       sinks.push(fn as (topic: string, delta?: unknown) => void);
@@ -248,28 +248,25 @@ describe("ChatArea 刪除", () => {
     });
     messages = [
       mkMsg({ id: "old-1", body: "很早送出的那則", ts: NOW - 3 * HOUR }),
-      mkMsg({ id: "theirs", from: "m1", to: "owner", body: "對方的訊息" }),
+      mkMsg({ id: "old-2", body: "另一則", ts: NOW - 2 * HOUR }),
     ];
-    const get = vi
-      .spyOn(api, "getChatMessage")
-      .mockResolvedValue({ ...messages[0], recalledTs: NOW - 5 });
+    const get = vi.spyOn(api, "getChatMessage");
     const { container } = renderChat();
-    expect(rowOf(container, "old-1").textContent).toContain("很早送出的那則");
 
-    const emit = (id: string, from: string) =>
+    const emit = (names: Record<string, string>, recalledTs?: number) =>
       act(async () => {
         for (const sink of sinks)
-          sink("chat", { topic: "chat", names: { id, from, to: "m1" }, ids: [id, from, "m1"] });
+          sink("chat", { topic: "chat", names, ids: Object.values(names), ...(recalledTs ? { recalledTs } : {}) });
         await Promise.resolve();
       });
-    await emit("theirs", "m1");
-    await emit("not-held", "owner");
-    expect(get).not.toHaveBeenCalled();
+    await emit({ id: "old-2", from: "owner", to: "m1" });
+    expect(rowOf(container, "old-2").textContent).toContain("另一則");
 
-    await emit("old-1", "owner");
-    await waitFor(() => expect(recalledOpenIn(rowOf(container, "old-1"))).not.toBeNull());
-    expect(get.mock.calls).toEqual([["old-1"]]);
+    await emit({ id: "old-1", from: "owner", to: "m1" }, NOW - 5);
+    expect(recalledOpenIn(rowOf(container, "old-1"))).not.toBeNull();
     expect(rowOf(container, "old-1").textContent).not.toContain("很早送出的那則");
+    expect(rowOf(container, "old-2").textContent).toContain("另一則");
+    expect(get).not.toHaveBeenCalled();
   });
 
   it("a quote of a recalled message says 「已刪除的訊息」 and carries no text", () => {
