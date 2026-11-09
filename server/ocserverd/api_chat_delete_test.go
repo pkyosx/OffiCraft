@@ -117,7 +117,7 @@ func apiTestNoticeAfter(t *testing.T, d *DAL, before int) string {
 	return msgs[len(msgs)-1].ID
 }
 
-func TestHandleDeleteChatMessageApiChatMessageIdDeletePost(t *testing.T) {
+func TestHandleDeleteChatMessageApiChatMessageIdDelete(t *testing.T) {
 	t.Run("the owner deletes an ordinary message of their own: 200 with the message, a system notice to the recipient, and a chat delta for each", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		id := apiTestPostChat(t, h, owner, `{"to":"mira","body":"the secret plan"}`)

@@ -17,8 +17,8 @@ UPDATE chat_message
 
 -- Keeps the member unread count a covering range once it excludes deleted
 -- messages; readers say `deleted_ts = 0`, since only an equality lets the third
--- column narrow the range. idx_chat_message_recipient_sender_ts stays: the
--- owner's reads do not filter on deleted_ts and need its (sender, ts) range.
+-- column narrow the range. idx_chat_message_recipient_sender_ts stays for the
+-- reads that do not filter on deleted_ts.
 CREATE INDEX idx_chat_message_recipient_sender_deleted_ts
     ON chat_message (recipient, sender, deleted_ts, ts);
 
