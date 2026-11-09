@@ -106,7 +106,8 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     clause are computed per path, and that band's `reason` wording is explicitly not
     contract. Audience is the member itself and — like every delta — any owner/dashboard
     connection, which reads no key of it.
-  - `chat` (new message): `{id, from, to}`
+  - `chat` (new message, or the owner recalling one): `{id, from, to}`; a recall also
+    appends a `system` notice to the recipient, which emits its own `chat` delta
   - `chat_read`: `{reader, peer, last_read_ts}`
   - `chat_group`: `payload` is `null`; refetch `GET /api/chat/groups`
   - `chat_suggested_reply`: `payload` is `null`; refetch `GET /api/chat/suggested-replies`
@@ -232,7 +233,7 @@ is the M1 freeze):
 | topic | trigger | op |
 |---|---|---|
 | `member` | any roster write, including outsource assignment / claim / release; a telemetry ingest that changes a member's derived warnings (`runtime_login_warnings`, `model_call_warnings`); an activity report that changes a member's derived `activity` (owner-only); a usage-limit reset timer firing at a reported `resets_at` | patch / remove |
-| `chat` | message append | patch |
+| `chat` | message append; the owner recalling a message (`POST /api/chat/{message_id}/recall`) | patch |
 | `chat_read` | read-watermark advance | patch |
 | `chat_group` | group set replaced (`PUT /api/chat/groups`); a new outsource worker auto-joined to a group by its task type | patch |
 | `chat_suggested_reply` | one member's list replaced (`PUT /api/chat/suggested-replies/{member_id}`) | patch |
