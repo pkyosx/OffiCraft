@@ -458,6 +458,11 @@ export const SSE_RESYNC_TOPICS = [
   "runtime_upgrade",
 ] as const;
 
+// listChat / listChatWindow feed only the owner's chat threads, which show a
+// deleted message as 「此訊息已刪除」; the server leaves deleted rows out of
+// every listing unless asked.
+const CHAT_THREAD_INCLUDE_DELETED = "true";
+
 // The payload fields that name an ENTITY rather than describe one (spec/sse.md
 // §2.2 lists the per-topic payload shapes). Everything else in the payload —
 // `status`, `priority`, `last_read_ts`, `codename`, `name`, `desired_state` — is
@@ -472,6 +477,7 @@ const SSE_NAME_FIELDS = ["id", "from", "to", "reader", "peer"] as const;
 export function toSseDelta(topic: string, payload: unknown): SseDelta {
   const names: SseDeltaNames = {};
   const ids: string[] = [];
+  let deletedTs: number | undefined;
   if (payload && typeof payload === "object") {
     const bag = payload as Record<string, unknown>;
     for (const field of SSE_NAME_FIELDS) {
@@ -480,8 +486,10 @@ export function toSseDelta(topic: string, payload: unknown): SseDelta {
       names[field] = v;
       if (!ids.includes(v)) ids.push(v);
     }
+    const r = bag.deleted_ts;
+    if (topic === "chat" && typeof r === "number" && r > 0) deletedTs = r;
   }
-  return { topic, names, ids };
+  return deletedTs === undefined ? { topic, names, ids } : { topic, names, ids, deletedTs };
 }
 
 // Fan one synthetic delta per closed topic to EVERY current subscriber — the
@@ -1438,6 +1446,7 @@ export const httpApi: Api = {
             limit,
             before_ts: before?.beforeTs,
             before_id: before?.beforeId,
+            include_deleted: CHAT_THREAD_INCLUDE_DELETED,
           },
         },
       }),
@@ -1470,6 +1479,7 @@ export const httpApi: Api = {
             limit,
             start_id: anchor.startId,
             end_id: anchor.endId,
+            include_deleted: CHAT_THREAD_INCLUDE_DELETED,
           },
         },
       }),
@@ -1615,6 +1625,16 @@ export const httpApi: Api = {
       }),
     );
     return toChatMarkReadReceipt(wire);
+  },
+
+  async deleteChatMessage(id: string): Promise<ChatMessage> {
+    return toChatMessage(
+      unwrap(
+        await client.DELETE("/api/chat/{message_id}", {
+          params: { path: { message_id: id } },
+        }),
+      ),
+    );
   },
 
   async listChatReads(peer: string): Promise<ChatReadReceipt[]> {

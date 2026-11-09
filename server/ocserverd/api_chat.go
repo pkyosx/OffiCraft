@@ -366,9 +366,13 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 		}
 	}
 	// Drop any caller-supplied reply link or excerpt: one arriving pre-made in meta
-	// would bypass the checks below.
+	// would bypass the checks below. Likewise a deletion mark under either the
+	// current or the legacy name: deletion lives in its own column, and a key in
+	// meta would read as one.
 	delete(meta, chatReplyToMetaKey)
 	delete(meta, chatReplyExcerptMetaKey)
+	delete(meta, chatDeletedTSKey)
+	delete(meta, "recalled_ts")
 	replyTo := trimString(strOrEmpty(body.ReplyTo))
 	// ⚠️ Not checked against the quoted body: a selection of the rendered message
 	// need not appear verbatim in its raw markdown.
@@ -521,7 +525,9 @@ func (s *apiServer) chatReplyQuote(replyTo, excerpt string, names map[string]str
 		return nil, nil
 	}
 	quote := newChatReplyQuoteDTO(quoted[0], names)
-	quote.ReplyExcerpt = excerpt
+	if !quote.Deleted {
+		quote.ReplyExcerpt = excerpt
+	}
 	return quote, nil
 }
 
@@ -591,7 +597,11 @@ const (
 		"refuses parameters it does not declare rather than ignoring them, because an " +
 		"ignored parameter silently answers a question you did not ask; accepted here: %s"
 
-	chatUnreadTrue = "true"
+	chatUnreadTrue         = "true"
+	chatIncludeDeletedTrue = "true"
+
+	chatUnreadDeletedMsg = "unread cannot be combined with include_deleted — a deleted " +
+		"message is never unread"
 
 	chatCursorOlder = "o"
 	chatCursorNewer = "n"
@@ -852,6 +862,7 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 		participant: strOrEmpty(params.With),
 		sender:      strOrEmpty(params.Sender),
 		recipient:   strOrEmpty(params.Recipient),
+		hideDeleted: strOrEmpty(params.IncludeDeleted) != chatIncludeDeletedTrue,
 	}
 	limit := chatListDefaultLimit
 	if params.Limit != nil {
@@ -864,6 +875,10 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 	if strOrEmpty(params.Unread) == chatUnreadTrue {
 		if beforeSent || hasStart || hasEnd {
 			writeError(w, http.StatusUnprocessableEntity, chatUnreadMixedMsg)
+			return
+		}
+		if !filter.hideDeleted {
+			writeError(w, http.StatusUnprocessableEntity, chatUnreadDeletedMsg)
 			return
 		}
 		s.serveChatUnread(w, actor, filter, limit, params.Cursor)

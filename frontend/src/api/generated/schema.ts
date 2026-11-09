@@ -712,7 +712,7 @@ export interface paths {
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
          *     - `before_ts`: DEPRECATED (T-48) — prefer start_id/end_id. Paging cursor, the ts of the OLDEST message you already hold. Must be sent TOGETHER with before_id - supplying only one is refused with 422, which is the one mistake here that announces itself. The pair is otherwise not validated against anything real: a cursor pointing nowhere in the stream (a fabricated value, or the right instant expressed in the wrong unit - these timestamps are epoch SECONDS, not milliseconds) is not an error, it just answers 200 with an EMPTY page. An empty page is the same answer you get at the true start of history, so it cannot tell you 'you have reached the beginning' apart from 'your cursor was garbage'. Copy both values from a message you actually received rather than constructing them.
-         *     - `cursor`: Opaque continuation token — copy the previous response's ``next_cursor`` back VERBATIM. It encodes a ``(ts, id)`` POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for ``unread=true`` — and sending one to the other path is 422 rather than a silently wrong page. Sending it with ``before_ts``/``before_id`` is 422 (one keyset walk per request), and so is sending it with ``start_id``/``end_id``, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter.
+         *     - `cursor`: Opaque continuation token — copy the previous response's ``next_cursor`` back VERBATIM. It encodes a ``(ts, id)`` POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for ``unread=true`` — and sending one to the other path is 422 rather than a silently wrong page. Sending it with ``before_ts``/``before_id`` is 422 (one keyset walk per request), and so is sending it with ``start_id``/``end_id``, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter. Resend the same filters (``with``, ``sender``, ``recipient``, ``include_deleted``) with it: it carries only the position.
          *     - `ids`: RE-READ SPECIFIC MESSAGES BY ID — repeatable (``?ids=<id>&ids=<id>``), returning those messages IN FULL (whole body, attachment refs and all), oldest→newest.
          *
          *     This is what makes the wake snapshot's fold marker honest (T-a828). ``ChatMessageDTO.body_omitted_chars`` > 0 says THIS message is here with part of its text folded away and tells the reader to re-read it with get_chat — but until this parameter existed get_chat took only a peer plus a paging cursor, so there was NO WAY TO NAME THE FOLDED MESSAGE. The promise beside the fold was not keepable, which made folding a silent drop.
@@ -735,6 +735,7 @@ export interface paths {
          *     - `start_id=` / `end_id=`: an inclusive window running newer / older; limit must be 1..200 here; no next_cursor.
          *     - `ids=`: just the set you name; no next_cursor.
          *     - `unread=true`: only what others sent you above your per-sender watermark, oldest first; your own messages are never unread; any value but the string `true` reads as not sent.
+         *     - Deleted messages are left out of every listing; `include_deleted=true` lists them too (not with `unread=true`).
          *     - `before_ts`+`before_id`: deprecated backwards paging, valid only as a pair.
          *     - `limit` bounds rows, not bytes (200 rows measured at 687 KB); on the legacy paths 0 is an empty page and a negative value is uncapped.
          */
@@ -1039,6 +1040,30 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/{message_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete one of the owner's own chat messages sent within the last 24 hours (owner only; no undo).
+         * @description - Owner only. Deletes one of the owner's own ordinary chat messages sent less than 24 hours ago; task messages, reply-card messages and messages from anyone else are refused.
+         *     - The original is kept: chat listings, the unread backfill and unread counts leave it out for every caller; a by-id read, or a listing with `include_deleted=true`, still returns it with `deleted_ts` set.
+         *     - The recipient immediately gets a `system` notice naming the deleted message id. No undo.
+         *     - Deleting an already deleted message changes nothing and sends no second notice.
+         *     - Emits a `chat` event; a client holding the stream learns of this without polling.
+         */
+        delete: operations["handle_delete_chat_message_api_chat__message_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -5818,6 +5843,12 @@ export interface components {
             body_omitted_chars: number;
             /** @description The reply card this message carries, FOLDED IN PLACE onto the message that opened it — the options offered and the answer given, so a waking agent reads the decision in the chat stream instead of joining a second list. Omitted (``null``) when the message carries no card, and only ever filled for cards the snapshot's own subject INITIATED. */
             card?: components["schemas"]["ChatInlineReplyCardDTO"] | null;
+            /**
+             * Deleted Ts
+             * @description When the owner deleted this message (epoch seconds); ``0`` = not deleted. A deleted message is left out of chat listings, the unread backfill, the unread count, the wake snapshot and the attachment gallery for every caller; ``include_deleted=true`` lists it again, and a by-id read (``ids=``) always returns it, ``body`` intact.
+             * @default 0
+             */
+            deleted_ts: number;
             /** From */
             from: string;
             /**
@@ -5998,6 +6029,12 @@ export interface components {
              * @default
              */
             content: string;
+            /**
+             * Deleted
+             * @description The quoted message was deleted by the owner. When true, ``content`` and ``reply_excerpt`` are empty: a quote never carries the text of a deleted message.
+             * @default false
+             */
+            deleted: boolean;
             /** From */
             from: string;
             /**
@@ -14308,7 +14345,7 @@ export interface operations {
                 start_id?: string | null;
                 /** @description Window anchor, INCLUSIVE, walking TOWARDS THE OLDEST: return this message and the ``limit``-1 that precede it, still answered oldest→newest. Same guardrails as ``start_id`` (404 on an unknown id, 422 when combined with ``before_ts``/``before_id``, 422 when the pair contradicts, ``limit`` bounded to 1..200 on this path). Given TOGETHER with ``start_id`` the two bound one window and ``limit`` still caps it, so a window wider than 200 rows is truncated from the ``start_id`` end rather than silently returning everything. */
                 end_id?: string | null;
-                /** @description Opaque continuation token — copy the previous response's ``next_cursor`` back VERBATIM. It encodes a ``(ts, id)`` POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for ``unread=true`` — and sending one to the other path is 422 rather than a silently wrong page. Sending it with ``before_ts``/``before_id`` is 422 (one keyset walk per request), and so is sending it with ``start_id``/``end_id``, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter. */
+                /** @description Opaque continuation token — copy the previous response's ``next_cursor`` back VERBATIM. It encodes a ``(ts, id)`` POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for ``unread=true`` — and sending one to the other path is 422 rather than a silently wrong page. Sending it with ``before_ts``/``before_id`` is 422 (one keyset walk per request), and so is sending it with ``start_id``/``end_id``, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter. Resend the same filters (``with``, ``sender``, ``recipient``, ``include_deleted``) with it: it carries only the position. */
                 cursor?: string | null;
                 /** @description ``true`` (the STRING) selects the unread backfill: only messages addressed to the verified caller, newer than the caller's read watermark FOR THAT SENDER. ``chat_read`` is per ``(reader, peer)``, and this path compares each message against ITS OWN sender's row — never against one global watermark, which would silently drop everything older from a peer you have never opened. Answered OLDEST FIRST and ``limit`` takes the OLDEST batch, because a backfill is re-read in the order it was said; ``next_cursor`` therefore continues TOWARDS THE NEWER. What you sent to SOMEBODY ELSE is not here — ``recipient`` decides that, and it is the caller. What you addressed to YOURSELF is: it is a message sitting in your own inbox, and whether a reader wants to be shown its own note is a question about printing, answered by the reader (``ocagent`` declines to print it and files the receipt anyway). This door only answers one question: newer than my watermark for whoever sent it. Reading this CLEARS NOTHING — no path on this route writes a watermark; ``POST /api/chat/mark-read`` does. Refused with 422 alongside ``before_ts``/``before_id`` or ``start_id``/``end_id``. Any other value reads as not sent. ``limit`` keeps this route's legacy semantics on this path — 0 is an empty page, a NEGATIVE limit is uncapped and mints no cursor — not the window path's 1..200 bound. */
                 unread?: string | null;
@@ -14330,6 +14367,8 @@ export interface operations {
                  *     AT MOST 20 DISTINCT IDS per call (counted after blanks are dropped); more is a 400 that states the limit. The cap is the response bound: 20 × the 4,000-rune body cap is the worst case one call can emit. It is not 'unfold a whole snapshot in one call' — name the ones that matter and call again.
                  */
                 ids?: string[];
+                /** @description ``true`` (the STRING) also lists deleted messages, flagged by ``deleted_ts``; by default every listing leaves them out. 422 alongside ``unread=true``. Not consulted on the ``ids`` path, which always returns them. Any other value reads as not sent. */
+                include_deleted?: string | null;
             };
             header?: never;
             path?: never;
@@ -14915,6 +14954,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatUnreadCountDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_delete_chat_message_api_chat__message_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatMessageDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

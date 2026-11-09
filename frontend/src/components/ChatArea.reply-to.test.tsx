@@ -651,6 +651,42 @@ describe("ChatArea 回覆這則", () => {
     get.mockRestore();
   });
 
+  it("the opened original carries its attachments under the text", async () => {
+    messages = [
+      mkMsg({
+        id: "c-5",
+        from: "owner",
+        to: "m1",
+        body: "看這張",
+        ts: 5,
+        replyTo: "c-1",
+        replyToChat: mkQuote("c-1", "m1", "owner", "附圖的那則"),
+      }),
+    ];
+    const get = vi.spyOn(api, "getChatMessage").mockResolvedValue(
+      mkMsg({
+        id: "c-1",
+        from: "m1",
+        to: "owner",
+        body: "附圖的那則",
+        attachments: [
+          { id: "att-img", url: "/api/chat/attachment/att-img", filename: "shot.png", mime: "image/png", isImage: true },
+          { id: "att-doc", url: "/api/chat/attachment/att-doc", filename: "spec.pdf", mime: "application/pdf", isImage: false },
+        ],
+      }),
+    );
+    const { container } = renderChat();
+    await act(async () => {
+      fireEvent.click(rowOf(container, "c-5").querySelector("[data-testid='msg-quote-jump']")!);
+    });
+    const overlay = document.querySelector(".md-preview")!;
+    expect(overlay.querySelector(".md-preview__md")?.textContent).toContain("附圖的那則");
+    const strip = overlay.querySelector(".chat__msg-attachments")!;
+    expect(strip.querySelectorAll("img.chat__msg-image")).toHaveLength(1);
+    expect(strip.textContent).toContain("spec.pdf");
+    get.mockRestore();
+  });
+
   it("offers the control even when the quoted message is nowhere in the loaded window", async () => {
     // 🔴 THE CASE THAT USED TO HIDE THE BUTTON, AND IS THE COMMON ONE. `c-far`
     // is not in `messages` at all: under the old design the row asked

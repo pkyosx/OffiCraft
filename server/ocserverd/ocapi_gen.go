@@ -1433,7 +1433,10 @@ type ChatMessageDTO struct {
 
 	// Card The reply card this message carries, FOLDED IN PLACE onto the message that opened it — the options offered and the answer given, so a waking agent reads the decision in the chat stream instead of joining a second list. Omitted (``null``) when the message carries no card, and only ever filled for cards the snapshot's own subject INITIATED.
 	Card *ChatInlineReplyCardDTO `json:"card,omitempty"`
-	From string                  `json:"from"`
+
+	// DeletedTs When the owner deleted this message (epoch seconds); ``0`` = not deleted. A deleted message is left out of chat listings, the unread backfill, the unread count, the wake snapshot and the attachment gallery for every caller; ``include_deleted=true`` lists it again, and a by-id read (``ids=``) always returns it, ``body`` intact.
+	DeletedTs *float64 `json:"deleted_ts,omitempty"`
+	From      string   `json:"from"`
 
 	// FromName The sender's DISPLAY name, resolved server-side from the roster (ANY roster status, so a dismissed member still reads by name). ``from`` stays the ADDRESS and never changes meaning — this field is carried IN ADDITION so a reader gets both the human name and the id it must reply to. ``""`` when the sender does not resolve to a roster row (honest empty — never fabricated).
 	FromName *string                 `json:"from_name,omitempty"`
@@ -1545,7 +1548,10 @@ type ChatReplyQuoteDTO struct {
 	//
 	// ``""`` IS AN ORDINARY, LEGAL VALUE: a message that carried only attachments has no text to quote. It is not a failure and not a placeholder for one — absence of the whole ``reply_to_chat`` object is how a missing original is said.
 	Content *string `json:"content,omitempty"`
-	From    string  `json:"from"`
+
+	// Deleted The quoted message was deleted by the owner. When true, ``content`` and ``reply_excerpt`` are empty: a quote never carries the text of a deleted message.
+	Deleted *bool  `json:"deleted,omitempty"`
+	From    string `json:"from"`
 
 	// FromName The quoted sender's DISPLAY name, resolved server-side exactly as ``ChatMessageDTO.from_name`` is — including the part that is easy to forget: only the reads that resolve names at all (the wake snapshot) fill it, and every other read leaves it ``""``. Honestly empty, never fabricated, and never a substitute for ``from``, which is always the address.
 	FromName *string `json:"from_name,omitempty"`
@@ -5358,7 +5364,7 @@ type HandleListChatApiChatGetParams struct {
 	// EndId Window anchor, INCLUSIVE, walking TOWARDS THE OLDEST: return this message and the ``limit``-1 that precede it, still answered oldest→newest. Same guardrails as ``start_id`` (404 on an unknown id, 422 when combined with ``before_ts``/``before_id``, 422 when the pair contradicts, ``limit`` bounded to 1..200 on this path). Given TOGETHER with ``start_id`` the two bound one window and ``limit`` still caps it, so a window wider than 200 rows is truncated from the ``start_id`` end rather than silently returning everything.
 	EndId *string `form:"end_id,omitempty" json:"end_id,omitempty"`
 
-	// Cursor Opaque continuation token — copy the previous response's ``next_cursor`` back VERBATIM. It encodes a ``(ts, id)`` POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for ``unread=true`` — and sending one to the other path is 422 rather than a silently wrong page. Sending it with ``before_ts``/``before_id`` is 422 (one keyset walk per request), and so is sending it with ``start_id``/``end_id``, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter.
+	// Cursor Opaque continuation token — copy the previous response's ``next_cursor`` back VERBATIM. It encodes a ``(ts, id)`` POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for ``unread=true`` — and sending one to the other path is 422 rather than a silently wrong page. Sending it with ``before_ts``/``before_id`` is 422 (one keyset walk per request), and so is sending it with ``start_id``/``end_id``, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter. Resend the same filters (``with``, ``sender``, ``recipient``, ``include_deleted``) with it: it carries only the position.
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Unread ``true`` (the STRING) selects the unread backfill: only messages addressed to the verified caller, newer than the caller's read watermark FOR THAT SENDER. ``chat_read`` is per ``(reader, peer)``, and this path compares each message against ITS OWN sender's row — never against one global watermark, which would silently drop everything older from a peer you have never opened. Answered OLDEST FIRST and ``limit`` takes the OLDEST batch, because a backfill is re-read in the order it was said; ``next_cursor`` therefore continues TOWARDS THE NEWER. What you sent to SOMEBODY ELSE is not here — ``recipient`` decides that, and it is the caller. What you addressed to YOURSELF is: it is a message sitting in your own inbox, and whether a reader wants to be shown its own note is a question about printing, answered by the reader (``ocagent`` declines to print it and files the receipt anyway). This door only answers one question: newer than my watermark for whoever sent it. Reading this CLEARS NOTHING — no path on this route writes a watermark; ``POST /api/chat/mark-read`` does. Refused with 422 alongside ``before_ts``/``before_id`` or ``start_id``/``end_id``. Any other value reads as not sent. ``limit`` keeps this route's legacy semantics on this path — 0 is an empty page, a NEGATIVE limit is uncapped and mints no cursor — not the window path's 1..200 bound.
@@ -5382,6 +5388,9 @@ type HandleListChatApiChatGetParams struct {
 	//
 	// AT MOST 20 DISTINCT IDS per call (counted after blanks are dropped); more is a 400 that states the limit. The cap is the response bound: 20 × the 4,000-rune body cap is the worst case one call can emit. It is not 'unfold a whole snapshot in one call' — name the ones that matter and call again.
 	Ids *[]string `form:"ids,omitempty" json:"ids,omitempty"`
+
+	// IncludeDeleted ``true`` (the STRING) also lists deleted messages, flagged by ``deleted_ts``; by default every listing leaves them out. 422 alongside ``unread=true``. Not consulted on the ``ids`` path, which always returns them. Any other value reads as not sent.
+	IncludeDeleted *string `form:"include_deleted,omitempty" json:"include_deleted,omitempty"`
 }
 
 // HandleListChatAttachmentsApiChatAttachmentsGetParams defines parameters for HandleListChatAttachmentsApiChatAttachmentsGet.
@@ -6057,7 +6066,7 @@ type ServerInterface interface {
 	//
 	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
 	// - `before_ts`: DEPRECATED (T-48) — prefer start_id/end_id. Paging cursor, the ts of the OLDEST message you already hold. Must be sent TOGETHER with before_id - supplying only one is refused with 422, which is the one mistake here that announces itself. The pair is otherwise not validated against anything real: a cursor pointing nowhere in the stream (a fabricated value, or the right instant expressed in the wrong unit - these timestamps are epoch SECONDS, not milliseconds) is not an error, it just answers 200 with an EMPTY page. An empty page is the same answer you get at the true start of history, so it cannot tell you 'you have reached the beginning' apart from 'your cursor was garbage'. Copy both values from a message you actually received rather than constructing them.
-	// - `cursor`: Opaque continuation token — copy the previous response's “next_cursor“ back VERBATIM. It encodes a “(ts, id)“ POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for “unread=true“ — and sending one to the other path is 422 rather than a silently wrong page. Sending it with “before_ts“/“before_id“ is 422 (one keyset walk per request), and so is sending it with “start_id“/“end_id“, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter.
+	// - `cursor`: Opaque continuation token — copy the previous response's “next_cursor“ back VERBATIM. It encodes a “(ts, id)“ POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for “unread=true“ — and sending one to the other path is 422 rather than a silently wrong page. Sending it with “before_ts“/“before_id“ is 422 (one keyset walk per request), and so is sending it with “start_id“/“end_id“, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter. Resend the same filters (“with“, “sender“, “recipient“, “include_deleted“) with it: it carries only the position.
 	// - `ids`: RE-READ SPECIFIC MESSAGES BY ID — repeatable (“?ids=<id>&ids=<id>“), returning those messages IN FULL (whole body, attachment refs and all), oldest→newest.
 	//
 	// This is what makes the wake snapshot's fold marker honest (T-a828). “ChatMessageDTO.body_omitted_chars“ > 0 says THIS message is here with part of its text folded away and tells the reader to re-read it with get_chat — but until this parameter existed get_chat took only a peer plus a paging cursor, so there was NO WAY TO NAME THE FOLDED MESSAGE. The promise beside the fold was not keepable, which made folding a silent drop.
@@ -6129,6 +6138,9 @@ type ServerInterface interface {
 	// Total chat unread count (the office nav red dot).
 	// (GET /api/chat/unread-count)
 	HandleChatUnreadCountApiChatUnreadCountGet(w http.ResponseWriter, r *http.Request)
+	// Delete one of the owner's own chat messages sent within the last 24 hours (owner only; no undo).
+	// (DELETE /api/chat/{message_id})
+	HandleDeleteChatMessageApiChatMessageIdDelete(w http.ResponseWriter, r *http.Request, messageId string)
 	// Resolve both sides of one comparison (?before=&after=; optional labels and ?sig=). Each side carries its text, its column heading, and an honest gone marker when the address resolves to nothing.
 	// (GET /api/diff)
 	HandleGetDiffApiDiffGet(w http.ResponseWriter, r *http.Request, params HandleGetDiffApiDiffGetParams)
@@ -7449,6 +7461,19 @@ func (siw *ServerInterfaceWrapper) HandleListChatApiChatGet(w http.ResponseWrite
 		return
 	}
 
+	// ------------- Optional query parameter "include_deleted" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_deleted", r.URL.Query(), &params.IncludeDeleted, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_deleted"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_deleted", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleListChatApiChatGet(w, r, params)
 	}))
@@ -7725,6 +7750,32 @@ func (siw *ServerInterfaceWrapper) HandleChatUnreadCountApiChatUnreadCountGet(w 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleChatUnreadCountApiChatUnreadCountGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleDeleteChatMessageApiChatMessageIdDelete operation middleware
+func (siw *ServerInterfaceWrapper) HandleDeleteChatMessageApiChatMessageIdDelete(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "message_id" -------------
+	var messageId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "message_id", r.PathValue("message_id"), &messageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "message_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleDeleteChatMessageApiChatMessageIdDelete(w, r, messageId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -12255,6 +12306,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/suggested-replies", wrapper.HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/chat/suggested-replies/{member_id}", wrapper.HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/unread-count", wrapper.HandleChatUnreadCountApiChatUnreadCountGet)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/chat/{message_id}", wrapper.HandleDeleteChatMessageApiChatMessageIdDelete)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff", wrapper.HandleGetDiffApiDiffGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff/share-link", wrapper.HandleGetDiffShareLinkApiDiffShareLinkGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/doc-sizes", wrapper.HandlePeekDocSizesApiDocSizesGet)

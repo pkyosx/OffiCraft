@@ -1109,6 +1109,13 @@ MATRIX: dict[str, Route] = {
     "GET /api/chat/suggested-replies": Route(requires="owner"),
     "PUT /api/chat/suggested-replies/{member_id}": Route(
         requires="owner", path="/api/chat/suggested-replies/mira", body={"replies": []}),
+    "DELETE /api/chat/{message_id}": Route(
+        # unknown message id: the owner passes the floor and the lookup 404s; the
+        # delete semantics are pinned in test_rest_happy.py.
+        requires="owner",
+        path="/api/chat/c-000000000000",
+        overrides={"owner": 404},
+    ),
     "GET /api/chat/unread-count": Route(requires="machine"),
     # ── reply cards ──────────────────────────────────────────────────────────
     "POST /api/reply-cards": Route(

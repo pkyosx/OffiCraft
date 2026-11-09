@@ -60,7 +60,7 @@
 // composer preview) opens here and therefore gets the same shell: filename in
 // the header, 下載, close, Esc/backdrop dismissal and the zoom controls.
 
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
@@ -165,12 +165,16 @@ type MarkdownPreviewOverlayProps = {
        * state and fetch nothing until it says. */
       typePending?: boolean;
       source?: never;
+      trailing?: never;
       imageSrc?: never;
       diffParams?: never;
     }
   | {
       /** Markdown text the caller already holds — rendered as-is, no fetch. */
       source: string;
+      /** Rendered under the text (a chat message's attachments); an empty
+       * `source` then shows this alone. */
+      trailing?: ReactNode;
       url?: never;
       typePending?: never;
       /** No blob, so no share link: there is nothing for a link to point at. */
@@ -191,6 +195,7 @@ type MarkdownPreviewOverlayProps = {
       mime?: never;
       docComments?: never;
       source?: never;
+      trailing?: never;
       diffParams?: never;
     }
   | {
@@ -207,6 +212,7 @@ type MarkdownPreviewOverlayProps = {
       mime?: never;
       docComments?: never;
       source?: never;
+      trailing?: never;
       imageSrc?: never;
     }
 );
@@ -223,6 +229,7 @@ export function MarkdownPreviewOverlay({
   docComments,
   typePending,
   source: inlineSource,
+  trailing,
   onClose,
 }: MarkdownPreviewOverlayProps) {
   const { t } = useI18n();
@@ -811,7 +818,7 @@ export function MarkdownPreviewOverlay({
           ) : (
             <pre className="md-preview__text">{source}</pre>
           )
-        ) : <Markdown
+        ) : inlineSource === "" && trailing ? null : <Markdown
           source={source}
           className="md-preview__md doc-md"
           /* An inline source is a CHAT message: Enter meant "new line"
@@ -827,6 +834,7 @@ export function MarkdownPreviewOverlay({
           resolveImageSrc={inlineSource === undefined ? authedAttachmentUrl : undefined}
         />
       )}
+      {trailing}
     </div>
   );
 

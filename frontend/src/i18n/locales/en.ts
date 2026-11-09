@@ -1477,6 +1477,18 @@ export const en: Dict = {
     // full-view overlay (a long answer is hard to read in the thread column).
     // Own messages do not carry it.
     expandMessage: "Open full view",
+    // Delete: only in the corner of the owner's own ordinary messages younger
+    // than 24 hours; it cannot be undone, so it asks first. deletedPlaceholder is
+    // the deleted row itself (click to open the original), deletedQuote the
+    // quote line of a reply to a deleted message. deleteFailed is used only
+    // when the server gave no reason.
+    deleteAction: "Delete",
+    deleteConfirmBody:
+      "Delete this message? The recipient will be told it was deleted; you can still open the original. This can't be undone.",
+    deleteConfirm: "Delete",
+    deleteFailed: "Couldn't delete the message. Try again later.",
+    deletedPlaceholder: "This message was deleted",
+    deletedQuote: "Deleted message",
     // T-4e95 reply-to-a-message: the per-row reply entry, the "replying to"
     // banner above the composer and its x, and the quote line that points a
     // message back at the one it answers.

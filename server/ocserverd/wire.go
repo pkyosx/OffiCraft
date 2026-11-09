@@ -475,6 +475,7 @@ type chatMessageDTO struct {
 	// batch" skip, no opt-in flag (owner ruling 2026-08-21). nil with ReplyTo set
 	// is the permanent answer "the original is gone"; nothing retries.
 	ReplyToChat *chatReplyQuoteDTO `json:"reply_to_chat,omitempty"`
+	DeletedTS   float64            `json:"deleted_ts"`
 }
 
 // chatReplyQuoteDTO: 🔴 To is the QUOTED message's own recipient, not the peer
@@ -491,6 +492,8 @@ type chatReplyQuoteDTO struct {
 	// ReplyExcerpt belongs to the replying message (its meta), not the quoted one,
 	// and is served verbatim — never collapsed or cut like Content.
 	ReplyExcerpt string `json:"reply_excerpt,omitempty"`
+	// A deleted original lends no text: Content and ReplyExcerpt stay empty.
+	Deleted bool `json:"deleted"`
 }
 
 // chatReplyQuoteMaxChars is the quote-line length in runes; the browser cuts
@@ -526,14 +529,19 @@ func newChatReplyQuoteDTO(m ChatMessage, names map[string]string) *chatReplyQuot
 		fromName = resumeDisplayName(m.Sender, names)
 		toName = resumeDisplayName(m.Recipient, names)
 	}
-	return &chatReplyQuoteDTO{
+	quote := &chatReplyQuoteDTO{
 		ID:       m.ID,
 		From:     m.Sender,
 		FromName: fromName,
 		To:       m.Recipient,
 		ToName:   toName,
-		Content:  chatReplyQuoteContent(m.Body),
 	}
+	if m.DeletedTS > 0 {
+		quote.Deleted = true
+	} else {
+		quote.Content = chatReplyQuoteContent(m.Body)
+	}
+	return quote
 }
 
 type chatGalleryEntryDTO struct {
@@ -2271,6 +2279,7 @@ func newChatMessageDTO(m ChatMessage) chatMessageDTO {
 		Meta:        meta,
 		Attachments: attachments,
 		ReplyTo:     replyToFromMeta(meta),
+		DeletedTS:   m.DeletedTS,
 	}
 }
 

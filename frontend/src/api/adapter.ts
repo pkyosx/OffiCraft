@@ -145,6 +145,14 @@ export interface ChatMessage {
    * and a story about healing that lie later — three states that look identical
    * to the eye whether they are right or wrong. */
   replyToChat?: ChatReplyQuote | null;
+  /** Epoch seconds the owner deleted this message (wire `deleted_ts`); `0` =
+   * not deleted. Listings carry a deleted message only when asked
+   * (`include_deleted`), body intact. OPTIONAL so hand-built fixtures stay
+   * valid; the mapper always sets it. */
+  deletedTs?: number;
+  /** The task this message belongs to (`meta.task_id`), or null. Task messages
+   * cannot be deleted. OPTIONAL like `deletedTs`. */
+  taskId?: string | null;
 }
 
 /** The quoted message a reply carries with it (wire `ChatReplyQuoteDTO`).
@@ -173,6 +181,10 @@ export interface ChatReplyQuote {
    * `reply_excerpt`), verbatim as sent. Absent when the reply quoted the whole
    * message; when present, quote surfaces draw it instead of `content`. */
   replyExcerpt?: string;
+  /** The quoted message was deleted; `content` and `replyExcerpt` are then
+   * empty, so a quote never carries a deleted message's text. OPTIONAL so
+   * hand-built fixtures stay valid; the mapper always sets it. */
+  deleted?: boolean;
 }
 
 /** One reply card folded onto the chat message that opened it (view model of
@@ -2041,6 +2053,10 @@ export interface SseDelta {
   /** Every value in `names`, de-duplicated — the cheap "does this delta touch
    * something I am holding?" test. Empty ⇒ refetch the lot. */
   ids: string[];
+  /** `chat` only: present on the delta of a delete, the delete time (epoch
+   * seconds). A hook may apply it without a refetch (spec/sse.md §2.2 names it
+   * as an exception): a delete cannot be undone, so it cannot go stale. */
+  deletedTs?: number;
 }
 
 /**
@@ -2388,6 +2404,12 @@ export interface Api {
     peer: string;
     lastReadTs: number;
   }): Promise<ChatMarkReadReceipt>;
+  /** Delete one of the owner's own ordinary messages sent less than 24 hours
+   * ago (`DELETE /api/chat/{id}`, owner only, no undo). Answers the
+   * message with `deletedTs` set; deleting an already deleted message
+   * answers it unchanged. Someone else's message, a task message, a reply-card
+   * message or one older than 24 hours → 409; unknown id → 404. */
+  deleteChatMessage(id: string): Promise<ChatMessage>;
   /** List read receipts for a `peer` conversation (`GET /api/chat/reads?with=`).
    * The UI reads the PEER's receipt to know how far the peer has read the owner's
    * messages (drives the per-message "read ✓" badge). */

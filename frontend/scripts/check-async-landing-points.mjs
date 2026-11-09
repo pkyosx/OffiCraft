@@ -266,6 +266,19 @@ const REGISTRY = [
       "highlight clear; cleared in the effect cleanup, and the state it writes dies with the room. The centring settle timer that used to be the second one was deleted with the jump's re-center loop (T-48, owner rc-6c27f486ef9d)",
   },
   {
+    file: "hooks/useChatDelete.tsx",
+    kind: "await",
+    count: 1,
+    verdict:
+      "the delete POST. Its writes are this hook's own deleted-id map, dialog target and error, all keyed by message id; the hook lives in ChatArea, mounted under `key={peerId}`, so a response that lands after a room switch writes into a discarded component",
+  },
+  {
+    file: "hooks/useChatDelete.tsx",
+    kind: "subscribe",
+    count: 1,
+    verdict: "chat SSE carrying deleted_ts for deletes made elsewhere; writes only the deleted-id map, unsubscribed in the effect cleanup, and the room is this mount",
+  },
+  {
     file: "components/MemberActivity.tsx",
     kind: "setTimeout/setInterval",
     count: 1,

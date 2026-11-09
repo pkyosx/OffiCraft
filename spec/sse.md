@@ -78,9 +78,11 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
 
 - A delta means "this topic changed → refetch its list/snapshot".
 - `payload` is carried **for convenience only**; a client MUST NOT merge it in place — it
-  lacks server-derived DTO fields. Payloads are deliberately partial. **One field breaks that
-  rule and is named as an exception**: `offboard_notice` (below) is the only payload key that
-  a refetch CANNOT recover — no DTO carries it — so it is the one thing a client may act on
+  lacks server-derived DTO fields. Payloads are deliberately partial. **Two fields break that
+  rule and are named as exceptions**: `offboard_notice` (below) is the only payload key that
+  a refetch CANNOT recover — no DTO carries it; and `deleted_ts` on a `chat` delete delta
+  (below) may be applied to a held message straight off the delta, because a delete cannot be
+  undone and so the value can never go stale. These are the only things a client may act on
   straight off the delta:
   - `member`: `{id, name, status, desired_state, owner_id}` for staff lifecycle and
     outsource assignment / claim / release, plus `offboard_notice` on
@@ -106,7 +108,10 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     clause are computed per path, and that band's `reason` wording is explicitly not
     contract. Audience is the member itself and — like every delta — any owner/dashboard
     connection, which reads no key of it.
-  - `chat` (new message): `{id, from, to}`
+  - `chat` (new message, or the owner deleting one): `{id, from, to}`; the delete's
+    delta adds `deleted_ts` (epoch seconds), so an owner tab holding the row can mark it
+    without a refetch. A delete also appends a `system` notice to the recipient, which
+    emits its own `chat` delta `{id, from, to}`
   - `chat_read`: `{reader, peer, last_read_ts}`
   - `chat_group`: `payload` is `null`; refetch `GET /api/chat/groups`
   - `chat_suggested_reply`: `payload` is `null`; refetch `GET /api/chat/suggested-replies`
@@ -232,7 +237,7 @@ is the M1 freeze):
 | topic | trigger | op |
 |---|---|---|
 | `member` | any roster write, including outsource assignment / claim / release; a telemetry ingest that changes a member's derived warnings (`runtime_login_warnings`, `model_call_warnings`); an activity report that changes a member's derived `activity` (owner-only); a usage-limit reset timer firing at a reported `resets_at` | patch / remove |
-| `chat` | message append | patch |
+| `chat` | message append; the owner deleting a message (`DELETE /api/chat/{message_id}`) | patch |
 | `chat_read` | read-watermark advance | patch |
 | `chat_group` | group set replaced (`PUT /api/chat/groups`); a new outsource worker auto-joined to a group by its task type | patch |
 | `chat_suggested_reply` | one member's list replaced (`PUT /api/chat/suggested-replies/{member_id}`) | patch |

@@ -290,6 +290,16 @@ composer 上方的橫幅走同一個形狀（它從已載入視窗解析，是�
 `content` 是空字串是**合法**的（被引用的那則只有附件），要畫成「有名字、內容空
 白」，不可以折進「已不存在」。
 
+**被引訊息已刪除（deleted）時，server 給的快照帶 `deleted: true`、`content` 與 `reply_excerpt` 都是空的**：
+這仍是「server 給了快照」那一態，畫名字＋固定的 `chat.deletedQuote`「已刪除的訊息」，
+「看原訊息」照給（owner 讀得回原文）。它跟 attachment-only 的空 `content` 是兩件事，
+不可互相折疊；每一個引用面（訊息列、`ResumeSummaryCard`）都要分辨。
+
+**owner 自己那則已刪除的訊息，列上只畫 `chat.deletedPlaceholder`「此訊息已刪除」，不畫任何原文或附件**；
+點它跟「看原訊息」走同一個 `quotedMessage.open(id)`、開同一片覆蓋層（owner 裁定：不要在列上展開）。
+不要為這一列另寫一份展開或另一個 overlay。
+server 的聊天列表預設不列已刪除訊息（任何呼叫者都一樣）；聊天視窗的讀取（`listChat`／`listChatWindow`）在 http seam 一律帶 `include_deleted=true` 才拿得到這些列，未讀探針（`unread=true`）不能帶，server 會 422。
+
 **橫幅有自己的文案，不准借用訊息列那一句。** composer 上方的「正在回覆」橫幅沒有
 `reply_to_chat` 可讀（那是回覆**送出後**才存在的東西），它只認**已載入視窗**裡的
 那則（`messageById`）。而「不在已載入視窗」跟「訊息不存在」是兩件事：往上捲載入
@@ -321,6 +331,7 @@ effect 裡發請求。** 引用列畫的是 server 這次隨訊息一起送來�
 那一則顯示出來就好」）：**每一則有引用的列都給，不問那則在不在已載入視窗** ——
 `ChatArea.tsx` 的 render 條件是 `m.replyTo && quoted`，完全不查 `messages`。點下去
 用 `api.getChatMessage(replyTo)` 撈那一則，開跟 放大閱讀 同一片覆蓋層，**不捲動**。
+覆蓋層畫正文，下面接那則的附件（同一個 `AttachmentStrip`、同一組聊天氣泡的 class）；正文空白時只畫附件，不畫空的文字區（owner 裁定）。
 這一段是刻意合成的：以前它問「那則在不在視窗」來決定給不給鈕，owner 把它改成一律
 給、按了才撈，所以**不要再把窗口成員資格的判斷加回去**。
 
