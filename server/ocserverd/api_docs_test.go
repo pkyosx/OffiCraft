@@ -159,7 +159,7 @@ func apiGuideIndex() []map[string]any {
 		{"slug": "security", "title": "保護你的工作室"},
 		{"slug": "daily", "title": "交代工作與回覆請示卡"},
 		{"slug": "tasks", "title": "追蹤任務進度"},
-		{"slug": "usage", "title": "看用量與花費"},
+		{"slug": "usage", "title": "管理 AI 帳號與用量"},
 		{"slug": "mobile", "title": "在手機上用"},
 		{"slug": "sop", "title": "讓 AI 照 SOP 做重複的事（任務手冊）"},
 		{"slug": "schedule", "title": "定時做某件事（定期訊息）"},

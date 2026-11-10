@@ -65,7 +65,7 @@
 
 - [你的第一個辦公室](quickstart.md)
 - [追蹤任務進度](tasks.md)
-- [看用量與花費](usage.md)
+- [管理 AI 帳號與用量](usage.md)
 - [在手機上用](mobile.md)
 - [增加成員與發外包](members.md)
 - [介面說明](interface.md)
