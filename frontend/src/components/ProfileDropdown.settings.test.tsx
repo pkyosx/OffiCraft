@@ -103,6 +103,7 @@ describe("ProfileDropdown · preferences scope", () => {
     expect(dialog.getAttribute("aria-modal")).toBe("true");
     expect(document.activeElement).toBe(dialog);
     expect(within(dialog).getByRole("switch", { name: p.seasonalTheme })).toBeTruthy();
+    expect(within(dialog).getByRole("combobox", { name: zh.settings.themeBgMotion })).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: zh.settings.themeRestoreDefault })).toBeTruthy();
     const select = within(dialog).getByRole("combobox", { name: zh.settings.themePick }) as HTMLSelectElement;
     expect(select.value).toBe("midnight");

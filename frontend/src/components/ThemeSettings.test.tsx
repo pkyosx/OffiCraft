@@ -248,6 +248,7 @@ beforeEach(() => {
   // NEXT one green or red for a reason that is not in it.
   vi.restoreAllMocks();
   localStorage.removeItem("oc.theme");
+  localStorage.removeItem("oc.bgMotion");
   document.documentElement.removeAttribute("style");
   delete document.documentElement.dataset.theme;
 });
@@ -1595,6 +1596,17 @@ describe("ThemeSettings · appearance", () => {
     expect(within(appearance).getByRole("switch", { name: s.themeSchedule })).toBeTruthy();
     expect(within(appearance).getByRole("combobox", { name: s.themePick })).toBeTruthy();
     expect(within(appearance).getByRole("switch", { name: p.seasonalTheme })).toBeTruthy();
+    const bgMotion = within(appearance).getByRole("combobox", { name: s.themeBgMotion }) as HTMLSelectElement;
+    expect(Array.from(bgMotion.options).map((o) => [o.value, o.textContent])).toEqual([
+      ["auto", "自動"],
+      ["play", "播放"],
+      ["still", "靜止"],
+    ]);
+    expect(bgMotion.value).toBe("auto");
+    expect(bgMotion.closest(".param-row")!.textContent).toContain("只影響這台裝置；自動時手機平板靜止、電腦播放");
+    expect(
+      Array.from(appearance.querySelectorAll(".param-row__name")).map((n) => n.textContent)
+    ).toEqual(["依時段切換", "主題", "背景動畫", "顯示應景主題"]);
 
     const libraryHead = within(library).getByRole("heading").parentElement!;
     expect(
@@ -1683,10 +1695,35 @@ describe("ThemeSettings · appearance", () => {
     expect(themeSelect(utils).value).toBe("midnight");
   });
 
-  it("恢復預設 asks first, then restores the desk schedule, the seasonal theme and the desk display theme, keeping custom themes", async () => {
+  it("背景動畫 applies a pick at once and keeps it in this browser only, still picked after a remount", async () => {
+    setToken("owner-token");
+    const utils = await renderManage();
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const bgMotion = () => utils.getByRole("combobox", { name: s.themeBgMotion }) as HTMLSelectElement;
+
+    fireEvent.change(bgMotion(), { target: { value: "still" } });
+    expect(document.documentElement.dataset.bgMotion).toBe("still");
+    fireEvent.change(bgMotion(), { target: { value: "play" } });
+    expect(document.documentElement.dataset.bgMotion).toBe("play");
+    await settle();
+    expect(localStorage.getItem("oc.bgMotion")).toBe("play");
+    expect(patch).not.toHaveBeenCalled();
+
+    utils.unmount();
+    const again = await renderManage();
+    expect((again.getByRole("combobox", { name: s.themeBgMotion }) as HTMLSelectElement).value).toBe("play");
+    expect(document.documentElement.dataset.bgMotion).toBe("play");
+
+    fireEvent.click(again.getByRole("switch", { name: p.seasonalTheme }));
+    await settle();
+    expect(patch).toHaveBeenCalledTimes(1);
+  });
+
+  it("恢復預設 asks first, then restores the desk schedule, the seasonal theme and the desk display theme, keeping custom themes, and sets this device's 背景動畫 back to 自動", async () => {
     setToken("owner-token");
     await api.putTheme({ id: "midnight", name: "午夜藍", colors: { "--color-bg": "#101018" } });
     await api.patchServerSettings({ displayTheme: "midnight", displaySeasonalTheme: false });
+    localStorage.setItem("oc.bgMotion", "still");
     const utils = await renderManage();
     const dialog = within(appearancePanel(utils));
 
@@ -1711,11 +1748,15 @@ describe("ThemeSettings · appearance", () => {
     ]);
     expect(dialog.getByRole("switch", { name: s.themeSchedule }).getAttribute("aria-checked")).toBe("true");
     expect(dialog.getByRole("switch", { name: p.seasonalTheme }).getAttribute("aria-checked")).toBe("true");
+    expect((dialog.getByRole("combobox", { name: s.themeBgMotion }) as HTMLSelectElement).value).toBe("auto");
+    expect(localStorage.getItem("oc.bgMotion")).toBe("auto");
+    expect(document.documentElement.dataset.bgMotion).toBe("auto");
     expect(await savedIds()).toEqual(["midnight"]);
   });
 
-  it("恢復預設 that the server refuses says so and keeps the confirm open", async () => {
+  it("恢復預設 that the server refuses says so, keeps the confirm open and leaves 背景動畫 as it was", async () => {
     setToken("owner-token");
+    localStorage.setItem("oc.bgMotion", "still");
     const utils = await renderManage();
     vi.spyOn(api, "patchServerSettings").mockRejectedValue(new Error("boom"));
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -1725,6 +1766,7 @@ describe("ThemeSettings · appearance", () => {
     await settle();
 
     expect(utils.getByTestId("theme-restore-confirm").textContent).toContain(s.themeRestoreFailed);
+    expect(localStorage.getItem("oc.bgMotion")).toBe("still");
   });
 
   it("the 顯示應景主題 switch is on by default and saves each flip to the server", async () => {
