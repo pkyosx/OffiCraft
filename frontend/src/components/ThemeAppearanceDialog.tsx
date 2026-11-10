@@ -411,13 +411,13 @@ function ThemeAppearance({
         </button>
       </div>
 
-      <div className="param-row ts-pick-row">
+      <div className="param-row">
         <div className="param-row__body">
           <span className="param-row__name">{t.settings.themeBgMotion}</span>
           <div className="param-row__sub">{t.settings.themeBgMotionSub}</div>
         </div>
         <select
-          className="ts-input ts-theme-select"
+          className="param-select"
           aria-label={t.settings.themeBgMotion}
           value={bgMotion}
           onChange={(e) => setBgMotion(e.target.value as BgMotion)}

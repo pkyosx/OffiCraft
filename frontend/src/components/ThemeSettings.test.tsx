@@ -1598,12 +1598,12 @@ describe("ThemeSettings · appearance", () => {
     expect(within(appearance).getByRole("switch", { name: p.seasonalTheme })).toBeTruthy();
     const bgMotion = within(appearance).getByRole("combobox", { name: s.themeBgMotion }) as HTMLSelectElement;
     expect(Array.from(bgMotion.options).map((o) => [o.value, o.textContent])).toEqual([
-      ["auto", "自動（手機平板靜止、電腦播放）"],
+      ["auto", "自動"],
       ["play", "播放"],
       ["still", "靜止"],
     ]);
     expect(bgMotion.value).toBe("auto");
-    expect(bgMotion.closest(".param-row")!.textContent).toContain("只影響這台裝置");
+    expect(bgMotion.closest(".param-row")!.textContent).toContain("只影響這台裝置；自動時手機平板靜止、電腦播放");
 
     const libraryHead = within(library).getByRole("heading").parentElement!;
     expect(

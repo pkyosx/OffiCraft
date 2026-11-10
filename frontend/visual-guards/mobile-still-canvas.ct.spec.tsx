@@ -155,7 +155,7 @@ test.describe("on a mouse device", () => {
     await expectBodyBackground(page, "blob:");
   });
 
-  test("picking 背景動畫 靜止 at phone width shows the still frame, and 自動 the animation again, without a reload", async ({
+  test("at phone width the 背景動畫 select sits beside its name, 靜止 shows the still frame, and 自動 the animation again, without a reload", async ({
     mount,
     page,
   }) => {
@@ -164,6 +164,12 @@ test.describe("on a mouse device", () => {
     await expectTouchDevice(page, false);
     await expectBodyBackground(page, "data:image/webp;base64,");
     const select = story.getByRole("combobox", { name: "背景動畫" });
+    const name = story.locator(".param-row__body", { hasText: "背景動畫" });
+    const nameBox = (await name.boundingBox())!;
+    const selectBox = (await select.boundingBox())!;
+    expect(selectBox.x, "select sits beside the name, not under it").toBeGreaterThanOrEqual(nameBox.x + nameBox.width);
+    expect(selectBox.y).toBeLessThan(nameBox.y + nameBox.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(PHONE.width);
 
     await select.selectOption("still");
     await expectBodyBackground(page, "blob:");
