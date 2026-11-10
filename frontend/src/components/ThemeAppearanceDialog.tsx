@@ -397,22 +397,6 @@ function ThemeAppearance({
 
       <div className="param-row">
         <div className="param-row__body">
-          <span className="param-row__name">{t.profile.seasonalTheme}</span>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={seasonalTheme}
-          aria-label={t.profile.seasonalTheme}
-          className={`set-toggle${seasonalTheme ? " set-toggle--on" : ""}`}
-          onClick={() => setSeasonalTheme(!seasonalTheme)}
-        >
-          <span className="set-toggle__knob" />
-        </button>
-      </div>
-
-      <div className="param-row">
-        <div className="param-row__body">
           <span className="param-row__name">{t.settings.themeBgMotion}</span>
           <div className="param-row__sub">{t.settings.themeBgMotionSub}</div>
         </div>
@@ -428,6 +412,22 @@ function ThemeAppearance({
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="param-row">
+        <div className="param-row__body">
+          <span className="param-row__name">{t.profile.seasonalTheme}</span>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={seasonalTheme}
+          aria-label={t.profile.seasonalTheme}
+          className={`set-toggle${seasonalTheme ? " set-toggle--on" : ""}`}
+          onClick={() => setSeasonalTheme(!seasonalTheme)}
+        >
+          <span className="set-toggle__knob" />
+        </button>
       </div>
     </>
   );

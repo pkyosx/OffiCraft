@@ -1604,6 +1604,9 @@ describe("ThemeSettings · appearance", () => {
     ]);
     expect(bgMotion.value).toBe("auto");
     expect(bgMotion.closest(".param-row")!.textContent).toContain("只影響這台裝置；自動時手機平板靜止、電腦播放");
+    expect(
+      Array.from(appearance.querySelectorAll(".param-row__name")).map((n) => n.textContent)
+    ).toEqual(["依時段切換", "主題", "背景動畫", "顯示應景主題"]);
 
     const libraryHead = within(library).getByRole("heading").parentElement!;
     expect(

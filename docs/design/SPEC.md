@@ -556,7 +556,7 @@ DB 四個 key（`suggested_replies.reply_card` / `suggested_replies.task_message
 **工作室 Logo**、**導覽圖示**（七個主導覽頁籤各一張）、**外框背景圖**（平鋪／貼邊／滿版）。
 外觀分頁由上而下：**依時段切換** 開關（server `display_theme_schedule`）——開著時是 2～6 列「開始時間 ＋ 縮圖 ＋ 主題」
 與今天的時段細條，依觀看者當地時間到點直接換，應景主題期間仍顯示應景主題；關著時同一位置是 **主題** 選單（選了立刻套用，
-縮圖同上）；再來是 **顯示應景主題** 開關（server `display_seasonal_theme`）；最後是 **背景動畫**（自動／播放／靜止，只存在這台裝置的瀏覽器，不送 server）。
+縮圖同上）；再來是 **背景動畫**（自動／播放／靜止，只存在這台裝置的瀏覽器，不送 server）；最後是 **顯示應景主題** 開關（server `display_seasonal_theme`）。
 玩法見 [docs/guide/theme.md](../guide/theme.md)。
 
 ---
