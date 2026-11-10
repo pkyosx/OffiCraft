@@ -2326,7 +2326,7 @@ export const zh = {
     themePick: "主題",
     themeBgMotion: "背景動畫",
     themeBgMotionSub: "只影響這台裝置",
-    themeBgMotionAuto: "自動（手機靜止、電腦播放）",
+    themeBgMotionAuto: "自動（手機平板靜止、電腦播放）",
     themeBgMotionPlay: "播放",
     themeBgMotionStill: "靜止",
     themeScheduleStart: "開始時間",

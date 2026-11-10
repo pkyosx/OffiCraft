@@ -201,7 +201,7 @@ interface I18nContextValue {
   seasonalTheme: boolean;
   setSeasonalTheme: (next: boolean) => void;
   /** This device's 背景動畫 choice for an animated canvas: "auto" shows the
-   * still first frame on phones, "play" always animates, "still" never does. */
+   * still first frame on touch devices, "play" always animates, "still" never does. */
   bgMotion: BgMotion;
   setBgMotion: (next: BgMotion) => void;
   /** display_theme_schedule, sorted by start; [] = off. Below the seasonal

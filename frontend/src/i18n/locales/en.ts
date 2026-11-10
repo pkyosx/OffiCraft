@@ -2305,7 +2305,7 @@ export const en: Dict = {
     themePick: "Theme",
     themeBgMotion: "Background animation",
     themeBgMotionSub: "This device only",
-    themeBgMotionAuto: "Auto (phones still, computers play)",
+    themeBgMotionAuto: "Auto (touch still, computers play)",
     themeBgMotionPlay: "Play",
     themeBgMotionStill: "Still",
     themeScheduleStart: "Starts at",

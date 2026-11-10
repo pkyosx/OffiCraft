@@ -130,16 +130,16 @@ describe("stillFrameUrl", () => {
   });
 });
 
-function stubViewport(mobile: boolean) {
+function stubDevice(touch: boolean) {
   const listeners = new Set<(e: MediaQueryListEvent) => void>();
   const mql = {
-    matches: mobile,
+    matches: touch,
     addEventListener: (_: string, fn: (e: MediaQueryListEvent) => void) => listeners.add(fn),
     removeEventListener: (_: string, fn: (e: MediaQueryListEvent) => void) => listeners.delete(fn),
   };
-  vi.stubGlobal("matchMedia", (q: string) => (q === "(max-width: 720px)" ? mql : { ...mql, matches: false }));
+  vi.stubGlobal("matchMedia", (q: string) => (q === "(hover: none)" ? mql : { ...mql, matches: false }));
   return {
-    narrow() {
+    switchToTouch() {
       mql.matches = true;
       for (const fn of [...listeners]) fn({ matches: true } as MediaQueryListEvent);
     },
@@ -159,9 +159,9 @@ function animatedBundle(seed: number, mode?: "sides"): ThemeBundle {
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe("watchStillCanvas", () => {
-  it("auto at phone width writes the still with the theme's layering and reports the token", async () => {
+  it("auto on a touch device writes the still with the theme's layering and reports the token", async () => {
     stubFrameEncoder();
-    stubViewport(true);
+    stubDevice(true);
     const root = document.createElement("div");
     const applied: string[] = [];
     watchStillCanvas(root, animatedBundle(10, "sides"), "auto", (t) => applied.push(t));
@@ -170,45 +170,45 @@ describe("watchStillCanvas", () => {
     expect(applied).toEqual([CANVAS_STILL_TOKEN]);
   });
 
-  it("auto on a desktop viewport converts only once the viewport narrows to phone width", async () => {
+  it("auto on a mouse device converts only once the primary input becomes touch", async () => {
     const enc = stubFrameEncoder();
-    const viewport = stubViewport(false);
+    const device = stubDevice(false);
     const root = document.createElement("div");
     watchStillCanvas(root, animatedBundle(11), "auto", () => {});
     await flush();
     expect(enc.convertedFrames()).toBe(0);
-    viewport.narrow();
+    device.switchToTouch();
     await flush();
     expect(root.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe('url("blob:still-1")');
   });
 
-  it("still on a desktop viewport writes the still at once and keeps it after the viewport narrows", async () => {
+  it("still on a mouse device writes the still at once and keeps it after the primary input becomes touch", async () => {
     const enc = stubFrameEncoder();
-    const viewport = stubViewport(false);
+    const device = stubDevice(false);
     const root = document.createElement("div");
     const applied: string[] = [];
     watchStillCanvas(root, animatedBundle(14), "still", (t) => applied.push(t));
     await flush();
     expect(root.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe('url("blob:still-1")');
     expect(applied).toEqual([CANVAS_STILL_TOKEN]);
-    viewport.narrow();
+    device.switchToTouch();
     await flush();
     expect(enc.convertedFrames()).toBe(1);
     expect(applied).toEqual([CANVAS_STILL_TOKEN]);
   });
 
-  it("play writes nothing at phone width, nor after the viewport narrows, while auto on the same image does", async () => {
+  it("play writes nothing on a touch device, nor after the primary input becomes touch, while auto on the same image does", async () => {
     const enc = stubFrameEncoder();
-    const viewport = stubViewport(false);
-    const phone = document.createElement("div");
-    const narrowed = document.createElement("div");
+    const device = stubDevice(false);
+    const touch = document.createElement("div");
+    const switched = document.createElement("div");
     const auto = document.createElement("div");
-    watchStillCanvas(narrowed, animatedBundle(15), "play", () => {});
-    viewport.narrow();
-    watchStillCanvas(phone, animatedBundle(15), "play", () => {});
+    watchStillCanvas(switched, animatedBundle(15), "play", () => {});
+    device.switchToTouch();
+    watchStillCanvas(touch, animatedBundle(15), "play", () => {});
     await flush();
-    expect(phone.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe("");
-    expect(narrowed.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe("");
+    expect(touch.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe("");
+    expect(switched.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe("");
     expect(enc.convertedFrames()).toBe(0);
     watchStillCanvas(auto, animatedBundle(15), "auto", () => {});
     await flush();
@@ -218,7 +218,7 @@ describe("watchStillCanvas", () => {
 
   it("after cancel writes nothing in auto or still, while an uncancelled watch on the same image does", async () => {
     stubFrameEncoder();
-    stubViewport(true);
+    stubDevice(true);
     const cancelled = document.createElement("div");
     const cancelledStill = document.createElement("div");
     const kept = document.createElement("div");
@@ -233,9 +233,9 @@ describe("watchStillCanvas", () => {
     expect(kept.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe('url("blob:still-1")');
   });
 
-  it("leaves a still-image canvas alone at phone width", async () => {
+  it("leaves a still-image canvas alone on a touch device", async () => {
     const enc = stubFrameEncoder();
-    stubViewport(true);
+    stubDevice(true);
     const root = document.createElement("div");
     const still = { ...animatedBundle(13), backgrounds: { canvas: dataUri("image/webp", riff("VP8 ", Array(10).fill(13))) } };
     watchStillCanvas(root, still, "auto", () => {});

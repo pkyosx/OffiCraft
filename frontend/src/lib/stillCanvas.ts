@@ -1,4 +1,3 @@
-import { MOBILE_BREAKPOINT } from "../hooks/useIsMobile";
 import { DEFAULT_BACKGROUND_MODE, type ThemeBundle } from "./themeBundleCore";
 import { canvasLayout } from "./themePaint";
 
@@ -128,9 +127,10 @@ export function stillFrameUrl(dataUri: string): Promise<string | null> {
 export const BG_MOTIONS = ["auto", "play", "still"] as const;
 export type BgMotion = (typeof BG_MOTIONS)[number];
 
-/** When "auto" shows the still frame. global.css's still rule repeats it as a
- * media query; change both together. */
-export const AUTO_STILL_QUERY = `(max-width: ${MOBILE_BREAKPOINT}px)`;
+/** When "auto" shows the still frame: a touch device (primary input cannot
+ * hover), whatever its width or orientation. global.css's still rule repeats
+ * it as a media query; change both together. */
+export const AUTO_STILL_QUERY = "(hover: none)";
 
 /** Write the first frame of an animated canvas into CANVAS_STILL_TOKEN (same
  * layering as --canvas-bg-image) and report the token through `onApplied`:
