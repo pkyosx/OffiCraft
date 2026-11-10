@@ -55,14 +55,36 @@ describe("isAnimatedImage", () => {
   });
 });
 
+type StubFrame = { width: number; height: number; alpha: number; close(): void };
+
 function stubFrameEncoder(): { convertedFrames: () => number } {
   let converted = 0;
-  vi.stubGlobal("createImageBitmap", async () => ({ width: 4, height: 3, close() {} }));
+  vi.stubGlobal("createImageBitmap", async (blob: Blob) => ({
+    width: 4,
+    height: 3,
+    alpha: (await blob.text()).includes("TRANSPARENT") ? 0 : 255,
+    close() {},
+  }));
   vi.stubGlobal(
     "OffscreenCanvas",
     class {
+      constructor(
+        readonly width: number,
+        readonly height: number
+      ) {}
       getContext() {
-        return { drawImage() {} };
+        let drawn: StubFrame | undefined;
+        const { width, height } = this;
+        return {
+          drawImage(frame: StubFrame) {
+            drawn = frame;
+          },
+          getImageData() {
+            const data = new Uint8ClampedArray(width * height * 4);
+            for (let i = 3; i < data.length; i += 4) data[i] = drawn?.alpha ?? 0;
+            return { data };
+          },
+        };
       }
       async convertToBlob() {
         converted++;
@@ -90,11 +112,21 @@ describe("stillFrameUrl", () => {
     expect(enc.convertedFrames()).toBe(1);
   });
 
-  it("resolves null when the browser cannot decode the image", async () => {
+  it("resolves null when the browser cannot decode the image, and a blob URL once it can", async () => {
     vi.stubGlobal("createImageBitmap", async () => {
       throw new DOMException("bad image", "InvalidStateError");
     });
     expect(await stillFrameUrl(dataUri("image/webp", riff("VP8X", [0x02, 1, 0, 0, 0, 0, 0, 0, 0, 0])))).toBeNull();
+    stubFrameEncoder();
+    expect(await stillFrameUrl(dataUri("image/webp", riff("VP8X", [0x02, 2, 0, 0, 0, 0, 0, 0, 0, 0])))).toBe("blob:still-1");
+  });
+
+  it("resolves null for a fully transparent first frame without encoding it, and a blob URL for a visible one", async () => {
+    const enc = stubFrameEncoder();
+    const transparent = riff("VP8X", [0x02, 3, 0, 0, 0, 0, 0, 0, 0, 0]).concat([..."TRANSPARENT"].map((c) => c.charCodeAt(0)));
+    expect(await stillFrameUrl(dataUri("image/webp", transparent))).toBeNull();
+    expect(enc.convertedFrames()).toBe(0);
+    expect(await stillFrameUrl(dataUri("image/webp", riff("VP8X", [0x02, 4, 0, 0, 0, 0, 0, 0, 0, 0])))).toBe("blob:still-1");
   });
 });
 

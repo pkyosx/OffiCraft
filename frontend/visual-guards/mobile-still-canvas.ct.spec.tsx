@@ -57,3 +57,49 @@ test("a custom theme with a still-image canvas keeps its own image at phone widt
   await page.setViewportSize(DESKTOP);
   await expectBodyBackground(page, "data:image/png;base64,");
 });
+
+test("at phone width, switching from the desk theme's still frame to a still-image theme and then to office shows each new theme's background", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize(PHONE);
+  const story = await mount(<MobileStillCanvasStory theme="builtin-desk" />);
+  await expectBodyBackground(page, "blob:");
+
+  await story.getByRole("button", { name: "custom-still" }).click();
+  await expectBodyBackground(page, "data:image/png;base64,");
+
+  await story.getByRole("button", { name: "office" }).click();
+  await expect.poll(() => bodyBackground(page)).toBe("none");
+});
+
+test("at phone width, switching themes before the desk theme's still frame is ready never shows that still on the new theme", async ({
+  mount,
+  page,
+}) => {
+  await page.evaluate(() => {
+    const w = window as typeof window & { releaseStill?: () => void; stillMade?: boolean };
+    const decode = window.createImageBitmap.bind(window);
+    const gate = new Promise<void>((r) => (w.releaseStill = r));
+    window.createImageBitmap = (async (...args: Parameters<typeof createImageBitmap>) => {
+      await gate;
+      return decode(...args);
+    }) as typeof createImageBitmap;
+    const makeUrl = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (obj) => {
+      w.stillMade = true;
+      return makeUrl(obj);
+    };
+  });
+  await page.setViewportSize(PHONE);
+  const story = await mount(<MobileStillCanvasStory theme="builtin-desk" />);
+  await expectBodyBackground(page, "data:image/webp;base64,");
+
+  await story.getByRole("button", { name: "custom-still" }).click();
+  await expectBodyBackground(page, "data:image/png;base64,");
+
+  await page.evaluate(() => (window as typeof window & { releaseStill: () => void }).releaseStill());
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { stillMade?: boolean }).stillMade)).toBe(true);
+  await page.evaluate(() => new Promise((r) => setTimeout(r, 50)));
+  expect(await bodyBackground(page)).toMatch(/^url\("data:image\/png;base64,/);
+});

@@ -70,7 +70,7 @@ theme.css 內建主題（office、office-light）的顏色以 repo 根目錄 `th
 
 頭像、logo、導覽圖示沿用 64 KiB decoded / 96 KiB encoded cap；canvas background 是 1 MiB decoded / 1400 KiB encoded cap，兩層都要同步調整。TS 端由 imageCap.test.ts 對 bin/tests/fixtures/image-cap-cases.tsv 驗，Go 端沒有測試讀這張表；ThemeSettings 的背景 picker 必須走 isValidBackgroundValue。CSS 同時保留 background-color 與可選的 --canvas-bg-image，窄版不因背景產生 layout overflow。
 
-≤720px 時動態的 canvas（animated WebP、APNG）只畫第一格：provider 套上主題後在手機寬度才把它轉成一張靜態 blob 圖寫進 `--canvas-bg-image-still`（同一套鋪法、記進 ledger，換主題時一起清），CSS 在 media query 裡優先用它；寬螢幕仍畫動畫，跨過 720 不必重新整理。pre-paint 不轉，所以手機開頁到轉好之前會先畫一下動畫；轉檔失敗就一直畫動畫。`--canvas-bg-image-still` 不可在 theme.css 宣告預設值，否則 fallback 永遠不生效。
+≤720px 時動態的 canvas（animated WebP、APNG）只畫第一格：provider 套上主題後在手機寬度才把它轉成一張靜態 blob 圖寫進 `--canvas-bg-image-still`（同一套鋪法、記進 ledger，換主題時一起清），CSS 在 media query 裡優先用它；寬螢幕仍畫動畫，跨過 720 不必重新整理。pre-paint 不轉，所以手機開頁到轉好之前會先畫一下動畫；轉檔失敗或第一格全透明就一直畫動畫。`--canvas-bg-image-still` 不可在 theme.css 宣告預設值，否則 fallback 永遠不生效。
 
 ## pre-paint
 

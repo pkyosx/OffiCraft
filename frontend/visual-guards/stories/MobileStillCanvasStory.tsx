@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { I18nProvider } from "../../src/i18n";
+import { I18nProvider, useI18n } from "../../src/i18n";
 import { mockApi } from "../../src/api/mock";
 import { setToken } from "../../src/api/auth";
 import { TINY_PNG } from "../../src/lib/paintFixtures";
@@ -22,9 +22,20 @@ async function customTheme(kind: "custom-animated" | "custom-still"): Promise<Th
   };
 }
 
+function ThemeSwitch() {
+  const { setTheme } = useI18n();
+  return (
+    <>
+      <button onClick={() => setTheme("custom-still")}>custom-still</button>
+      <button onClick={() => setTheme("office")}>office</button>
+    </>
+  );
+}
+
 export function MobileStillCanvasStory({ theme }: { theme: StoryTheme }) {
   useEffect(() => {
     void (async () => {
+      await mockApi.putTheme(await customTheme("custom-still"));
       let id = DESK;
       if (theme !== "builtin-desk") {
         const bundle = await customTheme(theme);
@@ -37,7 +48,7 @@ export function MobileStillCanvasStory({ theme }: { theme: StoryTheme }) {
   }, [theme]);
   return (
     <I18nProvider>
-      <div />
+      <ThemeSwitch />
     </I18nProvider>
   );
 }

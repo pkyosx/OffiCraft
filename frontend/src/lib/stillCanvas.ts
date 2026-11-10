@@ -62,40 +62,50 @@ export function isAnimatedImage(dataUri: string): boolean {
   return false;
 }
 
-function dataUriBlob(dataUri: string): Blob {
-  const mime = /^data:([^;,]*)/.exec(dataUri)?.[1] ?? "";
-  const bin = atob(base64Payload(dataUri) ?? "");
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
-
 const STILL_TYPE = "image/webp";
 const STILL_QUALITY = 0.92;
+const PROBE_SIZE = 16;
 
-async function encodeFrame(frame: ImageBitmap): Promise<Blob> {
+type Ctx2D = Pick<CanvasRenderingContext2D, "drawImage" | "getImageData">;
+
+function canvas2d(width: number, height: number): { ctx: Ctx2D; encode: () => Promise<Blob> } {
   if (typeof OffscreenCanvas !== "undefined") {
-    const canvas = new OffscreenCanvas(frame.width, frame.height);
+    const canvas = new OffscreenCanvas(width, height);
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("no 2d context");
-    ctx.drawImage(frame, 0, 0);
-    return canvas.convertToBlob({ type: STILL_TYPE, quality: STILL_QUALITY });
+    return { ctx, encode: () => canvas.convertToBlob({ type: STILL_TYPE, quality: STILL_QUALITY }) };
   }
   const canvas = document.createElement("canvas");
-  canvas.width = frame.width;
-  canvas.height = frame.height;
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("no 2d context");
-  ctx.drawImage(frame, 0, 0);
-  return new Promise((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob"))), STILL_TYPE, STILL_QUALITY)
-  );
+  return {
+    ctx,
+    encode: () =>
+      new Promise((resolve, reject) =>
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob"))), STILL_TYPE, STILL_QUALITY)
+      ),
+  };
 }
 
-async function convertToStill(dataUri: string): Promise<string> {
-  const frame = await createImageBitmap(dataUriBlob(dataUri));
+// A decoder may hand back a fully transparent frame without an error (a Safari
+// risk); showing it would blank the canvas instead of leaving the animation.
+function isBlank(frame: ImageBitmap): boolean {
+  const { ctx } = canvas2d(PROBE_SIZE, PROBE_SIZE);
+  ctx.drawImage(frame, 0, 0, PROBE_SIZE, PROBE_SIZE);
+  const { data } = ctx.getImageData(0, 0, PROBE_SIZE, PROBE_SIZE);
+  for (let i = 3; i < data.length; i += 4) if (data[i] > 0) return false;
+  return true;
+}
+
+async function convertToStill(dataUri: string): Promise<string | null> {
+  const frame = await createImageBitmap(await (await fetch(dataUri)).blob());
   try {
-    return URL.createObjectURL(await encodeFrame(frame));
+    if (isBlank(frame)) return null;
+    const { ctx, encode } = canvas2d(frame.width, frame.height);
+    ctx.drawImage(frame, 0, 0);
+    return URL.createObjectURL(await encode());
   } finally {
     frame.close();
   }
@@ -104,7 +114,8 @@ async function convertToStill(dataUri: string): Promise<string> {
 const stills = new Map<string, Promise<string | null>>();
 
 /** A blob: URL of the image's first frame, converted once per page per image;
- * null when the browser cannot decode or re-encode it. Never rejects. */
+ * null when the browser cannot decode or re-encode it, or the frame is fully
+ * transparent. Never rejects. */
 export function stillFrameUrl(dataUri: string): Promise<string | null> {
   let still = stills.get(dataUri);
   if (!still) {
