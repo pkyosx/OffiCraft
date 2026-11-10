@@ -70,7 +70,7 @@ theme.css 內建主題（office、office-light）的顏色以 repo 根目錄 `th
 
 頭像、logo、導覽圖示沿用 64 KiB decoded / 96 KiB encoded cap；canvas background 是 1 MiB decoded / 1400 KiB encoded cap，兩層都要同步調整。TS 端由 imageCap.test.ts 對 bin/tests/fixtures/image-cap-cases.tsv 驗，Go 端沒有測試讀這張表；ThemeSettings 的背景 picker 必須走 isValidBackgroundValue。CSS 同時保留 background-color 與可選的 --canvas-bg-image，窄版不因背景產生 layout overflow。
 
-動態的 canvas（animated WebP、APNG）可以只畫第一格：provider 套上主題後把它轉成一張靜態 blob 圖寫進 `--canvas-bg-image-still`（同一套鋪法、記進 ledger，換主題時一起清），CSS 有它就優先用它。何時轉由外觀卡的「背景動畫」決定：自動（預設）只在手機寬度（≤720px，跨過不必重新整理）、靜止是任何寬度、播放從不轉。這個選項只存在這台瀏覽器的 localStorage（`oc.bgMotion`），不送 server、不跟著 settings 同步；provider 以 `bgMotion`／`setBgMotion` 提供、寫到根元素的 `data-bg-motion`，改了立即生效；恢復預設也把它改回自動。「自動」的條件在 TS 只寫在 stillCanvas.ts 的 `AUTO_STILL_QUERY`、CSS 只寫在 global.css 那條 media query，改一邊要改另一邊。pre-paint 不轉，所以開頁到轉好之前會先畫一下動畫；轉檔失敗或第一格全透明就一直畫動畫。`--canvas-bg-image-still` 不可在 theme.css 宣告預設值，否則 fallback 永遠不生效。
+動態的 canvas（animated WebP、APNG）可以只畫第一格：provider 套上主題後把它轉成一張靜態 blob 圖寫進 `--canvas-bg-image-still`（同一套鋪法、記進 ledger，換主題時一起清），CSS 有它就優先用它。何時轉由外觀卡的「背景動畫」決定：自動（預設）只在手機寬度（≤720px，跨過不必重新整理）、靜止是任何寬度、播放從不轉。這個選項只存在這台瀏覽器的 localStorage（`oc.bgMotion`），不送 server、不跟著 settings 同步，登出（`resetPreferences`）也不清；provider 以 `bgMotion`／`setBgMotion` 提供、寫到根元素的 `data-bg-motion`，改了立即生效；恢復預設也把它改回自動。「自動」的條件在 TS 只寫在 stillCanvas.ts 的 `AUTO_STILL_QUERY`、CSS 只寫在 global.css 那條 media query，改一邊要改另一邊。pre-paint 不轉，所以開頁到轉好之前會先畫一下動畫；轉檔失敗或第一格全透明就一直畫動畫。`--canvas-bg-image-still` 不可在 theme.css 宣告預設值，否則 fallback 永遠不生效。
 
 ## pre-paint
 

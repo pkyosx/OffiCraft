@@ -3116,7 +3116,7 @@
       "settings.themeNavSecrets": "Secret cellar icon",
       "settings.themeNavTasks": "Chores icon",
       "settings.themePick": "Pick a theme",
-      "settings.themeRestoreConfirm": "Back to the default look: switch with the hour (Office · Morning light at 06:00, Office · Dusk at 16:00, Office · Night lamp at 18:30), seasonal themes on, Auto animation here. Custom themes are kept.",
+      "settings.themeRestoreConfirm": "Back to the default look: switch with the hour (Office · Morning light at 06:00, Office · Dusk at 16:00, Office · Night lamp at 18:30), seasonal on, animation on Auto. Custom themes stay in the barn.",
       "settings.themeRestoreDefault": "Restore default 🍂",
       "settings.themeRestoreFailed": "Couldn't restore the default; the farmhouse is unchanged. Please try again.",
       "settings.themeSchedule": "Switch with the hour",

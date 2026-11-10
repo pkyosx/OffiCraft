@@ -197,11 +197,12 @@ describe("watchStillCanvas", () => {
     expect(applied).toEqual([CANVAS_STILL_TOKEN]);
   });
 
-  it("play writes nothing at phone width, nor after the viewport narrows", async () => {
+  it("play writes nothing at phone width, nor after the viewport narrows, while auto on the same image does", async () => {
     const enc = stubFrameEncoder();
     const viewport = stubViewport(false);
     const phone = document.createElement("div");
     const narrowed = document.createElement("div");
+    const auto = document.createElement("div");
     watchStillCanvas(narrowed, animatedBundle(15), "play", () => {});
     viewport.narrow();
     watchStillCanvas(phone, animatedBundle(15), "play", () => {});
@@ -209,6 +210,10 @@ describe("watchStillCanvas", () => {
     expect(phone.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe("");
     expect(narrowed.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe("");
     expect(enc.convertedFrames()).toBe(0);
+    watchStillCanvas(auto, animatedBundle(15), "auto", () => {});
+    await flush();
+    expect(auto.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe('url("blob:still-1")');
+    expect(enc.convertedFrames()).toBe(1);
   });
 
   it("after cancel writes nothing in auto or still, while an uncancelled watch on the same image does", async () => {

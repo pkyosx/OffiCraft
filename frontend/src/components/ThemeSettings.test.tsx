@@ -1710,6 +1710,10 @@ describe("ThemeSettings · appearance", () => {
     const again = await renderManage();
     expect((again.getByRole("combobox", { name: s.themeBgMotion }) as HTMLSelectElement).value).toBe("play");
     expect(document.documentElement.dataset.bgMotion).toBe("play");
+
+    fireEvent.click(again.getByRole("switch", { name: p.seasonalTheme }));
+    await settle();
+    expect(patch).toHaveBeenCalledTimes(1);
   });
 
   it("恢復預設 asks first, then restores the desk schedule, the seasonal theme and the desk display theme, keeping custom themes, and sets this device's 背景動畫 back to 自動", async () => {
