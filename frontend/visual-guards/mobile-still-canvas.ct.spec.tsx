@@ -44,6 +44,33 @@ test("the built-in desk theme shows a still frame at phone width and the animati
   await expectBodyBackground(page, "data:image/webp;base64,");
 });
 
+test("背景動畫 靜止 saved on this device shows the still frame at desktop width", async ({ mount, page }) => {
+  await page.evaluate(() => localStorage.setItem("oc.bgMotion", "still"));
+  await page.setViewportSize(DESKTOP);
+  await mount(<MobileStillCanvasStory theme="builtin-desk" />);
+  await expectBodyBackground(page, "blob:");
+});
+
+test("picking 背景動畫 播放 at phone width brings the animation back, and 靜止 on desktop the still frame, without a reload", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize(PHONE);
+  const story = await mount(<MobileStillCanvasStory theme="builtin-desk" appearance />);
+  await expectBodyBackground(page, "blob:");
+  const select = story.getByRole("combobox", { name: "背景動畫" });
+
+  await select.selectOption("play");
+  await expectBodyBackground(page, "data:image/webp;base64,");
+
+  await page.setViewportSize(DESKTOP);
+  await select.selectOption("still");
+  await expectBodyBackground(page, "blob:");
+
+  await select.selectOption("auto");
+  await expectBodyBackground(page, "data:image/webp;base64,");
+});
+
 test("a custom theme with an animated canvas opened at phone width shows the still frame", async ({ mount, page }) => {
   await page.setViewportSize(PHONE);
   await mount(<MobileStillCanvasStory theme="custom-animated" />);

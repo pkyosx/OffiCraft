@@ -34,9 +34,14 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Phones show the first frame of an animated canvas: decoding the loop keeps a
-   phone busy and hot. --canvas-bg-image-still is written only for animated
+/* The first frame of an animated canvas, for 背景動畫 "still" everywhere and
+   for "auto" on phones (decoding the loop keeps a phone busy and hot); "play"
+   never gets the token. The media query is stillCanvas.ts's AUTO_STILL_QUERY;
+   change both together. --canvas-bg-image-still is written only for animated
    images, so it must stay undeclared in theme.css or the fallback never applies. */
+:root[data-bg-motion="still"] body {
+  background-image: var(--canvas-bg-image-still, var(--canvas-bg-image, none));
+}
 @media (max-width: 720px) {
   body {
     background-image: var(--canvas-bg-image-still, var(--canvas-bg-image, none));

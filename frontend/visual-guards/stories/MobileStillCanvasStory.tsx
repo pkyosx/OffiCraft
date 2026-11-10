@@ -4,6 +4,7 @@ import { mockApi } from "../../src/api/mock";
 import { setToken } from "../../src/api/auth";
 import { TINY_PNG } from "../../src/lib/paintFixtures";
 import { loadBundledBuiltinTheme } from "../../src/lib/bundledBuiltinThemes";
+import { ThemeAppearancePanel } from "../../src/components/ThemeAppearanceDialog";
 import type { ThemeBundle } from "../../src/lib/themeBundle";
 
 export type StoryTheme = "builtin-desk" | "custom-animated" | "custom-still";
@@ -32,7 +33,13 @@ function ThemeSwitch() {
   );
 }
 
-export function MobileStillCanvasStory({ theme }: { theme: StoryTheme }) {
+export function MobileStillCanvasStory({
+  theme,
+  appearance = false,
+}: {
+  theme: StoryTheme;
+  appearance?: boolean;
+}) {
   useEffect(() => {
     void (async () => {
       await mockApi.putTheme(await customTheme("custom-still"));
@@ -49,6 +56,11 @@ export function MobileStillCanvasStory({ theme }: { theme: StoryTheme }) {
   return (
     <I18nProvider>
       <ThemeSwitch />
+      {appearance && (
+        <div className="app__main">
+          <ThemeAppearancePanel />
+        </div>
+      )}
     </I18nProvider>
   );
 }

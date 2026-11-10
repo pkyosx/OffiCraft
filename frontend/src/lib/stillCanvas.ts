@@ -125,32 +125,47 @@ export function stillFrameUrl(dataUri: string): Promise<string | null> {
   return still;
 }
 
-/** While the viewport is phone-width, write the first frame of an animated
- * canvas into CANVAS_STILL_TOKEN (same layering as --canvas-bg-image) and
- * report the token through `onApplied`. A wider viewport converts lazily when
- * it first narrows. Returns the cancel function; nothing is written after it. */
-export function watchMobileStillCanvas(
+export const BG_MOTIONS = ["auto", "play", "still"] as const;
+export type BgMotion = (typeof BG_MOTIONS)[number];
+
+/** When "auto" shows the still frame. global.css's still rule repeats it as a
+ * media query; change both together. */
+export const AUTO_STILL_QUERY = `(max-width: ${MOBILE_BREAKPOINT}px)`;
+
+/** Write the first frame of an animated canvas into CANVAS_STILL_TOKEN (same
+ * layering as --canvas-bg-image) and report the token through `onApplied`:
+ * at once for "still", never for "play", and for "auto" while AUTO_STILL_QUERY
+ * matches, converting lazily when it first does. Returns the cancel function;
+ * nothing is written after it. */
+export function watchStillCanvas(
   root: HTMLElement,
   bundle: ThemeBundle,
+  motion: BgMotion,
   onApplied: (token: string) => void
 ): () => void {
   const canvas = bundle.backgrounds?.canvas;
-  if (!canvas || typeof window.matchMedia !== "function" || !isAnimatedImage(canvas)) {
-    return () => {};
-  }
+  if (motion === "play" || !canvas || !isAnimatedImage(canvas)) return () => {};
+  if (motion === "auto" && typeof window.matchMedia !== "function") return () => {};
   const mode = bundle.backgroundModes?.canvas ?? DEFAULT_BACKGROUND_MODE;
-  const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`);
   let live = true;
   const convert = () => {
-    mql.removeEventListener("change", onChange);
     void stillFrameUrl(canvas).then((still) => {
       if (!live || !still) return;
       root.style.setProperty(CANVAS_STILL_TOKEN, canvasLayout(still, mode).image);
       onApplied(CANVAS_STILL_TOKEN);
     });
   };
+  if (motion === "still") {
+    convert();
+    return () => {
+      live = false;
+    };
+  }
+  const mql = window.matchMedia(AUTO_STILL_QUERY);
   const onChange = (e: MediaQueryListEvent) => {
-    if (e.matches) convert();
+    if (!e.matches) return;
+    mql.removeEventListener("change", onChange);
+    convert();
   };
   if (mql.matches) convert();
   else mql.addEventListener("change", onChange);

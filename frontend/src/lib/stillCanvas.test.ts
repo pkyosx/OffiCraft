@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CANVAS_STILL_TOKEN, isAnimatedImage, stillFrameUrl, watchMobileStillCanvas } from "./stillCanvas";
+import { CANVAS_STILL_TOKEN, isAnimatedImage, stillFrameUrl, watchStillCanvas } from "./stillCanvas";
 import { TINY_PNG } from "./paintFixtures";
 import type { ThemeBundle } from "./themeBundleCore";
 
@@ -158,23 +158,23 @@ function animatedBundle(seed: number, mode?: "sides"): ThemeBundle {
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
-describe("watchMobileStillCanvas", () => {
-  it("at phone width writes the still with the theme's layering and reports the token", async () => {
+describe("watchStillCanvas", () => {
+  it("auto at phone width writes the still with the theme's layering and reports the token", async () => {
     stubFrameEncoder();
     stubViewport(true);
     const root = document.createElement("div");
     const applied: string[] = [];
-    watchMobileStillCanvas(root, animatedBundle(10, "sides"), (t) => applied.push(t));
+    watchStillCanvas(root, animatedBundle(10, "sides"), "auto", (t) => applied.push(t));
     await flush();
     expect(root.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe('url("blob:still-1"), url("blob:still-1")');
     expect(applied).toEqual([CANVAS_STILL_TOKEN]);
   });
 
-  it("on a desktop viewport converts only once the viewport narrows to phone width", async () => {
+  it("auto on a desktop viewport converts only once the viewport narrows to phone width", async () => {
     const enc = stubFrameEncoder();
     const viewport = stubViewport(false);
     const root = document.createElement("div");
-    watchMobileStillCanvas(root, animatedBundle(11), () => {});
+    watchStillCanvas(root, animatedBundle(11), "auto", () => {});
     await flush();
     expect(enc.convertedFrames()).toBe(0);
     viewport.narrow();
@@ -182,16 +182,48 @@ describe("watchMobileStillCanvas", () => {
     expect(root.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe('url("blob:still-1")');
   });
 
-  it("after cancel writes nothing, while an uncancelled watch on the same image does", async () => {
+  it("still on a desktop viewport writes the still at once and keeps it after the viewport narrows", async () => {
+    const enc = stubFrameEncoder();
+    const viewport = stubViewport(false);
+    const root = document.createElement("div");
+    const applied: string[] = [];
+    watchStillCanvas(root, animatedBundle(14), "still", (t) => applied.push(t));
+    await flush();
+    expect(root.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe('url("blob:still-1")');
+    expect(applied).toEqual([CANVAS_STILL_TOKEN]);
+    viewport.narrow();
+    await flush();
+    expect(enc.convertedFrames()).toBe(1);
+    expect(applied).toEqual([CANVAS_STILL_TOKEN]);
+  });
+
+  it("play writes nothing at phone width, nor after the viewport narrows", async () => {
+    const enc = stubFrameEncoder();
+    const viewport = stubViewport(false);
+    const phone = document.createElement("div");
+    const narrowed = document.createElement("div");
+    watchStillCanvas(narrowed, animatedBundle(15), "play", () => {});
+    viewport.narrow();
+    watchStillCanvas(phone, animatedBundle(15), "play", () => {});
+    await flush();
+    expect(phone.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe("");
+    expect(narrowed.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe("");
+    expect(enc.convertedFrames()).toBe(0);
+  });
+
+  it("after cancel writes nothing in auto or still, while an uncancelled watch on the same image does", async () => {
     stubFrameEncoder();
     stubViewport(true);
     const cancelled = document.createElement("div");
+    const cancelledStill = document.createElement("div");
     const kept = document.createElement("div");
     const applied: string[] = [];
-    watchMobileStillCanvas(cancelled, animatedBundle(12), (t) => applied.push(t))();
-    watchMobileStillCanvas(kept, animatedBundle(12), () => {});
+    watchStillCanvas(cancelled, animatedBundle(12), "auto", (t) => applied.push(t))();
+    watchStillCanvas(cancelledStill, animatedBundle(12), "still", (t) => applied.push(t))();
+    watchStillCanvas(kept, animatedBundle(12), "auto", () => {});
     await flush();
     expect(cancelled.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe("");
+    expect(cancelledStill.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe("");
     expect(applied).toEqual([]);
     expect(kept.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe('url("blob:still-1")');
   });
@@ -201,8 +233,8 @@ describe("watchMobileStillCanvas", () => {
     stubViewport(true);
     const root = document.createElement("div");
     const still = { ...animatedBundle(13), backgrounds: { canvas: dataUri("image/webp", riff("VP8 ", Array(10).fill(13))) } };
-    watchMobileStillCanvas(root, still, () => {});
-    watchMobileStillCanvas(document.createElement("div"), animatedBundle(13), () => {});
+    watchStillCanvas(root, still, "auto", () => {});
+    watchStillCanvas(document.createElement("div"), animatedBundle(13), "auto", () => {});
     await flush();
     expect(root.style.getPropertyValue(CANVAS_STILL_TOKEN)).toBe("");
     expect(enc.convertedFrames()).toBe(1);

@@ -60,7 +60,7 @@ import {
 } from "../lib/themeSchedule";
 import { SEASONAL_WINDOWS, type LoadableSeasonalWindow } from "../lib/seasonalTheme";
 import { loadBundledBuiltinTheme } from "../lib/bundledBuiltinThemes";
-import { watchMobileStillCanvas } from "../lib/stillCanvas";
+import { BG_MOTIONS, watchStillCanvas, type BgMotion } from "../lib/stillCanvas";
 import { applyWording } from "./wording";
 import { makeMessages, type Messages } from "./compose";
 
@@ -97,6 +97,9 @@ const LS_LANGUAGE = "oc.language";
 // therefore always adopted at reconcile (that is what makes turning wide OFF on
 // one device propagate to the others).
 const LS_WIDE = "oc.wide";
+
+// Per device only: never sent to the server and not part of settings sync.
+const LS_BG_MOTION = "oc.bgMotion";
 
 function readStored<T extends string>(key: string, allowed: T[], fallback: T): T {
   try {
@@ -197,6 +200,10 @@ interface I18nContextValue {
    * it. */
   seasonalTheme: boolean;
   setSeasonalTheme: (next: boolean) => void;
+  /** This device's 背景動畫 choice for an animated canvas: "auto" shows the
+   * still first frame on phones, "play" always animates, "still" never does. */
+  bgMotion: BgMotion;
+  setBgMotion: (next: BgMotion) => void;
   /** display_theme_schedule, sorted by start; [] = off. Below the seasonal
    * theme and above `theme`, which it never rewrites. */
   themeSchedule: ThemeScheduleEntry[];
@@ -205,7 +212,8 @@ interface I18nContextValue {
    * are in hand. */
   setThemeSchedule: (next: ThemeScheduleEntry[]) => Promise<ThemeScheduleEntry[]>;
   /** 恢復預設: the default schedule, the seasonal theme on, and display_theme
-   * DEFAULT_DISPLAY_THEME, in one settings write. Custom themes are untouched.
+   * DEFAULT_DISPLAY_THEME, in one settings write, then this device's bgMotion
+   * back to "auto". Custom themes are untouched.
    * Not optimistic, like setThemeSchedule. */
   restoreDefaultAppearance: () => Promise<ThemeScheduleEntry[]>;
   /** The schedule row's theme on screen now; null without a schedule or while
@@ -272,6 +280,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   );
   const [theme, setThemeState] = useState<string>(() => readStoredTheme());
   const [wide, setWideState] = useState<boolean>(() => readStoredWide());
+  const [bgMotion, setBgMotionState] = useState<BgMotion>(() =>
+    readStored<BgMotion>(LS_BG_MOTION, [...BG_MOTIONS], "auto")
+  );
   const [seasonalTheme, setSeasonalThemeState] = useState<boolean>(() =>
     readStoredSeasonalTheme()
   );
@@ -459,7 +470,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     root.dataset.theme = "office";
     const paint = (bundle: ThemeBundle) => {
       appliedTokensRef.current = applyThemeToRoot(root, bundle);
-      return watchMobileStillCanvas(root, bundle, (tok) => appliedTokensRef.current.push(tok));
+      return watchStillCanvas(root, bundle, bgMotion, (tok) => appliedTokensRef.current.push(tok));
     };
     if (shownBundle) return paint(shownBundle);
     if (seasonalId) {
@@ -478,7 +489,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       const cached = readValidatedPaint();
       if (cached && cached.id === theme) return paint(cached);
     }
-  }, [theme, shownTheme, shownBundle, seasonalId, scheduledTheme, themesLoaded]);
+  }, [theme, shownTheme, shownBundle, seasonalId, scheduledTheme, themesLoaded, bgMotion]);
 
   useEffect(() => {
     const now = new Date(clock);
@@ -604,6 +615,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     if (wide) root.dataset.layout = "wide";
     else delete root.dataset.layout;
   }, [wide]);
+
+  useEffect(() => {
+    document.documentElement.dataset.bgMotion = bgMotion;
+  }, [bgMotion]);
+
+  const setBgMotion = useCallback((next: BgMotion) => {
+    setBgMotionState(next);
+    writeStored(LS_BG_MOTION, next);
+  }, []);
 
   // Low-level cache writes: local state + the localStorage pre-auth cache, NO
   // server write. Shared by the public setters (which add the server PATCH), the
@@ -993,8 +1013,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     // The schedule is on screen, not display_theme: its bundle is fetched when
     // it is shown (the display-bundle effect), not now.
     setActiveThemeBundle(bundles[s.displayTheme] ?? null);
+    setBgMotion("auto");
     return s.displayThemeSchedule;
-  }), [trackWrite, loadScheduleBundles, cacheSeasonalTheme, cacheThemeSchedule, adoptScheduleBundles, cacheTheme]);
+  }), [trackWrite, loadScheduleBundles, cacheSeasonalTheme, cacheThemeSchedule, adoptScheduleBundles, cacheTheme, setBgMotion]);
 
   // [T-83ef] The whole-set write is GONE. It re-sent every theme, with every
   // embedded image, to change one colour — that is the cost this ticket exists
@@ -1223,6 +1244,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setWide,
       seasonalTheme,
       setSeasonalTheme,
+      bgMotion,
+      setBgMotion,
       themeSchedule,
       setThemeSchedule,
       restoreDefaultAppearance,
@@ -1253,6 +1276,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setWide,
       seasonalTheme,
       setSeasonalTheme,
+      bgMotion,
+      setBgMotion,
       themeSchedule,
       setThemeSchedule,
       restoreDefaultAppearance,

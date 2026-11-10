@@ -14,6 +14,7 @@ import {
   themeScheduleProblem,
   type ThemeScheduleEntry,
 } from "../lib/themeSchedule";
+import { BG_MOTIONS, type BgMotion } from "../lib/stillCanvas";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { ChevronRightIcon, CloseIcon, TrashIcon } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
@@ -234,8 +235,22 @@ function ThemeAppearance({
   setDraft,
   swatchOf,
 }: ReturnType<typeof useThemeScheduleDraft> & { swatchOf: SwatchOf }) {
-  const { t, theme, setTheme, themeSchedule, setThemeSchedule, seasonalTheme, setSeasonalTheme } =
-    useI18n();
+  const {
+    t,
+    theme,
+    setTheme,
+    themeSchedule,
+    setThemeSchedule,
+    seasonalTheme,
+    setSeasonalTheme,
+    bgMotion,
+    setBgMotion,
+  } = useI18n();
+  const bgMotionLabel: Record<BgMotion, string> = {
+    auto: t.settings.themeBgMotionAuto,
+    play: t.settings.themeBgMotionPlay,
+    still: t.settings.themeBgMotionStill,
+  };
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<"" | "saved" | "start" | "duplicate" | "failed">("");
 
@@ -394,6 +409,25 @@ function ThemeAppearance({
         >
           <span className="set-toggle__knob" />
         </button>
+      </div>
+
+      <div className="param-row ts-pick-row">
+        <div className="param-row__body">
+          <span className="param-row__name">{t.settings.themeBgMotion}</span>
+          <div className="param-row__sub">{t.settings.themeBgMotionSub}</div>
+        </div>
+        <select
+          className="ts-input ts-theme-select"
+          aria-label={t.settings.themeBgMotion}
+          value={bgMotion}
+          onChange={(e) => setBgMotion(e.target.value as BgMotion)}
+        >
+          {BG_MOTIONS.map((m) => (
+            <option key={m} value={m}>
+              {bgMotionLabel[m]}
+            </option>
+          ))}
+        </select>
       </div>
     </>
   );
