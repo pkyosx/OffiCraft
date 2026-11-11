@@ -61,6 +61,13 @@ import { ChevronRightIcon } from "./icons";
 import "./replies.css";
 import { autosizeTextarea } from "../lib/autosize";
 import { SecretValueInput } from "./SecretValueInput";
+import {
+  clearChatDraft,
+  getChatDraft,
+  replyCardAnswerDraftKey,
+  replyCardReanswerDraftKey,
+  saveChatDraftQuote,
+} from "../lib/chatDraftStore";
 
 /** Add or remove `idx` from a MULTI card's staged selection. The result is kept
  * SORTED ASCENDING so the staged set is a function of WHICH chips are ticked and
@@ -366,6 +373,17 @@ export function ReplyCardTaskRef({
  * readable until the next render, which is one turn too late for the send this
  * very click fires. `takeClicked()` reads it once and disarms it, so the next
  * send (a typed answer, say) falls back to the staged set. */
+function useDraftQuote(draftKey: string): [string, (quote: string) => void] {
+  const [quote, setQuote] = useState(() => getChatDraft(draftKey)?.quote ?? "");
+  return [
+    quote,
+    (next) => {
+      setQuote(next);
+      saveChatDraftQuote(draftKey, next);
+    },
+  ];
+}
+
 function useChipPick(
   card: ReplyCard,
   setSelected: React.Dispatch<React.SetStateAction<number[]>>,
@@ -497,7 +515,8 @@ export function ReplyCardWaitingBody({
   const [selected, setSelected] = useState<number[]>(() =>
     initialSelection(card),
   );
-  const [excerpt, setExcerpt] = useState("");
+  const draftKey = replyCardAnswerDraftKey(card.id);
+  const [excerpt, setExcerpt] = useDraftQuote(draftKey);
   const focusRef = useRef<(() => void) | null>(null);
   const { pick, sendNowRef, takeClicked } = useChipPick(card, setSelected);
   useReplyCardQuoteTarget(card.id, (quoted) => {
@@ -526,6 +545,7 @@ export function ReplyCardWaitingBody({
         </>
       )}
       <ReplyComposer
+        draftKey={draftKey}
         placeholder={t.replies.inputPlaceholder}
         hasSelection={selected.length > 0}
         sendNowRef={sendNowRef}
@@ -617,8 +637,11 @@ function ReplyCardStandingAnswer({
   const { t } = useI18n();
   const noOptionsToReview = card.kind === "secret";
   const mentionRoster = useMentionRosterContext();
-  const [expanded, setExpanded] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const draftKey = replyCardReanswerDraftKey(card.id);
+  // A 重新決定 left half-written reopens in edit mode, so a collapse or a page
+  // switch hands the draft straight back.
+  const [expanded, setExpanded] = useState(() => getChatDraft(draftKey) !== undefined);
+  const [editing, setEditing] = useState(() => getChatDraft(draftKey) !== undefined);
 
   const ans = card.answer;
   const optionIdxs = ans?.optionIdxs ?? [];
@@ -627,10 +650,12 @@ function ReplyCardStandingAnswer({
   const isAiPick = optionIdxs.some((i) => card.options[i]?.aiPick);
   // What 重新決定 has staged. Seeded from the standing answer when edit mode
   // opens, so "change one of my three picks" does not start from nothing.
-  const [selected, setSelected] = useState<number[]>([]);
+  const [selected, setSelected] = useState<number[]>(() =>
+    editing ? seededSelection() : [],
+  );
   // 重新決定 replaces the whole answer, so the standing quote rides along
   // unless the owner removes it.
-  const [excerpt, setExcerpt] = useState("");
+  const [excerpt, setExcerpt] = useDraftQuote(draftKey);
   const { pick, sendNowRef, takeClicked } = useChipPick(card, setSelected);
 
   async function doReanswer(input: ReplyCardAnswerInput) {
@@ -638,19 +663,34 @@ function ReplyCardStandingAnswer({
     setEditing(false);
   }
 
+  // Seed edit mode from the standing answer so 「改掉三個裡的一個」 does not
+  // start from nothing — MULTI only. A single card stages nothing (its click
+  // sends), and a seeded set there would arm the send button to re-submit the
+  // answer that is already standing.
+  function seededSelection(): number[] {
+    return card.selectMode === "multi" ? optionIdxs : [];
+  }
+
   function startEditing() {
-    // Seed edit mode from the standing answer so 「改掉三個裡的一個」 does not
-    // start from nothing — MULTI only. A single card stages nothing (its click
-    // sends), and a seeded set there would arm the send button to re-submit the
-    // answer that is already standing.
-    setSelected(card.selectMode === "multi" ? optionIdxs : []);
-    setExcerpt(ans?.replyExcerpt ?? "");
+    setSelected(seededSelection());
+    const draft = getChatDraft(draftKey);
+    setExcerpt(draft ? (draft.quote ?? "") : (ans?.replyExcerpt ?? ""));
     setEditing(true);
   }
 
   function toggleExpanded() {
-    setExpanded((v) => !v);
-    // Collapsing also leaves edit mode (nothing changed — same as cancel).
+    if (expanded) {
+      // Collapsing leaves edit mode but keeps the 重新決定 draft.
+      setExpanded(false);
+      setEditing(false);
+      return;
+    }
+    setExpanded(true);
+    if (getChatDraft(draftKey) !== undefined) startEditing();
+  }
+
+  function cancelEditing() {
+    clearChatDraft(draftKey);
     setEditing(false);
   }
 
@@ -722,6 +762,7 @@ function ReplyCardStandingAnswer({
           {editing ? (
             <>
               <ReplyComposer
+                draftKey={draftKey}
                 placeholder={t.replies.redecidePlaceholder}
                 hasSelection={selected.length > 0}
                 sendNowRef={sendNowRef}
@@ -741,7 +782,7 @@ function ReplyCardStandingAnswer({
               <button
                 type="button"
                 className="reply-card__cancel"
-                onClick={() => setEditing(false)}
+                onClick={cancelEditing}
               >
                 {t.common.cancel}
               </button>

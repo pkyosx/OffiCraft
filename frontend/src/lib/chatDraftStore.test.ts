@@ -23,10 +23,12 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  clearChatDraft,
   getChatDraft,
   getChatDraftAttachments,
   getChatAttachError,
   resetChatDrafts,
+  saveChatDraftQuote,
   saveChatDraftText,
   setChatAttachError,
   openChatAttachErrorScope,
@@ -60,6 +62,49 @@ describe("chatDraftStore", () => {
     expect(getChatDraftAttachments(B)).toHaveLength(0);
     expect(getChatAttachError(A)).toBeNull();
     expect(getChatAttachError(B)).toBe("太大了");
+  });
+
+  it("keeps a quoted passage as a draft on its own and across text and attachment writes", () => {
+    saveChatDraftQuote(A, "引用的段落");
+    expect(getChatDraft(A)).toEqual({
+      text: "",
+      attachments: [],
+      replyTo: undefined,
+      replyExcerpt: undefined,
+      quote: "引用的段落",
+    });
+
+    saveChatDraftText(A, "回覆");
+    updateChatDraftAttachments(A, () => [{ key: "pa-1" } as never]);
+    expect(getChatDraft(A)).toEqual({
+      text: "回覆",
+      attachments: [{ key: "pa-1" }],
+      replyTo: undefined,
+      replyExcerpt: undefined,
+      quote: "引用的段落",
+    });
+
+    saveChatDraftText(A, "");
+    updateChatDraftAttachments(A, () => []);
+    saveChatDraftQuote(A, "");
+    expect(getChatDraft(A)).toBeUndefined();
+  });
+
+  it("drops the whole draft on clear and notifies only that room", () => {
+    saveChatDraftText(A, "for A");
+    updateChatDraftAttachments(A, () => [{ key: "pa-1" } as never]);
+    saveChatDraftQuote(A, "引用");
+    saveChatDraftText(B, "for B");
+    let seenA = 0;
+    let seenB = 0;
+    subscribeChatDraft(A, () => (seenA += 1));
+    subscribeChatDraft(B, () => (seenB += 1));
+
+    clearChatDraft(A);
+
+    expect(getChatDraft(A)).toBeUndefined();
+    expect(getChatDraft(B)).toMatchObject({ text: "for B" });
+    expect([seenA, seenB]).toEqual([1, 0]);
   });
 
   it("notifies only the room that changed", () => {

@@ -86,13 +86,10 @@ export function formatAttachmentSize(bytes: number): string {
  * It does not consult the screen, it does not consult React, and it works the
  * same whether a composer is mounted, mounted on another room, or gone.
  *
- * A caller mounted under a key that changes with the thing it stages for
- * (`TaskCard` under `key={task.id}`, `ReplyComposer` under `key={card.id}`)
- * passes this constant instead, and gets an EPHEMERAL slot that dies with the
- * mount — which is the honest description of those surfaces: a card torn down
- * mid-read has no room to come back to. Since R13-5 `ChatArea` is one of these
- * by mounting (`OfficePage` gives it `key={peerId}`), but NOT by staging: its
- * files outlive the visit on purpose, because the draft does. */
+ * A caller whose staged files should die with the mount passes this constant
+ * instead, and gets an EPHEMERAL slot. Every composer that keeps a draft (chat,
+ * reply card, task message box) names its draft key instead: its files outlive
+ * the visit on purpose, because the draft does. */
 export const STAGING_TARGET_PER_MOUNT = "remounts-per-conversation";
 
 export interface AttachmentStaging {
@@ -190,7 +187,8 @@ function useEphemeralSlot(): StagingSlot {
  *   · a surface that is REMOUNTED with the thing it stages for says exactly
  *     that, by passing `STAGING_TARGET_PER_MOUNT`, and accepts that its staged
  *     files die with it;
- *   · a chat composer names the PEER, and its files are that peer's draft. */
+ *   · a draft-keeping composer names its DRAFT KEY (a chat peer id, or a key
+ *     minted by `chatDraftStore`), and its files are that draft's. */
 export function useAttachmentStaging(
   target: typeof STAGING_TARGET_PER_MOUNT,
 ): AttachmentStaging;

@@ -20,7 +20,9 @@
 //
 // Keyed by CHAT PEER id (member id / outsource worker id), matching how chat
 // history and the compose seed are keyed — so each conversation carries its own
-// independent draft.
+// independent draft. The reply-card composer and the task message box keep
+// their drafts here too, under the prefixed keys minted below, so a peer id can
+// never collide with them.
 //
 // 🔴 IT IS SUBSCRIBABLE, AND THAT IS WHAT RETIRED THE PARALLEL REGISTRY (T-48,
 // R13-2). This file used to be read once per mount (`useState(() =>
@@ -55,6 +57,21 @@ export interface ChatDraft {
   /** The selected piece of the `replyTo` message, when the owner replied to a
    * selection rather than the whole message. Never set without `replyTo`. */
   replyExcerpt?: string;
+  /** The passage of a reply card's question the answer quotes (回覆這段).
+   * Reply-card drafts only; unlike `replyExcerpt` it stands on its own. */
+  quote?: string;
+}
+
+export function replyCardAnswerDraftKey(cardId: string): string {
+  return `reply-card:${cardId}:answer`;
+}
+
+export function replyCardReanswerDraftKey(cardId: string): string {
+  return `reply-card:${cardId}:reanswer`;
+}
+
+export function taskMessageDraftKey(taskId: string): string {
+  return `task-message:${taskId}`;
 }
 
 const drafts = new Map<string, ChatDraft>();
@@ -137,7 +154,8 @@ function write(peerId: string, next: ChatDraft): void {
   if (
     next.text.length === 0 &&
     next.attachments.length === 0 &&
-    !next.replyTo
+    !next.replyTo &&
+    !next.quote
   ) {
     if (drafts.delete(peerId)) notify(peerId);
     return;
@@ -165,7 +183,27 @@ export function saveChatDraftText(
     attachments: cur?.attachments ?? [],
     replyTo,
     replyExcerpt: replyTo ? replyExcerpt : undefined,
+    quote: cur?.quote,
   });
+}
+
+/** Persist a reply-card draft's quoted passage, leaving the rest as it is. */
+export function saveChatDraftQuote(draftKey: string, quote: string): void {
+  const cur = drafts.get(draftKey);
+  write(draftKey, {
+    text: cur?.text ?? "",
+    attachments: cur?.attachments ?? [],
+    replyTo: cur?.replyTo,
+    replyExcerpt: cur?.replyExcerpt,
+    quote: quote || undefined,
+  });
+}
+
+/** Drop a whole draft — the 送出成功 / 放棄 path for a composer whose surface
+ * may unmount before its own state-driven saves run. Leaves the staging
+ * rejection notice alone; that has its own lifetime. */
+export function clearChatDraft(draftKey: string): void {
+  if (drafts.delete(draftKey)) notify(draftKey);
 }
 
 /** Functionally update a peer's staged files. The updater sees the room's own
@@ -184,6 +222,7 @@ export function updateChatDraftAttachments(
     attachments: next,
     replyTo: cur?.replyTo,
     replyExcerpt: cur?.replyExcerpt,
+    quote: cur?.quote,
   });
 }
 
