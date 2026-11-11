@@ -39,7 +39,13 @@
 // the composer content (ReplyComposer's contract) / the standing answer; the
 // caller shows its own error notice.
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import type {
@@ -67,6 +73,7 @@ import {
   replyCardAnswerDraftKey,
   replyCardReanswerDraftKey,
   saveChatDraftQuote,
+  subscribeChatDraft,
 } from "../lib/chatDraftStore";
 
 /** Add or remove `idx` from a MULTI card's staged selection. The result is kept
@@ -357,6 +364,22 @@ export function ReplyCardTaskRef({
   );
 }
 
+function useDraftQuote(draftKey: string): [string, (quote: string) => void] {
+  const quote = useSyncExternalStore(
+    useCallback((cb: () => void) => subscribeChatDraft(draftKey, cb), [draftKey]),
+    useCallback(() => getChatDraft(draftKey)?.quote ?? "", [draftKey]),
+  );
+  return [quote, (next) => saveChatDraftQuote(draftKey, next)];
+}
+
+/** Whether 重新決定 was left with something the owner wrote. Opening edit mode
+ * stores the standing answer's quote on its own, and that alone must not make
+ * the card reopen in edit mode. */
+function hasComposedReanswer(draftKey: string): boolean {
+  const draft = getChatDraft(draftKey);
+  return !!draft && (draft.text.length > 0 || draft.attachments.length > 0);
+}
+
 /** The chip-click behaviour BOTH pickable faces share, which is not the same
  * behaviour on the two card kinds:
  *
@@ -373,17 +396,6 @@ export function ReplyCardTaskRef({
  * readable until the next render, which is one turn too late for the send this
  * very click fires. `takeClicked()` reads it once and disarms it, so the next
  * send (a typed answer, say) falls back to the staged set. */
-function useDraftQuote(draftKey: string): [string, (quote: string) => void] {
-  const [quote, setQuote] = useState(() => getChatDraft(draftKey)?.quote ?? "");
-  return [
-    quote,
-    (next) => {
-      setQuote(next);
-      saveChatDraftQuote(draftKey, next);
-    },
-  ];
-}
-
 function useChipPick(
   card: ReplyCard,
   setSelected: React.Dispatch<React.SetStateAction<number[]>>,
@@ -640,8 +652,8 @@ function ReplyCardStandingAnswer({
   const draftKey = replyCardReanswerDraftKey(card.id);
   // A 重新決定 left half-written reopens in edit mode, so a collapse or a page
   // switch hands the draft straight back.
-  const [expanded, setExpanded] = useState(() => getChatDraft(draftKey) !== undefined);
-  const [editing, setEditing] = useState(() => getChatDraft(draftKey) !== undefined);
+  const [expanded, setExpanded] = useState(() => hasComposedReanswer(draftKey));
+  const [editing, setEditing] = useState(() => hasComposedReanswer(draftKey));
 
   const ans = card.answer;
   const optionIdxs = ans?.optionIdxs ?? [];
@@ -686,7 +698,7 @@ function ReplyCardStandingAnswer({
       return;
     }
     setExpanded(true);
-    if (getChatDraft(draftKey) !== undefined) startEditing();
+    if (hasComposedReanswer(draftKey)) startEditing();
   }
 
   function cancelEditing() {

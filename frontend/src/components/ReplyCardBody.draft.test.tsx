@@ -5,7 +5,9 @@ import { ReplyCardAnsweredBody, ReplyCardWaitingBody } from "./ReplyCardBody";
 import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
 import {
   getChatAttachError,
+  getChatDraft,
   replyCardAnswerDraftKey,
+  replyCardReanswerDraftKey,
   saveChatDraftQuote,
   setChatAttachError,
 } from "../lib/chatDraftStore";
@@ -103,7 +105,7 @@ describe("ReplyCardWaitingBody", () => {
 
     const second = renderWaiting(mkCard());
     expect(second.input().value).toBe("先寫一半");
-    expect(second.files()).toEqual([expect.stringContaining("plan.txt")]);
+    expect(second.files()).toEqual(["plan.txt5 B×"]);
     expect(second.quote()).toBe("引用原文要引用的段落");
   });
 
@@ -146,6 +148,24 @@ describe("ReplyCardWaitingBody", () => {
 
     expect(getChatAttachError(key)).toBeNull();
     expect(renderWaiting(mkCard()).input().value).toBe("留著");
+  });
+
+  it("shows an empty box in a card remounted while the answer is in flight, and puts the text back there if the answer fails", async () => {
+    let fail: () => void = () => {};
+    const first = renderWaiting(
+      mkCard(),
+      () => new Promise<void>((_, reject) => (fail = () => reject(new Error("offline")))),
+    );
+    fireEvent.change(first.input(), { target: { value: "送出途中切頁" } });
+    fireEvent.click(first.send());
+    first.unmount();
+
+    const second = renderWaiting(mkCard());
+    expect(second.input().value).toBe("");
+    expect(second.send().disabled).toBe(true);
+
+    fail();
+    await waitFor(() => expect(second.input().value).toBe("送出途中切頁"));
   });
 
   it("keeps the typed text after a failed answer", async () => {
@@ -201,6 +221,34 @@ describe("ReplyCardAnsweredBody", () => {
     fireEvent.click(u.getByText("查看當初選項"));
     expect(u.input()?.value).toBe("不引用了");
     expect(u.quote()).toBeNull();
+  });
+
+  it("does not reopen 重新決定 when it was only opened and nothing was written", () => {
+    const first = renderAnswered(answeredCard());
+    fireEvent.click(first.getByText("查看當初選項"));
+    fireEvent.click(first.getByText("重新決定"));
+    first.unmount();
+
+    const second = renderAnswered(answeredCard());
+    expect(second.input()).toBeNull();
+  });
+
+  it("clears the 重新決定 draft after a successful re-answer and keeps it after a failed one", async () => {
+    const failing = renderAnswered(answeredCard(), async () => {
+      throw new Error("offline");
+    });
+    fireEvent.click(failing.getByText("查看當初選項"));
+    fireEvent.click(failing.getByText("重新決定"));
+    fireEvent.change(failing.input()!, { target: { value: "改不過去" } });
+    fireEvent.click(failing.container.querySelector(".chat__send")!);
+    await waitFor(() => expect(failing.input()?.value).toBe("改不過去"));
+    failing.unmount();
+
+    const succeeding = renderAnswered(answeredCard());
+    expect(succeeding.input()?.value).toBe("改不過去");
+    fireEvent.click(succeeding.container.querySelector(".chat__send")!);
+    await waitFor(() => expect(succeeding.input()).toBeNull());
+    expect(getChatDraft(replyCardReanswerDraftKey("rc-1"))).toBeUndefined();
   });
 
   it("drops the 重新決定 draft when 取消 is pressed", () => {

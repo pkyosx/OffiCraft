@@ -7,6 +7,7 @@ import { api } from "../api";
 import type { TaskView } from "../api/adapter";
 import {
   getChatAttachError,
+  saveChatDraftText,
   setChatAttachError,
   taskMessageDraftKey,
 } from "../lib/chatDraftStore";
@@ -76,9 +77,7 @@ describe("TaskCard message box", () => {
     const second = renderPage();
     const restored = (await second.findByTestId("task-msg-input")) as HTMLTextAreaElement;
     expect(restored.value).toBe("還沒寫完");
-    expect(stagedFileNames(second.container)).toEqual([
-      expect.stringContaining("notes.txt"),
-    ]);
+    expect(stagedFileNames(second.container)).toEqual(["notes.txt5 B×"]);
   });
 
   it("drops a staging refusal after leaving the task page", async () => {
@@ -134,6 +133,36 @@ describe("TaskCard message box", () => {
 
     const second = renderPage();
     const input = (await second.findByTestId("task-msg-input")) as HTMLTextAreaElement;
+    expect(input.value).toBe("");
+  });
+
+  it("shows an empty box after coming back while a send is in flight, and puts the text back there if the send fails", async () => {
+    __injectMockTask(mkTask({}));
+    let fail: () => void = () => {};
+    vi.spyOn(api, "postTaskMessage").mockImplementation(
+      () => new Promise<void>((_, reject) => (fail = () => reject(new Error("offline")))),
+    );
+    const first = renderPage();
+    fireEvent.change(await first.findByTestId("task-msg-input"), {
+      target: { value: "送出途中切頁" },
+    });
+    fireEvent.click(await first.findByTestId("task-msg-send"));
+    first.unmount();
+
+    const second = renderPage();
+    const input = (await second.findByTestId("task-msg-input")) as HTMLTextAreaElement;
+    expect(input.value).toBe("");
+    expect((second.getByTestId("task-msg-send") as HTMLButtonElement).disabled).toBe(true);
+
+    fail();
+    await waitFor(() => expect(input.value).toBe("送出途中切頁"));
+  });
+
+  it("does not show a chat room's draft whose peer id equals the task id", async () => {
+    __injectMockTask(mkTask({}));
+    saveChatDraftText("task-draft-1", "聊天室的草稿");
+    const page = renderPage();
+    const input = (await page.findByTestId("task-msg-input")) as HTMLTextAreaElement;
     expect(input.value).toBe("");
   });
 

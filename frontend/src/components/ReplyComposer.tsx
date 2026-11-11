@@ -7,6 +7,7 @@
 // chat composer's classes — one visual language for "composing a message".
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useDraftText } from "../hooks/useDraftText";
 import { useI18n } from "../i18n";
 import type { ChatAttachmentInput } from "../api/adapter";
 import { autosizeTextarea } from "../lib/autosize";
@@ -23,8 +24,8 @@ import { ATTACH_ACCEPT, useAttachmentStaging } from "../hooks/useAttachmentStagi
 import {
   clearChatDraft,
   getChatDraft,
-  openChatAttachErrorScope,
-  saveChatDraftText,
+  openDraftAttachErrorScope,
+  restoreChatDraft,
 } from "../lib/chatDraftStore";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
@@ -71,7 +72,7 @@ export function ReplyComposer({
   onSend: (body: string, attachments: ChatAttachmentInput[]) => Promise<void>;
 }) {
   const { t } = useI18n();
-  const [draft, setDraft] = useState(() => getChatDraft(draftKey)?.text ?? "");
+  const [draft, setDraft] = useDraftText(draftKey);
   // Busy-latch while the answer POST is in flight: the send button disables so
   // a double Enter/click can never double-answer (the server would 409 the
   // second one — we just never fire it).
@@ -119,11 +120,7 @@ export function ReplyComposer({
     if (draftRef.current) autosizeTextarea(draftRef.current);
   }, [draft]);
 
-  useEffect(() => {
-    saveChatDraftText(draftKey, draft);
-  }, [draftKey, draft]);
-
-  useEffect(() => openChatAttachErrorScope(), []);
+  useEffect(() => openDraftAttachErrorScope(draftKey), [draftKey]);
 
   async function submit({ force = false }: { force?: boolean } = {}) {
     if (sending) return;
@@ -133,17 +130,18 @@ export function ReplyComposer({
       dataB64: a.dataUri,
       ...(a.filename ? { filename: a.filename } : {}),
     }));
+    // Cleared before the send, as the chat composer does: a box remounted while
+    // the request is in flight must not show (and resend) the text it carries.
+    const snapshot = getChatDraft(draftKey);
     setSending(true);
+    clearChatDraft(draftKey);
+    clearAttachments();
     try {
       await onSend(linkMentions(body, candidates), attachments);
-      // The store is cleared directly because the card usually unmounts on the
-      // refetch before the save effect could write the empty text back.
-      setDraft("");
-      clearAttachments();
-      clearChatDraft(draftKey);
     } catch {
-      // Failure keeps the typed content; the CALLER surfaces the error notice
-      // (this component has no error strip of its own).
+      // The CALLER surfaces the error notice (this component has no error strip
+      // of its own).
+      if (snapshot) restoreChatDraft(draftKey, snapshot);
     } finally {
       setSending(false);
     }
