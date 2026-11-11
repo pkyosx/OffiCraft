@@ -23,10 +23,15 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  clearChatDraft,
   getChatDraft,
+  openDraftAttachErrorScope,
+  replyCardAnswerDraftKey,
+  restoreChatDraft,
   getChatDraftAttachments,
   getChatAttachError,
   resetChatDrafts,
+  saveChatDraftQuote,
   saveChatDraftText,
   setChatAttachError,
   openChatAttachErrorScope,
@@ -60,6 +65,141 @@ describe("chatDraftStore", () => {
     expect(getChatDraftAttachments(B)).toHaveLength(0);
     expect(getChatAttachError(A)).toBeNull();
     expect(getChatAttachError(B)).toBe("太大了");
+  });
+
+  it("keeps a quoted passage as a draft on its own and across text and attachment writes", () => {
+    saveChatDraftQuote(A, "引用的段落");
+    expect(getChatDraft(A)).toEqual({
+      text: "",
+      attachments: [],
+      replyTo: undefined,
+      replyExcerpt: undefined,
+      quote: "引用的段落",
+    });
+
+    saveChatDraftText(A, "回覆");
+    updateChatDraftAttachments(A, () => [{ key: "pa-1" } as never]);
+    expect(getChatDraft(A)).toEqual({
+      text: "回覆",
+      attachments: [{ key: "pa-1" }],
+      replyTo: undefined,
+      replyExcerpt: undefined,
+      quote: "引用的段落",
+    });
+
+    saveChatDraftText(A, "");
+    updateChatDraftAttachments(A, () => []);
+    saveChatDraftQuote(A, "");
+    expect(getChatDraft(A)).toBeUndefined();
+  });
+
+  it("drops the whole draft on clear and notifies only that room", () => {
+    saveChatDraftText(A, "for A");
+    updateChatDraftAttachments(A, () => [{ key: "pa-1" } as never]);
+    saveChatDraftQuote(A, "引用");
+    saveChatDraftText(B, "for B");
+    let seenA = 0;
+    let seenB = 0;
+    subscribeChatDraft(A, () => (seenA += 1));
+    subscribeChatDraft(B, () => (seenB += 1));
+
+    clearChatDraft(A);
+
+    expect(getChatDraft(A)).toBeUndefined();
+    expect(getChatDraft(B)).toEqual({
+      text: "for B",
+      attachments: [],
+      replyTo: undefined,
+      replyExcerpt: undefined,
+      quote: undefined,
+    });
+    expect([seenA, seenB]).toEqual([1, 0]);
+  });
+
+  it("restores a failed send's draft under whatever was written meanwhile", () => {
+    restoreChatDraft(A, {
+      text: "原本的字",
+      attachments: [{ key: "pa-1" } as never],
+      quote: "原本的引用",
+    });
+    expect(getChatDraft(A)).toEqual({
+      text: "原本的字",
+      attachments: [{ key: "pa-1" }],
+      replyTo: undefined,
+      replyExcerpt: undefined,
+      quote: "原本的引用",
+    });
+
+    clearChatDraft(A);
+    saveChatDraftText(A, "新打的字");
+    updateChatDraftAttachments(A, () => [{ key: "pa-2" } as never]);
+    restoreChatDraft(A, {
+      text: "原本的字",
+      attachments: [{ key: "pa-1" } as never],
+      quote: "原本的引用",
+    });
+    expect(getChatDraft(A)).toEqual({
+      text: "新打的字",
+      attachments: [{ key: "pa-1" }, { key: "pa-2" }],
+      replyTo: undefined,
+      replyExcerpt: undefined,
+      quote: "原本的引用",
+    });
+  });
+
+  it("drops a draft key's notice when its last composer closes, and leaves a chat room's notice to the chat page", async () => {
+    const K = replyCardAnswerDraftKey("rc-1");
+    const closeChat = openChatAttachErrorScope();
+    const closeDraft = openDraftAttachErrorScope(K);
+    setChatAttachError(A, "聊天的圖片太大");
+    setChatAttachError(K, "回覆框的檔案太大");
+
+    closeChat();
+    await Promise.resolve();
+    expect(getChatAttachError(A)).toBeNull();
+    expect(getChatAttachError(K)).toBe("回覆框的檔案太大");
+
+    const reopenChat = openChatAttachErrorScope();
+    setChatAttachError(A, "聊天的圖片太大");
+    closeDraft();
+    await Promise.resolve();
+    expect(getChatAttachError(K)).toBeNull();
+    expect(getChatAttachError(A)).toBe("聊天的圖片太大");
+    reopenChat();
+  });
+
+  it("keeps a draft key's notice when a composer for the same key reopens in the same tick", async () => {
+    const K = replyCardAnswerDraftKey("rc-1");
+    const close = openDraftAttachErrorScope(K);
+    setChatAttachError(K, "檔案太大");
+    close();
+    const closeAgain = openDraftAttachErrorScope(K);
+    await Promise.resolve();
+    expect(getChatAttachError(K)).toBe("檔案太大");
+    closeAgain();
+  });
+
+  it("keeps a draft key's notice while another composer for that key is still open", async () => {
+    const K = replyCardAnswerDraftKey("rc-1");
+    const closeFirst = openDraftAttachErrorScope(K);
+    const closeSecond = openDraftAttachErrorScope(K);
+    setChatAttachError(K, "檔案太大");
+    closeFirst();
+    await Promise.resolve();
+    expect(getChatAttachError(K)).toBe("檔案太大");
+    closeSecond();
+    await Promise.resolve();
+    expect(getChatAttachError(K)).toBeNull();
+  });
+
+  it("keeps a refusal raised for a draft key after its last composer closed", async () => {
+    const K = replyCardAnswerDraftKey("rc-1");
+    const close = openDraftAttachErrorScope(K);
+    setChatAttachError(K, "舊的拒絕");
+    close();
+    setChatAttachError(K, "關閉後才讀完的檔案太大");
+    await Promise.resolve();
+    expect(getChatAttachError(K)).toBe("關閉後才讀完的檔案太大");
   });
 
   it("notifies only the room that changed", () => {

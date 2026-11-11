@@ -25,6 +25,8 @@ paths:
   - "visual-guards/stories/ReplyCardWorkerTaskStory*"
   - "src/hooks/useScheduledMessages.ts"
   - "src/lib/composerKeys.ts"
+  - "src/lib/chatDraftStore*"
+  - "src/hooks/useAttachmentStaging*"
   - "src/lib/chatMention*"
   - "src/lib/mentionLinks*"
   - "src/hooks/useMentionOpener.ts"
@@ -83,6 +85,8 @@ custom 不讀 hour、minute、day_of_week、day_of_month，也不把自己摘要
 ## 聊天與 composer
 
 帶著未讀徽章進房與否，在 render 時同步讀 member.unreadCount 決定（進房後的 mark-read 會把它清成 0）。第一則未讀由**伺服器**回答（`getFirstUnreadChat`＝`GET /api/chat?unread=true&with=<id>&limit=1`：對方送給 owner、在水位之上最舊的一則），房間以它為錨點載入（與跳到原訊息同一條 `loadAround`），divider 顯示在它上方並保留於本 session；查不到、查詢失敗或那一段讀不到就退回最新一頁、落在最底，等最新頁的期間維持轉圈（不先畫「這個範圍還沒有訊息」），那一頁也讀失敗時跟一般 load 失敗一樣記 `loadStale`，下一個聊天事件補抓。⚠️ 錨點還在路上時（帶未讀進房或跳到原訊息），SSE／focus 觸發的 `load()` 會被擋下，但要記 `loadStale`，錨點落地放掉 lease 時補一次 `load()`——錨點那一段是在新訊息到之前讀的，不補的話那一則要等下一個事件才出現。⚠️ 不能從已載入的頁面倒數：未讀超過一頁、或該成員與其他成員的往來塞滿那一頁時，第一則未讀根本不在頁裡，徽章數也可能落後伺服器。標已讀（owner 裁定）：帶未讀進房即以最新一則標已讀，不論未讀多少列、最新一則在不在畫面內，不必捲到底；落點仍停在第一則未讀。跳到原訊息進房不在此列，照舊要捲到底、按回到最新或預覽列才標。watermark 只由明確的 mark-read 推進，listChat 不寫。房內新訊息只有在 owner 不在 near-bottom 時顯示 LINE 式預覽列（寄件者＋一行內容），點擊落在**最新那一則**（T-48 前是落在第一則未見，下面還壓著沒看到的訊息）；落點**不做事後校正**（T-48 owner rc-6c27f486ef9d 具名接受「上方晚載入的內容把目標擠走」，`scrollToLatest` 只捲一次），但那句裁定點名的圖片與請示卡今天都在**來源**擋掉了——縮圖有固定框，請示卡則是**一律先收合成一列**（T-48，owner 2026-09-04 `c-6f054c1cb481`：待回覆的卡也跟已回覆一樣先不展開），那一列要顯示的東西訊息本身就帶著（summary＝訊息正文、狀態＝`reply_card_status` 提示），所以它不撈任何東西、第一幀就是最終高度；被接受的是其餘晚到內容的位移；必須真的捲到底才清除。**最新那一則不在視野內**且**沒有**新訊息時顯示回到最新箭頭，兩者不同時出現（箭頭讓位給預覽列，owner rc-72054864ff88）。⚠️ 判準量的是**最新那一列的底邊**（`lib/scrollToLatest` 的 `isLatestRowInView`），不是「容器捲到底了沒」：`.chat__messages` 是 gap 的 flex 欄且最後一列下面還有零高哨兵，所以容器底部永遠在最新那一列底下一個 gap，用容器問會在最新訊息完整可見時答「不在」（T-48：按了箭頭它不會消失，每一次）。任何把它換回 `scrollHeight - scrollTop - clientHeight <= 某個常數` 的寫法都會把那個 bug 帶回來，而且 gap 一改就沒有人會紅。
+
+三個框打到一半的內容都存在 `lib/chatDraftStore.ts`（模組層級記憶體，重新整理就不見，刻意不寫 localStorage），收合、切頁、元件卸載都不會丟：聊天以 peer id 為鍵；請示卡以 `replyCardAnswerDraftKey`／`replyCardReanswerDraftKey` 為鍵（作答與重新決定各一份，三個面共用同一張卡的那一份），存文字、附件與引用的段落；任務卡訊息框以 `taskMessageDraftKey` 為鍵。請示卡與任務卡的框，文字直接讀寫 store（`useDraftText`），不另存一份元件 state：送出途中切頁再回來時，新掛上的框跟著 store 變，看不到、也送不出那段正在送的字。送出跟聊天一樣先清空、失敗才還原（`restoreChatDraft`，送出途中新打的字優先）；重新決定按「取消」清掉，收合不清，有打字或附件時再展開直接回到重新決定（只按過重新決定、帶著原本引用的那份不算）。附件錯誤訊息：聊天的由 OfficePage 的 `openChatAttachErrorScope` 管，只清聊天對象的；請示卡與任務卡的每個鍵由框自己開 `openDraftAttachErrorScope(key)`，最後一個框離開才清那個鍵，兩邊互不清除。
 
 ChatArea、ReplyComposer、TaskCard 訊息框都是 textarea，送出決策只由 lib/composerKeys.ts 的 enterShouldSend 提供：桌面 Enter 送出、Shift+Enter 換行；手機 Enter 換行、按鈕送出；IME composing 永不送出。autosize 上限 132px，超出由 textarea 自己捲動。
 

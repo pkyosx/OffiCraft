@@ -112,8 +112,15 @@ import { MentionHighlight } from "./MentionHighlight";
 import {
   ATTACH_ACCEPT,
   useAttachmentStaging,
-  STAGING_TARGET_PER_MOUNT,
 } from "../hooks/useAttachmentStaging";
+import {
+  clearChatDraft,
+  getChatDraft,
+  openDraftAttachErrorScope,
+  restoreChatDraft,
+  taskMessageDraftKey,
+} from "../lib/chatDraftStore";
+import { useDraftText } from "../hooks/useDraftText";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
 import { useSuggestedRepliesTaskMessage } from "../hooks/useSuggestedReplies";
@@ -1213,7 +1220,8 @@ export function TaskCard({
   }
 
   // ── message box (owner → executor) ─────────────────────────────────────────
-  const [draft, setDraft] = useState("");
+  const draftKey = taskMessageDraftKey(task.id);
+  const [draft, setDraft] = useDraftText(draftKey);
   const [sending, setSending] = useState(false);
   const [msgError, setMsgError] = useState(false);
   const isComposingRef = useRef(false);
@@ -1246,11 +1254,8 @@ export function TaskCard({
     onPickFile,
     removeAttachment,
     clearAttachments,
-  } = useAttachmentStaging(
-    // Mounted under a key that changes with the card/task it belongs to, so a
-    // switch UNMOUNTS this surface and nothing can outlive it (T-48, R9-1).
-    STAGING_TARGET_PER_MOUNT,
-  );
+  } = useAttachmentStaging(draftKey);
+  useEffect(() => openDraftAttachErrorScope(draftKey), [draftKey]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canSend =
     !sending &&
@@ -1271,19 +1276,20 @@ export function TaskCard({
       dataB64: a.dataUri,
       ...(a.filename ? { filename: a.filename } : {}),
     }));
+    // Cleared before the send, as the chat composer does: a box remounted while
+    // the request is in flight must not show (and resend) the text it carries.
+    const snapshot = getChatDraft(draftKey);
+    const body = linkMentions(draft.trim(), mentionRoster.candidates);
     setSending(true);
+    clearChatDraft(draftKey);
+    clearAttachments();
     try {
-      await onSendMessage(
-        task.id,
-        linkMentions(draft.trim(), mentionRoster.candidates),
-        attachments,
-      );
-      setDraft("");
-      clearAttachments();
+      await onSendMessage(task.id, body, attachments);
       setMsgError(false);
     } catch (e) {
       console.warn("TaskCard: message send failed", e);
-      setMsgError(true); // the typed content is kept — retry-friendly
+      if (snapshot) restoreChatDraft(draftKey, snapshot);
+      setMsgError(true);
     } finally {
       setSending(false);
     }

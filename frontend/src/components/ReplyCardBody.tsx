@@ -39,7 +39,13 @@
 // the composer content (ReplyComposer's contract) / the standing answer; the
 // caller shows its own error notice.
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import type {
@@ -61,6 +67,14 @@ import { ChevronRightIcon } from "./icons";
 import "./replies.css";
 import { autosizeTextarea } from "../lib/autosize";
 import { SecretValueInput } from "./SecretValueInput";
+import {
+  clearChatDraft,
+  getChatDraft,
+  replyCardAnswerDraftKey,
+  replyCardReanswerDraftKey,
+  saveChatDraftQuote,
+  subscribeChatDraft,
+} from "../lib/chatDraftStore";
 
 /** Add or remove `idx` from a MULTI card's staged selection. The result is kept
  * SORTED ASCENDING so the staged set is a function of WHICH chips are ticked and
@@ -350,6 +364,22 @@ export function ReplyCardTaskRef({
   );
 }
 
+function useDraftQuote(draftKey: string): [string, (quote: string) => void] {
+  const quote = useSyncExternalStore(
+    useCallback((cb: () => void) => subscribeChatDraft(draftKey, cb), [draftKey]),
+    useCallback(() => getChatDraft(draftKey)?.quote ?? "", [draftKey]),
+  );
+  return [quote, (next) => saveChatDraftQuote(draftKey, next)];
+}
+
+/** Whether 重新決定 was left with something the owner wrote. Opening edit mode
+ * stores the standing answer's quote on its own, and that alone must not make
+ * the card reopen in edit mode. */
+function hasComposedReanswer(draftKey: string): boolean {
+  const draft = getChatDraft(draftKey);
+  return !!draft && (draft.text.length > 0 || draft.attachments.length > 0);
+}
+
 /** The chip-click behaviour BOTH pickable faces share, which is not the same
  * behaviour on the two card kinds:
  *
@@ -497,7 +527,8 @@ export function ReplyCardWaitingBody({
   const [selected, setSelected] = useState<number[]>(() =>
     initialSelection(card),
   );
-  const [excerpt, setExcerpt] = useState("");
+  const draftKey = replyCardAnswerDraftKey(card.id);
+  const [excerpt, setExcerpt] = useDraftQuote(draftKey);
   const focusRef = useRef<(() => void) | null>(null);
   const { pick, sendNowRef, takeClicked } = useChipPick(card, setSelected);
   useReplyCardQuoteTarget(card.id, (quoted) => {
@@ -526,6 +557,7 @@ export function ReplyCardWaitingBody({
         </>
       )}
       <ReplyComposer
+        draftKey={draftKey}
         placeholder={t.replies.inputPlaceholder}
         hasSelection={selected.length > 0}
         sendNowRef={sendNowRef}
@@ -617,8 +649,11 @@ function ReplyCardStandingAnswer({
   const { t } = useI18n();
   const noOptionsToReview = card.kind === "secret";
   const mentionRoster = useMentionRosterContext();
-  const [expanded, setExpanded] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const draftKey = replyCardReanswerDraftKey(card.id);
+  // A 重新決定 left half-written reopens in edit mode, so a collapse or a page
+  // switch hands the draft straight back.
+  const [expanded, setExpanded] = useState(() => hasComposedReanswer(draftKey));
+  const [editing, setEditing] = useState(() => hasComposedReanswer(draftKey));
 
   const ans = card.answer;
   const optionIdxs = ans?.optionIdxs ?? [];
@@ -627,10 +662,12 @@ function ReplyCardStandingAnswer({
   const isAiPick = optionIdxs.some((i) => card.options[i]?.aiPick);
   // What 重新決定 has staged. Seeded from the standing answer when edit mode
   // opens, so "change one of my three picks" does not start from nothing.
-  const [selected, setSelected] = useState<number[]>([]);
+  const [selected, setSelected] = useState<number[]>(() =>
+    editing ? seededSelection() : [],
+  );
   // 重新決定 replaces the whole answer, so the standing quote rides along
   // unless the owner removes it.
-  const [excerpt, setExcerpt] = useState("");
+  const [excerpt, setExcerpt] = useDraftQuote(draftKey);
   const { pick, sendNowRef, takeClicked } = useChipPick(card, setSelected);
 
   async function doReanswer(input: ReplyCardAnswerInput) {
@@ -638,19 +675,34 @@ function ReplyCardStandingAnswer({
     setEditing(false);
   }
 
+  // Seed edit mode from the standing answer so 「改掉三個裡的一個」 does not
+  // start from nothing — MULTI only. A single card stages nothing (its click
+  // sends), and a seeded set there would arm the send button to re-submit the
+  // answer that is already standing.
+  function seededSelection(): number[] {
+    return card.selectMode === "multi" ? optionIdxs : [];
+  }
+
   function startEditing() {
-    // Seed edit mode from the standing answer so 「改掉三個裡的一個」 does not
-    // start from nothing — MULTI only. A single card stages nothing (its click
-    // sends), and a seeded set there would arm the send button to re-submit the
-    // answer that is already standing.
-    setSelected(card.selectMode === "multi" ? optionIdxs : []);
-    setExcerpt(ans?.replyExcerpt ?? "");
+    setSelected(seededSelection());
+    const draft = getChatDraft(draftKey);
+    setExcerpt(draft ? (draft.quote ?? "") : (ans?.replyExcerpt ?? ""));
     setEditing(true);
   }
 
   function toggleExpanded() {
-    setExpanded((v) => !v);
-    // Collapsing also leaves edit mode (nothing changed — same as cancel).
+    if (expanded) {
+      // Collapsing leaves edit mode but keeps the 重新決定 draft.
+      setExpanded(false);
+      setEditing(false);
+      return;
+    }
+    setExpanded(true);
+    if (hasComposedReanswer(draftKey)) startEditing();
+  }
+
+  function cancelEditing() {
+    clearChatDraft(draftKey);
     setEditing(false);
   }
 
@@ -722,6 +774,7 @@ function ReplyCardStandingAnswer({
           {editing ? (
             <>
               <ReplyComposer
+                draftKey={draftKey}
                 placeholder={t.replies.redecidePlaceholder}
                 hasSelection={selected.length > 0}
                 sendNowRef={sendNowRef}
@@ -741,7 +794,7 @@ function ReplyCardStandingAnswer({
               <button
                 type="button"
                 className="reply-card__cancel"
-                onClick={() => setEditing(false)}
+                onClick={cancelEditing}
               >
                 {t.common.cancel}
               </button>

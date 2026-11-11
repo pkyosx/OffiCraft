@@ -377,9 +377,23 @@ const REGISTRY = [
   {
     file: "lib/chatDraftStore.ts",
     kind: "queueMicrotask",
+    count: 2,
+    verdict:
+      "two scope closes, each one microtask late (R16 D-2) so StrictMode's synchronous setup→cleanup→setup cannot destroy a refusal raised before the mount. The chat page's drops only the peers that had a notice AT CLOSE TIME and bails if a surface reopened the scope; a reply-card / task-box draft key's drops only THAT key, only if its notice is still the one it had at close time, and bails if a composer for that key reopened it — so neither can sweep the other's notice or a FileReader refusal landing in the gap",
+  },
+  {
+    file: "hooks/useDraftText.ts",
+    kind: "subscribe",
     count: 1,
     verdict:
-      "the chat page's notice scope closing one microtask late (R16 D-2), so StrictMode's synchronous setup→cleanup→setup cannot destroy a refusal raised before the mount. It drops only the peers that had a notice AT CLOSE TIME, so a FileReader landing in that gap is not swept up by a decision that predates it, and it bails if a surface reopened the scope",
+      "a reply-card / task-box composer's text slice of its draft key; React unsubscribes on unmount, and a write is delivered to whoever shows that key — which is how a box remounted during an in-flight send sees the send clear (or restore) it",
+  },
+  {
+    file: "components/ReplyCardBody.tsx",
+    kind: "subscribe",
+    count: 1,
+    verdict:
+      "a reply card's quoted-passage slice of its own draft key (answer or 重新決定, minted from the card id); React unsubscribes on unmount, and the key cannot name a chat room",
   },
 
   // ─── Rendered by ChatArea without a key of their own — they live and die
@@ -792,6 +806,12 @@ const MODULE_STATE = [
     name: "attachErrorScopes",
     verdict:
       "how many chat surfaces hold the notice scope open (R16 D-2); a count, so no room's value can be stashed in it — the peers a close will drop live in that close's own closure",
+  },
+  {
+    file: "lib/chatDraftStore.ts",
+    name: "draftErrorScopes",
+    verdict:
+      "keyed by DRAFT KEY (a reply-card or task-box key, never a chat peer id): how many composers hold that key's notice scope open, so a close drops only that key's notice and only when the last composer for it is gone",
   },
   {
     file: "lib/chatDraftStore.ts",

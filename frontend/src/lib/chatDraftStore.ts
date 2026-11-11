@@ -20,7 +20,9 @@
 //
 // Keyed by CHAT PEER id (member id / outsource worker id), matching how chat
 // history and the compose seed are keyed — so each conversation carries its own
-// independent draft.
+// independent draft. The reply-card composer and the task message box keep
+// their drafts here too, under the prefixed keys minted below, so a peer id can
+// never collide with them.
 //
 // 🔴 IT IS SUBSCRIBABLE, AND THAT IS WHAT RETIRED THE PARALLEL REGISTRY (T-48,
 // R13-2). This file used to be read once per mount (`useState(() =>
@@ -55,6 +57,26 @@ export interface ChatDraft {
   /** The selected piece of the `replyTo` message, when the owner replied to a
    * selection rather than the whole message. Never set without `replyTo`. */
   replyExcerpt?: string;
+  /** The passage of a reply card's question the answer quotes (回覆這段).
+   * Reply-card drafts only; unlike `replyExcerpt` it stands on its own. */
+  quote?: string;
+}
+
+export function replyCardAnswerDraftKey(cardId: string): string {
+  return `reply-card:${cardId}:answer`;
+}
+
+export function replyCardReanswerDraftKey(cardId: string): string {
+  return `reply-card:${cardId}:reanswer`;
+}
+
+export function taskMessageDraftKey(taskId: string): string {
+  return `task-message:${taskId}`;
+}
+
+/** The two prefixes above, which no chat peer id (`m-…`, `ow-…`, `mira`) has. */
+function isChatPeerKey(key: string): boolean {
+  return !key.startsWith("reply-card:") && !key.startsWith("task-message:");
 }
 
 const drafts = new Map<string, ChatDraft>();
@@ -75,9 +97,11 @@ const drafts = new Map<string, ChatDraft>();
  * walk to 任務, come back ten minutes later, and the red sentence is still
  * there describing something the owner did ten minutes ago. The draft survives
  * that navigation on purpose; a transient rejection does not. `OfficePage`
- * holds a scope over these (`openChatAttachErrorScope`) and they drop when the
- * last chat surface closes it, which is what puts the notice back on the
- * lifetime it had. */
+ * holds a scope over the chat peers' notices (`openChatAttachErrorScope`) and
+ * they drop when the last chat surface closes it, which is what puts the notice
+ * back on the lifetime it had. A reply-card or task-box key's notice drops the
+ * same way when the last composer for that key closes its own scope
+ * (`openDraftAttachErrorScope`). */
 const attachErrors = new Map<string, string>();
 const listeners = new Map<string, Set<() => void>>();
 
@@ -137,7 +161,8 @@ function write(peerId: string, next: ChatDraft): void {
   if (
     next.text.length === 0 &&
     next.attachments.length === 0 &&
-    !next.replyTo
+    !next.replyTo &&
+    !next.quote
   ) {
     if (drafts.delete(peerId)) notify(peerId);
     return;
@@ -165,6 +190,39 @@ export function saveChatDraftText(
     attachments: cur?.attachments ?? [],
     replyTo,
     replyExcerpt: replyTo ? replyExcerpt : undefined,
+    quote: cur?.quote,
+  });
+}
+
+/** Persist a reply-card draft's quoted passage, leaving the rest as it is. */
+export function saveChatDraftQuote(draftKey: string, quote: string): void {
+  const cur = drafts.get(draftKey);
+  write(draftKey, {
+    text: cur?.text ?? "",
+    attachments: cur?.attachments ?? [],
+    replyTo: cur?.replyTo,
+    replyExcerpt: cur?.replyExcerpt,
+    quote: quote || undefined,
+  });
+}
+
+/** Drop a whole draft. Leaves the staging rejection notice alone; that has
+ * its own lifetime. */
+export function clearChatDraft(draftKey: string): void {
+  if (drafts.delete(draftKey)) notify(draftKey);
+}
+
+/** Put back a draft a failed send had cleared. Whatever was composed into the
+ * box while the send was in flight wins over the snapshot; files from both are
+ * kept. */
+export function restoreChatDraft(draftKey: string, snapshot: ChatDraft): void {
+  const cur = drafts.get(draftKey);
+  write(draftKey, {
+    text: cur?.text ? cur.text : snapshot.text,
+    attachments: [...snapshot.attachments, ...(cur?.attachments ?? [])],
+    replyTo: cur?.replyTo ?? snapshot.replyTo,
+    replyExcerpt: cur?.replyTo ? cur.replyExcerpt : snapshot.replyExcerpt,
+    quote: cur?.quote ?? snapshot.quote,
   });
 }
 
@@ -184,6 +242,7 @@ export function updateChatDraftAttachments(
     attachments: next,
     replyTo: cur?.replyTo,
     replyExcerpt: cur?.replyExcerpt,
+    quote: cur?.quote,
   });
 }
 
@@ -245,7 +304,7 @@ export function openChatAttachErrorScope(): () => void {
     closed = true;
     attachErrorScopes -= 1;
     if (attachErrorScopes > 0) return;
-    const doomed = [...attachErrors.keys()];
+    const doomed = [...attachErrors.keys()].filter(isChatPeerKey);
     const epoch = (scopeEpoch += 1);
     queueMicrotask(() => {
       if (scopeEpoch !== epoch || attachErrorScopes > 0) return;
@@ -256,12 +315,43 @@ export function openChatAttachErrorScope(): () => void {
   };
 }
 
+/** How many mounted composers hold each non-chat draft key's notice scope.
+ * Keyed by draft key, so a reply card or task box closing its scope can never
+ * sweep a chat room's notice (that one belongs to the chat page's scope). */
+const draftErrorScopes = new Map<string, number>();
+
+/** Open one draft key's notice scope; the returned function closes it. The
+ * close drops the notice that key had at close time one microtask late, for
+ * the same StrictMode reason as `openChatAttachErrorScope`, and only if no
+ * composer for the key reopened it in between. */
+export function openDraftAttachErrorScope(draftKey: string): () => void {
+  draftErrorScopes.set(draftKey, (draftErrorScopes.get(draftKey) ?? 0) + 1);
+  let closed = false;
+  return () => {
+    if (closed) return;
+    closed = true;
+    const left = (draftErrorScopes.get(draftKey) ?? 1) - 1;
+    if (left > 0) {
+      draftErrorScopes.set(draftKey, left);
+      return;
+    }
+    draftErrorScopes.delete(draftKey);
+    const doomed = attachErrors.get(draftKey);
+    if (doomed === undefined) return;
+    queueMicrotask(() => {
+      if (draftErrorScopes.has(draftKey)) return;
+      if (attachErrors.get(draftKey) === doomed) setChatAttachError(draftKey, null);
+    });
+  };
+}
+
 /** Test-only reset so a module-level store never leaks state across tests. */
 export function resetChatDrafts(): void {
   const touched = new Set([...drafts.keys(), ...attachErrors.keys()]);
   drafts.clear();
   attachErrors.clear();
   attachErrorScopes = 0;
+  draftErrorScopes.clear();
   scopeEpoch += 1;
   for (const peerId of touched) notify(peerId);
 }

@@ -22,7 +22,7 @@ const onSend = vi.fn(() => Promise.resolve());
 function renderComposer() {
   const utils = render(
     <I18nProvider>
-      <ReplyComposer placeholder="輸入回覆…" onSend={onSend} />
+      <ReplyComposer draftKey="reply-card:rc-1:answer" placeholder="輸入回覆…" onSend={onSend} />
     </I18nProvider>
   );
   const input = utils.container.querySelector(
