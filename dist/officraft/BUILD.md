@@ -1,6 +1,6 @@
 # officraft TCC anchor build record
 
-Source commit: `965a416` (the source snapshot before this binary/provenance commit)
+Source commit: `5e634c3` (the source snapshot before this binary/provenance commit)
 
 Build command:
 
