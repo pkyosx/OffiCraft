@@ -129,24 +129,24 @@ warden 在 macOS 上由一支叫 `officraft` 的小程式啟動。`officraft` �
 | 位置 | 內容 |
 | --- | --- |
 | `server/data/officraft.db` | 資料庫（連同同資料夾的 `officraft.db-wal`、`officraft.db-shm` 三個檔才是完整的一份）。 |
-| `server/data/vault.key` | 加密密鑰值用的金鑰檔。資料庫備份不包含 `vault.key`，要另外保存。 |
+| `server/data/vault.key` | 加密密鑰值與 Secret 請示卡內容用的金鑰檔。資料庫備份不包含 `vault.key`，要另外保存。 |
 | `server/data/backups/` | 自動備份與手動備份。 |
 | `agents/<成員 ID>/` | 每位成員在該機器上的工作目錄。 |
 | `warden/log/` | warden 的紀錄。 |
 
-密鑰的值以 `vault.key` 加密後存在資料庫。`vault.key` 在你第一次新增密鑰時產生，檔案權限只有你自己能讀。資料庫備份（排程備份與 `ocserverd backup`）刻意不包含 `vault.key`：單獨一份資料庫備份外流時，裡面的密鑰無法被解開。
+密鑰的值與 Secret 請示卡的內容以 `vault.key` 加密後存在資料庫。`vault.key` 在第一次需要加密時（新增密鑰或送出 Secret 請示卡的值）產生，檔案權限只有你自己能讀。資料庫備份（排程備份與 `ocserverd backup`）刻意不包含 `vault.key`：單獨一份資料庫備份外流時，裡面的密鑰無法被解開。
 
 控制台的登入密碼只以雜湊形式存在本機資料庫，不寫在任何設定檔裡。
 
 ## 成員怎麼取用密鑰
 
-所有在職的 AI 成員（正職與外包）都能取用密鑰，取用一律透過 `ocagent secret` 指令。值只會交給指令的環境變數，或寫進權限為 0600 的檔案，不會印出來。四個子命令都不會印出值：
+所有在職的 AI 成員（正職與外包）都能取用密鑰，取用一律透過 `ocagent secret` 指令。成員開的 Secret 請示卡，值只有開卡成員能取得，ID 是 `rc-…`，`run` 與 `write` 都接受。值只會交給指令的環境變數，或寫進權限為 0600 的檔案，不會印出來。四個子命令都不會印出值：
 
 | 子命令 | 用途 |
 | --- | --- |
 | `ocagent secret list` | 列出所有密鑰的 ID、名稱與備註 |
 | `ocagent secret show <ID>` | 顯示一筆密鑰的 ID、名稱與備註 |
-| `ocagent secret run --env 變數=<ID> -- 指令` | 把值放進環境變數後執行指令；指令輸出中出現的值一律顯示為 `***` |
+| `ocagent secret run --env 變數=<ID> -- 指令` | 把值放進環境變數後執行指令；指令輸出中出現的值一律顯示為 `***`。也可以用 `--stdin-json <ID>` 把值以 JSON 字串從標準輸入交給指令 |
 | `ocagent secret write <ID> --file <路徑>` | 把值寫進一個權限為 0600 的新檔案，給只能從檔案讀憑證的工具使用 |
 
 例如：
