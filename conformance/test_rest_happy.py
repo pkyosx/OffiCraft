@@ -827,6 +827,18 @@ def test_members_default_includes_outsource_workers_and_light_preserves_kind(
     assert light_worker["kind"] == "outsource"
 
 
+def _happy_chat_delete_path(ctx: HCtx) -> str:
+    """A fresh owner message to the happy agent: the only kind the owner may
+    delete, and only while it is younger than 24 hours."""
+    r = ctx.client.post(
+        "/api/chat",
+        json={"to": ctx.agent.member_id, "body": "conf happy delete"},
+        headers=_auth(ctx.owner_token),
+    )
+    assert r.status_code == 200, f"happy delete message failed: {r.status_code} {r.text}"
+    return f"/api/chat/{r.json()['id']}"
+
+
 def _happy_card(ctx: HCtx) -> str:
     """A fresh WAITING reply card opened by the happy agent (the real
     initiator identity: agents open cards, owners answer them)."""
@@ -837,6 +849,17 @@ def _happy_card(ctx: HCtx) -> str:
         headers=_auth(ctx.agent.token),
     )
     assert r.status_code == 200, f"happy card failed: {r.status_code} {r.text}"
+    return r.json()["id"]
+
+
+def _happy_secret_card(ctx: HCtx) -> str:
+    r = ctx.client.post(
+        "/api/reply-cards",
+        json={"kind": "secret", "summary": "conf happy secret card", "options": [],
+              "linked_task": None},
+        headers=_auth(ctx.agent.token),
+    )
+    assert r.status_code == 200, f"happy secret card failed: {r.status_code} {r.text}"
     return r.json()["id"]
 
 
@@ -1253,6 +1276,19 @@ def _happy_theme(ctx: HCtx) -> str:
     assert r.status_code == 200, f"happy theme failed: {r.status_code} {r.text}"
     assert r.json()["created"] is True, f"a new theme must report created: {r.text}"
     return theme_id
+
+
+def _happy_theme_file(ctx: HCtx) -> str:
+    """An uploaded theme file; returns its attachment id."""
+    theme_id = f"conf-happy-import-{uuid.uuid4().hex[:8]}"
+    r = ctx.client.post(
+        "/api/chat/attachments?filename=theme.json",
+        content=json.dumps({"id": theme_id, "name": "conf happy import",
+                            "colors": {"--color-bg": "#101018"}}).encode(),
+        headers=_auth(ctx.owner_token),
+    )
+    assert r.status_code == 200, f"happy theme file failed: {r.status_code} {r.text}"
+    return r.json()["id"]
 
 
 def _happy_theme_for_put(ctx: HCtx) -> str:
@@ -2590,6 +2626,15 @@ HAPPY: dict[str, Happy] = {
     "GET /api/chat/groups": Happy(
         check=lambda _c, r: _expect(r, lambda d: isinstance(d["groups"], list)),
     ),
+    "GET /api/chat/suggested-replies": Happy(
+        check=lambda _c, r: _expect(r, lambda d: isinstance(d["lists"], list)),
+    ),
+    "PUT /api/chat/suggested-replies/{member_id}": Happy(
+        path="/api/chat/suggested-replies/mira",
+        body={"replies": ["  conf happy  "]},
+        check=lambda _c, r: _expect(
+            r, lambda d: d == {"member_id": "mira", "replies": ["conf happy"]}),
+    ),
     "PUT /api/chat/groups": Happy(
         body={"groups": [{"id": None, "tab": "staff", "name": "conf happy",
                           "member_ids": ["mira"], "task_type_keys": []}]},
@@ -2600,6 +2645,17 @@ HAPPY: dict[str, Happy] = {
             and {k: v for k, v in d["groups"][0].items() if k != "id"}
             == {"tab": "staff", "name": "conf happy", "member_ids": ["mira"],
                 "task_type_keys": []},
+        ),
+    ),
+    "DELETE /api/chat/{message_id}": Happy(
+        path=_happy_chat_delete_path,
+        check=lambda ctx, r: _expect(
+            r,
+            lambda d: d["from"] == "owner"
+            and d["to"] == ctx.agent.member_id
+            and d["body"] == "conf happy delete"
+            and d["deleted_ts"] > 0
+            and "deleted_ts" not in d["meta"],
         ),
     ),
     "GET /api/chat/unread-count": Happy(
@@ -2648,6 +2704,25 @@ HAPPY: dict[str, Happy] = {
             and d["status"] == "answered"
             and d["answer"]["text"] == "conf happy revised"
             and d["answer"]["option_idxs"] is None,
+        ),
+    ),
+    "POST /api/reply-cards/{card_id}/secret": Happy(
+        path=lambda ctx: f"/api/reply-cards/{_happy_secret_card(ctx)}/secret",
+        body={"value": "dummy-aaaaaaaaaaaa"},
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: set(d) == _CARD_RECEIPT_KEYS
+            and d["status"] == "answered"
+            and d["answered_ts"]
+            and d["answer"]["text"] == ""
+            and "dummy-aaaaaaaaaaaa" not in r.text,
+        ),
+    ),
+    "PUT /api/reply-cards/{card_id}/snooze": Happy(
+        path=lambda ctx: f"/api/reply-cards/{_happy_card(ctx)}/snooze",
+        body={"snoozed_until_ts": None},
+        check=lambda _c, r: _expect(
+            r, lambda d: set(d) == {"id", "snoozed_until_ts"} and d["snoozed_until_ts"] is None
         ),
     ),
     "POST /api/reply-cards/{card_id}/expire": Happy(
@@ -3557,6 +3632,10 @@ HAPPY: dict[str, Happy] = {
         check=lambda _c, r: _expect(
             r, lambda d: len(d) >= 1 and set(d[0]) == {"id", "name"}
         ),
+    ),
+    "POST /api/themes/import": Happy(
+        body=lambda ctx: {"attachment_id": _happy_theme_file(ctx)},
+        check=lambda _c, r: _expect(r, lambda d: d["created"] is True),
     ),
     "GET /api/themes/{theme_id}": Happy(
         path=lambda ctx: f"/api/themes/{_happy_theme(ctx)}",
@@ -5197,6 +5276,99 @@ def test_chat_sender_and_recipient_narrow_one_side_each(hctx: HCtx) -> None:
     assert all(
         m["from"] == "owner" and m["to"] == peer for m in chat_messages(r)
     ), "every row must match both filters"
+
+
+def test_chat_listing_leaves_deleted_out_unless_include_deleted(hctx: HCtx) -> None:
+    """A deleted message is left out of every listing for every caller;
+    ``include_deleted=true`` lists it again, flagged by ``deleted_ts``. It never
+    combines with ``unread=true``: a deleted message is never unread."""
+    tag = uuid.uuid4().hex[:8]
+    peer = hctx.agent.member_id
+
+    def post(body: str) -> dict:
+        r = hctx.client.post(
+            "/api/chat", json={"to": peer, "body": body}, headers=_auth(hctx.owner_token)
+        )
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    kept = post(f"deleted-control-{tag}")
+    gone = post(f"deleted-target-{tag}")
+    r = hctx.client.delete(f"/api/chat/{gone['id']}", headers=_auth(hctx.owner_token))
+    assert r.status_code == 200, r.text
+
+    for token in (hctx.owner_token, hctx.agent.token):
+        params = {"sender": "owner", "recipient": peer, "limit": -1}
+        r = hctx.client.get("/api/chat", params=params, headers=_auth(token))
+        assert r.status_code == 200, r.text
+        ids = {m["id"] for m in chat_messages(r)}
+        assert kept["id"] in ids
+        assert gone["id"] not in ids, "the default listing leaves a deleted message out"
+
+        r = hctx.client.get(
+            "/api/chat", params={**params, "include_deleted": "true"}, headers=_auth(token)
+        )
+        assert r.status_code == 200, r.text
+        rows = {m["id"]: m for m in chat_messages(r)}
+        assert rows[kept["id"]]["deleted_ts"] == 0
+        assert rows[gone["id"]]["deleted_ts"] > 0, "include_deleted lists it, flagged"
+
+    r = hctx.client.get(
+        "/api/chat",
+        params={"unread": "true", "include_deleted": "true"},
+        headers=_auth(hctx.agent.token),
+    )
+    assert r.status_code == 422, f"{r.status_code} {r.text}"
+
+
+def test_delete_notice_hidden_on_request_in_chat_and_by_default_in_resume(hctx: HCtx) -> None:
+    """The notice a delete sends the recipient is listed by ``GET /api/chat``
+    unless ``hide_delete_notices=true`` (422 alongside ``unread=true``); the
+    resume-summary faces leave it out unless ``include_delete_notices=true``."""
+    tag = uuid.uuid4().hex[:8]
+    peer = hctx.agent.member_id
+    r = hctx.client.post(
+        "/api/chat", json={"to": peer, "body": f"notice-target-{tag}"}, headers=_auth(hctx.owner_token)
+    )
+    assert r.status_code == 200, r.text
+    gone = r.json()["id"]
+    r = hctx.client.delete(f"/api/chat/{gone}", headers=_auth(hctx.owner_token))
+    assert r.status_code == 200, r.text
+
+    def notices(rows: list[dict]) -> list[str]:
+        return [
+            m["id"]
+            for m in rows
+            if m["from"] == "system" and (m.get("meta") or {}).get("delete_notice") == {"message_id": gone}
+        ]
+
+    params = {"sender": "system", "recipient": peer, "limit": -1}
+    r = hctx.client.get("/api/chat", params=params, headers=_auth(hctx.owner_token))
+    assert r.status_code == 200, r.text
+    assert len(notices(chat_messages(r))) == 1, "the default listing carries the notice, marked"
+    r = hctx.client.get(
+        "/api/chat", params={**params, "hide_delete_notices": "true"}, headers=_auth(hctx.owner_token)
+    )
+    assert r.status_code == 200, r.text
+    assert notices(chat_messages(r)) == []
+
+    r = hctx.client.get(
+        "/api/chat",
+        params={"unread": "true", "hide_delete_notices": "true"},
+        headers=_auth(hctx.agent.token),
+    )
+    assert r.status_code == 422, f"{r.status_code} {r.text}"
+
+    for target, token in (
+        ("/api/resume-summary", hctx.agent.token),
+        (f"/api/members/{peer}/resume-summary", hctx.owner_token),
+    ):
+        r = hctx.client.get(target, headers=_auth(token))
+        assert r.status_code == 200, r.text
+        assert notices(r.json()["chat"]) == [], f"{target} leaves the notice out by default"
+        r = hctx.client.get(target, params={"include_delete_notices": "true"}, headers=_auth(token))
+        assert r.status_code == 200, r.text
+        assert len(notices(r.json()["chat"])) == 1, f"{target} carries it on request"
 
 
 def test_chat_scrollback_cursor_page_never_marks_read(hctx: HCtx) -> None:

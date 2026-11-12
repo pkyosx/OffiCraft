@@ -74,6 +74,8 @@ export interface Messages {
   replyExpireConfirmBody: (summary: string) => string;
   replySelectedCount: (n: number) => string;
   replyPickedOptions: (options: string[]) => string;
+  replySnoozeIn: (amount: number, unit: "hour" | "day") => string;
+  replySnoozeBack: (tsSeconds: number) => string;
   // ── 傳承 ──
   loreCopyEntryId: (entryId: string) => string;
   loreOpenManual: (manualName: string) => string;
@@ -185,6 +187,8 @@ export interface Messages {
   // ── settings ──
   themeImportSkipped: (count: number, sample: string[]) => string;
   themeDeleteConfirm: (name: string) => string;
+  /** `tag` is the 依時段 / 應景 note the row shows, when it shows one. */
+  themeEntryLabel: (name: string, tag?: string | null) => string;
   deleteRoleConfirm: (name: string) => string;
   docHistoryRestoreConfirm: (when: string) => string;
   docHistoryBlockedReason: (fields: string[], cap: number) => string;
@@ -414,6 +418,21 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // file uses, so a multi-select decision is punctuated like a list and not
     // like a sentence someone concatenated.
     replyPickedOptions: (options) => options.join(listSep),
+    // 「3 小時後」/「In 3 hours」 — the 稍後再看 presets.
+    replySnoozeIn: (amount, unit) =>
+      [
+        replies.snoozeInLead,
+        unit === "hour"
+          ? counted(amount, replies.snoozeHourOne, replies.snoozeHourMany)
+          : counted(amount, replies.snoozeDayOne, replies.snoozeDayMany),
+      ]
+        .filter((part) => part !== "")
+        .join(" "),
+    // 「2026/11/6（五） 14:30 回來」/「Back Fri, Nov 6, 2026 14:30」.
+    replySnoozeBack: (tsSeconds) =>
+      [replies.snoozeBackLead, messages.taskDueDateTime(tsSeconds), replies.snoozeBackTail]
+        .filter((part) => part !== "")
+        .join(" "),
 
     // LABEL shape, the same join 任務卡's 複製任務編號 uses — zh and en both put
     // a space between the verb phrase and the id.
@@ -669,6 +688,10 @@ export function makeMessages(t: Dict, language: Lang): Messages {
 
     themeDeleteConfirm: (name) =>
       `${set.themeDeleteConfirmLead}${name}${set.themeDeleteConfirmTail}`,
+    themeEntryLabel: (name, tag) =>
+      `${prof.themeEntryLabelLead}${name}${
+        tag ? `${prof.themeEntryLabelTagLead}${tag}${prof.themeEntryLabelTagTail}` : ""
+      }${prof.themeEntryLabelTail}`,
     deleteRoleConfirm: (name) =>
       `${set.deleteRoleConfirmLead}${name}${set.deleteRoleConfirmTail}`,
     // `when` is the revision's own timestamp — the only thing that tells two

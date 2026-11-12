@@ -88,6 +88,7 @@ import type {
   ReplyCardWriteReceipt,
   ReplyCardAnswerInput,
   ReplyCardCounts,
+  ReplyCardSnoozeReceipt,
   ServerSettingsView,
   ServerSettingsPatch,
   TaskView,
@@ -133,10 +134,13 @@ import {
   toChatMarkReadReceipt,
   toChatGroups,
   toChatGroupWrite,
+  toChatSuggestedReplies,
   toGalleryAttachment,
   toReplyCard,
   toReplyCardRow,
   toReplyCardWriteReceipt,
+  toReplyCardCounts,
+  toReplyCardSnoozeReceipt,
   toMonitoring,
   toVersion,
   toReleaseCheck,
@@ -440,6 +444,8 @@ export const SSE_RESYNC_TOPICS = [
   "chat",
   "chat_read",
   "chat_group",
+  "chat_suggested_reply",
+  "settings",
   "reply_card",
   "task",
   "task_manual",
@@ -451,6 +457,16 @@ export const SSE_RESYNC_TOPICS = [
   "runtime_login",
   "runtime_upgrade",
 ] as const;
+
+// listChat / listChatWindow feed only the owner's chat threads, which show a
+// deleted message as 「此訊息已刪除」; the server leaves deleted rows out of
+// every listing unless asked.
+const CHAT_THREAD_INCLUDE_DELETED = "true";
+
+// Owner rc-432acb8e2706: the owner's chat threads leave out the system notice a
+// delete sends to the member; the chat listing carries it unless asked, because
+// members still need it. (The resume summary leaves it out by default.)
+const HIDE_DELETE_NOTICES = "true";
 
 // The payload fields that name an ENTITY rather than describe one (spec/sse.md
 // §2.2 lists the per-topic payload shapes). Everything else in the payload —
@@ -466,6 +482,7 @@ const SSE_NAME_FIELDS = ["id", "from", "to", "reader", "peer"] as const;
 export function toSseDelta(topic: string, payload: unknown): SseDelta {
   const names: SseDeltaNames = {};
   const ids: string[] = [];
+  let deletedTs: number | undefined;
   if (payload && typeof payload === "object") {
     const bag = payload as Record<string, unknown>;
     for (const field of SSE_NAME_FIELDS) {
@@ -474,8 +491,10 @@ export function toSseDelta(topic: string, payload: unknown): SseDelta {
       names[field] = v;
       if (!ids.includes(v)) ids.push(v);
     }
+    const r = bag.deleted_ts;
+    if (topic === "chat" && typeof r === "number" && r > 0) deletedTs = r;
   }
-  return { topic, names, ids };
+  return deletedTs === undefined ? { topic, names, ids } : { topic, names, ids, deletedTs };
 }
 
 // Fan one synthetic delta per closed topic to EVERY current subscriber — the
@@ -1432,6 +1451,8 @@ export const httpApi: Api = {
             limit,
             before_ts: before?.beforeTs,
             before_id: before?.beforeId,
+            include_deleted: CHAT_THREAD_INCLUDE_DELETED,
+            hide_delete_notices: HIDE_DELETE_NOTICES,
           },
         },
       }),
@@ -1464,6 +1485,8 @@ export const httpApi: Api = {
             limit,
             start_id: anchor.startId,
             end_id: anchor.endId,
+            include_deleted: CHAT_THREAD_INCLUDE_DELETED,
+            hide_delete_notices: HIDE_DELETE_NOTICES,
           },
         },
       }),
@@ -1611,6 +1634,16 @@ export const httpApi: Api = {
     return toChatMarkReadReceipt(wire);
   },
 
+  async deleteChatMessage(id: string): Promise<ChatMessage> {
+    return toChatMessage(
+      unwrap(
+        await client.DELETE("/api/chat/{message_id}", {
+          params: { path: { message_id: id } },
+        }),
+      ),
+    );
+  },
+
   async listChatReads(peer: string): Promise<ChatReadReceipt[]> {
     // GET /api/chat/reads?with=<peer> -> ChatReadDTO[]. The FE reads the peer's
     // receipt to know how far the peer has read the owner's messages.
@@ -1624,6 +1657,20 @@ export const httpApi: Api = {
 
   async getChatGroups(): Promise<ChatGroupView[]> {
     return toChatGroups(unwrap(await client.GET("/api/chat/groups")));
+  },
+
+  async getChatSuggestedReplies(): Promise<Record<string, string[]>> {
+    return toChatSuggestedReplies(unwrap(await client.GET("/api/chat/suggested-replies")));
+  },
+
+  async putChatSuggestedReplies(memberId: string, replies: string[]): Promise<string[]> {
+    const stored = unwrap(
+      await client.PUT("/api/chat/suggested-replies/{member_id}", {
+        params: { path: { member_id: memberId } },
+        body: { replies },
+      }),
+    );
+    return [...stored.replies];
   },
 
   async putChatGroups(groups: ChatGroupWrite[]): Promise<ChatGroupView[]> {
@@ -1642,9 +1689,8 @@ export const httpApi: Api = {
     // unopened card is none.
     //
     // The server order is preserved (waiting = longest-waiting first, answered =
-    // last-24h newest answer first). RepliesPage re-sorts the waiting pane
-    // newest-first for DISPLAY only (T-b07f) — the adapter still hands over
-    // server order.
+    // last-24h newest answer first); RepliesPage orders the waiting pane by the
+    // owner's 排序依據 for display.
     const rows = unwrap(
       await client.GET("/api/reply-cards", {
         params: { query: { status } },
@@ -1669,12 +1715,7 @@ export const httpApi: Api = {
     // GET /api/reply-cards/count -> {waiting, answered, expired}. Cheap counts
     // (the nav badge's waiting; the 等我回覆 page's recently-handled header
     // sum), refetched on every reply_card SSE delta without pulling the lists.
-    const wire = unwrap(await client.GET("/api/reply-cards/count"));
-    return {
-      waiting: wire.waiting,
-      answered: wire.answered,
-      expired: wire.expired,
-    };
+    return toReplyCardCounts(unwrap(await client.GET("/api/reply-cards/count")));
   },
 
   async getChatUnreadCount(): Promise<number> {
@@ -1737,6 +1778,29 @@ export const httpApi: Api = {
       }),
     );
     return toReplyCardWriteReceipt(wire);
+  },
+
+  async provideReplyCardSecret(id: string, value: string): Promise<ReplyCardWriteReceipt> {
+    const wire = unwrap(
+      await client.POST("/api/reply-cards/{card_id}/secret", {
+        params: { path: { card_id: id } },
+        body: { value },
+      }),
+    );
+    return toReplyCardWriteReceipt(wire);
+  },
+
+  async snoozeReplyCard(
+    id: string,
+    untilTs: number | null,
+  ): Promise<ReplyCardSnoozeReceipt> {
+    const wire = unwrap(
+      await client.PUT("/api/reply-cards/{card_id}/snooze", {
+        params: { path: { card_id: id } },
+        body: { snoozed_until_ts: untilTs },
+      }),
+    );
+    return toReplyCardSnoozeReceipt(wire);
   },
 
   async listTasks(opts?: {
@@ -2704,6 +2768,8 @@ export const httpApi: Api = {
       doc_cap_chars_offboard?: number;
       chat_budget_chars?: number;
       step_note_cap_chars?: number;
+      secret_card_unretrieved_ttl_secs?: number;
+      secret_card_retrieved_retention_secs?: number;
       lore_cap_chars_role?: number;
       lore_cap_chars_manual?: number;
       lore_cap_chars_title?: number;
@@ -2719,6 +2785,7 @@ export const httpApi: Api = {
       display_language?: string;
       display_wide?: boolean;
       display_seasonal_theme?: boolean;
+      display_theme_schedule?: { start: string; theme: string }[];
       onboarding_dismissed?: boolean;
     } = {};
     if (patch.ownerTokenTtl !== undefined)
@@ -2776,6 +2843,12 @@ export const httpApi: Api = {
     if (patch.stepNoteCapChars !== undefined) {
       body.step_note_cap_chars = patch.stepNoteCapChars;
     }
+    if (patch.secretCardUnretrievedTtlSecs !== undefined) {
+      body.secret_card_unretrieved_ttl_secs = patch.secretCardUnretrievedTtlSecs;
+    }
+    if (patch.secretCardRetrievedRetentionSecs !== undefined) {
+      body.secret_card_retrieved_retention_secs = patch.secretCardRetrievedRetentionSecs;
+    }
     if (patch.loreCapCharsRole !== undefined) {
       body.lore_cap_chars_role = patch.loreCapCharsRole;
     }
@@ -2814,6 +2887,9 @@ export const httpApi: Api = {
     }
     if (patch.displaySeasonalTheme !== undefined) {
       body.display_seasonal_theme = patch.displaySeasonalTheme;
+    }
+    if (patch.displayThemeSchedule !== undefined) {
+      body.display_theme_schedule = patch.displayThemeSchedule;
     }
     if (patch.onboardingDismissed !== undefined) {
       body.onboarding_dismissed = patch.onboardingDismissed;

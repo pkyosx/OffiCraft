@@ -285,7 +285,7 @@ def test_delta_frame_shape(client, owner_token, agent_a, owner_sse) -> None:
     assert inner["epoch"] == frame["seq"], "epoch MUST equal seq"
     assert inner["deleted"] is False
     assert isinstance(inner["key"], str) and inner["key"], "key is an opaque hint"
-    # §2.2: the chat convenience payload is exactly {id, from, to}.
+    # §2.2: a new-message chat payload is exactly {id, from, to}.
     payload = inner["payload"]
     assert set(payload) == {"id", "from", "to"}, payload
     assert payload["from"] == "owner" and payload["to"] == agent_a.member_id
@@ -407,6 +407,12 @@ def test_every_closed_topic_emits(
         ("chat_group", lambda: client.put(
             "/api/chat/groups", json={"groups": []},
             headers=_auth(owner_token))),
+        ("chat_suggested_reply", lambda: client.put(
+            "/api/chat/suggested-replies/mira", json={"replies": []},
+            headers=_auth(owner_token))),
+        ("settings", lambda: client.patch(
+            "/api/settings", json={"org_name": f"Topic Probe {tag}"},
+            headers=_auth(owner_token))),
         ("reply_card", lambda: client.post(
             "/api/reply-cards",
             json={"kind": "decision", "summary": f"topic probe {tag}",
@@ -448,6 +454,8 @@ def test_every_closed_topic_emits(
     ]
     expected_op = {
         "member": "patch", "chat": "patch", "chat_read": "patch", "chat_group": "patch",
+        "chat_suggested_reply": "patch",
+        "settings": "patch",
         "reply_card": "patch",
         "task": "patch", "task_manual": "patch",
         "global_context": "patch", "role_def": "patch",

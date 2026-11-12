@@ -505,10 +505,11 @@ func TestScanChat(t *testing.T) {
 			"count":       float64(2),
 			"flag":        true,
 		},
+		DeletedTS: 1700000009.25,
 	}
 	dalPutChats(t, d, rich, ChatMessage{ID: "c2", Sender: "bob", Recipient: "ann", Body: "yo", TS: 2})
 
-	query := `SELECT id, sender, recipient, body, ts, meta FROM chat_message WHERE id = ?`
+	query := `SELECT id, sender, recipient, body, ts, meta, deleted_ts FROM chat_message WHERE id = ?`
 	got, err := scanChat(d.rdb.QueryRow(query, "c1"))
 	if err != nil {
 		t.Fatalf("scanChat(c1): %v", err)
@@ -610,6 +611,26 @@ func TestAppendSQL(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("hideDeleted leaves out a deleted message from any sender", func(t *testing.T) {
+		dalPutChats(t, d,
+			ChatMessage{ID: "m5", Sender: "ann", Recipient: "bob", Body: "deleted", TS: 5,
+				Meta: map[string]any{}, DeletedTS: 50.5},
+			ChatMessage{ID: "m6", Sender: "ann", Recipient: "bob", Body: "kept", TS: 6,
+				Meta: map[string]any{"deleted_ts": 9}})
+		t.Cleanup(func() {
+			if _, err := d.wdb.Exec(`DELETE FROM chat_message WHERE id IN ('m5', 'm6')`); err != nil {
+				t.Fatalf("cleanup: %v", err)
+			}
+		})
+		query := `SELECT id FROM chat_message WHERE 1=1`
+		var args []any
+		chatListFilter{sender: "ann", hideDeleted: true}.appendSQL(&query, &args, "")
+		want := []string{"m1", "m3", "m6"}
+		if got := selectIDs(t, query+` ORDER BY ts, id`, args); !reflect.DeepEqual(got, want) {
+			t.Fatalf("want %v, got %v", want, got)
+		}
+	})
 
 	t.Run("the column prefix qualifies a joined read", func(t *testing.T) {
 		query := `
@@ -1651,6 +1672,32 @@ func TestListChatAttachmentRefsOneSided(t *testing.T) {
 	}
 }
 
+func TestMarkChatDeleted(t *testing.T) {
+	d := newAPITestDAL(t)
+	msg := dalChatWithAtts("m1", "ann", "bob", 100, dalAttRef("att-1", "image/png", "a.png"))
+	msg.Meta["count"] = 12345678901234.0
+	other := dalChat("m2", "ann", "bob", 200)
+	dalPutChats(t, d, msg, other)
+
+	if err := d.MarkChatDeleted("m1", 300.25); err != nil {
+		t.Fatalf("MarkChatDeleted: %v", err)
+	}
+	var raw string
+	if err := d.rdb.QueryRow(`SELECT meta FROM chat_message WHERE id = 'm1'`).Scan(&raw); err != nil {
+		t.Fatalf("read meta: %v", err)
+	}
+	if want := `{"attachments":[{"filename":"a.png","id":"att-1","mime":"image/png"}],"count":12345678901234}`; raw != want {
+		t.Fatalf("meta is left byte for byte:\n got %s\nwant %s", raw, want)
+	}
+	msg.DeletedTS = 300.25
+	dalWantChats(t, "the stream after one delete", dalMustListChat(t, d), []ChatMessage{msg, other})
+
+	if err := d.MarkChatDeleted("ghost", 1); err != nil {
+		t.Fatalf("MarkChatDeleted on an unknown id writes nothing and is not an error: %v", err)
+	}
+	dalWantChats(t, "the stream after deleting an unknown id", dalMustListChat(t, d), []ChatMessage{msg, other})
+}
+
 func TestListChatAttachmentRefsFor(t *testing.T) {
 	d := newAPITestDAL(t)
 	dalPutChats(t, d,
@@ -1672,6 +1719,21 @@ func TestListChatAttachmentRefsFor(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("both sides merged, newest first, a self-message counted once:\n got %+v\nwant %+v", got, want)
+	}
+
+	if err := d.MarkChatDeleted("m2", 400); err != nil {
+		t.Fatalf("MarkChatDeleted: %v", err)
+	}
+	got, err = d.ListChatAttachmentRefsFor("ann")
+	if err != nil {
+		t.Fatalf("ListChatAttachmentRefsFor: %v", err)
+	}
+	want = []ChatAttachmentRef{
+		{MessageID: "m3", Ord: 0, AttachmentID: "att-4", Sender: "ann", Recipient: "ann", TS: 200, Mime: "image/png", Filename: "d.png"},
+		{MessageID: "m1", Ord: 0, AttachmentID: "att-1", Sender: "ann", Recipient: "bob", TS: 100, Mime: "image/png", Filename: "a.png"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("a deleted message's attachments leave the gallery:\n got %+v\nwant %+v", got, want)
 	}
 
 	got, err = d.ListChatAttachmentRefsFor("nobody")
@@ -1919,6 +1981,18 @@ func TestUnreadCountsFor(t *testing.T) {
 	want = map[string]int{"ann": 1, "owner": 1}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("a sender with nothing unread is absent: want %v, got %v", want, got)
+	}
+
+	if err := d.MarkChatDeleted("s1", 600); err != nil {
+		t.Fatalf("MarkChatDeleted: %v", err)
+	}
+	got, err = d.UnreadCountsFor("owner")
+	if err != nil {
+		t.Fatalf("UnreadCountsFor: %v", err)
+	}
+	want = map[string]int{"ann": 1}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("a deleted message is not counted: want %v, got %v", want, got)
 	}
 
 	for _, reader := range []string{"nobody", ""} {
@@ -4614,4 +4688,39 @@ func putReplyCardWithChatStepAndTaskInTx(
 	d *DAL, c ReplyCard, m ChatMessage, atts []ChatAttachment, st TaskStep, t *Task,
 ) error {
 	return d.inTx(func(tx *writeTx) error { return putReplyCardWithChatStepAndTaskOn(tx, c, m, atts, st, t) })
+}
+
+func TestGetChatAttachmentDataWithin(t *testing.T) {
+	d := newAPITestDAL(t)
+	if err := d.PutChatAttachment(ChatAttachment{ID: "att-five", Mime: "text/plain", Data: []byte("12345")}); err != nil {
+		t.Fatalf("PutChatAttachment: %v", err)
+	}
+	if err := d.PutChatAttachment(ChatAttachment{ID: "att-empty", Mime: "text/plain", Data: []byte{}}); err != nil {
+		t.Fatalf("PutChatAttachment: %v", err)
+	}
+
+	cases := []struct {
+		name, id  string
+		max       int64
+		wantData  string
+		wantFound bool
+		wantErr   error
+	}{
+		{name: "a blob under the limit answers its bytes", id: "att-five", max: 6, wantData: "12345", wantFound: true},
+		{name: "a blob exactly at the limit answers its bytes", id: "att-five", max: 5, wantData: "12345", wantFound: true},
+		{name: "a blob over the limit answers found, no bytes and the too-large error", id: "att-five", max: 4, wantFound: true, wantErr: ErrChatAttachmentTooLarge},
+		{name: "an empty blob is found with no bytes", id: "att-empty", max: 4, wantFound: true},
+		{name: "an unknown id is not found and is not an error", id: "att-none", max: 4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, found, err := d.GetChatAttachmentDataWithin(tc.id, tc.max)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+			if string(data) != tc.wantData || found != tc.wantFound {
+				t.Fatalf("got (%q, %v), want (%q, %v)", data, found, tc.wantData, tc.wantFound)
+			}
+		})
+	}
 }

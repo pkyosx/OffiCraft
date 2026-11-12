@@ -108,6 +108,9 @@ type apiServer struct {
 	chatBudgetChars int
 
 	stepNoteCapChars int
+
+	secretCardUnretrievedTTLSecs     int
+	secretCardRetrievedRetentionSecs int
 	// backupRetain is the COCKPIT copy only (GET/PATCH /api/settings). Rotation
 	// does NOT read it — backup.go reads the row itself — so a stale value here
 	// can only make the settings page lie.
@@ -130,11 +133,14 @@ type apiServer struct {
 	displayWide bool
 
 	displaySeasonalTheme bool
-	// suggestedReplies* are REPLACED wholesale on a patch, never mutated in place,
-	// so a reader holding a slice under settingsMu can keep it.
+	// displayThemeSchedule and suggestedReplies* are REPLACED wholesale on a
+	// patch, never mutated in place, so a reader holding a slice under
+	// settingsMu can keep it.
+	displayThemeSchedule        []ThemeScheduleEntryDTO
 	suggestedRepliesReplyCard   []string
 	suggestedRepliesTaskMessage []string
 	suggestedRepliesLoreMessage []string
+	suggestedRepliesChat        []string
 
 	selfBase string
 	// listenPort is the port the listener actually bound; "" until serve binds.
@@ -510,6 +516,18 @@ func (s *apiServer) stepNoteCap() int {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.stepNoteCapChars
+}
+
+func (s *apiServer) secretCardUnretrievedTTL() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.secretCardUnretrievedTTLSecs
+}
+
+func (s *apiServer) secretCardRetention() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.secretCardRetrievedRetentionSecs
 }
 
 func (s *apiServer) backupRetainSetting() int {

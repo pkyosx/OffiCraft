@@ -7,15 +7,17 @@ import {
   type BackgroundMode,
   type ThemeBundle,
 } from "./themeBundleCore";
+import { parseThemeSchedule, type ThemeScheduleEntry } from "./themeSchedule";
 
 /** The paint path's entry into the SHARED grammar: the same
  * validateThemeBundleWith every other caller runs, with the wording validator
  * passed as null — the paint record structurally has no wording (paintRecordFor
  * prunes it) and the applier has no wording sink, so a record carrying wording
  * is rejected outright. Colour / font / image / mode rules are byte-identical to
- * the non-paint path because they are the same function. */
+ * the non-paint path because they are the same function. A bundled built-in's
+ * id is admitted: its picture is cached exactly like a custom theme's. */
 function validatePaintBundle(b: unknown): string | null {
-  return validateThemeBundleWith(b, "themePaint", undefined, null);
+  return validateThemeBundleWith(b, "themePaint", undefined, null, { allowBundledBuiltinId: true });
 }
 
 /** The localStorage key holding the SELECTED theme id. It lives here, next to
@@ -25,10 +27,15 @@ function validatePaintBundle(b: unknown): string | null {
 export const LS_THEME = "oc.theme";
 export const LS_THEME_PAINT = "oc.themePaint";
 /** The display_seasonal_theme cache ("true"/"false", absent = the shipped true)
- * and the seasonal theme's own paint record, kept apart from LS_THEME_PAINT so
- * the display theme's cached picture survives the seasonal window. */
+ * and the seasonal themes' own paint records (a JSON array of PaintRecord, one
+ * per day part seen; a lone record is read too), kept apart from
+ * LS_THEME_PAINT so the display theme's cached picture survives the window. */
 export const LS_SEASONAL_THEME = "oc.seasonalTheme";
 export const LS_SEASONAL_PAINT = "oc.seasonalPaint";
+/** The display_theme_schedule cache (the server's JSON list) and one paint
+ * record per scheduled custom theme, as a JSON array of PaintRecord. */
+export const LS_THEME_SCHEDULE = "oc.themeSchedule";
+export const LS_SCHEDULE_PAINT = "oc.schedulePaint";
 export const PAINT_CACHE_VERSION = 1;
 
 export interface PaintRecord {
@@ -49,28 +56,85 @@ export function paintRecordFor(b: ThemeBundle): PaintRecord {
   return { v: PAINT_CACHE_VERSION, bundle: pruned };
 }
 
-/** Read + fully validate the cached picture. Any failure → null (today's
- * behaviour). Never throws. */
-export function readValidatedPaint(key: string = LS_THEME_PAINT): ThemeBundle | null {
-  let raw: string | null = null;
+/** The record of a theme that is neither on screen nor next: its colours and
+ * fonts without the background image, which is the bulk of a record. Pre-paint
+ * still paints the right colours (and color-scheme); the picture follows when
+ * the bundle loads. */
+export function colourPaintRecordFor(b: ThemeBundle): PaintRecord {
+  const rec = paintRecordFor(b);
+  delete rec.bundle.backgrounds;
+  delete rec.bundle.backgroundModes;
+  return rec;
+}
+
+/** One record per id in `ids` that has a source (the bundle in hand, else the
+ * record already cached): whole for the ids in `full`, colours-only otherwise.
+ * localStorage holds about 2.5M characters on Safari and a refused write
+ * clears the key, so only the current and next slot keep their pictures. */
+export function tieredPaintRecords(
+  ids: readonly string[],
+  full: ReadonlySet<string>,
+  source: (id: string) => ThemeBundle | null
+): PaintRecord[] {
+  return ids.flatMap((id) => {
+    const b = source(id);
+    if (!b) return [];
+    return [full.has(id) ? paintRecordFor(b) : colourPaintRecordFor(b)];
+  });
+}
+
+function readJSON(key: string): unknown {
   try {
-    raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
-  if (!raw) return null;
-  let rec: unknown;
-  try {
-    rec = JSON.parse(raw);
-  } catch {
-    return null;
-  }
+}
+
+function validatedPaintBundle(rec: unknown): ThemeBundle | null {
   if (typeof rec !== "object" || rec === null) return null;
   const r = rec as Record<string, unknown>;
   if (r.v !== PAINT_CACHE_VERSION) return null;
   // ONE call, the same validator the import UI / picker / mock parity use.
   if (validatePaintBundle(r.bundle) !== null) return null;
   return r.bundle as ThemeBundle;
+}
+
+/** Read + fully validate the cached picture. Any failure → null (today's
+ * behaviour). Never throws. */
+export function readValidatedPaint(key: string = LS_THEME_PAINT): ThemeBundle | null {
+  return validatedPaintBundle(readJSON(key));
+}
+
+/** Every valid record under `key`, a JSON array of them. The seasonal key also
+ * admits a lone record, the shape it had before seasonal day parts. */
+export function readPaintRecords(key: string): PaintRecord[] {
+  const raw = readJSON(key);
+  const recs = Array.isArray(raw) ? raw : raw && key === LS_SEASONAL_PAINT ? [raw] : [];
+  return recs.flatMap((rec) => {
+    const bundle = validatedPaintBundle(rec);
+    return bundle ? [{ v: PAINT_CACHE_VERSION, bundle }] : [];
+  });
+}
+
+function readValidatedPaintFrom(key: string, id: string): ThemeBundle | null {
+  return readPaintRecords(key).find((r) => r.bundle.id === id)?.bundle ?? null;
+}
+
+/** The scheduled theme `id`'s cached picture, each record through the same
+ * validator; null when absent or invalid. Never throws. */
+export function readValidatedSchedulePaint(id: string): ThemeBundle | null {
+  return readValidatedPaintFrom(LS_SCHEDULE_PAINT, id);
+}
+
+/** The seasonal theme `id`'s cached picture; same rules. */
+export function readValidatedSeasonalPaint(id: string): ThemeBundle | null {
+  return readValidatedPaintFrom(LS_SEASONAL_PAINT, id);
+}
+
+export function readThemeSchedule(): ThemeScheduleEntry[] {
+  return parseThemeSchedule(readJSON(LS_THEME_SCHEDULE));
 }
 
 /** "dark" or "light" from a `#rrggbb` / `rgb()` page background; null when the
@@ -90,6 +154,29 @@ export function colorSchemeForBackground(bg: string | undefined): "dark" | "ligh
     return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
   });
   return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.2 ? "dark" : "light";
+}
+
+/** The body background layering for an image URL (a data: or blob: URL) in
+ * one canvas mode; `image` is the value for --canvas-bg-image. */
+export function canvasLayout(src: string, mode: BackgroundMode) {
+  const url = `url("${src}")`;
+  return {
+    tile: { image: url, repeat: "repeat", position: "0 0", size: "auto", attachment: "scroll" },
+    sides: {
+      image: `${url}, ${url}`,
+      repeat: "no-repeat, no-repeat",
+      position: "left bottom, right bottom",
+      size: "auto, auto",
+      attachment: "fixed, fixed",
+    },
+    cover: {
+      image: url,
+      repeat: "no-repeat",
+      position: "center center",
+      size: "cover",
+      attachment: "fixed",
+    },
+  }[mode];
 }
 
 /** The single DOM applier — used by BOTH the pre-React script and the React
@@ -115,26 +202,7 @@ export function applyThemeToRoot(root: HTMLElement, bundle: ThemeBundle): string
   }
   const canvas = bundle.backgrounds?.canvas;
   if (canvas) {
-    const url = `url("${canvas}")`;
-    const mode: BackgroundMode =
-      bundle.backgroundModes?.canvas ?? DEFAULT_BACKGROUND_MODE;
-    const lay = {
-      tile: { image: url, repeat: "repeat", position: "0 0", size: "auto", attachment: "scroll" },
-      sides: {
-        image: `${url}, ${url}`,
-        repeat: "no-repeat, no-repeat",
-        position: "left bottom, right bottom",
-        size: "auto, auto",
-        attachment: "fixed, fixed",
-      },
-      cover: {
-        image: url,
-        repeat: "no-repeat",
-        position: "center center",
-        size: "cover",
-        attachment: "fixed",
-      },
-    }[mode];
+    const lay = canvasLayout(canvas, bundle.backgroundModes?.canvas ?? DEFAULT_BACKGROUND_MODE);
     root.style.setProperty("--canvas-bg-image", lay.image);
     root.style.setProperty("--canvas-bg-repeat", lay.repeat);
     root.style.setProperty("--canvas-bg-position", lay.position);

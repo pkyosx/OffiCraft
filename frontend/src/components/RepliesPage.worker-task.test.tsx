@@ -120,7 +120,11 @@ afterEach(() => {
 describe("RepliesPage — the asking outsource worker's current task", () => {
   it("shows the worker's own task: number, type and title", async () => {
     workerRows = [mkWorker({})];
-    __injectMockReplyCard(mkCard({}));
+    __injectMockReplyCard(
+      mkCard({
+        task: { id: "T-42", typeKey: "", title: "把請示卡列表補上外包正在做的任務" },
+      }),
+    );
 
     const { findByTestId } = renderPage();
 

@@ -3390,7 +3390,7 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 				apiWantBody(t, data, map[string]any{"id": "kip"})
 				payload := apiTestMemberPayload("kip", "Kip", "active", "offline")
 				payload["offboard_notice"] = apiAnyString
-				self.wantFrames(apiTestMemberFrame(3, "patch", "kip", payload, "owner"))
+				self.wantFrames(apiTestMemberFrame(4, "patch", "kip", payload, "owner"))
 				m, err := d.GetMember("kip")
 				if err != nil || m == nil {
 					t.Fatalf("GetMember: %v (%v)", m, err)
@@ -3944,6 +3944,17 @@ func TestHandleDismissMemberApiMembersMemberIdDelete(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		chatGroupWantMemberRows(t, d, "mira")
+	})
+
+	t.Run("a dismissal deletes the member's chat suggested replies and leaves other members' lists", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		chatSuggestedRepliesSeed(t, d, "kip", "gone")
+		chatSuggestedRepliesSeed(t, d, "mira", "stays")
+
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		chatSuggestedRepliesWantRows(t, d, "mira:0:stays")
 	})
 
 	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {

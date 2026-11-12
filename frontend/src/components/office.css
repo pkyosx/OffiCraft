@@ -1240,7 +1240,8 @@
  * .chat__msg-expand keeps. It used to be reduced there, and that was correct
  * while the ink was opaque; once the ink became a fraction of the bubble's
  * colour the two fractions multiplied and the control fell under 3:1. */
-.chat__msg-reply {
+.chat__msg-reply,
+.chat__msg-delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1260,19 +1261,57 @@
     opacity 0.15s;
 }
 .chat__msg:hover .chat__msg-reply,
-.chat__msg-reply:focus-visible {
+.chat__msg-reply:focus-visible,
+.chat__msg:hover .chat__msg-delete,
+.chat__msg-delete:focus-visible {
   opacity: 1;
 }
-.chat__msg-reply:hover {
+.chat__msg-reply:hover,
+.chat__msg-delete:hover {
   color: inherit;
   background: color-mix(in srgb, currentColor 12%, transparent);
+}
+/* On the owner's OWN bubbles the corner slot rests visible (owner 2026-11-09):
+ * the width is reserved there anyway, and an empty reserved corner read as a
+ * stray gap. Incoming bubbles keep the hover reveal. */
+.chat__msg--me .chat__msg-actions > .chat__msg-reply,
+.chat__msg--me .chat__msg-actions > .chat__msg-delete {
+  opacity: 1;
 }
 /* Same correction as .chat__msg-expand above: opacity multiplies the ink's own
  * alpha, and 0.55 × 55% left the only reply entry a touch user has at 2.02:1. */
 @media (hover: none) {
-  .chat__msg-reply {
+  .chat__msg-reply,
+  .chat__msg-delete {
     opacity: 1;
   }
+}
+
+/* 「刪除」 (the corner entry above shares the reply entry's rules). A deleted
+ * row replaces its bubble with one muted italic button that opens the original
+ * in the 看原訊息 overlay; the row itself carries none of the original. */
+.chat__msg-deleted {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+.chat__msg-deleted__open {
+  padding: 2px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.chat__msg-deleted__open:hover,
+.chat__msg-deleted__open:focus-visible {
+  text-decoration: underline;
 }
 
 /* ② THE QUOTE ROW — the reference line at the TOP OF THE BUBBLE naming the
@@ -2152,6 +2191,13 @@ button.chat__msg-file {
   flex-direction: column;
   gap: 8px;
   padding: 12px 8px 4px;
+}
+.chat__suggested-replies-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--color-danger-soft);
 }
 .chat__composer-row {
   /* Anchors the @mention picker (chat-mention.css) to the row's width. */

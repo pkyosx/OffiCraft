@@ -38,27 +38,18 @@
   gap: 6px;
 }
 
-.ts-pick {
+/* A 主題庫 row's name. Not pickable — the theme on screen is chosen in 外觀 —
+ * but it keeps the old pick button's box so names and icons stay aligned. */
+.ts-name {
   flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  text-align: left;
+  min-width: 0;
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--color-border);
   background: var(--color-card);
   color: var(--color-text);
   font-size: 14px;
-  cursor: pointer;
-}
-.ts-pick:hover {
-  border-color: var(--color-accent);
-}
-.ts-pick--active {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
-  color: var(--color-text-strong);
+  overflow-wrap: anywhere;
 }
 
 /* The 內建 / 自訂 group heading. The list's grouping is STRUCTURE, not text on a
@@ -407,5 +398,189 @@
   .ts-color-name,
   .ts-wording-meta {
     flex-basis: 38%;
+  }
+}
+
+/* 設定 › 主題 is two cards, 外觀 then 主題庫, each with a header bar (the
+ * .doc-card__head chrome) carrying its title and actions. */
+.ts-block + .ts-block {
+  margin-top: 16px;
+}
+.ts-block__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+  white-space: nowrap;
+}
+.ts-block__head--untitled {
+  justify-content: flex-end;
+}
+.ts-block__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ts-block__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 18px;
+}
+
+.ts-schedule {
+  gap: 10px;
+}
+.ts-schedule-actions {
+  margin-bottom: 0;
+}
+.ts-schedule-start {
+  flex: 0 0 8.5em;
+  width: auto;
+}
+.ts-schedule-row > select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ts-theme-select {
+  flex: 0 1 20em;
+  width: auto;
+  min-width: 0;
+}
+
+/* Theme thumbnail: the theme's canvas (image or --color-bg) with a small card
+ * drawn in its own card / text / accent colours. The colours arrive inline
+ * from the theme's palette; a theme that could not be fetched stays blank. */
+.ts-thumb {
+  flex: none;
+  position: relative;
+  width: 64px;
+  height: 40px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-seg-fill);
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.ts-thumb__card {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 9px;
+  bottom: 9px;
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 5px;
+}
+.ts-thumb__line {
+  height: 3px;
+  border-radius: 2px;
+}
+.ts-thumb__line--short {
+  width: 55%;
+}
+
+/* 偏好設定's theme-on-screen row; it opens 主題設定. */
+.ts-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.ts-entry:hover {
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
+}
+.ts-entry:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.ts-entry .ts-thumb {
+  width: 40px;
+  height: 26px;
+}
+.ts-entry .ts-thumb__card {
+  left: 6px;
+  right: 6px;
+  top: 5px;
+  bottom: 5px;
+}
+.ts-entry__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ts-entry__name,
+.ts-entry__tag {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ts-entry__tag {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+.ts-entry__chevron {
+  flex: none;
+  color: var(--color-text-muted);
+}
+/* 主題設定 sits on the shared confirm-modal scrim and box, widened for the
+ * schedule rows. */
+.ts-modal__box.confirm-modal__box {
+  max-width: 600px;
+}
+.ts-modal:focus {
+  outline: none;
+}
+.ts-modal__head {
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ts-modal__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+
+/* A phone has no room for time + thumbnail + full theme name on one line. */
+@media (max-width: 720px) {
+  .ts-schedule-row {
+    flex-wrap: wrap;
+  }
+  .ts-schedule-row > select {
+    order: 3;
+    flex: 1 1 100%;
+  }
+  .ts-schedule-row > .ts-schedule-start {
+    flex: 1 1 auto;
+  }
+  /* Same trap as .param-input--wide: the label column takes all the shrink and
+   * stacks one CJK character per line unless the select gets its own line. */
+  .ts-theme-select {
+    flex: 1 1 0;
+  }
+  .ts-pick-row .param-row__body {
+    flex-basis: 100%;
   }
 }

@@ -1167,7 +1167,7 @@ func codexOpenYourOwnCardMessage(question map[string]any) string {
 		"question is about, or null if it is not about a task (add about_task_id to name a task " +
 		"you do not execute)."
 	if secret, _ := question["isSecret"].(bool); secret {
-		message += " 這是秘密資料請求；請只完成所需動作，不要把秘密貼進卡片。"
+		message += " 這是秘密資料請求；開 `secret` 類型的請示卡，不要把秘密貼進一般卡片或訊息。"
 	}
 	return message
 }
@@ -1369,6 +1369,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 		return 1
 	}
 	cmd.Stderr = out
+	markDescriptorsCloseOnExec()
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(out, "codex-session: start app-server: %v\n", err)
 		return 1
@@ -1524,6 +1525,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 						return 1
 					}
 					s.ackTo = ackPipe
+					markDescriptorsCloseOnExec()
 					if startErr := listenerCmd.Start(); startErr != nil {
 						fmt.Fprintf(out, "codex-session: start ocagent listen: %v\n", startErr)
 						return 1

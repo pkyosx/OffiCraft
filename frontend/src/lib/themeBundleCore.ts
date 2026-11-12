@@ -10,7 +10,7 @@
 // and constrain the token NAME to the generated theme.css whitelist.
 
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
-import { SEASONAL_SCHEDULE } from "./seasonalSchedule";
+import { SEASONAL_SCHEDULE, seasonalThemeIds } from "./seasonalSchedule";
 import {
   THEME_FONT_TOKENS,
   SAFE_FONT_FAMILIES,
@@ -37,10 +37,9 @@ export interface ThemeBundle {
   /** Optional studio logo image (T-ea81). A single EMBEDDED base64 `data:` URI
    * that replaces the built-in top-bar logo mark. Absent → the built-in mark. */
   logo?: string;
-  /** Optional per-nav-tab icon images (T-ea81), keyed on the five nav tabs
-   * (office / replies / tasks / monitor / guide). Each value is an EMBEDDED
-   * base64 `data:` URI that replaces that tab's built-in icon. A tab the map
-   * omits keeps its built-in icon (office never degrades). */
+  /** Optional per-nav-tab icon images. Each value is an EMBEDDED base64 data:
+   * URI replacing that tab's built-in icon. An omitted key keeps the built-in
+   * icon (office never degrades). */
   navIcons?: Partial<Record<NavIconKey, string>>;
   /** Optional background images for the cockpit chrome (T-081b). Keyed on the
    * ZONE the image tiles across — a CLOSED set holding exactly `canvas`, the
@@ -65,16 +64,14 @@ export interface ThemeBundle {
 export const AVATAR_KINDS = ["staff", "outsource", "owner", "assistant"] as const;
 export type AvatarKind = (typeof AVATAR_KINDS)[number];
 
-/** The nav tabs a navIcons overlay may key on — the closed set of the main nav
- * tabs, identical to App.tsx's `Tab` type (T-ea81). T-33 added `lore`; its twin
- * `navIconKeyAllowed` in server/ocserverd/avatar_bundle.go was widened in the
- * same change, because a key this side accepts and that side 422s is a theme
- * pack that imports on one screen and not the other. */
+/** The nav tabs a navIcons overlay may key on. The Go allowlist is covered by
+ * the frontend parity test. */
 export const NAV_ICON_KEYS = [
   "office",
   "replies",
   "tasks",
   "lore",
+  "secrets",
   "monitor",
   "guide",
 ] as const;
@@ -183,12 +180,12 @@ export const MAX_FONT_VALUE_LEN = 128;
 // nothing in Go reads it, so drift against the Go side is not caught.
 export const MAX_AVATAR_BYTES = 64 * 1024;
 export const MAX_AVATAR_VALUE_LEN = 96 * 1024;
-export const MAX_BACKGROUND_BYTES = 512 * 1024;
-// 512 KiB decoded ≈ 682.7 KiB encoded; 704 KiB sits above that with margin. It
+export const MAX_BACKGROUND_BYTES = 1024 * 1024;
+// 1 MiB decoded ≈ 1365.4 KiB encoded; 1400 KiB sits above that with margin. It
 // MUST move with MAX_BACKGROUND_BYTES: it is checked before the decode, so
 // leaving it at MAX_AVATAR_VALUE_LEN would reject every large background and
 // the decoded cap would never be reached.
-export const MAX_BACKGROUND_VALUE_LEN = 704 * 1024;
+export const MAX_BACKGROUND_VALUE_LEN = 1400 * 1024;
 
 /** The closed RASTER mime whitelist an avatar image may declare. SVG
  * (image/svg+xml) is DELIBERATELY absent — it can carry <script>/onload (XSS). */
@@ -201,14 +198,29 @@ const AVATAR_MIME_SET = new Set<string>(AVATAR_MIME_WHITELIST);
 
 /** The built-in themes in picker order, each a block in styles/theme.css whose
  * colours are generated from themes/<id>.theme.json (scripts/gen-builtin-themes.mjs).
- * `nameKey` is its name's leaf in the locales' themeIdentity subtree. */
+ * `nameKey` / `shortKey` are its full and timeline names in the locales'
+ * themeIdentity subtree. */
 export const BUILTIN_THEMES = [
-  { id: "office", nameKey: "office" },
-  { id: "office-light", nameKey: "officeLight" },
+  { id: "office", nameKey: "office", shortKey: "officeShort" },
+  { id: "office-light", nameKey: "officeLight", shortKey: "officeLightShort" },
 ] as const;
 export type BuiltinThemeId = (typeof BUILTIN_THEMES)[number]["id"];
 
 export const BUILTIN_THEME_IDS: readonly BuiltinThemeId[] = BUILTIN_THEMES.map((b) => b.id);
+
+/** Built-in themes shipped as whole bundles (themes/<id>.theme.json, loaded
+ * lazily by lib/bundledBuiltinThemes.ts) rather than as theme.css blocks: they
+ * carry images, so they paint like a custom theme over the office base. The
+ * server accepts them wherever it accepts a built-in (displayThemeAllowed). */
+export const BUNDLED_BUILTIN_THEMES = [
+  { id: "modern-office-desk-day", nameKey: "deskDay", shortKey: "deskDayShort" },
+  { id: "modern-office-desk-dusk", nameKey: "deskDusk", shortKey: "deskDuskShort" },
+  { id: "modern-office-desk-night", nameKey: "deskNight", shortKey: "deskNightShort" },
+] as const;
+export type BundledBuiltinThemeId = (typeof BUNDLED_BUILTIN_THEMES)[number]["id"];
+
+/** Every built-in, in picker order: the theme.css ones, then the bundled ones. */
+export const PICKER_BUILTIN_THEMES = [...BUILTIN_THEMES, ...BUNDLED_BUILTIN_THEMES] as const;
 
 /** The ids a NEW custom bundle (created or imported) must not take: the
  * built-in themes and every seasonal theme in the schedule. Only the built-in
@@ -217,11 +229,17 @@ export const BUILTIN_THEME_IDS: readonly BuiltinThemeId[] = BUILTIN_THEMES.map((
  * seasonal id stays editable. */
 export const RESERVED_THEME_IDS: readonly string[] = [
   ...BUILTIN_THEME_IDS,
-  ...SEASONAL_SCHEDULE.map((e) => e.id),
+  ...BUNDLED_BUILTIN_THEMES.map((b) => b.id),
+  ...SEASONAL_SCHEDULE.flatMap((e) => [e.id, ...seasonalThemeIds(e)]),
 ];
 
+/** A theme.css built-in: painted by <html data-theme>, no bundle. */
 export function isBuiltinTheme(v: string): v is BuiltinThemeId {
   return (BUILTIN_THEME_IDS as readonly string[]).includes(v);
+}
+
+export function isBundledBuiltinTheme(v: string): v is BundledBuiltinThemeId {
+  return BUNDLED_BUILTIN_THEMES.some((b) => b.id === v);
 }
 
 /** The override languages a wording overlay may key on. */
@@ -242,7 +260,7 @@ const COLOR_RGB_RE = /^rgba?\(\s*[0-9.,%/\s]+\)$/;
 // (deg/grad/rad/turn) on the hue — a closed set that cannot form url/var/
 // expression/color-mix/javascript (all need a paren or colon this class forbids).
 const COLOR_HSL_RE = /^hsla?\(\s*[0-9.,%/\sdegratun]+\)$/;
-const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+export const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
 // Structure-breaking substrings a concrete colour can never legitimately hold.
 // The grammar already rejects them; this yields a SPECIFIC "you pasted CSS" error.
@@ -396,7 +414,7 @@ export function isValidAvatarValue(v: string): boolean {
   return isValidImageValue(v, MAX_AVATAR_BYTES, MAX_AVATAR_VALUE_LEN);
 }
 
-/** The same image gate at the BACKGROUND caps (512 KiB) — only `backgrounds`
+/** The same image gate at the BACKGROUND caps (1 MiB) — only `backgrounds`
  * values come through here. The twin of validBackgroundValue in
  * avatar_bundle.go. See the const block for why a full-viewport image is
  * allowed more room than a 30–40 px glyph. */
@@ -442,9 +460,8 @@ export function validateLogo(logo: unknown, where = "theme"): string | null {
 }
 
 /** Validate a bundle's optional `navIcons` overlay (T-ea81) — the twin of the
- * Go validateNavIcons. Key ∈ {office, replies, tasks, monitor, guide}, value ∈
- * {whitelisted-raster base64 data URI, via the SAME gate as avatars}. Returns an
- * error message, or null when admissible (an absent overlay is admissible). */
+ * Go validateNavIcons. Keys come from NAV_ICON_KEYS; values use the same
+ * whitelisted-raster base64 data-URI gate as avatars. */
 export function validateNavIcons(navIcons: unknown, where = "theme"): string | null {
   if (navIcons === undefined || navIcons === null) return null;
   if (typeof navIcons !== "object" || Array.isArray(navIcons)) {
@@ -452,7 +469,7 @@ export function validateNavIcons(navIcons: unknown, where = "theme"): string | n
   }
   for (const [key, value] of Object.entries(navIcons as Record<string, unknown>)) {
     if (!NAV_ICON_KEY_SET.has(key)) {
-      return `${where}: nav icon key "${key}" is not allowed (only office, replies, tasks, monitor, guide)`;
+      return `${where}: nav icon key "${key}" is not allowed (only ${NAV_ICON_KEYS.join(", ")})`;
     }
     if (typeof value !== "string" || !isValidAvatarValue(value)) {
       return `${where}: navIcons[${key}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 64 KiB) is accepted`;
@@ -465,7 +482,7 @@ export function validateNavIcons(navIcons: unknown, where = "theme"): string | n
  * Go validateBackgrounds. Key ∈ {canvas}, value ∈ {whitelisted-raster base64
  * data URI via isValidBackgroundValue: the same mime allowlist, SVG refusal and
  * magic-byte check as an avatar — those are the security boundary and are shared
- * — but at the 512 KiB decoded cap rather than the avatar's 64 KiB.
+ * — but at the 1 MiB decoded cap rather than the avatar's 64 KiB.
  *
  * T-081b ruled the opposite ("the cap is NOT raised for backgrounds"). The owner
  * overturned that on 2026-08-03: a canvas background covers the whole viewport
@@ -485,7 +502,7 @@ export function validateBackgrounds(backgrounds: unknown, where = "theme"): stri
       return `${where}: background zone "${key}" is not allowed (only canvas)`;
     }
     if (typeof value !== "string" || !isValidBackgroundValue(value)) {
-      return `${where}: backgrounds[${key}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 512 KiB) is accepted`;
+      return `${where}: backgrounds[${key}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 1 MiB) is accepted`;
     }
   }
   return null;
@@ -631,7 +648,8 @@ export function validateThemeBundleWith(
   b: unknown,
   where: string,
   skipped: string[] | undefined,
-  validateWordingFn: WordingValidator | null
+  validateWordingFn: WordingValidator | null,
+  { allowBundledBuiltinId = false }: { allowBundledBuiltinId?: boolean } = {}
 ): string | null {
   if (typeof b !== "object" || b === null) {
     return `${where}: must be an object`;
@@ -640,7 +658,7 @@ export function validateThemeBundleWith(
   if (typeof bundle.id !== "string" || !THEME_ID_RE.test(bundle.id)) {
     return `${where}: id must match ^[a-z0-9][a-z0-9-]{1,63}$`;
   }
-  if (isBuiltinTheme(bundle.id)) {
+  if (isBuiltinTheme(bundle.id) || (isBundledBuiltinTheme(bundle.id) && !allowBundledBuiltinId)) {
     return `${where}: id "${bundle.id}" is reserved for a built-in theme`;
   }
   if (typeof bundle.name !== "string") {
@@ -746,6 +764,7 @@ export function isValidDisplayTheme(theme: string, customIds: Set<string>): bool
   return (
     theme === "" ||
     isBuiltinTheme(theme) ||
+    isBundledBuiltinTheme(theme) ||
     customIds.has(theme)
   );
 }

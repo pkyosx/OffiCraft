@@ -62,7 +62,10 @@ export function DisplayPrefsReconcileStory({
       // display_theme only when that id is actually in the theme list, so a
       // pointer written before the theme exists would simply be ignored.
       await mockApi.putTheme(MIDNIGHT);
-      await mockApi.patchServerSettings({ displayTheme: "midnight" });
+      await mockApi.patchServerSettings({ displayTheme: "midnight", displayThemeSchedule: [] });
+    } else {
+      // A server where the owner never chose: "" keeps the device's cache.
+      await mockApi.patchServerSettings({ displayTheme: "", displayThemeSchedule: [] });
     }
     // Minting a token is what a real login does; setToken fires oc-auth-login,
     // the exact trigger I18nProvider reconciles on.

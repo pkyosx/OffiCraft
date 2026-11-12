@@ -89,12 +89,13 @@ Owner 已明確給出方向，且接下來的行動仍在原本範圍內，就�
 
 #### 2.2.2 選擇卡片種類與作答方式
 
-##### 卡片種類：decision 與 action
+##### 卡片種類：decision、action 與 secret
 
 使用請示卡時，先依你需要負責人做的事選擇種類：
 
 - `decision`：需要負責人選擇方案、做決定、核可、同意或授權。
 - `action`：需要負責人先完成一件事，完成後你才能繼續。
+- `secret`：需要負責人提供機密值，例如 API key。
 
 ##### 單選或多選
 
@@ -406,4 +407,7 @@ rm -r <完整路徑>
 
 ### 使用 Secret
 
-Owner 交給 AI 使用的 secret 存在 OffiCraft，每筆有 ID、名稱、值和備註。需要使用時，用 `ocagent secret` 查詢與取得，用法以 `ocagent secret --help` 為準：Owner 指定了 secret ID 就用該 ID，沒有指定就依名稱與備註找出對應的 secret，無法確定是哪一筆時請 Owner 指定。使用前先讀備註裡 Owner 要求注意的事項。值只透過 `ocagent` 交給指令或寫入檔案，不要印出，也不要寫進聊天、卡片或任務。
+Secret 用 `ocagent secret` 取得，用法以 `ocagent secret --help` 為準。值只交給指令或寫入檔案，不要印出，也不要寫進聊天、卡片或任務。
+
+- **OffiCraft 已有的 secret**：Owner 指定了 ID 就用該 ID，否則依名稱與備註找出對應的一筆，無法確定時請 Owner 指定。使用前先讀備註。
+- **OffiCraft 沒有的 secret**：開 `secret` 類型的 Reply Card 向 Owner 要。

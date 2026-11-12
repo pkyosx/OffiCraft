@@ -45,48 +45,61 @@ func TestValidatePushContactEmail(t *testing.T) {
 // its patch moved and nothing can change unnoticed.
 func apiTestShippedSettings() map[string]any {
 	return map[string]any{
-		"owner_token_ttl":                     86400,
-		"agent_token_ttl":                     604800,
-		"handover_pct":                        50,
-		"notice_pct":                          40,
-		"codex_compaction_threshold":          3,
-		"codex_notice_round":                  2,
-		"monitoring_refresh_seconds":          5,
-		"outsource_max_parallel":              3,
-		"task_due_soon_lead_minutes":          1440,
-		"accelerated_grace_secs":              120,
-		"reassign_handover_timeout_secs":      1800,
-		"runtime_login_check_interval_secs":   300,
-		"runtime_login_recheck_interval_secs": 30,
-		"disk_usage_interval_secs":            3600,
-		"warden_credential_lifetime_secs":     2592000,
-		"doc_cap_chars_duty":                  1000,
-		"doc_cap_chars_insight":               15000,
-		"doc_cap_chars_manual_sop":            15000,
-		"doc_cap_chars_system_interaction":    60000,
-		"doc_cap_chars_boot_sequence":         15000,
-		"doc_cap_chars_offboard":              15000,
-		"lore_cap_chars_role":                 10000,
-		"lore_cap_chars_manual":               10000,
-		"lore_cap_chars_title":                80,
-		"lore_cap_chars_body":                 500,
-		"chat_budget_chars":                   6000,
-		"step_note_cap_chars":                 10000,
-		"backup_retain":                       5,
-		"updater_receive_beta":                false,
-		"updater_auto_update":                 false,
-		"updater_check_interval_secs":         300,
-		"org_name":                            "",
-		"owner_name":                          "",
-		"push_contact_email":                  "",
-		"display_theme":                       "",
-		"display_language":                    "",
-		"display_wide":                        false,
-		"display_seasonal_theme":              true,
-		"suggested_replies_reply_card":        []any{},
-		"suggested_replies_task_message":      []any{},
-		"suggested_replies_lore_message":      []any{},
-		"onboarding":                          nil,
+		"owner_token_ttl":                      86400,
+		"agent_token_ttl":                      604800,
+		"handover_pct":                         50,
+		"notice_pct":                           40,
+		"codex_compaction_threshold":           3,
+		"codex_notice_round":                   2,
+		"monitoring_refresh_seconds":           5,
+		"outsource_max_parallel":               3,
+		"task_due_soon_lead_minutes":           1440,
+		"accelerated_grace_secs":               120,
+		"reassign_handover_timeout_secs":       1800,
+		"runtime_login_check_interval_secs":    300,
+		"runtime_login_recheck_interval_secs":  30,
+		"disk_usage_interval_secs":             3600,
+		"warden_credential_lifetime_secs":      2592000,
+		"doc_cap_chars_duty":                   1000,
+		"doc_cap_chars_insight":                15000,
+		"doc_cap_chars_manual_sop":             15000,
+		"doc_cap_chars_system_interaction":     60000,
+		"doc_cap_chars_boot_sequence":          15000,
+		"doc_cap_chars_offboard":               15000,
+		"lore_cap_chars_role":                  10000,
+		"lore_cap_chars_manual":                10000,
+		"lore_cap_chars_title":                 80,
+		"lore_cap_chars_body":                  500,
+		"chat_budget_chars":                    6000,
+		"step_note_cap_chars":                  10000,
+		"secret_card_unretrieved_ttl_secs":     86400,
+		"secret_card_retrieved_retention_secs": 600,
+		"backup_retain":                        5,
+		"updater_receive_beta":                 false,
+		"updater_auto_update":                  false,
+		"updater_check_interval_secs":          300,
+		"org_name":                             "",
+		"owner_name":                           "",
+		"push_contact_email":                   "",
+		"display_theme":                        "modern-office-desk-day",
+		"display_language":                     "",
+		"display_wide":                         false,
+		"display_seasonal_theme":               true,
+		"display_theme_schedule":               apiTestDefaultThemeSchedule(),
+		"suggested_replies_reply_card":         []any{},
+		"suggested_replies_task_message":       []any{},
+		"suggested_replies_lore_message":       []any{},
+		"suggested_replies_chat":               []any{},
+		"onboarding":                           nil,
+	}
+}
+
+// The appearance migration 00120 writes on a fresh install.
+func apiTestDefaultThemeSchedule() []any {
+	return []any{
+		map[string]any{"start": "06:00", "theme": "modern-office-desk-day"},
+		map[string]any{"start": "16:00", "theme": "modern-office-desk-dusk"},
+		map[string]any{"start": "18:30", "theme": "modern-office-desk-night"},
 	}
 }
 
@@ -597,6 +610,23 @@ func TestHandleGetSettingsApiSettingsGet(t *testing.T) {
 	})
 }
 
+func apiTestSettingsFrame(seq int, trigger string) map[string]any {
+	return map[string]any{
+		"seq":   seq,
+		"topic": "settings",
+		"op":    "patch",
+		"data": map[string]any{
+			"entity":  "settings",
+			"key":     "owner",
+			"epoch":   seq,
+			"deleted": false,
+			"payload": nil,
+		},
+		"ts":      apiAnyNumber,
+		"trigger": trigger,
+	}
+}
+
 func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 	t.Run("a patch of every numeric knob answers 200 with the new values", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
@@ -660,13 +690,28 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		apiWantBody(t, data, want)
 	})
 
-	t.Run("under a restart on the same database, the patched login, disk-usage and update-check intervals, the due-soon lead and the seasonal-theme opt-out are still reported", func(t *testing.T) {
+	t.Run("under a restart on the same database, the patched login, disk-usage and update-check intervals, the due-soon lead, the seasonal-theme opt-out and the theme schedule sorted by start are still reported", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
+		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
-			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60,"task_due_soon_lead_minutes":43200,"display_seasonal_theme":false}`)
+			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60,"task_due_soon_lead_minutes":43200,"display_seasonal_theme":false,
+			"display_theme_schedule":[{"start":"18:30","theme":"dusk"},{"start":"00:00","theme":"office"},{"start":"07:05","theme":"office-light"}]}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
+		patched := apiTestShippedSettings()
+		patched["runtime_login_check_interval_secs"] = 600
+		patched["runtime_login_recheck_interval_secs"] = 45
+		patched["disk_usage_interval_secs"] = 600
+		patched["updater_check_interval_secs"] = 60
+		patched["task_due_soon_lead_minutes"] = 43200
+		patched["display_seasonal_theme"] = false
+		patched["display_theme_schedule"] = []any{
+			map[string]any{"start": "00:00", "theme": "office"},
+			map[string]any{"start": "07:05", "theme": "office-light"},
+			map[string]any{"start": "18:30", "theme": "dusk"},
+		}
+		apiWantBody(t, data, patched)
 
 		_, restarted, _, _ := apiTestStackOn(t, d, true)
 		status, data = apiJSON(t, restarted, "GET", "/api/settings", owner, "")
@@ -680,10 +725,15 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["updater_check_interval_secs"] = 60
 		want["task_due_soon_lead_minutes"] = 43200
 		want["display_seasonal_theme"] = false
+		want["display_theme_schedule"] = []any{
+			map[string]any{"start": "00:00", "theme": "office"},
+			map[string]any{"start": "07:05", "theme": "office-light"},
+			map[string]any{"start": "18:30", "theme": "dusk"},
+		}
 		apiWantBody(t, data, want)
 	})
 
-	t.Run("a changed task_due_soon_lead_minutes fans one owner-only task delta and an unchanged one fans none", func(t *testing.T) {
+	t.Run("a changed task_due_soon_lead_minutes fans one owner-only task delta and one settings delta, and an unchanged one fans none", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 		agent := apiTestListen(t, api, "kip")
@@ -707,12 +757,14 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			},
 			"ts":      apiAnyNumber,
 			"trigger": "owner",
-		})
+		}, apiTestSettingsFrame(2, "owner"))
 		agent.wantFrames()
 	})
 
-	t.Run("a patch of every text and toggle knob answers 200 with the new values", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+	t.Run("a patch of every text and toggle knob answers 200 with the new values and fans one owner-only settings delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+		agent := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{
 			"updater_receive_beta":true,
@@ -720,7 +772,8 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			"org_name":"  Studio Nine  ",
 			"owner_name":"  Eva  ",
 			"push_contact_email":"  eva@example.com  ",
-			"display_theme":"office-light",
+			"display_theme":"modern-office-desk-night",
+			"display_theme_schedule":[{"start":"07:00","theme":"modern-office-desk-dusk"},{"start":"19:00","theme":"office-light"}],
 			"display_language":"en",
 			"display_wide":true,
 			"display_seasonal_theme":false,
@@ -736,35 +789,46 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["org_name"] = "Studio Nine"
 		want["owner_name"] = "Eva"
 		want["push_contact_email"] = "eva@example.com"
-		want["display_theme"] = "office-light"
+		want["display_theme"] = "modern-office-desk-night"
+		want["display_theme_schedule"] = []any{
+			map[string]any{"start": "07:00", "theme": "modern-office-desk-dusk"},
+			map[string]any{"start": "19:00", "theme": "office-light"},
+		}
 		want["display_language"] = "en"
 		want["display_wide"] = true
 		want["display_seasonal_theme"] = false
 		want["suggested_replies_reply_card"] = []any{"yes", "no"}
 		want["suggested_replies_task_message"] = []any{"on it"}
 		apiWantBody(t, data, want)
+		dashboard.wantFrames(apiTestSettingsFrame(1, "owner"))
+		agent.wantFrames()
 	})
 
-	t.Run("an empty patch answers 200 leaving every value alone", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+	t.Run("an empty patch answers 200 leaving every value alone and fans no settings delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, apiTestShippedSettings())
+		dashboard.wantFrames()
 	})
 
-	t.Run("an explicitly empty suggested-reply list answers 200 and clears it", func(t *testing.T) {
+	t.Run("an explicitly empty suggested-reply list or theme schedule answers 200 and clears it", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"suggested_replies_reply_card":["yes"]}`)
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"suggested_replies_reply_card":["yes"],
+			"display_theme_schedule":[{"start":"08:00","theme":"office-light"},{"start":"20:00","theme":"office"}]}`)
 
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
-			`{"suggested_replies_reply_card":[]}`)
+			`{"suggested_replies_reply_card":[],"display_theme_schedule":[]}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, apiTestShippedSettings())
+		want := apiTestShippedSettings()
+		want["display_theme_schedule"] = []any{}
+		apiWantBody(t, data, want)
 	})
 
 	t.Run("clearing the studio and owner names answers 200 with both empty", func(t *testing.T) {
@@ -776,7 +840,9 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, apiTestShippedSettings())
+		want := apiTestShippedSettings()
+		want["display_theme"] = ""
+		apiWantBody(t, data, want)
 	})
 
 	t.Run("an owner_token_ttl outside the whitelist answers 422", func(t *testing.T) {
@@ -1080,8 +1146,42 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			if status != 422 {
 				t.Fatalf("%s: want 422, got %d (%v)", theme, status, data)
 			}
-			apiWantError(t, data, "validation_error", `display_theme must be "", office, office-light, or an existing custom theme id`)
+			apiWantError(t, data, "validation_error", `display_theme must be "", a built-in theme id, or an existing custom theme id`)
 		}
+	})
+
+	t.Run("a display_theme_schedule breaking a rule answers 422 naming it, writes nothing and fans no settings delta", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+		dashboard := apiTestListen(t, api, "")
+		const countRefusal = "display_theme_schedule must have 0 entries, or 2 to 6"
+		for _, tc := range []struct {
+			name, schedule, want string
+		}{
+			{"one entry", `[{"start":"08:00","theme":"office"}]`, countRefusal},
+			{"seven entries", `[{"start":"01:00","theme":"office"},{"start":"02:00","theme":"office"},{"start":"03:00","theme":"office"},{"start":"04:00","theme":"office"},{"start":"05:00","theme":"office"},{"start":"06:00","theme":"office"},{"start":"07:00","theme":"office"}]`, countRefusal},
+			{"hour 24", `[{"start":"24:00","theme":"office"},{"start":"08:00","theme":"dusk"}]`, `display_theme_schedule start must be HH:MM, 00:00 through 23:59: "24:00"`},
+			{"minute 60", `[{"start":"07:60","theme":"office"},{"start":"08:00","theme":"dusk"}]`, `display_theme_schedule start must be HH:MM, 00:00 through 23:59: "07:60"`},
+			{"one-digit hour", `[{"start":"8:00","theme":"office"},{"start":"09:00","theme":"dusk"}]`, `display_theme_schedule start must be HH:MM, 00:00 through 23:59: "8:00"`},
+			{"seconds", `[{"start":"08:00:00","theme":"office"},{"start":"09:00","theme":"dusk"}]`, `display_theme_schedule start must be HH:MM, 00:00 through 23:59: "08:00:00"`},
+			{"missing start", `[{"theme":"office"},{"start":"09:00","theme":"dusk"}]`, `display_theme_schedule start must be HH:MM, 00:00 through 23:59: ""`},
+			{"repeated start", `[{"start":"08:00","theme":"office"},{"start":"08:00","theme":"dusk"}]`, `display_theme_schedule starts must be unique: "08:00" appears twice`},
+			{"empty theme", `[{"start":"08:00","theme":""},{"start":"09:00","theme":"dusk"}]`, "display_theme_schedule theme must not be empty"},
+			{"theme nothing defines", `[{"start":"08:00","theme":"office"},{"start":"09:00","theme":"midnight"}]`, `display_theme_schedule theme must be a built-in theme id or an existing custom theme id: "midnight"`},
+			{"the frontend's seasonal theme", `[{"start":"08:00","theme":"halloween-2026"},{"start":"09:00","theme":"dusk"}]`, `display_theme_schedule theme must be a built-in theme id or an existing custom theme id: "halloween-2026"`},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+					`{"org_name":"Harbor Yard","display_theme_schedule":`+tc.schedule+`}`)
+				if status != 422 {
+					t.Fatalf("want 422, got %d (%v)", status, data)
+				}
+				apiWantError(t, data, "validation_error", tc.want)
+				windowWantSetting(t, d, "display.theme_schedule", ptrTo(deskDefaultSchedule00120))
+				windowWantSetting(t, d, "org.name", nil)
+			})
+		}
+		dashboard.wantFrames()
 	})
 
 	t.Run("a display_language outside the vocabulary answers 422", func(t *testing.T) {
@@ -1198,11 +1298,30 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			if status != http.StatusUnprocessableEntity {
 				t.Fatalf("want 422, got %d (%v)", status, data)
 			}
-			apiWantError(t, data, "validation_error", `display_theme must be "", office, office-light, or an existing custom theme id`)
-			windowWantSetting(t, d, "display.theme", nil)
-			if got := apiDisplayTheme(t, h, owner); got != "" {
-				t.Fatalf("display_theme: got %q, want \"\"", got)
+			apiWantError(t, data, "validation_error", `display_theme must be "", a built-in theme id, or an existing custom theme id`)
+			windowWantSetting(t, d, "display.theme", ptrTo("modern-office-desk-day"))
+			if got := apiDisplayTheme(t, h, owner); got != "modern-office-desk-day" {
+				t.Fatalf("display_theme: got %q, want the untouched default", got)
 			}
+		})
+
+		t.Run(shape+": a theme deleted after the handler checked it is not scheduled", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			_, h, _, owner := newAPITestServerOn(t, d)
+			apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+			hook.execAfterRead(t, path, "FROM custom_theme WHERE theme_id",
+				`DELETE FROM custom_theme WHERE theme_id = 'dusk'`)
+
+			status, data := windowJSON(t, h, "PATCH", "/api/settings", owner,
+				`{"display_theme_schedule":[{"start":"08:00","theme":"office"},{"start":"20:00","theme":"dusk"}]}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusUnprocessableEntity {
+				t.Fatalf("want 422, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				`display_theme_schedule theme must be a built-in theme id or an existing custom theme id: "dusk"`)
+			windowWantSetting(t, d, "display.theme_schedule", ptrTo(deskDefaultSchedule00120))
 		})
 	}
 
@@ -1228,44 +1347,52 @@ func TestSettingsView(t *testing.T) {
 	api, h, _, owner := newAPITestServer(t)
 	got := api.settingsView()
 	want := settingsDTO{
-		OwnerTokenTTL:                   86400,
-		AgentTokenTTL:                   604800,
-		HandoverPct:                     50,
-		NoticePct:                       40,
-		CodexCompactionThreshold:        3,
-		CodexNoticeRound:                2,
-		MonitoringRefreshSeconds:        5,
-		OutsourceMaxParallel:            3,
-		AcceleratedGraceSecs:            120,
-		ReassignHandoverTimeoutSecs:     1800,
-		RuntimeLoginCheckIntervalSecs:   300,
-		RuntimeLoginRecheckIntervalSecs: 30,
-		DiskUsageIntervalSecs:           3600,
-		WardenCredentialLifetimeSecs:    2592000,
-		DocCapCharsDuty:                 1000,
-		DocCapCharsInsight:              15000,
-		DocCapCharsManualSop:            15000,
-		DocCapCharsSystemInteraction:    60000,
-		DocCapCharsBootSequence:         15000,
-		DocCapCharsOffboard:             15000,
-		LoreCapCharsRole:                10000,
-		LoreCapCharsManual:              10000,
-		LoreCapCharsTitle:               80,
-		LoreCapCharsBody:                500,
-		ChatBudgetChars:                 6000,
-		StepNoteCapChars:                10000,
-		BackupRetain:                    5,
-		UpdaterCheckIntervalSecs:        300,
-		TaskDueSoonLeadMinutes:          1440,
-		OrgName:                         "",
-		OwnerName:                       "",
-		PushContactEmail:                "",
-		DisplayTheme:                    "",
-		DisplayLanguage:                 "",
-		DisplaySeasonalTheme:            true,
-		SuggestedRepliesReplyCard:       []string{},
-		SuggestedRepliesTaskMessage:     []string{},
-		SuggestedRepliesLoreMessage:     []string{},
+		OwnerTokenTTL:                    86400,
+		AgentTokenTTL:                    604800,
+		HandoverPct:                      50,
+		NoticePct:                        40,
+		CodexCompactionThreshold:         3,
+		CodexNoticeRound:                 2,
+		MonitoringRefreshSeconds:         5,
+		OutsourceMaxParallel:             3,
+		AcceleratedGraceSecs:             120,
+		ReassignHandoverTimeoutSecs:      1800,
+		RuntimeLoginCheckIntervalSecs:    300,
+		RuntimeLoginRecheckIntervalSecs:  30,
+		DiskUsageIntervalSecs:            3600,
+		WardenCredentialLifetimeSecs:     2592000,
+		DocCapCharsDuty:                  1000,
+		DocCapCharsInsight:               15000,
+		DocCapCharsManualSop:             15000,
+		DocCapCharsSystemInteraction:     60000,
+		DocCapCharsBootSequence:          15000,
+		DocCapCharsOffboard:              15000,
+		LoreCapCharsRole:                 10000,
+		LoreCapCharsManual:               10000,
+		LoreCapCharsTitle:                80,
+		LoreCapCharsBody:                 500,
+		ChatBudgetChars:                  6000,
+		StepNoteCapChars:                 10000,
+		SecretCardUnretrievedTTLSecs:     86400,
+		SecretCardRetrievedRetentionSecs: 600,
+		BackupRetain:                     5,
+		UpdaterCheckIntervalSecs:         300,
+		TaskDueSoonLeadMinutes:           1440,
+		OrgName:                          "",
+		OwnerName:                        "",
+		PushContactEmail:                 "",
+		DisplayTheme:                     "modern-office-desk-day",
+		DisplayLanguage:                  "",
+		DisplaySeasonalTheme:             true,
+		DisplayThemeSchedule: []ThemeScheduleEntryDTO{
+			{Start: "06:00", Theme: "modern-office-desk-day"},
+			{Start: "16:00", Theme: "modern-office-desk-dusk"},
+			{Start: "18:30", Theme: "modern-office-desk-night"},
+		},
+		SuggestedRepliesReplyCard:   []string{},
+		SuggestedRepliesTaskMessage: []string{},
+		SuggestedRepliesLoreMessage: []string{},
+		SuggestedRepliesChat:        []string{},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("settingsView defaults:\n got %+v\nwant %+v", got, want)

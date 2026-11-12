@@ -10,11 +10,16 @@ import type { components } from "./generated/schema";
 import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
 import { STEP_NOTE_CAP_CHARS_DEFAULT } from "./stepNoteCap";
+import {
+  SECRET_CARD_RETRIEVED_RETENTION_SECS_DEFAULT,
+  SECRET_CARD_UNRETRIEVED_TTL_SECS_DEFAULT,
+} from "./secretCardSettings";
 import { LORE_CAP_CHARS_DEFAULTS } from "./loreCap";
 import { isLoreType } from "./loreType";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
 import {
   readSuggestedRepliesLoreMessage,
+  readSuggestedRepliesChat,
   readSuggestedRepliesReplyCard,
   readSuggestedRepliesTaskMessage,
 } from "./suggestedReplies";
@@ -102,6 +107,9 @@ import type {
   WireReplyCardRow,
   WireReplyCardReceipt,
   WireReplyCardOption,
+  WireReplyCardCount,
+  WireReplyCardSnoozeReceipt,
+  WireTaskRef,
   WireWebhookEndpoint,
   WireWebhookRequestLog,
   WireScheduledMessage,
@@ -134,8 +142,12 @@ import type {
   GalleryAttachment,
   ReplyCard,
   ReplyCardRow,
+  ReplyCardSecretView,
   ReplyCardWriteReceipt,
   ReplyCardOption,
+  ReplyCardCounts,
+  ReplyCardSnoozeReceipt,
+  TaskRefView,
   ServerSettingsView,
   OnboardingReportView,
   TaskView,
@@ -406,6 +418,7 @@ export function toChatMessage(w: WireChatMessage): ChatMessage {
   // wire — surface the id only when it really is a non-empty string, else the
   // honest null (a plain message).
   const rawCardId = w.meta?.["reply_card_id"];
+  const rawTaskId = w.meta?.["task_id"];
   return {
     id: w.id,
     from: w.from,
@@ -473,8 +486,12 @@ export function toChatMessage(w: WireChatMessage): ChatMessage {
           ...(w.reply_to_chat.reply_excerpt
             ? { replyExcerpt: w.reply_to_chat.reply_excerpt }
             : {}),
+          deleted: w.reply_to_chat.deleted ?? false,
         }
       : null,
+    deletedTs: w.deleted_ts ?? 0,
+    taskId:
+      typeof rawTaskId === "string" && rawTaskId !== "" ? rawTaskId : null,
   };
 }
 
@@ -532,6 +549,43 @@ export function toReplyCardOption(w: WireReplyCardOption): ReplyCardOption {
   return { text: w.text, aiPick: w.ai_pick ?? false };
 }
 
+/** The task a reply card names, with the task's current priority and due date. */
+export function toTaskRef(w: WireTaskRef): TaskRefView {
+  return {
+    id: w.id,
+    typeKey: w.type_key ?? "",
+    title: w.title ?? "",
+    priority: w.priority ?? "",
+    dueTs: w.due_ts ?? null,
+    dueSoonLeadMinutes: w.due_soon_lead_minutes ?? null,
+  };
+}
+
+export function toReplyCardCounts(w: WireReplyCardCount): ReplyCardCounts {
+  return {
+    waiting: w.waiting,
+    answered: w.answered,
+    expired: w.expired,
+    waitingNextChangeTs: w.waiting_next_change_ts ?? null,
+  };
+}
+
+export function toReplyCardSnoozeReceipt(
+  w: WireReplyCardSnoozeReceipt
+): ReplyCardSnoozeReceipt {
+  return { id: w.id, snoozedUntilTs: w.snoozed_until_ts ?? null };
+}
+
+function toReplyCardSecret(w: WireReplyCardRow["secret"]): ReplyCardSecretView | undefined {
+  if (!w) return undefined;
+  return {
+    state: w.state,
+    providedTs: w.provided_ts ?? null,
+    retrievedTs: w.retrieved_ts ?? null,
+    expiresTs: w.expires_ts ?? null,
+  };
+}
+
 /** Map one wire LIGHT list row → the view-model `ReplyCardRow`. It maps only
  * what the pane draws collapsed (title, who asked, status + its stamps, the
  * task ref); the answered row's decision digest is deliberately dropped —
@@ -550,13 +604,9 @@ export function toReplyCardRow(w: WireReplyCardRow): ReplyCardRow {
     createdTs: w.created_ts ?? 0,
     answeredTs: w.answered_ts,
     expiredTs: w.expired_ts,
-    task: w.task
-      ? {
-          id: w.task.id,
-          typeKey: w.task.type_key ?? "",
-          title: w.task.title ?? "",
-        }
-      : null,
+    task: w.task ? toTaskRef(w.task) : null,
+    snoozedUntilTs: w.snoozed_until_ts ?? null,
+    secret: toReplyCardSecret(w.secret),
   };
 }
 
@@ -583,15 +633,11 @@ export function toReplyCard(w: WireReplyCard): ReplyCard {
     answeredTs: w.answered_ts,
     expiredTs: w.expired_ts,
     chatMessageId: w.chat_message_id,
+    snoozedUntilTs: w.snoozed_until_ts ?? null,
+    secret: toReplyCardSecret(w.secret),
     // The task the ask was armed from (SPEC §3.6 請示 → 任務): the honest null
     // for a pure chat ask — the UI then shows no task info and no jump.
-    task: w.task
-      ? {
-          id: w.task.id,
-          typeKey: w.task.type_key ?? "",
-          title: w.task.title ?? "",
-        }
-      : null,
+    task: w.task ? toTaskRef(w.task) : null,
     answer: w.answer
       ? {
           optionIdxs: w.answer.option_idxs,
@@ -1398,6 +1444,10 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // against a server too old to send the field, 0 would read as "no note may
     // be written at all", which is the one answer that is never right.
     stepNoteCapChars: w.step_note_cap_chars ?? STEP_NOTE_CAP_CHARS_DEFAULT,
+    secretCardUnretrievedTtlSecs:
+      w.secret_card_unretrieved_ttl_secs ?? SECRET_CARD_UNRETRIEVED_TTL_SECS_DEFAULT,
+    secretCardRetrievedRetentionSecs:
+      w.secret_card_retrieved_retention_secs ?? SECRET_CARD_RETRIEVED_RETENTION_SECS_DEFAULT,
     // T-33 傳承 knobs. Same "?? the shipped default, never 0" reasoning: against
     // a server too old to send these, 0 on a fold budget reads as "carry no
     // 傳承 at all" and 0 on an entry bound as "refuse every write" — in both
@@ -1431,6 +1481,7 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     suggestedRepliesReplyCard: readSuggestedRepliesReplyCard(w),
     suggestedRepliesTaskMessage: readSuggestedRepliesTaskMessage(w),
     suggestedRepliesLoreMessage: readSuggestedRepliesLoreMessage(w),
+    suggestedRepliesChat: readSuggestedRepliesChat(w),
     pushContactEmail: w.push_contact_email ?? "",
     // Cockpit display prefs (T-0b41-p2; schema-optional for DTO-compat — the Go
     // wire always emits them). "" = never set; the frontend keeps its
@@ -1443,6 +1494,10 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     displayWide: w.display_wide ?? false,
     // An older server has no seasonal-theme setting; true is its shipped default.
     displaySeasonalTheme: w.display_seasonal_theme ?? true,
+    displayThemeSchedule: (w.display_theme_schedule ?? []).map((e) => ({
+      start: e.start,
+      theme: e.theme,
+    })),
     // The first-run onboarding report (T-ba62). Absent/null is the NORMAL
     // state (onboarding never ran on this database) and maps to null — the
     // mapper never manufactures a report, so "no report" can never be
@@ -1472,6 +1527,12 @@ export function toChatGroups(w: WireChatGroups): ChatGroupView[] {
     memberIds: [...g.member_ids],
     taskTypeKeys: [...g.task_type_keys],
   }));
+}
+
+export function toChatSuggestedReplies(
+  w: components["schemas"]["ChatSuggestedRepliesDTO"],
+): Record<string, string[]> {
+  return Object.fromEntries(w.lists.map((l) => [l.member_id, [...l.replies]]));
 }
 
 export function toChatGroupWrite(g: ChatGroupWrite): WireChatGroupWrite {
@@ -1540,6 +1601,12 @@ export function toThemeDeleteResult(w: WireThemeDeleteResult): ThemeDeleteResult
     id: w.id,
     deleted: w.deleted,
     displayThemeReset: w.display_theme_reset,
+    ...(w.display_theme_schedule && {
+      displayThemeSchedule: w.display_theme_schedule.map((e) => ({
+        start: e.start,
+        theme: e.theme,
+      })),
+    }),
   };
 }
 

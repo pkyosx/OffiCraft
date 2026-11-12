@@ -366,9 +366,13 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 		}
 	}
 	// Drop any caller-supplied reply link or excerpt: one arriving pre-made in meta
-	// would bypass the checks below.
+	// would bypass the checks below. Likewise a deletion mark under either the
+	// current or the legacy name: deletion lives in its own column, and a key in
+	// meta would read as one.
 	delete(meta, chatReplyToMetaKey)
 	delete(meta, chatReplyExcerptMetaKey)
+	delete(meta, chatDeletedTSKey)
+	delete(meta, "recalled_ts")
 	replyTo := trimString(strOrEmpty(body.ReplyTo))
 	// ⚠️ Not checked against the quoted body: a selection of the rendered message
 	// need not appear verbatim in its raw markdown.
@@ -521,7 +525,9 @@ func (s *apiServer) chatReplyQuote(replyTo, excerpt string, names map[string]str
 		return nil, nil
 	}
 	quote := newChatReplyQuoteDTO(quoted[0], names)
-	quote.ReplyExcerpt = excerpt
+	if !quote.Deleted {
+		quote.ReplyExcerpt = excerpt
+	}
 	return quote, nil
 }
 
@@ -591,7 +597,17 @@ const (
 		"refuses parameters it does not declare rather than ignoring them, because an " +
 		"ignored parameter silently answers a question you did not ask; accepted here: %s"
 
-	chatUnreadTrue = "true"
+	chatUnreadTrue               = "true"
+	chatIncludeDeletedTrue       = "true"
+	chatHideDeleteNoticesTrue    = "true"
+	chatIncludeDeleteNoticesTrue = "true"
+
+	chatUnreadDeletedMsg = "unread cannot be combined with include_deleted — a deleted " +
+		"message is never unread"
+
+	chatUnreadDeleteNoticesMsg = "unread cannot be combined with hide_delete_notices — " +
+		"the unread backfill must deliver every notice, and a notice left out of it would " +
+		"stay unread"
 
 	chatCursorOlder = "o"
 	chatCursorNewer = "n"
@@ -849,9 +865,11 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 	}
 	actor := currentActor(r)
 	filter := chatListFilter{
-		participant: strOrEmpty(params.With),
-		sender:      strOrEmpty(params.Sender),
-		recipient:   strOrEmpty(params.Recipient),
+		participant:       strOrEmpty(params.With),
+		sender:            strOrEmpty(params.Sender),
+		recipient:         strOrEmpty(params.Recipient),
+		hideDeleted:       strOrEmpty(params.IncludeDeleted) != chatIncludeDeletedTrue,
+		hideDeleteNotices: hideDeleteNoticesParam(params.HideDeleteNotices),
 	}
 	limit := chatListDefaultLimit
 	if params.Limit != nil {
@@ -864,6 +882,14 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 	if strOrEmpty(params.Unread) == chatUnreadTrue {
 		if beforeSent || hasStart || hasEnd {
 			writeError(w, http.StatusUnprocessableEntity, chatUnreadMixedMsg)
+			return
+		}
+		if !filter.hideDeleted {
+			writeError(w, http.StatusUnprocessableEntity, chatUnreadDeletedMsg)
+			return
+		}
+		if filter.hideDeleteNotices {
+			writeError(w, http.StatusUnprocessableEntity, chatUnreadDeleteNoticesMsg)
 			return
 		}
 		s.serveChatUnread(w, actor, filter, limit, params.Cursor)
@@ -1159,9 +1185,9 @@ func (s *apiServer) HandleListChatReadsApiChatReadsGet(w http.ResponseWriter, r 
 
 // GET /api/resume-summary — the wake snapshot: recent chat (this file), open tasks as
 // light rows (resumeTasksFor, api_tasks.go; SPEC §6.2), studio floor, overview.
-func (s *apiServer) HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request) {
+func (s *apiServer) HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request, params HandleResumeSummaryApiResumeSummaryGetParams) {
 	actor := currentActor(r)
-	snap, err := s.resumeSnapshotParts(actor)
+	snap, err := s.resumeSnapshotParts(actor, !includeDeleteNoticesParam(params.IncludeDeleteNotices))
 	if err != nil {
 		internalError(w, err)
 		return
@@ -1189,10 +1215,20 @@ type resumeWakeSnapshot struct {
 	Overview    resumeOverviewDTO
 }
 
+func hideDeleteNoticesParam(v *string) bool {
+	return strOrEmpty(v) == chatHideDeleteNoticesTrue
+}
+
+// The resume faces default the other way from GET /api/chat. Owner: 「resume
+// summary本來就不會印出已經被刪除的訊息，因此沒特別理由也不需要特別印出刪除通知」.
+func includeDeleteNoticesParam(v *string) bool {
+	return strOrEmpty(v) == chatIncludeDeleteNoticesTrue
+}
+
 // resume_summary and peek_resume_summary_size both go through this one assembly,
 // and it holds the ONE size estimator — a second one written for the peek is how
 // the peek starts lying.
-func (s *apiServer) resumeSnapshotParts(actor string) (resumeWakeSnapshot, error) {
+func (s *apiServer) resumeSnapshotParts(actor string, hideDeleteNotices bool) (resumeWakeSnapshot, error) {
 	snap := resumeWakeSnapshot{
 		GeneratedAt: resumeDisplayTime(nowSecs()),
 		Chat:        []chatMessageDTO{},
@@ -1228,7 +1264,7 @@ func (s *apiServer) resumeSnapshotParts(actor string) (resumeWakeSnapshot, error
 		}
 	}
 
-	msgs, err := s.dal.ListChatInvolving(actor, resumeChatFetch)
+	msgs, err := s.dal.listChatInvolving(actor, hideDeleteNotices, resumeChatFetch)
 	if err != nil {
 		return resumeWakeSnapshot{}, err
 	}
@@ -1629,9 +1665,9 @@ func machinesChars(m resumeMachinesDTO) int {
 	return n
 }
 
-func (s *apiServer) HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.ResponseWriter, r *http.Request) {
+func (s *apiServer) HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.ResponseWriter, r *http.Request, params HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams) {
 	actor := currentActor(r)
-	snap, err := s.resumeSnapshotParts(actor)
+	snap, err := s.resumeSnapshotParts(actor, !includeDeleteNoticesParam(params.IncludeDeleteNotices))
 	if err != nil {
 		internalError(w, err)
 		return
@@ -1652,13 +1688,13 @@ func (s *apiServer) HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.Re
 
 // Auth is in routes.go (principalAdminAgent). anyMember scope: a contractor's
 // summary is readable by design (rc-64b712bfc703).
-func (s *apiServer) HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(w http.ResponseWriter, r *http.Request, memberId string) {
+func (s *apiServer) HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(w http.ResponseWriter, r *http.Request, memberId string, params HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGetParams) {
 	m, err := s.resolveMember(memberId, anyMember)
 	if err != nil {
 		writeResolveError(w, err, "member", memberId)
 		return
 	}
-	snap, err := s.resumeSnapshotParts(m.ID)
+	snap, err := s.resumeSnapshotParts(m.ID, !includeDeleteNoticesParam(params.IncludeDeleteNotices))
 	if err != nil {
 		internalError(w, err)
 		return

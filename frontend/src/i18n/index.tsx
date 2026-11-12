@@ -16,9 +16,11 @@ import { hasToken, AUTH_LOGIN_EVENT } from "../api/auth";
 import {
   adoptServerSettings,
   loadServerSettings,
+  refreshServerSettings,
 } from "../hooks/sharedServerSettings";
 import {
   isBuiltinTheme,
+  isBundledBuiltinTheme,
   isValidDisplayTheme,
   type BuiltinThemeId,
   type ThemeBundle,
@@ -30,12 +32,35 @@ import {
   LS_THEME_PAINT,
   LS_SEASONAL_THEME,
   LS_SEASONAL_PAINT,
+  LS_THEME_SCHEDULE,
+  LS_SCHEDULE_PAINT,
   paintRecordFor,
+  colourPaintRecordFor,
   applyThemeToRoot,
   readValidatedPaint,
+  readValidatedSchedulePaint,
+  readValidatedSeasonalPaint,
+  readThemeSchedule,
+  tieredPaintRecords,
 } from "../lib/themePaint";
-import { activeSeasonalWindow, nextSeasonalBoundary } from "../lib/seasonalSchedule";
-import { SEASONAL_WINDOWS } from "../lib/seasonalTheme";
+import {
+  activeSeasonalWindow,
+  nextSeasonalBoundary,
+  seasonalPickAt,
+  seasonalThemeIds,
+  themeIdOfFile,
+} from "../lib/seasonalSchedule";
+import { nextDayPart } from "../lib/dayParts";
+import {
+  DEFAULT_DISPLAY_THEME,
+  DEFAULT_THEME_SCHEDULE,
+  activeScheduleEntry,
+  nextScheduleBoundary,
+  type ThemeScheduleEntry,
+} from "../lib/themeSchedule";
+import { SEASONAL_WINDOWS, type LoadableSeasonalWindow } from "../lib/seasonalTheme";
+import { loadBundledBuiltinTheme } from "../lib/bundledBuiltinThemes";
+import { BG_MOTIONS, watchStillCanvas, type BgMotion } from "../lib/stillCanvas";
 import { applyWording } from "./wording";
 import { makeMessages, type Messages } from "./compose";
 
@@ -72,6 +97,9 @@ const LS_LANGUAGE = "oc.language";
 // therefore always adopted at reconcile (that is what makes turning wide OFF on
 // one device propagate to the others).
 const LS_WIDE = "oc.wide";
+
+// Per device only: never sent to the server and not part of settings sync.
+const LS_BG_MOTION = "oc.bgMotion";
 
 function readStored<T extends string>(key: string, allowed: T[], fallback: T): T {
   try {
@@ -123,12 +151,27 @@ function readStoredSeasonalTheme(): boolean {
 // boundary further out is reached in steps.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
-function writeStored(key: string, value: string | null) {
+/** How long before a schedule slot's (or seasonal day part's) start its bundle
+ * is fetched. */
+const SCHEDULE_PREFETCH_LEAD_MS = 10 * 60 * 1000;
+
+/** A theme's bundle: a bundled built-in from its own chunk, else the server's. */
+function fetchThemeBundle(id: string): Promise<ThemeBundle> {
+  return isBundledBuiltinTheme(id) ? loadBundledBuiltinTheme(id) : api.getTheme(id);
+}
+
+function scheduledCustomThemes(schedule: readonly ThemeScheduleEntry[]): string[] {
+  return [...new Set(schedule.map((e) => e.theme).filter((id) => !isBuiltinTheme(id)))];
+}
+
+function writeStored(key: string, value: string | null): boolean {
   try {
     if (value == null) localStorage.removeItem(key);
     else localStorage.setItem(key, value);
+    return true;
   } catch {
     // ignore — best-effort persistence
+    return false;
   }
 }
 
@@ -157,6 +200,31 @@ interface I18nContextValue {
    * it. */
   seasonalTheme: boolean;
   setSeasonalTheme: (next: boolean) => void;
+  /** This device's 背景動畫 choice for an animated canvas: "auto" shows the
+   * still first frame on touch devices, "play" always animates, "still" never does. */
+  bgMotion: BgMotion;
+  setBgMotion: (next: BgMotion) => void;
+  /** display_theme_schedule, sorted by start; [] = off. Below the seasonal
+   * theme and above `theme`, which it never rewrites. */
+  themeSchedule: ThemeScheduleEntry[];
+  /** Save the schedule ([] turns it off). Not optimistic: rejects with the
+   * server's refusal, and takes effect only once saved and its custom themes
+   * are in hand. */
+  setThemeSchedule: (next: ThemeScheduleEntry[]) => Promise<ThemeScheduleEntry[]>;
+  /** 恢復預設: the default schedule, the seasonal theme on, and display_theme
+   * DEFAULT_DISPLAY_THEME, in one settings write, then this device's bgMotion
+   * back to "auto". Custom themes are untouched.
+   * Not optimistic, like setThemeSchedule. */
+  restoreDefaultAppearance: () => Promise<ThemeScheduleEntry[]>;
+  /** The schedule row's theme on screen now; null without a schedule or while
+   * the seasonal theme is shown. */
+  scheduledTheme: string | null;
+  /** The seasonal theme's name while it is on screen and loaded, else null. */
+  seasonalThemeName: string | null;
+  /** The id of the theme on screen: seasonal, else the schedule's row, else `theme`. */
+  shownTheme: string;
+  /** The bundle painted on screen; null for a CSS built-in or while it loads. */
+  shownThemeBundle: ThemeBundle | null;
   /** The shown theme's per-role avatar images (T-16a1 P5; T-ea81) — the
    * seasonal theme's inside its window, else the active custom theme's — or
    * undefined when the shown theme carries none (the built-in office, or a
@@ -195,6 +263,9 @@ interface I18nContextValue {
    * display_theme and says so; this switches the cockpit back to the default built-in (office)
    * so the owner is never looking at a theme that no longer exists. */
   removeTheme: (id: string) => Promise<void>;
+  /** Re-read the theme list. A theme added or deleted elsewhere is not pushed;
+   * the theme settings call this when they open. */
+  refreshThemeList: () => void;
   /** Reset local preferences to initial (used by the honest M1 "logout").
    * Covers only the client-persisted prefs (theme/language); the owner
    * nickname is server-backed now (T-0b41) and is left untouched. */
@@ -209,20 +280,61 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   );
   const [theme, setThemeState] = useState<string>(() => readStoredTheme());
   const [wide, setWideState] = useState<boolean>(() => readStoredWide());
+  const [bgMotion, setBgMotionState] = useState<BgMotion>(() =>
+    readStored<BgMotion>(LS_BG_MOTION, [...BG_MOTIONS], "auto")
+  );
   const [seasonalTheme, setSeasonalThemeState] = useState<boolean>(() =>
     readStoredSeasonalTheme()
   );
   // Re-read at each window boundary (the timer below) and whenever the page is
   // shown or focused again: a timer does not count time the machine slept.
   const [clock, setClock] = useState(() => Date.now());
-  const [seasonalBundle, setSeasonalBundle] = useState<ThemeBundle | null>(null);
+  const [themeSchedule, setThemeScheduleState] = useState<ThemeScheduleEntry[]>(() =>
+    readThemeSchedule()
+  );
+  const themeScheduleRef = useRef(themeSchedule);
+  // The scheduled themes fetched so far: the current slot's, and the next one's
+  // from SCHEDULE_PREFETCH_LEAD_MS before its start, so a boundary does not wait
+  // on the network.
+  const [scheduleBundles, setScheduleBundles] = useState<Record<string, ThemeBundle>>({});
+  const scheduleBundlesRef = useRef(scheduleBundles);
+  // The open window's day parts seen so far, by bundle id.
+  const [seasonalBundles, setSeasonalBundles] = useState<Record<string, ThemeBundle>>({});
   // ⚠️ No retry: browsers cache a failed dynamic import per URL, so importing
   // the same chunk again rejects at once; only a reload can recover it.
   const [seasonalLoadFailedId, setSeasonalLoadFailedId] = useState<string | null>(null);
   const [themeList, setThemeList] = useState<ThemeListItem[]>([]);
+  // A settings or theme-list read that overlaps any part of one of this tab's
+  // own writes may carry the value from before it. Such a read is not adopted; the reread
+  // waits until every write has settled.
+  const writesInFlightRef = useRef(0);
+  const writeEpochRef = useRef(0);
+  const rereadAfterWritesRef = useRef(false);
+  const rereadRef = useRef<() => void>(() => {});
+  const trackWrite = useCallback(function trackWrite<T>(write: () => Promise<T>): Promise<T> {
+    writeEpochRef.current += 1;
+    writesInFlightRef.current += 1;
+    return write().finally(() => {
+      writeEpochRef.current += 1;
+      writesInFlightRef.current -= 1;
+      if (writesInFlightRef.current === 0 && rereadAfterWritesRef.current) {
+        rereadAfterWritesRef.current = false;
+        rereadRef.current();
+      }
+    });
+  }, []);
+  /** True when a read issued at `epoch` must not be adopted; schedules the reread. */
+  const readCrossedWrite = useCallback((epoch: number) => {
+    if (writesInFlightRef.current === 0 && epoch === writeEpochRef.current) return false;
+    if (writesInFlightRef.current > 0) rereadAfterWritesRef.current = true;
+    else rereadRef.current();
+    return true;
+  }, []);
   const [activeThemeBundle, setActiveThemeBundle] = useState<ThemeBundle | null>(
     null
   );
+  const activeThemeBundleRef = useRef(activeThemeBundle);
+  activeThemeBundleRef.current = activeThemeBundle;
   // [T-1500] "the server has spoken". Flipped in reconcile's .then only.
   const [themesLoaded, setThemesLoaded] = useState(false);
   // Effective copy locale: the user's language toggle. Themes are copy-neutral
@@ -264,17 +376,40 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     () => activeSeasonalWindow(new Date(clock), SEASONAL_WINDOWS),
     [clock]
   );
-  const seasonalWindow =
-    seasonalTheme && openSeasonalWindow?.id !== seasonalLoadFailedId ? openSeasonalWindow : null;
+  const openSeasonalPick = openSeasonalWindow
+    ? seasonalPickAt(new Date(clock), openSeasonalWindow)
+    : null;
+  // The seasonal bundle id on screen (this day part's), or null.
+  const seasonalId =
+    seasonalTheme && openSeasonalPick && openSeasonalPick.id !== seasonalLoadFailedId
+      ? openSeasonalPick.id
+      : null;
   // The theme on screen: the seasonal one while its window is open and the
-  // owner has not turned it off, otherwise the selected theme. Inside the window
-  // a bundle still in flight resolves to null, never to the selected theme's.
-  const shownTheme = seasonalWindow ? seasonalWindow.id : theme;
-  const shownBundle = seasonalWindow
-    ? seasonalBundle && seasonalBundle.id === seasonalWindow.id
-      ? seasonalBundle
-      : null
-    : bundleForTheme;
+  // owner has not turned it off, otherwise the schedule's current entry, else
+  // the selected theme. A seasonal or scheduled bundle still in flight resolves
+  // to null, never to the selected theme's.
+  const scheduledTheme = seasonalId
+    ? null
+    : (activeScheduleEntry(new Date(clock), themeSchedule)?.theme ?? null);
+  const shownTheme = seasonalId ?? scheduledTheme ?? theme;
+  const shownBundle = useMemo(() => {
+    if (seasonalId) {
+      return seasonalBundles[seasonalId] ?? null;
+    }
+    if (scheduledTheme) {
+      return scheduleBundles[scheduledTheme] ?? (scheduledTheme === theme ? bundleForTheme : null);
+    }
+    return bundleForTheme;
+  }, [seasonalId, seasonalBundles, scheduledTheme, theme, scheduleBundles, bundleForTheme]);
+
+  const seasonalThemeName =
+    (seasonalId && seasonalBundles[seasonalId]?.name) || null;
+  // While the seasonal theme is shown, its current day part is the only record
+  // with a picture: two seasonal pictures plus the schedule's and the display
+  // theme's exceed Safari's ~2.5M-character origin quota.
+  const seasonalShown = seasonalId !== null;
+  const seasonalShownRef = useRef(seasonalShown);
+  seasonalShownRef.current = seasonalShown;
 
   const t = useMemo(() => {
     const base = DICTS[locale];
@@ -333,16 +468,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       return;
     }
     root.dataset.theme = "office";
-    if (shownBundle) {
-      appliedTokensRef.current = applyThemeToRoot(root, shownBundle);
-      return;
+    const paint = (bundle: ThemeBundle) => {
+      appliedTokensRef.current = applyThemeToRoot(root, bundle);
+      return watchStillCanvas(root, bundle, bgMotion, (tok) => appliedTokensRef.current.push(tok));
+    };
+    if (shownBundle) return paint(shownBundle);
+    if (seasonalId) {
+      const cached = readValidatedSeasonalPaint(seasonalId);
+      return cached ? paint(cached) : undefined;
     }
-    if (seasonalWindow) {
-      const cached = readValidatedPaint(LS_SEASONAL_PAINT);
-      if (cached && cached.id === seasonalWindow.id) {
-        appliedTokensRef.current = applyThemeToRoot(root, cached);
-      }
-      return;
+    if (scheduledTheme) {
+      const cached = readValidatedSchedulePaint(scheduledTheme);
+      return cached ? paint(cached) : undefined;
     }
     // [T-1500] the bundle is unresolved AND reconcile has not spoken: keep
     // the cached picture standing (it is already on the DOM when the pre-React
@@ -350,21 +487,23 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     // paths where it did not run — dev, CT, a cold main.tsx).
     if (!themesLoaded) {
       const cached = readValidatedPaint();
-      if (cached && cached.id === theme) {
-        appliedTokensRef.current = applyThemeToRoot(root, cached);
-      }
+      if (cached && cached.id === theme) return paint(cached);
     }
-  }, [theme, shownTheme, shownBundle, seasonalWindow, themesLoaded]);
+  }, [theme, shownTheme, shownBundle, seasonalId, scheduledTheme, themesLoaded, bgMotion]);
 
   useEffect(() => {
-    const next = nextSeasonalBoundary(new Date(clock), SEASONAL_WINDOWS);
+    const now = new Date(clock);
+    const next = [
+      nextSeasonalBoundary(now, SEASONAL_WINDOWS),
+      nextScheduleBoundary(now, themeSchedule),
+    ].reduce<Date | null>((a, b) => (b && (!a || b < a) ? b : a), null);
     if (!next) return;
     const id = window.setTimeout(
       () => setClock(Date.now()),
       Math.min(next.getTime() - clock, MAX_TIMER_DELAY_MS)
     );
     return () => window.clearTimeout(id);
-  }, [clock]);
+  }, [clock, themeSchedule]);
 
   useEffect(() => {
     const reread = () => {
@@ -378,28 +517,91 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const seasonalBundlesRef = useRef(seasonalBundles);
+  seasonalBundlesRef.current = seasonalBundles;
+  const seasonalInFlight = useRef(new Set<string>());
+
+  // One record per day part seen in this window, so a later page load in any
+  // of them paints. Whole for the day part on screen, colours-only for the others seen (the
+  // next one's bundle is still prefetched into memory), none for other windows;
+  // all colours-only while the seasonal theme is not on screen, the window's
+  // first part prefetched before it opens included.
+  const writeSeasonalRecords = useCallback((w: LoadableSeasonalWindow) => {
+    const at = new Date(Math.max(Date.now(), w.start.getTime()));
+    const full = new Set(seasonalShownRef.current ? [seasonalPickAt(at, w).id] : []);
+    const records = tieredPaintRecords(
+      seasonalThemeIds(w),
+      full,
+      (id) => seasonalBundlesRef.current[id] ?? readValidatedSeasonalPaint(id)
+    );
+    if (!writeStored(LS_SEASONAL_PAINT, records.length ? JSON.stringify(records) : null)) {
+      writeStored(LS_SEASONAL_PAINT, null);
+    }
+  }, []);
+
+  // Loads the day part `pick` of window `w` once.
+  const loadSeasonalPick = useCallback(
+    (w: LoadableSeasonalWindow, pick: { id: string; file: string | undefined }) => {
+      if (seasonalBundlesRef.current[pick.id] || seasonalInFlight.current.has(pick.id)) return;
+      seasonalInFlight.current.add(pick.id);
+      w.load(pick.file)
+        .then((b) => {
+          if (b.id !== pick.id) throw new Error(`seasonal theme file carries id ${b.id}, not ${pick.id}`);
+          seasonalBundlesRef.current = { ...seasonalBundlesRef.current, [b.id]: b };
+          setSeasonalBundles(seasonalBundlesRef.current);
+          writeSeasonalRecords(w);
+        })
+        .catch((e) => {
+          console.warn("seasonal theme: load failed", e);
+          setSeasonalLoadFailedId(pick.id);
+        })
+        .finally(() => seasonalInFlight.current.delete(pick.id));
+    },
+    [writeSeasonalRecords]
+  );
   useEffect(() => {
-    if (!seasonalWindow) return;
-    let current = true;
-    seasonalWindow
-      .load()
-      .then((b) => {
-        if (!current || b.id !== seasonalWindow.id) return;
-        setSeasonalBundle(b);
-        writeStored(LS_SEASONAL_PAINT, JSON.stringify(paintRecordFor(b)));
-      })
-      .catch((e) => {
-        console.warn("seasonal theme: load failed", e);
-        if (current) setSeasonalLoadFailedId(seasonalWindow.id);
-      });
-    return () => {
-      current = false;
+    if (seasonalId && openSeasonalWindow && openSeasonalPick) {
+      loadSeasonalPick(openSeasonalWindow, openSeasonalPick);
+      if (seasonalBundlesRef.current[seasonalId]) writeSeasonalRecords(openSeasonalWindow);
+    }
+  }, [seasonalId]);
+
+  // The next day part is prefetched like the next schedule slot, and so is a
+  // window's first day part before the window opens.
+  useEffect(() => {
+    if (!seasonalTheme) return;
+    let w: LoadableSeasonalWindow | null;
+    let next: { at: Date; row: { start: string; theme: string } } | null;
+    if (openSeasonalWindow) {
+      w = openSeasonalWindow;
+      if (!seasonalId || !w.schedule?.length) return;
+      next = nextDayPart(new Date(clock), w.schedule);
+      if (!next || next.at.getTime() >= w.end.getTime()) return;
+    } else {
+      const at = nextSeasonalBoundary(new Date(clock), SEASONAL_WINDOWS);
+      w = at ? activeSeasonalWindow(at, SEASONAL_WINDOWS) : null;
+      const first = w && at ? seasonalPickAt(at, w) : null;
+      if (!w || !at || !first?.file) return;
+      next = { at, row: { start: "", theme: first.file } };
+    }
+    const pick = {
+      id: w.schedule?.length ? themeIdOfFile(next.row.theme) : w.id,
+      file: next.row.theme,
     };
-  }, [seasonalWindow]);
+    if (seasonalBundles[pick.id] || pick.id === seasonalLoadFailedId) return;
+    const lead = next.at.getTime() - SCHEDULE_PREFETCH_LEAD_MS - Date.now();
+    if (lead <= 0) {
+      loadSeasonalPick(w, pick);
+      return;
+    }
+    const timer = window.setTimeout(() => loadSeasonalPick(w, pick), Math.min(lead, MAX_TIMER_DELAY_MS));
+    return () => window.clearTimeout(timer);
+  }, [clock, seasonalTheme, seasonalId, openSeasonalWindow, seasonalBundles, seasonalLoadFailedId, loadSeasonalPick]);
 
   useEffect(() => {
     if (!openSeasonalWindow) {
-      setSeasonalBundle(null);
+      seasonalBundlesRef.current = {};
+      setSeasonalBundles({});
       writeStored(LS_SEASONAL_PAINT, null);
     }
   }, [openSeasonalWindow]);
@@ -413,6 +615,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     if (wide) root.dataset.layout = "wide";
     else delete root.dataset.layout;
   }, [wide]);
+
+  useEffect(() => {
+    document.documentElement.dataset.bgMotion = bgMotion;
+  }, [bgMotion]);
+
+  const setBgMotion = useCallback((next: BgMotion) => {
+    setBgMotionState(next);
+    writeStored(LS_BG_MOTION, next);
+  }, []);
 
   // Low-level cache writes: local state + the localStorage pre-auth cache, NO
   // server write. Shared by the public setters (which add the server PATCH), the
@@ -468,7 +679,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // longer held in full — and the thing being cached was always the active
   // bundle, so passing it directly removes the lookup rather than hiding it.
   const writePaint = useCallback((b: ThemeBundle | null) => {
-    writeStored(LS_THEME_PAINT, b ? JSON.stringify(paintRecordFor(b)) : null);
+    const rec = b && (seasonalShownRef.current ? colourPaintRecordFor(b) : paintRecordFor(b));
+    if (!writeStored(LS_THEME_PAINT, rec ? JSON.stringify(rec) : null)) {
+      writeStored(LS_THEME_PAINT, null);
+    }
   }, []);
 
   const cacheTheme = useCallback((next: string) => {
@@ -507,6 +721,131 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     writeStored(LS_SEASONAL_THEME, next ? "true" : "false");
   }, []);
 
+  const cacheThemeSchedule = useCallback((next: ThemeScheduleEntry[]) => {
+    setThemeScheduleState(next);
+    themeScheduleRef.current = next;
+    // `clock` may be hours old on a page with no pending boundary.
+    setClock(Date.now());
+    writeStored(LS_THEME_SCHEDULE, next.length ? JSON.stringify(next) : null);
+  }, []);
+
+  // A theme whose fetch failed keeps the record already cached for it: writing
+  // without it would hand the next page load a flash.
+  const adoptScheduleBundles = useCallback(
+    (schedule: ThemeScheduleEntry[], bundles: Record<string, ThemeBundle>) => {
+      setScheduleBundles(bundles);
+      scheduleBundlesRef.current = bundles;
+      const now = new Date();
+      const full = new Set(
+        seasonalShownRef.current
+          ? []
+          : [activeScheduleEntry(now, schedule)?.theme, nextDayPart(now, schedule)?.row.theme].filter(
+              (id): id is string => !!id
+            )
+      );
+      const records = tieredPaintRecords(
+        scheduledCustomThemes(schedule),
+        full,
+        (id) => bundles[id] ?? readValidatedSchedulePaint(id)
+      );
+      // The display theme is not on screen while a schedule is on, so its
+      // picture would only be a second copy of a slot's.
+      if (schedule.length) writeStored(LS_THEME_PAINT, null);
+      // A refused write (storage full) leaves the previous records standing,
+      // which may predate the last edit: the next pre-paint would draw the old
+      // colours. Drawing nothing is the lesser flash.
+      if (!writeStored(LS_SCHEDULE_PAINT, records.length ? JSON.stringify(records) : null)) {
+        writeStored(LS_SCHEDULE_PAINT, null);
+      }
+    },
+    []
+  );
+
+  /** The bundles already in hand that `schedule` still names, plus the one its
+   * slot shows now when that needs fetching. Only the current slot is fetched
+   * here; the next one is prefetched shortly before its start (below). */
+  const loadScheduleBundles = useCallback(async (schedule: ThemeScheduleEntry[]) => {
+    const ids = scheduledCustomThemes(schedule);
+    const bundles: Record<string, ThemeBundle> = {};
+    for (const id of ids) {
+      const held = scheduleBundlesRef.current[id];
+      if (held) bundles[id] = held;
+    }
+    const now = activeScheduleEntry(new Date(), schedule)?.theme;
+    if (now && ids.includes(now) && !bundles[now]) {
+      try {
+        const b = await fetchThemeBundle(now);
+        if (b.id === now) bundles[now] = b;
+      } catch (e) {
+        console.warn("theme schedule: bundle load failed", e);
+      }
+    }
+    return bundles;
+  }, []);
+
+  const scheduleInFlight = useRef(new Set<string>());
+  /** Fetch one scheduled theme into the held set, keeping its paint record. */
+  const loadScheduleBundle = useCallback(
+    (id: string) => {
+      if (scheduleBundlesRef.current[id] || scheduleInFlight.current.has(id)) return;
+      const schedule = themeScheduleRef.current;
+      if (!scheduledCustomThemes(schedule).includes(id)) return;
+      const active = activeThemeBundleRef.current;
+      if (active && active.id === id) {
+        adoptScheduleBundles(schedule, { ...scheduleBundlesRef.current, [id]: active });
+        return;
+      }
+      scheduleInFlight.current.add(id);
+      fetchThemeBundle(id)
+        .then((b) => {
+          // Compared by content: a re-read delivers an equal schedule as a new
+          // array, and dropping this fetch for it would leave the slot unloaded.
+          if (b.id !== id || JSON.stringify(themeScheduleRef.current) !== JSON.stringify(schedule)) return;
+          adoptScheduleBundles(schedule, { ...scheduleBundlesRef.current, [id]: b });
+        })
+        .catch((e) => console.warn("theme schedule: bundle load failed", e))
+        .finally(() => scheduleInFlight.current.delete(id));
+    },
+    [adoptScheduleBundles]
+  );
+
+  // The slot on screen loads when it is reached (open, reconcile, wake,
+  // boundary); until it lands the apply effect paints its cached record.
+  useEffect(() => {
+    if (scheduledTheme) loadScheduleBundle(scheduledTheme);
+  }, [scheduledTheme, activeThemeBundle, themeSchedule, loadScheduleBundle]);
+
+  // As the slot moves, the slot left behind keeps only its colours.
+  useEffect(() => {
+    if (scheduledTheme && scheduleBundlesRef.current[scheduledTheme]) {
+      adoptScheduleBundles(themeScheduleRef.current, scheduleBundlesRef.current);
+    }
+  }, [scheduledTheme, adoptScheduleBundles]);
+
+  // The next slot is fetched SCHEDULE_PREFETCH_LEAD_MS before its start (at
+  // once when the page opens inside that lead), so the switch needs no fetch.
+  useEffect(() => {
+    const now = new Date(clock);
+    // While the seasonal theme shows, the next thing the schedule shows is the
+    // slot current when the window ends.
+    const next = seasonalId
+      ? openSeasonalWindow && {
+          at: openSeasonalWindow.end,
+          row: activeScheduleEntry(openSeasonalWindow.end, themeSchedule),
+        }
+      : nextDayPart(now, themeSchedule);
+    if (!next?.row) return;
+    const id = next.row.theme;
+    if (!scheduledCustomThemes(themeSchedule).includes(id) || scheduleBundles[id]) return;
+    const lead = next.at.getTime() - SCHEDULE_PREFETCH_LEAD_MS - Date.now();
+    if (lead <= 0) {
+      loadScheduleBundle(id);
+      return;
+    }
+    const timer = window.setTimeout(() => loadScheduleBundle(id), Math.min(lead, MAX_TIMER_DELAY_MS));
+    return () => window.clearTimeout(timer);
+  }, [clock, themeSchedule, scheduleBundles, seasonalId, openSeasonalWindow, loadScheduleBundle]);
+
   // Public setters (owner edits from ProfileDropdown): apply locally at once
   // (instant, and the pre-auth cache for next load) AND push to the server so
   // the choice syncs to the owner's other devices. Server sync is best-effort:
@@ -518,14 +857,80 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     (next: Language) => {
       cacheLanguage(next);
       if (hasToken()) {
-        api
-          .patchServerSettings({ displayLanguage: next })
+        trackWrite(() => api.patchServerSettings({ displayLanguage: next }))
           .then(adoptServerSettings) // shared snapshot (T-8115)
           .catch((e) => console.warn("setLanguage: server sync failed", e));
       }
     },
     [cacheLanguage]
   );
+
+  const displayShown = !seasonalId && !scheduledTheme;
+  const displayShownRef = useRef(displayShown);
+  displayShownRef.current = displayShown;
+  const displayInFlight = useRef<string | null>(null);
+
+  /** Fetch display_theme's bundle — only ever while it is the theme on screen,
+   * so a schedule slot or seasonal row never pays for it too. Resolves once
+   * settled, failure included. */
+  const loadDisplayBundle = useCallback(
+    async (id: string) => {
+      if (displayInFlight.current === id) return;
+      displayInFlight.current = id;
+      try {
+        const b = await fetchThemeBundle(id);
+        // Ignore a fetch that lost a race to a later switch: writePaint would
+        // cache a picture of a theme the owner is not on, and the next cold
+        // load would paint it before React mounts.
+        if (themeRef.current !== id) return;
+        setActiveThemeBundle(b);
+        // A schedule may have come on while it loaded (reconcile); then this
+        // picture would only duplicate a slot's.
+        if (displayShownRef.current) writePaint(b);
+      } catch (e) {
+        console.warn("display theme: bundle load failed", e);
+      } finally {
+        if (displayInFlight.current === id) displayInFlight.current = null;
+      }
+    },
+    [writePaint]
+  );
+
+  // Re-tier every paint record when the seasonal theme comes on screen (window
+  // open, page load mid-window with older whole records stored, turned on) or
+  // leaves it (window end, turned off, its day part failed to load). The side
+  // losing pictures is written first, so the other side's write has the room;
+  // the seasonal records are rewritten after, as an earlier write of them may
+  // have been refused for want of it.
+  useEffect(() => {
+    const held = activeThemeBundleRef.current;
+    const display = held && held.id === themeRef.current ? held : null;
+    const schedule = themeScheduleRef.current;
+    // An empty schedule may only be the cache before reconcile: adopting it
+    // would drop records reconcile is about to keep.
+    const retierSchedule = () => {
+      if (schedule.length) adoptScheduleBundles(schedule, scheduleBundlesRef.current);
+    };
+    if (seasonalShown) {
+      retierSchedule();
+      const cached = schedule.length ? null : (display ?? readValidatedPaint());
+      if (cached) writePaint(cached);
+      if (openSeasonalWindow) writeSeasonalRecords(openSeasonalWindow);
+      return;
+    }
+    if (openSeasonalWindow) writeSeasonalRecords(openSeasonalWindow);
+    retierSchedule();
+    if (display && displayShownRef.current) writePaint(display);
+  }, [seasonalShown, openSeasonalWindow, adoptScheduleBundles, writePaint, writeSeasonalRecords]);
+
+  // display_theme coming on screen with its bundle not in hand (the schedule
+  // turned off, a seasonal window ending): fetch it now.
+  useEffect(() => {
+    if (!displayShown || isBuiltinTheme(theme) || bundleForTheme) return;
+    if (!themesLoaded && !isBundledBuiltinTheme(theme)) return;
+    if (!isBundledBuiltinTheme(theme) && !themeList.some((x) => x.id === theme)) return;
+    void loadDisplayBundle(theme);
+  }, [displayShown, theme, bundleForTheme, themesLoaded, themeList, loadDisplayBundle]);
 
   // [T-83ef] Switching theme now has to FETCH the chosen bundle: the provider no
   // longer holds every bundle, only the active one. The id is cached first and
@@ -541,33 +946,26 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         writePaint(null);
       }
       if (hasToken()) {
-        api
-          .patchServerSettings({ displayTheme: next })
+        trackWrite(() => api.patchServerSettings({ displayTheme: next }))
           .then(adoptServerSettings) // shared snapshot (T-8115)
           .catch((e) => console.warn("setTheme: server sync failed", e));
-        if (!isBuiltinTheme(next)) {
-          api
-            .getTheme(next)
-            .then((b) => {
-              // Ignore a fetch that lost a race to a later switch — otherwise a
-              // slow response could repaint a theme the owner already left.
-              if (themeRef.current !== next) return;
-              setActiveThemeBundle(b);
-              writePaint(b);
-            })
-            .catch((e) => console.warn("setTheme: bundle load failed", e));
-        }
+      }
+      if (
+        !isBuiltinTheme(next) &&
+        displayShownRef.current &&
+        (hasToken() || isBundledBuiltinTheme(next))
+      ) {
+        void loadDisplayBundle(next);
       }
     },
-    [cacheTheme, writePaint]
+    [cacheTheme, writePaint, loadDisplayBundle]
   );
 
   const setWide = useCallback(
     (next: boolean) => {
       cacheWide(next);
       if (hasToken()) {
-        api
-          .patchServerSettings({ displayWide: next })
+        trackWrite(() => api.patchServerSettings({ displayWide: next }))
           .then(adoptServerSettings) // shared snapshot (T-8115)
           .catch((e) => console.warn("setWide: server sync failed", e));
       }
@@ -579,8 +977,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     (next: boolean) => {
       cacheSeasonalTheme(next);
       if (hasToken()) {
-        api
-          .patchServerSettings({ displaySeasonalTheme: next })
+        trackWrite(() => api.patchServerSettings({ displaySeasonalTheme: next }))
           .then(adoptServerSettings)
           .catch((e) => console.warn("setSeasonalTheme: server sync failed", e));
       }
@@ -588,17 +985,49 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [cacheSeasonalTheme]
   );
 
+  const setThemeSchedule = useCallback(
+    (next: ThemeScheduleEntry[]) =>
+      trackWrite(async () => {
+        const s = await api.patchServerSettings({ displayThemeSchedule: next });
+        adoptServerSettings(s);
+        const bundles = await loadScheduleBundles(s.displayThemeSchedule);
+        cacheThemeSchedule(s.displayThemeSchedule);
+        adoptScheduleBundles(s.displayThemeSchedule, bundles);
+        return s.displayThemeSchedule;
+      }),
+    [trackWrite, loadScheduleBundles, cacheThemeSchedule, adoptScheduleBundles]
+  );
+
+  const restoreDefaultAppearance = useCallback(() => trackWrite(async () => {
+    const s = await api.patchServerSettings({
+      displayTheme: DEFAULT_DISPLAY_THEME,
+      displayThemeSchedule: [...DEFAULT_THEME_SCHEDULE],
+      displaySeasonalTheme: true,
+    });
+    adoptServerSettings(s);
+    const bundles = await loadScheduleBundles(s.displayThemeSchedule);
+    cacheSeasonalTheme(s.displaySeasonalTheme);
+    cacheThemeSchedule(s.displayThemeSchedule);
+    adoptScheduleBundles(s.displayThemeSchedule, bundles);
+    cacheTheme(s.displayTheme);
+    // The schedule is on screen, not display_theme: its bundle is fetched when
+    // it is shown (the display-bundle effect), not now.
+    setActiveThemeBundle(bundles[s.displayTheme] ?? null);
+    setBgMotion("auto");
+    return s.displayThemeSchedule;
+  }), [trackWrite, loadScheduleBundles, cacheSeasonalTheme, cacheThemeSchedule, adoptScheduleBundles, cacheTheme, setBgMotion]);
+
   // [T-83ef] The whole-set write is GONE. It re-sent every theme, with every
   // embedded image, to change one colour — that is the cost this ticket exists
   // to remove, and there is no per-theme door it could keep using.
 
   /** Fetch ONE theme in full. Editing and exporting are the only things that
    * need a bundle, and they are always about one theme. */
-  const loadTheme = useCallback((id: string) => api.getTheme(id), []);
+  const loadTheme = useCallback((id: string) => fetchThemeBundle(id), []);
 
   const saveTheme = useCallback(
     async (bundle: ThemeBundle) => {
-      await api.putTheme(bundle);
+      await trackWrite(() => api.putTheme(bundle));
       // The list carries the NAME, so a rename has to land here too. A replace
       // keeps its position (the server does not move an edited theme to the
       // bottom); a create appends, which is the position the server gives it.
@@ -615,12 +1044,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         setActiveThemeBundle(bundle);
         writePaint(bundle);
       }
+      if (scheduledCustomThemes(themeScheduleRef.current).includes(bundle.id)) {
+        adoptScheduleBundles(themeScheduleRef.current, {
+          ...scheduleBundlesRef.current,
+          [bundle.id]: bundle,
+        });
+      }
     },
-    [writePaint]
+    [trackWrite, writePaint, adoptScheduleBundles]
   );
 
   const removeTheme = useCallback(
-    async (id: string) => {
+    (id: string) => trackWrite(async () => {
       const result = await api.deleteTheme(id);
       setThemeList((prev) => prev.filter((x) => x.id !== id));
       // ⚠️ The server stores "" for the reset and the cockpit shows the default built-in (office).
@@ -635,22 +1070,31 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         setActiveThemeBundle(null);
         writePaint(null);
       }
-    },
-    [cacheTheme, writePaint]
+      if (result.displayThemeSchedule) {
+        const kept = { ...scheduleBundlesRef.current };
+        delete kept[id];
+        cacheThemeSchedule(result.displayThemeSchedule);
+        adoptScheduleBundles(result.displayThemeSchedule, kept);
+      }
+    }),
+    [trackWrite, cacheTheme, writePaint, cacheThemeSchedule, adoptScheduleBundles]
   );
 
-  // Login reconcile (server = cross-device truth): pull /api/settings and adopt
+  // Login and `settings`-delta reconcile (server = cross-device truth;
+  // `fresh` bypasses the shared settings cache): pull /api/settings and adopt
   // a real, valid display pref that the server has stored, writing it back to
   // the localStorage cache so the NEXT pre-auth first paint is already correct.
   // "" (never set) or an unreachable/failing load keeps the cache showing — a
   // failed load must never masquerade as "reset to default". Applying an equal
   // value is a React state no-op, so the common (cache == server) case does not
   // repaint — no flash.
-  const reconcileFromServer = useCallback(() => {
+  const reconcileFromServer = useCallback((fresh = false) => {
+    const epoch = writeEpochRef.current;
     // Both faces at once: settings still owns WHICH theme is active, the theme
     // resource now owns what themes there are.
-    Promise.all([loadServerSettings(), api.listThemes()])
+    Promise.all([fresh ? refreshServerSettings() : loadServerSettings(), api.listThemes()])
       .then(([s, list]) => {
+        if (readCrossedWrite(epoch)) return;
         // [T-83ef] The set arrives as ONE LINE EACH; the bundles are fetched
         // per theme. Only ONE bundle is ever needed to paint — the active one —
         // so this is two small requests instead of one that carried every image
@@ -673,6 +1117,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         // wide OFF on one device and have the others follow.
         cacheWide(s.displayWide);
         cacheSeasonalTheme(s.displaySeasonalTheme);
+        const schedule = s.displayThemeSchedule;
+        cacheThemeSchedule(schedule);
+        const held = scheduledCustomThemes(schedule).filter((id) => scheduleBundlesRef.current[id]);
+        adoptScheduleBundles(
+          schedule,
+          Object.fromEntries(held.map((id) => [id, scheduleBundlesRef.current[id]]))
+        );
         // [T-1500] never leave a picture the server no longer recognises.
         // The active id AFTER this reconcile: the server's when selectable,
         // else the local one that survived above.
@@ -687,42 +1138,78 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         // No ref fix-up needed here: whichever branch above settled `active`
         // either called cacheTheme (which moves the ref with the decision) or
         // kept themeRef.current itself.
-        if (isBuiltinTheme(active) || !ids.has(active)) {
+        if (isBuiltinTheme(active) || (!ids.has(active) && !isBundledBuiltinTheme(active))) {
           setActiveThemeBundle(null);
           writePaint(null);
           setThemesLoaded(true);
           return;
         }
-        return api.getTheme(active).then((b) => {
-          // Same guard `setTheme` carries, for the same reason and it was
-          // missing here: reconcile fires on login/reload, so its fetch is in
-          // flight while the owner is free to pick a different theme. Without
-          // this, the slower of the two answers wins — and the damage outlives
-          // the moment, because writePaint would cache a picture of a theme the
-          // owner is not on and the NEXT cold load would paint it before React
-          // mounts. Two paths fetch one bundle; one of them having the guard is
-          // not the same as the guard existing.
-          if (themeRef.current !== active) {
-            setThemesLoaded(true);
-            return;
-          }
-          setActiveThemeBundle(b);
-          writePaint(b);
+        const now = new Date();
+        const shownNow =
+          !(s.displaySeasonalTheme && activeSeasonalWindow(now, SEASONAL_WINDOWS)) &&
+          !activeScheduleEntry(now, schedule);
+        if (!shownNow) {
+          // Fetched once it is on screen (the display-bundle effect).
+          if (activeThemeBundleRef.current?.id !== active) setActiveThemeBundle(null);
           setThemesLoaded(true);
-        });
+          return;
+        }
+        // A delta re-read keeps the bundle in hand: no delta announces an edit
+        // to a theme's content, and this tab's own echo must not re-download it.
+        if (fresh && activeThemeBundleRef.current?.id === active) {
+          setThemesLoaded(true);
+          return;
+        }
+        return loadDisplayBundle(active).then(() => setThemesLoaded(true));
       })
       .catch((e) => console.warn("i18n reconcile: load failed", e));
-  }, [cacheTheme, cacheLanguage, cacheWide, cacheSeasonalTheme, writePaint]);
+  }, [
+    readCrossedWrite,
+    cacheTheme,
+    cacheLanguage,
+    cacheWide,
+    cacheSeasonalTheme,
+    cacheThemeSchedule,
+    adoptScheduleBundles,
+    writePaint,
+    loadDisplayBundle,
+  ]);
+  rereadRef.current = () => reconcileFromServer(true);
+
+  const refreshThemeList = useCallback(() => {
+    if (!hasToken()) return;
+    const epoch = writeEpochRef.current;
+    api
+      .listThemes()
+      .then((list) => {
+        if (readCrossedWrite(epoch)) return;
+        setThemeList(list);
+      })
+      .catch((e) => console.warn("theme list: reload failed", e));
+  }, [readCrossedWrite]);
 
   useEffect(() => {
     // Reconcile now if a token already exists (a returning session / reload
     // lands straight on the app wall), and again the instant one is minted (a
     // fresh login fires oc-auth-login from setToken). /api/settings is
-    // owner-gated, so this is the earliest the server value is reachable.
-    if (hasToken()) reconcileFromServer();
-    const onLogin = () => reconcileFromServer();
-    window.addEventListener(AUTH_LOGIN_EVENT, onLogin);
-    return () => window.removeEventListener(AUTH_LOGIN_EVENT, onLogin);
+    // owner-gated, so this is the earliest the server value is reachable. A
+    // `settings` delta (another tab or device saved, or the resync after a
+    // connection gap) reads it again. The subscription is taken at the same two
+    // moments because without a token it is a no-op.
+    let unsubscribe = () => {};
+    const follow = () => {
+      reconcileFromServer();
+      unsubscribe();
+      unsubscribe = api.subscribeEvents((topic) => {
+        if (topic === "settings" && hasToken()) reconcileFromServer(true);
+      });
+    };
+    if (hasToken()) follow();
+    window.addEventListener(AUTH_LOGIN_EVENT, follow);
+    return () => {
+      window.removeEventListener(AUTH_LOGIN_EVENT, follow);
+      unsubscribe();
+    };
   }, [reconcileFromServer]);
 
   const resetPreferences = useCallback(() => {
@@ -735,12 +1222,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     writeStored(LS_THEME_PAINT, null);
     cacheWide(false);
     cacheSeasonalTheme(true);
+    cacheThemeSchedule([]);
+    adoptScheduleBundles([], {});
     // The themes are server-backed — clear only the LOCAL mirror so the next
     // owner's paint is not tinted; the server copy is untouched (re-adopted at
     // that owner's reconcile).
     setThemeList([]);
     setActiveThemeBundle(null);
-  }, [cacheLanguage, cacheTheme, cacheWide, cacheSeasonalTheme]);
+  }, [cacheLanguage, cacheTheme, cacheWide, cacheSeasonalTheme, cacheThemeSchedule, adoptScheduleBundles]);
 
   const value = useMemo<I18nContextValue>(
     () => ({
@@ -755,6 +1244,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setWide,
       seasonalTheme,
       setSeasonalTheme,
+      bgMotion,
+      setBgMotion,
+      themeSchedule,
+      setThemeSchedule,
+      restoreDefaultAppearance,
+      scheduledTheme,
+      seasonalThemeName,
+      shownTheme,
+      shownThemeBundle: shownBundle,
       activeAvatars,
       activeLogo,
       activeNavIcons,
@@ -763,6 +1261,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       loadTheme,
       saveTheme,
       removeTheme,
+      refreshThemeList,
       resetPreferences,
     }),
     [
@@ -777,6 +1276,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setWide,
       seasonalTheme,
       setSeasonalTheme,
+      bgMotion,
+      setBgMotion,
+      themeSchedule,
+      setThemeSchedule,
+      restoreDefaultAppearance,
+      scheduledTheme,
+      seasonalThemeName,
+      shownTheme,
+      shownBundle,
       activeAvatars,
       activeLogo,
       activeNavIcons,
@@ -785,6 +1293,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       loadTheme,
       saveTheme,
       removeTheme,
+      refreshThemeList,
       resetPreferences,
     ]
   );

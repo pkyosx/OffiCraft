@@ -67,6 +67,8 @@ const OWNED_SHEETS = [
   // The task card's 到期日 popover borrows the ✓ / ✗ icon buttons.
   "inline-edit.css",
   "chat-groups.css",
+  // The 顯示方式 button sits on both list pages.
+  "display-options.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the

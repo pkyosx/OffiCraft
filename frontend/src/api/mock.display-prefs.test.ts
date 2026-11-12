@@ -17,9 +17,9 @@ import { ApiError } from "./errors";
 describe("mock settings — display prefs (display_theme / display_language)", () => {
   beforeEach(() => __resetMock());
 
-  it("defaults both display prefs to \"\"", async () => {
+  it("starts like a fresh server: the desk display theme, and language \"\"", async () => {
     const s = await mockApi.getServerSettings();
-    expect(s.displayTheme).toBe("");
+    expect(s.displayTheme).toBe("modern-office-desk-day");
     expect(s.displayLanguage).toBe("");
   });
 
@@ -40,7 +40,7 @@ describe("mock settings — display prefs (display_theme / display_language)", (
       mockApi.patchServerSettings({ displayTheme: "neon" })
     ).rejects.toBeInstanceOf(ApiError);
     const s = await mockApi.getServerSettings();
-    expect(s.displayTheme).toBe(""); // unchanged
+    expect(s.displayTheme).toBe("modern-office-desk-day"); // unchanged
   });
 
   it("422s an out-of-enum display_language, writing nothing", async () => {
@@ -100,6 +100,33 @@ describe("mock settings — display prefs (display_theme / display_language)", (
     s = await mockApi.patchServerSettings({ displaySeasonalTheme: true });
     expect(s.displaySeasonalTheme).toBe(true);
     expect((await mockApi.getServerSettings()).displaySeasonalTheme).toBe(true);
+  });
+
+  it("PATCHes display_theme_schedule, reads it back sorted, and refuses one the server would refuse", async () => {
+    await mockApi.putTheme({ id: "dusk", name: "Dusk", colors: { "--color-bg": "#101418" } });
+    const s = await mockApi.patchServerSettings({
+      displayThemeSchedule: [
+        { start: "19:00", theme: "dusk" },
+        { start: "07:00", theme: "office-light" },
+      ],
+    });
+    const sorted = [
+      { start: "07:00", theme: "office-light" },
+      { start: "19:00", theme: "dusk" },
+    ];
+    expect(s.displayThemeSchedule).toEqual(sorted);
+    expect((await mockApi.getServerSettings()).displayThemeSchedule).toEqual(sorted);
+
+    for (const bad of [
+      [{ start: "07:00", theme: "office" }],
+      [{ start: "07:00", theme: "office" }, { start: "07:00", theme: "dusk" }],
+      [{ start: "07:00", theme: "office" }, { start: "19:00", theme: "ghost" }],
+    ]) {
+      await expect(mockApi.patchServerSettings({ displayThemeSchedule: bad })).rejects.toMatchObject({
+        status: 422,
+      });
+    }
+    expect((await mockApi.getServerSettings()).displayThemeSchedule).toEqual(sorted);
   });
 
   it("leaves display_wide and display_seasonal_theme alone when the patch omits them (PATCH semantics)", async () => {

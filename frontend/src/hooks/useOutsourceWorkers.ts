@@ -37,6 +37,7 @@ import type { OutsourceWorkerView } from "../api/adapter";
 import { api } from "../api";
 import { createDeltaSink, narrowToHeld } from "../lib/deltaSink";
 import { burstMovesNoOwnerUnread } from "../lib/ownerUnread";
+import { createRosterReadOrder } from "../lib/rosterReadOrder";
 import {
   adoptServerSettings,
   loadServerSettings,
@@ -91,16 +92,22 @@ export function useOutsourceWorkers(): UseOutsourceWorkers {
   // Which worker ids are on screen, readable from the SSE callback without a
   // stale-closure state read. Membership only — values come from the server.
   const heldRef = useRef<Set<string>>(new Set());
+  const [readOrder] = useState(() =>
+    createRosterReadOrder<OutsourceWorkerView>()
+  );
 
   // ONE full refetch path: the workers list carries everything the rows render,
   // so there is nothing left for a delta-specific cheaper variant to skip —
   // beyond re-reading a SINGLE row, which is what patchOne below does.
   const refetch = useCallback(async () => {
+    const read = readOrder.begin();
     const next = sortWorkers(await api.listOutsourceWorkers());
+    const update = readOrder.landList(read, next);
+    if (update === null) return;
     heldRef.current = new Set(next.map((w) => w.id));
-    setWorkers(next);
+    setWorkers(update);
     setError(false);
-  }, []);
+  }, [readOrder]);
 
   useEffect(() => {
     let alive = true;
@@ -108,7 +115,7 @@ export function useOutsourceWorkers(): UseOutsourceWorkers {
     refetch()
       .catch((e) => {
         console.warn("useOutsourceWorkers: initial load failed", e);
-        if (alive) setError(true);
+        if (alive && !readOrder.listHasLanded()) setError(true);
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -125,21 +132,21 @@ export function useOutsourceWorkers(): UseOutsourceWorkers {
     // Re-read exactly the named rows, in place. The order is the bound task's
     // created_ts and these topics cannot change it, so no re-sort is needed —
     // and must not happen, or a row would jump for a badge change.
-    const patchOne = (ids: string[]) =>
-      Promise.all(ids.map((id) => api.getOutsourceWorker(id)))
+    const patchOne = (ids: string[]) => {
+      const read = readOrder.begin();
+      return Promise.all(ids.map((id) => api.getOutsourceWorker(id)))
         .then((fresh) => {
           if (!alive) return;
-          setWorkers((prev) =>
-            prev.map((w) => fresh.find((f) => f.id === w.id) ?? w)
-          );
+          setWorkers(readOrder.landRows(read, fresh));
           setError(false);
         })
         .catch((e) => {
           console.warn("useOutsourceWorkers: worker refetch failed", e);
           return refetch().catch(() => {});
         });
+    };
 
-    // ONE decision per burst of deltas: a resync fans 14 topics synchronously
+    // ONE decision per burst of deltas: a resync fans every topic synchronously
     // and this hook listens to four of them — that used to be four identical
     // list re-pulls for one reconnect.
     const unsubscribe = api.subscribeEvents(
@@ -181,7 +188,7 @@ export function useOutsourceWorkers(): UseOutsourceWorkers {
       alive = false;
       unsubscribe();
     };
-  }, [refetch]);
+  }, [refetch, readOrder]);
 
   const saveMaxParallel = useCallback(async (n: number) => {
     const next = await api.patchServerSettings({ outsourceMaxParallel: n });

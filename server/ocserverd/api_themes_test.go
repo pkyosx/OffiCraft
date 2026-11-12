@@ -4,9 +4,12 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -328,7 +331,7 @@ func TestHandlePutThemeApiThemesThemeIdPut(t *testing.T) {
 		apiThemeList(t, h, owner)
 	})
 
-	for _, id := range []string{"office", "office-light"} {
+	for _, id := range []string{"office", "office-light", "modern-office-desk-day", "modern-office-desk-dusk", "modern-office-desk-night"} {
 		t.Run("built-in theme id "+id+" cannot be claimed by a custom bundle", func(t *testing.T) {
 			api, h, _, owner := newAPITestServer(t)
 			dashboard := apiTestListen(t, api, "")
@@ -484,6 +487,238 @@ func TestHandlePutThemeApiThemesThemeIdPut(t *testing.T) {
 	}
 }
 
+func apiThemeFile(t *testing.T, d *DAL, id, content string) string {
+	t.Helper()
+	name := "theme.json"
+	if err := d.PutChatAttachment(ChatAttachment{ID: id, Mime: "application/json",
+		Data: []byte(content), Filename: &name}); err != nil {
+		t.Fatalf("PutChatAttachment(%s): %v", id, err)
+	}
+	return id
+}
+
+func apiImportBody(attachmentID string) string {
+	return `{"attachment_id":` + strconv.Quote(attachmentID) + `}`
+}
+
+// apiLargeThemeBundle is a legal bundle past 1.6 MB: one background at its 1 MiB
+// cap plus three avatars at their 64 KiB cap.
+func apiLargeThemeBundle(t *testing.T) (string, map[string]any) {
+	t.Helper()
+	png := func(size int) string {
+		raw := make([]byte, size)
+		copy(raw, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A})
+		return "data:image/png;base64," + base64.StdEncoding.EncodeToString(raw)
+	}
+	want := map[string]any{
+		"id": "harvest", "name": "Harvest",
+		"colors":          map[string]any{"--color-bg": "#101418"},
+		"backgrounds":     map[string]any{"canvas": png(1 << 20)},
+		"backgroundModes": map[string]any{"canvas": "cover"},
+		"avatars": map[string]any{
+			"staff": png(64 << 10), "outsource": png(64 << 10), "owner": png(64 << 10),
+		},
+	}
+	raw, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) < 1600*1000 {
+		t.Fatalf("bundle is only %d bytes, want past 1.6 MB", len(raw))
+	}
+	return string(raw), want
+}
+
+func TestHandleImportThemeApiThemesImportPost(t *testing.T) {
+	const small = `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`
+
+	t.Run("a 1.6 MB file imports by id alone, the receipt carries no theme content, and it reads back identical", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+		content, want := apiLargeThemeBundle(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/themes/import", admin,
+			apiImportBody(apiThemeFile(t, d, "att-000000000a01", content)))
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "harvest", "created": true, "order_idx": 0, "updated_at": apiAnyNumber,
+		})
+		dashboard.wantFrames()
+
+		_, stored := apiJSON(t, h, "GET", "/api/themes/harvest", admin, "")
+		apiWantBody(t, stored, want)
+	})
+
+	t.Run("the owner can import, and the uploaded file stays in the attachment store", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		id := apiThemeFile(t, d, "att-000000000a02", small)
+
+		if status, data := apiJSON(t, h, "POST", "/api/themes/import", owner, apiImportBody(id)); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		att, err := d.GetChatAttachment(id)
+		if err != nil || att == nil || string(att.Data) != small {
+			t.Fatalf("attachment after import: %+v, %v", att, err)
+		}
+	})
+
+	t.Run("a file naming a saved theme replaces it in place, keeps its list position and says it was not created", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiPutTheme(t, h, owner, "dusk", small)
+		apiPutTheme(t, h, owner, "dawn", `{"id":"dawn","name":"Dawn","colors":{"--color-bg":"#fffdf7"}}`)
+		id := apiThemeFile(t, d, "att-000000000a03", `{"id":"dusk","name":"Dusk II","colors":{"--color-bg":"#000000"}}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/themes/import", owner, apiImportBody(id))
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "dusk", "created": false, "order_idx": 0, "updated_at": apiAnyNumber,
+		})
+		apiThemeList(t, h, owner,
+			map[string]any{"id": "dusk", "name": "Dusk II"},
+			map[string]any{"id": "dawn", "name": "Dawn"},
+		)
+	})
+
+	t.Run("an unknown wording code is dropped and the known code is kept", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		id := apiThemeFile(t, d, "att-000000000a04", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"},`+
+			`"wording":{"zh":{"nav.tasks":"Quests","no.such.code":"gone"}}}`)
+
+		if status, data := apiJSON(t, h, "POST", "/api/themes/import", owner, apiImportBody(id)); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		_, stored := apiJSON(t, h, "GET", "/api/themes/dusk", owner, "")
+		apiWantBody(t, stored, map[string]any{
+			"id": "dusk", "name": "Dusk", "colors": map[string]any{"--color-bg": "#101418"},
+			"wording": map[string]any{"zh": map[string]any{"nav.tasks": "Quests"}},
+		})
+	})
+
+	t.Run("spaces around the attachment id are ignored", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		id := apiThemeFile(t, d, "att-000000000a06", small)
+
+		if status, data := apiJSON(t, h, "POST", "/api/themes/import", owner, apiImportBody("  "+id+" ")); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiThemeList(t, h, owner, map[string]any{"id": "dusk", "name": "Dusk"})
+	})
+
+	t.Run("a file exactly at the size limit imports", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		content := small + strings.Repeat(" ", int(themeFileMaxBytes)-len(small))
+		id := apiThemeFile(t, d, "att-000000000a05", content)
+
+		if status, data := apiJSON(t, h, "POST", "/api/themes/import", owner, apiImportBody(id)); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+	})
+
+	refused := []struct {
+		name, content, attachmentID string
+		status                      int
+		code, message               string
+	}{
+		{name: "an id naming no file answers 400", attachmentID: "att-000000000bad", status: 400, code: "validation_error",
+			message: "attachment 'att-000000000bad' not found (upload it first with ocagent upload)"},
+		{name: "a member avatar id answers 400 even though that blob exists", attachmentID: "ava-000000000b02", content: small, status: 400, code: "validation_error",
+			message: "attachment 'ava-000000000b02' is reserved for a member avatar"},
+		{name: "one byte over the size limit answers 422", attachmentID: "att-000000000b03",
+			content: small + strings.Repeat(" ", int(1<<22)-len(small)+1), status: 422, code: "validation_error",
+			message: "that file is larger than the 4194304-byte limit for a theme"},
+		{name: "a file that is not JSON answers 422", attachmentID: "att-000000000b04", content: "not json", status: 422, code: "validation_error",
+			message: "that file is not a theme bundle: invalid character 'o' in literal null (expecting 'u')"},
+		{name: "an empty file answers 422 naming the first required field", attachmentID: "att-000000000b05", content: "", status: 422, code: "validation_error",
+			message: "that file is not a theme bundle: field required: id"},
+		{name: "a field no bundle declares answers 422", attachmentID: "att-000000000b06",
+			content: `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"},"extra":1}`, status: 422, code: "validation_error",
+			message: `that file is not a theme bundle: json: unknown field "extra"`},
+		{name: "a missing required field answers 422", attachmentID: "att-000000000b07",
+			content: `{"id":"dusk","name":"Dusk"}`, status: 422, code: "validation_error",
+			message: "that file is not a theme bundle: field required: colors"},
+		{name: "two JSON values answer 422", attachmentID: "att-000000000b08", content: small + small, status: 422, code: "validation_error",
+			message: "that file is not a theme bundle: invalid character '{' after top-level value"},
+		{name: "a colour outside the allowlist answers the shared validator's 422", attachmentID: "att-000000000b09",
+			content: `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"url(x)"}}`, status: 422, code: "validation_error",
+			message: `theme "dusk": "--color-bg" has an invalid colour value "url(x)" — only concrete hex / rgb() / rgba() / hsl() / hsla() / transparent are accepted`},
+		{name: "a built-in theme id answers the shared validator's 422", attachmentID: "att-000000000b10",
+			content: `{"id":"office","name":"Mine","colors":{"--color-bg":"#101418"}}`, status: 422, code: "validation_error",
+			message: `theme "office": id "office" is reserved for a built-in theme`},
+	}
+	for _, tc := range refused {
+		t.Run(tc.name+" and the saved themes do not change", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			apiPutTheme(t, h, owner, "kept", `{"id":"kept","name":"Kept","colors":{"--color-bg":"#222222"}}`)
+			dashboard := apiTestListen(t, api, "")
+			if tc.attachmentID != "att-000000000bad" {
+				apiThemeFile(t, d, tc.attachmentID, tc.content)
+			}
+
+			status, data := apiJSON(t, h, "POST", "/api/themes/import", owner, apiImportBody(tc.attachmentID))
+			if status != tc.status {
+				t.Fatalf("want %d, got %d (%v)", tc.status, status, data)
+			}
+			apiWantError(t, data, tc.code, tc.message)
+			dashboard.wantFrames()
+			apiThemeList(t, h, owner, map[string]any{"id": "kept", "name": "Kept"})
+			apiThemeAbsent(t, h, owner, "dusk")
+		})
+	}
+
+	t.Run("a request without attachment_id, or with another field, answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		status, data := apiJSON(t, h, "POST", "/api/themes/import", owner, `{}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "field required: attachment_id")
+
+		status, data = apiJSON(t, h, "POST", "/api/themes/import", owner, `{"attachment_id":"att-1","id":"dusk"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", `invalid request body: json: unknown field "id"`)
+	})
+
+	t.Run("at the theme cap a new theme is refused 422 and a replace still lands", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		for i := 0; i < maxCustomThemes; i++ {
+			id := "t" + strconv.Itoa(i+100)
+			apiPutTheme(t, h, owner, id, `{"id":"`+id+`","name":"`+id+`","colors":{"--color-bg":"#000000"}}`)
+		}
+		fresh := apiThemeFile(t, d, "att-000000000c01", small)
+		status, data := apiJSON(t, h, "POST", "/api/themes/import", owner, apiImportBody(fresh))
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "at most 100 custom themes may be saved — delete one first")
+		apiThemeAbsent(t, h, owner, "dusk")
+
+		replace := apiThemeFile(t, d, "att-000000000c02", `{"id":"t100","name":"again","colors":{"--color-bg":"#111111"}}`)
+		if status, data := apiJSON(t, h, "POST", "/api/themes/import", owner, apiImportBody(replace)); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+	})
+
+	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent, and nothing is filed", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		housekeeper := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		id := apiThemeFile(t, d, "att-000000000d01", small)
+
+		status, data := apiJSON(t, h, "POST", "/api/themes/import", housekeeper, apiImportBody(id))
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+		apiThemeAbsent(t, h, owner, "dusk")
+	})
+}
+
 func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 	t.Run("deleting a theme takes it off the list and the receipt says the active theme was left alone", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
@@ -497,19 +732,21 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"id": "dusk", "deleted": true, "display_theme_reset": false,
+			"display_theme_schedule": apiTestDefaultThemeSchedule(),
 		})
 		dashboard.wantFrames()
 		apiThemeAbsent(t, h, owner, "dusk")
 		apiThemeList(t, h, owner, map[string]any{"id": "dawn", "name": "Dawn"})
 	})
 
-	t.Run("deleting the ACTIVE theme clears display_theme in the same request and says so", func(t *testing.T) {
+	t.Run("deleting the ACTIVE theme clears display_theme in the same request, says so and fans one owner-only settings delta", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
 		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_theme":"dusk"}`); status != 200 {
 			t.Fatalf("select theme: %d %v", status, data)
 		}
 		dashboard := apiTestListen(t, api, "")
+		agent := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
 		if status != 200 {
@@ -517,8 +754,10 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"id": "dusk", "deleted": true, "display_theme_reset": true,
+			"display_theme_schedule": apiTestDefaultThemeSchedule(),
 		})
-		dashboard.wantFrames()
+		dashboard.wantFrames(apiTestSettingsFrame(2, "owner"))
+		agent.wantFrames()
 		if got := apiDisplayTheme(t, h, owner); got != "" {
 			t.Fatalf("display_theme should have been cleared, got %q", got)
 		}
@@ -539,11 +778,59 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"id": "dawn", "deleted": true, "display_theme_reset": false,
+			"display_theme_schedule": apiTestDefaultThemeSchedule(),
 		})
 		dashboard.wantFrames()
 		if got := apiDisplayTheme(t, h, owner); got != "dusk" {
 			t.Fatalf("display_theme should still be dusk, got %q", got)
 		}
+	})
+
+	t.Run("deleting a scheduled theme removes its entries in the same request the receipt carries what is left and one settings delta fans", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"display_theme_schedule":[{"start":"07:00","theme":"office-light"},{"start":"12:00","theme":"dusk"},{"start":"19:00","theme":"office"},{"start":"22:00","theme":"dusk"}]}`); status != 200 {
+			t.Fatalf("schedule: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		left := []any{
+			map[string]any{"start": "07:00", "theme": "office-light"},
+			map[string]any{"start": "19:00", "theme": "office"},
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "dusk", "deleted": true, "display_theme_reset": false,
+			"display_theme_schedule": left,
+		})
+		dashboard.wantFrames(apiTestSettingsFrame(2, "owner"))
+		_, view := apiJSON(t, h, "GET", "/api/settings", owner, "")
+		apiWantValue(t, "display_theme_schedule", view["display_theme_schedule"], any(left))
+	})
+
+	t.Run("deleting a scheduled theme that leaves fewer than two entries clears the schedule, also after a restart", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"display_theme_schedule":[{"start":"07:00","theme":"dusk"},{"start":"19:00","theme":"office"}]}`); status != 200 {
+			t.Fatalf("schedule: %d %v", status, data)
+		}
+
+		status, data := apiJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "dusk", "deleted": true, "display_theme_reset": false,
+			"display_theme_schedule": []any{},
+		})
+		_, restarted, _, _ := apiTestStackOn(t, d, true)
+		_, view := apiJSON(t, restarted, "GET", "/api/settings", owner, "")
+		apiWantValue(t, "display_theme_schedule", view["display_theme_schedule"], any([]any{}))
 	})
 
 	t.Run("an id nothing carries answers 404 naming it and deletes nothing", func(t *testing.T) {
@@ -599,6 +886,7 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"id": "dusk", "deleted": true, "display_theme_reset": false,
+			"display_theme_schedule": apiTestDefaultThemeSchedule(),
 		})
 		apiThemeAbsent(t, h, owner, "dusk")
 	})
@@ -629,7 +917,7 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 			if status != http.StatusOK {
 				t.Fatalf("retry: want 200, got %d (%v)", status, data)
 			}
-			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": true})
+			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": true, "display_theme_schedule": apiTestDefaultThemeSchedule()})
 		})
 	}
 
@@ -665,7 +953,7 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 			if status != http.StatusOK {
 				t.Fatalf("want 200, got %d (%v)", status, data)
 			}
-			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": false})
+			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": false, "display_theme_schedule": apiTestDefaultThemeSchedule()})
 			<-patched
 			apiThemeAbsent(t, h, owner, "dusk")
 		})

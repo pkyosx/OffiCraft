@@ -3,8 +3,8 @@ package main
 // 🔴 A secret value travels in exactly two places: the owner's create/update
 // request body and the AI's reveal response body. It must never reach a log
 // line, an error message, an SSE frame, a chat row or telemetry — which is why
-// these handlers publish no events and every refusal names only fields and
-// limits.
+// every refusal names only fields and limits, and the one event here (a secret
+// card's first retrieval) carries the card's id and status, never a value.
 
 import (
 	"crypto/cipher"
@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
-	"strings"
 	"unicode/utf8"
 )
 
@@ -22,7 +21,10 @@ const (
 	secretRevealBodyBytes = 64 << 10
 )
 
-var secretIDShape = regexp.MustCompile(`^sec-[0-9a-f]{12}$`)
+var (
+	secretIDShape     = regexp.MustCompile(`^sec-[0-9a-f]{12}$`)
+	secretCardIDShape = regexp.MustCompile(`^rc-[0-9a-f]{12}$`)
+)
 
 const secretOwnerRevealMsg = "secrets are revealed only to AI members through `ocagent secret`; " +
 	"the owner manages them at /api/secrets"
@@ -71,7 +73,7 @@ func writeVaultError(w http.ResponseWriter, err error) {
 // sealingCipher may mint the key only while no row exists to be orphaned.
 func (s *apiServer) sealingCipher() (cipher.AEAD, error) {
 	return s.vault.cipherFor(func() (bool, error) {
-		n, err := s.dal.CountSecrets()
+		n, err := s.dal.CountSealedValues()
 		return n == 0, err
 	})
 }
@@ -117,7 +119,7 @@ func (s *apiServer) HandleCreateSecretApiSecretsPost(w http.ResponseWriter, r *h
 		return
 	}
 	now := nowSecs()
-	sec := Secret{
+	sec := StoredSecret{
 		ID: id, Name: name, Note: strOrEmpty(body.Note),
 		Nonce: nonce, ValueCT: ct, KeyVersion: vaultKeyVersion,
 		CreatedTS: now, UpdatedTS: now,
@@ -160,7 +162,7 @@ func (s *apiServer) HandleUpdateSecretApiSecretsSecretIdPatch(w http.ResponseWri
 			return
 		}
 	}
-	var updated Secret
+	var updated StoredSecret
 	err := s.dal.inTx(func(tx *writeTx) error {
 		cur, err := getSecretOn(tx, secretId)
 		if err != nil {
@@ -194,7 +196,7 @@ func (s *apiServer) HandleUpdateSecretApiSecretsSecretIdPatch(w http.ResponseWri
 }
 
 func (s *apiServer) HandleDeleteSecretApiSecretsSecretIdDelete(w http.ResponseWriter, r *http.Request, secretId string) {
-	var deleted Secret
+	var deleted StoredSecret
 	err := s.dal.inTx(func(tx *writeTx) error {
 		cur, err := getSecretOn(tx, secretId)
 		if err != nil {
@@ -267,8 +269,9 @@ func (s *apiServer) HandleRevealSelfSecretsApiSelfSecretsRevealPost(w http.Respo
 		return
 	}
 	for _, id := range body.Ids {
-		if !secretIDShape.MatchString(id) {
-			writeError(w, http.StatusBadRequest, "ids must be secret ids (sec- followed by 12 lowercase hex digits)")
+		if !secretIDShape.MatchString(id) && !secretCardIDShape.MatchString(id) {
+			writeError(w, http.StatusBadRequest, "ids must be secret ids (sec- followed by 12 lowercase hex digits) "+
+				"or secret card ids (rc- followed by 12 lowercase hex digits)")
 			return
 		}
 	}
@@ -276,31 +279,48 @@ func (s *apiServer) HandleRevealSelfSecretsApiSelfSecretsRevealPost(w http.Respo
 		writeError(w, http.StatusUnprocessableEntity, problem)
 		return
 	}
-	// Loaded before the transaction: the vault lock may not be taken inside one.
+	// Both are read before the transaction: neither lock may be taken inside one.
 	aead, keyErr := s.vault.cipherFor(nil)
+	retention := s.secretCardRetention()
+	actor := currentActor(r)
 	now := nowSecs()
-	var missing []string
+	var refused revealRefusals
+	var stamped []ReplyCard
 	out := secretRevealDTO{Secrets: make([]secretValueDTO, 0, len(body.Ids))}
 	err := s.dal.inTx(func(tx *writeTx) error {
-		found := make([]Secret, 0, len(body.Ids))
+		found := make([]revealTarget, 0, len(body.Ids))
 		for _, id := range body.Ids {
-			sec, err := getSecretOn(tx, id)
+			target, err := resolveRevealTargetOn(tx, id, actor, now, &refused)
 			if err != nil {
 				return err
 			}
-			if sec == nil {
-				missing = append(missing, id)
-				continue
+			if target != nil {
+				found = append(found, *target)
 			}
-			found = append(found, *sec)
 		}
-		if len(missing) > 0 {
+		if refused.any() {
 			return nil
 		}
 		if keyErr != nil {
 			return keyErr
 		}
-		for _, sec := range found {
+		for _, target := range found {
+			if target.card != nil {
+				value, err := openSecretValue(aead, target.card.ID, target.sealed.KeyVersion, target.sealed.Nonce, target.sealed.ValueCT)
+				if err != nil {
+					return err
+				}
+				out.Secrets = append(out.Secrets, secretValueDTO{ID: target.card.ID, Name: target.card.Summary, Note: "", Value: value})
+				if target.card.SecretRetrievedTS > 0 {
+					continue
+				}
+				if err := stampSecretCardRetrievedOn(tx, target.card, now, retention); err != nil {
+					return err
+				}
+				stamped = append(stamped, *target.card)
+				continue
+			}
+			sec := target.secret
 			value, err := openSecretValue(aead, sec.ID, sec.KeyVersion, sec.Nonce, sec.ValueCT)
 			if err != nil {
 				return err
@@ -316,9 +336,12 @@ func (s *apiServer) HandleRevealSelfSecretsApiSelfSecretsRevealPost(w http.Respo
 		writeVaultError(w, err)
 		return
 	}
-	if len(missing) > 0 {
-		writeError(w, http.StatusNotFound, "unknown secret id(s): "+strings.Join(missing, ", "))
+	if refused.any() {
+		refused.write(w)
 		return
+	}
+	for _, c := range stamped {
+		s.publishReplyCardToOwnerOnly(c, requestTrigger(r))
 	}
 	writeJSON(w, http.StatusOK, out)
 }

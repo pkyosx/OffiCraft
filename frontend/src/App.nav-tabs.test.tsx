@@ -17,9 +17,11 @@
 //      it, exactly like every sibling tab.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, screen, waitFor } from "@testing-library/react";
-import { I18nProvider } from "./i18n";
+import { render, fireEvent, screen, waitFor, act } from "@testing-library/react";
+import { I18nProvider, useI18n } from "./i18n";
 import { zh } from "./i18n/locales/zh";
+import { mockApi, __resetMock, __setMockNoAppearance } from "./api/mock";
+import { TOKEN_KEY } from "./api/auth";
 
 // Count hooks + heavy page bodies are irrelevant to the tab strip — stub them
 // so App mounts without touching the api layer (same seam as the sibling App
@@ -43,9 +45,20 @@ vi.mock("./components/UserGuidePage", () => ({
 
 import App from "./App";
 
+const SECRETS_IMG =
+  "data:image/png;base64," +
+  btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1));
+
+let ctx = null as unknown as ReturnType<typeof useI18n>;
+function Capture() {
+  ctx = useI18n();
+  return null;
+}
+
 function renderApp() {
   return render(
     <I18nProvider>
+      <Capture />
       <App />
     </I18nProvider>,
   );
@@ -60,6 +73,28 @@ function tabLabels(): string[] {
 describe("主導覽分頁", () => {
   beforeEach(() => {
     history.replaceState(null, "", window.location.pathname);
+    localStorage.clear();
+    __resetMock();
+    __setMockNoAppearance();
+  });
+
+  it("shows the active theme's secrets image in App's secrets tab", async () => {
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    await mockApi.putTheme({
+      id: "secrets-icon",
+      name: "密鑰圖示測試",
+      colors: { "--color-bg": "#101018" },
+      navIcons: { secrets: SECRETS_IMG },
+    });
+    renderApp();
+    act(() => ctx.setTheme("secrets-icon"));
+    await waitFor(() => expect(ctx.activeThemeBundle?.id).toBe("secrets-icon"));
+
+    const tab = screen.getByText(zh.nav.secrets).closest(".nav-tab");
+    expect(tab?.querySelector("img.nav-tab__icon-img")?.getAttribute("src")).toBe(
+      SECRETS_IMG,
+    );
+    expect(tab?.querySelector("svg")).toBeNull();
   });
 
   it("使用說明 is the last tab, immediately right of 監控", () => {

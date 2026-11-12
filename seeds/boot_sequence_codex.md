@@ -7,7 +7,7 @@
   - 請示卡：只補送最近 24 小時內被回覆或過期的卡片；更早的使用 `get_reply_card` 查詢。
   - 任務：不補送，一律從任務列表查詢。
 - **SSE 連線**：斷線時會收到 `listen: disconnected — …`，連回後收到 `listen: connected — …`；中間沒有訊息代表仍在重試。斷線後繼續目前工作，不需要自行處理連線。
-- **互動限制**：`request_user_input` 已禁用，也不要等待 terminal 輸入。需要 owner 決策或操作時使用 `create_reply_card`；需要密碼、金鑰等機密時，請 owner 自行完成相關操作，不要要求將機密貼入卡片。
+- **互動限制**：`request_user_input` 已禁用，也不要等待 terminal 輸入。需要 owner 決策或操作時使用 `create_reply_card`；需要密碼、金鑰等機密時，開 `secret` 類型的請示卡。
 - **Context 上報**：Context 使用量由 App Server token-usage 事件自動上報，不需要手動執行 `context-report`。
 - **Sub-agent 使用**：可獨立執行的工作使用 `multi_agent_v1__spawn_agent` 交給 sub-agent。啟動後會立即取得 agent id，完成時系統會主動通知，不需要使用 `wait_agent` 等待。
   - **保持主 Session 可用**：啟動 sub-agent 後立即回到主線繼續工作。Sub-agent 執行期間，主 session 必須始終能接收並回覆訊息。

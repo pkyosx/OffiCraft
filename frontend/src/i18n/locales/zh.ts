@@ -205,6 +205,8 @@ export const zh = {
     editTitle: "編輯密鑰",
     nameLabel: "名稱",
     valueLabel: "值",
+    showValue: "顯示內容",
+    hideValue: "隱藏內容",
     noteLabel: "備註",
     notePlaceholder: "給 AI 看的使用注意事項（選填）",
     valueKeepPlaceholder: "留空＝保留原本的值",
@@ -663,6 +665,14 @@ export const zh = {
     expireError: "標為過期失敗，請稍後重試",
     expiredTag: "已過期",
     expiredNote: "未被回答、已標為過期;若問題還在,成員會重新開卡",
+    secretInputLabel: "要交給成員的內容",
+    secretPlaceholder: "貼上密鑰",
+    secretSend: "送出密鑰",
+    secretProvideError: "送出失敗，內容還留在框裡，請再送一次",
+    secretProvidedTag: "已提供",
+    secretRetrievedTag: "已取得",
+    secretExpiredTag: "已失效",
+    secretExpiredNote: "沒有可以取得的內容；若還需要，成員會重新開卡",
     // 帶 ai_pick 的那個選項才是 AI 的建議;位置不再有任何意義。
     aiPick: "AI 建議",
     // 多選卡的暫存計數:勾了幾項在送出前就寫出來——多選卡上「什麼都沒勾」與
@@ -692,11 +702,44 @@ export const zh = {
     redecidePlaceholder: "或直接打字改寫回覆…",
     quoteLabel: "引用原文",
     quoteCancel: "取消引用",
-    // §3.6 請示 → 任務：任務衍生的請示卡顯示精簡任務資訊（標題）＋跳轉;
-    // 不露任務編號／識別鍵／類型。純聊天請示不顯示。
+    // §3.6 請示 → 任務：純聊天請示不顯示任務列。請示頁的任務列另外帶任務編號、
+    // 優先序與期限；聊天視窗裡的卡只顯示標題。
     viewTask: "查看任務詳情",
+    openTask: "查看任務",
     expandCard: "展開這張請示卡",
     collapseCard: "收合這張請示卡",
+    // 顯示方式 › 排序依據（只排待回覆）
+    sortLabel: "排序依據",
+    sortCreatedDesc: "開卡時間（新到舊）",
+    sortCreatedAsc: "開卡時間（舊到新）",
+    sortPriority: "任務優先序（高到低）",
+    sortDue: "任務期限（早到晚）",
+    filterPriorityNoun: "任務優先序",
+    filterPriorityAll: "所有任務優先序",
+    filterPriorityNoTask: "無任務",
+    filterDueNoun: "任務到期",
+    filterDueAll: "所有任務到期",
+    // 稍後再看：卡片先收進「已延後」，時間到自動回到請示，也不算進導覽列的數字。
+    snooze: "稍後再看",
+    snoozeInLead: "",
+    snoozeHourOne: "小時後",
+    snoozeHourMany: "小時後",
+    snoozeDayOne: "天後",
+    snoozeDayMany: "天後",
+    snoozeBackLead: "",
+    snoozeBackTail: "回來",
+    snoozeApply: "延後",
+    snoozeAmountLabel: "延後多久",
+    snoozeUnitLabel: "單位",
+    snoozeInvalid: "請輸入 1 以上的整數",
+    snoozeTooFar: "最多只能延後 90 天",
+    snoozeError: "延後失敗，請稍後重試",
+    snoozeStale: "這張卡已經回覆或標為過期，不能再延後",
+    snoozedTitle: "已延後",
+    snoozedHint: "時間到會自動回到請示",
+    unsnooze: "取消延後",
+    unsnoozeError: "取消延後失敗，請稍後重試",
+    unsnoozeStale: "這張卡已經回覆或標為過期，不用再取消延後",
   },
   office: {
     membersTitle: "辦公室成員",
@@ -1129,8 +1172,16 @@ export const zh = {
   //
   // ⚠️ 場所稱呼不在這裡:導覽列的「辦公室」是 nav.office,照舊可被主題包換掉。
   themeIdentity: {
-    office: "辦公室（深色）",
-    officeLight: "辦公室（淺色）",
+    office: "辦公室・深色（無背景）",
+    officeLight: "辦公室・淺色（無背景）",
+    officeShort: "深色",
+    officeLightShort: "淺色",
+    deskDay: "辦公室・晨光",
+    deskDayShort: "晨光",
+    deskDusk: "辦公室・暮色",
+    deskDuskShort: "暮色",
+    deskNight: "辦公室・夜燈",
+    deskNightShort: "夜燈",
     newTheme: "新主題",
   },
   // ── 「內建 / 自訂」標籤 ────────────────────────────────────────────────────
@@ -1154,7 +1205,12 @@ export const zh = {
     logout: "登出",
     back: "偏好設定",
     theme: "主題",
-    themeManageHint: "在「設定 › 主題」新增與編輯",
+    themeEntryLabelLead: "主題：",
+    themeEntryLabelTail: "，開啟主題設定",
+    themeEntryLabelTagLead: "（",
+    themeEntryLabelTagTail: "）",
+    themeEntryScheduled: "依時段",
+    themeEntrySeasonal: "應景",
     themeAdd: "新增",
     themeImport: "匯入",
     themeExport: "匯出",
@@ -1191,8 +1247,6 @@ export const zh = {
     layoutNarrow: "窄版",
     layoutWide: "寬版",
     seasonalTheme: "顯示應景主題",
-    seasonalThemeOn: "開",
-    seasonalThemeOff: "關",
     changePassword: "修改密碼",
     changePasswordSub: "登入這個主控台用的密碼",
     currentPasswordPlaceholder: "目前密碼",
@@ -1362,6 +1416,12 @@ export const zh = {
     tasksLink: "查看這位成員未完成的任務",
     roleSettingsLink: "開啟這個角色的定義設定",
     galleryLabel: "檔案與圖片",
+    suggestedRepliesLabel: "建議回覆",
+    suggestedRepliesSub: "與這位成員對話時可一鍵帶入的句子。",
+    suggestedRepliesEmpty: "這位成員還沒有專屬的句子。",
+    suggestedRepliesLoadError: "建議回覆載入失敗，再按一次標頭的建議回覆按鈕會重新載入",
+    suggestedRepliesSaveError: "建議回覆沒有存成功，畫面已換回伺服器上的內容。",
+    suggestedRepliesClose: "關閉",
     galleryTabImages: "圖片",
     galleryTabFiles: "檔案",
     galleryEmptyImages: "還沒有圖片",
@@ -1462,6 +1522,15 @@ export const zh = {
     // 對方訊息角落的「放大閱讀」小按鈕：把這則訊息本文丟進同一個
     // 全幅 overlay 讀（長回覆在對話欄裡很難讀）。自己發的訊息沒有。
     expandMessage: "放大閱讀",
+    // 刪除：只出現在 owner 自己 24 小時內的一般訊息角落；無法復原，所以先確認。
+    // deletedPlaceholder 是刪除後那一列本身（點了在彈窗看原文），deletedQuote 是引用到
+    // 已刪除訊息的引用列。deleteFailed 只在伺服器沒給理由時用。
+    deleteAction: "刪除",
+    deleteConfirmBody: "刪除這則訊息？對方會收到刪除通知，原文你仍可點開查看。此動作無法復原。",
+    deleteConfirm: "刪除",
+    deleteFailed: "刪除失敗，請稍後重試",
+    deletedPlaceholder: "此訊息已刪除",
+    deletedQuote: "已刪除的訊息",
     // T-4e95「回覆這則」：每則訊息角落的回覆入口、輸入框上方的「正在回覆」
     // 橫幅與它的 x，以及訊息上方那條指回原訊息的引用列。
     // replyQuoteGone 是**訊息列**的落空文案，而且是固定的：被引用的那則訊息
@@ -2245,6 +2314,30 @@ export const zh = {
     params: "參數調整",
     // ── 主題管理 (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "主題",
+    themeTabAppearance: "外觀",
+    themeTabLibrary: "主題庫",
+    themeSchedule: "依時段切換",
+    themeDialogTitle: "主題設定",
+    themeDialogClose: "關閉",
+    themeRestoreDefault: "恢復預設",
+    themeRestoreConfirm:
+      "改回預設的外觀：依時段切換（06:00 辦公室・晨光、16:00 辦公室・暮色、18:30 辦公室・夜燈），並顯示應景主題；這台裝置的背景動畫改回自動。自訂主題不會被刪除。",
+    themeRestoreFailed: "恢復預設失敗，請再試一次。",
+    themePick: "主題",
+    themeBgMotion: "背景動畫",
+    themeBgMotionSub: "只影響這台裝置；自動時手機平板靜止、電腦播放",
+    themeBgMotionAuto: "自動",
+    themeBgMotionPlay: "播放",
+    themeBgMotionStill: "靜止",
+    themeScheduleStart: "開始時間",
+    themeScheduleTheme: "主題",
+    themeScheduleAdd: "新增時段",
+    themeScheduleRemove: "刪除這一列",
+    themeScheduleSave: "儲存",
+    themeScheduleSaved: "已儲存。",
+    themeScheduleErrorStart: "請填完整的開始時間。",
+    themeScheduleErrorDuplicate: "開始時間不可重複。",
+    themeScheduleSaveFailed: "儲存失敗，請再試一次。",
     themeColorsSection: "顏色",
     themeColorOpacity: "不透明度",
     themeColorFollows: "跟隨",
@@ -2282,15 +2375,17 @@ export const zh = {
     themeNavOffice: "辦公室圖示",
     themeNavReplies: "請示圖示",
     themeNavTasks: "任務圖示",
+    themeNavLore: "傳承圖示",
+    themeNavSecrets: "密鑰圖示",
     themeNavMonitor: "監控圖示",
     themeNavGuide: "使用說明圖示",
     // ── 外框背景圖 (T-081b) ──
     themeCanvasBgSection: "外框背景",
     themeCanvasBgHint:
-      "上傳疊在底色之上的圖(PNG / JPEG / WEBP,上限 512 KB),留空則只有純底色。平鋪與貼邊只畫在內容欄兩側的外框,因此在手機、窄視窗與寬版版面都看不到;滿版則畫滿整個視窗。",
-    // 背景圖有自己的上限(512 KB),所以不能沿用共用的 themeAvatarInvalid
+      "上傳疊在底色之上的圖(PNG / JPEG / WEBP,上限 1 MB),留空則只有純底色。平鋪與貼邊只畫在內容欄兩側的外框,因此在手機、窄視窗與寬版版面都看不到;滿版則畫滿整個視窗。",
+    // 背景圖有自己的上限(1 MB),所以不能沿用共用的 themeAvatarInvalid
     // ——那句寫著 64 KB,對背景圖是假的(T-72da)。
-    themeCanvasBgInvalid: "圖片無效——僅接受 512 KB 以內的 PNG / JPEG / WEBP 檔。",
+    themeCanvasBgInvalid: "圖片無效——僅接受 1 MB 以內的 PNG / JPEG / WEBP 檔。",
     themeCanvasBg: "外框底圖",
     themeCanvasBgMode: "鋪法",
     themeCanvasBgModeTile: "平鋪 — 重複鋪滿整個外框",
@@ -2621,6 +2716,8 @@ export const zh = {
     // 一份文件。
     suggestedRepliesLoreMessage: "傳承訊息建議回覆",
     suggestedRepliesLoreMessageSub: "傳訊息給傳承條目的撰寫人時可一鍵帶入的句子。",
+    suggestedRepliesChat: "聊天室建議回覆",
+    suggestedRepliesChatSub: "與任一成員對話時可一鍵帶入的句子。",
     suggestedReplyPlaceholder: "例:收到,照這樣做",
     suggestedReplyAdd: "新增一句",
     suggestedReplyRemove: "刪除這一句",
@@ -2650,6 +2747,15 @@ export const zh = {
     loreCapBody: "傳承內容字數上限",
     loreCapBodySub:
       "一筆傳承的內容最多幾個字。超過的寫入會被拒絕,一個字都不會寫進去。可以調低,已經存好的條目不受影響。",
+    secretCardDurationUnit: "單位",
+    secretCardUnretrievedTtl: "Secret 請示卡的等待取得時間",
+    secretCardUnretrievedTtlSub:
+      "你提供內容後，成員多久沒取得就刪除內容、這張卡失效（1 分鐘到 30 天）。只影響之後提供的內容。",
+    secretCardUnretrievedTtlRange: "等待取得時間請填 1 分鐘到 30 天之間的整數",
+    secretCardRetention: "Secret 請示卡的取得後保留時間",
+    secretCardRetentionSub:
+      "成員第一次取得後，內容還保留多久（0 秒到 1 天）；這段時間內成員可以再取得，時間一到就刪除，填 0 是取得當下就刪除。只影響之後的取得。",
+    secretCardRetentionRange: "取得後保留時間請填 0 秒到 1 天之間的整數",
     stepNoteCap: "任務步驟備註字數上限",
     stepNoteCapSub:
       "一個任務步驟的備註可以寫多少字。可以調低,調低不會弄丟已經寫好的內容。",

@@ -25,6 +25,8 @@ paths:
   - "visual-guards/stories/ReplyCardWorkerTaskStory*"
   - "src/hooks/useScheduledMessages.ts"
   - "src/lib/composerKeys.ts"
+  - "src/lib/chatDraftStore*"
+  - "src/hooks/useAttachmentStaging*"
   - "src/lib/chatMention*"
   - "src/lib/mentionLinks*"
   - "src/hooks/useMentionOpener.ts"
@@ -35,6 +37,11 @@ paths:
   - "src/lib/autosize.ts"
   - "src/lib/chatDraftStore.ts"
   - "src/lib/replyExcerpt.ts"
+  - "src/lib/replySnooze*"
+  - "src/lib/replyCardSort*"
+  - "src/lib/replyCardReceipt*"
+  - "visual-guards/reply-desk*"
+  - "visual-guards/stories/ReplyDesk*"
   - "src/lib/hashRoute.ts"
   - "src/lib/hashRoute.test.ts"
   - "src/api/mock.scheduled-messages.test.ts"
@@ -79,6 +86,8 @@ custom 不讀 hour、minute、day_of_week、day_of_month，也不把自己摘要
 
 帶著未讀徽章進房與否，在 render 時同步讀 member.unreadCount 決定（進房後的 mark-read 會把它清成 0）。第一則未讀由**伺服器**回答（`getFirstUnreadChat`＝`GET /api/chat?unread=true&with=<id>&limit=1`：對方送給 owner、在水位之上最舊的一則），房間以它為錨點載入（與跳到原訊息同一條 `loadAround`），divider 顯示在它上方並保留於本 session；查不到、查詢失敗或那一段讀不到就退回最新一頁、落在最底，等最新頁的期間維持轉圈（不先畫「這個範圍還沒有訊息」），那一頁也讀失敗時跟一般 load 失敗一樣記 `loadStale`，下一個聊天事件補抓。⚠️ 錨點還在路上時（帶未讀進房或跳到原訊息），SSE／focus 觸發的 `load()` 會被擋下，但要記 `loadStale`，錨點落地放掉 lease 時補一次 `load()`——錨點那一段是在新訊息到之前讀的，不補的話那一則要等下一個事件才出現。⚠️ 不能從已載入的頁面倒數：未讀超過一頁、或該成員與其他成員的往來塞滿那一頁時，第一則未讀根本不在頁裡，徽章數也可能落後伺服器。標已讀（owner 裁定）：帶未讀進房即以最新一則標已讀，不論未讀多少列、最新一則在不在畫面內，不必捲到底；落點仍停在第一則未讀。跳到原訊息進房不在此列，照舊要捲到底、按回到最新或預覽列才標。watermark 只由明確的 mark-read 推進，listChat 不寫。房內新訊息只有在 owner 不在 near-bottom 時顯示 LINE 式預覽列（寄件者＋一行內容），點擊落在**最新那一則**（T-48 前是落在第一則未見，下面還壓著沒看到的訊息）；落點**不做事後校正**（T-48 owner rc-6c27f486ef9d 具名接受「上方晚載入的內容把目標擠走」，`scrollToLatest` 只捲一次），但那句裁定點名的圖片與請示卡今天都在**來源**擋掉了——縮圖有固定框，請示卡則是**一律先收合成一列**（T-48，owner 2026-09-04 `c-6f054c1cb481`：待回覆的卡也跟已回覆一樣先不展開），那一列要顯示的東西訊息本身就帶著（summary＝訊息正文、狀態＝`reply_card_status` 提示），所以它不撈任何東西、第一幀就是最終高度；被接受的是其餘晚到內容的位移；必須真的捲到底才清除。**最新那一則不在視野內**且**沒有**新訊息時顯示回到最新箭頭，兩者不同時出現（箭頭讓位給預覽列，owner rc-72054864ff88）。⚠️ 判準量的是**最新那一列的底邊**（`lib/scrollToLatest` 的 `isLatestRowInView`），不是「容器捲到底了沒」：`.chat__messages` 是 gap 的 flex 欄且最後一列下面還有零高哨兵，所以容器底部永遠在最新那一列底下一個 gap，用容器問會在最新訊息完整可見時答「不在」（T-48：按了箭頭它不會消失，每一次）。任何把它換回 `scrollHeight - scrollTop - clientHeight <= 某個常數` 的寫法都會把那個 bug 帶回來，而且 gap 一改就沒有人會紅。
 
+三個框打到一半的內容都存在 `lib/chatDraftStore.ts`（模組層級記憶體，重新整理就不見，刻意不寫 localStorage），收合、切頁、元件卸載都不會丟：聊天以 peer id 為鍵；請示卡以 `replyCardAnswerDraftKey`／`replyCardReanswerDraftKey` 為鍵（作答與重新決定各一份，三個面共用同一張卡的那一份），存文字、附件與引用的段落；任務卡訊息框以 `taskMessageDraftKey` 為鍵。請示卡與任務卡的框，文字直接讀寫 store（`useDraftText`），不另存一份元件 state：送出途中切頁再回來時，新掛上的框跟著 store 變，看不到、也送不出那段正在送的字。送出跟聊天一樣先清空、失敗才還原（`restoreChatDraft`，送出途中新打的字優先）；重新決定按「取消」清掉，收合不清，有打字或附件時再展開直接回到重新決定（只按過重新決定、帶著原本引用的那份不算）。附件錯誤訊息：聊天的由 OfficePage 的 `openChatAttachErrorScope` 管，只清聊天對象的；請示卡與任務卡的每個鍵由框自己開 `openDraftAttachErrorScope(key)`，最後一個框離開才清那個鍵，兩邊互不清除。
+
 ChatArea、ReplyComposer、TaskCard 訊息框都是 textarea，送出決策只由 lib/composerKeys.ts 的 enterShouldSend 提供：桌面 Enter 送出、Shift+Enter 換行；手機 Enter 換行、按鈕送出；IME composing 永不送出。autosize 上限 132px，超出由 textarea 自己捲動。
 
 @ 提及在三個框都一樣，只有一份實作 `hooks/useMentionComposer.ts`：聊天 composer、任務卡的傳訊息框（TaskCard）、請示卡的回覆框（ReplyComposer）。`useMentionRoster` 從頁面已經載好的名冊做出清單列（角色用 `t.office.role[m.role] ?? roleName`、特助置頂，即成員清單的預設順序；分群後側欄改依群組排，@ 清單不跟著變）與把連結畫成人的解析器；`useMentionComposer` 是單一 textarea 的清單狀態與按鍵。名冊來源：ChatArea 與 TaskCard 用 props 的 members／workers；請示頁的 light 名冊沒有任務編號與標題，所以另掛 `useOutsourceWorkers`，但**只在至少一張卡展開時才掛**（頁底的 `OutsourceWorkersFeed`，整頁一份，不是每張卡一份；全部收合就卸掉，連同它的 member／task／chat／chat_read 訂閱）。進頁面、卡全收合時只有 light 名冊那一支，不讀完整 `GET /api/members`（T-cf91 刻意避開的全公司未讀掃描），由 `RepliesPage.test.tsx` 的「arrival with every card collapsed…」守著，陽性對照是同檔「opening cards reads the outsource list once…」。回覆框沒有自己的名冊，讀宿主提供的 `MentionRosterContext`（ChatArea 包 ChatReplyCard、TaskCard 包整張卡、RepliesPage 包卡片內文）；沒有 provider 就沒有清單、送出原文。清單開著時，Enter／Tab 是「選這一列」（桌面與手機都是），不送出也不換行；IME composing 的判準與送出共用 `isImeComposingKey`；Esc 要 preventDefault，否則 escapeLayers 會連宿主面一起關。聊天的清單往上開；任務卡與請示卡的框在捲動頁中間，清單往下開（`placement="below"`），往上開會被捲動區頂端切掉且捲不到。任務卡整張是 toggle，濾網要放行 `[role='listbox']`，否則點清單列會收合／展開卡片。草稿與送出失敗的還原一律存使用者打的 `@名字` 原文；只有送出的那份 body／回覆文字經 `lib/mentionLinks.ts` 的 `linkMentions` 轉成 `[@名字](/#office/member|worker/<id>)`。那種連結只在有解析器的面畫成可點的名字：ChatArea 以 `MentionOpenerContext` 包住的訊息本文與放大閱讀，以及請示卡的最終回覆（`MentionText`，回覆是純文字不是 Markdown）。顯示的是名冊上現在的名字、不是訊息裡寫的那段字（連結不能看起來是一個人、點開是另一個人）；id 不在目前名冊（例如已釋出的外包）就只畫寫的字。點下去：聊天裡開在那間聊天室上；任務卡與請示卡帶來源 ID，分別用 `/from/tasks/<task-id>`、`/from/replies/<reply-card-id>`，返回時回到同一張卡並展開。放大閱讀那一份點下去要先關掉覆蓋層再導頁，否則成員詳情開在覆蓋層底下。請示卡的問題本文（agent 寫的 Markdown）沒有 provider，照舊是普通同源連結；其他 Markdown 面也是。只畫純文字的面（訊息列的引用、回覆橫幅、新訊息預覽列、任務卡內收合的已回覆列）用 `unlinkMentions` 還原成 `@名字`；那只是顯示，存的與送的不動。續接摘要的引用與回覆刻意不轉，那是 agent 讀到的原文。提及不通知任何人。
@@ -92,6 +101,25 @@ ChatArea、ReplyComposer、TaskCard 訊息框都是 textarea，送出決策只�
 RepliesPage 與 ChatReplyCard 共用 ReplyCardBody、ReplyComposer；兩者訂 reply_card，inline 卡另做單卡 refetch。answer、expire 與 waiting-pane 的 owner 動作**把寫入回應合併進畫面上那張卡**（`lib/replyCardReceipt.ts` 的 `mergeReplyCardWrite`：只取 status／answer／answeredTs／expiredTs，其餘留著讀回來的那份），不再重抓、也不再整張換掉——T-91 之後那三個寫入只回傳它自己決定的東西，題目、選項、附件與 task ref 都不在上面，整張換掉會讓 `card.task.title` 這類欄位在存檔後靜靜變空。合併後按 id 保留，直到 waiting 快照不再列出它，或 handled 快照帶著不舊於新狀態的 handled 戳記。其他卡照常採用，不能丟整份快照。refresh() 仍無條件 refetch。
 
 ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意丟棄，拿掉會留下舊答案。不要把它和 doAnswer 對齊，也不要把「delta 是唯一 reconcile trigger」寫回規則。
+
+## Secret 請示卡
+
+`kind: "secret"` 的卡沒有選項：等待中時 `ReplyCardWaitingBody` 在選項的位置畫遮罩框（`-webkit-text-security`，不是 password input，因為 input 會吃掉換行），`ReplyComposer` 原樣不動。三個面的行為都在 `ReplyCardBody`，各面只接寫入。
+
+- `SecretValueInput` 是請示卡與密鑰頁共用的遮罩輸入框：預設隱藏，眼睛切換；顯示中打字不遮回，值清空才遮回，下一個值才不會直接明文顯示。
+- 送出後的卡展開時只顯示狀態（已提供、已取得、已失效）；收合列與近期已處理的時間欄照一般卡顯示已回覆或已過期，且都不帶時間，這是 owner 的裁定。收合列的字只看卡片 status，所以沒讀過卡與讀過後一致。畫面沒有撤回入口；伺服器的標為過期路由仍在，開卡成員用它提早銷毀值，Owner 與 admin agent 也呼叫得到。
+- 🔴 內容只活在遮罩框元件的 state：成功清掉、失敗留著讓 owner 重送；不進 store、草稿、log 或錯誤文字，mock 也不存。
+- 🔴 焦點只在 owner 打開卡時給。聊天卡的 body 只有展開後才存在；請示頁用 `secretFocusPendingRef` 記「剛打開、還沒給焦點」，只消耗一次，卡在 pane 之間搬動重新掛載不算打開；任務卡沒有打開的動作（等待中的卡一到就畫出來），所以永遠不給。
+- ⚠️ 寫入收據沒有 `secret` 區塊，`mergeReplyCardWrite` 從收據推出下一個 state（空答案＝提供），期限仍要靠重讀，它決定卡還會不會變。取得與銷毀都不改 status，所以兩個 status 守衛要多問 `secretCardMayStillChange`，請示頁的 `rowVersion` 要帶 secret 的 state 與期限，否則已打開的卡停在舊狀態；用編號篩出來的卡來自一次性查詢，等待中或還可能變動時也要在 reply_card 事件時重讀，舊回應不能蓋新回應，也不能走 lookupNonce（loading 會卸載輸入框）。
+
+## 請示卡頁的排序、任務列與稍後再看
+
+- 待回覆預設依開卡時間新到舊；「顯示方式」的排序依據（`lib/replyCardSort.ts`，localStorage `oc_replies_sort`）只排待回覆，已延後依回來時間、近期已處理依處理時間，都不受它影響。任務優先序的順序取 `lib/taskPriority.ts` 的 `priorityRank`（跟任務頁同一份），沒有任務的卡排在凍結後面。
+- 目前的排序依據永遠印在「請示 · N」旁（`replies-sort-active`），預設的開卡時間也照印；「顯示方式」面板選了就自己收起（`DisplayOptions` 共用，任務頁的分組依據同樣）。「請示」標題本身是收合鈕（`waiting-toggle`，預設展開、不記憶），跟已延後／近期已處理同一套；套用編號時一律展開（`filtering`）。桌面（>720px）的 `.reply-card__waited` 有固定 min-width，夠放最長的 en「Waiting 23h 59m」，讓每張卡的抬頭按鈕對齊在同一個 x；改字或字級要重量，守衛在 `visual-guards/reply-desk.ct.spec.tsx`。
+- 任務列的優先序／期限是 server 在回應當下讀任務本身的值（`TaskRefDTO`），卡片不存。⇒ `useReplyCards` 除了 `reply_card` 也要在 `task` delta 重抓，否則改任務的優先序或期限，請示頁要等下一張卡變動才跟上。期限顏色走 `TaskDueChip`（`useDueState`，在跨過邊界的那一刻重繪，不是輪詢）。任務列畫在卡片最上方、抬頭之上；外包的「目前任務」那一行永遠照畫，即使跟任務列是同一個任務。
+- 優先序／期限篩選跟開卡人軸同一套：選項與張數從 pane 資料算，每一軸的張數只套用**其他**軸；三軸彼此 AND、也跟 id AND，同時作用在待回覆、已延後、近期已處理。
+- 🔴 稍後再看的卡仍是 waiting：`listReplyCards("waiting")` 照列、帶 `snoozedUntilTs`；provider 依自己的時鐘把它分到 `snoozed`，`waiting`（也就是徽章）不含它。到時間 server 什麼都不寫、不發事件，所以 provider 自己在最早的 `snoozedUntilTs` 設 timer 讓卡回來，並在 `count.waiting_next_change_ts` 重抓一次。
+- 🔴 `snooze()` 跟 answer／expire 一樣要「握到快照同意為止」：寫入前就在飛的那支 waiting 讀取會帶著舊的 snooze 回來，直接採用會把剛延後的卡放回待回覆（取消延後則相反）。`heldSnoozeRef` 依 id 握住寫入存下的值，直到快照列出同一個值、卡不在 waiting 了、或握住的時間已過。409 跟回答一樣是「卡已經被處理」，要講清楚並 `refresh()`（延後與取消延後各用自己的句子）；其他失敗留在選單裡（取消延後則在卡上）顯示，不清掉畫面。
 
 ## 請示卡頁的 ID 篩選（T-118，owner 2026-09-06 20:07／20:19）
 
@@ -165,7 +193,7 @@ parity 的 roll-call 不列卡片內部欄位。守著這一切的只有
 class 名 `.reply-tag--ai` / `.reply-option--ai` **不要改**:`TaskReplyCard` 借用前者
 畫自己的徽章。
 
-`GET /api/reply-cards` 只回一種形狀 —— 輕量列（`ReplyCardRow`），`?view=full` 已經移除（owner 2026-09-07）。**pane 的卡預設收合，點開才打單張 `getReplyCard`**，跟聊天串內嵌卡（`ChatReplyCard`）同一套做法；再點一次會收合，收合會把讀回來的卡丟掉，所以重開是一次新的讀。🔴 **例外已經沒有了**：待回覆第一張自己打開那套（`autoOpenOffRef`）被 owner 2026-09-11「預設全部折疊」推翻，連同 `rc-cd351785b83d`／`rc-fa7e4c9bce42` 的行為一起刪掉；進頁面時**一支 `getReplyCard` 都不會發**，這件事由 `RepliesPage.id-filter.test.tsx` 的兩支「arrival must read no card at all」守著。今天仍會自己打開的只有**深連結指名的那一張**（`#replies/card/<id>`）——那是明確要求，不是預設。🔴 **折疊列＝卡自己的抬頭，不是另一套版面**（owner 2026-09-11「折疊起來那一列的內容不要另外設計」）：頭像、名字＋角色、跳到原訊息、標為過期、`已等你 <時長>`（在標為過期**右方**），下面是任務標題列與請示卡標題。這些全部來自輕量列；點開只是在下面**補上問題內容**（body、附件、選項），抬頭不重畫、標題不重印。⚠️ **`跳到原訊息` 是例外**：輕量列沒有 `chatMessageId`（wire 的 `ReplyCardListItemDTO` 也沒有），所以那顆按鈕在還沒讀過的卡上是**按下去才讀**一次再導頁——不是 render 時讀。🔴 **卡頭沒有絕對時間**（owner 2026-09-11「我不想知道絕對時間 相對時間已經夠了」）：`data-testid="opened-at"` 這個節點不存在了，e2e `15_card_waited_time.spec.js` 反過來守它不可以回來；絕對時間只剩近期已處理那一段的 `已回覆／已過期 <時間>`。⚠️ **整張卡是開關**（`role="button"` ＋ `onCardToggleClick` 的互動過濾），做法照抄 `TaskCard`；卡內任何 button/a/input/`[role=button]` 的點擊都不翻卡。測試要點開卡就點 article 本身（`[data-reply-card-id][aria-expanded]`）。
+`GET /api/reply-cards` 只回一種形狀 —— 輕量列（`ReplyCardRow`），`?view=full` 已經移除（owner 2026-09-07）。**pane 的卡預設收合，點開才打單張 `getReplyCard`**，跟聊天串內嵌卡（`ChatReplyCard`）同一套做法；再點一次會收合，收合會把讀回來的卡丟掉，所以重開是一次新的讀。🔴 **例外已經沒有了**：待回覆第一張自己打開那套（`autoOpenOffRef`）被 owner 2026-09-11「預設全部折疊」推翻，連同 `rc-cd351785b83d`／`rc-fa7e4c9bce42` 的行為一起刪掉；進頁面時**一支 `getReplyCard` 都不會發**，這件事由 `RepliesPage.id-filter.test.tsx` 的兩支「arrival must read no card at all」守著。今天仍會自己打開的只有**深連結指名的那一張**（`#replies/card/<id>`）——那是明確要求，不是預設。🔴 **折疊列＝卡自己的抬頭，不是另一套版面**（owner 2026-09-11「折疊起來那一列的內容不要另外設計」）：頭像、名字＋角色、跳到原訊息、標為過期、`已等你 <時長>`（在標為過期**右方**），下面是請示卡標題；卡有任務時任務列在抬頭**上方**。這些全部來自輕量列；點開只是在下面**補上問題內容**（body、附件、選項），抬頭不重畫、標題不重印。⚠️ **`跳到原訊息` 是例外**：輕量列沒有 `chatMessageId`（wire 的 `ReplyCardListItemDTO` 也沒有），所以那顆按鈕在還沒讀過的卡上是**按下去才讀**一次再導頁——不是 render 時讀。🔴 **卡頭沒有絕對時間**（owner 2026-09-11「我不想知道絕對時間 相對時間已經夠了」）：`data-testid="opened-at"` 這個節點不存在了，e2e `15_card_waited_time.spec.js` 反過來守它不可以回來；絕對時間只剩近期已處理那一段的 `已回覆／已過期 <時間>`。⚠️ **整張卡是開關**（`role="button"` ＋ `onCardToggleClick` 的互動過濾），做法照抄 `TaskCard`；卡內任何 button/a/input/`[role=button]` 的點擊都不翻卡。測試要點開卡就點 article 本身（`[data-reply-card-id][aria-expanded]`）。
 
 🔴 **抬頭上那一行「這個外包正在做哪張任務」是 WORKER 的，不是卡的**（T-196，owner `rc-dce285c5274c`：「我覺得只在 UI 上補上顯示就好 就像在 chat 那邊 使用者列表上 outsource worker 會顯示他在進行的工作是哪一個」）。它畫在 `.reply-card__who` 裡、正職角色名那一格的位置（外包沒有角色名，那一格本來是空的），用的是辦公室左欄外包列**自己的兩個元件**：`OutsourceTaskLine`（可點的任務編號 chip → `#tasks/<id>`，加任務類型）與 `CurrentTaskTitle`（真實標題、兩行截斷、hover 全文、沒有任務時的灰字空狀態）。**不要為這一面另寫一份**——那兩個元件的檔頭注解逐字寫著它們存在的理由就是「兩個 surface 不能漂移」，再加一份就是這個 repo 那個「同一件事在外包與正職各寫一份」的缺陷族。
 
@@ -266,6 +294,19 @@ composer 上方的橫幅走同一個形狀（它從已載入視窗解析，是�
 `content` 是空字串是**合法**的（被引用的那則只有附件），要畫成「有名字、內容空
 白」，不可以折進「已不存在」。
 
+**被引訊息已刪除（deleted）時，server 給的快照帶 `deleted: true`、`content` 與 `reply_excerpt` 都是空的**：
+這仍是「server 給了快照」那一態，畫名字＋固定的 `chat.deletedQuote`「已刪除的訊息」，
+「看原訊息」照給（owner 讀得回原文）。它跟 attachment-only 的空 `content` 是兩件事，
+不可互相折疊；每一個引用面（訊息列、`ResumeSummaryCard`）都要分辨。
+
+**owner 自己那則已刪除的訊息，列上只畫 `chat.deletedPlaceholder`「此訊息已刪除」，不畫任何原文或附件**；
+點它跟「看原訊息」走同一個 `quotedMessage.open(id)`、開同一片覆蓋層（owner 裁定：不要在列上展開）。
+不要為這一列另寫一份展開或另一個 overlay。
+server 的聊天列表預設不列已刪除訊息（任何呼叫者都一樣）；聊天視窗的讀取（`listChat`／`listChatWindow`）在 http seam 一律帶 `include_deleted=true` 才拿得到這些列，未讀探針（`unread=true`）不能帶，server 會 422。
+刪除時 server 寄給原收件人的 system 通知（meta 帶 `delete_notice`）在 owner 的聊天視窗不顯示：`listChat`／`listChatWindow` 在 http seam 一律帶 `hide_delete_notices=true`（Owner rc-432acb8e2706），未讀探針同樣不能帶（422）。聊天列表不帶參數時照樣列出通知，因為成員要靠它；resume summary 預設就不列（要看帶 `include_delete_notices=true`），所以 `ResumeSummaryCard` 不帶參數。mock 的對應讀取一律不列通知，測試用 `__mockDeleteNotices()` 看它有沒有寄出。
+
+**owner 自己訊息角落的「回覆這則」與「刪除」平常就顯示，不等 hover**（owner 2026-11-09：那格寬度本來就預留，空著看起來像多一塊空白）；成員訊息的角落維持 hover 才顯示，觸控裝置兩邊都常駐。「刪除」出不出現仍只看 `chatDeletable`。規則在 `office.css` 的 `.chat__msg--me .chat__msg-actions > …`，CT `chat-reply-to` 量兩邊的靜止 opacity 與對比。
+
 **橫幅有自己的文案，不准借用訊息列那一句。** composer 上方的「正在回覆」橫幅沒有
 `reply_to_chat` 可讀（那是回覆**送出後**才存在的東西），它只認**已載入視窗**裡的
 那則（`messageById`）。而「不在已載入視窗」跟「訊息不存在」是兩件事：往上捲載入
@@ -297,6 +338,7 @@ effect 裡發請求。** 引用列畫的是 server 這次隨訊息一起送來�
 那一則顯示出來就好」）：**每一則有引用的列都給，不問那則在不在已載入視窗** ——
 `ChatArea.tsx` 的 render 條件是 `m.replyTo && quoted`，完全不查 `messages`。點下去
 用 `api.getChatMessage(replyTo)` 撈那一則，開跟 放大閱讀 同一片覆蓋層，**不捲動**。
+覆蓋層畫正文，下面接那則的附件（同一個 `AttachmentStrip`、同一組聊天氣泡的 class）；正文空白時只畫附件，不畫空的文字區（owner 裁定）。
 這一段是刻意合成的：以前它問「那則在不在視窗」來決定給不給鈕，owner 把它改成一律
 給、按了才撈，所以**不要再把窗口成員資格的判斷加回去**。
 

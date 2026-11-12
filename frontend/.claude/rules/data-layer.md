@@ -21,9 +21,11 @@ paths:
 
 ## SSE 與 refetch
 
-api/http.ts 的 toSseDelta 只投影事件身分欄：id、from、to、reader、peer；其他 status／priority 等欄位在 seam 就丟掉，讓下游型別上不可能偷偷 merge payload。姓名任一缺少就完整 refetch，不可當成「無變更」：串流沒有 replay，空名字代表不知道漏了什麼。
+api/http.ts 的 toSseDelta 只投影事件身分欄：id、from、to、reader、peer；其他 status／priority 等欄位在 seam 就丟掉，讓下游型別上不可能偷偷 merge payload。唯一例外是 `chat` 刪除 delta 的 `deleted_ts`（投影成 `deletedTs`）：刪除不能取消，值不會過期，可以直接標示持有的那一列（spec/sse.md §2.2）。姓名任一缺少就完整 refetch，不可當成「無變更」：串流沒有 replay，空名字代表不知道漏了什麼。
 
 帶 `requestVersion` 的 hook（useMachines、useMonitoring）：那個版本號**只能由真的送出請求的路徑遞增**。事件幀不得「遞增版本卻不發請求」——那會作廢每一支在飛的請求、卻沒有任何請求負責補回來，畫面只能等下一次 trailing 重抓。事件幀的意思是「可能有更新的答案」，不是「在飛的這個答案是錯的」：讓它照自己的版本落地，另外排程 coalesced 的後續重抓。版本號守的是**送出順序**（後送出的才准 setState，與回應先後無關），那條保證仍在，不要連它一起拆掉。
+
+useMembers、useOutsourceWorkers 與 useChatUnread 同樣依送出順序判斷，但規則是**比已落地的更新就採用**，不是只准最後送出的落地：最新那支若失敗，較舊的答案仍是手上最好的。兩個名冊 hook 的清單與單筆讀取共用 `lib/rosterReadOrder.ts` 的序號，每次讀取都要經過它：已有較晚送出的清單落地時，較舊的清單整份丟棄（包含名單本身）；否則採用這份清單，只有已落地較新單筆讀取的那幾列保留現值。不要整份丟掉較舊的清單，其他列的更新只在它身上。useChatUnread 只有一個數字，序號留在 hook 內；較舊的答案不得清掉較新讀取失敗留下的 staleRef。
 
 downlink 只有一條、且是 module-level singleton。瀏覽器只會自己重試「暫時性」的斷線（`readyState` 回到 CONNECTING）；non-200、401、`Content-Type` 不對會讓它**永久 CLOSED 且再也不重試**。那一格是前端自己的責任：偵測到 CLOSED 就把 `sseSource` 清成 null（不清 ⇒ 之後每次 `ensureSseSource()` 都會 early-return 在那具屍體上）、backoff 重建，而**重建出來的那條連線第一次 open 必須 resync**。只重連不 resync 比不重連更糟：串流沒有 replay，斷線期間的 delta 就此永久消失，而畫面看起來完全正常。
 
@@ -48,7 +50,7 @@ owner unread 只由共享的 lib/ownerUnread.ts 判定：chat.to 或 chat_read.r
 
 ## 共享設定快照
 
-所有 mount 都經 loadServerSettings，不可各自直接呼叫 settings API。共享層負責 single-flight、快取與 generation；同 tab 的 patch echo、登入變更與明確 refresh 要 invalidate。不要加 TTL，也不要假定跨 tab 即時同步。
+所有 mount 都經 loadServerSettings，不可各自直接呼叫 settings API。共享層負責 single-flight、快取與 generation；同 tab 的 patch echo、登入變更與明確 refresh 要 invalidate。不要加 TTL。別的分頁或裝置存設定時 server 發 `settings` delta（payload null、只給 owner）；目前只有 i18n provider（顯示偏好）與 useSuggestedRepliesChat（全成員的聊天室建議回覆）接它、以 refreshServerSettings 重讀，其他讀設定的地方仍是掛載時那份，不要假定它們跨 tab 即時同步。
 
 舊 GET 不得覆寫已採用的 patch。onboarding: null 是正常終態；running 在 set-password 前要先持久化，輪詢直到 failed/success，讀取錯誤也要繼續輪詢。
 

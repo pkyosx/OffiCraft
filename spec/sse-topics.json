@@ -5,6 +5,7 @@
     "chat",
     "chat_group",
     "chat_read",
+    "chat_suggested_reply",
     "context",
     "global_context",
     "insight",
@@ -14,6 +15,7 @@
     "role_def",
     "runtime_login",
     "runtime_upgrade",
+    "settings",
     "task",
     "task_manual"
   ]

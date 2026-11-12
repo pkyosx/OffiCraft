@@ -148,19 +148,19 @@ func (e MachineDiskUsageMemberDTORosterStatus) Valid() bool {
 
 // Defines values for MemberActivityDTOState.
 const (
-	Busy    MemberActivityDTOState = "busy"
-	Idle    MemberActivityDTOState = "idle"
-	Waiting MemberActivityDTOState = "waiting"
+	MemberActivityDTOStateBusy    MemberActivityDTOState = "busy"
+	MemberActivityDTOStateIdle    MemberActivityDTOState = "idle"
+	MemberActivityDTOStateWaiting MemberActivityDTOState = "waiting"
 )
 
 // Valid indicates whether the value is a known member of the MemberActivityDTOState enum.
 func (e MemberActivityDTOState) Valid() bool {
 	switch e {
-	case Busy:
+	case MemberActivityDTOStateBusy:
 		return true
-	case Idle:
+	case MemberActivityDTOStateIdle:
 		return true
-	case Waiting:
+	case MemberActivityDTOStateWaiting:
 		return true
 	default:
 		return false
@@ -258,6 +258,7 @@ func (e MonitoringSessionDTORuntime) Valid() bool {
 const (
 	Action   ReplyCardCreateDTOKind = "action"
 	Decision ReplyCardCreateDTOKind = "decision"
+	Secret   ReplyCardCreateDTOKind = "secret"
 )
 
 // Valid indicates whether the value is a known member of the ReplyCardCreateDTOKind enum.
@@ -266,6 +267,8 @@ func (e ReplyCardCreateDTOKind) Valid() bool {
 	case Action:
 		return true
 	case Decision:
+		return true
+	case Secret:
 		return true
 	default:
 		return false
@@ -302,6 +305,33 @@ func (e ReplyCardDTOSelectMode) Valid() bool {
 	case ReplyCardDTOSelectModeMulti:
 		return true
 	case ReplyCardDTOSelectModeSingle:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReplyCardSecretDTOState.
+const (
+	ReplyCardSecretDTOStateExpired   ReplyCardSecretDTOState = "expired"
+	ReplyCardSecretDTOStateProvided  ReplyCardSecretDTOState = "provided"
+	ReplyCardSecretDTOStateReplied   ReplyCardSecretDTOState = "replied"
+	ReplyCardSecretDTOStateRetrieved ReplyCardSecretDTOState = "retrieved"
+	ReplyCardSecretDTOStateWaiting   ReplyCardSecretDTOState = "waiting"
+)
+
+// Valid indicates whether the value is a known member of the ReplyCardSecretDTOState enum.
+func (e ReplyCardSecretDTOState) Valid() bool {
+	switch e {
+	case ReplyCardSecretDTOStateExpired:
+		return true
+	case ReplyCardSecretDTOStateProvided:
+		return true
+	case ReplyCardSecretDTOStateReplied:
+		return true
+	case ReplyCardSecretDTOStateRetrieved:
+		return true
+	case ReplyCardSecretDTOStateWaiting:
 		return true
 	default:
 		return false
@@ -1383,6 +1413,14 @@ type ChatMarkReadReceiptDTO struct {
 	PeerId string `json:"peer_id"`
 }
 
+// ChatMemberSuggestedRepliesDTO One member's chat 建議回覆.
+type ChatMemberSuggestedRepliesDTO struct {
+	MemberId string `json:"member_id"`
+
+	// Replies The sentences in display order.
+	Replies []string `json:"replies"`
+}
+
 // ChatMessageDTO API representation of one “domain.ChatMessage“. The wire uses “from“ /
 // “to“; “from“ is a Python reserved word so the field is “from_“ carrying
 // the alias “from“ (FastAPI serialises by alias).
@@ -1395,7 +1433,10 @@ type ChatMessageDTO struct {
 
 	// Card The reply card this message carries, FOLDED IN PLACE onto the message that opened it — the options offered and the answer given, so a waking agent reads the decision in the chat stream instead of joining a second list. Omitted (``null``) when the message carries no card, and only ever filled for cards the snapshot's own subject INITIATED.
 	Card *ChatInlineReplyCardDTO `json:"card,omitempty"`
-	From string                  `json:"from"`
+
+	// DeletedTs When the owner deleted this message (epoch seconds); ``0`` = not deleted. A deleted message is left out of chat listings, the unread backfill, the unread count, the wake snapshot and the attachment gallery for every caller; ``include_deleted=true`` lists it again, and a by-id read (``ids=``) always returns it, ``body`` intact.
+	DeletedTs *float64 `json:"deleted_ts,omitempty"`
+	From      string   `json:"from"`
 
 	// FromName The sender's DISPLAY name, resolved server-side from the roster (ANY roster status, so a dismissed member still reads by name). ``from`` stays the ADDRESS and never changes meaning — this field is carried IN ADDITION so a reader gets both the human name and the id it must reply to. ``""`` when the sender does not resolve to a roster row (honest empty — never fabricated).
 	FromName *string                 `json:"from_name,omitempty"`
@@ -1507,7 +1548,10 @@ type ChatReplyQuoteDTO struct {
 	//
 	// ``""`` IS AN ORDINARY, LEGAL VALUE: a message that carried only attachments has no text to quote. It is not a failure and not a placeholder for one — absence of the whole ``reply_to_chat`` object is how a missing original is said.
 	Content *string `json:"content,omitempty"`
-	From    string  `json:"from"`
+
+	// Deleted The quoted message was deleted by the owner. When true, ``content`` and ``reply_excerpt`` are empty: a quote never carries the text of a deleted message.
+	Deleted *bool  `json:"deleted,omitempty"`
+	From    string `json:"from"`
 
 	// FromName The quoted sender's DISPLAY name, resolved server-side exactly as ``ChatMessageDTO.from_name`` is — including the part that is easy to forget: only the reads that resolve names at all (the wake snapshot) fill it, and every other read leaves it ``""``. Honestly empty, never fabricated, and never a substitute for ``from``, which is always the address.
 	FromName *string `json:"from_name,omitempty"`
@@ -1521,6 +1565,17 @@ type ChatReplyQuoteDTO struct {
 
 	// ToName The quoted ADDRESSEE's DISPLAY name, resolved exactly as ``to_name`` on the message DTO is, and filled by exactly the same reads ``from_name`` is: only the wake snapshot resolves names, every other read leaves it ``""``. Honestly empty, never fabricated, and never a substitute for ``to``, which is always the address.
 	ToName *string `json:"to_name,omitempty"`
+}
+
+// ChatSuggestedRepliesDTO The owner's chat 建議回覆, one list per member.
+type ChatSuggestedRepliesDTO struct {
+	Lists []ChatMemberSuggestedRepliesDTO `json:"lists"`
+}
+
+// ChatSuggestedRepliesUpdateDTO The complete desired list for one member; it replaces the stored list wholesale.
+type ChatSuggestedRepliesUpdateDTO struct {
+	// Replies The sentences in display order.
+	Replies []string `json:"replies"`
 }
 
 // ChatUnreadCountDTO The office nav red-dot signal: the caller's TOTAL unread chat messages across every peer (sum of the per-member unread the roster serves). A dot shows when > 0; kept as its own cheap endpoint so the dot can refetch on “chat“ / “chat_read“ SSE deltas without pulling the roster.
@@ -2952,14 +3007,17 @@ type ReplyCardAnswerPostDTO struct {
 	Text         *string `json:"text,omitempty"`
 }
 
-// ReplyCardCountDTO Reply-card counts. “waiting“ is the cockpit navigation badge: how many reply cards are currently WAITING for the owner (answered/expired cards never count — the badge counts 待回覆 only). “answered“ is the count of recently-answered cards (within the 24h 近期已回覆 window) and “expired“ the count of recently-expired cards (the same 24h window keyed off “expired_ts“) — together they let the 等我回覆 page render its collapsed 近期已處理 header (and hide the pane at zero) WITHOUT fetching the lists; the lists load only when the owner expands the pane.
+// ReplyCardCountDTO Reply-card counts. “waiting“ is the cockpit navigation badge: how many reply cards are currently WAITING for the owner (answered/expired cards never count — the badge counts 待回覆 only), leaving out a card the owner has snoozed until its “snoozed_until_ts“ passes. “answered“ is the count of recently-answered cards (within the 24h 近期已回覆 window) and “expired“ the count of recently-expired cards (the same 24h window keyed off “expired_ts“) — together they let the 等我回覆 page render its collapsed 近期已處理 header (and hide the pane at zero) WITHOUT fetching the lists; the lists load only when the owner expands the pane.
 type ReplyCardCountDTO struct {
 	Answered int `json:"answered"`
 	Expired  int `json:"expired"`
 	Waiting  int `json:"waiting"`
+
+	// WaitingNextChangeTs The next moment ``waiting`` changes on its own as time passes: the earliest ``snoozed_until_ts`` among snoozed waiting cards. ``null`` when no card is snoozed. A client refetches at this moment so the badge does not go stale without a ``reply_card`` event — nothing is written when a snooze runs out.
+	WaitingNextChangeTs *float64 `json:"waiting_next_change_ts,omitempty"`
 }
 
-// ReplyCardCreateDTO Open one reply card (請示): an ask the OWNER must answer before the agent can proceed. “kind“ is the closed set “decision“ (needs a call/approval) | “action“ (needs the owner to DO something first). “options“ are the quick-reply choices: 1..4 objects “{"text": ..., "ai_pick": true|false}“ with non-blank “text“; “ai_pick“ is what marks the AI's own recommendation — POSITION CARRIES NO MEANING. “select_mode“ (“single“, the default, or “multi“) says how many of them the owner may circle; a “single“ card may mark at most one option “ai_pick“. A free-typed answer (with attachments) is always allowed on top — options never close that door. Optional “attachments“ ride the QUESTION side of the card (same input shape + limits as chat attachments: “{id}“ references a blob already uploaded via “POST /api/chat/attachments“, or “data_b64“ carries small bytes inline; blobs land in the shared chat-attachment store). “linked_task“ is REQUIRED and has no default: every card must SAY whether it is about a task. There is no inference — the server never guesses a binding from what work you hold, because a guess that misses is silent (the card opens with no 等我回覆 hold and the task runs past your question). “about_task_id“ is the other way to name a task: it says which task the ask is about WITHOUT holding a step, for an agent that is not that task's executor.
+// ReplyCardCreateDTO Open one reply card (請示): an ask the OWNER must answer before the agent can proceed. “kind“ is the closed set “decision“ (needs a call/approval) | “action“ (needs the owner to DO something first) | “secret“ (asks the owner for one value that only this card's author can retrieve, with “ocagent secret“; “options“ must be empty and the body says what is needed, where it goes and why). “options“ are the quick-reply choices: 1..4 objects “{"text": ..., "ai_pick": true|false}“ with non-blank “text“; “ai_pick“ is what marks the AI's own recommendation — POSITION CARRIES NO MEANING. “select_mode“ (“single“, the default, or “multi“) says how many of them the owner may circle; a “single“ card may mark at most one option “ai_pick“. A free-typed answer (with attachments) is always allowed on top — options never close that door. Optional “attachments“ ride the QUESTION side of the card (same input shape + limits as chat attachments: “{id}“ references a blob already uploaded via “POST /api/chat/attachments“, or “data_b64“ carries small bytes inline; blobs land in the shared chat-attachment store). “linked_task“ is REQUIRED and has no default: every card must SAY whether it is about a task. There is no inference — the server never guesses a binding from what work you hold, because a guess that misses is silent (the card opens with no 等我回覆 hold and the task runs past your question). “about_task_id“ is the other way to name a task: it says which task the ask is about WITHOUT holding a step, for an agent that is not that task's executor.
 type ReplyCardCreateDTO struct {
 	// AboutTaskId OPTIONAL. Names the task this ask is about WITHOUT holding any of its steps — for an agent that is not that task's executor (only the executor may bind a step) or an executor who does not want a step to wait. Meant for ``linked_task: null``; sent next to a ``linked_task`` object it must name the same task, otherwise 400. The task must exist (404) and must not be closed (409). Effects: the owner's queue shows the card under that task; while the task is open its acting executor receives the card's ``reply_card`` events (``task_executor``) and so the same answered / expired notification as the author; the card expires when the task closes. It places NO 等我回覆 hold — no step and no task status changes — which the create receipt's ``hold_note`` states.
 	AboutTaskId *string                   `json:"about_task_id,omitempty"`
@@ -3016,11 +3074,17 @@ type ReplyCardDTO struct {
 	Kind          string                `json:"kind"`
 	Options       *[]ReplyCardOptionDTO `json:"options,omitempty"`
 
+	// Secret Present only on a ``secret`` card.
+	Secret *ReplyCardSecretDTO `json:"secret,omitempty"`
+
 	// SelectMode How many options the owner may circle: ``single`` (the default — at most one, and at most one option may carry ``ai_pick``) or ``multi`` (any number). It is a SEPARATE axis from ``kind``: ``kind`` says what the owner must DO (decide / act), ``select_mode`` says how many choices the answer may carry.
 	SelectMode ReplyCardDTOSelectMode `json:"select_mode"`
-	Status     string                 `json:"status"`
-	Summary    *string                `json:"summary,omitempty"`
-	Task       *TaskRefDTO            `json:"task,omitempty"`
+
+	// SnoozedUntilTs Epoch seconds until which the owner has put this waiting card aside (稍後再看). Non-null only while the card is ``waiting`` and that time is still ahead when the response is built; ``null`` on a card that was never snoozed, whose snooze has passed, or that is answered or expired. A snoozed card is still waiting: it stays in ``?status=waiting`` and can be answered or expired as usual, but ``GET /api/reply-cards/count`` leaves it out of ``waiting`` until the time passes. Set by the owner only (``PUT /api/reply-cards/{card_id}/snooze``); it changes nothing on the card's task or step.
+	SnoozedUntilTs *float64    `json:"snoozed_until_ts,omitempty"`
+	Status         string      `json:"status"`
+	Summary        *string     `json:"summary,omitempty"`
+	Task           *TaskRefDTO `json:"task,omitempty"`
 
 	// TaskExecutor The acting executor of the card's task, read when this response is built (it follows a reassignment), so the reader can tell an answer that concerns its own task from one that concerns somebody else's. Empty when the card names no task, when that task has no executor, or when the task is closed. A member's listener treats a card as its own when ``from`` OR ``task_executor`` is that member.
 	TaskExecutor *string `json:"task_executor,omitempty"`
@@ -3044,9 +3108,15 @@ type ReplyCardListItemDTO struct {
 	From       string                   `json:"from"`
 	Id         string                   `json:"id"`
 	Kind       string                   `json:"kind"`
-	Status     string                   `json:"status"`
-	Summary    *string                  `json:"summary,omitempty"`
-	Task       *TaskRefDTO              `json:"task,omitempty"`
+
+	// Secret Present only on a ``secret`` card.
+	Secret *ReplyCardSecretDTO `json:"secret,omitempty"`
+
+	// SnoozedUntilTs Epoch seconds until which the owner has put this waiting card aside (稍後再看). Non-null only while the card is ``waiting`` and that time is still ahead when the response is built; ``null`` on a card that was never snoozed, whose snooze has passed, or that is answered or expired. A snoozed card is still waiting: it stays in ``?status=waiting`` and can be answered or expired as usual, but ``GET /api/reply-cards/count`` leaves it out of ``waiting`` until the time passes. Set by the owner only (``PUT /api/reply-cards/{card_id}/snooze``); it changes nothing on the card's task or step.
+	SnoozedUntilTs *float64    `json:"snoozed_until_ts,omitempty"`
+	Status         string      `json:"status"`
+	Summary        *string     `json:"summary,omitempty"`
+	Task           *TaskRefDTO `json:"task,omitempty"`
 
 	// TaskExecutor The acting executor of the card's task, read when this response is built (it follows a reassignment), so the reader can tell an answer that concerns its own task from one that concerns somebody else's. Empty when the card names no task, when that task has no executor, or when the task is closed. A member's listener treats a card as its own when ``from`` OR ``task_executor`` is that member.
 	TaskExecutor *string `json:"task_executor,omitempty"`
@@ -3081,6 +3151,38 @@ type ReplyCardReceiptDTO struct {
 
 	// TaskId The task this card was bound to, empty for an unbound chat 請示. Present because answering or expiring a bound card RELEASES that task's step from waiting_owner - that release is what the write DID, and it is the caller's next place to act.
 	TaskId *string `json:"task_id,omitempty"`
+}
+
+// ReplyCardSecretDTO Where a “secret“ card's value stands. Never carries the value. “state“: “waiting“ (not provided yet), “provided“ (sealed on the server, not retrieved yet), “retrieved“ (the author took it; it stays retrievable by the author until “expires_ts“, then the ciphertext is gone), “replied“ (the owner answered with a question, a refusal or anything else instead of a value; the card's answer carries it and no value can be provided on this card any more), “expired“ (closed without a retrieval; the ciphertext, if any, is gone).
+type ReplyCardSecretDTO struct {
+	// ExpiresTs When the ciphertext is destroyed; null when there is none. Fixed when the value is provided and again at the first retrieval, so a settings change only affects later events.
+	ExpiresTs   *float64                `json:"expires_ts,omitempty"`
+	ProvidedTs  *float64                `json:"provided_ts,omitempty"`
+	RetrievedTs *float64                `json:"retrieved_ts,omitempty"`
+	State       ReplyCardSecretDTOState `json:"state"`
+}
+
+// ReplyCardSecretDTOState defines model for ReplyCardSecretDTO.State.
+type ReplyCardSecretDTOState string
+
+// ReplyCardSecretProvideDTO The value the owner provides on a “secret“ card.
+type ReplyCardSecretProvideDTO struct {
+	Value string `json:"value"`
+}
+
+// ReplyCardSnoozeReceiptDTO Bounded receipt returned after the owner snoozes or unsnoozes a card. The card's status, task and step are untouched by this write, so only what it decided rides back. Fetch GET /api/reply-cards/{card_id} when the full card is needed.
+type ReplyCardSnoozeReceiptDTO struct {
+	// Id The card written.
+	Id string `json:"id"`
+
+	// SnoozedUntilTs The snooze as stored after this write; ``null`` after an unsnooze.
+	SnoozedUntilTs *float64 `json:"snoozed_until_ts"`
+}
+
+// ReplyCardSnoozeUpdateDTO The owner's 稍後再看 on a waiting card (“PUT /api/reply-cards/{card_id}/snooze“). “snoozed_until_ts“ is epoch seconds, later than now and at most 90 days (7776000 seconds) ahead; snoozing an already-snoozed card replaces the time. “null“ brings the card back now. The page turns its relative presets (1 hour, 3 hours, 1 day, 3 days, N hours, N days) into this absolute time.
+type ReplyCardSnoozeUpdateDTO struct {
+	// SnoozedUntilTs Epoch seconds, or ``null`` to unsnooze.
+	SnoozedUntilTs *float64 `json:"snoozed_until_ts"`
 }
 
 // ReportWakingDTO Body for “report_waking()“ — the boot report (identity from token, NO
@@ -3175,7 +3277,7 @@ type ResumeRosterMemberDTO struct {
 }
 
 // ResumeSummaryDTO A BOUNDED, deterministic wake snapshot for the CALLER (the “resume_summary“
-// MCP tool, zero params).
+// MCP tool; its only parameter is “include_delete_notices“).
 //
 // Identity-locked to the caller's VERIFIED JWT “sub“: a waking / handed-over
 // agent pulls ONE bounded block instead of paging every plane by hand. Fields:
@@ -3247,7 +3349,7 @@ type ResumeSummaryDTO struct {
 }
 
 // ResumeSummarySizeDTO The size-only PEEK of the wake snapshot (“peek_resume_summary_size“ MCP
-// tool, zero params; “GET /api/resume-summary-size“) — the FIRST step of the
+// tool, whose only parameter is “include_delete_notices“; “GET /api/resume-summary-size“) — the FIRST step of the
 // two-step boot.
 //
 // Identity-locked to the caller's VERIFIED JWT “sub“, it returns the SAME
@@ -3990,16 +4092,19 @@ type SettingsDTO struct {
 	// DiskUsageIntervalSecs How often, in seconds (600 through 86400), each warden measures how much disk OffiCraft uses on its machine, and the server measures its database, backups and old database copies. One measurement walks the whole OffiCraft directory and takes tens of seconds of disk reads, hence the 10-minute floor. Wardens learn the value from their heartbeat reply.
 	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
 
-	// DisplayLanguage The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
+	// DisplayLanguage The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
 	// DisplaySeasonalTheme Whether the cockpit takes the built-in seasonal theme while its window is open (a holiday theme shipped with the release, e.g. Halloween; its dates ship with it and are not configurable). true (the default) = show it; false = keep display_theme through the window. Outside every window this has no effect. Same dual-layer contract as display_wide.
 	DisplaySeasonalTheme *bool `json:"display_seasonal_theme,omitempty"`
 
-	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
+	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
 	DisplayTheme *string `json:"display_theme,omitempty"`
 
-	// DisplayWide Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login as the cross-device source of truth.
+	// DisplayThemeSchedule The cockpit's time-of-day theme schedule: each entry names the theme shown from its `start` (viewer-local wall clock, `HH:MM`) until the next entry's start, wrapping past midnight to the last entry. [] (the default) = no schedule, display_theme is shown. Otherwise 2 to 6 entries, sorted by start, starts unique. Precedence on screen: the seasonal theme (inside its window with display_seasonal_theme true) over this schedule over display_theme; display_theme itself is never rewritten by it. Deleting a custom theme removes the entries naming it in the same request, and clears the whole schedule when fewer than 2 would remain (see ThemeDeleteResultDTO.display_theme_schedule).
+	DisplayThemeSchedule *[]ThemeScheduleEntryDTO `json:"display_theme_schedule,omitempty"`
+
+	// DisplayWide Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login and on every `settings` event as the cross-device source of truth.
 	DisplayWide *bool `json:"display_wide,omitempty"`
 
 	// DocCapCharsBootSequence The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text — they are two renderings of one short checklist, so a studio that needs more room for one needs it for the other. The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000.
@@ -4066,8 +4171,17 @@ type SettingsDTO struct {
 	// RuntimeLoginRecheckIntervalSecs How often, in seconds (30 through 3600), each warden re-checks Claude or Codex login on its machine while that runtime last read as logged out or its check failed. The floor is 30 because a warden reports at most every 30 seconds, so 30 means every heartbeat. Wardens learn the value from their heartbeat reply.
 	RuntimeLoginRecheckIntervalSecs *int `json:"runtime_login_recheck_interval_secs,omitempty"`
 
+	// SecretCardRetrievedRetentionSecs Seconds a `secret` card's value stays retrievable by its author after the first retrieval. 0 destroys it at the first retrieval. A change applies to retrievals made afterwards.
+	SecretCardRetrievedRetentionSecs *int `json:"secret_card_retrieved_retention_secs,omitempty"`
+
+	// SecretCardUnretrievedTtlSecs Seconds after the owner provides a `secret` card's value before an unretrieved value is destroyed and the card expires. A change applies to values provided afterwards.
+	SecretCardUnretrievedTtlSecs *int `json:"secret_card_unretrieved_ttl_secs,omitempty"`
+
 	// StepNoteCapChars The size cap on ONE task STEP's working note, in CHARACTERS (Unicode code points — Chinese prose counts one per character). One number serves both faces: it is what `get_task` reports per step and what `get_task_step` reports as `note_cap_chars`, AND it is what both note write faces (the wholesale write and the anchor patch) refuse a longer note against, read from this one setting so the reported ceiling and the enforced one can never drift apart. The adjustable range is 1000..100000. Like `chat_budget_chars`, and unlike the `doc_cap_chars_*` knobs, it may be LOWERED as well as raised: the cap is checked only on WRITE, so a note already stored above a newly lowered cap stays readable in full and simply cannot be edited until it is shortened. Two neighbouring fields are deliberately NOT governed by this setting and keep their own 4,000-character server constant: the task-level handover note and a chat message body (owner ruling 2026-09-06).
 	StepNoteCapChars *int `json:"step_note_cap_chars,omitempty"`
+
+	// SuggestedRepliesChat The one-click 建議回覆 offered under every member's chat box, after that member's own sentences; a sentence in both is shown once. A FOURTH separate list. [] (the default) means this list adds no chips.
+	SuggestedRepliesChat *[]string `json:"suggested_replies_chat,omitempty"`
 
 	// SuggestedRepliesLoreMessage The one-click 建議回覆 offered under a 傳承 entry's message box (T-33) — the box that writes to the person who WROTE that entry. A THIRD separate list, for the same reason the other two are separate: asking 「這條還適用嗎」 about a lesson someone left behind is not answering a 請示卡 and not steering a task in progress, so one list's sentences are wrong in another's box. [] (the default) means no chips are drawn there, and the message box works exactly as it does without them.
 	SuggestedRepliesLoreMessage *[]string `json:"suggested_replies_lore_message,omitempty"`
@@ -4140,8 +4254,11 @@ type SettingsUpdateDTO struct {
 	// DisplaySeasonalTheme Turn the built-in seasonal theme on/off for the cockpit. A plain boolean with no unset state: omit the field to leave it unchanged.
 	DisplaySeasonalTheme *bool `json:"display_seasonal_theme,omitempty"`
 
-	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Accepted values are "", a built-in theme id (`office` dark, `office-light` light), or the id of a theme that ALREADY EXISTS (T-83ef); anything else is a 422 reading `display_theme must be "", office, office-light, or an existing custom theme id`. The existence half is why this can no longer create a theme on the way past: themes are their own resource now, so save it with PUT /api/themes/{theme_id} first and select it here second.
+	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Accepted values are "", a built-in theme id (`office` dark, `office-light` light, `modern-office-desk-day` / `-dusk` / `-night`), or the id of a theme that ALREADY EXISTS (T-83ef); anything else is a 422 reading `display_theme must be "", a built-in theme id, or an existing custom theme id`. The existence half is why this can no longer create a theme on the way past: themes are their own resource now, so save it with PUT /api/themes/{theme_id} first and select it here second.
 	DisplayTheme *string `json:"display_theme,omitempty"`
+
+	// DisplayThemeSchedule Replace the time-of-day theme schedule wholesale. [] turns it off. Otherwise 2 to 6 entries; each `start` must be `HH:MM` (00:00 through 23:59) and unique, each `theme` a built-in theme id (office, office-light, modern-office-desk-day / -dusk / -night) or the id of a custom theme that ALREADY EXISTS. Anything else is a 422 that writes nothing. Stored and returned sorted by start. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THE SCHEDULE UNCHANGED. To turn it off, send [].
+	DisplayThemeSchedule *[]ThemeScheduleEntryDTO `json:"display_theme_schedule,omitempty"`
 
 	// DisplayWide Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
 	DisplayWide *bool `json:"display_wide,omitempty"`
@@ -4208,8 +4325,17 @@ type SettingsUpdateDTO struct {
 	// RuntimeLoginRecheckIntervalSecs How often, in seconds, each warden re-checks Claude or Codex login on its machine while that runtime last read as logged out or its check failed. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds, so 30 means every heartbeat. Wardens pick a change up from their next heartbeat reply.
 	RuntimeLoginRecheckIntervalSecs *int `json:"runtime_login_recheck_interval_secs,omitempty"`
 
+	// SecretCardRetrievedRetentionSecs Seconds a `secret` card's value stays retrievable by its author after the first retrieval. 0 destroys it at the first retrieval. A change applies to retrievals made afterwards.
+	SecretCardRetrievedRetentionSecs *int `json:"secret_card_retrieved_retention_secs,omitempty"`
+
+	// SecretCardUnretrievedTtlSecs Seconds after the owner provides a `secret` card's value before an unretrieved value is destroyed and the card expires. A change applies to values provided afterwards.
+	SecretCardUnretrievedTtlSecs *int `json:"secret_card_unretrieved_ttl_secs,omitempty"`
+
 	// StepNoteCapChars The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the `doc_cap_chars_*` knobs the floor is NOT the shipped default — this cap may be lowered as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does not govern the task-level handover note or a chat message body, which keep their own 4,000-character constant.
 	StepNoteCapChars *int `json:"step_note_cap_chars,omitempty"`
+
+	// SuggestedRepliesChat Replace the chat 建議回覆 list that applies to every member, wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED. To clear it, send [].
+	SuggestedRepliesChat *[]string `json:"suggested_replies_chat,omitempty"`
 
 	// SuggestedRepliesLoreMessage Replace the 傳承 message-box 建議回覆 list wholesale (T-33) — the box that writes to the person who wrote that 傳承 entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
 	SuggestedRepliesLoreMessage *[]string `json:"suggested_replies_lore_message,omitempty"`
@@ -4781,11 +4907,19 @@ type TaskReassignTargetDTO struct {
 	Runtime *AgentRuntime `json:"runtime,omitempty"`
 }
 
-// TaskRefDTO The light task reference a reply card carries when it was armed from a task gate (請示 → 任務 jump, SPEC §3.6): id (the jump anchor), the type, and the title.
+// TaskRefDTO The light task reference a reply card carries when it names a task — bound to one of its steps, or naming it through “about_task_id“ (請示 → 任務 jump, SPEC §3.6): id (the jump anchor), the type, and the title. “priority“, “due_ts“ and “due_soon_lead_minutes“ are the task's own values read when the response is built, with the same names and meaning as on TaskDTO: a later change to the task shows on the card, and the card stores none of them. Opening a card cannot set them. A card that names no task has no reference, and so no priority or due date.
 type TaskRefDTO struct {
-	Id      string  `json:"id"`
-	Title   *string `json:"title,omitempty"`
-	TypeKey *string `json:"type_key,omitempty"`
+	// DueSoonLeadMinutes The task's own due-soon lead in minutes (TaskDTO.due_soon_lead_minutes). ``null`` when the task follows the workspace setting ``task_due_soon_lead_minutes`` (GET /api/settings) or has no due date.
+	DueSoonLeadMinutes *int `json:"due_soon_lead_minutes,omitempty"`
+
+	// DueTs The task's current due date, epoch seconds (TaskDTO.due_ts). ``null`` when the task has no due date.
+	DueTs *float64 `json:"due_ts,omitempty"`
+	Id    string   `json:"id"`
+
+	// Priority The task's current priority: ``high`` | ``mid`` | ``low`` | ``frozen`` (TaskDTO.priority).
+	Priority *string `json:"priority,omitempty"`
+	Title    *string `json:"title,omitempty"`
+	TypeKey  *string `json:"type_key,omitempty"`
 }
 
 // TaskSopPatchDTO Anchor-addressed PATCH of a type's SOP (MCP “patch_task_sop“): “{edits: [{old, new}], allow_shrink?}“. It exists to stop CONCURRENT OVERWRITE: the only sop_md write face was “update_task_manual.sop_md“, a whole-doc replace, so a caller holding a stale copy silently deletes whatever landed in between — and because the stale copy is usually the LONGER one, the shrink guard never fires and the loss carries no signal at all. An anchor patch cannot express that write: each non-empty “old“ must match the current sop_md EXACTLY ONCE, so a concurrent write that moved or duplicated the anchor turns the batch into a visible refusal. ATOMIC — edits apply sequentially to an in-memory copy and any failing anchor (absent or ambiguous “old“) rejects the ENTIRE batch with a flat 400 and ZERO writes. “allow_shrink“ (default false) must be set explicitly for a patch that empties the doc or shrinks it to under a tenth of its size — the r-76 wipe-guard posture.
@@ -5008,7 +5142,7 @@ type TaskWriteReceiptDTO struct {
 	Title *string `json:"title,omitempty"`
 }
 
-// ThemeBundleDTO One owner-authored theme colour bundle (T-16a1 P2). `id` is a client-generated stable slug (`^[a-z0-9][a-z0-9-]{1,63}$`), unique within the owner's set and never a built-in name (`office` / `office-light`). `name` is the display label (trimmed, 1..80 runes). `colors` maps `--color-*` token names — each MUST be a token defined in styles/theme.css — to CONCRETE colour values (hex / rgb() / rgba() / hsl() / hsla() / transparent only; no var(), no color-mix(), no arbitrary CSS). 1..200 pairs. The server 422s any bundle that violates the shape, the token whitelist, or the colour grammar. `wording` (optional, T-16a1 P3) carries per-language message-key text overrides; see its own description. `fonts` (optional, T-16a1 P4) carries font-family choices; see its own description.
+// ThemeBundleDTO One owner-authored theme colour bundle (T-16a1 P2). `id` is a client-generated stable slug (`^[a-z0-9][a-z0-9-]{1,63}$`), unique within the owner's set and never a built-in id (`office` / `office-light` / `modern-office-desk-day` / `-dusk` / `-night`). `name` is the display label (trimmed, 1..80 runes). `colors` maps `--color-*` token names — each MUST be a token defined in styles/theme.css — to CONCRETE colour values (hex / rgb() / rgba() / hsl() / hsla() / transparent only; no var(), no color-mix(), no arbitrary CSS). 1..200 pairs. The server 422s any bundle that violates the shape, the token whitelist, or the colour grammar. `wording` (optional, T-16a1 P3) carries per-language message-key text overrides; see its own description. `fonts` (optional, T-16a1 P4) carries font-family choices; see its own description.
 type ThemeBundleDTO struct {
 	// Avatars Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `staff` (一般正職 staff; this key was called `member` until T-57 renamed it. The rename is a HARD CUT: a bundle exported before it carries `member` and is REFUSED with a 422 naming the rename, never silently defaulted to the built-in glyph) / `outsource` (外包 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload — XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) — a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
 	Avatars *map[string]string `json:"avatars,omitempty"`
@@ -5016,7 +5150,7 @@ type ThemeBundleDTO struct {
 	// BackgroundModes Optional per-zone DISPLAY MODE for the images in `backgrounds` (T-081b). Same CLOSED zone-key set as `backgrounds` (today: `canvas`); each value is one of a CLOSED set of three: `tile` — repeat the image in both axes over the whole canvas (the ONLY behaviour before this field existed, and the default for any zone this map omits, so an older bundle renders identically); `sides` — do NOT repeat at all: pin ONE copy of the image against the LEFT viewport edge and one against the RIGHT, both at natural size, aligned to the viewport bottom, with `--color-bg` filling whatever the image does not reach; `cover` — ONE copy scaled (`background-size: cover`) to fill the whole viewport, centred. `sides` exists for art that reads as a pair of standing objects (e.g. a tree either side) rather than a texture; the product does NOT mirror the right-hand copy — a theme wanting left/right symmetry bakes it into the image (owner 2026-07-27). `sides` and `cover` are pinned to the VIEWPORT (`background-attachment: fixed`) because the canvas background otherwise scrolls with the document, which would bring a second copy into view down a long page. `cover` is only VISIBLE where the theme also gives the chrome zone colours (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) translucent values — the colour grammar already admits `#RRGGBBAA` and `rgba()` — and that is also where its risk lives: those zones sit under text, so the image's contrast against that text is the theme's own responsibility (owner accepted this trade-off on 2026-07-27). A mode for a zone that carries no image is a 422 (a mode alone paints nothing, so it is a mistake worth naming rather than ignoring). Absent = every zone tiles, exactly as before this field existed. NOTE both modes are invisible at viewport widths where the content column leaves no gutter (phones, narrow windows) — that is a property of the outer canvas, not of the mode.
 	BackgroundModes *map[string]string `json:"backgroundModes,omitempty"`
 
-	// Backgrounds Optional background images for the cockpit's chrome (T-081b). Keys are a CLOSED set holding exactly one zone today: `canvas` — the OUTERMOST canvas, i.e. the page background behind the centred content column. In `tile` / `sides` mode only the area BESIDE that column shows it, which is nothing on a phone, in a narrow window, or in the wide layout (all of which leave no side gutter); in `cover` mode the image fills the viewport and shows through wherever the theme gives the chrome zone colours translucent values. The zone tokens above it (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) deliberately take NO image: they sit under text, and text over a busy pattern has no readability guarantee. Each value is an EMBEDDED image encoded as a base64 `data:` URI laid on top of the solid `--color-bg`, which still shows through wherever the image does not cover; HOW it is laid down is `backgroundModes` (default `tile`). Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). The SIZE caps are the one place backgrounds differ from `avatars`: the decoded byte size is capped at <=512 KiB (with the raw data-URI string capped above the base64-inflated form of that), NOT the <=64 KiB that applies to `avatars` / `logo` / `navIcons`. A background is stretched or tiled across the whole viewport, where the glyph-sized 64 KiB cap read as visibly blurry; that cap — and the T-081b ruling that a background must never exceed it — was overturned by the owner on 2026-08-03, and the small-glyph fields keep 64 KiB. Absent = the outer canvas is the plain `--color-bg` colour, exactly as before this field existed. The server 422s any backgrounds that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
+	// Backgrounds Optional background images for the cockpit's chrome (T-081b). Keys are a CLOSED set holding exactly one zone today: `canvas` — the OUTERMOST canvas, i.e. the page background behind the centred content column. In `tile` / `sides` mode only the area BESIDE that column shows it, which is nothing on a phone, in a narrow window, or in the wide layout (all of which leave no side gutter); in `cover` mode the image fills the viewport and shows through wherever the theme gives the chrome zone colours translucent values. The zone tokens above it (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) deliberately take NO image: they sit under text, and text over a busy pattern has no readability guarantee. Each value is an EMBEDDED image encoded as a base64 `data:` URI laid on top of the solid `--color-bg`, which still shows through wherever the image does not cover; HOW it is laid down is `backgroundModes` (default `tile`). Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). The SIZE caps are the one place backgrounds differ from `avatars`: the decoded byte size is capped at <=1 MiB (with the raw data-URI string capped above the base64-inflated form of that), NOT the <=64 KiB that applies to `avatars` / `logo` / `navIcons`. A background is stretched or tiled across the whole viewport, where the glyph-sized 64 KiB cap read as visibly blurry; that cap — and the T-081b ruling that a background must never exceed it — was overturned by the owner on 2026-08-03, and the small-glyph fields keep 64 KiB. Absent = the outer canvas is the plain `--color-bg` colour, exactly as before this field existed. The server 422s any backgrounds that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
 	Backgrounds *map[string]string `json:"backgrounds,omitempty"`
 	Colors      map[string]string  `json:"colors"`
 
@@ -5028,18 +5162,21 @@ type ThemeBundleDTO struct {
 	Logo *string `json:"logo,omitempty"`
 	Name string  `json:"name"`
 
-	// NavIcons Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the five nav tabs `office` (辦公室) / `replies` (請示) / `tasks` (任務) / `monitor` (監控) / `guide` (使用說明); each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
+	// NavIcons Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the seven nav tabs `office` (辦公室) / `replies` (請示) / `tasks` (任務) / `lore` (傳承) / `secrets` (密鑰) / `monitor` (監控) / `guide` (使用說明); each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
 	NavIcons *map[string]string `json:"navIcons,omitempty"`
 
-	// Wording Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set or the value rules. A code OUTSIDE the messageKeys whitelist is NOT a 422: it is DROPPED from the overlay and the request succeeds, so only the surviving codes are stored - and NOTHING IN THE RESPONSE SAYS WHICH. This used to read 'the response echoes a pruned `wording`', which was true while put_theme answered the theme; T-91 made it answer ThemeWriteReceiptDTO (`created`, `id`, `order_idx`, `updated_at`), so the pruned overlay is no longer visible on the write. GET the theme back to see which codes survived (an already-imported theme pack stays usable when the whitelist shrinks; the accepted cost is that a typo'd code silently does nothing).
+	// Wording Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set or the value rules. A code OUTSIDE the messageKeys whitelist is NOT a 422: it is DROPPED from the overlay and the request succeeds, so only the surviving codes are stored - and NOTHING IN THE RESPONSE SAYS WHICH. GET the theme back to see which codes survived (an already-imported theme pack stays usable when the whitelist shrinks; the accepted cost is that a typo'd code silently does nothing).
 	Wording *map[string]map[string]string `json:"wording,omitempty"`
 }
 
 // ThemeDeleteResultDTO Receipt for deleting one custom theme (T-83ef). “display_theme_reset“ is the part a caller cannot work out on its own: deleting the ACTIVE theme resets “display_theme“ back to “""“ in the same request — the coupling the whole-array settings write used to perform — and this field says whether that happened, so the cockpit does not have to re-read settings to discover its theme changed under it.
 type ThemeDeleteResultDTO struct {
-	Deleted           bool   `json:"deleted"`
-	DisplayThemeReset bool   `json:"display_theme_reset"`
-	Id                string `json:"id"`
+	Deleted           bool `json:"deleted"`
+	DisplayThemeReset bool `json:"display_theme_reset"`
+
+	// DisplayThemeSchedule The schedule as it stands after the delete. The server removes every entry naming the deleted theme and clears the schedule when fewer than 2 entries would remain, in the same transaction; this is that result, so the cockpit can adopt it without re-reading settings.
+	DisplayThemeSchedule *[]ThemeScheduleEntryDTO `json:"display_theme_schedule,omitempty"`
+	Id                   string                   `json:"id"`
 }
 
 // ThemeFetchDTO One link to pull a theme bundle from (T-29c7). “url“ must be an absolute “http“/“https“ URL — that FORMAT check is the only thing asked of the address. The link's ORIGIN is deliberately unconstrained (owner ruling 2026-08-03: "不要限制 link 是哪邊來的", "不用驗證"): there is no host allowlist, no private-address refusal and no per-hop redirect re-check. What IS checked is the ANSWER — see ThemeFetchResultDTO.
@@ -5052,10 +5189,22 @@ type ThemeFetchResultDTO struct {
 	Content string `json:"content"`
 }
 
+// ThemeImportDTO Which uploaded file to import as a custom theme.
+type ThemeImportDTO struct {
+	// AttachmentId The id `ocagent upload` returned for the theme file.
+	AttachmentId string `json:"attachment_id"`
+}
+
 // ThemeListItemDTO One row of GET /api/themes (T-83ef): a saved theme's identity and its display name, and nothing else. It is a LIST ITEM rather than the bundle on purpose — see that endpoint's description for why a list of whole bundles is the payload this resource exists to stop serving. `name` is what the cockpit's theme list and the profile picker render; `id` is what selects it, edits it, or fetches it in full.
 type ThemeListItemDTO struct {
 	Id   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// ThemeScheduleEntryDTO One row of display_theme_schedule: from `start` (viewer-local wall clock) until the next row's start, the cockpit shows `theme`.
+type ThemeScheduleEntryDTO struct {
+	Start string `json:"start"`
+	Theme string `json:"theme"`
 }
 
 // ThemeWriteReceiptDTO Receipt for a single-theme write (T-83ef). It is a RECEIPT rather than the stored bundle echoed back on purpose: a bundle carries its images embedded, so echoing it would send hundreds of kilobytes a second time — the payload this split exists to remove. “created“ distinguishes a theme that did not exist before from one that was replaced; “order_idx“ is its position in the owner's list, which a replace KEEPS (re-colouring a theme does not move it to the bottom); “updated_at“ is when this write landed.
@@ -5215,7 +5364,7 @@ type HandleListChatApiChatGetParams struct {
 	// EndId Window anchor, INCLUSIVE, walking TOWARDS THE OLDEST: return this message and the ``limit``-1 that precede it, still answered oldest→newest. Same guardrails as ``start_id`` (404 on an unknown id, 422 when combined with ``before_ts``/``before_id``, 422 when the pair contradicts, ``limit`` bounded to 1..200 on this path). Given TOGETHER with ``start_id`` the two bound one window and ``limit`` still caps it, so a window wider than 200 rows is truncated from the ``start_id`` end rather than silently returning everything.
 	EndId *string `form:"end_id,omitempty" json:"end_id,omitempty"`
 
-	// Cursor Opaque continuation token — copy the previous response's ``next_cursor`` back VERBATIM. It encodes a ``(ts, id)`` POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for ``unread=true`` — and sending one to the other path is 422 rather than a silently wrong page. Sending it with ``before_ts``/``before_id`` is 422 (one keyset walk per request), and so is sending it with ``start_id``/``end_id``, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter.
+	// Cursor Opaque continuation token — copy the previous response's ``next_cursor`` back VERBATIM. It encodes a ``(ts, id)`` POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for ``unread=true`` — and sending one to the other path is 422 rather than a silently wrong page. Sending it with ``before_ts``/``before_id`` is 422 (one keyset walk per request), and so is sending it with ``start_id``/``end_id``, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter. Resend the same filters (``with``, ``sender``, ``recipient``, ``include_deleted``, ``hide_delete_notices``) with it: it carries only the position.
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Unread ``true`` (the STRING) selects the unread backfill: only messages addressed to the verified caller, newer than the caller's read watermark FOR THAT SENDER. ``chat_read`` is per ``(reader, peer)``, and this path compares each message against ITS OWN sender's row — never against one global watermark, which would silently drop everything older from a peer you have never opened. Answered OLDEST FIRST and ``limit`` takes the OLDEST batch, because a backfill is re-read in the order it was said; ``next_cursor`` therefore continues TOWARDS THE NEWER. What you sent to SOMEBODY ELSE is not here — ``recipient`` decides that, and it is the caller. What you addressed to YOURSELF is: it is a message sitting in your own inbox, and whether a reader wants to be shown its own note is a question about printing, answered by the reader (``ocagent`` declines to print it and files the receipt anyway). This door only answers one question: newer than my watermark for whoever sent it. Reading this CLEARS NOTHING — no path on this route writes a watermark; ``POST /api/chat/mark-read`` does. Refused with 422 alongside ``before_ts``/``before_id`` or ``start_id``/``end_id``. Any other value reads as not sent. ``limit`` keeps this route's legacy semantics on this path — 0 is an empty page, a NEGATIVE limit is uncapped and mints no cursor — not the window path's 1..200 bound.
@@ -5239,6 +5388,12 @@ type HandleListChatApiChatGetParams struct {
 	//
 	// AT MOST 20 DISTINCT IDS per call (counted after blanks are dropped); more is a 400 that states the limit. The cap is the response bound: 20 × the 4,000-rune body cap is the worst case one call can emit. It is not 'unfold a whole snapshot in one call' — name the ones that matter and call again.
 	Ids *[]string `form:"ids,omitempty" json:"ids,omitempty"`
+
+	// IncludeDeleted ``true`` (the STRING) also lists deleted messages, flagged by ``deleted_ts``; by default every listing leaves them out. 422 alongside ``unread=true``. Not consulted on the ``ids`` path, which always returns them. Any other value reads as not sent.
+	IncludeDeleted *string `form:"include_deleted,omitempty" json:"include_deleted,omitempty"`
+
+	// HideDeleteNotices ``true`` (the STRING) leaves out the notices the server sends when the owner deletes a message: messages from ``system`` carrying ``meta.delete_notice``. By default they are listed like any other message. 422 alongside ``unread=true``. Not consulted on the ``ids`` path, which always returns them. Any other value reads as not sent.
+	HideDeleteNotices *string `form:"hide_delete_notices,omitempty" json:"hide_delete_notices,omitempty"`
 }
 
 // HandleListChatAttachmentsApiChatAttachmentsGetParams defines parameters for HandleListChatAttachmentsApiChatAttachmentsGet.
@@ -5317,11 +5472,29 @@ type HandlePutMemberAvatarApiMembersMemberIdAvatarPutParams struct {
 	Mime     *string `form:"mime,omitempty" json:"mime,omitempty"`
 }
 
+// HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGetParams defines parameters for HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet.
+type HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGetParams struct {
+	// IncludeDeleteNotices ``true`` (the STRING) also carries the owner's delete notices (``system`` messages carrying ``meta.delete_notice``) in the chat block; by default they are left out before the block is packed, so the budget, ``chat_earlier_omitted`` and the overview are computed without them. Any other value reads as not sent. The snapshot already leaves deleted messages out, so by default it has no reason to print the notices about them either.
+	IncludeDeleteNotices *string `form:"include_delete_notices,omitempty" json:"include_delete_notices,omitempty"`
+}
+
 // HandleListReplyCardsApiReplyCardsGetParams defines parameters for HandleListReplyCardsApiReplyCardsGet.
 type HandleListReplyCardsApiReplyCardsGetParams struct {
 	Status   *string `form:"status,omitempty" json:"status,omitempty"`
 	OpenedBy *string `form:"opened_by,omitempty" json:"opened_by,omitempty"`
 	Limit    *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// HandleResumeSummaryApiResumeSummaryGetParams defines parameters for HandleResumeSummaryApiResumeSummaryGet.
+type HandleResumeSummaryApiResumeSummaryGetParams struct {
+	// IncludeDeleteNotices ``true`` (the STRING) also carries the owner's delete notices (``system`` messages carrying ``meta.delete_notice``) in the chat block; by default they are left out before the block is packed, so the budget, ``chat_earlier_omitted`` and the overview are computed without them. Any other value reads as not sent. The snapshot already leaves deleted messages out, so by default it has no reason to print the notices about them either.
+	IncludeDeleteNotices *string `form:"include_delete_notices,omitempty" json:"include_delete_notices,omitempty"`
+}
+
+// HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams defines parameters for HandlePeekResumeSummarySizeApiResumeSummarySizeGet.
+type HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams struct {
+	// IncludeDeleteNotices ``true`` (the STRING) sizes the snapshot with the owner's delete notices (``system`` messages carrying ``meta.delete_notice``) counted, exactly as ``resume_summary`` with the same value would pack it. By default they are left out. Any other value reads as not sent. The snapshot already leaves deleted messages out, so by default it has no reason to print the notices about them either.
+	IncludeDeleteNotices *string `form:"include_delete_notices,omitempty" json:"include_delete_notices,omitempty"`
 }
 
 // HandleListTasksApiTasksGetParams defines parameters for HandleListTasksApiTasksGet.
@@ -5423,6 +5596,9 @@ type HandleUpdateChatGroupsApiChatGroupsPutJSONRequestBody = ChatGroupsUpdateDTO
 // HandleMarkChatReadApiChatMarkReadPostJSONRequestBody defines body for HandleMarkChatReadApiChatMarkReadPost for application/json ContentType.
 type HandleMarkChatReadApiChatMarkReadPostJSONRequestBody = MarkChatReadDTO
 
+// HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPutJSONRequestBody defines body for HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut for application/json ContentType.
+type HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPutJSONRequestBody = ChatSuggestedRepliesUpdateDTO
+
 // HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody defines body for HandleReplaceGlobalContextApiGlobalContextPost for application/json ContentType.
 type HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody = GlobalContextReplaceDTO
 
@@ -5515,6 +5691,12 @@ type HandleAnswerReplyCardApiReplyCardsCardIdAnswerPostJSONRequestBody = ReplyCa
 
 // HandleReanswerReplyCardApiReplyCardsCardIdAnswerPutJSONRequestBody defines body for HandleReanswerReplyCardApiReplyCardsCardIdAnswerPut for application/json ContentType.
 type HandleReanswerReplyCardApiReplyCardsCardIdAnswerPutJSONRequestBody = ReplyCardAnswerPostDTO
+
+// HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPostJSONRequestBody defines body for HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost for application/json ContentType.
+type HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPostJSONRequestBody = ReplyCardSecretProvideDTO
+
+// HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePutJSONRequestBody defines body for HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut for application/json ContentType.
+type HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePutJSONRequestBody = ReplyCardSnoozeUpdateDTO
 
 // HandleCreateRoleApiRolesPostJSONRequestBody defines body for HandleCreateRoleApiRolesPost for application/json ContentType.
 type HandleCreateRoleApiRolesPostJSONRequestBody = RoleCreateDTO
@@ -5611,6 +5793,9 @@ type HandleUpdateTaskTitleApiTasksTaskIdTitlePostJSONRequestBody = TaskTitleDTO
 
 // HandleFetchThemeApiThemeFetchPostJSONRequestBody defines body for HandleFetchThemeApiThemeFetchPost for application/json ContentType.
 type HandleFetchThemeApiThemeFetchPostJSONRequestBody = ThemeFetchDTO
+
+// HandleImportThemeApiThemesImportPostJSONRequestBody defines body for HandleImportThemeApiThemesImportPost for application/json ContentType.
+type HandleImportThemeApiThemesImportPostJSONRequestBody = ThemeImportDTO
 
 // HandlePutThemeApiThemesThemeIdPutJSONRequestBody defines body for HandlePutThemeApiThemesThemeIdPut for application/json ContentType.
 type HandlePutThemeApiThemesThemeIdPutJSONRequestBody = ThemeBundleDTO
@@ -5902,7 +6087,7 @@ type ServerInterface interface {
 	//
 	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
 	// - `before_ts`: DEPRECATED (T-48) — prefer start_id/end_id. Paging cursor, the ts of the OLDEST message you already hold. Must be sent TOGETHER with before_id - supplying only one is refused with 422, which is the one mistake here that announces itself. The pair is otherwise not validated against anything real: a cursor pointing nowhere in the stream (a fabricated value, or the right instant expressed in the wrong unit - these timestamps are epoch SECONDS, not milliseconds) is not an error, it just answers 200 with an EMPTY page. An empty page is the same answer you get at the true start of history, so it cannot tell you 'you have reached the beginning' apart from 'your cursor was garbage'. Copy both values from a message you actually received rather than constructing them.
-	// - `cursor`: Opaque continuation token — copy the previous response's “next_cursor“ back VERBATIM. It encodes a “(ts, id)“ POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for “unread=true“ — and sending one to the other path is 422 rather than a silently wrong page. Sending it with “before_ts“/“before_id“ is 422 (one keyset walk per request), and so is sending it with “start_id“/“end_id“, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter.
+	// - `cursor`: Opaque continuation token — copy the previous response's “next_cursor“ back VERBATIM. It encodes a “(ts, id)“ POSITION in the stream, not an offset and not a row count, so a message posted while you are paging can neither displace a row you have not read yet nor hide one. The DIRECTION it continues in belongs to the path that minted it — TOWARDS THE OLDER for the default listing, TOWARDS THE NEWER for “unread=true“ — and sending one to the other path is 422 rather than a silently wrong page. Sending it with “before_ts“/“before_id“ is 422 (one keyset walk per request), and so is sending it with “start_id“/“end_id“, which mint no cursor at all. Never construct or edit one; an unreadable token is 422, naming the parameter. Resend the same filters (“with“, “sender“, “recipient“, “include_deleted“, “hide_delete_notices“) with it: it carries only the position.
 	// - `ids`: RE-READ SPECIFIC MESSAGES BY ID — repeatable (“?ids=<id>&ids=<id>“), returning those messages IN FULL (whole body, attachment refs and all), oldest→newest.
 	//
 	// This is what makes the wake snapshot's fold marker honest (T-a828). “ChatMessageDTO.body_omitted_chars“ > 0 says THIS message is here with part of its text folded away and tells the reader to re-read it with get_chat — but until this parameter existed get_chat took only a peer plus a paging cursor, so there was NO WAY TO NAME THE FOLDED MESSAGE. The promise beside the fold was not keepable, which made folding a silent drop.
@@ -5965,9 +6150,18 @@ type ServerInterface interface {
 	// List chat read receipts (?with=<peer>; per-conversation watermark).
 	// (GET /api/chat/reads)
 	HandleListChatReadsApiChatReadsGet(w http.ResponseWriter, r *http.Request, params HandleListChatReadsApiChatReadsGetParams)
+	// Get the owner's chat suggested replies.
+	// (GET /api/chat/suggested-replies)
+	HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet(w http.ResponseWriter, r *http.Request)
+	// Replace the owner's chat suggested replies for one member.
+	// (PUT /api/chat/suggested-replies/{member_id})
+	HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut(w http.ResponseWriter, r *http.Request, memberId string)
 	// Total chat unread count (the office nav red dot).
 	// (GET /api/chat/unread-count)
 	HandleChatUnreadCountApiChatUnreadCountGet(w http.ResponseWriter, r *http.Request)
+	// Delete one of the owner's own chat messages sent within the last 24 hours (owner only; no undo).
+	// (DELETE /api/chat/{message_id})
+	HandleDeleteChatMessageApiChatMessageIdDelete(w http.ResponseWriter, r *http.Request, messageId string)
 	// Resolve both sides of one comparison (?before=&after=; optional labels and ?sig=). Each side carries its text, its column heading, and an honest gone marker when the address resolves to nothing.
 	// (GET /api/diff)
 	HandleGetDiffApiDiffGet(w http.ResponseWriter, r *http.Request, params HandleGetDiffApiDiffGetParams)
@@ -6169,9 +6363,9 @@ type ServerInterface interface {
 	// Relocate a member to a machine (placement only; never touches desired_state). Also accepts an outsource-worker id: the same move-one-agent verb relocates the worker. machine_id is REQUIRED (owner 2026-07-27): a relocate NAMES the destination machine and no longer doubles as an unpin — an absent key is a 422, an explicit null or "" is a 400. Answers with a bounded receipt (“id“, “relocation_pending“, “relocation_deferred“), not the roster row — call “get_member“ when you need the rest.
 	// (POST /api/members/{member_id}/relocate)
 	HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.ResponseWriter, r *http.Request, memberId string)
-	// The SAME bounded wake snapshot as resume_summary, for a TARGET member (member_id) instead of the caller — control-others, admin_agent+ only (owner-scope or role=assistant); an ordinary agent gets 403. Same identity/chat/light-task-rows/roster/machines/overview/note shape, assembled by the identical resumeSnapshotParts function (so the roster and machine blocks cannot drift from what that member would get on waking; note that machines.you_are_on resolves for the TARGET member, not for you); resume_summary itself is unchanged and still identity-locked to the caller.
+	// The SAME bounded wake snapshot as resume_summary, for a TARGET member (member_id) instead of the caller — control-others, admin_agent+ only (owner-scope or role=assistant); an ordinary agent gets 403. Same identity/chat/light-task-rows/roster/machines/overview/note shape, assembled by the identical resumeSnapshotParts function (so the roster and machine blocks cannot drift from what that member would get on waking; note that machines.you_are_on resolves for the TARGET member, not for you); resume_summary itself is unchanged and still identity-locked to the caller. The owner's delete notices are left out of the chat block unless include_delete_notices=true.
 	// (GET /api/members/{member_id}/resume-summary)
-	HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(w http.ResponseWriter, r *http.Request, memberId string)
+	HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(w http.ResponseWriter, r *http.Request, memberId string, params HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGetParams)
 	// List one member's scheduled messages — 定期訊息, the wall-clock alarm that wakes that member with a chat message on a repeating cadence. admin_agent floor: the owner, or an admin assistant setting these up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. Rows come oldest→newest and each carries the whole schedule — label, body, cadence, the slot fields `hour`/`minute`/`day_of_week`/`day_of_month`, the four `custom` sets, timezone, and the enabled/disabled toggle — plus the delivery cursor `last_fired_slot`/`last_fired_ts`. Read this before update_scheduled_message: that call is a partial edit against these stored values, and it re-aims the cursor only for a slot field whose value actually CHANGES. 404 if the member is absent or soft-removed.
 	// (GET /api/members/{member_id}/scheduled-messages)
 	HandleListScheduledMessagesApiMembersMemberIdScheduledMessagesGet(w http.ResponseWriter, r *http.Request, memberId string)
@@ -6269,7 +6463,7 @@ type ServerInterface interface {
 	// List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened — pass opened_by to narrow a pane to the cards ONE member opened. Read one card in full with get_reply_card.
 	// (GET /api/reply-cards)
 	HandleListReplyCardsApiReplyCardsGet(w http.ResponseWriter, r *http.Request, params HandleListReplyCardsApiReplyCardsGetParams)
-	// Open a reply card: an ask the owner must answer (at least one option; options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={"task_id": ..., "step_id": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound 請示. To say WHICH task an ask is about without holding any of its steps — the only way open to an agent that is not that task's executor — send linked_task=null with about_task_id: the task keeps running and does NOT wait, and the receipt's hold_note says so in one sentence. Whenever a card names a task (bound or not) that is still open, the task's acting executor receives the card's reply_card events alongside the card's author, so the answer, a re-answer and an expiry reach the executor through the same reply-card notification the author gets. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no 等我回覆 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. With both ids present the bind is still refused, before anything is written, when the task does not exist (404), when you are not the task's acting executor (the predecessor while it holds the task under the reassign hold) and not the owner or an admin agent (403 — the refusal points you at about_task_id), when the task is not in_progress, waiting_owner or waiting_external, for example not_started or ready_for_done (409) — a task whose OTHER step waits on the outside world still takes a card on this step, when the step does not belong to that task (404), and when the step is already done or superseded (409). Optional attachments ride the question, up to a capped count that a refusal names (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (“id“, “chat_message_id“, “created_ts“, “attachments“, “hold_note“), not the card — call “get_reply_card“ when you need the rest.
+	// Open a reply card: an ask the owner must answer (at least one option, except kind=secret, which asks for one value only its author can retrieve, must send options=[], and whose body says what is needed, where it goes and why; options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={"task_id": ..., "step_id": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound 請示. To say WHICH task an ask is about without holding any of its steps — the only way open to an agent that is not that task's executor — send linked_task=null with about_task_id: the task keeps running and does NOT wait, and the receipt's hold_note says so in one sentence. Whenever a card names a task (bound or not) that is still open, the task's acting executor receives the card's reply_card events alongside the card's author, so the answer, a re-answer and an expiry reach the executor through the same reply-card notification the author gets. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no 等我回覆 hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. With both ids present the bind is still refused, before anything is written, when the task does not exist (404), when you are not the task's acting executor (the predecessor while it holds the task under the reassign hold) and not the owner or an admin agent (403 — the refusal points you at about_task_id), when the task is not in_progress, waiting_owner or waiting_external, for example not_started or ready_for_done (409) — a task whose OTHER step waits on the outside world still takes a card on this step, when the step does not belong to that task (404), and when the step is already done or superseded (409). Optional attachments ride the question, up to a capped count that a refusal names (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (“id“, “chat_message_id“, “created_ts“, “attachments“, “hold_note“), not the card — call “get_reply_card“ when you need the rest.
 	//
 	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
 	// - `about_task_id`: OPTIONAL — the task this ask is about, WITHOUT holding any of its steps. Valid with linked_task=null; next to a linked_task object it must name the same task (400 otherwise). The task must exist (404) and be open (409). Nothing waits on the card: no step and no task status changes. While the task is open its executor receives the card's reply-card notifications too, and the card expires when the task closes.
@@ -6290,15 +6484,21 @@ type ServerInterface interface {
 	// Revise an answered card's answer (重新決定): stays answered. Answers with a bounded receipt (“id“, “status“, “answered_ts“, “expired_ts“, “answer“, “task_id“, “step_id“), not the whole card — call “get_reply_card“ when you need the rest.
 	// (PUT /api/reply-cards/{card_id}/answer)
 	HandleReanswerReplyCardApiReplyCardsCardIdAnswerPut(w http.ResponseWriter, r *http.Request, cardId string)
-	// Mark a waiting card expired (its author, the owner, or an admin agent; not an answer; terminal).
+	// Mark a waiting card expired, or destroy a secret card's ciphertext (its author, the owner, or an admin agent; not an answer; terminal).
 	// (POST /api/reply-cards/{card_id}/expire)
 	HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.ResponseWriter, r *http.Request, cardId string)
-	// Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).
+	// Provide the value of a waiting secret card (owner only).
+	// (POST /api/reply-cards/{card_id}/secret)
+	HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost(w http.ResponseWriter, r *http.Request, cardId string)
+	// Snooze or unsnooze a waiting reply card (owner only).
+	// (PUT /api/reply-cards/{card_id}/snooze)
+	HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(w http.ResponseWriter, r *http.Request, cardId string)
+	// Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname). The owner's delete notices are left out of the chat block unless include_delete_notices=true.
 	// (GET /api/resume-summary)
-	HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request)
-	// Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large).
+	HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request, params HandleResumeSummaryApiResumeSummaryGetParams)
+	// Size-only PEEK of the wake snapshot (identity-locked; overview counts/sizes + estimated_total_chars, NO chat/task content). estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the named steps sitting on an answered card — what pulling the snapshot actually costs. Step one of the two-step boot: call this FIRST to size resume_summary, then either call resume_summary directly (small) or hand the pull to a cheap sub-agent that returns a digest (large). Pass the same include_delete_notices as the resume_summary call it sizes.
 	// (GET /api/resume-summary-size)
-	HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.ResponseWriter, r *http.Request)
+	HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.ResponseWriter, r *http.Request, params HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams)
 	// List role definitions (seed defaults + owner edits) WITHOUT the persona bodies: each row is the role identity plus its definition size and cap, never definition_md itself. Read the one role you want with get_role.
 	// (GET /api/roles)
 	HandleListRolesApiRolesGet(w http.ResponseWriter, r *http.Request)
@@ -6355,42 +6555,31 @@ type ServerInterface interface {
 	// Read the org-adjustable settings (owner/admin agent).
 	// (GET /api/settings)
 	HandleGetSettingsApiSettingsGet(w http.ResponseWriter, r *http.Request)
-	// Edit the org-adjustable settings (owner/admin agent) — only the fields you send change, and the change is live immediately. This tool's input schema is the field list; read the current values with get_settings first.
+	// Edit org-adjustable settings (owner/admin agent). Only the fields you send change; read current values with get_settings first. An invalid value is a 422 that states the rule and writes nothing.
 	//
-	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
-	// - `codex_compaction_threshold`: Codex context-compaction threshold, 1 through 10.
-	// - `backup_retain`: How many database backup files rotation KEEPS — N; everything past N is DELETED from disk (it used to be moved to a trash/ nobody emptied). Must be between 1 and 20. Two things it does NOT mean: N counts VERSIONS, not DAYS — the calendar depth depends on how many backups those days produced; and N is PER POOL, not per directory — routine (scheduled + manual) and pre-migration backups hold separate quotas, so 5 keeps up to 10 files. Read the current value from get_settings rather than assuming a number.
-	// - `chat_budget_chars`: The wake snapshot's chat block budget, in CHARACTERS (Unicode code points). It is what bounds resume_summary's chat block AND the estimated_total_chars peek_resume_summary_size reports — one number, one code path, so the two can never disagree. Must be between 1000 and 13000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised (the block is repacked on every read, not stored). Read the current value from get_settings rather than assuming a number.
-	// - `step_note_cap_chars`: The size cap on one task step's working note, in CHARACTERS (Unicode code points). Must be between 1000 and 100000. Unlike the doc_cap_chars_* knobs it may be LOWERED as well as raised, because it is enforced only when a note is WRITTEN: a note already stored above a lowered cap stays readable in full and only becomes uneditable. It does NOT govern the task-level handover note or a chat message body, which keep their own 4,000-character constant. Read the current value from get_settings rather than assuming a number.
-	// - `doc_cap_chars_boot_sequence`: The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text. Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.
-	// - `doc_cap_chars_duty`: The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points). Must be at least this segment's own shipped default — which is deliberately much smaller than the other three segments' — and at most 100000. Read the current values from get_settings rather than assuming a number.
-	// - `doc_cap_chars_insight`: The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.
-	// - `doc_cap_chars_manual_sop`: The size cap on a TASK MANUAL's sop_md doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.
-	// - `doc_cap_chars_offboard`: The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.
-	// - `doc_cap_chars_system_interaction`: The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). Must be at least this document's shipped default and at most 100000. Read the current values from get_settings rather than assuming a number.
-	// - `display_language`: The owner's cockpit language (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
-	// - `display_theme`: The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Must be "", a built-in theme id (office, office-light), or an existing custom theme id; anything else is a 422.
-	// - `display_wide`: Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
-	// - `display_seasonal_theme`: Turn the built-in seasonal theme on/off for the cockpit. A plain boolean with no unset state: omit the field to leave it unchanged.
-	// - `handover_pct`: The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).
-	// - `notice_pct`: The FIRST offboard point (T-a9d6): the SOFT notice, where the agent is asked to work the offboard sequence and then call report_stopped itself. 1..89, and strictly below handover_pct.
-	// - `codex_notice_round`: The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.
-	// - `monitoring_refresh_seconds`: Minimum interval between monitoring and machine refreshes, in seconds (1 through 60).
-	// - `accelerated_grace_secs`: 加速停止 grace, in seconds. Must be 10 through 3600. Applies to every CLOCKED wind-down cause at once (the second context threshold and the owner-pressed 加速停止); it can never put a clock on a soft cause.
-	// - `reassign_handover_timeout_secs`: Reassign handover timeout, in seconds. Must be 60 through 86400. How long an OUTSOURCE predecessor under the reassign hold may go without a change to the task before it is reclaimed (its hold rights revoked); changes to the plan, steps, step notes, priority, dependencies, title or description, or to a reply card bound to a step, restart the clock, while artifact changes do not. Staff predecessors are never reclaimed by it.
-	// - `runtime_login_check_interval_secs`: How often, in seconds, each warden re-checks Claude or Codex login on its machine while that runtime last read as logged in. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds. Wardens pick a change up from their next heartbeat reply.
-	// - `runtime_login_recheck_interval_secs`: How often, in seconds, each warden re-checks Claude or Codex login on its machine while that runtime last read as logged out or its check failed. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds, so 30 means every heartbeat. Wardens pick a change up from their next heartbeat reply.
-	// - `warden_credential_lifetime_secs`: How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.
-	// - `org_name`: The studio display name (T-d693) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
-	// - `owner_name`: The owner's display nickname (T-0b41) — trimmed, max 80 runes; "" clears it back to the localized default. A value longer than 80 runes is a 422.
-	// - `push_contact_email`: The push contact address (T-8a82) — trimmed, max 254 runes; "" clears it back to unset and stops all Web Push delivery. A value must be a single `local@domain` address whose domain is a real public one: a malformed address, or one on a reserved suffix (.local, .localhost, .internal, .test, .invalid, .example), is a 422 — those are exactly the values the push gateways reject with BadJwtToken, which would take push down silently.
-	// - `suggested_replies_reply_card`: Replace the 建議回覆 list offered under a 請示卡 reply box (T-122) wholesale — one sentence per entry, the owner's own writing. At most 20 entries, each trimmed and at most 120 runes (Unicode code points); over either bound is a 422 that writes NOTHING, and the list is never silently truncated. An EXPLICIT EMPTY ARRAY IS LEGAL and means "offer no suggestions there" — unlike the scheduled-message custom_* sets, where [] is a 422. Blank entries are dropped. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
-	// - `suggested_replies_task_message`: Replace the 建議回覆 list offered under a 任務 message box (T-122) wholesale. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, and patching one list never touches the other. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
-	// - `suggested_replies_lore_message`: Replace the 建議回覆 list offered under a 傳承 entry's message box (T-33) wholesale — that box writes to the person who WROTE the entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list by owner ruling: asking about a 傳承 entry, answering a 請示卡 and writing to a task in progress are three different conversations, and patching one list never touches another. Read the current list from get_settings before sending: this replaces it, it does not append. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
-	// - `lore_cap_chars_role`: How many characters of 傳承 one member's boot document carries (T-33) — staff and outsource alike, spent by every boot of that member. “everyone“ entries ride inside this same budget, ahead of the member's own (T-236). INDEPENDENT of lore_cap_chars_manual; the two are never summed, because they are paid by different readers at different moments. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
-	// - `lore_cap_chars_manual`: How many characters of 傳承 get_task_manual carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of lore_cap_chars_role. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
-	// - `lore_cap_chars_title`: The longest title ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
-	// - `lore_cap_chars_body`: The longest body ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the doc_cap_chars_* knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these notes add what the summary and a 422 do not say.
+	// - `codex_notice_round`, `codex_compaction_threshold`: The codex twins of notice_pct / handover_pct, counted in context-compaction rounds instead of %: notice round = soft notice; threshold = final round, where the handover fires.
+	// - `backup_retain`: Backup versions (not days) kept per pool; routine and pre-migration backups are separate pools, so 5 keeps up to 10 files. Older files are deleted from disk.
+	// - `chat_budget_chars`: Chat-block budget of the wake snapshot (resume_summary, and the estimate peek_resume_summary_size reports).
+	// - `step_note_cap_chars`: Max length of one step note, checked on write: a stored note over a lowered cap stays readable, but any write that leaves it over the cap is refused.
+	// - `doc_cap_chars_*`: Length cap per document type: `duty` (role definition), `insight`, `manual_sop` (task manual sop_md), `system_interaction` (系統互動), `boot_sequence` (啟動步驟; one knob for both runtimes, each text measured on its own), `offboard` (〈停止〉). A stored document over a lowered cap accepts only edits that shrink it.
+	// - `display_language`: Cockpit language; "" resets it to unset.
+	// - `display_theme`: Cockpit theme: "" (unset), a built-in id (office, office-light, modern-office-desk-day / -dusk / -night), or an existing custom theme id.
+	// - `display_theme_schedule`: Replaces the time-of-day theme schedule wholesale. Each entry `{start: "HH:MM", theme}` shows `theme` from `start` (viewer-local) until the next entry's start, wrapping past midnight; themes as for display_theme. It overrides display_theme on screen without changing it. [] turns it off; null or omitted leaves it unchanged. Deleting a custom theme drops its entries, and the whole schedule if fewer than 2 remain.
+	// - `display_wide`: true lifts the centred ~1040px content column (the side gutters stay).
+	// - `display_seasonal_theme`: true shows the release's holiday theme during its built-in date window, over the schedule and display_theme; no effect outside the window.
+	// - `notice_pct`, `handover_pct`: Context-usage % of the two offboard points: notice = soft notice (the agent works the offboard sequence, then calls report_stopped itself); handover = final notice, where the automatic handover fires. Checked against each agent's latest context reading, so lowering one below a member's current usage starts its offboard on the next reconcile pass.
+	// - `monitoring_refresh_seconds`: Minimum interval between monitoring and machine refreshes.
+	// - `accelerated_grace_secs`: Grace clock of every clocked wind-down (the second context threshold and the owner-pressed 加速停止); never applies to a soft cause.
+	// - `reassign_handover_timeout_secs`: How long an outsource predecessor under the reassign hold may leave the task unchanged before it is reclaimed. Changes to plan, steps, step notes, priority, dependencies, title/description, or a step-bound reply card restart the clock; artifact changes do not. Staff predecessors are never reclaimed.
+	// - `runtime_login_check_interval_secs`, `runtime_login_recheck_interval_secs`: How often each warden re-checks Claude/Codex login while that runtime last read logged in (check) vs logged out or failed (recheck). Wardens apply a change at their next heartbeat.
+	// - `warden_credential_lifetime_secs`: Machine credential lifetime, also stamped as its expiry; wardens renew at two thirds of it and pick a change up at their next poll (~15 min). Lowering it never shortens issued credentials, but lowering it below the fleet's credential age makes every machine renew on its next poll. A machine offline through the whole last third needs a manual re-install.
+	// - `org_name`, `owner_name`: Studio name and owner nickname; "" restores the localized default.
+	// - `push_contact_email`: Web Push contact address; "" stops all Web Push delivery.
+	// - `suggested_replies_reply_card`, `suggested_replies_task_message`, `suggested_replies_lore_message`, `suggested_replies_chat`: Each replaces that reply box's whole suggestion list (no append). [] empties it; null or omitted leaves it unchanged.
+	// - `lore_cap_chars_role`: 傳承 characters carried in each member's boot document; `everyone` entries count inside this budget, ahead of the member's own.
+	// - `lore_cap_chars_manual`: 傳承 characters get_task_manual carries; separate from lore_cap_chars_role, never summed.
+	// - `lore_cap_chars_title`, `lore_cap_chars_body`: Max title / body length of one new 傳承 entry; entries are immutable, so lowering never affects stored ones.
 	// (PATCH /api/settings)
 	HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, r *http.Request)
 	// Read the 系統互動 block of the boot context — the shared studio handbook every agent reads at boot. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.
@@ -6528,6 +6717,9 @@ type ServerInterface interface {
 	// List the saved custom themes — id and name only, in list order (owner/admin agent).
 	// (GET /api/themes)
 	HandleListThemesApiThemesGet(w http.ResponseWriter, r *http.Request)
+	// Import ONE custom theme from an already-uploaded file; it is filed under the id inside the file and replaces any existing theme with that id (owner/admin agent).
+	// (POST /api/themes/import)
+	HandleImportThemeApiThemesImportPost(w http.ResponseWriter, r *http.Request)
 	// Delete one custom theme; deleting the active one resets display_theme to "".
 	// (DELETE /api/themes/{theme_id})
 	HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWriter, r *http.Request, themeId string)
@@ -6535,14 +6727,6 @@ type ServerInterface interface {
 	// (GET /api/themes/{theme_id})
 	HandleGetThemeApiThemesThemeIdGet(w http.ResponseWriter, r *http.Request, themeId string)
 	// Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).
-	//
-	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
-	// - `wording`: Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set or the value rules. A code OUTSIDE the messageKeys whitelist is NOT a 422: it is DROPPED from the overlay and the request succeeds, so only the surviving codes are stored - and NOTHING IN THE RESPONSE SAYS WHICH. This used to read 'the response echoes a pruned `wording`', which was true while put_theme answered the theme; T-91 made it answer ThemeWriteReceiptDTO (`created`, `id`, `order_idx`, `updated_at`), so the pruned overlay is no longer visible on the write. GET the theme back to see which codes survived (an already-imported theme pack stays usable when the whitelist shrinks; the accepted cost is that a typo'd code silently does nothing).
-	// - `avatars`: Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `staff` (一般正職 staff; this key was called `member` until T-57 renamed it. The rename is a HARD CUT: a bundle exported before it carries `member` and is REFUSED with a 422 naming the rename, never silently defaulted to the built-in glyph) / `outsource` (外包 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload — XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) — a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
-	// - `logo`: Optional studio logo image (T-ea81). A single EMBEDDED image encoded as a base64 `data:` URI that replaces the built-in logo mark shown in the top bar. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = the built-in logo mark is used (office never degrades). The server 422s any logo that violates the mime whitelist, the size caps, the base64, or the magic-byte check.
-	// - `navIcons`: Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the five nav tabs `office` (辦公室) / `replies` (請示) / `tasks` (任務) / `monitor` (監控) / `guide` (使用說明); each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
-	// - `backgrounds`: Optional background images for the cockpit's chrome (T-081b). Keys are a CLOSED set holding exactly one zone today: `canvas` — the OUTERMOST canvas, i.e. the page background behind the centred content column. In `tile` / `sides` mode only the area BESIDE that column shows it, which is nothing on a phone, in a narrow window, or in the wide layout (all of which leave no side gutter); in `cover` mode the image fills the viewport and shows through wherever the theme gives the chrome zone colours translucent values. The zone tokens above it (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) deliberately take NO image: they sit under text, and text over a busy pattern has no readability guarantee. Each value is an EMBEDDED image encoded as a base64 `data:` URI laid on top of the solid `--color-bg`, which still shows through wherever the image does not cover; HOW it is laid down is `backgroundModes` (default `tile`). Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). The SIZE caps are the one place backgrounds differ from `avatars`: the decoded byte size is capped at <=512 KiB (with the raw data-URI string capped above the base64-inflated form of that), NOT the <=64 KiB that applies to `avatars` / `logo` / `navIcons`. A background is stretched or tiled across the whole viewport, where the glyph-sized 64 KiB cap read as visibly blurry; that cap — and the T-081b ruling that a background must never exceed it — was overturned by the owner on 2026-08-03, and the small-glyph fields keep 64 KiB. Absent = the outer canvas is the plain `--color-bg` colour, exactly as before this field existed. The server 422s any backgrounds that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
-	// - `backgroundModes`: Optional per-zone DISPLAY MODE for the images in `backgrounds` (T-081b). Same CLOSED zone-key set as `backgrounds` (today: `canvas`); each value is one of a CLOSED set of three: `tile` — repeat the image in both axes over the whole canvas (the ONLY behaviour before this field existed, and the default for any zone this map omits, so an older bundle renders identically); `sides` — do NOT repeat at all: pin ONE copy of the image against the LEFT viewport edge and one against the RIGHT, both at natural size, aligned to the viewport bottom, with `--color-bg` filling whatever the image does not reach; `cover` — ONE copy scaled (`background-size: cover`) to fill the whole viewport, centred. `sides` exists for art that reads as a pair of standing objects (e.g. a tree either side) rather than a texture; the product does NOT mirror the right-hand copy — a theme wanting left/right symmetry bakes it into the image (owner 2026-07-27). `sides` and `cover` are pinned to the VIEWPORT (`background-attachment: fixed`) because the canvas background otherwise scrolls with the document, which would bring a second copy into view down a long page. `cover` is only VISIBLE where the theme also gives the chrome zone colours (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) translucent values — the colour grammar already admits `#RRGGBBAA` and `rgba()` — and that is also where its risk lives: those zones sit under text, so the image's contrast against that text is the theme's own responsibility (owner accepted this trade-off on 2026-07-27). A mode for a zone that carries no image is a 422 (a mode alone paints nothing, so it is a mistake worth naming rather than ignoring). Absent = every zone tiles, exactly as before this field existed. NOTE both modes are invisible at viewport widths where the content column leaves no gutter (phones, narrow windows) — that is a property of the outer canvas, not of the mode.
 	// (PUT /api/themes/{theme_id})
 	HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *http.Request, themeId string)
 	// Trigger a software upgrade to the latest GitHub release.
@@ -7298,6 +7482,32 @@ func (siw *ServerInterfaceWrapper) HandleListChatApiChatGet(w http.ResponseWrite
 		return
 	}
 
+	// ------------- Optional query parameter "include_deleted" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_deleted", r.URL.Query(), &params.IncludeDeleted, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_deleted"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_deleted", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "hide_delete_notices" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "hide_delete_notices", r.URL.Query(), &params.HideDeleteNotices, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "hide_delete_notices"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "hide_delete_notices", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleListChatApiChatGet(w, r, params)
 	}))
@@ -7529,11 +7739,77 @@ func (siw *ServerInterfaceWrapper) HandleListChatReadsApiChatReadsGet(w http.Res
 	handler.ServeHTTP(w, r)
 }
 
+// HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut operation middleware
+func (siw *ServerInterfaceWrapper) HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "member_id" -------------
+	var memberId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "member_id", r.PathValue("member_id"), &memberId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "member_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut(w, r, memberId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleChatUnreadCountApiChatUnreadCountGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleChatUnreadCountApiChatUnreadCountGet(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleChatUnreadCountApiChatUnreadCountGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleDeleteChatMessageApiChatMessageIdDelete operation middleware
+func (siw *ServerInterfaceWrapper) HandleDeleteChatMessageApiChatMessageIdDelete(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "message_id" -------------
+	var messageId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "message_id", r.PathValue("message_id"), &messageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "message_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleDeleteChatMessageApiChatMessageIdDelete(w, r, messageId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9294,8 +9570,24 @@ func (siw *ServerInterfaceWrapper) HandleGetMemberResumeSummaryApiMembersMemberI
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGetParams
+
+	// ------------- Optional query parameter "include_delete_notices" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_delete_notices", r.URL.Query(), &params.IncludeDeleteNotices, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_delete_notices"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_delete_notices", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(w, r, memberId)
+		siw.Handler.HandleGetMemberResumeSummaryApiMembersMemberIdResumeSummaryGet(w, r, memberId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9969,11 +10261,82 @@ func (siw *ServerInterfaceWrapper) HandleExpireReplyCardApiReplyCardsCardIdExpir
 	handler.ServeHTTP(w, r)
 }
 
+// HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "card_id" -------------
+	var cardId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "card_id", r.PathValue("card_id"), &cardId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "card_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost(w, r, cardId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut operation middleware
+func (siw *ServerInterfaceWrapper) HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "card_id" -------------
+	var cardId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "card_id", r.PathValue("card_id"), &cardId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "card_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(w, r, cardId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleResumeSummaryApiResumeSummaryGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleResumeSummaryApiResumeSummaryGetParams
+
+	// ------------- Optional query parameter "include_delete_notices" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_delete_notices", r.URL.Query(), &params.IncludeDeleteNotices, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_delete_notices"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_delete_notices", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleResumeSummaryApiResumeSummaryGet(w, r)
+		siw.Handler.HandleResumeSummaryApiResumeSummaryGet(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9986,8 +10349,27 @@ func (siw *ServerInterfaceWrapper) HandleResumeSummaryApiResumeSummaryGet(w http
 // HandlePeekResumeSummarySizeApiResumeSummarySizeGet operation middleware
 func (siw *ServerInterfaceWrapper) HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams
+
+	// ------------- Optional query parameter "include_delete_notices" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_delete_notices", r.URL.Query(), &params.IncludeDeleteNotices, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_delete_notices"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_delete_notices", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w, r)
+		siw.Handler.HandlePeekResumeSummarySizeApiResumeSummarySizeGet(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11607,6 +11989,20 @@ func (siw *ServerInterfaceWrapper) HandleListThemesApiThemesGet(w http.ResponseW
 	handler.ServeHTTP(w, r)
 }
 
+// HandleImportThemeApiThemesImportPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleImportThemeApiThemesImportPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleImportThemeApiThemesImportPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleDeleteThemeApiThemesThemeIdDelete operation middleware
 func (siw *ServerInterfaceWrapper) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWriter, r *http.Request) {
 
@@ -11995,7 +12391,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/chat/groups", wrapper.HandleUpdateChatGroupsApiChatGroupsPut)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat/mark-read", wrapper.HandleMarkChatReadApiChatMarkReadPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/reads", wrapper.HandleListChatReadsApiChatReadsGet)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/suggested-replies", wrapper.HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/chat/suggested-replies/{member_id}", wrapper.HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/unread-count", wrapper.HandleChatUnreadCountApiChatUnreadCountGet)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/chat/{message_id}", wrapper.HandleDeleteChatMessageApiChatMessageIdDelete)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff", wrapper.HandleGetDiffApiDiffGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff/share-link", wrapper.HandleGetDiffShareLinkApiDiffShareLinkGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/doc-sizes", wrapper.HandlePeekDocSizesApiDocSizesGet)
@@ -12085,6 +12484,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/reply-cards/{card_id}/answer", wrapper.HandleAnswerReplyCardApiReplyCardsCardIdAnswerPost)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/reply-cards/{card_id}/answer", wrapper.HandleReanswerReplyCardApiReplyCardsCardIdAnswerPut)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/reply-cards/{card_id}/expire", wrapper.HandleExpireReplyCardApiReplyCardsCardIdExpirePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/reply-cards/{card_id}/secret", wrapper.HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/reply-cards/{card_id}/snooze", wrapper.HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/resume-summary", wrapper.HandleResumeSummaryApiResumeSummaryGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/resume-summary-size", wrapper.HandlePeekResumeSummarySizeApiResumeSummarySizeGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/roles", wrapper.HandleListRolesApiRolesGet)
@@ -12149,6 +12550,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/title", wrapper.HandleUpdateTaskTitleApiTasksTaskIdTitlePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/theme/fetch", wrapper.HandleFetchThemeApiThemeFetchPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/themes", wrapper.HandleListThemesApiThemesGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/themes/import", wrapper.HandleImportThemeApiThemesImportPost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/themes/{theme_id}", wrapper.HandleDeleteThemeApiThemesThemeIdDelete)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/themes/{theme_id}", wrapper.HandleGetThemeApiThemesThemeIdGet)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/themes/{theme_id}", wrapper.HandlePutThemeApiThemesThemeIdPut)

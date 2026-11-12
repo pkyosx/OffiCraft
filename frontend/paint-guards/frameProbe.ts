@@ -19,7 +19,13 @@ import type { Page, Response } from "@playwright/test";
 // key rename — it would just be seeding a key nothing reads, and asserting that
 // the theme it never seeded did not appear.
 import { TOKEN_KEY } from "../src/api/auth";
-import { LS_SEASONAL_PAINT, LS_THEME, LS_THEME_PAINT } from "../src/lib/themePaint";
+import {
+  LS_SCHEDULE_PAINT,
+  LS_SEASONAL_PAINT,
+  LS_THEME,
+  LS_THEME_PAINT,
+  LS_THEME_SCHEDULE,
+} from "../src/lib/themePaint";
 import { SEASONAL_SCHEDULE, activeSeasonalWindow } from "../src/lib/seasonalSchedule";
 
 /** Any frame count below this means the sampler did not actually run per frame
@@ -109,10 +115,25 @@ export async function seedSession(
     themeId: string;
     paintRecord: string | null;
     seasonalPaintRecord?: string;
+    schedule?: string;
+    schedulePaintRecords?: string;
   }
 ): Promise<void> {
   await page.evaluate(
-    ([tokenKey, themeKey, paintKey, seasonalPaintKey, token, themeId, record, seasonalRecord]) => {
+    ([
+      tokenKey,
+      themeKey,
+      paintKey,
+      seasonalPaintKey,
+      scheduleKey,
+      schedulePaintKey,
+      token,
+      themeId,
+      record,
+      seasonalRecord,
+      schedule,
+      scheduleRecords,
+    ]) => {
       localStorage.clear();
       if (token !== null) localStorage.setItem(tokenKey as string, token as string);
       localStorage.setItem(themeKey as string, themeId as string);
@@ -120,16 +141,24 @@ export async function seedSession(
       if (seasonalRecord !== null) {
         localStorage.setItem(seasonalPaintKey as string, seasonalRecord as string);
       }
+      if (schedule !== null) localStorage.setItem(scheduleKey as string, schedule as string);
+      if (scheduleRecords !== null) {
+        localStorage.setItem(schedulePaintKey as string, scheduleRecords as string);
+      }
     },
     [
       TOKEN_KEY,
       LS_THEME,
       LS_THEME_PAINT,
       LS_SEASONAL_PAINT,
+      LS_THEME_SCHEDULE,
+      LS_SCHEDULE_PAINT,
       opts.token,
       opts.themeId,
       opts.paintRecord,
       opts.seasonalPaintRecord ?? null,
+      opts.schedule ?? null,
+      opts.schedulePaintRecords ?? null,
     ] as const
   );
 }

@@ -20,8 +20,40 @@
 import type {
   ReplyCard,
   ReplyCardRow,
+  ReplyCardSecretView,
   ReplyCardWriteReceipt,
 } from "../api/adapter";
+
+/** The receipt carries no `secret` block, so the transition is read off it here;
+ * the surfaces re-read the card for the deadline it just fixed. An empty answer
+ * only ever comes from a provide: the answer route refuses one. */
+function secretAfterWrite(
+  before: ReplyCardSecretView | null | undefined,
+  receipt: ReplyCardWriteReceipt,
+): ReplyCardSecretView | null | undefined {
+  if (!before) return before;
+  if (receipt.status === "expired") {
+    return { ...before, state: "expired", expiresTs: null };
+  }
+  if (receipt.status !== "answered") return before;
+  if (before.state === "waiting" || before.state === "replied") {
+    const answer = receipt.answer;
+    const worded =
+      !!answer?.text || (answer?.optionIdxs?.length ?? 0) > 0 || (answer?.attachments?.length ?? 0) > 0;
+    return worded
+      ? { ...before, state: "replied" }
+      : { ...before, state: "provided", providedTs: receipt.answeredTs };
+  }
+  return { ...before, expiresTs: null };
+}
+
+/** Whether a settled secret card can still change on screen: its retrieval and
+ * its destruction move no status, so the status guards would miss both. */
+export function secretCardMayStillChange(card: ReplyCard | null | undefined): boolean {
+  const secret = card?.secret;
+  if (!secret) return false;
+  return secret.state === "provided" || (secret.state === "retrieved" && secret.expiresTs !== null);
+}
 
 /** `before` (the card on screen, read from the server) with ONLY the transition
  * the write just performed folded in. */
@@ -35,6 +67,7 @@ export function mergeReplyCardWrite(
     answer: receipt.answer,
     answeredTs: receipt.answeredTs,
     expiredTs: receipt.expiredTs,
+    ...(before.secret ? { secret: secretAfterWrite(before.secret, receipt) } : {}),
   };
 }
 
@@ -53,5 +86,8 @@ export function mergeReplyCardRowWrite(
     status: receipt.status,
     answeredTs: receipt.answeredTs,
     expiredTs: receipt.expiredTs,
+    // Answering or expiring clears a snooze server-side.
+    snoozedUntilTs: null,
+    ...(before.secret ? { secret: secretAfterWrite(before.secret, receipt) } : {}),
   };
 }

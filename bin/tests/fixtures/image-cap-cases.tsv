@@ -49,7 +49,7 @@
 #                     themes their own table — one row each now, so the cap
 #                     bounds what ONE theme weighs rather than what one shared
 #                     row does. The number and the reason for it are unchanged.)
-#   background 512 KiB — backgrounds.canvas is stretched or tiled across the
+#   background 1 MiB — backgrounds.canvas is stretched or tiled across the
 #                     WHOLE viewport. At 64 KiB the owner's real background read
 #                     as visibly blurry; he reported it three times. Owner ruling
 #                     2026-08-03, which overturned the T-081b decision that a
@@ -57,6 +57,7 @@
 #                     premise was that both went through ONE gate, so relaxing
 #                     the background would have relaxed the avatar too — which
 #                     is exactly what the per-purpose split removes.
+#                     The 1 MiB background cap is an owner ruling; do not lower it.
 #
 # The caps are read from the four `# <name><TAB><n>` lines below, so neither
 # implementation's constant is a third copy of itself.
@@ -70,14 +71,14 @@
 # allocating its decode), not a separate behaviour. What the rows below DO prove
 # about it is the direction that actually broke things: the `background-at-cap`
 # row can only pass if the background value-len cap moved with the decoded cap —
-# 512 KiB decoded is ~683 KiB encoded, so a value-len left at the avatar's
+# 1 MiB decoded is ~1366 KiB encoded, so a value-len left at the avatar's
 # 96 KiB rejects it as "too long" and the decoded cap is never reached.
 #
 # cap declarations, read by imageCap.test.ts:
 # avatar_bytes	65536
 # avatar_value_len	98304
-# background_bytes	524288
-# background_value_len	720896
+# background_bytes	1048576
+# background_value_len	1433600
 #
 # COLUMNS  case<TAB>purpose<TAB>decoded_bytes<TAB>accepted
 #
@@ -105,8 +106,8 @@ background-small	background	1024	true
 background-at-avatar-cap	background	65536	true
 background-one-past-avatar-cap	background	65537	true
 background-well-past-avatar-cap	background	262144	true
-background-at-cap	background	524288	true
-background-one-past-cap	background	524289	false
-avatar-at-background-cap	avatar	524288	false
-logo-at-background-cap	logo	524288	false
-navicon-at-background-cap	navicon	524288	false
+background-at-cap	background	1048576	true
+background-one-past-cap	background	1048577	false
+avatar-at-background-cap	avatar	1048576	false
+logo-at-background-cap	logo	1048576	false
+navicon-at-background-cap	navicon	1048576	false

@@ -9,6 +9,7 @@
 
 import type { DiffParams } from "../lib/diffLink";
 import type { ThemeBundle } from "../lib/themeBundle";
+import type { ThemeScheduleEntry } from "../lib/themeSchedule";
 import type {
   Member,
   MemberActivity,
@@ -144,6 +145,14 @@ export interface ChatMessage {
    * and a story about healing that lie later — three states that look identical
    * to the eye whether they are right or wrong. */
   replyToChat?: ChatReplyQuote | null;
+  /** Epoch seconds the owner deleted this message (wire `deleted_ts`); `0` =
+   * not deleted. Listings carry a deleted message only when asked
+   * (`include_deleted`), body intact. OPTIONAL so hand-built fixtures stay
+   * valid; the mapper always sets it. */
+  deletedTs?: number;
+  /** The task this message belongs to (`meta.task_id`), or null. Task messages
+   * cannot be deleted. OPTIONAL like `deletedTs`. */
+  taskId?: string | null;
 }
 
 /** The quoted message a reply carries with it (wire `ChatReplyQuoteDTO`).
@@ -172,6 +181,10 @@ export interface ChatReplyQuote {
    * `reply_excerpt`), verbatim as sent. Absent when the reply quoted the whole
    * message; when present, quote surfaces draw it instead of `content`. */
   replyExcerpt?: string;
+  /** The quoted message was deleted; `content` and `replyExcerpt` are then
+   * empty, so a quote never carries a deleted message's text. OPTIONAL so
+   * hand-built fixtures stay valid; the mapper always sets it. */
+  deleted?: boolean;
 }
 
 /** One reply card folded onto the chat message that opened it (view model of
@@ -344,6 +357,15 @@ export interface ReplyCardAnswer {
   attachments: ChatAttachmentView[];
 }
 
+/** Where a `secret` card's value stands (wire `ReplyCardSecretDTO`). Never the value. */
+export interface ReplyCardSecretView {
+  state: "waiting" | "provided" | "retrieved" | "replied" | "expired";
+  providedTs: number | null;
+  retrievedTs: number | null;
+  /** When the value is destroyed; null when there is none to destroy. */
+  expiresTs: number | null;
+}
+
 /**
  * One reply card (等我回覆卡) in view-model form. `status` is the closed set
  * `waiting` | `answered` | `expired` — the only transitions are
@@ -362,7 +384,8 @@ export interface ReplyCard {
   id: string;
   /** The initiating member id (verified JWT sub at create time). */
   from: string;
-  /** "decision" (needs the owner's call) | "action" (needs the owner to act). */
+  /** "decision" (needs the owner's call) | "action" (needs the owner to act) |
+   * "secret" (asks the owner for one value only the author can retrieve). */
   kind: string;
   summary: string;
   body: string;
@@ -392,6 +415,13 @@ export interface ReplyCard {
    * hand-built test fixtures stay valid (same precedent as Member.roleName);
    * the mapper always sets it (null when the wire carries none). */
   task?: TaskRefView | null;
+  /** The owner's 稍後再看: epoch seconds the card stays out of the badge and the
+   * waiting list until. The server sends it only on a waiting card while that
+   * time is ahead; null otherwise. OPTIONAL for hand-built fixtures; the mapper
+   * always sets it. */
+  snoozedUntilTs?: number | null;
+  /** Present only on a `secret` card. */
+  secret?: ReplyCardSecretView | null;
 }
 
 /**
@@ -415,7 +445,7 @@ export interface ReplyCardRow {
   id: string;
   /** The initiating member id — the 開卡人 axis and the identity row. */
   from: string;
-  /** "decision" | "action". */
+  /** "decision" | "action" | "secret". */
   kind: string;
   /** The ask's title: what the collapsed row shows. */
   summary: string;
@@ -427,6 +457,16 @@ export interface ReplyCardRow {
   expiredTs?: number | null;
   /** The task this ask was armed from; null/absent ⇒ a pure chat ask. */
   task?: TaskRefView | null;
+  /** Same field as `ReplyCard.snoozedUntilTs`. */
+  snoozedUntilTs?: number | null;
+  /** Same field as `ReplyCard.secret`. */
+  secret?: ReplyCardSecretView | null;
+}
+
+/** What `PUT /api/reply-cards/{id}/snooze` answers: the snooze as stored. */
+export interface ReplyCardSnoozeReceipt {
+  id: string;
+  snoozedUntilTs: number | null;
 }
 
 /** What the three reply-card WRITES answer (wire `ReplyCardReceiptDTO`, T-91):
@@ -445,14 +485,20 @@ export interface ReplyCardWriteReceipt {
   expiredTs: number | null;
 }
 
-/** The LIGHT task reference riding a task-armed reply card (wire TaskRefDTO).
- * Deliberately narrow: `id` is ONLY the #tasks jump anchor; the UI shows the
- * TYPE (typeKey; "" ⇒ 自由代辦) — never the task number/識別鍵 (adjudicated:
- * 請示卡不露任務編號). `title` rides along for accessibility labels. */
+/** The LIGHT task reference riding a reply card that names a task (wire
+ * TaskRefDTO). `id` is the #tasks jump anchor and, on the 請示 page's task row,
+ * the task number shown (the number IS the id); the inline chat card still
+ * shows only the title. */
 export interface TaskRefView {
   id: string;
   typeKey: string;
   title: string;
+  /** The task's own priority / due date / due-soon lead, read by the server
+   * when the response was built (a later task change shows on the next read).
+   * OPTIONAL for hand-built fixtures; the mapper always sets them. */
+  priority?: string;
+  dueTs?: number | null;
+  dueSoonLeadMinutes?: number | null;
 }
 
 /** The owner's answer to a reply card: the quick-reply `optionIdxs` and/or
@@ -481,6 +527,9 @@ export interface ReplyCardCounts {
   waiting: number;
   answered: number;
   expired: number;
+  /** When `waiting` next changes by itself (the earliest snooze running out);
+   * null when nothing is snoozed. OPTIONAL for hand-built fixtures. */
+  waitingNextChangeTs?: number | null;
 }
 
 // ── Tasks (M3 任務卡) view models ─────────────────────────────────────────────
@@ -1175,6 +1224,9 @@ export interface ThemeDeleteResult {
   id: string;
   deleted: boolean;
   displayThemeReset: boolean;
+  /** The schedule after the server pruned the deleted theme out of it;
+   * undefined from a server that has no schedule. */
+  displayThemeSchedule?: ThemeScheduleEntry[];
 }
 
 /** The owner-adjustable server settings in view-model form (`/api/settings`). */
@@ -1261,6 +1313,10 @@ export interface ServerSettingsView {
    * chat message body keep their own 4,000-character server constant. Default
    * and range in `stepNoteCap.ts` (mirroring server/ocserverd/domain.go). */
   stepNoteCapChars: number;
+  /** A `secret` card's two durations, in seconds. Each is stamped on the card
+   * when the event happens, so a change only reaches later events. */
+  secretCardUnretrievedTtlSecs: number;
+  secretCardRetrievedRetentionSecs: number;
   /** T-33: the four 傳承 knobs. The first two are FOLD budgets — how much 傳承
    * one member's boot document carries (its `everyone` entries first, then its
    * own, T-236), and how much `get_task_manual`
@@ -1309,6 +1365,8 @@ export interface ServerSettingsView {
    * writes to the person who WROTE that entry. A THIRD separate list, for the
    * same reason: one being empty says nothing about the other two. */
   suggestedRepliesLoreMessage: string[];
+  /** The 建議回覆 offered in every member's chat room, after that member's own. */
+  suggestedRepliesChat: string[];
   /** Contact email used as this deployment's Web Push VAPID identity. Empty
    * means delivery is disabled until the owner configures a public address. */
   pushContactEmail: string;
@@ -1328,6 +1386,8 @@ export interface ServerSettingsView {
    * open; display_theme is never rewritten by it. Same dual-layer contract as
    * displayWide; true is the shipped default. */
   displaySeasonalTheme: boolean;
+  /** display_theme_schedule, sorted by start; [] = no schedule. */
+  displayThemeSchedule: ThemeScheduleEntry[];
   /** The automatic first-run onboarding report (T-ba62), or null when
    * onboarding never ran on this server (an install predating it, or a
    * database that already had a password). This is how the cockpit can say
@@ -1413,6 +1473,9 @@ export interface ServerSettingsPatch {
   /** T-119 step-note cap; range 1000..100000 (stepNoteCap.ts). The floor is NOT
    * the shipped default — this one may be turned down. */
   stepNoteCapChars?: number;
+  /** Ranges in secretCardSettings.ts. */
+  secretCardUnretrievedTtlSecs?: number;
+  secretCardRetrievedRetentionSecs?: number;
   /** T-33 傳承 knobs. The two FOLD budgets take 100..100000 and the two ENTRY
    * bounds take 10..10000 (loreCap.ts) — two ranges, because a title and a boot
    * document are not the same size of thing. NONE of the four floors is the
@@ -1448,6 +1511,8 @@ export interface ServerSettingsPatch {
   /** The 傳承 message-box 建議回覆 (T-33), replaced WHOLESALE. Same bounds again,
    * and independent of both: patching one never touches another. */
   suggestedRepliesLoreMessage?: string[];
+  /** The all-member chat 建議回覆, replaced WHOLESALE. Same bounds again. */
+  suggestedRepliesChat?: string[];
   /** Web Push VAPID contact email; empty clears it and disables delivery. */
   pushContactEmail?: string;
   /** The owner's cockpit visual theme (T-0b41-p2); "" (unset) | a built-in id
@@ -1461,6 +1526,8 @@ export interface ServerSettingsPatch {
   displayWide?: boolean;
   /** Turn the built-in seasonal theme on/off. Omit to leave it unchanged. */
   displaySeasonalTheme?: boolean;
+  /** Replace the schedule wholesale; [] turns it off. */
+  displayThemeSchedule?: ThemeScheduleEntry[];
   /** Dismiss (true) or un-dismiss (false) the first-run onboarding banner
    * (T-0648) — it stamps / clears `dismissedAt` on the ONE onboarding report,
    * so 「不再顯示」 outlives the tab it was pressed in. 409 when there is no
@@ -1986,6 +2053,10 @@ export interface SseDelta {
   /** Every value in `names`, de-duplicated — the cheap "does this delta touch
    * something I am holding?" test. Empty ⇒ refetch the lot. */
   ids: string[];
+  /** `chat` only: present on the delta of a delete, the delete time (epoch
+   * seconds). A hook may apply it without a refetch (spec/sse.md §2.2 names it
+   * as an exception): a delete cannot be undone, so it cannot go stale. */
+  deletedTs?: number;
 }
 
 /**
@@ -2333,6 +2404,12 @@ export interface Api {
     peer: string;
     lastReadTs: number;
   }): Promise<ChatMarkReadReceipt>;
+  /** Delete one of the owner's own ordinary messages sent less than 24 hours
+   * ago (`DELETE /api/chat/{id}`, owner only, no undo). Answers the
+   * message with `deletedTs` set; deleting an already deleted message
+   * answers it unchanged. Someone else's message, a task message, a reply-card
+   * message or one older than 24 hours → 409; unknown id → 404. */
+  deleteChatMessage(id: string): Promise<ChatMessage>;
   /** List read receipts for a `peer` conversation (`GET /api/chat/reads?with=`).
    * The UI reads the PEER's receipt to know how far the peer has read the owner's
    * messages (drives the per-message "read ✓" badge). */
@@ -2344,10 +2421,17 @@ export interface Api {
    * or wrong-tab member, a staff group with task types, an unknown group or
    * task type; nothing is written then. */
   putChatGroups(groups: ChatGroupWrite[]): Promise<ChatGroupView[]>;
+  /** The owner's chat 建議回覆: member id → sentences in display order. A member
+   * with none, or who left the roster, is absent. */
+  getChatSuggestedReplies(): Promise<Record<string, string[]>>;
+  /** Replace one member's sentences and answer what was stored (trimmed). `[]`
+   * removes them. 422 on a blank or over-long entry, too many entries, or a
+   * member who is not on the roster; nothing is written then. */
+  putChatSuggestedReplies(memberId: string, replies: string[]): Promise<string[]>;
   /**
    * List reply cards (`GET /api/reply-cards?status=`). `waiting` returns every
    * card still waiting for the owner, LONGEST-WAITING FIRST (created_ts
-   * ascending — the 待回覆 pane order); `answered` returns cards answered
+   * ascending); `answered` returns cards answered
    * within the last 24 hours, newest answer first; `expired` returns cards that
    * were marked expired within the last 24 hours, newest first (older
    * answered/expired cards drop off these lists but live forever in chat
@@ -2416,6 +2500,25 @@ export interface Api {
    * fans).
    */
   expireReplyCard(id: string): Promise<ReplyCardWriteReceipt>;
+  /**
+   * The owner provides a WAITING `secret` card's value
+   * (`POST /api/reply-cards/{id}/secret`). The value goes in the request body
+   * and nowhere else; the receipt never echoes it. 400 empty/over the limit,
+   * 403 not the owner, 404 unknown, 409 not a waiting secret card or its task
+   * closed, 503 the vault key is missing.
+   */
+  provideReplyCardSecret(id: string, value: string): Promise<ReplyCardWriteReceipt>;
+  /**
+   * The owner's 稍後再看 (`PUT /api/reply-cards/{id}/snooze`): keep a WAITING
+   * card out of the badge until `untilTs` (epoch seconds, later than now and at
+   * most 90 days ahead), or bring it back now with `null`. The card stays
+   * waiting and can still be answered or expired. 422 past/too far, 409 the
+   * card is answered or expired, 404 unknown.
+   */
+  snoozeReplyCard(
+    id: string,
+    untilTs: number | null,
+  ): Promise<ReplyCardSnoozeReceipt>;
   // ── Tasks (M3 任務頁 + 任務卡) ──────────────────────────────────────────────
   /**
    * List tasks as LIGHT list items (the collapsed card's fields +

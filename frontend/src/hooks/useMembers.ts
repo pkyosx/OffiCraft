@@ -27,6 +27,7 @@ import type { Member } from "../types";
 import { api } from "../api";
 import { createDeltaSink, narrowToHeld } from "../lib/deltaSink";
 import { burstMovesNoOwnerUnread } from "../lib/ownerUnread";
+import { createRosterReadOrder } from "../lib/rosterReadOrder";
 
 interface UseMembers {
   members: Member[];
@@ -81,30 +82,26 @@ export function useMembers(opts?: { light?: boolean }): UseMembers {
   // state read there would be a stale closure). Only membership is mirrored —
   // the VALUES always come from the server.
   const heldRef = useRef<Set<string>>(new Set());
+  const [readOrder] = useState(() => createRosterReadOrder<Member>());
 
-  // Adopt a whole roster: state and the id mirror move together, so the mirror
-  // can never disagree with what is rendered.
-  const adopt = useCallback((next: Member[]) => {
-    heldRef.current = new Set(next.map((m) => m.id));
-    setMembers(next);
-  }, []);
-
+  // State and the id mirror move together, so the mirror can never disagree with
+  // what is rendered.
   const refetch = useCallback(async () => {
+    const read = readOrder.begin();
     const next = await api.listMembers(light ? { light: true } : undefined);
-    adopt(next);
-  }, [light, adopt]);
+    const update = readOrder.landList(read, next);
+    if (update === null) return;
+    heldRef.current = new Set(next.map((m) => m.id));
+    setMembers(update);
+  }, [light, readOrder]);
 
   useEffect(() => {
     let alive = true;
 
     const full = () =>
-      api
-        .listMembers(light ? { light: true } : undefined)
-        .then((next) => {
-          if (alive) {
-            adopt(next);
-            setError(false);
-          }
+      refetch()
+        .then(() => {
+          if (alive) setError(false);
         })
         .catch((e) => console.warn("useMembers: SSE refetch failed", e));
 
@@ -116,41 +113,38 @@ export function useMembers(opts?: { light?: boolean }): UseMembers {
     // NOTE: takes an array but the caller only ever passes ONE id — see the
     // crossover note at the call site. The array shape is kept so the fan-out
     // stays visible if that rule is ever revisited with numbers behind it.
-    const patchOne = (ids: string[]) =>
-      Promise.all(ids.map((id) => api.getMember(id)))
+    const patchOne = (ids: string[]) => {
+      const read = readOrder.begin();
+      return Promise.all(ids.map((id) => api.getMember(id)))
         .then((fresh) => {
           if (!alive) return;
-          setMembers((prev) =>
-            prev.map((m) => fresh.find((f) => f.id === m.id) ?? m)
-          );
+          setMembers(readOrder.landRows(read, fresh));
           setError(false);
         })
         .catch((e) => {
           console.warn("useMembers: member refetch failed", e);
           return full();
         });
+    };
 
     // Initial load. On rejection surface an honest error flag instead of
-    // swallowing it into an empty roster. (Do NOT clearToken here — a 401 is
-    // already handled at the http layer, which bounces to login.)
-    api
-      .listMembers(light ? { light: true } : undefined)
-      .then((next) => {
-        if (alive) {
-          adopt(next);
-          setError(false);
-        }
+    // swallowing it into an empty roster — unless a later read already landed,
+    // and the roster on screen is not a failed load. (Do NOT clearToken here — a
+    // 401 is already handled at the http layer, which bounces to login.)
+    refetch()
+      .then(() => {
+        if (alive) setError(false);
       })
       .catch((e) => {
         console.warn("useMembers: initial load failed", e);
-        if (alive) setError(true);
+        if (alive && !readOrder.listHasLanded()) setError(true);
       })
       .finally(() => {
         if (alive) setLoading(false);
       });
 
     // SSE: reconcile the roster on the relevant topics — ONE decision per burst
-    // of deltas (a resync fans 14 topics at once, of which this hook listens to
+    // of deltas (a resync fans every topic at once, of which this hook listens to
     // four). The light set omits chat/chat_read (T-cf91) so a chat line never
     // re-pulls here at all.
     const unsubscribe = api.subscribeEvents(
@@ -245,7 +239,7 @@ export function useMembers(opts?: { light?: boolean }): UseMembers {
       alive = false;
       unsubscribe();
     };
-  }, [light, topics, adopt]);
+  }, [topics, refetch, readOrder]);
 
   return { members, loading, error, refetch };
 }

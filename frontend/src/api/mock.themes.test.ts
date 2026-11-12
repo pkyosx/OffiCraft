@@ -184,4 +184,23 @@ describe("mock themes — the theme resource (T-83ef)", () => {
     expect(result.displayThemeReset).toBe(false);
     expect((await mockApi.getServerSettings()).displayTheme).toBe("midnight");
   });
+
+  it("drops a deleted theme's schedule entries, and the whole schedule when fewer than two would be left", async () => {
+    await mockApi.putTheme(MIDNIGHT);
+    await mockApi.putTheme({ id: "sunrise", name: "Sunrise", colors: { "--color-bg": "#fff" } });
+    await mockApi.patchServerSettings({
+      displayThemeSchedule: [
+        { start: "06:00", theme: "sunrise" },
+        { start: "12:00", theme: "office-light" },
+        { start: "20:00", theme: "midnight" },
+      ],
+    });
+
+    expect((await mockApi.deleteTheme("sunrise")).displayThemeSchedule).toEqual([
+      { start: "12:00", theme: "office-light" },
+      { start: "20:00", theme: "midnight" },
+    ]);
+    expect((await mockApi.deleteTheme("midnight")).displayThemeSchedule).toEqual([]);
+    expect((await mockApi.getServerSettings()).displayThemeSchedule).toEqual([]);
+  });
 });

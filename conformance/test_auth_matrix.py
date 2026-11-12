@@ -792,6 +792,13 @@ MATRIX: dict[str, Route] = {
     # Writing real themes from here would leave rows behind that the list row and
     # the happy suite would then have to reason about.
     "GET /api/themes": Route(requires="admin_agent"),
+    "POST /api/themes/import": Route(
+        requires="admin_agent",
+        # Names no uploaded file: refused for a reason that has nothing to do
+        # with identity, and nothing is stored.
+        body={"attachment_id": "att-conf-missing"},
+        overrides={"owner": 400, "admin_agent": 400},
+    ),
     "GET /api/themes/{theme_id}": Route(
         requires="admin_agent",
         path=lambda ctx, _i: "/api/themes/conf-missing-theme",
@@ -1099,6 +1106,16 @@ MATRIX: dict[str, Route] = {
     "GET /api/chat/reads": Route(requires="machine"),
     "GET /api/chat/groups": Route(requires="owner"),
     "PUT /api/chat/groups": Route(requires="owner", body={"groups": []}),
+    "GET /api/chat/suggested-replies": Route(requires="owner"),
+    "PUT /api/chat/suggested-replies/{member_id}": Route(
+        requires="owner", path="/api/chat/suggested-replies/mira", body={"replies": []}),
+    "DELETE /api/chat/{message_id}": Route(
+        # unknown message id: the owner passes the floor and the lookup 404s; the
+        # delete semantics are pinned in test_rest_happy.py.
+        requires="owner",
+        path="/api/chat/c-000000000000",
+        overrides={"owner": 404},
+    ),
     "GET /api/chat/unread-count": Route(requires="machine"),
     # ── reply cards ──────────────────────────────────────────────────────────
     "POST /api/reply-cards": Route(
@@ -1132,6 +1149,22 @@ MATRIX: dict[str, Route] = {
             "/answer"
         ),
         body={"text": "conf matrix revised answer"},
+    ),
+    "POST /api/reply-cards/{card_id}/secret": Route(
+        requires="owner",
+        path="/api/reply-cards/rc-000000000000/secret",
+        body={"value": "dummy-aaaaaaaaaaaa"},
+        overrides={"owner": 404},
+    ),
+    "PUT /api/reply-cards/{card_id}/snooze": Route(
+        # null: an unsnooze is valid on any waiting card and needs no clock.
+        requires="owner",
+        path=lambda ctx, i: (
+            "/api/reply-cards/"
+            + (_matrix_card(ctx) if i == "owner" else "rc-conf-missing")
+            + "/snooze"
+        ),
+        body={"snoozed_until_ts": None},
     ),
     "POST /api/reply-cards/{card_id}/expire": Route(
         # T-1b88 (owner 2026-08-07, card rc-3ff94b116970) revised T-6020 for THIS
@@ -2109,6 +2142,11 @@ DEGRADED: dict[str, str] = {
         "owner face probed with an unknown secret id (404); the delete round-trip "
         "is pinned in test_rest_happy.py and "
         "the server unit tests (api_secrets_test.go)."
+    ),
+    "POST /api/reply-cards/{card_id}/secret": (
+        "owner face probed with an unknown card (404); the provide, its refusals "
+        "and what it never echoes are pinned in test_reply_cards.py and the "
+        "server unit tests (api_replycards_secret_test.go)."
     ),
     "POST /api/self/secrets/reveal": (
         "every AI face asks for an unknown id (404, all or nothing); revealing a "

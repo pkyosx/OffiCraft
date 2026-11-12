@@ -1,7 +1,8 @@
 // useQuotedMessageOverlay — the ONE way the cockpit opens a message somebody
 // pointed at WITHOUT moving them (T-0b78).
 //
-// 🔴 IT HAS EXACTLY ONE CALLER: the chat bubble's quote row 「看原訊息」, and
+// 🔴 IT HAS EXACTLY ONE CALLER, ChatArea: the chat bubble's quote row
+// 「看原訊息」 and the owner's deleted row 「此訊息已刪除」 open it, and
 // since T-48 (R14-1.6) that is a machine-checked fact rather than a sentence
 // here — `lint:async-landing`'s QUOTED_OVERLAY_CALLERS sweeps the whole tree.
 // It matters because this hook keeps NO room stamp of its own: `ChatArea` is
@@ -53,6 +54,8 @@ import { useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { useI18n } from "../i18n";
 import { MarkdownPreviewOverlay } from "../components/MarkdownPreviewOverlay";
+import { AttachmentStrip } from "../components/AttachmentStrip";
+import type { ChatAttachmentView } from "../api/adapter";
 import "../components/office.css"; // .chat__msg-quote__error
 
 export type QuotedMessageOverlay = {
@@ -88,9 +91,11 @@ export function useQuotedMessageOverlay(
   resolveName?: (id: string) => string,
 ): QuotedMessageOverlay {
   const { t } = useI18n();
-  const [shown, setShown] = useState<{ title: string; source: string } | null>(
-    null,
-  );
+  const [shown, setShown] = useState<{
+    title: string;
+    source: string;
+    attachments: ChatAttachmentView[];
+  } | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
   // The in-flight latch. A `useState` flag cannot do this job: two clicks
   // landing in the same tick both read the PRE-UPDATE state and both would
@@ -108,6 +113,7 @@ export function useQuotedMessageOverlay(
           ? resolveName(original.from)
           : original.fromName || original.from,
         source: original.body,
+        attachments: original.attachments,
       });
     } catch {
       // Deliberately swallowed rather than logged-and-retried: the person who
@@ -125,6 +131,16 @@ export function useQuotedMessageOverlay(
     <MarkdownPreviewOverlay
       title={shown.title}
       source={shown.source}
+      trailing={
+        shown.attachments.length > 0 ? (
+          <AttachmentStrip
+            attachments={shown.attachments}
+            className="chat__msg-attachments"
+            itemClassName="chat__msg-attachment"
+            imageClassName="chat__msg-image chat__msg-image--clickable"
+          />
+        ) : undefined
+      }
       onClose={() => setShown(null)}
     />
   ) : null;

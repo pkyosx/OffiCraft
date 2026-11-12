@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type RefObject } from "react";
 import { useI18n } from "../i18n";
 import { en } from "../i18n/locales/en";
 import { zh } from "../i18n/locales/zh";
@@ -7,8 +7,10 @@ import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
 import {
   MAX_CUSTOM_THEMES,
   AVATAR_KINDS,
-  BUILTIN_THEMES,
+  PICKER_BUILTIN_THEMES,
   RESERVED_THEME_IDS,
+  isBuiltinTheme,
+  isBundledBuiltinTheme,
   NAV_ICON_KEYS,
   isValidAvatarValue,
   isValidBackgroundValue,
@@ -49,6 +51,8 @@ import {
   UserIcon,
 } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
+import { ThemeAppearancePanel, useThemeScheduleDraft } from "./ThemeAppearanceDialog";
+import "./settings.css";
 import "./theme-settings.css";
 
 type View = "list" | "import" | "edit";
@@ -93,7 +97,7 @@ const FONT_SLOTS = [
   { token: "--font-title", labelKey: "themeFontTitle" },
 ] as const;
 
-// The four avatar slots the editor offers (T-16a1 P5; T-ea81): 正職 staff /
+// The four avatar slots the editor offers: 正職 staff /
 // 外包 outsource / owner CEO / assistant 助理. Each accepts one uploaded image
 // (validated client-side, embedded as a base64 data URI so it travels inside
 // the bundle).
@@ -109,39 +113,45 @@ const AVATAR_SLOTS: { kind: AvatarKind; labelKey: AvatarLabelKey }[] = [
   { kind: "assistant", labelKey: "themeAvatarAssistant" },
 ];
 
-// The five nav-tab icon slots the editor offers (T-ea81), keyed on the five
-// main nav tabs. Same upload flow as avatars (shared image gate); stored on
+// The nav-tab icon slots the editor offers, keyed by tab. Same upload
+// flow as avatars (shared image gate); stored on
 // bundle.navIcons[key].
 type NavIconLabelKey =
   | "themeNavOffice"
   | "themeNavReplies"
   | "themeNavTasks"
+  | "themeNavLore"
+  | "themeNavSecrets"
   | "themeNavMonitor"
   | "themeNavGuide";
-const NAV_ICON_SLOTS: { key: NavIconKey; labelKey: NavIconLabelKey }[] = [
-  { key: "office", labelKey: "themeNavOffice" },
-  { key: "replies", labelKey: "themeNavReplies" },
-  { key: "tasks", labelKey: "themeNavTasks" },
-  { key: "monitor", labelKey: "themeNavMonitor" },
-  { key: "guide", labelKey: "themeNavGuide" },
-];
+const NAV_ICON_LABEL_KEYS: Record<NavIconKey, NavIconLabelKey> = {
+  office: "themeNavOffice",
+  replies: "themeNavReplies",
+  tasks: "themeNavTasks",
+  lore: "themeNavLore",
+  secrets: "themeNavSecrets",
+  monitor: "themeNavMonitor",
+  guide: "themeNavGuide",
+};
+const NAV_ICON_SLOTS = NAV_ICON_KEYS.map((key) => ({
+  key,
+  labelKey: NAV_ICON_LABEL_KEYS[key],
+}));
 
 /**
- * 主題管理 — the SettingsPage 主題 sub-section (T-16a1 P3b). All theme MANAGEMENT
- * lives here (owner IA: 偏好=選擇, 設定=管理): add / import / export / edit
- * (friendly colours + 用詞 overlay) / delete. The ProfileDropdown keeps only the
- * theme SELECTOR + language.
+ * 主題 — the SettingsPage 主題 sub-section: two cards. 外觀 chooses what is
+ * shown (ThemeAppearancePanel, also the 主題設定 dialog's content); 主題庫
+ * manages the set: add / import / export / edit (friendly colours + 用詞
+ * overlay) / delete.
  */
 export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   // [T-83ef] The set arrives as ONE LINE EACH (id + name) and a bundle is
   // fetched per theme. That is the whole shape of this screen now: everything
-  // the LIST draws comes from `themeList`, and only the two actions that need
-  // colours/images (匯出, 編輯) pay for a request.
+  // the LIST draws comes from `themeList`; 匯出 and 編輯 pay for a request,
+  // one theme at a time.
   const {
     t,
     msg,
-    theme,
-    setTheme,
     language,
     themeList,
     activeThemeBundle,
@@ -151,6 +161,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   } = useI18n();
 
   const [view, setView] = useState<View>("list");
+  const appearanceDraft = useThemeScheduleDraft();
 
   // ── import state ──
   const [importText, setImportText] = useState("");
@@ -190,8 +201,8 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     owner: useRef<HTMLInputElement>(null),
     assistant: useRef<HTMLInputElement>(null),
   };
-  // Studio logo (T-ea81): a single embedded base64 data URI ("" = none, falls
-  // back to the built-in mark). Per-nav-tab icons: key → embedded data URI.
+  // Studio logo: a single embedded base64 data URI ("" = none, falls back to
+  // the built-in mark). Per-nav-tab icons: key → embedded data URI.
   // Both go through the SAME image gate as avatars; upload errors surfaced
   // inline in their own section.
   const [editLogo, setEditLogo] = useState<string>("");
@@ -215,13 +226,11 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     office: useRef<HTMLInputElement>(null),
     replies: useRef<HTMLInputElement>(null),
     tasks: useRef<HTMLInputElement>(null),
-    // T-33 added the 傳承 tab to NAV_ICON_KEYS; this map is keyed by that set,
-    // so a missing entry is a compile error rather than a nav row whose 上傳
-    // button silently does nothing.
     lore: useRef<HTMLInputElement>(null),
+    secrets: useRef<HTMLInputElement>(null),
     monitor: useRef<HTMLInputElement>(null),
     guide: useRef<HTMLInputElement>(null),
-  };
+  } satisfies Record<NavIconKey, RefObject<HTMLInputElement>>;
   const [wordingLang, setWordingLang] = useState<"zh" | "en">("zh");
   const [wordingSearch, setWordingSearch] = useState("");
   // Only so a new search result set can be scrolled back to the top; the list
@@ -316,6 +325,21 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   async function handleExportTheme(id: string) {
     const bundle = await bundleFor(id);
     if (bundle) downloadBundle(bundle);
+  }
+
+  // Re-id'd like the theme.css built-ins' export, so the file can be imported
+  // back as a custom theme.
+  async function handleExportBundledBuiltin(id: string, name: string) {
+    if (busyId !== null) return;
+    setBusyId(id);
+    setListError("");
+    try {
+      downloadBundle({ ...(await loadTheme(id)), id: `${id}-base`, name });
+    } catch (e) {
+      setListError(failureText(e));
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function handleEditTheme(id: string) {
@@ -483,7 +507,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   // client validator (mime whitelist + size + magic bytes — the same gate the
   // server enforces). `validate` selects WHICH size caps apply and defaults to
   // the avatar caps (64 KiB), which is what avatars / logo / nav-icons want; the
-  // canvas background passes isValidBackgroundValue instead (512 KiB, T-72da).
+  // canvas background passes isValidBackgroundValue instead (1 MiB).
   // The SAFETY half of the gate — raster mime allowlist, SVG refusal, magic
   // bytes — is identical either way and is never relaxed. If a caller forgets to
   // pass its validator the cockpit would reject an image the server accepts, and
@@ -1341,145 +1365,152 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         {t.settings.themeManage}
       </h1>
 
-      <div className="ts-toolbar">
-        <button
-          type="button"
-          className="doc-btn doc-btn--accent"
-          onClick={handleAddNew}
-        >
-          {t.profile.themeAdd}
-        </button>
-        <button type="button" className="doc-btn" onClick={openImport}>
-          {t.profile.themeImport}
-        </button>
+      <div data-testid="theme-appearance-panel">
+        <ThemeAppearancePanel schedule={appearanceDraft} />
       </div>
-      {listError && <div className="set-error">{listError}</div>}
-      {importSkipped.length > 0 && (
-        <div className="set-warn" data-testid="theme-import-skipped">
-          {msg.themeImportSkipped(
-            importSkipped.length,
-            importSkipped.slice(0, IMPORT_SKIPPED_SAMPLE)
+
+      <section
+        className="param-card ts-block"
+        aria-labelledby="ts-library-title"
+        data-testid="theme-library"
+      >
+        <div className="doc-card__head ts-block__head">
+          <h2 className="ts-block__title" id="ts-library-title">
+            {t.settings.themeTabLibrary}
+          </h2>
+          <div className="ts-block__actions">
+            <button type="button" className="doc-btn" onClick={openImport}>
+              {t.profile.themeImport}
+            </button>
+            <button
+              type="button"
+              className="doc-btn doc-btn--accent"
+              onClick={handleAddNew}
+            >
+              {t.profile.themeAdd}
+            </button>
+          </div>
+        </div>
+        <div className="ts-block__body ts-library">
+          {listError && <div className="set-error">{listError}</div>}
+          {importSkipped.length > 0 && (
+            <div className="set-warn" data-testid="theme-import-skipped">
+              {msg.themeImportSkipped(
+                importSkipped.length,
+                importSkipped.slice(0, IMPORT_SKIPPED_SAMPLE)
+              )}
+            </div>
+          )}
+
+          {/* 內建 / 自訂 is carried by the GROUP STRUCTURE ALONE, the twin of the
+           * 外觀 select's built-ins-first ordering (ThemeOptions) and fed by the same
+           * themeMarkers wording. The rows carry no per-row chip:
+           * a chip was forgeable on all three of its signals (its TEXT, its COLOUR
+           * and the row's own NAME), and once the heading says it, a chip repeating
+           * it adds nothing a theme could not already imitate. Which group a row
+           * lands in is decided by the code that renders it, not by anything the
+           * pack ships (T-081b review round 4, BLOCKER-A). */}
+          <div className="ts-list" role="group" aria-labelledby="ts-group-builtin">
+            <div className="ts-group-head" id="ts-group-builtin" data-testid="ts-group-builtin">
+              {t.themeMarkers.builtinGroup}
+            </div>
+            {/* built-in rows are downloadable, but not editable/deletable. 下載 exports that row's own palette whatever is
+             * applied right now (owner: 辦公室主題不用擋下載); the edit/delete icons
+             * stay inert-disabled so built-in and custom rows line up their right
+             * edge at every width (owner: 內建列與自訂列對齊). */}
+            {PICKER_BUILTIN_THEMES.map((b) => {
+              const name = t.themeIdentity[b.nameKey];
+              return (
+                <div key={b.id} className="ts-row">
+                  <span className="ts-name">{name}</span>
+                  <button
+                    type="button"
+                    className="ts-icon-btn"
+                    aria-label={`${t.profile.themeExport} ${name}`}
+                    title={t.profile.themeExport}
+                    disabled={isBundledBuiltinTheme(b.id) && busyId !== null}
+                    onClick={() =>
+                      isBuiltinTheme(b.id)
+                        ? downloadBundle(exportBuiltinTheme(b.id, `${b.id}-base`, name))
+                        : void handleExportBundledBuiltin(b.id, name)
+                    }
+                  >
+                    <DownloadIcon size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className="ts-icon-btn"
+                    disabled
+                    aria-disabled="true"
+                    aria-label={`${t.profile.themeEdit} ${name}`}
+                    title={t.profile.themeEdit}
+                  >
+                    <PencilIcon size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className="ts-icon-btn ts-icon-btn--danger"
+                    disabled
+                    aria-disabled="true"
+                    aria-label={`${t.profile.themeDelete} ${name}`}
+                    title={t.profile.themeDelete}
+                  >
+                    <TrashIcon size={15} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {themeList.length > 0 && (
+            <div className="ts-list" role="group" aria-labelledby="ts-group-custom">
+              <div className="ts-group-head" id="ts-group-custom" data-testid="ts-group-custom">
+                {t.themeMarkers.customGroup}
+              </div>
+              {/* A row is one LINE now (id + name) — everything drawn here was
+               * always just the name, so nothing on screen changed; what left is
+               * the megabytes of embedded images the old set dragged in behind it.
+               * 匯出 and 編輯 fetch the bundle on click instead, and are disabled
+               * while one is in flight — this is a whole theme pack on the wire, so
+               * "nothing happened yet" must be visible rather than guessable. */}
+              {themeList.map((b) => (
+              <div key={b.id} className="ts-row">
+                <span className="ts-name">{b.name}</span>
+                <button
+                  type="button"
+                  className="ts-icon-btn"
+                  disabled={busyId !== null}
+                  aria-label={`${t.profile.themeExport} ${b.name}`}
+                  title={t.profile.themeExport}
+                  onClick={() => handleExportTheme(b.id)}
+                >
+                  <DownloadIcon size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="ts-icon-btn"
+                  disabled={busyId !== null}
+                  aria-label={`${t.profile.themeEdit} ${b.name}`}
+                  title={t.profile.themeEdit}
+                  onClick={() => handleEditTheme(b.id)}
+                >
+                  <PencilIcon size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="ts-icon-btn ts-icon-btn--danger"
+                  aria-label={`${t.profile.themeDelete} ${b.name}`}
+                  title={t.profile.themeDelete}
+                  onClick={() => setConfirmDeleteId(b.id)}
+                >
+                  <TrashIcon size={15} />
+                </button>
+              </div>
+              ))}
+            </div>
           )}
         </div>
-      )}
-
-      {/* 內建 / 自訂 is carried by the GROUP STRUCTURE ALONE, the twin of the
-       * quick picker's ordering (ProfileDropdown.tsx) and fed by the same
-       * themeMarkers wording. The rows carry no per-row chip:
-       * a chip was forgeable on all three of its signals (its TEXT, its COLOUR
-       * and the row's own NAME), and once the heading says it, a chip repeating
-       * it adds nothing a theme could not already imitate. Which group a row
-       * lands in is decided by the code that renders it, not by anything the
-       * pack ships (T-081b review round 4, BLOCKER-A). */}
-      <div className="ts-list" role="group" aria-labelledby="ts-group-builtin">
-        <div className="ts-group-head" id="ts-group-builtin" data-testid="ts-group-builtin">
-          {t.themeMarkers.builtinGroup}
-        </div>
-        {/* built-in rows are selectable and downloadable, but not
-         * editable/deletable. 下載 exports that row's own palette whatever is
-         * applied right now (owner: 辦公室主題不用擋下載); the edit/delete icons
-         * stay inert-disabled so built-in and custom rows line up their right
-         * edge at every width (owner: 內建列與自訂列對齊). */}
-        {BUILTIN_THEMES.map((b) => {
-          const name = t.themeIdentity[b.nameKey];
-          return (
-            <div key={b.id} className="ts-row">
-              <button
-                type="button"
-                className={`ts-pick${theme === b.id ? " ts-pick--active" : ""}`}
-                onClick={() => setTheme(b.id)}
-              >
-                {name}
-              </button>
-              <button
-                type="button"
-                className="ts-icon-btn"
-                aria-label={`${t.profile.themeExport} ${name}`}
-                title={t.profile.themeExport}
-                onClick={() =>
-                  downloadBundle(exportBuiltinTheme(b.id, `${b.id}-base`, name))
-                }
-              >
-                <DownloadIcon size={15} />
-              </button>
-              <button
-                type="button"
-                className="ts-icon-btn"
-                disabled
-                aria-disabled="true"
-                aria-label={`${t.profile.themeEdit} ${name}`}
-                title={t.profile.themeEdit}
-              >
-                <PencilIcon size={15} />
-              </button>
-              <button
-                type="button"
-                className="ts-icon-btn ts-icon-btn--danger"
-                disabled
-                aria-disabled="true"
-                aria-label={`${t.profile.themeDelete} ${name}`}
-                title={t.profile.themeDelete}
-              >
-                <TrashIcon size={15} />
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      {themeList.length > 0 && (
-        <div className="ts-list" role="group" aria-labelledby="ts-group-custom">
-          <div className="ts-group-head" id="ts-group-custom" data-testid="ts-group-custom">
-            {t.themeMarkers.customGroup}
-          </div>
-          {/* A row is one LINE now (id + name) — everything drawn here was
-           * always just the name, so nothing on screen changed; what left is
-           * the megabytes of embedded images the old set dragged in behind it.
-           * 匯出 and 編輯 fetch the bundle on click instead, and are disabled
-           * while one is in flight — this is a whole theme pack on the wire, so
-           * "nothing happened yet" must be visible rather than guessable. */}
-          {themeList.map((b) => (
-          <div key={b.id} className="ts-row">
-            <button
-              type="button"
-              className={`ts-pick${theme === b.id ? " ts-pick--active" : ""}`}
-              onClick={() => setTheme(b.id)}
-            >
-              {b.name}
-            </button>
-            <button
-              type="button"
-              className="ts-icon-btn"
-              disabled={busyId !== null}
-              aria-label={`${t.profile.themeExport} ${b.name}`}
-              title={t.profile.themeExport}
-              onClick={() => handleExportTheme(b.id)}
-            >
-              <DownloadIcon size={15} />
-            </button>
-            <button
-              type="button"
-              className="ts-icon-btn"
-              disabled={busyId !== null}
-              aria-label={`${t.profile.themeEdit} ${b.name}`}
-              title={t.profile.themeEdit}
-              onClick={() => handleEditTheme(b.id)}
-            >
-              <PencilIcon size={15} />
-            </button>
-            <button
-              type="button"
-              className="ts-icon-btn ts-icon-btn--danger"
-              aria-label={`${t.profile.themeDelete} ${b.name}`}
-              title={t.profile.themeDelete}
-              onClick={() => setConfirmDeleteId(b.id)}
-            >
-              <TrashIcon size={15} />
-            </button>
-          </div>
-          ))}
-        </div>
-      )}
+      </section>
 
       {(() => {
         // The confirm only ever needed the NAME, which the list line carries.

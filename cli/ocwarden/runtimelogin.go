@@ -209,6 +209,7 @@ func startGroupProcess(shell, script string) (*loginProc, error) {
 		return nil, err
 	}
 	cmd.Stdout, cmd.Stderr = outW, errW
+	markDescriptorsCloseOnExec()
 	startErr := cmd.Start()
 	outW.Close()
 	errW.Close()

@@ -1475,7 +1475,7 @@ describe("TasksPage", () => {
     expect(laneTitles("done")).toEqual(["結掉的"]);
   });
 
-  it("opens 顯示方式 at the end of the filter row, after 清除篩選, and closes it on an outside click or Esc", async () => {
+  it("opens 顯示方式 at the end of the filter row, after 清除篩選, and closes it once a choice is made, on an outside click or Esc", async () => {
     seedDueTasks(Date.now() / 1000);
     const { findByText, getByTestId, queryByTestId } = renderPage();
     await findByText("逾期的手冊任務");
@@ -1511,9 +1511,13 @@ describe("TasksPage", () => {
 
     chooseGroupBy("executor");
     await waitFor(() => expect(laneKeys()).toEqual(["mira"]));
-    expect(queryByTestId("display-options-panel")).not.toBeNull();
+    expect(queryByTestId("display-options-panel")).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
 
-    fireEvent.mouseDown(panel);
+    fireEvent.click(trigger);
+    const reopened = getByTestId("display-options-panel");
+    fireEvent.mouseDown(reopened);
     expect(queryByTestId("display-options-panel")).not.toBeNull();
     fireEvent.mouseDown(document.body);
     expect(queryByTestId("display-options-panel")).toBeNull();

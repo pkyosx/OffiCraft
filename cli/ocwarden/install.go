@@ -373,6 +373,7 @@ func realVersionProbe(bin, pathEnv, home string) error {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "--version")
 	cmd.Env = []string{"PATH=" + pathEnv, "HOME=" + home}
+	markDescriptorsCloseOnExec()
 	return cmd.Run()
 }
 

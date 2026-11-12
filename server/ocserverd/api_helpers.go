@@ -102,38 +102,51 @@ func decodeJSONBodyKeys(w http.ResponseWriter, r *http.Request, dst any, require
 		writeError(w, http.StatusUnprocessableEntity, "could not read request body")
 		return nil, false
 	}
+	sent, err := decodeJSONStrict(raw, dst, required...)
+	if err != nil {
+		msg := err.Error()
+		var missing missingJSONFieldError
+		if !errors.As(err, &missing) {
+			msg = "invalid request body: " + msg
+		}
+		writeError(w, http.StatusUnprocessableEntity, msg)
+		return nil, false
+	}
+	return sent, true
+}
+
+type missingJSONFieldError string
+
+func (e missingJSONFieldError) Error() string { return "field required: " + string(e) }
+
+func decodeJSONStrict(raw []byte, dst any, required ...string) (map[string]bool, error) {
 	var keys map[string]json.RawMessage
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &keys); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid request body: "+err.Error())
-			return nil, false
+			return nil, err
 		}
 		dec := json.NewDecoder(bytes.NewReader(raw))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(dst); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid request body: "+err.Error())
-			return nil, false
+			return nil, err
 		}
 		if err := dec.Decode(&struct{}{}); err != io.EOF {
 			if err == nil {
-				writeError(w, http.StatusUnprocessableEntity, "invalid request body: multiple JSON values")
-			} else {
-				writeError(w, http.StatusUnprocessableEntity, "invalid request body: "+err.Error())
+				return nil, errors.New("multiple JSON values")
 			}
-			return nil, false
+			return nil, err
 		}
 	}
 	for _, name := range required {
 		if _, ok := keys[name]; !ok {
-			writeError(w, http.StatusUnprocessableEntity, "field required: "+name)
-			return nil, false
+			return nil, missingJSONFieldError(name)
 		}
 	}
 	sent := make(map[string]bool, len(keys))
 	for name := range keys {
 		sent[name] = true
 	}
-	return sent, true
+	return sent, nil
 }
 
 // relocateNeedsMachineMsg: a relocate must name a machine (owner ruling

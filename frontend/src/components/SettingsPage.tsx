@@ -63,9 +63,16 @@ import {
 } from "../api/loreCap";
 import { BACKUP_RETAIN_MAX, BACKUP_RETAIN_MIN } from "../api/backupRetain";
 import {
-  SUGGESTED_REPLIES_MAX_ENTRIES,
-  SUGGESTED_REPLY_MAX_LEN,
-} from "../api/suggestedReplies";
+  DURATION_UNITS,
+  durationSecsFromDraft,
+  splitDurationSecs,
+  SECRET_CARD_RETRIEVED_RETENTION_SECS_MAX,
+  SECRET_CARD_RETRIEVED_RETENTION_SECS_MIN,
+  SECRET_CARD_UNRETRIEVED_TTL_SECS_MAX,
+  SECRET_CARD_UNRETRIEVED_TTL_SECS_MIN,
+  type DurationUnit,
+} from "../api/secretCardSettings";
+import { SuggestedRepliesEditor } from "./SuggestedRepliesEditor";
 
 /** The adjustable document caps (T-ae38, widened by T-30f1), in the order the
  * parameters card lists them: the two role-journal segments in journal order
@@ -1234,21 +1241,13 @@ const TTL_CHOICES = [43200, 86400, 604800, 2592000] as const;
  */
 /** ONE editable 建議回覆 list (T-122) — the 參數設定 face of
  * `suggested_replies.reply_card` / `suggested_replies.task_message` /
- * `suggested_replies.lore_message`.
+ * `suggested_replies.lore_message` / `suggested_replies.chat`.
  *
- * Three of these are mounted, one per list, and they share nothing but this
- * component: the owner ruled the 請示卡 box, the 任務 box and the 傳承 box get
- * separate settings, so each editor holds its own draft and saves its own
- * field. A save sends ONE field, which is what keeps "edit one list" from
- * rewriting another.
- *
- * The draft is `null` until the owner touches something, so a value arriving
- * from the server flows straight through; once touched, the draft owns the
- * rows until it commits. Same idiom as the numeric rows above.
- *
- * 🔴 THE EMPTY LIST IS A REAL VALUE, not "unset". Deleting the last row saves
- * `[]`, and that is what turns the chips off. */
-function SuggestedRepliesEditor({
+ * One of these is mounted per list, and they share nothing but the editor: the
+ * owner ruled the boxes get separate settings, so each holds its own draft and
+ * saves its own field. A save
+ * sends ONE field, which is what keeps "edit one list" from rewriting another. */
+function SuggestedRepliesRow({
   label,
   sub,
   idPrefix,
@@ -1265,166 +1264,19 @@ function SuggestedRepliesEditor({
   /** Clear the card's error banners as soon as the owner types. */
   onTouch: () => void;
 }) {
-  const { t } = useI18n();
-  const [draft, setDraft] = useState<string[] | null>(null);
-  const rows = draft ?? value;
-  // Same guard the role-create field below uses: an Enter that CONFIRMS a CJK
-  // candidate must not be read as "this line is finished, save it".
-  const composingRef = useRef(false);
-
-  /** RUNES, not UTF-16 units — the same measure the server applies
-   * (utf8.RuneCountInString), so a CJK sentence gets the full budget and the
-   * number this page shows is the number the server counted. */
-  const runeLen = (v: string) => [...v.trim()].length;
-  const overCap = (v: string) => runeLen(v) > SUGGESTED_REPLY_MAX_LEN;
-
-  function commit(next: string[]) {
-    // 🔴 REFUSE, NEVER SHORTEN. owner (rc-76ab62ceb3ff): 「超過就直接拒絕存檔並
-    // 告訴你為什麼,不會偷偷截斷」. That is also why the input below carries NO
-    // `maxLength`: the browser enforces maxLength by CUTTING A PASTE with no
-    // notice at all, and pasting is exactly how a saved reply gets into this
-    // field. The over-long text stays on screen, in full, with the reason
-    // printed under it, and nothing is sent.
-    if (next.some(overCap)) {
-      setDraft(next);
-      return;
-    }
-    const cleaned = next.map((v) => v.trim()).filter((v) => v.length > 0);
-    setDraft(null);
-    if (
-      cleaned.length === value.length &&
-      cleaned.every((v, i) => v === value[i])
-    ) {
-      return;
-    }
-    onCommit(cleaned);
-  }
-
-  /** A structural edit (delete / reorder) is a decision, not a keystroke, so it
-   * saves at once — there is no blur to wait for. */
-  function apply(next: string[]) {
-    setDraft(next);
-    commit(next);
-  }
-
-  const full = rows.length >= SUGGESTED_REPLIES_MAX_ENTRIES;
-
   return (
     <div className="param-row param-row--stacked">
       <div className="param-row__body">
         <div className="param-row__name">{label}</div>
         <div className="param-row__sub">{sub}</div>
       </div>
-      <div className="sugg-edit">
-        {rows.map((text, i) => (
-          <Fragment key={`${idPrefix}-${i}`}>
-          <div className="sugg-edit__row">
-            <input
-              id={`${idPrefix}-${i}`}
-              className="param-input sugg-edit__input"
-              type="text"
-              // This field manages a LIST; the sentences already live in the
-              // rows above it. The browser's own "you typed this before"
-              // dropdown floats a stale copy over them (owner c-90914e605cdb).
-              autoComplete="off"
-              aria-invalid={overCap(text) || undefined}
-              placeholder={t.settings.suggestedReplyPlaceholder}
-              aria-label={`${label} ${i + 1}`}
-              value={text}
-              onChange={(e) => {
-                onTouch();
-                const next = [...rows];
-                next[i] = e.target.value;
-                setDraft(next);
-              }}
-              onBlur={() => commit(rows)}
-              onCompositionStart={() => {
-                composingRef.current = true;
-              }}
-              onCompositionEnd={(e) => {
-                composingRef.current = false;
-                const next = [...rows];
-                next[i] = e.currentTarget.value;
-                setDraft(next);
-              }}
-              onKeyDown={(e) => {
-                if (
-                  e.nativeEvent.isComposing ||
-                  e.keyCode === 229 ||
-                  composingRef.current
-                ) {
-                  return;
-                }
-                if (e.key === "Enter") commit(rows);
-              }}
-            />
-            <button
-              type="button"
-              className="sugg-edit__btn"
-              title={t.settings.suggestedReplyMoveUp}
-              aria-label={`${label} ${t.settings.suggestedReplyMoveUp} ${i + 1}`}
-              disabled={i === 0}
-              onClick={() => {
-                const next = [...rows];
-                [next[i - 1], next[i]] = [next[i], next[i - 1]];
-                apply(next);
-              }}
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              className="sugg-edit__btn"
-              title={t.settings.suggestedReplyMoveDown}
-              aria-label={`${label} ${t.settings.suggestedReplyMoveDown} ${i + 1}`}
-              disabled={i === rows.length - 1}
-              onClick={() => {
-                const next = [...rows];
-                [next[i], next[i + 1]] = [next[i + 1], next[i]];
-                apply(next);
-              }}
-            >
-              ↓
-            </button>
-            <button
-              type="button"
-              className="sugg-edit__btn sugg-edit__btn--remove"
-              title={t.settings.suggestedReplyRemove}
-              aria-label={`${label} ${t.settings.suggestedReplyRemove} ${i + 1}`}
-              onClick={() => apply(rows.filter((_, j) => j !== i))}
-            >
-              <TrashIcon size={14} />
-            </button>
-          </div>
-          {overCap(text) && (
-            <div className="sugg-edit__error" role="alert">
-              {t.settings.suggestedRepliesTooLong(
-                runeLen(text),
-                SUGGESTED_REPLY_MAX_LEN
-              )}
-            </div>
-          )}
-          </Fragment>
-        ))}
-        <button
-          type="button"
-          className="sugg-edit__add"
-          disabled={full}
-          title={full ? t.settings.suggestedRepliesFull : undefined}
-          onClick={() => {
-            onTouch();
-            setDraft([...rows, ""]);
-          }}
-        >
-          {t.settings.suggestedReplyAdd}
-        </button>
-        {/* A disabled button says nothing about WHY. Twenty is the cap, and
-            "the cap is reached" has to be readable, not inferred from a button
-            that stopped responding. */}
-        {full && (
-          <div className="sugg-edit__note">{t.settings.suggestedRepliesFull}</div>
-        )}
-      </div>
+      <SuggestedRepliesEditor
+        label={label}
+        idPrefix={idPrefix}
+        value={value}
+        onCommit={onCommit}
+        onTouch={onTouch}
+      />
     </div>
   );
 }
@@ -1468,6 +1320,7 @@ function ServerParams({
   const [stepNoteCapDraft, setStepNoteCapDraft] = useState<string | null>(null);
   const [dueSoonLeadDraft, setDueSoonLeadDraft] = useState<string | null>(null);
   const [dueSoonLeadUnitDraft, setDueSoonLeadUnitDraft] = useState<LeadUnit | null>(null);
+  const [secretRangeError, setSecretRangeError] = useState<string | null>(null);
   const dueSoonLeadPairRef = useRef<HTMLDivElement>(null);
   // T-33: four independent 傳承 caps, so four independent drafts — a shared
   // draft would make typing in one field snap the other three back.
@@ -1673,6 +1526,24 @@ function ServerParams({
     if (n !== settings.taskDueSoonLeadMinutes) void onSave({ taskDueSoonLeadMinutes: n });
   }
 
+  function commitSecretDuration(field: "ttl" | "retention", secs: number | null) {
+    if (!settings) return;
+    if (secs === null) {
+      setSecretRangeError(
+        field === "ttl"
+          ? t.settings.secretCardUnretrievedTtlRange
+          : t.settings.secretCardRetentionRange,
+      );
+      return;
+    }
+    setSecretRangeError(null);
+    if (field === "ttl") {
+      if (secs !== settings.secretCardUnretrievedTtlSecs) void onSave({ secretCardUnretrievedTtlSecs: secs });
+    } else if (secs !== settings.secretCardRetrievedRetentionSecs) {
+      void onSave({ secretCardRetrievedRetentionSecs: secs });
+    }
+  }
+
   // T-33: the four 傳承 caps. One commit for all four because the row that is
   // being committed carries its own range — unlike commitDocCap, whose ceiling
   // is a literal 100000 shared by every row it serves.
@@ -1742,6 +1613,10 @@ function ServerParams({
     day: t.tasks.dueLeadDayMany,
     hour: t.tasks.dueLeadHourMany,
     minute: t.tasks.dueLeadMinuteMany,
+  };
+  const durationUnitText: Record<DurationUnit, string> = {
+    ...dueLeadUnitText,
+    second: t.settings.seconds,
   };
 
   return (
@@ -2067,6 +1942,35 @@ function ServerParams({
             </div>
           </div>
 
+          {settings && (
+            <>
+              <SecretDurationRow
+                id="param-secret-card-ttl"
+                label={t.settings.secretCardUnretrievedTtl}
+                sub={t.settings.secretCardUnretrievedTtlSub}
+                unitLabel={t.settings.secretCardDurationUnit}
+                unitText={durationUnitText}
+                secs={settings.secretCardUnretrievedTtlSecs}
+                onTouch={() => { setSecretRangeError(null); setRangeError(false); onClearSaveError(); }}
+                onCommit={(amount, unit) =>
+                  commitSecretDuration("ttl", durationSecsFromDraft(amount, unit,
+                    SECRET_CARD_UNRETRIEVED_TTL_SECS_MIN, SECRET_CARD_UNRETRIEVED_TTL_SECS_MAX))}
+              />
+              <SecretDurationRow
+                id="param-secret-card-retention"
+                label={t.settings.secretCardRetention}
+                sub={t.settings.secretCardRetentionSub}
+                unitLabel={t.settings.secretCardDurationUnit}
+                unitText={durationUnitText}
+                secs={settings.secretCardRetrievedRetentionSecs}
+                onTouch={() => { setSecretRangeError(null); setRangeError(false); onClearSaveError(); }}
+                onCommit={(amount, unit) =>
+                  commitSecretDuration("retention", durationSecsFromDraft(amount, unit,
+                    SECRET_CARD_RETRIEVED_RETENTION_SECS_MIN, SECRET_CARD_RETRIEVED_RETENTION_SECS_MAX))}
+              />
+            </>
+          )}
+
           <div className="param-row">
             <div className="param-row__body">
               <div className="param-row__name">{t.settings.chatBudget}</div>
@@ -2136,7 +2040,7 @@ function ServerParams({
               請示卡要是不同的參數設定」 (c-85c28e708b81), and T-33 added the 傳承
               box on the same ruling, so each row saves its OWN field and a save
               never carries another one. */}
-          <SuggestedRepliesEditor
+          <SuggestedRepliesRow
             label={t.settings.suggestedRepliesReplyCard}
             sub={t.settings.suggestedRepliesReplyCardSub}
             idPrefix="param-suggested-reply-card"
@@ -2145,7 +2049,7 @@ function ServerParams({
             onCommit={(next) => { void onSave({ suggestedRepliesReplyCard: next }); }}
           />
 
-          <SuggestedRepliesEditor
+          <SuggestedRepliesRow
             label={t.settings.suggestedRepliesTaskMessage}
             sub={t.settings.suggestedRepliesTaskMessageSub}
             idPrefix="param-suggested-task-message"
@@ -2154,7 +2058,7 @@ function ServerParams({
             onCommit={(next) => { void onSave({ suggestedRepliesTaskMessage: next }); }}
           />
 
-          <SuggestedRepliesEditor
+          <SuggestedRepliesRow
             label={t.settings.suggestedRepliesLoreMessage}
             sub={t.settings.suggestedRepliesLoreMessageSub}
             idPrefix="param-suggested-lore-message"
@@ -2162,7 +2066,20 @@ function ServerParams({
             onTouch={() => { setRangeError(false); onClearSaveError(); }}
             onCommit={(next) => { void onSave({ suggestedRepliesLoreMessage: next }); }}
           />
+          <SuggestedRepliesRow
+            label={t.settings.suggestedRepliesChat}
+            sub={t.settings.suggestedRepliesChatSub}
+            idPrefix="param-suggested-chat"
+            value={settings.suggestedRepliesChat}
+            onTouch={() => { setRangeError(false); onClearSaveError(); }}
+            onCommit={(next) => { void onSave({ suggestedRepliesChat: next }); }}
+          />
 
+          {secretRangeError && (
+            <div className="set-error param-error" data-testid="secret-card-range-error">
+              {secretRangeError}
+            </div>
+          )}
           {(saveError || rangeError) && (
             <div className="set-error param-error">
               {t.settings.paramsSaveError}
@@ -2170,6 +2087,66 @@ function ServerParams({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A duration knob: the number and its unit are one value, so moving between the
+ * two is not leaving the field. */
+function SecretDurationRow({
+  id,
+  label,
+  sub,
+  unitLabel,
+  unitText,
+  secs,
+  onTouch,
+  onCommit,
+}: {
+  id: string;
+  label: string;
+  sub: string;
+  unitLabel: string;
+  unitText: Record<DurationUnit, string>;
+  secs: number;
+  onTouch: () => void;
+  onCommit: (amount: string, unit: DurationUnit) => void;
+}) {
+  const shown = splitDurationSecs(secs);
+  const [amountDraft, setAmountDraft] = useState<string | null>(null);
+  const [unitDraft, setUnitDraft] = useState<DurationUnit | null>(null);
+  const pairRef = useRef<HTMLDivElement>(null);
+  function commit(e?: FocusEvent<HTMLElement>) {
+    if (e && pairRef.current?.contains(e.relatedTarget as Node)) return;
+    if (amountDraft === null && unitDraft === null) return;
+    const amount = amountDraft ?? String(shown.amount);
+    const unit = unitDraft ?? shown.unit;
+    setAmountDraft(null);
+    setUnitDraft(null);
+    onCommit(amount, unit);
+  }
+  return (
+    <div className="param-row">
+      <div className="param-row__body">
+        <div className="param-row__name">{label}</div>
+        <div className="param-row__sub">{sub}</div>
+      </div>
+      <div className="param-pct" ref={pairRef}>
+        <input id={id} className="param-input" type="number" min={0}
+          aria-label={label}
+          value={amountDraft ?? String(shown.amount)}
+          onChange={(e) => { onTouch(); setAmountDraft(e.target.value); }}
+          onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} />
+        <select id={`${id}-unit`} className="param-select param-select--unit"
+          aria-label={`${label} · ${unitLabel}`}
+          value={unitDraft ?? shown.unit}
+          onChange={(e) => { onTouch(); setUnitDraft(e.target.value as DurationUnit); }}
+          onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }}>
+          {DURATION_UNITS.map((unit) => (
+            <option key={unit} value={unit}>{unitText[unit]}</option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }

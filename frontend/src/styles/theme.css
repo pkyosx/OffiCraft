@@ -25,7 +25,7 @@
   --canvas-bg-image: none;
   /* T-081b:畫布背景圖的鋪法(主題包 backgroundModes.canvas)。這四個預設值就是
    * 「tile」的值,所以沒填模式的主題包(以及這欄位存在之前的所有主題包)鋪法一個
-   * 像素都不會變。另兩種鋪法由 i18n/index.tsx 改寫這四槽:
+   * 像素都不會變。另兩種鋪法由 themePaint.ts 的 applyThemeToRoot 改寫這四槽:
    *   sides — 兩層、各貼一邊、兩軸都不重複、貼齊視窗底部;
    *   cover — 一層、縮放填滿視窗、置中。
    * 兩者都用 attachment: fixed 釘在**視窗**上:畫布背景預設跟著文件捲動,而這個

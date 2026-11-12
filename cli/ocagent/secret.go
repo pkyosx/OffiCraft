@@ -13,11 +13,15 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // The secret routes are off the MCP surface on purpose: a value revealed
@@ -40,21 +44,35 @@ Secrets tab). A secret is addressed by its id (sec-…); the name is only a labe
 and need not be unique. Read the note: it is the owner's instruction for how
 that secret may be used.
 
+A value the owner gave on a secret reply card you opened is addressed by the
+card's id (rc-…), on run and write only, and only you, its author, can retrieve
+it. It is destroyed after a retention period that starts at your first
+retrieval (or, if you never retrieve it, after a longer deadline); the first
+retrieval does not end it, and later ones do not extend it. If a step can fail,
+write the value to a file first. When you are done, delete any file you wrote
+and end the retention early with expire_reply_card. If the owner replies with a
+message instead of a value, or the value expired, open a new card.
+
 NO COMMAND EVER PRINTS A VALUE. A value only ever reaches a child process's
-environment (run) or a 0600 file (write). Do not echo it, paste it into chat,
+environment (run) or a 0600 file (write). Never put one on a command line (argv
+is visible to every process on the machine). Do not echo it, paste it into chat,
 or write it anywhere else. The owner sees when each secret was last retrieved.
 
 subcommands:
   list                              every secret: id, name, note
   show <ID>                         one secret: id, name, note
   run --env VAR=<ID> [...] -- cmd   run cmd with the values in its environment;
-                                    every value in its output is shown as ***
-  write <ID> --file <path>          write the value to a new 0600 file
+                                    every value in its output is shown as ***;
+                                    <ID> is sec-… or a secret card's rc-…
+  run --stdin-json <ID> -- cmd      run cmd with the value on stdin as a JSON string
+  write <ID> --file <path>          write the value to a new 0600 file; <ID> is
+                                    sec-… or a secret card's rc-…
 
 examples:
   ocagent secret list
   ocagent secret run --env GITHUB_TOKEN=sec-00000000000b -- gh api user
   ocagent secret write sec-00000000000b --file ./deploy.key
+  ocagent secret write rc-00000000000b --file ./deploy.key
 
 Each subcommand takes --help for its flags and exit codes.
 `)
@@ -97,36 +115,50 @@ Exit codes:
 }
 
 func secretRunUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: ocagent secret run --env VAR=<ID> [--env VAR2=<ID2> ...] -- <cmd> [args...]
+	fmt.Fprint(w, `usage: ocagent secret run [--env VAR=<ID> ...] [--stdin-json <ID>] -- <cmd> [args...]
 
-Runs <cmd> with each VAR set to the value of secret <ID>, on top of this
-process's own environment. All the values are fetched in ONE request before the
-command starts (at most 16 distinct ids); if any id is unknown nothing runs.
+Runs <cmd> with each VAR set to the value of <ID>, on top of this process's own
+environment: a secret (sec-…) or a secret reply card you opened (rc-…). <cmd> is
+resolved first, so a command that cannot be found does not use up a card's
+value. All the values are fetched in ONE request before the command starts (at
+most 16 distinct ids); if any id is refused nothing runs.
+
+The first retrieval of a card's value starts its retention: the value is
+destroyed when that ends, and until then you may retrieve it again.
 
 The command's stdout and stderr are passed through with every occurrence of
-every value replaced by ***. A value split across two writes is still caught,
+every value, and of each line of a multi-line value that has a letter or digit,
+replaced by ***.
+A value split across two writes is still caught,
 which means output can lag by up to one value's length until more output or
-the end of the stream arrives. stdin is passed through untouched.
+the end of the stream arrives. stdin is passed through untouched unless --stdin-json is given.
 
 Never put a value on the command line yourself (argv is visible to every
 process on the machine): let the command read it from VAR.
 
---env VAR=<ID>  repeatable. VAR must look like a shell variable name
-                ([A-Za-z_][A-Za-z0-9_]*) and may appear once; one <ID> may feed
-                several VARs.
+--env VAR=<ID>      repeatable. VAR must look like a shell variable name
+                    ([A-Za-z_][A-Za-z0-9_]*) and may appear once; one <ID> may
+                    feed several VARs.
+--stdin-json <ID>   give <cmd> the value on stdin as a JSON string, for commands
+                    that read a JSON value there. At least one of --env and
+                    --stdin-json is required.
 
-example:
+examples:
   ocagent secret run --env NPM_TOKEN=sec-00000000000b -- npm publish
+  ocagent secret run --stdin-json rc-00000000000b -- sops set --value-stdin prod.enc.yaml '["db"]["password"]'
 
 Exit codes: the command's own exit code once it has started (128+N when it
 was killed by signal N). Before it starts:
-  1  the request never got an answer (network), or <cmd> could not be started
-  2  usage: --help itself, no --env, a malformed --env, more than 16 distinct
-     ids, or no <cmd>
+  1  the request never got an answer (network), or <cmd> could not be found or
+     started (nothing is fetched when it cannot be found)
+  2  usage: --help itself, neither --env nor --stdin-json, a malformed --env or
+     --stdin-json, more than 16 distinct ids, or no <cmd>
   3  no OC_TOKEN or no OC_BASE in the environment, or the server answered
      401/403
   4  at least one id is unknown on the station (nothing was revealed)
   5  any other HTTP status, or a body that is not the requested secrets
+  7  a card holds no retrievable value: not provided, already destroyed, or its
+     task is closed; the station's message says which card (nothing was revealed)
 A diagnostic on stderr, prefixed [ocagent] secret run:, tells these apart from
 the command's own codes.
 `)
@@ -135,8 +167,10 @@ the command's own codes.
 func secretWriteUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: ocagent secret write <ID> --file <path> [--force]
 
-Writes the value of secret <ID> to <path> with permissions 0600, for tools that
-only read a credential from a file. The file is written to a temporary name in
+Writes the value of <ID> to <path> with permissions 0600, for tools that only
+read a credential from a file: a secret (sec-…) or a secret reply card you
+opened (rc-…). The first retrieval of a card's value starts its retention. The
+file is written to a temporary name in
 the same directory and moved into place, so <path> never holds a partial value.
 
 --file <path>  destination. Its directory must already exist (it is not
@@ -157,6 +191,8 @@ Exit codes:
   4  no secret with that id on the station
   5  any other HTTP status, or a body that is not the requested secret
   6  <path> already exists and --force was not given
+  7  a card holds no retrievable value: not provided, already destroyed, or its
+     task is closed; the station's message says which card (nothing was revealed)
 `)
 }
 
@@ -209,6 +245,11 @@ func cmdSecret(argv []string, cfg Config, in io.Reader, out, errOut io.Writer) i
 			fmt.Fprintln(errOut, "[ocagent] secret show: exactly one <ID> argument is required")
 			return 2
 		}
+		if secretCardIDShape.MatchString(fs.Arg(0)) {
+			fmt.Fprintf(errOut, "[ocagent] secret show: %q is a reply card, and show only reads stored secrets; "+
+				"read the card with get_reply_card and retrieve its value with `ocagent secret run` or `write`\n", fs.Arg(0))
+			return 2
+		}
 		if !secretIDShape.MatchString(fs.Arg(0)) {
 			fmt.Fprintf(errOut, "[ocagent] secret show: %q is not a secret id (sec- followed by 12 lowercase hex digits)\n", fs.Arg(0))
 			return 2
@@ -220,10 +261,11 @@ func cmdSecret(argv []string, cfg Config, in io.Reader, out, errOut io.Writer) i
 		fs.Usage = func() { secretRunUsage(out) }
 		var envs envFlags
 		fs.Var(&envs, "env", "VAR=<ID>, repeatable")
+		stdinJSON := fs.String("stdin-json", "", "give the command this <ID>'s value on stdin as a JSON string")
 		if err := fs.Parse(rest); err != nil {
 			return 2
 		}
-		return cmdSecretRun(defaultHTTPClient(), cfg, envs, fs.Args(), os.Environ(), in, out, errOut)
+		return runSecretCommand(defaultHTTPClient(), cfg, envs, *stdinJSON, fs.Args(), os.Environ(), in, out, errOut)
 	case "write":
 		fs := flag.NewFlagSet("ocagent secret write", flag.ContinueOnError)
 		fs.SetOutput(out)
@@ -244,8 +286,8 @@ func cmdSecret(argv []string, cfg Config, in io.Reader, out, errOut io.Writer) i
 			fmt.Fprintln(errOut, "usage: ocagent secret write <ID> --file <path> [--force]")
 			return 2
 		}
-		if !secretIDShape.MatchString(args[0]) {
-			fmt.Fprintf(errOut, "[ocagent] secret write: %q is not a secret id (sec- followed by 12 lowercase hex digits)\n", args[0])
+		if !revealableIDShape(args[0]) {
+			fmt.Fprintf(errOut, "[ocagent] secret write: %q is not a secret id (sec- or rc- followed by 12 lowercase hex digits)\n", args[0])
 			return 2
 		}
 		return cmdSecretWrite(defaultHTTPClient(), cfg, args[0], *file, *force, out, errOut)
@@ -286,6 +328,8 @@ func statusError(status int, text string) *secretRequestError {
 		return &secretRequestError{3, fmt.Sprintf("auth rejected (HTTP %d): %s", status, msg)}
 	case status == http.StatusNotFound:
 		return &secretRequestError{4, fmt.Sprintf("not found (HTTP 404): %s", msg)}
+	case status == http.StatusConflict:
+		return &secretRequestError{7, fmt.Sprintf("refused (HTTP 409): %s", msg)}
 	default:
 		return &secretRequestError{5, fmt.Sprintf("unexpected HTTP %d: %s", status, msg)}
 	}
@@ -398,13 +442,20 @@ func (e *envFlags) Set(v string) error { *e = append(*e, v); return nil }
 
 var envVarName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-var secretIDShape = regexp.MustCompile(`^sec-[0-9a-f]{12}$`)
+var (
+	secretIDShape     = regexp.MustCompile(`^sec-[0-9a-f]{12}$`)
+	secretCardIDShape = regexp.MustCompile(`^rc-[0-9a-f]{12}$`)
+)
+
+func revealableIDShape(id string) bool {
+	return secretIDShape.MatchString(id) || secretCardIDShape.MatchString(id)
+}
 
 type envBinding struct{ name, id string }
 
 func parseEnvBindings(envs []string) ([]envBinding, []string, error) {
 	if len(envs) == 0 {
-		return nil, nil, errors.New("at least one --env VAR=<ID> is required")
+		return nil, nil, errors.New("at least one --env VAR=<ID> or --stdin-json <ID> is required")
 	}
 	seenVar := map[string]bool{}
 	seenID := map[string]bool{}
@@ -418,8 +469,8 @@ func parseEnvBindings(envs []string) ([]envBinding, []string, error) {
 		if !envVarName.MatchString(name) {
 			return nil, nil, fmt.Errorf("--env %q: %q is not a valid variable name", e, name)
 		}
-		if !secretIDShape.MatchString(id) {
-			return nil, nil, fmt.Errorf("--env %q: %q is not a secret id (sec- followed by 12 lowercase hex digits)", e, id)
+		if !revealableIDShape(id) {
+			return nil, nil, fmt.Errorf("--env %q: %q is not a secret id (sec- or rc- followed by 12 lowercase hex digits)", e, id)
 		}
 		if seenVar[name] {
 			return nil, nil, fmt.Errorf("--env: %s is given more than once", name)
@@ -437,12 +488,29 @@ func parseEnvBindings(envs []string) ([]envBinding, []string, error) {
 	return bindings, ids, nil
 }
 
-func cmdSecretRun(client httpClient, cfg Config, envs []string, cmdArgs, environ []string,
+func runSecretCommand(client httpClient, cfg Config, envs []string, stdinJSONID string, cmdArgs, environ []string,
 	in io.Reader, out, errOut io.Writer) int {
-	bindings, ids, err := parseEnvBindings(envs)
-	if err != nil {
-		fmt.Fprintf(errOut, "[ocagent] secret run: %v\n", err)
-		return 2
+	var bindings []envBinding
+	var ids []string
+	if len(envs) > 0 || stdinJSONID == "" {
+		var err error
+		if bindings, ids, err = parseEnvBindings(envs); err != nil {
+			fmt.Fprintf(errOut, "[ocagent] secret run: %v\n", err)
+			return 2
+		}
+	}
+	if stdinJSONID != "" {
+		if !revealableIDShape(stdinJSONID) {
+			fmt.Fprintf(errOut, "[ocagent] secret run: --stdin-json %q is not a secret id (sec- or rc- followed by 12 lowercase hex digits)\n", stdinJSONID)
+			return 2
+		}
+		if !slices.Contains(ids, stdinJSONID) {
+			ids = append(ids, stdinJSONID)
+		}
+		if len(ids) > secretRevealMaxIDs {
+			fmt.Fprintf(errOut, "[ocagent] secret run: %d distinct ids; at most %d per run\n", len(ids), secretRevealMaxIDs)
+			return 2
+		}
 	}
 	if len(cmdArgs) == 0 {
 		fmt.Fprintln(errOut, "[ocagent] secret run: no command given after --")
@@ -450,6 +518,12 @@ func cmdSecretRun(client httpClient, cfg Config, envs []string, cmdArgs, environ
 	}
 	if !secretPreflight(cfg, "secret run", errOut) {
 		return 3
+	}
+	// Before the reveal: a retrieval can destroy a card's value, and a command
+	// that was never going to start must not pay for it.
+	if _, err := exec.LookPath(cmdArgs[0]); err != nil {
+		fmt.Fprintf(errOut, "[ocagent] secret run: cannot start %s: %v\n", cmdArgs[0], err)
+		return 1
 	}
 	values, rerr := revealSecrets(client, cfg, ids)
 	if rerr != nil {
@@ -465,12 +539,23 @@ func cmdSecretRun(client httpClient, cfg Config, envs []string, cmdArgs, environ
 	for _, v := range values {
 		maskValues = append(maskValues, v)
 	}
+	stdin := in
+	if stdinJSONID != "" {
+		encoded, forms, err := encodeSecretForStdin(values[stdinJSONID])
+		if err != nil {
+			// The error names a type, never the value.
+			fmt.Fprintf(errOut, "[ocagent] secret run: cannot encode the value: %v\n", err)
+			return 1
+		}
+		stdin = bytes.NewReader(encoded)
+		maskValues = append(maskValues, forms...)
+	}
 
 	stdout := newMaskWriter(out, maskValues)
 	stderr := newMaskWriter(errOut, maskValues)
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Env = env
-	cmd.Stdin = in
+	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.WaitDelay = secretRunWaitDelay
@@ -513,6 +598,63 @@ func cmdSecretRun(client httpClient, cfg Config, envs []string, cmdArgs, environ
 	return 1
 }
 
+// encodeSecretForStdin returns the JSON string the command reads, and the forms
+// common JSON libraries print it back in, because those forms do not hold the
+// stored bytes once the value needs escaping: the stdin form, Go's HTML-escaped
+// form and Python's default ASCII-only form, each also for the trimmed value (a
+// command reading a key file usually strips it first). Masking stays best effort:
+// a command that encodes the value any other way prints it.
+func encodeSecretForStdin(value string) ([]byte, []string, error) {
+	encoded, err := jsonWithoutHTMLEscape(value)
+	if err != nil {
+		return nil, nil, err
+	}
+	var forms []string
+	for _, v := range []string{value, strings.TrimSpace(value)} {
+		if v == "" {
+			continue // the quoted form of "" would mask every empty string in the output
+		}
+		plain, err := jsonWithoutHTMLEscape(v)
+		if err != nil {
+			return nil, nil, err
+		}
+		htmlEscaped, err := json.Marshal(v)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, quoted := range []string{plain, string(htmlEscaped), asciiOnlyJSON(plain)} {
+			forms = append(forms, quoted, quoted[1:len(quoted)-1])
+		}
+	}
+	return []byte(encoded), forms, nil
+}
+
+func jsonWithoutHTMLEscape(value string) (string, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(value); err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(buf.String(), "\n"), nil
+}
+
+func asciiOnlyJSON(encoded string) string {
+	var b strings.Builder
+	for _, r := range encoded {
+		switch {
+		case r < utf8.RuneSelf:
+			b.WriteRune(r)
+		case r > 0xFFFF:
+			hi, lo := utf16.EncodeRune(r)
+			fmt.Fprintf(&b, `\u%04x\u%04x`, hi, lo)
+		default:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		}
+	}
+	return b.String()
+}
+
 // secretRunWaitDelay bounds how long run waits, after the command exits, for a
 // background process it left behind to release the output pipes.
 var secretRunWaitDelay = 3 * time.Second
@@ -551,8 +693,23 @@ func newMaskWriter(dst io.Writer, values []string) *maskWriter {
 				add(strings.ReplaceAll(strings.ReplaceAll(form, "\r\n", "\n"), "\n", "\r\n"))
 			}
 		}
+		// A command often handles a multi-line value line by line. Owner ruling: no
+		// minimum length, a PEM's short last line is still part of the key; but a line
+		// with no letter or digit stays out, or a JSON key's lone "{" would mask every
+		// brace in the output.
+		if lines := strings.Split(v, "\n"); len(lines) > 1 {
+			for _, line := range lines {
+				if strings.IndexFunc(line, isLetterOrDigit) >= 0 {
+					add(strings.TrimSpace(line))
+				}
+			}
+		}
 	}
 	return m
+}
+
+func isLetterOrDigit(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 func (m *maskWriter) Write(p []byte) (int, error) {
@@ -676,6 +833,15 @@ func cmdSecretWrite(client httpClient, cfg Config, id, path string, force bool, 
 	if !secretPreflight(cfg, "secret write", errOut) {
 		return 3
 	}
+	// Before the reveal: a retrieval can destroy a card's value, and a directory
+	// that was never going to take the file must not pay for it.
+	probe, err := os.CreateTemp(dir, ".ocagent-secret-*")
+	if err != nil {
+		fmt.Fprintf(errOut, "[ocagent] secret write: cannot create a temporary file next to %s: %v\n", path, err)
+		return 1
+	}
+	probe.Close()
+	os.Remove(probe.Name())
 	values, rerr := revealSecrets(client, cfg, []string{id})
 	if rerr != nil {
 		fmt.Fprintf(errOut, "[ocagent] secret write: %s\n", rerr.msg)

@@ -1,0 +1,78 @@
+// Whether a typed value is covered on screen, and how tall the box is, comes from a
+// stylesheet, which jsdom does not apply: only a real browser can tell.
+import { test, expect } from "@playwright/experimental-ct-react";
+import { ReplySecretStory, SecretsValueStory } from "./stories/ReplySecretStory";
+
+for (const viewport of [390, 1280]) {
+  test(`${viewport}px: the box masks a value, starts three lines tall above a full-width send button, grows then scrolls, inside the card above the composer`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: viewport, height: 900 });
+    const cmp = await mount(<ReplySecretStory />);
+    const input = cmp.getByTestId("reply-secret-input");
+    const height = async () => (await input.boundingBox())!.height;
+
+    const empty = await height();
+    expect(empty).toBeGreaterThan(50);
+    expect(empty).toBeLessThan(64);
+
+    await input.fill("dummy-aaaaaaaaaaaa");
+    expect(await height()).toBe(empty);
+    const mask = await input.evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-text-security"));
+    expect(mask).toBe("disc");
+
+    const eye = cmp.getByTestId("secret-reveal-toggle");
+    const maskNow = () => input.evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-text-security"));
+    await input.focus();
+    await eye.click();
+    expect(await maskNow()).toBe("none");
+    await expect(input).toBeFocused();
+    await eye.click();
+    expect(await maskNow()).toBe("disc");
+    const eyeBox = (await eye.boundingBox())!;
+    const inputBox = (await input.boundingBox())!;
+    expect(eyeBox.x + eyeBox.width).toBeLessThanOrEqual(inputBox.x + inputBox.width + 0.5);
+
+    const fiveLines = "dummy-aaaaaaaaaaaa\nline two\nline three\nline four\nline five";
+    await input.fill(fiveLines);
+    await expect(input).toHaveValue(fiveLines);
+    expect(await height()).toBeGreaterThan(empty);
+
+    await input.fill(Array.from({ length: 40 }, () => "dummy-aaaaaaaaaaaa").join("\n"));
+    expect(await height()).toBe(132);
+    const scrolls = await input.evaluate((el) => el.scrollHeight > el.clientHeight);
+    expect(scrolls).toBe(true);
+
+    await input.fill("");
+    expect(await height()).toBe(empty);
+
+    const send = (await cmp.getByTestId("reply-secret-send").boundingBox())!;
+    const field = (await input.boundingBox())!;
+    const secretBox = (await cmp.getByTestId("reply-secret-box").boundingBox())!;
+    expect(send.y).toBeGreaterThanOrEqual(field.y + field.height);
+    expect(send.width).toBe(secretBox.width);
+    const eyeAtRest = (await eye.boundingBox())!;
+    expect(Math.abs(eyeAtRest.y + eyeAtRest.height / 2 - (field.y + field.height / 2))).toBeLessThan(1);
+
+    const card = (await page.getByTestId("card-secret").boundingBox())!;
+    const box = (await cmp.getByTestId("reply-secret-box").boundingBox())!;
+    const composer = (await cmp.locator(".reply-composer").boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(card.x - 0.5);
+    expect(box.x + box.width).toBeLessThanOrEqual(card.x + card.width + 0.5);
+    expect(box.y + box.height).toBeLessThanOrEqual(composer.y + 0.5);
+  });
+
+  test(`${viewport}px: a long value on the secrets page wraps instead of running under the eye`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: viewport, height: 900 });
+    const cmp = await mount(<SecretsValueStory value={"dummy-aaaaaaaa".repeat(40)} />);
+    const scrolls = await page
+      .getByTestId("secrets-value")
+      .evaluate((el) => el.scrollWidth > el.clientWidth);
+    expect(scrolls).toBe(false);
+    await expect(cmp.getByTestId("secret-reveal-toggle")).toBeVisible();
+  });
+}

@@ -430,13 +430,15 @@ describe("validateLogo", () => {
 });
 
 describe("validateNavIcons", () => {
-  it("accepts undefined (optional) and the five legal nav-tab keys", () => {
+  it("accepts undefined (optional) and all seven legal nav-tab keys", () => {
     expect(validateNavIcons(undefined)).toBeNull();
     expect(
       validateNavIcons({
         office: okPng,
         replies: okJpeg,
         tasks: okWebp,
+        lore: okPng,
+        secrets: okJpeg,
         monitor: okPng,
         guide: okJpeg,
       })
@@ -446,7 +448,7 @@ describe("validateNavIcons", () => {
   it("rejects a non-object, an unknown key, and an image that fails the gate", () => {
     expect(validateNavIcons([])).toMatch(/must be an object/);
     expect(validateNavIcons({ settings: okPng })).toMatch(
-      /nav icon key "settings" is not allowed \(only office, replies, tasks, monitor, guide\)/
+      /nav icon key "settings" is not allowed \(only office, replies, tasks, lore, secrets, monitor, guide\)/
     );
     expect(
       validateNavIcons({ office: avatarURI("image/svg+xml", [0x3c]) })
@@ -513,7 +515,7 @@ describe("validateBackgrounds", () => {
     );
 
     // Exactly at the background cap. This also proves the raw string-length
-    // pre-filter moved: 512 KiB decoded is ~683 KiB encoded, so a stale
+    // pre-filter moved: 1 MiB decoded is ~1366 KiB encoded, so a stale
     // MAX_BACKGROUND_VALUE_LEN would reject it before the decoded cap is read.
     const atCap = avatarURI(
       "image/png",

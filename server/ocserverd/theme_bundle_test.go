@@ -133,6 +133,13 @@ func TestValidateThemeBundles(t *testing.T) {
 			want: `custom_themes[0]: id "office-light" is reserved for a built-in theme`,
 		},
 		{
+			name: "a bundled built-in desk ID is reserved",
+			bundles: []ThemeBundleDTO{
+				themeBundleForTest("modern-office-desk-night", "Custom copy", "#101018"),
+			},
+			want: `custom_themes[0]: id "modern-office-desk-night" is reserved for a built-in theme`,
+		},
+		{
 			name: "an unknown color token is refused",
 			bundles: []ThemeBundleDTO{{
 				Id: "midnight", Name: "Midnight", Colors: map[string]string{"--not-a-color": "#101018"},

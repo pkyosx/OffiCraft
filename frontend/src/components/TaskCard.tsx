@@ -81,7 +81,9 @@ import { navigateHash } from "../lib/hashRoute";
 import { deriveTaskNo } from "../lib/taskNo";
 import { scrollParent, viewportSpanOf } from "../lib/scrollPort";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { useNowSeconds } from "../hooks/useNowSeconds";
+import { useDueState } from "../hooks/useDueState";
+import { TaskPriorityBadge } from "./TaskChips";
+import { PRIORITIES } from "../lib/taskPriority";
 import {
   DEFAULT_DUE_SOON_LEAD_MINUTES,
   DUE_SOON_LEAD_MINUTES_MAX,
@@ -90,12 +92,10 @@ import {
   LEAD_UNITS,
   type LeadUnit,
   dueRemaining,
-  dueState,
   effectiveLeadMinutes,
   dueTsFromInputs,
   hasDueTime,
   leadMinutesFromDraft,
-  nextDueWake,
   splitLeadMinutes,
   toDateInputValue,
   toTimeInputValue,
@@ -112,8 +112,15 @@ import { MentionHighlight } from "./MentionHighlight";
 import {
   ATTACH_ACCEPT,
   useAttachmentStaging,
-  STAGING_TARGET_PER_MOUNT,
 } from "../hooks/useAttachmentStaging";
+import {
+  clearChatDraft,
+  getChatDraft,
+  openDraftAttachErrorScope,
+  restoreChatDraft,
+  taskMessageDraftKey,
+} from "../lib/chatDraftStore";
+import { useDraftText } from "../hooks/useDraftText";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
 import { useSuggestedRepliesTaskMessage } from "../hooks/useSuggestedReplies";
@@ -148,7 +155,6 @@ import "./inline-edit.css";
 /** Terminal statuses (已完成/終止/重複) — owner actions and ticking stop here. */
 const TERMINAL = new Set(["done", "terminated", "duplicated"]);
 
-const PRIORITIES = ["high", "mid", "low", "frozen"] as const;
 
 // showPicker() is missing in older browsers and throws without a user
 // activation; focusing the input is the fallback that still lets a touch
@@ -824,10 +830,7 @@ export function TaskCard({
     minute: t.tasks.dueLeadMinuteMany,
   };
   const dueEditable = !closed && onSetDue !== undefined;
-  const nowSec = useNowSeconds(
-    dueTs === null || closed ? null : nextDueWake(dueTs, Date.now() / 1000, leadMinutes)
-  );
-  const due = dueTs === null ? null : dueState(dueTs, nowSec, leadMinutes);
+  const { nowSec, due } = useDueState(dueTs, leadMinutes, !closed);
   const dueRemainingText =
     dueTs === null || closed ? null : msg.taskDueRemaining(dueRemaining(dueTs, nowSec));
   const dueDateText =
@@ -1217,7 +1220,8 @@ export function TaskCard({
   }
 
   // ── message box (owner → executor) ─────────────────────────────────────────
-  const [draft, setDraft] = useState("");
+  const draftKey = taskMessageDraftKey(task.id);
+  const [draft, setDraft] = useDraftText(draftKey);
   const [sending, setSending] = useState(false);
   const [msgError, setMsgError] = useState(false);
   const isComposingRef = useRef(false);
@@ -1250,11 +1254,8 @@ export function TaskCard({
     onPickFile,
     removeAttachment,
     clearAttachments,
-  } = useAttachmentStaging(
-    // Mounted under a key that changes with the card/task it belongs to, so a
-    // switch UNMOUNTS this surface and nothing can outlive it (T-48, R9-1).
-    STAGING_TARGET_PER_MOUNT,
-  );
+  } = useAttachmentStaging(draftKey);
+  useEffect(() => openDraftAttachErrorScope(draftKey), [draftKey]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canSend =
     !sending &&
@@ -1275,19 +1276,20 @@ export function TaskCard({
       dataB64: a.dataUri,
       ...(a.filename ? { filename: a.filename } : {}),
     }));
+    // Cleared before the send, as the chat composer does: a box remounted while
+    // the request is in flight must not show (and resend) the text it carries.
+    const snapshot = getChatDraft(draftKey);
+    const body = linkMentions(draft.trim(), mentionRoster.candidates);
     setSending(true);
+    clearChatDraft(draftKey);
+    clearAttachments();
     try {
-      await onSendMessage(
-        task.id,
-        linkMentions(draft.trim(), mentionRoster.candidates),
-        attachments,
-      );
-      setDraft("");
-      clearAttachments();
+      await onSendMessage(task.id, body, attachments);
       setMsgError(false);
     } catch (e) {
       console.warn("TaskCard: message send failed", e);
-      setMsgError(true); // the typed content is kept — retry-friendly
+      if (snapshot) restoreChatDraft(draftKey, snapshot);
+      setMsgError(true);
     } finally {
       setSending(false);
     }
@@ -1569,12 +1571,7 @@ export function TaskCard({
               )}
             </button>
             {closed ? (
-              <span
-                className={`task-badge task-badge--prio-${task.priority}`}
-                data-testid="task-priority"
-              >
-                {t.tasks.priority[task.priority] ?? task.priority}
-              </span>
+              <TaskPriorityBadge priority={task.priority} testId="task-priority" />
             ) : (
               <div className="task-card__prio" ref={prioRef}>
                 <button

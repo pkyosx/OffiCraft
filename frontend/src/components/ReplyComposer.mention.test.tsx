@@ -60,7 +60,7 @@ function Roster({ children }: { children: ReactNode }) {
 const onSend = vi.fn((_body: string, _atts: unknown[]) => Promise.resolve());
 
 function renderComposer({ withRoster = true } = {}) {
-  const composer = <ReplyComposer placeholder="輸入回覆…" onSend={onSend} />;
+  const composer = <ReplyComposer draftKey="reply-card:rc-1:answer" placeholder="輸入回覆…" onSend={onSend} />;
   const utils = render(
     <I18nProvider>{withRoster ? <Roster>{composer}</Roster> : composer}</I18nProvider>,
   );

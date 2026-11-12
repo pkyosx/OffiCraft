@@ -1141,6 +1141,9 @@ func dismissStaffOn(tx *writeTx, m *Member, now float64) error {
 	if err := deleteChatGroupMemberOn(tx, m.ID); err != nil {
 		return err
 	}
+	if err := deleteChatSuggestedRepliesOn(tx, m.ID); err != nil {
+		return err
+	}
 	return persistMemberRowOn(tx, before, *m)
 }
 
@@ -1155,6 +1158,7 @@ func (s *apiServer) finishStaffDismissal(m Member, trigger string) {
 	if _, err := s.expireWaitingCardsByAuthor(m.ID, nowSecs(), trigger); err != nil {
 		taskLog("dismiss %s: reply-card sweep failed (cards left waiting): %v", m.ID, err)
 	}
+	s.sweepSecretCardsBestEffort(trigger)
 }
 
 // Does not exclude kind='outsource': workers report through these self endpoints

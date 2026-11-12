@@ -10,7 +10,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 )
+
+var themeBundleRequiredFields = []string{"id", "name", "colors"}
 
 // Returns {id, name} only, never bundles (owner ruling 2026-08-18): bundles
 // embed their images (four themes measured 1.59 MB). ListCustomThemes still
@@ -65,9 +68,48 @@ func (s *apiServer) HandleGetThemeApiThemesThemeIdGet(w http.ResponseWriter, r *
 // marshalled from this DTO.
 func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *http.Request, themeID string) {
 	var body ThemeBundleDTO
-	if !decodeJSONBodyStrict(w, r, &body, "id", "name", "colors") {
+	if !decodeJSONBodyStrict(w, r, &body, themeBundleRequiredFields...) {
 		return
 	}
+	s.saveThemeBundle(w, themeID, body)
+}
+
+func (s *apiServer) HandleImportThemeApiThemesImportPost(w http.ResponseWriter, r *http.Request) {
+	var body ThemeImportDTO
+	if !decodeJSONBodyStrict(w, r, &body, "attachment_id") {
+		return
+	}
+	attID := strings.TrimSpace(body.AttachmentId)
+	if isMemberAvatarAttachmentID(attID) {
+		writeError(w, http.StatusBadRequest,
+			"attachment '"+attID+"' is reserved for a member avatar")
+		return
+	}
+	raw, found, err := s.dal.GetChatAttachmentDataWithin(attID, themeFileMaxBytes)
+	if errors.Is(err, ErrChatAttachmentTooLarge) {
+		writeError(w, http.StatusUnprocessableEntity,
+			fmt.Sprintf("that file is larger than the %d-byte limit for a theme", themeFileMaxBytes))
+		return
+	}
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if !found {
+		writeError(w, http.StatusBadRequest,
+			"attachment '"+attID+"' not found (upload it first with ocagent upload)")
+		return
+	}
+	var bundle ThemeBundleDTO
+	if _, err := decodeJSONStrict(raw, &bundle, themeBundleRequiredFields...); err != nil {
+		writeError(w, http.StatusUnprocessableEntity,
+			"that file is not a theme bundle: "+err.Error())
+		return
+	}
+	s.saveThemeBundle(w, bundle.Id, bundle)
+}
+
+func (s *apiServer) saveThemeBundle(w http.ResponseWriter, themeID string, body ThemeBundleDTO) {
 	// Do not prune unknown wording codes before validation: validateWording
 	// caps the RAW entry count and prunes after, so pruning first would let
 	// unrecognised entries bypass the cap.
@@ -140,6 +182,8 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 	unlockMu := s.settingsWriteMu.Acquire()
 	defer unlockMu()
 	reset := s.displayTheme == themeID
+	schedule := themeScheduleWithout(s.displayThemeSchedule, themeID)
+	scheduleChanged := len(schedule) != len(s.displayThemeSchedule)
 	err := s.dal.inTx(func(tx *writeTx) error {
 		deleted, err := deleteCustomThemeOn(tx, themeID)
 		if err != nil {
@@ -149,7 +193,12 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 			return refuseInTx(http.StatusNotFound, "theme '"+themeID+"' not found")
 		}
 		if reset {
-			return putSettingOn(tx, settingDisplayTheme, "")
+			if err := putSettingOn(tx, settingDisplayTheme, ""); err != nil {
+				return err
+			}
+		}
+		if scheduleChanged {
+			return putSettingOn(tx, settingDisplayThemeSchedule, encodeThemeSchedule(schedule))
 		}
 		return nil
 	})
@@ -158,13 +207,22 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 		writeTxError(w, err)
 		return
 	}
-	if reset {
-		s.applySettings(func() { s.displayTheme = "" })
-	}
+	s.applySettings(func() {
+		if reset {
+			s.displayTheme = ""
+		}
+		if scheduleChanged {
+			s.displayThemeSchedule = schedule
+		}
+	})
 	unlockMu()
+	if reset || scheduleChanged {
+		s.publishSettings(requestTrigger(r))
+	}
 
 	writeJSON(w, http.StatusOK, themeDeleteResultDTO{
 		ID: themeID, Deleted: true, DisplayThemeReset: reset,
+		DisplayThemeSchedule: append([]ThemeScheduleEntryDTO{}, schedule...),
 	})
 }
 
@@ -193,7 +251,7 @@ func marshalThemeBundle(b ThemeBundleDTO) (string, error) {
 	return string(raw), nil
 }
 
-const displayThemeRefusal = `display_theme must be "", office, office-light, or an existing custom theme id`
+const displayThemeRefusal = `display_theme must be "", a built-in theme id, or an existing custom theme id`
 
 // displayThemeExistsOn asks the TABLE; never keep a copy of the id set
 // elsewhere. The patch asks again inside the transaction that sets the theme,

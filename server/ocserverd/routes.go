@@ -580,6 +580,24 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:    w.HandleUpdateChatGroupsApiChatGroupsPut,
 			MCPExclude: true,
 		}),
+		Gated(principalOwner, routeDef{
+			Method:     "GET",
+			Path:       "/api/chat/suggested-replies",
+			Handler:    w.HandleGetChatSuggestedRepliesApiChatSuggestedRepliesGet,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "PUT",
+			Path:       "/api/chat/suggested-replies/{member_id}",
+			Handler:    w.HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMemberIdPut,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "DELETE",
+			Path:       "/api/chat/{message_id}",
+			Handler:    w.HandleDeleteChatMessageApiChatMessageIdDelete,
+			MCPExclude: true,
+		}),
 		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/reply-cards",
@@ -645,6 +663,19 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Path:    "/api/reply-cards/{card_id}/expire",
 			Handler: w.HandleExpireReplyCardApiReplyCardsCardIdExpirePost,
 			MCPTool: "expire_reply_card",
+		}),
+		// Off MCP so a value never lands in a tool call.
+		Gated(principalOwner, routeDef{
+			Method:     "POST",
+			Path:       "/api/reply-cards/{card_id}/secret",
+			Handler:    w.HandleProvideReplyCardSecretApiReplyCardsCardIdSecretPost,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "PUT",
+			Path:       "/api/reply-cards/{card_id}/snooze",
+			Handler:    w.HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut,
+			MCPExclude: true,
 		}),
 		Gated(principalMachine, routeDef{
 			Method:  "POST",
@@ -1321,10 +1352,9 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:    w.HandleGetDocAssetApiDocsAssetsNameGet,
 			MCPExclude: true,
 		}),
-		// Custom themes: on the MCP surface by owner ruling rc-32ed1bfba080 —
-		// and that ruling is why the list answers {id, name} only. A
-		// bundle carries its images; restoring whole bundles in the list
-		// would undo what made these tools callable.
+		// Custom themes on the MCP surface answer without bundles where they can
+		// (owner ruling rc-32ed1bfba080): a bundle carries its images; restoring
+		// whole bundles in the list would undo what made these tools callable.
 		Gated(principalAdminAgent, routeDef{
 			Method:  "GET",
 			Path:    "/api/themes",
@@ -1338,10 +1368,18 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool: "get_theme",
 		}),
 		Gated(principalAdminAgent, routeDef{
-			Method:  http.MethodPut,
-			Path:    "/api/themes/{theme_id}",
-			Handler: w.HandlePutThemeApiThemesThemeIdPut,
-			MCPTool: "put_theme",
+			Method:  "POST",
+			Path:    "/api/themes/import",
+			Handler: w.HandleImportThemeApiThemesImportPost,
+			MCPTool: "import_theme",
+		}),
+		Gated(principalAdminAgent, routeDef{
+			// The theme settings page saves through this route. On MCP a bundle
+			// is imported from a file instead: import_theme.
+			Method:     http.MethodPut,
+			Path:       "/api/themes/{theme_id}",
+			Handler:    w.HandlePutThemeApiThemesThemeIdPut,
+			MCPExclude: true,
 		}),
 		Gated(principalAdminAgent, routeDef{
 			Method:  "DELETE",

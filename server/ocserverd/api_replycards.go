@@ -14,6 +14,7 @@ import (
 const (
 	replyCardKindDecision = "decision"
 	replyCardKindAction   = "action"
+	replyCardKindSecret   = "secret"
 
 	replyCardStatusWaiting  = "waiting"
 	replyCardStatusAnswered = "answered"
@@ -45,9 +46,23 @@ func (s *apiServer) publishReplyCard(c ReplyCard, trigger string) {
 	if err != nil {
 		taskLog("reply card %s: task executor lookup failed (only the author is told): %v", c.ID, err)
 	}
+	s.publishReplyCardTo(c, executor, audienceMembers(c.FromMember, executor), trigger)
+}
+
+func (s *apiServer) publishReplyCardTo(c ReplyCard, executor string, audience Audience, trigger string) {
 	s.hub.Publish("reply_card", "patch", "reply_card", wireOwnerID+"::"+c.ID,
 		map[string]any{"id": c.ID, "from": c.FromMember, "status": c.Status, "task_executor": executor},
-		audienceMembers(c.FromMember, executor), trigger)
+		audience, trigger)
+}
+
+// A snooze that runs out is never written back: the stored stamp simply falls
+// behind the clock, so every reader decides against now.
+func replyCardSnoozedUntil(c ReplyCard, now float64) *float64 {
+	if c.Status != replyCardStatusWaiting || c.SnoozedUntilTS <= now {
+		return nil
+	}
+	ts := c.SnoozedUntilTS
+	return &ts
 }
 
 func waitingReplyCards(cards []ReplyCard) []ReplyCard {
@@ -177,8 +192,8 @@ func (s *apiServer) openReplyCard(
 	// closed-set check (and select_mode's below) is the only one, and it must
 	// answer 400, not 422 (conformance/test_reply_cards.py pins it).
 	kind := trimString(string(body.Kind))
-	if kind != replyCardKindDecision && kind != replyCardKindAction {
-		return nil, "kind must be 'decision' or 'action'", nil
+	if kind != replyCardKindDecision && kind != replyCardKindAction && kind != replyCardKindSecret {
+		return nil, "kind must be 'decision' or 'action' or 'secret'", nil
 	}
 	summary := trimString(body.Summary)
 	if summary == "" {
@@ -191,8 +206,14 @@ func (s *apiServer) openReplyCard(
 	if selectMode != replyCardSelectModeSingle && selectMode != replyCardSelectModeMulti {
 		return nil, "select_mode must be 'single' or 'multi'", nil
 	}
-	options, problem := validateReplyCardOptions(body.Options, selectMode)
-	if problem != "" {
+	var options []ReplyCardOption
+	var problem string
+	if kind == replyCardKindSecret {
+		if len(body.Options) > 0 {
+			return nil, "a secret card must not carry options", nil
+		}
+		selectMode = replyCardSelectModeSingle
+	} else if options, problem = validateReplyCardOptions(body.Options, selectMode); problem != "" {
 		return nil, problem, nil
 	}
 	var inputs []ChatAttachmentInputDTO
@@ -307,15 +328,25 @@ func (s *apiServer) openReplyCard(
 	return &card, "", nil
 }
 
+func (s *apiServer) publishReplyCardToOwnerOnly(c ReplyCard, trigger string) {
+	_, executor, err := s.cardTaskRef(c)
+	if err != nil {
+		taskLog("reply card %s: task executor lookup failed for an owner-only delta: %v", c.ID, err)
+	}
+	s.publishReplyCardTo(c, executor, audienceOwnerOnly(), trigger)
+}
+
 func (s *apiServer) replyCardDTOOf(c ReplyCard) (replyCardDTO, error) {
 	dto := newReplyCardDTO(c)
+	dto.SnoozedUntilTS = replyCardSnoozedUntil(c, nowSecs())
 	ref, executor, err := s.cardTaskRef(c)
 	dto.Task, dto.TaskExecutor = ref, executor
 	return dto, err
 }
 
 // The executor is read live rather than stored on the card so that the
-// notifications follow a reassignment. A closed task has no one left to tell.
+// notifications follow a reassignment, and the priority and due date so that the
+// card shows them as the task has them now. A closed task has no one left to tell.
 func (s *apiServer) cardTaskRef(c ReplyCard) (*taskRefDTO, string, error) {
 	if c.TaskID == "" {
 		return nil, "", nil
@@ -328,7 +359,11 @@ func (s *apiServer) cardTaskRef(c ReplyCard) (*taskRefDTO, string, error) {
 	if !TaskIsTerminal(t.Status) {
 		executor = actingExecutorOf(s.dal.GetMember, *t)
 	}
-	return &taskRefDTO{ID: t.ID, TypeKey: t.TypeKey, Title: t.Title}, executor, nil
+	return &taskRefDTO{
+		ID: t.ID, TypeKey: t.TypeKey, Title: t.Title, Priority: t.Priority,
+		DueTS:              dueTSWire(t.DueTs),
+		DueSoonLeadMinutes: dueSoonLeadMinutesWire(t.DueSoonLeadMinutes),
+	}, executor, nil
 }
 
 func (s *apiServer) writeReplyCard(w http.ResponseWriter, c ReplyCard) {
@@ -549,6 +584,7 @@ func (s *apiServer) replyCardListItemOf(c ReplyCard) (replyCardListItemDTO, erro
 		Summary:   c.Summary,
 		Status:    c.Status,
 		CreatedTS: c.CreatedTS,
+		Secret:    replyCardSecretDTOOf(c),
 	}
 	if c.Status == replyCardStatusExpired {
 		ts := c.ExpiredTS
@@ -565,6 +601,7 @@ func (s *apiServer) replyCardListItemOf(c ReplyCard) (replyCardListItemDTO, erro
 			Attachments:  len(c.AnswerAttachments),
 		}
 	}
+	dto.SnoozedUntilTS = replyCardSnoozedUntil(c, nowSecs())
 	ref, executor, err := s.cardTaskRef(c)
 	dto.Task, dto.TaskExecutor = ref, executor
 	return dto, err
@@ -645,11 +682,21 @@ func (s *apiServer) HandleReplyCardCountApiReplyCardsCountGet(w http.ResponseWri
 		return
 	}
 	now := nowSecs()
-	writeJSON(w, http.StatusOK, replyCardCountDTO{
-		Waiting:  len(waitingReplyCards(cards)),
+	dto := replyCardCountDTO{
 		Answered: len(recentAnsweredReplyCards(cards, now)),
 		Expired:  len(recentExpiredReplyCards(cards, now)),
-	})
+	}
+	for _, c := range waitingReplyCards(cards) {
+		until := replyCardSnoozedUntil(c, now)
+		if until == nil {
+			dto.Waiting++
+			continue
+		}
+		if dto.WaitingNextChangeTS == nil || *until < *dto.WaitingNextChangeTS {
+			dto.WaitingNextChangeTS = until
+		}
+	}
+	writeJSON(w, http.StatusOK, dto)
 }
 
 func (s *apiServer) HandleGetReplyCardApiReplyCardsCardIdGet(w http.ResponseWriter, r *http.Request, cardId string) {
@@ -781,6 +828,18 @@ func (s *apiServer) settleReplyCard(
 	cardID string, now float64, atts []ChatAttachment,
 	settle func(cur *ReplyCard, getTask func(string) (*Task, error)) error,
 ) (ReplyCard, cardHoldRelease, error) {
+	return s.settleReplyCardOn(cardID, now, atts,
+		func(_ *writeTx, cur *ReplyCard, getTask func(string) (*Task, error)) error {
+			return settle(cur, getTask)
+		})
+}
+
+// settleReplyCardOn is settleReplyCard for a settle that writes more than the
+// card (a secret card's ciphertext), in the same transaction.
+func (s *apiServer) settleReplyCardOn(
+	cardID string, now float64, atts []ChatAttachment,
+	settle func(tx *writeTx, cur *ReplyCard, getTask func(string) (*Task, error)) error,
+) (ReplyCard, cardHoldRelease, error) {
 	var settled ReplyCard
 	var rel cardHoldRelease
 	err := s.dal.inTx(func(tx *writeTx) error {
@@ -792,7 +851,7 @@ func (s *apiServer) settleReplyCard(
 			return refuseInTx(http.StatusNotFound, "reply card '"+cardID+"' not found")
 		}
 		wasWaiting := cur.Status == replyCardStatusWaiting
-		if err := settle(cur, func(id string) (*Task, error) { return getTaskOn(tx, id) }); err != nil {
+		if err := settle(tx, cur, func(id string) (*Task, error) { return getTaskOn(tx, id) }); err != nil {
 			return err
 		}
 		rel = cardHoldRelease{}
@@ -1009,6 +1068,10 @@ func firstAnswerGate(card ReplyCard, getTask func(string) (*Task, error)) error 
 		return refuseInTx(http.StatusConflict,
 			"reply card '"+card.ID+"' is expired — a terminal state; the agent opens a new card if the question still matters")
 	}
+	if card.SecretProvidedTS > 0 {
+		return refuseInTx(http.StatusConflict,
+			"reply card '"+card.ID+"' already holds the value the owner provided — it takes no answer")
+	}
 	if card.Status != replyCardStatusWaiting {
 		return refuseInTx(http.StatusConflict,
 			"reply card '"+card.ID+"' is already answered — revise it via PUT (重新決定)")
@@ -1053,6 +1116,10 @@ func reanswerGate(card ReplyCard, _ func(string) (*Task, error)) error {
 		return refuseInTx(http.StatusConflict,
 			"reply card '"+card.ID+"' is not answered yet — answer it via POST")
 	}
+	if card.SecretProvidedTS > 0 {
+		return refuseInTx(http.StatusConflict,
+			"reply card '"+card.ID+"' holds a value the owner provided — it has no answer to re-decide")
+	}
 	return nil
 }
 
@@ -1086,9 +1153,14 @@ func (s *apiServer) HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.Re
 		return
 	}
 	now := nowSecs()
-	settled, rel, err := s.settleReplyCard(card.ID, now, nil, func(cur *ReplyCard, _ func(string) (*Task, error)) error {
+	retainedDestroyed := false
+	settled, rel, err := s.settleReplyCardOn(card.ID, now, nil, func(tx *writeTx, cur *ReplyCard, _ func(string) (*Task, error)) error {
 		if err := expireGate(*cur); err != nil {
 			return err
+		}
+		if cur.Status != replyCardStatusWaiting {
+			retainedDestroyed = cur.SecretRetrievedTS > 0
+			return destroySecretCardValueOn(tx, cur, now)
 		}
 		cur.Status = replyCardStatusExpired
 		cur.ExpiredTS = now
@@ -1098,15 +1170,88 @@ func (s *apiServer) HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.Re
 		writeTxError(w, err)
 		return
 	}
-	s.publishReplyCard(settled, requestTrigger(r))
-	s.announceCardHoldRelease(rel, requestTrigger(r))
+	if retainedDestroyed {
+		s.publishReplyCardToOwnerOnly(settled, requestTrigger(r))
+	} else {
+		s.publishReplyCard(settled, requestTrigger(r))
+		s.announceCardHoldRelease(rel, requestTrigger(r))
+	}
 	s.writeReplyCardTransitionReceipt(w, settled)
 }
 
+// Past the waiting card, the route also ends a secret card's live value:
+// provided and unretrieved, or inside the retention after its first retrieval.
 func expireGate(card ReplyCard) error {
+	if card.Status == replyCardStatusWaiting || secretCardValueIsLive(card) {
+		return nil
+	}
+	return refuseInTx(http.StatusConflict,
+		"reply card '"+card.ID+"' is already "+card.Status+" — only a waiting card can expire")
+}
+
+const replyCardSnoozeMaxAheadSecs = 90 * 24 * 60 * 60
+
+const replyCardSnoozeWindowMsg = "snoozed_until_ts must be later than now and at most 90 days " +
+	"(7776000 seconds) ahead, in epoch seconds; send null to bring the card back now"
+
+func (s *apiServer) HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(w http.ResponseWriter, r *http.Request, cardId string) {
+	card, err := s.dal.GetReplyCard(cardId)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if card == nil {
+		writeError(w, http.StatusNotFound, "reply card '"+cardId+"' not found")
+		return
+	}
+	if err := snoozeGate(*card); err != nil {
+		writeTxError(w, err)
+		return
+	}
+	var body HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePutJSONRequestBody
+	if !decodeJSONBodyRequired(w, r, &body, "snoozed_until_ts") {
+		return
+	}
+	now := nowSecs()
+	until := 0.0
+	if body.SnoozedUntilTs != nil {
+		until = *body.SnoozedUntilTs
+		if until <= now || until > now+replyCardSnoozeMaxAheadSecs {
+			writeError(w, http.StatusUnprocessableEntity, replyCardSnoozeWindowMsg)
+			return
+		}
+	}
+	var saved ReplyCard
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getReplyCardOn(tx, cardId)
+		if err != nil {
+			return err
+		}
+		if cur == nil {
+			return refuseInTx(http.StatusNotFound, "reply card '"+cardId+"' not found")
+		}
+		if err := snoozeGate(*cur); err != nil {
+			return err
+		}
+		cur.SnoozedUntilTS = until
+		saved = *cur
+		return putReplyCardOn(tx, *cur)
+	})
+	if err != nil {
+		writeTxError(w, err)
+		return
+	}
+	s.publishReplyCardToOwnerOnly(saved, requestTrigger(r))
+	writeJSON(w, http.StatusOK, replyCardSnoozeReceiptDTO{
+		ID:             saved.ID,
+		SnoozedUntilTS: replyCardSnoozedUntil(saved, now),
+	})
+}
+
+func snoozeGate(card ReplyCard) error {
 	if card.Status != replyCardStatusWaiting {
 		return refuseInTx(http.StatusConflict,
-			"reply card '"+card.ID+"' is already "+card.Status+" — only a waiting card can expire")
+			"reply card '"+card.ID+"' is already "+card.Status+" — only a waiting card can be snoozed")
 	}
 	return nil
 }

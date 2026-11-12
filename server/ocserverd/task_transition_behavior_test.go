@@ -63,7 +63,7 @@ func t91ResumeTasks(t *testing.T, api *apiServer, actor string) []map[string]any
 	t.Helper()
 	rec := httptest.NewRecorder()
 	api.HandleResumeSummaryApiResumeSummaryGet(rec,
-		taskReq(t, "GET", "/api/resume-summary", nil, actor, "agent"))
+		taskReq(t, "GET", "/api/resume-summary", nil, actor, "agent"), HandleResumeSummaryApiResumeSummaryGetParams{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("resume-summary for %s: %d %s", actor, rec.Code, rec.Body.String())
 	}
@@ -911,7 +911,7 @@ func mustResumeChat(t *testing.T, api *apiServer, actor string) []ChatMessage {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	api.HandleResumeSummaryApiResumeSummaryGet(rec,
-		taskReq(t, "GET", "/api/resume-summary", nil, actor, "agent"))
+		taskReq(t, "GET", "/api/resume-summary", nil, actor, "agent"), HandleResumeSummaryApiResumeSummaryGetParams{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("resume-summary: %d %s", rec.Code, rec.Body.String())
 	}

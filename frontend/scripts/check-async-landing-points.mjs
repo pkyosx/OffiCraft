@@ -210,9 +210,9 @@ const REGISTRY = [
   {
     file: "components/ChatReplyCard.tsx",
     kind: "await",
-    count: 5,
+    count: 8,
     verdict:
-      "refetch / doAnswer / doReanswer / doExpire; local writes die with the keyed row on room switch",
+      "refetch / doAnswer / doReanswer / doExpire / doProvideSecret and the re-read after it; local writes die with the keyed row on room switch",
   },
   {
     file: "components/ChatReplyCard.tsx",
@@ -229,8 +229,8 @@ const REGISTRY = [
   {
     file: "components/ReplyCardBody.tsx",
     kind: "await",
-    count: 2,
-    verdict: "answer submit; keyed row / keyed card",
+    count: 3,
+    verdict: "answer submit, secret send; keyed row / keyed card",
   },
   {
     file: "components/ReplyComposer.tsx",
@@ -264,6 +264,19 @@ const REGISTRY = [
     count: 1,
     verdict:
       "highlight clear; cleared in the effect cleanup, and the state it writes dies with the room. The centring settle timer that used to be the second one was deleted with the jump's re-center loop (T-48, owner rc-6c27f486ef9d)",
+  },
+  {
+    file: "hooks/useChatDelete.tsx",
+    kind: "await",
+    count: 1,
+    verdict:
+      "the delete POST. Its writes are this hook's own deleted-id map, dialog target and error, all keyed by message id; the hook lives in ChatArea, mounted under `key={peerId}`, so a response that lands after a room switch writes into a discarded component",
+  },
+  {
+    file: "hooks/useChatDelete.tsx",
+    kind: "subscribe",
+    count: 1,
+    verdict: "chat SSE carrying deleted_ts for deletes made elsewhere; writes only the deleted-id map, unsubscribed in the effect cleanup, and the room is this mount",
   },
   {
     file: "components/MemberActivity.tsx",
@@ -364,9 +377,23 @@ const REGISTRY = [
   {
     file: "lib/chatDraftStore.ts",
     kind: "queueMicrotask",
+    count: 2,
+    verdict:
+      "two scope closes, each one microtask late (R16 D-2) so StrictMode's synchronous setup→cleanup→setup cannot destroy a refusal raised before the mount. The chat page's drops only the peers that had a notice AT CLOSE TIME and bails if a surface reopened the scope; a reply-card / task-box draft key's drops only THAT key, only if its notice is still the one it had at close time, and bails if a composer for that key reopened it — so neither can sweep the other's notice or a FileReader refusal landing in the gap",
+  },
+  {
+    file: "hooks/useDraftText.ts",
+    kind: "subscribe",
     count: 1,
     verdict:
-      "the chat page's notice scope closing one microtask late (R16 D-2), so StrictMode's synchronous setup→cleanup→setup cannot destroy a refusal raised before the mount. It drops only the peers that had a notice AT CLOSE TIME, so a FileReader landing in that gap is not swept up by a decision that predates it, and it bails if a surface reopened the scope",
+      "a reply-card / task-box composer's text slice of its draft key; React unsubscribes on unmount, and a write is delivered to whoever shows that key — which is how a box remounted during an in-flight send sees the send clear (or restore) it",
+  },
+  {
+    file: "components/ReplyCardBody.tsx",
+    kind: "subscribe",
+    count: 1,
+    verdict:
+      "a reply card's quoted-passage slice of its own draft key (answer or 重新決定, minted from the card id); React unsubscribes on unmount, and the key cannot name a chat room",
   },
 
   // ─── Rendered by ChatArea without a key of their own — they live and die
@@ -554,10 +581,17 @@ const REGISTRY = [
   },
   {
     file: "hooks/useSuggestedReplies.ts",
-    kind: ".then/.catch/.finally",
-    count: 2,
+    kind: "subscribe",
+    count: 1,
     verdict:
-      "the owner's 建議回覆 (T-122); global, not per conversation. TWO lists now (請示卡 / 任務) behind ONE loader, and the hook picks by a constant argument fixed at the call site — so a landing still writes the same value the new mount would write anyway, whichever box it belongs to. The `alive` latch is still there, and it is there to keep React quiet about a setState after unmount, not because one room's value could reach another",
+      "useSuggestedRepliesChat re-reads on a `settings` delta; global, not per conversation, and the callback only starts a read. The unsubscribe runs on unmount.",
+  },
+  {
+    file: "hooks/useSuggestedReplies.ts",
+    kind: ".then/.catch/.finally",
+    count: 4,
+    verdict:
+      "the owner's 建議回覆; global, not per conversation. FOUR lists (請示卡 / 任務 / 傳承 / 聊天室) behind ONE loader: the hook picks by a constant argument fixed at the call site, so a landing writes the same value a new mount would write, whichever box it belongs to. useSuggestedRepliesChat has its own landing, which also takes the re-read it starts on a `settings` delta; what lands is still the one global list, so it cannot carry one room's value into another. The `alive` latches keep React quiet about a setState after unmount",
   },
   {
     file: "hooks/useWorkerCodenames.ts",
@@ -775,6 +809,12 @@ const MODULE_STATE = [
   },
   {
     file: "lib/chatDraftStore.ts",
+    name: "draftErrorScopes",
+    verdict:
+      "keyed by DRAFT KEY (a reply-card or task-box key, never a chat peer id): how many composers hold that key's notice scope open, so a close drops only that key's notice and only when the last composer for it is gone",
+  },
+  {
+    file: "lib/chatDraftStore.ts",
     name: "scopeEpoch",
     verdict:
       "which scope-close a deferred sweep belongs to, so StrictMode's synchronous remount cancels the sweep its own fake cleanup queued (R16 D-2); a counter, carrying no peer",
@@ -814,6 +854,12 @@ const MODULE_STATE = [
     name: "RESERVED_THEME_IDS",
     verdict:
       "the built-in and seasonal theme ids, fixed at build time and only ever asked `.includes(…)`; read-only, no room in it",
+  },
+  {
+    file: "lib/themeBundleCore.ts",
+    name: "PICKER_BUILTIN_THEMES",
+    verdict:
+      "the built-in theme ids and name keys, fixed at build time and only read for the pickers; read-only, no room in it",
   },
   {
     file: "lib/themeBundleCore.ts",

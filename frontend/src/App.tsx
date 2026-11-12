@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "./i18n";
 import { useHashRoute } from "./lib/hashRoute";
+import type { NavIconKey } from "./lib/themeBundle";
 import {
   RefreshIcon,
   GearIcon,
@@ -41,14 +42,7 @@ import { useChatUnread } from "./hooks/useChatUnread";
 import { useTaskCount } from "./hooks/useTaskCount";
 import "./components/chrome.css";
 
-type Tab =
-  | "office"
-  | "replies"
-  | "tasks"
-  | "lore"
-  | "secrets"
-  | "monitor"
-  | "guide";
+type Tab = NavIconKey;
 
 // Which peer the office was last left on. Browser-local by nature (it is this
 // browser's last position, not studio state), so it stays out of the server and
@@ -446,8 +440,6 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             <NavIcon tabKey="lore" fallback={<BookIcon size={15} />} />
             <span>{t.nav.lore}</span>
           </button>
-          {/* No NavIcon: themes can only override the tab keys
-              navIconKeyAllowed lists, and secrets is not one of them. */}
           <button
             type="button"
             className={`nav-tab${
@@ -455,7 +447,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             }`}
             onClick={() => selectTab("secrets")}
           >
-            <KeyIcon size={15} />
+            <NavIcon tabKey="secrets" fallback={<KeyIcon size={15} />} />
             <span>{t.nav.secrets}</span>
           </button>
           <button

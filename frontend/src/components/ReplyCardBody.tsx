@@ -31,11 +31,21 @@
 //                           pick, no composer, no 重新決定 — an expiry is not
 //                           an answer and never reopens.
 //
+// A `secret` card has no options. Its waiting body swaps the chips for the masked
+// box and keeps the composer as is; its answered body is the value's state unless
+// the owner replied in words instead, which reads as any other answer.
+//
 // Error surfacing stays with the CALLER: onAnswer/onReanswer rejecting keeps
 // the composer content (ReplyComposer's contract) / the standing answer; the
 // caller shows its own error notice.
 
-import { useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import type {
@@ -54,6 +64,17 @@ import { useReplyCardQuoteTarget } from "./ChatSelectionReply";
 import { MentionText } from "./MentionText";
 import { useMentionRosterContext } from "../hooks/useMentionComposer";
 import { ChevronRightIcon } from "./icons";
+import "./replies.css";
+import { autosizeTextarea } from "../lib/autosize";
+import { SecretValueInput } from "./SecretValueInput";
+import {
+  clearChatDraft,
+  getChatDraft,
+  replyCardAnswerDraftKey,
+  replyCardReanswerDraftKey,
+  saveChatDraftQuote,
+  subscribeChatDraft,
+} from "../lib/chatDraftStore";
 
 /** Add or remove `idx` from a MULTI card's staged selection. The result is kept
  * SORTED ASCENDING so the staged set is a function of WHICH chips are ticked and
@@ -297,34 +318,34 @@ export function ReplyCardQuestionAttachments({
   );
 }
 
-/** §3.6 請示 → 任務: the 精簡任務資訊 row a TASK-derived ask wears — the task's
- * own TITLE and the 查看任務詳情 jump. A pure chat ask (task absent/null)
- * renders NOTHING: an empty slot reads as "this ask has no task", which is a
- * different claim from "it has one and we would not say which".
+/** §3.6 請示 → 任務: the task row an ask that names a task wears — the task's
+ * own TITLE and the jump to it. A pure chat ask (task absent/null) renders
+ * NOTHING: an empty slot reads as "this ask has no task", which is a different
+ * claim from "it has one and we would not say which".
  *
- * The TYPE chip (label +「tm-05f7c776d6ff」-shaped typeKey) is GONE — owner
- * 2026-08-14, T-ee17 acceptance: an internal code on screen answers nothing the
- * title does not already answer better. `task.typeKey` stays on the wire; it is
- * simply no longer shown here.
- *
- * STILL never the task number/識別鍵 — that adjudication (請示卡不露任務編號)
- * is untouched: a title is not a number, and this change does not reopen it.
- *
- * ONE HOME for both surfaces (RepliesPage 的 Ask 頁 and the inline
- * ChatReplyCard): the row was copied into both files, so the title would have
- * had to be written twice — and the two copies would then drift apart the way
- * only duplicated facts do. The jump is a callback so this stays presentational
- * (each surface owns its own router). */
+ * ONE HOME for both surfaces (the 請示 page and the inline ChatReplyCard), so
+ * the title is written once. The 請示 page passes `lead` — the task number,
+ * priority and due chips — and its own jump label; the chat card shows the
+ * title alone. The typeKey is never shown. The jump is a callback so this stays
+ * presentational (each surface owns its own router). */
 export function ReplyCardTaskRef({
   task,
   onJump,
+  lead,
+  jumpLabel,
 }: {
   task: NonNullable<ReplyCard["task"]>;
   onJump: () => void;
+  lead?: ReactNode;
+  jumpLabel?: string;
 }) {
   const { t } = useI18n();
   return (
-    <div className="reply-card__task" data-testid="reply-task-ref">
+    <div
+      className={`reply-card__task${lead ? " reply-card__task--row" : ""}`}
+      data-testid="reply-task-ref"
+    >
+      {lead}
       {task.title && (
         <span className="reply-card__task-title" title={task.title}>
           {task.title}
@@ -336,11 +357,27 @@ export function ReplyCardTaskRef({
         data-testid="reply-task-jump"
         onClick={onJump}
       >
-        {t.replies.viewTask}
+        {jumpLabel ?? t.replies.viewTask}
         <ChevronRightIcon size={12} />
       </button>
     </div>
   );
+}
+
+function useDraftQuote(draftKey: string): [string, (quote: string) => void] {
+  const quote = useSyncExternalStore(
+    useCallback((cb: () => void) => subscribeChatDraft(draftKey, cb), [draftKey]),
+    useCallback(() => getChatDraft(draftKey)?.quote ?? "", [draftKey]),
+  );
+  return [quote, (next) => saveChatDraftQuote(draftKey, next)];
+}
+
+/** Whether 重新決定 was left with something the owner wrote. Opening edit mode
+ * stores the standing answer's quote on its own, and that alone must not make
+ * the card reopen in edit mode. */
+function hasComposedReanswer(draftKey: string): boolean {
+  const draft = getChatDraft(draftKey);
+  return !!draft && (draft.text.length > 0 || draft.attachments.length > 0);
 }
 
 /** The chip-click behaviour BOTH pickable faces share, which is not the same
@@ -383,21 +420,115 @@ function useChipPick(
   };
 }
 
+/** The masked box a WAITING secret card shows where option chips would be.
+ *
+ * 🔴 The value lives in this component's state and nowhere else: no draft, no
+ * store, no log, no error text. Success clears it; a failure keeps it so the
+ * owner can send again, and the caller's error line never quotes it.
+ *
+ * `autoFocus` is the caller saying the owner just opened this card. A card that
+ * merely arrives or re-renders must never pull focus away from what they are
+ * typing elsewhere. */
+function ReplyCardSecretBox({
+  autoFocus,
+  onAutoFocused,
+  onProvide,
+}: {
+  autoFocus: boolean;
+  onAutoFocused?: () => void;
+  onProvide: (value: string) => Promise<void>;
+}) {
+  const { t } = useI18n();
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    inputRef.current?.focus({ preventScroll: true });
+    onAutoFocused?.();
+    // Only the moment the owner opens the card; a new callback identity on a
+    // re-render is not that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoFocus]);
+
+  useEffect(() => {
+    if (inputRef.current) autosizeTextarea(inputRef.current);
+  }, [value]);
+
+  async function send() {
+    if (!value || busy) return;
+    setBusy(true);
+    try {
+      await onProvide(value);
+      setValue("");
+    } catch {
+      // The caller already said what went wrong; the box keeps the value.
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="reply-secret"
+      data-testid="reply-secret-box"
+      // The box is one control: a click on its frame must not flip the card.
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div
+        className="reply-secret__frame"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) inputRef.current?.focus();
+        }}
+      >
+        <SecretValueInput
+          ref={inputRef}
+          className="reply-secret__input"
+          data-testid="reply-secret-input"
+          aria-label={t.replies.secretInputLabel}
+          rows={3}
+          value={value}
+          placeholder={t.replies.secretPlaceholder}
+          onChange={(e) => setValue(e.target.value)}
+        />
+      </div>
+      <button
+        type="button"
+        className="reply-secret__send"
+        data-testid="reply-secret-send"
+        disabled={!value || busy}
+        onClick={() => void send()}
+      >
+        {t.replies.secretSend}
+      </button>
+    </div>
+  );
+}
+
 /** A WAITING card's interior: pickable chips + the typed composer. `onAnswer`
  * rejecting must be surfaced by the caller (the chips can simply be clicked
- * again; the composer keeps its content). */
+ * again; the composer keeps its content). A secret card shows the masked box in
+ * the chips' place, sending through `onProvideSecret`. */
 export function ReplyCardWaitingBody({
   card,
   onAnswer,
+  onProvideSecret,
+  autoFocusSecret = false,
+  onSecretAutoFocused,
 }: {
   card: ReplyCard;
   onAnswer: (input: ReplyCardAnswerInput) => Promise<void>;
+  onProvideSecret?: (value: string) => Promise<void>;
+  autoFocusSecret?: boolean;
+  onSecretAutoFocused?: () => void;
 }) {
   const { t } = useI18n();
   const [selected, setSelected] = useState<number[]>(() =>
     initialSelection(card),
   );
-  const [excerpt, setExcerpt] = useState("");
+  const draftKey = replyCardAnswerDraftKey(card.id);
+  const [excerpt, setExcerpt] = useDraftQuote(draftKey);
   const focusRef = useRef<(() => void) | null>(null);
   const { pick, sendNowRef, takeClicked } = useChipPick(card, setSelected);
   useReplyCardQuoteTarget(card.id, (quoted) => {
@@ -406,14 +537,27 @@ export function ReplyCardWaitingBody({
   });
   return (
     <>
-      <ReplyOptionChips
-        card={card}
-        pickable
-        selectedIdxs={selected}
-        onToggle={pick}
-      />
-      <ReplySelectionCount card={card} selected={selected} />
+      {card.kind === "secret" ? (
+        onProvideSecret && (
+          <ReplyCardSecretBox
+            autoFocus={autoFocusSecret}
+            onAutoFocused={onSecretAutoFocused}
+            onProvide={onProvideSecret}
+          />
+        )
+      ) : (
+        <>
+          <ReplyOptionChips
+            card={card}
+            pickable
+            selectedIdxs={selected}
+            onToggle={pick}
+          />
+          <ReplySelectionCount card={card} selected={selected} />
+        </>
+      )}
       <ReplyComposer
+        draftKey={draftKey}
         placeholder={t.replies.inputPlaceholder}
         hasSelection={selected.length > 0}
         sendNowRef={sendNowRef}
@@ -438,6 +582,14 @@ export function ReplyCardWaitingBody({
  * matters. */
 export function ReplyCardExpiredBody({ card }: { card: ReplyCard }) {
   const { t } = useI18n();
+  if (card.kind === "secret") {
+    return (
+      <div className="reply-card__answer" data-testid="secret-face" data-secret-state="expired">
+        <span className="reply-tag reply-tag--expired">{t.replies.secretExpiredTag}</span>
+        <span className="reply-card__expired-note">{t.replies.secretExpiredNote}</span>
+      </div>
+    );
+  }
   return (
     <>
       <div className="reply-card__answer" data-testid="expired-note">
@@ -453,10 +605,21 @@ export function ReplyCardExpiredBody({ card }: { card: ReplyCard }) {
   );
 }
 
-/** An ANSWERED card's interior: the final answer row (你選的 / AI 建議), its
- * attachments, the 查看當初選項 expansion and the 重新決定 edit mode. The
- * expand/edit state lives HERE (per card instance); a successful `onReanswer`
- * exits edit mode, a rejection stays in it (the caller surfaces the error). */
+/** A secret card holding (or having held) the owner's value, opened: its state only,
+ * no timestamp, by owner ruling. Collapsed it reads as any answered card. */
+function ReplyCardSecretValueFace({ card }: { card: ReplyCard }) {
+  const { t } = useI18n();
+  return (
+    <div className="reply-card__answer" data-testid="secret-face" data-secret-state={card.secret!.state}>
+      <span className="reply-tag reply-tag--answered" data-testid="secret-tag">
+        {card.secret!.state === "retrieved" ? t.replies.secretRetrievedTag : t.replies.secretProvidedTag}
+      </span>
+    </div>
+  );
+}
+
+/** An ANSWERED card's interior. A secret card holding a value shows where that
+ * value stands; everything else is the answer the owner gave. */
 export function ReplyCardAnsweredBody({
   card,
   onReanswer,
@@ -464,10 +627,33 @@ export function ReplyCardAnsweredBody({
   card: ReplyCard;
   onReanswer: (input: ReplyCardAnswerInput) => Promise<void>;
 }) {
+  const state = card.kind === "secret" ? card.secret?.state : undefined;
+  if (state === "provided" || state === "retrieved") {
+    return <ReplyCardSecretValueFace card={card} />;
+  }
+  return <ReplyCardStandingAnswer card={card} onReanswer={onReanswer} />;
+}
+
+/** The final answer row (你選的 / AI 建議), its attachments, the 查看當初選項
+ * expansion and the 重新決定 edit mode. The expand/edit state lives HERE (per
+ * card instance); a successful `onReanswer` exits edit mode, a rejection stays
+ * in it (the caller surfaces the error). A secret card has no options to review,
+ * so 重新決定 sits directly under the answer. */
+function ReplyCardStandingAnswer({
+  card,
+  onReanswer,
+}: {
+  card: ReplyCard;
+  onReanswer: (input: ReplyCardAnswerInput) => Promise<void>;
+}) {
   const { t } = useI18n();
+  const noOptionsToReview = card.kind === "secret";
   const mentionRoster = useMentionRosterContext();
-  const [expanded, setExpanded] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const draftKey = replyCardReanswerDraftKey(card.id);
+  // A 重新決定 left half-written reopens in edit mode, so a collapse or a page
+  // switch hands the draft straight back.
+  const [expanded, setExpanded] = useState(() => hasComposedReanswer(draftKey));
+  const [editing, setEditing] = useState(() => hasComposedReanswer(draftKey));
 
   const ans = card.answer;
   const optionIdxs = ans?.optionIdxs ?? [];
@@ -476,10 +662,12 @@ export function ReplyCardAnsweredBody({
   const isAiPick = optionIdxs.some((i) => card.options[i]?.aiPick);
   // What 重新決定 has staged. Seeded from the standing answer when edit mode
   // opens, so "change one of my three picks" does not start from nothing.
-  const [selected, setSelected] = useState<number[]>([]);
+  const [selected, setSelected] = useState<number[]>(() =>
+    editing ? seededSelection() : [],
+  );
   // 重新決定 replaces the whole answer, so the standing quote rides along
   // unless the owner removes it.
-  const [excerpt, setExcerpt] = useState("");
+  const [excerpt, setExcerpt] = useDraftQuote(draftKey);
   const { pick, sendNowRef, takeClicked } = useChipPick(card, setSelected);
 
   async function doReanswer(input: ReplyCardAnswerInput) {
@@ -487,19 +675,34 @@ export function ReplyCardAnsweredBody({
     setEditing(false);
   }
 
+  // Seed edit mode from the standing answer so 「改掉三個裡的一個」 does not
+  // start from nothing — MULTI only. A single card stages nothing (its click
+  // sends), and a seeded set there would arm the send button to re-submit the
+  // answer that is already standing.
+  function seededSelection(): number[] {
+    return card.selectMode === "multi" ? optionIdxs : [];
+  }
+
   function startEditing() {
-    // Seed edit mode from the standing answer so 「改掉三個裡的一個」 does not
-    // start from nothing — MULTI only. A single card stages nothing (its click
-    // sends), and a seeded set there would arm the send button to re-submit the
-    // answer that is already standing.
-    setSelected(card.selectMode === "multi" ? optionIdxs : []);
-    setExcerpt(ans?.replyExcerpt ?? "");
+    setSelected(seededSelection());
+    const draft = getChatDraft(draftKey);
+    setExcerpt(draft ? (draft.quote ?? "") : (ans?.replyExcerpt ?? ""));
     setEditing(true);
   }
 
   function toggleExpanded() {
-    setExpanded((v) => !v);
-    // Collapsing also leaves edit mode (nothing changed — same as cancel).
+    if (expanded) {
+      // Collapsing leaves edit mode but keeps the 重新決定 draft.
+      setExpanded(false);
+      setEditing(false);
+      return;
+    }
+    setExpanded(true);
+    if (hasComposedReanswer(draftKey)) startEditing();
+  }
+
+  function cancelEditing() {
+    clearChatDraft(draftKey);
     setEditing(false);
   }
 
@@ -534,39 +737,44 @@ export function ReplyCardAnsweredBody({
       <ReplyAnswerQuote card={card} />
       <ReplyAnswerAttachments card={card} />
 
-      <button
-        type="button"
-        className="reply-card__toggle"
-        aria-expanded={expanded}
-        onClick={toggleExpanded}
-      >
-        <ChevronRightIcon
-          size={13}
-          className={`reply-card__caret${
-            expanded ? " reply-card__caret--open" : ""
-          }`}
-        />
-        <span>
-          {expanded ? t.replies.collapseOptions : t.replies.viewOptions}
-        </span>
-      </button>
+      {!noOptionsToReview && (
+        <button
+          type="button"
+          className="reply-card__toggle"
+          aria-expanded={expanded}
+          onClick={toggleExpanded}
+        >
+          <ChevronRightIcon
+            size={13}
+            className={`reply-card__caret${
+              expanded ? " reply-card__caret--open" : ""
+            }`}
+          />
+          <span>
+            {expanded ? t.replies.collapseOptions : t.replies.viewOptions}
+          </span>
+        </button>
+      )}
 
-      {expanded && (
+      {(expanded || noOptionsToReview) && (
         <div className="reply-card__past">
-          {editing && (
+          {editing && !noOptionsToReview && (
             <div className="reply-card__hint">{t.replies.redecideHint}</div>
           )}
-          <ReplyOptionChips
-            card={card}
-            pickable={editing}
-            selectedIdxs={editing ? selected : []}
-            currentIdxs={optionIdxs}
-            onToggle={pick}
-          />
+          {!noOptionsToReview && (
+            <ReplyOptionChips
+              card={card}
+              pickable={editing}
+              selectedIdxs={editing ? selected : []}
+              currentIdxs={optionIdxs}
+              onToggle={pick}
+            />
+          )}
           {editing && <ReplySelectionCount card={card} selected={selected} />}
           {editing ? (
             <>
               <ReplyComposer
+                draftKey={draftKey}
                 placeholder={t.replies.redecidePlaceholder}
                 hasSelection={selected.length > 0}
                 sendNowRef={sendNowRef}
@@ -586,7 +794,7 @@ export function ReplyCardAnsweredBody({
               <button
                 type="button"
                 className="reply-card__cancel"
-                onClick={() => setEditing(false)}
+                onClick={cancelEditing}
               >
                 {t.common.cancel}
               </button>

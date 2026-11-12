@@ -681,7 +681,7 @@ func TestCodexOpenYourOwnCardMessage(t *testing.T) {
 		{
 			name:     "a credential ask carries the do-not-paste warning",
 			question: map[string]any{"id": "q1", "isSecret": true},
-			want:     refusal + " 這是秘密資料請求；請只完成所需動作，不要把秘密貼進卡片。",
+			want:     refusal + " 這是秘密資料請求；開 `secret` 類型的請示卡，不要把秘密貼進一般卡片或訊息。",
 		},
 	}
 	for _, tc := range cases {

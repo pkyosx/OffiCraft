@@ -174,6 +174,11 @@ export type WireReplyCardOption = components["schemas"]["ReplyCardOptionDTO"];
  * (`GET /api/reply-cards/count`; answered cards never count). */
 export type WireReplyCardCount = components["schemas"]["ReplyCardCountDTO"];
 
+/** Mirrors `ReplyCardSnoozeReceiptDTO`: the snooze as stored after the owner's
+ * 稍後再看 / 取消延後. */
+export type WireReplyCardSnoozeReceipt =
+  components["schemas"]["ReplyCardSnoozeReceiptDTO"];
+
 // ── Tasks (M3 任務卡 wire) ────────────────────────────────────────────────────
 
 /** Mirrors `TaskDTO`: one task (a multi-node workflow with a DoD). `status` is

@@ -1,6 +1,6 @@
 // 請示 page (M2 回覆卡 B2). Locked here — the SPEC §2 acceptance behaviors:
 //   1. Empty 請示 list → the ✓ 目前沒有待處理的請示 state.
-//   2. Waiting cards render newest ask first (createdTs desc); the LONGEST-
+//   2. Waiting cards render newest ask first by default (createdTs desc); the LONGEST-
 //      waiting one keeps the highlight, each card with initiator identity,
 //      已等你 {t}, and the ai_pick option tagged AI 建議 (position means nothing).
 //   3. Answering (option click OR typed reply) moves the card 請示 →
@@ -34,7 +34,7 @@ import { render, fireEvent, waitFor, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { RepliesPage } from "./RepliesPage";
-import { ReplyCardsProvider } from "../hooks/useReplyCards";
+import { ReplyCardsProvider, useReplyCardWaitingCount } from "../hooks/useReplyCards";
 import {
   __resetMock,
   __injectMockMember,
@@ -91,15 +91,30 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
   };
 }
 
+function Badge() {
+  return <span data-testid="nav-badge">{useReplyCardWaitingCount()}</span>;
+}
+
 function renderPage() {
   return render(
     <I18nProvider>
       <ReplyCardsProvider>
+        <Badge />
         <RepliesPage />
       </ReplyCardsProvider>
     </I18nProvider>
   );
 }
+
+/** Ids of the cards in one pane, in screen order. */
+function paneIds(testId: "waiting-card" | "snoozed-card" | "answered-card"): string[] {
+  return [...document.querySelectorAll<HTMLElement>(`[data-testid="${testId}"]`)].map(
+    (el) => el.dataset.replyCardId!
+  );
+}
+
+// 2026-11-05（四） 10:00 Asia/Taipei (the suite's TZ).
+const THU_10AM = 1793844000;
 
 function failHandledListReads() {
   const listReplyCards = api.listReplyCards.bind(api);
@@ -194,7 +209,7 @@ describe("RepliesPage", () => {
     const cards = await findAllByTestId("waiting-card");
     await openCards();
     expect(cards).toHaveLength(3);
-    // Newest ask first (開卡時間 新→舊), whatever order the cards arrived in.
+    // Default order: newest ask first (開卡時間 新→舊), whatever order the cards arrived in.
     expect(cards[0].textContent).toContain("新的請示");
     expect(cards[1].textContent).toContain("中間的請示");
     expect(cards[2].textContent).toContain("等很久的請示");
@@ -947,32 +962,44 @@ describe("RepliesPage", () => {
   // been read. Judged by DOM order, not by geometry: a rendered-later row can
   // still be painted high by CSS, and then the reading order screen readers and
   // keyboards follow would disagree with the picture.
-  it("puts the task row ahead of the summary on both a waiting and a handled card", async () => {
+  it("puts the task row at the top of the card, above the head and the summary, on waiting, snoozed and handled cards", async () => {
     __injectMockReplyCard(
-      mkCard({ task: { id: "t-4", typeKey: "review-pr", title: "改設定頁" } }),
+      mkCard({ id: "rc-w", task: { id: "t-4", typeKey: "review-pr", title: "改設定頁" } }),
     );
     __injectMockReplyCard(
       mkCard({
+        id: "rc-a",
         status: "answered",
         answer: { optionIdxs: [0], text: "好", attachments: [] },
         answeredTs: Date.now() / 1000 - 60,
         task: { id: "t-5", typeKey: "review-pr", title: "改開機說明" },
       }),
     );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-s",
+        snoozedUntilTs: Date.now() / 1000 + 3600,
+        task: { id: "t-6", typeKey: "review-pr", title: "改主題" },
+      }),
+    );
     const { findByTestId } = renderPage();
     fireEvent.click(await findByTestId("answered-toggle"));
+    fireEvent.click(await findByTestId("snoozed-toggle"));
     await findByTestId("answered-card");
+    await findByTestId("snoozed-card");
     await openCards();
 
-    for (const testId of ["waiting-card", "answered-card"]) {
+    for (const testId of ["waiting-card", "snoozed-card", "answered-card"]) {
       const card = await findByTestId(testId);
       const ref = card.querySelector('[data-testid="reply-task-ref"]')!;
+      const head = card.querySelector(".reply-card__head")!;
       const summary = card.querySelector(".reply-card__summary")!;
-      expect(ref).toBeTruthy();
-      expect(summary).toBeTruthy();
+      expect(card.firstElementChild).toBe(ref);
       expect(
-        ref.compareDocumentPosition(summary) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
+        ref.compareDocumentPosition(head) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        head.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     }
   });
@@ -989,8 +1016,7 @@ describe("RepliesPage", () => {
     await openCards();
     const ref = await findByTestId("reply-task-ref");
     expect(ref.querySelector(".reply-card__task-title")).toBeNull();
-    expect(ref.textContent).not.toContain("review-pr");
-    expect(ref.textContent).toContain("查看任務詳情");
+    expect(ref.textContent).toBe("#t-3查看任務");
   });
 
   it("starts every card collapsed — head, task row and 已等你 only, no question and no options", async () => {
@@ -1090,7 +1116,7 @@ describe("RepliesPage", () => {
       answered.querySelector(".reply-card__answered-at")?.textContent
     ).toMatch(/^已回覆 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(container.querySelector(".replies__section-title")?.textContent).toBe(
-      "請示 · 0"
+      "請示 · 0開卡時間（新到舊）"
     );
     const handledToggle = await findByTestId("answered-toggle");
     expect(handledToggle.textContent).toContain("近期已處理 · 1");
@@ -1130,7 +1156,7 @@ describe("RepliesPage", () => {
       expired.querySelector(".reply-card__answered-at")?.textContent
     ).toMatch(/^已過期 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(container.querySelector(".replies__section-title")?.textContent).toBe(
-      "請示 · 0"
+      "請示 · 0開卡時間（新到舊）"
     );
     const handledToggle = await findByTestId("answered-toggle");
     expect(handledToggle.textContent).toContain("近期已處理 · 1");
@@ -1169,4 +1195,384 @@ describe("RepliesPage", () => {
     await openCards();
     expect(queryByTestId("reply-task-ref")).toBeNull();
   });
+
+  it("顯示方式 › 排序依據 → each order re-sorts 待回覆 only (已延後 stays by return time, 近期已處理 by handled time), the 請示 title folds and unfolds the list, the active sort is named beside it, the panel closes once a sort is picked, and the choice survives a remount", async () => {
+    const now = Date.now() / 1000;
+    const task = (id: string, priority: string, dueTs: number | null = null) => ({ id, typeKey: "", title: id, priority, dueTs });
+    __injectMockReplyCard(mkCard({ id: "rc-notask", createdTs: now - 10 * 60, task: null }));
+    __injectMockReplyCard(mkCard({ id: "rc-high", createdTs: now - 3 * 3600, task: task("T-1", "high") }));
+    __injectMockReplyCard(mkCard({ id: "rc-low", createdTs: now - 3600, task: task("T-2", "low", now + 3600) }));
+    __injectMockReplyCard(mkCard({ id: "rc-mid", createdTs: now - 2 * 3600, task: task("T-3", "mid", now + 7200) }));
+    __injectMockReplyCard(mkCard({ id: "rc-frozen", createdTs: now - 4 * 3600, task: task("T-4", "frozen", now - 60) }));
+    __injectMockReplyCard(
+      mkCard({ id: "rc-handled", status: "answered", answeredTs: now - 60, answer: { optionIdxs: [0], text: "", attachments: [] } })
+    );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-handled-early",
+        createdTs: now - 30,
+        status: "answered",
+        answeredTs: now - 3600,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+        task: task("T-5", "high", now - 60),
+      })
+    );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-handled-mid",
+        createdTs: now - 5 * 3600,
+        status: "answered",
+        answeredTs: now - 1800,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+      })
+    );
+    __injectMockReplyCard(mkCard({ id: "rc-snz-late", createdTs: now - 30, snoozedUntilTs: now + 7200, task: task("T-6", "high", now - 60) }));
+    __injectMockReplyCard(mkCard({ id: "rc-snz-soon", createdTs: now - 5 * 3600, snoozedUntilTs: now + 3600, task: task("T-7", "low") }));
+    localStorage.removeItem("oc_replies_sort");
+    const first = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toHaveLength(5));
+    expect(paneIds("waiting-card")).toEqual(["rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen"]);
+    fireEvent.click(await first.findByTestId("snoozed-toggle"));
+    fireEvent.click(await first.findByTestId("answered-toggle"));
+    await waitFor(() => expect(paneIds("answered-card")).toHaveLength(3));
+    expect(first.getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
+    const waitingToggle = first.getByTestId("waiting-toggle");
+    expect(waitingToggle.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(waitingToggle);
+    expect(waitingToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(paneIds("waiting-card")).toEqual([]);
+    expect(paneIds("snoozed-card")).toEqual(["rc-snz-soon", "rc-snz-late"]);
+    expect(paneIds("answered-card")).toEqual(["rc-handled", "rc-handled-mid", "rc-handled-early"]);
+    expect(waitingToggle.textContent).toBe("請示 · 5開卡時間（新到舊）");
+    fireEvent.click(waitingToggle);
+    expect(paneIds("waiting-card")).toEqual(["rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen"]);
+
+    fireEvent.click(first.getByTestId("display-options"));
+    const select = first.getByTestId("replies-sort") as HTMLSelectElement;
+    expect([...select.options].map((o) => o.textContent)).toEqual([
+      "開卡時間（新到舊）",
+      "開卡時間（舊到新）",
+      "任務優先序（高到低）",
+      "任務期限（早到晚）",
+    ]);
+    const expected: Record<string, string[]> = {
+      createdAsc: ["rc-frozen", "rc-high", "rc-mid", "rc-low", "rc-notask"],
+      priority: ["rc-high", "rc-mid", "rc-low", "rc-frozen", "rc-notask"],
+      due: ["rc-frozen", "rc-low", "rc-mid", "rc-notask", "rc-high"],
+      createdDesc: ["rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen"],
+    };
+    const chooseSort = (value: string) => {
+      if (!first.queryByTestId("replies-sort")) fireEvent.click(first.getByTestId("display-options"));
+      fireEvent.change(first.getByTestId("replies-sort"), { target: { value } });
+    };
+    for (const [value, order] of Object.entries(expected)) {
+      chooseSort(value);
+      expect(first.queryByTestId("display-options-panel")).toBeNull();
+      expect(paneIds("waiting-card")).toEqual(order);
+      expect(paneIds("snoozed-card")).toEqual(["rc-snz-soon", "rc-snz-late"]);
+      expect(paneIds("answered-card")).toEqual(["rc-handled", "rc-handled-mid", "rc-handled-early"]);
+      expect(localStorage.getItem("oc_replies_sort")).toBe(value);
+    }
+    expect(first.getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
+
+    chooseSort("priority");
+    expect(first.getByTestId("replies-sort-active").textContent).toBe("任務優先序（高到低）");
+    first.unmount();
+
+    const second = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(expected.priority));
+    expect(second.getByTestId("replies-sort-active").textContent).toBe("任務優先序（高到低）");
+    localStorage.removeItem("oc_replies_sort");
+  });
+
+  it("a card naming a task → one task row at the top, above the head: #number, priority, due date in its tone, title, 查看任務 → #tasks/<id>", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-over",
+        summary: "逾期那張",
+        createdTs: now - 60,
+        task: { id: "T-11", typeKey: "x", title: "修好登入", priority: "high", dueTs: 1793375999 - 30 * 86400 },
+      })
+    );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-own-lead",
+        createdTs: now - 120,
+        task: { id: "T-12", typeKey: "", title: "自己的提醒", priority: "mid", dueTs: now + 5 * 3600, dueSoonLeadMinutes: 600 },
+      })
+    );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-short-lead",
+        createdTs: now - 180,
+        task: { id: "T-13", typeKey: "", title: "提醒較短", priority: "low", dueTs: now + 5 * 3600, dueSoonLeadMinutes: 60 },
+      })
+    );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-workspace-lead",
+        createdTs: now - 240,
+        task: { id: "T-14", typeKey: "", title: "照全站", priority: "frozen", dueTs: now + 5 * 3600 },
+      })
+    );
+    renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toHaveLength(4));
+    const rowOf = (id: string) =>
+      document.querySelector(`[data-reply-card-id="${id}"] [data-testid="reply-task-ref"]`)!;
+
+    const over = rowOf("rc-over");
+    expect(over.className).toBe("reply-card__task reply-card__task--row");
+    expect(
+      [...over.querySelectorAll(".reply-card__task-chips > *")].map((el) => [
+        el.getAttribute("data-testid"),
+        el.className,
+      ])
+    ).toEqual([
+      ["reply-task-no", "task-card__id-badge"],
+      ["reply-task-priority", "task-badge task-badge--prio-high"],
+      ["reply-task-due", "task-card__chip task-card__due-chip task-card__due-date--overdue"],
+    ]);
+    expect(over.querySelector('[data-testid="reply-task-no"]')!.textContent).toBe("#T-11");
+    expect(over.querySelector('[data-testid="reply-task-priority"]')!.textContent).toBe("高");
+    expect(over.querySelector('[data-testid="reply-task-due"]')!.textContent).toMatch(
+      /^2026\/9\/30（三）已逾期 \d+ 天$/
+    );
+    expect(over.querySelector(".reply-card__task-title")!.textContent).toBe("修好登入");
+    expect(over.querySelector('[data-testid="reply-task-jump"]')!.textContent).toBe("查看任務");
+    expect(over.textContent).not.toContain("x");
+
+    const card = document.querySelector('[data-reply-card-id="rc-over"]')!;
+    const head = card.querySelector(".reply-card__head")!;
+    const summary = card.querySelector(".reply-card__summary")!;
+    expect(card.firstElementChild).toBe(over);
+    expect(over.compareDocumentPosition(head) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(head.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const tone = (id: string) => rowOf(id).querySelector('[data-testid="reply-task-due"]')!.className;
+    expect(tone("rc-own-lead")).toBe(
+      "task-card__chip task-card__due-chip task-card__due-date--soon"
+    );
+    expect(tone("rc-short-lead")).toBe("task-card__chip task-card__due-chip");
+    expect(tone("rc-workspace-lead")).toBe(
+      "task-card__chip task-card__due-chip task-card__due-date--soon"
+    );
+
+    fireEvent.click(over.querySelector('[data-testid="reply-task-jump"]')!);
+    expect(window.location.hash).toBe("#tasks/T-11");
+    expect(card.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("a task row with no priority or due date draws neither chip", async () => {
+    __injectMockReplyCard(mkCard({ task: { id: "T-20", typeKey: "", title: "沒排期" } }));
+    renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toHaveLength(1));
+    const chips = document.querySelector(".reply-card__task-chips")!;
+    expect([...chips.children].map((el) => el.getAttribute("data-testid"))).toEqual(["reply-task-no"]);
+  });
+
+  it("稍後再看 → four presets each with its return time, then a custom row; a preset moves the card into 已延後 with its time and out of the nav badge", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(THU_10AM * 1000);
+    __injectMockReplyCard(mkCard({ id: "rc-1", summary: "第一張", createdTs: THU_10AM - 600 }));
+    __injectMockReplyCard(mkCard({ id: "rc-2", summary: "第二張", createdTs: THU_10AM - 1200 }));
+    const snoozeSpy = vi.spyOn(api, "snoozeReplyCard");
+    const { getByTestId, findByTestId, queryByTestId } = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1", "rc-2"]));
+    expect(getByTestId("nav-badge").textContent).toBe("2");
+    expect(queryByTestId("snoozed-section")).toBeNull();
+
+    const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-2"]')!;
+    const heads = [...document.querySelectorAll(".reply-card__head")].map((h) =>
+      [...h.querySelectorAll("button")].map((b) => b.textContent)
+    );
+    expect(heads.map((h) => h.slice(1))).toEqual([
+      ["跳到原訊息", "稍後再看", "標為過期"],
+      ["跳到原訊息", "稍後再看", "標為過期"],
+    ]);
+    fireEvent.click(card.querySelector('[data-testid="snooze-card"]')!);
+    expect(card.getAttribute("aria-expanded")).toBe("false");
+    const menu = await findByTestId("snooze-menu-rc-2");
+    expect(
+      [...menu.querySelectorAll(".reply-snooze__preset")].map((b) => [...b.children].map((c) => c.textContent))
+    ).toEqual([
+      ["1 小時後", "2026/11/5（四） 11:00"],
+      ["3 小時後", "2026/11/5（四） 13:00"],
+      ["1 天後", "2026/11/6（五） 10:00"],
+      ["3 天後", "2026/11/8（日） 10:00"],
+    ]);
+
+    fireEvent.click(getByTestId("snooze-preset-3h"));
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+    expect(snoozeSpy).toHaveBeenCalledWith("rc-2", THU_10AM + 3 * 3600);
+    expect(queryByTestId("snooze-menu-rc-2")).toBeNull();
+    expect(getByTestId("nav-badge").textContent).toBe("1");
+    expect(getByTestId("snoozed-toggle").textContent).toBe("已延後 · 1時間到會自動回到請示");
+    expect(getByTestId("snoozed-toggle").getAttribute("aria-expanded")).toBe("false");
+    expect(paneIds("snoozed-card")).toEqual([]);
+
+    fireEvent.click(getByTestId("snoozed-toggle"));
+    expect(paneIds("snoozed-card")).toEqual(["rc-2"]);
+    const snoozedCard = document.querySelector('[data-testid="snoozed-card"]')!;
+    expect(snoozedCard.querySelector('[data-testid="snoozed-until"]')!.textContent).toBe("2026/11/5（四） 13:00 回來");
+    expect(
+      [...snoozedCard.querySelectorAll(".reply-card__head button")].slice(1).map((b) => b.textContent)
+    ).toEqual(["跳到原訊息", "取消延後", "標為過期"]);
+  });
+
+  it("稍後再看 custom row → live preview of the return time, 延後 sends it; past 90 days or not a whole number the button is off and says why", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(THU_10AM * 1000);
+    __injectMockReplyCard(mkCard({ id: "rc-1", createdTs: THU_10AM - 600 }));
+    const snoozeSpy = vi.spyOn(api, "snoozeReplyCard");
+    const { getByTestId, findByTestId } = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+    fireEvent.click(getByTestId("snooze-card"));
+    await findByTestId("snooze-menu-rc-1");
+    const amount = getByTestId("snooze-amount");
+    const unit = getByTestId("snooze-unit") as HTMLSelectElement;
+    const apply = getByTestId("snooze-custom-apply") as HTMLButtonElement;
+    const preview = () => getByTestId("snooze-preview").textContent;
+
+    expect([...unit.options].map((o) => o.textContent)).toEqual(["小時後", "天後"]);
+    expect([preview(), apply.disabled]).toEqual(["\u00a0", true]);
+    fireEvent.change(amount, { target: { value: "5" } });
+    expect([preview(), apply.disabled]).toEqual(["2026/11/5（四） 15:00 回來", false]);
+    fireEvent.change(unit, { target: { value: "day" } });
+    expect([preview(), apply.disabled]).toEqual(["2026/11/10（二） 10:00 回來", false]);
+    fireEvent.change(amount, { target: { value: "91" } });
+    expect([preview(), apply.disabled]).toEqual(["最多只能延後 90 天", true]);
+    fireEvent.change(amount, { target: { value: "0" } });
+    expect([preview(), apply.disabled]).toEqual(["請輸入 1 以上的整數", true]);
+    fireEvent.change(amount, { target: { value: "90" } });
+    expect([preview(), apply.disabled]).toEqual(["2027/2/3（三） 10:00 回來", false]);
+    expect(snoozeSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(apply);
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual([]));
+    expect(snoozeSpy).toHaveBeenCalledWith("rc-1", THU_10AM + 90 * 86400);
+  });
+
+  it("取消延後 → the card is back in 待回覆 and the badge at once", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: now + 3600 }));
+    const snoozeSpy = vi.spyOn(api, "snoozeReplyCard");
+    const { getByTestId, findByTestId } = renderPage();
+    fireEvent.click(await findByTestId("snoozed-toggle"));
+    expect(paneIds("snoozed-card")).toEqual(["rc-1"]);
+    expect(getByTestId("nav-badge").textContent).toBe("0");
+
+    fireEvent.click(getByTestId("unsnooze-card"));
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+    expect(snoozeSpy).toHaveBeenCalledWith("rc-1", null);
+    expect(paneIds("snoozed-card")).toEqual([]);
+    expect(document.querySelector('[data-testid="snoozed-section"]')).toBeNull();
+    expect(getByTestId("nav-badge").textContent).toBe("1");
+  });
+
+  it("a snoozed card can still be opened and answered, or expired, from 已延後", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(mkCard({ id: "rc-a", summary: "延後要回答", snoozedUntilTs: now + 3600 }));
+    __injectMockReplyCard(mkCard({ id: "rc-e", summary: "延後要過期", snoozedUntilTs: now + 7200 }));
+    const { findByTestId, getByTestId } = renderPage();
+    fireEvent.click(await findByTestId("snoozed-toggle"));
+    expect(paneIds("snoozed-card")).toEqual(["rc-a", "rc-e"]);
+
+    const answering = document.querySelector<HTMLElement>('[data-reply-card-id="rc-a"]')!;
+    fireEvent.click(answering);
+    await waitFor(() => expect(answering.querySelectorAll(".reply-option").length).toBe(2));
+    fireEvent.click(answering.querySelectorAll(".reply-option")[0]);
+    await waitFor(() => expect(paneIds("snoozed-card")).toEqual(["rc-e"]));
+    expect((await mockApiCard("rc-a")).status).toBe("answered");
+
+    const expiring = document.querySelector<HTMLElement>('[data-reply-card-id="rc-e"]')!;
+    fireEvent.click(expiring.querySelector('[data-testid="expire-card"]')!);
+    fireEvent.click(await findByTestId("expire-confirm-btn"));
+    await waitFor(() => expect(document.querySelector('[data-testid="snoozed-section"]')).toBeNull());
+    expect((await mockApiCard("rc-e")).status).toBe("expired");
+    expect(getByTestId("answered-toggle").textContent).toContain("近期已處理 · 2");
+  });
+
+  it("a 409 on 稍後再看 → says the card was already handled, closes the menu and re-reads the panes; any other failure keeps the menu open with an error", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1" }));
+    const snoozeSpy = vi
+      .spyOn(api, "snoozeReplyCard")
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockRejectedValueOnce(
+        new ApiError("http 409 for PUT /api/reply-cards/rc-1/snooze", 409, "conflict", "already answered")
+      );
+    const listSpy = vi.spyOn(api, "listReplyCards");
+    const { getByTestId, findByTestId, queryByTestId } = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+
+    fireEvent.click(getByTestId("snooze-card"));
+    fireEvent.click(getByTestId("snooze-preset-1h"));
+    expect((await findByTestId("snooze-error")).textContent).toBe("延後失敗，請稍後重試");
+    expect(queryByTestId("snooze-menu-rc-1")).not.toBeNull();
+    expect(queryByTestId("replies-action-error")).toBeNull();
+    expect(paneIds("waiting-card")).toEqual(["rc-1"]);
+
+    const before = listSpy.mock.calls.length;
+    fireEvent.click(getByTestId("snooze-preset-1h"));
+    expect((await findByTestId("replies-action-error")).textContent).toBe(
+      "這張卡已經回覆或標為過期，不能再延後"
+    );
+    expect(queryByTestId("snooze-menu-rc-1")).toBeNull();
+    expect(snoozeSpy).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it("a failed 取消延後 → an error on that card, which stays in 已延後; a 409 instead says the card was already handled and re-reads the panes", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: now + 3600 }));
+    vi.spyOn(api, "snoozeReplyCard")
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockRejectedValueOnce(
+        new ApiError("http 409 for PUT /api/reply-cards/rc-1/snooze", 409, "conflict", "already answered")
+      );
+    const listSpy = vi.spyOn(api, "listReplyCards");
+    const { findByTestId, getByTestId, queryByTestId } = renderPage();
+    fireEvent.click(await findByTestId("snoozed-toggle"));
+    fireEvent.click(getByTestId("unsnooze-card"));
+    const err = await findByTestId("unsnooze-error");
+    expect(err.textContent).toBe("取消延後失敗，請稍後重試");
+    expect(err.closest("[data-reply-card-id]")?.getAttribute("data-reply-card-id")).toBe("rc-1");
+    expect(paneIds("snoozed-card")).toEqual(["rc-1"]);
+    expect(queryByTestId("replies-action-error")).toBeNull();
+
+    const before = listSpy.mock.calls.length;
+    fireEvent.click(getByTestId("unsnooze-card"));
+    expect((await findByTestId("replies-action-error")).textContent).toBe(
+      "這張卡已經回覆或標為過期，不用再取消延後"
+    );
+    expect(queryByTestId("unsnooze-error")).toBeNull();
+    await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it("on a phone 稍後再看 opens as a bottom sheet; tapping the dimmed backdrop closes it without opening the card", async () => {
+    const matchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes("max-width: 720px"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      __injectMockReplyCard(mkCard({ id: "rc-1" }));
+      const { getByTestId, findByTestId, queryByTestId } = renderPage();
+      await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+      fireEvent.click(getByTestId("snooze-card"));
+      const sheet = await findByTestId("snooze-menu-rc-1");
+      expect(sheet.className).toBe("reply-snooze reply-snooze--sheet");
+      expect(sheet.parentElement?.getAttribute("data-testid")).toBe("snooze-backdrop");
+
+      fireEvent.click(getByTestId("snooze-backdrop"));
+      expect(queryByTestId("snooze-menu-rc-1")).toBeNull();
+      expect(document.querySelector('[data-reply-card-id="rc-1"]')!.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      window.matchMedia = matchMedia;
+    }
+  });
 });
+
+async function mockApiCard(id: string) {
+  return api.getReplyCard(id);
+}

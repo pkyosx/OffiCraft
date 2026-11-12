@@ -18,6 +18,7 @@ import {
 import "./lore.css";
 import "./theme-settings.css";
 import "./secrets.css";
+import { SecretValueInput } from "./SecretValueInput";
 
 export function SecretsPage() {
   const { t, msg } = useI18n();
@@ -320,15 +321,9 @@ function SecretForm({
       </label>
       <label className="secrets__field">
         <span className="secrets__label">{d.valueLabel}</span>
-        {/* A textarea, not a password input: an input strips newlines, which
-            silently corrupts PEM and SSH keys. Masked by CSS instead. */}
-        <textarea
+        <SecretValueInput
           className="secrets__input secrets__textarea secrets__value"
           data-testid="secret-value-input"
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
           value={value}
           placeholder={needsValue ? undefined : d.valueKeepPlaceholder}
           onChange={(e) => setValue(e.target.value)}

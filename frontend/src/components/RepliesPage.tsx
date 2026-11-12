@@ -1,10 +1,12 @@
 // RepliesPage — the 等我回覆 page (SPEC §2, M2 reply cards B2): every member's
 // pending asks in one place, two panes.
 //
-//   待回覆    — cards still waiting, NEWEST ASK FIRST (createdTs desc, FE
-//              display sort over the server's longest-waiting-first list —
-//              T-b07f); every card wears the SAME style — no longest-waiting
-//              highlight (owner ruled it out, T-9ea9).
+//   待回覆    — cards still waiting, newest ask first unless the owner picks
+//              another 排序依據 under 顯示方式 (remembered per browser); every
+//              card wears the SAME style — no longest-waiting highlight (owner
+//              ruled it out).
+//   已延後    — waiting cards the owner put aside with 稍後再看; each returns
+//              to 待回覆 by itself at its time. Collapsed by default.
 //   近期已處理 — cards answered OR expired within 24h, merged newest-handled
 //              first. The PANE is collapsed by default (vibe-clicking style)
 //              and its lists are not even fetched until it is opened; not
@@ -45,6 +47,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
+import { secretCardMayStillChange } from "../lib/replyCardReceipt";
 import type {
   OutsourceWorkerView,
   ReplyCard,
@@ -57,6 +60,24 @@ import { useMembers } from "../hooks/useMembers";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { MentionRosterContext, useMentionRoster } from "../hooks/useMentionComposer";
 import { useReplyCards } from "../hooks/useReplyCards";
+import { useDueSoonLeadMinutes } from "../hooks/useDueSoonLeadMinutes";
+import { useNowSeconds } from "../hooks/useNowSeconds";
+import {
+  DUE_FILTER_KEYS,
+  dueBucketOf,
+  dueFilterLabel,
+  effectiveLeadMinutes,
+  nextDueChangeAmong,
+  type DueFilterKey,
+} from "../lib/dueDate";
+import { PRIORITIES } from "../lib/taskPriority";
+import { readStoredChoice, writeStoredChoice } from "../lib/storedChoice";
+import {
+  WAITING_SORTS,
+  WAITING_SORT_KEY,
+  type WaitingSort,
+  sortWaitingRows,
+} from "../lib/replyCardSort";
 import {
   useWorkerAvatarUrls,
   useWorkerCodenames,
@@ -74,6 +95,9 @@ import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
 import { ConfirmModal } from "./ConfirmModal";
+import { DisplayOptions } from "./DisplayOptions";
+import { TaskDueChip, TaskNoBadge, TaskPriorityBadge } from "./TaskChips";
+import { ReplySnoozeMenu, type SnoozeOutcome } from "./ReplySnoozeMenu";
 import {
   ChatSelectionReply,
   ReplyCardQuoteProvider,
@@ -96,6 +120,9 @@ import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
 import "./replies.css";
 
 const HANDLED_WINDOW_SECONDS = 24 * 3600;
+
+const NO_TASK = "notask";
+const PRIORITY_FILTER_KEYS = [...PRIORITIES, NO_TASK] as const;
 
 /** A handled card's pane stamp (answeredTs / expiredTs — whichever its
  * terminal state carries). */
@@ -143,6 +170,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const [workers, setWorkers] = useState<OutsourceWorkerView[]>([]);
   const {
     waiting,
+    snoozed,
+    snooze,
     handled,
     handledCount,
     handledLoaded,
@@ -153,6 +182,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     answer,
     reanswer,
     expire,
+    provideSecret,
   } = useReplyCards();
   const [, setRoute] = useHashRoute();
 
@@ -231,12 +261,39 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     };
   }, [idQuery, lookupNonce]);
 
+  // The lookup above reads once, so a card opened by id would keep its old state
+  // until a reload. Not through lookupNonce: its loading state unmounts the box and
+  // takes a half-typed value with it.
+  const lookupMayChange =
+    lookup.state === "found" &&
+    (lookup.card.status === "waiting" || secretCardMayStillChange(lookup.card));
+  useEffect(() => {
+    if (!lookupMayChange) return;
+    let alive = true;
+    let latestRead = 0;
+    const unsubscribe = api.subscribeEvents((topic) => {
+      if (topic !== "reply_card") return;
+      const read = ++latestRead;
+      api.getReplyCard(idQuery).then(
+        (card) => {
+          if (alive && read === latestRead) setLookup({ state: "found", card });
+        },
+        (e: unknown) => console.warn("RepliesPage: card re-read failed", e),
+      );
+    });
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
+  }, [idQuery, lookupMayChange]);
+
   // The live row wins over the fetched one when the page already holds it: the
   // panes are kept in sync by SSE + the write-adoption in useReplyCards, and a
   // one-shot GET is a snapshot from one instant.
   const foundCard: ReplyCardRow | null =
     lookup.state === "found"
       ? (waiting.find((c) => c.id === lookup.card.id) ??
+        snoozed.find((c) => c.id === lookup.card.id) ??
         handled.find((c) => c.id === lookup.card.id) ??
         lookup.card)
       : null;
@@ -252,6 +309,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     setAppliedId("");
     setDraftId("");
     setOpenerFilter(new Set());
+    setPriorityFilter(new Set());
+    setDueFilter(new Set());
     if (replyCardId) setRoute({ page: "replies" });
   }
 
@@ -279,7 +338,29 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // stays id-only on purpose: it also gates the by-id lookup's three outcomes
   // and the handled pane's force-expand, and an 開卡人 tick must not switch
   // those on (there is no id to have found, missed, or failed to reach).
-  const anyFilter = idQuery !== "" || openerFilter.size > 0;
+  // 任務優先序 / 任務到期 — same empty-set convention; a card with no task
+  // counts as 無任務 on the first and matches no option on the second.
+  const [priorityFilter, setPriorityFilter] = useState<Set<string>>(() => new Set());
+  const [dueFilter, setDueFilter] = useState<Set<string>>(() => new Set());
+  const anyFilter =
+    idQuery !== "" ||
+    openerFilter.size > 0 ||
+    priorityFilter.size > 0 ||
+    dueFilter.size > 0;
+
+  const [waitingSort, setWaitingSortState] = useState<WaitingSort>(() =>
+    readStoredChoice(WAITING_SORT_KEY, WAITING_SORTS, "createdDesc")
+  );
+  function setWaitingSort(next: WaitingSort) {
+    setWaitingSortState(next);
+    writeStoredChoice(WAITING_SORT_KEY, next);
+  }
+  const sortLabels: Record<WaitingSort, string> = {
+    createdDesc: t.replies.sortCreatedDesc,
+    createdAsc: t.replies.sortCreatedAsc,
+    priority: t.replies.sortPriority,
+    due: t.replies.sortDue,
+  };
 
   /** Enter or blur on the 編號 field — the only two events that turn typed text
    * into a filter (owner 2026-09-06:「按enter或是點外面就視為apply了」). */
@@ -312,11 +393,22 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     return () => window.clearInterval(timer);
   }, []);
 
+  // The 期限 filter's own clock: woken at the next moment any loaded card's
+  // task crosses into 快到期 or 已逾期, the same boundary its chip changes at.
+  const workspaceLeadMinutes = useDueSoonLeadMinutes();
+  const dueNow = useNowSeconds(
+    nextDueChangeAmong(
+      [...waiting, ...snoozed, ...handled].flatMap((c) => (c.task ? [c.task] : [])),
+      Date.now() / 1000,
+      workspaceLeadMinutes
+    )
+  );
+
   // Transient action-failure notice (400/409/network). The composer keeps the
   // typed content; the option chips can simply be clicked again.
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // 標為過期 double-confirm (T-1aa4): expiring is terminal with no undo, so a
+  // 標為過期 double-confirm: expiring is terminal with no undo, so a
   // single mis-click must never close a card — the button only OPENS this
   // modal; the modal's confirm fires the action.
   const [expireTarget, setExpireTarget] = useState<ReplyCardRow | null>(null);
@@ -329,6 +421,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // collapsed — expanding pulls them (loadHandled); the header 「· N」 comes
   // from the counts.
   const [handledOpen, setHandledOpen] = useState(false);
+  // 已延後 starts collapsed every visit, like 近期已處理.
+  const [snoozedOpen, setSnoozedOpen] = useState(false);
+  const [waitingOpen, setWaitingOpen] = useState(true);
+  const [unsnoozeErrors, setUnsnoozeErrors] = useState<Set<string>>(() => new Set());
   const [handledLoadError, setHandledLoadError] = useState(false);
   const [settledRows, setSettledRows] = useState<Map<string, ReplyCardRow>>(
     () => new Map()
@@ -343,13 +439,21 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // never be invisible because a pane is collapsed. The handled pane is
   // therefore FORCE-EXPANDED while a filter is applied (see handledExpanded).
 
+  // Once per link: the lists refresh on any card's event, and landing again would
+  // pull focus out of a box the owner is typing in and lose the keystrokes.
+  const landedOnRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!replyCardId) return;
+    if (!replyCardId) {
+      landedOnRef.current = undefined;
+      return;
+    }
+    if (landedOnRef.current === replyCardId) return;
     const card = document.getElementById(`reply-card-${replyCardId}`);
     if (!card) return;
+    landedOnRef.current = replyCardId;
     card.scrollIntoView({ block: "center" });
-    card.focus({ preventScroll: true });
-  }, [replyCardId, waiting, handled, handledOpen]);
+    if (!card.contains(document.activeElement)) card.focus({ preventScroll: true });
+  }, [replyCardId, waiting, handled, handledOpen, lookup.state]);
 
   const loadHandledForPage = useCallback(async () => {
     setHandledLoadError(false);
@@ -369,11 +473,11 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     });
   }
 
-  // Display order = 開卡時間 newest first (stable sort over the server's
-  // longest-waiting-first list). No per-card highlight: the owner ruled the
-  // longest-waiting accent ring out (T-9ea9) — every card wears the same face.
+  // Display order = the owner's 排序依據 (`sortWaitingRows`; default 開卡時間
+  // newest first). No per-card highlight: the owner ruled the longest-waiting
+  // accent ring out — every card wears the same face.
   //
-  // With a filter applied the two panes hold exactly what the SERVER returned
+  // With an id applied the panes hold exactly what the SERVER returned
   // for that id — one card, in whichever pane its status belongs to — not a
   // narrowing of the loaded rows.
   // The 24h window applies to fetched handled rows. A row just settled by a card
@@ -390,8 +494,25 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // free rather than exclusive — same convention as 任務頁's three dropdowns.
   const passesOpener = (c: ReplyCardRow) =>
     openerFilter.size === 0 || openerFilter.has(c.from);
+  const priorityKeyOf = (c: ReplyCardRow) =>
+    c.task ? (c.task.priority ?? "") : NO_TASK;
+  const passesPriority = (c: ReplyCardRow) =>
+    priorityFilter.size === 0 || priorityFilter.has(priorityKeyOf(c));
+  const dueKeysOf = (c: ReplyCardRow): string[] => {
+    const bucket = dueBucketOf(
+      c.task?.dueTs,
+      dueNow,
+      effectiveLeadMinutes(c.task?.dueSoonLeadMinutes, workspaceLeadMinutes)
+    );
+    return bucket === "overdue" || bucket === "soon" ? [bucket] : [];
+  };
+  const passesDue = (c: ReplyCardRow) =>
+    dueFilter.size === 0 || dueKeysOf(c).some((k) => dueFilter.has(k));
+  const passesAll = (c: ReplyCardRow) =>
+    passesOpener(c) && passesPriority(c) && passesDue(c);
 
   const displayedWaiting = waiting.filter((row) => !settledRows.has(row.id));
+  const displayedSnoozed = snoozed.filter((row) => !settledRows.has(row.id));
   const handledById = new Map<string, ReplyCardRow>();
   for (const row of handled) handledById.set(row.id, row);
   for (const row of settledRows.values()) {
@@ -407,13 +528,24 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // the honest answer is the ordinary filtered-empty, not the card. Letting the
   // id win would make 「找到了，但不是這個人開的」 render as a hit, which is the
   // same class of merged-silence defect the id lookup exists to remove.
+  // A card fetched by id that is not in either live list is judged snoozed by
+  // its own stamp, against the same clock the provider splits on.
+  const foundSnoozed =
+    foundCard !== null &&
+    foundCard.status === "waiting" &&
+    (snoozed.some((c) => c.id === foundCard.id) ||
+      (!waiting.some((c) => c.id === foundCard.id) &&
+        (foundCard.snoozedUntilTs ?? 0) > Date.now() / 1000));
   const waitingSorted = filtering
-    ? foundCard && foundCard.status === "waiting" && passesOpener(foundCard)
+    ? foundCard && foundCard.status === "waiting" && !foundSnoozed && passesAll(foundCard)
       ? [foundCard]
       : []
-    : displayedWaiting
-        .filter(passesOpener)
-        .sort((a, b) => b.createdTs - a.createdTs);
+    : sortWaitingRows(displayedWaiting.filter(passesAll), waitingSort);
+  const snoozedShownRows = filtering
+    ? foundCard && foundSnoozed && passesAll(foundCard)
+      ? [foundCard]
+      : []
+    : displayedSnoozed.filter(passesAll);
 
   const visibleHandled = filtering
     ? // 🔴 NO 24h PRUNE on a card fetched by id. The window is what makes the
@@ -421,11 +553,11 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       // server would re-create the exact hole this round removes — the owner
       // asks for a card, the server hands it over, and the page drops it for
       // being old.
-      foundCard && foundCard.status !== "waiting" && passesOpener(foundCard)
+      foundCard && foundCard.status !== "waiting" && passesAll(foundCard)
       ? [foundCard]
       : []
     : displayedHandled
-        .filter((c) => passesOpener(c) && isVisibleHandled(c))
+        .filter((c) => passesAll(c) && isVisibleHandled(c))
         .sort((a, b) => (handledTsOf(b) ?? 0) - (handledTsOf(a) ?? 0));
   // ── 開卡了哪一張 (owner 2026-09-07) ─────────────────────────────────────────
   // A row is a TITLE, not a card: since `?view=full` left the wire the panes
@@ -442,6 +574,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     () => new Map()
   );
   const [openErrors, setOpenErrors] = useState<Set<string>>(() => new Set());
+  // Cards the owner just opened whose secret box has not taken focus yet. Consumed
+  // once: a card that moves between panes while open remounts its body, and that
+  // is not the owner opening it.
+  const secretFocusPendingRef = useRef<Set<string>>(new Set());
 
   // A DEEP LINK OPENS ITS CARD. `#replies/card/<id>` (a notification tap, a
   // shared link) is a request for THAT card, so landing on a collapsed line the
@@ -449,6 +585,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // to do. Only the routed id — everything else on the page stays closed.
   useEffect(() => {
     if (!replyCardId) return;
+    secretFocusPendingRef.current.add(replyCardId);
     setExpandedIds((prev) =>
       prev.has(replyCardId) ? prev : new Set(prev).add(replyCardId)
     );
@@ -459,6 +596,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
    * it also DROPS the read below, so re-opening reads the card again rather
    * than showing whatever it said minutes ago. */
   function toggleCard(id: string) {
+    if (expandedIds.has(id)) secretFocusPendingRef.current.delete(id);
+    else secretFocusPendingRef.current.add(id);
     setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -503,10 +642,12 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // fetched card must follow or an opened card would keep rendering 待回覆 chips
   // for a card the server has settled.
   const rowVersion = (row: ReplyCardRow) =>
-    `${row.status}:${row.answeredTs ?? 0}:${row.expiredTs ?? 0}`;
+    `${row.status}:${row.answeredTs ?? 0}:${row.expiredTs ?? 0}:${row.secret?.state ?? ""}:${row.secret?.expiresTs ?? 0}`;
 
   const rowsById = new Map<string, ReplyCardRow>();
-  for (const row of [...displayedWaiting, ...displayedHandled]) rowsById.set(row.id, row);
+  for (const row of [...displayedWaiting, ...displayedSnoozed, ...displayedHandled]) {
+    rowsById.set(row.id, row);
+  }
   if (foundCard) rowsById.set(foundCard.id, foundCard);
 
   // Which version of each open id has been READ (or is being read). One entry
@@ -601,14 +742,42 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // name disappears and the owner cannot switch or untick. 任務頁 has the same
   // shape for the same reason (`inCountScope` there).
   //
-  const openerBasis = [
+  // Each axis counts the rows the OTHER axes let through, so ticking one never
+  // zeroes its own siblings.
+  const axisBasis = [
     ...displayedWaiting,
+    ...displayedSnoozed,
     ...displayedHandled.filter(isVisibleHandled),
   ];
-  const openerCounts = new Map<string, number>();
-  for (const c of openerBasis) {
-    openerCounts.set(c.from, (openerCounts.get(c.from) ?? 0) + 1);
-  }
+  const countBy = (keep: (c: ReplyCardRow) => boolean, keysOf: (c: ReplyCardRow) => string[]) => {
+    const counts = new Map<string, number>();
+    for (const c of axisBasis) {
+      if (!keep(c)) continue;
+      for (const k of keysOf(c)) counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    return counts;
+  };
+  const openerCounts = countBy(
+    (c) => passesPriority(c) && passesDue(c),
+    (c) => [c.from]
+  );
+  const priorityCounts = countBy(
+    (c) => passesOpener(c) && passesDue(c),
+    (c) => [priorityKeyOf(c)]
+  );
+  const dueCounts = countBy((c) => passesOpener(c) && passesPriority(c), dueKeysOf);
+  const fixedOptions = (
+    keys: readonly string[],
+    counts: Map<string, number>,
+    labelOf: (k: string) => string
+  ): MultiSelectOption[] =>
+    keys.map((k) => ({ value: k, label: labelOf(k), count: counts.get(k) ?? 0 }));
+  const priorityOptions = fixedOptions(PRIORITY_FILTER_KEYS, priorityCounts, (k) =>
+    k === NO_TASK ? t.replies.filterPriorityNoTask : (t.tasks.priority[k] ?? k)
+  );
+  const dueOptions = fixedOptions(DUE_FILTER_KEYS, dueCounts, (k) =>
+    dueFilterLabel(t.tasks, k as DueFilterKey)
+  );
   // 開卡人 下拉的選項在 `whoOf` 之後才建得起來（它要用 `askerNames`），見下方。
 
   // The header count + zero-hide: the server counts until the lists are
@@ -647,6 +816,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // while loadHandled is still in flight — and folding them together would make
   // the caret lie for the length of that request.
   const handledExpanded = filtering || handledOpen;
+  const waitingExpanded = filtering || waitingOpen;
   const handledListShown =
     filtering ||
     (handledOpen &&
@@ -664,6 +834,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // card whose pane was never fetched), so its asker is named here too.
   const askerIds = [
     ...displayedWaiting,
+    ...displayedSnoozed,
     ...displayedHandled,
     ...(foundCard ? [foundCard] : []),
   ].map(
@@ -827,24 +998,33 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     );
   }
 
-  // §3.6 請示 → 任務: a TASK-derived ask (card.task non-null) shows the 精簡
-  // 任務資訊 row — the task's own TITLE + a 查看任務詳情 jump (adjudicated:
-  // still never the task number / 識別鍵, and since T-ee17 acceptance not the
-  // typeKey either). It renders directly under the card head, ahead of the
-  // summary (owner 2026-08-14:「這個不能夠放到最一開始嗎？」) — at the bottom
-  // the owner had to read the whole card to learn which work it is about.
-  // The row itself lives in ReplyCardBody, shared with the inline chat card
-  // (which moved in the same breath); only the route is ours.
-  // The route carries the task id so the tasks page can locate the card
-  // (auto-expanding 已結案 / clearing hiding filters). A pure chat ask renders
-  // nothing here.
+  // §3.6 請示 → 任務: an ask that names a task shows the task row at the very
+  // top of the card, above the head — #number, priority, due date, title, and
+  // the jump. The route carries the task id so the tasks page can locate
+  // the card. A pure chat ask renders nothing here.
   function renderTaskRef(row: ReplyCardRow) {
     const task = row.task;
     if (!task) return null;
     return (
       <ReplyCardTaskRef
         task={task}
+        jumpLabel={t.replies.openTask}
         onJump={() => setRoute({ page: "tasks", taskId: task.id })}
+        lead={
+          <span className="reply-card__task-chips">
+            <TaskNoBadge taskNo={task.id} testId="reply-task-no" />
+            {task.priority && (
+              <TaskPriorityBadge priority={task.priority} testId="reply-task-priority" />
+            )}
+            {task.dueTs != null && (
+              <TaskDueChip
+                dueTs={task.dueTs}
+                leadMinutes={effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)}
+                testId="reply-task-due"
+              />
+            )}
+          </span>
+        }
       />
     );
   }
@@ -892,6 +1072,19 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     }
   }
 
+  async function doProvideSecret(id: string, value: string) {
+    try {
+      await provideSecret(id, value);
+      setActionError(null);
+      setLookupNonce((n) => n + 1);
+    } catch (e) {
+      console.warn("RepliesPage: secret provide failed");
+      if (isHttpStatus(e, 409)) await reportAnswerFailure(e);
+      else setActionError(t.replies.secretProvideError);
+      throw e;
+    }
+  }
+
   async function doExpire(card: ReplyCardRow) {
     setExpireBusy(true);
     try {
@@ -905,6 +1098,47 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       setExpireTarget(null);
     } finally {
       setExpireBusy(false);
+    }
+  }
+
+  // A 409 is the server saying the card is no longer waiting (answered or
+  // expired elsewhere): say so and re-read, like a stale answer.
+  async function reportStaleSnooze(message: string) {
+    setActionError(message);
+    await refresh().catch((err) =>
+      console.warn("RepliesPage: stale-snooze refresh failed", err)
+    );
+  }
+
+  async function doSnooze(id: string, untilTs: number): Promise<SnoozeOutcome> {
+    try {
+      await snooze(id, untilTs);
+      setActionError(null);
+      setLookupNonce((n) => n + 1);
+      return "ok";
+    } catch (e) {
+      console.warn("RepliesPage: snooze failed", e);
+      if (!isHttpStatus(e, 409)) return "failed";
+      await reportStaleSnooze(t.replies.snoozeStale);
+      return "stale";
+    }
+  }
+
+  async function doUnsnooze(id: string) {
+    setUnsnoozeErrors((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    try {
+      await snooze(id, null);
+      setActionError(null);
+      setLookupNonce((n) => n + 1);
+    } catch (e) {
+      console.warn("RepliesPage: unsnooze failed", e);
+      if (isHttpStatus(e, 409)) await reportStaleSnooze(t.replies.unsnoozeStale);
+      else setUnsnoozeErrors((prev) => new Set(prev).add(id));
     }
   }
 
@@ -922,7 +1156,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
    * 🔴 NOT `row.task`: that is the task the CARD is bound to, which the owner
    * explicitly ruled out of this ticket (the binding logic is untouched) and
    * which is null on a plain chat ask. This line is the WORKER's, so it shows
-   * even on a card bound to nothing, and it shows the SAME task the rail does.
+   * even on a card bound to nothing — and also when the card's task row names
+   * the same task — and it shows the SAME task the rail does.
    *
    * A staff asker renders nothing here: `MemberDTO` carries no task at all, so
    * there is no such fact to tell for a member — see the ResumeRoster ruling
@@ -989,7 +1224,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   function renderHead(
     row: ReplyCardRow,
     stampNode?: ReactNode,
-    expirable = false
+    expirable = false,
+    actions?: ReactNode
   ) {
     const who = whoOf(row);
     const asker = members.find((x) => x.id === row.from);
@@ -1010,25 +1246,28 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           {who.role && <span className="reply-card__role">{who.role}</span>}
           {renderAskerCurrentTask(row)}
         </div>
-        <button
-          type="button"
-          className="reply-card__jump"
-          onClick={() => void jumpToChat(row)}
-        >
-          {t.replies.jumpToChat}
-        </button>
-        {/* T-1aa4: 標為過期 shares .reply-card__jump with 跳到原訊息 — one
-            outlined style for both header actions, so they can never drift. */}
-        {expirable && (
+        <div className="reply-card__actions">
           <button
             type="button"
             className="reply-card__jump"
-            data-testid="expire-card"
-            onClick={() => setExpireTarget(row)}
+            onClick={() => void jumpToChat(row)}
           >
-            {t.replies.expire}
+            {t.replies.jumpToChat}
           </button>
-        )}
+          {actions}
+          {/* 標為過期 shares .reply-card__jump with 跳到原訊息 — one
+              outlined style for both header actions, so they can never drift. */}
+          {expirable && (
+            <button
+              type="button"
+              className="reply-card__jump"
+              data-testid="expire-card"
+              onClick={() => setExpireTarget(row)}
+            >
+              {t.replies.expire}
+            </button>
+          )}
+        </div>
         {stampNode}
       </header>
     );
@@ -1049,7 +1288,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     );
   }
 
-  /** One card. The head + task row are ALWAYS drawn (that is the collapsed
+  /** One card. The task row + head are ALWAYS drawn (that is the collapsed
    * line); opening adds the QUESTION under them. The whole article is the
    * toggle — see `onCardToggleClick`. */
   function renderCard(
@@ -1059,6 +1298,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       className: string;
       stamp: ReactNode;
       expirable?: boolean;
+      actions?: ReactNode;
+      notice?: ReactNode;
       body: (card: ReplyCard) => ReactNode;
     }
   ) {
@@ -1070,7 +1311,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         id={`reply-card-${row.id}`}
         // 🔴 NOT `reply-card--collapsed`: that modifier zeroes the card's
         // padding for ChatReplyCard's bare one-line stub, and this page's
-        // collapsed card is a REAL card (head + task row) that keeps its box.
+        // collapsed card is a REAL card (task row + head) that keeps its box.
         className={opts.className}
         data-testid={opts.testId}
         data-reply-card-id={row.id}
@@ -1081,8 +1322,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         onClick={(e) => onCardToggleClick(e, row.id)}
         onKeyDown={(e) => onCardToggleKeyDown(e, row.id)}
       >
-        {renderHead(row, opts.stamp, opts.expirable)}
         {renderTaskRef(row)}
+        {renderHead(row, opts.stamp, opts.expirable, opts.actions)}
+        {opts.notice}
         {/* The ask's TITLE, drawn once and in ONE place — always visible, above
           * the fold of a collapsed card. It is the third line of the head strip
           * the collapsed row copies (owner 2026-09-11「折疊起來那一列的內容不要另外
@@ -1110,7 +1352,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     );
   }
 
-  function renderWaitingCard(row: ReplyCardRow) {
+  function renderWaitingCard(row: ReplyCardRow, asSnoozed = false) {
     const opened = openCards.get(row.id);
     if (opened && opened.status !== "waiting") {
       return renderHandledCard({
@@ -1120,18 +1362,42 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         expiredTs: opened.expiredTs ?? null,
       });
     }
+    const until = row.snoozedUntilTs ?? null;
     return renderCard(row, {
-      testId: "waiting-card",
-      className: "reply-card",
+      testId: asSnoozed ? "snoozed-card" : "waiting-card",
+      className: asSnoozed ? "reply-card reply-card--snoozed" : "reply-card",
       // ONE stamp, at the head's right edge, AFTER 標為過期 (owner 2026-09-11).
       // 🔴 No absolute 開卡 stamp beside it — owner saw one on this very head and
-      // answered「我不想知道絕對時間 相對時間已經夠了」.
-      stamp: (
-        <span className="reply-card__waited" data-testid="waited">
-          {msg.replyWaited(formatDuration(nowTs - row.createdTs))}
-        </span>
-      ),
+      // answered「我不想知道絕對時間 相對時間已經夠了」. A snoozed card says when it
+      // comes back instead.
+      stamp:
+        asSnoozed && until !== null ? (
+          <span className="reply-card__waited" data-testid="snoozed-until">
+            {msg.replySnoozeBack(until)}
+          </span>
+        ) : (
+          <span className="reply-card__waited" data-testid="waited">
+            {msg.replyWaited(formatDuration(nowTs - row.createdTs))}
+          </span>
+        ),
       expirable: true,
+      actions: asSnoozed ? (
+        <button
+          type="button"
+          className="reply-card__jump"
+          data-testid="unsnooze-card"
+          onClick={() => void doUnsnooze(row.id)}
+        >
+          {t.replies.unsnooze}
+        </button>
+      ) : (
+        <ReplySnoozeMenu cardId={row.id} onSnooze={(ts) => doSnooze(row.id, ts)} />
+      ),
+      notice: unsnoozeErrors.has(row.id) ? (
+        <div className="reply-card__error" data-testid="unsnooze-error">
+          {t.replies.unsnoozeError}
+        </div>
+      ) : undefined,
       body: (card) => (
         <>
           {card.body && (
@@ -1145,6 +1411,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
             <ReplyCardWaitingBody
               card={card}
               onAnswer={(input) => doAnswer(card.id, input)}
+              onProvideSecret={(value) => doProvideSecret(card.id, value)}
+              autoFocusSecret={secretFocusPendingRef.current.has(card.id)}
+              onSecretAutoFocused={() => secretFocusPendingRef.current.delete(card.id)}
             />
           )}
         </>
@@ -1167,9 +1436,13 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       stamp:
         ts !== null ? (
           <span className="reply-card__answered-at">
-            {expired
-              ? msg.replyExpiredAt(formatAbsolute(ts, nowTs))
-              : msg.replyAnsweredAt(formatAbsolute(ts, nowTs))}
+            {row.kind === "secret"
+              ? expired
+                ? t.replies.expiredTag
+                : t.tasks.replyAnsweredTag
+              : expired
+                ? msg.replyExpiredAt(formatAbsolute(ts, nowTs))
+                : msg.replyAnsweredAt(formatAbsolute(ts, nowTs))}
           </span>
         ) : undefined,
       body: (card) => (
@@ -1213,6 +1486,15 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         testId="replies-filter"
         clearLabel={t.replies.clearFilters}
         onClear={anyFilter ? clearFilters : undefined}
+        actions={
+          <DisplayOptions
+            label={t.replies.sortLabel}
+            value={waitingSort}
+            options={WAITING_SORTS.map((v) => ({ value: v, label: sortLabels[v] }))}
+            onChange={setWaitingSort}
+            selectTestId="replies-sort"
+          />
+        }
       >
         <IdFilterInput
           value={draftId}
@@ -1242,14 +1524,45 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           onChange={setOpenerFilter}
           testId="filter-opener"
         />
+        <MultiSelectFilter
+          noun={t.replies.filterPriorityNoun}
+          allLabel={t.replies.filterPriorityAll}
+          options={priorityOptions}
+          selected={priorityFilter}
+          onChange={setPriorityFilter}
+          testId="filter-priority"
+        />
+        <MultiSelectFilter
+          noun={t.replies.filterDueNoun}
+          allLabel={t.replies.filterDueAll}
+          options={dueOptions}
+          selected={dueFilter}
+          onChange={setDueFilter}
+          testId="filter-due"
+        />
       </FilterPanel>
 
       <section className="replies__section">
-        <div className="replies__section-title">
-          {t.replies.waitingTitle}
-          {!loading && !error && ` · ${waitingSorted.length}`}
-        </div>
-        {!loading && !error && waitingSorted.length === 0 ? (
+        <button
+          type="button"
+          className="replies__section-toggle replies__section-title"
+          aria-expanded={waitingExpanded}
+          onClick={() => setWaitingOpen((v) => !v)}
+          data-testid="waiting-toggle"
+        >
+          <ChevronRightIcon
+            size={13}
+            className={`reply-card__caret${waitingExpanded ? " reply-card__caret--open" : ""}`}
+          />
+          <span>
+            {t.replies.waitingTitle}
+            {!loading && !error && ` · ${waitingSorted.length}`}
+          </span>
+          <span className="replies__section-hint" data-testid="replies-sort-active">
+            {sortLabels[waitingSort]}
+          </span>
+        </button>
+        {!waitingExpanded ? null : !loading && !error && waitingSorted.length === 0 ? (
           /* THREE, and the split that survives is 「we have an answer」 vs
            * 「we do not」. An empty page and an empty RESULT stay separate —
            * saying 「目前沒有待處理的請示」 while six cards sit behind a filter
@@ -1299,6 +1612,32 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           </div>
         )}
       </section>
+
+      {snoozedShownRows.length > 0 && (
+        <section className="replies__section" data-testid="snoozed-section">
+          <button
+            type="button"
+            className="replies__section-toggle"
+            aria-expanded={filtering || snoozedOpen}
+            onClick={() => setSnoozedOpen((v) => !v)}
+            data-testid="snoozed-toggle"
+          >
+            <ChevronRightIcon
+              size={13}
+              className={`reply-card__caret${
+                filtering || snoozedOpen ? " reply-card__caret--open" : ""
+              }`}
+            />
+            {`${t.replies.snoozedTitle} · ${snoozedShownRows.length}`}
+            <span className="replies__section-hint">{t.replies.snoozedHint}</span>
+          </button>
+          {(filtering || snoozedOpen) && (
+            <div className="replies__list">
+              {snoozedShownRows.map((card) => renderWaitingCard(card, true))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Zero-hide, EXCEPT while a filter is on. With a filter the section is
         * the answer to a question the owner asked, so it has to stay on screen

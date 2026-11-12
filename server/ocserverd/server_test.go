@@ -661,6 +661,75 @@ func TestCmdServe(t *testing.T) {
 	if strings.Contains(out.String(), "ocserverd serving on ") {
 		t.Fatalf("cmdServe announced a server after bind failure:\n%s", out.String())
 	}
+
+	t.Run("a value past its deadline is destroyed on the way up and one inside it stays", func(t *testing.T) {
+		const due, live = "rc-aaaaaaaaaaaa", "rc-bbbbbbbbbbbb"
+		w := newServeWorld(t)
+		db, err := openSQLite(w.dbPath)
+		if err != nil {
+			t.Fatalf("openSQLite: %v", err)
+		}
+		if err := runMigrations(db); err != nil {
+			t.Fatalf("runMigrations: %v", err)
+		}
+		seed := NewDAL(db)
+		if err := seed.putMemberWholeRowForTest(Member{ID: "kip", Name: "Kip", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive}); err != nil {
+			t.Fatalf("seed member: %v", err)
+		}
+		for id, deadline := range map[string]float64{due: 1700000100, live: 4102444800} {
+			if err := seed.PutReplyCard(ReplyCard{
+				ID: id, FromMember: "kip", Kind: replyCardKindSecret, Summary: "the deploy key",
+				Status: replyCardStatusAnswered, CreatedTS: 1700000000, AnsweredTS: 1700000000,
+				SecretProvidedTS: 1700000000, SecretDestroyAfterTS: deadline,
+			}); err != nil {
+				t.Fatalf("seed card: %v", err)
+			}
+			if err := insertReplyCardSecretOn(seed.wdb, ReplyCardSecret{
+				CardID: id, Nonce: []byte("dummy-aaaaaaaa"), ValueCT: []byte("dummy-aaaaaaaaaaaa"), KeyVersion: 1,
+			}); err != nil {
+				t.Fatalf("seed ciphertext: %v", err)
+			}
+		}
+		db.Close()
+
+		var out strings.Builder
+		if rc := cmdServe(w.env, true, true, &out); rc != 1 {
+			t.Fatalf("cmdServe returned %d, want the held-port refusal; output:\n%s", rc, out.String())
+		}
+
+		if !strings.Contains(out.String(), "[ocserverd] secret-card boot sweep: destroyed 1 value(s)\n") {
+			t.Fatalf("no boot sweep line in:\n%s", out.String())
+		}
+		after, err := openSQLite(w.dbPath)
+		if err != nil {
+			t.Fatalf("reopen: %v", err)
+		}
+		defer after.Close()
+		d := NewDAL(after)
+		for id, want := range map[string]struct {
+			status     string
+			deadline   float64
+			ciphertext bool
+		}{
+			due:  {status: "expired", deadline: 0, ciphertext: false},
+			live: {status: "answered", deadline: 4102444800, ciphertext: true},
+		} {
+			card, err := d.GetReplyCard(id)
+			if err != nil || card == nil {
+				t.Fatalf("card %s: %v %v", id, card, err)
+			}
+			if card.Status != want.status || card.SecretDestroyAfterTS != want.deadline {
+				t.Fatalf("card %s = %#v, want %+v", id, card, want)
+			}
+			row, err := getReplyCardSecretOn(d.rdb, id)
+			if err != nil {
+				t.Fatalf("ciphertext %s: %v", id, err)
+			}
+			if (row != nil) != want.ciphertext {
+				t.Fatalf("card %s ciphertext present = %v, want %v", id, row != nil, want.ciphertext)
+			}
+		}
+	})
 }
 
 func TestBindErrorMessage(t *testing.T) {

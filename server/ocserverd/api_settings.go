@@ -491,6 +491,22 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 				minStepNoteCapChars, maxStepNoteCapChars))
 		return
 	}
+	if body.SecretCardUnretrievedTtlSecs != nil &&
+		(*body.SecretCardUnretrievedTtlSecs < minSecretCardUnretrievedTTLSecs ||
+			*body.SecretCardUnretrievedTtlSecs > maxSecretCardUnretrievedTTLSecs) {
+		writeError(w, http.StatusUnprocessableEntity,
+			fmt.Sprintf("secret_card_unretrieved_ttl_secs must be between %d and %d seconds",
+				minSecretCardUnretrievedTTLSecs, maxSecretCardUnretrievedTTLSecs))
+		return
+	}
+	if body.SecretCardRetrievedRetentionSecs != nil &&
+		(*body.SecretCardRetrievedRetentionSecs < minSecretCardRetrievedRetentionSecs ||
+			*body.SecretCardRetrievedRetentionSecs > maxSecretCardRetrievedRetentionSecs) {
+		writeError(w, http.StatusUnprocessableEntity,
+			fmt.Sprintf("secret_card_retrieved_retention_secs must be between %d and %d seconds",
+				minSecretCardRetrievedRetentionSecs, maxSecretCardRetrievedRetentionSecs))
+		return
+	}
 	loreRange := []struct {
 		field    *int
 		name     string
@@ -560,6 +576,24 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 	}
+	var displayThemeSchedule []ThemeScheduleEntryDTO
+	if body.DisplayThemeSchedule != nil {
+		list, err := canonicalThemeSchedule(*body.DisplayThemeSchedule)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		refusal, err := themeScheduleRefusalOn(s.dal.rdb, list)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if refusal != "" {
+			writeError(w, http.StatusUnprocessableEntity, refusal)
+			return
+		}
+		displayThemeSchedule = list
+	}
 	var displayLanguage string
 	if body.DisplayLanguage != nil {
 		displayLanguage = strings.TrimSpace(*body.DisplayLanguage)
@@ -572,7 +606,7 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	// 🔴 An explicit empty array is LEGAL and clears the list — the OPPOSITE of the
 	// scheduled-message custom_* sets, where [] is a 422.
 	var suggestedRepliesReplyCard, suggestedRepliesTaskMessage,
-		suggestedRepliesLoreMessage []string
+		suggestedRepliesLoreMessage, suggestedRepliesChat []string
 	if body.SuggestedRepliesReplyCard != nil {
 		list, err := canonicalSuggestedReplies(*body.SuggestedRepliesReplyCard)
 		if err != nil {
@@ -599,6 +633,15 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 		suggestedRepliesLoreMessage = list
+	}
+	if body.SuggestedRepliesChat != nil {
+		list, err := canonicalSuggestedReplies(*body.SuggestedRepliesChat)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity,
+				fmt.Sprintf("suggested_replies_chat %v", err))
+			return
+		}
+		suggestedRepliesChat = list
 	}
 	// Every row lands in one transaction and the in-memory snapshot moves only
 	// after it commits, so a failed row leaves neither the table nor the
@@ -688,6 +731,8 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		{body.DocCapCharsOffboard, settingDocCapCharsOffboard, &s.docCapCharsOffboard},
 		{body.ChatBudgetChars, settingChatBudgetChars, &s.chatBudgetChars},
 		{body.StepNoteCapChars, settingStepNoteCapChars, &s.stepNoteCapChars},
+		{body.SecretCardUnretrievedTtlSecs, settingSecretCardUnretrievedTTLSecs, &s.secretCardUnretrievedTTLSecs},
+		{body.SecretCardRetrievedRetentionSecs, settingSecretCardRetrievedRetentionSecs, &s.secretCardRetrievedRetentionSecs},
 		{body.BackupRetain, settingBackupRetain, &s.backupRetain},
 		{body.LoreCapCharsRole, settingLoreCapCharsRole, &s.loreCapCharsRole},
 		{body.LoreCapCharsManual, settingLoreCapCharsManual, &s.loreCapCharsManual},
@@ -742,6 +787,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		v := *body.DisplaySeasonalTheme
 		put(settingDisplaySeasonalTheme, strconv.FormatBool(v), func() { s.displaySeasonalTheme = v })
 	}
+	if body.DisplayThemeSchedule != nil {
+		put(settingDisplayThemeSchedule, encodeThemeSchedule(displayThemeSchedule),
+			func() { s.displayThemeSchedule = displayThemeSchedule })
+	}
 	if body.SuggestedRepliesReplyCard != nil {
 		put(settingSuggestedRepliesReplyCard, encodeSuggestedReplies(suggestedRepliesReplyCard),
 			func() { s.suggestedRepliesReplyCard = suggestedRepliesReplyCard })
@@ -754,6 +803,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		put(settingSuggestedRepliesLoreMessage, encodeSuggestedReplies(suggestedRepliesLoreMessage),
 			func() { s.suggestedRepliesLoreMessage = suggestedRepliesLoreMessage })
 	}
+	if body.SuggestedRepliesChat != nil {
+		put(settingSuggestedRepliesChat, encodeSuggestedReplies(suggestedRepliesChat),
+			func() { s.suggestedRepliesChat = suggestedRepliesChat })
+	}
 	err := s.dal.inTx(func(tx *writeTx) error {
 		if themeChanged {
 			ok, err := displayThemeExistsOn(tx, displayTheme)
@@ -762,6 +815,17 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			}
 			if !ok {
 				return refuseInTx(http.StatusUnprocessableEntity, displayThemeRefusal)
+			}
+		}
+		// Asked again under the lock DELETE /api/themes/{id} holds, so a theme
+		// deleted since the pre-check cannot land in the schedule.
+		if body.DisplayThemeSchedule != nil {
+			refusal, err := themeScheduleRefusalOn(tx, displayThemeSchedule)
+			if err != nil {
+				return err
+			}
+			if refusal != "" {
+				return refuseInTx(http.StatusUnprocessableEntity, refusal)
 			}
 		}
 		for _, sw := range writes {
@@ -800,56 +864,67 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if dueSoonLeadChanged {
 		s.publishTaskDueSoonLeadChanged(requestTrigger(r))
 	}
+	if len(writes) > 0 || body.OnboardingDismissed != nil {
+		s.publishSettings(requestTrigger(r))
+	}
 	writeJSON(w, http.StatusOK, s.settingsView())
+}
+
+func (s *apiServer) publishSettings(trigger string) {
+	s.hub.Publish("settings", "patch", "settings", wireOwnerID, nil, audienceOwnerOnly(), trigger)
 }
 
 func (s *apiServer) settingsView() settingsDTO {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return settingsDTO{
-		OwnerTokenTTL:                   s.ownerTokenTTL,
-		AgentTokenTTL:                   s.agentTokenTTL,
-		HandoverPct:                     s.ctxHigh.HandoverPct,
-		NoticePct:                       s.ctxHigh.NoticePct,
-		CodexCompactionThreshold:        s.codexCompactionThreshold,
-		CodexNoticeRound:                s.codexNoticeRound,
-		MonitoringRefreshSeconds:        s.monitoringRefreshSeconds,
-		AcceleratedGraceSecs:            s.acceleratedGraceSecs,
-		ReassignHandoverTimeoutSecs:     s.reassignHandoverTimeoutSecs,
-		RuntimeLoginCheckIntervalSecs:   s.runtimeLoginCheckIntervalSecs,
-		RuntimeLoginRecheckIntervalSecs: s.runtimeLoginRecheckIntervalSecs,
-		DiskUsageIntervalSecs:           s.diskUsageIntervalSecs,
-		WardenCredentialLifetimeSecs:    s.wardenCredLifetimeSecs,
-		OutsourceMaxParallel:            s.outsourceMaxParallel,
-		TaskDueSoonLeadMinutes:          s.taskDueSoonLeadMinutes,
-		DocCapCharsDuty:                 s.docCapCharsDuty,
-		DocCapCharsInsight:              s.docCapCharsInsight,
-		DocCapCharsManualSop:            s.docCapCharsManualSop,
-		DocCapCharsSystemInteraction:    s.docCapCharsSystemInteraction,
-		DocCapCharsBootSequence:         s.docCapCharsBootSequence,
-		DocCapCharsOffboard:             s.docCapCharsOffboard,
-		LoreCapCharsRole:                s.loreCapCharsRole,
-		LoreCapCharsManual:              s.loreCapCharsManual,
-		LoreCapCharsTitle:               s.loreCapCharsTitle,
-		LoreCapCharsBody:                s.loreCapCharsBody,
-		ChatBudgetChars:                 s.chatBudgetChars,
-		StepNoteCapChars:                s.stepNoteCapChars,
-		BackupRetain:                    s.backupRetain,
-		UpdaterReceiveBeta:              s.updaterReceiveBeta,
-		UpdaterAutoUpdate:               s.updaterAutoUpdate,
-		UpdaterCheckIntervalSecs:        s.updaterCheckIntervalSecs,
-		OrgName:                         s.orgName,
-		OwnerName:                       s.ownerName,
-		PushContactEmail:                s.pushContactEmail,
-		DisplayTheme:                    s.displayTheme,
-		DisplayLanguage:                 s.displayLanguage,
-		DisplayWide:                     s.displayWide,
-		DisplaySeasonalTheme:            s.displaySeasonalTheme,
+		OwnerTokenTTL:                    s.ownerTokenTTL,
+		AgentTokenTTL:                    s.agentTokenTTL,
+		HandoverPct:                      s.ctxHigh.HandoverPct,
+		NoticePct:                        s.ctxHigh.NoticePct,
+		CodexCompactionThreshold:         s.codexCompactionThreshold,
+		CodexNoticeRound:                 s.codexNoticeRound,
+		MonitoringRefreshSeconds:         s.monitoringRefreshSeconds,
+		AcceleratedGraceSecs:             s.acceleratedGraceSecs,
+		ReassignHandoverTimeoutSecs:      s.reassignHandoverTimeoutSecs,
+		RuntimeLoginCheckIntervalSecs:    s.runtimeLoginCheckIntervalSecs,
+		RuntimeLoginRecheckIntervalSecs:  s.runtimeLoginRecheckIntervalSecs,
+		DiskUsageIntervalSecs:            s.diskUsageIntervalSecs,
+		WardenCredentialLifetimeSecs:     s.wardenCredLifetimeSecs,
+		OutsourceMaxParallel:             s.outsourceMaxParallel,
+		TaskDueSoonLeadMinutes:           s.taskDueSoonLeadMinutes,
+		DocCapCharsDuty:                  s.docCapCharsDuty,
+		DocCapCharsInsight:               s.docCapCharsInsight,
+		DocCapCharsManualSop:             s.docCapCharsManualSop,
+		DocCapCharsSystemInteraction:     s.docCapCharsSystemInteraction,
+		DocCapCharsBootSequence:          s.docCapCharsBootSequence,
+		DocCapCharsOffboard:              s.docCapCharsOffboard,
+		LoreCapCharsRole:                 s.loreCapCharsRole,
+		LoreCapCharsManual:               s.loreCapCharsManual,
+		LoreCapCharsTitle:                s.loreCapCharsTitle,
+		LoreCapCharsBody:                 s.loreCapCharsBody,
+		ChatBudgetChars:                  s.chatBudgetChars,
+		StepNoteCapChars:                 s.stepNoteCapChars,
+		SecretCardUnretrievedTTLSecs:     s.secretCardUnretrievedTTLSecs,
+		SecretCardRetrievedRetentionSecs: s.secretCardRetrievedRetentionSecs,
+		BackupRetain:                     s.backupRetain,
+		UpdaterReceiveBeta:               s.updaterReceiveBeta,
+		UpdaterAutoUpdate:                s.updaterAutoUpdate,
+		UpdaterCheckIntervalSecs:         s.updaterCheckIntervalSecs,
+		OrgName:                          s.orgName,
+		OwnerName:                        s.ownerName,
+		PushContactEmail:                 s.pushContactEmail,
+		DisplayTheme:                     s.displayTheme,
+		DisplayLanguage:                  s.displayLanguage,
+		DisplayWide:                      s.displayWide,
+		DisplaySeasonalTheme:             s.displaySeasonalTheme,
+		DisplayThemeSchedule:             append([]ThemeScheduleEntryDTO{}, s.displayThemeSchedule...),
 		// Never null on the wire (spec types these as arrays); copied so no response
 		// shares a slice with the live snapshot.
 		SuggestedRepliesReplyCard:   append([]string{}, s.suggestedRepliesReplyCard...),
 		SuggestedRepliesTaskMessage: append([]string{}, s.suggestedRepliesTaskMessage...),
 		SuggestedRepliesLoreMessage: append([]string{}, s.suggestedRepliesLoreMessage...),
+		SuggestedRepliesChat:        append([]string{}, s.suggestedRepliesChat...),
 
 		Onboarding: s.onboardingReport(),
 	}

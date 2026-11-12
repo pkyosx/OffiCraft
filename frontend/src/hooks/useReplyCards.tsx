@@ -101,6 +101,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -112,6 +113,7 @@ import type {
 } from "../api/adapter";
 import { api } from "../api";
 import { mergeReplyCardRowWrite } from "../lib/replyCardReceipt";
+import { MAX_TIMEOUT_MS } from "./useNowSeconds";
 
 /** A handled card's pane stamp: answeredTs on an answered card, expiredTs on
  * an expired one (each null on the other kind). */
@@ -120,10 +122,17 @@ function handledTs(c: ReplyCardRow): number {
 }
 
 interface UseReplyCards {
-  /** Cards still waiting for the owner — server-ordered LONGEST-WAITING FIRST.
-   * This IS the single authoritative waiting source: the nav badge counts its
-   * length, the page renders it, the title reads its length. */
+  /** Cards still waiting for the owner and not snoozed — server-ordered
+   * LONGEST-WAITING FIRST. This IS the single authoritative waiting source: the
+   * nav badge counts its length, the page renders it, the title reads its
+   * length. */
   waiting: ReplyCardRow[];
+  /** Waiting cards the owner put aside with 稍後再看, soonest back first. A card
+   * moves back into `waiting` by itself at its `snoozedUntilTs`. */
+  snoozed: ReplyCardRow[];
+  /** Snooze a waiting card until `untilTs` (epoch seconds), or bring it back
+   * now with null. Resolves once the write landed and is shown. */
+  snooze: (id: string, untilTs: number | null) => Promise<void>;
   /** Cards answered OR expired within the last 24h — merged, newest handled
    * first. EMPTY until `loadHandled()` is called (the pane is collapsed by
    * default). */
@@ -156,6 +165,9 @@ interface UseReplyCards {
   /** Mark a WAITING card expired (標為過期 — terminal, not an answer). Same
    * resolve semantics as `answer`. */
   expire: (id: string) => Promise<void>;
+  /** Provide a WAITING `secret` card's value. Same resolve semantics as `answer`;
+   * the value is not kept anywhere here. */
+  provideSecret: (id: string, value: string) => Promise<void>;
 }
 
 /** The one shared reply-cards state, driven by the app-wide provider. Both the
@@ -176,7 +188,11 @@ export function ReplyCardsProvider({ children }: { children: ReactNode }) {
 }
 
 function useReplyCardsState(): UseReplyCards {
+  // Every waiting row the server listed, snoozed ones included; the split into
+  // `waiting` / `snoozed` is made against `clock` on the way out.
   const [waiting, setWaiting] = useState<ReplyCardRow[]>([]);
+  const [clock, setClock] = useState(() => Date.now() / 1000);
+  const [nextChangeTs, setNextChangeTs] = useState<number | null>(null);
   const [handled, setHandled] = useState<ReplyCardRow[]>([]);
   const [handledCount, setHandledCount] = useState(0);
   const [handledLoaded, setHandledLoaded] = useState(false);
@@ -206,6 +222,11 @@ function useReplyCardsState(): UseReplyCards {
   //    least as new as ours (a 重新決定 re-stamps, so mere presence is not
   //    confirmation: a pre-write snapshot lists that card with its OLD stamp).
   const heldFromWaitingRef = useRef<Set<string>>(new Set());
+  // The same in-flight hazard for 稍後再看 / 取消延後: a snapshot read before
+  // the write lists the card with its OLD snooze and would put a just-snoozed
+  // card back in the waiting list. Held per id until a snapshot carries the
+  // value the write stored (or the card leaves the waiting pane).
+  const heldSnoozeRef = useRef<Map<string, number | null>>(new Map());
   const adoptedHandledRef = useRef<Map<string, ReplyCardRow>>(new Map());
   // Live mirror of `handled`, for the same reason `waitingRef` mirrors
   // `waiting`: adoptWrite has to read the row it is folding a write onto (a
@@ -242,8 +263,30 @@ function useReplyCardsState(): UseReplyCards {
           if (!w.some((c) => c.id === id)) adopted.delete(id);
         }
       }
-      const next = heldBack.length ? w.filter((c) => !adopted.has(c.id)) : w;
+      let next = heldBack.length ? w.filter((c) => !adopted.has(c.id)) : w;
+      const snoozeHolds = heldSnoozeRef.current;
+      if (snoozeHolds.size) {
+        const nowTs = Date.now() / 1000;
+        for (const id of [...snoozeHolds.keys()]) {
+          const held = snoozeHolds.get(id) ?? null;
+          const row = next.find((c) => c.id === id);
+          const listed = row?.snoozedUntilTs ?? null;
+          // A held snooze that has run out says the same as no snooze.
+          if (!row || listed === held || (held !== null && held <= nowTs)) {
+            snoozeHolds.delete(id);
+          }
+        }
+        if (snoozeHolds.size) {
+          next = next.map((c) =>
+            snoozeHolds.has(c.id)
+              ? { ...c, snoozedUntilTs: snoozeHolds.get(c.id) ?? null }
+              : c
+          );
+        }
+      }
       setWaiting(next);
+      setClock(Date.now() / 1000);
+      setNextChangeTs(counts.waitingNextChangeTs ?? null);
       waitingRef.current = next;
       // The counts came from the SAME (pre-write) snapshot as the rows we just
       // held back, so add them: otherwise the 近期已處理 header would drop by
@@ -328,7 +371,9 @@ function useReplyCardsState(): UseReplyCards {
       });
 
     const unsubscribe = api.subscribeEvents((topic) => {
-      if (topic !== "reply_card") return;
+      // `task`: the rows carry their task's title, priority and due date, read
+      // when the list is built, so a task edit has to re-read the panes.
+      if (topic !== "reply_card" && topic !== "task") return;
       refetchWaiting().catch((e) =>
         console.warn("useReplyCards: SSE refetch failed", e)
       );
@@ -484,8 +529,62 @@ function useReplyCardsState(): UseReplyCards {
     [adoptWrite]
   );
 
+  const provideSecret = useCallback(
+    async (id: string, value: string) => {
+      adoptWrite(await api.provideReplyCardSecret(id, value));
+    },
+    [adoptWrite]
+  );
+
+  const snooze = useCallback(async (id: string, untilTs: number | null) => {
+    const receipt = await api.snoozeReplyCard(id, untilTs);
+    heldSnoozeRef.current.set(receipt.id, receipt.snoozedUntilTs);
+    const next = waitingRef.current.map((c) =>
+      c.id === receipt.id ? { ...c, snoozedUntilTs: receipt.snoozedUntilTs } : c
+    );
+    waitingRef.current = next;
+    setWaiting(next);
+    setClock(Date.now() / 1000);
+  }, []);
+
+  const { visibleWaiting, snoozed } = useMemo(() => {
+    const isSnoozed = (c: ReplyCardRow) => (c.snoozedUntilTs ?? 0) > clock;
+    return {
+      visibleWaiting: waiting.filter((c) => !isSnoozed(c)),
+      snoozed: waiting
+        .filter(isSnoozed)
+        .sort((a, b) => (a.snoozedUntilTs ?? 0) - (b.snoozedUntilTs ?? 0)),
+    };
+  }, [waiting, clock]);
+
+  // A snoozed card comes back at its time with no event to say so (the server
+  // writes nothing when a snooze runs out), so the split re-runs exactly then.
+  const nextReturn = snoozed[0]?.snoozedUntilTs ?? null;
+  useEffect(() => {
+    if (nextReturn === null) return;
+    const ms = Math.min(Math.max(0, nextReturn * 1000 - Date.now()), MAX_TIMEOUT_MS);
+    const timer = window.setTimeout(() => setClock(Date.now() / 1000), ms);
+    return () => window.clearTimeout(timer);
+  }, [nextReturn, clock]);
+
+  // …and the server's own word on it is re-read at the moment the count says
+  // `waiting` changes; the margin keeps a read landing on the boundary second
+  // from re-arming this at zero against a server that has not crossed it yet.
+  useEffect(() => {
+    if (nextChangeTs === null) return;
+    const ms = Math.min(Math.max(0, nextChangeTs * 1000 - Date.now()) + 250, MAX_TIMEOUT_MS);
+    const timer = window.setTimeout(() => {
+      refetchWaiting().catch((e) =>
+        console.warn("useReplyCards: snooze-return refetch failed", e)
+      );
+    }, ms);
+    return () => window.clearTimeout(timer);
+  }, [nextChangeTs, refetchWaiting]);
+
   return {
-    waiting,
+    waiting: visibleWaiting,
+    snoozed,
+    snooze,
     handled,
     refresh,
     handledCount,
@@ -496,6 +595,7 @@ function useReplyCardsState(): UseReplyCards {
     answer,
     reanswer,
     expire,
+    provideSecret,
   };
 }
 
@@ -514,5 +614,6 @@ export function useReplyCards(): UseReplyCards {
  * and the list can never show different numbers. MUST be used under a
  * <ReplyCardsProvider>. */
 export function useReplyCardWaitingCount(): number {
+  // Snoozed cards are not in `waiting`, matching the server's badge count.
   return useReplyCards().waiting.length;
 }

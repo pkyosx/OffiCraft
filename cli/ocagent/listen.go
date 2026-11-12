@@ -914,8 +914,8 @@ func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *
 		printReplyCardAnswered(out, id, card, about, trigger)
 		seen.record(id, ts)
 	case replyCardExpired:
-		// expired_ts never collides with an answered_ts for the same card: a card
-		// expires only while waiting, so it never printed an answer.
+		// expired_ts never collides with an answered_ts for the same card, and a
+		// secret card that printed "provided" must still print its expiry.
 		ts, _ := card["expired_ts"].(float64)
 		if seen.has(id, ts) {
 			return
@@ -951,9 +951,31 @@ func replyCardAboutYourTask(card map[string]any, selfID string) string {
 }
 
 func printReplyCardAnswered(out io.Writer, id string, card map[string]any, about, trigger string) {
+	if replyCardHoldsProvidedSecret(card) {
+		retrieve := "retrievable with `ocagent secret run` or `ocagent secret write`"
+		if about != "" {
+			retrieve = "only its author can retrieve it"
+		}
+		fmt.Fprintf(out, "[ocagent] reply-card %s: the owner provided the secret for card %s, %s | asked: %s%s%s\n",
+			id, id, retrieve,
+			renderMessageBody(strOrEmpty(card["summary"]), replyCardFullReadTool), about, byTrigger(trigger))
+		return
+	}
 	fmt.Fprintf(out, "[ocagent] reply-card %s answered: %s | asked: %s%s%s\n",
 		id, renderReplyCardAnswer(card),
 		renderMessageBody(strOrEmpty(card["summary"]), replyCardFullReadTool), about, byTrigger(trigger))
+}
+
+// A provided card has no answer to print: its answer stays empty, which would
+// otherwise read as UNREADABLE ANSWER. A secret card the owner replied to in
+// words takes the normal path.
+func replyCardHoldsProvidedSecret(card map[string]any) bool {
+	if strOrEmpty(card["kind"]) != "secret" {
+		return false
+	}
+	secret, _ := card["secret"].(map[string]any)
+	state := strOrEmpty(secret["state"])
+	return state == "provided" || state == "retrieved"
 }
 
 // printReplyCardExpired carries its own guidance for agents whose seeds

@@ -78,9 +78,11 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
 
 - A delta means "this topic changed → refetch its list/snapshot".
 - `payload` is carried **for convenience only**; a client MUST NOT merge it in place — it
-  lacks server-derived DTO fields. Payloads are deliberately partial. **One field breaks that
-  rule and is named as an exception**: `offboard_notice` (below) is the only payload key that
-  a refetch CANNOT recover — no DTO carries it — so it is the one thing a client may act on
+  lacks server-derived DTO fields. Payloads are deliberately partial. **Two fields break that
+  rule and are named as exceptions**: `offboard_notice` (below) is the only payload key that
+  a refetch CANNOT recover — no DTO carries it; and `deleted_ts` on a `chat` delete delta
+  (below) may be applied to a held message straight off the delta, because a delete cannot be
+  undone and so the value can never go stale. These are the only things a client may act on
   straight off the delta:
   - `member`: `{id, name, status, desired_state, owner_id}` for staff lifecycle and
     outsource assignment / claim / release, plus `offboard_notice` on
@@ -106,11 +108,17 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     clause are computed per path, and that band's `reason` wording is explicitly not
     contract. Audience is the member itself and — like every delta — any owner/dashboard
     connection, which reads no key of it.
-  - `chat` (new message): `{id, from, to}`
+  - `chat` (new message, or the owner deleting one): `{id, from, to}`; the delete's
+    delta adds `deleted_ts` (epoch seconds), so an owner tab holding the row can mark it
+    without a refetch. A delete also appends a `system` notice to the recipient, which
+    emits its own `chat` delta `{id, from, to}`
   - `chat_read`: `{reader, peer, last_read_ts}`
   - `chat_group`: `payload` is `null`; refetch `GET /api/chat/groups`
+  - `chat_suggested_reply`: `payload` is `null`; refetch `GET /api/chat/suggested-replies`
+  - `settings`: `payload` is `null`; refetch `GET /api/settings` (and, for the display
+    preferences, `GET /api/themes`)
   - `reply_card`: `{id, from, status, task_executor}` (create / answer / answer revision /
-    expire all ride `patch`; refetch the card for the full context — the payload never
+    expire / the owner's snooze all ride `patch`; refetch the card for the full context — the payload never
     carries the answer). `task_executor` is the acting executor of the card's task while
     that task is open, `""` otherwise
   - `task`: `{id, status, priority}` (any durable task write — status/priority/plan/
@@ -125,7 +133,7 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
   parse them): `{owner}::{id}` for member/chat/reply_card/task/role_def,
   `{owner}::{type_key}` for task_manual, `{owner}::task.due_soon_lead_minutes` for the
   due-soon lead change on task,
-  `{owner}::{reader}::{peer}` for chat_read, the bare owner id for chat_group,
+  `{owner}::{reader}::{peer}` for chat_read, the bare owner id for chat_group, chat_suggested_reply and settings,
   `{owner}::{role_key}` for insight, the bare owner id for global_context, the bare agent id for context/monitoring signals.
 
 ### 2.3 `trigger` — actor attribution (and the client-side echo rules)
@@ -211,7 +219,7 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
 
 ## 3. Topic and op vocabulary
 
-### 3.1 Topics — the closed set (14 topics)
+### 3.1 Topics — the closed set
 
 The server MUST emit deltas on exactly these topics and no others (`reply_card`
 joined the set in the M2 reply-card batch; `task` / `task_manual` joined in the
@@ -221,15 +229,20 @@ delta topics; `insight` joined in T-3809, which split the role journal's judgeme
 block into its own document and therefore needed its own delta rather than
 riding a topic that names a different document; `runtime_login` joined in T-309, the
 machine runtime-login relay; `runtime_upgrade` joined with the machine runtime-upgrade
-relay; `chat_group` joined with the owner's chat-list groups; everything else is the M1 freeze):
+relay; `chat_group` joined with the owner's chat-list groups; `chat_suggested_reply` joined with
+the owner's per-member chat suggested replies; `settings` joined so another open
+browser or device follows a settings change, the display preferences above all; everything else
+is the M1 freeze):
 
 | topic | trigger | op |
 |---|---|---|
 | `member` | any roster write, including outsource assignment / claim / release; a telemetry ingest that changes a member's derived warnings (`runtime_login_warnings`, `model_call_warnings`); an activity report that changes a member's derived `activity` (owner-only); a usage-limit reset timer firing at a reported `resets_at` | patch / remove |
-| `chat` | message append | patch |
+| `chat` | message append; the owner deleting a message (`DELETE /api/chat/{message_id}`) | patch |
 | `chat_read` | read-watermark advance | patch |
 | `chat_group` | group set replaced (`PUT /api/chat/groups`); a new outsource worker auto-joined to a group by its task type | patch |
-| `reply_card` | reply-card create / answer / answer revision / expire | patch |
+| `chat_suggested_reply` | one member's list replaced (`PUT /api/chat/suggested-replies/{member_id}`) | patch |
+| `settings` | a `PATCH /api/settings` that stored at least one field; a theme delete that also cleared `display_theme` or rewrote `display_theme_schedule` (`DELETE /api/themes/{theme_id}`). Creating, editing or deleting a theme without touching those two settings does NOT emit it — a theme list is re-read when the theme settings are opened | patch |
+| `reply_card` | reply-card create / answer / answer revision / expire / the owner's snooze or unsnooze | patch |
 | `task` | any durable task write (create / status / priority / plan / step / deps / executor assignment / terminate); a change to the workspace due-soon lead | patch |
 | `task_manual` | manual create / edit / delete | patch |
 | `global_context` | user-context overlay write/reset | patch |
@@ -294,7 +307,9 @@ server's own deps-fulfill, not by eavesdropping on another member's stream):
 | `chat` | the sender and the recipient |
 | `chat_read` | — (no agent consumes it; owner cockpit only) |
 | `chat_group` | — (owner cockpit only) |
-| `reply_card` | the initiator (`from`) and, while the card's task is open, that task's acting executor (`task_executor`) — the one audience read from another row: the card stores only the task id, and a stored executor would go stale on reassignment |
+| `chat_suggested_reply` | — (owner cockpit only) |
+| `settings` | — (owner cockpit only) |
+| `reply_card` | the initiator (`from`) and, while the card's task is open, that task's acting executor (`task_executor`) — the one audience read from another row: the card stores only the task id, and a stored executor would go stale on reassignment. The owner's snooze or unsnooze is owner cockpit only: it changes nothing an agent acts on. A snooze running out writes nothing and emits nothing; the cockpit refetches at `waiting_next_change_ts` |
 | `task` | the executor ONLY (NOT the creator, NOT dependents); a reassign additionally fans one delta to the OLD executor — the row's executor just changed, so the person unassigned would otherwise be silently dropped from the audience |
 | `task_manual` | — (owner cockpit only) |
 | `global_context` / `role_def` / `insight` | — (owner cockpit only) |
@@ -731,7 +746,7 @@ news that every write it makes from now on will 409.
 - The internal buffer/queue/poll mechanics and the 0.25 s poll cadence
   — implementation-free (any concurrency model is fine) provided §1–§8 hold.
 - Topic-list validation as a mechanism — an implementation MAY enforce the closed set at
-  the publish seam (recommended), so long as all 14 topics of §3.1 pass.
+  the publish seam (recommended), so long as every topic of §3.1 passes.
 - Frame ordering **across** connections, and timing between a durable commit and its frame's
   arrival (only per-connection publish order is contract, §4).
 

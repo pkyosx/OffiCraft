@@ -6,7 +6,8 @@
 // (same caps + funnels as the chat composer) and the preview strip reuses the
 // chat composer's classes — one visual language for "composing a message".
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useDraftText } from "../hooks/useDraftText";
 import { useI18n } from "../i18n";
 import type { ChatAttachmentInput } from "../api/adapter";
 import { autosizeTextarea } from "../lib/autosize";
@@ -19,17 +20,20 @@ import {
 } from "../hooks/useMentionComposer";
 import { ChatMentionList } from "./ChatMentionList";
 import { MentionHighlight } from "./MentionHighlight";
+import { ATTACH_ACCEPT, useAttachmentStaging } from "../hooks/useAttachmentStaging";
 import {
-  ATTACH_ACCEPT,
-  useAttachmentStaging,
-  STAGING_TARGET_PER_MOUNT,
-} from "../hooks/useAttachmentStaging";
+  clearChatDraft,
+  getChatDraft,
+  openDraftAttachErrorScope,
+  restoreChatDraft,
+} from "../lib/chatDraftStore";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
 import { useSuggestedRepliesReplyCard } from "../hooks/useSuggestedReplies";
 import { CloseIcon, PaperclipIcon, SendIcon } from "./icons";
 
 export function ReplyComposer({
+  draftKey,
   placeholder,
   hasSelection = false,
   sendNowRef,
@@ -38,6 +42,9 @@ export function ReplyComposer({
   onClearQuote,
   onSend,
 }: {
+  /** Where the typed text and staged files survive a collapse or a page
+   * switch (`chatDraftStore`). The quoted passage is the caller's to keep. */
+  draftKey: string;
   placeholder: string;
   /** The passage of the card's question this answer quotes (回覆這段), shown
    * above the box; "" shows nothing. It never makes an answer sendable on its
@@ -65,7 +72,7 @@ export function ReplyComposer({
   onSend: (body: string, attachments: ChatAttachmentInput[]) => Promise<void>;
 }) {
   const { t } = useI18n();
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useDraftText(draftKey);
   // Busy-latch while the answer POST is in flight: the send button disables so
   // a double Enter/click can never double-answer (the server would 409 the
   // second one — we just never fire it).
@@ -77,11 +84,7 @@ export function ReplyComposer({
     onPickFile,
     removeAttachment,
     clearAttachments,
-  } = useAttachmentStaging(
-    // Mounted under a key that changes with the card/task it belongs to, so a
-    // switch UNMOUNTS this surface and nothing can outlive it (T-48, R9-1).
-    STAGING_TARGET_PER_MOUNT,
-  );
+  } = useAttachmentStaging(draftKey);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
   // IME composition guard — same belt-and-braces as the chat composer: an
@@ -117,6 +120,8 @@ export function ReplyComposer({
     if (draftRef.current) autosizeTextarea(draftRef.current);
   }, [draft]);
 
+  useEffect(() => openDraftAttachErrorScope(draftKey), [draftKey]);
+
   async function submit({ force = false }: { force?: boolean } = {}) {
     if (sending) return;
     if (!force && !canSend) return;
@@ -125,15 +130,18 @@ export function ReplyComposer({
       dataB64: a.dataUri,
       ...(a.filename ? { filename: a.filename } : {}),
     }));
+    // Cleared before the send, as the chat composer does: a box remounted while
+    // the request is in flight must not show (and resend) the text it carries.
+    const snapshot = getChatDraft(draftKey);
     setSending(true);
+    clearChatDraft(draftKey);
+    clearAttachments();
     try {
       await onSend(linkMentions(body, candidates), attachments);
-      // Success: the card leaves this pane (refetch) — clear for good measure.
-      setDraft("");
-      clearAttachments();
     } catch {
-      // Failure keeps the typed content; the CALLER surfaces the error notice
-      // (this component has no error strip of its own).
+      // The CALLER surfaces the error notice (this component has no error strip
+      // of its own).
+      if (snapshot) restoreChatDraft(draftKey, snapshot);
     } finally {
       setSending(false);
     }

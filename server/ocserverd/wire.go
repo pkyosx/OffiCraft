@@ -123,6 +123,10 @@ type settingsDTO struct {
 	// whole), so it is lowerable. Step note ONLY: the handover note and chat body
 	// keep their 4,000-character constant (owner ruling 2026-09-06).
 	StepNoteCapChars int `json:"step_note_cap_chars"`
+	// Both deadlines are stamped on the card when the event happens, so a change
+	// here only reaches later events.
+	SecretCardUnretrievedTTLSecs     int `json:"secret_card_unretrieved_ttl_secs"`
+	SecretCardRetrievedRetentionSecs int `json:"secret_card_retrieved_retention_secs"`
 	// BackupRetain counts VERSIONS, not days, and is PER POOL, not per directory.
 	BackupRetain int `json:"backup_retain"`
 
@@ -146,11 +150,14 @@ type settingsDTO struct {
 	DisplayWide bool `json:"display_wide"`
 
 	DisplaySeasonalTheme bool `json:"display_seasonal_theme"`
+	// Never null on the wire: [] is "no schedule".
+	DisplayThemeSchedule []ThemeScheduleEntryDTO `json:"display_theme_schedule"`
 	// 🔴 SuggestedReplies* are never null on the wire (the spec types them as
 	// array); settingsView normalizes them to [].
 	SuggestedRepliesReplyCard   []string `json:"suggested_replies_reply_card"`
 	SuggestedRepliesTaskMessage []string `json:"suggested_replies_task_message"`
 	SuggestedRepliesLoreMessage []string `json:"suggested_replies_lore_message"`
+	SuggestedRepliesChat        []string `json:"suggested_replies_chat"`
 	// Onboarding rides the OWNER-GATED settings read on purpose: a failed step's
 	// Detail carries the raw `ocwarden install` log (local paths), so it must never
 	// reach the public /api/auth/status probe. nil = onboarding never ran.
@@ -468,6 +475,7 @@ type chatMessageDTO struct {
 	// batch" skip, no opt-in flag (owner ruling 2026-08-21). nil with ReplyTo set
 	// is the permanent answer "the original is gone"; nothing retries.
 	ReplyToChat *chatReplyQuoteDTO `json:"reply_to_chat,omitempty"`
+	DeletedTS   float64            `json:"deleted_ts"`
 }
 
 // chatReplyQuoteDTO: 🔴 To is the QUOTED message's own recipient, not the peer
@@ -484,6 +492,8 @@ type chatReplyQuoteDTO struct {
 	// ReplyExcerpt belongs to the replying message (its meta), not the quoted one,
 	// and is served verbatim — never collapsed or cut like Content.
 	ReplyExcerpt string `json:"reply_excerpt,omitempty"`
+	// A deleted original lends no text: Content and ReplyExcerpt stay empty.
+	Deleted bool `json:"deleted"`
 }
 
 // chatReplyQuoteMaxChars is the quote-line length in runes; the browser cuts
@@ -519,14 +529,19 @@ func newChatReplyQuoteDTO(m ChatMessage, names map[string]string) *chatReplyQuot
 		fromName = resumeDisplayName(m.Sender, names)
 		toName = resumeDisplayName(m.Recipient, names)
 	}
-	return &chatReplyQuoteDTO{
+	quote := &chatReplyQuoteDTO{
 		ID:       m.ID,
 		From:     m.Sender,
 		FromName: fromName,
 		To:       m.Recipient,
 		ToName:   toName,
-		Content:  chatReplyQuoteContent(m.Body),
 	}
+	if m.DeletedTS > 0 {
+		quote.Deleted = true
+	} else {
+		quote.Content = chatReplyQuoteContent(m.Body)
+	}
+	return quote
 }
 
 type chatGalleryEntryDTO struct {
@@ -922,29 +937,41 @@ type replyCardDTO struct {
 	Status     string  `json:"status"`
 	CreatedTS  float64 `json:"created_ts"`
 
-	Attachments   []chatAttachmentDTO `json:"attachments"`
-	AnsweredTS    *float64            `json:"answered_ts"`
-	ExpiredTS     *float64            `json:"expired_ts"`
-	ChatMessageID string              `json:"chat_message_id"`
-	Answer        *replyCardAnswerDTO `json:"answer"`
-	Task          *taskRefDTO         `json:"task"`
-	TaskExecutor  string              `json:"task_executor"`
+	Attachments    []chatAttachmentDTO `json:"attachments"`
+	AnsweredTS     *float64            `json:"answered_ts"`
+	ExpiredTS      *float64            `json:"expired_ts"`
+	ChatMessageID  string              `json:"chat_message_id"`
+	Answer         *replyCardAnswerDTO `json:"answer"`
+	Task           *taskRefDTO         `json:"task"`
+	TaskExecutor   string              `json:"task_executor"`
+	SnoozedUntilTS *float64            `json:"snoozed_until_ts"`
+	// Secret never carries the value, and is absent on every other kind.
+	Secret *replyCardSecretDTO `json:"secret,omitempty"`
+}
+
+type replyCardSecretDTO struct {
+	State       string   `json:"state"`
+	ProvidedTS  *float64 `json:"provided_ts"`
+	RetrievedTS *float64 `json:"retrieved_ts"`
+	ExpiresTS   *float64 `json:"expires_ts"`
 }
 
 // replyCardListItemDTO is a LIGHT row: summary plus, when answered, the
 // decision digest; never the body (owner ruling T-3f31: 卡只需要 title+決策).
 type replyCardListItemDTO struct {
-	ID           string                   `json:"id"`
-	From         string                   `json:"from"`
-	Kind         string                   `json:"kind"`
-	Summary      string                   `json:"summary"`
-	Status       string                   `json:"status"`
-	CreatedTS    float64                  `json:"created_ts"`
-	AnsweredTS   *float64                 `json:"answered_ts"`
-	ExpiredTS    *float64                 `json:"expired_ts"`
-	Answer       *replyCardAnswerBriefDTO `json:"answer"`
-	Task         *taskRefDTO              `json:"task"`
-	TaskExecutor string                   `json:"task_executor"`
+	ID             string                   `json:"id"`
+	From           string                   `json:"from"`
+	Kind           string                   `json:"kind"`
+	Summary        string                   `json:"summary"`
+	Status         string                   `json:"status"`
+	CreatedTS      float64                  `json:"created_ts"`
+	AnsweredTS     *float64                 `json:"answered_ts"`
+	ExpiredTS      *float64                 `json:"expired_ts"`
+	Answer         *replyCardAnswerBriefDTO `json:"answer"`
+	Task           *taskRefDTO              `json:"task"`
+	TaskExecutor   string                   `json:"task_executor"`
+	SnoozedUntilTS *float64                 `json:"snoozed_until_ts"`
+	Secret         *replyCardSecretDTO      `json:"secret,omitempty"`
 }
 
 // replyCardAnswerBriefDTO: Text is preview-truncated and attachments are a
@@ -961,8 +988,14 @@ type replyCardAnswerBriefDTO struct {
 type replyCardCountDTO struct {
 	Waiting int `json:"waiting"`
 	// Answered / Expired count a 24h window.
-	Answered int `json:"answered"`
-	Expired  int `json:"expired"`
+	Answered            int      `json:"answered"`
+	Expired             int      `json:"expired"`
+	WaitingNextChangeTS *float64 `json:"waiting_next_change_ts"`
+}
+
+type replyCardSnoozeReceiptDTO struct {
+	ID             string   `json:"id"`
+	SnoozedUntilTS *float64 `json:"snoozed_until_ts"`
 }
 
 // chatListDTO: NextCursor is opaque (encodeChatCursor) and omitted when the
@@ -1441,10 +1474,15 @@ type bootstrapDTO struct {
 	Token   *string `json:"token"`
 }
 
+// Priority and the due fields are the task's, read when the card is served;
+// the card stores none of them.
 type taskRefDTO struct {
-	ID      string `json:"id"`
-	TypeKey string `json:"type_key"`
-	Title   string `json:"title"`
+	ID                 string   `json:"id"`
+	TypeKey            string   `json:"type_key"`
+	Title              string   `json:"title"`
+	Priority           string   `json:"priority"`
+	DueTS              *float64 `json:"due_ts"`
+	DueSoonLeadMinutes *int     `json:"due_soon_lead_minutes"`
 }
 
 type taskStepDTO struct {
@@ -1748,11 +1786,13 @@ type themeWriteReceiptDTO struct {
 }
 
 // themeDeleteResultDTO: deleting the ACTIVE theme resets display.theme to ""
-// in the same request; DisplayThemeReset says so.
+// in the same request; DisplayThemeReset says so. DisplayThemeSchedule is the
+// schedule after the same request pruned the deleted theme out of it.
 type themeDeleteResultDTO struct {
-	ID                string `json:"id"`
-	Deleted           bool   `json:"deleted"`
-	DisplayThemeReset bool   `json:"display_theme_reset"`
+	ID                   string                  `json:"id"`
+	Deleted              bool                    `json:"deleted"`
+	DisplayThemeReset    bool                    `json:"display_theme_reset"`
+	DisplayThemeSchedule []ThemeScheduleEntryDTO `json:"display_theme_schedule"`
 }
 
 type docSummaryDTO struct {
@@ -2239,6 +2279,7 @@ func newChatMessageDTO(m ChatMessage) chatMessageDTO {
 		Meta:        meta,
 		Attachments: attachments,
 		ReplyTo:     replyToFromMeta(meta),
+		DeletedTS:   m.DeletedTS,
 	}
 }
 
@@ -2290,6 +2331,7 @@ func newReplyCardDTO(c ReplyCard) replyCardDTO {
 		CreatedTS:     c.CreatedTS,
 		Attachments:   attachmentDTOsFromRefs(c.Attachments),
 		ChatMessageID: c.ChatMessageID,
+		Secret:        replyCardSecretDTOOf(c),
 	}
 	if c.Status == replyCardStatusExpired {
 		ts := c.ExpiredTS
@@ -2444,7 +2486,7 @@ type secretDTO struct {
 	LastAccessedTS *float64 `json:"last_accessed_ts"`
 }
 
-func newSecretDTO(s Secret) secretDTO {
+func newSecretDTO(s StoredSecret) secretDTO {
 	return secretDTO{
 		ID: s.ID, Name: s.Name, Note: s.Note,
 		CreatedTS: s.CreatedTS, UpdatedTS: s.UpdatedTS, LastAccessedTS: s.LastAccessedTS,

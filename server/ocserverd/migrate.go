@@ -45,9 +45,12 @@ func openSQLite(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+// secure_delete is an owner ruling: without it a deleted secret's ciphertext stays
+// in the database file until the page is reused, and vault.key sits next to it.
+// The WAL still holds the old frames until later writes replace them.
 func sqliteWriteDSN(path string) string {
 	return "file:" + path +
-		"?_pragma=busy_timeout(5000)&_pragma=journal_mode(" + sqliteJournalMode + ")&_txlock=immediate"
+		"?_pragma=busy_timeout(5000)&_pragma=journal_mode(" + sqliteJournalMode + ")&_pragma=secure_delete(on)&_txlock=immediate"
 }
 
 const sqliteJournalMode = "WAL"

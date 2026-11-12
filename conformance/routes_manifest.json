@@ -512,6 +512,27 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/chat/suggested-replies",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "PUT",
+    "path": "/api/chat/suggested-replies/{member_id}",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "DELETE",
+    "path": "/api/chat/{message_id}",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "create_reply_card",
     "method": "POST",
     "path": "/api/reply-cards",
@@ -579,6 +600,20 @@
     "method": "POST",
     "path": "/api/reply-cards/{card_id}/expire",
     "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/reply-cards/{card_id}/secret",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "PUT",
+    "path": "/api/reply-cards/{card_id}/snooze",
+    "requires": "owner"
   },
   {
     "auth": "gated",
@@ -1296,7 +1331,14 @@
   },
   {
     "auth": "gated",
-    "mcp_tool": "put_theme",
+    "mcp_tool": "import_theme",
+    "method": "POST",
+    "path": "/api/themes/import",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
     "method": "PUT",
     "path": "/api/themes/{theme_id}",
     "requires": "admin_agent"

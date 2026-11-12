@@ -4,6 +4,9 @@ import {
   nextSeasonalBoundary,
   parseLocalDateTime,
   scheduleFrom,
+  seasonalEntryProblem,
+  seasonalPickAt,
+  seasonalThemeIds,
 } from "./seasonalSchedule";
 
 const HARVEST = { id: "harvest", start: new Date(2030, 9, 24, 0, 0), end: new Date(2030, 10, 1, 0, 0) };
@@ -109,5 +112,96 @@ describe("nextSeasonalBoundary", () => {
 
   it("answers null once every boundary has passed", () => {
     expect(nextSeasonalBoundary(new Date(2030, 11, 27, 0, 0), windows)).toBeNull();
+  });
+});
+
+describe("seasonalEntryProblem", () => {
+  const base = { id: "harvest", start: "2030-10-24T00:00", end: "2030-11-01T00:00" };
+  const rows = [
+    { start: "06:00", theme: "harvest-day.theme.json" },
+    { start: "18:00", theme: "harvest-night.theme.json" },
+  ];
+
+  it("accepts a window with one theme file, or with 2 to 6 day parts", () => {
+    expect(seasonalEntryProblem({ ...base, theme: "harvest.theme.json" })).toBeNull();
+    expect(seasonalEntryProblem({ ...base, schedule: rows })).toBeNull();
+    expect(
+      seasonalEntryProblem({
+        ...base,
+        schedule: ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"].map((start) => ({
+          start,
+          theme: "harvest-day.theme.json",
+        })),
+      })
+    ).toBeNull();
+  });
+
+  it("refuses a window carrying both a theme and day parts, or neither", () => {
+    expect(seasonalEntryProblem({ ...base, theme: "harvest.theme.json", schedule: rows })).not.toBeNull();
+    expect(seasonalEntryProblem(base)).not.toBeNull();
+  });
+
+  it("refuses day parts that break the user schedule's rules", () => {
+    for (const schedule of [
+      [],
+      [rows[0]],
+      Array.from({ length: 7 }, (_, i) => ({ start: `0${i}:00`, theme: "harvest-day.theme.json" })),
+      [rows[0], { start: "06:00", theme: "harvest-night.theme.json" }],
+      [rows[0], { start: "24:00", theme: "harvest-night.theme.json" }],
+      [rows[0], { start: "6:00", theme: "harvest-night.theme.json" }],
+      [rows[0], { start: "18:00", theme: "harvest-night.json" }],
+      [rows[0], { start: "18:00", theme: "harvest-night.theme.json", end: "20:00" }],
+    ]) {
+      expect(seasonalEntryProblem({ ...base, schedule }), JSON.stringify(schedule)).not.toBeNull();
+    }
+  });
+});
+
+describe("seasonal day parts", () => {
+  const WINDOW = {
+    ...HARVEST,
+    schedule: [
+      { start: "06:00", theme: "harvest-day.theme.json" },
+      { start: "18:00", theme: "harvest-night.theme.json" },
+    ],
+  };
+
+  it("scheduleFrom keeps the day parts sorted by start instead of a theme file", () => {
+    expect(
+      scheduleFrom([
+        {
+          id: "harvest",
+          start: "2030-10-24T00:00",
+          end: "2030-11-01T00:00",
+          schedule: [WINDOW.schedule[1], WINDOW.schedule[0]],
+        },
+      ])
+    ).toEqual([{ ...HARVEST, schedule: WINDOW.schedule }]);
+  });
+
+  it("picks the day part by local time, its bundle id being the file's stem, and the previous evening's before the first start", () => {
+    expect(seasonalPickAt(new Date(2030, 9, 25, 12, 0), WINDOW)).toEqual({
+      id: "harvest-day",
+      file: "harvest-day.theme.json",
+    });
+    expect(seasonalPickAt(new Date(2030, 9, 25, 5, 59), WINDOW)).toEqual({
+      id: "harvest-night",
+      file: "harvest-night.theme.json",
+    });
+    expect(seasonalPickAt(new Date(2030, 9, 25, 12, 0), { ...HARVEST, theme: "harvest.theme.json" })).toEqual({
+      id: "harvest",
+      file: "harvest.theme.json",
+    });
+  });
+
+  it("names every bundle id a window can show", () => {
+    expect(seasonalThemeIds(WINDOW)).toEqual(["harvest-day", "harvest-night"]);
+    expect(seasonalThemeIds(HARVEST)).toEqual(["harvest"]);
+  });
+
+  it("nextSeasonalBoundary answers the next day part inside an open window, and ignores day parts of a closed one", () => {
+    expect(nextSeasonalBoundary(new Date(2030, 9, 25, 12, 0), [WINDOW])).toEqual(new Date(2030, 9, 25, 18, 0));
+    expect(nextSeasonalBoundary(new Date(2030, 9, 31, 20, 0), [WINDOW])).toEqual(HARVEST.end);
+    expect(nextSeasonalBoundary(new Date(2030, 9, 1, 12, 0), [WINDOW])).toEqual(HARVEST.start);
   });
 });

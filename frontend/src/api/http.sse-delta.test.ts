@@ -31,6 +31,21 @@ describe("toSseDelta", () => {
     expect(d.ids).toEqual(["cm-7", "m-1", "owner"]);
   });
 
+  it("carries a delete delta's deleted_ts, and only on chat", () => {
+    expect(toSseDelta("chat", { id: "cm-7", from: "owner", to: "m-1", deleted_ts: 1700000000.5 })).toEqual({
+      topic: "chat",
+      names: { id: "cm-7", from: "owner", to: "m-1" },
+      ids: ["cm-7", "owner", "m-1"],
+      deletedTs: 1700000000.5,
+    });
+    expect(toSseDelta("chat", { id: "cm-7", from: "owner", to: "m-1", deleted_ts: 0 })).toEqual({
+      topic: "chat",
+      names: { id: "cm-7", from: "owner", to: "m-1" },
+      ids: ["cm-7", "owner", "m-1"],
+    });
+    expect(toSseDelta("task", { id: "T-1", deleted_ts: 5 }).deletedTs).toBeUndefined();
+  });
+
   it("keeps WHO read and WHERE, but not the watermark itself", () => {
     const d = toSseDelta("chat_read", {
       reader: "owner",

@@ -210,6 +210,8 @@ export const en: Dict = {
     editTitle: "Edit secret",
     nameLabel: "Name",
     valueLabel: "Value",
+    showValue: "Show value",
+    hideValue: "Hide value",
     noteLabel: "Note",
     notePlaceholder: "What the AI should know when using it (optional)",
     valueKeepPlaceholder: "Leave blank to keep the current value",
@@ -649,6 +651,14 @@ export const en: Dict = {
     expiredTag: "Expired",
     expiredNote:
       "Expired without an answer; the member will re-ask if it still matters",
+    secretInputLabel: "What to hand to the member",
+    secretPlaceholder: "Paste the secret",
+    secretSend: "Send secret",
+    secretProvideError: "Sending failed. What you entered is still in the box; please send it again.",
+    secretProvidedTag: "Provided",
+    secretRetrievedTag: "Retrieved",
+    secretExpiredTag: "No longer valid",
+    secretExpiredNote: "There is nothing to retrieve; the member opens a new card if it is still needed",
     aiPick: "AI pick",
     // The line above the options: what KIND of card this is and, more
     // importantly, what a click DOES. A single-select click answers the card on
@@ -672,8 +682,39 @@ export const en: Dict = {
     quoteLabel: "Quoted",
     quoteCancel: "Remove the quote",
     viewTask: "View task details",
+    openTask: "View task",
     expandCard: "Expand this ask",
     collapseCard: "Collapse this ask",
+    sortLabel: "Sort by",
+    sortCreatedDesc: "Opened (newest first)",
+    sortCreatedAsc: "Opened (oldest first)",
+    sortPriority: "Task priority (high to low)",
+    sortDue: "Task due date (soonest first)",
+    filterPriorityNoun: "Task priority",
+    filterPriorityAll: "All task priorities",
+    filterPriorityNoTask: "No task",
+    filterDueNoun: "Task due",
+    filterDueAll: "Any task due date",
+    snooze: "Later",
+    snoozeInLead: "In",
+    snoozeHourOne: "hour",
+    snoozeHourMany: "hours",
+    snoozeDayOne: "day",
+    snoozeDayMany: "days",
+    snoozeBackLead: "Back",
+    snoozeBackTail: "",
+    snoozeApply: "Snooze",
+    snoozeAmountLabel: "How long",
+    snoozeUnitLabel: "Unit",
+    snoozeInvalid: "Enter a whole number, 1 or more",
+    snoozeTooFar: "90 days at most",
+    snoozeError: "Couldn't snooze. Please try again.",
+    snoozeStale: "This card was already answered or expired, so it can't be snoozed.",
+    snoozedTitle: "Snoozed",
+    snoozedHint: "Each comes back to Ask at its time",
+    unsnooze: "Bring back now",
+    unsnoozeError: "Couldn't bring it back. Please try again.",
+    unsnoozeStale: "This card was already answered or expired, so there is nothing to bring back.",
   },
   office: {
     membersTitle: "Office members",
@@ -1054,8 +1095,16 @@ export const en: Dict = {
   // ⚠️ The place name is NOT here: the nav tab's 「辦公室」 is nav.office and
   // stays overridable — a theme pack may rename the PLACE, never a THEME.
   themeIdentity: {
-    office: "Office (Dark)",
-    officeLight: "Office (Light)",
+    office: "Office · Dark (no background)",
+    officeLight: "Office · Light (no background)",
+    officeShort: "Dark",
+    officeLightShort: "Light",
+    deskDay: "Office · Morning light",
+    deskDayShort: "Morning light",
+    deskDusk: "Office · Dusk",
+    deskDuskShort: "Dusk",
+    deskNight: "Office · Night lamp",
+    deskNightShort: "Night lamp",
     newTheme: "New theme",
   },
   // ── The 內建 / 自訂 labels ─────────────────────────────────────────────────
@@ -1079,7 +1128,12 @@ export const en: Dict = {
     logout: "Log out",
     back: "Preferences",
     theme: "Theme",
-    themeManageHint: "Add & edit in Settings › Theme",
+    themeEntryLabelLead: "Theme: ",
+    themeEntryLabelTail: ", open theme settings",
+    themeEntryLabelTagLead: " (",
+    themeEntryLabelTagTail: ")",
+    themeEntryScheduled: "Scheduled",
+    themeEntrySeasonal: "Seasonal",
     themeAdd: "New",
     themeImport: "Import",
     themeExport: "Export",
@@ -1116,8 +1170,6 @@ export const en: Dict = {
     layoutNarrow: "Narrow",
     layoutWide: "Wide",
     seasonalTheme: "Show seasonal theme",
-    seasonalThemeOn: "On",
-    seasonalThemeOff: "Off",
     changePassword: "Change password",
     changePasswordSub: "The password you sign in to this console with",
     currentPasswordPlaceholder: "Current password",
@@ -1307,6 +1359,12 @@ export const en: Dict = {
     tasksLink: "See this member's unfinished tasks",
     roleSettingsLink: "Open this role's definition settings",
     galleryLabel: "Files & images",
+    suggestedRepliesLabel: "Suggested replies",
+    suggestedRepliesSub: "Sentences you can drop in with one tap when chatting with this member.",
+    suggestedRepliesEmpty: "No sentences just for this member yet.",
+    suggestedRepliesLoadError: "Couldn't load the suggested replies. Press the Suggested replies button in the header to try again.",
+    suggestedRepliesSaveError: "Suggested replies did not save. The list now shows what the server holds.",
+    suggestedRepliesClose: "Close",
     galleryTabImages: "Images",
     galleryTabFiles: "Files",
     galleryEmptyImages: "No images yet",
@@ -1419,6 +1477,18 @@ export const en: Dict = {
     // full-view overlay (a long answer is hard to read in the thread column).
     // Own messages do not carry it.
     expandMessage: "Open full view",
+    // Delete: only in the corner of the owner's own ordinary messages younger
+    // than 24 hours; it cannot be undone, so it asks first. deletedPlaceholder is
+    // the deleted row itself (click to open the original), deletedQuote the
+    // quote line of a reply to a deleted message. deleteFailed is used only
+    // when the server gave no reason.
+    deleteAction: "Delete",
+    deleteConfirmBody:
+      "Delete this message? The recipient will be told it was deleted; you can still open the original. This can't be undone.",
+    deleteConfirm: "Delete",
+    deleteFailed: "Couldn't delete the message. Try again later.",
+    deletedPlaceholder: "This message was deleted",
+    deletedQuote: "Deleted message",
     // T-4e95 reply-to-a-message: the per-row reply entry, the "replying to"
     // banner above the composer and its x, and the quote line that points a
     // message back at the one it answers.
@@ -2223,6 +2293,30 @@ export const en: Dict = {
     params: "Parameters",
     // ── theme management (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "Theme",
+    themeTabAppearance: "Appearance",
+    themeTabLibrary: "Theme library",
+    themeSchedule: "Switch by time of day",
+    themeDialogTitle: "Theme settings",
+    themeDialogClose: "Close",
+    themeRestoreDefault: "Restore default",
+    themeRestoreConfirm:
+      "Go back to the default appearance: switch by time of day (Office · Morning light at 06:00, Office · Dusk at 16:00 and Office · Night lamp at 18:30) and show seasonal themes; background animation on this device goes back to Auto. Your custom themes are kept.",
+    themeRestoreFailed: "Couldn't restore the default. Please try again.",
+    themePick: "Theme",
+    themeBgMotion: "Background animation",
+    themeBgMotionSub: "This device only. Auto: still on touch devices, playing on computers",
+    themeBgMotionAuto: "Auto",
+    themeBgMotionPlay: "Play",
+    themeBgMotionStill: "Still",
+    themeScheduleStart: "Starts at",
+    themeScheduleTheme: "Theme",
+    themeScheduleAdd: "Add a time slot",
+    themeScheduleRemove: "Remove this row",
+    themeScheduleSave: "Save",
+    themeScheduleSaved: "Saved.",
+    themeScheduleErrorStart: "Fill in every start time.",
+    themeScheduleErrorDuplicate: "Each start time must be different.",
+    themeScheduleSaveFailed: "Couldn't save. Please try again.",
     themeColorsSection: "Colours",
     themeColorOpacity: "Opacity",
     themeColorFollows: "follows",
@@ -2263,16 +2357,18 @@ export const en: Dict = {
     themeNavOffice: "Office icon",
     themeNavReplies: "Replies icon",
     themeNavTasks: "Tasks icon",
+    themeNavLore: "Lore icon",
+    themeNavSecrets: "Secrets icon",
     themeNavMonitor: "Monitor icon",
     themeNavGuide: "User guide icon",
     // ── outer-canvas background image (T-081b) ──
     themeCanvasBgSection: "Outer canvas",
     themeCanvasBgHint:
-      "Upload an image to lay over the background colour (PNG / JPEG / WEBP, max 512 KB); leave empty for the plain colour. Tile and Sides only paint the canvas beside the content column, so they are invisible on phones, in narrow windows, and in the wide layout; Cover fills the whole window.",
-    // The background has its own cap (512 KB), so it cannot reuse the shared
+      "Upload an image to lay over the background colour (PNG / JPEG / WEBP, max 1 MB); leave empty for the plain colour. Tile and Sides only paint the canvas beside the content column, so they are invisible on phones, in narrow windows, and in the wide layout; Cover fills the whole window.",
+    // The background has its own cap (1 MB), so it cannot reuse the shared
     // themeAvatarInvalid — that one says 64 KB, which is false here (T-72da).
     themeCanvasBgInvalid:
-      "Invalid image — only a PNG / JPEG / WEBP file up to 512 KB is accepted.",
+      "Invalid image — only a PNG / JPEG / WEBP file up to 1 MB is accepted.",
     themeCanvasBg: "Canvas tile",
     themeCanvasBgMode: "How to lay it down",
     themeCanvasBgModeTile: "Tile — repeat over the whole canvas",
@@ -2564,6 +2660,8 @@ export const en: Dict = {
     suggestedRepliesLoreMessage: "Lore-message suggestions",
     suggestedRepliesLoreMessageSub:
       "Sentences you can drop in with one tap when messaging a lore entry's writer.",
+    suggestedRepliesChat: "Chat suggestions",
+    suggestedRepliesChatSub: "Sentences you can drop in with one tap when chatting with any member.",
     suggestedReplyPlaceholder: "e.g. Got it, go ahead",
     suggestedReplyAdd: "Add a sentence",
     suggestedReplyRemove: "Remove this sentence",
@@ -2595,6 +2693,15 @@ export const en: Dict = {
     loreCapBody: "Lore body size cap",
     loreCapBodySub:
       "The longest body one lore entry may carry. An over-cap write is refused and stores nothing. May be lowered; stored entries are untouched.",
+    secretCardDurationUnit: "unit",
+    secretCardUnretrievedTtl: "Secret card: time to retrieve",
+    secretCardUnretrievedTtlSub:
+      "How long after you provide a value it waits for the member to retrieve it before it is deleted and the card lapses (1 minute to 30 days). Only affects values provided later.",
+    secretCardUnretrievedTtlRange: "Time to retrieve must be a whole number between 1 minute and 30 days",
+    secretCardRetention: "Secret card: kept after retrieval",
+    secretCardRetentionSub:
+      "How long a value stays after the member first retrieves it (0 seconds to 1 day). The member may retrieve it again until then; 0 deletes it at the first retrieval. Only affects later retrievals.",
+    secretCardRetentionRange: "Kept after retrieval must be a whole number between 0 seconds and 1 day",
     stepNoteCap: "Task step note size cap",
     stepNoteCapSub:
       "How many characters one task step's note may hold. It can be lowered as well as raised, and lowering it loses nothing already written.",

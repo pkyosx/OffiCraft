@@ -11,6 +11,7 @@ import {
   DUE_SOON_LEAD_MINUTES_MIN,
   effectiveLeadMinutes,
 } from "../lib/dueDate";
+import { REPLY_SNOOZE_MAX_SECONDS } from "../lib/replySnooze";
 import type {
   Member,
   MonitoringView,
@@ -75,6 +76,7 @@ import type {
   ReplyCard,
   ReplyCardRow,
   ReplyCardWriteReceipt,
+  ReplyCardSnoozeReceipt,
   ReplyCardAnswerInput,
   ReplyCardCounts,
   RolePatch,
@@ -192,6 +194,14 @@ import {
   STEP_NOTE_CAP_CHARS_MIN,
 } from "./stepNoteCap";
 import {
+  SECRET_CARD_RETRIEVED_RETENTION_SECS_DEFAULT,
+  SECRET_CARD_RETRIEVED_RETENTION_SECS_MAX,
+  SECRET_CARD_RETRIEVED_RETENTION_SECS_MIN,
+  SECRET_CARD_UNRETRIEVED_TTL_SECS_DEFAULT,
+  SECRET_CARD_UNRETRIEVED_TTL_SECS_MAX,
+  SECRET_CARD_UNRETRIEVED_TTL_SECS_MIN,
+} from "./secretCardSettings";
+import {
   LORE_CAP_CHARS_DEFAULTS,
   LORE_FOLD_CAP_CHARS_MIN,
   LORE_FOLD_CAP_CHARS_MAX,
@@ -205,11 +215,13 @@ import {
 } from "./backupRetain";
 import {
   SUGGESTED_REPLIES_LORE_MESSAGE_FIELD,
+  SUGGESTED_REPLIES_CHAT_FIELD,
   SUGGESTED_REPLIES_MAX_ENTRIES,
   SUGGESTED_REPLIES_REPLY_CARD_FIELD,
   SUGGESTED_REPLIES_TASK_MESSAGE_FIELD,
   SUGGESTED_REPLY_MAX_LEN,
   withSuggestedRepliesLoreMessage,
+  withSuggestedRepliesChat,
   withSuggestedRepliesReplyCard,
   withSuggestedRepliesTaskMessage,
 } from "./suggestedReplies";
@@ -263,6 +275,13 @@ import {
   MAX_CUSTOM_THEMES,
 } from "../lib/themeBundle";
 import type { ThemeBundle } from "../lib/themeBundle";
+import { isBuiltinTheme, isBundledBuiltinTheme } from "../lib/themeBundleCore";
+import {
+  DEFAULT_DISPLAY_THEME,
+  DEFAULT_THEME_SCHEDULE,
+  MIN_SCHEDULE_ENTRIES,
+  themeScheduleProblem,
+} from "../lib/themeSchedule";
 
 // The always-present server-self machine id (mirrors the server seed):
 // the warden for the host running the server itself — listed FIRST, is_self, NOT
@@ -997,6 +1016,11 @@ const INSIGHT_SEEDS: Record<string, string> = {
 // shows only the owner's own message. Fabricating an assistant reply here would
 // be as dishonest as a fake lastSeen for a never-online member.
 let chatLog: ChatMessage[] = [];
+// Ids of the delete notices (the server's meta.delete_notice). The owner's
+// thread reads send hide_delete_notices=true and the resume summary leaves them
+// out by default, so every read the mock twins here hides them.
+let mockDeleteNoticeIds = new Set<string>();
+const notDeleteNotice = (m: ChatMessage) => !mockDeleteNoticeIds.has(m.id);
 // The server keeps a reply's excerpt in the message's meta, which the mock's
 // ChatMessage view does not carry; keyed by the REPLYING message's id.
 let chatReplyExcerpts = new Map<string, string>();
@@ -1062,6 +1086,12 @@ let outsourceWorkers: OutsourceWorkerView[] = [];
 // The owner's chat-list groups; none on a fresh station.
 let chatGroups: ChatGroupView[] = [];
 let chatGroupSeq = 0;
+let chatSuggestedReplies = new Map<string, string[]>();
+/** Server parity (hasChatSuggestedReplies): anyone on the roster but a warden. */
+function hasChatSuggestedReplies(id: string): boolean {
+  if (outsourceWorkers.some((w) => w.id === id && w.status !== "released")) return true;
+  return wireMembers.some((m) => m.id === id && m.kind !== "warden" && m.roster_status !== "removed");
+}
 /** Server parity (belongsOnChatGroupTab): an active member of the tab's kind. */
 function onChatGroupTab(id: string, tab: ChatGroupView["tab"]): boolean {
   if (tab === "outsource") return outsourceWorkers.some((w) => w.id === id && w.status !== "released");
@@ -1522,12 +1552,65 @@ function findReplyCard(id: string): ReplyCard {
   return card;
 }
 
+/** Read-time join mirroring the server: a card's snooze shows only while the
+ * card waits and the time is still ahead. */
+function mockSnoozeOf(card: ReplyCard): number | null {
+  const until = card.snoozedUntilTs ?? null;
+  return card.status === "waiting" && until !== null && until > Date.now() / 1000
+    ? until
+    : null;
+}
+
+/** Read-time join mirroring the server's TaskRefDTO: the named task's CURRENT
+ * title, priority and due date, so a task edit shows on the next card read. A
+ * ref whose task is not in the mock store keeps what it was injected with. */
+function mockTaskRefOf(card: ReplyCard): ReplyCard["task"] {
+  const ref = card.task ?? null;
+  if (!ref) return null;
+  const live = tasks.find((x) => x.id === ref.id);
+  if (!live) {
+    return {
+      ...ref,
+      priority: ref.priority ?? "",
+      dueTs: ref.dueTs ?? null,
+      dueSoonLeadMinutes: ref.dueSoonLeadMinutes ?? null,
+    };
+  }
+  return {
+    ...ref,
+    title: live.title,
+    priority: live.priority,
+    dueTs: live.dueTs ?? null,
+    dueSoonLeadMinutes: live.dueSoonLeadMinutes ?? null,
+  };
+}
+
 /** Project a stored mock card down to what the three WRITES answer (T-91,
  * mirroring `ReplyCardReceiptDTO` through `toReplyCardWriteReceipt`). The mock
  * holds a whole card and could echo it — the point of narrowing here anyway is
  * that mock mode must not be able to render a field http mode will not have.
  * The wire receipt also carries `task_id` / `step_id`; the view type drops both
  * (nothing reads them), so there is nothing to build here for them. */
+function mockReleaseCardHold(id: string): void {
+  for (const task of tasks) {
+    const step = task.steps.find((st) => st.replyCardId === id);
+    if (!step) continue;
+    if (TERMINAL_TASK_STATUSES.has(task.status)) break; // orphan: closed task untouched
+    if (step.status === "waiting_owner") step.status = "in_progress";
+    const anotherWaiting = replyCards.some(
+      (c) =>
+        c.id !== id &&
+        c.status === "waiting" &&
+        task.steps.some((st) => st.replyCardId === c.id)
+    );
+    if (task.status === "waiting_owner" && !anotherWaiting) {
+      task.status = "in_progress";
+    }
+    emitTopic("task");
+    break;
+  }
+}
+
 function mockReplyCardWriteReceipt(card: ReplyCard): ReplyCardWriteReceipt {
   return structuredClone({
     id: card.id,
@@ -1580,6 +1663,17 @@ function mockReplyToChatOf(
   if (!replyTo) return null;
   const quoted = chatLog.find((m) => m.id === replyTo);
   if (!quoted) return null;
+  if ((quoted.deletedTs ?? 0) > 0) {
+    return {
+      id: quoted.id,
+      from: quoted.from,
+      fromName: "",
+      to: quoted.to,
+      toName: "",
+      content: "",
+      deleted: true,
+    };
+  }
   const oneLine = quoted.body.split(/\s+/).filter(Boolean).join(" ");
   // Cut by CODE POINT, not by `.length`. The server counts runes, and
   // String.prototype.length counts UTF-16 units — they agree on the CJK this
@@ -1603,6 +1697,7 @@ function mockReplyToChatOf(
         ? runes.slice(0, MOCK_REPLY_QUOTE_MAX_CHARS).join("") + "\u2026"
         : oneLine,
     ...(replyExcerpt ? { replyExcerpt } : {}),
+    deleted: false,
   };
 }
 
@@ -1614,8 +1709,13 @@ function mockServedChatMessage(m: ChatMessage): ChatMessage {
     ...m,
     replyCardStatus: mockReplyCardStatusOf(m.replyCardId),
     replyToChat: mockReplyToChatOf(m.replyTo, chatReplyExcerpts.get(m.id)),
+    deletedTs: m.deletedTs ?? 0,
+    taskId: m.taskId ?? null,
   };
 }
+
+/** Mirrors the server's `chatDeleteWindowSecs`. */
+const MOCK_CHAT_DELETE_WINDOW_SECS = 24 * 60 * 60;
 
 /** Terminal task statuses (spec: 已完成/終止 為終態) — shared by the mock's
  * count / terminate / priority guards (mirrors the server's closed-set rule). */
@@ -2318,6 +2418,8 @@ const DEFAULT_MOCK_SETTINGS = {
   chat_budget_chars: CHAT_BUDGET_CHARS_DEFAULT,
   // T-119 step-note cap, served for the same reason as everything above.
   step_note_cap_chars: STEP_NOTE_CAP_CHARS_DEFAULT,
+  secret_card_unretrieved_ttl_secs: SECRET_CARD_UNRETRIEVED_TTL_SECS_DEFAULT,
+  secret_card_retrieved_retention_secs: SECRET_CARD_RETRIEVED_RETENTION_SECS_DEFAULT,
   lore_cap_chars_role: LORE_CAP_CHARS_DEFAULTS.role,
   lore_cap_chars_manual: LORE_CAP_CHARS_DEFAULTS.manual,
   lore_cap_chars_title: LORE_CAP_CHARS_DEFAULTS.title,
@@ -2345,15 +2447,21 @@ const DEFAULT_MOCK_SETTINGS = {
   [SUGGESTED_REPLIES_REPLY_CARD_FIELD]: [] as string[],
   [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD]: [] as string[],
   [SUGGESTED_REPLIES_LORE_MESSAGE_FIELD]: [] as string[],
+  [SUGGESTED_REPLIES_CHAT_FIELD]: [] as string[],
   push_contact_email: "",
-  // Cockpit display prefs (T-0b41-p2) — "" out of the box, mirroring the server
-  // (the frontend keeps its localStorage cache / default until the owner picks).
-  display_theme: "",
+  // Cockpit display prefs — mirroring a fresh server: migration 00120 writes
+  // the desk default (display theme, schedule, seasonal on); the language is
+  // "" (the frontend keeps its localStorage cache / default).
+  display_theme: DEFAULT_DISPLAY_THEME as string,
   display_language: "",
   // Layout width (T-756f) — OFF out of the box, mirroring the server (the
   // cockpit ships with the narrow centred column).
   display_wide: false,
   display_seasonal_theme: true,
+  display_theme_schedule: DEFAULT_THEME_SCHEDULE.map((e) => ({ ...e })) as {
+    start: string;
+    theme: string;
+  }[],
   // The first-run onboarding report (T-ba62). Null in the mock and staying
   // that way: mock mode is a healthy studio, and a seeded FAILED report would
   // hang the "your studio is broken" banner over every mock page. Declared
@@ -3516,7 +3624,12 @@ const mockApiImpl = {
     const RESUME_TASKS_N = 5;
 
     const chatAll = chatLog
-      .filter((m) => m.from === memberId || m.to === memberId)
+      .filter(
+        (m) =>
+          (m.from === memberId || m.to === memberId) &&
+          !((m.deletedTs ?? 0) > 0) &&
+          notDeleteNotice(m),
+      )
       .sort((a, b) => a.ts - b.ts);
     // The cut point: whole messages this payload does NOT carry. TRUNCATION —
     // a different thing from a message that IS here with its body folded, and
@@ -3763,7 +3876,7 @@ const mockApiImpl = {
     // keyset predicate (ts < beforeTs OR (ts == beforeTs AND id < beforeId))
     // BEFORE the recent-window cap — the history page.
     let msgs = chatLog
-      .filter((m) => m.from === withId || m.to === withId)
+      .filter((m) => (m.from === withId || m.to === withId) && notDeleteNotice(m))
       .sort((a, b) => a.ts - b.ts || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     if (before) {
       msgs = msgs.filter(
@@ -3824,7 +3937,7 @@ const mockApiImpl = {
         422,
         "start_id is newer than end_id",
       );
-    let window = msgs.slice(lo, hi + 1);
+    let window = msgs.slice(lo, hi + 1).filter(notDeleteNotice);
     // Truncate at the START (older) end when both anchors are given — the
     // window stays anchored on `end_id`. With only `start_id` the anchor is the
     // OLD end, so the cap keeps the FIRST `limit`.
@@ -3865,7 +3978,10 @@ const mockApiImpl = {
     // HONEST: derived
     // solely from real logged messages — never a fabricated entry.
     const involved = chatLog
-      .filter((m) => m.from === withId || m.to === withId)
+      .filter(
+        (m) =>
+          (m.from === withId || m.to === withId) && !((m.deletedTs ?? 0) > 0),
+      )
       .sort((a, b) => b.ts - a.ts);
     return involved.flatMap((m) =>
       m.attachments.map((att) => ({
@@ -3996,6 +4112,66 @@ const mockApiImpl = {
     };
   },
 
+  async deleteChatMessage(id: string): Promise<ChatMessage> {
+    // Mirrors HandleDeleteChatMessageApiChatMessageIdDeletePost: same refusals
+    // in the same order, an already deleted message answers unchanged, and a
+    // fresh delete leaves the recipient a system notice replying to it.
+    const path = `http 409 for DELETE /api/chat/${id}`;
+    const m = chatLog.find((x) => x.id === id);
+    if (!m) {
+      throw mockApiError(
+        `http 404 for DELETE /api/chat/${id}`,
+        404,
+        `chat message '${id}' not found`,
+      );
+    }
+    if ((m.deletedTs ?? 0) > 0) return mockServedChatMessage(m);
+    if (m.from !== MOCK_OWNER_ID) {
+      throw mockApiError(
+        path,
+        409,
+        `chat message '${id}' was sent by '${m.from}' — only the owner's own messages can be deleted`,
+      );
+    }
+    if (m.taskId) {
+      throw mockApiError(
+        path,
+        409,
+        `chat message '${id}' is a message on task ${m.taskId} — task messages cannot be deleted`,
+      );
+    }
+    if (m.replyCardId) {
+      throw mockApiError(
+        path,
+        409,
+        `chat message '${id}' carries a reply card — expire the card instead; a card message cannot be deleted`,
+      );
+    }
+    const now = Date.now() / 1000;
+    if (now - m.ts >= MOCK_CHAT_DELETE_WINDOW_SECS) {
+      throw mockApiError(
+        path,
+        409,
+        `chat message '${id}' was sent more than 24 hours ago — only messages younger than 24 hours can be deleted`,
+      );
+    }
+    m.deletedTs = now;
+    const noticeId = `mock-delete-${Date.now()}-${++mockChatSeq}`;
+    mockDeleteNoticeIds.add(noticeId);
+    chatLog.push({
+      id: noticeId,
+      from: "system",
+      to: m.to,
+      body: `Owner 刪除了訊息 #${id}，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=${id} 讀回。`,
+      ts: now,
+      attachments: [],
+      replyCardId: null,
+      replyCardStatus: null,
+      replyTo: id,
+    });
+    return mockServedChatMessage(m);
+  },
+
   async listChatReads(peer: string): Promise<ChatReadReceipt[]> {
     // Receipts for this peer conversation (peer_id === peer). HONEST: the mock
     // only ever records the OWNER's own watermark (no fabricated member reply →
@@ -4006,6 +4182,36 @@ const mockApiImpl = {
 
   async getChatGroups(): Promise<ChatGroupView[]> {
     return readChatGroups();
+  },
+
+  async getChatSuggestedReplies(): Promise<Record<string, string[]>> {
+    return Object.fromEntries(
+      [...chatSuggestedReplies]
+        .filter(([id, replies]) => replies.length > 0 && hasChatSuggestedReplies(id))
+        .map(([id, replies]) => [id, [...replies]]),
+    );
+  },
+
+  async putChatSuggestedReplies(memberId: string, replies: string[]): Promise<string[]> {
+    // Server parity: the request-only checks in order, then the member.
+    const refuse = (message: string): never => {
+      throw mockApiError(`http 422 for PUT /api/chat/suggested-replies/${memberId}`, 422, message);
+    };
+    const stored = replies.map((v, i) => {
+      const text = v.trim();
+      if (text === "") refuse(`replies[${i}] is blank`);
+      if ([...text].length > SUGGESTED_REPLY_MAX_LEN) {
+        refuse(`replies must be at most ${SUGGESTED_REPLY_MAX_LEN} characters per entry`);
+      }
+      return text;
+    });
+    if (stored.length > SUGGESTED_REPLIES_MAX_ENTRIES) {
+      refuse(`replies must be at most ${SUGGESTED_REPLIES_MAX_ENTRIES} entries`);
+    }
+    if (!hasChatSuggestedReplies(memberId)) refuse(`member '${memberId}' is not an active member`);
+    chatSuggestedReplies.set(memberId, stored);
+    emitTopic("chat_suggested_reply");
+    return [...stored];
   },
 
   async putChatGroups(groups: ChatGroupWrite[]): Promise<ChatGroupView[]> {
@@ -4093,7 +4299,9 @@ const mockApiImpl = {
       createdTs: c.createdTs,
       answeredTs: c.answeredTs,
       expiredTs: c.expiredTs ?? null,
-      task: c.task ?? null,
+      task: mockTaskRefOf(c),
+      snoozedUntilTs: mockSnoozeOf(c),
+      secret: c.secret ?? null,
     });
     const cutoff = Date.now() / 1000 - 24 * 3600;
     if (status === "waiting") {
@@ -4123,7 +4331,12 @@ const mockApiImpl = {
     // The single-card read behind B3's inline chat card (mirrors
     // handle_get_reply_card): unknown id → 404. Clone so callers never mutate
     // mock state.
-    return structuredClone(findReplyCard(id));
+    const card = findReplyCard(id);
+    return structuredClone({
+      ...card,
+      task: mockTaskRefOf(card),
+      snoozedUntilTs: mockSnoozeOf(card),
+    });
   },
 
   async getReplyCardCount(): Promise<ReplyCardCounts> {
@@ -4132,8 +4345,14 @@ const mockApiImpl = {
     // count the 等我回覆 page uses for its collapsed header, matching the
     // listReplyCards("answered") window.
     const cutoff = Date.now() / 1000 - 24 * 3600;
+    const snoozes = replyCards
+      .map(mockSnoozeOf)
+      .filter((ts): ts is number => ts !== null);
     return {
-      waiting: replyCards.filter((c) => c.status === "waiting").length,
+      waiting: replyCards.filter(
+        (c) => c.status === "waiting" && mockSnoozeOf(c) === null
+      ).length,
+      waitingNextChangeTs: snoozes.length ? Math.min(...snoozes) : null,
       answered: replyCards.filter(
         (c) =>
           c.status === "answered" &&
@@ -4180,6 +4399,8 @@ const mockApiImpl = {
     card.status = "answered";
     card.answeredTs = stamp / 1000;
     card.answer = toStoredReplyAnswer(answer, stamp);
+    card.snoozedUntilTs = null;
+    if (card.secret) card.secret = { ...card.secret, state: "replied" };
     emitTopic("reply_card");
     return mockReplyCardWriteReceipt(card);
   },
@@ -4198,6 +4419,13 @@ const mockApiImpl = {
         `http 409 for PUT /api/reply-cards/${id}/answer`,
         409,
         `reply card '${id}' is not answered yet`
+      );
+    }
+    if (card.secret && card.secret.state !== "replied") {
+      throw mockApiError(
+        `http 409 for PUT /api/reply-cards/${id}/answer`,
+        409,
+        `reply card '${id}' holds a value the owner provided — it has no answer to re-decide`
       );
     }
     validateReplyAnswer(card, answer);
@@ -4222,34 +4450,102 @@ const mockApiImpl = {
     // follows unless another waiting card still holds it; a terminal task is
     // left untouched (the orphan exit).
     const card = findReplyCard(id);
-    if (card.status !== "waiting") {
+    const secret = card.secret;
+    const valueLive =
+      card.status === "answered" &&
+      !!secret &&
+      (secret.state === "provided" || (secret.state === "retrieved" && secret.expiresTs !== null));
+    if (card.status !== "waiting" && !valueLive) {
       throw mockApiError(
         `http 409 for POST /api/reply-cards/${id}/expire`,
         409,
         `reply card '${id}' is already ${card.status} — only a waiting card can expire`
       );
     }
+    if (valueLive && secret!.state === "retrieved") {
+      card.secret = { ...secret!, expiresTs: null };
+      emitTopic("reply_card");
+      return mockReplyCardWriteReceipt(card);
+    }
+    const wasWaiting = card.status === "waiting";
     card.status = "expired";
     card.expiredTs = Date.now() / 1000;
-    for (const task of tasks) {
-      const step = task.steps.find((st) => st.replyCardId === id);
-      if (!step) continue;
-      if (TERMINAL_TASK_STATUSES.has(task.status)) break; // orphan: closed task untouched
-      if (step.status === "waiting_owner") step.status = "in_progress";
-      const anotherWaiting = replyCards.some(
-        (c) =>
-          c.id !== id &&
-          c.status === "waiting" &&
-          task.steps.some((st) => st.replyCardId === c.id)
-      );
-      if (task.status === "waiting_owner" && !anotherWaiting) {
-        task.status = "in_progress";
-      }
-      emitTopic("task");
-      break;
-    }
+    card.snoozedUntilTs = null;
+    if (secret) card.secret = { ...secret, state: "expired", expiresTs: null };
+    if (wasWaiting) mockReleaseCardHold(id);
     emitTopic("reply_card");
     return mockReplyCardWriteReceipt(card);
+  },
+
+  async provideReplyCardSecret(id: string, value: string): Promise<ReplyCardWriteReceipt> {
+    // Mirrors handle_provide_reply_card_secret. 🔴 The mock keeps only the state:
+    // the value is dropped here, and nothing in mock mode can read it back.
+    const card = findReplyCard(id);
+    if (card.kind !== "secret") {
+      throw mockApiError(
+        `http 409 for POST /api/reply-cards/${id}/secret`,
+        409,
+        `reply card '${id}' is not a secret card`
+      );
+    }
+    if (card.status !== "waiting") {
+      throw mockApiError(
+        `http 409 for POST /api/reply-cards/${id}/secret`,
+        409,
+        `reply card '${id}' is ${card.status} — only a waiting secret card takes a value`
+      );
+    }
+    if (value === "") {
+      throw mockApiError(`http 400 for POST /api/reply-cards/${id}/secret`, 400, "value must not be empty");
+    }
+    if ([...value].length > 65536) {
+      throw mockApiError(
+        `http 400 for POST /api/reply-cards/${id}/secret`,
+        400,
+        "value is over the 65536-char limit"
+      );
+    }
+    const now = Date.now() / 1000;
+    card.status = "answered";
+    card.answeredTs = now;
+    card.answer = { optionIdxs: null, text: "", attachments: [] };
+    card.snoozedUntilTs = null;
+    card.secret = {
+      state: "provided",
+      providedTs: now,
+      retrievedTs: null,
+      expiresTs: now + (mockServerSettings.secret_card_unretrieved_ttl_secs ?? SECRET_CARD_UNRETRIEVED_TTL_SECS_DEFAULT),
+    };
+    mockReleaseCardHold(id);
+    emitTopic("reply_card");
+    return mockReplyCardWriteReceipt(card);
+  },
+
+  async snoozeReplyCard(
+    id: string,
+    untilTs: number | null
+  ): Promise<ReplyCardSnoozeReceipt> {
+    // Mirrors the server's snooze refusals, in its order: 404 → 409 → 422.
+    const path = `PUT /api/reply-cards/${id}/snooze`;
+    const card = findReplyCard(id);
+    if (card.status !== "waiting") {
+      throw mockApiError(
+        `http 409 for ${path}`,
+        409,
+        `reply card '${id}' is already ${card.status}`
+      );
+    }
+    const now = Date.now() / 1000;
+    if (untilTs !== null && (untilTs <= now || untilTs > now + REPLY_SNOOZE_MAX_SECONDS)) {
+      throw mockApiError(
+        `http 422 for ${path}`,
+        422,
+        "snoozed_until_ts must be later than now and at most 90 days ahead"
+      );
+    }
+    card.snoozedUntilTs = untilTs;
+    emitTopic("reply_card");
+    return { id, snoozedUntilTs: untilTs };
   },
 
   async listTasks(opts?: {
@@ -5033,6 +5329,7 @@ const mockApiImpl = {
       ts: stamp / 1000,
       attachments: [],
       replyCardId: null,
+      taskId: t.id,
     });
   },
 
@@ -6538,7 +6835,18 @@ const mockApiImpl = {
     // caller learns its theme changed without re-reading settings.
     const displayThemeReset = mockServerSettings.display_theme === id;
     if (displayThemeReset) mockServerSettings.display_theme = "";
-    return { id, deleted: true, displayThemeReset };
+    const left = mockServerSettings.display_theme_schedule.filter((e) => e.theme !== id);
+    const scheduleBefore = mockServerSettings.display_theme_schedule.length;
+    mockServerSettings.display_theme_schedule = left.length < MIN_SCHEDULE_ENTRIES ? [] : left;
+    if (displayThemeReset || mockServerSettings.display_theme_schedule.length !== scheduleBefore) {
+      emitTopic("settings");
+    }
+    return {
+      id,
+      deleted: true,
+      displayThemeReset,
+      displayThemeSchedule: structuredClone(mockServerSettings.display_theme_schedule),
+    };
   },
 
   async getServerSettings(): Promise<ServerSettingsView> {
@@ -6738,6 +7046,28 @@ const mockApiImpl = {
         `step_note_cap_chars must be between ${STEP_NOTE_CAP_CHARS_MIN} and ${STEP_NOTE_CAP_CHARS_MAX} characters`
       );
     }
+    if (
+      patch.secretCardUnretrievedTtlSecs !== undefined &&
+      (patch.secretCardUnretrievedTtlSecs < SECRET_CARD_UNRETRIEVED_TTL_SECS_MIN ||
+        patch.secretCardUnretrievedTtlSecs > SECRET_CARD_UNRETRIEVED_TTL_SECS_MAX)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        `secret_card_unretrieved_ttl_secs must be between ${SECRET_CARD_UNRETRIEVED_TTL_SECS_MIN} and ${SECRET_CARD_UNRETRIEVED_TTL_SECS_MAX} seconds`
+      );
+    }
+    if (
+      patch.secretCardRetrievedRetentionSecs !== undefined &&
+      (patch.secretCardRetrievedRetentionSecs < SECRET_CARD_RETRIEVED_RETENTION_SECS_MIN ||
+        patch.secretCardRetrievedRetentionSecs > SECRET_CARD_RETRIEVED_RETENTION_SECS_MAX)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        `secret_card_retrieved_retention_secs must be between ${SECRET_CARD_RETRIEVED_RETENTION_SECS_MIN} and ${SECRET_CARD_RETRIEVED_RETENTION_SECS_MAX} seconds`
+      );
+    }
     // T-33 傳承 knobs. TWO ranges, not one: the fold budgets are
     // document-sized and the entry bounds are sentence-sized, so a shared range
     // would either let a title grow into a document or stop a fold from holding
@@ -6810,6 +7140,7 @@ const mockApiImpl = {
       [SUGGESTED_REPLIES_REPLY_CARD_FIELD, patch.suggestedRepliesReplyCard],
       [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD, patch.suggestedRepliesTaskMessage],
       [SUGGESTED_REPLIES_LORE_MESSAGE_FIELD, patch.suggestedRepliesLoreMessage],
+      [SUGGESTED_REPLIES_CHAT_FIELD, patch.suggestedRepliesChat],
     ] as const) {
       if (list === undefined) continue;
       const entries = list.map((v) => v.trim()).filter((v) => v.length > 0);
@@ -6839,7 +7170,7 @@ const mockApiImpl = {
       throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        'display_theme must be "", office, office-light, or an existing custom theme id'
+        'display_theme must be "", a built-in theme id, or an existing custom theme id'
       );
     }
     if (
@@ -6929,6 +7260,12 @@ const mockApiImpl = {
     if (patch.stepNoteCapChars !== undefined) {
       mockServerSettings.step_note_cap_chars = patch.stepNoteCapChars;
     }
+    if (patch.secretCardUnretrievedTtlSecs !== undefined) {
+      mockServerSettings.secret_card_unretrieved_ttl_secs = patch.secretCardUnretrievedTtlSecs;
+    }
+    if (patch.secretCardRetrievedRetentionSecs !== undefined) {
+      mockServerSettings.secret_card_retrieved_retention_secs = patch.secretCardRetrievedRetentionSecs;
+    }
     if (patch.loreCapCharsRole !== undefined) {
       mockServerSettings.lore_cap_chars_role = patch.loreCapCharsRole;
     }
@@ -6973,6 +7310,14 @@ const mockApiImpl = {
       mockServerSettings = withSuggestedRepliesTaskMessage(
         mockServerSettings,
         patch.suggestedRepliesTaskMessage
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0),
+      );
+    }
+    if (patch.suggestedRepliesChat !== undefined) {
+      mockServerSettings = withSuggestedRepliesChat(
+        mockServerSettings,
+        patch.suggestedRepliesChat
           .map((v) => v.trim())
           .filter((v) => v.length > 0),
       );
@@ -7022,6 +7367,23 @@ const mockApiImpl = {
     if (patch.displaySeasonalTheme !== undefined) {
       mockServerSettings.display_seasonal_theme = patch.displaySeasonalTheme;
     }
+    if (patch.displayThemeSchedule !== undefined) {
+      const list = patch.displayThemeSchedule.map((e) => ({ start: e.start, theme: e.theme }));
+      if (themeScheduleProblem(list) !== null) {
+        throw mockApiError("http 422 for PATCH /api/settings", 422, "display_theme_schedule breaks a rule");
+      }
+      const missing = list.find(
+        (e) => !isBuiltinTheme(e.theme) && !isBundledBuiltinTheme(e.theme) && !mockThemes.has(e.theme)
+      );
+      if (missing) {
+        throw mockApiError(
+          "http 422 for PATCH /api/settings",
+          422,
+          `display_theme_schedule theme must be a built-in theme id or an existing custom theme id: "${missing.theme}"`
+        );
+      }
+      mockServerSettings.display_theme_schedule = list.sort((a, b) => (a.start < b.start ? -1 : 1));
+    }
     // onboarding_dismissed (T-0648) — server parity: the stamp lives ON the
     // report row, and only a `failed` report has a banner up to close. Every
     // other state is refused with 409, exactly as setOnboardingDismissed does:
@@ -7062,6 +7424,7 @@ const mockApiImpl = {
         dismissed_at: patch.onboardingDismissed ? Date.now() / 1000 : 0,
       };
     }
+    if (Object.values(patch).some((v) => v !== undefined)) emitTopic("settings");
     return toServerSettings(structuredClone(mockServerSettings));
   },
 
@@ -7776,6 +8139,13 @@ function afterMockForcedDisconnect(stillDown: () => boolean, land: () => void): 
 const MOCK_ACCELERATED_STOP_ALREADY_FORCED =
   "加速停止 has nothing to escalate — this member was already force-stopped (強制停止): its session was cut off and no wind-down is open";
 
+/** Test seam: a server whose owner never chose a theme and has no schedule —
+ * what a station looked like before the desk default. */
+export function __setMockNoAppearance(): void {
+  mockServerSettings.display_theme = "";
+  mockServerSettings.display_theme_schedule = [];
+}
+
 export function __resetMock(): void {
   // The ring is MUTATED by rotate/remove, so it belongs here: without this a
   // test that rotates leaves a two-key ring for whatever runs next, and the
@@ -7796,6 +8166,7 @@ export function __resetMock(): void {
   documentRows.clear();
   nextDocumentHistoryId = 1;
   chatLog = [];
+  mockDeleteNoticeIds = new Set();
   chatReplyExcerpts = new Map();
   chatReads.clear();
   replyCards = [];
@@ -7804,6 +8175,7 @@ export function __resetMock(): void {
   outsourceWorkers = [];
   chatGroups = [];
   chatGroupSeq = 0;
+  chatSuggestedReplies = new Map();
   taskManuals = structuredClone([...MOCK_TASK_MANUAL_SEEDS]);
   mockPasswordSet = true;
   mockPassword = "mock-password";
@@ -7848,10 +8220,33 @@ export function __injectMockChat(msg: ChatMessage): void {
   chatLog.push(msg);
 }
 
+// Test-only hook: the delete notices the mock stored. No owner read lists them
+// (they are hidden on every one), so this is how a test sees they were sent.
+export function __mockDeleteNotices(): ChatMessage[] {
+  return chatLog.filter((m) => !notDeleteNotice(m)).map(mockServedChatMessage);
+}
+
 // Test-only hook: land a reply card in the mock store, the way a live agent's
 // create_reply_card would arrive server-side. The mock UI itself never
 // fabricates an agent's ask (see the replyCards note) — this exists so tests
 // can exercise the answer / re-answer / badge seam against real store entries.
+// Test-only hook: the author retrieving a secret card's value, which in production
+// happens through `ocagent secret`, a door the cockpit does not have.
+export function __mockRetrieveSecretCard(id: string): void {
+  const card = findReplyCard(id);
+  if (!card.secret || card.secret.state !== "provided") return;
+  const now = Date.now() / 1000;
+  const retention =
+    mockServerSettings.secret_card_retrieved_retention_secs ?? SECRET_CARD_RETRIEVED_RETENTION_SECS_DEFAULT;
+  card.secret = {
+    ...card.secret,
+    state: "retrieved",
+    retrievedTs: now,
+    expiresTs: retention === 0 ? null : now + retention,
+  };
+  emitTopic("reply_card");
+}
+
 export function __injectMockReplyCard(card: ReplyCard): void {
   replyCards.push(card);
   emitTopic("reply_card");

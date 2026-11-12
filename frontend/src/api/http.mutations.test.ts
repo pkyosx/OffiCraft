@@ -21,6 +21,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { httpApi } from "./http";
 import { ApiError } from "./errors";
 import { codeForStatus } from "./errorCodes";
+import { watchSecretValue } from "../test/secretValueWatch";
 
 /** Still the shape `POST /api/roles` answers under `member` — that route was not
  * part of T-91 and still hands back the roster row it just created. */
@@ -117,6 +118,99 @@ describe("httpApi · PATCH bodies carry ONLY the supplied fields", () => {
   });
 });
 
+describe("httpApi · secret reply cards", () => {
+  it("provideReplyCardSecret posts the value and nothing else, and maps the receipt", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        id: "rc-1", status: "answered", answered_ts: 50, expired_ts: null,
+        answer: { option_idxs: null, text: "", attachments: [] }, task_id: "", step_id: "",
+      })
+    );
+    const placesHoldingValue = watchSecretValue("dummy-aaaaaaaaaaaa");
+    const receipt = await httpApi.provideReplyCardSecret("rc-1", "dummy-aaaaaaaaaaaa");
+    expect(placesHoldingValue()).toEqual([]);
+    vi.restoreAllMocks();
+    const { url, method, body } = await lastRequest();
+    expect(url).toBe("/api/reply-cards/rc-1/secret");
+    expect(method).toBe("POST");
+    expect(JSON.parse(String(body))).toEqual({ value: "dummy-aaaaaaaaaaaa" });
+    expect(receipt).toEqual({
+      id: "rc-1", status: "answered", answeredTs: 50, expiredTs: null,
+      answer: { optionIdxs: null, text: "", attachments: [] },
+    });
+  });
+
+  it("patchServerSettings sends the two durations under their wire names", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        owner_token_ttl: 86400, agent_token_ttl: 604800,
+        secret_card_unretrieved_ttl_secs: 120, secret_card_retrieved_retention_secs: 0,
+      })
+    );
+    const s = await httpApi.patchServerSettings({
+      secretCardUnretrievedTtlSecs: 120,
+      secretCardRetrievedRetentionSecs: 0,
+    });
+    const { body } = await lastRequest();
+    expect(JSON.parse(String(body))).toEqual({
+      secret_card_unretrieved_ttl_secs: 120,
+      secret_card_retrieved_retention_secs: 0,
+    });
+    expect(s.secretCardUnretrievedTtlSecs).toBe(120);
+    expect(s.secretCardRetrievedRetentionSecs).toBe(0);
+  });
+});
+
+describe("httpApi · theme schedule wire shape", () => {
+  it("patchServerSettings {displayThemeSchedule} sends {display_theme_schedule} only, and [] as []", async () => {
+    const schedule = [
+      { start: "07:00", theme: "office-light" },
+      { start: "19:00", theme: "dusk" },
+    ];
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ owner_token_ttl: 86400, agent_token_ttl: 604800, display_theme_schedule: schedule })
+    );
+    const s = await httpApi.patchServerSettings({ displayThemeSchedule: schedule });
+    expect(JSON.parse(String((await lastRequest()).body))).toEqual({ display_theme_schedule: schedule });
+    expect(s.displayThemeSchedule).toEqual(schedule);
+
+    await httpApi.patchServerSettings({ displayThemeSchedule: [] });
+    expect(JSON.parse(String((await lastRequest()).body))).toEqual({ display_theme_schedule: [] });
+  });
+
+  it("deleteTheme carries the schedule the server left, and nothing when an older server sends none", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        id: "dusk",
+        deleted: true,
+        display_theme_reset: false,
+        display_theme_schedule: [
+          { start: "07:00", theme: "office-light" },
+          { start: "19:00", theme: "office" },
+        ],
+      })
+    );
+    expect(await httpApi.deleteTheme("dusk")).toEqual({
+      id: "dusk",
+      deleted: true,
+      displayThemeReset: false,
+      displayThemeSchedule: [
+        { start: "07:00", theme: "office-light" },
+        { start: "19:00", theme: "office" },
+      ],
+    });
+
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ id: "dusk", deleted: true, display_theme_reset: false })
+    );
+    expect(await httpApi.deleteTheme("dusk")).toEqual({
+      id: "dusk",
+      deleted: true,
+      displayThemeReset: false,
+    });
+  });
+});
+
 describe("httpApi · activateMember body (MemberActivateDTO)", () => {
   it("sends the honest {} when no machineId is given", async () => {
     await httpApi.activateMember("m-1");
@@ -191,6 +285,11 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     // `limit=-1` pull. MUTANT: give this call `{ limit: -1 }` and these go red.
     expect(q.get("with")).toBe("m-1");
     expect(q.get("limit")).toBeNull();
+    // The owner's thread shows deleted rows as 「此訊息已刪除」, and the server
+    // lists them only on request.
+    expect(q.get("include_deleted")).toBe("true");
+    // …and leaves out the system notice a delete sends to the member.
+    expect(q.get("hide_delete_notices")).toBe("true");
     // T-48 removed ?peek= from the wire: GET /api/chat marks nothing read on
     // any path, so the opt-out has nothing to opt out of — which is also why
     // the `peekChat` twin of this method is gone. Asserting the parameter's
@@ -203,6 +302,37 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     // quietly ignored. Asserting its absence here is what catches that before
     // a user does.
     expect(q.get("caller_only")).toBeNull();
+  });
+
+  it("a scrollback page (listChat with `before`) still asks for deleted rows", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
+    await httpApi.listChat("m-1", 30, { beforeTs: 12.5, beforeId: "c-7" });
+    const { url } = await lastRequest();
+    const q = new URLSearchParams(url.split("?")[1] ?? "");
+    expect(q.get("before_ts")).toBe("12.5");
+    expect(q.get("before_id")).toBe("c-7");
+    expect(q.get("include_deleted")).toBe("true");
+    expect(q.get("hide_delete_notices")).toBe("true");
+  });
+
+  it("listChatWindow asks for deleted rows too, like every owner thread load", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
+    await httpApi.listChatWindow("m-1", { startId: "c-1" }, 30);
+    const { url } = await lastRequest();
+    const q = new URLSearchParams(url.split("?")[1] ?? "");
+    expect(q.get("start_id")).toBe("c-1");
+    expect(q.get("include_deleted")).toBe("true");
+    expect(q.get("hide_delete_notices")).toBe("true");
+  });
+
+  it("the unread probe asks for neither deleted rows nor hidden notices (the server refuses both pairs)", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
+    await httpApi.getFirstUnreadChat("m-1");
+    const { url } = await lastRequest();
+    const q = new URLSearchParams(url.split("?")[1] ?? "");
+    expect(q.get("unread")).toBe("true");
+    expect(q.get("include_deleted")).toBeNull();
+    expect(q.get("hide_delete_notices")).toBeNull();
   });
 
   it("listChat reads `messages` out of the T-48 envelope and ignores next_cursor", async () => {
@@ -293,6 +423,8 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
       replyCardStatus: null,
       replyTo: null,
       replyToChat: null,
+      deletedTs: 0,
+      taskId: null,
     });
   });
 
@@ -807,5 +939,22 @@ describe("httpApi · reply-card answer body (ReplyCardAnswerPostDTO)", () => {
       text: "",
       reply_excerpt: "哪幾條線",
     });
+  });
+
+  it("snoozes with PUT …/snooze carrying the absolute time, and unsnoozes with null", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ id: "rc-1", snoozed_until_ts: 1793000000 }),
+    );
+    expect(await httpApi.snoozeReplyCard("rc-1", 1793000000)).toEqual({
+      id: "rc-1",
+      snoozedUntilTs: 1793000000,
+    });
+    const snoozed = await lastRequest();
+    expect([snoozed.url, snoozed.method]).toEqual(["/api/reply-cards/rc-1/snooze", "PUT"]);
+    expect(JSON.parse(String(snoozed.body))).toEqual({ snoozed_until_ts: 1793000000 });
+
+    fetchMock.mockImplementation(async () => jsonResponse({ id: "rc-1", snoozed_until_ts: null }));
+    expect(await httpApi.snoozeReplyCard("rc-1", null)).toEqual({ id: "rc-1", snoozedUntilTs: null });
+    expect(JSON.parse(String((await lastRequest()).body))).toEqual({ snoozed_until_ts: null });
   });
 });

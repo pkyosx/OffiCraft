@@ -12,7 +12,7 @@
 // would stay green while it did.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, fireEvent, act, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { ThemeSettings } from "./ThemeSettings";
@@ -71,6 +71,11 @@ async function savedIds(): Promise<string[]> {
   return (await api.listThemes()).map((x) => x.id);
 }
 
+/** The 主題庫 block — theme names also appear as options in 外觀's select. */
+function library(utils: ReturnType<typeof render>) {
+  return within(utils.getByTestId("theme-library"));
+}
+
 async function renderManage() {
   let utils!: ReturnType<typeof render>;
   await act(async () => {
@@ -125,7 +130,7 @@ describe("ThemeSettings · import from a link", () => {
       "https://studio.example/api/chat/attachment/att-1?sig=abc"
     );
     // 2. …the theme is on the list…
-    expect(await utils.findByText("連結來的主題")).toBeTruthy();
+    expect(await library(utils).findByText("連結來的主題")).toBeTruthy();
     // 3. …and it actually LANDED on the server, which is the difference
     //    between "imported" and "rendered once". T-83ef: themes are their own
     //    resource, so this asks /api/themes rather than reading a field off
@@ -181,7 +186,7 @@ describe("ThemeSettings · import from a link", () => {
       fireEvent.click(okButton);
       await new Promise((r) => setTimeout(r, 0));
     });
-    expect(await ok.findByText("伺服器放行的主題")).toBeTruthy();
+    expect(await library(ok).findByText("伺服器放行的主題")).toBeTruthy();
     await waitFor(async () => {
       expect(await savedIds()).toContain("linked-2");
     });
