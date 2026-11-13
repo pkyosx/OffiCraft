@@ -2674,7 +2674,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		}
 	}
 
-	t.Run("an account every live member has left answers 200 with its last reading, not a stopped member's older one", func(t *testing.T) {
+	t.Run("an account a member moved away from answers 200 with that member's last reading until its window resets, then with the older unexpired report", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		now := time.Now().Unix()
 		report := func(id, account string, usedPct int, resetsAt int64) {
@@ -2717,6 +2717,38 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 					"elapsed_pct": apiAnyNumber,
 					"measured_at": apiAnyNumber,
 					"pace":        "ok",
+				}),
+				accountRow("team-claude", map[string]any{
+					"used_pct":    1,
+					"resets_at":   float64(now + 9000),
+					"elapsed_pct": apiAnyNumber,
+					"measured_at": apiAnyNumber,
+					"pace":        "ok",
+				}),
+			},
+		})
+
+		resetAt := float64(now - 60)
+		api.accountRateLimits.readings["shared-claude"]["kip"]["five_hour"] = rateLimitCandidate{
+			window:     map[string]any{"used_percentage": 80.0, "resets_at": resetAt},
+			resetAt:    resetAt,
+			measuredAt: resetAt - 60,
+		}
+
+		status, data = apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("after the reset want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{
+				accountRow("shared-claude", map[string]any{
+					"used_pct":    68,
+					"resets_at":   float64(now + 3000),
+					"elapsed_pct": apiAnyNumber,
+					"measured_at": float64(now - 3600),
+					"pace":        nil,
 				}),
 				accountRow("team-claude", map[string]any{
 					"used_pct":    1,
