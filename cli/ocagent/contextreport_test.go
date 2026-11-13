@@ -289,6 +289,13 @@ func TestCmdContextReport(t *testing.T) {
 		if got, want := report("family-game", 1100, idleMaxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
 			t.Errorf("an idle session after the re-login sent\n  %q\nwant\n  %q", got, want)
 		}
+		const maxCallAfterRelogin = `{"rate_limits":{"five_hour":{"used_percentage":7,"resets_at":1792000000},` +
+			`"seven_day":{"used_percentage":99,"resets_at":1792648800}}}`
+		maxAfterReloginRL := `"rate_limits":{"five_hour":{"used_percentage":7,"resets_at":1792000000},` +
+			`"seven_day":{"used_percentage":99,"resets_at":1792648800}}`
+		if got, want := report("family-game", 1150, maxCallAfterRelogin), telemetry(maxAfterReloginRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
+			t.Errorf("a call still on the previous credentials sent\n  %q\nwant\n  %q", got, want)
+		}
 		if got, want := report("family-game", 1200, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
 			t.Errorf("the same session after its next call sent\n  %q\nwant\n  %q", got, want)
 		}

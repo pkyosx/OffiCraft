@@ -2674,6 +2674,61 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		}
 	}
 
+	t.Run("an account every live member has left answers 200 with its last reading, not a stopped member's older one", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		now := time.Now().Unix()
+		report := func(id, account string, usedPct int, resetsAt int64) {
+			t.Helper()
+			token := apiTestAgentToken(t, api, id, "m-server-self")
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", token,
+				`{"runtime":"claude","account":"`+account+`",`+
+					`"rate_limits":{"five_hour":{"used_percentage":`+strconv.Itoa(usedPct)+
+					`,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`); status != 200 {
+				t.Fatalf("%s telemetry: want 200, got %d (%v)", id, status, data)
+			}
+		}
+		report("mira", "shared-claude", 68, now+3000)
+		ageRateLimits(api, "mira", float64(now)-3600)
+		report("kip", "shared-claude", 80, now+3000)
+		report("kip", "team-claude", 1, now+9000)
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		accountRow := func(account string, fiveHour map[string]any) map[string]any {
+			return map[string]any{
+				"account":       account,
+				"display_name":  account,
+				"machine":       "m-server-self",
+				"cost":          nil,
+				"five_hour":     fiveHour,
+				"seven_day":     nil,
+				"limit_reached": nil,
+			}
+		}
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{
+				accountRow("shared-claude", map[string]any{
+					"used_pct":    80,
+					"resets_at":   float64(now + 3000),
+					"elapsed_pct": apiAnyNumber,
+					"measured_at": apiAnyNumber,
+					"pace":        "ok",
+				}),
+				accountRow("team-claude", map[string]any{
+					"used_pct":    1,
+					"resets_at":   float64(now + 9000),
+					"elapsed_pct": apiAnyNumber,
+					"measured_at": apiAnyNumber,
+					"pace":        "ok",
+				}),
+			},
+		})
+	})
+
 	t.Run("a fresh report and an older one with a later reset answer 200 with the fresh report's window", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		now := time.Now().Unix()

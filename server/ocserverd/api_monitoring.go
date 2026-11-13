@@ -825,6 +825,10 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	}
 	pairingBefore := modelCallPairingOf(entry)
 	applyAccountReport(entry, body.Account, body.AccountLabel, runtime)
+	if body.RateLimits != nil {
+		account, _ := entry["account"].(string)
+		s.accountRateLimits.Record(agentID, account, rateLimits, rateLimitStampOf(entry), nowSecs())
+	}
 	// The account accumulator is fed HERE and nowhere else (T-53, owner ruling
 	// rc-5c5d7c7c6dcd), and AFTER applyAccountReport so the increase is credited
 	// to the account this report proved.
@@ -1362,6 +1366,14 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 				rlCandidates[account][windowKey] = append(rlCandidates[account][windowKey],
 					rateLimitCandidate{window: window, resetAt: resetAt, measuredAt: rateLimitStampOf(entry)})
 			}
+		}
+	}
+	for account, byWindow := range s.accountRateLimits.LeftBehind(telemetry, now) {
+		if rlCandidates[account] == nil {
+			rlCandidates[account] = map[string][]rateLimitCandidate{}
+		}
+		for windowKey, candidates := range byWindow {
+			rlCandidates[account][windowKey] = append(rlCandidates[account][windowKey], candidates...)
 		}
 	}
 	freshRL := map[string]map[string]any{}
