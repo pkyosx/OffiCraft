@@ -38,7 +38,7 @@
     {
       "id": "ocagent-model-call-failure",
       "source": "cli/ocagent/modelcallreport.go",
-      "callsite": "postModelCall(client, cfg, newModelCallBody(env, report), errOut)",
+      "callsite": "postModelCall(client, cfg, newModelCallBody(cfg, env, report), errOut)",
       "kind": "json",
       "method": "post",
       "path": "/api/monitoring/telemetry",
@@ -50,7 +50,7 @@
     {
       "id": "ocagent-model-call-stop-success",
       "source": "cli/ocagent/modelcallreport.go",
-      "callsite": "if postModelCall(client, cfg, newModelCallBody(env, modelCallReport{LastSuccessTs: &success}), errOut) {",
+      "callsite": "if postModelCall(client, cfg, newModelCallBody(cfg, env, modelCallReport{LastSuccessTs: &success}), errOut) {",
       "kind": "json",
       "method": "post",
       "path": "/api/monitoring/telemetry",

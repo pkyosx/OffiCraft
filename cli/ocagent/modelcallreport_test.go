@@ -353,6 +353,27 @@ func TestCmdModelCallReport(t *testing.T) {
 		}
 	})
 
+	t.Run("a report after a re-login names the account the session's windows were measured on", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+		var out, errOut bytes.Buffer
+		cmdContextReport(&fakeHTTP{status: 200, body: "{}"}, cfg, env, 1000,
+			strings.NewReader(`{"rate_limits":{"seven_day":{"used_percentage":99,"resets_at":1794769200}}}`), &out, &errOut)
+		reloggedEnv := testEnv(map[string]string{
+			"HOME":    writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-2","organizationUuid":"org-2"}}`),
+			"OC_HOST": "lab-1",
+		})
+
+		cmdModelCallReport(srv.Client(), cfg, reloggedEnv, 1100,
+			strings.NewReader(stopFailureInput("server_error", fixturePath(t, "sample-other-errors.jsonl"))), &errOut)
+
+		want := `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
+			`"machine":"lab-1","model_call":{"last_failure":{"ts":1100,"kind":"server","code":"server_error","resets_at":null}}}`
+		if len(*posts) != 1 || (*posts)[0].body != want {
+			t.Errorf("sent %+v, want one body %s", *posts, want)
+		}
+	})
+
 	t.Run("an unreadable account is omitted, never sent blank", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)

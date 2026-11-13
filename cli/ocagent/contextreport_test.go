@@ -254,7 +254,8 @@ func TestCmdContextReport(t *testing.T) {
 	})
 
 	t.Run("windows measured before a re-login stay on the account that measured them", func(t *testing.T) {
-		const maxWindow = `{"rate_limits":{"seven_day":{"used_percentage":41,"resets_at":1792648800}}}`
+		const maxWindow = `{"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":1791990000},` +
+			`"seven_day":{"used_percentage":41,"resets_at":1792648800}}}`
 		const enterpriseWindow = `{"rate_limits":{"seven_day":{"used_percentage":3,"resets_at":1793000000}}}`
 		const maxLogin = `{"oauthAccount":{"accountUuid":"au-max","organizationUuid":"org-max",` +
 			`"emailAddress":"seth@x.io","organizationName":"Max"}}`
@@ -275,7 +276,8 @@ func TestCmdContextReport(t *testing.T) {
 			return []string{`POST /api/monitoring/telemetry {"runtime":"claude",` + window +
 				`,"account":"` + account + `","account_label":"` + label + `","machine":"m-server-self"}`}
 		}
-		maxRL := `"rate_limits":{"seven_day":{"used_percentage":41,"resets_at":1792648800}}`
+		maxRL := `"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":1791990000},` +
+			`"seven_day":{"used_percentage":41,"resets_at":1792648800}}`
 		entRL := `"rate_limits":{"seven_day":{"used_percentage":3,"resets_at":1793000000}}`
 
 		if got, want := report("family-game", 1000, maxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
@@ -288,6 +290,13 @@ func TestCmdContextReport(t *testing.T) {
 		idleMaxWindow := strings.Replace(maxWindow, "{", `{"cost":{"total_duration_ms":90000},`, 1)
 		if got, want := report("family-game", 1100, idleMaxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
 			t.Errorf("an idle session after the re-login sent\n  %q\nwant\n  %q", got, want)
+		}
+		const maxCallAfterRelogin = `{"rate_limits":{"five_hour":{"used_percentage":7,"resets_at":1792000000},` +
+			`"seven_day":{"used_percentage":99,"resets_at":1792648800}}}`
+		maxAfterReloginRL := `"rate_limits":{"five_hour":{"used_percentage":7,"resets_at":1792000000},` +
+			`"seven_day":{"used_percentage":99,"resets_at":1792648800}}`
+		if got, want := report("family-game", 1150, maxCallAfterRelogin), telemetry(maxAfterReloginRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
+			t.Errorf("a call still on the previous credentials sent\n  %q\nwant\n  %q", got, want)
 		}
 		if got, want := report("family-game", 1200, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
 			t.Errorf("the same session after its next call sent\n  %q\nwant\n  %q", got, want)
