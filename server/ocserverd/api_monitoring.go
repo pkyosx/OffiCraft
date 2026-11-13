@@ -1033,9 +1033,9 @@ type rateLimitCandidate struct {
 // Among fresh reports the later resets_at wins: right after a window rolls
 // over, idle members still report the previous period. Freshness comes first,
 // and with no fresh report the latest measurement wins, because a window can
-// carry the wrong account tag (a reporter that tags by the machine-wide login
-// file reports the previous account's window under the new name after a
-// re-login), and its later resets_at would otherwise win until it expires.
+// carry the wrong account tag (around a re-login a reporter can name the new
+// account for a reading still taken on the old one), and its later resets_at
+// would otherwise win until it expires.
 func pickRateLimitWindow(candidates []rateLimitCandidate, now float64) rateLimitCandidate {
 	fresh := make([]rateLimitCandidate, 0, len(candidates))
 	for _, c := range candidates {
