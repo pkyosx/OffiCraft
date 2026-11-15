@@ -16356,7 +16356,7 @@
     },
     "/api/events": {
       "get": {
-        "description": "- Owner-scoped SSE stream of change deltas; an unauthenticated request is a 401.\n- A delta only names the topic that changed — refetch it. Deltas are NOT merged in place.\n- Heartbeat comments keep the connection warm; reconnect and replay are the client's concern.",
+        "description": "- Owner-scoped SSE stream of change deltas; an unauthenticated request is a 401.\n- A delta only names the topic that changed — refetch it. Deltas are NOT merged in place.\n- Every 15s a quiet stream gets a heartbeat: a named `heartbeat` event on owner connections (so the browser can detect a stalled stream), a comment on agent connections. Reconnect and replay are the client's concern.",
         "operationId": "handle_events_api_events_get",
         "responses": {
           "200": {

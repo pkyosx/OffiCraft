@@ -92,14 +92,21 @@ class SSEConnection:
     def _emit(self, raw: str) -> None:
         event: dict[str, Any] = {"comment": None, "id": None, "data": None}
         data_lines: list[str] = []
+        event_name = None
         for line in raw.split("\n"):
-            if line.startswith(":"):
+            if line.startswith("event:"):
+                event_name = line[6:].strip()
+            elif line.startswith(":"):
                 event["comment"] = line[1:].strip()
             elif line.startswith("id:"):
                 event["id"] = line[3:].strip()
             elif line.startswith("data:"):
                 data_lines.append(line[5:].lstrip())
-        if data_lines:
+        if event_name == "heartbeat":
+            # Owner streams carry the heartbeat as a named event with `data: {}`;
+            # every reader here treats data=None as "not a delta", so fold it back.
+            event["comment"] = "heartbeat"
+        elif data_lines:
             event["data"] = "\n".join(data_lines)
         self.events.put(event)
 

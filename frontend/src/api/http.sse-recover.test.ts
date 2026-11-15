@@ -125,15 +125,44 @@
 // it has to be anchored to something it does not itself define.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { renderHook, act } from "@testing-library/react";
 import {
   httpApi,
   SSE_RESYNC_TOPICS,
   sseConnectionState,
   SSE_PROBE_TIMEOUT_MS,
+  SSE_STALL_TIMEOUT_MS,
   __resetSseDownlinkForTests,
 } from "./http";
 import { AUTH_EXPIRED_EVENT } from "./client";
 import { TOKEN_KEY } from "./auth";
+import { useMembers } from "../hooks/useMembers";
+import { useChat } from "../hooks/useChat";
+
+const hookApi = vi.hoisted(() => ({
+  listMembers: vi.fn(async () => [
+    {
+      id: "m-open",
+      name: "m-open",
+      status: "active",
+      lifecycle: "online",
+      unreadCount: 0,
+    },
+  ]),
+  getMember: vi.fn(async () => {
+    throw new Error("no per-item read expected");
+  }),
+  listChat: vi.fn(async () => []),
+  listChatReads: vi.fn(async () => []),
+  listChatWindow: vi.fn(async () => []),
+  getFirstUnreadChat: vi.fn(async () => null),
+  markChatRead: vi.fn(async () => undefined),
+}));
+
+vi.mock("./index", async () => {
+  const { httpApi: real } = await import("./http");
+  return { api: { ...hookApi, subscribeEvents: real.subscribeEvents } };
+});
 
 // WHATWG EventSource readyState (HTML §9.2). 🔴 CORRECTED round 4: this file
 // used to declare `CONNECTING = 1` and set `readyState = 0 // OPEN` in `open()`
@@ -154,9 +183,19 @@ class FakeEventSource {
   onmessage: ((e: MessageEvent) => void) | null = null;
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
+  private listeners = new Map<string, ((e: MessageEvent) => void)[]>();
   constructor(url: string) {
     this.url = url;
     FakeEventSource.instances.push(this);
+  }
+  addEventListener(type: string, cb: (e: MessageEvent) => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), cb]);
+  }
+  /** The server's named `event: heartbeat` frame. */
+  heartbeat(): void {
+    for (const cb of this.listeners.get("heartbeat") ?? []) {
+      cb({ type: "heartbeat", data: "{}" } as MessageEvent);
+    }
   }
   close(): void {
     this.closed = true;
@@ -226,6 +265,7 @@ beforeEach(() => {
   });
   vi.useFakeTimers();
   localStorage.setItem(TOKEN_KEY, "test-owner-jwt");
+  for (const fn of Object.values(hookApi)) fn.mockClear();
 });
 
 afterEach(() => {
@@ -288,6 +328,64 @@ describe("httpApi · SSE downlink recovery from a PERMANENT failure", () => {
 
     latest().open();
     expect(seen).toEqual([...SSE_RESYNC_TOPICS]);
+    off();
+  });
+
+  it("an OPEN stream that delivers nothing past the stall timeout is rebuilt, and its first open refetches the roster and the open chat", async () => {
+    const view = renderHook(() => ({
+      members: useMembers(),
+      chat: useChat("m-open"),
+    }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const stalled = FakeEventSource.instances[0];
+    act(() => stalled.open());
+    expect(hookApi.listMembers).toHaveBeenCalled();
+    expect(hookApi.listChat).toHaveBeenCalled();
+    hookApi.listMembers.mockClear();
+    hookApi.listChat.mockClear();
+
+    await act(() => vi.advanceTimersByTimeAsync(SSE_STALL_TIMEOUT_MS - 1000));
+    expect(stalled.closed).toBe(false);
+
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(stalled.closed).toBe(true);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(hookApi.listMembers).not.toHaveBeenCalled();
+
+    act(() => latest().open());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(hookApi.listMembers).toHaveBeenCalled();
+    expect(hookApi.listChat).toHaveBeenCalled();
+    expect(sseConnectionState()).toBe("live");
+    view.unmount();
+  });
+
+  it("heartbeats keep an otherwise silent stream alive without any refetch or reconnect", async () => {
+    const seen: string[] = [];
+    const off = httpApi.subscribeEvents((t) => seen.push(t));
+    const view = renderHook(() => ({
+      members: useMembers(),
+      chat: useChat("m-open"),
+    }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const es = FakeEventSource.instances[0];
+    act(() => es.open());
+    hookApi.listMembers.mockClear();
+    hookApi.listChat.mockClear();
+
+    for (let i = 0; i < 8; i++) {
+      await act(() => vi.advanceTimersByTimeAsync(15_000));
+      act(() => es.heartbeat());
+    }
+
+    expect(8 * 15_000).toBeGreaterThan(SSE_STALL_TIMEOUT_MS);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(es.closed).toBe(false);
+    expect(seen).toEqual([]);
+    expect(hookApi.listMembers).not.toHaveBeenCalled();
+    expect(hookApi.listChat).not.toHaveBeenCalled();
+    expect(probeCalls).toBe(0);
+    view.unmount();
     off();
   });
 

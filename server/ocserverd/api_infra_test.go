@@ -412,6 +412,46 @@ func TestHandleEventsApiEventsGet(t *testing.T) {
 		})
 	}
 
+	t.Run("a quiet owner stream is sent a named heartbeat event and a quiet agent stream the heartbeat comment, once per heartbeat period", func(t *testing.T) {
+		period := 400 * time.Millisecond
+		saved := sseHeartbeat
+		sseHeartbeat = period
+		t.Cleanup(func() { sseHeartbeat = saved })
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		const ownerBeat = "event: heartbeat\ndata: {}\n\n"
+		const agentBeat = ": heartbeat\n\n"
+
+		opened := time.Now()
+		ownerStream := apiEventsStream(t, h, owner, "")
+		agentStream := apiEventsStream(t, h, agent, "")
+		beats := func(c *apiEventStream, frame string, n int) time.Time {
+			t.Helper()
+			deadline := time.Now().Add(10 * time.Second)
+			for strings.Count(c.text(), frame) < n {
+				if time.Now().After(deadline) {
+					t.Fatalf("want %d × %q on the stream, got %q", n, frame, c.text())
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			return time.Now()
+		}
+		first := beats(ownerStream, ownerBeat, 1)
+		second := beats(ownerStream, ownerBeat, 2)
+		beats(agentStream, agentBeat, 2)
+
+		if first.Sub(opened) < period || second.Sub(first) < period {
+			t.Fatalf("heartbeats must be a period (%v) apart: first after %v, second after %v more",
+				period, first.Sub(opened), second.Sub(first))
+		}
+		if want := ": connected\n\n" + ownerBeat + ownerBeat; !strings.HasPrefix(ownerStream.text(), want) {
+			t.Fatalf("owner stream: want it to start %q, got %q", want, ownerStream.text())
+		}
+		if got := agentStream.text(); strings.Contains(got, "event: heartbeat") {
+			t.Fatalf("an agent stream must not be sent the named heartbeat, got %q", got)
+		}
+	})
+
 	t.Run("a request body is ignored, so even a malformed one still opens the stream", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 

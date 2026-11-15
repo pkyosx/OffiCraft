@@ -20,8 +20,20 @@
   `Cache-Control: no-cache` and `X-Accel-Buffering: no` headers.
 - The stream MUST begin with the comment line `: connected\n\n`.
 - **Heartbeat**: whenever the stream has been quiet for **15 seconds**, the server MUST emit
-  the comment `: heartbeat\n\n`. The 0.25 s internal poll cadence is an implementation detail; the 15 s heartbeat period is contract (client
-  watchdogs and proxies are tuned to it).
+  a heartbeat. The 0.25 s internal poll cadence is an implementation detail; the 15 s heartbeat period is contract (client
+  watchdogs and proxies are tuned to it). Its form depends on the connection:
+  - an **owner** connection (no member identity — the browser cockpit) gets the NAMED event
+    `event: heartbeat\ndata: {}\n\n`. A comment never reaches `EventSource` script, so a
+    comment cannot prove liveness to a browser; a named event never reaches `onmessage`, so it
+    is not a delta and MUST NOT cause a refetch.
+  - an **agent / warden** connection keeps the comment `: heartbeat\n\n`. Their parsers ignore
+    `event:` and dispatch every `data:` line as a frame, so they MUST NOT be sent the named
+    form.
+- **Client stall watchdog** (browser): any received event (heartbeat, delta, or the open)
+  counts as liveness. If nothing has arrived for **45 s** (3 heartbeats) on a stream that is
+  not CLOSED, the client treats it as half-open — `EventSource` has no read timeout, and a
+  dead path can stay OPEN indefinitely — closes it and rebuilds through the same path as a
+  permanent failure (§2.1), so the rebuilt stream's first open full-resyncs.
 - One connection serves exactly one owner scope (the token's owner); a listener MUST receive
   only frames addressed to its owner (or a system broadcast, §4).
 
