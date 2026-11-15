@@ -1307,7 +1307,7 @@ export interface paths {
          * SSE delta stream (owner-scoped fan-out; reconcile-by-refetch).
          * @description - Owner-scoped SSE stream of change deltas; an unauthenticated request is a 401.
          *     - A delta only names the topic that changed — refetch it. Deltas are NOT merged in place.
-         *     - Heartbeat comments keep the connection warm; reconnect and replay are the client's concern.
+         *     - Every 15s a quiet stream gets a heartbeat: a named `heartbeat` event on owner connections (so the browser can detect a stalled stream), a comment on agent connections. Reconnect and replay are the client's concern.
          */
         get: operations["handle_events_api_events_get"];
         put?: never;
