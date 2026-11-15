@@ -3410,7 +3410,7 @@ export const httpApi: Api = {
         // The whole teardown happens BEFORE the "idle" broadcast; measured, a
         // listener throwing on "idle" used to leave the EventSource open and the
         // foreground listeners attached. Same status as the ordering in
-        // `es.onerror` above, including the same expiry condition: no test can
+        // `abandonSseSource` above, including the same expiry condition: no test can
         // separate this from the reverse order WHILE `setSseState` isolates its
         // callbacks, and it becomes the only defence — and so test-worthy — the
         // moment that isolation goes.
