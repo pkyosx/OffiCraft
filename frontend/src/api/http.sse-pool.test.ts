@@ -19,6 +19,7 @@ class FakeEventSource {
   closed = false;
   onmessage: ((e: MessageEvent) => void) | null = null;
   onopen: (() => void) | null = null;
+  addEventListener(): void {}
   constructor(url: string) {
     this.url = url;
     FakeEventSource.instances.push(this);

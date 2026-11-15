@@ -423,6 +423,37 @@ let sseRetryAttempt = 0;
  * one costs data nobody knows is missing, so the tie breaks toward resyncing. */
 let sseGapPending = false;
 
+/** No bytes for this long (3 server heartbeats, spec/sse.md §1) on a stream
+ * that is not CLOSED ⇒ treat it as half-open and rebuild it. EventSource has no
+ * read timeout of its own, so without this a dead path stays OPEN forever. */
+export const SSE_STALL_TIMEOUT_MS = 45_000;
+const SSE_STALL_CHECK_MS = 5_000;
+let sseLastDataAt = 0;
+let sseStallTimer: ReturnType<typeof setInterval> | null = null;
+
+function markSseAlive(): void {
+  sseLastDataAt = Date.now();
+}
+
+// Elapsed wall time, not tick counts: hidden tabs throttle intervals.
+function startSseStallWatchdog(): void {
+  markSseAlive();
+  if (sseStallTimer !== null) return;
+  sseStallTimer = setInterval(() => {
+    const es = sseSource;
+    if (!es || es.readyState === 2 /* CLOSED */) return;
+    if (Date.now() - sseLastDataAt >= SSE_STALL_TIMEOUT_MS) {
+      abandonSseSource(es);
+    }
+  }, SSE_STALL_CHECK_MS);
+}
+
+function stopSseStallWatchdog(): void {
+  if (sseStallTimer === null) return;
+  clearInterval(sseStallTimer);
+  sseStallTimer = null;
+}
+
 // The CLOSED SSE topic vocabulary (spec/sse.md §3.1 / §4.1). Replayed one
 // synthetic delta per topic to every subscriber on a full resync so each hook
 // refetches its snapshot — see resyncAll below. New topics MUST be added here.
@@ -683,6 +714,7 @@ function cancelSseReconnect(): void {
  * what. Never called by the UI. */
 export function __resetSseDownlinkForTests(): void {
   cancelSseReconnect();
+  stopSseStallWatchdog();
   sseRetryAttempt = 0;
   sseSubscribers.clear();
   if (sseSource) {
@@ -705,6 +737,57 @@ export function __resetSseDownlinkForTests(): void {
   sseStateSubscribers.clear();
 }
 
+/** Give up on `es` for good and hand recovery to the retry path, recording the
+ * gap so the rebuilt stream's first open resyncs. Used for a CLOSED stream and
+ * for a stalled one alike. */
+function abandonSseSource(es: EventSource): void {
+  stopSseStallWatchdog();
+  try {
+    es.close();
+  } catch {
+    // Already closed — closing twice is defined as a no-op, be defensive anyway.
+  }
+  sseSource = null; // release the guard that would block every rebuild
+  // Record the hole BEFORE anything can rebuild the stream — including a
+  // component mounting on the very next tick, which does not go through the
+  // retry path at all.
+  sseGapPending = true;
+  if (sseSubscribers.size === 0) {
+    setSseState("idle");
+    return;
+  }
+  // Schedule the recovery FIRST, announce it second. Telling the world we are
+  // reconnecting is worthless if saying so is what stops us reconnecting.
+  //
+  // ⚠️ NO TEST GUARDS THIS ORDERING — said plainly so the next person does not
+  // go looking for the guard, or "helpfully" swap the lines back. Measured 2×2
+  // (isolation in `setSseState` × this ordering):
+  //     isolation ON,  schedule-first  → recovers
+  //     isolation ON,  announce-first  → recovers   ← indistinguishable
+  //     isolation OFF, schedule-first  → recovers   ← THIS LINE'S VALUE
+  //     isolation OFF, announce-first  → FROZEN, permanently
+  // So the ordering is a genuine second line of defence — it alone saves the
+  // app when the isolation is gone — and it is an EQUIVALENT MUTANT while the
+  // isolation holds. Writing a test for it would mean writing one that passes
+  // either way, which is the exact failure this ticket already made twice
+  // (an assertion that names a property it cannot reach). Belt and braces,
+  // with the braces documented instead of falsely pinned.
+  //
+  // 🔴 THE EQUIVALENCE IS CONDITIONAL, AND HERE IS THE CONDITION. "No test can
+  // catch this" is true ONLY while the try/catch inside `setSseState` stands.
+  // Read the fourth row again: the moment that isolation is removed, weakened,
+  // or routed around, this ordering stops being redundant and becomes THE ONLY
+  // THING between a throwing listener and a permanently frozen cockpit — and
+  // at that moment it MUST be pinned by a test, because it is no longer
+  // equivalent to anything. An undocumented premise is how an honest gap turns
+  // into a lie six months later: the note stays, the reason for it quietly
+  // stops being true, and the next reader inherits a false reassurance. So if
+  // you are here because you are changing `setSseState`'s fan-out, this comment
+  // is addressed to you: you are about to invalidate it.
+  scheduleSseReconnect();
+  setSseState("connecting");
+}
+
 function ensureSseSource(): void {
   if (sseSource) return;
   const t = ownerToken();
@@ -721,7 +804,9 @@ function ensureSseSource(): void {
   // `opened` is per-CONNECTION: has THIS EventSource opened before? That covers
   // the browser's own transparent reconnect, where the same object opens twice.
   let opened = false;
+  es.addEventListener("heartbeat", markSseAlive);
   es.onopen = () => {
+    markSseAlive();
     // TWO independent reasons to resync, and the second is the one that is easy
     // to lose:
     //   `opened`         — this same connection dropped and came back by itself.
@@ -751,52 +836,10 @@ function ensureSseSource(): void {
       setSseState("connecting");
       return;
     }
-    try {
-      es.close();
-    } catch {
-      // Already closed — closing twice is defined as a no-op, be defensive anyway.
-    }
-    sseSource = null; // release the guard that would block every rebuild
-    // Record the hole BEFORE anything can rebuild the stream — including a
-    // component mounting on the very next tick, which does not go through the
-    // retry path at all.
-    sseGapPending = true;
-    if (sseSubscribers.size === 0) {
-      setSseState("idle");
-      return;
-    }
-    // Schedule the recovery FIRST, announce it second. Telling the world we are
-    // reconnecting is worthless if saying so is what stops us reconnecting.
-    //
-    // ⚠️ NO TEST GUARDS THIS ORDERING — said plainly so the next person does not
-    // go looking for the guard, or "helpfully" swap the lines back. Measured 2×2
-    // (isolation in `setSseState` × this ordering):
-    //     isolation ON,  schedule-first  → recovers
-    //     isolation ON,  announce-first  → recovers   ← indistinguishable
-    //     isolation OFF, schedule-first  → recovers   ← THIS LINE'S VALUE
-    //     isolation OFF, announce-first  → FROZEN, permanently
-    // So the ordering is a genuine second line of defence — it alone saves the
-    // app when the isolation is gone — and it is an EQUIVALENT MUTANT while the
-    // isolation holds. Writing a test for it would mean writing one that passes
-    // either way, which is the exact failure this ticket already made twice
-    // (an assertion that names a property it cannot reach). Belt and braces,
-    // with the braces documented instead of falsely pinned.
-    //
-    // 🔴 THE EQUIVALENCE IS CONDITIONAL, AND HERE IS THE CONDITION. "No test can
-    // catch this" is true ONLY while the try/catch inside `setSseState` stands.
-    // Read the fourth row again: the moment that isolation is removed, weakened,
-    // or routed around, this ordering stops being redundant and becomes THE ONLY
-    // THING between a throwing listener and a permanently frozen cockpit — and
-    // at that moment it MUST be pinned by a test, because it is no longer
-    // equivalent to anything. An undocumented premise is how an honest gap turns
-    // into a lie six months later: the note stays, the reason for it quietly
-    // stops being true, and the next reader inherits a false reassurance. So if
-    // you are here because you are changing `setSseState`'s fan-out, this comment
-    // is addressed to you: you are about to invalidate it.
-    scheduleSseReconnect();
-    setSseState("connecting");
+    abandonSseSource(es);
   };
   es.onmessage = (e: MessageEvent) => {
+    markSseAlive();
     // The parse and the fan-out get SEPARATE handling on purpose. They used to
     // share one try/catch labelled "non-JSON keepalive/comment frame — ignore",
     // which meant a subscriber throwing mid-fan was silently filed as a malformed
@@ -850,6 +893,7 @@ function ensureSseSource(): void {
     }
   };
   sseSource = es;
+  startSseStallWatchdog();
   // Announced only once the connection actually exists — same reason as the
   // scheduler above: the broadcast is the last thing that happens, never a step
   // the mechanism has to survive.
@@ -3361,6 +3405,7 @@ export const httpApi: Api = {
       // the last subscriber and reopen a connection nobody is listening to.
       if (sseSubscribers.size === 0) {
         cancelSseReconnect();
+        stopSseStallWatchdog();
         sseRetryAttempt = 0;
         // The whole teardown happens BEFORE the "idle" broadcast; measured, a
         // listener throwing on "idle" used to leave the EventSource open and the
