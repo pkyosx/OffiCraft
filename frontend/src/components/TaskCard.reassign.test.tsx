@@ -219,11 +219,11 @@ describe("TaskCard 轉派 commit", () => {
       "轉派中"
     );
     // 外包 代號 · 模型 · 投入度 — the minted worker, resolved through the live
-    // roster (the S family starts at S-1).
+    // roster.
     await waitFor(() => {
       expect(
         document.querySelector('[data-testid="task-card"]')?.textContent
-      ).toContain("外包 · S-1 · sonnet · 低投入");
+      ).toContain("外包 · O-1 · sonnet · 低投入");
     });
   });
 
