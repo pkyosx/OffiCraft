@@ -323,8 +323,7 @@ describe("mock reassign — outsource target", () => {
     const after = await mockApi.getTask(task.id);
     const workers = await mockApi.listOutsourceWorkers();
     expect(workers.find((w) => w.id === after.executorId)?.effort).toBe("medium");
-    // A blank model keeps the honest X family (no model → no family letter).
-    expect(workers.find((w) => w.id === after.executorId)?.codename).toBe("X-1");
+    expect(workers.find((w) => w.id === after.executorId)?.codename).toBe("O-1");
 
     await expect(
       mockApi.reassignTask(task.id, {

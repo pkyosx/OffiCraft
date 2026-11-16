@@ -1682,67 +1682,31 @@ func TestValidatePlanParallelShape(t *testing.T) {
 	})
 }
 
-func TestCodenamePrefix(t *testing.T) {
-	t.Run("each known family maps to its letter, case-insensitively and anywhere in the name", func(t *testing.T) {
-		for model, want := range map[string]string{
-			"claude-opus-4-6":        "O",
-			"OPUS":                   "O",
-			"claude-sonnet-4-5":      "S",
-			"anthropic/Sonnet-Large": "S",
-			"claude-haiku-4-5":       "H",
-			"HAIKU-fast":             "H",
-		} {
-			if got := CodenamePrefix(model); got != want {
-				t.Fatalf("CodenamePrefix(%q) = %q, want %q", model, got, want)
-			}
-		}
-	})
-
-	t.Run("an unrecognised model gets the honest X marker rather than a known family's letter", func(t *testing.T) {
-		for _, model := range []string{"", "gpt-5", "gemini-3-pro", "llama"} {
-			if got := CodenamePrefix(model); got != "X" {
-				t.Fatalf("CodenamePrefix(%q) = %q, want %q", model, got, "X")
-			}
-		}
-	})
-
-	t.Run("opus is checked before sonnet when a name mentions both", func(t *testing.T) {
-		if got := CodenamePrefix("sonnet-and-opus"); got != "O" {
-			t.Fatalf("CodenamePrefix(sonnet-and-opus) = %q, want %q", got, "O")
-		}
-	})
-}
-
 func TestDeriveCodename(t *testing.T) {
-	t.Run("the first codename of a family is number one", func(t *testing.T) {
-		if got := DeriveCodename("claude-opus-4-6", nil); got != "O-1" {
-			t.Fatalf("DeriveCodename(opus, nothing issued) = %q, want %q", got, "O-1")
+	t.Run("the first codename is O-1", func(t *testing.T) {
+		if got := DeriveCodename(nil); got != "O-1" {
+			t.Fatalf("DeriveCodename(nothing issued) = %q, want %q", got, "O-1")
 		}
 	})
 
-	t.Run("the sequence is MAX+1 over the same prefix and never reuses a gap", func(t *testing.T) {
-		existing := []string{"O-1", "O-2", "O-7", "S-40"}
-		if got := DeriveCodename("claude-opus-4-6", existing); got != "O-8" {
-			t.Fatalf("DeriveCodename(opus, %v) = %q, want %q", existing, got, "O-8")
-		}
-		if got := DeriveCodename("claude-sonnet-4-5", existing); got != "S-41" {
-			t.Fatalf("DeriveCodename(sonnet, %v) = %q, want %q", existing, got, "S-41")
-		}
-		if got := DeriveCodename("claude-haiku-4-5", existing); got != "H-1" {
-			t.Fatalf("DeriveCodename(haiku, %v) = %q, want %q", existing, got, "H-1")
+	t.Run("the sequence is MAX+1 over O- codenames and never reuses a gap", func(t *testing.T) {
+		existing := []string{"O-1", "O-2", "O-7"}
+		if got := DeriveCodename(existing); got != "O-8" {
+			t.Fatalf("DeriveCodename(%v) = %q, want %q", existing, got, "O-8")
 		}
 	})
 
-	t.Run("codenames that do not parse as this family's sequence are ignored", func(t *testing.T) {
+	t.Run("codenames from the earlier per-model prefixes do not advance the sequence", func(t *testing.T) {
+		existing := []string{"X-40", "S-12", "H-3", "O-5"}
+		if got := DeriveCodename(existing); got != "O-6" {
+			t.Fatalf("DeriveCodename(%v) = %q, want %q", existing, got, "O-6")
+		}
+	})
+
+	t.Run("codenames that do not parse as the O- sequence are ignored", func(t *testing.T) {
 		existing := []string{"O", "O-", "O-abc", "OO-9", "o-9", "O-3"}
-		if got := DeriveCodename("opus", existing); got != "O-4" {
-			t.Fatalf("DeriveCodename(opus, %v) = %q, want %q", existing, got, "O-4")
-		}
-	})
-
-	t.Run("an unrecognised model mints on the X sequence", func(t *testing.T) {
-		if got := DeriveCodename("gpt-5", []string{"X-4", "O-9"}); got != "X-5" {
-			t.Fatalf("DeriveCodename(gpt-5) = %q, want %q", got, "X-5")
+		if got := DeriveCodename(existing); got != "O-4" {
+			t.Fatalf("DeriveCodename(%v) = %q, want %q", existing, got, "O-4")
 		}
 	})
 }

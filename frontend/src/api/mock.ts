@@ -1766,25 +1766,15 @@ function withWorkerTaskJoin(w: OutsourceWorkerView): OutsourceWorkerView {
  * reassign rewinds every OTHER step to pending, mirroring the server. */
 const TERMINAL_STEP_STATUSES = new Set(["done", "superseded"]);
 
-/** The next codename for `model`: `<prefix>-<MAX+1>` over the SAME family
- * prefix (mirrors DeriveCodename / CodenamePrefix — a per-family ascending
- * sequence, never reused). */
-function deriveCodename(model: string, existing: string[]): string {
-  const m = model.toLowerCase();
-  const prefix = m.includes("opus")
-    ? "O"
-    : m.includes("sonnet")
-      ? "S"
-      : m.includes("haiku")
-        ? "H"
-        : "X";
+/** Mirrors the server's DeriveCodename: `O-<MAX+1>`, never reused. */
+function deriveCodename(existing: string[]): string {
   let max = 0;
   for (const c of existing) {
-    if (!c.startsWith(`${prefix}-`)) continue;
-    const n = Number(c.slice(prefix.length + 1));
+    if (!c.startsWith("O-")) continue;
+    const n = Number(c.slice(2));
     if (Number.isInteger(n) && n > max) max = n;
   }
-  return `${prefix}-${max + 1}`;
+  return `O-${max + 1}`;
 }
 
 function findTaskManual(typeKey: string): StoredTaskManual {
@@ -5093,10 +5083,7 @@ const mockApiImpl = {
       // scheduler here) — validated by the server, dropped honestly here.
       newWorker = {
         id: `ow-mock-${Date.now().toString(16)}`,
-        codename: deriveCodename(
-          target.model.trim(),
-          outsourceWorkers.map((w) => w.codename)
-        ),
+        codename: deriveCodename(outsourceWorkers.map((w) => w.codename)),
         model: target.model.trim(),
         effort,
         status: "assigned",

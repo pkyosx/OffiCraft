@@ -51,26 +51,6 @@ func TestTaskNoDoesNotRecaseThePrefix(t *testing.T) {
 	}
 }
 
-func TestCodenameDerivation(t *testing.T) {
-	cases := []struct {
-		model    string
-		existing []string
-		want     string
-	}{
-		{"claude-opus-4-6", nil, "O-1"},
-		{"claude-sonnet-4-5", []string{"S-2", "S-11", "O-9"}, "S-12"},
-		{"Haiku", []string{"H-3"}, "H-4"},
-		{"mystery-model", nil, "X-1"},
-		{"opus", []string{"O-7", "O-x", "S-9"}, "O-8"}, // malformed entries skipped
-	}
-	for _, tc := range cases {
-		if got := DeriveCodename(tc.model, tc.existing); got != tc.want {
-			t.Fatalf("DeriveCodename(%q, %v): want %q, got %q",
-				tc.model, tc.existing, tc.want, got)
-		}
-	}
-}
-
 func TestDedupeKeyValue_Mainline(t *testing.T) {
 	fields := []ManualField{
 		{Name: "pr", Required: true, IsKey: true},
