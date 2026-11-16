@@ -1030,23 +1030,14 @@ func ValidatePlanParallelShape(timeline, fresh []TaskStep) string {
 	return ""
 }
 
-func CodenamePrefix(model string) string {
-	m := strings.ToLower(model)
-	switch {
-	case strings.Contains(m, "opus"):
-		return "O"
-	case strings.Contains(m, "sonnet"):
-		return "S"
-	case strings.Contains(m, "haiku"):
-		return "H"
-	}
-	return "X"
-}
+// O stands for outsource, not Opus: the model can change after dispatch and
+// the codename cannot, so the codename carries no model.
+const codenamePrefix = "O"
 
 // DeriveCodename: existing must include every codename ever issued (removed
 // workers too); MAX+1 is safe only because SQLite has a single writer.
-func DeriveCodename(model string, existing []string) string {
-	prefix := CodenamePrefix(model)
+func DeriveCodename(existing []string) string {
+	prefix := codenamePrefix
 	maxN := 0
 	for _, c := range existing {
 		rest, ok := strings.CutPrefix(c, prefix+"-")

@@ -406,7 +406,7 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		}
 		worker := OutsourceWorker{
 			ID:           "ow-" + newHexID(12),
-			Codename:     DeriveCodename(d.Model, codenames),
+			Codename:     DeriveCodename(codenames),
 			Runtime:      NormalizeRuntime(d.Runtime),
 			Model:        d.Model,
 			Effort:       d.Effort,
