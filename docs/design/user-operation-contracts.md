@@ -17,14 +17,14 @@ e2e 斷言，不能把涵蓋範圍留給讀者推測。`surface_set=reply-card-b
 後再疊無關 commit，也不能把未裁定的語意反轉藏起來。守衛也會把每個 scope 對到 e2e
 裡的 `UOC_ASSERT` marker。
 
-<!-- user-operation-contract: id=UOC-RC-SINGLE-TAP scope=replies-page,chat-page,tasks-page surface_set=reply-card-body-callers ruling=rc-06bc715358c2 evidence=docs/guide/glossary.md:63,docs/guide/quickstart.md:88,docs/design/SPEC.md:319 -->
+<!-- user-operation-contract: id=UOC-RC-SINGLE-TAP scope=replies-page,chat-page,tasks-page surface_set=reply-card-body-callers ruling=rc-b4184fcbcde8 evidence=docs/guide/glossary.md:45,docs/guide/quickstart.md:95,docs/design/SPEC.md:319 -->
 - sentence: 單選請示卡在請示列表頁、聊天頁與任務頁展開後的內嵌請示卡上，點一下選項就直接送出，不需要第二次按送出。
 - assertion: screen=replies-page marker=single_option_tap_answers_on_replies_page
 - assertion: screen=chat-page marker=single_option_tap_answers_in_chat
 - assertion: screen=tasks-page marker=single_option_tap_answers_on_tasks_page
 <!-- /user-operation-contract -->
 
-<!-- user-operation-contract: id=UOC-RC-SINGLE-DRAFT scope=replies-page,chat-page,tasks-page surface_set=reply-card-body-callers ruling=rc-06bc715358c2 evidence=docs/guide/quickstart.md:88,docs/design/SPEC.md:253,docs/design/SPEC.md:319 -->
+<!-- user-operation-contract: id=UOC-RC-SINGLE-DRAFT scope=replies-page,chat-page,tasks-page surface_set=reply-card-body-callers ruling=rc-b4184fcbcde8 evidence=docs/guide/quickstart.md:97,docs/design/SPEC.md:253,docs/design/SPEC.md:319 -->
 - sentence: 單選請示卡在請示列表頁、聊天頁與任務頁展開後的內嵌請示卡上，點一下選項時，已打在框裡的字會跟著同一次送出，不會被丟掉。
 - assertion: screen=replies-page marker=single_option_keeps_draft_on_replies_page
 - assertion: screen=chat-page marker=single_option_keeps_draft_in_chat
