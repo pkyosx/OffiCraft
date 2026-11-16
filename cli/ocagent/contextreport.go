@@ -490,27 +490,61 @@ func claudeAccountPath(cfg Config) string {
 }
 
 // statusLine rate_limits are the headers of this session's LAST API response,
-// kept in memory, while the login file is machine-wide and a running session
-// adopts a re-login at its next call. So an idle session after a re-login
-// still shows the previous account's windows: the account is re-read only when
-// the windows change (= a new call landed) and otherwise stays the one that
-// was logged in when these windows were measured.
+// kept in memory, while the login file is machine-wide. A session keeps calling
+// on the credentials it already holds for a while after a re-login and moves to
+// the new ones at a time nothing tells us. So the login file decides only when
+// the new windows share no reset time with the recorded ones: a window that
+// still resets when the recorded account's does was measured on that account.
 func measuredClaudeAccount(path, rateLimits string, env func(string) string) claudeAccount {
-	if rateLimits != "" {
-		if raw, err := os.ReadFile(path); err == nil {
-			var recorded claudeAccount
-			if json.Unmarshal(raw, &recorded) == nil && recorded.RateLimits == rateLimits {
-				return recorded
-			}
-		}
+	recorded, haveRecord := recordedClaudeAccount(path)
+	if haveRecord && rateLimits != "" && recorded.RateLimits == rateLimits {
+		return recorded
 	}
 	current := claudeAccount{ID: readClaudeAccount(env), Label: readClaudeAccountLabel(env), RateLimits: rateLimits}
+	if haveRecord && current.ID != recorded.ID && shareResetTime(recorded.RateLimits, rateLimits) {
+		current = claudeAccount{ID: recorded.ID, Label: recorded.Label, RateLimits: rateLimits}
+	}
 	if current.ID != "" {
 		if raw, err := json.Marshal(current); err == nil && os.MkdirAll(filepath.Dir(path), 0o755) == nil {
 			_ = os.WriteFile(path, raw, 0o644)
 		}
 	}
 	return current
+}
+
+func recordedClaudeAccount(path string) (claudeAccount, bool) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return claudeAccount{}, false
+	}
+	var recorded claudeAccount
+	if json.Unmarshal(raw, &recorded) != nil || recorded.ID == "" {
+		return claudeAccount{}, false
+	}
+	return recorded, true
+}
+
+func shareResetTime(fingerprintA, fingerprintB string) bool {
+	resetsAt := func(fingerprint string) map[string]float64 {
+		var windows map[string]struct {
+			ResetsAt *float64 `json:"resets_at"`
+		}
+		_ = json.Unmarshal([]byte(fingerprint), &windows)
+		out := map[string]float64{}
+		for key, window := range windows {
+			if window.ResetsAt != nil {
+				out[key] = *window.ResetsAt
+			}
+		}
+		return out
+	}
+	b := resetsAt(fingerprintB)
+	for key, resetAt := range resetsAt(fingerprintA) {
+		if other, ok := b[key]; ok && other == resetAt {
+			return true
+		}
+	}
+	return false
 }
 
 func rateLimitsFingerprint(payload string) string {

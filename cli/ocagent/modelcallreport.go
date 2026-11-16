@@ -130,7 +130,7 @@ func reportModelCallFailure(client httpClient, cfg Config, env func(string) stri
 	if success, ok := readModelCallTime(modelCallSuccessPath(cfg)); ok {
 		report.LastSuccessTs = &success
 	}
-	postModelCall(client, cfg, newModelCallBody(env, report), errOut)
+	postModelCall(client, cfg, newModelCallBody(cfg, env, report), errOut)
 }
 
 func reportStopSuccess(client httpClient, cfg Config, env func(string) string, success float64, errOut io.Writer) {
@@ -143,16 +143,24 @@ func reportStopSuccess(client httpClient, cfg Config, env func(string) string, s
 	if cfg.Token == "" || cfg.MemberID == "" {
 		return
 	}
-	if postModelCall(client, cfg, newModelCallBody(env, modelCallReport{LastSuccessTs: &success}), errOut) {
+	if postModelCall(client, cfg, newModelCallBody(cfg, env, modelCallReport{LastSuccessTs: &success}), errOut) {
 		recordSuccessSent(cfg, success)
 	}
 }
 
-func newModelCallBody(env func(string) string, report modelCallReport) modelCallBody {
+// The account is the one context-report paired with this session's latest
+// windows, not the login file: right after a re-login the session may still be
+// calling on the previous account, and the station re-tags the member's windows
+// with whatever account this report names.
+func newModelCallBody(cfg Config, env func(string) string, report modelCallReport) modelCallBody {
+	account, ok := recordedClaudeAccount(claudeAccountPath(cfg))
+	if !ok {
+		account = claudeAccount{ID: readClaudeAccount(env), Label: readClaudeAccountLabel(env)}
+	}
 	return modelCallBody{
 		Runtime:      "claude",
-		Account:      readClaudeAccount(env),
-		AccountLabel: readClaudeAccountLabel(env),
+		Account:      account.ID,
+		AccountLabel: account.Label,
 		Machine:      machineID(env),
 		ModelCall:    report,
 	}

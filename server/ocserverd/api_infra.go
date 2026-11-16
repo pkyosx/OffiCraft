@@ -14,10 +14,12 @@ import (
 	"time"
 )
 
-// The 15 s heartbeat period is contract (spec/sse.md §1).
+// The 15 s heartbeat period is contract (spec/sse.md §1); a var only so tests
+// can shorten it.
+var sseHeartbeat = 15 * time.Second
+
 const (
-	sseHeartbeat = 15 * time.Second
-	ssePoll      = 250 * time.Millisecond
+	ssePoll = 250 * time.Millisecond
 
 	// Operator-facing detach log vocabulary: keep these values exact.
 	// sseDetachReasonUnset must never equal a reason we can conclude —
@@ -303,11 +305,21 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 		}
 		if time.Since(lastBeat) >= sseHeartbeat {
 			lastBeat = time.Now()
-			if !write([]byte(": heartbeat\n\n")) {
+			if !write(sseHeartbeatFrame(memberID)) {
 				return
 			}
 		}
 	}
+}
+
+// sseHeartbeatFrame: only an owner (browser) connection gets the named event its
+// EventSource can see. Agent and warden parsers ignore `event:` and would hand
+// the `data:` line to their frame dispatch, so they keep the comment.
+func sseHeartbeatFrame(memberID string) []byte {
+	if memberID == "" {
+		return []byte("event: heartbeat\ndata: {}\n\n")
+	}
+	return []byte(": heartbeat\n\n")
 }
 
 // sseStopGateRefusal returns a non-empty (409) message when memberID must not be

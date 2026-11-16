@@ -49,6 +49,7 @@ class FakeEventSource {
   readyState: number = CONNECTING;
   onmessage: ((e: MessageEvent) => void) | null = null;
   onopen: (() => void) | null = null;
+  addEventListener(): void {}
   onerror: (() => void) | null = null;
   constructor(url: string) {
     this.url = url;

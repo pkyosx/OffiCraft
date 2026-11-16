@@ -743,6 +743,18 @@ const MODULE_STATE = [
       "one boolean saying a resync is owed after a dropped connection; it triggers a refetch in every mounted hook rather than carrying data itself",
   },
   {
+    file: "api/http.ts",
+    name: "sseLastDataAt",
+    verdict:
+      "when that one connection last delivered anything; a liveness timestamp for the socket, no room's value",
+  },
+  {
+    file: "api/http.ts",
+    name: "sseStallTimer",
+    verdict:
+      "the stall watchdog's interval handle; one connection, one timer, no room in it",
+  },
+  {
     file: "api/errorCodes.ts",
     name: "ERROR_CODE_VOCABULARY",
     verdict:
