@@ -27,8 +27,8 @@ flowchart TB
         wardenB -->|依 server 令起停| agentB1
     end
 
-    wardenA <-->|SSE + MCP| server
-    wardenB <-->|SSE + MCP| server
+    wardenA <-->|SSE + REST| server
+    wardenB <-->|SSE + REST| server
     agentA1 <-->|SSE 收 · MCP 發| server
     agentA2 <-->|SSE 收 · MCP 發| server
     agentB1 <-->|SSE 收 · MCP 發| server
