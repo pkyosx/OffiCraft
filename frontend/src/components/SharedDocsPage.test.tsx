@@ -630,7 +630,7 @@ describe("SharedDocsPage", () => {
     expect(window.location.hash).toBe("#shared-docs");
   });
 
-  it("編輯 in a text file's preview opens its content in an editor over the list: 取消, × and Esc close it unsaved, 儲存 puts it in as a new version, focus going back to the name each time", async () => {
+  it("編輯 in a text file's preview opens its content in an editor over the list that a click beside it leaves open: 取消, × and Esc close it unsaved, 儲存 puts it in as a new version, focus going back to the name each time", async () => {
     const original = "# Review Rule\n\n1. 範圍：變更檔案逐一說得出必要性。\n2. 測試：新行為有測試。\n";
     const { container, getByTestId, queryByTestId } = renderPage();
     const [, review] = await waitRows(container, 2);
@@ -660,6 +660,8 @@ describe("SharedDocsPage", () => {
     editor = await openEditor();
     expect(editor.value).toBe(original);
     fireEvent.change(editor, { target: { value: "draft two" } });
+    fireEvent.click(getByTestId("shared-doc-edit-overlay"));
+    expect(editor.value).toBe("draft two");
     fireEvent.click(getByTestId("shared-doc-edit-overlay").querySelector(".md-preview__close")!);
     expect(queryByTestId("shared-doc-edit-overlay")).toBeNull();
     expect(document.activeElement).toBe(edit);
