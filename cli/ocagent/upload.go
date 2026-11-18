@@ -47,8 +47,9 @@ element data-oc-anchor="<id>" (1–128 characters, the same id in every revision
 of the page, e.g. ac-AC-5) and data-oc-anchor-label="<what a reader calls it>"
 (up to 200 characters; the id is shown when it is missing). A marked part is
 quoted as 位置：<label>（#<id>）. A click inside it on a summary, button, form
-field or label, or on an element you give data-oc-interactive, stays the
-page's own instead of starting a comment.
+field, label or editable text, or on an element you give data-oc-interactive,
+stays the page's own instead of starting a comment (so mark a <details>, not
+its <summary>).
 
 `+docCommentsSnippet+`
 stdout on success, two lines:
