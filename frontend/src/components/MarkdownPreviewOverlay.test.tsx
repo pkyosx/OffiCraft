@@ -1,8 +1,7 @@
-// MarkdownPreviewOverlay + isMarkdownAttachment (T-a1c4). The overlay fetches
+// MarkdownPreviewOverlay (T-a1c4). The overlay fetches
 // the .md blob text and renders it through the shared Markdown.tsx (NOT the
 // browser's raw-source tab); preview and download are two distinct actions, so
-// the header keeps a 下載 link alongside the render. isMarkdownAttachment gates
-// which attachments get the 預覽 action.
+// the header keeps a 下載 link alongside the render.
 //
 // The overlay PORTALS to `document.body` (T-76cd), so it is not inside the
 // container `render()` hands back — every DOM reach for it goes through
@@ -13,53 +12,11 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, fireEvent, waitFor, screen, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
-import {
-  MarkdownPreviewOverlay,
-  formatJsonForPreview,
-  isJsonAttachment,
-  isMarkdownAttachment,
-} from "./MarkdownPreviewOverlay";
+import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { AlertTriangleIcon } from "./icons";
 import { Markdown } from "./Markdown";
 import { zh } from "../i18n/locales/zh";
 import snippet from "../../../cli/ocagent/doc_comments_snippet.html?raw";
-
-describe("isMarkdownAttachment", () => {
-  it("accepts markdown mimes and .md/.markdown filenames", () => {
-    expect(isMarkdownAttachment("text/markdown", "x")).toBe(true);
-    expect(isMarkdownAttachment("text/x-markdown", "x")).toBe(true);
-    expect(isMarkdownAttachment("text/plain", "design.md")).toBe(true);
-    expect(
-      isMarkdownAttachment("application/octet-stream", "NOTES.MARKDOWN"),
-    ).toBe(true);
-  });
-  it("rejects non-markdown", () => {
-    expect(isMarkdownAttachment("application/pdf", "report.pdf")).toBe(false);
-    expect(isMarkdownAttachment("image/png", "shot.png")).toBe(false);
-    expect(isMarkdownAttachment("text/plain", "notes.txt")).toBe(false);
-  });
-});
-
-describe("isJsonAttachment and formatJsonForPreview", () => {
-  it("recognizes declared JSON and an octet-stream .json filename", () => {
-    expect(isJsonAttachment("application/json", "report.data")).toBe(true);
-    expect(isJsonAttachment("application/json; charset=utf-8", "report.data")).toBe(true);
-    expect(isJsonAttachment("application/octet-stream", "REPORT.JSON")).toBe(true);
-    expect(isJsonAttachment("application/octet-stream", "report.txt")).toBe(false);
-    expect(isJsonAttachment("application/zip", "report.json")).toBe(false);
-  });
-
-  it("indents valid JSON and preserves invalid JSON for the caller", () => {
-    expect(formatJsonForPreview('{"name":"Mira","items":[1,2]}')).toEqual({
-      body: '{\n  "name": "Mira",\n  "items": [\n    1,\n    2\n  ]\n}',
-      unparseable: false,
-    });
-    expect(formatJsonForPreview('{"name":}')).toEqual({
-      body: '{"name":}',
-      unparseable: true,
-    });
-  });
-});
 
 describe("MarkdownPreviewOverlay", () => {
   const realFetch = globalThis.fetch;

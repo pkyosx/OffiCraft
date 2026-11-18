@@ -428,6 +428,33 @@
 .md-preview__md.doc-md {
   padding: 0;
 }
+/* A CSV cell keeps its own line breaks; the table itself is `.doc-md table`,
+ * which already scrolls sideways on its own. */
+.md-preview__csv td,
+.md-preview__csv th {
+  white-space: pre-wrap;
+}
+/* An image outside the overlay's zoom viewer (the 檔案庫 page, a version
+ * reader): fit the column, never scale past the file. */
+.md-preview__still {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 0 auto;
+  border-radius: 8px;
+}
+/* A page frame in a host that is not a flex column sized for it. */
+.md-preview__frame--fixed {
+  display: block;
+  width: 100%;
+  height: min(70vh, 720px);
+}
+.md-preview__status .md-preview__new-tab--inline {
+  width: auto;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 0 12px;
+}
 .md-preview__md.doc-md > :first-child {
   margin-top: 0;
 }

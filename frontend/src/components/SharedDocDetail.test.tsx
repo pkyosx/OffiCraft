@@ -5,6 +5,7 @@ import { SharedDocDetail } from "./SharedDocDetail";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
 import { formatAbsolute } from "../lib/dateFormat";
+import type { SharedDocDetailView } from "../types";
 
 function renderDetail(id: string, onBack = () => {}) {
   return render(
@@ -174,6 +175,88 @@ describe("SharedDocDetail", () => {
     fireEvent.click(getByTestId("shared-doc-form-submit"));
     await waitFor(() => expect(queryByTestId("shared-doc-replace-form")).toBeNull());
     expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({ text: "# v3", versionCount: 3 });
+  });
+
+  function fileDoc(filename: string, mime: string, text: string | null): SharedDocDetailView {
+    return {
+      id: "sd-aaaaaaaaaaaa",
+      kind: mime.startsWith("image/") ? "image" : "file",
+      attachmentId: "att-aaaaaaaaaaaa",
+      name: "Fixture",
+      description: "",
+      filename,
+      mime,
+      url: "/api/chat/attachment/att-aaaaaaaaaaaa",
+      createdTs: 1762900000,
+      createdBy: "mira",
+      updatedTs: 1762900000,
+      updatedBy: "mira",
+      versionCount: 1,
+      text,
+      textOmitted: text === null ? "binary" : null,
+    };
+  }
+
+  function showDoc(doc: SharedDocDetailView) {
+    vi.spyOn(api, "getSharedDoc").mockResolvedValue(doc);
+    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue(
+      "/api/chat/attachment/att-aaaaaaaaaaaa?sig=s1",
+    );
+    return renderDetail(doc.id);
+  }
+
+  it("a JSON file is indented, a YAML file is shown exactly as stored, a CSV file is a table", async () => {
+    const json = showDoc(fileDoc("data.json", "application/json", '{"a":1}'));
+    await title(json.getByTestId);
+    expect(json.getByTestId("shared-doc-json").textContent).toBe('{\n  "a": 1\n}');
+    json.unmount();
+    const yaml = showDoc(fileDoc("ci.yaml", "text/plain", "# keep\nkey:  v\n"));
+    await title(yaml.getByTestId);
+    expect(yaml.getByTestId("shared-doc-yaml").textContent).toBe("# keep\nkey:  v\n");
+    yaml.unmount();
+    const csv = showDoc(fileDoc("t.csv", "text/csv", "a,b\n1,2\n"));
+    await title(csv.getByTestId);
+    expect(
+      Array.from(csv.getByTestId("shared-doc-csv").querySelectorAll("td")).map((c) => c.textContent),
+    ).toEqual(["1", "2"]);
+  });
+
+  it("an HTML file is its page in a sandboxed frame at its share link, never at a token address", async () => {
+    const { getByTestId } = showDoc(fileDoc("page.html", "text/html", "<p>hi</p>"));
+    await title(getByTestId);
+    const frame = await waitFor(() => getByTestId("shared-doc-html"));
+    expect(frame.tagName).toBe("IFRAME");
+    expect(frame.getAttribute("src")).toBe(
+      `${window.location.origin}/api/chat/attachment/att-aaaaaaaaaaaa?sig=s1`,
+    );
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-popups allow-popups-to-escape-sandbox");
+  });
+
+  it("a PDF opens in a new tab at its share link beside 下載, and is not framed", async () => {
+    const { getByTestId, container } = showDoc(fileDoc("spec.pdf", "application/pdf", null));
+    await title(getByTestId);
+    const open = await waitFor(() => getByTestId("shared-doc-pdf").querySelector("a")!);
+    expect(open.getAttribute("href")).toBe(
+      `${window.location.origin}/api/chat/attachment/att-aaaaaaaaaaaa?sig=s1`,
+    );
+    expect(open.getAttribute("target")).toBe("_blank");
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(getByTestId("shared-doc-download").textContent).toBe("下載");
+  });
+
+  it("every text file offers 編輯 as plain text; an image or a PDF does not", async () => {
+    const yaml = showDoc(fileDoc("ci.yaml", "text/plain", "k: v\n"));
+    await title(yaml.getByTestId);
+    fireEvent.click(yaml.getByTestId("shared-doc-edit"));
+    expect((yaml.getByTestId("shared-doc-editor") as HTMLTextAreaElement).value).toBe("k: v\n");
+    yaml.unmount();
+    for (const doc of [fileDoc("a.png", "image/png", null), fileDoc("spec.pdf", "application/pdf", null)]) {
+      const r = showDoc(doc);
+      await title(r.getByTestId);
+      expect(`${doc.filename}: ${r.queryByTestId("shared-doc-edit")}`).toBe(`${doc.filename}: null`);
+      r.unmount();
+      vi.restoreAllMocks();
+    }
   });
 
   it("an unknown id says the doc was not found", async () => {

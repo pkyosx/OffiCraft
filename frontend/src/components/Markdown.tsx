@@ -74,6 +74,7 @@ import { MentionButton } from "./MentionText";
 interface MarkdownProps {
   source: string;
   className?: string;
+  testId?: string;
   /** Give task-card GFM tables a readable mobile posture without imposing one
    * width on every column. The renderer measures each column's intrinsic
    * unwrapped width; the task-card stylesheet applies the resulting floor only
@@ -1038,9 +1039,10 @@ export function Markdown({
   breaks = false,
   resolveImageSrc,
   resolveDocLink,
+  testId,
 }: MarkdownProps) {
   return (
-    <div className={className}>
+    <div className={className} data-testid={testId}>
       {renderBlocks(source, breaks, resolveImageSrc, {
         resolveDocLink,
         tableSizing,

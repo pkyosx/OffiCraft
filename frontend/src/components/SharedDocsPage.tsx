@@ -19,10 +19,11 @@ import {
   SharedDocDetail,
   SharedDocTextEditor,
   editableText,
+  isEditableKind,
   saveSharedDocText,
 } from "./SharedDocDetail";
 import { kindMismatchMessage, sharedDocKindForFile } from "./SharedDocFormDialog";
-import { MarkdownPreviewOverlay, isMarkdownAttachment } from "./MarkdownPreviewOverlay";
+import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import {
   CheckIcon,
   CloseIcon,
@@ -100,12 +101,6 @@ export function defaultLinkName(url: string): string {
     // not a URL the browser can parse; the server will say so
   }
   return Array.from(name).slice(0, NAME_MAX_CHARS).join("");
-}
-
-function textEditable(doc: SharedDocView): boolean {
-  if (doc.kind !== "file") return false;
-  const mime = doc.mime.split(";")[0]!.trim().toLowerCase();
-  return isMarkdownAttachment(mime, doc.filename) || mime === "text/plain";
 }
 
 function KindMedia({ doc }: { doc: SharedDocView }) {
@@ -894,7 +889,7 @@ function SharedDocList({
           attachmentId={preview.attachmentId}
           mime={preview.mime}
           onEdit={
-            textEditable(preview)
+            isEditableKind(preview)
               ? () => {
                   setPreview(null);
                   setEditing(preview);

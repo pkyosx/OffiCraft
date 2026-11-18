@@ -7,9 +7,11 @@ import { api } from "../api";
 import { authedAttachmentUrl } from "../api/http";
 import { useSharedDoc, useSharedDocAction } from "../hooks/useSharedDocs";
 import { formatAbsolute } from "../lib/dateFormat";
-import type { SharedDocDetailView } from "../types";
-import { Markdown } from "./Markdown";
-import { isMarkdownAttachment } from "./MarkdownPreviewOverlay";
+import type { SharedDocDetailView, SharedDocView } from "../types";
+import { ContentView } from "./ContentView";
+import { isInlineDisplayableMime } from "./MarkdownPreviewOverlay";
+import { useShareHref } from "../hooks/useShareHref";
+import { contentKindOf, isTextKind } from "../lib/contentKind";
 import { SharedDocFormDialog } from "./SharedDocFormDialog";
 import { SharedDocVersionsModal } from "./SharedDocVersionsModal";
 import { InlineEdit } from "./InlineEdit";
@@ -19,12 +21,14 @@ import "./secrets.css";
 import "./settings.css";
 import "./shared-docs.css";
 
-/** Only Markdown and plain text are edited in place; everything else gets a
+/** Any text file is edited in place, as plain text; everything else gets a
  * new version by upload. */
+export function isEditableKind(doc: SharedDocView): boolean {
+  return doc.kind === "file" && isTextKind(contentKindOf(doc.mime, doc.filename));
+}
+
 export function editableText(doc: SharedDocDetailView): boolean {
-  if (doc.kind !== "file" || doc.text === null) return false;
-  const mime = doc.mime.split(";")[0]!.trim().toLowerCase();
-  return isMarkdownAttachment(mime, doc.filename) || mime === "text/plain";
+  return isEditableKind(doc) && doc.text !== null;
 }
 
 /** Puts edited text in as the doc's new version, under its current filename. */
@@ -89,7 +93,12 @@ export function SharedDocTextEditor({
 function SharedDocContent({ doc }: { doc: SharedDocDetailView }) {
   const { t } = useI18n();
   const d = t.sharedDocs;
-  const mime = doc.mime.split(";")[0]!.trim().toLowerCase();
+  const kind = contentKindOf(doc.mime, doc.filename);
+  const needsShareLink =
+    doc.kind !== "link" &&
+    (kind === "html" || kind === "pdf" || kind === "binary") &&
+    isInlineDisplayableMime(doc.mime);
+  const share = useShareHref(doc.attachmentId, needsShareLink, "SharedDocContent");
   if (doc.kind === "link") {
     return (
       <a
@@ -104,41 +113,44 @@ function SharedDocContent({ doc }: { doc: SharedDocDetailView }) {
     );
   }
   const src = authedAttachmentUrl(doc.url);
-  if (mime.startsWith("image/")) {
-    return <img className="shared-docs__image" data-testid="shared-doc-image" src={src} alt={doc.name} />;
-  }
-  if (doc.text !== null) {
-    return isMarkdownAttachment(mime, doc.filename) ? (
-      <div data-testid="shared-doc-markdown">
-        <Markdown source={doc.text} className="doc-md" resolveImageSrc={authedAttachmentUrl} />
-      </div>
-    ) : (
-      <pre className="shared-docs__text" data-testid="shared-doc-text">
-        {doc.text}
-      </pre>
-    );
-  }
   const download = (
     <a className="secrets__btn" data-testid="shared-doc-download" href={src} download={doc.filename || doc.name}>
       {d.download}
     </a>
   );
-  if (mime === "application/pdf") {
+  if (isTextKind(kind) && doc.text === null) {
     return (
-      <div className="shared-docs__pdf">
-        <iframe className="shared-docs__pdf-frame" data-testid="shared-doc-pdf" src={src} title={doc.name} />
+      <div className="shared-docs__opaque">
+        <p className="shared-docs__muted">
+          {doc.textOmitted === "too_large" ? d.tooLarge : d.binary}
+        </p>
         {download}
       </div>
     );
   }
-  return (
-    <div className="shared-docs__opaque">
-      <p className="shared-docs__muted">
-        {doc.textOmitted === "too_large" ? d.tooLarge : d.binary}
-      </p>
-      {download}
-    </div>
+  const view = (
+    <ContentView
+      kind={kind}
+      text={doc.text}
+      src={src}
+      label={doc.name}
+      shareHref={share.href}
+      shareFailed={share.failed}
+      newTabLink
+      unavailable={d.binary}
+      resolveImageSrc={authedAttachmentUrl}
+      testId={`shared-doc-${kind}`}
+    />
   );
+  if (kind === "pdf" || kind === "binary") {
+    return (
+      <div className="shared-docs__opaque">
+        {view}
+        {download}
+      </div>
+    );
+  }
+  return view;
 }
 
 /** The description: click it to edit in a two-line box, ✓ saves (blank clears

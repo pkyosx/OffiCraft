@@ -1468,6 +1468,10 @@ export const en: Dict = {
       // 就算不是合法 JSON 也還是讀得懂。原文照顯示，另外用一行講明為什麼沒
       // 有縮排。（owner rc-38132b95dcf7 圈 [1]）
       jsonUnparseable: "This is not valid JSON, so it cannot be indented. The raw file contents are below.",
+      xmlUnparseable: "This is not valid XML, so it cannot be indented. The raw file contents are below.",
+      csvUnparseable: "This CSV cannot be laid out as a table. The raw file contents are below.",
+      csvTooLarge: "This CSV is too large to lay out as a table. The raw file contents are below.",
+      unavailableHere: "This file cannot be previewed here.",
       download: "Download",
       edit: "Edit",
       close: "Close preview",

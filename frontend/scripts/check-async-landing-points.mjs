@@ -449,9 +449,16 @@ const REGISTRY = [
   {
     file: "components/MarkdownPreviewOverlay.tsx",
     kind: ".then/.catch/.finally",
-    count: 5,
+    count: 3,
     verdict:
-      "blob fetch + copy; writes only this overlay's own state, and the overlay dies with whatever opened it",
+      "blob fetch; writes only this overlay's own state, and the overlay dies with whatever opened it",
+  },
+  {
+    file: "hooks/useShareHref.ts",
+    kind: ".then/.catch/.finally",
+    count: 2,
+    verdict:
+      "share-link mint; writes only the calling surface's own link state, guarded by an `alive` flag reset whenever the attachment id changes",
   },
   {
     file: "components/MarkdownPreviewOverlay.tsx",
