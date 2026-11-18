@@ -1,7 +1,7 @@
 // SharedDocDetail — one shared document (#shared-docs/<id>): its name,
 // description, who changed it last, and its current content.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import { authedAttachmentUrl } from "../api/http";
@@ -172,10 +172,13 @@ export function SharedDocDetail({
   id,
   actorName,
   onBack,
+  startEditing = false,
 }: {
   id: string;
   actorName: (actorId: string) => string;
   onBack: () => void;
+  /** Open the text editor as soon as the document arrives (the list's 編輯). */
+  startEditing?: boolean;
 }) {
   const { t, msg } = useI18n();
   const d = t.sharedDocs;
@@ -188,6 +191,15 @@ export function SharedDocDetail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const nowSecs = Math.floor(Date.now() / 1000);
+  const [pendingEdit, setPendingEdit] = useState(startEditing);
+
+  useEffect(() => {
+    if (!pendingEdit || !doc) return;
+    setPendingEdit(false);
+    if (!editableText(doc)) return;
+    setDraft(doc.text ?? "");
+    setEditing(true);
+  }, [pendingEdit, doc]);
 
   async function act(action: () => Promise<unknown>): Promise<boolean> {
     setBusy(true);
@@ -331,7 +343,6 @@ export function SharedDocDetail({
       </section>
       {replacing && (
         <SharedDocFormDialog
-          mode="replace"
           docId={doc.id}
           kind={doc.kind}
           run={run}

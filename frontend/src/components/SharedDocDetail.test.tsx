@@ -146,6 +146,28 @@ describe("SharedDocDetail", () => {
     expect((await api.getSharedDoc("sd-0c41e97a2b58")).versionCount).toBe(2);
   });
 
+  it("上傳新版本 on a file doc puts the chosen file in, and refuses an image in its place", async () => {
+    const upload = vi.spyOn(api, "uploadAttachment");
+    const { getByTestId, queryByTestId } = renderDetail("sd-3f9a2c71b0e4");
+    await title(getByTestId);
+    fireEvent.click(getByTestId("shared-doc-upload-version"));
+    fireEvent.change(getByTestId("shared-doc-file-input"), {
+      target: { files: [new File(["png"], "photo.png", { type: "image/png" })] },
+    });
+    fireEvent.click(getByTestId("shared-doc-form-submit"));
+    expect(getByTestId("shared-doc-form-error").textContent).toBe(
+      "這份不是圖片，不能換成圖片；圖片請另外上傳成一份新檔案",
+    );
+    expect(upload).not.toHaveBeenCalled();
+    fireEvent.change(getByTestId("shared-doc-file-input"), {
+      target: { files: [new File(["# v3"], "review-rule.md", { type: "text/markdown" })] },
+    });
+    expect(queryByTestId("shared-doc-form-error")).toBeNull();
+    fireEvent.click(getByTestId("shared-doc-form-submit"));
+    await waitFor(() => expect(queryByTestId("shared-doc-replace-form")).toBeNull());
+    expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({ text: "# v3", versionCount: 3 });
+  });
+
   it("an unknown id says the doc was not found", async () => {
     const onBack = vi.fn();
     const { getByTestId } = renderDetail("sd-000000000000", onBack);

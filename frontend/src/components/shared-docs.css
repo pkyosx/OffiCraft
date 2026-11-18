@@ -1,5 +1,5 @@
 /* 檔案庫 page (`.shared-docs*`): the list table, one document's page and the
- * new/replace dialog's extras. Buttons and fields reuse secrets.css, the id
+ * replace dialog's extras. Buttons and fields reuse secrets.css, the id
  * badge lore.css, the copy-link button office.css, the ✓/✗ inline-edit.css —
  * each importer pulls those sheets itself. Theme tokens only. */
 
@@ -19,6 +19,12 @@
   justify-content: flex-end;
   gap: 14px;
   flex-wrap: wrap;
+}
+
+.shared-docs__bar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .shared-docs__card {
@@ -76,12 +82,27 @@
 .shared-docs__col-updated {
   width: 230px;
 }
+/* Fixed so 編輯 | 上傳新版本 | 永久刪除 line up down the column whatever a
+ * row's kind; a member, who has no 永久刪除, sees the same two on every row. */
 .shared-docs__col-actions {
-  width: 64px;
-  text-align: center;
+  width: 132px;
+  text-align: left;
+}
+.shared-docs__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.shared-docs__actions .ts-icon-btn[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.shared-docs__actions .ts-icon-btn[aria-disabled="true"]:hover {
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
 }
 .shared-docs__table th.shared-docs__col-actions {
-  text-align: center;
+  text-align: left;
 }
 .shared-docs__row {
   cursor: pointer;
@@ -102,16 +123,9 @@
   gap: 10px;
   width: 100%;
   min-width: 0;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
   color: var(--color-text);
-  text-align: left;
-  cursor: pointer;
 }
-.shared-docs__kind,
-.shared-docs__thumb {
+.shared-docs__kind {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -119,13 +133,17 @@
   width: 44px;
   height: 44px;
   border-radius: 8px;
-}
-.shared-docs__kind {
   color: var(--color-text-muted);
 }
-.shared-docs__thumb {
-  object-fit: cover;
-  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+.shared-docs__kind--preview {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+}
+.shared-docs__kind--preview:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
 }
 .shared-docs__file-text {
   display: flex;
@@ -133,6 +151,24 @@
   gap: 2px;
   min-width: 0;
   flex: 1;
+}
+.shared-docs__file-open {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.shared-docs__inline-field {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+.shared-docs__inline-field .inline-edit__input {
+  flex: 1;
+  min-width: 0;
 }
 .shared-docs__name,
 .shared-docs__file-description {
@@ -147,7 +183,7 @@
   font-size: 12px;
   color: var(--color-text-muted);
 }
-.shared-docs__file:hover .shared-docs__name,
+.shared-docs__file-open:hover .shared-docs__name,
 .shared-docs__row:hover .shared-docs__name {
   color: var(--color-accent);
 }
@@ -269,19 +305,30 @@
   font-family: var(--font-mono, monospace);
 }
 
-/* ── new / replace dialog ── */
+/* ── 新增連結 ── */
+.shared-docs__link-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  color: var(--color-text-muted);
+}
+.shared-docs__link-url {
+  flex: 2 1 260px;
+  min-width: 0;
+}
+.shared-docs__link-name {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.shared-docs__link-error {
+  flex-basis: 100%;
+  font-size: 12.5px;
+  color: var(--color-danger);
+}
+
+/* ── replace dialog ── */
 .shared-docs__form {
   max-width: 480px;
-}
-.shared-docs__source {
-  display: flex;
-  gap: 16px;
-  font-size: 13px;
-  color: var(--color-text);
-}
-.shared-docs__source-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
 }

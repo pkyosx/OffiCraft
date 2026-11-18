@@ -1,10 +1,9 @@
 // SharedDocsPage — 檔案庫: documents not tied to any task that every member
 // reads by `sd-` id. The list is a table; #shared-docs/<id> opens one document.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { api, viewerIsOwner } from "../api";
-import { authedAttachmentUrl } from "../api/http";
 import { useMembers } from "../hooks/useMembers";
 import { useOwnerDisplayName } from "../hooks/useOwnerName";
 import { useSharedDocAction, useSharedDocs } from "../hooks/useSharedDocs";
@@ -14,15 +13,22 @@ import { formatHash, useHashRoute } from "../lib/hashRoute";
 import type { SharedDocView } from "../types";
 import { ConfirmModal } from "./ConfirmModal";
 import { SharedDocDetail } from "./SharedDocDetail";
-import { SharedDocFormDialog } from "./SharedDocFormDialog";
+import { kindMismatchMessage, sharedDocKindForFile } from "./SharedDocFormDialog";
+import { InlineEdit } from "./InlineEdit";
+import { MarkdownPreviewOverlay, isMarkdownAttachment } from "./MarkdownPreviewOverlay";
 import {
   CheckIcon,
+  CloseIcon,
   CopyIcon,
   ExternalLinkIcon,
+  ImageIcon,
   LayersIcon,
   PaperclipIcon,
+  PencilIcon,
   TrashIcon,
+  UploadIcon,
 } from "./icons";
+import "./inline-edit.css";
 import "./lore.css";
 import "./office.css";
 import "./secrets.css";
@@ -67,17 +73,33 @@ function useFlash(): [string | null, (key: string) => void] {
   return [flashed, flash];
 }
 
-function KindMedia({ doc }: { doc: SharedDocView }) {
+/** The name a new upload starts with: the filename without its extension. */
+export function defaultDocName(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  return dot > 0 ? filename.slice(0, dot) : filename;
+}
+
+function textEditable(doc: SharedDocView): boolean {
+  if (doc.kind !== "file") return false;
+  const mime = doc.mime.split(";")[0]!.trim().toLowerCase();
+  return isMarkdownAttachment(mime, doc.filename) || mime === "text/plain";
+}
+
+function KindMedia({ doc, onPreview }: { doc: SharedDocView; onPreview: (doc: SharedDocView) => void }) {
   const { t } = useI18n();
   const d = t.sharedDocs;
   if (doc.kind === "image") {
     return (
-      <img
-        className="shared-docs__thumb"
+      <button
+        type="button"
+        className="shared-docs__kind shared-docs__kind--preview"
         data-testid="shared-doc-kind-image"
-        src={authedAttachmentUrl(doc.url)}
-        alt={d.kindImage}
-      />
+        aria-label={d.previewImage}
+        title={d.previewImage}
+        onClick={() => onPreview(doc)}
+      >
+        <ImageIcon size={15} />
+      </button>
     );
   }
   const link = doc.kind === "link";
@@ -93,35 +115,224 @@ function KindMedia({ doc }: { doc: SharedDocView }) {
   );
 }
 
-function FileBlock({ doc, onOpen }: { doc: SharedDocView; onOpen: (id: string) => void }) {
+/** The 檔案 cell. `nameEditor`/`urlEditor` replace the name or the line under
+ * it while that field is being edited in place. */
+function FileBlock({
+  doc,
+  onOpen,
+  onPreview,
+  nameEditor,
+  urlEditor,
+}: {
+  doc: SharedDocView;
+  onOpen: (id: string) => void;
+  onPreview: (doc: SharedDocView) => void;
+  nameEditor?: ReactNode;
+  urlEditor?: ReactNode;
+}) {
+  const description = doc.description && (
+    <span className="shared-docs__file-description">{doc.description}</span>
+  );
   return (
-    <button
-      type="button"
-      className="shared-docs__file"
-      data-testid="shared-doc-name"
-      title={doc.description ? `${doc.name}\n${doc.description}` : doc.name}
-      onClick={() => onOpen(doc.id)}
+    <div className="shared-docs__file" data-testid="shared-doc-name">
+      <KindMedia doc={doc} onPreview={onPreview} />
+      {nameEditor || urlEditor ? (
+        <span className="shared-docs__file-text">
+          {nameEditor ?? <span className="shared-docs__name">{doc.name}</span>}
+          {urlEditor ?? description}
+        </span>
+      ) : (
+        <button
+          type="button"
+          className="shared-docs__file-text shared-docs__file-open"
+          title={doc.description ? `${doc.name}\n${doc.description}` : doc.name}
+          onClick={() => onOpen(doc.id)}
+        >
+          <span className="shared-docs__name">{doc.name}</span>
+          {description}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** 編輯 | 上傳新版本 | 永久刪除, in the same places on every row; the ones a
+ * row's kind cannot use stay put, dimmed, with a tooltip saying why. */
+function RowActions({
+  doc,
+  isOwner,
+  busy,
+  onEdit,
+  onUpload,
+  onDelete,
+}: {
+  doc: SharedDocView;
+  isOwner: boolean;
+  busy: boolean;
+  onEdit: () => void;
+  onUpload: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useI18n();
+  const d = t.sharedDocs;
+  const link = doc.kind === "link";
+  const canEdit = link || textEditable(doc);
+  const editTitle = link ? d.editUrl : canEdit ? d.edit : d.editUnavailable;
+  const uploadTitle = link ? d.uploadVersionUnavailable : d.uploadVersion;
+  return (
+    <span className="shared-docs__actions">
+      <button
+        type="button"
+        className="ts-icon-btn"
+        data-testid="shared-doc-edit"
+        aria-label={`${editTitle} ${doc.name}`}
+        aria-disabled={!canEdit || undefined}
+        title={editTitle}
+        onClick={() => {
+          if (canEdit) onEdit();
+        }}
+      >
+        <PencilIcon size={14} />
+      </button>
+      <button
+        type="button"
+        className="ts-icon-btn"
+        data-testid="shared-doc-upload"
+        aria-label={`${uploadTitle} ${doc.name}`}
+        aria-disabled={link || busy || undefined}
+        title={uploadTitle}
+        onClick={() => {
+          if (!link && !busy) onUpload();
+        }}
+      >
+        <UploadIcon size={15} />
+      </button>
+      {isOwner && (
+        <button
+          type="button"
+          className="ts-icon-btn ts-icon-btn--danger"
+          data-testid="shared-doc-delete"
+          aria-label={`${d.delete} ${doc.name}`}
+          title={d.delete}
+          onClick={onDelete}
+        >
+          <TrashIcon size={15} />
+        </button>
+      )}
+    </span>
+  );
+}
+
+/** 新增連結: a URL and a name entered right on the page. */
+function AddLinkForm({
+  run,
+  onDone,
+  onCancel,
+}: {
+  run: (action: () => Promise<unknown>) => Promise<string>;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const { t } = useI18n();
+  const d = t.sharedDocs;
+  const [url, setUrl] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const target = url.trim();
+    if (!target || busy) return;
+    setBusy(true);
+    setError("");
+    const err = await run(() =>
+      api.createSharedDoc({ kind: "link", name: name.trim() || target, description: "", url: target }),
+    );
+    setBusy(false);
+    if (err) {
+      setError(err);
+      return;
+    }
+    onDone();
+  }
+
+  return (
+    <form
+      className="shared-docs__card shared-docs__link-form"
+      data-testid="shared-docs-link-form"
+      onSubmit={submit}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !busy) {
+          e.preventDefault();
+          onCancel();
+        }
+      }}
     >
-      <KindMedia doc={doc} />
-      <span className="shared-docs__file-text">
-        <span className="shared-docs__name">{doc.name}</span>
-        {doc.description && (
-          <span className="shared-docs__file-description">{doc.description}</span>
-        )}
-      </span>
-    </button>
+      <ExternalLinkIcon size={15} />
+      <input
+        type="url"
+        className="secrets__input shared-docs__link-url"
+        data-testid="shared-docs-link-url"
+        aria-label={d.urlLabel}
+        placeholder={d.linkUrlPlaceholder}
+        maxLength={2048}
+        autoFocus
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+      />
+      <input
+        className="secrets__input shared-docs__link-name"
+        data-testid="shared-docs-link-name"
+        aria-label={d.rename}
+        placeholder={d.linkNamePlaceholder}
+        maxLength={128}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+      <button
+        type="submit"
+        className="inline-edit__iconbtn inline-edit__iconbtn--apply"
+        data-testid="shared-docs-link-save"
+        aria-label={t.common.apply}
+        title={t.common.apply}
+        disabled={busy || url.trim() === ""}
+      >
+        <CheckIcon size={14} />
+      </button>
+      <button
+        type="button"
+        className="inline-edit__iconbtn inline-edit__iconbtn--cancel"
+        aria-label={t.common.cancel}
+        title={t.common.cancel}
+        disabled={busy}
+        onClick={onCancel}
+      >
+        <CloseIcon size={14} />
+      </button>
+      {error && (
+        <div className="shared-docs__link-error" role="alert" data-testid="shared-docs-link-error">
+          {error}
+        </div>
+      )}
+    </form>
   );
 }
 
 export function SharedDocsPage({ docId }: { docId?: string }) {
   const [, setRoute] = useHashRoute();
   const actorName = useActorName();
+  const [editOnOpen, setEditOnOpen] = useState<string | null>(null);
+  useEffect(() => {
+    if (docId) setEditOnOpen(null);
+  }, [docId]);
   if (docId) {
     return (
       <SharedDocDetail
         key={docId}
         id={docId}
         actorName={actorName}
+        startEditing={editOnOpen === docId}
         onBack={() => setRoute({ page: "shared_docs" })}
       />
     );
@@ -130,28 +341,98 @@ export function SharedDocsPage({ docId }: { docId?: string }) {
     <SharedDocList
       actorName={actorName}
       onOpen={(id) => setRoute({ page: "shared_docs", sharedDocId: id })}
+      onEdit={(id) => {
+        setEditOnOpen(id);
+        setRoute({ page: "shared_docs", sharedDocId: id });
+      }}
     />
   );
 }
 
+type PickTarget = { mode: "create" } | { mode: "replace"; doc: SharedDocView };
+
 function SharedDocList({
   actorName,
   onOpen,
+  onEdit,
 }: {
   actorName: (id: string) => string;
   onOpen: (id: string) => void;
+  onEdit: (id: string) => void;
 }) {
   const { t, msg } = useI18n();
   const d = t.sharedDocs;
   const { docs, loading, loadError, reload } = useSharedDocs(d.loadFailed);
   const run = useSharedDocAction(d.actionFailed);
-  const [creating, setCreating] = useState(false);
+  const [addingLink, setAddingLink] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [namingId, setNamingId] = useState<string | null>(null);
+  const [urlEditId, setUrlEditId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<SharedDocView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SharedDocView | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [flashed, flash] = useFlash();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const pickTarget = useRef<PickTarget>({ mode: "create" });
   const isOwner = viewerIsOwner();
   const nowSecs = Math.floor(Date.now() / 1000);
+
+  function pick(target: PickTarget) {
+    const input = fileInput.current;
+    if (!input) return;
+    setActionError("");
+    pickTarget.current = target;
+    input.accept = target.mode === "replace" && target.doc.kind === "image" ? "image/*" : "";
+    input.value = "";
+    input.click();
+  }
+
+  async function onPicked(file: File) {
+    const target = pickTarget.current;
+    setActionError("");
+    if (target.mode === "replace") {
+      const mismatch = kindMismatchMessage(target.doc.kind, file.name, d);
+      if (mismatch) {
+        setActionError(mismatch);
+        return;
+      }
+    }
+    const busyKey = target.mode === "replace" ? target.doc.id : "";
+    setUploading(busyKey);
+    let createdId = "";
+    const err = await run(async () => {
+      const attachmentId = await api.uploadAttachment(file, file.name);
+      if (target.mode === "replace") {
+        await api.replaceSharedDoc(target.doc.id, { attachmentId });
+        return;
+      }
+      createdId = await api.createSharedDoc({
+        kind: sharedDocKindForFile(file.name),
+        name: defaultDocName(file.name),
+        description: "",
+        attachmentId,
+      });
+    });
+    setUploading(null);
+    if (err) {
+      setActionError(err);
+      return;
+    }
+    await reload();
+    if (createdId) setNamingId(createdId);
+  }
+
+  async function write(action: () => Promise<unknown>) {
+    setActionError("");
+    const err = await run(action);
+    if (err) {
+      setActionError(err);
+      return;
+    }
+    await reload();
+  }
 
   async function confirmDelete() {
     if (!deleteTarget) return;
@@ -172,14 +453,53 @@ function SharedDocList({
       <div className="shared-docs__bar">
         <button
           type="button"
-          className="secrets__btn secrets__submit"
-          data-testid="shared-docs-add"
-          onClick={() => setCreating(true)}
+          className="secrets__btn shared-docs__bar-btn"
+          data-testid="shared-docs-add-link"
+          onClick={() => {
+            setActionError("");
+            setAddingLink(true);
+          }}
         >
-          {d.add}
+          <ExternalLinkIcon size={14} />
+          {d.addLink}
         </button>
+        <button
+          type="button"
+          className="secrets__btn secrets__submit shared-docs__bar-btn"
+          data-testid="shared-docs-upload"
+          disabled={uploading === ""}
+          onClick={() => pick({ mode: "create" })}
+        >
+          <UploadIcon size={14} />
+          {d.uploadFile}
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          hidden
+          data-testid="shared-docs-file-input"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void onPicked(file);
+          }}
+        />
       </div>
 
+      {addingLink && (
+        <AddLinkForm
+          run={run}
+          onCancel={() => setAddingLink(false)}
+          onDone={() => {
+            setAddingLink(false);
+            void reload();
+          }}
+        />
+      )}
+      {actionError && (
+        <div className="secrets__error" role="alert" data-testid="shared-docs-action-error">
+          {actionError}
+        </div>
+      )}
       {loadError && (
         <div className="secrets__error" data-testid="shared-docs-load-error">
           {loadError}
@@ -210,7 +530,7 @@ function SharedDocList({
                   data-testid="shared-doc-row"
                   data-doc-id={doc.id}
                   onClick={(e) => {
-                    if ((e.target as Element).closest("button, a")) return;
+                    if ((e.target as Element).closest("button, a, input")) return;
                     onOpen(doc.id);
                   }}
                 >
@@ -244,27 +564,58 @@ function SharedDocList({
                     </span>
                   </td>
                   <td className="shared-docs__col-file">
-                    <FileBlock doc={doc} onOpen={onOpen} />
+                    <FileBlock
+                      doc={doc}
+                      onOpen={onOpen}
+                      onPreview={setPreview}
+                      nameEditor={
+                        namingId === doc.id ? (
+                          <InlineEdit
+                            className="shared-docs__inline-field"
+                            value={doc.name}
+                            ariaLabel={d.rename}
+                            openOnMount
+                            onCommit={(name) => void write(() => api.replaceSharedDoc(doc.id, { name }))}
+                            onClose={() => setNamingId(null)}
+                          />
+                        ) : undefined
+                      }
+                      urlEditor={
+                        urlEditId === doc.id ? (
+                          <InlineEdit
+                            className="shared-docs__inline-field"
+                            value={doc.url}
+                            ariaLabel={d.editUrl}
+                            openOnMount
+                            onCommit={(url) => void write(() => api.replaceSharedDoc(doc.id, { url }))}
+                            onClose={() => setUrlEditId(null)}
+                          />
+                        ) : undefined
+                      }
+                    />
                   </td>
                   <td className="shared-docs__updated" data-testid="shared-doc-updated">
                     {msg.sharedDocUpdated(actorName(doc.updatedBy), formatAbsolute(doc.updatedTs, nowSecs))}
                   </td>
                   <td className="shared-docs__col-actions">
-                    {isOwner && (
-                      <button
-                        type="button"
-                        className="ts-icon-btn ts-icon-btn--danger"
-                        data-testid="shared-doc-delete"
-                        aria-label={`${d.delete} ${doc.name}`}
-                        title={d.delete}
-                        onClick={() => {
-                          setDeleteError("");
-                          setDeleteTarget(doc);
-                        }}
-                      >
-                        <TrashIcon size={15} />
-                      </button>
-                    )}
+                    <RowActions
+                      doc={doc}
+                      isOwner={isOwner}
+                      busy={uploading === doc.id}
+                      onEdit={() => {
+                        if (doc.kind === "link") {
+                          setActionError("");
+                          setUrlEditId(doc.id);
+                        } else {
+                          onEdit(doc.id);
+                        }
+                      }}
+                      onUpload={() => pick({ mode: "replace", doc })}
+                      onDelete={() => {
+                        setDeleteError("");
+                        setDeleteTarget(doc);
+                      }}
+                    />
                   </td>
                 </tr>
               ))}
@@ -273,15 +624,14 @@ function SharedDocList({
         </div>
       )}
 
-      {creating && (
-        <SharedDocFormDialog
-          mode="create"
-          run={run}
-          onCancel={() => setCreating(false)}
-          onDone={(id) => {
-            setCreating(false);
-            onOpen(id);
-          }}
+      {preview && (
+        <MarkdownPreviewOverlay
+          title={preview.name}
+          filename={preview.filename}
+          url={preview.url}
+          attachmentId={preview.attachmentId}
+          mime={preview.mime}
+          onClose={() => setPreview(null)}
         />
       )}
       {deleteTarget && (

@@ -5,6 +5,8 @@ import { SharedDocsPage, sharedDocLink } from "./SharedDocsPage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
 import { formatAbsolute } from "../lib/dateFormat";
+import { useHashRoute } from "../lib/hashRoute";
+import { ApiError } from "../api/errors";
 
 const copyTextMock = vi.hoisted(() => vi.fn(async (_text: string) => true));
 vi.mock("../lib/clipboard", () => ({ copyText: copyTextMock }));
@@ -84,6 +86,37 @@ function renderPage() {
   );
 }
 
+function RoutedPage() {
+  const [route] = useHashRoute();
+  return <SharedDocsPage docId={route.page === "shared_docs" ? route.sharedDocId : undefined} />;
+}
+
+function renderRouted() {
+  return render(
+    <I18nProvider>
+      <RoutedPage />
+    </I18nProvider>,
+  );
+}
+
+async function createUploaded(kind: "file" | "image", name: string, filename: string, body: string) {
+  const attachmentId = await api.uploadAttachment(new Blob([body]), filename);
+  return api.createSharedDoc({ kind, name, description: "", attachmentId });
+}
+
+function actionStates(row: HTMLElement): string[][] {
+  return Array.from(row.querySelectorAll<HTMLButtonElement>(".shared-docs__actions button")).map((b) => [
+    b.dataset.testid ?? "",
+    b.title,
+    b.getAttribute("aria-disabled") ?? "",
+  ]);
+}
+
+function pickFile(container: HTMLElement, file: File) {
+  const input = container.querySelector<HTMLInputElement>('[data-testid="shared-docs-file-input"]')!;
+  fireEvent.change(input, { target: { files: [file] } });
+}
+
 function rows(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>('[data-testid="shared-doc-row"]'));
 }
@@ -122,8 +155,11 @@ describe("SharedDocsPage", () => {
       description: "",
       url: "https://example.com/board",
     });
+    const shotId = await createUploaded("image", "Shot", "shot.png", "png");
+    const contractId = await createUploaded("file", "Contract", "contract.pdf", "pdf");
+    const notesId = await createUploaded("file", "Notes", "notes.txt", "plain");
     const { container } = renderPage();
-    await waitRows(container, 3);
+    await waitRows(container, 6);
     const row = (id: string) => container.querySelector<HTMLElement>(`[data-doc-id="${id}"]`)!;
     const api規格 = row("sd-0c41e97a2b58");
     const review = row("sd-3f9a2c71b0e4");
@@ -160,7 +196,28 @@ describe("SharedDocsPage", () => {
         within(row(boardId)).getByTestId("shared-doc-name").querySelectorAll(".shared-docs__file-text > span"),
       ).map((s) => s.textContent),
     ).toEqual(["Board"]);
-    expect(within(review).getByTestId("shared-doc-delete").getAttribute("title")).toBe("永久刪除");
+    expect(row(shotId).querySelector('[data-testid="shared-doc-kind-image"]')?.getAttribute("title")).toBe("預覽圖片");
+    expect(row(shotId).querySelector("img")).toBeNull();
+    expect(actionStates(review)).toEqual([
+      ["shared-doc-edit", "編輯", ""],
+      ["shared-doc-upload", "上傳新版本", ""],
+      ["shared-doc-delete", "永久刪除", ""],
+    ]);
+    expect(actionStates(row(notesId))).toEqual(actionStates(review));
+    const noEdit = [
+      ["shared-doc-edit", "這種檔案不能直接編輯，請上傳新版本", "true"],
+      ["shared-doc-upload", "上傳新版本", ""],
+      ["shared-doc-delete", "永久刪除", ""],
+    ];
+    expect(actionStates(row(shotId))).toEqual(noEdit);
+    expect(actionStates(row(contractId))).toEqual(noEdit);
+    const linkActions = [
+      ["shared-doc-edit", "修改網址", ""],
+      ["shared-doc-upload", "連結請用編輯改網址", "true"],
+      ["shared-doc-delete", "永久刪除", ""],
+    ];
+    expect(actionStates(api規格)).toEqual(linkActions);
+    expect(actionStates(row(boardId))).toEqual(linkActions);
   });
 
   it("the ID badge copies the id and shows a check, the link button copies the in-site link and shows a check", async () => {
@@ -201,7 +258,10 @@ describe("SharedDocsPage", () => {
 
   it("a member's token gets no 永久刪除", async () => {
     const member = await renderRealModeRow(fakeJwt({ scope: "agent", sub: "kip" }));
-    expect(within(member).queryByTestId("shared-doc-delete")).toBeNull();
+    expect(actionStates(member)).toEqual([
+      ["shared-doc-edit", "編輯", ""],
+      ["shared-doc-upload", "上傳新版本", ""],
+    ]);
   });
 
   it("an owner token is offered 永久刪除", async () => {
@@ -221,46 +281,191 @@ describe("SharedDocsPage", () => {
     expect((await api.listSharedDocs()).map((d) => d.id)).toEqual(["sd-0c41e97a2b58"]);
   });
 
-  it("新增檔案 with a link creates the doc and opens it", async () => {
-    const { container, getByTestId } = renderPage();
-    await waitRows(container, 2);
-    fireEvent.click(getByTestId("shared-docs-add"));
-    const submit = getByTestId("shared-doc-form-submit") as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
-    fireEvent.click(getByTestId("shared-doc-source-link"));
-    fireEvent.change(getByTestId("shared-doc-url-input"), {
-      target: { value: "https://example.com/board" },
-    });
-    fireEvent.change(getByTestId("shared-doc-name-input"), { target: { value: "Board" } });
-    fireEvent.change(getByTestId("shared-doc-description-input"), {
-      target: { value: "the roadmap" },
-    });
-    fireEvent.click(submit);
-    await waitFor(() => expect(window.location.hash).toMatch(/^#shared-docs\/sd-/));
-    const created = (await api.listSharedDocs()).find((d) => d.name === "Board");
-    expect(created).toMatchObject({
-      kind: "link",
-      description: "the roadmap",
-      url: "https://example.com/board",
-      versionCount: 1,
-    });
-    expect(window.location.hash).toBe(`#shared-docs/${created!.id}`);
-  });
-
-  it("新增檔案 with a file uploads it first and the doc points at that upload", async () => {
+  it("上傳檔案 adds the picked file as a new doc named after it, with that name open to edit", async () => {
     const upload = vi.spyOn(api, "uploadAttachment");
     const { container, getByTestId } = renderPage();
     await waitRows(container, 2);
-    fireEvent.click(getByTestId("shared-docs-add"));
-    const file = new File(["# Notes"], "notes.md", { type: "text/markdown" });
-    fireEvent.change(getByTestId("shared-doc-file-input"), { target: { files: [file] } });
-    fireEvent.change(getByTestId("shared-doc-name-input"), { target: { value: "Notes" } });
-    fireEvent.click(getByTestId("shared-doc-form-submit"));
-    await waitFor(() => expect(window.location.hash).toMatch(/^#shared-docs\/sd-/));
-    expect(upload).toHaveBeenCalledWith(file, "notes.md");
-    const attId = await upload.mock.results[0]!.value;
-    const created = (await api.listSharedDocs()).find((d) => d.name === "Notes");
-    expect(created).toMatchObject({ kind: "file", attachmentId: attId, filename: "notes.md" });
-    expect((await api.getSharedDoc(created!.id)).text).toBe("# Notes");
+    fireEvent.click(getByTestId("shared-docs-upload"));
+    const file = new File(["# Notes"], "release-notes.md", { type: "text/markdown" });
+    pickFile(container, file);
+    await waitRows(container, 3);
+    expect(upload).toHaveBeenCalledWith(file, "release-notes.md");
+    const created = (await api.listSharedDocs()).find((d) => d.filename === "release-notes.md")!;
+    expect(created).toMatchObject({ kind: "file", name: "release-notes", description: "", versionCount: 1 });
+    const row = container.querySelector<HTMLElement>(`[data-doc-id="${created.id}"]`)!;
+    const nameInput = within(row).getByLabelText("改名") as HTMLInputElement;
+    expect(nameInput.value).toBe("release-notes");
+    fireEvent.change(nameInput, { target: { value: "Release notes" } });
+    fireEvent.keyDown(nameInput, { key: "Enter" });
+    await waitFor(() => expect(cellTexts(row)[1]).toBe("Release notes"));
+    expect(within(row).queryByLabelText("改名")).toBeNull();
+    expect(await api.getSharedDoc(created.id)).toMatchObject({ name: "Release notes", versionCount: 1, text: "# Notes" });
+    expect(window.location.hash).toBe("#shared-docs");
+
+    pickFile(container, new File(["png"], "shot.png", { type: "image/png" }));
+    await waitRows(container, 4);
+    expect((await api.listSharedDocs()).find((d) => d.filename === "shot.png")).toMatchObject({
+      kind: "image",
+      name: "shot",
+    });
+  });
+
+  it("新增連結 adds a link from the URL and name typed on the page, a blank name taking the URL", async () => {
+    const { container, getByTestId, queryByTestId } = renderPage();
+    await waitRows(container, 2);
+    fireEvent.click(getByTestId("shared-docs-add-link"));
+    const save = getByTestId("shared-docs-link-save") as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.change(getByTestId("shared-docs-link-url"), { target: { value: "https://example.com/board" } });
+    fireEvent.change(getByTestId("shared-docs-link-name"), { target: { value: "Board" } });
+    fireEvent.click(save);
+    await waitRows(container, 3);
+    expect(queryByTestId("shared-docs-link-form")).toBeNull();
+    expect((await api.listSharedDocs()).find((d) => d.name === "Board")).toMatchObject({
+      kind: "link",
+      url: "https://example.com/board",
+      description: "",
+    });
+
+    fireEvent.click(getByTestId("shared-docs-add-link"));
+    fireEvent.change(getByTestId("shared-docs-link-url"), { target: { value: "https://example.com/wiki" } });
+    fireEvent.submit(getByTestId("shared-docs-link-form"));
+    await waitRows(container, 4);
+    expect((await api.listSharedDocs()).find((d) => d.url === "https://example.com/wiki")?.name).toBe(
+      "https://example.com/wiki",
+    );
+    expect(window.location.hash).toBe("#shared-docs");
+  });
+
+  it("a 新增連結 the server refuses keeps the form open with the server's message", async () => {
+    vi.spyOn(api, "createSharedDoc").mockRejectedValueOnce(
+      new ApiError("http 400", 400, "validation_error", "url must be http or https"),
+    );
+    const { container, getByTestId } = renderPage();
+    await waitRows(container, 2);
+    fireEvent.click(getByTestId("shared-docs-add-link"));
+    fireEvent.change(getByTestId("shared-docs-link-url"), { target: { value: "ftp://x" } });
+    fireEvent.submit(getByTestId("shared-docs-link-form"));
+    expect((await waitFor(() => getByTestId("shared-docs-link-error"))).textContent).toBe(
+      "url must be http or https",
+    );
+    expect((getByTestId("shared-docs-link-url") as HTMLInputElement).value).toBe("ftp://x");
+    expect(rows(container)).toHaveLength(2);
+  });
+
+  it("上傳新版本 on a row puts the picked file in as that doc's new version", async () => {
+    const { container } = renderPage();
+    const [, review] = await waitRows(container, 2);
+    fireEvent.click(within(review!).getByTestId("shared-doc-upload"));
+    pickFile(container, new File(["# Review Rule v3"], "review-rule.md", { type: "text/markdown" }));
+    await waitFor(async () =>
+      expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({ text: "# Review Rule v3", versionCount: 3 }),
+    );
+    expect(window.location.hash).toBe("#shared-docs");
+    expect(rows(container)).toHaveLength(2);
+  });
+
+  it("上傳新版本 refuses a file that would change the doc between image and not, and uploads nothing", async () => {
+    const shotId = await createUploaded("image", "Shot", "shot.png", "png");
+    const upload = vi.spyOn(api, "uploadAttachment");
+    const { container, getByTestId, queryByTestId } = renderPage();
+    await waitRows(container, 3);
+    const row = (id: string) => container.querySelector<HTMLElement>(`[data-doc-id="${id}"]`)!;
+    fireEvent.click(within(row(shotId)).getByTestId("shared-doc-upload"));
+    expect(container.querySelector<HTMLInputElement>('[data-testid="shared-docs-file-input"]')!.accept).toBe(
+      "image/*",
+    );
+    pickFile(container, new File(["# x"], "notes.md", { type: "text/markdown" }));
+    expect((await waitFor(() => getByTestId("shared-docs-action-error"))).textContent).toBe(
+      "這份是圖片，新版本也要是圖片",
+    );
+    fireEvent.click(within(row("sd-3f9a2c71b0e4")).getByTestId("shared-doc-upload"));
+    expect(queryByTestId("shared-docs-action-error")).toBeNull();
+    pickFile(container, new File(["png"], "photo.png", { type: "image/png" }));
+    expect((await waitFor(() => getByTestId("shared-docs-action-error"))).textContent).toBe(
+      "這份不是圖片，不能換成圖片；圖片請另外上傳成一份新檔案",
+    );
+    expect(upload).not.toHaveBeenCalled();
+    expect((await api.getSharedDoc(shotId)).versionCount).toBe(1);
+    expect((await api.getSharedDoc("sd-3f9a2c71b0e4")).versionCount).toBe(2);
+  });
+
+  it("an upload that fails shows why on the list and changes nothing", async () => {
+    vi.spyOn(api, "uploadAttachment").mockRejectedValue(
+      new ApiError("http 413", 413, "too_large", "attachment exceeds 20 MiB"),
+    );
+    const { container, getByTestId } = renderPage();
+    const [, review] = await waitRows(container, 2);
+    fireEvent.click(within(review!).getByTestId("shared-doc-upload"));
+    pickFile(container, new File(["x"], "review-rule.md", { type: "text/markdown" }));
+    expect((await waitFor(() => getByTestId("shared-docs-action-error"))).textContent).toBe(
+      "attachment exceeds 20 MiB",
+    );
+    fireEvent.click(getByTestId("shared-docs-upload"));
+    pickFile(container, new File(["x"], "new.md", { type: "text/markdown" }));
+    await waitFor(() => expect((getByTestId("shared-docs-upload") as HTMLButtonElement).disabled).toBe(false));
+    expect(getByTestId("shared-docs-action-error").textContent).toBe("attachment exceeds 20 MiB");
+    expect(rows(container)).toHaveLength(2);
+    expect((await api.getSharedDoc("sd-3f9a2c71b0e4")).versionCount).toBe(2);
+  });
+
+  it("編輯 on a link row edits its URL in place: ✓ saves it as a new version, ✗ leaves it", async () => {
+    const { container } = renderPage();
+    const [apiSpec] = await waitRows(container, 2);
+    fireEvent.click(within(apiSpec!).getByTestId("shared-doc-edit"));
+    const input = within(apiSpec!).getByLabelText("修改網址") as HTMLInputElement;
+    expect(input.value).toBe("https://github.com/example/officraft/blob/main/spec/openapi.json");
+    fireEvent.click(input);
+    expect(window.location.hash).toBe("#shared-docs");
+    fireEvent.change(input, { target: { value: "https://example.com/other" } });
+    fireEvent.mouseDown(within(apiSpec!).getByLabelText("取消"));
+    expect(within(apiSpec!).queryByLabelText("修改網址")).toBeNull();
+    expect(cellTexts(apiSpec!)[1]).toBe("API 規格GitHub 上的 spec/openapi.json，改 wire 前先讀");
+
+    fireEvent.click(within(apiSpec!).getByTestId("shared-doc-edit"));
+    fireEvent.change(within(apiSpec!).getByLabelText("修改網址"), {
+      target: { value: "https://example.com/openapi.json" },
+    });
+    fireEvent.mouseDown(within(apiSpec!).getByLabelText("套用"));
+    await waitFor(async () =>
+      expect(await api.getSharedDoc("sd-0c41e97a2b58")).toMatchObject({
+        url: "https://example.com/openapi.json",
+        versionCount: 2,
+      }),
+    );
+    expect(window.location.hash).toBe("#shared-docs");
+  });
+
+  it("編輯 on a Markdown row opens that doc with its editor already open; opening it by name does not", async () => {
+    const { container, getByTestId, queryByTestId } = renderRouted();
+    const [, review] = await waitRows(container, 2);
+    fireEvent.click(within(review!).getByTestId("shared-doc-edit"));
+    expect(window.location.hash).toBe("#shared-docs/sd-3f9a2c71b0e4");
+    const editor = (await waitFor(() => getByTestId("shared-doc-editor"))) as HTMLTextAreaElement;
+    expect(editor.value).toBe("# Review Rule\n\n1. 範圍：變更檔案逐一說得出必要性。\n2. 測試：新行為有測試。\n");
+    fireEvent.click(getByTestId("shared-doc-back"));
+    const [, again] = await waitRows(container, 2);
+    fireEvent.click(within(again!).getByText("Review Rule"));
+    await waitFor(() => getByTestId("shared-doc-markdown"));
+    expect(queryByTestId("shared-doc-editor")).toBeNull();
+  });
+
+  it("an image row's icon previews the image over the list; its name still opens the doc", async () => {
+    const shotId = await createUploaded("image", "Shot", "shot.png", "png");
+    const { container } = renderPage();
+    await waitRows(container, 3);
+    const row = container.querySelector<HTMLElement>(`[data-doc-id="${shotId}"]`)!;
+    fireEvent.click(within(row).getByTestId("shared-doc-kind-image"));
+    const overlay = await waitFor(() => {
+      const el = document.body.querySelector<HTMLElement>(".md-preview");
+      if (!el) throw new Error("no preview");
+      return el;
+    });
+    expect(overlay.querySelector(".md-preview__title")?.textContent).toBe("Shot");
+    const shot = await api.getSharedDoc(shotId);
+    expect(overlay.querySelector("img")?.getAttribute("src")).toContain(shot.url);
+    expect(window.location.hash).toBe("#shared-docs");
+    fireEvent.click(within(row).getByText("Shot"));
+    expect(window.location.hash).toBe(`#shared-docs/${shotId}`);
   });
 });
