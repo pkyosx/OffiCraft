@@ -1405,7 +1405,7 @@ describe("MarkdownPreviewOverlay", () => {
               id: "c2",
               kind: "anchor",
               anchorId: "x]`y",
-              label: "a [b](javascript:alert(1))\n**粗** _斜_ `碼` <img onerror=x> https://evil.example/p <https://x.example>",
+              label: "a [b](javascript:alert(1))\n**粗** _斜_ `碼` <img onerror=x> https://evil.example/p <https://x.example> xhttps://a.example _https://e.example HTTPS://u.example",
               comment: "怪名字",
             },
             { id: "c3", kind: "document", comment: "流程圖字太小" },
@@ -1426,7 +1426,7 @@ describe("MarkdownPreviewOverlay", () => {
             "   註解：「1 秒」怎麼量？\n" +
             "\n" +
             "2. 原文：\n" +
-            "   > 位置：a \\[b\\](javascript:alert(1)) \\*\\*粗\\*\\* \\_斜\\_ \\`碼\\` \\<img onerror=x\\> https\\://evil.example/p \\<https\\://x.example\\>（#x\\]\\`y）\n" +
+            "   > 位置：a \\[b\\](javascript:alert(1)) \\*\\*粗\\*\\* \\_斜\\_ \\`碼\\` \\<img onerror=x\\> https\\://evil.example/p \\<https\\://x.example\\> xhttps\\://a.example \\_https\\://e.example HTTPS\\://u.example（#x\\]\\`y）\n" +
             "\n" +
             "   註解：怪名字\n" +
             "\n" +
@@ -1438,7 +1438,7 @@ describe("MarkdownPreviewOverlay", () => {
         const bubble = render(<Markdown source={body} breaks />).container;
         expect([...bubble.querySelectorAll("ol > li > blockquote")].map((q) => q.textContent)).toEqual([
           "位置：AC-5：切到已結案 1 秒內可操作（#ac-AC-5）",
-          "位置：a [b](javascript:alert(1)) **粗** _斜_ `碼` <img onerror=x> https://evil.example/p <https://x.example>（#x]`y）",
+          "位置：a [b](javascript:alert(1)) **粗** _斜_ `碼` <img onerror=x> https://evil.example/p <https://x.example> xhttps://a.example _https://e.example HTTPS://u.example（#x]`y）",
           "整份文件",
         ]);
         expect([...bubble.querySelectorAll("blockquote p *")].map((el) => el.outerHTML)).toEqual([]);

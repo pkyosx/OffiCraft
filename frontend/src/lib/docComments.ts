@@ -118,7 +118,7 @@ function escapePageText(text: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[\\[\]`*_<>]/g, "\\$&")
-    .replace(/\b(https?|mailto):/gi, "$1\\:");
+    .replace(/(https?|mailto):/gi, "$1\\:");
 }
 
 // So a comment line reads as the comment's own text, never as a quoted excerpt
