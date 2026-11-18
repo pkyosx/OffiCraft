@@ -34,8 +34,16 @@ func sharedDocTextOrError(w http.ResponseWriter, field, value string, max int) b
 	return true
 }
 
+// sharedDocKindPhrase is "a file", "an image" or "a link".
+func sharedDocKindPhrase(kind string) string {
+	if kind == ArtifactKindImage {
+		return "an " + kind
+	}
+	return "a " + kind
+}
+
 func sharedDocKindRefusal(kind, field string) string {
-	return "a " + kind + " shared doc does not take " + field +
+	return sharedDocKindPhrase(kind) + " shared doc does not take " + field +
 		": its kind is fixed, so create a new shared doc instead"
 }
 
@@ -68,7 +76,7 @@ func (s *apiServer) sharedDocContentOrError(
 	}
 	if attID == "" {
 		writeError(w, http.StatusBadRequest,
-			"attachment_id is required for a "+kind+" shared doc")
+			"attachment_id is required for "+sharedDocKindPhrase(kind)+" shared doc")
 		return "", nil, false
 	}
 	if isMemberAvatarAttachmentID(attID) {
@@ -252,31 +260,33 @@ func (s *apiServer) HandleReplaceSharedDocApiSharedDocsDocIdReplacePost(w http.R
 		writeError(w, http.StatusNotFound, sharedDocNotFound(docId))
 		return
 	}
-	next := *doc
+	repl := SharedDocReplacement{ID: docId}
 	if body.Name != nil {
-		next.Name = trimString(*body.Name)
-		if next.Name == "" {
+		name := trimString(*body.Name)
+		if name == "" {
 			writeError(w, http.StatusBadRequest,
 				"name cannot be blank: omit it to keep the current name")
 			return
 		}
-		if !sharedDocTextOrError(w, "name", next.Name, sharedDocNameMaxChars) {
+		if !sharedDocTextOrError(w, "name", name, sharedDocNameMaxChars) {
 			return
 		}
+		repl.Name = &name
 	}
 	if body.Description != nil {
-		next.Description = trimString(*body.Description)
-		if !sharedDocTextOrError(w, "description", next.Description, sharedDocDescriptionMaxChars) {
+		description := trimString(*body.Description)
+		if !sharedDocTextOrError(w, "description", description, sharedDocDescriptionMaxChars) {
 			return
 		}
+		repl.Description = &description
 	}
 	attID, minted, ok := s.sharedDocContentOrError(w, doc.Kind, doc.Kind == ArtifactKindLink, body.Url, body.AttachmentId)
 	if !ok {
 		return
 	}
-	next.AttachmentID = attID
-	next.UpdatedTS, next.UpdatedBy = nowSecs(), currentActor(r)
-	if err := s.dal.ReplaceSharedDoc(next, minted); err != nil {
+	repl.AttachmentID = attID
+	repl.UpdatedTS, repl.UpdatedBy = nowSecs(), currentActor(r)
+	if err := s.dal.ReplaceSharedDoc(repl, minted); err != nil {
 		writeTxError(w, err)
 		return
 	}

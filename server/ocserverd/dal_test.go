@@ -1533,8 +1533,7 @@ func TestCollectSurvivingBlobRefs(t *testing.T) {
 	dalPutMember(t, d, dalTestMember("eve", "Eve"))
 	doc := dalTestSharedDoc("sd-1", "att-shared-retired")
 	dalCreateSharedDoc(t, d, doc)
-	doc.AttachmentID = "att-shared"
-	if err := d.ReplaceSharedDoc(doc, nil); err != nil {
+	if err := d.ReplaceSharedDoc(SharedDocReplacement{ID: "sd-1", AttachmentID: "att-shared"}, nil); err != nil {
 		t.Fatalf("ReplaceSharedDoc: %v", err)
 	}
 

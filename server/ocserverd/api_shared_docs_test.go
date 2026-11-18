@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -184,8 +185,10 @@ func TestHandleCreateSharedDocApiSharedDocsPost(t *testing.T) {
 			"validation_error", "url must start with https:// or http://", 400},
 		{"a file with a url answers 400", `{"kind":"file","name":"x","url":"https://e.com"}`,
 			"validation_error", "a file shared doc does not take url: its kind is fixed, so create a new shared doc instead", 400},
-		{"a file without an attachment id answers 400", `{"kind":"image","name":"x"}`,
-			"validation_error", "attachment_id is required for a image shared doc", 400},
+		{"an image without an attachment id answers 400", `{"kind":"image","name":"x"}`,
+			"validation_error", "attachment_id is required for an image shared doc", 400},
+		{"a file without an attachment id answers 400", `{"kind":"file","name":"x"}`,
+			"validation_error", "attachment_id is required for a file shared doc", 400},
 		{"a member avatar answers 400", `{"kind":"image","name":"x","attachment_id":"ava-0123456789ab"}`,
 			"validation_error", "attachment 'ava-0123456789ab' is reserved for a member avatar", 400},
 		{"an attachment not in the store answers 400", `{"kind":"file","name":"x","attachment_id":"att-000000000000"}`,
@@ -358,6 +361,37 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 		apiWantBody(t, data, map[string]any{"doc_id": id, "versions": []any{
 			version(4, "https://e.com/4"), version(3, "https://e.com/3"), version(2, "https://e.com/2"),
 		}})
+	})
+
+	t.Run("a version dropped past the retention depth takes its file with it unless another doc's version still cites it", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		atts := make([]string, 7)
+		for i := range atts {
+			atts[i] = apiTestUploadBlob(t, h, owner, "runbook.md", "# v"+string(rune('1'+i)))
+		}
+		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"file","name":"Runbook","attachment_id":"`+atts[0]+`"}`)
+		copyID := apiTestCreateSharedDoc(t, h, owner, `{"kind":"file","name":"Copy","attachment_id":"`+atts[0]+`"}`)
+		if status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+copyID+"/replace", owner,
+			`{"attachment_id":"`+atts[6]+`"}`); status != 200 {
+			t.Fatalf("replace the copy: %d %v", status, data)
+		}
+		for _, att := range atts[1:6] {
+			if status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner,
+				`{"attachment_id":"`+att+`"}`); status != 200 {
+				t.Fatalf("replace with %s: %d %v", att, status, data)
+			}
+		}
+		got := map[string]int{}
+		for _, att := range atts {
+			got[att] = apiRequest(t, h, "GET", "/api/chat/attachment/"+att, owner, "").Code
+		}
+		want := map[string]int{
+			atts[0]: 200, atts[1]: 404, atts[2]: 200, atts[3]: 200, atts[4]: 200, atts[5]: 200,
+			atts[6]: 200,
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("attachment status by id:\n got %v\nwant %v", got, want)
+		}
 	})
 
 	t.Run("name and description are kept when omitted, a blank description clears it", func(t *testing.T) {
@@ -581,6 +615,24 @@ func TestHandleUnarchiveSharedDocApiSharedDocsDocIdUnarchivePost(t *testing.T) {
 		}
 		apiWantBody(t, data, apiTestSharedDocReceipt(id, 1, nil))
 		dashboard.wantFrames()
+	})
+
+	t.Run("a member unarchives a doc the owner archived, and may change it again", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
+		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/archive", owner, "")
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/unarchive", agent, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestSharedDocReceipt(id, 1, nil))
+		status, data = apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", agent, `{"url":"https://e.com/2"}`)
+		if status != 200 {
+			t.Fatalf("replace after unarchive: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestSharedDocReceipt(id, 2, nil))
 	})
 }
 

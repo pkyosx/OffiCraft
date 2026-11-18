@@ -54,9 +54,9 @@ func dalWantRefusal(t *testing.T, err error, status int, msg string) {
 // dalReplaceSharedDocWith writes attachmentID as the next version at ts.
 func dalReplaceSharedDocWith(t *testing.T, d *DAL, id, attachmentID, actor string, ts float64) {
 	t.Helper()
-	doc := dalMustGetSharedDoc(t, d, id)
-	doc.AttachmentID, doc.UpdatedBy, doc.UpdatedTS = attachmentID, actor, ts
-	if err := d.ReplaceSharedDoc(doc, nil); err != nil {
+	if err := d.ReplaceSharedDoc(SharedDocReplacement{
+		ID: id, AttachmentID: attachmentID, UpdatedBy: actor, UpdatedTS: ts,
+	}, nil); err != nil {
 		t.Fatalf("ReplaceSharedDoc(%s → %s): %v", id, attachmentID, err)
 	}
 }
@@ -122,12 +122,15 @@ func TestReplaceSharedDoc(t *testing.T) {
 	t.Run("the displaced version is retained with who wrote it and when", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		dalCreateSharedDoc(t, d, dalTestSharedDoc("sd-1", "att-1"))
-		next := dalMustGetSharedDoc(t, d, "sd-1")
-		next.AttachmentID, next.Name, next.Description = "att-2", "Runbook v2", ""
-		next.UpdatedTS, next.UpdatedBy = 200, "ann"
-		if err := d.ReplaceSharedDoc(next, nil); err != nil {
+		name, description := "Runbook v2", ""
+		if err := d.ReplaceSharedDoc(SharedDocReplacement{
+			ID: "sd-1", AttachmentID: "att-2", Name: &name, Description: &description,
+			UpdatedTS: 200, UpdatedBy: "ann",
+		}, nil); err != nil {
 			t.Fatalf("ReplaceSharedDoc: %v", err)
 		}
+		next := dalTestSharedDoc("sd-1", "att-2")
+		next.Name, next.Description, next.UpdatedTS, next.UpdatedBy = "Runbook v2", "", 200, "ann"
 		if got := dalMustGetSharedDoc(t, d, "sd-1"); !reflect.DeepEqual(got, next) {
 			t.Fatalf("current:\n got %+v\nwant %+v", got, next)
 		}
@@ -138,6 +141,39 @@ func TestReplaceSharedDoc(t *testing.T) {
 		}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("versions:\n got %+v\nwant %+v", got, want)
+		}
+	})
+
+	t.Run("a replace that omits the name keeps a rename committed after the caller read the doc", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		dalCreateSharedDoc(t, d, dalTestSharedDoc("sd-1", "att-1"))
+		renamed := "Renamed"
+		if err := d.ReplaceSharedDoc(SharedDocReplacement{
+			ID: "sd-1", AttachmentID: "att-2", Name: &renamed, UpdatedTS: 200, UpdatedBy: "ann",
+		}, nil); err != nil {
+			t.Fatalf("first ReplaceSharedDoc: %v", err)
+		}
+		if err := d.ReplaceSharedDoc(SharedDocReplacement{
+			ID: "sd-1", AttachmentID: "att-3", UpdatedTS: 300, UpdatedBy: "bob",
+		}, nil); err != nil {
+			t.Fatalf("second ReplaceSharedDoc: %v", err)
+		}
+		want := SharedDoc{
+			ID: "sd-1", Kind: ArtifactKindFile, AttachmentID: "att-3",
+			Name: "Renamed", Description: "how we ship",
+			CreatedTS: 100, CreatedBy: "kip", UpdatedTS: 300, UpdatedBy: "bob",
+		}
+		if got := dalMustGetSharedDoc(t, d, "sd-1"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("current:\n got %+v\nwant %+v", got, want)
+		}
+		wantVersions := []SharedDocVersion{
+			{ID: 2, DocID: "sd-1", Kind: ArtifactKindFile, AttachmentID: "att-2",
+				Name: "Renamed", Description: "how we ship", CreatedTS: 200, CreatedBy: "ann"},
+			{ID: 1, DocID: "sd-1", Kind: ArtifactKindFile, AttachmentID: "att-1",
+				Name: "Runbook", Description: "how we ship", CreatedTS: 100, CreatedBy: "kip"},
+		}
+		if got := dalSharedDocVersions(t, d, "sd-1"); !reflect.DeepEqual(got, wantVersions) {
+			t.Fatalf("versions:\n got %+v\nwant %+v", got, wantVersions)
 		}
 	})
 
@@ -169,8 +205,7 @@ func TestReplaceSharedDoc(t *testing.T) {
 			t.Fatalf("SetSharedDocArchived: %v", err)
 		}
 		before := dalMustGetSharedDoc(t, d, "sd-1")
-		next := before
-		next.AttachmentID = "att-2"
+		next := SharedDocReplacement{ID: "sd-1", AttachmentID: "att-2", UpdatedTS: 400, UpdatedBy: "ann"}
 		dalWantRefusal(t, d.ReplaceSharedDoc(next, &ChatAttachment{ID: "att-2", Mime: linkTargetMime}),
 			http.StatusConflict, "shared doc 'sd-1' is archived: unarchive it before changing it")
 		if got := dalMustGetSharedDoc(t, d, "sd-1"); !reflect.DeepEqual(got, before) {
@@ -186,7 +221,7 @@ func TestReplaceSharedDoc(t *testing.T) {
 
 	t.Run("an unknown id is refused with a 404", func(t *testing.T) {
 		d := newAPITestDAL(t)
-		dalWantRefusal(t, d.ReplaceSharedDoc(dalTestSharedDoc("sd-ghost", "att-1"), nil),
+		dalWantRefusal(t, d.ReplaceSharedDoc(SharedDocReplacement{ID: "sd-ghost", AttachmentID: "att-1"}, nil),
 			http.StatusNotFound, "shared doc 'sd-ghost' not found")
 	})
 }

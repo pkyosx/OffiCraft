@@ -195,12 +195,23 @@ func writeSharedDocCurrent(tx *writeTx, next SharedDoc) error {
 	return err
 }
 
-// ReplaceSharedDoc makes next's content, name and description current; the
-// version it displaces is retained and the oldest beyond the retention depth is
-// discarded with its blob. Refusals come back as txRefusal.
-func (d *DAL) ReplaceSharedDoc(next SharedDoc, minted *ChatAttachment) error {
+// SharedDocReplacement is one new current version. A nil Name or Description
+// keeps the value the row holds INSIDE the replacing transaction: a value read
+// earlier would quietly undo a rename that landed in between.
+type SharedDocReplacement struct {
+	ID           string
+	AttachmentID string
+	Name         *string
+	Description  *string
+	UpdatedTS    float64
+	UpdatedBy    string
+}
+
+// ReplaceSharedDoc retains the displaced version and discards the oldest beyond
+// the retention depth with its blob. Refusals come back as txRefusal.
+func (d *DAL) ReplaceSharedDoc(r SharedDocReplacement, minted *ChatAttachment) error {
 	return d.inTx(func(tx *writeTx) error {
-		current, err := sharedDocWritable(tx, next.ID)
+		current, err := sharedDocWritable(tx, r.ID)
 		if err != nil {
 			return err
 		}
@@ -212,10 +223,18 @@ func (d *DAL) ReplaceSharedDoc(next SharedDoc, minted *ChatAttachment) error {
 		if err := retainSharedDocVersion(tx, *current); err != nil {
 			return err
 		}
+		next := *current
+		next.AttachmentID, next.UpdatedTS, next.UpdatedBy = r.AttachmentID, r.UpdatedTS, r.UpdatedBy
+		if r.Name != nil {
+			next.Name = *r.Name
+		}
+		if r.Description != nil {
+			next.Description = *r.Description
+		}
 		if err := writeSharedDocCurrent(tx, next); err != nil {
 			return err
 		}
-		return trimSharedDocHistory(tx, next.ID)
+		return trimSharedDocHistory(tx, r.ID)
 	})
 }
 
