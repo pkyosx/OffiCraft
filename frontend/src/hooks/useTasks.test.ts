@@ -417,16 +417,20 @@ describe("useTasks", () => {
     expect(h.getTaskPageCount).toHaveBeenCalledTimes(2);
   });
 
-  it("a due-boundary re-read that failed shows the error and is retried 30 seconds later", async () => {
+  it("a due-boundary re-read that failed shows the error and is retried 30 seconds later, not a whole interval later", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    h.getTaskPageCount.mockResolvedValue(count({ now: 1000, listDueNextChangeTs: 1010 }));
+    const boundary = Date.now() / 1000 + 3600;
+    h.getTaskPageCount.mockImplementation(async () => {
+      const now = Date.now() / 1000;
+      return count({ now, listDueNextChangeTs: now < boundary ? boundary : null });
+    });
     const { result } = renderHook(() => useTasks(OPEN_QUERY, [""]));
     await waitFor(() => expect(result.current.settled).toBe(true));
 
     h.listTasks.mockRejectedValueOnce(new Error("500"));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(11_000);
+      await vi.advanceTimersByTimeAsync(3_601_000);
     });
     await waitFor(() => expect(result.current.error).toBe(true));
     expect(h.listTasks).toHaveBeenCalledTimes(2);
@@ -440,5 +444,40 @@ describe("useTasks", () => {
     });
     await waitFor(() => expect(result.current.error).toBe(false));
     expect(h.listTasks).toHaveBeenCalledTimes(3);
+  });
+
+  it("a full read that failed ten minutes before a due boundary does not delay the boundary's re-read", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const boundary = Date.now() / 1000 + 660;
+    h.getTaskPageCount.mockImplementation(async () => {
+      const now = Date.now() / 1000;
+      return count({ now, listDueNextChangeTs: now < boundary ? boundary : null });
+    });
+    const { result } = renderHook(() => useTasks(OPEN_QUERY, [""]));
+    await waitFor(() => expect(result.current.settled).toBe(true));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    h.listTasks.mockRejectedValueOnce(new Error("500"));
+    act(() => h.sseHandler?.("task", { topic: "task", names: {}, ids: [] }));
+    await waitFor(() => expect(result.current.error).toBe(true));
+    expect(h.listTasks).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    await waitFor(() => expect(result.current.error).toBe(false));
+    expect(h.listTasks).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(567_000);
+    });
+    expect(h.listTasks).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    await waitFor(() => expect(h.listTasks).toHaveBeenCalledTimes(4));
   });
 });

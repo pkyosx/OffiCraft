@@ -36,7 +36,7 @@ export const TASK_PAGE_SIZE = 50;
 const LIST_ASK_MAX = 200;
 // setTimeout fires at once past this many ms.
 const MAX_TIMER_MS = 2 ** 31 - 1;
-// A due-boundary re-read that failed is retried no sooner than this.
+// A full re-read that failed is retried after this long.
 const DUE_RETRY_MS = 30_000;
 
 export interface TaskList {
@@ -58,6 +58,8 @@ interface Held {
   query: TaskPageQuery | null;
   lists: Map<string, TaskList>;
   count: TaskPageCountView | null;
+  /** Browser clock (epoch seconds) when `count` landed. */
+  countAt: number;
 }
 
 interface UseTasks {
@@ -159,6 +161,7 @@ export function useTasks(query: TaskPageQuery, listKeys: string[]): UseTasks {
     query: null,
     lists: new Map(),
     count: null,
+    countAt: 0,
   });
   const [workers, setWorkers] = useState<OutsourceWorkerView[]>([]);
   const [taskTypes, setTaskTypes] = useState<TaskTypeView[]>([]);
@@ -227,7 +230,7 @@ export function useTasks(query: TaskPageQuery, listKeys: string[]): UseTasks {
         fullFailedRef.current = false;
         setFullFailures(0);
         if (!stillAsked()) return;
-        land({ forKey: key, query: q, lists, count });
+        land({ forKey: key, query: q, lists, count, countAt: Date.now() / 1000 });
         setError(false);
         return;
       }
@@ -312,7 +315,13 @@ export function useTasks(query: TaskPageQuery, listKeys: string[]): UseTasks {
 
       await Promise.all(reads);
       if (!stillAsked()) return;
-      land({ forKey: key, query: q, lists, count });
+      land({
+        forKey: key,
+        query: q,
+        lists,
+        count,
+        countAt: count === cur.count ? cur.countAt : Date.now() / 1000,
+      });
     },
     [land]
   );
@@ -402,19 +411,26 @@ export function useTasks(query: TaskPageQuery, listKeys: string[]): UseTasks {
     };
   }, [queryKey, keysKey, askList, refetch]);
 
-  // The list changes on its own when a task crosses a due boundary; the server
-  // says when, on its own clock, so the wait is measured from its `now`.
+  // The list changes on its own when a task crosses a due boundary. The server
+  // says when on its own clock, so the wait is the boundary's distance from its
+  // `now`, less the time since that answer landed. After a failed full read the
+  // timer is a plain retry instead.
   const wakeAt = held.forKey === queryKey ? held.count?.listDueNextChangeTs ?? null : null;
   const wakeFrom = held.count?.now ?? 0;
+  const wakeLanded = held.countAt;
   useEffect(() => {
-    if (wakeAt === null) return;
-    const due = Math.max(0, (wakeAt - wakeFrom) * 1000) + 500;
-    const ms = Math.min(MAX_TIMER_MS, fullFailures > 0 ? Math.max(due, DUE_RETRY_MS) : due);
+    if (wakeAt === null && fullFailures === 0) return;
+    const remaining =
+      wakeAt === null ? 0 : (wakeLanded + (wakeAt - wakeFrom) - Date.now() / 1000) * 1000;
+    const ms = Math.min(
+      MAX_TIMER_MS,
+      fullFailures > 0 ? DUE_RETRY_MS : Math.max(0, remaining) + 500
+    );
     const timer = window.setTimeout(() => {
       refetch().catch((e) => console.warn("useTasks: due-boundary refetch failed", e));
     }, ms);
     return () => window.clearTimeout(timer);
-  }, [wakeAt, wakeFrom, fullFailures, refetch]);
+  }, [wakeAt, wakeFrom, wakeLanded, fullFailures, refetch]);
 
   const refetchTypes = useCallback(async () => {
     setTaskTypes(await api.listTaskTypes());
