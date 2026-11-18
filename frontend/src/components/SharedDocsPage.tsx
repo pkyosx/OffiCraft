@@ -235,7 +235,7 @@ function SharedDocList({
                             if (await copyText(doc.id)) flash(`id:${doc.id}`);
                           }}
                         >
-                          {flashed === `id:${doc.id}` ? <CheckIcon size={13} /> : <LayersIcon size={13} />}
+                          {flashed === `id:${doc.id}` ? <CheckIcon size={13} /> : <LayersIcon size={13} />}#
                           {doc.id}
                           {flashed === `id:${doc.id}` && (
                             <span className="lore-row__id-badge-copied" role="status">

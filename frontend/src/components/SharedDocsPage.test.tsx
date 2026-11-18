@@ -9,11 +9,76 @@ import { formatAbsolute } from "../lib/dateFormat";
 const copyTextMock = vi.hoisted(() => vi.fn(async (_text: string) => true));
 vi.mock("../lib/clipboard", () => ({ copyText: copyTextMock }));
 
-const owner = vi.hoisted(() => ({ value: true }));
-vi.mock("../api", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../api")>()),
-  viewerIsOwner: () => owner.value,
-}));
+const WIRE_ARCHIVED = {
+  id: "sd-7d03c9e4f1a5",
+  kind: "file",
+  attachment_id: "att-000000000007",
+  name: "舊版發版流程",
+  description: "",
+  filename: "release.md",
+  mime: "text/markdown",
+  url: "/api/chat/attachment/att-000000000007",
+  created_ts: 100,
+  created_by: "mira",
+  updated_ts: 100,
+  updated_by: "mira",
+  archived_ts: 200,
+  archived_by: "mira",
+  version_count: 1,
+};
+
+function fakeJwt(claims: Record<string, unknown>): string {
+  const b64 = btoa(JSON.stringify(claims)).replace(/=+$/, "");
+  return `e30.${b64}.sig`;
+}
+
+/** The page in REAL backend mode, so the delete button is decided by the real
+ * viewerIsOwner reading the stored token — mock mode always answers owner. */
+async function renderRealModeArchivedRow(token: string): Promise<HTMLElement> {
+  vi.stubEnv("VITE_USE_MOCK", "false");
+  vi.stubEnv("VITE_OC_TOKEN", "");
+  localStorage.setItem("oc_token", token);
+  vi.stubGlobal(
+    "EventSource",
+    class {
+      readyState = 0;
+      onopen = null;
+      onerror = null;
+      onmessage = null;
+      addEventListener() {}
+      removeEventListener() {}
+      close() {}
+    },
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: Request | string) => {
+      const url = new URL(typeof input === "string" ? input : input.url, window.location.origin);
+      const body =
+        url.pathname === "/api/shared-docs"
+          ? { docs: url.searchParams.get("include_archived") === "true" ? [WIRE_ARCHIVED] : [] }
+          : {};
+      return new Response(JSON.stringify(body), {
+        status: url.pathname === "/api/shared-docs" ? 200 : 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }),
+  );
+  vi.resetModules();
+  const { I18nProvider: RealI18n } = await import("../i18n");
+  const { SharedDocsPage: RealPage } = await import("./SharedDocsPage");
+  const { USE_MOCK } = await import("../api");
+  expect(USE_MOCK).toBe(false);
+  const { container, getByTestId } = render(
+    <RealI18n>
+      <RealPage />
+    </RealI18n>,
+  );
+  await waitFor(() => getByTestId("shared-docs-empty"));
+  fireEvent.click(getByTestId("shared-docs-show-archived"));
+  const [row] = await waitRows(container, 1);
+  return row!;
+}
 
 function renderPage() {
   return render(
@@ -42,12 +107,15 @@ function cellTexts(row: HTMLElement): string[] {
 beforeEach(() => {
   __resetMock();
   copyTextMock.mockClear();
-  owner.value = true;
   window.location.hash = "#shared-docs";
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.resetModules();
+  localStorage.clear();
 });
 
 describe("SharedDocsPage", () => {
@@ -56,7 +124,7 @@ describe("SharedDocsPage", () => {
     const [api規格, review] = await waitRows(container, 2);
     const now = Math.floor(Date.now() / 1000);
     expect(cellTexts(api規格!)).toEqual([
-      "sd-0c41e97a2b58",
+      "#sd-0c41e97a2b58",
       "",
       "API 規格",
       "GitHub 上的 spec/openapi.json，改 wire 前先讀",
@@ -64,7 +132,7 @@ describe("SharedDocsPage", () => {
       "",
     ]);
     expect(cellTexts(review!)).toEqual([
-      "sd-3f9a2c71b0e4",
+      "#sd-3f9a2c71b0e4",
       "",
       "Review Rule",
       "PR 審查時逐項核對的規則與退件標準",
@@ -112,15 +180,15 @@ describe("SharedDocsPage", () => {
     );
   });
 
-  it("a viewer who is not the owner gets no 永久刪除 on an archived doc", async () => {
-    owner.value = false;
-    await api.archiveSharedDoc("sd-3f9a2c71b0e4");
-    const { container, getByTestId } = renderPage();
-    await waitRows(container, 1);
-    fireEvent.click(getByTestId("shared-docs-show-archived"));
-    const [, archived] = await waitRows(container, 2);
-    expect(within(archived!).getByTestId("shared-doc-unarchive")).toBeTruthy();
-    expect(within(archived!).queryByTestId("shared-doc-delete")).toBeNull();
+  it("a member's token gets no 永久刪除 on an archived doc", async () => {
+    const member = await renderRealModeArchivedRow(fakeJwt({ scope: "agent", sub: "kip" }));
+    expect(within(member).getByTestId("shared-doc-unarchive").textContent).toBe("取消封存");
+    expect(within(member).queryByTestId("shared-doc-delete")).toBeNull();
+  });
+
+  it("an owner token is offered 永久刪除 on an archived doc", async () => {
+    const ownerRow = await renderRealModeArchivedRow(fakeJwt({ scope: "owner", sub: "owner" }));
+    expect(within(ownerRow).getByTestId("shared-doc-delete").textContent).toBe("永久刪除");
   });
 
   it("永久刪除 asks first, then removes the doc for good", async () => {

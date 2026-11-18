@@ -37,18 +37,23 @@ export function useSharedDocs(includeArchived: boolean, fallbackMessage: string)
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const alive = useRef(true);
+  // Only the last request issued may land: an older one may have asked with the
+  // other 顯示已封存 setting, and answering late would put that list on screen.
+  const issued = useRef(0);
 
   const reload = useCallback(async () => {
+    const read = ++issued.current;
+    const current = () => alive.current && read === issued.current;
     try {
       const list = await api.listSharedDocs(includeArchived);
-      if (!alive.current) return;
+      if (!current()) return;
       setDocs(list);
       setLoadError("");
     } catch (e: unknown) {
       console.warn("useSharedDocs: load failed", e);
-      if (alive.current) setLoadError(serverMessageOf(e) || fallbackMessage);
+      if (current()) setLoadError(serverMessageOf(e) || fallbackMessage);
     } finally {
-      if (alive.current) setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [includeArchived, fallbackMessage]);
 
