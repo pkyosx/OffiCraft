@@ -28,6 +28,11 @@ import type {
   PasskeyCeremonyView,
   SecretCreateInput,
   SecretUpdateInput,
+  SharedDocView,
+  SharedDocDetailView,
+  SharedDocVersionView,
+  SharedDocCreateInput,
+  SharedDocReplaceInput,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -3067,6 +3072,26 @@ export interface Api {
   updateSecret(id: string, patch: SecretUpdateInput): Promise<SecretView>;
   /** DELETE /api/secrets/{id} — permanent. */
   deleteSecret(id: string): Promise<SecretView>;
+  /** POST /api/chat/attachments — store one file's raw bytes; answers the
+   * new attachment id. The filename's extension decides the stored type. */
+  uploadAttachment(file: Blob, filename: string): Promise<string>;
+  /** GET /api/shared-docs — sorted by name; archived ones only when asked. */
+  listSharedDocs(includeArchived: boolean): Promise<SharedDocView[]>;
+  /** GET /api/shared-docs/{id} — with the content inline when it is text. */
+  getSharedDoc(id: string): Promise<SharedDocDetailView>;
+  /** POST /api/shared-docs — answers the new `sd-` id. */
+  createSharedDoc(input: SharedDocCreateInput): Promise<string>;
+  /** POST /api/shared-docs/{id}/replace — a new current version, same id. */
+  replaceSharedDoc(id: string, input: SharedDocReplaceInput): Promise<void>;
+  /** GET /api/shared-docs/{id}/versions — retained previous versions, newest first. */
+  listSharedDocVersions(id: string): Promise<SharedDocVersionView[]>;
+  /** POST /api/shared-docs/{id}/versions/{versionId}/restore — the current
+   * version takes the restored one's place in the list. */
+  restoreSharedDocVersion(id: string, versionId: number): Promise<void>;
+  archiveSharedDoc(id: string): Promise<void>;
+  unarchiveSharedDoc(id: string): Promise<void>;
+  /** DELETE /api/shared-docs/{id} — owner only, archived only, irreversible. */
+  deleteSharedDoc(id: string): Promise<void>;
   /** GET /api/auth/passkeys — the owner's passkeys, no key material. */
   listPasskeys(): Promise<PasskeyView[]>;
   /** POST /api/auth/passkeys/register/begin. Re-checks the current password:

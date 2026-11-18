@@ -1192,6 +1192,66 @@ export interface SecretUpdateInput {
   value?: string;
 }
 
+export type SharedDocKind = "file" | "image" | "link";
+
+/** One shared document (共用文件): not tied to any task, read by every member
+ * by its `sd-` id. `url`/`mime`/`filename` describe the CURRENT version's blob;
+ * for a link `url` is the external address. */
+export interface SharedDocView {
+  id: string;
+  kind: SharedDocKind;
+  attachmentId: string;
+  name: string;
+  description: string;
+  filename: string;
+  mime: string;
+  url: string;
+  createdTs: number;
+  createdBy: string;
+  updatedTs: number;
+  updatedBy: string;
+  archivedTs: number | null;
+  archivedBy: string | null;
+  /** Versions that exist, the current one included. */
+  versionCount: number;
+}
+
+export interface SharedDocDetailView extends SharedDocView {
+  /** The current content when it is text (a link: its url); null otherwise. */
+  text: string | null;
+  textOmitted: "binary" | "too_large" | null;
+}
+
+export interface SharedDocVersionView {
+  id: number;
+  kind: SharedDocKind;
+  attachmentId: string;
+  name: string;
+  description: string;
+  filename: string;
+  mime: string;
+  url: string;
+  createdTs: number;
+  createdBy: string;
+}
+
+export interface SharedDocCreateInput {
+  kind: SharedDocKind;
+  name: string;
+  description: string;
+  attachmentId?: string;
+  url?: string;
+}
+
+/** Omitted name/description are kept by the server; exactly one of
+ * attachmentId / url is required, by the document's kind. */
+export interface SharedDocReplaceInput {
+  name?: string;
+  description?: string;
+  attachmentId?: string;
+  url?: string;
+}
+
 export interface BackupHealthView {
   status: BackupHealthStatus;
   code: BackupHealthCode;

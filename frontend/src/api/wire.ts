@@ -401,6 +401,9 @@ export type WireSigningKeys = components["schemas"]["SigningKeysDTO"];
 export type WireSecret = components["schemas"]["SecretDTO"];
 export type WirePasskey = components["schemas"]["PasskeyDTO"];
 export type WireSecrets = components["schemas"]["SecretsDTO"];
+export type WireSharedDoc = components["schemas"]["SharedDocDTO"];
+export type WireSharedDocDetail = components["schemas"]["SharedDocDetailDTO"];
+export type WireSharedDocVersion = components["schemas"]["SharedDocVersionDTO"];
 
 // ── Resume summary (RESUME SUMMARY panel section, T-8b0d) ─────────────────────
 

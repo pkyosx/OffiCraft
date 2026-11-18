@@ -36,6 +36,11 @@ import type {
   PasskeyCeremonyView,
   SecretCreateInput,
   SecretUpdateInput,
+  SharedDocView,
+  SharedDocDetailView,
+  SharedDocVersionView,
+  SharedDocCreateInput,
+  SharedDocReplaceInput,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -150,6 +155,9 @@ import {
   toSigningKeys,
   toSecret,
   toSecrets,
+  toSharedDoc,
+  toSharedDocDetail,
+  toSharedDocVersion,
   toPasskey,
   toGlobalContext,
   toBootDoc,
@@ -483,6 +491,7 @@ export const SSE_RESYNC_TOPICS = [
   "reply_card",
   "task",
   "task_manual",
+  "shared_doc",
   "global_context",
   "role_def",
   "insight",
@@ -2676,6 +2685,113 @@ export const httpApi: Api = {
           params: { path: { secret_id: id } },
         }),
       ),
+    );
+  },
+
+  async uploadAttachment(file: Blob, filename: string): Promise<string> {
+    // FileReader rather than Blob.arrayBuffer, for the same cross-realm reason
+    // as updateMemberAvatar.
+    const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error ?? new Error("failed to read file"));
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.readAsArrayBuffer(file);
+    });
+    const wire = unwrap(
+      await client.POST("/api/chat/attachments", {
+        params: { query: { filename } },
+        headers: { "Content-Type": "application/octet-stream" },
+        body: bytes as unknown as string,
+        bodySerializer: (body) => body as unknown as BodyInit,
+      }),
+    );
+    return wire.id;
+  },
+
+  async listSharedDocs(includeArchived: boolean): Promise<SharedDocView[]> {
+    const wire = unwrap(
+      await client.GET("/api/shared-docs", {
+        params: { query: includeArchived ? { include_archived: "true" } : {} },
+      }),
+    );
+    return wire.docs.map(toSharedDoc);
+  },
+
+  async getSharedDoc(id: string): Promise<SharedDocDetailView> {
+    return toSharedDocDetail(
+      unwrap(
+        await client.GET("/api/shared-docs/{doc_id}", {
+          params: { path: { doc_id: id } },
+        }),
+      ),
+    );
+  },
+
+  async createSharedDoc(input: SharedDocCreateInput): Promise<string> {
+    const body = {
+      kind: input.kind,
+      name: input.name,
+      description: input.description,
+      attachment_id: input.attachmentId ?? null,
+      url: input.url ?? null,
+    };
+    return unwrap(await client.POST("/api/shared-docs", { body })).id;
+  },
+
+  async replaceSharedDoc(id: string, input: SharedDocReplaceInput): Promise<void> {
+    // null and omitted are the same on this wire: the field is kept.
+    const body = {
+      name: input.name ?? null,
+      description: input.description ?? null,
+      attachment_id: input.attachmentId ?? null,
+      url: input.url ?? null,
+    };
+    unwrap(
+      await client.POST("/api/shared-docs/{doc_id}/replace", {
+        params: { path: { doc_id: id } },
+        body,
+      }),
+    );
+  },
+
+  async listSharedDocVersions(id: string): Promise<SharedDocVersionView[]> {
+    const wire = unwrap(
+      await client.GET("/api/shared-docs/{doc_id}/versions", {
+        params: { path: { doc_id: id } },
+      }),
+    );
+    return wire.versions.map(toSharedDocVersion);
+  },
+
+  async restoreSharedDocVersion(id: string, versionId: number): Promise<void> {
+    unwrap(
+      await client.POST("/api/shared-docs/{doc_id}/versions/{version_id}/restore", {
+        params: { path: { doc_id: id, version_id: versionId } },
+      }),
+    );
+  },
+
+  async archiveSharedDoc(id: string): Promise<void> {
+    unwrap(
+      await client.POST("/api/shared-docs/{doc_id}/archive", {
+        params: { path: { doc_id: id } },
+      }),
+    );
+  },
+
+  async unarchiveSharedDoc(id: string): Promise<void> {
+    unwrap(
+      await client.POST("/api/shared-docs/{doc_id}/unarchive", {
+        params: { path: { doc_id: id } },
+      }),
+    );
+  },
+
+  async deleteSharedDoc(id: string): Promise<void> {
+    unwrap(
+      await client.DELETE("/api/shared-docs/{doc_id}", {
+        params: { path: { doc_id: id } },
+      }),
     );
   },
 

@@ -10,6 +10,7 @@ import {
   InboxIcon,
   TasksIcon,
   BookIcon,
+  LayersIcon,
   KeyIcon,
   MonitorIcon,
   FileTextIcon,
@@ -25,6 +26,7 @@ import { RepliesPage } from "./components/RepliesPage";
 import { TasksPage } from "./components/TasksPage";
 import { LorePage } from "./components/LorePage";
 import { SecretsPage } from "./components/SecretsPage";
+import { SharedDocsPage } from "./components/SharedDocsPage";
 import { MonitorPage } from "./components/MonitorPage";
 import { GuidePage } from "./components/UserGuidePage";
 import { SettingsPage } from "./components/SettingsPage";
@@ -104,9 +106,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             ? "tasks"
             : route.page === "lore"
               ? "lore"
-              : route.page === "secrets"
-                ? "secrets"
-                : "office";
+              : route.page === "shared_docs"
+                ? "shared_docs"
+                : route.page === "secrets"
+                  ? "secrets"
+                  : "office";
   // The 等我回覆 nav badge: how many reply cards are WAITING (answered never
   // counts). Live via the count endpoint + "reply_card" SSE deltas. A separate
   // signal from the per-member chat unread red dot (different clearing rules —
@@ -446,6 +450,16 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <button
             type="button"
             className={`nav-tab${
+              !settingsOpen && tab === "shared_docs" ? " nav-tab--active" : ""
+            }`}
+            onClick={() => selectTab("shared_docs")}
+          >
+            <NavIcon tabKey="shared_docs" fallback={<LayersIcon size={15} />} />
+            <span>{t.nav.sharedDocs}</span>
+          </button>
+          <button
+            type="button"
+            className={`nav-tab${
               !settingsOpen && tab === "secrets" ? " nav-tab--active" : ""
             }`}
             onClick={() => selectTab("secrets")}
@@ -508,6 +522,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <TasksPage />
         ) : tab === "lore" ? (
           <LorePage />
+        ) : tab === "shared_docs" ? (
+          <SharedDocsPage docId={route.sharedDocId} />
         ) : tab === "secrets" ? (
           <SecretsPage />
         ) : tab === "guide" ? (

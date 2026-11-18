@@ -23,6 +23,7 @@ describe("nav icon keys · Go/TS parity", { timeout: 120_000 }, () => {
       "replies",
       "tasks",
       "lore",
+      "shared_docs",
       "secrets",
       "monitor",
       "guide",

@@ -121,6 +121,7 @@ type NavIconLabelKey =
   | "themeNavReplies"
   | "themeNavTasks"
   | "themeNavLore"
+  | "themeNavSharedDocs"
   | "themeNavSecrets"
   | "themeNavMonitor"
   | "themeNavGuide";
@@ -129,6 +130,7 @@ const NAV_ICON_LABEL_KEYS: Record<NavIconKey, NavIconLabelKey> = {
   replies: "themeNavReplies",
   tasks: "themeNavTasks",
   lore: "themeNavLore",
+  shared_docs: "themeNavSharedDocs",
   secrets: "themeNavSecrets",
   monitor: "themeNavMonitor",
   guide: "themeNavGuide",
@@ -227,6 +229,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     replies: useRef<HTMLInputElement>(null),
     tasks: useRef<HTMLInputElement>(null),
     lore: useRef<HTMLInputElement>(null),
+    shared_docs: useRef<HTMLInputElement>(null),
     secrets: useRef<HTMLInputElement>(null),
     monitor: useRef<HTMLInputElement>(null),
     guide: useRef<HTMLInputElement>(null),
