@@ -21,11 +21,7 @@ type SharedDoc struct {
 	CreatedBy    string
 	UpdatedTS    float64
 	UpdatedBy    string
-	ArchivedTS   float64
-	ArchivedBy   string
 }
-
-func (d SharedDoc) Archived() bool { return d.ArchivedTS > 0 }
 
 type SharedDocVersion struct {
 	ID           int64
@@ -39,19 +35,15 @@ type SharedDocVersion struct {
 }
 
 const sharedDocColumns = `id, kind, attachment_id, name, description,
-	created_ts, created_by, updated_ts, updated_by, archived_ts, archived_by`
+	created_ts, created_by, updated_ts, updated_by`
 
 const sharedDocVersionColumns = `id, doc_id, kind, attachment_id, name,
 	description, created_ts, created_by`
 
 func scanSharedDoc(row interface{ Scan(...any) error }) (SharedDoc, error) {
 	var d SharedDoc
-	var archivedTS sql.NullFloat64
-	var archivedBy sql.NullString
 	err := row.Scan(&d.ID, &d.Kind, &d.AttachmentID, &d.Name, &d.Description,
-		&d.CreatedTS, &d.CreatedBy, &d.UpdatedTS, &d.UpdatedBy, &archivedTS, &archivedBy)
-	d.ArchivedTS = archivedTS.Float64
-	d.ArchivedBy = archivedBy.String
+		&d.CreatedTS, &d.CreatedBy, &d.UpdatedTS, &d.UpdatedBy)
 	return d, err
 }
 
@@ -62,13 +54,8 @@ func scanSharedDocVersion(row interface{ Scan(...any) error }) (SharedDocVersion
 	return v, err
 }
 
-func (d *DAL) ListSharedDocs(includeArchived bool) ([]SharedDoc, error) {
-	where := `WHERE archived_ts IS NULL`
-	if includeArchived {
-		where = ``
-	}
-	rows, err := d.rdb.Query(`SELECT ` + sharedDocColumns + ` FROM shared_doc ` +
-		where + ` ORDER BY name, id`)
+func (d *DAL) ListSharedDocs() ([]SharedDoc, error) {
+	rows, err := d.rdb.Query(`SELECT ` + sharedDocColumns + ` FROM shared_doc ORDER BY name, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -148,27 +135,20 @@ func (d *DAL) CreateSharedDoc(doc SharedDoc, minted *ChatAttachment) error {
 			}
 		}
 		_, err := tx.Exec(`INSERT INTO shared_doc (`+sharedDocColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			doc.ID, doc.Kind, doc.AttachmentID, doc.Name, doc.Description,
 			doc.CreatedTS, doc.CreatedBy, doc.UpdatedTS, doc.UpdatedBy)
 		return err
 	})
 }
 
-// sharedDocWritable answers the row the transaction may change: an unknown id is
-// a 404 and an archived document a 409, both decided inside the transaction so a
-// concurrent archive cannot slip between the check and the write.
-func sharedDocWritable(tx *writeTx, id string) (*SharedDoc, error) {
+func sharedDocInTx(tx *writeTx, id string) (*SharedDoc, error) {
 	doc, err := getSharedDocOn(tx, id)
 	if err != nil {
 		return nil, err
 	}
 	if doc == nil {
 		return nil, refuseInTx(http.StatusNotFound, sharedDocNotFound(id))
-	}
-	if doc.Archived() {
-		return nil, refuseInTx(http.StatusConflict,
-			"shared doc '"+id+"' is archived: unarchive it before changing it")
 	}
 	return doc, nil
 }
@@ -195,9 +175,10 @@ func writeSharedDocCurrent(tx *writeTx, next SharedDoc) error {
 	return err
 }
 
-// SharedDocReplacement is one new current version. A nil Name or Description
-// keeps the value the row holds INSIDE the replacing transaction: a value read
-// earlier would quietly undo a rename that landed in between.
+// SharedDocReplacement is one new current version. An empty AttachmentID, a nil
+// Name or a nil Description keeps what the row holds INSIDE the replacing
+// transaction: a value read earlier would quietly undo a change that landed in
+// between.
 type SharedDocReplacement struct {
 	ID           string
 	AttachmentID string
@@ -211,7 +192,7 @@ type SharedDocReplacement struct {
 // the retention depth with its blob. Refusals come back as txRefusal.
 func (d *DAL) ReplaceSharedDoc(r SharedDocReplacement, minted *ChatAttachment) error {
 	return d.inTx(func(tx *writeTx) error {
-		current, err := sharedDocWritable(tx, r.ID)
+		current, err := sharedDocInTx(tx, r.ID)
 		if err != nil {
 			return err
 		}
@@ -224,7 +205,10 @@ func (d *DAL) ReplaceSharedDoc(r SharedDocReplacement, minted *ChatAttachment) e
 			return err
 		}
 		next := *current
-		next.AttachmentID, next.UpdatedTS, next.UpdatedBy = r.AttachmentID, r.UpdatedTS, r.UpdatedBy
+		next.UpdatedTS, next.UpdatedBy = r.UpdatedTS, r.UpdatedBy
+		if r.AttachmentID != "" {
+			next.AttachmentID = r.AttachmentID
+		}
 		if r.Name != nil {
 			next.Name = *r.Name
 		}
@@ -243,7 +227,7 @@ func (d *DAL) ReplaceSharedDoc(r SharedDocReplacement, minted *ChatAttachment) e
 // nothing is trimmed.
 func (d *DAL) RestoreSharedDocVersion(docID string, versionID int64, actor string, now float64) error {
 	return d.inTx(func(tx *writeTx) error {
-		current, err := sharedDocWritable(tx, docID)
+		current, err := sharedDocInTx(tx, docID)
 		if err != nil {
 			return err
 		}
@@ -290,49 +274,13 @@ func trimSharedDocHistory(tx *writeTx, docID string) error {
 	return err
 }
 
-// SetSharedDocArchived answers whether the row changed: archiving an archived
-// document keeps its first archived_ts/by, and unarchiving an active one is a
-// no-op. An unknown id is a txRefusal 404.
-func (d *DAL) SetSharedDocArchived(id string, archived bool, actor string, now float64) (bool, error) {
-	var changed bool
-	err := d.inTx(func(tx *writeTx) error {
-		doc, err := getSharedDocOn(tx, id)
-		if err != nil {
-			return err
-		}
-		if doc == nil {
-			return refuseInTx(http.StatusNotFound, sharedDocNotFound(id))
-		}
-		if doc.Archived() == archived {
-			return nil
-		}
-		changed = true
-		if archived {
-			_, err = tx.Exec(`UPDATE shared_doc SET archived_ts = ?, archived_by = ?
-				WHERE id = ?`, now, actor, id)
-		} else {
-			_, err = tx.Exec(`UPDATE shared_doc SET archived_ts = NULL, archived_by = NULL
-				WHERE id = ?`, id)
-		}
-		return err
-	})
-	return changed, err
-}
-
-// DeleteSharedDoc removes an ARCHIVED document and every retained version; all
-// their blobs go to the collector, which keeps any another row still cites.
+// DeleteSharedDoc removes a document and every retained version; all their
+// blobs go to the collector, which keeps any another row still cites.
 func (d *DAL) DeleteSharedDoc(id string) error {
 	return d.inTx(func(tx *writeTx) error {
-		doc, err := getSharedDocOn(tx, id)
+		doc, err := sharedDocInTx(tx, id)
 		if err != nil {
 			return err
-		}
-		if doc == nil {
-			return refuseInTx(http.StatusNotFound, sharedDocNotFound(id))
-		}
-		if !doc.Archived() {
-			return refuseInTx(http.StatusConflict,
-				"shared doc '"+id+"' is not archived: archive it before deleting it")
 		}
 		candidates, err := taskArtifactHistoryBlobs(tx,
 			`SELECT attachment_id FROM shared_doc_history WHERE doc_id = ?`, id)

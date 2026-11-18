@@ -72,31 +72,14 @@ func TestListSharedDocs(t *testing.T) {
 	for _, doc := range []SharedDoc{b, a2, a1} {
 		dalCreateSharedDoc(t, d, doc)
 	}
-	if _, err := d.SetSharedDocArchived("sd-b", true, "owner", 500); err != nil {
-		t.Fatalf("SetSharedDocArchived: %v", err)
+
+	got, err := d.ListSharedDocs()
+	if err != nil {
+		t.Fatalf("ListSharedDocs: %v", err)
 	}
-	archivedB := b
-	archivedB.ArchivedTS, archivedB.ArchivedBy = 500, "owner"
-
-	t.Run("archived documents are left out by default, the rest sorted by name then id", func(t *testing.T) {
-		got, err := d.ListSharedDocs(false)
-		if err != nil {
-			t.Fatalf("ListSharedDocs: %v", err)
-		}
-		if want := []SharedDoc{a1, a2}; !reflect.DeepEqual(got, want) {
-			t.Fatalf("ListSharedDocs(false):\n got %+v\nwant %+v", got, want)
-		}
-	})
-
-	t.Run("include archived lists every document in the same order", func(t *testing.T) {
-		got, err := d.ListSharedDocs(true)
-		if err != nil {
-			t.Fatalf("ListSharedDocs: %v", err)
-		}
-		if want := []SharedDoc{a1, a2, archivedB}; !reflect.DeepEqual(got, want) {
-			t.Fatalf("ListSharedDocs(true):\n got %+v\nwant %+v", got, want)
-		}
-	})
+	if want := []SharedDoc{a1, a2, b}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListSharedDocs sorted by name then id:\n got %+v\nwant %+v", got, want)
+	}
 }
 
 func TestCreateSharedDoc(t *testing.T) {
@@ -198,24 +181,26 @@ func TestReplaceSharedDoc(t *testing.T) {
 		}
 	})
 
-	t.Run("an archived document is refused with a 409 and nothing changes", func(t *testing.T) {
+	t.Run("an empty attachment id keeps the current content while the name changes", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		dalCreateSharedDoc(t, d, dalTestSharedDoc("sd-1", "att-1"))
-		if _, err := d.SetSharedDocArchived("sd-1", true, "owner", 300); err != nil {
-			t.Fatalf("SetSharedDocArchived: %v", err)
+		renamed := "Renamed"
+		if err := d.ReplaceSharedDoc(SharedDocReplacement{
+			ID: "sd-1", Name: &renamed, UpdatedTS: 200, UpdatedBy: "ann",
+		}, nil); err != nil {
+			t.Fatalf("ReplaceSharedDoc: %v", err)
 		}
-		before := dalMustGetSharedDoc(t, d, "sd-1")
-		next := SharedDocReplacement{ID: "sd-1", AttachmentID: "att-2", UpdatedTS: 400, UpdatedBy: "ann"}
-		dalWantRefusal(t, d.ReplaceSharedDoc(next, &ChatAttachment{ID: "att-2", Mime: linkTargetMime}),
-			http.StatusConflict, "shared doc 'sd-1' is archived: unarchive it before changing it")
-		if got := dalMustGetSharedDoc(t, d, "sd-1"); !reflect.DeepEqual(got, before) {
-			t.Fatalf("row changed:\n got %+v\nwant %+v", got, before)
+		want := dalTestSharedDoc("sd-1", "att-1")
+		want.Name, want.UpdatedTS, want.UpdatedBy = "Renamed", 200, "ann"
+		if got := dalMustGetSharedDoc(t, d, "sd-1"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("current:\n got %+v\nwant %+v", got, want)
 		}
-		if got := dalSharedDocVersions(t, d, "sd-1"); got != nil {
-			t.Fatalf("versions: want none, got %+v", got)
-		}
-		if got := dalStoredBlobIDs(t, d); len(got) != 0 {
-			t.Fatalf("the minted blob must roll back with the refusal, got %v", got)
+		wantVersions := []SharedDocVersion{{
+			ID: 1, DocID: "sd-1", Kind: ArtifactKindFile, AttachmentID: "att-1",
+			Name: "Runbook", Description: "how we ship", CreatedTS: 100, CreatedBy: "kip",
+		}}
+		if got := dalSharedDocVersions(t, d, "sd-1"); !reflect.DeepEqual(got, wantVersions) {
+			t.Fatalf("versions:\n got %+v\nwant %+v", got, wantVersions)
 		}
 	})
 
@@ -260,61 +245,10 @@ func TestRestoreSharedDocVersion(t *testing.T) {
 		dalWantRefusal(t, d.RestoreSharedDocVersion("sd-1", 1, "owner", 400),
 			http.StatusNotFound, "version 1 is not a retained version of shared doc 'sd-1'")
 	})
-
-	t.Run("an archived document is refused with a 409", func(t *testing.T) {
-		d := newAPITestDAL(t)
-		dalCreateSharedDoc(t, d, dalTestSharedDoc("sd-1", "att-1"))
-		dalReplaceSharedDocWith(t, d, "sd-1", "att-2", "ann", 200)
-		if _, err := d.SetSharedDocArchived("sd-1", true, "owner", 300); err != nil {
-			t.Fatalf("SetSharedDocArchived: %v", err)
-		}
-		dalWantRefusal(t, d.RestoreSharedDocVersion("sd-1", 1, "owner", 400),
-			http.StatusConflict, "shared doc 'sd-1' is archived: unarchive it before changing it")
-	})
-}
-
-func TestSetSharedDocArchived(t *testing.T) {
-	d := newAPITestDAL(t)
-	dalCreateSharedDoc(t, d, dalTestSharedDoc("sd-1", "att-1"))
-	steps := []struct {
-		name        string
-		archived    bool
-		actor       string
-		ts          float64
-		wantChanged bool
-		wantTS      float64
-		wantBy      string
-	}{
-		{"archiving an active document stamps who and when", true, "ann", 300, true, 300, "ann"},
-		{"archiving it again keeps the first stamp", true, "bob", 400, false, 300, "ann"},
-		{"unarchiving clears the stamp", false, "bob", 500, true, 0, ""},
-		{"unarchiving an active document changes nothing", false, "bob", 600, false, 0, ""},
-	}
-	for _, step := range steps {
-		t.Run(step.name, func(t *testing.T) {
-			changed, err := d.SetSharedDocArchived("sd-1", step.archived, step.actor, step.ts)
-			if err != nil {
-				t.Fatalf("SetSharedDocArchived: %v", err)
-			}
-			if changed != step.wantChanged {
-				t.Fatalf("changed: want %v, got %v", step.wantChanged, changed)
-			}
-			want := dalTestSharedDoc("sd-1", "att-1")
-			want.ArchivedTS, want.ArchivedBy = step.wantTS, step.wantBy
-			if got := dalMustGetSharedDoc(t, d, "sd-1"); !reflect.DeepEqual(got, want) {
-				t.Fatalf("row:\n got %+v\nwant %+v", got, want)
-			}
-		})
-	}
-
-	t.Run("an unknown id is refused with a 404", func(t *testing.T) {
-		_, err := d.SetSharedDocArchived("sd-ghost", true, "ann", 700)
-		dalWantRefusal(t, err, http.StatusNotFound, "shared doc 'sd-ghost' not found")
-	})
 }
 
 func TestDeleteSharedDoc(t *testing.T) {
-	t.Run("an archived document goes with its versions and every blob nothing else cites", func(t *testing.T) {
+	t.Run("a document goes with its versions and every blob nothing else cites", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		dalPutBlobs(t, d, "att-1", "att-2", "att-3", "att-other")
 		dalPutChats(t, d, dalChatWithAtts("m1", "ann", "bob", 100, dalAttRef("att-1", "image/png", "a.png")))
@@ -322,9 +256,6 @@ func TestDeleteSharedDoc(t *testing.T) {
 		dalReplaceSharedDocWith(t, d, "sd-1", "att-2", "ann", 200)
 		dalReplaceSharedDocWith(t, d, "sd-1", "att-3", "ann", 300)
 		dalCreateSharedDoc(t, d, dalTestSharedDoc("sd-2", "att-other"))
-		if _, err := d.SetSharedDocArchived("sd-1", true, "owner", 400); err != nil {
-			t.Fatalf("SetSharedDocArchived: %v", err)
-		}
 
 		if err := d.DeleteSharedDoc("sd-1"); err != nil {
 			t.Fatalf("DeleteSharedDoc: %v", err)
@@ -339,14 +270,6 @@ func TestDeleteSharedDoc(t *testing.T) {
 		if got := dalStoredBlobIDs(t, d); !reflect.DeepEqual(got, want) {
 			t.Fatalf("stored blobs (att-1 survives on its chat message): want %v, got %v", want, got)
 		}
-	})
-
-	t.Run("an active document is refused with a 409 and kept", func(t *testing.T) {
-		d := newAPITestDAL(t)
-		dalCreateSharedDoc(t, d, dalTestSharedDoc("sd-1", "att-1"))
-		dalWantRefusal(t, d.DeleteSharedDoc("sd-1"),
-			http.StatusConflict, "shared doc 'sd-1' is not archived: archive it before deleting it")
-		dalMustGetSharedDoc(t, d, "sd-1")
 	})
 
 	t.Run("an unknown id is refused with a 404", func(t *testing.T) {

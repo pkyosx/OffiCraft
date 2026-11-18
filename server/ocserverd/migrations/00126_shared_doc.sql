@@ -14,9 +14,7 @@ CREATE TABLE shared_doc (
     created_ts    REAL NOT NULL,
     created_by    TEXT NOT NULL,
     updated_ts    REAL NOT NULL,
-    updated_by    TEXT NOT NULL,
-    archived_ts   REAL,
-    archived_by   TEXT
+    updated_by    TEXT NOT NULL
 );
 CREATE INDEX idx_shared_doc_name ON shared_doc (name, id);
 

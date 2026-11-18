@@ -12779,30 +12779,6 @@
         "additionalProperties": false,
         "description": "One shared document's metadata and current version.",
         "properties": {
-          "archived_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Who archived it; null while active.",
-            "title": "Archived By"
-          },
-          "archived_ts": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "When it was archived; null while active.",
-            "title": "Archived Ts"
-          },
           "attachment_id": {
             "description": "The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.",
             "title": "Attachment Id",
@@ -12873,8 +12849,6 @@
           }
         },
         "required": [
-          "archived_by",
-          "archived_ts",
           "attachment_id",
           "created_by",
           "created_ts",
@@ -12907,30 +12881,6 @@
         "additionalProperties": false,
         "description": "One shared document with its current content inline when that content is text.",
         "properties": {
-          "archived_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Who archived it; null while active.",
-            "title": "Archived By"
-          },
-          "archived_ts": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "When it was archived; null while active.",
-            "title": "Archived Ts"
-          },
           "attachment_id": {
             "description": "The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.",
             "title": "Attachment Id",
@@ -13025,8 +12975,6 @@
           }
         },
         "required": [
-          "archived_by",
-          "archived_ts",
           "attachment_id",
           "created_by",
           "created_ts",
@@ -13064,18 +13012,6 @@
         "additionalProperties": false,
         "description": "Bounded receipt of a shared-document write.",
         "properties": {
-          "archived_ts": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Null while active.",
-            "title": "Archived Ts"
-          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -13091,7 +13027,6 @@
           }
         },
         "required": [
-          "archived_ts",
           "id",
           "updated_ts",
           "version_count"
@@ -13101,7 +13036,7 @@
       },
       "SharedDocReplaceDTO": {
         "additionalProperties": false,
-        "description": "New content for a shared document. Send the content field its kind uses; the other is refused.",
+        "description": "A new version of a shared document: new content, a new name or description, or both. Send the content field its kind uses; the other is refused.",
         "properties": {
           "attachment_id": {
             "anyOf": [
@@ -13113,7 +13048,7 @@
               }
             ],
             "default": null,
-            "description": "For a ``file``/``image`` document: a blob already in the store.",
+            "description": "For a ``file``/``image`` document: a blob already in the store. Omit it, and ``url``, to keep the current content.",
             "title": "Attachment Id"
           },
           "description": {
@@ -13152,7 +13087,7 @@
               }
             ],
             "default": null,
-            "description": "For a ``link`` document: ``http(s)://``, at most 2048 runes. No carry-forward: required on every replace of a link.",
+            "description": "For a ``link`` document: ``http(s)://``, at most 2048 runes. Omit it, and ``attachment_id``, to keep the current content.",
             "title": "Url"
           }
         },
@@ -28364,27 +28299,7 @@
     },
     "/api/shared-docs": {
       "get": {
-        "description": "- Archived documents are left out unless `include_archived` is the string `true`.",
         "operationId": "handle_list_shared_docs_api_shared_docs_get",
-        "parameters": [
-          {
-            "description": "``true`` (the STRING) also lists archived documents; by default they are left out. Any other value reads as not sent.",
-            "in": "query",
-            "name": "include_archived",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Include Archived"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "content": {
@@ -28429,10 +28344,10 @@
         },
         "summary": "List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.",
         "x-mcp": {
-          "description": "List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.\n\n- Archived documents are left out unless `include_archived` is the string `true`.",
+          "description": "List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.\\n\\n- Archived documents are left out unless `include_archived` is the string `true`.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"include_archived\": {\n            \"description\": \"``true`` (the STRING) also lists archived documents; by default they are left out. Any other value reads as not sent.\",\n            \"type\": \"string\"\n          }\n        },\n        \"type\": \"object\"\n      },\n      \"name\": \"list_shared_docs\"\n    }"
+            "descriptor": "{\n      \"description\": \"List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"list_shared_docs\"\n    }"
           },
           "name": "list_shared_docs",
           "order": 127
@@ -28507,7 +28422,7 @@
     },
     "/api/shared-docs/{doc_id}": {
       "delete": {
-        "description": "- Irreversible: the document, every retained version and their files are gone, and the id answers 404 from then on.\n- Only an archived document can be deleted; an active one is a 409, so archive it first.\n- Task manuals and tasks that cite the id are not updated: their references stop resolving.",
+        "description": "- Irreversible: the document, every retained version and their files are gone, and the id answers 404 from then on.\n- Task manuals and tasks that cite the id are not updated: their references stop resolving.",
         "operationId": "handle_delete_shared_doc_api_shared_docs__doc_id__delete",
         "parameters": [
           {
@@ -28562,19 +28477,19 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Permanently delete an archived shared document with all its versions. Owner only.",
+        "summary": "Permanently delete a shared document with all its versions. Owner only.",
         "x-mcp": {
-          "description": "Permanently delete an archived shared document with all its versions. Owner only.\n\n- Irreversible: the document, every retained version and their files are gone, and the id answers 404 from then on.\n- Only an archived document can be deleted; an active one is a 409, so archive it first.\n- Task manuals and tasks that cite the id are not updated: their references stop resolving.",
+          "description": "Permanently delete a shared document with all its versions. Owner only.\n\n- Irreversible: the document, every retained version and their files are gone, and the id answers 404 from then on.\n- Task manuals and tasks that cite the id are not updated: their references stop resolving.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Permanently delete an archived shared document with all its versions. Owner only.\\n\\n- Irreversible: the document, every retained version and their files are gone, and the id answers 404 from then on.\\n- Only an archived document can be deleted; an active one is a 409, so archive it first.\\n- Task manuals and tasks that cite the id are not updated: their references stop resolving.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"delete_shared_doc\"\n    }"
+            "descriptor": "{\n      \"description\": \"Permanently delete a shared document with all its versions. Owner only.\\n\\n- Irreversible: the document, every retained version and their files are gone, and the id answers 404 from then on.\\n- Task manuals and tasks that cite the id are not updated: their references stop resolving.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"delete_shared_doc\"\n    }"
           },
           "name": "delete_shared_doc",
-          "order": 135
+          "order": 133
         }
       },
       "get": {
-        "description": "- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\n- When `text` is null, download `attachment_id` for the content.\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.\n- An archived document is still readable here, with `archived_ts` set.",
+        "description": "- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\n- When `text` is null, download `attachment_id` for the content.\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.",
         "operationId": "handle_get_shared_doc_api_shared_docs__doc_id__get",
         "parameters": [
           {
@@ -28631,10 +28546,10 @@
         },
         "summary": "Read one shared document: its metadata and, when the current version is text, its content.",
         "x-mcp": {
-          "description": "Read one shared document: its metadata and, when the current version is text, its content.\n\n- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\n- When `text` is null, download `attachment_id` for the content.\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.\n- An archived document is still readable here, with `archived_ts` set.",
+          "description": "Read one shared document: its metadata and, when the current version is text, its content.\n\n- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\n- When `text` is null, download `attachment_id` for the content.\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Read one shared document: its metadata and, when the current version is text, its content.\\n\\n- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\\n- When `text` is null, download `attachment_id` for the content.\\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.\\n- An archived document is still readable here, with `archived_ts` set.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_shared_doc\"\n    }"
+            "descriptor": "{\n      \"description\": \"Read one shared document: its metadata and, when the current version is text, its content.\\n\\n- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\\n- When `text` is null, download `attachment_id` for the content.\\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_shared_doc\"\n    }"
           },
           "name": "get_shared_doc",
           "order": 129
@@ -28643,7 +28558,7 @@
     },
     "/api/shared-docs/{doc_id}/replace": {
       "post": {
-        "description": "- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.\n- An archived document is a 409: unarchive it first.",
+        "description": "- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\n- To change only `name` or `description`, send neither: the current content is kept, and the change is still a new version.\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.",
         "operationId": "handle_replace_shared_doc_api_shared_docs__doc_id__replace_post",
         "parameters": [
           {
@@ -28708,12 +28623,12 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Make new content the current version of a shared document. The id stays the same.",
+        "summary": "Write a new version of a shared document: new content, a new name or description, or both. The id stays the same.",
         "x-mcp": {
-          "description": "Make new content the current version of a shared document. The id stays the same.\n\n- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.\n- An archived document is a 409: unarchive it first.",
+          "description": "Write a new version of a shared document: new content, a new name or description, or both. The id stays the same.\n\n- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\n- To change only `name` or `description`, send neither: the current content is kept, and the change is still a new version.\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Make new content the current version of a shared document. The id stays the same.\\n\\n- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.\\n- An archived document is a 409: unarchive it first.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          },\n          \"attachment_id\": {\n            \"description\": \"For a ``file``/``image`` document: a blob already in the store.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Attachment Id\"\n          },\n          \"description\": {\n            \"description\": \"Omitted or null keeps the current one; blank clears it. At most 1024 runes.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Description\"\n          },\n          \"name\": {\n            \"description\": \"Omitted or null keeps the current one; blank is refused. At most 128 runes.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Name\"\n          },\n          \"url\": {\n            \"description\": \"For a ``link`` document: ``http(s)://``, at most 2048 runes. No carry-forward: required on every replace of a link.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Url\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"replace_shared_doc\"\n    }"
+            "descriptor": "{\n      \"description\": \"Write a new version of a shared document: new content, a new name or description, or both. The id stays the same.\\n\\n- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\\n- To change only `name` or `description`, send neither: the current content is kept, and the change is still a new version.\\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          },\n          \"attachment_id\": {\n            \"description\": \"For a ``file``/``image`` document: a blob already in the store. Omit it, and ``url``, to keep the current content.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Attachment Id\"\n          },\n          \"description\": {\n            \"description\": \"Omitted or null keeps the current one; blank clears it. At most 1024 runes.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Description\"\n          },\n          \"name\": {\n            \"description\": \"Omitted or null keeps the current one; blank is refused. At most 128 runes.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Name\"\n          },\n          \"url\": {\n            \"description\": \"For a ``link`` document: ``http(s)://``, at most 2048 runes. Omit it, and ``attachment_id``, to keep the current content.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Url\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"replace_shared_doc\"\n    }"
           },
           "name": "replace_shared_doc",
           "order": 130
@@ -28722,7 +28637,7 @@
     },
     "/api/shared-docs/{doc_id}/versions": {
       "get": {
-        "description": "- Only the most recent few previous versions are retained.\n- Works on an archived document too.",
+        "description": "- Only the most recent few previous versions are retained.",
         "operationId": "handle_list_shared_doc_versions_api_shared_docs__doc_id__versions_get",
         "parameters": [
           {
@@ -28779,10 +28694,10 @@
         },
         "summary": "List a shared document's retained previous versions, newest first. The current version is not included.",
         "x-mcp": {
-          "description": "List a shared document's retained previous versions, newest first. The current version is not included.\n\n- Only the most recent few previous versions are retained.\n- Works on an archived document too.",
+          "description": "List a shared document's retained previous versions, newest first. The current version is not included.\n\n- Only the most recent few previous versions are retained.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"List a shared document's retained previous versions, newest first. The current version is not included.\\n\\n- Only the most recent few previous versions are retained.\\n- Works on an archived document too.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"list_shared_doc_versions\"\n    }"
+            "descriptor": "{\n      \"description\": \"List a shared document's retained previous versions, newest first. The current version is not included.\\n\\n- Only the most recent few previous versions are retained.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"list_shared_doc_versions\"\n    }"
           },
           "name": "list_shared_doc_versions",
           "order": 131
@@ -28791,7 +28706,7 @@
     },
     "/api/shared-docs/{doc_id}/versions/{version_id}/restore": {
       "post": {
-        "description": "- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\n- The restored version leaves the list and its version id stops resolving.\n- `updated_by` / `updated_ts` become the caller and now.\n- A version id that is not one of this document's retained versions is a 404; an archived document is a 409.",
+        "description": "- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\n- The restored version leaves the list and its version id stops resolving.\n- `updated_by` / `updated_ts` become the caller and now.\n- A version id that is not one of this document's retained versions is a 404.",
         "operationId": "handle_restore_shared_doc_version_api_shared_docs__doc_id__versions__version_id__restore_post",
         "parameters": [
           {
@@ -28857,151 +28772,13 @@
         },
         "summary": "Make a retained previous version the current one again.",
         "x-mcp": {
-          "description": "Make a retained previous version the current one again.\n\n- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\n- The restored version leaves the list and its version id stops resolving.\n- `updated_by` / `updated_ts` become the caller and now.\n- A version id that is not one of this document's retained versions is a 404; an archived document is a 409.",
+          "description": "Make a retained previous version the current one again.\n\n- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\n- The restored version leaves the list and its version id stops resolving.\n- `updated_by` / `updated_ts` become the caller and now.\n- A version id that is not one of this document's retained versions is a 404.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Make a retained previous version the current one again.\\n\\n- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\\n- The restored version leaves the list and its version id stops resolving.\\n- `updated_by` / `updated_ts` become the caller and now.\\n- A version id that is not one of this document's retained versions is a 404; an archived document is a 409.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          },\n          \"version_id\": {\n            \"type\": \"integer\"\n          }\n        },\n        \"required\": [\n          \"doc_id\",\n          \"version_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"restore_shared_doc_version\"\n    }"
+            "descriptor": "{\n      \"description\": \"Make a retained previous version the current one again.\\n\\n- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\\n- The restored version leaves the list and its version id stops resolving.\\n- `updated_by` / `updated_ts` become the caller and now.\\n- A version id that is not one of this document's retained versions is a 404.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          },\n          \"version_id\": {\n            \"type\": \"integer\"\n          }\n        },\n        \"required\": [\n          \"doc_id\",\n          \"version_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"restore_shared_doc_version\"\n    }"
           },
           "name": "restore_shared_doc_version",
           "order": 132
-        }
-      }
-    },
-    "/api/shared-docs/{doc_id}/archive": {
-      "post": {
-        "description": "- Archiving an archived document changes nothing; `archived_ts` / `archived_by` keep the first archive.",
-        "operationId": "handle_archive_shared_doc_api_shared_docs__doc_id__archive_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "doc_id",
-            "required": true,
-            "schema": {
-              "title": "Doc Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedDocReceiptDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "Archive a shared document. It leaves the default list and cannot be replaced or restored until it is unarchived, but it stays readable by id and nothing is deleted.",
-        "x-mcp": {
-          "description": "Archive a shared document. It leaves the default list and cannot be replaced or restored until it is unarchived, but it stays readable by id and nothing is deleted.\n\n- Archiving an archived document changes nothing; `archived_ts` / `archived_by` keep the first archive.",
-          "include": true,
-          "legacy": {
-            "descriptor": "{\n      \"description\": \"Archive a shared document. It leaves the default list and cannot be replaced or restored until it is unarchived, but it stays readable by id and nothing is deleted.\\n\\n- Archiving an archived document changes nothing; `archived_ts` / `archived_by` keep the first archive.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"archive_shared_doc\"\n    }"
-          },
-          "name": "archive_shared_doc",
-          "order": 133
-        }
-      }
-    },
-    "/api/shared-docs/{doc_id}/unarchive": {
-      "post": {
-        "description": "- Unarchiving an active document changes nothing.",
-        "operationId": "handle_unarchive_shared_doc_api_shared_docs__doc_id__unarchive_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "doc_id",
-            "required": true,
-            "schema": {
-              "title": "Doc Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedDocReceiptDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "Return an archived shared document to the list and allow changes again.",
-        "x-mcp": {
-          "description": "Return an archived shared document to the list and allow changes again.\n\n- Unarchiving an active document changes nothing.",
-          "include": true,
-          "legacy": {
-            "descriptor": "{\n      \"description\": \"Return an archived shared document to the list and allow changes again.\\n\\n- Unarchiving an active document changes nothing.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"unarchive_shared_doc\"\n    }"
-          },
-          "name": "unarchive_shared_doc",
-          "order": 134
         }
       }
     }

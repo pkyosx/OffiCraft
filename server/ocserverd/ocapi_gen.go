@@ -4378,12 +4378,6 @@ type SharedDocCreateDTO struct {
 
 // SharedDocDTO One shared document's metadata and current version.
 type SharedDocDTO struct {
-	// ArchivedBy Who archived it; null while active.
-	ArchivedBy *string `json:"archived_by"`
-
-	// ArchivedTs When it was archived; null while active.
-	ArchivedTs *float64 `json:"archived_ts"`
-
 	// AttachmentId The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.
 	AttachmentId string `json:"attachment_id"`
 
@@ -4429,12 +4423,6 @@ type SharedDocDeleteReceiptDTO struct {
 
 // SharedDocDetailDTO One shared document with its current content inline when that content is text.
 type SharedDocDetailDTO struct {
-	// ArchivedBy Who archived it; null while active.
-	ArchivedBy *string `json:"archived_by"`
-
-	// ArchivedTs When it was archived; null while active.
-	ArchivedTs *float64 `json:"archived_ts"`
-
 	// AttachmentId The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.
 	AttachmentId string `json:"attachment_id"`
 
@@ -4486,18 +4474,16 @@ type SharedDocListDTO struct {
 
 // SharedDocReceiptDTO Bounded receipt of a shared-document write.
 type SharedDocReceiptDTO struct {
-	// ArchivedTs Null while active.
-	ArchivedTs *float64 `json:"archived_ts"`
-	Id         string   `json:"id"`
-	UpdatedTs  float64  `json:"updated_ts"`
+	Id        string  `json:"id"`
+	UpdatedTs float64 `json:"updated_ts"`
 
 	// VersionCount As on ``SharedDocDTO``. Unchanged after a replace means the oldest retained version was just discarded.
 	VersionCount int `json:"version_count"`
 }
 
-// SharedDocReplaceDTO New content for a shared document. Send the content field its kind uses; the other is refused.
+// SharedDocReplaceDTO A new version of a shared document: new content, a new name or description, or both. Send the content field its kind uses; the other is refused.
 type SharedDocReplaceDTO struct {
-	// AttachmentId For a ``file``/``image`` document: a blob already in the store.
+	// AttachmentId For a ``file``/``image`` document: a blob already in the store. Omit it, and ``url``, to keep the current content.
 	AttachmentId *string `json:"attachment_id,omitempty"`
 
 	// Description Omitted or null keeps the current one; blank clears it. At most 1024 runes.
@@ -4506,7 +4492,7 @@ type SharedDocReplaceDTO struct {
 	// Name Omitted or null keeps the current one; blank is refused. At most 128 runes.
 	Name *string `json:"name,omitempty"`
 
-	// Url For a ``link`` document: ``http(s)://``, at most 2048 runes. No carry-forward: required on every replace of a link.
+	// Url For a ``link`` document: ``http(s)://``, at most 2048 runes. Omit it, and ``attachment_id``, to keep the current content.
 	Url *string `json:"url,omitempty"`
 }
 
@@ -5703,12 +5689,6 @@ type HandlePeekResumeSummarySizeApiResumeSummarySizeGetParams struct {
 	IncludeDeleteNotices *string `form:"include_delete_notices,omitempty" json:"include_delete_notices,omitempty"`
 }
 
-// HandleListSharedDocsApiSharedDocsGetParams defines parameters for HandleListSharedDocsApiSharedDocsGet.
-type HandleListSharedDocsApiSharedDocsGetParams struct {
-	// IncludeArchived ``true`` (the STRING) also lists archived documents; by default they are left out. Any other value reads as not sent.
-	IncludeArchived *string `form:"include_archived,omitempty" json:"include_archived,omitempty"`
-}
-
 // HandleListTasksApiTasksGetParams defines parameters for HandleListTasksApiTasksGet.
 type HandleListTasksApiTasksGetParams struct {
 	Executor *string `form:"executor,omitempty" json:"executor,omitempty"`
@@ -6856,25 +6836,19 @@ type ServerInterface interface {
 	HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, r *http.Request)
 	// List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.
 	// (GET /api/shared-docs)
-	HandleListSharedDocsApiSharedDocsGet(w http.ResponseWriter, r *http.Request, params HandleListSharedDocsApiSharedDocsGetParams)
+	HandleListSharedDocsApiSharedDocsGet(w http.ResponseWriter, r *http.Request)
 	// Create a shared document: a named file, image or link that every member can read and replace, kept with a short version history and not tied to any task.
 	// (POST /api/shared-docs)
 	HandleCreateSharedDocApiSharedDocsPost(w http.ResponseWriter, r *http.Request)
-	// Permanently delete an archived shared document with all its versions. Owner only.
+	// Permanently delete a shared document with all its versions. Owner only.
 	// (DELETE /api/shared-docs/{doc_id})
 	HandleDeleteSharedDocApiSharedDocsDocIdDelete(w http.ResponseWriter, r *http.Request, docId string)
 	// Read one shared document: its metadata and, when the current version is text, its content.
 	// (GET /api/shared-docs/{doc_id})
 	HandleGetSharedDocApiSharedDocsDocIdGet(w http.ResponseWriter, r *http.Request, docId string)
-	// Archive a shared document. It leaves the default list and cannot be replaced or restored until it is unarchived, but it stays readable by id and nothing is deleted.
-	// (POST /api/shared-docs/{doc_id}/archive)
-	HandleArchiveSharedDocApiSharedDocsDocIdArchivePost(w http.ResponseWriter, r *http.Request, docId string)
-	// Make new content the current version of a shared document. The id stays the same.
+	// Write a new version of a shared document: new content, a new name or description, or both. The id stays the same.
 	// (POST /api/shared-docs/{doc_id}/replace)
 	HandleReplaceSharedDocApiSharedDocsDocIdReplacePost(w http.ResponseWriter, r *http.Request, docId string)
-	// Return an archived shared document to the list and allow changes again.
-	// (POST /api/shared-docs/{doc_id}/unarchive)
-	HandleUnarchiveSharedDocApiSharedDocsDocIdUnarchivePost(w http.ResponseWriter, r *http.Request, docId string)
 	// List a shared document's retained previous versions, newest first. The current version is not included.
 	// (GET /api/shared-docs/{doc_id}/versions)
 	HandleListSharedDocVersionsApiSharedDocsDocIdVersionsGet(w http.ResponseWriter, r *http.Request, docId string)
@@ -11005,27 +10979,8 @@ func (siw *ServerInterfaceWrapper) HandleUpdateSettingsApiSettingsPatch(w http.R
 // HandleListSharedDocsApiSharedDocsGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleListSharedDocsApiSharedDocsGet(w http.ResponseWriter, r *http.Request) {
 
-	var err error
-	_ = err
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params HandleListSharedDocsApiSharedDocsGetParams
-
-	// ------------- Optional query parameter "include_archived" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_archived", r.URL.Query(), &params.IncludeArchived, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
-		}
-		return
-	}
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleListSharedDocsApiSharedDocsGet(w, r, params)
+		siw.Handler.HandleListSharedDocsApiSharedDocsGet(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11101,32 +11056,6 @@ func (siw *ServerInterfaceWrapper) HandleGetSharedDocApiSharedDocsDocIdGet(w htt
 	handler.ServeHTTP(w, r)
 }
 
-// HandleArchiveSharedDocApiSharedDocsDocIdArchivePost operation middleware
-func (siw *ServerInterfaceWrapper) HandleArchiveSharedDocApiSharedDocsDocIdArchivePost(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "doc_id" -------------
-	var docId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "doc_id", r.PathValue("doc_id"), &docId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "doc_id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleArchiveSharedDocApiSharedDocsDocIdArchivePost(w, r, docId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // HandleReplaceSharedDocApiSharedDocsDocIdReplacePost operation middleware
 func (siw *ServerInterfaceWrapper) HandleReplaceSharedDocApiSharedDocsDocIdReplacePost(w http.ResponseWriter, r *http.Request) {
 
@@ -11144,32 +11073,6 @@ func (siw *ServerInterfaceWrapper) HandleReplaceSharedDocApiSharedDocsDocIdRepla
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleReplaceSharedDocApiSharedDocsDocIdReplacePost(w, r, docId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// HandleUnarchiveSharedDocApiSharedDocsDocIdUnarchivePost operation middleware
-func (siw *ServerInterfaceWrapper) HandleUnarchiveSharedDocApiSharedDocsDocIdUnarchivePost(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "doc_id" -------------
-	var docId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "doc_id", r.PathValue("doc_id"), &docId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "doc_id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleUnarchiveSharedDocApiSharedDocsDocIdUnarchivePost(w, r, docId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -13274,9 +13177,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shared-docs", wrapper.HandleCreateSharedDocApiSharedDocsPost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/shared-docs/{doc_id}", wrapper.HandleDeleteSharedDocApiSharedDocsDocIdDelete)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shared-docs/{doc_id}", wrapper.HandleGetSharedDocApiSharedDocsDocIdGet)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shared-docs/{doc_id}/archive", wrapper.HandleArchiveSharedDocApiSharedDocsDocIdArchivePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shared-docs/{doc_id}/replace", wrapper.HandleReplaceSharedDocApiSharedDocsDocIdReplacePost)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shared-docs/{doc_id}/unarchive", wrapper.HandleUnarchiveSharedDocApiSharedDocsDocIdUnarchivePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shared-docs/{doc_id}/versions", wrapper.HandleListSharedDocVersionsApiSharedDocsDocIdVersionsGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shared-docs/{doc_id}/versions/{version_id}/restore", wrapper.HandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestorePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/system-interaction", wrapper.HandleGetSystemInteractionApiSystemInteractionGet)

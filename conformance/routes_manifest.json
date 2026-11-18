@@ -1520,20 +1520,6 @@
   },
   {
     "auth": "gated",
-    "mcp_tool": "archive_shared_doc",
-    "method": "POST",
-    "path": "/api/shared-docs/{doc_id}/archive",
-    "requires": "agent"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": "unarchive_shared_doc",
-    "method": "POST",
-    "path": "/api/shared-docs/{doc_id}/unarchive",
-    "requires": "agent"
-  },
-  {
-    "auth": "gated",
     "mcp_tool": "delete_shared_doc",
     "method": "DELETE",
     "path": "/api/shared-docs/{doc_id}",

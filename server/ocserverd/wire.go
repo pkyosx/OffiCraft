@@ -1603,21 +1603,19 @@ func newTaskArtifactVersionDTO(h TaskArtifactHistory, att *ChatAttachment) taskA
 // sharedDocDTO's URL, Mime and Filename follow taskArtifactDTO: the blob's facts
 // resolved at read time, the external address and uri-list mime for a link.
 type sharedDocDTO struct {
-	ID           string   `json:"id"`
-	Kind         string   `json:"kind"`
-	AttachmentID string   `json:"attachment_id"`
-	Name         string   `json:"name"`
-	Description  string   `json:"description"`
-	Filename     string   `json:"filename"`
-	Mime         string   `json:"mime"`
-	URL          string   `json:"url"`
-	CreatedTS    float64  `json:"created_ts"`
-	CreatedBy    string   `json:"created_by"`
-	UpdatedTS    float64  `json:"updated_ts"`
-	UpdatedBy    string   `json:"updated_by"`
-	ArchivedTS   *float64 `json:"archived_ts"`
-	ArchivedBy   *string  `json:"archived_by"`
-	VersionCount int      `json:"version_count"`
+	ID           string  `json:"id"`
+	Kind         string  `json:"kind"`
+	AttachmentID string  `json:"attachment_id"`
+	Name         string  `json:"name"`
+	Description  string  `json:"description"`
+	Filename     string  `json:"filename"`
+	Mime         string  `json:"mime"`
+	URL          string  `json:"url"`
+	CreatedTS    float64 `json:"created_ts"`
+	CreatedBy    string  `json:"created_by"`
+	UpdatedTS    float64 `json:"updated_ts"`
+	UpdatedBy    string  `json:"updated_by"`
+	VersionCount int     `json:"version_count"`
 }
 
 type sharedDocDetailDTO struct {
@@ -1649,10 +1647,9 @@ type sharedDocVersionListDTO struct {
 }
 
 type sharedDocReceiptDTO struct {
-	ID           string   `json:"id"`
-	UpdatedTS    float64  `json:"updated_ts"`
-	VersionCount int      `json:"version_count"`
-	ArchivedTS   *float64 `json:"archived_ts"`
+	ID           string  `json:"id"`
+	UpdatedTS    float64 `json:"updated_ts"`
+	VersionCount int     `json:"version_count"`
 }
 
 type sharedDocDeleteReceiptDTO struct {
@@ -1688,10 +1685,6 @@ func newSharedDocDTO(d SharedDoc, att *ChatAttachment, retained int) sharedDocDT
 		VersionCount: retained + 1,
 	}
 	dto.URL, dto.Mime, dto.Filename = sharedDocContentFacts(d.Kind == ArtifactKindLink, att)
-	if d.Archived() {
-		ts, by := d.ArchivedTS, d.ArchivedBy
-		dto.ArchivedTS, dto.ArchivedBy = &ts, &by
-	}
 	return dto
 }
 

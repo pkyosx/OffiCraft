@@ -259,7 +259,7 @@ is the M1 freeze):
 | `reply_card` | reply-card create / answer / answer revision / expire / the owner's snooze or unsnooze | patch |
 | `task` | any durable task write (create / status / priority / plan / step / deps / executor assignment / terminate); a change to the workspace due-soon lead | patch |
 | `task_manual` | manual create / edit / delete | patch |
-| `shared_doc` | shared-document create / replace / restore / archive / unarchive; the owner's permanent delete | patch / remove |
+| `shared_doc` | shared-document create / replace / restore; the owner's permanent delete | patch / remove |
 | `global_context` | user-context overlay write/reset | patch |
 | `role_def` | role overlay write/reset/delete | patch |
 | `insight` | insight overlay write (replace / patch / reset) / restore / cascade delete | patch |

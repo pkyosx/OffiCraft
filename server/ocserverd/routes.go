@@ -1522,18 +1522,6 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestorePost,
 			MCPTool: "restore_shared_doc_version",
 		}),
-		Gated(principalAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/shared-docs/{doc_id}/archive",
-			Handler: w.HandleArchiveSharedDocApiSharedDocsDocIdArchivePost,
-			MCPTool: "archive_shared_doc",
-		}),
-		Gated(principalAgent, routeDef{
-			Method:  "POST",
-			Path:    "/api/shared-docs/{doc_id}/unarchive",
-			Handler: w.HandleUnarchiveSharedDocApiSharedDocsDocIdUnarchivePost,
-			MCPTool: "unarchive_shared_doc",
-		}),
 		Gated(principalOwner, routeDef{
 			Method:  "DELETE",
 			Path:    "/api/shared-docs/{doc_id}",

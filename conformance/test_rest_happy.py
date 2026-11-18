@@ -2181,9 +2181,9 @@ def _check_secret_revealed(ctx: HCtx, r: httpx.Response) -> None:
     (listed,) = [s for s in listing.json()["secrets"] if s["id"] == row["id"]]
     assert isinstance(listed["last_accessed_ts"], (int, float)), listed
 
-def _happy_shared_doc(ctx: HCtx, *, versions: int = 0, archived: bool = False) -> str:
+def _happy_shared_doc(ctx: HCtx, *, versions: int = 0) -> str:
     """A fresh link shared document made by the owner; ``versions`` replaces it
-    that many times, ``archived`` archives it."""
+    that many times."""
     r = ctx.client.post(
         "/api/shared-docs",
         json={"kind": "link", "name": "conf happy doc", "url": "https://example.com/doc/0"},
@@ -2197,9 +2197,6 @@ def _happy_shared_doc(ctx: HCtx, *, versions: int = 0, archived: bool = False) -
             json={"url": f"https://example.com/doc/{n + 1}"},
             headers=_auth(ctx.owner_token),
         )
-        assert r.status_code == 200, (r.status_code, r.text)
-    if archived:
-        r = ctx.client.post(f"/api/shared-docs/{doc_id}/archive", headers=_auth(ctx.owner_token))
         assert r.status_code == 200, (r.status_code, r.text)
     return doc_id
 
@@ -3764,9 +3761,7 @@ HAPPY: dict[str, Happy] = {
         identity="agent",
         body={"kind": "link", "name": "conf happy doc", "url": "https://example.com/doc"},
         check=lambda _c, r: _expect(
-            r,
-            lambda d: d["id"].startswith("sd-") and d["version_count"] == 1
-            and d["archived_ts"] is None,
+            r, lambda d: d["id"].startswith("sd-") and d["version_count"] == 1
         ),
     ),
     "GET /api/shared-docs/{doc_id}": Happy(
@@ -3797,18 +3792,8 @@ HAPPY: dict[str, Happy] = {
         path=_happy_shared_doc_restore_path,
         check=lambda _c, r: _expect(r, lambda d: d["version_count"] == 2),
     ),
-    "POST /api/shared-docs/{doc_id}/archive": Happy(
-        identity="agent",
-        path=lambda ctx: f"/api/shared-docs/{_happy_shared_doc(ctx)}/archive",
-        check=lambda _c, r: _expect(r, lambda d: d["archived_ts"] is not None),
-    ),
-    "POST /api/shared-docs/{doc_id}/unarchive": Happy(
-        identity="agent",
-        path=lambda ctx: f"/api/shared-docs/{_happy_shared_doc(ctx, archived=True)}/unarchive",
-        check=lambda _c, r: _expect(r, lambda d: d["archived_ts"] is None),
-    ),
     "DELETE /api/shared-docs/{doc_id}": Happy(
-        path=lambda ctx: f"/api/shared-docs/{_happy_shared_doc(ctx, archived=True)}",
+        path=lambda ctx: f"/api/shared-docs/{_happy_shared_doc(ctx)}",
         check=_check_shared_doc_deleted,
     ),
     # ── secrets ─────────────────────────────────────────────────────────────

@@ -42,6 +42,15 @@ func sharedDocKindPhrase(kind string) string {
 	return "a " + kind
 }
 
+func sharedDocNothingToReplace(kind string) string {
+	field := "attachment_id"
+	if kind == ArtifactKindLink {
+		field = "url"
+	}
+	return "nothing to replace: send " + field + " for " + sharedDocKindPhrase(kind) +
+		" shared doc, a name, or a description"
+}
+
 func sharedDocKindRefusal(kind, field string) string {
 	return sharedDocKindPhrase(kind) + " shared doc does not take " + field +
 		": its kind is fixed, so create a new shared doc instead"
@@ -133,12 +142,11 @@ func (s *apiServer) writeSharedDocReceipt(w http.ResponseWriter, id string) {
 	}
 	writeJSON(w, http.StatusOK, sharedDocReceiptDTO{
 		ID: dto.ID, UpdatedTS: dto.UpdatedTS, VersionCount: dto.VersionCount,
-		ArchivedTS: dto.ArchivedTS,
 	})
 }
 
-func (s *apiServer) HandleListSharedDocsApiSharedDocsGet(w http.ResponseWriter, r *http.Request, params HandleListSharedDocsApiSharedDocsGetParams) {
-	docs, err := s.dal.ListSharedDocs(strOrEmpty(params.IncludeArchived) == "true")
+func (s *apiServer) HandleListSharedDocsApiSharedDocsGet(w http.ResponseWriter, r *http.Request) {
+	docs, err := s.dal.ListSharedDocs()
 	if err != nil {
 		internalError(w, err)
 		return
@@ -261,6 +269,7 @@ func (s *apiServer) HandleReplaceSharedDocApiSharedDocsDocIdReplacePost(w http.R
 		return
 	}
 	repl := SharedDocReplacement{ID: docId}
+	var minted *ChatAttachment
 	if body.Name != nil {
 		name := trimString(*body.Name)
 		if name == "" {
@@ -280,11 +289,20 @@ func (s *apiServer) HandleReplaceSharedDocApiSharedDocsDocIdReplacePost(w http.R
 		}
 		repl.Description = &description
 	}
-	attID, minted, ok := s.sharedDocContentOrError(w, doc.Kind, doc.Kind == ArtifactKindLink, body.Url, body.AttachmentId)
-	if !ok {
-		return
+	// No content field at all keeps the current content: a name or description
+	// edit is still a version of its own, with its own author and time.
+	if trimmedOrEmpty(body.Url) == "" && trimmedOrEmpty(body.AttachmentId) == "" {
+		if repl.Name == nil && repl.Description == nil {
+			writeError(w, http.StatusBadRequest, sharedDocNothingToReplace(doc.Kind))
+			return
+		}
+	} else {
+		attID, blob, ok := s.sharedDocContentOrError(w, doc.Kind, doc.Kind == ArtifactKindLink, body.Url, body.AttachmentId)
+		if !ok {
+			return
+		}
+		repl.AttachmentID, minted = attID, blob
 	}
-	repl.AttachmentID = attID
 	repl.UpdatedTS, repl.UpdatedBy = nowSecs(), currentActor(r)
 	if err := s.dal.ReplaceSharedDoc(repl, minted); err != nil {
 		writeTxError(w, err)
@@ -328,26 +346,6 @@ func (s *apiServer) HandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersi
 	}
 	s.publishSharedDoc(docId, "patch", requestTrigger(r))
 	s.writeSharedDocReceipt(w, docId)
-}
-
-func (s *apiServer) setSharedDocArchived(w http.ResponseWriter, r *http.Request, docId string, archived bool) {
-	changed, err := s.dal.SetSharedDocArchived(docId, archived, currentActor(r), nowSecs())
-	if err != nil {
-		writeTxError(w, err)
-		return
-	}
-	if changed {
-		s.publishSharedDoc(docId, "patch", requestTrigger(r))
-	}
-	s.writeSharedDocReceipt(w, docId)
-}
-
-func (s *apiServer) HandleArchiveSharedDocApiSharedDocsDocIdArchivePost(w http.ResponseWriter, r *http.Request, docId string) {
-	s.setSharedDocArchived(w, r, docId, true)
-}
-
-func (s *apiServer) HandleUnarchiveSharedDocApiSharedDocsDocIdUnarchivePost(w http.ResponseWriter, r *http.Request, docId string) {
-	s.setSharedDocArchived(w, r, docId, false)
 }
 
 func (s *apiServer) HandleDeleteSharedDocApiSharedDocsDocIdDelete(w http.ResponseWriter, r *http.Request, docId string) {

@@ -70,8 +70,6 @@ func apiTestSharedDocRow(over map[string]any) map[string]any {
 		"created_by":    "kip",
 		"updated_ts":    apiAnyNumber,
 		"updated_by":    "kip",
-		"archived_ts":   nil,
-		"archived_by":   nil,
 		"version_count": 1,
 	}
 	for k, v := range over {
@@ -80,51 +78,32 @@ func apiTestSharedDocRow(over map[string]any) map[string]any {
 	return row
 }
 
-func apiTestSharedDocReceipt(id string, versionCount int, archivedTS any) map[string]any {
+func apiTestSharedDocReceipt(id string, versionCount int) map[string]any {
 	return map[string]any{
 		"id": id, "updated_ts": apiAnyNumber, "version_count": versionCount,
-		"archived_ts": archivedTS,
 	}
 }
 
 func TestHandleListSharedDocsApiSharedDocsGet(t *testing.T) {
-	t.Run("a machine reads the active documents sorted by name; include_archived=true adds the archived ones", func(t *testing.T) {
+	t.Run("a machine reads every document sorted by name", func(t *testing.T) {
 		api, h, _, _ := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "kip", "")
-		zed, _ := apiTestSharedDocFile(t, h, agent, "Zed", "runbook.md", "# z")
 		alpha, _ := apiTestSharedDocFile(t, h, agent, "Alpha", "runbook.md", "# a")
 		link := apiTestCreateSharedDoc(t, h, agent,
 			`{"kind":"link","name":"Board","description":"the roadmap","url":"https://example.com/board"}`)
-		apiJSON(t, h, "POST", "/api/shared-docs/"+zed+"/archive", agent, "")
 		machine := apiTestAgentToken(t, api, "m-server-self", "")
 
 		status, data := apiJSON(t, h, "GET", "/api/shared-docs", machine, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		alphaRow := apiTestSharedDocRow(map[string]any{"id": alpha, "name": "Alpha"})
-		linkRow := apiTestSharedDocRow(map[string]any{
-			"id": link, "kind": "link", "name": "Board", "description": "the roadmap",
-			"filename": "", "mime": "text/uri-list", "url": "https://example.com/board",
-		})
-		apiWantBody(t, data, map[string]any{"docs": []any{alphaRow, linkRow}})
-
-		for _, query := range []string{"?include_archived=1", "?include_archived=TRUE"} {
-			status, data = apiJSON(t, h, "GET", "/api/shared-docs"+query, machine, "")
-			if status != 200 {
-				t.Fatalf("%s: want 200, got %d (%v)", query, status, data)
-			}
-			apiWantBody(t, data, map[string]any{"docs": []any{alphaRow, linkRow}})
-		}
-
-		status, data = apiJSON(t, h, "GET", "/api/shared-docs?include_archived=true", machine, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{"docs": []any{alphaRow, linkRow,
+		apiWantBody(t, data, map[string]any{"docs": []any{
+			apiTestSharedDocRow(map[string]any{"id": alpha, "name": "Alpha"}),
 			apiTestSharedDocRow(map[string]any{
-				"id": zed, "name": "Zed", "archived_ts": apiAnyNumber, "archived_by": "kip",
-			})}})
+				"id": link, "kind": "link", "name": "Board", "description": "the roadmap",
+				"filename": "", "mime": "text/uri-list", "url": "https://example.com/board",
+			}),
+		}})
 	})
 
 	t.Run("no documents answers an empty list", func(t *testing.T) {
@@ -151,7 +130,7 @@ func TestHandleCreateSharedDocApiSharedDocsPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		id, _ := data["id"].(string)
-		apiWantBody(t, data, apiTestSharedDocReceipt(apiAnyString, 1, nil))
+		apiWantBody(t, data, apiTestSharedDocReceipt(apiAnyString, 1))
 		dashboard.wantFrames(apiTestSharedDocFrame(1, 1, "patch", id, "kip"))
 		bystander.wantFrames(apiTestSharedDocFrame(1, 1, "patch", id, "kip"))
 
@@ -278,10 +257,9 @@ func TestHandleGetSharedDocApiSharedDocsDocIdGet(t *testing.T) {
 		}
 	})
 
-	t.Run("a link's text is its url and an archived document reports when and by whom", func(t *testing.T) {
+	t.Run("a link's text is its url", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://example.com/b"}`)
-		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/archive", owner, "")
 
 		status, data := apiJSON(t, h, "GET", "/api/shared-docs/"+id, owner, "")
 		if status != 200 {
@@ -290,7 +268,6 @@ func TestHandleGetSharedDocApiSharedDocsDocIdGet(t *testing.T) {
 		row := apiTestSharedDocRow(map[string]any{
 			"id": id, "kind": "link", "name": "Board", "filename": "", "mime": "text/uri-list",
 			"url": "https://example.com/b", "created_by": "owner", "updated_by": "owner",
-			"archived_ts": apiAnyNumber, "archived_by": "owner",
 		})
 		row["text"], row["text_omitted"] = "https://example.com/b", nil
 		apiWantBody(t, data, row)
@@ -319,7 +296,7 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, apiTestSharedDocReceipt(id, 2, nil))
+		apiWantBody(t, data, apiTestSharedDocReceipt(id, 2))
 		dashboard.wantFrames(apiTestSharedDocFrame(2, 2, "patch", id, "kip"))
 
 		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id, owner, "")
@@ -348,7 +325,7 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 				t.Fatalf("replace %d: %d %v", i, status, data)
 			}
 			want := []int{2, 3, 4, 4}[i]
-			apiWantBody(t, data, apiTestSharedDocReceipt(id, want, nil))
+			apiWantBody(t, data, apiTestSharedDocReceipt(id, want))
 		}
 		_, data := apiJSON(t, h, "GET", "/api/shared-docs/"+id+"/versions", owner, "")
 		version := func(id int, url string) map[string]any {
@@ -394,6 +371,51 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 		}
 	})
 
+	t.Run("a name and description edit with no content keeps the content and is a version of its own", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		id, att := apiTestSharedDocFile(t, h, owner, "Runbook", "runbook.md", "# v1")
+		agent := apiTestAgentToken(t, api, "kip", "")
+
+		status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", agent,
+			`{"name":"Release runbook","description":"how we ship"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestSharedDocReceipt(id, 2))
+		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id, owner, "")
+		row := apiTestSharedDocRow(map[string]any{
+			"id": id, "attachment_id": att, "name": "Release runbook", "description": "how we ship",
+			"url": "/api/chat/attachment/" + att, "created_by": "owner", "version_count": 2,
+		})
+		row["text"], row["text_omitted"] = "# v1", nil
+		apiWantBody(t, data, row)
+		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id+"/versions", owner, "")
+		apiWantBody(t, data, map[string]any{"doc_id": id, "versions": []any{map[string]any{
+			"id": 1, "kind": "file", "attachment_id": att, "name": "Runbook", "description": "",
+			"filename": "runbook.md", "mime": "text/markdown", "url": "/api/chat/attachment/" + att,
+			"created_ts": apiAnyNumber, "created_by": "owner",
+		}}})
+	})
+
+	t.Run("a link document's name edit needs no url", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
+		status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner, `{"name":"Roadmap"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id, owner, "")
+		if data["name"] != "Roadmap" || data["text"] != "https://e.com/1" || data["version_count"] != float64(2) {
+			t.Fatalf("want the name changed and the url kept as version 2, got %v", data)
+		}
+		status, data = apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner, `{}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"nothing to replace: send url for a link shared doc, a name, or a description")
+	})
+
 	t.Run("name and description are kept when omitted, a blank description clears it", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		id := apiTestCreateSharedDoc(t, h, owner,
@@ -417,7 +439,8 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 	}{
 		{"a url on a file document answers 400", `{"url":"https://e.com"}`, "validation_error",
 			"a file shared doc does not take url: its kind is fixed, so create a new shared doc instead", 400},
-		{"no content answers 400", `{}`, "validation_error", "attachment_id is required for a file shared doc", 400},
+		{"nothing to change answers 400", `{}`, "validation_error",
+			"nothing to replace: send attachment_id for a file shared doc, a name, or a description", 400},
 		{"a blank name answers 400", `{"name":" ","attachment_id":"att-000000000000"}`, "validation_error",
 			"name cannot be blank: omit it to keep the current name", 400},
 		{"an unknown field answers 422", `{"kind":"link"}`, "validation_error",
@@ -448,19 +471,6 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 			"a link shared doc does not take attachment_id: its kind is fixed, so create a new shared doc instead")
 	})
 
-	t.Run("an archived document answers 409 and fans nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
-		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/archive", owner, "")
-		dashboard := apiTestListen(t, api, "")
-		status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner, `{"url":"https://e.com/2"}`)
-		if status != 409 {
-			t.Fatalf("want 409, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "conflict", "shared doc '"+id+"' is archived: unarchive it before changing it")
-		dashboard.wantFrames()
-	})
-
 	t.Run("an unknown id answers 404", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		status, data := apiJSON(t, h, "POST", "/api/shared-docs/sd-000000000000/replace", owner, `{"url":"https://e.com"}`)
@@ -472,11 +482,10 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 }
 
 func TestHandleListSharedDocVersionsApiSharedDocsDocIdVersionsGet(t *testing.T) {
-	t.Run("an archived document's versions are still listed to a machine", func(t *testing.T) {
+	t.Run("a document's versions are listed to a machine", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
 		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner, `{"url":"https://e.com/2"}`)
-		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/archive", owner, "")
 		machine := apiTestAgentToken(t, api, "m-server-self", "")
 
 		status, data := apiJSON(t, h, "GET", "/api/shared-docs/"+id+"/versions", machine, "")
@@ -512,7 +521,7 @@ func TestHandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestore
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, apiTestSharedDocReceipt(id, 2, nil))
+		apiWantBody(t, data, apiTestSharedDocReceipt(id, 2))
 		dashboard.wantFrames(apiTestSharedDocFrame(3, 3, "patch", id, "kip"))
 
 		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id, owner, "")
@@ -533,18 +542,6 @@ func TestHandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestore
 		apiWantError(t, data, "not_found", "version 1 is not a retained version of shared doc '"+id+"'")
 	})
 
-	t.Run("an archived document answers 409", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
-		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner, `{"url":"https://e.com/2"}`)
-		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/archive", owner, "")
-		status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/versions/1/restore", owner, "")
-		if status != 409 {
-			t.Fatalf("want 409, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "conflict", "shared doc '"+id+"' is archived: unarchive it before changing it")
-	})
-
 	t.Run("an unknown document answers 404", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		status, data := apiJSON(t, h, "POST", "/api/shared-docs/sd-000000000000/versions/1/restore", owner, "")
@@ -555,92 +552,10 @@ func TestHandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestore
 	})
 }
 
-func TestHandleArchiveSharedDocApiSharedDocsDocIdArchivePost(t *testing.T) {
-	t.Run("archiving stamps the first archive; archiving again keeps it and fans nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
-		agent := apiTestAgentToken(t, api, "kip", "")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/archive", agent, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, apiTestSharedDocReceipt(id, 1, apiAnyNumber))
-		first := data["archived_ts"]
-		dashboard.wantFrames(apiTestSharedDocFrame(2, 2, "patch", id, "kip"))
-
-		status, data = apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/archive", owner, "")
-		if status != 200 || data["archived_ts"] != first {
-			t.Fatalf("a repeat archive keeps the first stamp %v: %d %v", first, status, data)
-		}
-		dashboard.wantFrames()
-		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id, owner, "")
-		if data["archived_by"] != "kip" {
-			t.Fatalf("archived_by keeps the first archiver, got %v", data["archived_by"])
-		}
-	})
-
-	t.Run("an unknown id answers 404", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-		status, data := apiJSON(t, h, "POST", "/api/shared-docs/sd-000000000000/archive", owner, "")
-		if status != 404 {
-			t.Fatalf("want 404, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "not_found", "shared doc 'sd-000000000000' not found")
-	})
-}
-
-func TestHandleUnarchiveSharedDocApiSharedDocsDocIdUnarchivePost(t *testing.T) {
-	t.Run("unarchiving returns the document to the list; unarchiving an active one fans nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
-		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/archive", owner, "")
-		dashboard := apiTestListen(t, api, "")
-
-		status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/unarchive", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, apiTestSharedDocReceipt(id, 1, nil))
-		dashboard.wantFrames(apiTestSharedDocFrame(3, 3, "patch", id, "owner"))
-		_, data = apiJSON(t, h, "GET", "/api/shared-docs", owner, "")
-		if docs, _ := data["docs"].([]any); len(docs) != 1 {
-			t.Fatalf("want the document back in the default list, got %v", data)
-		}
-
-		status, data = apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/unarchive", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, apiTestSharedDocReceipt(id, 1, nil))
-		dashboard.wantFrames()
-	})
-
-	t.Run("a member unarchives a doc the owner archived, and may change it again", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
-		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/archive", owner, "")
-		agent := apiTestAgentToken(t, api, "kip", "")
-
-		status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/unarchive", agent, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, apiTestSharedDocReceipt(id, 1, nil))
-		status, data = apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", agent, `{"url":"https://e.com/2"}`)
-		if status != 200 {
-			t.Fatalf("replace after unarchive: want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, apiTestSharedDocReceipt(id, 2, nil))
-	})
-}
-
 func TestHandleDeleteSharedDocApiSharedDocsDocIdDelete(t *testing.T) {
-	t.Run("the owner deletes an archived document for good and every connection hears the remove", func(t *testing.T) {
+	t.Run("the owner deletes a document for good and every connection hears the remove", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
-		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/archive", owner, "")
 		bystander := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "DELETE", "/api/shared-docs/"+id, owner, "")
@@ -648,7 +563,7 @@ func TestHandleDeleteSharedDocApiSharedDocsDocIdDelete(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{"id": id})
-		bystander.wantFrames(apiTestSharedDocFrame(3, 3, "remove", id, "owner"))
+		bystander.wantFrames(apiTestSharedDocFrame(2, 2, "remove", id, "owner"))
 
 		status, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id, owner, "")
 		if status != 404 {
@@ -657,20 +572,9 @@ func TestHandleDeleteSharedDocApiSharedDocsDocIdDelete(t *testing.T) {
 		apiWantError(t, data, "not_found", "shared doc '"+id+"' not found")
 	})
 
-	t.Run("an active document answers 409", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
-		status, data := apiJSON(t, h, "DELETE", "/api/shared-docs/"+id, owner, "")
-		if status != 409 {
-			t.Fatalf("want 409, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "conflict", "shared doc '"+id+"' is not archived: archive it before deleting it")
-	})
-
-	t.Run("a member cannot delete, even an archived document", func(t *testing.T) {
+	t.Run("a member cannot delete", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
-		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/archive", owner, "")
 		agent := apiTestAgentToken(t, api, "kip", "")
 		status, data := apiJSON(t, h, "DELETE", "/api/shared-docs/"+id, agent, "")
 		if status != 403 {
