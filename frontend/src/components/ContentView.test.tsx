@@ -67,10 +67,13 @@ describe("ContentView", () => {
     expect(container.querySelector("pre.md-preview__text")?.textContent).toBe(yaml);
   });
 
-  it("lays CSV out as a table with the first row as its header, padding short rows", () => {
-    const { container } = mount({ kind: "csv", text: 'name,note\nMira,"a, b"\nKyle\n' });
+  it("lays CSV out as a table with the first row as its header, padding short rows, every cell as text even when it reads as markup", () => {
+    const { container } = mount({
+      kind: "csv",
+      text: 'name,<b>note</b>\nMira,"a, b"\nKyle\n<img src=x onerror=alert(1)>,ok\n',
+    });
     const table = container.querySelector(".md-preview__csv.doc-md table")!;
-    expect(Array.from(table.querySelectorAll("th")).map((c) => c.textContent)).toEqual(["name", "note"]);
+    expect(Array.from(table.querySelectorAll("th")).map((c) => c.textContent)).toEqual(["name", "<b>note</b>"]);
     expect(
       Array.from(table.querySelectorAll("tbody tr")).map((r) =>
         Array.from(r.querySelectorAll("td")).map((c) => c.textContent),
@@ -78,7 +81,9 @@ describe("ContentView", () => {
     ).toEqual([
       ["Mira", "a, b"],
       ["Kyle", ""],
+      ["<img src=x onerror=alert(1)>", "ok"],
     ]);
+    expect(table.querySelectorAll("img, b").length).toBe(0);
   });
 
   it("shows a CSV that will not parse as raw text under one line saying why", () => {
