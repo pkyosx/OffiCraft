@@ -516,11 +516,13 @@ describe("MarkdownPreviewOverlay", () => {
       className: frame.className,
       src: frame.getAttribute("src"),
       sandbox: frame.getAttribute("sandbox"),
+      referrerPolicy: frame.getAttribute("referrerpolicy"),
       title: frame.getAttribute("title"),
     }).toEqual({
       className: "md-preview__frame",
       src: `${window.location.origin}/api/chat/attachment/att-html?sig=s1`,
       sandbox: "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+      referrerPolicy: "no-referrer",
       title: "pr-702.html",
     });
     expect(document.body.querySelector(".md-preview__status")).toBeNull();
@@ -1317,7 +1319,7 @@ describe("MarkdownPreviewOverlay", () => {
         expect(globalThis.fetch).not.toHaveBeenCalled();
       });
 
-      it("starts a comment on the place the page reports picked in comment mode, ignoring another window, a malformed or oversize pick and any pick outside comment mode", async () => {
+      it("starts a comment on the place the page reports picked in comment mode, ignoring another window, a malformed or oversize pick, any pick outside comment mode and any pick while a comment is half written", async () => {
         const { fromPage, toggle } = await renderPage();
         const composing = () => screen.queryByRole("textbox", { name: "註解內容" });
         fromPage(pick("ac-AC-1", "AC-1"));
@@ -1343,9 +1345,18 @@ describe("MarkdownPreviewOverlay", () => {
         saveComposed("補一條測試");
         fromPage(pick("ac-AC-3", "<b>AC-3</b> 離線"));
         saveComposed("看不懂");
+        fromPage(pick("ac-AC-4"));
+        fireEvent.change(screen.getByRole("textbox", { name: "註解內容" }), { target: { value: "寫到一半" } });
+        fromPage(pick("ac-AC-5"));
+        expect([
+          document.body.querySelector(".doc-comments__item--compose .doc-comments__excerpt")?.textContent,
+          (screen.getByRole("textbox", { name: "註解內容" }) as HTMLTextAreaElement).value,
+        ]).toEqual(["位置：ac-AC-4（#ac-AC-4）", "寫到一半"]);
+        fireEvent.click(screen.getByRole("button", { name: "儲存" }));
         expect(listed()).toEqual([
           "位置：ac-AC-2（#ac-AC-2）1. 補一條測試",
           "位置：<b>AC-3</b> 離線（#ac-AC-3）2. 看不懂",
+          "位置：ac-AC-4（#ac-AC-4）3. 寫到一半",
         ]);
         expect(document.body.querySelector(".doc-comments b")).toBeNull();
       });
@@ -1385,12 +1396,18 @@ describe("MarkdownPreviewOverlay", () => {
         expect(posted).toEqual([{ ...OC, type: "focus", id: "ac-AC-1" }]);
       });
 
-      it("sends place and whole-document comments as quotes naming the place, with link syntax in the page's names escaped", async () => {
+      it("sends place and whole-document comments as quotes naming the place, with markdown, tags and URLs in the page's names kept as plain text", async () => {
         localStorage.setItem(
           "oc_doc_comments:att-aaaaaaaaaaaa",
           JSON.stringify([
             { id: "c1", kind: "anchor", anchorId: "ac-AC-5", label: "AC-5：切到已結案 1 秒內可操作", comment: "「1 秒」怎麼量？" },
-            { id: "c2", kind: "anchor", anchorId: "x]`y", label: "a [b](javascript:alert(1))\n第二行", comment: "怪名字" },
+            {
+              id: "c2",
+              kind: "anchor",
+              anchorId: "x]`y",
+              label: "a [b](javascript:alert(1))\n**粗** _斜_ `碼` <img onerror=x> https://evil.example/p <https://x.example>",
+              comment: "怪名字",
+            },
             { id: "c3", kind: "document", comment: "流程圖字太小" },
           ]),
         );
@@ -1409,7 +1426,7 @@ describe("MarkdownPreviewOverlay", () => {
             "   註解：「1 秒」怎麼量？\n" +
             "\n" +
             "2. 原文：\n" +
-            "   > 位置：a \\[b\\](javascript:alert(1)) 第二行（#x\\]\\`y）\n" +
+            "   > 位置：a \\[b\\](javascript:alert(1)) \\*\\*粗\\*\\* \\_斜\\_ \\`碼\\` \\<img onerror=x\\> https\\://evil.example/p \\<https\\://x.example\\>（#x\\]\\`y）\n" +
             "\n" +
             "   註解：怪名字\n" +
             "\n" +
@@ -1421,13 +1438,13 @@ describe("MarkdownPreviewOverlay", () => {
         const bubble = render(<Markdown source={body} breaks />).container;
         expect([...bubble.querySelectorAll("ol > li > blockquote")].map((q) => q.textContent)).toEqual([
           "位置：AC-5：切到已結案 1 秒內可操作（#ac-AC-5）",
-          "位置：a [b](javascript:alert(1)) 第二行（#x]`y）",
+          "位置：a [b](javascript:alert(1)) **粗** _斜_ `碼` <img onerror=x> https://evil.example/p <https://x.example>（#x]`y）",
           "整份文件",
         ]);
-        expect(bubble.querySelectorAll("a").length).toBe(1);
+        expect([...bubble.querySelectorAll("blockquote p *")].map((el) => el.outerHTML)).toEqual([]);
       });
 
-      it("runs the page script `ocagent upload --help` prints: comment mode outlines marked places, a click on one is a pick, and commented and focused places are marked", async () => {
+      it("runs the page script `ocagent upload --help` prints: comment mode outlines marked places, a click on one is a pick, commented and focused places are marked, and outside comment mode a click is the page's own", async () => {
         const { frame, toggle } = await renderPage();
         const page = frame.contentWindow! as Window & typeof globalThis;
         const doc = frame.contentDocument!;
@@ -1436,8 +1453,11 @@ describe("MarkdownPreviewOverlay", () => {
           setTimeout(() => page.dispatchEvent(new MessageEvent("message", { data, source: page.parent })))) as Window["postMessage"];
         const top = page.parent;
         const realPost = top.postMessage;
-        top.postMessage = ((data: unknown) =>
-          setTimeout(() => window.dispatchEvent(new MessageEvent("message", { data, source: page })))) as Window["postMessage"];
+        const fromScript: string[] = [];
+        top.postMessage = ((data: { type: string }) => {
+          fromScript.push(data.type);
+          setTimeout(() => window.dispatchEvent(new MessageEvent("message", { data, source: page })));
+        }) as Window["postMessage"];
         const scrolled: string[] = [];
         page.Element.prototype.scrollIntoView = function (this: HTMLElement) {
           scrolled.push(this.dataset.ocAnchor ?? "");
@@ -1447,7 +1467,7 @@ describe("MarkdownPreviewOverlay", () => {
           doc.documentElement.replaceChildren(doc.createElement("head"), doc.createElement("body"));
           doc.body.innerHTML =
             '<p data-oc-anchor="ac-AC-1" data-oc-anchor-label="AC-1：忙碌">AC-1</p>' +
-            '<p data-oc-anchor="ac-AC-2"><span>AC-2</span></p><p id="plain">說明</p>';
+            '<p data-oc-anchor="ac-AC-2"><a href="#ac-2">AC-2</a></p><p id="plain">說明</p>';
           const script = doc.createElement("script");
           script.textContent = snippet.replace(/^<script>\n|<\/script>\n$/g, "");
           doc.body.append(script);
@@ -1458,6 +1478,9 @@ describe("MarkdownPreviewOverlay", () => {
             ]);
           const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
           await settle();
+          expect(fireEvent.click(doc.querySelector("a")!)).toBe(true);
+          await settle();
+          expect(fromScript).toEqual(["ready"]);
 
           toggle();
           await settle();
@@ -1466,7 +1489,7 @@ describe("MarkdownPreviewOverlay", () => {
             ["ac-AC-2", "oc-on"],
           ]);
 
-          fireEvent.click(doc.querySelector("span")!);
+          expect(fireEvent.click(doc.querySelector("a")!)).toBe(false);
           await settle();
           saveComposed("第二條");
           fireEvent.click(doc.getElementById("plain")!);
@@ -1495,10 +1518,11 @@ describe("MarkdownPreviewOverlay", () => {
             ["ac-AC-1", "oc-commented"],
             ["ac-AC-2", "oc-commented"],
           ]);
+          fromScript.length = 0;
+          expect(fireEvent.click(doc.querySelector("a")!)).toBe(true);
           fireEvent.click(doc.querySelector("p")!);
           await settle();
-          toggle();
-          expect(screen.queryByRole("textbox", { name: "註解內容" })).toBeNull();
+          expect(fromScript).toEqual([]);
         } finally {
           vi.useRealTimers();
           top.postMessage = realPost;

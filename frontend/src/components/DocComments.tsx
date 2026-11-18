@@ -302,7 +302,8 @@ export function DocCommentPanel({
   const noFrame = useRef<HTMLIFrameElement | null>(null);
   const frame = frameRef ?? noFrame;
   useFrameMessages(frame, framed, (message) => {
-    if (message.type !== "pick") return;
+    // The page can send picks on its own; one must not discard what the owner is typing.
+    if (message.type !== "pick" || (composing && composing.text.trim() !== "")) return;
     setCollapsed(false);
     setComposing({ anchor: { kind: "anchor", ...message.anchor }, text: "" });
   });

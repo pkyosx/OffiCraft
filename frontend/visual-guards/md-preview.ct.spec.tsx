@@ -970,8 +970,12 @@ const PAGE =
   "<!doctype html><html><head><meta charset=utf-8></head><body>" +
   '<h1>PR #702</h1><p data-oc-anchor="ac-AC-1" data-oc-anchor-label="AC-1：忙碌">AC-1</p>' +
   '<p data-oc-anchor="ac-AC-2"><span>AC-2</span></p>' +
+  '<a href="https://example.test/linked" target="_blank">外部連結</a>' +
+  "<button onclick=\"window.open('https://example.test/opened')\">開新視窗</button>" +
   SNIPPET +
   "</body></html>";
+/** What server/ocserverd/api_chat.go sends with an HTML blob requested by its sig alone. */
+const SIG_ONLY_HTML_CSP = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox";
 
 for (const size of [NARROW, WIDE]) {
   test(`${size.width}: an HTML page fills the body in a frame it cannot escape, and its marked places take comments through the help-text script`, async ({
@@ -981,7 +985,7 @@ for (const size of [NARROW, WIDE]) {
     await page.route("**/api/chat/attachment/att-ct-html?sig=*", (route) =>
       route.fulfill({
         contentType: "text/html; charset=utf-8",
-        headers: { "content-security-policy": "sandbox allow-scripts" },
+        headers: { "content-security-policy": SIG_ONLY_HTML_CSP },
         body: PAGE,
       }),
     );
@@ -1041,3 +1045,59 @@ for (const size of [NARROW, WIDE]) {
     await expect(marked.first()).toHaveClass("oc-on oc-commented");
   });
 }
+
+test("an HTML page's links and window.open open a new tab, and that tab can neither navigate OffiCraft nor pick for it", async ({
+  mount,
+  page,
+}) => {
+  await page.route("**/api/chat/attachment/att-ct-html?sig=*", (route) =>
+    route.fulfill({
+      contentType: "text/html; charset=utf-8",
+      headers: { "content-security-policy": SIG_ONLY_HTML_CSP },
+      body: PAGE,
+    }),
+  );
+  await page.context().route("https://example.test/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<!doctype html><title>外站</title>" }),
+  );
+  await page.setViewportSize(WIDE);
+  await page.addInitScript(() => localStorage.clear());
+  await mount(<HtmlCommentsStory />);
+  const frame = page.frameLocator("iframe.md-preview__frame");
+  await expect(frame.getByRole("heading", { name: "PR #702" })).toBeVisible();
+  const studio = page.url();
+
+  const [linked] = await Promise.all([
+    page.context().waitForEvent("page"),
+    frame.getByRole("link", { name: "外部連結" }).click(),
+  ]);
+  await linked.waitForLoadState();
+  expect(linked.url()).toBe("https://example.test/linked");
+
+  const [opened] = await Promise.all([
+    page.context().waitForEvent("page"),
+    frame.getByRole("button", { name: "開新視窗" }).click(),
+  ]);
+  await opened.waitForLoadState();
+  expect(opened.url()).toBe("https://example.test/opened");
+
+  await page.getByRole("button", { name: "註解", exact: true }).click();
+  const fromPopup = await opened.evaluate(() => {
+    const out: string[] = [];
+    try {
+      window.opener.top.location = "https://example.test/hijacked";
+      out.push("navigated");
+    } catch {
+      out.push("navigation blocked");
+    }
+    window.opener.parent.postMessage(
+      { oc: "doc-comments", v: 1, type: "pick", anchor: { id: "ac-AC-1", label: "AC-1" } },
+      "*",
+    );
+    return out;
+  });
+  expect(fromPopup).toEqual(["navigation blocked"]);
+  await page.waitForTimeout(200);
+  expect(page.url()).toBe(studio);
+  await expect(page.getByRole("textbox", { name: "註解內容" })).toHaveCount(0);
+});

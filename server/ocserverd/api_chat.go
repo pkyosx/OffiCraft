@@ -1031,7 +1031,9 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 				return
 			}
 		} else if extractToken(r) == "" && len(q) == 1 && len(q["sig"]) == 1 {
-			csp = "sandbox allow-scripts"
+			// Popups so the page's links can open a tab; that tab loads under its
+			// own origin, and the page that opened it still has no reach here.
+			csp = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox"
 			w.Header().Set("Referrer-Policy", "no-referrer")
 		}
 	}

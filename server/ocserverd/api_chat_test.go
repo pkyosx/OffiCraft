@@ -2342,7 +2342,7 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 		apiWantHeaders(t, rec, map[string]string{
 			"Content-Type":            "text/html",
 			"Content-Disposition":     `inline; filename="game.html"; filename*=UTF-8''game.html`,
-			"Content-Security-Policy": "sandbox allow-scripts",
+			"Content-Security-Policy": "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox",
 			"Referrer-Policy":         "no-referrer",
 			"X-Content-Type-Options":  "nosniff",
 		})

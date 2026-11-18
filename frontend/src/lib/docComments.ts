@@ -111,6 +111,16 @@ function escapeLinkText(text: string): string {
   return text.replace(/[\\[\]`]/g, "\\$&");
 }
 
+// A name an HTML page supplied, shown as written: on one line, and with no
+// emphasis, code, link, tag or autolinked URL made out of it.
+function escapePageText(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[\\[\]`*_<>]/g, "\\$&")
+    .replace(/\b(https?|mailto):/gi, "$1\\:");
+}
+
 // So a comment line reads as the comment's own text, never as a quoted excerpt
 // or another numbered item.
 function escapeBlockMarker(line: string): string {
@@ -166,8 +176,7 @@ function quoteLines(c: DocComment): string[] {
     return [`   > 圖片：[${escapeLinkText(label)}](${linkTarget(c.src)})`];
   }
   if (c.kind === "anchor") {
-    const flat = (text: string) => escapeLinkText(text.replace(/\s+/g, " ").trim());
-    return [`   > 位置：${flat(c.label)}（#${flat(c.anchorId)}）`];
+    return [`   > 位置：${escapePageText(c.label)}（#${escapePageText(c.anchorId)}）`];
   }
   if (c.kind === "document") return ["   > 整份文件"];
   return excerptLines(c.excerpt).map((l) => (l === "" ? "   >" : `   > ${l}`));

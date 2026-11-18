@@ -140,8 +140,10 @@ const ESCAPABLE = "[!-/:-@[-`{-~]";
 const UNESCAPE_RE = new RegExp(`\\\\(${ESCAPABLE})`, "g");
 const LINK_LABEL = `(?:\\\\${ESCAPABLE}|\\\\(?!${ESCAPABLE})|[^\\]\\\\])+`;
 const LINK_RE = new RegExp(`^\\[(${LINK_LABEL})\\]\\(([^)]+)\\)$`);
+// A backslash-escaped backtick cannot open a code span (CommonMark), so text
+// that escaped its backticks stays text.
 const INLINE_TOKEN_RE = new RegExp(
-  `(\`[^\`]+\`|\\*\\*[^*]+\\*\\*|\\[${LINK_LABEL}\\]\\([^)]+\\))`,
+  `((?<!\\\\)\`[^\`]+\`|\\*\\*[^*]+\\*\\*|\\[${LINK_LABEL}\\]\\([^)]+\\))`,
   "g",
 );
 // CommonMark lets a link destination be WRAPPED IN ANGLE BRACKETS:

@@ -781,13 +781,16 @@ export function MarkdownPreviewOverlay({
           /* No allow-same-origin: the page is agent-written script, and with
            * it the frame would run on the studio's origin with the owner's
            * stored token in reach. The share link's own CSP sandbox applies
-           * on top. Anything that has to reach into the page goes through
-           * lib/docCommentFrame's messages. */
+           * on top, so a flag added here does nothing unless the server's
+           * CSP for sig-only HTML (api_chat.go) carries it too. Anything that
+           * has to reach into the page goes through lib/docCommentFrame's
+           * messages. */
           <iframe
             ref={frameRef}
             className="md-preview__frame"
             title={title}
             src={shareHref}
+            referrerPolicy="no-referrer"
             sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
           />
         ) : (
