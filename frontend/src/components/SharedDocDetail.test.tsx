@@ -244,12 +244,23 @@ describe("SharedDocDetail", () => {
     expect(getByTestId("shared-doc-download").textContent).toBe("下載");
   });
 
-  it("every text file offers 編輯 as plain text; an image or a PDF does not", async () => {
-    const yaml = showDoc(fileDoc("ci.yaml", "text/plain", "k: v\n"));
-    await title(yaml.getByTestId);
-    fireEvent.click(yaml.getByTestId("shared-doc-edit"));
-    expect((yaml.getByTestId("shared-doc-editor") as HTMLTextAreaElement).value).toBe("k: v\n");
-    yaml.unmount();
+  it("every text file, HTML included, offers 編輯 as plain text; an image or a PDF does not", async () => {
+    for (const doc of [
+      fileDoc("ci.yaml", "text/plain", "k: v\n"),
+      fileDoc("data.json", "application/json", '{"a":1}'),
+      fileDoc("feed.xml", "text/xml", "<a/>"),
+      fileDoc("t.csv", "text/csv", "a,b\n"),
+      fileDoc("page.html", "text/html", "<p>hi</p>"),
+    ]) {
+      const r = showDoc(doc);
+      await title(r.getByTestId);
+      fireEvent.click(r.getByTestId("shared-doc-edit"));
+      expect(`${doc.filename}: ${(r.getByTestId("shared-doc-editor") as HTMLTextAreaElement).value}`).toBe(
+        `${doc.filename}: ${doc.text}`,
+      );
+      r.unmount();
+      vi.restoreAllMocks();
+    }
     for (const doc of [fileDoc("a.png", "image/png", null), fileDoc("spec.pdf", "application/pdf", null)]) {
       const r = showDoc(doc);
       await title(r.getByTestId);

@@ -22,9 +22,12 @@ import "./settings.css";
 import "./shared-docs.css";
 
 /** Any text file is edited in place, as plain text; everything else gets a
- * new version by upload. */
+ * new version by upload. An HTML page is text too: it is edited as its source
+ * while it is still shown as its page. */
 export function isEditableKind(doc: SharedDocView): boolean {
-  return doc.kind === "file" && isTextKind(contentKindOf(doc.mime, doc.filename));
+  if (doc.kind !== "file") return false;
+  const kind = contentKindOf(doc.mime, doc.filename);
+  return isTextKind(kind) || kind === "html";
 }
 
 export function editableText(doc: SharedDocDetailView): boolean {
