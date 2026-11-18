@@ -585,7 +585,7 @@ const REGISTRY = [
     kind: ".then/.catch/.finally",
     count: 2,
     verdict:
-      "every member's chat 建議回覆, keyed by member id; mounted once in App and read through a provider, so a landing writes the one global map, never one room's value into another. The read lands only if it is the newest op (opRef/latestReadRef/lastWriteRef); the PUT landing only advances its own queue. `aliveRef` stops setState after unmount",
+      "every member's chat 建議回覆, keyed by member id; mounted once in App and read through a provider, so a landing writes the one global map, never one room's value into another. The read lands only if it is the newest op (opRef/latestReadRef/lastWriteRef); the PUT landing advances its own queue and, on failure, puts back only that member's last acknowledged list (unless a newer edit for that member is queued). `aliveRef` stops setState after unmount",
   },
   {
     file: "hooks/useChatSuggestedReplies.tsx",

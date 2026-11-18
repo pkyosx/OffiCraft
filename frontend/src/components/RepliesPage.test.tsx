@@ -427,11 +427,6 @@ describe("RepliesPage", () => {
     expect(final?.textContent).toBe("你選的AI 建議先不要");
   });
 
-  // T-4166: a 409 on answer is TERMINAL for that card — its task closed
-  // underneath it (orphan), or it was already handled. Showing the network-blip
-  //「回覆失敗，請稍後重試」and leaving the dead card on screen would send the owner
-  // down a road that is 409 every time. Assert the DISTINCT message (a shared string would make this test
-  // pass on the buggy code too) and the re-pull that clears the card.
   it("a waiting card's answer box offers its author's sentences first, then the reply-card ones, each once", async () => {
     await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬", "收到，照這樣做"]);
     __setMockSuggestedRepliesReplyCard(["收到，照這樣做", "先擱著，這週不碰"]);
@@ -463,6 +458,11 @@ describe("RepliesPage", () => {
     await waitFor(() => expect(replyChips(card)).toEqual(["Mira 專屬", "先擱著，這週不碰"]));
   });
 
+  // T-4166: a 409 on answer is TERMINAL for that card — its task closed
+  // underneath it (orphan), or it was already handled. Showing the network-blip
+  //「回覆失敗，請稍後重試」and leaving the dead card on screen would send the owner
+  // down a road that is 409 every time. Assert the DISTINCT message (a shared string would make this test
+  // pass on the buggy code too) and the re-pull that clears the card.
   it("a 409 answer says the card is stale — never 請稍後重試 — and re-pulls the pane", async () => {
     __injectMockReplyCard(mkCard({}));
     const answerSpy = vi

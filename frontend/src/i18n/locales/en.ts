@@ -1363,7 +1363,7 @@ export const en: Dict = {
     roleSettingsLink: "Open this role's definition settings",
     galleryLabel: "Files & images",
     suggestedRepliesLabel: "Suggested replies",
-    suggestedRepliesSub: "Sentences you can drop in with one tap when chatting with this member.",
+    suggestedRepliesSub: "Sentences you can drop in with one tap when chatting with this member or answering their reply cards.",
     suggestedRepliesEmpty: "No sentences just for this member yet.",
     suggestedRepliesLoadError: "Couldn't load the suggested replies. Press the Suggested replies button in the header to try again.",
     suggestedRepliesSaveError: "Suggested replies did not save. The list now shows what the server holds.",

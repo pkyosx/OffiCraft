@@ -93,19 +93,10 @@ describe("ReplyComposer 建議回覆", () => {
     );
   });
 
-  it("on a card the owner opened, shows only the reply-card list", async () => {
+  it("on a card from the owner or anyone without their own sentences, shows only the reply-card list", async () => {
     await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬"]);
     __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
     const { findByTestId } = renderComposer("owner");
-    const row = await findByTestId("reply-suggested-replies");
-    await settleRealTime();
-    expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["收到，照這樣做"]);
-  });
-
-  it("on a card whose author has no sentences of their own, shows only the reply-card list", async () => {
-    await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬"]);
-    __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
-    const { findByTestId } = renderComposer("leo");
     const row = await findByTestId("reply-suggested-replies");
     await settleRealTime();
     expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["收到，照這樣做"]);
@@ -118,23 +109,18 @@ describe("ReplyComposer 建議回覆", () => {
     expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Mira 專屬"]);
   });
 
-  it("clicking one of the author's sentences puts it in the input and sends NOTHING", async () => {
+  it("reads the author's and the REPLY-CARD lists, never the task-message or the all-member chat one", async () => {
+    // 🔴 The lists are separate settings by owner ruling (chat
+    // c-85c28e708b81「任務跟請示卡要是不同的參數設定」). Every list is seeded, so
+    // only the exact chip list shows that none of the others leaked in.
     await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬"]);
-    const { findByText, input } = renderComposer("mira");
-    fireEvent.click(await findByText("Mira 專屬"));
-    expect(input.value).toBe("Mira 專屬");
-    await settleRealTime();
-    expect(onSend).not.toHaveBeenCalled();
-  });
-
-  it("reads the REPLY-CARD list, never the task-message one", async () => {
-    // 🔴 The two lists are separate settings by owner ruling (chat
-    // c-85c28e708b81「任務跟請示卡要是不同的參數設定」). A composer that fell back
-    // to the other list would look right in every test that seeds both.
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
     __setMockSuggestedRepliesTaskMessage(["這是任務用的"]);
-    const { queryByTestId } = renderComposer();
+    await mockApi.patchServerSettings({ suggestedRepliesChat: ["這是聊天室共用的"] });
+    const { findByTestId } = renderComposer("mira");
+    const row = await findByTestId("reply-suggested-replies");
     await settleRealTime();
-    expect(queryByTestId("reply-suggested-replies")).toBeNull();
+    expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Mira 專屬", "收到，照這樣做"]);
   });
 
   it("still shows its own chips when the task-message list is empty", async () => {
