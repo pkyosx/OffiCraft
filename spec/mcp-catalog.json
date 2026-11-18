@@ -4664,6 +4664,232 @@
         "type": "object"
       },
       "name": "get_member_boot_context"
+    },
+    {
+      "description": "List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.\n\n- Archived documents are left out unless `include_archived` is the string `true`.",
+      "inputSchema": {
+        "properties": {
+          "include_archived": {
+            "description": "``true`` (the STRING) also lists archived documents; by default they are left out. Any other value reads as not sent.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_shared_docs"
+    },
+    {
+      "description": "Create a shared document: a named file, image or link that every member can read and replace, kept with a short version history and not tied to any task.\n\n- A file or image goes in two steps: `ocagent upload` it, then pass the attachment id here.\n- `kind` is fixed for the life of the document.\n- Caps are refused, never truncated.",
+      "inputSchema": {
+        "properties": {
+          "attachment_id": {
+            "description": "Required for ``file``/``image``, refused for ``link``: a blob already in the store (``ocagent upload``).",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Attachment Id"
+          },
+          "description": {
+            "description": "At most 1024 runes; omitted means empty.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "kind": {
+            "description": "``file``, ``image`` or ``link``. Cannot be changed later.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Required, at most 128 runes. Need not be unique.",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "Required for ``link``, refused for ``file``/``image``: ``http(s)://``, at most 2048 runes. Stored as sent, never fetched.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "create_shared_doc"
+    },
+    {
+      "description": "Read one shared document: its metadata and, when the current version is text, its content.\n\n- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\n- When `text` is null, download `attachment_id` for the content.\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.\n- An archived document is still readable here, with `archived_ts` set.",
+      "inputSchema": {
+        "properties": {
+          "doc_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "doc_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_shared_doc"
+    },
+    {
+      "description": "Make new content the current version of a shared document. The id stays the same.\n\n- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.\n- An archived document is a 409: unarchive it first.",
+      "inputSchema": {
+        "properties": {
+          "doc_id": {
+            "type": "string"
+          },
+          "attachment_id": {
+            "description": "For a ``file``/``image`` document: a blob already in the store.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Attachment Id"
+          },
+          "description": {
+            "description": "Omitted or null keeps the current one; blank clears it. At most 1024 runes.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "name": {
+            "description": "Omitted or null keeps the current one; blank is refused. At most 128 runes.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "url": {
+            "description": "For a ``link`` document: ``http(s)://``, at most 2048 runes. No carry-forward: required on every replace of a link.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          }
+        },
+        "required": [
+          "doc_id"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "replace_shared_doc"
+    },
+    {
+      "description": "List a shared document's retained previous versions, newest first. The current version is not included.\n\n- Only the most recent few previous versions are retained.\n- Works on an archived document too.",
+      "inputSchema": {
+        "properties": {
+          "doc_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "doc_id"
+        ],
+        "type": "object"
+      },
+      "name": "list_shared_doc_versions"
+    },
+    {
+      "description": "Make a retained previous version the current one again.\n\n- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\n- The restored version leaves the list and its version id stops resolving.\n- `updated_by` / `updated_ts` become the caller and now.\n- A version id that is not one of this document's retained versions is a 404; an archived document is a 409.",
+      "inputSchema": {
+        "properties": {
+          "doc_id": {
+            "type": "string"
+          },
+          "version_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "doc_id",
+          "version_id"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "restore_shared_doc_version"
+    },
+    {
+      "description": "Archive a shared document. It leaves the default list and cannot be replaced or restored until it is unarchived, but it stays readable by id and nothing is deleted.\n\n- Archiving an archived document changes nothing; `archived_ts` / `archived_by` keep the first archive.",
+      "inputSchema": {
+        "properties": {
+          "doc_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "doc_id"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "archive_shared_doc"
+    },
+    {
+      "description": "Return an archived shared document to the list and allow changes again.\n\n- Unarchiving an active document changes nothing.",
+      "inputSchema": {
+        "properties": {
+          "doc_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "doc_id"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "unarchive_shared_doc"
     }
   ]
 }
