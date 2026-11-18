@@ -129,7 +129,8 @@ func TestRealMain(t *testing.T) {
 			"cookies and other browser storage throw SecurityError.",
 			"comment on any text he selects in it (his\nmessage quotes that text)",
 			`element data-oc-anchor="<id>" (1–128 characters`,
-			"quoted as 位置：<label>（#<id>）.\n\n" + snippet + "\nstdout on success",
+			"quoted as 位置：<label>（#<id>）. A click inside it",
+			"or on an element you give data-oc-interactive, stays the\npage's own instead of starting a comment.\n\n" + snippet + "\nstdout on success",
 		}},
 		{"download", []string{
 			"usage: ocagent download <attachment-id> [--out <dir>]\n",

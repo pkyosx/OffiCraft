@@ -2,6 +2,7 @@
 (() => {
   const OC = { oc: "doc-comments", v: 1 };
   const marked = () => document.querySelectorAll("[data-oc-anchor]");
+  const OWN = "summary,button,input,select,textarea,label,[data-oc-interactive]";
   const style = document.createElement("style");
   style.textContent =
     ".oc-on[data-oc-anchor]:hover{outline:2px solid #3b82f6;cursor:pointer}" +
@@ -64,6 +65,10 @@
     const selecting = selected() !== "";
     const el = !selecting && e.target.closest("[data-oc-anchor]");
     if (!selecting && !el) return;
+    // Only a control between the click and its anchor is the page's own; a
+    // link nearer the click than any control still picks.
+    const ctl = el && e.target.closest(`${OWN},a[href]`);
+    if (ctl && ctl !== el && el.contains(ctl) && ctl.matches(OWN)) return;
     e.preventDefault();
     e.stopPropagation();
     if (selecting) return;
