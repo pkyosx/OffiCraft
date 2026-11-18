@@ -192,11 +192,15 @@ export function SharedDocDetail({
   const [error, setError] = useState("");
   const nowSecs = Math.floor(Date.now() / 1000);
   const [pendingEdit, setPendingEdit] = useState(startEditing);
+  const [editTooLarge, setEditTooLarge] = useState(false);
 
   useEffect(() => {
     if (!pendingEdit || !doc) return;
     setPendingEdit(false);
-    if (!editableText(doc)) return;
+    if (!editableText(doc)) {
+      setEditTooLarge(doc.textOmitted === "too_large");
+      return;
+    }
     setDraft(doc.text ?? "");
     setEditing(true);
   }, [pendingEdit, doc]);
@@ -308,6 +312,11 @@ export function SharedDocDetail({
           </button>
         </div>
       </section>
+      {editTooLarge && (
+        <div className="shared-docs__notice" role="status" data-testid="shared-doc-edit-too-large">
+          {d.tooLargeToEdit}
+        </div>
+      )}
       {error && (
         <div className="secrets__error" role="alert" data-testid="shared-doc-error">
           {error}

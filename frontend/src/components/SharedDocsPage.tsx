@@ -79,6 +79,28 @@ export function defaultDocName(filename: string): string {
   return dot > 0 ? filename.slice(0, dot) : filename;
 }
 
+const NAME_MAX_CHARS = 128;
+
+/** A blank link name becomes the URL's host and last path segment, cut to the
+ * server's name limit: a whole URL is often longer than that. */
+export function defaultLinkName(url: string): string {
+  let name = url;
+  try {
+    const parsed = new URL(url);
+    const last = parsed.pathname.split("/").filter(Boolean).pop();
+    let segment = last ?? "";
+    try {
+      segment = decodeURIComponent(segment);
+    } catch {
+      // keep the raw segment
+    }
+    name = segment ? `${parsed.host}/${segment}` : parsed.host || url;
+  } catch {
+    // not a URL the browser can parse; the server will say so
+  }
+  return Array.from(name).slice(0, NAME_MAX_CHARS).join("");
+}
+
 function textEditable(doc: SharedDocView): boolean {
   if (doc.kind !== "file") return false;
   const mime = doc.mime.split(";")[0]!.trim().toLowerCase();
@@ -247,7 +269,7 @@ function AddLinkForm({
     setBusy(true);
     setError("");
     const err = await run(() =>
-      api.createSharedDoc({ kind: "link", name: name.trim() || target, description: "", url: target }),
+      api.createSharedDoc({ kind: "link", name: name.trim() || defaultLinkName(target), description: "", url: target }),
     );
     setBusy(false);
     if (err) {
@@ -286,7 +308,7 @@ function AddLinkForm({
         data-testid="shared-docs-link-name"
         aria-label={d.rename}
         placeholder={d.linkNamePlaceholder}
-        maxLength={128}
+        maxLength={NAME_MAX_CHARS}
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
@@ -366,7 +388,7 @@ function SharedDocList({
   const run = useSharedDocAction(d.actionFailed);
   const [addingLink, setAddingLink] = useState(false);
   const [actionError, setActionError] = useState("");
-  const [uploading, setUploading] = useState<string | null>(null);
+  const [uploading, setUploading] = useState<string[]>([]);
   const [namingId, setNamingId] = useState<string | null>(null);
   const [urlEditId, setUrlEditId] = useState<string | null>(null);
   const [preview, setPreview] = useState<SharedDocView | null>(null);
@@ -400,7 +422,7 @@ function SharedDocList({
       }
     }
     const busyKey = target.mode === "replace" ? target.doc.id : "";
-    setUploading(busyKey);
+    setUploading((keys) => [...keys, busyKey]);
     let createdId = "";
     const err = await run(async () => {
       const attachmentId = await api.uploadAttachment(file, file.name);
@@ -415,7 +437,10 @@ function SharedDocList({
         attachmentId,
       });
     });
-    setUploading(null);
+    setUploading((keys) => {
+      const at = keys.indexOf(busyKey);
+      return at < 0 ? keys : [...keys.slice(0, at), ...keys.slice(at + 1)];
+    });
     if (err) {
       setActionError(err);
       return;
@@ -424,14 +449,15 @@ function SharedDocList({
     if (createdId) setNamingId(createdId);
   }
 
-  async function write(action: () => Promise<unknown>) {
+  async function write(action: () => Promise<unknown>): Promise<boolean> {
     setActionError("");
     const err = await run(action);
     if (err) {
       setActionError(err);
-      return;
+      return false;
     }
     await reload();
+    return true;
   }
 
   async function confirmDelete() {
@@ -467,7 +493,7 @@ function SharedDocList({
           type="button"
           className="secrets__btn secrets__submit shared-docs__bar-btn"
           data-testid="shared-docs-upload"
-          disabled={uploading === ""}
+          disabled={uploading.includes("")}
           onClick={() => pick({ mode: "create" })}
         >
           <UploadIcon size={14} />
@@ -575,7 +601,8 @@ function SharedDocList({
                             value={doc.name}
                             ariaLabel={d.rename}
                             openOnMount
-                            onCommit={(name) => void write(() => api.replaceSharedDoc(doc.id, { name }))}
+                            maxLength={NAME_MAX_CHARS}
+                            onCommit={(name) => write(() => api.replaceSharedDoc(doc.id, { name }))}
                             onClose={() => setNamingId(null)}
                           />
                         ) : undefined
@@ -587,7 +614,8 @@ function SharedDocList({
                             value={doc.url}
                             ariaLabel={d.editUrl}
                             openOnMount
-                            onCommit={(url) => void write(() => api.replaceSharedDoc(doc.id, { url }))}
+                            maxLength={2048}
+                            onCommit={(url) => write(() => api.replaceSharedDoc(doc.id, { url }))}
                             onClose={() => setUrlEditId(null)}
                           />
                         ) : undefined
@@ -601,7 +629,7 @@ function SharedDocList({
                     <RowActions
                       doc={doc}
                       isOwner={isOwner}
-                      busy={uploading === doc.id}
+                      busy={uploading.includes(doc.id)}
                       onEdit={() => {
                         if (doc.kind === "link") {
                           setActionError("");

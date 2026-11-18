@@ -283,7 +283,7 @@ describe("SharedDocsPage", () => {
 
   it("上傳檔案 adds the picked file as a new doc named after it, with that name open to edit", async () => {
     const upload = vi.spyOn(api, "uploadAttachment");
-    const { container, getByTestId } = renderPage();
+    const { container, getByTestId, queryByTestId } = renderPage();
     await waitRows(container, 2);
     fireEvent.click(getByTestId("shared-docs-upload"));
     const file = new File(["# Notes"], "release-notes.md", { type: "text/markdown" });
@@ -295,10 +295,19 @@ describe("SharedDocsPage", () => {
     const row = container.querySelector<HTMLElement>(`[data-doc-id="${created.id}"]`)!;
     const nameInput = within(row).getByLabelText("改名") as HTMLInputElement;
     expect(nameInput.value).toBe("release-notes");
+    expect(nameInput.maxLength).toBe(128);
+    const tooLong = "名".repeat(130);
+    fireEvent.change(nameInput, { target: { value: tooLong } });
+    fireEvent.keyDown(nameInput, { key: "Enter" });
+    expect((await waitFor(() => getByTestId("shared-docs-action-error"))).textContent).toBe(
+      "shared doc name is 130 chars, over the 128-char limit",
+    );
+    expect((within(row).getByLabelText("改名") as HTMLInputElement).value).toBe(tooLong);
     fireEvent.change(nameInput, { target: { value: "Release notes" } });
     fireEvent.keyDown(nameInput, { key: "Enter" });
     await waitFor(() => expect(cellTexts(row)[1]).toBe("Release notes"));
     expect(within(row).queryByLabelText("改名")).toBeNull();
+    expect(queryByTestId("shared-docs-action-error")).toBeNull();
     expect(await api.getSharedDoc(created.id)).toMatchObject({ name: "Release notes", versionCount: 1, text: "# Notes" });
     expect(window.location.hash).toBe("#shared-docs");
 
@@ -310,7 +319,7 @@ describe("SharedDocsPage", () => {
     });
   });
 
-  it("新增連結 adds a link from the URL and name typed on the page, a blank name taking the URL", async () => {
+  it("新增連結 adds a link from the URL and name typed on the page, a blank name taking the URL's host and last segment", async () => {
     const { container, getByTestId, queryByTestId } = renderPage();
     await waitRows(container, 2);
     fireEvent.click(getByTestId("shared-docs-add-link"));
@@ -332,7 +341,25 @@ describe("SharedDocsPage", () => {
     fireEvent.submit(getByTestId("shared-docs-link-form"));
     await waitRows(container, 4);
     expect((await api.listSharedDocs()).find((d) => d.url === "https://example.com/wiki")?.name).toBe(
-      "https://example.com/wiki",
+      "example.com/wiki",
+    );
+
+    const docsUrl = `https://docs.google.com/document/d/${"1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT".repeat(4)}/edit?usp=sharing&ouid=${"9".repeat(21)}`;
+    expect(docsUrl.length).toBeGreaterThan(128);
+    fireEvent.click(getByTestId("shared-docs-add-link"));
+    fireEvent.change(getByTestId("shared-docs-link-url"), { target: { value: docsUrl } });
+    fireEvent.submit(getByTestId("shared-docs-link-form"));
+    await waitRows(container, 5);
+    expect((await api.listSharedDocs()).find((d) => d.url === docsUrl)?.name).toBe("docs.google.com/edit");
+
+    const longSegment = "季度規劃".repeat(40);
+    const encodedUrl = `https://drive.example.com/files/${encodeURIComponent(longSegment)}`;
+    fireEvent.click(getByTestId("shared-docs-add-link"));
+    fireEvent.change(getByTestId("shared-docs-link-url"), { target: { value: encodedUrl } });
+    fireEvent.submit(getByTestId("shared-docs-link-form"));
+    await waitRows(container, 6);
+    expect((await api.listSharedDocs()).find((d) => d.url === encodedUrl)?.name).toBe(
+      `drive.example.com/${longSegment}`.slice(0, 128),
     );
     expect(window.location.hash).toBe("#shared-docs");
   });
@@ -353,16 +380,34 @@ describe("SharedDocsPage", () => {
     expect(rows(container)).toHaveLength(2);
   });
 
-  it("上傳新版本 on a row puts the picked file in as that doc's new version", async () => {
-    const { container } = renderPage();
+  it("上傳新版本 on a row puts the picked file in as that doc's new version, the row busy until its own upload ends", async () => {
+    const realUpload = api.uploadAttachment.bind(api);
+    const gates: Array<() => void> = [];
+    vi.spyOn(api, "uploadAttachment").mockImplementation(async (file, filename) => {
+      await new Promise<void>((open) => gates.push(open));
+      return realUpload(file, filename);
+    });
+    const { container, getByTestId } = renderPage();
     const [, review] = await waitRows(container, 2);
-    fireEvent.click(within(review!).getByTestId("shared-doc-upload"));
+    const rowUpload = within(review!).getByTestId("shared-doc-upload");
+    const topUpload = getByTestId("shared-docs-upload") as HTMLButtonElement;
+    fireEvent.click(rowUpload);
     pickFile(container, new File(["# Review Rule v3"], "review-rule.md", { type: "text/markdown" }));
+    fireEvent.click(topUpload);
+    pickFile(container, new File(["x"], "other.md", { type: "text/markdown" }));
+    await waitFor(() => expect(gates).toHaveLength(2));
+    expect([rowUpload.getAttribute("aria-disabled"), topUpload.disabled]).toEqual(["true", true]);
+    gates[1]!();
+    await waitRows(container, 3);
+    await waitFor(() => expect(topUpload.disabled).toBe(false));
+    expect(rowUpload.getAttribute("aria-disabled")).toBe("true");
+    gates[0]!();
     await waitFor(async () =>
       expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({ text: "# Review Rule v3", versionCount: 3 }),
     );
+    await waitFor(() => expect(rowUpload.getAttribute("aria-disabled")).toBeNull());
     expect(window.location.hash).toBe("#shared-docs");
-    expect(rows(container)).toHaveLength(2);
+    expect(rows(container)).toHaveLength(3);
   });
 
   it("上傳新版本 refuses a file that would change the doc between image and not, and uploads nothing", async () => {
@@ -409,8 +454,36 @@ describe("SharedDocsPage", () => {
     expect((await api.getSharedDoc("sd-3f9a2c71b0e4")).versionCount).toBe(2);
   });
 
-  it("編輯 on a link row edits its URL in place: ✓ saves it as a new version, ✗ leaves it", async () => {
-    const { container } = renderPage();
+  it("a dimmed 編輯 or 上傳新版本 does nothing, by click or by Enter/Space", async () => {
+    const shotId = await createUploaded("image", "Shot", "shot.png", "png");
+    const contractId = await createUploaded("file", "Contract", "contract.pdf", "pdf");
+    const { container, queryByTestId } = renderPage();
+    await waitRows(container, 4);
+    const input = container.querySelector<HTMLInputElement>('[data-testid="shared-docs-file-input"]')!;
+    const openPicker = vi.spyOn(input, "click");
+    const dimmed = [
+      within(container.querySelector<HTMLElement>(`[data-doc-id="${shotId}"]`)!).getByTestId("shared-doc-edit"),
+      within(container.querySelector<HTMLElement>(`[data-doc-id="${contractId}"]`)!).getByTestId("shared-doc-edit"),
+      within(container.querySelector<HTMLElement>('[data-doc-id="sd-0c41e97a2b58"]')!).getByTestId("shared-doc-upload"),
+    ];
+    for (const button of dimmed) {
+      expect(button.getAttribute("aria-disabled")).toBe("true");
+      button.focus();
+      expect(document.activeElement).toBe(button);
+      for (const key of ["Enter", " "]) {
+        fireEvent.keyDown(button, { key });
+        fireEvent.keyUp(button, { key });
+      }
+      fireEvent.click(button);
+    }
+    expect(openPicker).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("#shared-docs");
+    expect(container.querySelector(".shared-docs__inline-field")).toBeNull();
+    expect(queryByTestId("shared-docs-action-error")).toBeNull();
+  });
+
+  it("編輯 on a link row edits its URL in place: ✓ saves it as a new version, a refused URL stays in the box, ✗ leaves it", async () => {
+    const { container, getByTestId } = renderPage();
     const [apiSpec] = await waitRows(container, 2);
     fireEvent.click(within(apiSpec!).getByTestId("shared-doc-edit"));
     const input = within(apiSpec!).getByLabelText("修改網址") as HTMLInputElement;
@@ -422,10 +495,18 @@ describe("SharedDocsPage", () => {
     expect(within(apiSpec!).queryByLabelText("修改網址")).toBeNull();
     expect(cellTexts(apiSpec!)[1]).toBe("API 規格GitHub 上的 spec/openapi.json，改 wire 前先讀");
 
+    vi.spyOn(api, "replaceSharedDoc").mockRejectedValueOnce(
+      new ApiError("http 400", 400, "validation_error", "url must be an absolute http or https URL"),
+    );
     fireEvent.click(within(apiSpec!).getByTestId("shared-doc-edit"));
-    fireEvent.change(within(apiSpec!).getByLabelText("修改網址"), {
-      target: { value: "https://example.com/openapi.json" },
-    });
+    fireEvent.change(within(apiSpec!).getByLabelText("修改網址"), { target: { value: "example.com/openapi.json" } });
+    fireEvent.mouseDown(within(apiSpec!).getByLabelText("套用"));
+    expect((await waitFor(() => getByTestId("shared-docs-action-error"))).textContent).toBe(
+      "url must be an absolute http or https URL",
+    );
+    const kept = within(apiSpec!).getByLabelText("修改網址") as HTMLInputElement;
+    expect(kept.value).toBe("example.com/openapi.json");
+    fireEvent.change(kept, { target: { value: "https://example.com/openapi.json" } });
     fireEvent.mouseDown(within(apiSpec!).getByLabelText("套用"));
     await waitFor(async () =>
       expect(await api.getSharedDoc("sd-0c41e97a2b58")).toMatchObject({
@@ -433,6 +514,7 @@ describe("SharedDocsPage", () => {
         versionCount: 2,
       }),
     );
+    await waitFor(() => expect(within(apiSpec!).queryByLabelText("修改網址")).toBeNull());
     expect(window.location.hash).toBe("#shared-docs");
   });
 

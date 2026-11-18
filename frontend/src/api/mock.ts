@@ -3252,6 +3252,17 @@ function mockSharedDocOrThrow(method: string, path: string, id: string): WireSha
   return row;
 }
 
+function mockSharedDocNameOrThrow(method: string, path: string, name: string) {
+  const n = Array.from(name).length;
+  if (n > 128) {
+    throw mockApiError(
+      `http 400 for ${method} ${path}`,
+      400,
+      `shared doc name is ${n} chars, over the 128-char limit`,
+    );
+  }
+}
+
 function mockSharedDocContent(
   kind: string,
   attachmentId: string | undefined,
@@ -6875,6 +6886,7 @@ const mockApiImpl = {
   },
 
   async createSharedDoc(input: SharedDocCreateInput): Promise<string> {
+    mockSharedDocNameOrThrow("POST", "/api/shared-docs", input.name.trim());
     const now = Date.now() / 1000;
     const row: WireSharedDoc = {
       id: `sd-${mockHex12()}`,
@@ -6900,6 +6912,7 @@ const mockApiImpl = {
     const name = input.name?.trim() ?? row.name;
     const description = input.description?.trim() ?? row.description;
     const newContent = Boolean(input.attachmentId?.trim() || input.url?.trim());
+    mockSharedDocNameOrThrow("POST", path, name);
     if (input.name !== undefined && !name) {
       throw mockApiError(
         `http 400 for POST ${path}`,

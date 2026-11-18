@@ -261,6 +261,14 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+.shared-docs__notice {
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  font-size: 13px;
+  color: var(--color-text);
+}
 .shared-docs__body {
   padding: 18px 22px;
 }

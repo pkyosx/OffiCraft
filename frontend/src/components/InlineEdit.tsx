@@ -8,8 +8,10 @@ interface InlineEditProps {
   value: string;
   /** Shown instead of `value` while not editing; the field still starts from `value`. */
   displayValue?: string;
-  /** Called only for a real, non-empty change (trimmed !== value). */
-  onCommit: (next: string) => void;
+  /** Called only for a real, non-empty change (trimmed !== value). A promise
+   * keeps the field open, holding what was typed, and it stays open if the
+   * promise resolves false. */
+  onCommit: (next: string) => void | Promise<boolean>;
   placeholder?: string;
   /** aria-label / tooltip for the pencil (edit) affordance + input. */
   ariaLabel?: string;
@@ -23,6 +25,7 @@ interface InlineEditProps {
   openOnMount?: boolean;
   /** The field closed, by apply or cancel. */
   onClose?: () => void;
+  maxLength?: number;
 }
 
 /**
@@ -45,6 +48,7 @@ export function InlineEdit({
   displayClassName,
   openOnMount = false,
   onClose,
+  maxLength,
 }: InlineEditProps) {
   const { t } = useI18n();
   const [editing, setEditing] = useState(openOnMount);
@@ -53,25 +57,34 @@ export function InlineEdit({
   // commit the edit. Ref (not state) so the keydown handler reads the live value
   // with no stale-closure lag.
   const isComposingRef = useRef(false);
+  const savingRef = useRef(false);
 
   function startEdit() {
     setDraft(value);
     setEditing(true);
   }
 
-  function commit() {
+  async function commit() {
+    if (savingRef.current) return;
     const next = draft.trim();
     // Empty or unchanged → treat as cancel (no onCommit, restore + close).
     if (!next || next === value) {
       cancel();
       return;
     }
-    onCommit(next);
+    const pending = onCommit(next);
+    if (pending) {
+      savingRef.current = true;
+      const saved = await pending;
+      savingRef.current = false;
+      if (saved === false) return;
+    }
     setEditing(false);
     onClose?.();
   }
 
   function cancel() {
+    if (savingRef.current) return;
     setDraft(value);
     setEditing(false);
     onClose?.();
@@ -104,6 +117,7 @@ export function InlineEdit({
         className="inline-edit__input"
         value={draft}
         autoFocus
+        maxLength={maxLength}
         placeholder={placeholder}
         aria-label={ariaLabel}
         onChange={(e) => setDraft(e.target.value)}
@@ -124,7 +138,7 @@ export function InlineEdit({
           ) {
             return;
           }
-          if (e.key === "Enter") commit();
+          if (e.key === "Enter") void commit();
           if (e.key === "Escape") {
             // This Esc is spent HERE: preventDefault stops the shared
             // dispatcher (lib/escapeLayers.ts) from ALSO closing the surface
@@ -141,7 +155,7 @@ export function InlineEdit({
         title={t.common.apply}
         onMouseDown={(e) => {
           e.preventDefault();
-          commit();
+          void commit();
         }}
       >
         <CheckIcon size={14} />
