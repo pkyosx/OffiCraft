@@ -9,6 +9,15 @@ describe("formatJson", () => {
     });
     expect(formatJson('{"name":}')).toEqual({ body: '{"name":}', unparseable: true });
   });
+
+  it("keeps every literal as written: big integers, 1.0, escaped quotes and punctuation inside strings, empty containers", () => {
+    expect(
+      formatJson('{"a":12345678901234567890,"b":1.0, "c":"x, {y}: \\"[z]\\"","d":[ ],"e":{}}'),
+    ).toEqual({
+      body: '{\n  "a": 12345678901234567890,\n  "b": 1.0,\n  "c": "x, {y}: \\"[z]\\"",\n  "d": [],\n  "e": {}\n}',
+      unparseable: false,
+    });
+  });
 });
 
 describe("formatXml", () => {

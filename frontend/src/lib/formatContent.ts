@@ -6,12 +6,56 @@
 
 export type Formatted = { body: string; unparseable: boolean };
 
+/** Re-indents valid JSON by moving whitespace only. Every literal stays as
+ * written: a parse→stringify round trip would round integers past 2^53, turn
+ * `1.0` into `1` and merge duplicate keys, showing a file that is not the one
+ * stored. */
 export function formatJson(text: string): Formatted {
   try {
-    return { body: JSON.stringify(JSON.parse(text), null, 2), unparseable: false };
+    JSON.parse(text);
   } catch {
     return { body: text, unparseable: true };
   }
+  let out = "";
+  let depth = 0;
+  const newline = () => `\n${"  ".repeat(depth)}`;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i]!;
+    if (ch === '"') {
+      let j = i + 1;
+      while (text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+    if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r") {
+      i += 1;
+      continue;
+    }
+    if (ch === "{" || ch === "[") {
+      let j = i + 1;
+      while (/\s/.test(text[j]!)) j += 1;
+      if (text[j] === (ch === "{" ? "}" : "]")) {
+        out += ch + text[j];
+        i = j + 1;
+        continue;
+      }
+      depth += 1;
+      out += ch + newline();
+    } else if (ch === "}" || ch === "]") {
+      depth -= 1;
+      out += newline() + ch;
+    } else if (ch === ",") {
+      out += "," + newline();
+    } else if (ch === ":") {
+      out += ": ";
+    } else {
+      out += ch;
+    }
+    i += 1;
+  }
+  return { body: out, unparseable: false };
 }
 
 const XML_DECLARATION = /^\s*(<\?xml[^>]*\?>)/;
