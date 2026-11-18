@@ -12888,6 +12888,21 @@
         "title": "SharedDocDTO",
         "type": "object"
       },
+      "SharedDocDeleteReceiptDTO": {
+        "additionalProperties": false,
+        "description": "Receipt of a permanent shared-document delete.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "SharedDocDeleteReceiptDTO",
+        "type": "object"
+      },
       "SharedDocDetailDTO": {
         "additionalProperties": false,
         "description": "One shared document with its current content inline when that content is text.",
@@ -28491,6 +28506,73 @@
       }
     },
     "/api/shared-docs/{doc_id}": {
+      "delete": {
+        "description": "- Irreversible: the document, every retained version and their files are gone, and the id answers 404 from then on.\n- Only an archived document can be deleted; an active one is a 409, so archive it first.\n- Task manuals and tasks that cite the id are not updated: their references stop resolving.",
+        "operationId": "handle_delete_shared_doc_api_shared_docs__doc_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedDocDeleteReceiptDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Permanently delete an archived shared document with all its versions. Owner only.",
+        "x-mcp": {
+          "description": "Permanently delete an archived shared document with all its versions. Owner only.\n\n- Irreversible: the document, every retained version and their files are gone, and the id answers 404 from then on.\n- Only an archived document can be deleted; an active one is a 409, so archive it first.\n- Task manuals and tasks that cite the id are not updated: their references stop resolving.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Permanently delete an archived shared document with all its versions. Owner only.\\n\\n- Irreversible: the document, every retained version and their files are gone, and the id answers 404 from then on.\\n- Only an archived document can be deleted; an active one is a 409, so archive it first.\\n- Task manuals and tasks that cite the id are not updated: their references stop resolving.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"delete_shared_doc\"\n    }"
+          },
+          "name": "delete_shared_doc",
+          "order": 135
+        }
+      },
       "get": {
         "description": "- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\n- When `text` is null, download `attachment_id` for the content.\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.\n- An archived document is still readable here, with `archived_ts` set.",
         "operationId": "handle_get_shared_doc_api_shared_docs__doc_id__get",

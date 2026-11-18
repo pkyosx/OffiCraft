@@ -139,7 +139,7 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     with `payload` `null`, owner-only, because it moves every task's due-soon state at
     once without writing a task
   - `task_manual`: `payload` is `null` (manual create/edit/delete)
-  - `shared_doc`: `{id}`; refetch `GET /api/shared-docs/{doc_id}`
+  - `shared_doc`: `{id}`; refetch `GET /api/shared-docs/{doc_id}`. A permanent delete rides `remove` with `deleted` true
   - `global_context` / `role_def`: `payload` is `null`
   - `context` / `monitoring` signals: `payload` is `null`
 - `key` MUST be treated as an **opaque change hint**. Current key formats (clients MUST NOT
@@ -259,7 +259,7 @@ is the M1 freeze):
 | `reply_card` | reply-card create / answer / answer revision / expire / the owner's snooze or unsnooze | patch |
 | `task` | any durable task write (create / status / priority / plan / step / deps / executor assignment / terminate); a change to the workspace due-soon lead | patch |
 | `task_manual` | manual create / edit / delete | patch |
-| `shared_doc` | shared-document create / replace / restore / archive / unarchive | patch |
+| `shared_doc` | shared-document create / replace / restore / archive / unarchive; the owner's permanent delete | patch / remove |
 | `global_context` | user-context overlay write/reset | patch |
 | `role_def` | role overlay write/reset/delete | patch |
 | `insight` | insight overlay write (replace / patch / reset) / restore / cascade delete | patch |

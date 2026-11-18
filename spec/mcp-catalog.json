@@ -4890,6 +4890,22 @@
         "type": "object"
       },
       "name": "unarchive_shared_doc"
+    },
+    {
+      "description": "Permanently delete an archived shared document with all its versions. Owner only.\n\n- Irreversible: the document, every retained version and their files are gone, and the id answers 404 from then on.\n- Only an archived document can be deleted; an active one is a 409, so archive it first.\n- Task manuals and tasks that cite the id are not updated: their references stop resolving.",
+      "inputSchema": {
+        "properties": {
+          "doc_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "doc_id"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "delete_shared_doc"
     }
   ]
 }
