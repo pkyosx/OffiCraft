@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -107,6 +108,13 @@ func TestRealMain(t *testing.T) {
 		}
 	})
 
+	// frontend/src/components/MarkdownPreviewOverlay.test.tsx runs this same
+	// file against the reader, so the help prints only code that has run.
+	snippetBytes, err := os.ReadFile("doc_comments_snippet.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snippet := string(snippetBytes)
 	for _, tc := range []struct {
 		name  string
 		wants []string
@@ -118,6 +126,10 @@ func TestRealMain(t *testing.T) {
 			"4  the server refused the file (HTTP 400): it is empty, over the size limit,",
 			"its extension alone decides\nthe media type",
 			"(including no extension) is application/octet-stream and downloads.",
+			"cookies and other browser storage throw SecurityError.",
+			"comment on any text he selects in it (his\nmessage quotes that text)",
+			`element data-oc-anchor="<id>" (1–128 characters`,
+			"quoted as 位置：<label>（#<id>）.\n\n" + snippet + "\nstdout on success",
 		}},
 		{"download", []string{
 			"usage: ocagent download <attachment-id> [--out <dir>]\n",

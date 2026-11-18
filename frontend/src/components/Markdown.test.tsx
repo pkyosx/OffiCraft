@@ -227,10 +227,13 @@ describe("Markdown", () => {
     expect(c.textContent).toContain("[click me](javascript:alert(1))");
   });
 
-  it("renders a backslash-escaped block marker as the bare character in prose, not as a block", () => {
-    const c = renderMd("\\> 不是引用\n\n2\\. 不是清單\n\n\\# 不是標題\n\n\\- 不是項目\n\n\\---");
+  it("renders a backslash-escaped block marker or backtick as the bare character in prose, not as a block or code, while an escaped backslash still lets a code span open", () => {
+    const c = renderMd("\\> 不是引用\n\n2\\. 不是清單\n\n\\# 不是標題\n\n\\- 不是項目\n\n\\---\n\n\\`不是碼\\` 與 `C:\\`\n\n\\\\`碼`\n\nC:\\Users\\`x`");
     expect(c.firstElementChild?.innerHTML).toBe(
-      "<p>&gt; 不是引用</p><p>2. 不是清單</p><p># 不是標題</p><p>- 不是項目</p><p>---</p>",
+      "<p>&gt; 不是引用</p><p>2. 不是清單</p><p># 不是標題</p><p>- 不是項目</p><p>---</p>" +
+        "<p>`不是碼` 與 <code>C:\\</code></p>" +
+        "<p>\\<code>碼</code></p>" +
+        "<p>C:\\Users`x`</p>",
     );
   });
 

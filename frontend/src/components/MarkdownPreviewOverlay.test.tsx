@@ -22,6 +22,7 @@ import {
 import { AlertTriangleIcon } from "./icons";
 import { Markdown } from "./Markdown";
 import { zh } from "../i18n/locales/zh";
+import snippet from "../../../cli/ocagent/doc_comments_snippet.html?raw";
 
 describe("isMarkdownAttachment", () => {
   it("accepts markdown mimes and .md/.markdown filenames", () => {
@@ -489,6 +490,48 @@ describe("MarkdownPreviewOverlay", () => {
     expect(document.body.querySelector("a.md-preview__download")).toBeNull();
   });
 
+  it("shows an HTML attachment as its share-link page in a sandboxed frame, loading until the link is minted, without fetching its text", async () => {
+    let mint!: (href: string) => void;
+    vi.spyOn(api, "getChatAttachmentShareLink").mockImplementation(
+      () => new Promise((resolve) => (mint = resolve)),
+    );
+    globalThis.fetch = vi.fn() as unknown as typeof fetch;
+    render(
+      <I18nProvider>
+        <MarkdownPreviewOverlay
+          title="pr-702.html"
+          url="/api/chat/attachment/att-html"
+          attachmentId="att-html"
+          mime="text/html"
+          onClose={() => {}}
+        />
+      </I18nProvider>,
+    );
+    expect(document.body.querySelector(".md-preview__body")?.textContent).toBe("載入預覽中…");
+    expect(document.body.querySelector("iframe")).toBeNull();
+
+    await act(async () => mint("/api/chat/attachment/att-html?sig=s1"));
+    const frame = document.body.querySelector("iframe")!;
+    expect({
+      className: frame.className,
+      src: frame.getAttribute("src"),
+      sandbox: frame.getAttribute("sandbox"),
+      referrerPolicy: frame.getAttribute("referrerpolicy"),
+      title: frame.getAttribute("title"),
+    }).toEqual({
+      className: "md-preview__frame",
+      src: `${window.location.origin}/api/chat/attachment/att-html?sig=s1`,
+      sandbox: "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+      referrerPolicy: "no-referrer",
+      title: "pr-702.html",
+    });
+    expect(document.body.querySelector(".md-preview__status")).toBeNull();
+    expect(screen.getByRole("link", { name: "在新頁面顯示" }).getAttribute("href")).toBe(
+      `${window.location.origin}/api/chat/attachment/att-html?sig=s1`,
+    );
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("shows an honest error state on a failed fetch (never a blank render)", async () => {
     globalThis.fetch = vi.fn(async () => ({
       ok: false,
@@ -854,7 +897,7 @@ describe("MarkdownPreviewOverlay", () => {
       expect(bubbles()).toEqual([]);
     });
 
-    it("restores text drafts stored before image comments existed alongside image comments, marking what the document no longer contains and dropping malformed entries", async () => {
+    it("restores text drafts stored before image comments existed alongside image, place and whole-document comments, marking what the document no longer contains and dropping malformed entries", async () => {
       localStorage.setItem(
         "oc_doc_comments:att-aaaaaaaaaaaa",
         JSON.stringify([
@@ -864,6 +907,9 @@ describe("MarkdownPreviewOverlay", () => {
           { id: "c4", kind: "image", alt: "舊圖", src: "/api/chat/attachment/att-eeeeeeeeeeee", comment: "刪掉" },
           { id: "c5", kind: "image", alt: "沒有位址", comment: "壞的" },
           { id: "c6", kind: "video", excerpt: "x", comment: "壞的" },
+          { id: "c7", kind: "anchor", anchorId: "ac-AC-5", label: "AC-5", comment: "量法" },
+          { id: "c8", kind: "anchor", anchorId: "ac-AC-6", comment: "壞的" },
+          { id: "c9", kind: "document", comment: "字太小" },
         ]),
       );
       renderDoc();
@@ -873,6 +919,8 @@ describe("MarkdownPreviewOverlay", () => {
         "已被刪掉的句子文件中找不到這段原文，註解仍會送出。2. 留著",
         "圖片：流程圖3. 換圖",
         "圖片：舊圖文件中找不到這張圖片，註解仍會送出。4. 刪掉",
+        "位置：AC-5（#ac-AC-5）5. 量法",
+        "整份文件6. 字太小",
       ]);
       expect(commentedImages()).toEqual(["流程圖"]);
     });
@@ -941,7 +989,10 @@ describe("MarkdownPreviewOverlay", () => {
       fireEvent.click(screen.getByRole("button", { name: "註解" }));
       expect(screen.getByText("在文件中選取一段文字，再按「加註解」。")).toBeTruthy();
       addComment('"name": "Mira",\n  "items"', "items 改名");
-      expect(listed()).toEqual(['"name": "Mira",\n  "items"1. items 改名']);
+      fireEvent.click(screen.getByRole("button", { name: "對整份文件加註解" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "註解內容" }), { target: { value: "欄位排序" } });
+      fireEvent.click(screen.getByRole("button", { name: "儲存" }));
+      expect(listed()).toEqual(['"name": "Mira",\n  "items"1. items 改名', "整份文件2. 欄位排序"]);
 
       fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
       await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
@@ -952,7 +1003,12 @@ describe("MarkdownPreviewOverlay", () => {
           '   > "name": "Mira",\n' +
           '   > "items"\n' +
           "\n" +
-          "   註解：items 改名",
+          "   註解：items 改名\n" +
+          "\n" +
+          "2. 原文：\n" +
+          "   > 整份文件\n" +
+          "\n" +
+          "   註解：欄位排序",
       );
     });
 
@@ -961,7 +1017,7 @@ describe("MarkdownPreviewOverlay", () => {
         "oc_doc_comments:att-aaaaaaaaaaaa",
         JSON.stringify([
           { id: "c1", excerpt: "第一段要修改的內容。\n\n第二段保持原樣。", comment: "兩段合併\n並縮短" },
-          { id: "c2", excerpt: "週報", comment: "標題加日期" },
+          { id: "c2", excerpt: "週報_v2", comment: "標題加日期" },
         ]),
       );
       const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
@@ -988,7 +1044,7 @@ describe("MarkdownPreviewOverlay", () => {
               "   並縮短\n" +
               "\n" +
               "2. 原文：\n" +
-              "   > 週報\n" +
+              "   > 週報_v2\n" +
               "\n" +
               "   註解：標題加日期",
           },
@@ -999,7 +1055,7 @@ describe("MarkdownPreviewOverlay", () => {
       const bubble = render(<Markdown source={post.mock.calls[0][0].body} breaks />).container;
       expect([...bubble.querySelectorAll("ol > li > blockquote")].map((q) => q.textContent)).toEqual([
         "第一段要修改的內容。第二段保持原樣。",
-        "週報",
+        "週報_v2",
       ]);
       expect(bubble.querySelector("a")!.getAttribute("href")).toBe("/api/chat/attachment/att-aaaaaaaaaaaa");
     });
@@ -1206,6 +1262,377 @@ describe("MarkdownPreviewOverlay", () => {
       addComment("第一段要修改", "改成條列");
       expect(send.disabled).toBe(false);
       expect(screen.queryByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeNull();
+    });
+
+    describe("on an HTML page", () => {
+      const OC = { oc: "doc-comments", v: 1 } as const;
+
+      async function renderPage(props: Parameters<typeof renderDoc>[0] = {}) {
+        vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue(
+          "/api/chat/attachment/att-aaaaaaaaaaaa?sig=s1",
+        );
+        renderDoc({ title: "pr-702.html", mime: "text/html", ...props });
+        await waitFor(() => expect(document.body.querySelector("iframe.md-preview__frame")).toBeTruthy());
+        const frame = document.body.querySelector<HTMLIFrameElement>("iframe.md-preview__frame")!;
+        const posted: unknown[] = [];
+        frame.contentWindow!.postMessage = ((m: unknown) => posted.push(m)) as Window["postMessage"];
+        const fromPage = (data: unknown, source: Window | null = frame.contentWindow) =>
+          act(() => {
+            window.dispatchEvent(new MessageEvent("message", { data, source }));
+          });
+        const toggle = () => fireEvent.click(screen.getByRole("button", { name: "註解" }));
+        return { frame, posted, fromPage, toggle };
+      }
+
+      const pick = (id: unknown, label?: unknown) => ({ ...OC, type: "pick", anchor: { id, label } });
+
+      function saveComposed(comment: string) {
+        fireEvent.change(screen.getByRole("textbox", { name: "註解內容" }), { target: { value: comment } });
+        fireEvent.click(screen.getByRole("button", { name: "儲存" }));
+      }
+
+      it("turns comment mode on in the page only once it said ready, offering only whole-document comments until then, and off again when comment mode closes", async () => {
+        const { posted, fromPage, toggle } = await renderPage();
+        const empty = () => document.body.querySelector(".doc-comments__empty")?.textContent;
+        fromPage({ ...OC, type: "ready" }, window);
+        toggle();
+        expect(posted).toEqual([]);
+        expect(empty()).toBe("這個頁面只能按「對整份文件加註解」。");
+        expect(document.body.querySelector(".doc-comments__bubbles")).toBeNull();
+
+        fromPage({ ...OC, type: "ready" });
+        expect(posted).toEqual([
+          { ...OC, type: "mode", on: true },
+          { ...OC, type: "commented", ids: [] },
+        ]);
+        expect(empty()).toBe(
+          "在頁面上選取一段文字再按「加註解」、點可註解的位置（滑過時有外框），或按「對整份文件加註解」。",
+        );
+        posted.length = 0;
+        toggle();
+        expect(posted).toEqual([{ ...OC, type: "mode", on: false }]);
+
+        posted.length = 0;
+        fromPage({ ...OC, type: "ready" });
+        expect(posted).toEqual([]);
+        toggle();
+        expect(posted).toEqual([
+          { ...OC, type: "mode", on: true },
+          { ...OC, type: "commented", ids: [] },
+        ]);
+        expect(globalThis.fetch).not.toHaveBeenCalled();
+      });
+
+      it("starts a comment on the place the page reports picked in comment mode, ignoring another window, a malformed or oversize pick, any pick outside comment mode and any pick while a comment is half written", async () => {
+        const { fromPage, toggle } = await renderPage();
+        const composing = () => screen.queryByRole("textbox", { name: "註解內容" });
+        fromPage(pick("ac-AC-1", "AC-1"));
+        toggle();
+        expect(composing()).toBeNull();
+
+        fromPage(pick("ac-AC-1", "AC-1"), window);
+        fromPage({ ...pick("ac-AC-1", "AC-1"), v: 2 });
+        fromPage({ ...pick("ac-AC-1", "AC-1"), oc: "other" });
+        fromPage({ ...OC, type: "picked", anchor: { id: "ac-AC-1" } });
+        fromPage(pick(""));
+        fromPage(pick(42, "AC-1"));
+        fromPage(pick("x".repeat(129)));
+        fromPage(pick("ac-AC-1", "y".repeat(201)));
+        fromPage(pick("ac-AC-1", 7));
+        fromPage("pick");
+        expect(composing()).toBeNull();
+
+        fromPage(pick("ac-AC-2"));
+        expect(document.body.querySelector(".doc-comments__item--compose .doc-comments__excerpt")?.textContent).toBe(
+          "位置：ac-AC-2（#ac-AC-2）",
+        );
+        saveComposed("補一條測試");
+        fromPage(pick("ac-AC-3", "<b>AC-3</b> 離線"));
+        saveComposed("看不懂");
+        fromPage(pick("ac-AC-4"));
+        fireEvent.change(screen.getByRole("textbox", { name: "註解內容" }), { target: { value: "寫到一半" } });
+        fromPage(pick("ac-AC-5"));
+        expect([
+          document.body.querySelector(".doc-comments__item--compose .doc-comments__excerpt")?.textContent,
+          (screen.getByRole("textbox", { name: "註解內容" }) as HTMLTextAreaElement).value,
+        ]).toEqual(["位置：ac-AC-4（#ac-AC-4）", "寫到一半"]);
+        fireEvent.click(screen.getByRole("button", { name: "儲存" }));
+        expect(listed()).toEqual([
+          "位置：ac-AC-2（#ac-AC-2）1. 補一條測試",
+          "位置：<b>AC-3</b> 離線（#ac-AC-3）2. 看不懂",
+          "位置：ac-AC-4（#ac-AC-4）3. 寫到一半",
+        ]);
+        expect(document.body.querySelector(".doc-comments b")).toBeNull();
+      });
+
+      it("offers 加註解 for the text the page reports selected once it said ready, and sends a comment quoting that text with markdown in it kept as plain text, ignoring another window, a malformed or oversize selection and a selection from before the page last said ready", async () => {
+        const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+        const { fromPage, toggle } = await renderPage();
+        toggle();
+        const rect = { left: 10, top: 20, width: 80, height: 16 };
+        const select = (text: unknown, r: unknown = rect) => ({ ...OC, type: "select", text, rect: r });
+        const float = () => screen.queryByRole("button", { name: "加註解" });
+        fromPage(select("在 GitHub 開啟 PR #702"));
+        expect(float()).toBeNull();
+        fromPage({ ...OC, type: "ready" });
+        fromPage(select("在 GitHub 開啟 PR #702"));
+        expect(float()).not.toBeNull();
+        fromPage({ ...OC, type: "ready" });
+        expect(float()).toBeNull();
+
+        fromPage(select("在 GitHub 開啟 PR #702"), window);
+        fromPage(select("在 GitHub 開啟 PR #702"), null);
+        fromPage({ ...select("在 GitHub 開啟 PR #702"), v: 2 });
+        fromPage(select(42));
+        fromPage(select("x".repeat(4001)));
+        fromPage(select("PR #702", null));
+        fromPage(select("PR #702", { ...rect, width: -1 }));
+        fromPage("select");
+        expect(float()).toBeNull();
+
+        fromPage(select("在 GitHub 開啟 PR #702"));
+        expect(float()).not.toBeNull();
+        fromPage(select(""));
+        expect(float()).toBeNull();
+
+        const hostile = "<b>粗</b> [x](https://evil.example) **b**\n```js\n# 標題\n開啟 PR #702";
+        fromPage(select(`  ${hostile} `));
+        fireEvent.click(float()!);
+        expect(document.body.querySelector(".doc-comments__item--compose .doc-comments__excerpt")?.textContent).toBe(
+          hostile,
+        );
+        expect(float()).toBeNull();
+        saveComposed("這個連結打不開");
+        expect(listed()).toEqual([`${hostile}1. 這個連結打不開`]);
+        expect(document.body.querySelector(".doc-comments b")).toBeNull();
+
+        fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+        await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+        expect(post.mock.calls[0][0].body).toBe(
+          "**文件註解**：[pr-702.html](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+            "\n" +
+            "1. 原文：\n" +
+            "   > \\<b\\>粗\\</b\\> \\[x\\](https\\://evil.example) \\*\\*b\\*\\*\n" +
+            "   > \\`\\`\\`js\n" +
+            "   > \\# 標題\n" +
+            "   > 開啟 PR #702\n" +
+            "\n" +
+            "   註解：這個連結打不開",
+        );
+        const bubble = render(<Markdown source={post.mock.calls[0][0].body} breaks />).container;
+        expect([...bubble.querySelectorAll("ol > li > blockquote")].map((q) => q.textContent)).toEqual([
+          "<b>粗</b> [x](https://evil.example) **b**```js# 標題開啟 PR #702",
+        ]);
+        expect([...bubble.querySelectorAll("blockquote *")].map((el) => el.outerHTML)).toEqual([
+          "<p>&lt;b&gt;粗&lt;/b&gt; [x](https://evil.example) **b**<br>```js<br># 標題<br>開啟 PR #702</p>",
+          "<br>",
+          "<br>",
+          "<br>",
+        ]);
+      });
+
+      it("tells the page which places carry comments whenever the draft changes, and asks it to show the place of a clicked comment", async () => {
+        localStorage.setItem(
+          "oc_doc_comments:att-aaaaaaaaaaaa",
+          JSON.stringify([{ id: "c1", kind: "anchor", anchorId: "ac-AC-1", label: "AC-1", comment: "舊的" }]),
+        );
+        const { posted, fromPage, toggle } = await renderPage();
+        toggle();
+        expect(document.body.querySelector(".doc-comments__goto")).toBeNull();
+        fromPage({ ...OC, type: "ready" });
+        const commented = () =>
+          posted.flatMap((m) => ((m as { type: string }).type === "commented" ? [(m as { ids: string[] }).ids] : []));
+        expect(commented()).toEqual([["ac-AC-1"]]);
+
+        fromPage(pick("ac-AC-2", "AC-2"));
+        saveComposed("新的");
+        fromPage(pick("ac-AC-1", "AC-1"));
+        saveComposed("再一則");
+        fireEvent.click(screen.getByRole("button", { name: "對整份文件加註解" }));
+        saveComposed("字太小");
+        fireEvent.click(screen.getAllByRole("button", { name: "刪除註解" })[1]);
+        expect(commented()).toEqual([
+          ["ac-AC-1"],
+          ["ac-AC-1", "ac-AC-2"],
+          ["ac-AC-1", "ac-AC-2"],
+          ["ac-AC-1", "ac-AC-2"],
+          ["ac-AC-1"],
+        ]);
+
+        posted.length = 0;
+        const items = screen.getAllByTestId("doc-comment");
+        expect(items.map((el) => el.querySelector(".doc-comments__goto") !== null)).toEqual([true, true, false]);
+        fireEvent.click(items[1].querySelector(".doc-comments__goto")!);
+        expect(posted).toEqual([{ ...OC, type: "focus", id: "ac-AC-1" }]);
+      });
+
+      it("sends place and whole-document comments as quotes naming the place, with markdown, tags and URLs in the page's names kept as plain text", async () => {
+        localStorage.setItem(
+          "oc_doc_comments:att-aaaaaaaaaaaa",
+          JSON.stringify([
+            { id: "c1", kind: "anchor", anchorId: "ac-AC-5", label: "AC-5：切到已結案 1 秒內可操作", comment: "「1 秒」怎麼量？" },
+            {
+              id: "c2",
+              kind: "anchor",
+              anchorId: "x]`y",
+              label: "a [b](javascript:alert(1))\n**粗** _斜_ `碼` <img onerror=x> https://evil.example/p <https://x.example> xhttps://a.example _https://e.example HTTPS://u.example",
+              comment: "怪名字",
+            },
+            { id: "c3", kind: "document", comment: "流程圖字太小" },
+          ]),
+        );
+        const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+        const { toggle } = await renderPage();
+        toggle();
+        fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+        await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+        const body = post.mock.calls[0][0].body;
+        expect(body).toBe(
+          "**文件註解**：[pr-702.html](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+            "\n" +
+            "1. 原文：\n" +
+            "   > 位置：AC-5：切到已結案 1 秒內可操作（#ac-AC-5）\n" +
+            "\n" +
+            "   註解：「1 秒」怎麼量？\n" +
+            "\n" +
+            "2. 原文：\n" +
+            "   > 位置：a \\[b\\](javascript:alert(1)) \\*\\*粗\\*\\* \\_斜\\_ \\`碼\\` \\<img onerror=x\\> https\\://evil.example/p \\<https\\://x.example\\> xhttps\\://a.example \\_https\\://e.example HTTPS\\://u.example（#x\\]\\`y）\n" +
+            "\n" +
+            "   註解：怪名字\n" +
+            "\n" +
+            "3. 原文：\n" +
+            "   > 整份文件\n" +
+            "\n" +
+            "   註解：流程圖字太小",
+        );
+        const bubble = render(<Markdown source={body} breaks />).container;
+        expect([...bubble.querySelectorAll("ol > li > blockquote")].map((q) => q.textContent)).toEqual([
+          "位置：AC-5：切到已結案 1 秒內可操作（#ac-AC-5）",
+          "位置：a [b](javascript:alert(1)) **粗** _斜_ `碼` <img onerror=x> https://evil.example/p <https://x.example> xhttps://a.example _https://e.example HTTPS://u.example（#x]`y）",
+          "整份文件",
+        ]);
+        expect([...bubble.querySelectorAll("blockquote p *")].map((el) => el.outerHTML)).toEqual([]);
+      });
+
+      it("runs the page script `ocagent upload --help` prints: comment mode outlines marked places, a click on one is a pick, selected text is reported and a click ending a selection, even on a link in a marked place, neither navigates nor picks, commented and focused places are marked, and outside comment mode a click is the page's own", async () => {
+        const { frame, toggle } = await renderPage();
+        const page = frame.contentWindow! as Window & typeof globalThis;
+        const doc = frame.contentDocument!;
+        // jsdom's postMessage leaves `source` null; a browser sets it to the sender.
+        page.postMessage = ((data: unknown) =>
+          setTimeout(() => page.dispatchEvent(new MessageEvent("message", { data, source: page.parent })))) as Window["postMessage"];
+        const top = page.parent;
+        const realPost = top.postMessage;
+        const fromScript: string[] = [];
+        const selections: unknown[] = [];
+        top.postMessage = ((data: { type: string }) => {
+          fromScript.push(data.type);
+          if (data.type === "select") selections.push(data);
+          setTimeout(() => window.dispatchEvent(new MessageEvent("message", { data, source: page })));
+        }) as Window["postMessage"];
+        const scrolled: string[] = [];
+        page.Element.prototype.scrollIntoView = function (this: HTMLElement) {
+          scrolled.push(this.dataset.ocAnchor ?? "");
+        };
+        try {
+          if (!doc.documentElement) doc.append(doc.createElement("html"));
+          doc.documentElement.replaceChildren(doc.createElement("head"), doc.createElement("body"));
+          doc.body.innerHTML =
+            '<p data-oc-anchor="ac-AC-1" data-oc-anchor-label="AC-1：忙碌">AC-1</p>' +
+            '<p data-oc-anchor="ac-AC-2"><a href="#ac-2">AC-2</a></p><p id="plain">說明</p>';
+          const script = doc.createElement("script");
+          script.textContent = snippet.replace(/^<script>\n|<\/script>\n$/g, "");
+          doc.body.append(script);
+          const marks = () =>
+            [...doc.querySelectorAll<HTMLElement>("[data-oc-anchor]")].map((el) => [
+              el.dataset.ocAnchor,
+              el.className,
+            ]);
+          const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+          await settle();
+          expect(fireEvent.click(doc.querySelector("a")!)).toBe(true);
+          await settle();
+          expect(fromScript).toEqual(["ready"]);
+
+          toggle();
+          await settle();
+          expect(marks()).toEqual([
+            ["ac-AC-1", "oc-on"],
+            ["ac-AC-2", "oc-on"],
+          ]);
+
+          expect(fireEvent.click(doc.querySelector("a")!)).toBe(false);
+          await settle();
+          saveComposed("第二條");
+          fireEvent.click(doc.getElementById("plain")!);
+          fireEvent.click(doc.querySelector("p")!);
+          await settle();
+          saveComposed("第一條");
+          await settle();
+          expect(listed()).toEqual(["位置：ac-AC-2（#ac-AC-2）1. 第二條", "位置：AC-1：忙碌（#ac-AC-1）2. 第一條"]);
+          expect(marks()).toEqual([
+            ["ac-AC-1", "oc-on oc-commented"],
+            ["ac-AC-2", "oc-on oc-commented"],
+          ]);
+
+          page.Range.prototype.getBoundingClientRect = () => new page.DOMRect(5, 6, 30, 10);
+          const link = doc.querySelector("a")!;
+          const range = doc.createRange();
+          range.selectNodeContents(link);
+          doc.getSelection()!.removeAllRanges();
+          doc.getSelection()!.addRange(range);
+          fromScript.length = 0;
+          selections.length = 0;
+          fireEvent.mouseUp(link);
+          expect(fireEvent.click(link)).toBe(false);
+          await settle();
+          expect([...new Set(fromScript)]).toEqual(["select"]);
+          expect(selections.at(-1)).toEqual({
+            ...OC,
+            type: "select",
+            text: "AC-2",
+            rect: { left: 5, top: 6, width: 30, height: 10 },
+          });
+          fireEvent.click(screen.getByRole("button", { name: "加註解" }));
+          saveComposed("連結文字");
+          doc.getSelection()!.removeAllRanges();
+          fireEvent.mouseUp(doc.body);
+          await settle();
+          expect(selections.at(-1)).toEqual({ ...OC, type: "select", text: "", rect: null });
+          expect(listed()).toEqual([
+            "位置：ac-AC-2（#ac-AC-2）1. 第二條",
+            "位置：AC-1：忙碌（#ac-AC-1）2. 第一條",
+            "AC-23. 連結文字",
+          ]);
+
+          vi.useFakeTimers();
+          fireEvent.click(screen.getAllByTestId("doc-comment")[1].querySelector(".doc-comments__goto")!);
+          await act(async () => vi.advanceTimersByTime(0));
+          expect(scrolled).toEqual(["ac-AC-1"]);
+          expect(marks()[0]).toEqual(["ac-AC-1", "oc-on oc-commented oc-focus"]);
+          await act(async () => vi.advanceTimersByTime(1500));
+          expect(marks()[0]).toEqual(["ac-AC-1", "oc-on oc-commented"]);
+          vi.useRealTimers();
+
+          toggle();
+          await settle();
+          expect(marks()).toEqual([
+            ["ac-AC-1", "oc-commented"],
+            ["ac-AC-2", "oc-commented"],
+          ]);
+          fromScript.length = 0;
+          doc.getSelection()!.addRange(range);
+          fireEvent.mouseUp(link);
+          doc.getSelection()!.removeAllRanges();
+          expect(fireEvent.click(doc.querySelector("a")!)).toBe(true);
+          fireEvent.click(doc.querySelector("p")!);
+          await settle();
+          expect(fromScript).toEqual([]);
+        } finally {
+          vi.useRealTimers();
+          top.postMessage = realPost;
+        }
+      });
     });
   });
 });

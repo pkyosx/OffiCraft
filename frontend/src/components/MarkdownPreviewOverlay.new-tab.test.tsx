@@ -1,12 +1,9 @@
-// T-36 — 「在新頁面顯示」 on the attachment preview overlay.
-//
-// The owner's request, verbatim: 「html 應該要可以點開以後 popup new window 顯示
-// 不然我都要複製以後找新的頁面貼很麻煩」 (card rc-d645ba36503d).
+// 「在新頁面顯示」 on the attachment preview overlay.
 //
 // TWO THINGS ARE PINNED HERE, and each is a separate mutant:
 //   1. the button exists at all, opens the SHARE link, target=_blank + noopener
-//      — an HTML page opened there may script (T-392), so a ?token= in its
-//      address would hand it the owner's login;
+//      — an HTML page opened there may script, so a ?token= in its address
+//      would hand it the owner's login;
 //   2. it appears ONLY where the browser would DISPLAY the file — never on one
 //      it would download, where the button would be a lie.
 //

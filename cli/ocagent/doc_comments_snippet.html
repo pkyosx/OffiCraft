@@ -1,0 +1,76 @@
+<script>
+(() => {
+  const OC = { oc: "doc-comments", v: 1 };
+  const marked = () => document.querySelectorAll("[data-oc-anchor]");
+  const style = document.createElement("style");
+  style.textContent =
+    ".oc-on[data-oc-anchor]:hover{outline:2px solid #3b82f6;cursor:pointer}" +
+    ".oc-commented[data-oc-anchor]{outline:2px solid #b7791f}" +
+    ".oc-focus[data-oc-anchor]{background:#fef3c7}";
+  document.head.append(style);
+  let on = false;
+  const selected = () => {
+    const sel = getSelection();
+    return sel && !sel.isCollapsed ? sel.toString().trim() : "";
+  };
+  addEventListener("message", (e) => {
+    const m = e.data;
+    if (e.source !== parent || !m || m.oc !== OC.oc || m.v !== OC.v) return;
+    if (m.type === "mode") on = m.on === true;
+    for (const el of marked()) {
+      const id = el.dataset.ocAnchor;
+      if (m.type === "mode") el.classList.toggle("oc-on", on);
+      if (m.type === "commented") el.classList.toggle("oc-commented", m.ids.includes(id));
+      if (m.type === "focus" && m.id === id) {
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+        el.classList.add("oc-focus");
+        setTimeout(() => el.classList.remove("oc-focus"), 1500);
+      }
+    }
+  });
+  const report = () => {
+    if (!on) return;
+    const text = selected();
+    const r = text ? getSelection().getRangeAt(0).getBoundingClientRect() : null;
+    const rect = r && { left: r.left, top: r.top, width: r.width, height: r.height };
+    parent.postMessage({ ...OC, type: "select", text, rect }, "*");
+  };
+  for (const type of ["selectionchange", "mouseup", "keyup"]) document.addEventListener(type, report);
+  const caret = (x, y) => {
+    if (document.caretPositionFromPoint) {
+      const c = document.caretPositionFromPoint(x, y);
+      return c && [c.offsetNode, c.offset];
+    }
+    const r = document.caretRangeFromPoint(x, y);
+    return r && [r.startContainer, r.startOffset];
+  };
+  // A drag that starts on a link drags the link and selects nothing.
+  let dragFrom = null;
+  addEventListener("mousedown", (e) => {
+    dragFrom = null;
+    if (!on || e.button !== 0 || !e.target.closest("a[href]")) return;
+    e.preventDefault();
+    dragFrom = caret(e.clientX, e.clientY);
+    if (dragFrom) getSelection().collapse(...dragFrom);
+  }, true);
+  addEventListener("mousemove", (e) => {
+    if (!dragFrom || !(e.buttons & 1)) return;
+    const to = caret(e.clientX, e.clientY);
+    if (to) getSelection().setBaseAndExtent(...dragFrom, ...to);
+  }, true);
+  addEventListener("mouseup", () => (dragFrom = null), true);
+  addEventListener("click", (e) => {
+    if (!on) return;
+    const selecting = selected() !== "";
+    const el = !selecting && e.target.closest("[data-oc-anchor]");
+    if (!selecting && !el) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (selecting) return;
+    const id = el.dataset.ocAnchor;
+    const label = el.dataset.ocAnchorLabel || id;
+    parent.postMessage({ ...OC, type: "pick", anchor: { id, label } }, "*");
+  }, true);
+  parent.postMessage({ ...OC, type: "ready" }, "*");
+})();
+</script>

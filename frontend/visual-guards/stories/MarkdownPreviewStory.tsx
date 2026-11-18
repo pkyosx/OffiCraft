@@ -137,3 +137,19 @@ export function JsonCommentsStory() {
     </I18nProvider>
   );
 }
+
+/** The page itself is served by the spec's page.route at the mock share link. */
+export function HtmlCommentsStory() {
+  return (
+    <I18nProvider>
+      <MarkdownPreviewOverlay
+        title="pr-702.html"
+        url="/api/chat/attachment/att-ct-html"
+        attachmentId="att-ct-html"
+        mime="text/html"
+        docComments={{ recipient: { id: "m-mira", name: "Mira", roster: "active" } }}
+        onClose={() => {}}
+      />
+    </I18nProvider>
+  );
+}

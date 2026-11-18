@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,9 @@ import (
 // in post_chat. The server ignores the request Content-Type header, so none is
 // set.
 
+//go:embed doc_comments_snippet.html
+var docCommentsSnippet string
+
 func uploadUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: ocagent upload <path>
 
@@ -29,12 +33,22 @@ the media type: .png .jpg .gif .webp .svg are images, .pdf .json .md .txt
 (including no extension) is application/octet-stream and downloads. Name the
 file with the right extension before uploading it.
 
-An .html attachment opens in its own tab and its JavaScript runs, but the page
-gets an anonymous origin, so localStorage, cookies and other browser storage
-throw SecurityError. An interactive page (a game, a report with controls) must
-work without browser storage — wrap any storage access in try/catch — and be
-opened once through its share link before you hand it over.
+An .html attachment opens as a page inside OffiCraft's document reader and its
+JavaScript runs, but the page gets an anonymous origin, so localStorage,
+cookies and other browser storage throw SecurityError. An interactive page (a
+game, a report with controls) must work without browser storage — wrap any
+storage access in try/catch — and be opened once through its share link before
+you hand it over.
 
+The owner can always comment on the whole page. With the script below pasted
+unchanged into the page, he can also comment on any text he selects in it (his
+message quotes that text) and on a part you mark, by clicking it: give an
+element data-oc-anchor="<id>" (1–128 characters, the same id in every revision
+of the page, e.g. ac-AC-5) and data-oc-anchor-label="<what a reader calls it>"
+(up to 200 characters; the id is shown when it is missing). A marked part is
+quoted as 位置：<label>（#<id>）.
+
+`+docCommentsSnippet+`
 stdout on success, two lines:
   line 1  the attachment id (att-…)
   line 2  the server's JSON for it: {"id": …, "mime": …, "filename": …}

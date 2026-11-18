@@ -20,6 +20,9 @@
 // Every assertion measures GEOMETRY (rects, computed style) — never "is the
 // class attached". A stylesheet that carries the class names and lays out wrong
 // passes a class-name assertion and fails these.
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import {
@@ -29,6 +32,7 @@ import {
   MarkdownPreviewImageCommentsStory,
   PlainTextCommentsStory,
   JsonCommentsStory,
+  HtmlCommentsStory,
 } from "./stories/MarkdownPreviewStory";
 
 /** The phone width owner reads the cockpit at (iPhone 13 CSS pixels). */
@@ -490,7 +494,7 @@ async function commentOnSelection(page: Page, text: string, comment: string) {
   await page.mouse.down();
   await page.mouse.move(box.x + box.width - 2, box.y + box.height - 4, { steps: 8 });
   await page.mouse.up();
-  const add = page.getByRole("button", { name: "加註解" });
+  const add = page.getByRole("button", { name: "加註解", exact: true });
   await expect(add).toBeVisible();
   const geometry = await page.evaluate(() => {
     const r = document.querySelector(".doc-comments__float")!.getBoundingClientRect();
@@ -624,7 +628,7 @@ for (const size of [NARROW, WIDE]) {
       await img.scrollIntoViewIfNeeded();
       if (size === NARROW) await img.tap();
       else await img.click();
-      const add = page.getByRole("button", { name: "加註解" });
+      const add = page.getByRole("button", { name: "加註解", exact: true });
       await expect(add).toBeVisible();
       const float = await add.evaluate((el) => {
         const r = el.getBoundingClientRect();
@@ -669,7 +673,7 @@ for (const size of [NARROW, WIDE]) {
       const commentWholeParagraph = async (text: string, comment: string) => {
         await paragraph(text).scrollIntoViewIfNeeded();
         await paragraph(text).click({ clickCount: 3 });
-        await page.getByRole("button", { name: "加註解" }).click();
+        await page.getByRole("button", { name: "加註解", exact: true }).click();
         await page.getByRole("textbox", { name: "註解內容" }).fill(comment);
         await page.getByRole("button", { name: "儲存" }).click();
       };
@@ -712,7 +716,7 @@ for (const size of [NARROW, WIDE]) {
       await img.scrollIntoViewIfNeeded();
       if (size === NARROW) await img.tap();
       else await img.click();
-      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("button", { name: "加註解", exact: true }).click();
       await page.getByRole("textbox", { name: "註解內容" }).fill("箭頭方向反了");
       await page.getByRole("button", { name: "儲存" }).click();
       await settleLayout(page);
@@ -747,7 +751,7 @@ for (const size of [NARROW, WIDE]) {
         sel.addRange(range);
         document.dispatchEvent(new MouseEvent("mouseup"));
       });
-      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("button", { name: "加註解", exact: true }).click();
       await page.getByRole("textbox", { name: "註解內容" }).fill("開頭再短一點");
       await page.getByRole("button", { name: "儲存" }).click();
       await expect(page.getByRole("button", { name: "前往註解：下圖是", exact: true })).toBeVisible();
@@ -795,7 +799,7 @@ for (const size of [NARROW, WIDE]) {
         await collapse.click();
         await expect(list).toBeHidden();
         await paragraph("圖後面的說明文字").click({ clickCount: 3 });
-        await page.getByRole("button", { name: "加註解" }).click();
+        await page.getByRole("button", { name: "加註解", exact: true }).click();
         await expect(page.getByRole("textbox", { name: "註解內容" })).toBeVisible();
         await page.getByRole("button", { name: "取消" }).click();
         await collapse.click();
@@ -859,7 +863,7 @@ test("390: a log with a long unbroken line stays inside the page, and a selected
     document.getSelection()!.removeAllRanges();
     document.getSelection()!.addRange(range);
   });
-  const add = page.getByRole("button", { name: "加註解" });
+  const add = page.getByRole("button", { name: "加註解", exact: true });
   await expect(add).toBeVisible();
   const float = await add.evaluate((el) => {
     const r = el.getBoundingClientRect();
@@ -883,7 +887,7 @@ test("390: a log with a long unbroken line stays inside the page, and a selected
   ).toBe(0);
 
   await tripleClickLastLine(page, pre);
-  await page.getByRole("button", { name: "加註解" }).click();
+  await page.getByRole("button", { name: "加註解", exact: true }).click();
   await page.getByRole("textbox", { name: "註解內容" }).fill("結束也要記");
   await page.getByRole("button", { name: "儲存" }).click();
   expect(
@@ -913,7 +917,7 @@ for (const size of [NARROW, WIDE]) {
       await expect(page.getByRole("heading", { name: "目標" })).toBeVisible();
       await page.getByRole("button", { name: "註解" }).click();
       await tripleClickLastLine(page, page.locator(".md-preview__md blockquote p"));
-      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("button", { name: "加註解", exact: true }).click();
       await page.getByRole("textbox", { name: "註解內容" }).fill("改成可下載");
       await page.getByRole("button", { name: "儲存" }).click();
       expect(
@@ -937,7 +941,7 @@ for (const size of [NARROW, WIDE]) {
         document.getSelection()!.addRange(range);
       });
       await page.waitForTimeout(50);
-      await expect(page.getByRole("button", { name: "加註解" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "加註解", exact: true })).toHaveCount(0);
     });
 
     test("of a JSON file offers 加註解 and comments exactly that line", async ({ mount, page }) => {
@@ -948,7 +952,7 @@ for (const size of [NARROW, WIDE]) {
       await expect(pre).toContainText('"port": 5241');
       await page.getByRole("button", { name: "註解" }).click();
       await tripleClickLastLine(page, pre);
-      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("button", { name: "加註解", exact: true }).click();
       await page.getByRole("textbox", { name: "註解內容" }).fill("少了逗號");
       await page.getByRole("button", { name: "儲存" }).click();
       expect(
@@ -957,3 +961,194 @@ for (const size of [NARROW, WIDE]) {
     });
   });
 }
+
+const SNIPPET = fs.readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "../../cli/ocagent/doc_comments_snippet.html"),
+  "utf8",
+);
+const PAGE =
+  "<!doctype html><html><head><meta charset=utf-8></head><body>" +
+  '<h1>PR #702</h1><p data-oc-anchor="ac-AC-1" data-oc-anchor-label="AC-1：忙碌">AC-1</p>' +
+  '<p data-oc-anchor="ac-AC-2"><span>AC-2</span></p>' +
+  '<a href="https://example.test/linked" target="_blank">外部連結</a>' +
+  "<button onclick=\"window.open('https://example.test/opened')\">開新視窗</button>" +
+  SNIPPET +
+  "</body></html>";
+/** What server/ocserverd/api_chat.go sends with an HTML blob requested by its sig alone. */
+const SIG_ONLY_HTML_CSP = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox";
+
+for (const size of [NARROW, WIDE]) {
+  test(`${size.width}: an HTML page fills the body in a frame it cannot escape, and its marked places and any text selected on it, link text included, take comments through the help-text script`, async ({
+    mount,
+    page,
+  }) => {
+    await page.route("**/api/chat/attachment/att-ct-html?sig=*", (route) =>
+      route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        headers: { "content-security-policy": SIG_ONLY_HTML_CSP },
+        body: PAGE,
+      }),
+    );
+    await page.setViewportSize(size);
+    await page.addInitScript(() => localStorage.clear());
+    await mount(<HtmlCommentsStory />);
+    const frame = page.frameLocator("iframe.md-preview__frame");
+    await expect(frame.getByRole("heading", { name: "PR #702" })).toBeVisible();
+    await settleLayout(page);
+
+    const box = await page.evaluate(() => {
+      const body = document.querySelector(".md-preview__body")!.getBoundingClientRect();
+      const el = document.querySelector("iframe")!.getBoundingClientRect();
+      return { bodyBottom: body.bottom, frameBottom: el.bottom, frameHeight: el.height, viewport: innerHeight };
+    });
+    expect(box.frameHeight).toBeGreaterThan(box.viewport / 2);
+    expect(box.frameBottom).toBeLessThanOrEqual(box.bodyBottom);
+
+    const reach = await page
+      .frames()
+      .find((f) => f.url().includes("att-ct-html"))!
+      .evaluate(() => {
+        const tries = {
+          parentDocument: () => window.parent.document.title,
+          storage: () => window.localStorage.length,
+        };
+        return Object.fromEntries(
+          Object.entries(tries).map(([k, f]) => {
+            try {
+              f();
+              return [k, "reached"];
+            } catch {
+              return [k, "blocked"];
+            }
+          }),
+        );
+      });
+    expect(reach).toEqual({ parentDocument: "blocked", storage: "blocked" });
+
+    await page.getByRole("button", { name: "註解" }).click();
+    const marked = frame.locator("[data-oc-anchor]");
+    await expect(marked.first()).toHaveClass("oc-on");
+    await frame.getByText("AC-2").click();
+    await page.getByRole("textbox", { name: "註解內容" }).fill("補一條測試");
+    await page.getByRole("button", { name: "儲存" }).click();
+    await frame.getByText("AC-1").click();
+    await page.getByRole("textbox", { name: "註解內容" }).fill("1 秒怎麼量");
+    await page.getByRole("button", { name: "儲存" }).click();
+    expect(await page.getByTestId("doc-comment").locator(".doc-comments__excerpt").allTextContents()).toEqual([
+      "位置：ac-AC-2（#ac-AC-2）",
+      "位置：AC-1：忙碌（#ac-AC-1）",
+    ]);
+    await expect(marked.nth(1)).toHaveClass("oc-on oc-commented");
+
+    await page.getByTestId("doc-comment").nth(1).locator(".doc-comments__goto").click();
+    await expect(marked.first()).toHaveClass("oc-on oc-commented oc-focus");
+    await expect(marked.first()).toHaveClass("oc-on oc-commented");
+
+    const tabs = page.context().pages().length;
+    const link = (await frame.getByRole("link", { name: "外部連結" }).boundingBox())!;
+    const midY = link.y + link.height / 2;
+    await page.mouse.move(link.x + 1, midY);
+    await page.mouse.down();
+    await page.mouse.move(link.x + link.width - 1, midY, { steps: 8 });
+    await page.mouse.up();
+    const add = page.getByRole("button", { name: "加註解", exact: true });
+    await expect(add).toBeVisible();
+    const float = await page.evaluate(() => {
+      const r = document.querySelector(".doc-comments__float")!.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, vw: innerWidth, vh: innerHeight };
+    });
+    expect(float.left).toBeGreaterThanOrEqual(0);
+    expect(float.right).toBeLessThanOrEqual(float.vw);
+    expect(float.top).toBeGreaterThanOrEqual(link.y + link.height);
+    expect(float.top).toBeLessThanOrEqual(link.y + link.height + 16);
+    await add.click();
+    await page.getByRole("textbox", { name: "註解內容" }).fill("連結壞了");
+    await page.getByRole("button", { name: "儲存" }).click();
+    expect(await page.getByTestId("doc-comment").locator(".doc-comments__excerpt").allTextContents()).toEqual([
+      "位置：ac-AC-2（#ac-AC-2）",
+      "位置：AC-1：忙碌（#ac-AC-1）",
+      "外部連結",
+    ]);
+    await page.waitForTimeout(200);
+    expect(page.context().pages().length).toBe(tabs);
+    const pageFrame = page.frames().find((f) => f.url().includes("att-ct-html"))!;
+    for (const rect of [
+      { left: -5000, top: -5000, width: 10, height: 10 },
+      { left: 99999, top: 99999, width: 10, height: 10 },
+      { left: -50, top: 2000, width: 1e6, height: 1e6 },
+    ]) {
+      await pageFrame.evaluate(
+        (r) => parent.postMessage({ oc: "doc-comments", v: 1, type: "select", text: "外部連結", rect: r }, "*"),
+        rect,
+      );
+      await expect(add).toBeVisible();
+      const placed = await page.evaluate(() => {
+        const box = (sel: string) => {
+          const r = document.querySelector(sel)!.getBoundingClientRect();
+          return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+        };
+        return { float: box(".doc-comments__float"), frame: box("iframe.md-preview__frame") };
+      });
+      expect(placed.float.left, JSON.stringify(rect)).toBeGreaterThanOrEqual(placed.frame.left);
+      expect(placed.float.right, JSON.stringify(rect)).toBeLessThanOrEqual(placed.frame.right);
+      expect(placed.float.top, JSON.stringify(rect)).toBeGreaterThanOrEqual(placed.frame.top);
+      expect(placed.float.bottom, JSON.stringify(rect)).toBeLessThanOrEqual(placed.frame.bottom);
+    }
+  });
+}
+
+test("an HTML page's links and window.open open a new tab, and that tab can neither navigate OffiCraft nor pick for it", async ({
+  mount,
+  page,
+}) => {
+  await page.route("**/api/chat/attachment/att-ct-html?sig=*", (route) =>
+    route.fulfill({
+      contentType: "text/html; charset=utf-8",
+      headers: { "content-security-policy": SIG_ONLY_HTML_CSP },
+      body: PAGE,
+    }),
+  );
+  await page.context().route("https://example.test/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<!doctype html><title>外站</title>" }),
+  );
+  await page.setViewportSize(WIDE);
+  await page.addInitScript(() => localStorage.clear());
+  await mount(<HtmlCommentsStory />);
+  const frame = page.frameLocator("iframe.md-preview__frame");
+  await expect(frame.getByRole("heading", { name: "PR #702" })).toBeVisible();
+  const studio = page.url();
+
+  const [linked] = await Promise.all([
+    page.context().waitForEvent("page"),
+    frame.getByRole("link", { name: "外部連結" }).click(),
+  ]);
+  await linked.waitForLoadState();
+  expect(linked.url()).toBe("https://example.test/linked");
+
+  const [opened] = await Promise.all([
+    page.context().waitForEvent("page"),
+    frame.getByRole("button", { name: "開新視窗" }).click(),
+  ]);
+  await opened.waitForLoadState();
+  expect(opened.url()).toBe("https://example.test/opened");
+
+  await page.getByRole("button", { name: "註解", exact: true }).click();
+  const fromPopup = await opened.evaluate(() => {
+    const out: string[] = [];
+    try {
+      window.opener.top.location = "https://example.test/hijacked";
+      out.push("navigated");
+    } catch {
+      out.push("navigation blocked");
+    }
+    window.opener.parent.postMessage(
+      { oc: "doc-comments", v: 1, type: "pick", anchor: { id: "ac-AC-1", label: "AC-1" } },
+      "*",
+    );
+    return out;
+  });
+  expect(fromPopup).toEqual(["navigation blocked"]);
+  await page.waitForTimeout(200);
+  expect(page.url()).toBe(studio);
+  await expect(page.getByRole("textbox", { name: "註解內容" })).toHaveCount(0);
+});

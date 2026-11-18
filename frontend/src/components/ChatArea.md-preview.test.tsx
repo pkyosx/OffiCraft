@@ -280,7 +280,7 @@ describe("chat message links to a stored attachment", () => {
     "1. 原文：",
     "   > 圖片：[架構圖.png](/api/chat/attachment/att-bbbbbbbbbbbb)",
     "",
-    "   註解：看 [規格](https://example.com/spec)，以及 [架構圖](/api/chat/attachment/att-cccccccccccc)、[流程圖](/api/chat/attachment/att-dddddddddddd)",
+    "   註解：看 [規格](https://example.com/spec)，以及 [架構圖](/api/chat/attachment/att-cccccccccccc)、[流程圖](/api/chat/attachment/att-dddddddddddd)、[導覽.html](/api/chat/attachment/att-eeeeeeeeeeee)",
   ].join("\n");
 
   function readingTheCommentMessage() {
@@ -524,6 +524,21 @@ describe("chat message links to a stored attachment", () => {
     );
     expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
+  });
+
+  it("shows an .html link's page in a sandboxed frame from its share link, typed by its link text's extension, with comments for the room's peer", async () => {
+    const { link } = readingTheCommentMessage();
+    fireEvent.click(link("導覽.html"));
+    await waitFor(() => expect(overlay()?.querySelector("iframe")).toBeTruthy());
+    const frame = overlay()!.querySelector("iframe")!;
+    expect([frame.getAttribute("src"), frame.getAttribute("sandbox")]).toEqual([
+      `${window.location.origin}/api/chat/attachment/x?sig=s`,
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    ]);
+    expect(api.getChatAttachmentShareLink).toHaveBeenCalledWith("att-eeeeeeeeeeee");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+    expect(document.body.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
   });
 
   it("asks the server for the type once when the link text has no extension, loading meanwhile, and shows the image it answers", async () => {

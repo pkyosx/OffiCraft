@@ -495,6 +495,13 @@ const REGISTRY = [
       "end of the 1.5s flash on a listed comment or a document passage; clear only the panel's own state or a mark it set, and are cleared in the effect's cleanup",
   },
   {
+    file: "lib/docCommentFrame.ts",
+    kind: "addEventListener",
+    count: 1,
+    verdict:
+      "an HTML page's postMessage; only messages from the iframe mounted now count (a new attachment's page gets a new iframe), they write only the overlay's or its comment panel's own state, and the listener is removed on unmount",
+  },
+  {
     file: "components/MarkdownPreviewOverlay.tsx",
     kind: "JSX onLoad/onError",
     count: 1,

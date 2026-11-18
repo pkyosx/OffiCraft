@@ -817,8 +817,10 @@ export interface paths {
          *     no-store``, ``Referrer-Policy: no-referrer``) — a page that may script can read
          *     its own address, and a ``?token=`` there is the opener's whole login. The same
          *     blob requested by ``?sig=`` alone is served ``Content-Security-Policy: sandbox
-         *     allow-scripts`` with ``Referrer-Policy: no-referrer``: its script runs in an
-         *     opaque origin with no reach into this one. Requested with an Authorization
+         *     allow-scripts allow-popups allow-popups-to-escape-sandbox`` with
+         *     ``Referrer-Policy: no-referrer``: its script runs in an opaque origin with no
+         *     reach into this one, and its links and ``window.open`` may open a new tab
+         *     (still no same-origin, top navigation or forms). Requested with an Authorization
          *     header it keeps plain ``sandbox``. Every other type keeps plain ``sandbox``
          *     under every credential.
          *
