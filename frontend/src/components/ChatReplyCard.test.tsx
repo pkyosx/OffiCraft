@@ -28,7 +28,13 @@ import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
 import type { Member } from "../types";
 import type { ChatMessage, ReplyCard } from "../api/adapter";
 import { api } from "../api";
-import { __resetMock, __injectMockReplyCard } from "../api/mock";
+import {
+  __resetMock,
+  __injectMockReplyCard,
+  __setMockSuggestedRepliesReplyCard,
+  mockApi,
+} from "../api/mock";
+import { WithChatSuggestedReplies } from "../test/chatSuggestedReplies";
 
 // The ChatArea integration test drives the thread through a mocked useChat
 // (the same harness as the other ChatArea test files); the direct
@@ -133,6 +139,37 @@ function captureSseCallback(): () => void {
 }
 
 describe("ChatReplyCard", () => {
+  it("in the chat thread, an open waiting card's answer box offers its author's sentences first, then the reply-card ones, each once", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬", "收到，照這樣做"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做", "先擱著，這週不碰"]);
+    __injectMockReplyCard(mkCard({}));
+    messages = [
+      {
+        id: "msg-1",
+        from: "mira",
+        to: "owner",
+        body: "要幫你寄出這封信嗎？",
+        ts: 1000,
+        attachments: [],
+        replyCardId: "rc-1",
+      },
+    ];
+    const { container, findByTestId } = render(
+      <I18nProvider>
+        <WithChatSuggestedReplies>
+          <ChatArea member={mkMember()} members={[mkMember()]} />
+        </WithChatSuggestedReplies>
+      </I18nProvider>
+    );
+    fireEvent.click(await findByTestId("chat-reply-card-expand"));
+    const card = container.querySelector('[data-testid="chat-reply-card"]')!;
+    await waitFor(() =>
+      expect(
+        [...card.querySelectorAll('[data-testid="reply-suggested-replies"] button')].map((b) => b.textContent)
+      ).toEqual(["Mira 專屬", "收到，照這樣做", "先擱著，這週不碰"])
+    );
+  });
+
   it("renders inline in the chat thread as a card: chips (the ai_pick one tagged) + composer, no close/skip", async () => {
     __injectMockReplyCard(mkCard({}));
     messages = [

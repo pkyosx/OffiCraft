@@ -1,5 +1,6 @@
-/** The chips in one chat room: the member's own sentences first, then the
- * all-member ones, with identical text shown once. */
+/** The chips under a box that talks to one member (their chat room, or a reply
+ * card they opened): that member's own sentences first, then the box's shared
+ * list, with identical text shown once. */
 export function mergeChatSuggestedReplies(
   own: readonly string[],
   allMembers: readonly string[],

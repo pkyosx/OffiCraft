@@ -546,6 +546,7 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 四份建議回覆也不在那張表裡，而且是**一個訊息框一格、不是共用一格**（owner 裁定：任務跟請示卡要是不同的參數設定；T-33 依同一條裁定加上傳承那一格，聊天室那一格是所有成員共用）：
 DB 四個 key（`suggested_replies.reply_card` / `suggested_replies.task_message` / `suggested_replies.lore_message` / `suggested_replies.chat`）、wire 四個平的頂層欄位，
 所以「只改其中一份」是一次寫入，不是對一個共用 blob 的 read-modify-write。清單為空是合法值。
+存是一格一份，顯示不一定只讀一格：請示卡回覆框（聊天內嵌、請示頁、任務卡內嵌三處相同）先列開卡成員（`card.from`）的成員專屬建議回覆（`GET /api/chat/suggested-replies`），再列 `suggestedRepliesReplyCard`，相同文字只顯示一次；開卡的是 owner、名冊上沒有的 id 或沒有專屬句子時只列 `suggestedRepliesReplyCard`。
 每個參數的意義與範圍見 [docs/guide/settings.md](../guide/settings.md)。
 
 ### 6.6 主題

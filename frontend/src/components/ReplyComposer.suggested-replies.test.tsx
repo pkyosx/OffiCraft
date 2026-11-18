@@ -13,16 +13,25 @@ import {
   __resetMock,
   __setMockSuggestedRepliesReplyCard,
   __setMockSuggestedRepliesTaskMessage,
+  mockApi,
 } from "../api/mock";
+import { WithChatSuggestedReplies } from "../test/chatSuggestedReplies";
 import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 import * as shared from "../hooks/sharedServerSettings";
 
 const onSend = vi.fn(() => Promise.resolve());
 
-function renderComposer() {
+function renderComposer(authorId?: string) {
   const utils = render(
     <I18nProvider>
-      <ReplyComposer draftKey="reply-card:rc-1:answer" placeholder="輸入回覆…" onSend={onSend} />
+      <WithChatSuggestedReplies>
+        <ReplyComposer
+          draftKey="reply-card:rc-1:answer"
+          authorId={authorId}
+          placeholder="輸入回覆…"
+          onSend={onSend}
+        />
+      </WithChatSuggestedReplies>
     </I18nProvider>
   );
   const input = utils.container.querySelector(
@@ -58,6 +67,64 @@ describe("ReplyComposer 建議回覆", () => {
     expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
       ["收到，照這樣做", "先擱著，這週不碰"]
     );
+  });
+
+  it("on a card a member opened, shows that member's own sentences first, then the reply-card ones", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬", "照你的建議"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做", "先擱著，這週不碰"]);
+    const { findByTestId } = renderComposer("mira");
+    const row = await findByTestId("reply-suggested-replies");
+    await waitFor(() =>
+      expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
+        ["Mira 專屬", "照你的建議", "收到，照這樣做", "先擱著，這週不碰"]
+      )
+    );
+  });
+
+  it("when the author's sentence is also on the reply-card list, shows it once, in the author's position", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["收到，照這樣做", "Mira 專屬"]);
+    __setMockSuggestedRepliesReplyCard(["先擱著，這週不碰", "收到，照這樣做"]);
+    const { findByTestId } = renderComposer("mira");
+    const row = await findByTestId("reply-suggested-replies");
+    await waitFor(() =>
+      expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
+        ["收到，照這樣做", "Mira 專屬", "先擱著，這週不碰"]
+      )
+    );
+  });
+
+  it("on a card the owner opened, shows only the reply-card list", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
+    const { findByTestId } = renderComposer("owner");
+    const row = await findByTestId("reply-suggested-replies");
+    await settleRealTime();
+    expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["收到，照這樣做"]);
+  });
+
+  it("on a card whose author has no sentences of their own, shows only the reply-card list", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做"]);
+    const { findByTestId } = renderComposer("leo");
+    const row = await findByTestId("reply-suggested-replies");
+    await settleRealTime();
+    expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["收到，照這樣做"]);
+  });
+
+  it("with only the author's own sentences and an empty reply-card list, still shows the author's", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬"]);
+    const { findByTestId } = renderComposer("mira");
+    const row = await findByTestId("reply-suggested-replies");
+    expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Mira 專屬"]);
+  });
+
+  it("clicking one of the author's sentences puts it in the input and sends NOTHING", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬"]);
+    const { findByText, input } = renderComposer("mira");
+    fireEvent.click(await findByText("Mira 專屬"));
+    expect(input.value).toBe("Mira 專屬");
+    await settleRealTime();
+    expect(onSend).not.toHaveBeenCalled();
   });
 
   it("reads the REPLY-CARD list, never the task-message one", async () => {

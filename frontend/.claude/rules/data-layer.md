@@ -54,6 +54,10 @@ owner unread 只由共享的 lib/ownerUnread.ts 判定：chat.to 或 chat_read.r
 
 舊 GET 不得覆寫已採用的 patch。onboarding: null 是正常終態；running 在 set-password 前要先持久化，輪詢直到 failed/success，讀取錯誤也要繼續輪詢。
 
+## 成員專屬的聊天室建議回覆
+
+`useChatSuggestedReplies`（`GET /api/chat/suggested-replies`，全體成員一份）只在 App 掛一次，經 `ChatSuggestedRepliesProvider` 給整棵樹；聊天室（OfficePage）與請示卡回覆框（`ReplyComposer`，依 `card.from`）都讀 `useChatSuggestedRepliesContext`，不要在頁面或卡片裡再掛一次 hook（會多一支讀取，且 ChatArea 畫面時不准碰 api）。沒有 provider 時等同「還沒讀到」：沒有句子、也沒有編輯入口。元件測試要句子時包 `src/test/chatSuggestedReplies.tsx` 的 `WithChatSuggestedReplies`；它也會訂閱事件，所以 mock `subscribeEvents` 抓「最後一個訂閱者」的測試不要包它。
+
 ## owner 的顯示名字
 
 `t.user` 是**主題**給「人類」的預設稱謂（預設「CEO（你）」、仙俠主題「市長（你）」），**不是 owner 設的名字**。owner 真正的暱稱在 server（`/api/settings` 的 `owner_name`），由 `useOwnerName` 讀。凡是把 owner 當**參與者**畫出來的面（聊天區 `nameOf` 的 owner 分支、文件歷史的修改者列），一律讀 `useOwnerDisplayName(t.user)`，不可直接印 `t.user` —— 兩種畫法並存時，同一個人會在同一個畫面上有兩個名字（2026-08-22 owner 實機回報）。

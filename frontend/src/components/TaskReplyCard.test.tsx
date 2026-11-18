@@ -13,7 +13,13 @@ import { I18nProvider } from "../i18n";
 import { TaskReplyCard } from "./TaskReplyCard";
 import type { ReplyCard } from "../api/adapter";
 import { api } from "../api";
-import { __resetMock, __injectMockReplyCard } from "../api/mock";
+import {
+  __resetMock,
+  __injectMockReplyCard,
+  __setMockSuggestedRepliesReplyCard,
+  mockApi,
+} from "../api/mock";
+import { WithChatSuggestedReplies } from "../test/chatSuggestedReplies";
 
 function mkCard(over: Partial<ReplyCard>): ReplyCard {
   return {
@@ -33,6 +39,9 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
     ...over,
   };
 }
+
+const replyChips = (root: ParentNode) =>
+  [...root.querySelectorAll('[data-testid="reply-suggested-replies"] button')].map((b) => b.textContent);
 
 function renderCard(id = "rc-1") {
   return render(
@@ -79,6 +88,23 @@ describe("TaskReplyCard", () => {
     fireEvent.click(getByText("在聊天室回覆"));
 
     expect(window.location.hash).toBe("#office/chat/mira/msg/msg-1");
+  });
+
+  it("a waiting card's answer box offers its author's sentences first, then the reply-card ones, each once", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬", "收到，照這樣做"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做", "先擱著，這週不碰"]);
+    __injectMockReplyCard(mkCard({}));
+    const { findByTestId } = render(
+      <I18nProvider>
+        <WithChatSuggestedReplies>
+          <TaskReplyCard replyCardId="rc-1" />
+        </WithChatSuggestedReplies>
+      </I18nProvider>
+    );
+    const card = await findByTestId("task-reply-card");
+    await waitFor(() =>
+      expect(replyChips(card)).toEqual(["Mira 專屬", "收到，照這樣做", "先擱著，這週不碰"])
+    );
   });
 
   it("an ALREADY-answered card ignores an unrelated reply_card SSE delta (no refetch storm)", async () => {

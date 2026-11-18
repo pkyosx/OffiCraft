@@ -10,7 +10,7 @@ import { useMonitoring } from "../hooks/useMonitoring";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useChatGroups } from "../hooks/useChatGroups";
-import { useChatSuggestedReplies } from "../hooks/useChatSuggestedReplies";
+import { useChatSuggestedRepliesContext } from "../hooks/useChatSuggestedReplies";
 import { useSuggestedRepliesChat } from "../hooks/useSuggestedReplies";
 import { layoutTab, tabGroups } from "../lib/chatGroups";
 import type { ChatTab } from "../lib/chatGroups";
@@ -242,7 +242,7 @@ export function OfficePage({
   // the outsource chat peers — a worker id rides the SAME chatId hash slot).
   const outsource = useOutsourceWorkers();
 
-  const chatSuggestedReplies = useChatSuggestedReplies();
+  const chatSuggestedReplies = useChatSuggestedRepliesContext();
   const allMemberSuggestedReplies = useSuggestedRepliesChat();
 
   // Sidebar display order (and the desktop default chat below); the

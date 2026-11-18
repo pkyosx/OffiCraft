@@ -37,6 +37,7 @@ import { InlineEdit } from "./components/InlineEdit";
 import { PushNotifications } from "./components/PushNotifications";
 import { useOrgName } from "./hooks/useOrgName";
 import { OwnerNameProvider, useOwnerName } from "./hooks/useOwnerName";
+import { ChatSuggestedRepliesProvider, useChatSuggestedReplies } from "./hooks/useChatSuggestedReplies";
 import { useReplyCardCount } from "./hooks/useReplyCardCount";
 import { useChatUnread } from "./hooks/useChatUnread";
 import { useTaskCount } from "./hooks/useTaskCount";
@@ -76,6 +77,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   // The owner nickname is server-backed too (T-0b41), so the topbar pill syncs
   // across devices; t.user is the fallback until the fetch lands / when unset.
   const { ownerName: userName, setOwnerName } = useOwnerName(t.user);
+  const chatSuggestedReplies = useChatSuggestedReplies();
   // No 備份健康 indicator in the topbar (T-5e71, owner 2026-08-02): the backup
   // verdict now lives in Settings › 系統更新與備份 next to the software update
   // it belongs with. The topbar carries no status lights.
@@ -256,6 +258,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     // say the same name the pill does (T-4e95 — he set 「韓立」 and the thread
     // was still printing the theme's default word for the human).
     <OwnerNameProvider value={userName}>
+    <ChatSuggestedRepliesProvider value={chatSuggestedReplies}>
     {/* A compare link anywhere in the studio's markdown opens the comparison
         IN PLACE, over whatever the reader was reading (T-59). Mounted at the
         root because the links live in chat bubbles, reply cards, task cards and
@@ -516,6 +519,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     </div>
     </AttachmentModalHost>
     </DiffModalHost>
+    </ChatSuggestedRepliesProvider>
     </OwnerNameProvider>
   );
 }
