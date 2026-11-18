@@ -23561,7 +23561,7 @@
     },
     "/api/tasks": {
       "get": {
-        "description": "- Light rows: no steps, description or inputs; call get_task for those.\n- ?status=: one of six states; anything else is 400.\n- ?statuses=: a SET of states; also accepts \"reassigning\", which matches the handover LOCK.\n- ?ids=: a SET of task ids; unknown ids are just absent.\n- ?executor=: an id, or `outsource` / `unassigned`; ?type=: a type_key. Filters are ANDed.\n- current_step_id/name are \"\" when there is no plan or all steps finished: no current step.",
+        "description": "- Light rows: no steps, description or inputs; call get_task for those.\n- ?status=: one of six states; anything else is 400.\n- ?statuses=: a SET of states; also accepts \"reassigning\", which matches the handover LOCK.\n- ?ids=: a SET of task ids; unknown ids are just absent.\n- ?executor=: an id, or `outsource` / `unassigned`; ?type=: a type_key. Filters are ANDed.\n- The 任務 page's params (?executors=, ?types=, ?due=, ?q=, ?group_by= + ?lane=, ?limit= + ?offset=) are ANDed too; with limit, offset or group_by the rows come in page order, else oldest created first.\n- current_step_id/name are \"\" when there is no plan or all steps finished: no current step.",
         "operationId": "handle_list_tasks_api_tasks_get",
         "parameters": [
           {
@@ -23909,7 +23909,7 @@
     },
     "/api/tasks/count": {
       "get": {
-        "description": "- Counts open (non-terminal) tasks only; terminal ones are not counted.\n- A nav-badge convenience, not exposed as an agent tool.",
+        "description": "- The badge fields (open, overdue, due_soon, due_next_change_ts) count open tasks only and ignore every param; total is every task.\n- The list_* fields, executor_counts and lanes describe the GET /api/tasks list for the same filter params (the 任務 page's counts).\n- A cockpit convenience, not exposed as an agent tool.",
         "operationId": "handle_task_count_api_tasks_count_get",
         "parameters": [
           {
