@@ -233,6 +233,31 @@ describe("useTasks (T-a3e4)", () => {
     expect(result.current.tasks.map((t) => t.id)).toEqual(["t-done"]);
   });
 
+  it("after an SSE-triggered full read failed, a named task delta → a FULL read of the set, whose rows replace the list", async () => {
+    h.listTasks.mockResolvedValueOnce([row("t-a")]);
+    const { result } = renderHook(() => useTasks(NON_TERMINAL));
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1));
+
+    h.listTasks.mockRejectedValueOnce(new Error("500"));
+    act(() => h.sseHandler?.("task", { topic: "task", names: {}, ids: [] }));
+    await waitFor(() => expect(h.listTasks).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    h.listTasks.mockResolvedValueOnce([row("t-a"), row("t-b")]);
+    act(() => h.sseHandler?.("task", taskDelta("t-b")));
+    await waitFor(() => expect(result.current.tasks).toHaveLength(2));
+
+    expect(h.listTasks.mock.calls.map((c) => c[0])).toEqual([
+      { statuses: [...NON_TERMINAL].sort() },
+      { statuses: [...NON_TERMINAL].sort() },
+      { statuses: [...NON_TERMINAL].sort() },
+    ]);
+    expect(result.current.tasks.map((t) => t.id)).toEqual(["t-a", "t-b"]);
+    expect(result.current.error).toBe(false);
+  });
+
   it("a member delta → refreshes the worker roster and reads no task list", async () => {
     const { result } = renderHook(() => useTasks(NON_TERMINAL));
     await waitFor(() => expect(h.listOutsourceWorkers).toHaveBeenCalledTimes(1));
