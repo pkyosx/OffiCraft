@@ -6,17 +6,22 @@
 import { OWNER_ID } from "./ownerUnread";
 import { isSyntheticSender } from "./syntheticSender";
 
-/** A comment on a passage (`excerpt`) or on an image. Text comments carry no
- * `kind`, which is also the shape drafts were stored in before images could
- * be commented on. */
+/** A comment on a passage (`excerpt`), an image, a place an HTML page marked
+ * (`anchorId`/`label`, named by the page) or the whole document. Text comments
+ * carry no `kind`, which is also the shape drafts were stored in before images
+ * could be commented on. */
 export type DocComment =
   | { id: string; comment: string; kind?: undefined; excerpt: string }
-  | { id: string; comment: string; kind: "image"; alt: string; src: string };
+  | { id: string; comment: string; kind: "image"; alt: string; src: string }
+  | { id: string; comment: string; kind: "anchor"; anchorId: string; label: string }
+  | { id: string; comment: string; kind: "document" };
 
 /** What a new comment is about, before it has a comment. */
 export type DocCommentAnchor =
   | { kind: "text"; excerpt: string }
-  | { kind: "image"; alt: string; src: string };
+  | { kind: "image"; alt: string; src: string }
+  | { kind: "anchor"; id: string; label: string }
+  | { kind: "document" };
 
 /** Who the comments go to, resolved by the surface that opened the document. */
 export interface DocCommentRecipient {
@@ -74,6 +79,8 @@ function isDocComment(value: unknown): value is DocComment {
   const c = value as Record<string, unknown>;
   if (typeof c.id !== "string" || typeof c.comment !== "string") return false;
   if (c.kind === "image") return typeof c.alt === "string" && typeof c.src === "string";
+  if (c.kind === "anchor") return typeof c.anchorId === "string" && typeof c.label === "string";
+  if (c.kind === "document") return true;
   return c.kind === undefined && typeof c.excerpt === "string";
 }
 
@@ -158,6 +165,11 @@ function quoteLines(c: DocComment): string[] {
     const label = c.alt.trim() || imageShortName(c.src);
     return [`   > 圖片：[${escapeLinkText(label)}](${linkTarget(c.src)})`];
   }
+  if (c.kind === "anchor") {
+    const flat = (text: string) => escapeLinkText(text.replace(/\s+/g, " ").trim());
+    return [`   > 位置：${flat(c.label)}（#${flat(c.anchorId)}）`];
+  }
+  if (c.kind === "document") return ["   > 整份文件"];
   return excerptLines(c.excerpt).map((l) => (l === "" ? "   >" : `   > ${l}`));
 }
 

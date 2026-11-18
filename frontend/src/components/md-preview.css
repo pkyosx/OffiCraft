@@ -555,6 +555,25 @@
 
 /* A commentable document: the body beside its comment panel, stacked on a
  * phone (DocComments.tsx owns the panel). */
+/* An HTML page has no height of its own to give the panel, so the panel takes
+ * its full cap and the frame fills the body. */
+.md-preview__panel--frame {
+  height: 100%;
+  height: calc(100dvh - 64px);
+}
+.md-preview__body--frame {
+  display: flex;
+  overflow: hidden;
+}
+.md-preview__frame {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: 8px;
+}
+.md-preview__content--commenting > .md-preview__body--frame {
+  padding-right: 20px;
+}
 .md-preview__content {
   display: flex;
   flex: 1;

@@ -10,7 +10,11 @@ import { AttachmentOpenerContext, type AttachmentOpener } from "../hooks/useAtta
 import { attachmentMimeForName } from "../lib/attachmentMime";
 import type { AttachmentLink } from "../lib/attachmentLink";
 import type { DocCommentTarget } from "../lib/docComments";
-import { MarkdownPreviewOverlay, isPreviewableTextAttachment } from "./MarkdownPreviewOverlay";
+import {
+  MarkdownPreviewOverlay,
+  isHtmlAttachment,
+  isPreviewableTextAttachment,
+} from "./MarkdownPreviewOverlay";
 
 const OCTET_STREAM = "application/octet-stream";
 
@@ -21,7 +25,9 @@ function sameTarget(a: DocCommentTarget | undefined, b: DocCommentTarget | undef
 }
 
 function previewable(mime: string, name: string): boolean {
-  return mime.startsWith("image/") || isPreviewableTextAttachment(mime, name);
+  return (
+    mime.startsWith("image/") || isHtmlAttachment(mime) || isPreviewableTextAttachment(mime, name)
+  );
 }
 
 /** The serve route's Content-Type for the blob, without its bytes. */

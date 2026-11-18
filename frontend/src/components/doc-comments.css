@@ -192,6 +192,9 @@ img[data-doc-comment-focus] {
   color: var(--color-accent);
   font-weight: 600;
 }
+.doc-comments__whole {
+  flex: none;
+}
 .doc-comments__btn:disabled {
   opacity: 0.5;
   cursor: default;

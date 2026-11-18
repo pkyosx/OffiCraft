@@ -1,0 +1,38 @@
+<script>
+(() => {
+  const OC = { oc: "doc-comments", v: 1 };
+  const marked = () => document.querySelectorAll("[data-oc-anchor]");
+  const style = document.createElement("style");
+  style.textContent =
+    ".oc-on[data-oc-anchor]:hover{outline:2px solid #3b82f6;cursor:pointer}" +
+    ".oc-commented[data-oc-anchor]{outline:2px solid #b7791f}" +
+    ".oc-focus[data-oc-anchor]{background:#fef3c7}";
+  document.head.append(style);
+  let on = false;
+  addEventListener("message", (e) => {
+    const m = e.data;
+    if (e.source !== parent || !m || m.oc !== OC.oc || m.v !== OC.v) return;
+    if (m.type === "mode") on = m.on === true;
+    for (const el of marked()) {
+      const id = el.dataset.ocAnchor;
+      if (m.type === "mode") el.classList.toggle("oc-on", on);
+      if (m.type === "commented") el.classList.toggle("oc-commented", m.ids.includes(id));
+      if (m.type === "focus" && m.id === id) {
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+        el.classList.add("oc-focus");
+        setTimeout(() => el.classList.remove("oc-focus"), 1500);
+      }
+    }
+  });
+  addEventListener("click", (e) => {
+    const el = on && e.target.closest("[data-oc-anchor]");
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const id = el.dataset.ocAnchor;
+    const label = el.dataset.ocAnchorLabel || id;
+    parent.postMessage({ ...OC, type: "pick", anchor: { id, label } }, "*");
+  }, true);
+  parent.postMessage({ ...OC, type: "ready" }, "*");
+})();
+</script>

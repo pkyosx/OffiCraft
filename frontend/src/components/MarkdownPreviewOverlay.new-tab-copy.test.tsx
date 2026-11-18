@@ -1,12 +1,8 @@
-// T-36 — WHAT THE OWNER ACTUALLY SEES on the preview overlay once the
-// 「在新頁面顯示」 button exists. The button itself, its href and its gate are
-// pinned by MarkdownPreviewOverlay.new-tab.test.tsx; this file pins the
-// product-facing regression that survived it:
-//
-//   B1  Opening an .html put 「此檔案無法預覽，請下載」 in the biggest, most
-//       central spot on the screen — while the ticket's own words were 「不然我
-//       都要複製以後找新的頁面貼很麻煩」. The body copy must point at the
-//       button, not back at 下載.
+// WHAT THE OWNER SEES in the body of the preview overlay for a file it cannot
+// draw but the header's 「在新頁面顯示」 can open (a .pdf). The button itself,
+// its href and its gate are pinned by MarkdownPreviewOverlay.new-tab.test.tsx.
+// The body copy must point at the button, not back at 下載: the owner's words
+// were 「不然我都要複製以後找新的頁面貼很麻煩」.
 //
 // The overlay PORTALS to document.body (T-76cd): every reach goes through
 // `document.body` / `screen`, never render()'s container.
@@ -42,18 +38,18 @@ function mintOk() {
     .mockResolvedValue("/api/chat/attachment/att-36?sig=test-sig");
 }
 
-describe("T-36 B1 — the .html body copy points at the button, not at 下載", () => {
+describe("the body copy of a file shown only in a new tab points at the button, not at 下載", () => {
   const realFetch = globalThis.fetch;
   afterEach(() => {
     globalThis.fetch = realFetch;
     vi.restoreAllMocks();
   });
 
-  it("does NOT tell the reader to download an html attachment that has a new-tab button", async () => {
+  it("does NOT tell the reader to download a pdf attachment that has a new-tab button", async () => {
     mintOk();
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
 
-    mountOverlay("text/html", "mock.html");
+    mountOverlay("application/pdf", "report.pdf");
 
     // The button really is there — otherwise 「請下載」 would be the honest line
     // and this test would be pinning the wrong thing.
@@ -61,7 +57,7 @@ describe("T-36 B1 — the .html body copy points at the button, not at 下載", 
     const status = document.body.querySelector(STATUS);
     expect(
       status !== null && status.textContent === zh.chat.mdPreview.unavailable
-        ? "T-36 B1 REGRESSION: the HTML preview is still telling the owner to " +
+        ? "REGRESSION: the pdf preview is still telling the owner to " +
           "DOWNLOAD the file (「此檔案無法預覽，請下載」) in the largest, most " +
           "central line on screen — while a 「在新頁面顯示」 button sits in the " +
           "header right above it. His words on this ticket were 「不然我都要複製" +
@@ -87,12 +83,15 @@ describe("T-36 B1 — the .html body copy points at the button, not at 下載", 
     );
   });
 
-  it("falls back to 請下載 when the share link could not be minted", async () => {
+  it.each([
+    ["application/pdf", "report.pdf"],
+    ["text/html", "mock.html"],
+  ])("falls back to 請下載 on a %s attachment when the share link could not be minted", async (mime, title) => {
     vi.spyOn(api, "getChatAttachmentShareLink").mockRejectedValue(new Error("boom"));
     vi.spyOn(console, "warn").mockImplementation(() => {});
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
 
-    mountOverlay("text/html", "mock.html");
+    mountOverlay(mime, title);
 
     await waitFor(() =>
       expect(vi.mocked(console.warn).mock.calls.length).toBeGreaterThan(0),
@@ -103,6 +102,7 @@ describe("T-36 B1 — the .html body copy points at the button, not at 下載", 
       ),
     );
     expect(document.body.querySelector(NEW_TAB)).toBeNull();
+    expect(document.body.querySelector("iframe")).toBeNull();
   });
 
   it("ships the new line in BOTH locales, and it names no internal jargon", () => {

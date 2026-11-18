@@ -1,6 +1,7 @@
 // components/DocComments.tsx — comment mode of the document preview: select
-// text (or tap an image) in the rendered document, attach a comment to it, and
-// send every comment to the AI as one chat message.
+// text (or tap an image) in the rendered document, or pick a place an HTML page
+// marked, attach a comment to it, and send every comment to the AI as one chat
+// message.
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
@@ -16,6 +17,7 @@ import {
   locateImage,
   saveDocCommentDraft,
 } from "../lib/docComments";
+import { postToFrame, useFrameMessages } from "../lib/docCommentFrame";
 import { placeUnderSelection, rangeInside } from "../lib/selectionFloat";
 import type { DocComment, DocCommentAnchor, DocCommentTarget } from "../lib/docComments";
 import "./doc-comments.css";
@@ -205,9 +207,16 @@ function useDocImagePick(docRef: RefObject<HTMLElement | null>, active: boolean)
 
 function newComment(anchor: DocCommentAnchor, comment: string): DocComment {
   const id = newCommentId();
-  return anchor.kind === "image"
-    ? { id, kind: "image", alt: anchor.alt, src: anchor.src, comment }
-    : { id, excerpt: anchor.excerpt, comment };
+  switch (anchor.kind) {
+    case "image":
+      return { id, kind: "image", alt: anchor.alt, src: anchor.src, comment };
+    case "anchor":
+      return { id, kind: "anchor", anchorId: anchor.id, label: anchor.label, comment };
+    case "document":
+      return { id, kind: "document", comment };
+    case "text":
+      return { id, excerpt: anchor.excerpt, comment };
+  }
 }
 
 /** A bubble's name has to tell its passage apart from the other bubbles'. */
@@ -215,14 +224,23 @@ function bubbleExcerpt(c: DocComment, imageExcerpt: (name: string) => string): s
   const text =
     c.kind === "image"
       ? imageExcerpt(c.alt.trim() || imageShortName(c.src))
-      : c.excerpt.replace(/\s+/g, " ").trim();
+      : c.kind === undefined
+        ? c.excerpt.replace(/\s+/g, " ").trim()
+        : "";
   return text.length > BUBBLE_NAME_CHARS ? `${text.slice(0, BUBBLE_NAME_CHARS)}…` : text;
 }
 
 function anchorOf(c: DocComment): DocCommentAnchor {
-  return c.kind === "image"
-    ? { kind: "image", alt: c.alt, src: c.src }
-    : { kind: "text", excerpt: c.excerpt };
+  switch (c.kind) {
+    case "image":
+      return { kind: "image", alt: c.alt, src: c.src };
+    case "anchor":
+      return { kind: "anchor", id: c.anchorId, label: c.label };
+    case "document":
+      return { kind: "document" };
+    case undefined:
+      return { kind: "text", excerpt: c.excerpt };
+  }
 }
 
 export function DocCommentPanel({
@@ -232,6 +250,8 @@ export function DocCommentPanel({
   docRef,
   docReady,
   imagePickable,
+  frameRef,
+  frameReady = 0,
   onSent,
 }: {
   attachmentId: string;
@@ -242,6 +262,12 @@ export function DocCommentPanel({
   docReady: boolean;
   /** Whether the body can show images, i.e. whether a click on one is a pick. */
   imagePickable: boolean;
+  /** The iframe an HTML document is shown in. Its page is another origin, so
+   * nothing here can select, locate or mark inside it: comments come from the
+   * places the page itself reports as picked. */
+  frameRef?: RefObject<HTMLIFrameElement | null>;
+  /** Counts the page's `ready` messages; 0 ⇒ the page never said it takes picks. */
+  frameReady?: number;
   onSent: () => void;
 }) {
   const { t } = useI18n();
@@ -252,8 +278,9 @@ export function DocCommentPanel({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [unlocated, setUnlocated] = useState<Set<string>>(new Set());
-  const [selection, clearSelection] = useDocSelection(docRef, docReady);
-  const [imagePick, clearImagePick] = useDocImagePick(docRef, docReady && imagePickable);
+  const framed = frameRef !== undefined;
+  const [selection, clearSelection] = useDocSelection(docRef, docReady && !framed);
+  const [imagePick, clearImagePick] = useDocImagePick(docRef, docReady && imagePickable && !framed);
   const pick = selection ?? imagePick;
   const floatRef = useRef<HTMLButtonElement>(null);
   const composeRef = useRef<HTMLTextAreaElement>(null);
@@ -272,14 +299,36 @@ export function DocCommentPanel({
     saveDocCommentDraft(attachmentId, next);
   }
 
+  const noFrame = useRef<HTMLIFrameElement | null>(null);
+  const frame = frameRef ?? noFrame;
+  useFrameMessages(frame, framed, (message) => {
+    if (message.type !== "pick") return;
+    setCollapsed(false);
+    setComposing({ anchor: { kind: "anchor", ...message.anchor }, text: "" });
+  });
+
+  useEffect(() => {
+    if (frameReady === 0) return;
+    const el = frame.current;
+    postToFrame(el, { type: "mode", on: true });
+    return () => postToFrame(el, { type: "mode", on: false });
+  }, [frame, frameReady]);
+
+  useEffect(() => {
+    if (frameReady === 0) return;
+    const ids = [...new Set(comments.flatMap((c) => (c.kind === "anchor" ? [c.anchorId] : [])))];
+    postToFrame(frame.current, { type: "commented", ids });
+  }, [frame, frameReady, comments]);
+
   useEffect(() => {
     const root = docRef.current;
-    if (!docReady || !root) return;
+    if (!docReady || !root || framed) return;
     const ranges: Range[] = [];
     const images: HTMLImageElement[] = [];
     const missing = new Set<string>();
     const at = new Map<string, Located>();
     for (const c of comments) {
+      if (c.kind === "anchor" || c.kind === "document") continue;
       if (c.kind === "image") {
         const found = locateImage(root, c.src);
         if (found.length > 0) {
@@ -306,7 +355,7 @@ export function DocCommentPanel({
       for (const img of images) img.removeAttribute(IMAGE_MARK);
       hl?.registry.delete(HIGHLIGHT_NAME);
     };
-  }, [comments, docReady, docRef]);
+  }, [comments, docReady, docRef, framed]);
 
   useEffect(() => {
     if (!flashId) return;
@@ -346,10 +395,17 @@ export function DocCommentPanel({
     setFlashId({ id });
   }, []);
 
-  function showInDocument(id: string) {
-    const at = located.get(id);
+  function showInDocument(c: DocComment) {
+    if (c.kind === "anchor") {
+      postToFrame(frame.current, { type: "focus", id: c.anchorId });
+      return;
+    }
+    const at = located.get(c.id);
     if (at) setFocused({ at });
   }
+
+  const showable = (c: DocComment) =>
+    c.kind === "anchor" ? framed && frameReady > 0 : located.has(c.id);
 
   useLayoutEffect(() => {
     const el = floatRef.current;
@@ -366,10 +422,10 @@ export function DocCommentPanel({
     if (composing) composeRef.current?.focus();
   }, [composing]);
 
-  function startComposing() {
-    if (!pick) return;
+  function startComposing(anchor: DocCommentAnchor | undefined = pick?.anchor) {
+    if (!anchor) return;
     setCollapsed(false);
-    setComposing({ anchor: pick.anchor, text: "" });
+    setComposing({ anchor, text: "" });
     document.getSelection()?.removeAllRanges();
     clearSelection();
     clearImagePick();
@@ -448,6 +504,13 @@ export function DocCommentPanel({
         </button>
       </div>
       <div className="doc-comments__list" id={listId} ref={listRef}>
+        <button
+          type="button"
+          className="doc-comments__btn doc-comments__whole"
+          onClick={() => startComposing({ kind: "document" })}
+        >
+          {tc.addWholeDocument}
+        </button>
         {composing && (
           <div className="doc-comments__item doc-comments__item--compose">
             <Excerpt anchor={composing.anchor} />
@@ -476,7 +539,9 @@ export function DocCommentPanel({
           </div>
         )}
         {comments.length === 0 && !composing && (
-          <p className="doc-comments__empty">{imagePickable ? tc.empty : tc.emptyTextOnly}</p>
+          <p className="doc-comments__empty">
+            {framed ? tc.emptyFrame : imagePickable ? tc.empty : tc.emptyTextOnly}
+          </p>
         )}
         {comments.map((c, i) => (
           <div
@@ -485,12 +550,12 @@ export function DocCommentPanel({
             data-testid="doc-comment"
             data-comment-id={c.id}
           >
-            {located.has(c.id) ? (
+            {showable(c) ? (
               <button
                 type="button"
                 className="doc-comments__goto"
                 title={tc.showInDocument}
-                onClick={() => showInDocument(c.id)}
+                onClick={() => showInDocument(c)}
               >
                 <Excerpt anchor={anchorOf(c)} />
               </button>
@@ -612,7 +677,7 @@ export function DocCommentPanel({
           className="doc-comments__float"
           onPointerDown={(e) => e.preventDefault()}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={startComposing}
+          onClick={() => startComposing()}
         >
           <PencilIcon size={13} />
           {tc.add}
@@ -624,11 +689,16 @@ export function DocCommentPanel({
 
 function Excerpt({ anchor }: { anchor: DocCommentAnchor }) {
   const { t } = useI18n();
+  const tc = t.chat.mdPreview.comments;
   return (
     <span className="doc-comments__excerpt">
       {anchor.kind === "image"
-        ? t.chat.mdPreview.comments.imageExcerpt(anchor.alt.trim() || imageShortName(anchor.src))
-        : anchor.excerpt}
+        ? tc.imageExcerpt(anchor.alt.trim() || imageShortName(anchor.src))
+        : anchor.kind === "anchor"
+          ? tc.anchorExcerpt(anchor.label, anchor.id)
+          : anchor.kind === "document"
+            ? tc.wholeDocument
+            : anchor.excerpt}
     </span>
   );
 }

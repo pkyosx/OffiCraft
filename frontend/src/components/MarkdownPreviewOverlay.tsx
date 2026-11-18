@@ -12,7 +12,8 @@
 //
 // FOUR SOURCE MODES (one surface, still not four):
 //   - `url`      — a stored blob, fetched as text (or rendered as an image when
-//                  its mime says so). It carries a REQUIRED `attachmentId`, so
+//                  its mime says so, or as a page in a sandboxed iframe when it
+//                  is HTML). It carries a REQUIRED `attachmentId`, so
 //                  the header keeps both blob actions: the copyable share link
 //                  and the 下載 link.
 //   - `source`   — text the caller ALREADY holds (a chat message body). Nothing
@@ -72,6 +73,7 @@ import { DiffScreen } from "./DiffScreen";
 import { DiffShareLinkButton } from "./DiffShareLinkButton";
 import { DocCommentPanel } from "./DocComments";
 import type { DocCommentTarget } from "../lib/docComments";
+import { useFrameMessages } from "../lib/docCommentFrame";
 import { Markdown } from "./Markdown";
 import "./md-preview.css";
 import {
@@ -159,7 +161,7 @@ type MarkdownPreviewOverlayProps = {
       /** The stored blob kind decides the body renderer. Omitted keeps the
        * original markdown-file contract for existing callers. */
       mime?: string;
-      /** Offers comment mode on a text document (markdown, plain text, JSON); absent ⇒ no 註解 toggle. */
+      /** Offers comment mode on a document (markdown, plain text, JSON, HTML); absent ⇒ no 註解 toggle. */
       docComments?: DocCommentTarget;
       /** The caller is still finding out what `mime` is: show the loading
        * state and fetch nothing until it says. */
@@ -237,15 +239,17 @@ export function MarkdownPreviewOverlay({
   const [failed, setFailed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
-  // T-36 — the share link, resolved AHEAD of the click so the 「在新頁面顯示」
-  // control can be a real <a target="_blank">. It cannot be built here: the
-  // ?sig= credential is minted by the server, and the two ways to open a tab
-  // after an await are both worse — a popup blocker eats a late `window.open`,
-  // and the `window.open("", "_blank")`-then-navigate trick has to keep the
-  // opener handle, which is exactly what `rel="noopener"` is here to deny.
+  // The share link, resolved AHEAD of the click so the 「在新頁面顯示」 control
+  // can be a real <a target="_blank">, and so an HTML body has an address to
+  // load. It cannot be built here: the ?sig= credential is minted by the
+  // server, and the two ways to open a tab after an await are both worse — a
+  // popup blocker eats a late `window.open`, and the
+  // `window.open("", "_blank")`-then-navigate trick has to keep the opener
+  // handle, which is exactly what `rel="noopener"` is here to deny.
   // null = no link to offer (not minted yet, or the mint failed): the anchor is
   // then absent rather than pointing at a URL that would 404.
   const [shareHref, setShareHref] = useState<string | null>(null);
+  const [shareFailed, setShareFailed] = useState(false);
   // The text to render. An inline source is authoritative and synchronous — it
   // never passes through the loading/error states, which only describe a fetch.
   const image = imageSrc !== undefined || (mime?.startsWith("image/") ?? false);
@@ -260,16 +264,15 @@ export function MarkdownPreviewOverlay({
   // fire for it, and it must not fall into `unavailable`, which is the "this
   // overlay cannot draw these bytes" state.
   const diff = diffParams !== undefined;
-  const unavailable = url !== undefined && !image && !previewableText;
-  // T-36 — WHOSE CALL IS "opens in a tab"? THE SERVER'S. This mirrors
-  // api_chat.go's isPreviewableAttachment, which is what decides between
+  const html = url !== undefined && isHtmlAttachment(mime ?? "text/markdown");
+  const unavailable = url !== undefined && !image && !previewableText && !html;
+  // WHOSE CALL IS "opens in a tab"? THE SERVER'S. This mirrors api_chat.go's
+  // isPreviewableAttachment, which is what decides between
   // `Content-Disposition: inline` and `attachment` on the serve route. Offering
   // 「在新頁面顯示」 on anything else would be a lie: the browser would download
   // the file instead of showing it, and the button would look broken.
-  // Deliberately WIDER than `previewableText` above (which gates what THIS
-  // overlay renders in-panel, and stays narrow on purpose) — a .html or a .pdf
-  // still cannot be drawn here, but the browser can show it perfectly well in a
-  // tab of its own, and that is the whole request.
+  // Deliberately WIDER than what this overlay draws: a .pdf cannot be drawn
+  // here, but the browser can show it perfectly well in a tab of its own.
   const inlineInBrowser =
     attachmentId !== undefined && isInlineDisplayableMime(mime ?? "text/markdown");
   const plainText = previewableText && !isMarkdownAttachment(mime ?? "text/markdown", typeName);
@@ -278,17 +281,26 @@ export function MarkdownPreviewOverlay({
   // says why it is missing when the bytes will not parse.
   const jsonAttachment = plainText && isJsonAttachment(mime ?? "text/markdown", typeName);
   const source = inlineSource ?? fetched;
-  // Which bodies take comments: anything with a text-selection or image-pick
-  // surface inside `bodyRef` can, so widening it is this one condition.
+  // Which bodies take comments: a text-selection or image-pick surface inside
+  // `bodyRef`, or an HTML page that reports its own picks (DocCommentPanel's
+  // frame mode).
   const commentable =
     docComments !== undefined &&
     attachmentId !== undefined &&
     url !== undefined &&
     !image &&
     !typePending &&
-    previewableText;
+    (previewableText || html);
   const [commenting, setCommenting] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  // Counts the page's `ready` messages: a page that navigates inside its frame
+  // says ready again, and comment mode has to be re-sent to the new page.
+  const [frameReady, setFrameReady] = useState(0);
+  useEffect(() => setFrameReady(0), [shareHref]);
+  useFrameMessages(frameRef, html && shareHref !== null, (message) => {
+    if (message.type === "ready") setFrameReady((n) => n + 1);
+  });
   const [zoom, setZoom] = useState(1);
   // The bytes the header's 下載 link points at. A stored blob needs the ?token=
   // gate; a staged data: URI already IS the bytes. An inline text `source` has
@@ -368,7 +380,7 @@ export function MarkdownPreviewOverlay({
   // download/thumbnail paths use). A non-ok response / network error surfaces
   // the honest error state, never a blank render.
   useEffect(() => {
-    if (url === undefined || image || unavailable || typePending) return;
+    if (url === undefined || image || unavailable || html || typePending) return;
     let alive = true;
     setFetched(null);
     setFailed(false);
@@ -387,18 +399,16 @@ export function MarkdownPreviewOverlay({
     return () => {
       alive = false;
     };
-  }, [url, image, unavailable, diff, typePending]);
+  }, [url, image, unavailable, html, diff, typePending]);
 
-  // Mint the share link for the tab anchor. Only for an attachment the browser
-  // would actually DISPLAY — a downloadable one gets no anchor, so it needs no
-  // link either.
+  // Mint the share link for the tab anchor (and an HTML body's frame). Only
+  // for an attachment the browser would actually DISPLAY — a downloadable one
+  // gets no anchor, so it needs no link either.
   useEffect(() => {
-    if (attachmentId === undefined || !inlineInBrowser) {
-      setShareHref(null);
-      return;
-    }
-    let alive = true;
     setShareHref(null);
+    setShareFailed(false);
+    if (attachmentId === undefined || !inlineInBrowser) return;
+    let alive = true;
     attachmentShareLinkUrl(attachmentId)
       .then((href) => {
         if (alive) setShareHref(href);
@@ -406,6 +416,7 @@ export function MarkdownPreviewOverlay({
       .catch((e) => {
         // No link, no anchor. Never a half-built href.
         console.warn("MarkdownPreviewOverlay: share link for new tab failed", e);
+        if (alive) setShareFailed(true);
       });
     return () => {
       alive = false;
@@ -710,7 +721,7 @@ export function MarkdownPreviewOverlay({
   }, []);
 
   const body = (
-    <div className="md-preview__body" ref={bodyRef}>
+    <div className={"md-preview__body" + (html ? " md-preview__body--frame" : "")} ref={bodyRef}>
       {image && imageBytes !== undefined ? (
         <div className="md-preview__image-viewport">
           <div
@@ -765,13 +776,30 @@ export function MarkdownPreviewOverlay({
             </button>
           </div>
         </div>
+      ) : html ? (
+        shareHref !== null ? (
+          /* No allow-same-origin: the page is agent-written script, and with
+           * it the frame would run on the studio's origin with the owner's
+           * stored token in reach. The share link's own CSP sandbox applies
+           * on top. Anything that has to reach into the page goes through
+           * lib/docCommentFrame's messages. */
+          <iframe
+            ref={frameRef}
+            className="md-preview__frame"
+            title={title}
+            src={shareHref}
+            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+          />
+        ) : (
+          <div className="md-preview__status">
+            {shareFailed ? t.chat.mdPreview.unavailable : t.chat.mdPreview.loading}
+          </div>
+        )
       ) : unavailable ? (
-        /* 🔴 T-36 (B1) — DO NOT SEND HIM BACK TO THE THING HE COMPLAINED
-         * ABOUT. This overlay cannot DRAW an .html (that contract stays
-         * narrow on purpose), but there is now a button in the header that
-         * opens it, and the biggest, most central line on the screen must
-         * point AT that button rather than at 下載 — the owner's own words
-         * for this ticket were 「不然我都要複製以後找新的頁面貼很麻煩」.
+        /* 🔴 DO NOT SEND HIM BACK TO THE THING HE COMPLAINED ABOUT. A file
+         * this overlay cannot draw (a .pdf) but the header's 「在新頁面顯示」
+         * can open must point AT that button rather than at 下載 — the
+         * owner's words were 「不然我都要複製以後找新的頁面貼很麻煩」.
          * 「請下載」 survives only where there is genuinely no button: a
          * file the browser would download anyway, or a mint that failed.
          * The line follows the BUTTON, not the mime: while the share link
@@ -867,7 +895,10 @@ export function MarkdownPreviewOverlay({
       aria-label={title}
       onClick={onClose}
     >
-      <div className="md-preview__panel" onClick={(e) => e.stopPropagation()}>
+      <div
+        className={"md-preview__panel" + (html ? " md-preview__panel--frame" : "")}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="md-preview__header">
           <span className="md-preview__title">
             <FileTextIcon size={16} />
@@ -960,10 +991,8 @@ export function MarkdownPreviewOverlay({
                 )}
               </button>
             )}
-            {/* T-36 — 「在新頁面顯示」: the owner's own words were 「html 應該要可以
-             * 點開以後 popup new window 顯示 不然我都要複製以後找新的頁面貼很
-             * 麻煩」. It opens the SHARE link (the ?sig= credential), not the
-             * ?token= authed URL the download uses — a whole owner session
+            {/* 「在新頁面顯示」 opens the SHARE link (the ?sig= credential), not
+             * the ?token= authed URL the download uses — a whole owner session
              * token has no business sitting in another tab's address bar.
              * Present only when the browser would show the file rather than
              * download it (see `inlineInBrowser`). */}
@@ -1042,7 +1071,8 @@ export function MarkdownPreviewOverlay({
         {commentable ? (
           <div
             className={
-              "md-preview__content" + (commenting ? " md-preview__content--commenting" : "")
+              "md-preview__content" +
+              (commenting ? " md-preview__content--commenting" : "")
             }
           >
             {body}
@@ -1053,8 +1083,10 @@ export function MarkdownPreviewOverlay({
                 filename={typeName}
                 target={docComments}
                 docRef={bodyRef}
-                docReady={!failed && source !== null}
-                imagePickable={!plainText}
+                docReady={html ? shareHref !== null : !failed && source !== null}
+                imagePickable={!plainText && !html}
+                frameRef={html ? frameRef : undefined}
+                frameReady={frameReady}
                 onSent={onClose}
               />
             )}
@@ -1100,14 +1132,22 @@ export function isInlineDisplayableMime(mime: string): boolean {
   );
 }
 
-/** The stored text formats supported by the shared attachment modal. Keep this
- * narrow: HTML/PDF and arbitrary text/* remain outside this preview contract. */
+/** The stored text formats this overlay fetches and draws itself. Keep this
+ * narrow: arbitrary text/* stays outside it, and HTML is not drawn from its
+ * text at all (see `isHtmlAttachment`). */
 export function isPreviewableTextAttachment(mime: string, filename: string): boolean {
   return (
     isMarkdownAttachment(mime, filename) ||
     /\.(txt|log)$/i.test(filename) ||
     isJsonAttachment(mime, filename)
   );
+}
+
+/** HTML by its served type: the page is loaded from the serve route in a
+ * sandboxed iframe, so only what the server sends as text/html will show as a
+ * page there. */
+export function isHtmlAttachment(mime: string): boolean {
+  return mime.split(";")[0]!.trim().toLowerCase() === "text/html";
 }
 
 /** JSON by declared type, or by a .json suffix when the MIME is generic. */

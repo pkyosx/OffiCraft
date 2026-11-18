@@ -20,6 +20,9 @@
 // Every assertion measures GEOMETRY (rects, computed style) — never "is the
 // class attached". A stylesheet that carries the class names and lays out wrong
 // passes a class-name assertion and fails these.
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import {
@@ -29,6 +32,7 @@ import {
   MarkdownPreviewImageCommentsStory,
   PlainTextCommentsStory,
   JsonCommentsStory,
+  HtmlCommentsStory,
 } from "./stories/MarkdownPreviewStory";
 
 /** The phone width owner reads the cockpit at (iPhone 13 CSS pixels). */
@@ -490,7 +494,7 @@ async function commentOnSelection(page: Page, text: string, comment: string) {
   await page.mouse.down();
   await page.mouse.move(box.x + box.width - 2, box.y + box.height - 4, { steps: 8 });
   await page.mouse.up();
-  const add = page.getByRole("button", { name: "加註解" });
+  const add = page.getByRole("button", { name: "加註解", exact: true });
   await expect(add).toBeVisible();
   const geometry = await page.evaluate(() => {
     const r = document.querySelector(".doc-comments__float")!.getBoundingClientRect();
@@ -624,7 +628,7 @@ for (const size of [NARROW, WIDE]) {
       await img.scrollIntoViewIfNeeded();
       if (size === NARROW) await img.tap();
       else await img.click();
-      const add = page.getByRole("button", { name: "加註解" });
+      const add = page.getByRole("button", { name: "加註解", exact: true });
       await expect(add).toBeVisible();
       const float = await add.evaluate((el) => {
         const r = el.getBoundingClientRect();
@@ -669,7 +673,7 @@ for (const size of [NARROW, WIDE]) {
       const commentWholeParagraph = async (text: string, comment: string) => {
         await paragraph(text).scrollIntoViewIfNeeded();
         await paragraph(text).click({ clickCount: 3 });
-        await page.getByRole("button", { name: "加註解" }).click();
+        await page.getByRole("button", { name: "加註解", exact: true }).click();
         await page.getByRole("textbox", { name: "註解內容" }).fill(comment);
         await page.getByRole("button", { name: "儲存" }).click();
       };
@@ -712,7 +716,7 @@ for (const size of [NARROW, WIDE]) {
       await img.scrollIntoViewIfNeeded();
       if (size === NARROW) await img.tap();
       else await img.click();
-      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("button", { name: "加註解", exact: true }).click();
       await page.getByRole("textbox", { name: "註解內容" }).fill("箭頭方向反了");
       await page.getByRole("button", { name: "儲存" }).click();
       await settleLayout(page);
@@ -747,7 +751,7 @@ for (const size of [NARROW, WIDE]) {
         sel.addRange(range);
         document.dispatchEvent(new MouseEvent("mouseup"));
       });
-      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("button", { name: "加註解", exact: true }).click();
       await page.getByRole("textbox", { name: "註解內容" }).fill("開頭再短一點");
       await page.getByRole("button", { name: "儲存" }).click();
       await expect(page.getByRole("button", { name: "前往註解：下圖是", exact: true })).toBeVisible();
@@ -795,7 +799,7 @@ for (const size of [NARROW, WIDE]) {
         await collapse.click();
         await expect(list).toBeHidden();
         await paragraph("圖後面的說明文字").click({ clickCount: 3 });
-        await page.getByRole("button", { name: "加註解" }).click();
+        await page.getByRole("button", { name: "加註解", exact: true }).click();
         await expect(page.getByRole("textbox", { name: "註解內容" })).toBeVisible();
         await page.getByRole("button", { name: "取消" }).click();
         await collapse.click();
@@ -859,7 +863,7 @@ test("390: a log with a long unbroken line stays inside the page, and a selected
     document.getSelection()!.removeAllRanges();
     document.getSelection()!.addRange(range);
   });
-  const add = page.getByRole("button", { name: "加註解" });
+  const add = page.getByRole("button", { name: "加註解", exact: true });
   await expect(add).toBeVisible();
   const float = await add.evaluate((el) => {
     const r = el.getBoundingClientRect();
@@ -883,7 +887,7 @@ test("390: a log with a long unbroken line stays inside the page, and a selected
   ).toBe(0);
 
   await tripleClickLastLine(page, pre);
-  await page.getByRole("button", { name: "加註解" }).click();
+  await page.getByRole("button", { name: "加註解", exact: true }).click();
   await page.getByRole("textbox", { name: "註解內容" }).fill("結束也要記");
   await page.getByRole("button", { name: "儲存" }).click();
   expect(
@@ -913,7 +917,7 @@ for (const size of [NARROW, WIDE]) {
       await expect(page.getByRole("heading", { name: "目標" })).toBeVisible();
       await page.getByRole("button", { name: "註解" }).click();
       await tripleClickLastLine(page, page.locator(".md-preview__md blockquote p"));
-      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("button", { name: "加註解", exact: true }).click();
       await page.getByRole("textbox", { name: "註解內容" }).fill("改成可下載");
       await page.getByRole("button", { name: "儲存" }).click();
       expect(
@@ -937,7 +941,7 @@ for (const size of [NARROW, WIDE]) {
         document.getSelection()!.addRange(range);
       });
       await page.waitForTimeout(50);
-      await expect(page.getByRole("button", { name: "加註解" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "加註解", exact: true })).toHaveCount(0);
     });
 
     test("of a JSON file offers 加註解 and comments exactly that line", async ({ mount, page }) => {
@@ -948,12 +952,92 @@ for (const size of [NARROW, WIDE]) {
       await expect(pre).toContainText('"port": 5241');
       await page.getByRole("button", { name: "註解" }).click();
       await tripleClickLastLine(page, pre);
-      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("button", { name: "加註解", exact: true }).click();
       await page.getByRole("textbox", { name: "註解內容" }).fill("少了逗號");
       await page.getByRole("button", { name: "儲存" }).click();
       expect(
         await page.getByTestId("doc-comment").locator(".doc-comments__excerpt").allTextContents(),
       ).toEqual(["}"]);
     });
+  });
+}
+
+const SNIPPET = fs.readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "../../cli/ocagent/doc_comments_snippet.html"),
+  "utf8",
+);
+const PAGE =
+  "<!doctype html><html><head><meta charset=utf-8></head><body>" +
+  '<h1>PR #702</h1><p data-oc-anchor="ac-AC-1" data-oc-anchor-label="AC-1：忙碌">AC-1</p>' +
+  '<p data-oc-anchor="ac-AC-2"><span>AC-2</span></p>' +
+  SNIPPET +
+  "</body></html>";
+
+for (const size of [NARROW, WIDE]) {
+  test(`${size.width}: an HTML page fills the body in a frame it cannot escape, and its marked places take comments through the help-text script`, async ({
+    mount,
+    page,
+  }) => {
+    await page.route("**/api/chat/attachment/att-ct-html?sig=*", (route) =>
+      route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        headers: { "content-security-policy": "sandbox allow-scripts" },
+        body: PAGE,
+      }),
+    );
+    await page.setViewportSize(size);
+    await page.addInitScript(() => localStorage.clear());
+    await mount(<HtmlCommentsStory />);
+    const frame = page.frameLocator("iframe.md-preview__frame");
+    await expect(frame.getByRole("heading", { name: "PR #702" })).toBeVisible();
+    await settleLayout(page);
+
+    const box = await page.evaluate(() => {
+      const body = document.querySelector(".md-preview__body")!.getBoundingClientRect();
+      const el = document.querySelector("iframe")!.getBoundingClientRect();
+      return { bodyBottom: body.bottom, frameBottom: el.bottom, frameHeight: el.height, viewport: innerHeight };
+    });
+    expect(box.frameHeight).toBeGreaterThan(box.viewport / 2);
+    expect(box.frameBottom).toBeLessThanOrEqual(box.bodyBottom);
+
+    const reach = await page
+      .frames()
+      .find((f) => f.url().includes("att-ct-html"))!
+      .evaluate(() => {
+        const tries = {
+          parentDocument: () => window.parent.document.title,
+          storage: () => window.localStorage.length,
+        };
+        return Object.fromEntries(
+          Object.entries(tries).map(([k, f]) => {
+            try {
+              f();
+              return [k, "reached"];
+            } catch {
+              return [k, "blocked"];
+            }
+          }),
+        );
+      });
+    expect(reach).toEqual({ parentDocument: "blocked", storage: "blocked" });
+
+    await page.getByRole("button", { name: "註解" }).click();
+    const marked = frame.locator("[data-oc-anchor]");
+    await expect(marked.first()).toHaveClass("oc-on");
+    await frame.getByText("AC-2").click();
+    await page.getByRole("textbox", { name: "註解內容" }).fill("補一條測試");
+    await page.getByRole("button", { name: "儲存" }).click();
+    await frame.getByText("AC-1").click();
+    await page.getByRole("textbox", { name: "註解內容" }).fill("1 秒怎麼量");
+    await page.getByRole("button", { name: "儲存" }).click();
+    expect(await page.getByTestId("doc-comment").locator(".doc-comments__excerpt").allTextContents()).toEqual([
+      "位置：ac-AC-2（#ac-AC-2）",
+      "位置：AC-1：忙碌（#ac-AC-1）",
+    ]);
+    await expect(marked.nth(1)).toHaveClass("oc-on oc-commented");
+
+    await page.getByTestId("doc-comment").nth(1).locator(".doc-comments__goto").click();
+    await expect(marked.first()).toHaveClass("oc-on oc-commented oc-focus");
+    await expect(marked.first()).toHaveClass("oc-on oc-commented");
   });
 }
