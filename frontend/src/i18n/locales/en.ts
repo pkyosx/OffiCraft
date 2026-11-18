@@ -222,7 +222,7 @@ export const en: Dict = {
     updatedLead: "Last modified: ",
     edit: "Edit",
     uploadVersion: "Upload new version",
-    editUnavailable: "This kind of file cannot be edited here. Upload a new version instead.",
+    editUnavailable: "This kind of file cannot be edited on the web",
     editInfo: "Edit name and description",
     editLink: "Edit link",
     nameLabel: "Name",

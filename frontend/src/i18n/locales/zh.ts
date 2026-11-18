@@ -217,7 +217,7 @@ export const zh = {
     updatedLead: "最後修改：",
     edit: "編輯",
     uploadVersion: "上傳新版本",
-    editUnavailable: "這種檔案不能直接編輯，請上傳新版本",
+    editUnavailable: "這種檔案不能在網頁上編輯",
     editInfo: "編輯名稱與說明",
     editLink: "編輯連結",
     nameLabel: "名稱",

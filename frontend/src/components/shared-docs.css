@@ -184,6 +184,16 @@
   color: var(--color-accent);
   background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
+/* Hidden means unclickable too, so a click just past the name opens the file. */
+@media (hover: hover) {
+  .shared-docs__name-edit {
+    pointer-events: none;
+  }
+  .shared-docs__file:hover .shared-docs__name-edit,
+  .shared-docs__name-edit:focus-visible {
+    pointer-events: auto;
+  }
+}
 @media (hover: none) {
   .shared-docs__name-edit {
     opacity: 1;

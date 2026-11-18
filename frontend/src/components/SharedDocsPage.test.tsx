@@ -516,7 +516,7 @@ describe("SharedDocsPage", () => {
     expect(queryByTestId("shared-docs-action-error")).toBeNull();
   });
 
-  it("the pencil after a name opens a dialog for its name and description, plus the URL on a link: 儲存 sends only what changed, a refused save stays open with the server's message, 取消 and Esc leave it, focus goes back to the pencil", async () => {
+  it("the pencil after a name opens a dialog for its name and description, plus the URL on a link, without opening the file: 儲存 is off for a blank name and sends only what this dialog changed, a refused save stays open with the server's message, 取消 and Esc leave it, focus goes back to the pencil", async () => {
     const replace = vi.spyOn(api, "replaceSharedDoc");
     const { container, getByTestId, queryByTestId } = renderPage();
     const [apiSpec, review] = await waitRows(container, 2);
@@ -532,6 +532,7 @@ describe("SharedDocsPage", () => {
       );
 
     let pencil = open(review!);
+    expect(document.body.querySelector(".md-preview")).toBeNull();
     expect(getByTestId("shared-doc-info-dialog").querySelector(".secrets__form-title")?.textContent).toBe("編輯名稱與說明");
     expect(fields()).toEqual([
       ["名稱", "Review Rule"],
@@ -554,6 +555,10 @@ describe("SharedDocsPage", () => {
     expect(replace).not.toHaveBeenCalled();
 
     pencil = open(review!);
+    fireEvent.change(getByTestId("shared-doc-info-name"), { target: { value: "  " } });
+    expect((getByTestId("shared-doc-info-save") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(getByTestId("shared-doc-info-dialog"));
+    expect(replace).not.toHaveBeenCalled();
     fireEvent.change(getByTestId("shared-doc-info-name"), { target: { value: "Review Rule v2" } });
     fireEvent.change(getByTestId("shared-doc-info-description"), { target: { value: "  新的說明 " } });
     fireEvent.click(getByTestId("shared-doc-info-save"));
@@ -562,6 +567,15 @@ describe("SharedDocsPage", () => {
     expect(document.activeElement).toBe(pencil);
     expect(replace).toHaveBeenLastCalledWith("sd-3f9a2c71b0e4", { name: "Review Rule v2", description: "新的說明" });
     expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({ name: "Review Rule v2", versionCount: 2 });
+
+    open(review!);
+    await api.replaceSharedDoc("sd-3f9a2c71b0e4", { name: "Renamed by member" });
+    await waitFor(() => expect(cellTexts(review!)[1]).toBe("Renamed by member新的說明"));
+    fireEvent.change(getByTestId("shared-doc-info-description"), { target: { value: "我只改說明" } });
+    fireEvent.click(getByTestId("shared-doc-info-save"));
+    await waitFor(() => expect(queryByTestId("shared-doc-info-dialog")).toBeNull());
+    expect(replace).toHaveBeenLastCalledWith("sd-3f9a2c71b0e4", { description: "我只改說明" });
+    expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({ name: "Renamed by member", description: "我只改說明" });
 
     const gates: Array<() => void> = [];
     replace.mockImplementationOnce(async () => {
@@ -580,7 +594,7 @@ describe("SharedDocsPage", () => {
     await waitFor(() => expect(gates).toHaveLength(1));
     fireEvent.keyDown(getByTestId("shared-doc-info-url"), { key: "Escape" });
     fireEvent.submit(getByTestId("shared-doc-info-dialog"));
-    expect([replace.mock.calls.length, (getByTestId("shared-doc-info-save") as HTMLButtonElement).disabled]).toEqual([2, true]);
+    expect([replace.mock.calls.length, (getByTestId("shared-doc-info-save") as HTMLButtonElement).disabled]).toEqual([4, true]);
     gates[0]!();
     expect((await waitFor(() => getByTestId("shared-doc-info-error"))).textContent).toBe("url must be http or https");
     expect((getByTestId("shared-doc-info-url") as HTMLInputElement).value).toBe("ftp://example.com/openapi.json");
@@ -717,7 +731,7 @@ describe("SharedDocsPage", () => {
       "下載上傳新版本",
     ]);
     fireEvent.click(getByTestId("shared-doc-edit-overlay").querySelector(".md-preview__close")!);
-    expect((await card())[1]).toBe("這種檔案不能直接編輯，請上傳新版本");
+    expect((await card())[1]).toBe("這種檔案不能在網頁上編輯");
 
     const input = container.querySelector<HTMLInputElement>('[data-testid="shared-docs-file-input"]')!;
     const openPicker = vi.spyOn(input, "click");

@@ -208,9 +208,13 @@ function SharedDocInfoDialog({
   const { t } = useI18n();
   const d = t.sharedDocs;
   const link = doc.kind === "link";
-  const [name, setName] = useState(doc.name);
-  const [description, setDescription] = useState(doc.description);
-  const [url, setUrl] = useState(doc.url);
+  // The fields as they were when the dialog opened: the list row behind `doc`
+  // is re-read on every shared_doc delta, and diffing against it would send
+  // an untouched field back over another writer's change.
+  const [base] = useState(doc);
+  const [name, setName] = useState(base.name);
+  const [description, setDescription] = useState(base.description);
+  const [url, setUrl] = useState(base.url);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -229,11 +233,11 @@ function SharedDocInfoDialog({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (busy) return;
+    if (busy || name.trim() === "") return;
     const change: { name?: string; description?: string; url?: string } = {};
-    if (name.trim() !== doc.name) change.name = name.trim();
-    if (description.trim() !== doc.description) change.description = description.trim();
-    if (link && url.trim() !== doc.url) change.url = url.trim();
+    if (name.trim() !== base.name) change.name = name.trim();
+    if (description.trim() !== base.description) change.description = description.trim();
+    if (link && url.trim() !== base.url) change.url = url.trim();
     if (Object.keys(change).length === 0) {
       onCancel();
       return;
@@ -311,7 +315,7 @@ function SharedDocInfoDialog({
             type="submit"
             className="secrets__btn secrets__submit"
             data-testid="shared-doc-info-save"
-            disabled={busy}
+            disabled={busy || name.trim() === ""}
           >
             {d.save}
           </button>
@@ -403,11 +407,11 @@ function SharedDocEditOverlay({
   } else {
     body = (
       <div className="shared-docs__empty-state">
-        <div className="shared-docs__empty-state-card" role="status" data-testid="shared-doc-edit-unavailable">
+        <div className="shared-docs__empty-state-card" data-testid="shared-doc-edit-unavailable">
           <span className="shared-docs__empty-state-icon">
             <FileTextIcon size={26} />
           </span>
-          <div className="shared-docs__empty-state-title">
+          <div className="shared-docs__empty-state-title" role="status">
             {doc.textOmitted === "too_large" ? d.tooLargeToEdit : d.editUnavailable}
           </div>
           <div className="shared-docs__empty-state-meta">{doc.filename || doc.name}</div>
