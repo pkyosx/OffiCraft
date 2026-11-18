@@ -1,4 +1,4 @@
-// SharedDocsPage — 共用文件: documents not tied to any task that every member
+// SharedDocsPage — 檔案庫: documents not tied to any task that every member
 // reads by `sd-` id. The list is a table; #shared-docs/<id> opens one document.
 
 import { useCallback, useEffect, useRef, useState } from "react";

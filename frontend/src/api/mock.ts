@@ -6886,17 +6886,37 @@ const mockApiImpl = {
   },
 
   async replaceSharedDoc(id: string, input: SharedDocReplaceInput): Promise<void> {
-    const row = mockSharedDocOrThrow("POST", `/api/shared-docs/${id}/replace`, id);
-    const history = [mockSharedDocVersionOf(row), ...(mockSharedDocVersions[id] ?? [])];
-    mockSharedDocVersions[id] = history.slice(0, MOCK_SHARED_DOC_KEEP);
-    if (input.attachmentId !== undefined || input.url !== undefined) {
+    const path = `/api/shared-docs/${id}/replace`;
+    const row = mockSharedDocOrThrow("POST", path, id);
+    const name = input.name?.trim() ?? row.name;
+    const description = input.description?.trim() ?? row.description;
+    const newContent = Boolean(input.attachmentId?.trim() || input.url?.trim());
+    if (!newContent && input.name === undefined && input.description === undefined) {
+      const field = row.kind === "link" ? "url" : "attachment_id";
+      const kind = row.kind === "image" ? "an image" : `a ${row.kind}`;
+      throw mockApiError(
+        `http 400 for POST ${path}`,
+        400,
+        `nothing to replace: send ${field} for ${kind} shared doc, a name, or a description`,
+      );
+    }
+    if (!newContent && name === row.name && description === row.description) {
+      throw mockApiError(
+        `http 400 for POST ${path}`,
+        400,
+        "nothing to replace: the name and description sent are the current ones",
+      );
+    }
+    if (newContent) {
+      const history = [mockSharedDocVersionOf(row), ...(mockSharedDocVersions[id] ?? [])];
+      mockSharedDocVersions[id] = history.slice(0, MOCK_SHARED_DOC_KEEP);
       Object.assign(row, mockSharedDocContent(row.kind, input.attachmentId, input.url));
     }
-    if (input.name !== undefined) row.name = input.name.trim();
-    if (input.description !== undefined) row.description = input.description.trim();
+    row.name = name;
+    row.description = description;
     row.updated_ts = Date.now() / 1000;
     row.updated_by = "owner";
-    row.version_count = mockSharedDocVersions[id]!.length + 1;
+    row.version_count = (mockSharedDocVersions[id]?.length ?? 0) + 1;
     emitTopic("shared_doc");
   },
 
@@ -6923,8 +6943,6 @@ const mockApiImpl = {
     ];
     Object.assign(row, {
       attachment_id: version.attachment_id,
-      name: version.name,
-      description: version.description,
       filename: version.filename,
       mime: version.mime,
       url: version.url,

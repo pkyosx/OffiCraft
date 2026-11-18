@@ -316,7 +316,7 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 		}}})
 	})
 
-	t.Run("past the retention depth the count stays at four and the oldest version is gone", func(t *testing.T) {
+	t.Run("past the retention depth the count stays at four, the oldest version is gone and renames push none out", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
 		for i, url := range []string{"https://e.com/2", "https://e.com/3", "https://e.com/4", "https://e.com/5"} {
@@ -326,6 +326,13 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 			}
 			want := []int{2, 3, 4, 4}[i]
 			apiWantBody(t, data, apiTestSharedDocReceipt(id, want))
+		}
+		for _, body := range []string{`{"name":"Roadmap"}`, `{"description":"typo"}`, `{"description":"fixed"}`} {
+			status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner, body)
+			if status != 200 {
+				t.Fatalf("edit %s: %d %v", body, status, data)
+			}
+			apiWantBody(t, data, apiTestSharedDocReceipt(id, 4))
 		}
 		_, data := apiJSON(t, h, "GET", "/api/shared-docs/"+id+"/versions", owner, "")
 		version := func(id int, url string) map[string]any {
@@ -371,30 +378,28 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 		}
 	})
 
-	t.Run("a name and description edit with no content keeps the content and is a version of its own", func(t *testing.T) {
+	t.Run("a name and description edit with no content keeps the content, names its editor and makes no version", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		id, att := apiTestSharedDocFile(t, h, owner, "Runbook", "runbook.md", "# v1")
 		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", agent,
 			`{"name":"Release runbook","description":"how we ship"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, apiTestSharedDocReceipt(id, 2))
+		apiWantBody(t, data, apiTestSharedDocReceipt(id, 1))
+		dashboard.wantFrames(apiTestSharedDocFrame(2, 2, "patch", id, "kip"))
 		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id, owner, "")
 		row := apiTestSharedDocRow(map[string]any{
 			"id": id, "attachment_id": att, "name": "Release runbook", "description": "how we ship",
-			"url": "/api/chat/attachment/" + att, "created_by": "owner", "version_count": 2,
+			"url": "/api/chat/attachment/" + att, "created_by": "owner",
 		})
 		row["text"], row["text_omitted"] = "# v1", nil
 		apiWantBody(t, data, row)
 		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id+"/versions", owner, "")
-		apiWantBody(t, data, map[string]any{"doc_id": id, "versions": []any{map[string]any{
-			"id": 1, "kind": "file", "attachment_id": att, "name": "Runbook", "description": "",
-			"filename": "runbook.md", "mime": "text/markdown", "url": "/api/chat/attachment/" + att,
-			"created_ts": apiAnyNumber, "created_by": "owner",
-		}}})
+		apiWantBody(t, data, map[string]any{"doc_id": id, "versions": []any{}})
 	})
 
 	t.Run("a link document's name edit needs no url", func(t *testing.T) {
@@ -404,10 +409,14 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
+		apiWantBody(t, data, apiTestSharedDocReceipt(id, 1))
 		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id, owner, "")
-		if data["name"] != "Roadmap" || data["text"] != "https://e.com/1" || data["version_count"] != float64(2) {
-			t.Fatalf("want the name changed and the url kept as version 2, got %v", data)
-		}
+		row := apiTestSharedDocRow(map[string]any{
+			"id": id, "kind": "link", "name": "Roadmap", "filename": "", "mime": "text/uri-list",
+			"url": "https://e.com/1", "created_by": "owner", "updated_by": "owner",
+		})
+		row["text"], row["text_omitted"] = "https://e.com/1", nil
+		apiWantBody(t, data, row)
 		status, data = apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner, `{}`)
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
@@ -441,6 +450,8 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 			"a file shared doc does not take url: its kind is fixed, so create a new shared doc instead", 400},
 		{"nothing to change answers 400", `{}`, "validation_error",
 			"nothing to replace: send attachment_id for a file shared doc, a name, or a description", 400},
+		{"a name and description equal to the current ones answer 400", `{"name":" Runbook ","description":""}`, "validation_error",
+			"nothing to replace: the name and description sent are the current ones", 400},
 		{"a blank name answers 400", `{"name":" ","attachment_id":"att-000000000000"}`, "validation_error",
 			"name cannot be blank: omit it to keep the current name", 400},
 		{"an unknown field answers 422", `{"kind":"link"}`, "validation_error",
@@ -510,10 +521,11 @@ func TestHandleListSharedDocVersionsApiSharedDocsDocIdVersionsGet(t *testing.T) 
 }
 
 func TestHandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestorePost(t *testing.T) {
-	t.Run("the restored version becomes current, the displaced one takes its place and the count is unchanged", func(t *testing.T) {
+	t.Run("the restored content becomes current under the current name, the displaced one takes its place and the count is unchanged", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
 		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner, `{"url":"https://e.com/2"}`)
+		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner, `{"name":"Roadmap","description":"the plan"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
 		dashboard := apiTestListen(t, api, "")
 
@@ -522,16 +534,19 @@ func TestHandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestore
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, apiTestSharedDocReceipt(id, 2))
-		dashboard.wantFrames(apiTestSharedDocFrame(3, 3, "patch", id, "kip"))
+		dashboard.wantFrames(apiTestSharedDocFrame(4, 4, "patch", id, "kip"))
 
 		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id, owner, "")
-		if data["text"] != "https://e.com/1" || data["updated_by"] != "kip" || data["created_by"] != "owner" {
-			t.Fatalf("current after restore: %v", data)
-		}
+		row := apiTestSharedDocRow(map[string]any{
+			"id": id, "kind": "link", "name": "Roadmap", "description": "the plan", "filename": "",
+			"mime": "text/uri-list", "url": "https://e.com/1", "created_by": "owner", "version_count": 2,
+		})
+		row["text"], row["text_omitted"] = "https://e.com/1", nil
+		apiWantBody(t, data, row)
 		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id+"/versions", owner, "")
 		apiWantBody(t, data, map[string]any{"doc_id": id, "versions": []any{map[string]any{
-			"id": 2, "kind": "link", "attachment_id": apiAnyString, "name": "Board",
-			"description": "", "filename": "", "mime": "text/uri-list", "url": "https://e.com/2",
+			"id": 2, "kind": "link", "attachment_id": apiAnyString, "name": "Roadmap",
+			"description": "the plan", "filename": "", "mime": "text/uri-list", "url": "https://e.com/2",
 			"created_ts": apiAnyNumber, "created_by": "owner",
 		}}})
 

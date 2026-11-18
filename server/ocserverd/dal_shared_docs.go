@@ -175,10 +175,10 @@ func writeSharedDocCurrent(tx *writeTx, next SharedDoc) error {
 	return err
 }
 
-// SharedDocReplacement is one new current version. An empty AttachmentID, a nil
-// Name or a nil Description keeps what the row holds INSIDE the replacing
-// transaction: a value read earlier would quietly undo a change that landed in
-// between.
+// SharedDocReplacement is new content, a new name or description, or both. An
+// empty AttachmentID, a nil Name or a nil Description keeps what the row holds
+// INSIDE the replacing transaction: a value read earlier would quietly undo a
+// change that landed in between.
 type SharedDocReplacement struct {
 	ID           string
 	AttachmentID string
@@ -188,14 +188,32 @@ type SharedDocReplacement struct {
 	UpdatedBy    string
 }
 
-// ReplaceSharedDoc retains the displaced version and discards the oldest beyond
-// the retention depth with its blob. Refusals come back as txRefusal.
+// ReplaceSharedDoc makes new content a version: the displaced one is retained
+// and the oldest beyond the retention depth goes with its blob. A name or
+// description edit alone changes the current row in place and costs no version.
+// Refusals come back as txRefusal.
 func (d *DAL) ReplaceSharedDoc(r SharedDocReplacement, minted *ChatAttachment) error {
 	return d.inTx(func(tx *writeTx) error {
 		current, err := sharedDocInTx(tx, r.ID)
 		if err != nil {
 			return err
 		}
+		next := *current
+		next.UpdatedTS, next.UpdatedBy = r.UpdatedTS, r.UpdatedBy
+		if r.Name != nil {
+			next.Name = *r.Name
+		}
+		if r.Description != nil {
+			next.Description = *r.Description
+		}
+		newContent := r.AttachmentID != ""
+		if !newContent {
+			if next.Name == current.Name && next.Description == current.Description {
+				return refuseInTx(http.StatusBadRequest, sharedDocNothingChanged)
+			}
+			return writeSharedDocCurrent(tx, next)
+		}
+		next.AttachmentID = r.AttachmentID
 		if minted != nil {
 			if err := putChatAttachmentOn(tx, *minted); err != nil {
 				return err
@@ -204,17 +222,6 @@ func (d *DAL) ReplaceSharedDoc(r SharedDocReplacement, minted *ChatAttachment) e
 		if err := retainSharedDocVersion(tx, *current); err != nil {
 			return err
 		}
-		next := *current
-		next.UpdatedTS, next.UpdatedBy = r.UpdatedTS, r.UpdatedBy
-		if r.AttachmentID != "" {
-			next.AttachmentID = r.AttachmentID
-		}
-		if r.Name != nil {
-			next.Name = *r.Name
-		}
-		if r.Description != nil {
-			next.Description = *r.Description
-		}
 		if err := writeSharedDocCurrent(tx, next); err != nil {
 			return err
 		}
@@ -222,9 +229,12 @@ func (d *DAL) ReplaceSharedDoc(r SharedDocReplacement, minted *ChatAttachment) e
 	})
 }
 
+const sharedDocNothingChanged = "nothing to replace: the name and description sent are the current ones"
+
 // RestoreSharedDocVersion MOVES the version out of history and the displaced
 // current version in as the newest history row, so the count never changes and
-// nothing is trimmed.
+// nothing is trimmed. Only the content comes back: the current name and
+// description stay.
 func (d *DAL) RestoreSharedDocVersion(docID string, versionID int64, actor string, now float64) error {
 	return d.inTx(func(tx *writeTx) error {
 		current, err := sharedDocInTx(tx, docID)
@@ -246,7 +256,7 @@ func (d *DAL) RestoreSharedDocVersion(docID string, versionID int64, actor strin
 			return err
 		}
 		next := *current
-		next.AttachmentID, next.Name, next.Description = v.AttachmentID, v.Name, v.Description
+		next.AttachmentID = v.AttachmentID
 		next.UpdatedTS, next.UpdatedBy = now, actor
 		return writeSharedDocCurrent(tx, next)
 	})

@@ -1,4 +1,4 @@
-// hooks/useSharedDocs.ts — the 共用文件 list and one document, each re-read on
+// hooks/useSharedDocs.ts — the 檔案庫 list and one document, each re-read on
 // mount, after this page's own writes, and on every `shared_doc` delta (members
 // write these too, so a delta is how another writer's change reaches the page).
 

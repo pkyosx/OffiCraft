@@ -67,7 +67,7 @@ describe("SharedDocDetail", () => {
     expect(doc).toMatchObject({ text: "# Review Rule v3\n", filename: "review-rule.md", versionCount: 3 });
   });
 
-  it("the pencil renames the doc as a new version that keeps the content", async () => {
+  it("the pencil renames the doc in place, keeping its content and its versions", async () => {
     const { getByTestId, getByLabelText } = renderDetail("sd-3f9a2c71b0e4");
     await title(getByTestId);
     fireEvent.click(getByLabelText("改名"));
@@ -77,11 +77,12 @@ describe("SharedDocDetail", () => {
     expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({
       name: "Review Rule v2",
       attachmentId: "att-5d0c11a2b3c4",
-      versionCount: 3,
+      versionCount: 2,
     });
   });
 
-  it("clicking the description edits it in a two-line box; ✓ saves, ✗ leaves it as it was", async () => {
+  it("clicking the description edits it in a two-line box; ✓ saves once however often it is clicked and a blank clears it, ✗ leaves it as it was", async () => {
+    const replace = vi.spyOn(api, "replaceSharedDoc");
     const { getByTestId, queryByTestId } = renderDetail("sd-3f9a2c71b0e4");
     await title(getByTestId);
     fireEvent.click(getByTestId("shared-doc-description"));
@@ -96,13 +97,29 @@ describe("SharedDocDetail", () => {
       target: { value: "新增規則前先在 #review 頻道討論" },
     });
     fireEvent.click(getByTestId("shared-doc-description-save"));
+    fireEvent.click(getByTestId("shared-doc-description-save"));
     await waitFor(() => expect(queryByTestId("shared-doc-description-input")).toBeNull());
     expect(getByTestId("shared-doc-description").textContent).toBe("新增規則前先在 #review 頻道討論");
     expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({
       description: "新增規則前先在 #review 頻道討論",
       attachmentId: "att-5d0c11a2b3c4",
-      versionCount: 3,
+      versionCount: 2,
     });
+
+    fireEvent.click(getByTestId("shared-doc-description"));
+    fireEvent.change(getByTestId("shared-doc-description-input"), { target: { value: "  " } });
+    fireEvent.click(getByTestId("shared-doc-description-save"));
+    await waitFor(() => expect(queryByTestId("shared-doc-description-input")).toBeNull());
+    const shown = getByTestId("shared-doc-description");
+    expect([shown.textContent, shown.className]).toEqual([
+      "加上說明",
+      "shared-docs__description shared-docs__muted",
+    ]);
+    expect((await api.getSharedDoc("sd-3f9a2c71b0e4")).description).toBe("");
+    expect(replace.mock.calls).toEqual([
+      ["sd-3f9a2c71b0e4", { description: "新增規則前先在 #review 頻道討論" }],
+      ["sd-3f9a2c71b0e4", { description: "" }],
+    ]);
   });
 
   it("上傳新版本 on a link doc replaces its URL", async () => {

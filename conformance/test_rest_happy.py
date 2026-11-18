@@ -3752,7 +3752,7 @@ HAPPY: dict[str, Happy] = {
             lambda d: d["slug"] == "why" and len(d["markdown_md"]) > 0,
         ),
     ),
-    # ── 共用文件 shared docs ──────────────────────────────────────────────────
+    # ── 檔案庫 shared docs ────────────────────────────────────────────────────
     "GET /api/shared-docs": Happy(
         identity="agent",
         check=lambda _c, r: _expect(r, lambda d: isinstance(d["docs"], list)),

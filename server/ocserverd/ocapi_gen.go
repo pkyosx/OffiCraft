@@ -4403,10 +4403,10 @@ type SharedDocDTO struct {
 	Mime *string `json:"mime,omitempty"`
 	Name string  `json:"name"`
 
-	// UpdatedBy Who wrote the current version (by create, replace or restore).
+	// UpdatedBy Who last changed the document: by create, replace (content, name or description) or restore.
 	UpdatedBy string `json:"updated_by"`
 
-	// UpdatedTs When the current version was written.
+	// UpdatedTs When the document was last changed.
 	UpdatedTs float64 `json:"updated_ts"`
 
 	// Url Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.
@@ -4454,10 +4454,10 @@ type SharedDocDetailDTO struct {
 	// TextOmitted Null when ``text`` is present; otherwise ``binary`` or ``too_large``. Read such content by downloading ``attachment_id``.
 	TextOmitted *string `json:"text_omitted"`
 
-	// UpdatedBy Who wrote the current version (by create, replace or restore).
+	// UpdatedBy Who last changed the document: by create, replace (content, name or description) or restore.
 	UpdatedBy string `json:"updated_by"`
 
-	// UpdatedTs When the current version was written.
+	// UpdatedTs When the document was last changed.
 	UpdatedTs float64 `json:"updated_ts"`
 
 	// Url Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.
@@ -4477,11 +4477,11 @@ type SharedDocReceiptDTO struct {
 	Id        string  `json:"id"`
 	UpdatedTs float64 `json:"updated_ts"`
 
-	// VersionCount As on ``SharedDocDTO``. Unchanged after a replace means the oldest retained version was just discarded.
+	// VersionCount As on ``SharedDocDTO``. Unchanged after new content means the oldest retained version was just discarded; a name or description edit never changes it.
 	VersionCount int `json:"version_count"`
 }
 
-// SharedDocReplaceDTO A new version of a shared document: new content, a new name or description, or both. Send the content field its kind uses; the other is refused.
+// SharedDocReplaceDTO New content for a shared document, a new name or description, or both. Send the content field its kind uses; the other is refused.
 type SharedDocReplaceDTO struct {
 	// AttachmentId For a ``file``/``image`` document: a blob already in the store. Omit it, and ``url``, to keep the current content.
 	AttachmentId *string `json:"attachment_id,omitempty"`
@@ -4501,10 +4501,10 @@ type SharedDocVersionDTO struct {
 	// AttachmentId The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.
 	AttachmentId string `json:"attachment_id"`
 
-	// CreatedBy Who wrote this version.
+	// CreatedBy Who last changed the document while this was its content, a name or description edit included.
 	CreatedBy string `json:"created_by"`
 
-	// CreatedTs When this version was written.
+	// CreatedTs When the document was last changed while this was its content.
 	CreatedTs   float64 `json:"created_ts"`
 	Description *string `json:"description,omitempty"`
 
@@ -6846,7 +6846,7 @@ type ServerInterface interface {
 	// Read one shared document: its metadata and, when the current version is text, its content.
 	// (GET /api/shared-docs/{doc_id})
 	HandleGetSharedDocApiSharedDocsDocIdGet(w http.ResponseWriter, r *http.Request, docId string)
-	// Write a new version of a shared document: new content, a new name or description, or both. The id stays the same.
+	// Replace a shared document's content, edit its name or description, or both. The id stays the same.
 	// (POST /api/shared-docs/{doc_id}/replace)
 	HandleReplaceSharedDocApiSharedDocsDocIdReplacePost(w http.ResponseWriter, r *http.Request, docId string)
 	// List a shared document's retained previous versions, newest first. The current version is not included.

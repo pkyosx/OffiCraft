@@ -95,6 +95,7 @@ function DescriptionEdit({
   const d = t.sharedDocs;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
 
   async function commit() {
     const next = draft.trim();
@@ -102,7 +103,10 @@ function DescriptionEdit({
       setEditing(false);
       return;
     }
-    if (await onCommit(next)) setEditing(false);
+    setSaving(true);
+    const saved = await onCommit(next);
+    setSaving(false);
+    if (saved) setEditing(false);
   }
 
   if (!editing) {
@@ -145,6 +149,7 @@ function DescriptionEdit({
         data-testid="shared-doc-description-save"
         aria-label={t.common.apply}
         title={t.common.apply}
+        disabled={saving}
         onClick={() => void commit()}
       >
         <CheckIcon size={14} />

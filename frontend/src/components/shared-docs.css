@@ -1,4 +1,4 @@
-/* 共用文件 page (`.shared-docs*`): the list table, one document's page and the
+/* 檔案庫 page (`.shared-docs*`): the list table, one document's page and the
  * new/replace dialog's extras. Buttons and fields reuse secrets.css, the id
  * badge lore.css, the copy-link button office.css, the ✓/✗ inline-edit.css —
  * each importer pulls those sheets itself. Theme tokens only. */

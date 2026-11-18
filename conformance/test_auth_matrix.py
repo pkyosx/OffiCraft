@@ -2133,7 +2133,7 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, _i: f"/api/lore/{_matrix_lore_entry(ctx)}/scope",
         body={"scope_kind": "everyone"},
     ),
-    # ── 共用文件 shared docs ──────────────────────────────────────────────────
+    # ── 檔案庫 shared docs ────────────────────────────────────────────────────
     # Reads sit on the machine floor and writes on the agent floor with no
     # per-caller guard: a shared document belongs to no one member, so agent B
     # changes a document the owner made exactly as agent A does. Only the

@@ -167,9 +167,12 @@ describe("SharedDocsPage", () => {
     const { container } = renderPage();
     const [, review] = await waitRows(container, 2);
     const badge = within(review!).getByTestId("shared-doc-id");
+    const iconPaths = () => Array.from(badge.querySelectorAll("svg path")).map((p) => p.getAttribute("d"));
+    expect(iconPaths()).toEqual(["m12 2 9 5-9 5-9-5 9-5Z", "m3 12 9 5 9-5", "m3 17 9 5 9-5"]);
     fireEvent.click(badge);
     await waitFor(() => expect(copyTextMock).toHaveBeenCalledWith("sd-3f9a2c71b0e4"));
-    await waitFor(() => expect(badge.textContent).toBe("#sd-3f9a2c71b0e4"));
+    await waitFor(() => expect(iconPaths()).toEqual(["M20 6 9 17l-5-5"]));
+    expect(badge.textContent).toBe("#sd-3f9a2c71b0e4");
     const link = within(review!).getByTestId("shared-doc-copy-link");
     fireEvent.click(link);
     await waitFor(() =>

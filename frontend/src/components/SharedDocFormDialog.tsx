@@ -1,4 +1,4 @@
-// SharedDocFormDialog — 新增共用文件 and 上傳新版本. A file goes up through the
+// SharedDocFormDialog — 新增檔案 and 上傳新版本. A file goes up through the
 // ordinary attachment upload first; the document then points at that blob.
 
 import { useRef, useState, type FormEvent } from "react";

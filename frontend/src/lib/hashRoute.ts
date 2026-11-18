@@ -25,7 +25,7 @@
  *   #tasks/executor/<memberId>                    → tasks page, filtered to that
  *                                                   member's unfinished tasks
  *   #lore                                         → 傳承 page (T-33)
- *   #shared-docs                                  → 共用文件 list
+ *   #shared-docs                                  → 檔案庫 list
  *   #shared-docs/<docId>                          → that shared document
  *   #secrets                                      → Secrets page
  *   #monitor                                      → monitor page

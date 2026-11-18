@@ -289,8 +289,6 @@ func (s *apiServer) HandleReplaceSharedDocApiSharedDocsDocIdReplacePost(w http.R
 		}
 		repl.Description = &description
 	}
-	// No content field at all keeps the current content: a name or description
-	// edit is still a version of its own, with its own author and time.
 	if trimmedOrEmpty(body.Url) == "" && trimmedOrEmpty(body.AttachmentId) == "" {
 		if repl.Name == nil && repl.Description == nil {
 			writeError(w, http.StatusBadRequest, sharedDocNothingToReplace(doc.Kind))

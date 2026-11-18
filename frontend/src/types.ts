@@ -1194,7 +1194,7 @@ export interface SecretUpdateInput {
 
 export type SharedDocKind = "file" | "image" | "link";
 
-/** One shared document (共用文件): not tied to any task, read by every member
+/** One shared document (檔案庫): not tied to any task, read by every member
  * by its `sd-` id. `url`/`mime`/`filename` describe the CURRENT version's blob;
  * for a link `url` is the external address. */
 export interface SharedDocView {
@@ -1241,8 +1241,8 @@ export interface SharedDocCreateInput {
   url?: string;
 }
 
-/** Omitted name/description are kept by the server; exactly one of
- * attachmentId / url is required, by the document's kind. */
+/** Omitted name/description are kept by the server. The kind's content field
+ * (attachmentId or url) makes a new version; name/description alone do not. */
 export interface SharedDocReplaceInput {
   name?: string;
   description?: string;

@@ -4752,7 +4752,7 @@
       "name": "get_shared_doc"
     },
     {
-      "description": "Write a new version of a shared document: new content, a new name or description, or both. The id stays the same.\n\n- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\n- To change only `name` or `description`, send neither: the current content is kept, and the change is still a new version.\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.",
+      "description": "Replace a shared document's content, edit its name or description, or both. The id stays the same.\n\n- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\n- To change only `name` or `description`, send neither: the current content is kept and no version is made or discarded, because versions hold content only. A name and description equal to the current ones, with no content, is a 400.\n- New content retains the replaced version, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.",
       "inputSchema": {
         "properties": {
           "doc_id": {
@@ -4835,7 +4835,7 @@
       "name": "list_shared_doc_versions"
     },
     {
-      "description": "Make a retained previous version the current one again.\n\n- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\n- The restored version leaves the list and its version id stops resolving.\n- `updated_by` / `updated_ts` become the caller and now.\n- A version id that is not one of this document's retained versions is a 404.",
+      "description": "Make a retained previous version the current one again.\n\n- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\n- The restored version leaves the list and its version id stops resolving.\n- Only the content comes back: the current name and description stay.\n- `updated_by` / `updated_ts` become the caller and now.\n- A version id that is not one of this document's retained versions is a 404.",
       "inputSchema": {
         "properties": {
           "doc_id": {

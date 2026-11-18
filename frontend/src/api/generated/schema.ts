@@ -4664,10 +4664,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Write a new version of a shared document: new content, a new name or description, or both. The id stays the same.
+         * Replace a shared document's content, edit its name or description, or both. The id stays the same.
          * @description - Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.
-         *     - To change only `name` or `description`, send neither: the current content is kept, and the change is still a new version.
-         *     - The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.
+         *     - To change only `name` or `description`, send neither: the current content is kept and no version is made or discarded, because versions hold content only. A name and description equal to the current ones, with no content, is a 400.
+         *     - New content retains the replaced version, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.
          */
         post: operations["handle_replace_shared_doc_api_shared_docs__doc_id__replace_post"];
         delete?: never;
@@ -4709,6 +4709,7 @@ export interface paths {
          * Make a retained previous version the current one again.
          * @description - The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.
          *     - The restored version leaves the list and its version id stops resolving.
+         *     - Only the content comes back: the current name and description stay.
          *     - `updated_by` / `updated_ts` become the caller and now.
          *     - A version id that is not one of this document's retained versions is a 404.
          */
@@ -13027,12 +13028,12 @@ export interface components {
             name: string;
             /**
              * Updated By
-             * @description Who wrote the current version (by create, replace or restore).
+             * @description Who last changed the document: by create, replace (content, name or description) or restore.
              */
             updated_by: string;
             /**
              * Updated Ts
-             * @description When the current version was written.
+             * @description When the document was last changed.
              */
             updated_ts: number;
             /**
@@ -13117,12 +13118,12 @@ export interface components {
             text_omitted: string | null;
             /**
              * Updated By
-             * @description Who wrote the current version (by create, replace or restore).
+             * @description Who last changed the document: by create, replace (content, name or description) or restore.
              */
             updated_by: string;
             /**
              * Updated Ts
-             * @description When the current version was written.
+             * @description When the document was last changed.
              */
             updated_ts: number;
             /**
@@ -13156,13 +13157,13 @@ export interface components {
             updated_ts: number;
             /**
              * Version Count
-             * @description As on ``SharedDocDTO``. Unchanged after a replace means the oldest retained version was just discarded.
+             * @description As on ``SharedDocDTO``. Unchanged after new content means the oldest retained version was just discarded; a name or description edit never changes it.
              */
             version_count: number;
         };
         /**
          * SharedDocReplaceDTO
-         * @description A new version of a shared document: new content, a new name or description, or both. Send the content field its kind uses; the other is refused.
+         * @description New content for a shared document, a new name or description, or both. Send the content field its kind uses; the other is refused.
          */
         SharedDocReplaceDTO: {
             /**
@@ -13202,12 +13203,12 @@ export interface components {
             attachment_id: string;
             /**
              * Created By
-             * @description Who wrote this version.
+             * @description Who last changed the document while this was its content, a name or description edit included.
              */
             created_by: string;
             /**
              * Created Ts
-             * @description When this version was written.
+             * @description When the document was last changed while this was its content.
              */
             created_ts: number;
             /**
