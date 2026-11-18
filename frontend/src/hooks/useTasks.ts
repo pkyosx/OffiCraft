@@ -161,6 +161,10 @@ export function useTasks(
   const statusKeyRef = useRef(statusKey);
   statusKeyRef.current = statusKey;
   const heldRef = useRef<TaskView[]>([]);
+  // The status key the held list is a complete answer for; null until a full
+  // read lands. An `?ids=` patch on top of anything else would leave a failed
+  // load or a stale status set on screen for good, so any ask escalates.
+  const completeForRef = useRef<string | null>(null);
   // At most one list read in flight; asks that arrive meanwhile are folded into
   // `next` and served by ONE follow-up, which is sent after them and so can
   // carry what they reported.
@@ -172,11 +176,13 @@ export function useTasks(
   const runAsk = useCallback(async (ask: ListAsk) => {
     const key = statusKeyRef.current;
     const statuses = key === undefined ? undefined : key.split(",");
-    if (ask.full) {
+    if (ask.full || completeForRef.current !== (key ?? "")) {
+      completeForRef.current = null;
       const [t, w] = await Promise.all([
         api.listTasks(statuses === undefined ? undefined : { statuses }),
         api.listOutsourceWorkers(),
       ]);
+      completeForRef.current = key ?? "";
       heldRef.current = t;
       setTasks(t);
       setWorkers(w);

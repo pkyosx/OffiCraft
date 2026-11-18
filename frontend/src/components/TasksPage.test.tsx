@@ -397,62 +397,104 @@ describe("TasksPage", () => {
     expect(queryByText("還在跑")).toBeNull();
   });
 
-  it("with 120 closed tasks ticked → renders the first 50 cards, 50 more each time the list is scrolled near its bottom, while the 負責人 count still counts all 121", async () => {
+  it("with 60 closed tasks ticked → renders the first 50 cards, the rest once the list is scrolled near its bottom, back to the first 50 when a filter changes, while the 負責人 count still counts all 61", async () => {
     const now = Date.now() / 1000;
-    __injectMockTask(mkTask({ title: "還在跑的" }));
-    for (let i = 0; i < 120; i += 1) {
-      __injectMockTask(
-        mkTask({ title: `做完的 ${i}`, status: "done", closedTs: now - 1000 + i })
-      );
+    __injectMockTask(mkTask({ title: "live" }));
+    for (let i = 0; i < 60; i += 1) {
+      const title = `d${String(i).padStart(2, "0")}`;
+      __injectMockTask(mkTask({ title, status: "done", closedTs: now - 1000 + i }));
     }
     const { findByTestId } = renderPage();
     await findByTestId("task-card");
     toggleFilter("filter-status", "done");
     await waitForListedCards(50);
-
     const titles = () =>
       [...document.querySelectorAll('[data-testid="task-list"] .task-card__title')].map(
         (el) => el.textContent
       );
-    expect(titles().slice(0, 3)).toEqual(["還在跑的", "做完的 119", "做完的 118"]);
-    expect(titles().at(-1)).toBe("做完的 71");
+    const first50 = [
+      "live", "d59", "d58", "d57", "d56", "d55", "d54", "d53",
+      "d52", "d51", "d50", "d49", "d48", "d47", "d46", "d45",
+      "d44", "d43", "d42", "d41", "d40", "d39", "d38", "d37",
+      "d36", "d35", "d34", "d33", "d32", "d31", "d30", "d29",
+      "d28", "d27", "d26", "d25", "d24", "d23", "d22", "d21",
+      "d20", "d19", "d18", "d17", "d16", "d15", "d14", "d13",
+      "d12", "d11",
+    ];
+    expect(titles()).toEqual(first50);
     fireEvent.click(await findByTestId("filter-executor"));
     expect(
       document.querySelector('[data-testid="filter-executor-count-mira"]')?.textContent
-    ).toBe("121");
+    ).toBe("61");
 
     const scroller = document.querySelector<HTMLElement>(".tasks")!;
     Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 5000 });
     Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 800 });
     scroller.scrollTop = 1000;
     fireEvent.scroll(scroller);
-    expect(titles()).toHaveLength(50);
+    expect(titles()).toEqual(first50);
 
     scroller.scrollTop = 4100;
     fireEvent.scroll(scroller);
-    await waitForListedCards(100);
-    fireEvent.scroll(scroller);
-    await waitForListedCards(121);
-    expect(titles().at(-1)).toBe("做完的 0");
+    await waitForListedCards(61);
+    expect(titles()).toEqual([
+      "live", "d59", "d58", "d57", "d56", "d55", "d54", "d53",
+      "d52", "d51", "d50", "d49", "d48", "d47", "d46", "d45",
+      "d44", "d43", "d42", "d41", "d40", "d39", "d38", "d37",
+      "d36", "d35", "d34", "d33", "d32", "d31", "d30", "d29",
+      "d28", "d27", "d26", "d25", "d24", "d23", "d22", "d21",
+      "d20", "d19", "d18", "d17", "d16", "d15", "d14", "d13",
+      "d12", "d11", "d10", "d09", "d08", "d07", "d06", "d05",
+      "d04", "d03", "d02", "d01", "d00",
+    ]);
+
+    toggleFilter("filter-status", "terminated");
+    await waitForListedCards(50);
+    expect(titles()).toEqual(first50);
   });
 
-  it("grouped, an open lane holding 120 closed tasks → renders its first 50 cards while its header counts 120", async () => {
+  it("grouped, an open lane holding 60 closed tasks → renders its first 50 cards under a header counting 60, the rest on scroll, and the first 50 again after the grouping changes", async () => {
     const now = Date.now() / 1000;
-    for (let i = 0; i < 120; i += 1) {
-      __injectMockTask(
-        mkTask({ title: `做完的 ${i}`, status: "done", closedTs: now - 1000 + i })
-      );
+    for (let i = 0; i < 60; i += 1) {
+      const title = `d${String(i).padStart(2, "0")}`;
+      __injectMockTask(mkTask({ title, status: "done", closedTs: now - 1000 + i }));
     }
     renderPage();
     chooseGroupBy("status");
     toggleFilter("filter-status", "done");
-    await expandLane("done", 120);
+    await expandLane("done", 60);
+    const first50 = [
+      "d59", "d58", "d57", "d56", "d55", "d54", "d53", "d52",
+      "d51", "d50", "d49", "d48", "d47", "d46", "d45", "d44",
+      "d43", "d42", "d41", "d40", "d39", "d38", "d37", "d36",
+      "d35", "d34", "d33", "d32", "d31", "d30", "d29", "d28",
+      "d27", "d26", "d25", "d24", "d23", "d22", "d21", "d20",
+      "d19", "d18", "d17", "d16", "d15", "d14", "d13", "d12",
+      "d11", "d10",
+    ];
+    await waitFor(() => expect(laneTitles("done")).toEqual(first50));
+    expect(laneCount("done")).toBe(" · 60");
 
+    const scroller = document.querySelector<HTMLElement>(".tasks")!;
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 5000 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 800 });
+    scroller.scrollTop = 4100;
+    fireEvent.scroll(scroller);
     await waitFor(() =>
-      expect(document.querySelectorAll('[data-testid="lane-done"] [data-testid="task-card"]'))
-        .toHaveLength(50)
+      expect(laneTitles("done")).toEqual([
+        "d59", "d58", "d57", "d56", "d55", "d54", "d53", "d52",
+        "d51", "d50", "d49", "d48", "d47", "d46", "d45", "d44",
+        "d43", "d42", "d41", "d40", "d39", "d38", "d37", "d36",
+        "d35", "d34", "d33", "d32", "d31", "d30", "d29", "d28",
+        "d27", "d26", "d25", "d24", "d23", "d22", "d21", "d20",
+        "d19", "d18", "d17", "d16", "d15", "d14", "d13", "d12",
+        "d11", "d10", "d09", "d08", "d07", "d06", "d05", "d04",
+        "d03", "d02", "d01", "d00",
+      ])
     );
-    expect(laneCount("done")).toBe(" · 120");
+
+    chooseGroupBy("priority");
+    await waitFor(() => expect(laneTitles("mid")).toEqual(first50));
   });
 
   it("multi-selects executor / type / status; emptying every axis shows 顯示全部; no-match empty state", async () => {

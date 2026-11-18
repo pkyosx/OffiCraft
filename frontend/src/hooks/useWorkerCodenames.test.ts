@@ -342,6 +342,32 @@ describe("useWorkerCodenames", () => {
     expect(tasks.result.current.get("ow-abc")?.taskId).toBe("T-9");
   });
 
+  it("a current-task re-read of one worker → leaves callers holding only another worker un-rendered", async () => {
+    getOutsourceWorker.mockImplementation(async (id: string) => ({
+      id,
+      codename: id === "ow-a" ? "O-1" : "O-2",
+      taskId: "T-9",
+    }));
+    const tasks = renderHook(() => useWorkerCurrentTasks(["ow-a"]));
+    let rendersB = 0;
+    const b = renderHook(() => {
+      rendersB += 1;
+      return useWorkerCodenames(["ow-b"]);
+    });
+    await waitFor(() => expect(b.result.current.get("ow-b")).toBe("O-2"));
+    await waitFor(() => expect(tasks.result.current.get("ow-a")?.taskId).toBe("T-9"));
+    const settledB = rendersB;
+    getOutsourceWorker.mockClear();
+
+    await emit("task");
+
+    await waitFor(() => expect(getOutsourceWorker.mock.calls).toEqual([["ow-a"]]));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(rendersB).toBe(settledB);
+  });
+
   it("coalesces bursts into ONE trailing round — a delta that lands mid-round is not lost", async () => {
     // 🔴 The mid-round burst must NOT simply be dropped. The reads already in
     // flight were sent BEFORE it, so they cannot carry what it reports; letting

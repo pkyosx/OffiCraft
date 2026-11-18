@@ -195,6 +195,44 @@ describe("useTasks (T-a3e4)", () => {
     ]);
   });
 
+  it("after the mount read failed, a named task delta → a FULL read of the set, whose rows replace the list and clear the error", async () => {
+    h.listTasks.mockRejectedValueOnce(new Error("500"));
+    const { result } = renderHook(() => useTasks(NON_TERMINAL));
+    await waitFor(() => expect(result.current.error).toBe(true));
+
+    h.listTasks.mockResolvedValueOnce([row("t-a"), row("t-b")]);
+    act(() => h.sseHandler?.("task", taskDelta("t-b")));
+    await waitFor(() => expect(result.current.error).toBe(false));
+
+    expect(h.listTasks.mock.calls.map((c) => c[0])).toEqual([
+      { statuses: [...NON_TERMINAL].sort() },
+      { statuses: [...NON_TERMINAL].sort() },
+    ]);
+    expect(result.current.tasks.map((t) => t.id)).toEqual(["t-a", "t-b"]);
+  });
+
+  it("after a status-set change's read failed, a named task delta → a FULL read of the NEW set, whose rows replace the old set's and clear the error", async () => {
+    h.listTasks.mockResolvedValueOnce([row("t-open")]);
+    const { result } = renderHook(() => useTasks(NON_TERMINAL));
+    await waitFor(() => expect(result.current.tasks).toHaveLength(1));
+
+    h.listTasks.mockRejectedValueOnce(new Error("offline"));
+    act(() => result.current.setStatuses(["done"]));
+    await waitFor(() => expect(result.current.error).toBe(true));
+    expect(result.current.tasks.map((t) => t.id)).toEqual(["t-open"]);
+
+    h.listTasks.mockResolvedValueOnce([row("t-done", "done")]);
+    act(() => h.sseHandler?.("task", taskDelta("t-done")));
+    await waitFor(() => expect(result.current.error).toBe(false));
+
+    expect(h.listTasks.mock.calls.map((c) => c[0])).toEqual([
+      { statuses: [...NON_TERMINAL].sort() },
+      { statuses: ["done"] },
+      { statuses: ["done"] },
+    ]);
+    expect(result.current.tasks.map((t) => t.id)).toEqual(["t-done"]);
+  });
+
   it("a member delta → refreshes the worker roster and reads no task list", async () => {
     const { result } = renderHook(() => useTasks(NON_TERMINAL));
     await waitFor(() => expect(h.listOutsourceWorkers).toHaveBeenCalledTimes(1));
