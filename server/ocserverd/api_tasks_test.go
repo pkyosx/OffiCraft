@@ -3056,6 +3056,31 @@ func TestHandleListTasksApiTasksGet(t *testing.T) {
 		}
 	})
 
+	t.Run("tasks with the same sort key come in id order across a page boundary", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		for _, row := range []struct {
+			id      string
+			created float64
+		}{{"T-3", 100}, {"T-2", 200}, {"T-1", 300}} {
+			if err := d.PutTask(Task{
+				ID: row.id, Title: row.id, Status: TaskStatusDone, Priority: TaskPriorityMid,
+				ExecutorKind: TaskExecutorStaff, ExecutorID: "kip", CreatorID: "owner",
+				CreatedTS: row.created, UpdatedTS: row.created, ClosedTS: 5000,
+			}); err != nil {
+				t.Fatalf("PutTask: %v", err)
+			}
+		}
+
+		pages := map[string][]string{
+			"/api/tasks?statuses=done":                  {"T-3", "T-2", "T-1"},
+			"/api/tasks?statuses=done&limit=2":          {"T-1", "T-2"},
+			"/api/tasks?statuses=done&limit=2&offset=2": {"T-3"},
+		}
+		for target, want := range pages {
+			apiWantValue(t, target, any(apiListedTaskIDs(t, h, target, owner)), any(want))
+		}
+	})
+
 	t.Run("an out-of-vocabulary page param answers 400 naming it", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 
@@ -3309,6 +3334,63 @@ func TestHandleTaskCountApiTasksCountGet(t *testing.T) {
 				"list_total":              0,
 				"list_due_next_change_ts": soonDue,
 			}),
+		}
+		for target, want := range asks {
+			status, data := apiJSON(t, h, "GET", target, owner, "")
+			if status != 200 {
+				t.Fatalf("%s: want 200, got %d (%v)", target, status, data)
+			}
+			apiWantValue(t, target, any(data), any(want))
+		}
+	})
+
+	t.Run("a ready_for_done lane sits after waiting_external and a removed member's lane after the roster", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		for _, m := range []Member{
+			{ID: "zed", Name: "Ava", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive},
+			{ID: "rex", Name: "Abe", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusRemoved},
+		} {
+			if err := d.putMemberWholeRowForTest(m); err != nil {
+				t.Fatalf("PutMember: %v", err)
+			}
+		}
+		for i, row := range []struct{ id, status, executor string }{
+			{"T-1", TaskStatusReadyForDone, "kip"},
+			{"T-2", TaskStatusWaitingExternal, "rex"},
+			{"T-3", TaskStatusDone, "zed"},
+			{"T-4", TaskStatusNotStarted, "kip"},
+		} {
+			task := Task{
+				ID: row.id, Title: row.id, Status: row.status, Priority: TaskPriorityMid,
+				ExecutorKind: TaskExecutorStaff, ExecutorID: row.executor, CreatorID: "owner",
+				CreatedTS: float64(100 + i), UpdatedTS: float64(100 + i),
+			}
+			if TaskIsTerminal(row.status) {
+				task.ClosedTS = 200
+			}
+			if err := d.PutTask(task); err != nil {
+				t.Fatalf("PutTask: %v", err)
+			}
+		}
+		lane := func(key string, n int) map[string]any { return map[string]any{"key": key, "count": n} }
+		with := func(lanes []any, listTotal int) map[string]any {
+			return map[string]any{
+				"open": 3, "total": 4, "overdue": 0, "due_soon": 0, "due_next_change_ts": nil,
+				"now":                     apiAnyNumber,
+				"executor_counts":         map[string]any{"kip": 2, "rex": 1, "zed": 1},
+				"lanes":                   lanes,
+				"list_total":              listTotal,
+				"list_due_next_change_ts": nil,
+			}
+		}
+
+		asks := map[string]map[string]any{
+			"/api/tasks/count?group_by=status": with([]any{
+				lane("not_started", 1), lane("waiting_external", 1), lane("ready_for_done", 1), lane("done", 1),
+			}, 1),
+			"/api/tasks/count?group_by=executor": with([]any{
+				lane("zed", 1), lane("kip", 2), lane("rex", 1),
+			}, 1),
 		}
 		for target, want := range asks {
 			status, data := apiJSON(t, h, "GET", target, owner, "")

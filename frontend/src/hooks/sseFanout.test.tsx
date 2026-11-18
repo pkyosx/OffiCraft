@@ -698,7 +698,9 @@ describe("one delta re-pulls only what it named (T-8115)", () => {
     await settle();
 
     expect(view.result.current.tasks.map((t) => t.id)).toEqual(["t-bbb"]);
-    expect(h.counts.listTasks).toBe(1);
+    // The `?ids=` read finds it gone; the re-read from the top closes the gap
+    // its leaving opened in the paged list.
+    expect(h.counts.listTasks).toBe(2);
     expect(h.counts.getTask ?? 0).toBe(0);
     // Only the 外包 RAIL re-pulls its worker list: a task delta names a TASK id
     // and the task→worker binding lives on the server. useTasks leaves its

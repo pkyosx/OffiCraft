@@ -4489,10 +4489,10 @@ type TaskCountDTO struct {
 	// ExecutorCounts How many tasks each 負責人 option of the 任務 page would show: keys ``outsource``, ``unassigned`` and staff member ids, with the ``executors`` semantics. Counted over the tasks passing statuses, types, due and q — NOT executors and NOT ids, so ticking an executor or looking up an id does not change any count. Zero counts are omitted; empty when no filter param was sent. additive-optional.
 	ExecutorCounts *map[string]int `json:"executor_counts,omitempty"`
 
-	// Lanes With group_by other than none: every non-empty lane after ALL filters, in display order. due: overdue, soon, later, nodue. priority: high, mid, low, frozen, then other values sorted. executor: outsource, unassigned, then staff members in the order ``GET /api/members`` lists them, then member ids not on the roster, sorted. type: type_keys sorted, then adhoc. status: not_started, in_progress, waiting_owner, waiting_external, done, terminated, duplicated. Empty otherwise. additive-optional.
+	// Lanes With group_by other than none: every non-empty lane after ALL filters, in display order. due: overdue, soon, later, nodue. priority: high, mid, low, frozen, then other values sorted. executor: outsource, unassigned, then staff members in the order ``GET /api/members`` lists them, then member ids not on the roster, sorted. type: type_keys sorted, then adhoc. status: not_started, in_progress, waiting_owner, waiting_external, ready_for_done, done, terminated, duplicated. Empty otherwise. additive-optional.
 	Lanes *[]TaskCountLaneDTO `json:"lanes,omitempty"`
 
-	// ListDueNextChangeTs The earliest instant after ``now`` at which a task passing the filter params changes due bucket — closed tasks included when group_by=due, since they are filed by date there — i.e. when the filtered list, its counts or its lanes would change with no task write. null when there is none, or when no filter param was sent. Unlike ``due_next_change_ts``, which serves the badge and only watches open tasks. additive-optional.
+	// ListDueNextChangeTs The earliest instant after ``now`` at which a task passing the filter params changes due bucket — closed tasks included when group_by=due, since they are filed by date there — i.e. when the filtered list, its counts or its lanes would change with no task write. It looks past the executors, ids and lane params (and past due itself), so it may come early — an extra re-ask — but never late. null when there is none, or when no filter param was sent. Unlike ``due_next_change_ts``, which serves the badge and only watches open tasks. additive-optional.
 	ListDueNextChangeTs *float64 `json:"list_due_next_change_ts,omitempty"`
 
 	// ListTotal How many tasks ``GET /api/tasks`` would return for the same filter params without limit/offset — for group_by other than none, the rows of ``lane`` only. Unlike ``total``, which is every task ever. 0 when no filter param was sent. additive-optional.
@@ -5570,7 +5570,7 @@ type HandleTaskCountApiTasksCountGetParams struct {
 	// Due Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional.
 	Due *[]string `form:"due,omitempty" json:"due,omitempty"`
 
-	// Ids Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. Not applied to ``executor_counts``.
+	// Ids Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. Not applied to ``executor_counts``. At most 200 ids; more is a 400 naming the count.
 	Ids *[]string `form:"ids,omitempty" json:"ids,omitempty"`
 
 	// Q Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional.

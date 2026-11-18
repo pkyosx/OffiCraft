@@ -189,7 +189,7 @@ describe("useTasks", () => {
     expect(ids(result.current.lists.get("overdue"))).toEqual(["t-late"]);
   });
 
-  it("a task delta re-reads the named rows (plus held dependents) with the query: rows replaced in place, dropped when gone, the count re-read", async () => {
+  it("a task delta re-reads the named rows (plus held dependents) with the query: rows whose sort fields did not move are replaced in place, the count re-read", async () => {
     h.listTasks.mockResolvedValueOnce([
       row("t-a"),
       row("t-b"),
@@ -199,16 +199,48 @@ describe("useTasks", () => {
     const { result } = renderHook(() => useTasks(OPEN_QUERY, [""]));
     await waitFor(() => expect(ids(result.current.lists.get(""))).toHaveLength(4));
 
-    h.listTasks.mockResolvedValueOnce([row("t-c", { deps: ["t-a"], title: "t-c renamed" })]);
-    h.getTaskPageCount.mockResolvedValueOnce(count({ listTotal: 2 }));
-    act(() => h.sseHandler?.("task", taskDelta("t-a", "t-b")));
-    await waitFor(() => expect(ids(result.current.lists.get(""))).toEqual(["t-c", "t-d"]));
+    h.listTasks.mockResolvedValueOnce([
+      row("t-a", { title: "t-a renamed" }),
+      row("t-c", { deps: ["t-a"], title: "t-c renamed" }),
+    ]);
+    h.getTaskPageCount.mockResolvedValueOnce(count({ listTotal: 4 }));
+    act(() => h.sseHandler?.("task", taskDelta("t-a")));
+    await waitFor(() => expect(result.current.count?.listTotal).toBe(4));
 
-    expect(listArgs()[1]).toEqual({ ...OPEN_QUERY, ids: ["t-a", "t-b", "t-c"] });
-    expect(result.current.lists.get("")?.tasks[0].title).toBe("t-c renamed");
-    expect(result.current.count?.listTotal).toBe(2);
+    expect(listArgs()[1]).toEqual({ ...OPEN_QUERY, ids: ["t-a", "t-c"] });
+    expect(result.current.lists.get("")?.tasks.map((t) => [t.id, t.title])).toEqual([
+      ["t-a", "t-a renamed"],
+      ["t-b", "t-b"],
+      ["t-c", "t-c renamed"],
+      ["t-d", "t-d"],
+    ]);
     expect(h.listTasks).toHaveBeenCalledTimes(2);
     expect(h.listOutsourceWorkers).toHaveBeenCalledTimes(1);
+  });
+
+  it("a held row that left the list while the next page was being read → the list is re-read from the top, so the row at the old page boundary is not lost", async () => {
+    h.listTasks.mockResolvedValueOnce(rows(50));
+    const { result } = renderHook(() => useTasks(OPEN_QUERY, [""]));
+    await waitFor(() => expect(ids(result.current.lists.get(""))).toHaveLength(50));
+
+    let landPage!: (rows: unknown[]) => void;
+    h.listTasks.mockImplementationOnce(() => new Promise((r) => (landPage = r)));
+    act(() => result.current.loadMore(""));
+    await waitFor(() => expect(h.listTasks).toHaveBeenCalledTimes(2));
+    act(() => h.sseHandler?.("task", taskDelta("t-3")));
+
+    const now = rows(60).filter((t) => t.id !== "t-3");
+    h.listTasks.mockResolvedValueOnce([]).mockResolvedValueOnce(now);
+    await act(async () => landPage(now.slice(50)));
+    await waitFor(() => expect(h.listTasks).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(ids(result.current.lists.get(""))).toEqual(now.map((t) => t.id)));
+
+    expect(listArgs().slice(1)).toEqual([
+      { ...OPEN_QUERY, limit: 50, offset: 50 },
+      { ...OPEN_QUERY, ids: ["t-3"] },
+      { ...OPEN_QUERY, limit: 59, offset: 0 },
+    ]);
+    expect(ids(result.current.lists.get(""))).toContain("t-50");
   });
 
   it("a task delta whose row came back with a moved sort field, or that the list did not hold, re-asks the list from the top for as many rows as it held", async () => {
@@ -257,6 +289,7 @@ describe("useTasks", () => {
     await waitFor(() => expect(result.current.settled).toBe(true));
     const named = Array.from({ length: 450 }, (_, i) => `t-${i}`);
 
+    h.listTasks.mockResolvedValueOnce([row("t-0")]);
     act(() => h.sseHandler?.("task", taskDelta(...named)));
     await waitFor(() => expect(h.listTasks).toHaveBeenCalledTimes(4));
 
@@ -304,6 +337,53 @@ describe("useTasks", () => {
     expect(ids(result.current.lists.get(""))).toEqual(["t-a", "t-b"]);
   });
 
+  it("after a query change's read failed, a named task delta → a FULL read of the NEW query, whose rows replace the old query's and clear the error", async () => {
+    h.listTasks.mockResolvedValueOnce([row("t-open")]);
+    let query = OPEN_QUERY;
+    const { result, rerender } = renderHook(() => useTasks(query, [""]));
+    await waitFor(() => expect(ids(result.current.lists.get(""))).toEqual(["t-open"]));
+
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.listTasks.mockRejectedValueOnce(new Error("offline"));
+    query = { ...OPEN_QUERY, statuses: ["done"] };
+    rerender();
+    await waitFor(() => expect(result.current.error).toBe(true));
+    expect(ids(result.current.lists.get(""))).toEqual(["t-open"]);
+
+    h.listTasks.mockResolvedValueOnce([row("t-done", { status: "done" })]);
+    act(() => h.sseHandler?.("task", taskDelta("t-done")));
+    await waitFor(() => expect(result.current.error).toBe(false));
+
+    expect(listArgs()).toEqual([
+      { ...OPEN_QUERY, limit: 50, offset: 0 },
+      { ...OPEN_QUERY, statuses: ["done"], limit: 50, offset: 0 },
+      { ...OPEN_QUERY, statuses: ["done"], limit: 50, offset: 0 },
+    ]);
+    expect(ids(result.current.lists.get(""))).toEqual(["t-done"]);
+  });
+
+  it("after an SSE-triggered full read failed, the error shows and a named task delta → a FULL read, whose rows replace the list", async () => {
+    h.listTasks.mockResolvedValueOnce([row("t-a")]);
+    const { result } = renderHook(() => useTasks(OPEN_QUERY, [""]));
+    await waitFor(() => expect(ids(result.current.lists.get(""))).toEqual(["t-a"]));
+
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.listTasks.mockRejectedValueOnce(new Error("500"));
+    act(() => h.sseHandler?.("task", { topic: "task", names: {}, ids: [] }));
+    await waitFor(() => expect(result.current.error).toBe(true));
+
+    h.listTasks.mockResolvedValueOnce([row("t-a"), row("t-b")]);
+    act(() => h.sseHandler?.("task", taskDelta("t-b")));
+    await waitFor(() => expect(ids(result.current.lists.get(""))).toEqual(["t-a", "t-b"]));
+
+    expect(listArgs()).toEqual([
+      { ...OPEN_QUERY, limit: 50, offset: 0 },
+      { ...OPEN_QUERY, limit: 50, offset: 0 },
+      { ...OPEN_QUERY, limit: 50, offset: 0 },
+    ]);
+    expect(result.current.error).toBe(false);
+  });
+
   it("a member delta refreshes the worker roster and reads no task list", async () => {
     const { result } = renderHook(() => useTasks(OPEN_QUERY, [""]));
     await waitFor(() => expect(h.listOutsourceWorkers).toHaveBeenCalledTimes(1));
@@ -335,5 +415,30 @@ describe("useTasks", () => {
     await waitFor(() => expect(h.listTasks).toHaveBeenCalledTimes(2));
     expect(listArgs()[1]).toEqual({ ...OPEN_QUERY, limit: 50, offset: 0 });
     expect(h.getTaskPageCount).toHaveBeenCalledTimes(2);
+  });
+
+  it("a due-boundary re-read that failed shows the error and is retried 30 seconds later", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.getTaskPageCount.mockResolvedValue(count({ now: 1000, listDueNextChangeTs: 1010 }));
+    const { result } = renderHook(() => useTasks(OPEN_QUERY, [""]));
+    await waitFor(() => expect(result.current.settled).toBe(true));
+
+    h.listTasks.mockRejectedValueOnce(new Error("500"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11_000);
+    });
+    await waitFor(() => expect(result.current.error).toBe(true));
+    expect(h.listTasks).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_000);
+    });
+    expect(h.listTasks).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    await waitFor(() => expect(result.current.error).toBe(false));
+    expect(h.listTasks).toHaveBeenCalledTimes(3);
   });
 });

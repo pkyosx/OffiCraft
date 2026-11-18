@@ -10722,13 +10722,13 @@ export interface components {
             };
             /**
              * Lanes
-             * @description With group_by other than none: every non-empty lane after ALL filters, in display order. due: overdue, soon, later, nodue. priority: high, mid, low, frozen, then other values sorted. executor: outsource, unassigned, then staff members in the order ``GET /api/members`` lists them, then member ids not on the roster, sorted. type: type_keys sorted, then adhoc. status: not_started, in_progress, waiting_owner, waiting_external, done, terminated, duplicated. Empty otherwise. additive-optional.
+             * @description With group_by other than none: every non-empty lane after ALL filters, in display order. due: overdue, soon, later, nodue. priority: high, mid, low, frozen, then other values sorted. executor: outsource, unassigned, then staff members in the order ``GET /api/members`` lists them, then member ids not on the roster, sorted. type: type_keys sorted, then adhoc. status: not_started, in_progress, waiting_owner, waiting_external, ready_for_done, done, terminated, duplicated. Empty otherwise. additive-optional.
              * @default []
              */
             lanes: components["schemas"]["TaskCountLaneDTO"][];
             /**
              * List Due Next Change Ts
-             * @description The earliest instant after ``now`` at which a task passing the filter params changes due bucket — closed tasks included when group_by=due, since they are filed by date there — i.e. when the filtered list, its counts or its lanes would change with no task write. null when there is none, or when no filter param was sent. Unlike ``due_next_change_ts``, which serves the badge and only watches open tasks. additive-optional.
+             * @description The earliest instant after ``now`` at which a task passing the filter params changes due bucket — closed tasks included when group_by=due, since they are filed by date there — i.e. when the filtered list, its counts or its lanes would change with no task write. It looks past the executors, ids and lane params (and past due itself), so it may come early — an extra re-ask — but never late. null when there is none, or when no filter param was sent. Unlike ``due_next_change_ts``, which serves the badge and only watches open tasks. additive-optional.
              * @default null
              */
             list_due_next_change_ts: number | null;
@@ -20851,7 +20851,7 @@ export interface operations {
                 types?: string[];
                 /** @description Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. */
                 due?: string[];
-                /** @description Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. Not applied to ``executor_counts``. */
+                /** @description Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. Not applied to ``executor_counts``. At most 200 ids; more is a 400 naming the count. */
                 ids?: string[];
                 /** @description Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. */
                 q?: string | null;

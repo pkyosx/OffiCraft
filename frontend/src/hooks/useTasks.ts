@@ -36,6 +36,8 @@ export const TASK_PAGE_SIZE = 50;
 const LIST_ASK_MAX = 200;
 // setTimeout fires at once past this many ms.
 const MAX_TIMER_MS = 2 ** 31 - 1;
+// A due-boundary re-read that failed is retried no sooner than this.
+const DUE_RETRY_MS = 30_000;
 
 export interface TaskList {
   tasks: TaskView[];
@@ -169,6 +171,8 @@ export function useTasks(query: TaskPageQuery, listKeys: string[]): UseTasks {
   const keysRef = useRef(listKeys);
   keysRef.current = listKeys;
   const heldRef = useRef(held);
+  const fullFailedRef = useRef(false);
+  const [fullFailures, setFullFailures] = useState(0);
   // At most one read in flight; asks that arrive meanwhile are folded into
   // `next` and served by ONE follow-up, sent after them.
   const loaderRef = useRef<{ busy: boolean; next: ListAsk | null }>({
@@ -188,28 +192,40 @@ export function useTasks(query: TaskPageQuery, listKeys: string[]): UseTasks {
       const cur = heldRef.current;
       const stillAsked = () => queryRef.current.key === key;
 
-      if (ask.full || cur.forKey !== key) {
+      if (ask.full || cur.forKey !== key || fullFailedRef.current) {
         const fresh = cur.forKey !== key;
         const grouped = (q.groupBy ?? "none") !== "none";
         const rowsFor = (k: string) =>
           fresh
             ? TASK_PAGE_SIZE
             : Math.max(TASK_PAGE_SIZE, cur.lists.get(k)?.tasks.length ?? 0);
-        const [count, flatList, w] = await Promise.all([
-          api.getTaskPageCount(q),
-          grouped ? null : readHead(q, "", rowsFor("")),
-          api.listOutsourceWorkers(),
-        ]);
-        setWorkers(w);
         const lists = new Map<string, TaskList>();
-        if (flatList !== null) lists.set("", flatList);
-        else {
-          // Lanes the new count no longer has are not asked: under a changed
-          // grouping the held keys name the old grouping's lanes.
-          const live = keys.filter((k) => count.lanes.some((l) => l.key === k));
-          const read = await Promise.all(live.map((k) => readHead(q, k, rowsFor(k))));
-          live.forEach((k, i) => lists.set(k, read[i]));
+        let count: TaskPageCountView;
+        try {
+          const [c, flatList, w] = await Promise.all([
+            api.getTaskPageCount(q),
+            grouped ? null : readHead(q, "", rowsFor("")),
+            api.listOutsourceWorkers(),
+          ]);
+          count = c;
+          setWorkers(w);
+          if (flatList !== null) lists.set("", flatList);
+          else {
+            // Lanes the new count no longer has are not asked: under a changed
+            // grouping the held keys name the old grouping's lanes.
+            const live = keys.filter((k) => c.lanes.some((l) => l.key === k));
+            const read = await Promise.all(live.map((k) => readHead(q, k, rowsFor(k))));
+            live.forEach((k, i) => lists.set(k, read[i]));
+          }
+        } catch (e) {
+          // What is held may now be stale, so whatever asks next re-reads it all.
+          fullFailedRef.current = true;
+          setFullFailures((n) => n + 1);
+          setError(true);
+          throw e;
         }
+        fullFailedRef.current = false;
+        setFullFailures(0);
         if (!stillAsked()) return;
         land({ forKey: key, query: q, lists, count });
         setError(false);
@@ -270,22 +286,23 @@ export function useTasks(query: TaskPageQuery, listKeys: string[]): UseTasks {
               );
               const fresh = new Map(answers.flat().map((t) => [t.id, t]));
               const heldById = new Map(have.tasks.map((t) => [t.id, t]));
-              const moved = [...fresh.values()].some((t) => {
-                const before = heldById.get(t.id);
-                return before === undefined || sortFieldsMoved(before, t);
-              });
-              if (moved) {
+              // A row leaving shifts every later offset too, so a page read
+              // since then may have skipped the row at the old boundary.
+              const shifted =
+                named.some((id) => heldById.has(id) && !fresh.has(id)) ||
+                [...fresh.values()].some((t) => {
+                  const before = heldById.get(t.id);
+                  return before === undefined || sortFieldsMoved(before, t);
+                });
+              if (shifted) {
                 lists.set(
                   k,
                   await readHead(q, k, Math.max(TASK_PAGE_SIZE, have.tasks.length))
                 );
                 return;
               }
-              const askedIds = new Set(named);
               lists.set(k, {
-                tasks: have.tasks.flatMap((t) =>
-                  !askedIds.has(t.id) ? [t] : fresh.has(t.id) ? [fresh.get(t.id)!] : []
-                ),
+                tasks: have.tasks.map((t) => fresh.get(t.id) ?? t),
                 complete: have.complete,
               });
             })()
@@ -391,12 +408,13 @@ export function useTasks(query: TaskPageQuery, listKeys: string[]): UseTasks {
   const wakeFrom = held.count?.now ?? 0;
   useEffect(() => {
     if (wakeAt === null) return;
-    const ms = Math.min(MAX_TIMER_MS, Math.max(0, (wakeAt - wakeFrom) * 1000) + 500);
+    const due = Math.max(0, (wakeAt - wakeFrom) * 1000) + 500;
+    const ms = Math.min(MAX_TIMER_MS, fullFailures > 0 ? Math.max(due, DUE_RETRY_MS) : due);
     const timer = window.setTimeout(() => {
       refetch().catch((e) => console.warn("useTasks: due-boundary refetch failed", e));
     }, ms);
     return () => window.clearTimeout(timer);
-  }, [wakeAt, wakeFrom, refetch]);
+  }, [wakeAt, wakeFrom, fullFailures, refetch]);
 
   const refetchTypes = useCallback(async () => {
     setTaskTypes(await api.listTaskTypes());
