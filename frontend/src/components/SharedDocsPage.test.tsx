@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
-import { SharedDocsPage, sharedDocLink } from "./SharedDocsPage";
+import { SharedDocsPage } from "./SharedDocsPage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
 import { formatAbsolute } from "../lib/dateFormat";
@@ -207,7 +207,7 @@ describe("SharedDocsPage", () => {
     expect(actionStates(row(boardId))).toEqual(linkActions);
   });
 
-  it("the ID badge copies the id and shows a check, the link button copies the in-site link and shows a check", async () => {
+  it("the ID cell's one button copies the id and shows a check", async () => {
     const { container } = renderPage();
     const [, review] = await waitRows(container, 2);
     const badge = within(review!).getByTestId("shared-doc-id");
@@ -217,27 +217,23 @@ describe("SharedDocsPage", () => {
     await waitFor(() => expect(copyTextMock).toHaveBeenCalledWith("sd-3f9a2c71b0e4"));
     await waitFor(() => expect(iconPaths()).toEqual(["M20 6 9 17l-5-5"]));
     expect(badge.textContent).toBe("#sd-3f9a2c71b0e4");
-    const link = within(review!).getByTestId("shared-doc-copy-link");
-    fireEvent.click(link);
-    await waitFor(() =>
-      expect(copyTextMock).toHaveBeenLastCalledWith(
-        `${window.location.origin}${window.location.pathname}#shared-docs/sd-3f9a2c71b0e4`,
-      ),
-    );
-    await waitFor(() => expect(link.getAttribute("title")).toBe("已複製連結"));
-    expect(sharedDocLink("sd-1")).toBe(
-      `${window.location.origin}${window.location.pathname}#shared-docs/sd-1`,
-    );
+    expect(
+      Array.from(review!.querySelectorAll("td")[0]!.querySelectorAll("button")).map((b) => b.dataset.testid),
+    ).toEqual(["shared-doc-id"]);
   });
 
-  it("the name opens the content itself, a link in a new tab and a file or image in the preview over the list, and 最後修改 opens the doc's page", async () => {
+  it("the name opens the content itself, a link in a new tab and a file or image in the preview over the list with the preview's own actions plus 編輯 on a text file, and 最後修改 opens the doc's page", async () => {
     const contractId = await createUploaded("file", "Contract", "contract.pdf", "pdf");
     const shotId = await createUploaded("image", "Shot", "shot.png", "png");
     const { container } = renderPage();
     await waitRows(container, 4);
     const row = (id: string) => container.querySelector<HTMLElement>(`[data-doc-id="${id}"]`)!;
+    const actions = (overlay: HTMLElement) =>
+      Array.from(overlay.querySelectorAll(".md-preview__actions > *")).map((el) => el.getAttribute("aria-label"));
     const openPreview = async (id: string) => {
-      fireEvent.click(within(row(id)).getByTestId("shared-doc-open"));
+      const name = within(row(id)).getByTestId("shared-doc-open");
+      name.focus();
+      fireEvent.click(name);
       return waitFor(() => {
         const el = document.body.querySelector<HTMLElement>(".md-preview");
         if (!el) throw new Error("no preview");
@@ -262,16 +258,27 @@ describe("SharedDocsPage", () => {
     expect(review.querySelector("a.md-preview__download")?.getAttribute("href")).toContain(
       "/api/chat/attachment/att-5d0c11a2b3c4",
     );
-    await closePreview(review);
+    await waitFor(() =>
+      expect(actions(review)).toEqual(["編輯", "複製分享連結", "在新頁面顯示", "下載", "關閉預覽"]),
+    );
+    fireEvent.click(within(review).getByRole("button", { name: "編輯" }));
+    expect(document.body.querySelector(".md-preview:not([data-testid])")).toBeNull();
+    const editor = (await waitFor(() => within(document.body).getByTestId("shared-doc-editor"))) as HTMLTextAreaElement;
+    expect(editor.value).toBe("# Review Rule\n\n1. 範圍：變更檔案逐一說得出必要性。\n2. 測試：新行為有測試。\n");
+    fireEvent.click(within(document.body).getByTestId("shared-doc-editor-cancel"));
+    expect(document.body.querySelector(".md-preview")).toBeNull();
+    expect(document.activeElement).toBe(within(row("sd-3f9a2c71b0e4")).getByTestId("shared-doc-open"));
 
     const contract = await openPreview(contractId);
     expect(contract.querySelector(".md-preview__title")?.textContent).toBe("Contract");
+    await waitFor(() => expect(actions(contract)).toEqual(["複製分享連結", "在新頁面顯示", "下載", "關閉預覽"]));
     const contractDoc = await api.getSharedDoc(contractId);
     expect(contract.querySelector("a.md-preview__download")?.getAttribute("href")).toContain(contractDoc.url);
     await closePreview(contract);
 
     const shot = await openPreview(shotId);
     expect(shot.querySelector(".md-preview__title")?.textContent).toBe("Shot");
+    await waitFor(() => expect(actions(shot)).toEqual(["複製分享連結", "在新頁面顯示", "下載", "關閉預覽"]));
     const shotDoc = await api.getSharedDoc(shotId);
     expect(shot.querySelector("img")?.getAttribute("src")).toContain(shotDoc.url);
     await closePreview(shot);

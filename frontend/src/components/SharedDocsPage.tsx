@@ -11,7 +11,7 @@ import { useOwnerDisplayName } from "../hooks/useOwnerName";
 import { useSharedDoc, useSharedDocAction, useSharedDocs } from "../hooks/useSharedDocs";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
-import { formatHash, useHashRoute } from "../lib/hashRoute";
+import { useHashRoute } from "../lib/hashRoute";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import type { SharedDocView } from "../types";
 import { ConfirmModal } from "./ConfirmModal";
@@ -27,7 +27,6 @@ import { MarkdownPreviewOverlay, isMarkdownAttachment } from "./MarkdownPreviewO
 import {
   CheckIcon,
   CloseIcon,
-  CopyIcon,
   ExternalLinkIcon,
   FileTextIcon,
   ImageIcon,
@@ -40,18 +39,9 @@ import {
 import "./inline-edit.css";
 import "./lore.css";
 import "./md-preview.css";
-import "./office.css";
 import "./secrets.css";
 import "./theme-settings.css";
 import "./shared-docs.css";
-
-/** The in-site address of one document — what 複製連結 puts on the clipboard. */
-export function sharedDocLink(id: string): string {
-  return `${window.location.origin}${window.location.pathname}${formatHash({
-    page: "shared_docs",
-    sharedDocId: id,
-  })}`;
-}
 
 function useActorName(): (id: string) => string {
   const { t } = useI18n();
@@ -728,18 +718,6 @@ function SharedDocList({
                         {flashed === `id:${doc.id}` ? <CheckIcon size={13} /> : <LayersIcon size={13} />}#
                         {doc.id}
                       </button>
-                      <button
-                        type="button"
-                        className="chat__share-btn"
-                        data-testid="shared-doc-copy-link"
-                        aria-label={flashed === `link:${doc.id}` ? d.linkCopied : d.copyLink}
-                        title={flashed === `link:${doc.id}` ? d.linkCopied : d.copyLink}
-                        onClick={async () => {
-                          if (await copyText(sharedDocLink(doc.id))) flash(`link:${doc.id}`);
-                        }}
-                      >
-                        {flashed === `link:${doc.id}` ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-                      </button>
                     </span>
                   </td>
                   <td className="shared-docs__col-file">
@@ -814,6 +792,14 @@ function SharedDocList({
           url={preview.url}
           attachmentId={preview.attachmentId}
           mime={preview.mime}
+          onEdit={
+            textEditable(preview)
+              ? () => {
+                  setPreview(null);
+                  setEditing(preview);
+                }
+              : undefined
+          }
           onClose={() => setPreview(null)}
         />
       )}

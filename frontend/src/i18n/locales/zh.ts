@@ -204,8 +204,6 @@ export const zh = {
     colUpdated: "最後修改",
     colActions: "操作",
     copyIdLabel: "複製檔案 ID",
-    copyLink: "複製連結",
-    linkCopied: "已複製連結",
     kindFile: "檔案",
     kindLink: "連結",
     kindImage: "圖片",
@@ -1519,6 +1517,7 @@ export const zh = {
       // 有縮排。（owner rc-38132b95dcf7 圈 [1]）
       jsonUnparseable: "這不是合法的 JSON，無法排版；以下是檔案的原始內容。",
       download: "下載",
+      edit: "編輯",
       close: "關閉預覽",
       loading: "載入預覽中…",
       error: "無法載入預覽",

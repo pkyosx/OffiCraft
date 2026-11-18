@@ -209,8 +209,6 @@ export const en: Dict = {
     colUpdated: "Last modified",
     colActions: "Actions",
     copyIdLabel: "Copy file ID",
-    copyLink: "Copy link",
-    linkCopied: "Link copied",
     kindFile: "File",
     kindLink: "Link",
     kindImage: "Image",
@@ -1466,6 +1464,7 @@ export const en: Dict = {
       // 有縮排。（owner rc-38132b95dcf7 圈 [1]）
       jsonUnparseable: "This is not valid JSON, so it cannot be indented. The raw file contents are below.",
       download: "Download",
+      edit: "Edit",
       close: "Close preview",
       loading: "Loading preview…",
       error: "Could not load the preview",

@@ -442,7 +442,8 @@ describe("MarkdownPreviewOverlay", () => {
   // The blob actions belong to `url` mode and must survive the message mode
   // being added beside them (T-4fdc gave the share link a REQUIRED attachment
   // id; PR #18 must not quietly drop either).
-  it("keeps the share link + download on a blob, and gives an inline source neither", async () => {
+  it("keeps the share link + download on a blob, with 編輯 first when the caller offers it, and gives an inline source none of them", async () => {
+    const onEdit = vi.fn();
     const mint = vi
       .spyOn(api, "getChatAttachmentShareLink")
       .mockResolvedValue("/api/chat/attachment/att-backing?sig=test");
@@ -461,6 +462,7 @@ describe("MarkdownPreviewOverlay", () => {
           title="doc.md"
           url="/api/chat/attachment/att-doc"
           attachmentId="att-backing"
+          onEdit={onEdit}
           onClose={() => {}}
         />
       </I18nProvider>,
@@ -470,6 +472,15 @@ describe("MarkdownPreviewOverlay", () => {
         document.body.querySelector("button.md-preview__share"),
       ).toBeTruthy(),
     );
+    await waitFor(() =>
+      expect(
+        Array.from(document.body.querySelectorAll(".md-preview__actions > *")).map((el) =>
+          el.getAttribute("aria-label"),
+        ),
+      ).toEqual(["編輯", "複製分享連結", "在新頁面顯示", "下載", "關閉預覽"]),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "編輯" }));
+    expect(onEdit).toHaveBeenCalledTimes(1);
     fireEvent.click(document.body.querySelector("button.md-preview__share")!);
     // The share link is minted for the ATTACHMENT ID, never the serve path.
     await waitFor(() => expect(mint).toHaveBeenCalledWith("att-backing"));
@@ -486,8 +497,11 @@ describe("MarkdownPreviewOverlay", () => {
         />
       </I18nProvider>,
     );
-    expect(document.body.querySelector("button.md-preview__share")).toBeNull();
-    expect(document.body.querySelector("a.md-preview__download")).toBeNull();
+    expect(
+      Array.from(document.body.querySelectorAll(".md-preview__actions > *")).map((el) =>
+        el.getAttribute("aria-label"),
+      ),
+    ).toEqual(["關閉預覽"]);
   });
 
   it("shows an HTML attachment as its share-link page in a sandboxed frame, loading until the link is minted, without fetching its text", async () => {

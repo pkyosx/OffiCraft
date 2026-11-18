@@ -87,6 +87,7 @@ import {
   DownloadIcon,
   ExternalLinkIcon,
   FileTextIcon,
+  PencilIcon,
 } from "./icons";
 
 const ZOOM_MIN = 0.5;
@@ -149,6 +150,9 @@ type MarkdownPreviewOverlayProps = {
   /** Absent = this overlay shows one item with nothing either side of it, and
    * no paging control renders. */
   pager?: PreviewPager;
+  /** Absent = no 編輯 button. The caller decides what editing means; the
+   * overlay only offers the entry. */
+  onEdit?: () => void;
   onClose: () => void;
 } & (
   | {
@@ -232,6 +236,7 @@ export function MarkdownPreviewOverlay({
   typePending,
   source: inlineSource,
   trailing,
+  onEdit,
   onClose,
 }: MarkdownPreviewOverlayProps) {
   const { t } = useI18n();
@@ -942,6 +947,17 @@ export function MarkdownPreviewOverlay({
                 params={diffParams}
                 className="md-preview__download md-preview__share"
               />
+            )}
+            {onEdit !== undefined && (
+              <button
+                type="button"
+                className="md-preview__download md-preview__edit"
+                aria-label={t.chat.mdPreview.edit}
+                title={t.chat.mdPreview.edit}
+                onClick={onEdit}
+              >
+                <PencilIcon size={14} />
+              </button>
             )}
             {commentable && (
               <button
