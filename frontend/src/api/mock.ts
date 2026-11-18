@@ -3181,8 +3181,6 @@ const MOCK_WIRE_SHARED_DOCS: WireSharedDoc[] = [
     created_by: "mira",
     updated_ts: 1763366700,
     updated_by: "mira",
-    archived_ts: null,
-    archived_by: null,
     version_count: 2,
   },
   {
@@ -3198,8 +3196,6 @@ const MOCK_WIRE_SHARED_DOCS: WireSharedDoc[] = [
     created_by: "mira",
     updated_ts: 1761648240,
     updated_by: "mira",
-    archived_ts: null,
-    archived_by: null,
     version_count: 1,
   },
 ];
@@ -3245,18 +3241,6 @@ function mockSharedDocOrThrow(method: string, path: string, id: string): WireSha
   const row = mockSharedDocs.find((d) => d.id === id);
   if (!row) {
     throw mockApiError(`http 404 for ${method} ${path}`, 404, `shared doc '${id}' not found`);
-  }
-  return row;
-}
-
-function mockSharedDocWritable(method: string, path: string, id: string): WireSharedDoc {
-  const row = mockSharedDocOrThrow(method, path, id);
-  if (row.archived_ts != null) {
-    throw mockApiError(
-      `http 409 for ${method} ${path}`,
-      409,
-      `shared doc '${id}' is archived: unarchive it before changing it`,
-    );
   }
   return row;
 }
@@ -6866,9 +6850,8 @@ const mockApiImpl = {
     return id;
   },
 
-  async listSharedDocs(includeArchived: boolean): Promise<SharedDocView[]> {
-    return mockSharedDocs
-      .filter((d) => includeArchived || d.archived_ts == null)
+  async listSharedDocs(): Promise<SharedDocView[]> {
+    return [...mockSharedDocs]
       .sort((a, b) => (a.name === b.name ? (a.id < b.id ? -1 : 1) : a.name < b.name ? -1 : 1))
       .map(toSharedDoc);
   },
@@ -6895,8 +6878,6 @@ const mockApiImpl = {
       created_by: "owner",
       updated_ts: now,
       updated_by: "owner",
-      archived_ts: null,
-      archived_by: null,
       version_count: 1,
     };
     mockSharedDocs.push(row);
@@ -6905,10 +6886,12 @@ const mockApiImpl = {
   },
 
   async replaceSharedDoc(id: string, input: SharedDocReplaceInput): Promise<void> {
-    const row = mockSharedDocWritable("POST", `/api/shared-docs/${id}/replace`, id);
+    const row = mockSharedDocOrThrow("POST", `/api/shared-docs/${id}/replace`, id);
     const history = [mockSharedDocVersionOf(row), ...(mockSharedDocVersions[id] ?? [])];
     mockSharedDocVersions[id] = history.slice(0, MOCK_SHARED_DOC_KEEP);
-    Object.assign(row, mockSharedDocContent(row.kind, input.attachmentId, input.url));
+    if (input.attachmentId !== undefined || input.url !== undefined) {
+      Object.assign(row, mockSharedDocContent(row.kind, input.attachmentId, input.url));
+    }
     if (input.name !== undefined) row.name = input.name.trim();
     if (input.description !== undefined) row.description = input.description.trim();
     row.updated_ts = Date.now() / 1000;
@@ -6924,7 +6907,7 @@ const mockApiImpl = {
 
   async restoreSharedDocVersion(id: string, versionId: number): Promise<void> {
     const path = `/api/shared-docs/${id}/versions/${versionId}/restore`;
-    const row = mockSharedDocWritable("POST", path, id);
+    const row = mockSharedDocOrThrow("POST", path, id);
     const history = mockSharedDocVersions[id] ?? [];
     const version = history.find((v) => v.id === versionId);
     if (!version) {
@@ -6951,31 +6934,8 @@ const mockApiImpl = {
     emitTopic("shared_doc");
   },
 
-  async archiveSharedDoc(id: string): Promise<void> {
-    const row = mockSharedDocOrThrow("POST", `/api/shared-docs/${id}/archive`, id);
-    if (row.archived_ts != null) return;
-    row.archived_ts = Date.now() / 1000;
-    row.archived_by = "owner";
-    emitTopic("shared_doc");
-  },
-
-  async unarchiveSharedDoc(id: string): Promise<void> {
-    const row = mockSharedDocOrThrow("POST", `/api/shared-docs/${id}/unarchive`, id);
-    if (row.archived_ts == null) return;
-    row.archived_ts = null;
-    row.archived_by = null;
-    emitTopic("shared_doc");
-  },
-
   async deleteSharedDoc(id: string): Promise<void> {
-    const row = mockSharedDocOrThrow("DELETE", `/api/shared-docs/${id}`, id);
-    if (row.archived_ts == null) {
-      throw mockApiError(
-        `http 409 for DELETE /api/shared-docs/${id}`,
-        409,
-        `shared doc '${id}' is not archived: archive it before deleting it`,
-      );
-    }
+    mockSharedDocOrThrow("DELETE", `/api/shared-docs/${id}`, id);
     mockSharedDocs = mockSharedDocs.filter((d) => d.id !== id);
     delete mockSharedDocVersions[id];
     emitTopic("shared_doc");

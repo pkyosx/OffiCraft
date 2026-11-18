@@ -1771,8 +1771,6 @@ export function toSharedDoc(w: WireSharedDoc): SharedDocView {
     createdBy: w.created_by,
     updatedTs: w.updated_ts,
     updatedBy: w.updated_by,
-    archivedTs: w.archived_ts ?? null,
-    archivedBy: w.archived_by ?? null,
     versionCount: w.version_count,
   };
 }

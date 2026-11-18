@@ -1210,8 +1210,6 @@ export interface SharedDocView {
   createdBy: string;
   updatedTs: number;
   updatedBy: string;
-  archivedTs: number | null;
-  archivedBy: string | null;
   /** Versions that exist, the current one included. */
   versionCount: number;
 }

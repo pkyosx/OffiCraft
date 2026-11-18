@@ -117,8 +117,7 @@ export function SharedDocVersionsModal({
     if (!diffable) setPane("content");
   }, [diffable]);
 
-  const canRestore =
-    selectedVersion !== null && current !== null && current.archivedTs === null;
+  const canRestore = selectedVersion !== null && current !== null;
 
   async function restore() {
     if (!selectedVersion || busy) return;

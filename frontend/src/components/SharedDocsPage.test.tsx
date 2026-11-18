@@ -9,7 +9,7 @@ import { formatAbsolute } from "../lib/dateFormat";
 const copyTextMock = vi.hoisted(() => vi.fn(async (_text: string) => true));
 vi.mock("../lib/clipboard", () => ({ copyText: copyTextMock }));
 
-const WIRE_ARCHIVED = {
+const WIRE_DOC = {
   id: "sd-7d03c9e4f1a5",
   kind: "file",
   attachment_id: "att-000000000007",
@@ -22,8 +22,6 @@ const WIRE_ARCHIVED = {
   created_by: "mira",
   updated_ts: 100,
   updated_by: "mira",
-  archived_ts: 200,
-  archived_by: "mira",
   version_count: 1,
 };
 
@@ -34,7 +32,7 @@ function fakeJwt(claims: Record<string, unknown>): string {
 
 /** The page in REAL backend mode, so the delete button is decided by the real
  * viewerIsOwner reading the stored token — mock mode always answers owner. */
-async function renderRealModeArchivedRow(token: string): Promise<HTMLElement> {
+async function renderRealModeRow(token: string): Promise<HTMLElement> {
   vi.stubEnv("VITE_USE_MOCK", "false");
   vi.stubEnv("VITE_OC_TOKEN", "");
   localStorage.setItem("oc_token", token);
@@ -56,7 +54,7 @@ async function renderRealModeArchivedRow(token: string): Promise<HTMLElement> {
       const url = new URL(typeof input === "string" ? input : input.url, window.location.origin);
       const body =
         url.pathname === "/api/shared-docs"
-          ? { docs: url.searchParams.get("include_archived") === "true" ? [WIRE_ARCHIVED] : [] }
+          ? { docs: [WIRE_DOC] }
           : {};
       return new Response(JSON.stringify(body), {
         status: url.pathname === "/api/shared-docs" ? 200 : 404,
@@ -69,13 +67,11 @@ async function renderRealModeArchivedRow(token: string): Promise<HTMLElement> {
   const { SharedDocsPage: RealPage } = await import("./SharedDocsPage");
   const { USE_MOCK } = await import("../api");
   expect(USE_MOCK).toBe(false);
-  const { container, getByTestId } = render(
+  const { container } = render(
     <RealI18n>
       <RealPage />
     </RealI18n>,
   );
-  await waitFor(() => getByTestId("shared-docs-empty"));
-  fireEvent.click(getByTestId("shared-docs-show-archived"));
   const [row] = await waitRows(container, 1);
   return row!;
 }
@@ -119,7 +115,7 @@ afterEach(() => {
 });
 
 describe("SharedDocsPage", () => {
-  it("lists active docs by name with ID, type, name, description, last modified and an archive action", async () => {
+  it("lists every doc by name with ID, type, name, description, last modified and the owner's delete", async () => {
     const { container } = renderPage();
     const [api規格, review] = await waitRows(container, 2);
     const now = Math.floor(Date.now() / 1000);
@@ -141,72 +137,62 @@ describe("SharedDocsPage", () => {
     ]);
     expect(api規格!.querySelector('[data-testid="shared-doc-kind-link"]')).not.toBeNull();
     expect(review!.querySelector('[data-testid="shared-doc-kind-file"]')).not.toBeNull();
-    expect(review!.querySelector('[data-testid="shared-doc-archive"]')?.getAttribute("title")).toBe("封存");
+    expect(within(review!).getByTestId("shared-doc-delete").getAttribute("title")).toBe("永久刪除");
   });
 
-  it("the ID badge copies the id and the link button copies the in-site link to the doc", async () => {
+  it("the ID badge copies the id and shows a check, the link button copies the in-site link and shows a check", async () => {
     const { container } = renderPage();
     const [, review] = await waitRows(container, 2);
-    fireEvent.click(within(review!).getByTestId("shared-doc-id"));
+    const badge = within(review!).getByTestId("shared-doc-id");
+    fireEvent.click(badge);
     await waitFor(() => expect(copyTextMock).toHaveBeenCalledWith("sd-3f9a2c71b0e4"));
-    fireEvent.click(within(review!).getByTestId("shared-doc-copy-link"));
+    await waitFor(() => expect(badge.textContent).toBe("#sd-3f9a2c71b0e4"));
+    const link = within(review!).getByTestId("shared-doc-copy-link");
+    fireEvent.click(link);
     await waitFor(() =>
       expect(copyTextMock).toHaveBeenLastCalledWith(
         `${window.location.origin}${window.location.pathname}#shared-docs/sd-3f9a2c71b0e4`,
       ),
     );
+    await waitFor(() => expect(link.getAttribute("title")).toBe("已複製連結"));
     expect(sharedDocLink("sd-1")).toBe(
       `${window.location.origin}${window.location.pathname}#shared-docs/sd-1`,
     );
   });
 
-  it("archiving hides the doc; 顯示已封存 shows it dimmed with 已封存, 取消封存 and 永久刪除", async () => {
-    const { container, getByTestId } = renderPage();
+  it("clicking anywhere on a row but its buttons opens the doc", async () => {
+    const { container } = renderPage();
     const [, review] = await waitRows(container, 2);
-    fireEvent.click(within(review!).getByTestId("shared-doc-archive"));
-    await waitRows(container, 1);
-
-    fireEvent.click(getByTestId("shared-docs-show-archived"));
-    const [, archived] = await waitRows(container, 2);
-    expect(archived!.className).toBe("shared-docs__row--archived");
-    expect(within(archived!).getByTestId("shared-doc-archived-pill").textContent).toBe("已封存");
-    expect(within(archived!).getByTestId("shared-doc-unarchive").textContent).toBe("取消封存");
-    expect(within(archived!).getByTestId("shared-doc-delete").textContent).toBe("永久刪除");
-    expect(within(archived!).queryByTestId("shared-doc-archive")).toBeNull();
-
-    fireEvent.click(within(archived!).getByTestId("shared-doc-unarchive"));
-    await waitFor(() =>
-      expect(container.querySelector(".shared-docs__row--archived")).toBeNull(),
-    );
+    fireEvent.click(review!.querySelectorAll("td")[3]!);
+    expect(window.location.hash).toBe("#shared-docs/sd-3f9a2c71b0e4");
+    window.location.hash = "#shared-docs";
+    fireEvent.click(within(review!).getByTestId("shared-doc-id"));
+    expect(window.location.hash).toBe("#shared-docs");
   });
 
-  it("a member's token gets no 永久刪除 on an archived doc", async () => {
-    const member = await renderRealModeArchivedRow(fakeJwt({ scope: "agent", sub: "kip" }));
-    expect(within(member).getByTestId("shared-doc-unarchive").textContent).toBe("取消封存");
+  it("a member's token gets no 永久刪除", async () => {
+    const member = await renderRealModeRow(fakeJwt({ scope: "agent", sub: "kip" }));
     expect(within(member).queryByTestId("shared-doc-delete")).toBeNull();
   });
 
-  it("an owner token is offered 永久刪除 on an archived doc", async () => {
-    const ownerRow = await renderRealModeArchivedRow(fakeJwt({ scope: "owner", sub: "owner" }));
-    expect(within(ownerRow).getByTestId("shared-doc-delete").textContent).toBe("永久刪除");
+  it("an owner token is offered 永久刪除", async () => {
+    const ownerRow = await renderRealModeRow(fakeJwt({ scope: "owner", sub: "owner" }));
+    expect(within(ownerRow).getByTestId("shared-doc-delete").getAttribute("title")).toBe("永久刪除");
   });
 
   it("永久刪除 asks first, then removes the doc for good", async () => {
-    await api.archiveSharedDoc("sd-3f9a2c71b0e4");
     const { container, getByTestId } = renderPage();
-    await waitRows(container, 1);
-    fireEvent.click(getByTestId("shared-docs-show-archived"));
-    const [, archived] = await waitRows(container, 2);
-    fireEvent.click(within(archived!).getByTestId("shared-doc-delete"));
+    const [, review] = await waitRows(container, 2);
+    fireEvent.click(within(review!).getByTestId("shared-doc-delete"));
     expect(getByTestId("shared-doc-delete-confirm").textContent).toContain(
-      "要永久刪除「Review Rule」嗎？文件、所有版本與檔案都會刪除，無法復原。",
+      "要永久刪除「Review Rule」嗎？檔案與所有版本都會刪除，無法復原。",
     );
     fireEvent.click(getByTestId("shared-doc-delete-confirm-btn"));
     await waitRows(container, 1);
-    expect(await api.listSharedDocs(true)).toHaveLength(1);
+    expect((await api.listSharedDocs()).map((d) => d.id)).toEqual(["sd-0c41e97a2b58"]);
   });
 
-  it("新增共用文件 with a link creates the doc and opens it", async () => {
+  it("新增檔案 with a link creates the doc and opens it", async () => {
     const { container, getByTestId } = renderPage();
     await waitRows(container, 2);
     fireEvent.click(getByTestId("shared-docs-add"));
@@ -222,7 +208,7 @@ describe("SharedDocsPage", () => {
     });
     fireEvent.click(submit);
     await waitFor(() => expect(window.location.hash).toMatch(/^#shared-docs\/sd-/));
-    const created = (await api.listSharedDocs(false)).find((d) => d.name === "Board");
+    const created = (await api.listSharedDocs()).find((d) => d.name === "Board");
     expect(created).toMatchObject({
       kind: "link",
       description: "the roadmap",
@@ -232,7 +218,7 @@ describe("SharedDocsPage", () => {
     expect(window.location.hash).toBe(`#shared-docs/${created!.id}`);
   });
 
-  it("新增共用文件 with a file uploads it first and the doc points at that upload", async () => {
+  it("新增檔案 with a file uploads it first and the doc points at that upload", async () => {
     const upload = vi.spyOn(api, "uploadAttachment");
     const { container, getByTestId } = renderPage();
     await waitRows(container, 2);
@@ -244,7 +230,7 @@ describe("SharedDocsPage", () => {
     await waitFor(() => expect(window.location.hash).toMatch(/^#shared-docs\/sd-/));
     expect(upload).toHaveBeenCalledWith(file, "notes.md");
     const attId = await upload.mock.results[0]!.value;
-    const created = (await api.listSharedDocs(false)).find((d) => d.name === "Notes");
+    const created = (await api.listSharedDocs()).find((d) => d.name === "Notes");
     expect(created).toMatchObject({ kind: "file", attachmentId: attId, filename: "notes.md" });
     expect((await api.getSharedDoc(created!.id)).text).toBe("# Notes");
   });

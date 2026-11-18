@@ -35,8 +35,6 @@ const WIRE_DOC = {
   created_by: "mira",
   updated_ts: 200,
   updated_by: "owner",
-  archived_ts: 300,
-  archived_by: "owner",
   version_count: 2,
 };
 
@@ -65,9 +63,9 @@ describe("httpApi · shared docs", () => {
     });
   });
 
-  it("listSharedDocs asks for archived ones only when told to, and maps every field", async () => {
+  it("listSharedDocs maps every field", async () => {
     fetchMock.mockImplementation(async () => jsonResponse({ docs: [WIRE_DOC] }));
-    expect(await httpApi.listSharedDocs(true)).toEqual([
+    expect(await httpApi.listSharedDocs()).toEqual([
       {
         id: "sd-0c41e97a2b58",
         kind: "link",
@@ -81,14 +79,9 @@ describe("httpApi · shared docs", () => {
         createdBy: "mira",
         updatedTs: 200,
         updatedBy: "owner",
-        archivedTs: 300,
-        archivedBy: "owner",
         versionCount: 2,
       },
     ]);
-    expect((await lastRequest()).url).toBe("/api/shared-docs?include_archived=true");
-    fetchMock.mockImplementation(async () => jsonResponse({ docs: [] }));
-    await httpApi.listSharedDocs(false);
     expect((await lastRequest()).url).toBe("/api/shared-docs");
   });
 
@@ -102,7 +95,7 @@ describe("httpApi · shared docs", () => {
 
   it("createSharedDoc sends the content field its kind uses and answers the new id", async () => {
     fetchMock.mockImplementation(async () =>
-      jsonResponse({ id: "sd-000000000002", updated_ts: 1, version_count: 1, archived_ts: null }),
+      jsonResponse({ id: "sd-000000000002", updated_ts: 1, version_count: 1 }),
     );
     const id = await httpApi.createSharedDoc({
       kind: "link",
@@ -122,7 +115,7 @@ describe("httpApi · shared docs", () => {
     });
   });
 
-  it("replaceSharedDoc sends null for every field it keeps", async () => {
+  it("replaceSharedDoc sends null for every field it keeps, content included on a name-only edit", async () => {
     await httpApi.replaceSharedDoc("sd-1", { attachmentId: "att-000000000003" });
     const req = await lastRequest();
     expect([req.method, req.url]).toEqual(["POST", "/api/shared-docs/sd-1/replace"]);
@@ -132,9 +125,16 @@ describe("httpApi · shared docs", () => {
       attachment_id: "att-000000000003",
       url: null,
     });
+    await httpApi.replaceSharedDoc("sd-1", { name: "Renamed" });
+    expect(JSON.parse((await lastRequest()).body)).toEqual({
+      name: "Renamed",
+      description: null,
+      attachment_id: null,
+      url: null,
+    });
   });
 
-  it("the version, restore, archive, unarchive and delete calls hit their routes", async () => {
+  it("the version, restore and delete calls hit their routes", async () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse({
         doc_id: "sd-1",
@@ -161,8 +161,6 @@ describe("httpApi · shared docs", () => {
     fetchMock.mockImplementation(async () => jsonResponse({}));
     for (const call of [
       () => httpApi.restoreSharedDocVersion("sd-1", 7),
-      () => httpApi.archiveSharedDoc("sd-1"),
-      () => httpApi.unarchiveSharedDoc("sd-1"),
       () => httpApi.deleteSharedDoc("sd-1"),
     ]) {
       await call();
@@ -172,8 +170,6 @@ describe("httpApi · shared docs", () => {
     expect(seen).toEqual([
       "GET /api/shared-docs/sd-1/versions",
       "POST /api/shared-docs/sd-1/versions/7/restore",
-      "POST /api/shared-docs/sd-1/archive",
-      "POST /api/shared-docs/sd-1/unarchive",
       "DELETE /api/shared-docs/sd-1",
     ]);
   });

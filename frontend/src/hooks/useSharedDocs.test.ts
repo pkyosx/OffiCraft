@@ -4,7 +4,7 @@ import { api } from "../api";
 import type { SharedDocView } from "../types";
 import { useSharedDocs } from "./useSharedDocs";
 
-function doc(id: string, archivedTs: number | null): SharedDocView {
+function doc(id: string): SharedDocView {
   return {
     id,
     kind: "link",
@@ -18,8 +18,6 @@ function doc(id: string, archivedTs: number | null): SharedDocView {
     createdBy: "mira",
     updatedTs: 1,
     updatedBy: "mira",
-    archivedTs,
-    archivedBy: archivedTs === null ? null : "mira",
     versionCount: 1,
   };
 }
@@ -34,19 +32,16 @@ describe("useSharedDocs", () => {
     vi.spyOn(api, "listSharedDocs").mockImplementation(
       () => new Promise((resolve) => pending.push(resolve)),
     );
-    const { result, rerender } = renderHook(
-      ({ archived }) => useSharedDocs(archived, "failed"),
-      { initialProps: { archived: false } },
-    );
-    rerender({ archived: true });
+    const { result } = renderHook(() => useSharedDocs("failed"));
+    await waitFor(() => expect(pending).toHaveLength(1));
+    act(() => void result.current.reload());
     await waitFor(() => expect(pending).toHaveLength(2));
 
-    const withArchived = [doc("sd-active", null), doc("sd-archived", 200)];
-    await act(async () => pending[1]!(withArchived));
-    await act(async () => pending[0]!([doc("sd-active", null)]));
+    const newer = [doc("sd-a"), doc("sd-b")];
+    await act(async () => pending[1]!(newer));
+    await act(async () => pending[0]!([doc("sd-a")]));
 
-    expect(result.current.docs).toEqual(withArchived);
+    expect(result.current.docs).toEqual(newer);
     expect(result.current.loading).toBe(false);
-    expect(vi.mocked(api.listSharedDocs).mock.calls).toEqual([[false], [true]]);
   });
 });

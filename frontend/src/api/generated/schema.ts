@@ -4611,10 +4611,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.
-         * @description - Archived documents are left out unless `include_archived` is the string `true`.
-         */
+        /** List shared documents, sorted by name. Metadata only: read the content with get_shared_doc. */
         get: operations["handle_list_shared_docs_api_shared_docs_get"];
         put?: never;
         /**
@@ -4642,15 +4639,13 @@ export interface paths {
          * @description - A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.
          *     - When `text` is null, download `attachment_id` for the content.
          *     - The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.
-         *     - An archived document is still readable here, with `archived_ts` set.
          */
         get: operations["handle_get_shared_doc_api_shared_docs__doc_id__get"];
         put?: never;
         post?: never;
         /**
-         * Permanently delete an archived shared document with all its versions. Owner only.
+         * Permanently delete a shared document with all its versions. Owner only.
          * @description - Irreversible: the document, every retained version and their files are gone, and the id answers 404 from then on.
-         *     - Only an archived document can be deleted; an active one is a 409, so archive it first.
          *     - Task manuals and tasks that cite the id are not updated: their references stop resolving.
          */
         delete: operations["handle_delete_shared_doc_api_shared_docs__doc_id__delete"];
@@ -4669,10 +4664,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Make new content the current version of a shared document. The id stays the same.
+         * Write a new version of a shared document: new content, a new name or description, or both. The id stays the same.
          * @description - Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.
+         *     - To change only `name` or `description`, send neither: the current content is kept, and the change is still a new version.
          *     - The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.
-         *     - An archived document is a 409: unarchive it first.
          */
         post: operations["handle_replace_shared_doc_api_shared_docs__doc_id__replace_post"];
         delete?: never;
@@ -4691,7 +4686,6 @@ export interface paths {
         /**
          * List a shared document's retained previous versions, newest first. The current version is not included.
          * @description - Only the most recent few previous versions are retained.
-         *     - Works on an archived document too.
          */
         get: operations["handle_list_shared_doc_versions_api_shared_docs__doc_id__versions_get"];
         put?: never;
@@ -4716,49 +4710,9 @@ export interface paths {
          * @description - The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.
          *     - The restored version leaves the list and its version id stops resolving.
          *     - `updated_by` / `updated_ts` become the caller and now.
-         *     - A version id that is not one of this document's retained versions is a 404; an archived document is a 409.
+         *     - A version id that is not one of this document's retained versions is a 404.
          */
         post: operations["handle_restore_shared_doc_version_api_shared_docs__doc_id__versions__version_id__restore_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/shared-docs/{doc_id}/archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Archive a shared document. It leaves the default list and cannot be replaced or restored until it is unarchived, but it stays readable by id and nothing is deleted.
-         * @description - Archiving an archived document changes nothing; `archived_ts` / `archived_by` keep the first archive.
-         */
-        post: operations["handle_archive_shared_doc_api_shared_docs__doc_id__archive_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/shared-docs/{doc_id}/unarchive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Return an archived shared document to the list and allow changes again.
-         * @description - Unarchiving an active document changes nothing.
-         */
-        post: operations["handle_unarchive_shared_doc_api_shared_docs__doc_id__unarchive_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13027,16 +12981,6 @@ export interface components {
          */
         SharedDocDTO: {
             /**
-             * Archived By
-             * @description Who archived it; null while active.
-             */
-            archived_by: string | null;
-            /**
-             * Archived Ts
-             * @description When it was archived; null while active.
-             */
-            archived_ts: number | null;
-            /**
              * Attachment Id
              * @description The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.
              */
@@ -13116,16 +13060,6 @@ export interface components {
          * @description One shared document with its current content inline when that content is text.
          */
         SharedDocDetailDTO: {
-            /**
-             * Archived By
-             * @description Who archived it; null while active.
-             */
-            archived_by: string | null;
-            /**
-             * Archived Ts
-             * @description When it was archived; null while active.
-             */
-            archived_ts: number | null;
             /**
              * Attachment Id
              * @description The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.
@@ -13216,11 +13150,6 @@ export interface components {
          * @description Bounded receipt of a shared-document write.
          */
         SharedDocReceiptDTO: {
-            /**
-             * Archived Ts
-             * @description Null while active.
-             */
-            archived_ts: number | null;
             /** Id */
             id: string;
             /** Updated Ts */
@@ -13233,12 +13162,12 @@ export interface components {
         };
         /**
          * SharedDocReplaceDTO
-         * @description New content for a shared document. Send the content field its kind uses; the other is refused.
+         * @description A new version of a shared document: new content, a new name or description, or both. Send the content field its kind uses; the other is refused.
          */
         SharedDocReplaceDTO: {
             /**
              * Attachment Id
-             * @description For a ``file``/``image`` document: a blob already in the store.
+             * @description For a ``file``/``image`` document: a blob already in the store. Omit it, and ``url``, to keep the current content.
              * @default null
              */
             attachment_id: string | null;
@@ -13256,7 +13185,7 @@ export interface components {
             name: string | null;
             /**
              * Url
-             * @description For a ``link`` document: ``http(s)://``, at most 2048 runes. No carry-forward: required on every replace of a link.
+             * @description For a ``link`` document: ``http(s)://``, at most 2048 runes. Omit it, and ``attachment_id``, to keep the current content.
              * @default null
              */
             url: string | null;
@@ -23835,10 +23764,7 @@ export interface operations {
     };
     handle_list_shared_docs_api_shared_docs_get: {
         parameters: {
-            query?: {
-                /** @description ``true`` (the STRING) also lists archived documents; by default they are left out. Any other value reads as not sent. */
-                include_archived?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -24141,104 +24067,6 @@ export interface operations {
             path: {
                 doc_id: string;
                 version_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SharedDocReceiptDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_archive_shared_doc_api_shared_docs__doc_id__archive_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                doc_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SharedDocReceiptDTO"];
-                };
-            };
-            /** @description Validation error (unified error envelope). */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Client error (unified error envelope). */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-            /** @description Server error (unified error envelope). */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
-                };
-            };
-        };
-    };
-    handle_unarchive_shared_doc_api_shared_docs__doc_id__unarchive_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                doc_id: string;
             };
             cookie?: never;
         };

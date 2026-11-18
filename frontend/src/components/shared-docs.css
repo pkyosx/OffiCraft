@@ -1,6 +1,6 @@
 /* 共用文件 page (`.shared-docs*`): the list table, one document's page and the
  * new/replace dialog's extras. Buttons and fields reuse secrets.css, the id
- * badge lore.css, the copy-link button office.css, the switch settings.css —
+ * badge lore.css, the copy-link button office.css, the ✓/✗ inline-edit.css —
  * each importer pulls those sheets itself. Theme tokens only. */
 
 .shared-docs {
@@ -19,14 +19,6 @@
   justify-content: flex-end;
   gap: 14px;
   flex-wrap: wrap;
-}
-.shared-docs__toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--color-text);
-  white-space: nowrap;
 }
 
 .shared-docs__card {
@@ -80,11 +72,20 @@
   text-align: center;
   width: 1%;
 }
-.shared-docs__row--archived td {
-  opacity: 0.55;
+/* Fixed so a copy (✓ swapped for the glyph) never shifts the columns. */
+.shared-docs__col-id {
+  width: 210px;
+  min-width: 210px;
 }
-.shared-docs__row--archived td.shared-docs__col-actions {
-  opacity: 1;
+.shared-docs__row {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.shared-docs__row:hover td {
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+}
+.shared-docs__row:hover .shared-docs__name {
+  color: var(--color-accent);
 }
 .shared-docs__id-cell {
   display: inline-flex;
@@ -103,8 +104,6 @@
   vertical-align: middle;
 }
 .shared-docs__kind {
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
-  background: color-mix(in srgb, var(--color-surface-sunken) 55%, transparent);
   color: var(--color-text-muted);
 }
 .shared-docs__thumb {
@@ -125,18 +124,6 @@
 .shared-docs__name:hover {
   color: var(--color-accent);
 }
-.shared-docs__pill {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border);
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  vertical-align: middle;
-}
 .shared-docs__description-cell {
   display: block;
   max-width: 280px;
@@ -149,13 +136,6 @@
   white-space: nowrap;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
-}
-.shared-docs__row-actions {
-  display: inline-flex;
-  gap: 6px;
-}
-.shared-docs__danger {
-  color: var(--color-danger);
 }
 @media (max-width: 720px) {
   .shared-docs__col-description {
@@ -202,10 +182,27 @@
 }
 .shared-docs__description {
   margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
   font-size: 13.5px;
   color: var(--color-text);
+  text-align: left;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  cursor: text;
+}
+.shared-docs__description-edit {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 600px;
+}
+.shared-docs__description-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  resize: vertical;
 }
 .shared-docs__head-actions {
   display: flex;

@@ -2708,12 +2708,8 @@ export const httpApi: Api = {
     return wire.id;
   },
 
-  async listSharedDocs(includeArchived: boolean): Promise<SharedDocView[]> {
-    const wire = unwrap(
-      await client.GET("/api/shared-docs", {
-        params: { query: includeArchived ? { include_archived: "true" } : {} },
-      }),
-    );
+  async listSharedDocs(): Promise<SharedDocView[]> {
+    const wire = unwrap(await client.GET("/api/shared-docs"));
     return wire.docs.map(toSharedDoc);
   },
 
@@ -2767,22 +2763,6 @@ export const httpApi: Api = {
     unwrap(
       await client.POST("/api/shared-docs/{doc_id}/versions/{version_id}/restore", {
         params: { path: { doc_id: id, version_id: versionId } },
-      }),
-    );
-  },
-
-  async archiveSharedDoc(id: string): Promise<void> {
-    unwrap(
-      await client.POST("/api/shared-docs/{doc_id}/archive", {
-        params: { path: { doc_id: id } },
-      }),
-    );
-  },
-
-  async unarchiveSharedDoc(id: string): Promise<void> {
-    unwrap(
-      await client.POST("/api/shared-docs/{doc_id}/unarchive", {
-        params: { path: { doc_id: id } },
       }),
     );
   },

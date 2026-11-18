@@ -16,17 +16,16 @@ import { ConfirmModal } from "./ConfirmModal";
 import { SharedDocDetail } from "./SharedDocDetail";
 import { SharedDocFormDialog } from "./SharedDocFormDialog";
 import {
-  ArchiveIcon,
   CheckIcon,
   CopyIcon,
   ExternalLinkIcon,
   LayersIcon,
   PaperclipIcon,
+  TrashIcon,
 } from "./icons";
 import "./lore.css";
 import "./office.css";
 import "./secrets.css";
-import "./settings.css";
 import "./theme-settings.css";
 import "./shared-docs.css";
 
@@ -124,24 +123,15 @@ function SharedDocList({
 }) {
   const { t, msg } = useI18n();
   const d = t.sharedDocs;
-  const [showArchived, setShowArchived] = useState(false);
-  const { docs, loading, loadError, reload } = useSharedDocs(showArchived, d.loadFailed);
+  const { docs, loading, loadError, reload } = useSharedDocs(d.loadFailed);
   const run = useSharedDocAction(d.actionFailed);
   const [creating, setCreating] = useState(false);
-  const [rowError, setRowError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<SharedDocView | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [flashed, flash] = useFlash();
   const isOwner = viewerIsOwner();
   const nowSecs = Math.floor(Date.now() / 1000);
-
-  async function act(action: () => Promise<unknown>) {
-    setRowError("");
-    const err = await run(action);
-    if (err) setRowError(err);
-    await reload();
-  }
 
   async function confirmDelete() {
     if (!deleteTarget) return;
@@ -160,20 +150,6 @@ function SharedDocList({
   return (
     <div className="shared-docs" data-testid="shared-docs-page">
       <div className="shared-docs__bar">
-        <label className="shared-docs__toggle">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={showArchived}
-            aria-label={d.showArchived}
-            className={`set-toggle${showArchived ? " set-toggle--on" : ""}`}
-            data-testid="shared-docs-show-archived"
-            onClick={() => setShowArchived((v) => !v)}
-          >
-            <span className="set-toggle__knob" />
-          </button>
-          <span>{d.showArchived}</span>
-        </label>
         <button
           type="button"
           className="secrets__btn secrets__submit"
@@ -187,11 +163,6 @@ function SharedDocList({
       {loadError && (
         <div className="secrets__error" data-testid="shared-docs-load-error">
           {loadError}
-        </div>
-      )}
-      {rowError && (
-        <div className="secrets__error" role="alert" data-testid="shared-docs-action-error">
-          {rowError}
         </div>
       )}
       {!loading && !loadError && docs.length === 0 && (
@@ -214,116 +185,86 @@ function SharedDocList({
               </tr>
             </thead>
             <tbody>
-              {docs.map((doc) => {
-                const archived = doc.archivedTs !== null;
-                return (
-                  <tr
-                    key={doc.id}
-                    className={archived ? "shared-docs__row--archived" : undefined}
-                    data-testid="shared-doc-row"
-                    data-doc-id={doc.id}
-                  >
-                    <td>
-                      <span className="shared-docs__id-cell">
-                        <button
-                          type="button"
-                          className="lore-row__id-badge"
-                          data-testid="shared-doc-id"
-                          aria-label={msg.sharedDocCopyId(doc.id)}
-                          title={msg.sharedDocCopyId(doc.id)}
-                          onClick={async () => {
-                            if (await copyText(doc.id)) flash(`id:${doc.id}`);
-                          }}
-                        >
-                          {flashed === `id:${doc.id}` ? <CheckIcon size={13} /> : <LayersIcon size={13} />}#
-                          {doc.id}
-                          {flashed === `id:${doc.id}` && (
-                            <span className="lore-row__id-badge-copied" role="status">
-                              {d.idCopied}
-                            </span>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          className="chat__share-btn"
-                          data-testid="shared-doc-copy-link"
-                          aria-label={flashed === `link:${doc.id}` ? d.linkCopied : d.copyLink}
-                          title={flashed === `link:${doc.id}` ? d.linkCopied : d.copyLink}
-                          onClick={async () => {
-                            if (await copyText(sharedDocLink(doc.id))) flash(`link:${doc.id}`);
-                          }}
-                        >
-                          {flashed === `link:${doc.id}` ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-                        </button>
-                      </span>
-                    </td>
-                    <td className="shared-docs__col-kind">
-                      <KindCell doc={doc} />
-                    </td>
-                    <td>
+              {docs.map((doc) => (
+                <tr
+                  key={doc.id}
+                  className="shared-docs__row"
+                  data-testid="shared-doc-row"
+                  data-doc-id={doc.id}
+                  onClick={(e) => {
+                    if ((e.target as Element).closest("button, a")) return;
+                    onOpen(doc.id);
+                  }}
+                >
+                  <td className="shared-docs__col-id">
+                    <span className="shared-docs__id-cell">
                       <button
                         type="button"
-                        className="shared-docs__name"
-                        data-testid="shared-doc-name"
-                        onClick={() => onOpen(doc.id)}
+                        className="lore-row__id-badge"
+                        data-testid="shared-doc-id"
+                        aria-label={msg.sharedDocCopyId(doc.id)}
+                        title={msg.sharedDocCopyId(doc.id)}
+                        onClick={async () => {
+                          if (await copyText(doc.id)) flash(`id:${doc.id}`);
+                        }}
                       >
-                        {doc.name}
+                        {flashed === `id:${doc.id}` ? <CheckIcon size={13} /> : <LayersIcon size={13} />}#
+                        {doc.id}
                       </button>
-                      {archived && (
-                        <span className="shared-docs__pill" data-testid="shared-doc-archived-pill">
-                          {d.archivedPill}
-                        </span>
-                      )}
-                    </td>
-                    <td className="shared-docs__col-description">
-                      <span className="shared-docs__description-cell" title={doc.description}>
-                        {doc.description}
-                      </span>
-                    </td>
-                    <td className="shared-docs__updated" data-testid="shared-doc-updated">
-                      {msg.sharedDocUpdated(actorName(doc.updatedBy), formatAbsolute(doc.updatedTs, nowSecs))}
-                    </td>
-                    <td className="shared-docs__col-actions">
-                      {archived ? (
-                        <span className="shared-docs__row-actions">
-                          <button
-                            type="button"
-                            className="secrets__btn"
-                            data-testid="shared-doc-unarchive"
-                            onClick={() => void act(() => api.unarchiveSharedDoc(doc.id))}
-                          >
-                            {d.unarchive}
-                          </button>
-                          {isOwner && (
-                            <button
-                              type="button"
-                              className="secrets__btn shared-docs__danger"
-                              data-testid="shared-doc-delete"
-                              onClick={() => {
-                                setDeleteError("");
-                                setDeleteTarget(doc);
-                              }}
-                            >
-                              {d.delete}
-                            </button>
-                          )}
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="ts-icon-btn"
-                          data-testid="shared-doc-archive"
-                          aria-label={`${d.archive} ${doc.name}`}
-                          title={d.archive}
-                          onClick={() => void act(() => api.archiveSharedDoc(doc.id))}
-                        >
-                          <ArchiveIcon size={15} />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+                      <button
+                        type="button"
+                        className="chat__share-btn"
+                        data-testid="shared-doc-copy-link"
+                        aria-label={flashed === `link:${doc.id}` ? d.linkCopied : d.copyLink}
+                        title={flashed === `link:${doc.id}` ? d.linkCopied : d.copyLink}
+                        onClick={async () => {
+                          if (await copyText(sharedDocLink(doc.id))) flash(`link:${doc.id}`);
+                        }}
+                      >
+                        {flashed === `link:${doc.id}` ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+                      </button>
+                    </span>
+                  </td>
+                  <td className="shared-docs__col-kind">
+                    <KindCell doc={doc} />
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="shared-docs__name"
+                      data-testid="shared-doc-name"
+                      onClick={() => onOpen(doc.id)}
+                    >
+                      {doc.name}
+                    </button>
+                  </td>
+                  <td className="shared-docs__col-description">
+                    <span className="shared-docs__description-cell" title={doc.description}>
+                      {doc.description}
+                    </span>
+                  </td>
+                  <td className="shared-docs__updated" data-testid="shared-doc-updated">
+                    {msg.sharedDocUpdated(actorName(doc.updatedBy), formatAbsolute(doc.updatedTs, nowSecs))}
+                  </td>
+                  <td className="shared-docs__col-actions">
+                    {isOwner && (
+                      <button
+                        type="button"
+                        className="ts-icon-btn ts-icon-btn--danger"
+                        data-testid="shared-doc-delete"
+                        aria-label={`${d.delete} ${doc.name}`}
+                        title={d.delete}
+                        onClick={() => {
+                          setDeleteError("");
+                          setDeleteTarget(doc);
+                        }}
+                      >
+                        <TrashIcon size={15} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

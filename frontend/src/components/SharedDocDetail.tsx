@@ -12,7 +12,9 @@ import { Markdown } from "./Markdown";
 import { isMarkdownAttachment } from "./MarkdownPreviewOverlay";
 import { SharedDocFormDialog } from "./SharedDocFormDialog";
 import { SharedDocVersionsModal } from "./SharedDocVersionsModal";
-import { ChevronLeftIcon } from "./icons";
+import { InlineEdit } from "./InlineEdit";
+import { CheckIcon, ChevronLeftIcon, CloseIcon } from "./icons";
+import "./inline-edit.css";
 import "./secrets.css";
 import "./settings.css";
 import "./shared-docs.css";
@@ -77,6 +79,87 @@ function SharedDocContent({ doc }: { doc: SharedDocDetailView }) {
       </p>
       {download}
     </div>
+  );
+}
+
+/** The description: click it to edit in a two-line box, ✓ saves (blank clears
+ * it), ✗ or Escape cancels. */
+function DescriptionEdit({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (next: string) => Promise<boolean>;
+}) {
+  const { t } = useI18n();
+  const d = t.sharedDocs;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  async function commit() {
+    const next = draft.trim();
+    if (next === value) {
+      setEditing(false);
+      return;
+    }
+    if (await onCommit(next)) setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className={`shared-docs__description${value ? "" : " shared-docs__muted"}`}
+        data-testid="shared-doc-description"
+        title={d.editDescription}
+        onClick={() => {
+          setDraft(value);
+          setEditing(true);
+        }}
+      >
+        {value || d.descriptionPlaceholder}
+      </button>
+    );
+  }
+  return (
+    <span className="shared-docs__description-edit">
+      <textarea
+        className="secrets__input shared-docs__description-input"
+        data-testid="shared-doc-description-input"
+        aria-label={d.editDescription}
+        rows={2}
+        maxLength={1024}
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            setEditing(false);
+          }
+        }}
+      />
+      <button
+        type="button"
+        className="inline-edit__iconbtn inline-edit__iconbtn--apply"
+        data-testid="shared-doc-description-save"
+        aria-label={t.common.apply}
+        title={t.common.apply}
+        onClick={() => void commit()}
+      >
+        <CheckIcon size={14} />
+      </button>
+      <button
+        type="button"
+        className="inline-edit__iconbtn inline-edit__iconbtn--cancel"
+        data-testid="shared-doc-description-cancel"
+        aria-label={t.common.cancel}
+        title={t.common.cancel}
+        onClick={() => setEditing(false)}
+      >
+        <CloseIcon size={14} />
+      </button>
+    </span>
   );
 }
 
@@ -153,33 +236,31 @@ export function SharedDocDetail({
     );
   }
 
-  const archived = doc.archivedTs !== null;
   return (
     <div className="shared-docs" data-testid="shared-doc-detail">
       {back}
       <section className="shared-docs__card shared-docs__head">
         <div className="shared-docs__head-text">
           <h2 className="shared-docs__title" data-testid="shared-doc-title">
-            {doc.name}
-            {archived && <span className="shared-docs__pill">{d.archivedPill}</span>}
+            <InlineEdit
+              value={doc.name}
+              ariaLabel={d.rename}
+              onCommit={(name) => void act(() => api.replaceSharedDoc(doc.id, { name }))}
+            />
           </h2>
-          {doc.description && (
-            <p className="shared-docs__description" data-testid="shared-doc-description">
-              {doc.description}
-            </p>
-          )}
+          <DescriptionEdit
+            value={doc.description}
+            onCommit={(description) =>
+              act(() => api.replaceSharedDoc(doc.id, { description }))
+            }
+          />
           <p className="shared-docs__muted" data-testid="shared-doc-updated">
             {d.updatedLead}
             {msg.sharedDocUpdated(actorName(doc.updatedBy), formatAbsolute(doc.updatedTs, nowSecs))}
           </p>
-          {archived && (
-            <p className="shared-docs__muted" data-testid="shared-doc-archived-notice">
-              {d.archivedNotice}
-            </p>
-          )}
         </div>
         <div className="shared-docs__head-actions">
-          {!archived && editableText(doc) && !editing && (
+          {editableText(doc) && !editing && (
             <button
               type="button"
               className="secrets__btn"
@@ -192,16 +273,14 @@ export function SharedDocDetail({
               {d.edit}
             </button>
           )}
-          {!archived && (
-            <button
-              type="button"
-              className="secrets__btn"
-              data-testid="shared-doc-upload-version"
-              onClick={() => setReplacing(true)}
-            >
-              {d.uploadVersion}
-            </button>
-          )}
+          <button
+            type="button"
+            className="secrets__btn"
+            data-testid="shared-doc-upload-version"
+            onClick={() => setReplacing(true)}
+          >
+            {d.uploadVersion}
+          </button>
           <button
             type="button"
             className="secrets__btn"
@@ -209,19 +288,6 @@ export function SharedDocDetail({
             onClick={() => setVersionsOpen(true)}
           >
             {d.versions}
-          </button>
-          <button
-            type="button"
-            className="secrets__btn"
-            data-testid={archived ? "shared-doc-unarchive" : "shared-doc-archive"}
-            disabled={busy}
-            onClick={() =>
-              void act(() =>
-                archived ? api.unarchiveSharedDoc(doc.id) : api.archiveSharedDoc(doc.id),
-              )
-            }
-          >
-            {archived ? d.unarchive : d.archive}
           </button>
         </div>
       </section>

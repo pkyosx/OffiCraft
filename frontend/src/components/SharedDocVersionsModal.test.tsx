@@ -85,13 +85,6 @@ describe("SharedDocVersionsModal", () => {
     ]);
   });
 
-  it("an archived doc offers no 還原這一版", async () => {
-    await api.archiveSharedDoc("sd-3f9a2c71b0e4");
-    const { getByTestId, queryByTestId } = renderModal();
-    await waitFor(() => getByTestId("sd-versions-row-1"));
-    expect(queryByTestId("sd-versions-restore")).toBeNull();
-  });
-
   it("selecting 目前版本 hides 還原這一版", async () => {
     const { getByTestId, queryByTestId } = renderModal();
     await waitFor(() => getByTestId("sd-versions-restore"));

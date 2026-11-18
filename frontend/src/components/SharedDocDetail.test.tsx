@@ -27,8 +27,8 @@ afterEach(() => {
 });
 
 describe("SharedDocDetail", () => {
-  it("a Markdown doc shows its name, description, last modified, the four buttons and the rendered content", async () => {
-    const { getByTestId, queryByTestId } = renderDetail("sd-3f9a2c71b0e4");
+  it("a Markdown doc shows its name, description, last modified, the three buttons and the rendered content", async () => {
+    const { getByTestId } = renderDetail("sd-3f9a2c71b0e4");
     expect((await title(getByTestId)).textContent).toBe("Review Rule");
     const now = Math.floor(Date.now() / 1000);
     expect(getByTestId("shared-doc-description").textContent).toBe(
@@ -40,9 +40,7 @@ describe("SharedDocDetail", () => {
     expect(getByTestId("shared-doc-edit").textContent).toBe("編輯");
     expect(getByTestId("shared-doc-upload-version").textContent).toBe("上傳新版本");
     expect(getByTestId("shared-doc-versions").textContent).toBe("版本紀錄");
-    expect(getByTestId("shared-doc-archive").textContent).toBe("封存");
     expect(getByTestId("shared-doc-markdown").querySelector("h1")?.textContent).toBe("Review Rule");
-    expect(queryByTestId("shared-doc-archived-notice")).toBeNull();
   });
 
   it("a link doc shows its URL and offers no 編輯", async () => {
@@ -69,18 +67,42 @@ describe("SharedDocDetail", () => {
     expect(doc).toMatchObject({ text: "# Review Rule v3\n", filename: "review-rule.md", versionCount: 3 });
   });
 
-  it("an archived doc says so, keeps 版本紀錄 and 取消封存, and hides 編輯 / 上傳新版本", async () => {
-    await api.archiveSharedDoc("sd-3f9a2c71b0e4");
+  it("the pencil renames the doc as a new version that keeps the content", async () => {
+    const { getByTestId, getByLabelText } = renderDetail("sd-3f9a2c71b0e4");
+    await title(getByTestId);
+    fireEvent.click(getByLabelText("改名"));
+    fireEvent.change(getByLabelText("改名"), { target: { value: "Review Rule v2" } });
+    fireEvent.keyDown(getByLabelText("改名"), { key: "Enter" });
+    await waitFor(() => expect(getByTestId("shared-doc-title").textContent).toBe("Review Rule v2"));
+    expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({
+      name: "Review Rule v2",
+      attachmentId: "att-5d0c11a2b3c4",
+      versionCount: 3,
+    });
+  });
+
+  it("clicking the description edits it in a two-line box; ✓ saves, ✗ leaves it as it was", async () => {
     const { getByTestId, queryByTestId } = renderDetail("sd-3f9a2c71b0e4");
-    expect((await title(getByTestId)).textContent).toBe("Review Rule已封存");
-    expect(getByTestId("shared-doc-archived-notice").textContent).toBe(
-      "這份文件已封存，取消封存後才能修改。",
-    );
-    expect(queryByTestId("shared-doc-edit")).toBeNull();
-    expect(queryByTestId("shared-doc-upload-version")).toBeNull();
-    expect(getByTestId("shared-doc-versions")).toBeTruthy();
-    fireEvent.click(getByTestId("shared-doc-unarchive"));
-    await waitFor(() => expect(getByTestId("shared-doc-archive")).toBeTruthy());
+    await title(getByTestId);
+    fireEvent.click(getByTestId("shared-doc-description"));
+    const box = getByTestId("shared-doc-description-input") as HTMLTextAreaElement;
+    expect([box.rows, box.value]).toEqual([2, "PR 審查時逐項核對的規則與退件標準"]);
+    fireEvent.change(box, { target: { value: "scratch" } });
+    fireEvent.click(getByTestId("shared-doc-description-cancel"));
+    expect(getByTestId("shared-doc-description").textContent).toBe("PR 審查時逐項核對的規則與退件標準");
+
+    fireEvent.click(getByTestId("shared-doc-description"));
+    fireEvent.change(getByTestId("shared-doc-description-input"), {
+      target: { value: "新增規則前先在 #review 頻道討論" },
+    });
+    fireEvent.click(getByTestId("shared-doc-description-save"));
+    await waitFor(() => expect(queryByTestId("shared-doc-description-input")).toBeNull());
+    expect(getByTestId("shared-doc-description").textContent).toBe("新增規則前先在 #review 頻道討論");
+    expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({
+      description: "新增規則前先在 #review 頻道討論",
+      attachmentId: "att-5d0c11a2b3c4",
+      versionCount: 3,
+    });
   });
 
   it("上傳新版本 on a link doc replaces its URL", async () => {
@@ -99,7 +121,7 @@ describe("SharedDocDetail", () => {
     const onBack = vi.fn();
     const { getByTestId } = renderDetail("sd-000000000000", onBack);
     expect((await waitFor(() => getByTestId("shared-doc-not-found"))).textContent).toBe(
-      "找不到這份共用文件",
+      "找不到這個檔案",
     );
     fireEvent.click(getByTestId("shared-doc-back"));
     expect(onBack).toHaveBeenCalledTimes(1);
