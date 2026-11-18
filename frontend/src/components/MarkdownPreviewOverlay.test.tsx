@@ -1291,12 +1291,13 @@ describe("MarkdownPreviewOverlay", () => {
         fireEvent.click(screen.getByRole("button", { name: "儲存" }));
       }
 
-      it("turns comment mode on in the page only once it said ready, and off again when comment mode closes", async () => {
+      it("turns comment mode on in the page only once it said ready, offering only whole-document comments until then, and off again when comment mode closes", async () => {
         const { posted, fromPage, toggle } = await renderPage();
+        const empty = () => document.body.querySelector(".doc-comments__empty")?.textContent;
         fromPage({ ...OC, type: "ready" }, window);
         toggle();
         expect(posted).toEqual([]);
-        expect(screen.getByText("點頁面上可註解的位置（滑過時有外框），或按「對整份文件加註解」。")).toBeTruthy();
+        expect(empty()).toBe("這個頁面只能按「對整份文件加註解」。");
         expect(document.body.querySelector(".doc-comments__bubbles")).toBeNull();
 
         fromPage({ ...OC, type: "ready" });
@@ -1304,6 +1305,9 @@ describe("MarkdownPreviewOverlay", () => {
           { ...OC, type: "mode", on: true },
           { ...OC, type: "commented", ids: [] },
         ]);
+        expect(empty()).toBe(
+          "在頁面上選取一段文字再按「加註解」、點可註解的位置（滑過時有外框），或按「對整份文件加註解」。",
+        );
         posted.length = 0;
         toggle();
         expect(posted).toEqual([{ ...OC, type: "mode", on: false }]);
@@ -1359,6 +1363,53 @@ describe("MarkdownPreviewOverlay", () => {
           "位置：ac-AC-4（#ac-AC-4）3. 寫到一半",
         ]);
         expect(document.body.querySelector(".doc-comments b")).toBeNull();
+      });
+
+      it("offers 加註解 for the text the page reports selected and sends a comment quoting exactly that text as plain text, ignoring another window and a malformed or oversize selection", async () => {
+        const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+        const { fromPage, toggle } = await renderPage();
+        toggle();
+        fromPage({ ...OC, type: "ready" });
+        const rect = { left: 10, top: 20, width: 80, height: 16 };
+        const select = (text: unknown, r: unknown = rect) => ({ ...OC, type: "select", text, rect: r });
+        const float = () => screen.queryByRole("button", { name: "加註解" });
+
+        fromPage(select("在 GitHub 開啟 PR #702"), window);
+        fromPage(select("在 GitHub 開啟 PR #702"), null);
+        fromPage({ ...select("在 GitHub 開啟 PR #702"), v: 2 });
+        fromPage(select(42));
+        fromPage(select("x".repeat(4001)));
+        fromPage(select("PR #702", null));
+        fromPage(select("PR #702", { ...rect, width: -1 }));
+        fromPage("select");
+        expect(float()).toBeNull();
+
+        fromPage(select("在 GitHub 開啟 PR #702"));
+        expect(float()).not.toBeNull();
+        fromPage(select(""));
+        expect(float()).toBeNull();
+
+        fromPage(select("  <b>粗</b> 在 GitHub\n開啟 PR #702 "));
+        fireEvent.click(float()!);
+        expect(document.body.querySelector(".doc-comments__item--compose .doc-comments__excerpt")?.textContent).toBe(
+          "<b>粗</b> 在 GitHub\n開啟 PR #702",
+        );
+        expect(float()).toBeNull();
+        saveComposed("這個連結打不開");
+        expect(listed()).toEqual(["<b>粗</b> 在 GitHub\n開啟 PR #7021. 這個連結打不開"]);
+        expect(document.body.querySelector(".doc-comments b")).toBeNull();
+
+        fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+        await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+        expect(post.mock.calls[0][0].body).toBe(
+          "**文件註解**：[pr-702.html](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+            "\n" +
+            "1. 原文：\n" +
+            "   > <b>粗</b> 在 GitHub\n" +
+            "   > 開啟 PR #702\n" +
+            "\n" +
+            "   註解：這個連結打不開",
+        );
       });
 
       it("tells the page which places carry comments whenever the draft changes, and asks it to show the place of a clicked comment", async () => {
@@ -1444,7 +1495,7 @@ describe("MarkdownPreviewOverlay", () => {
         expect([...bubble.querySelectorAll("blockquote p *")].map((el) => el.outerHTML)).toEqual([]);
       });
 
-      it("runs the page script `ocagent upload --help` prints: comment mode outlines marked places, a click on one is a pick, commented and focused places are marked, and outside comment mode a click is the page's own", async () => {
+      it("runs the page script `ocagent upload --help` prints: comment mode outlines marked places, a click on one is a pick, selected text is reported and a click ending a selection, even on a link in a marked place, neither navigates nor picks, commented and focused places are marked, and outside comment mode a click is the page's own", async () => {
         const { frame, toggle } = await renderPage();
         const page = frame.contentWindow! as Window & typeof globalThis;
         const doc = frame.contentDocument!;
@@ -1454,8 +1505,10 @@ describe("MarkdownPreviewOverlay", () => {
         const top = page.parent;
         const realPost = top.postMessage;
         const fromScript: string[] = [];
+        const selections: unknown[] = [];
         top.postMessage = ((data: { type: string }) => {
           fromScript.push(data.type);
+          if (data.type === "select") selections.push(data);
           setTimeout(() => window.dispatchEvent(new MessageEvent("message", { data, source: page })));
         }) as Window["postMessage"];
         const scrolled: string[] = [];
@@ -1501,6 +1554,36 @@ describe("MarkdownPreviewOverlay", () => {
           expect(marks()).toEqual([
             ["ac-AC-1", "oc-on oc-commented"],
             ["ac-AC-2", "oc-on oc-commented"],
+          ]);
+
+          page.Range.prototype.getBoundingClientRect = () => new page.DOMRect(5, 6, 30, 10);
+          const link = doc.querySelector("a")!;
+          const range = doc.createRange();
+          range.selectNodeContents(link);
+          doc.getSelection()!.removeAllRanges();
+          doc.getSelection()!.addRange(range);
+          fromScript.length = 0;
+          selections.length = 0;
+          fireEvent.mouseUp(link);
+          expect(fireEvent.click(link)).toBe(false);
+          await settle();
+          expect([...new Set(fromScript)]).toEqual(["select"]);
+          expect(selections.at(-1)).toEqual({
+            ...OC,
+            type: "select",
+            text: "AC-2",
+            rect: { left: 5, top: 6, width: 30, height: 10 },
+          });
+          fireEvent.click(screen.getByRole("button", { name: "加註解" }));
+          saveComposed("連結文字");
+          doc.getSelection()!.removeAllRanges();
+          fireEvent.mouseUp(doc.body);
+          await settle();
+          expect(selections.at(-1)).toEqual({ ...OC, type: "select", text: "", rect: null });
+          expect(listed()).toEqual([
+            "位置：ac-AC-2（#ac-AC-2）1. 第二條",
+            "位置：AC-1：忙碌（#ac-AC-1）2. 第一條",
+            "AC-23. 連結文字",
           ]);
 
           vi.useFakeTimers();

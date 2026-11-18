@@ -978,7 +978,7 @@ const PAGE =
 const SIG_ONLY_HTML_CSP = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox";
 
 for (const size of [NARROW, WIDE]) {
-  test(`${size.width}: an HTML page fills the body in a frame it cannot escape, and its marked places take comments through the help-text script`, async ({
+  test(`${size.width}: an HTML page fills the body in a frame it cannot escape, and its marked places and any text selected on it, link text included, take comments through the help-text script`, async ({
     mount,
     page,
   }) => {
@@ -1043,6 +1043,34 @@ for (const size of [NARROW, WIDE]) {
     await page.getByTestId("doc-comment").nth(1).locator(".doc-comments__goto").click();
     await expect(marked.first()).toHaveClass("oc-on oc-commented oc-focus");
     await expect(marked.first()).toHaveClass("oc-on oc-commented");
+
+    const tabs = page.context().pages().length;
+    const link = (await frame.getByRole("link", { name: "外部連結" }).boundingBox())!;
+    const midY = link.y + link.height / 2;
+    await page.mouse.move(link.x + 1, midY);
+    await page.mouse.down();
+    await page.mouse.move(link.x + link.width - 1, midY, { steps: 8 });
+    await page.mouse.up();
+    const add = page.getByRole("button", { name: "加註解", exact: true });
+    await expect(add).toBeVisible();
+    const float = await page.evaluate(() => {
+      const r = document.querySelector(".doc-comments__float")!.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, vw: innerWidth, vh: innerHeight };
+    });
+    expect(float.left).toBeGreaterThanOrEqual(0);
+    expect(float.right).toBeLessThanOrEqual(float.vw);
+    expect(float.top).toBeGreaterThanOrEqual(link.y + link.height);
+    expect(float.top).toBeLessThanOrEqual(link.y + link.height + 16);
+    await add.click();
+    await page.getByRole("textbox", { name: "註解內容" }).fill("連結壞了");
+    await page.getByRole("button", { name: "儲存" }).click();
+    expect(await page.getByTestId("doc-comment").locator(".doc-comments__excerpt").allTextContents()).toEqual([
+      "位置：ac-AC-2（#ac-AC-2）",
+      "位置：AC-1：忙碌（#ac-AC-1）",
+      "外部連結",
+    ]);
+    await page.waitForTimeout(200);
+    expect(page.context().pages().length).toBe(tabs);
   });
 }
 

@@ -95,6 +95,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "chat.mdPreview.comments.edit",
   "chat.mdPreview.comments.empty",
   "chat.mdPreview.comments.emptyFrame",
+  "chat.mdPreview.comments.emptyFrameWholeOnly",
   "chat.mdPreview.comments.emptyTextOnly",
   "chat.mdPreview.comments.excerptNotFound",
   "chat.mdPreview.comments.expandList",

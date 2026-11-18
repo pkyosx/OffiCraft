@@ -1,7 +1,7 @@
 // components/DocComments.tsx — comment mode of the document preview: select
-// text (or tap an image) in the rendered document, or pick a place an HTML page
-// marked, attach a comment to it, and send every comment to the AI as one chat
-// message.
+// text (or tap an image) in the rendered document, or select text or pick a
+// place an HTML page marked, attach a comment to it, and send every comment to
+// the AI as one chat message.
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
@@ -18,6 +18,7 @@ import {
   saveDocCommentDraft,
 } from "../lib/docComments";
 import { postToFrame, useFrameMessages } from "../lib/docCommentFrame";
+import type { FrameRect } from "../lib/docCommentFrame";
 import { placeUnderSelection, rangeInside } from "../lib/selectionFloat";
 import type { DocComment, DocCommentAnchor, DocCommentTarget } from "../lib/docComments";
 import "./doc-comments.css";
@@ -205,6 +206,15 @@ function useDocImagePick(docRef: RefObject<HTMLElement | null>, active: boolean)
   return [pick, () => setPick(null)] as const;
 }
 
+/** A page-reported selection box on the reader's screen, kept inside the frame. */
+function frameRectOnScreen(frame: DOMRect, rect: FrameRect): DOMRect {
+  const x = (v: number) => Math.min(Math.max(frame.left + v, frame.left), frame.right);
+  const y = (v: number) => Math.min(Math.max(frame.top + v, frame.top), frame.bottom);
+  const left = x(rect.left);
+  const top = y(rect.top);
+  return new DOMRect(left, top, x(rect.left + rect.width) - left, y(rect.top + rect.height) - top);
+}
+
 function newComment(anchor: DocCommentAnchor, comment: string): DocComment {
   const id = newCommentId();
   switch (anchor.kind) {
@@ -264,7 +274,7 @@ export function DocCommentPanel({
   imagePickable: boolean;
   /** The iframe an HTML document is shown in. Its page is another origin, so
    * nothing here can select, locate or mark inside it: comments come from the
-   * places the page itself reports as picked. */
+   * selections and places the page itself reports. */
   frameRef?: RefObject<HTMLIFrameElement | null>;
   /** Counts the page's `ready` messages; 0 ⇒ the page never said it takes picks. */
   frameReady?: number;
@@ -281,7 +291,8 @@ export function DocCommentPanel({
   const framed = frameRef !== undefined;
   const [selection, clearSelection] = useDocSelection(docRef, docReady && !framed);
   const [imagePick, clearImagePick] = useDocImagePick(docRef, docReady && imagePickable && !framed);
-  const pick = selection ?? imagePick;
+  const [frameSelection, setFrameSelection] = useState<Pick | null>(null);
+  const pick = selection ?? imagePick ?? frameSelection;
   const floatRef = useRef<HTMLButtonElement>(null);
   const composeRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -302,6 +313,18 @@ export function DocCommentPanel({
   const noFrame = useRef<HTMLIFrameElement | null>(null);
   const frame = frameRef ?? noFrame;
   useFrameMessages(frame, framed, (message) => {
+    if (message.type === "select") {
+      const box = frame.current?.getBoundingClientRect();
+      setFrameSelection(
+        message.selection && box
+          ? {
+              anchor: { kind: "text", excerpt: message.selection.text },
+              rect: frameRectOnScreen(box, message.selection.rect),
+            }
+          : null,
+      );
+      return;
+    }
     // The page can send picks on its own; one must not discard what the owner is typing.
     if (message.type !== "pick" || (composing && composing.text.trim() !== "")) return;
     setCollapsed(false);
@@ -430,6 +453,7 @@ export function DocCommentPanel({
     document.getSelection()?.removeAllRanges();
     clearSelection();
     clearImagePick();
+    setFrameSelection(null);
   }
 
   function saveComposing() {
@@ -541,7 +565,13 @@ export function DocCommentPanel({
         )}
         {comments.length === 0 && !composing && (
           <p className="doc-comments__empty">
-            {framed ? tc.emptyFrame : imagePickable ? tc.empty : tc.emptyTextOnly}
+            {framed
+              ? frameReady > 0
+                ? tc.emptyFrame
+                : tc.emptyFrameWholeOnly
+              : imagePickable
+                ? tc.empty
+                : tc.emptyTextOnly}
           </p>
         )}
         {comments.map((c, i) => (

@@ -282,8 +282,8 @@ export function MarkdownPreviewOverlay({
   const jsonAttachment = plainText && isJsonAttachment(mime ?? "text/markdown", typeName);
   const source = inlineSource ?? fetched;
   // Which bodies take comments: a text-selection or image-pick surface inside
-  // `bodyRef`, or an HTML page that reports its own picks (DocCommentPanel's
-  // frame mode).
+  // `bodyRef`, or an HTML page that reports its own selections and picks
+  // (DocCommentPanel's frame mode).
   const commentable =
     docComments !== undefined &&
     attachmentId !== undefined &&

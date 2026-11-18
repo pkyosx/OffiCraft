@@ -127,8 +127,9 @@ func TestRealMain(t *testing.T) {
 			"its extension alone decides\nthe media type",
 			"(including no extension) is application/octet-stream and downloads.",
 			"cookies and other browser storage throw SecurityError.",
-			`give an element data-oc-anchor="<id>" (1–128 characters`,
-			"this script in the page, pasted unchanged:\n\n" + snippet + "\nstdout on success",
+			"comment on any text he selects in it (his\nmessage quotes that text)",
+			`element data-oc-anchor="<id>" (1–128 characters`,
+			"quoted as 位置：<label>（#<id>）.\n\n" + snippet + "\nstdout on success",
 		}},
 		{"download", []string{
 			"usage: ocagent download <attachment-id> [--out <dir>]\n",

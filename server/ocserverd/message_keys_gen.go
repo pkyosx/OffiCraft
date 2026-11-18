@@ -96,6 +96,7 @@ var messageKeys = map[string]bool{
 	"chat.mdPreview.comments.edit":                     true,
 	"chat.mdPreview.comments.empty":                    true,
 	"chat.mdPreview.comments.emptyFrame":               true,
+	"chat.mdPreview.comments.emptyFrameWholeOnly":      true,
 	"chat.mdPreview.comments.emptyTextOnly":            true,
 	"chat.mdPreview.comments.excerptNotFound":          true,
 	"chat.mdPreview.comments.expandList":               true,
