@@ -115,29 +115,52 @@ afterEach(() => {
 });
 
 describe("SharedDocsPage", () => {
-  it("lists every doc by name with ID, type, name, description, last modified and the owner's delete", async () => {
+  it("lists every doc under ID, 檔案, 最後修改 and 操作, the file block showing the type, the name and the description under it", async () => {
+    const boardId = await api.createSharedDoc({
+      kind: "link",
+      name: "Board",
+      description: "",
+      url: "https://example.com/board",
+    });
     const { container } = renderPage();
-    const [api規格, review] = await waitRows(container, 2);
+    await waitRows(container, 3);
+    const row = (id: string) => container.querySelector<HTMLElement>(`[data-doc-id="${id}"]`)!;
+    const api規格 = row("sd-0c41e97a2b58");
+    const review = row("sd-3f9a2c71b0e4");
     const now = Math.floor(Date.now() / 1000);
-    expect(cellTexts(api規格!)).toEqual([
+    expect(Array.from(container.querySelectorAll("thead th")).map((th) => th.textContent)).toEqual([
+      "ID",
+      "檔案",
+      "最後修改",
+      "操作",
+    ]);
+    expect(cellTexts(api規格)).toEqual([
       "#sd-0c41e97a2b58",
-      "",
-      "API 規格",
-      "GitHub 上的 spec/openapi.json，改 wire 前先讀",
+      "API 規格GitHub 上的 spec/openapi.json，改 wire 前先讀",
       `Mira · ${formatAbsolute(1761648240, now)}`,
       "",
     ]);
-    expect(cellTexts(review!)).toEqual([
+    expect(cellTexts(review)).toEqual([
       "#sd-3f9a2c71b0e4",
-      "",
-      "Review Rule",
-      "PR 審查時逐項核對的規則與退件標準",
+      "Review RulePR 審查時逐項核對的規則與退件標準",
       `Mira · ${formatAbsolute(1763366700, now)}`,
       "",
     ]);
-    expect(api規格!.querySelector('[data-testid="shared-doc-kind-link"]')).not.toBeNull();
-    expect(review!.querySelector('[data-testid="shared-doc-kind-file"]')).not.toBeNull();
-    expect(within(review!).getByTestId("shared-doc-delete").getAttribute("title")).toBe("永久刪除");
+    const block = within(review).getByTestId("shared-doc-name");
+    expect(block.querySelector('[data-testid="shared-doc-kind-file"]')).not.toBeNull();
+    expect(Array.from(block.querySelectorAll(".shared-docs__file-text > span")).map((s) => s.textContent)).toEqual([
+      "Review Rule",
+      "PR 審查時逐項核對的規則與退件標準",
+    ]);
+    expect(
+      within(api規格).getByTestId("shared-doc-name").querySelector('[data-testid="shared-doc-kind-link"]'),
+    ).not.toBeNull();
+    expect(
+      Array.from(
+        within(row(boardId)).getByTestId("shared-doc-name").querySelectorAll(".shared-docs__file-text > span"),
+      ).map((s) => s.textContent),
+    ).toEqual(["Board"]);
+    expect(within(review).getByTestId("shared-doc-delete").getAttribute("title")).toBe("永久刪除");
   });
 
   it("the ID badge copies the id and shows a check, the link button copies the in-site link and shows a check", async () => {
@@ -160,10 +183,13 @@ describe("SharedDocsPage", () => {
     );
   });
 
-  it("clicking anywhere on a row but its buttons opens the doc", async () => {
+  it("clicking the file block or anywhere on a row but its other buttons opens the doc", async () => {
     const { container } = renderPage();
     const [, review] = await waitRows(container, 2);
-    fireEvent.click(review!.querySelectorAll("td")[3]!);
+    fireEvent.click(within(review!).getByText("PR 審查時逐項核對的規則與退件標準"));
+    expect(window.location.hash).toBe("#shared-docs/sd-3f9a2c71b0e4");
+    window.location.hash = "#shared-docs";
+    fireEvent.click(review!.querySelectorAll("td")[2]!);
     expect(window.location.hash).toBe("#shared-docs/sd-3f9a2c71b0e4");
     window.location.hash = "#shared-docs";
     fireEvent.click(within(review!).getByTestId("shared-doc-id"));

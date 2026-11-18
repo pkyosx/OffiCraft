@@ -46,6 +46,8 @@
 }
 .shared-docs__table {
   width: 100%;
+  min-width: 760px;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 13px;
   color: var(--color-text);
@@ -60,22 +62,26 @@
   border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
 .shared-docs__table td {
-  padding: 8px 10px;
+  padding: 6px 10px;
   vertical-align: middle;
   border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
 .shared-docs__table tr:last-child td {
   border-bottom: none;
 }
-.shared-docs__col-kind,
-.shared-docs__col-actions {
-  text-align: center;
-  width: 1%;
-}
 /* Fixed so a copy (✓ swapped for the glyph) never shifts the columns. */
 .shared-docs__col-id {
   width: 210px;
-  min-width: 210px;
+}
+.shared-docs__col-updated {
+  width: 230px;
+}
+.shared-docs__col-actions {
+  width: 64px;
+  text-align: center;
+}
+.shared-docs__table th.shared-docs__col-actions {
+  text-align: center;
 }
 .shared-docs__row {
   cursor: pointer;
@@ -84,24 +90,35 @@
 .shared-docs__row:hover td {
   background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
-.shared-docs__row:hover .shared-docs__name {
-  color: var(--color-accent);
-}
 .shared-docs__id-cell {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
 }
+.shared-docs__file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
 .shared-docs__kind,
 .shared-docs__thumb {
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 44px;
   height: 44px;
   border-radius: 8px;
-  vertical-align: middle;
 }
 .shared-docs__kind {
   color: var(--color-text-muted);
@@ -110,37 +127,36 @@
   object-fit: cover;
   background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
-.shared-docs__name {
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  font-weight: 600;
-  color: var(--color-text);
-  text-align: left;
-  cursor: pointer;
-  overflow-wrap: anywhere;
+.shared-docs__file-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
 }
-.shared-docs__name:hover {
-  color: var(--color-accent);
-}
-.shared-docs__description-cell {
-  display: block;
-  max-width: 280px;
+.shared-docs__name,
+.shared-docs__file-description {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.shared-docs__name {
+  font-weight: 600;
+}
+.shared-docs__file-description {
+  font-size: 12px;
   color: var(--color-text-muted);
+}
+.shared-docs__file:hover .shared-docs__name,
+.shared-docs__row:hover .shared-docs__name {
+  color: var(--color-accent);
 }
 .shared-docs__updated {
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
-}
-@media (max-width: 720px) {
-  .shared-docs__col-description {
-    display: none;
-  }
 }
 
 /* ── one document ── */

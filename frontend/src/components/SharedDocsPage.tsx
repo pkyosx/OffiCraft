@@ -67,7 +67,7 @@ function useFlash(): [string | null, (key: string) => void] {
   return [flashed, flash];
 }
 
-function KindCell({ doc }: { doc: SharedDocView }) {
+function KindMedia({ doc }: { doc: SharedDocView }) {
   const { t } = useI18n();
   const d = t.sharedDocs;
   if (doc.kind === "image") {
@@ -90,6 +90,26 @@ function KindCell({ doc }: { doc: SharedDocView }) {
     >
       {link ? <ExternalLinkIcon size={15} /> : <PaperclipIcon size={15} />}
     </span>
+  );
+}
+
+function FileBlock({ doc, onOpen }: { doc: SharedDocView; onOpen: (id: string) => void }) {
+  return (
+    <button
+      type="button"
+      className="shared-docs__file"
+      data-testid="shared-doc-name"
+      title={doc.description ? `${doc.name}\n${doc.description}` : doc.name}
+      onClick={() => onOpen(doc.id)}
+    >
+      <KindMedia doc={doc} />
+      <span className="shared-docs__file-text">
+        <span className="shared-docs__name">{doc.name}</span>
+        {doc.description && (
+          <span className="shared-docs__file-description">{doc.description}</span>
+        )}
+      </span>
+    </button>
   );
 }
 
@@ -176,11 +196,9 @@ function SharedDocList({
           <table className="shared-docs__table" data-testid="shared-docs-table">
             <thead>
               <tr>
-                <th>{d.colId}</th>
-                <th className="shared-docs__col-kind">{d.colKind}</th>
-                <th>{d.colName}</th>
-                <th className="shared-docs__col-description">{d.colDescription}</th>
-                <th>{d.colUpdated}</th>
+                <th className="shared-docs__col-id">{d.colId}</th>
+                <th className="shared-docs__col-file">{d.colFile}</th>
+                <th className="shared-docs__col-updated">{d.colUpdated}</th>
                 <th className="shared-docs__col-actions">{d.colActions}</th>
               </tr>
             </thead>
@@ -225,23 +243,8 @@ function SharedDocList({
                       </button>
                     </span>
                   </td>
-                  <td className="shared-docs__col-kind">
-                    <KindCell doc={doc} />
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="shared-docs__name"
-                      data-testid="shared-doc-name"
-                      onClick={() => onOpen(doc.id)}
-                    >
-                      {doc.name}
-                    </button>
-                  </td>
-                  <td className="shared-docs__col-description">
-                    <span className="shared-docs__description-cell" title={doc.description}>
-                      {doc.description}
-                    </span>
+                  <td className="shared-docs__col-file">
+                    <FileBlock doc={doc} onOpen={onOpen} />
                   </td>
                   <td className="shared-docs__updated" data-testid="shared-doc-updated">
                     {msg.sharedDocUpdated(actorName(doc.updatedBy), formatAbsolute(doc.updatedTs, nowSecs))}
