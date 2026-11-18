@@ -442,8 +442,12 @@ export function DocCommentPanel({
     const size = { width: el.offsetWidth, height: el.offsetHeight };
     let { left, top } = placeUnderSelection(pick.rect, size);
     if (pick.bounds) {
-      left = clampInto(left, pick.bounds.left, pick.bounds.right - size.width);
-      top = clampInto(top, pick.bounds.top, pick.bounds.bottom - size.height);
+      // offsetWidth/Height round the box; whole-pixel positions against its real
+      // size keep a fractional edge from poking past the frame.
+      const real = el.getBoundingClientRect();
+      const { left: minX, top: minY, right, bottom } = pick.bounds;
+      left = clampInto(left, Math.ceil(minX), Math.floor(right - real.width));
+      top = clampInto(top, Math.ceil(minY), Math.floor(bottom - real.height));
     }
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
