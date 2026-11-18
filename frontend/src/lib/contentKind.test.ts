@@ -27,6 +27,7 @@ describe("contentKindOf", () => {
     ["text/html; charset=utf-8", "page", "html"],
     ["application/octet-stream", "page.html", "text"],
     ["image/png", "shot.md", "image"],
+    ["image/svg+xml", "logo.svg", "image"],
     ["application/pdf", "report.pdf", "pdf"],
     ["application/pdf", "report.md", "pdf"],
     ["application/zip", "report.json", "binary"],
