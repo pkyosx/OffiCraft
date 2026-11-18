@@ -10,7 +10,7 @@ interface InlineEditProps {
   displayValue?: string;
   /** Called only for a real, non-empty change (trimmed !== value). A promise
    * keeps the field open, holding what was typed, and it stays open if the
-   * promise resolves false. */
+   * promise resolves false or rejects. */
   onCommit: (next: string) => void | Promise<boolean>;
   placeholder?: string;
   /** aria-label / tooltip for the pencil (edit) affordance + input. */
@@ -75,8 +75,14 @@ export function InlineEdit({
     const pending = onCommit(next);
     if (pending) {
       savingRef.current = true;
-      const saved = await pending;
-      savingRef.current = false;
+      let saved: boolean;
+      try {
+        saved = await pending;
+      } catch {
+        saved = false;
+      } finally {
+        savingRef.current = false;
+      }
       if (saved === false) return;
     }
     setEditing(false);

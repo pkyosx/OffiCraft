@@ -217,7 +217,7 @@ describe("MemberDetailPanel · 思考強度 readout vs configured launch intent"
 });
 
 describe("MemberDetailPanel · 名字 inline-edit", () => {
-  it("renames through the pencil InlineEdit and commits via onRename", () => {
+  it("renames through the pencil InlineEdit, commits via onRename and closes without waiting for the save", () => {
     const utils = renderPanel();
     fireEvent.click(utils.getByLabelText(zh.mp.rename));
     const input = utils.getByLabelText(zh.mp.rename, {
@@ -225,7 +225,9 @@ describe("MemberDetailPanel · 名字 inline-edit", () => {
     }) as HTMLInputElement;
     expect(input.value).toBe("Mira");
     fireEvent.change(input, { target: { value: "Mira Prime" } });
+    utils.onRename.mockReturnValue(new Promise(() => {}));
     fireEvent.keyDown(input, { key: "Enter" });
     expect(utils.onRename).toHaveBeenCalledWith("Mira Prime");
+    expect(utils.queryByLabelText(zh.mp.rename, { selector: "input" })).toBeNull();
   });
 });
