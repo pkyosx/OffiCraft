@@ -24,7 +24,7 @@ export function formatJson(text: string): Formatted {
     const ch = text[i]!;
     if (ch === '"') {
       let j = i + 1;
-      while (text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
       out += text.slice(i, j + 1);
       i = j + 1;
       continue;
