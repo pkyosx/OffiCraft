@@ -437,19 +437,19 @@ describe("SharedDocsPage", () => {
 
   it("an upload that fails shows why on the list and changes nothing", async () => {
     vi.spyOn(api, "uploadAttachment").mockRejectedValue(
-      new ApiError("http 413", 413, "too_large", "attachment exceeds 20 MiB"),
+      new ApiError("http 400", 400, "validation_error", "attachment exceeds the 100 MB size limit"),
     );
     const { container, getByTestId } = renderPage();
     const [, review] = await waitRows(container, 2);
     fireEvent.click(within(review!).getByTestId("shared-doc-upload"));
     pickFile(container, new File(["x"], "review-rule.md", { type: "text/markdown" }));
     expect((await waitFor(() => getByTestId("shared-docs-action-error"))).textContent).toBe(
-      "attachment exceeds 20 MiB",
+      "attachment exceeds the 100 MB size limit",
     );
     fireEvent.click(getByTestId("shared-docs-upload"));
     pickFile(container, new File(["x"], "new.md", { type: "text/markdown" }));
     await waitFor(() => expect((getByTestId("shared-docs-upload") as HTMLButtonElement).disabled).toBe(false));
-    expect(getByTestId("shared-docs-action-error").textContent).toBe("attachment exceeds 20 MiB");
+    expect(getByTestId("shared-docs-action-error").textContent).toBe("attachment exceeds the 100 MB size limit");
     expect(rows(container)).toHaveLength(2);
     expect((await api.getSharedDoc("sd-3f9a2c71b0e4")).versionCount).toBe(2);
   });
