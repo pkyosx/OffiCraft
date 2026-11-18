@@ -33,6 +33,14 @@ describe("ContentView", () => {
     expect(md.querySelector("img")?.getAttribute("src")).toBe("/api/chat/attachment/att-1?token=t");
   });
 
+  it("keeps .doc-md's own page padding only for a host that asks for it", () => {
+    const flush = mount({ kind: "markdown", text: "x", testId: "md" });
+    expect(flush.getByTestId("md").className).toBe("md-preview__md doc-md");
+    flush.unmount();
+    const padded = mount({ kind: "markdown", text: "x", padded: true, testId: "md" });
+    expect(padded.getByTestId("md").className).toBe("doc-md");
+  });
+
   it("indents JSON, and shows unparseable JSON as stored under one line saying why", () => {
     const ok = mount({ kind: "json", text: '{"a":[1]}' });
     expect(ok.container.querySelector("pre.md-preview__text")?.textContent).toBe('{\n  "a": [\n    1\n  ]\n}');

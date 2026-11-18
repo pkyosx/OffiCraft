@@ -40,7 +40,7 @@ import { useState } from "react";
 import { useI18n } from "../i18n";
 import { serverMessageOf } from "../api/errors";
 import { useInsight } from "../hooks/useInsight";
-import { Markdown } from "./Markdown";
+import { ContentView } from "./ContentView";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { LayersIcon, PencilIcon } from "./icons";
 import "./member-detail.css";
@@ -249,7 +249,7 @@ export function InsightCard({ roleKey }: InsightCardProps) {
         ) : error ? (
           <span className="mp-expand__empty">{t.mp.insightError}</span>
         ) : text.trim() ? (
-          <Markdown source={text} className="doc-md" />
+          <ContentView kind="markdown" text={text} padded />
         ) : (
           <span className="mp-expand__empty">{t.mp.insightEmpty}</span>
         )}

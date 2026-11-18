@@ -51,7 +51,7 @@ import type {
 import { isHttpStatus } from "../api/errors";
 import { useMachines } from "../hooks/useMachines";
 import { useMonitoring } from "../hooks/useMonitoring";
-import { Markdown } from "./Markdown";
+import { ContentView } from "./ContentView";
 import { InlineEdit } from "./InlineEdit";
 import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
@@ -987,7 +987,7 @@ function DefinitionCard({
                 onChange={(e) => setSopDraft(e.target.value)}
               />
             ) : manual.sopMd ? (
-              <Markdown source={manual.sopMd} className="doc-md" />
+              <ContentView kind="markdown" text={manual.sopMd} padded />
             ) : (
               <span className="manual-q__empty">
                 {t.settings.manualEmptyHint}

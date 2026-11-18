@@ -43,6 +43,9 @@ export type ContentViewProps = {
   fill?: boolean;
   /** Markdown: single newlines are line breaks (a chat message, not a file). */
   breaks?: boolean;
+  /** Markdown keeps `.doc-md`'s own page padding, for a host whose layout was
+   * built around it (DocCard). Elsewhere the host's body owns the gutters. */
+  padded?: boolean;
   /** Markdown: show block images, through this address resolver. */
   resolveImageSrc?: (src: string) => string;
   /** The host has no 「在新頁面顯示」 of its own, so a file that cannot be
@@ -66,6 +69,7 @@ export function ContentView({
   fill,
   breaks,
   resolveImageSrc,
+  padded,
   newTabLink,
   unavailable,
   testId,
@@ -131,7 +135,7 @@ export function ContentView({
     return (
       <Markdown
         source={text}
-        className="md-preview__md doc-md"
+        className={padded ? "doc-md" : "md-preview__md doc-md"}
         breaks={breaks}
         resolveImageSrc={resolveImageSrc}
         testId={testId}
