@@ -1475,5 +1475,68 @@
     "method": "POST",
     "path": "/api/self/secrets/reveal",
     "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_shared_docs",
+    "method": "GET",
+    "path": "/api/shared-docs",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "create_shared_doc",
+    "method": "POST",
+    "path": "/api/shared-docs",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_shared_doc",
+    "method": "GET",
+    "path": "/api/shared-docs/{doc_id}",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "replace_shared_doc",
+    "method": "POST",
+    "path": "/api/shared-docs/{doc_id}/replace",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "list_shared_doc_versions",
+    "method": "GET",
+    "path": "/api/shared-docs/{doc_id}/versions",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "restore_shared_doc_version",
+    "method": "POST",
+    "path": "/api/shared-docs/{doc_id}/versions/{version_id}/restore",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "archive_shared_doc",
+    "method": "POST",
+    "path": "/api/shared-docs/{doc_id}/archive",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "unarchive_shared_doc",
+    "method": "POST",
+    "path": "/api/shared-docs/{doc_id}/unarchive",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "delete_shared_doc",
+    "method": "DELETE",
+    "path": "/api/shared-docs/{doc_id}",
+    "requires": "owner"
   }
 ]

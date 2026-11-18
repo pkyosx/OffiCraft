@@ -768,6 +768,10 @@ var nonCallerKindPredicates = map[string]string{
 		"the pinned artifact's CONTENT kind on the raw-body replace door: a link's " +
 		"content is a url rather than bytes, so that door is closed to one explicitly " +
 		"instead of quietly turning it into a file. No principal is on either side.",
+	"api_shared_docs.go :: HandleReplaceSharedDocApiSharedDocsDocIdReplacePost :: doc.Kind == ArtifactKindLink": "" +
+		"a SHARED DOCUMENT's content kind (file/image/link), picking which content field " +
+		"the replace takes (a link a url, a file an attachment). No principal is on " +
+		"either side of this comparison.",
 	"api_tasks_artifact_upload.go :: HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost :: k != art.Kind": "" +
 		"the same artifact content kind: the kind SNIFFED from the uploaded bytes versus " +
 		"the pinned one, which is the T-60 immutability rule read through the T-92 " +

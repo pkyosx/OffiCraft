@@ -285,6 +285,7 @@ var sseTopics = map[string]bool{
 	"reply_card":           true,
 	"task":                 true,
 	"task_manual":          true,
+	"shared_doc":           true,
 	"global_context":       true,
 	"role_def":             true,
 	"insight":              true,

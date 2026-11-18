@@ -1600,6 +1600,115 @@ func newTaskArtifactVersionDTO(h TaskArtifactHistory, att *ChatAttachment) taskA
 	return dto
 }
 
+// sharedDocDTO's URL, Mime and Filename follow taskArtifactDTO: the blob's facts
+// resolved at read time, the external address and uri-list mime for a link.
+type sharedDocDTO struct {
+	ID           string   `json:"id"`
+	Kind         string   `json:"kind"`
+	AttachmentID string   `json:"attachment_id"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	Filename     string   `json:"filename"`
+	Mime         string   `json:"mime"`
+	URL          string   `json:"url"`
+	CreatedTS    float64  `json:"created_ts"`
+	CreatedBy    string   `json:"created_by"`
+	UpdatedTS    float64  `json:"updated_ts"`
+	UpdatedBy    string   `json:"updated_by"`
+	ArchivedTS   *float64 `json:"archived_ts"`
+	ArchivedBy   *string  `json:"archived_by"`
+	VersionCount int      `json:"version_count"`
+}
+
+type sharedDocDetailDTO struct {
+	sharedDocDTO
+	Text        *string `json:"text"`
+	TextOmitted *string `json:"text_omitted"`
+}
+
+type sharedDocListDTO struct {
+	Docs []sharedDocDTO `json:"docs"`
+}
+
+type sharedDocVersionDTO struct {
+	ID           int64   `json:"id"`
+	Kind         string  `json:"kind"`
+	AttachmentID string  `json:"attachment_id"`
+	Name         string  `json:"name"`
+	Description  string  `json:"description"`
+	Filename     string  `json:"filename"`
+	Mime         string  `json:"mime"`
+	URL          string  `json:"url"`
+	CreatedTS    float64 `json:"created_ts"`
+	CreatedBy    string  `json:"created_by"`
+}
+
+type sharedDocVersionListDTO struct {
+	DocID    string                `json:"doc_id"`
+	Versions []sharedDocVersionDTO `json:"versions"`
+}
+
+type sharedDocReceiptDTO struct {
+	ID           string   `json:"id"`
+	UpdatedTS    float64  `json:"updated_ts"`
+	VersionCount int      `json:"version_count"`
+	ArchivedTS   *float64 `json:"archived_ts"`
+}
+
+type sharedDocDeleteReceiptDTO struct {
+	ID string `json:"id"`
+}
+
+// sharedDocContentFacts answers url, mime and filename for one version's blob;
+// att nil (the blob is gone) leaves all three empty.
+func sharedDocContentFacts(isLink bool, att *ChatAttachment) (url, mime, filename string) {
+	if isLink {
+		if att != nil {
+			mime = att.Mime
+		}
+		return linkTargetOf(att), mime, ""
+	}
+	if b, ok := artifactBlobFacts(att); ok {
+		return b.url, b.mime, b.filename
+	}
+	return "", "", ""
+}
+
+func newSharedDocDTO(d SharedDoc, att *ChatAttachment, retained int) sharedDocDTO {
+	dto := sharedDocDTO{
+		ID:           d.ID,
+		Kind:         d.Kind,
+		AttachmentID: d.AttachmentID,
+		Name:         d.Name,
+		Description:  d.Description,
+		CreatedTS:    d.CreatedTS,
+		CreatedBy:    d.CreatedBy,
+		UpdatedTS:    d.UpdatedTS,
+		UpdatedBy:    d.UpdatedBy,
+		VersionCount: retained + 1,
+	}
+	dto.URL, dto.Mime, dto.Filename = sharedDocContentFacts(d.Kind == ArtifactKindLink, att)
+	if d.Archived() {
+		ts, by := d.ArchivedTS, d.ArchivedBy
+		dto.ArchivedTS, dto.ArchivedBy = &ts, &by
+	}
+	return dto
+}
+
+func newSharedDocVersionDTO(v SharedDocVersion, att *ChatAttachment) sharedDocVersionDTO {
+	dto := sharedDocVersionDTO{
+		ID:           v.ID,
+		Kind:         v.Kind,
+		AttachmentID: v.AttachmentID,
+		Name:         v.Name,
+		Description:  v.Description,
+		CreatedTS:    v.CreatedTS,
+		CreatedBy:    v.CreatedBy,
+	}
+	dto.URL, dto.Mime, dto.Filename = sharedDocContentFacts(v.Kind == ArtifactKindLink, att)
+	return dto
+}
+
 type taskArtifactListDTO struct {
 	TaskID               string            `json:"task_id"`
 	ArtifactsDetailLevel string            `json:"artifacts_detail_level"`

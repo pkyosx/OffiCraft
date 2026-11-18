@@ -1275,6 +1275,22 @@ var identityGateLedger = map[string]string{
 		"NOT an identity gate — the same artifact kind read off a RETAINED VERSION " +
 		"row (T-60), deciding whether that version has a blob whose filename and mime " +
 		"the reader can resolve. The wire twin of the history handler's entry above.",
+	"api_shared_docs.go :: HandleReplaceSharedDocApiSharedDocsDocIdReplacePost :: doc.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — a SHARED DOCUMENT's content kind (file / image / link), " +
+		"picking which content field a replace takes. The kind is fixed for the life of " +
+		"the document.",
+	"api_shared_docs.go :: sharedDocInlineText :: doc.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the same shared-document content kind: a link's inline " +
+		"text is its url, every other kind's is read from its blob.",
+	"wire.go :: newSharedDocDTO :: Kind: d.Kind": "" +
+		"NOT an identity gate — the shared-document content kind copied to the DTO.",
+	"wire.go :: newSharedDocDTO :: d.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the shared-document content kind deciding whether the " +
+		"blob holds a link target or a file whose url, mime and filename are served.",
+	"wire.go :: newSharedDocVersionDTO :: Kind: v.Kind": "" +
+		"NOT an identity gate — the same content kind copied onto a retained VERSION's DTO.",
+	"wire.go :: newSharedDocVersionDTO :: v.Kind == ArtifactKindLink": "" +
+		"NOT an identity gate — the version twin of newSharedDocDTO's content-kind test.",
 	"api_members.go :: HandleHireMemberApiMembersPost :: trimmedOrEmpty(body.Kind) != \"\"": "" +
 		"the `privileged` predicate of the §4 hire 閉環: hiring WITH a kind is " +
 		"privilege-bearing (otherwise an agent hires itself a 'staff' colleague and walks up " +

@@ -940,9 +940,9 @@ func collectSurvivingBlobRefs(tx *writeTx, into map[string]bool) error {
 	}
 	rows.Close()
 
-	// COALESCE here and in the task_artifact_history query is NOT a fail-safe:
-	// both columns are NOT NULL today, and on a NULL the row stops voting either
-	// way. If either column becomes nullable, the predicate must become
+	// COALESCE here and in collectBlobIDColumn is NOT a fail-safe: every such
+	// column is NOT NULL today, and on a NULL the row stops voting either
+	// way. If one becomes nullable, the predicate must become
 	// `attachment_id IS NULL OR attachment_id <> ''`.
 	artRows, err := tx.Query(
 		`SELECT attachment_id FROM task_artifact
@@ -983,21 +983,32 @@ func collectSurvivingBlobRefs(tx *writeTx, into map[string]bool) error {
 	}
 	memberRows.Close()
 
-	histRows, err := tx.Query(
-		`SELECT attachment_id FROM task_artifact_history
-		 WHERE COALESCE(attachment_id, '') <> ''`)
+	for _, query := range []string{
+		`SELECT attachment_id FROM task_artifact_history`,
+		`SELECT attachment_id FROM shared_doc`,
+		`SELECT attachment_id FROM shared_doc_history`,
+	} {
+		if err := collectBlobIDColumn(tx, query, into); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func collectBlobIDColumn(tx *writeTx, query string, into map[string]bool) error {
+	rows, err := tx.Query(query + ` WHERE COALESCE(attachment_id, '') <> ''`)
 	if err != nil {
 		return err
 	}
-	defer histRows.Close()
-	for histRows.Next() {
+	defer rows.Close()
+	for rows.Next() {
 		var id string
-		if err := histRows.Scan(&id); err != nil {
+		if err := rows.Scan(&id); err != nil {
 			return err
 		}
 		into[id] = true
 	}
-	return histRows.Err()
+	return rows.Err()
 }
 
 func collectChatMetaRefs(tx *writeTx, query string, into map[string]bool, args ...any) error {
