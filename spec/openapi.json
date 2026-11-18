@@ -9005,527 +9005,6 @@
         "title": "SettingsUpdateDTO",
         "type": "object"
       },
-      "SharedDocCreateDTO": {
-        "additionalProperties": false,
-        "description": "Create one shared document.",
-        "properties": {
-          "attachment_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "Required for ``file``/``image``, refused for ``link``: a blob already in the store (``ocagent upload``).",
-            "title": "Attachment Id"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "At most 1024 runes; omitted means empty.",
-            "title": "Description"
-          },
-          "kind": {
-            "description": "``file``, ``image`` or ``link``. Cannot be changed later.",
-            "title": "Kind",
-            "type": "string"
-          },
-          "name": {
-            "description": "Required, at most 128 runes. Need not be unique.",
-            "title": "Name",
-            "type": "string"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "Required for ``link``, refused for ``file``/``image``: ``http(s)://``, at most 2048 runes. Stored as sent, never fetched.",
-            "title": "Url"
-          }
-        },
-        "required": [
-          "kind",
-          "name"
-        ],
-        "title": "SharedDocCreateDTO",
-        "type": "object"
-      },
-      "SharedDocDTO": {
-        "additionalProperties": false,
-        "description": "One shared document's metadata and current version.",
-        "properties": {
-          "archived_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Who archived it; null while active.",
-            "title": "Archived By"
-          },
-          "archived_ts": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "When it was archived; null while active.",
-            "title": "Archived Ts"
-          },
-          "attachment_id": {
-            "description": "The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.",
-            "title": "Attachment Id",
-            "type": "string"
-          },
-          "created_by": {
-            "description": "Who created the document. Never changes.",
-            "title": "Created By",
-            "type": "string"
-          },
-          "created_ts": {
-            "description": "When the document was created. Never changes.",
-            "title": "Created Ts",
-            "type": "number"
-          },
-          "description": {
-            "default": "",
-            "description": "May be empty.",
-            "title": "Description",
-            "type": "string"
-          },
-          "filename": {
-            "default": "",
-            "description": "The blob's own file name, resolved read-time; empty for a link. Not the display name.",
-            "title": "Filename",
-            "type": "string"
-          },
-          "id": {
-            "description": "``sd-`` id. Stays the same across versions; manuals and tasks cite the document by it.",
-            "title": "Id",
-            "type": "string"
-          },
-          "kind": {
-            "description": "``file``, ``image`` or ``link``; fixed for the life of the document.",
-            "title": "Kind",
-            "type": "string"
-          },
-          "mime": {
-            "default": "",
-            "description": "The blob's content type, resolved read-time; ``text/uri-list`` for a link.",
-            "title": "Mime",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "updated_by": {
-            "description": "Who wrote the current version (by create, replace or restore).",
-            "title": "Updated By",
-            "type": "string"
-          },
-          "updated_ts": {
-            "description": "When the current version was written.",
-            "title": "Updated Ts",
-            "type": "number"
-          },
-          "url": {
-            "default": "",
-            "description": "Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.",
-            "title": "Url",
-            "type": "string"
-          },
-          "version_count": {
-            "description": "Versions that exist, the current one included. Stops climbing at the retention depth: from then on each new version discards the oldest.",
-            "title": "Version Count",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "archived_by",
-          "archived_ts",
-          "attachment_id",
-          "created_by",
-          "created_ts",
-          "id",
-          "kind",
-          "name",
-          "updated_by",
-          "updated_ts",
-          "version_count"
-        ],
-        "title": "SharedDocDTO",
-        "type": "object"
-      },
-      "SharedDocDetailDTO": {
-        "additionalProperties": false,
-        "description": "One shared document with its current content inline when that content is text.",
-        "properties": {
-          "archived_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Who archived it; null while active.",
-            "title": "Archived By"
-          },
-          "archived_ts": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "When it was archived; null while active.",
-            "title": "Archived Ts"
-          },
-          "attachment_id": {
-            "description": "The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.",
-            "title": "Attachment Id",
-            "type": "string"
-          },
-          "created_by": {
-            "description": "Who created the document. Never changes.",
-            "title": "Created By",
-            "type": "string"
-          },
-          "created_ts": {
-            "description": "When the document was created. Never changes.",
-            "title": "Created Ts",
-            "type": "number"
-          },
-          "description": {
-            "default": "",
-            "description": "May be empty.",
-            "title": "Description",
-            "type": "string"
-          },
-          "filename": {
-            "default": "",
-            "description": "The blob's own file name, resolved read-time; empty for a link. Not the display name.",
-            "title": "Filename",
-            "type": "string"
-          },
-          "id": {
-            "description": "``sd-`` id. Stays the same across versions; manuals and tasks cite the document by it.",
-            "title": "Id",
-            "type": "string"
-          },
-          "kind": {
-            "description": "``file``, ``image`` or ``link``; fixed for the life of the document.",
-            "title": "Kind",
-            "type": "string"
-          },
-          "mime": {
-            "default": "",
-            "description": "The blob's content type, resolved read-time; ``text/uri-list`` for a link.",
-            "title": "Mime",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "text": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The current version's content when it is text: a ``text/*`` or ``application/json`` blob of at most 256 KiB that is valid UTF-8, or a link's URL. Otherwise null, and ``text_omitted`` says why.",
-            "title": "Text"
-          },
-          "text_omitted": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Null when ``text`` is present; otherwise ``binary`` or ``too_large``. Read such content by downloading ``attachment_id``.",
-            "title": "Text Omitted"
-          },
-          "updated_by": {
-            "description": "Who wrote the current version (by create, replace or restore).",
-            "title": "Updated By",
-            "type": "string"
-          },
-          "updated_ts": {
-            "description": "When the current version was written.",
-            "title": "Updated Ts",
-            "type": "number"
-          },
-          "url": {
-            "default": "",
-            "description": "Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.",
-            "title": "Url",
-            "type": "string"
-          },
-          "version_count": {
-            "description": "Versions that exist, the current one included. Stops climbing at the retention depth: from then on each new version discards the oldest.",
-            "title": "Version Count",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "archived_by",
-          "archived_ts",
-          "attachment_id",
-          "created_by",
-          "created_ts",
-          "id",
-          "kind",
-          "name",
-          "updated_by",
-          "updated_ts",
-          "version_count",
-          "text",
-          "text_omitted"
-        ],
-        "title": "SharedDocDetailDTO",
-        "type": "object"
-      },
-      "SharedDocListDTO": {
-        "additionalProperties": false,
-        "description": "Shared documents sorted by name, then id. Metadata only.",
-        "properties": {
-          "docs": {
-            "items": {
-              "$ref": "#/components/schemas/SharedDocDTO"
-            },
-            "title": "Docs",
-            "type": "array"
-          }
-        },
-        "required": [
-          "docs"
-        ],
-        "title": "SharedDocListDTO",
-        "type": "object"
-      },
-      "SharedDocReceiptDTO": {
-        "additionalProperties": false,
-        "description": "Bounded receipt of a shared-document write.",
-        "properties": {
-          "archived_ts": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Null while active.",
-            "title": "Archived Ts"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "updated_ts": {
-            "title": "Updated Ts",
-            "type": "number"
-          },
-          "version_count": {
-            "description": "As on ``SharedDocDTO``. Unchanged after a replace means the oldest retained version was just discarded.",
-            "title": "Version Count",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "archived_ts",
-          "id",
-          "updated_ts",
-          "version_count"
-        ],
-        "title": "SharedDocReceiptDTO",
-        "type": "object"
-      },
-      "SharedDocReplaceDTO": {
-        "additionalProperties": false,
-        "description": "New content for a shared document. Send the content field its kind uses; the other is refused.",
-        "properties": {
-          "attachment_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "For a ``file``/``image`` document: a blob already in the store.",
-            "title": "Attachment Id"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "Omitted or null keeps the current one; blank clears it. At most 1024 runes.",
-            "title": "Description"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "Omitted or null keeps the current one; blank is refused. At most 128 runes.",
-            "title": "Name"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "For a ``link`` document: ``http(s)://``, at most 2048 runes. No carry-forward: required on every replace of a link.",
-            "title": "Url"
-          }
-        },
-        "title": "SharedDocReplaceDTO",
-        "type": "object"
-      },
-      "SharedDocVersionDTO": {
-        "additionalProperties": false,
-        "description": "One retained previous version of a shared document.",
-        "properties": {
-          "attachment_id": {
-            "description": "The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.",
-            "title": "Attachment Id",
-            "type": "string"
-          },
-          "created_by": {
-            "description": "Who wrote this version.",
-            "title": "Created By",
-            "type": "string"
-          },
-          "created_ts": {
-            "description": "When this version was written.",
-            "title": "Created Ts",
-            "type": "number"
-          },
-          "description": {
-            "default": "",
-            "title": "Description",
-            "type": "string"
-          },
-          "filename": {
-            "default": "",
-            "description": "The blob's own file name, resolved read-time; empty for a link. Not the display name.",
-            "title": "Filename",
-            "type": "string"
-          },
-          "id": {
-            "description": "The version id ``restore_shared_doc_version`` takes. Valid only under this document; it stops resolving once the version is restored or discarded.",
-            "format": "int64",
-            "title": "Id",
-            "type": "integer"
-          },
-          "kind": {
-            "title": "Kind",
-            "type": "string"
-          },
-          "mime": {
-            "default": "",
-            "description": "The blob's content type, resolved read-time; ``text/uri-list`` for a link.",
-            "title": "Mime",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "url": {
-            "default": "",
-            "description": "Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.",
-            "title": "Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "attachment_id",
-          "created_by",
-          "created_ts",
-          "id",
-          "kind",
-          "name"
-        ],
-        "title": "SharedDocVersionDTO",
-        "type": "object"
-      },
-      "SharedDocVersionListDTO": {
-        "additionalProperties": false,
-        "description": "A shared document's retained previous versions, newest first. The current version is not in this list.",
-        "properties": {
-          "doc_id": {
-            "title": "Doc Id",
-            "type": "string"
-          },
-          "versions": {
-            "items": {
-              "$ref": "#/components/schemas/SharedDocVersionDTO"
-            },
-            "title": "Versions",
-            "type": "array"
-          }
-        },
-        "required": [
-          "doc_id",
-          "versions"
-        ],
-        "title": "SharedDocVersionListDTO",
-        "type": "object"
-      },
       "SigningKeyDTO": {
         "description": "ONE signing key, as the outside is allowed to see it: which key it is, when it was made, and whether it is the one signing. There is deliberately no field that could carry key material — not the key, not a fingerprint, not a hash prefix — so \"did this leak the key\" is answered by the shape of the type rather than by remembering to strip a field at each call site.",
         "properties": {
@@ -13233,6 +12712,527 @@
         ],
         "title": "LoreEntryStateReceiptDTO",
         "additionalProperties": false,
+        "type": "object"
+      },
+      "SharedDocCreateDTO": {
+        "additionalProperties": false,
+        "description": "Create one shared document.",
+        "properties": {
+          "attachment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Required for ``file``/``image``, refused for ``link``: a blob already in the store (``ocagent upload``).",
+            "title": "Attachment Id"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "At most 1024 runes; omitted means empty.",
+            "title": "Description"
+          },
+          "kind": {
+            "description": "``file``, ``image`` or ``link``. Cannot be changed later.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Required, at most 128 runes. Need not be unique.",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Required for ``link``, refused for ``file``/``image``: ``http(s)://``, at most 2048 runes. Stored as sent, never fetched.",
+            "title": "Url"
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ],
+        "title": "SharedDocCreateDTO",
+        "type": "object"
+      },
+      "SharedDocDTO": {
+        "additionalProperties": false,
+        "description": "One shared document's metadata and current version.",
+        "properties": {
+          "archived_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who archived it; null while active.",
+            "title": "Archived By"
+          },
+          "archived_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it was archived; null while active.",
+            "title": "Archived Ts"
+          },
+          "attachment_id": {
+            "description": "The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.",
+            "title": "Attachment Id",
+            "type": "string"
+          },
+          "created_by": {
+            "description": "Who created the document. Never changes.",
+            "title": "Created By",
+            "type": "string"
+          },
+          "created_ts": {
+            "description": "When the document was created. Never changes.",
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "description": {
+            "default": "",
+            "description": "May be empty.",
+            "title": "Description",
+            "type": "string"
+          },
+          "filename": {
+            "default": "",
+            "description": "The blob's own file name, resolved read-time; empty for a link. Not the display name.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "description": "``sd-`` id. Stays the same across versions; manuals and tasks cite the document by it.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "``file``, ``image`` or ``link``; fixed for the life of the document.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "mime": {
+            "default": "",
+            "description": "The blob's content type, resolved read-time; ``text/uri-list`` for a link.",
+            "title": "Mime",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_by": {
+            "description": "Who wrote the current version (by create, replace or restore).",
+            "title": "Updated By",
+            "type": "string"
+          },
+          "updated_ts": {
+            "description": "When the current version was written.",
+            "title": "Updated Ts",
+            "type": "number"
+          },
+          "url": {
+            "default": "",
+            "description": "Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.",
+            "title": "Url",
+            "type": "string"
+          },
+          "version_count": {
+            "description": "Versions that exist, the current one included. Stops climbing at the retention depth: from then on each new version discards the oldest.",
+            "title": "Version Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "archived_by",
+          "archived_ts",
+          "attachment_id",
+          "created_by",
+          "created_ts",
+          "id",
+          "kind",
+          "name",
+          "updated_by",
+          "updated_ts",
+          "version_count"
+        ],
+        "title": "SharedDocDTO",
+        "type": "object"
+      },
+      "SharedDocDetailDTO": {
+        "additionalProperties": false,
+        "description": "One shared document with its current content inline when that content is text.",
+        "properties": {
+          "archived_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who archived it; null while active.",
+            "title": "Archived By"
+          },
+          "archived_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it was archived; null while active.",
+            "title": "Archived Ts"
+          },
+          "attachment_id": {
+            "description": "The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.",
+            "title": "Attachment Id",
+            "type": "string"
+          },
+          "created_by": {
+            "description": "Who created the document. Never changes.",
+            "title": "Created By",
+            "type": "string"
+          },
+          "created_ts": {
+            "description": "When the document was created. Never changes.",
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "description": {
+            "default": "",
+            "description": "May be empty.",
+            "title": "Description",
+            "type": "string"
+          },
+          "filename": {
+            "default": "",
+            "description": "The blob's own file name, resolved read-time; empty for a link. Not the display name.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "description": "``sd-`` id. Stays the same across versions; manuals and tasks cite the document by it.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "``file``, ``image`` or ``link``; fixed for the life of the document.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "mime": {
+            "default": "",
+            "description": "The blob's content type, resolved read-time; ``text/uri-list`` for a link.",
+            "title": "Mime",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The current version's content when it is text: a ``text/*`` or ``application/json`` blob of at most 256 KiB that is valid UTF-8, or a link's URL. Otherwise null, and ``text_omitted`` says why.",
+            "title": "Text"
+          },
+          "text_omitted": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when ``text`` is present; otherwise ``binary`` or ``too_large``. Read such content by downloading ``attachment_id``.",
+            "title": "Text Omitted"
+          },
+          "updated_by": {
+            "description": "Who wrote the current version (by create, replace or restore).",
+            "title": "Updated By",
+            "type": "string"
+          },
+          "updated_ts": {
+            "description": "When the current version was written.",
+            "title": "Updated Ts",
+            "type": "number"
+          },
+          "url": {
+            "default": "",
+            "description": "Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.",
+            "title": "Url",
+            "type": "string"
+          },
+          "version_count": {
+            "description": "Versions that exist, the current one included. Stops climbing at the retention depth: from then on each new version discards the oldest.",
+            "title": "Version Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "archived_by",
+          "archived_ts",
+          "attachment_id",
+          "created_by",
+          "created_ts",
+          "id",
+          "kind",
+          "name",
+          "updated_by",
+          "updated_ts",
+          "version_count",
+          "text",
+          "text_omitted"
+        ],
+        "title": "SharedDocDetailDTO",
+        "type": "object"
+      },
+      "SharedDocListDTO": {
+        "additionalProperties": false,
+        "description": "Shared documents sorted by name, then id. Metadata only.",
+        "properties": {
+          "docs": {
+            "items": {
+              "$ref": "#/components/schemas/SharedDocDTO"
+            },
+            "title": "Docs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "docs"
+        ],
+        "title": "SharedDocListDTO",
+        "type": "object"
+      },
+      "SharedDocReceiptDTO": {
+        "additionalProperties": false,
+        "description": "Bounded receipt of a shared-document write.",
+        "properties": {
+          "archived_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null while active.",
+            "title": "Archived Ts"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "updated_ts": {
+            "title": "Updated Ts",
+            "type": "number"
+          },
+          "version_count": {
+            "description": "As on ``SharedDocDTO``. Unchanged after a replace means the oldest retained version was just discarded.",
+            "title": "Version Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "archived_ts",
+          "id",
+          "updated_ts",
+          "version_count"
+        ],
+        "title": "SharedDocReceiptDTO",
+        "type": "object"
+      },
+      "SharedDocReplaceDTO": {
+        "additionalProperties": false,
+        "description": "New content for a shared document. Send the content field its kind uses; the other is refused.",
+        "properties": {
+          "attachment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "For a ``file``/``image`` document: a blob already in the store.",
+            "title": "Attachment Id"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Omitted or null keeps the current one; blank clears it. At most 1024 runes.",
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Omitted or null keeps the current one; blank is refused. At most 128 runes.",
+            "title": "Name"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "For a ``link`` document: ``http(s)://``, at most 2048 runes. No carry-forward: required on every replace of a link.",
+            "title": "Url"
+          }
+        },
+        "title": "SharedDocReplaceDTO",
+        "type": "object"
+      },
+      "SharedDocVersionDTO": {
+        "additionalProperties": false,
+        "description": "One retained previous version of a shared document.",
+        "properties": {
+          "attachment_id": {
+            "description": "The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.",
+            "title": "Attachment Id",
+            "type": "string"
+          },
+          "created_by": {
+            "description": "Who wrote this version.",
+            "title": "Created By",
+            "type": "string"
+          },
+          "created_ts": {
+            "description": "When this version was written.",
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "filename": {
+            "default": "",
+            "description": "The blob's own file name, resolved read-time; empty for a link. Not the display name.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "description": "The version id ``restore_shared_doc_version`` takes. Valid only under this document; it stops resolving once the version is restored or discarded.",
+            "format": "int64",
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "mime": {
+            "default": "",
+            "description": "The blob's content type, resolved read-time; ``text/uri-list`` for a link.",
+            "title": "Mime",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "description": "Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attachment_id",
+          "created_by",
+          "created_ts",
+          "id",
+          "kind",
+          "name"
+        ],
+        "title": "SharedDocVersionDTO",
+        "type": "object"
+      },
+      "SharedDocVersionListDTO": {
+        "additionalProperties": false,
+        "description": "A shared document's retained previous versions, newest first. The current version is not in this list.",
+        "properties": {
+          "doc_id": {
+            "title": "Doc Id",
+            "type": "string"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/SharedDocVersionDTO"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "doc_id",
+          "versions"
+        ],
+        "title": "SharedDocVersionListDTO",
         "type": "object"
       }
     }
@@ -23409,582 +23409,6 @@
         }
       }
     },
-    "/api/shared-docs": {
-      "get": {
-        "description": "- Archived documents are left out unless `include_archived` is the string `true`.",
-        "operationId": "handle_list_shared_docs_api_shared_docs_get",
-        "parameters": [
-          {
-            "description": "``true`` (the STRING) also lists archived documents; by default they are left out. Any other value reads as not sent.",
-            "in": "query",
-            "name": "include_archived",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Include Archived"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedDocListDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.",
-        "x-mcp": {
-          "description": "List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.\n\n- Archived documents are left out unless `include_archived` is the string `true`.",
-          "include": true,
-          "legacy": {
-            "descriptor": "{\n      \"description\": \"List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.\\n\\n- Archived documents are left out unless `include_archived` is the string `true`.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"include_archived\": {\n            \"description\": \"``true`` (the STRING) also lists archived documents; by default they are left out. Any other value reads as not sent.\",\n            \"type\": \"string\"\n          }\n        },\n        \"type\": \"object\"\n      },\n      \"name\": \"list_shared_docs\"\n    }"
-          },
-          "name": "list_shared_docs",
-          "order": 127
-        }
-      },
-      "post": {
-        "description": "- A file or image goes in two steps: `ocagent upload` it, then pass the attachment id here.\n- `kind` is fixed for the life of the document.\n- Caps are refused, never truncated.",
-        "operationId": "handle_create_shared_doc_api_shared_docs_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SharedDocCreateDTO"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedDocReceiptDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "Create a shared document: a named file, image or link that every member can read and replace, kept with a short version history and not tied to any task.",
-        "x-mcp": {
-          "description": "Create a shared document: a named file, image or link that every member can read and replace, kept with a short version history and not tied to any task.\n\n- A file or image goes in two steps: `ocagent upload` it, then pass the attachment id here.\n- `kind` is fixed for the life of the document.\n- Caps are refused, never truncated.",
-          "include": true,
-          "legacy": {
-            "descriptor": "{\n      \"description\": \"Create a shared document: a named file, image or link that every member can read and replace, kept with a short version history and not tied to any task.\\n\\n- A file or image goes in two steps: `ocagent upload` it, then pass the attachment id here.\\n- `kind` is fixed for the life of the document.\\n- Caps are refused, never truncated.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"attachment_id\": {\n            \"description\": \"Required for ``file``/``image``, refused for ``link``: a blob already in the store (``ocagent upload``).\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Attachment Id\"\n          },\n          \"description\": {\n            \"description\": \"At most 1024 runes; omitted means empty.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Description\"\n          },\n          \"kind\": {\n            \"description\": \"``file``, ``image`` or ``link``. Cannot be changed later.\",\n            \"title\": \"Kind\",\n            \"type\": \"string\"\n          },\n          \"name\": {\n            \"description\": \"Required, at most 128 runes. Need not be unique.\",\n            \"title\": \"Name\",\n            \"type\": \"string\"\n          },\n          \"url\": {\n            \"description\": \"Required for ``link``, refused for ``file``/``image``: ``http(s)://``, at most 2048 runes. Stored as sent, never fetched.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Url\"\n          }\n        },\n        \"required\": [\n          \"kind\",\n          \"name\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"create_shared_doc\"\n    }"
-          },
-          "name": "create_shared_doc",
-          "order": 128
-        }
-      }
-    },
-    "/api/shared-docs/{doc_id}": {
-      "get": {
-        "description": "- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\n- When `text` is null, download `attachment_id` for the content.\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.\n- An archived document is still readable here, with `archived_ts` set.",
-        "operationId": "handle_get_shared_doc_api_shared_docs__doc_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "doc_id",
-            "required": true,
-            "schema": {
-              "title": "Doc Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedDocDetailDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "Read one shared document: its metadata and, when the current version is text, its content.",
-        "x-mcp": {
-          "description": "Read one shared document: its metadata and, when the current version is text, its content.\n\n- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\n- When `text` is null, download `attachment_id` for the content.\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.\n- An archived document is still readable here, with `archived_ts` set.",
-          "include": true,
-          "legacy": {
-            "descriptor": "{\n      \"description\": \"Read one shared document: its metadata and, when the current version is text, its content.\\n\\n- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\\n- When `text` is null, download `attachment_id` for the content.\\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.\\n- An archived document is still readable here, with `archived_ts` set.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_shared_doc\"\n    }"
-          },
-          "name": "get_shared_doc",
-          "order": 129
-        }
-      }
-    },
-    "/api/shared-docs/{doc_id}/replace": {
-      "post": {
-        "description": "- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.\n- An archived document is a 409: unarchive it first.",
-        "operationId": "handle_replace_shared_doc_api_shared_docs__doc_id__replace_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "doc_id",
-            "required": true,
-            "schema": {
-              "title": "Doc Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SharedDocReplaceDTO"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedDocReceiptDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "Make new content the current version of a shared document. The id stays the same.",
-        "x-mcp": {
-          "description": "Make new content the current version of a shared document. The id stays the same.\n\n- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.\n- An archived document is a 409: unarchive it first.",
-          "include": true,
-          "legacy": {
-            "descriptor": "{\n      \"description\": \"Make new content the current version of a shared document. The id stays the same.\\n\\n- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.\\n- An archived document is a 409: unarchive it first.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          },\n          \"attachment_id\": {\n            \"description\": \"For a ``file``/``image`` document: a blob already in the store.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Attachment Id\"\n          },\n          \"description\": {\n            \"description\": \"Omitted or null keeps the current one; blank clears it. At most 1024 runes.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Description\"\n          },\n          \"name\": {\n            \"description\": \"Omitted or null keeps the current one; blank is refused. At most 128 runes.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Name\"\n          },\n          \"url\": {\n            \"description\": \"For a ``link`` document: ``http(s)://``, at most 2048 runes. No carry-forward: required on every replace of a link.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Url\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"replace_shared_doc\"\n    }"
-          },
-          "name": "replace_shared_doc",
-          "order": 130
-        }
-      }
-    },
-    "/api/shared-docs/{doc_id}/versions": {
-      "get": {
-        "description": "- Only the most recent few previous versions are retained.\n- Works on an archived document too.",
-        "operationId": "handle_list_shared_doc_versions_api_shared_docs__doc_id__versions_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "doc_id",
-            "required": true,
-            "schema": {
-              "title": "Doc Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedDocVersionListDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "List a shared document's retained previous versions, newest first. The current version is not included.",
-        "x-mcp": {
-          "description": "List a shared document's retained previous versions, newest first. The current version is not included.\n\n- Only the most recent few previous versions are retained.\n- Works on an archived document too.",
-          "include": true,
-          "legacy": {
-            "descriptor": "{\n      \"description\": \"List a shared document's retained previous versions, newest first. The current version is not included.\\n\\n- Only the most recent few previous versions are retained.\\n- Works on an archived document too.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"list_shared_doc_versions\"\n    }"
-          },
-          "name": "list_shared_doc_versions",
-          "order": 131
-        }
-      }
-    },
-    "/api/shared-docs/{doc_id}/versions/{version_id}/restore": {
-      "post": {
-        "description": "- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\n- The restored version leaves the list and its version id stops resolving.\n- `updated_by` / `updated_ts` become the caller and now.\n- A version id that is not one of this document's retained versions is a 404; an archived document is a 409.",
-        "operationId": "handle_restore_shared_doc_version_api_shared_docs__doc_id__versions__version_id__restore_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "doc_id",
-            "required": true,
-            "schema": {
-              "title": "Doc Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "version_id",
-            "required": true,
-            "schema": {
-              "format": "int64",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedDocReceiptDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "Make a retained previous version the current one again.",
-        "x-mcp": {
-          "description": "Make a retained previous version the current one again.\n\n- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\n- The restored version leaves the list and its version id stops resolving.\n- `updated_by` / `updated_ts` become the caller and now.\n- A version id that is not one of this document's retained versions is a 404; an archived document is a 409.",
-          "include": true,
-          "legacy": {
-            "descriptor": "{\n      \"description\": \"Make a retained previous version the current one again.\\n\\n- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\\n- The restored version leaves the list and its version id stops resolving.\\n- `updated_by` / `updated_ts` become the caller and now.\\n- A version id that is not one of this document's retained versions is a 404; an archived document is a 409.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          },\n          \"version_id\": {\n            \"type\": \"integer\"\n          }\n        },\n        \"required\": [\n          \"doc_id\",\n          \"version_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"restore_shared_doc_version\"\n    }"
-          },
-          "name": "restore_shared_doc_version",
-          "order": 132
-        }
-      }
-    },
-    "/api/shared-docs/{doc_id}/archive": {
-      "post": {
-        "description": "- Archiving an archived document changes nothing; `archived_ts` / `archived_by` keep the first archive.",
-        "operationId": "handle_archive_shared_doc_api_shared_docs__doc_id__archive_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "doc_id",
-            "required": true,
-            "schema": {
-              "title": "Doc Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedDocReceiptDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "Archive a shared document. It leaves the default list and cannot be replaced or restored until it is unarchived, but it stays readable by id and nothing is deleted.",
-        "x-mcp": {
-          "description": "Archive a shared document. It leaves the default list and cannot be replaced or restored until it is unarchived, but it stays readable by id and nothing is deleted.\n\n- Archiving an archived document changes nothing; `archived_ts` / `archived_by` keep the first archive.",
-          "include": true,
-          "legacy": {
-            "descriptor": "{\n      \"description\": \"Archive a shared document. It leaves the default list and cannot be replaced or restored until it is unarchived, but it stays readable by id and nothing is deleted.\\n\\n- Archiving an archived document changes nothing; `archived_ts` / `archived_by` keep the first archive.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"archive_shared_doc\"\n    }"
-          },
-          "name": "archive_shared_doc",
-          "order": 133
-        }
-      }
-    },
-    "/api/shared-docs/{doc_id}/unarchive": {
-      "post": {
-        "description": "- Unarchiving an active document changes nothing.",
-        "operationId": "handle_unarchive_shared_doc_api_shared_docs__doc_id__unarchive_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "doc_id",
-            "required": true,
-            "schema": {
-              "title": "Doc Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedDocReceiptDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "Return an archived shared document to the list and allow changes again.",
-        "x-mcp": {
-          "description": "Return an archived shared document to the list and allow changes again.\n\n- Unarchiving an active document changes nothing.",
-          "include": true,
-          "legacy": {
-            "descriptor": "{\n      \"description\": \"Return an archived shared document to the list and allow changes again.\\n\\n- Unarchiving an active document changes nothing.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"unarchive_shared_doc\"\n    }"
-          },
-          "name": "unarchive_shared_doc",
-          "order": 134
-        }
-      }
-    },
     "/api/system-interaction": {
       "get": {
         "description": "- The studio handbook every agent and outsource worker reads first in its boot context.\n- `is_default=true` means you are reading the factory text, false an edit; `has_seed` means a factory version exists to reset to.",
@@ -28920,6 +28344,582 @@
           "legacy": {
             "descriptor": "{\n        \"description\": \"提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"entry_id\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"entry_id\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"bump_lore_entry\"\n      }"
           }
+        }
+      }
+    },
+    "/api/shared-docs": {
+      "get": {
+        "description": "- Archived documents are left out unless `include_archived` is the string `true`.",
+        "operationId": "handle_list_shared_docs_api_shared_docs_get",
+        "parameters": [
+          {
+            "description": "``true`` (the STRING) also lists archived documents; by default they are left out. Any other value reads as not sent.",
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Include Archived"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedDocListDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.",
+        "x-mcp": {
+          "description": "List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.\n\n- Archived documents are left out unless `include_archived` is the string `true`.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.\\n\\n- Archived documents are left out unless `include_archived` is the string `true`.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"include_archived\": {\n            \"description\": \"``true`` (the STRING) also lists archived documents; by default they are left out. Any other value reads as not sent.\",\n            \"type\": \"string\"\n          }\n        },\n        \"type\": \"object\"\n      },\n      \"name\": \"list_shared_docs\"\n    }"
+          },
+          "name": "list_shared_docs",
+          "order": 127
+        }
+      },
+      "post": {
+        "description": "- A file or image goes in two steps: `ocagent upload` it, then pass the attachment id here.\n- `kind` is fixed for the life of the document.\n- Caps are refused, never truncated.",
+        "operationId": "handle_create_shared_doc_api_shared_docs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SharedDocCreateDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedDocReceiptDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Create a shared document: a named file, image or link that every member can read and replace, kept with a short version history and not tied to any task.",
+        "x-mcp": {
+          "description": "Create a shared document: a named file, image or link that every member can read and replace, kept with a short version history and not tied to any task.\n\n- A file or image goes in two steps: `ocagent upload` it, then pass the attachment id here.\n- `kind` is fixed for the life of the document.\n- Caps are refused, never truncated.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Create a shared document: a named file, image or link that every member can read and replace, kept with a short version history and not tied to any task.\\n\\n- A file or image goes in two steps: `ocagent upload` it, then pass the attachment id here.\\n- `kind` is fixed for the life of the document.\\n- Caps are refused, never truncated.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"attachment_id\": {\n            \"description\": \"Required for ``file``/``image``, refused for ``link``: a blob already in the store (``ocagent upload``).\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Attachment Id\"\n          },\n          \"description\": {\n            \"description\": \"At most 1024 runes; omitted means empty.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Description\"\n          },\n          \"kind\": {\n            \"description\": \"``file``, ``image`` or ``link``. Cannot be changed later.\",\n            \"title\": \"Kind\",\n            \"type\": \"string\"\n          },\n          \"name\": {\n            \"description\": \"Required, at most 128 runes. Need not be unique.\",\n            \"title\": \"Name\",\n            \"type\": \"string\"\n          },\n          \"url\": {\n            \"description\": \"Required for ``link``, refused for ``file``/``image``: ``http(s)://``, at most 2048 runes. Stored as sent, never fetched.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Url\"\n          }\n        },\n        \"required\": [\n          \"kind\",\n          \"name\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"create_shared_doc\"\n    }"
+          },
+          "name": "create_shared_doc",
+          "order": 128
+        }
+      }
+    },
+    "/api/shared-docs/{doc_id}": {
+      "get": {
+        "description": "- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\n- When `text` is null, download `attachment_id` for the content.\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.\n- An archived document is still readable here, with `archived_ts` set.",
+        "operationId": "handle_get_shared_doc_api_shared_docs__doc_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedDocDetailDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Read one shared document: its metadata and, when the current version is text, its content.",
+        "x-mcp": {
+          "description": "Read one shared document: its metadata and, when the current version is text, its content.\n\n- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\n- When `text` is null, download `attachment_id` for the content.\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.\n- An archived document is still readable here, with `archived_ts` set.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Read one shared document: its metadata and, when the current version is text, its content.\\n\\n- A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.\\n- When `text` is null, download `attachment_id` for the content.\\n- The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.\\n- An archived document is still readable here, with `archived_ts` set.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_shared_doc\"\n    }"
+          },
+          "name": "get_shared_doc",
+          "order": 129
+        }
+      }
+    },
+    "/api/shared-docs/{doc_id}/replace": {
+      "post": {
+        "description": "- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.\n- An archived document is a 409: unarchive it first.",
+        "operationId": "handle_replace_shared_doc_api_shared_docs__doc_id__replace_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SharedDocReplaceDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedDocReceiptDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Make new content the current version of a shared document. The id stays the same.",
+        "x-mcp": {
+          "description": "Make new content the current version of a shared document. The id stays the same.\n\n- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.\n- An archived document is a 409: unarchive it first.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Make new content the current version of a shared document. The id stays the same.\\n\\n- Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.\\n- The replaced version is retained, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.\\n- An archived document is a 409: unarchive it first.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          },\n          \"attachment_id\": {\n            \"description\": \"For a ``file``/``image`` document: a blob already in the store.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Attachment Id\"\n          },\n          \"description\": {\n            \"description\": \"Omitted or null keeps the current one; blank clears it. At most 1024 runes.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Description\"\n          },\n          \"name\": {\n            \"description\": \"Omitted or null keeps the current one; blank is refused. At most 128 runes.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Name\"\n          },\n          \"url\": {\n            \"description\": \"For a ``link`` document: ``http(s)://``, at most 2048 runes. No carry-forward: required on every replace of a link.\",\n            \"anyOf\": [\n              {\n                \"type\": \"string\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"default\": null,\n            \"title\": \"Url\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"replace_shared_doc\"\n    }"
+          },
+          "name": "replace_shared_doc",
+          "order": 130
+        }
+      }
+    },
+    "/api/shared-docs/{doc_id}/versions": {
+      "get": {
+        "description": "- Only the most recent few previous versions are retained.\n- Works on an archived document too.",
+        "operationId": "handle_list_shared_doc_versions_api_shared_docs__doc_id__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedDocVersionListDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List a shared document's retained previous versions, newest first. The current version is not included.",
+        "x-mcp": {
+          "description": "List a shared document's retained previous versions, newest first. The current version is not included.\n\n- Only the most recent few previous versions are retained.\n- Works on an archived document too.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"List a shared document's retained previous versions, newest first. The current version is not included.\\n\\n- Only the most recent few previous versions are retained.\\n- Works on an archived document too.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"list_shared_doc_versions\"\n    }"
+          },
+          "name": "list_shared_doc_versions",
+          "order": 131
+        }
+      }
+    },
+    "/api/shared-docs/{doc_id}/versions/{version_id}/restore": {
+      "post": {
+        "description": "- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\n- The restored version leaves the list and its version id stops resolving.\n- `updated_by` / `updated_ts` become the caller and now.\n- A version id that is not one of this document's retained versions is a 404; an archived document is a 409.",
+        "operationId": "handle_restore_shared_doc_version_api_shared_docs__doc_id__versions__version_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedDocReceiptDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Make a retained previous version the current one again.",
+        "x-mcp": {
+          "description": "Make a retained previous version the current one again.\n\n- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\n- The restored version leaves the list and its version id stops resolving.\n- `updated_by` / `updated_ts` become the caller and now.\n- A version id that is not one of this document's retained versions is a 404; an archived document is a 409.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Make a retained previous version the current one again.\\n\\n- The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.\\n- The restored version leaves the list and its version id stops resolving.\\n- `updated_by` / `updated_ts` become the caller and now.\\n- A version id that is not one of this document's retained versions is a 404; an archived document is a 409.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          },\n          \"version_id\": {\n            \"type\": \"integer\"\n          }\n        },\n        \"required\": [\n          \"doc_id\",\n          \"version_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"restore_shared_doc_version\"\n    }"
+          },
+          "name": "restore_shared_doc_version",
+          "order": 132
+        }
+      }
+    },
+    "/api/shared-docs/{doc_id}/archive": {
+      "post": {
+        "description": "- Archiving an archived document changes nothing; `archived_ts` / `archived_by` keep the first archive.",
+        "operationId": "handle_archive_shared_doc_api_shared_docs__doc_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedDocReceiptDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Archive a shared document. It leaves the default list and cannot be replaced or restored until it is unarchived, but it stays readable by id and nothing is deleted.",
+        "x-mcp": {
+          "description": "Archive a shared document. It leaves the default list and cannot be replaced or restored until it is unarchived, but it stays readable by id and nothing is deleted.\n\n- Archiving an archived document changes nothing; `archived_ts` / `archived_by` keep the first archive.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Archive a shared document. It leaves the default list and cannot be replaced or restored until it is unarchived, but it stays readable by id and nothing is deleted.\\n\\n- Archiving an archived document changes nothing; `archived_ts` / `archived_by` keep the first archive.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"archive_shared_doc\"\n    }"
+          },
+          "name": "archive_shared_doc",
+          "order": 133
+        }
+      }
+    },
+    "/api/shared-docs/{doc_id}/unarchive": {
+      "post": {
+        "description": "- Unarchiving an active document changes nothing.",
+        "operationId": "handle_unarchive_shared_doc_api_shared_docs__doc_id__unarchive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedDocReceiptDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Return an archived shared document to the list and allow changes again.",
+        "x-mcp": {
+          "description": "Return an archived shared document to the list and allow changes again.\n\n- Unarchiving an active document changes nothing.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Return an archived shared document to the list and allow changes again.\\n\\n- Unarchiving an active document changes nothing.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"doc_id\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"doc_id\"\n        ],\n        \"additionalProperties\": false,\n        \"type\": \"object\"\n      },\n      \"name\": \"unarchive_shared_doc\"\n    }"
+          },
+          "name": "unarchive_shared_doc",
+          "order": 134
         }
       }
     }
