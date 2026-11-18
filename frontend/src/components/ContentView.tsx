@@ -76,8 +76,10 @@ export function ContentView({
 }: ContentViewProps) {
   const { t } = useI18n();
   const p = t.chat.mdPreview;
-  const status = (line: ReactNode, id = testId) => (
-    <div className="md-preview__status" data-testid={id}>
+  // A line above a body that carries testId passes `null`: `undefined` would
+  // fall back to testId and name two elements.
+  const status = (line: ReactNode, id: string | null | undefined = testId) => (
+    <div className="md-preview__status" data-testid={id ?? undefined}>
       {line}
     </div>
   );
@@ -147,7 +149,7 @@ export function ContentView({
     const { body, unparseable } = kind === "json" ? formatJson(text) : formatXml(text);
     return (
       <>
-        {unparseable && status(kind === "json" ? p.jsonUnparseable : p.xmlUnparseable, undefined)}
+        {unparseable && status(kind === "json" ? p.jsonUnparseable : p.xmlUnparseable, null)}
         <pre className="md-preview__text" data-testid={testId}>
           {body}
         </pre>
@@ -160,7 +162,7 @@ export function ContentView({
     if ("error" in table) {
       return (
         <>
-          {status(table.error === "too_large" ? p.csvTooLarge : p.csvUnparseable, undefined)}
+          {status(table.error === "too_large" ? p.csvTooLarge : p.csvUnparseable, null)}
           <pre className="md-preview__text" data-testid={testId}>
             {text}
           </pre>

@@ -46,18 +46,19 @@ describe("ContentView", () => {
     expect(ok.container.querySelector("pre.md-preview__text")?.textContent).toBe('{\n  "a": [\n    1\n  ]\n}');
     expect(statusText(ok.container)).toEqual([]);
     ok.unmount();
-    const bad = mount({ kind: "json", text: "{nope" });
+    const bad = mount({ kind: "json", text: "{nope", testId: "body" });
     expect(statusText(bad.container)).toEqual([p.jsonUnparseable]);
-    expect(bad.container.querySelector("pre.md-preview__text")?.textContent).toBe("{nope");
+    expect(bad.getByTestId("body").outerHTML).toBe('<pre class="md-preview__text" data-testid="body">{nope</pre>');
   });
 
   it("indents XML, and shows malformed XML as stored under one line saying why", () => {
     const ok = mount({ kind: "xml", text: "<a><b>1</b></a>" });
     expect(ok.container.querySelector("pre.md-preview__text")?.textContent).toBe("<a>\n  <b>1</b>\n</a>");
     ok.unmount();
-    const bad = mount({ kind: "xml", text: "<a><b></a>" });
+    const bad = mount({ kind: "xml", text: "<a><b></a>", testId: "body" });
     expect(statusText(bad.container)).toEqual([p.xmlUnparseable]);
-    expect(bad.container.querySelector("pre.md-preview__text")?.textContent).toBe("<a><b></a>");
+    expect(bad.getByTestId("body").tagName).toBe("PRE");
+    expect(bad.getByTestId("body").textContent).toBe("<a><b></a>");
   });
 
   it("shows YAML and plain text exactly as stored, comments included", () => {
@@ -81,10 +82,11 @@ describe("ContentView", () => {
   });
 
   it("shows a CSV that will not parse as raw text under one line saying why", () => {
-    const { container } = mount({ kind: "csv", text: 'a,"b\n1,2' });
+    const { container, getByTestId } = mount({ kind: "csv", text: 'a,"b\n1,2', testId: "body" });
     expect(statusText(container)).toEqual([p.csvUnparseable]);
     expect(container.querySelector("table")).toBeNull();
-    expect(container.querySelector("pre.md-preview__text")?.textContent).toBe('a,"b\n1,2');
+    expect(getByTestId("body").tagName).toBe("PRE");
+    expect(getByTestId("body").textContent).toBe('a,"b\n1,2');
   });
 
   it("says loading while the text is on its way, and says so when the read failed", () => {
