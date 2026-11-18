@@ -3520,6 +3520,7 @@ export interface paths {
          *     - ?statuses=: a SET of states; also accepts "reassigning", which matches the handover LOCK.
          *     - ?ids=: a SET of task ids; unknown ids are just absent.
          *     - ?executor=: an id, or `outsource` / `unassigned`; ?type=: a type_key. Filters are ANDed.
+         *     - The 任務 page's params (?executors=, ?types=, ?due=, ?q=, ?group_by= + ?lane=, ?limit= + ?offset=) are ANDed too; with limit, offset or group_by the rows come in page order, else oldest created first.
          *     - current_step_id/name are "" when there is no plan or all steps finished: no current step.
          */
         get: operations["handle_list_tasks_api_tasks_get"];
@@ -3550,8 +3551,9 @@ export interface paths {
         };
         /**
          * Open task count (the tasks nav badge).
-         * @description - Counts open (non-terminal) tasks only; terminal ones are not counted.
-         *     - A nav-badge convenience, not exposed as an agent tool.
+         * @description - The badge fields (open, overdue, due_soon, due_next_change_ts) count open tasks only and ignore every param; total is every task.
+         *     - The list_* fields, executor_counts and lanes describe the GET /api/tasks list for the same filter params (the 任務 page's counts).
+         *     - A cockpit convenience, not exposed as an agent tool.
          */
         get: operations["handle_task_count_api_tasks_count_get"];
         put?: never;
@@ -10710,6 +10712,38 @@ export interface components {
              * @default 0
              */
             due_soon: number;
+            /**
+             * Executor Counts
+             * @description How many tasks each 負責人 option of the 任務 page would show: keys ``outsource``, ``unassigned`` and staff member ids, with the ``executors`` semantics. Counted over the tasks passing statuses, types, due and q — NOT executors and NOT ids, so ticking an executor or looking up an id does not change any count. Zero counts are omitted; empty when no filter param was sent. additive-optional.
+             * @default {}
+             */
+            executor_counts: {
+                [key: string]: number;
+            };
+            /**
+             * Lanes
+             * @description With group_by other than none: every non-empty lane after ALL filters, in display order. due: overdue, soon, later, nodue. priority: high, mid, low, frozen, then other values sorted. executor: outsource, unassigned, then staff members in the order ``GET /api/members`` lists them, then member ids not on the roster, sorted. type: type_keys sorted, then adhoc. status: not_started, in_progress, waiting_owner, waiting_external, done, terminated, duplicated. Empty otherwise. additive-optional.
+             * @default []
+             */
+            lanes: components["schemas"]["TaskCountLaneDTO"][];
+            /**
+             * List Due Next Change Ts
+             * @description The earliest instant after ``now`` at which a task passing the filter params changes due bucket — closed tasks included when group_by=due, since they are filed by date there — i.e. when the filtered list, its counts or its lanes would change with no task write. null when there is none, or when no filter param was sent. Unlike ``due_next_change_ts``, which serves the badge and only watches open tasks. additive-optional.
+             * @default null
+             */
+            list_due_next_change_ts: number | null;
+            /**
+             * List Total
+             * @description How many tasks ``GET /api/tasks`` would return for the same filter params without limit/offset — for group_by other than none, the rows of ``lane`` only. Unlike ``total``, which is every task ever. 0 when no filter param was sent. additive-optional.
+             * @default 0
+             */
+            list_total: number;
+            /**
+             * Now
+             * @description The server time due buckets were judged at for this answer. additive-optional.
+             * @default 0
+             */
+            now: number;
             /** Open */
             open: number;
             /**
@@ -10724,6 +10758,16 @@ export interface components {
              * @default 0
              */
             total: number;
+        };
+        /**
+         * TaskCountLaneDTO
+         * @description One lane of the 任務 page under a group_by (``GET /api/tasks/count``): its key and how many tasks it holds after all filters. Titles are the client's (i18n, member names, manual names).
+         */
+        TaskCountLaneDTO: {
+            /** Count */
+            count: number;
+            /** Key */
+            key: string;
         };
         /**
          * TaskCreateDTO
@@ -20681,6 +20725,22 @@ export interface operations {
                 statuses?: string[];
                 /** @description REPEATABLE task-id set (``?ids=T-12&ids=T-40``): only those tasks, in the same light row shape. An id that does not exist is simply absent from the answer, never a 400 — the caller learns it is gone by its absence. ANDed with every other filter, so a client refreshing a few changed rows of a filtered view gets each one only if it still belongs there. Absent or empty = no constraint. additive-optional. */
                 ids?: string[];
+                /** @description REPEATABLE executor set with the 任務 page's semantics: ``outsource`` = an outsource task that HAS a worker (non-empty executor_id); ``unassigned`` = an outsource task with no worker yet; any other value is a member id and matches a STAFF task executed by that member. 🔴 Not the same as the single ``executor`` param, which stays as it is: there ``outsource`` also matches unassigned outsource tasks and an id matches either executor kind. If both are given they are ANDed. Absent or empty = no constraint. additive-optional. */
+                executors?: string[];
+                /** @description REPEATABLE task-type set: type_keys, plus ``adhoc`` for a task with no type (type_key ""). ANDed with the single ``type`` param when both are given. An unknown type_key matches nothing rather than erroring. Absent or empty = no constraint. additive-optional. */
+                types?: string[];
+                /** @description REPEATABLE due set, values ``overdue`` and ``soon`` (ORed). ``overdue`` = due_ts at or before the server's now; ``soon`` = now < due_ts <= now + lead, lead being the task's own due_soon_lead_minutes, else the workspace task_due_soon_lead_minutes. A CLOSED task never matches either value. Anything else is a 400 naming the value. Absent or empty = no constraint. additive-optional. */
+                due?: string[];
+                /** @description Case-insensitive substring matched against the task id and the title (trimmed; empty = no constraint) — for pickers that search tasks, e.g. mark-duplicate. additive-optional. */
+                q?: string | null;
+                /** @description ``none`` (the default), ``due``, ``priority``, ``executor``, ``type`` or ``status``; anything else is a 400. Together with ``lane`` it narrows the rows to ONE lane. Lane keys: due → overdue / soon / later / nodue (a closed task is filed by its date like an open one); priority → the priority value; executor → the ``executors`` keys above; type → the type_key or ``adhoc``; status → the status column (``reassigning`` is a lock, never a lane). The lanes themselves and their counts come from ``GET /api/tasks/count``. additive-optional. */
+                group_by?: string | null;
+                /** @description The lane to list, a key as described under ``group_by``; only with a ``group_by`` other than ``none`` (otherwise 400). Absent = the first lane in the order ``GET /api/tasks/count`` lists ``lanes``. A key no task currently falls under answers an empty array, never a 400 (a lane can empty out between two asks). additive-optional. */
+                lane?: string | null;
+                /** @description Page size, 1 to 200; anything else is a 400. Absent = every matching task, as today. When ``limit``, ``offset`` or ``group_by`` is given the rows come in the page order: open tasks first by priority high, mid, low, frozen (an unknown priority ranks as low), newest created_ts first; then closed tasks, newest closed_ts first; in the overdue / soon / later lanes of group_by=due, due_ts ascending first; last tie-break id ascending. Without any of the three the order is unchanged (oldest created first). A caller has reached the end when fewer than ``limit`` rows come back. additive-optional. */
+                limit?: number | null;
+                /** @description How many rows of that order to skip, 0 or more (default 0); a negative value is a 400. Paging by offset, like ``GET /api/lore``: a task written between two pages can shift rows across the boundary, so a caller that needs an exact list re-asks from offset 0. additive-optional. */
+                offset?: number | null;
                 status?: string | null;
                 type?: string | null;
                 open?: string | null;
@@ -20782,7 +20842,24 @@ export interface operations {
     };
     handle_task_count_api_tasks_count_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. */
+                statuses?: string[];
+                /** @description Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. Not applied to ``executor_counts``. */
+                executors?: string[];
+                /** @description Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. */
+                types?: string[];
+                /** @description Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. */
+                due?: string[];
+                /** @description Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. Not applied to ``executor_counts``. */
+                ids?: string[];
+                /** @description Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. */
+                q?: string | null;
+                /** @description Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. Turns on ``lanes``. */
+                group_by?: string | null;
+                /** @description Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. Narrows ``list_total`` to that lane (absent = the first lane); ``lanes`` always lists every lane. */
+                lane?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;

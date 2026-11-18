@@ -40,7 +40,6 @@ export function TaskCardDueStory({
             <div data-testid="outside" style={{ height: 40 }} />
             <TaskCard
               task={task}
-              allTasks={[task]}
               members={[MIRA]}
               workers={WORKERS}
               nowTs={Date.now() / 1000}

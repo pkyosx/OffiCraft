@@ -85,12 +85,12 @@ vi.mock("../api", () => ({
       // so the fake must apply them — a fake that returns every row no matter
       // what is asked cannot show that a task which left the filter leaves the
       // list.
-      const want = opts?.statuses;
-      const named = opts?.ids;
+      const want = opts?.statuses ?? [];
+      const named = opts?.ids ?? [];
       return h.tasks.filter(
         (t) =>
-          (want === undefined || want.includes(t.status as string)) &&
-          (named === undefined || named.includes(t.id as string))
+          (want.length === 0 || want.includes(t.status as string)) &&
+          (named.length === 0 || named.includes(t.id as string))
       );
     },
     getTask: async (id: string) => {
@@ -108,6 +108,21 @@ vi.mock("../api", () => ({
     getTaskCount: async () => {
       bump("getTaskCount");
       return { total: 0, open: 0 };
+    },
+    getTaskPageCount: async () => {
+      bump("getTaskPageCount");
+      return {
+        total: 0,
+        open: 0,
+        overdue: 0,
+        dueSoon: 0,
+        dueNextChangeTs: null,
+        executorCounts: {},
+        lanes: [],
+        listTotal: 0,
+        now: 0,
+        listDueNextChangeTs: null,
+      };
     },
     getChatUnreadCount: async () => {
       bump("getChatUnreadCount");
@@ -145,7 +160,7 @@ import { useTasks } from "./useTasks";
 /** The conversation the cockpit has OPEN throughout. */
 const OPEN_PEER = "m-open";
 /** The status set the 任務頁 filter opens on. */
-const FILTER = ["in_progress"];
+const FILTER = { statuses: ["in_progress"], groupBy: "none" as const };
 
 function member(id: string, unreadCount = 0) {
   return { id, name: id, status: "active", lifecycle: "online", unreadCount };
@@ -188,7 +203,7 @@ function useCockpit() {
     unread: useChatUnread(),
     taskCount: useTaskCount(),
     chat: useChat(OPEN_PEER),
-    tasks: useTasks(FILTER).tasks,
+    tasks: useTasks(FILTER, [""]).lists.get("")?.tasks ?? [],
   };
 }
 
@@ -726,7 +741,9 @@ describe("one delta re-pulls only what it named (T-8115)", () => {
       "t-bbb",
       "t-new",
     ]);
-    expect(h.counts.listTasks).toBe(1);
+    // The `?ids=` read finds it; the re-read from the top is what places it,
+    // since the order is the server's.
+    expect(h.counts.listTasks).toBe(2);
   });
 
   it("a member delta re-pulls the worker rail — release is list membership", async () => {

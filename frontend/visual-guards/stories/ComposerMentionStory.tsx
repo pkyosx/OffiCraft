@@ -87,7 +87,6 @@ export function TaskCardMentionStory() {
           <div className="tasks__list">
             <TaskCard
               task={TASK}
-              allTasks={[TASK]}
               members={MEMBERS}
               workers={WORKERS}
               nowTs={3000}

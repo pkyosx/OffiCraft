@@ -71,7 +71,6 @@ export function TaskArtifactsOverflowStory() {
               <div className="tasks__list">
                 <TaskCard
                   task={OWNER_LINK}
-                  allTasks={[OWNER_LINK]}
                   members={[MIRA]}
                   workers={WORKERS}
                   nowTs={3000}

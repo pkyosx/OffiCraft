@@ -152,6 +152,7 @@ import type {
   OnboardingReportView,
   TaskView,
   TaskCountView,
+  TaskPageCountView,
   TaskDepRefView,
   TaskStepView,
   TaskStepDetailView,
@@ -891,6 +892,17 @@ export function toTaskCount(w: WireTaskCount): TaskCountView {
     overdue: w.overdue ?? 0,
     dueSoon: w.due_soon ?? 0,
     dueNextChangeTs: w.due_next_change_ts ?? null,
+  };
+}
+
+export function toTaskPageCount(w: WireTaskCount): TaskPageCountView {
+  return {
+    ...toTaskCount(w),
+    executorCounts: { ...(w.executor_counts ?? {}) },
+    lanes: (w.lanes ?? []).map((l) => ({ key: l.key, count: l.count })),
+    listTotal: w.list_total ?? 0,
+    now: w.now ?? 0,
+    listDueNextChangeTs: w.list_due_next_change_ts ?? null,
   };
 }
 

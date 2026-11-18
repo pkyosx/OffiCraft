@@ -9,6 +9,7 @@ import {
   DEFAULT_DUE_SOON_LEAD_MINUTES,
   DUE_SOON_LEAD_MINUTES_MAX,
   DUE_SOON_LEAD_MINUTES_MIN,
+  dueBucketOf,
   effectiveLeadMinutes,
 } from "../lib/dueDate";
 import { REPLY_SNOOZE_MAX_SECONDS } from "../lib/replySnooze";
@@ -92,6 +93,8 @@ import type {
   OutsourceWorkerView,
   TaskTypeView,
   TaskCountView,
+  TaskPageCountView,
+  TaskPageQuery,
   TaskStepDetailView,
   TaskArtifactView,
   TaskManualSummaryView,
@@ -1728,6 +1731,189 @@ const TERMINAL_TASK_STATUSES = new Set(["done", "terminated", "duplicated"]);
 // projection that no longer exists.
 function deriveMockTaskNo(taskId: string): string {
   return taskId;
+}
+
+// ── the 任務 page's server-side filter (mirrors api_tasks.go taskPageQuery) ──
+// The list and the count read the same predicate, lane key and order, so a
+// mock-backed page sees the rows and numbers a real server would answer.
+
+const MOCK_TASK_PAGE_MAX_LIMIT = 200;
+const MOCK_DUE_LANES = ["overdue", "soon", "later", "nodue"];
+const MOCK_PRIORITY_LANES = ["high", "mid", "low", "frozen"];
+const MOCK_STATUS_LANES = [
+  "not_started",
+  "in_progress",
+  "waiting_owner",
+  "waiting_external",
+  "ready_for_done",
+  "done",
+  "terminated",
+  "duplicated",
+];
+const MOCK_GROUP_BYS = new Set(["none", "due", "priority", "executor", "type", "status"]);
+const MOCK_PAGE_RANK: Record<string, number> = { high: 0, mid: 1, low: 2, frozen: 3 };
+
+interface MockPageAxes {
+  skipExecutors?: boolean;
+  skipIds?: boolean;
+  skipDue?: boolean;
+}
+
+function mockPageNow(): { now: number; lead: number } {
+  return {
+    now: Date.now() / 1000,
+    lead: mockServerSettings.task_due_soon_lead_minutes ?? DEFAULT_DUE_SOON_LEAD_MINUTES,
+  };
+}
+
+function mockDueBucket(t: TaskView, now: number, lead: number): string {
+  return dueBucketOf(t.dueTs ?? null, now, effectiveLeadMinutes(t.dueSoonLeadMinutes, lead));
+}
+
+function mockExecutorKey(t: TaskView): string {
+  if (t.executorKind === "staff") return t.executorId;
+  return t.executorId === "" ? "unassigned" : "outsource";
+}
+
+function mockStatusSetMatch(t: TaskView, wanted: Set<string>): boolean {
+  if (wanted.has(t.status)) return true;
+  return (
+    wanted.has("reassigning") &&
+    t.lock === "reassigning" &&
+    !TERMINAL_TASK_STATUSES.has(t.status)
+  );
+}
+
+function mockPageRefusal(q: TaskPageQuery & { limit?: number; offset?: number }): string | null {
+  for (const v of q.due ?? []) {
+    if (v !== "overdue" && v !== "soon") return `due must each be one of overdue, soon — got '${v}'`;
+  }
+  if (q.groupBy !== undefined && !MOCK_GROUP_BYS.has(q.groupBy)) {
+    return `group_by must be one of none, due, priority, executor, type, status — got '${q.groupBy}'`;
+  }
+  if (q.lane !== undefined && (q.groupBy ?? "none") === "none") {
+    return "lane needs a group_by other than none";
+  }
+  if (q.limit !== undefined && (q.limit < 1 || q.limit > MOCK_TASK_PAGE_MAX_LIMIT)) {
+    return `limit must be between 1 and ${MOCK_TASK_PAGE_MAX_LIMIT} — got ${q.limit}`;
+  }
+  if (q.offset !== undefined && q.offset < 0) return `offset must be 0 or more — got ${q.offset}`;
+  const ids = new Set(q.ids ?? []);
+  if (ids.size > 200) return `ids may name at most 200 tasks — got ${ids.size}`;
+  return null;
+}
+
+function mockPageMatch(
+  t: TaskView,
+  q: TaskPageQuery,
+  clock: { now: number; lead: number },
+  skip: MockPageAxes = {}
+): boolean {
+  const statuses = new Set(q.statuses ?? []);
+  if (statuses.size > 0 && !mockStatusSetMatch(t, statuses)) return false;
+  const ids = new Set(q.ids ?? []);
+  if (!skip.skipIds && ids.size > 0 && !ids.has(t.id)) return false;
+  const executors = new Set(q.executors ?? []);
+  if (!skip.skipExecutors && executors.size > 0 && !executors.has(mockExecutorKey(t))) {
+    return false;
+  }
+  const types = new Set(q.types ?? []);
+  if (types.size > 0 && !types.has(t.typeKey === "" ? "adhoc" : t.typeKey)) return false;
+  const due = new Set(q.due ?? []);
+  if (
+    !skip.skipDue &&
+    due.size > 0 &&
+    (TERMINAL_TASK_STATUSES.has(t.status) || !due.has(mockDueBucket(t, clock.now, clock.lead)))
+  ) {
+    return false;
+  }
+  const needle = (q.q ?? "").trim().toLowerCase();
+  if (
+    needle !== "" &&
+    !t.id.toLowerCase().includes(needle) &&
+    !t.title.toLowerCase().includes(needle)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function mockLaneKey(t: TaskView, groupBy: string, clock: { now: number; lead: number }): string {
+  switch (groupBy) {
+    case "due":
+      return mockDueBucket(t, clock.now, clock.lead);
+    case "priority":
+      return t.priority;
+    case "executor":
+      return mockExecutorKey(t);
+    case "type":
+      return t.typeKey === "" ? "adhoc" : t.typeKey;
+    case "status":
+      return t.status;
+  }
+  return "";
+}
+
+function mockLanes(
+  rows: TaskView[],
+  groupBy: string,
+  clock: { now: number; lead: number }
+): { key: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const t of rows) {
+    const key = mockLaneKey(t, groupBy, clock);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const head =
+    groupBy === "due"
+      ? MOCK_DUE_LANES
+      : groupBy === "priority"
+        ? MOCK_PRIORITY_LANES
+        : groupBy === "status"
+          ? MOCK_STATUS_LANES
+          : groupBy === "executor"
+            ? [
+                "outsource",
+                "unassigned",
+                ...wireMembers.filter((m) => m.roster_status !== "removed").map((m) => m.id),
+              ]
+            : [];
+  const out: { key: string; count: number }[] = [];
+  for (const key of head) {
+    const n = counts.get(key);
+    if (n) {
+      out.push({ key, count: n });
+      counts.delete(key);
+    }
+  }
+  const adhoc = groupBy === "type" ? counts.get("adhoc") : undefined;
+  if (groupBy === "type") counts.delete("adhoc");
+  for (const key of [...counts.keys()].sort()) out.push({ key, count: counts.get(key)! });
+  if (adhoc) out.push({ key: "adhoc", count: adhoc });
+  return out;
+}
+
+function mockPageOrder(groupBy: string, clock: { now: number; lead: number }) {
+  return (a: TaskView, b: TaskView): number => {
+    if (groupBy === "due") {
+      const lane = mockDueBucket(a, clock.now, clock.lead);
+      if (lane !== "nodue" && lane === mockDueBucket(b, clock.now, clock.lead)) {
+        const d = (a.dueTs ?? 0) - (b.dueTs ?? 0);
+        if (d !== 0) return d;
+      }
+    }
+    const aClosed = TERMINAL_TASK_STATUSES.has(a.status);
+    const bClosed = TERMINAL_TASK_STATUSES.has(b.status);
+    if (aClosed !== bClosed) return aClosed ? 1 : -1;
+    if (!aClosed) {
+      const r = (MOCK_PAGE_RANK[a.priority] ?? 2) - (MOCK_PAGE_RANK[b.priority] ?? 2);
+      if (r !== 0) return r;
+      if (a.createdTs !== b.createdTs) return b.createdTs - a.createdTs;
+    } else if ((a.closedTs ?? 0) !== (b.closedTs ?? 0)) {
+      return (b.closedTs ?? 0) - (a.closedTs ?? 0);
+    }
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  };
 }
 
 // withWorkerTaskJoin fills the bound-task fields the SERVER now folds into the
@@ -4538,45 +4724,32 @@ const mockApiImpl = {
     return { id, snoozedUntilTs: untilTs };
   },
 
-  async listTasks(opts?: {
-    open?: boolean;
-    statuses?: string[];
-    ids?: string[];
-  }): Promise<TaskView[]> {
-    // The LIGHT list (mirrors GET /api/tasks — partitioning / ordering /
-    // filtering are the FE's). Strip the heavy steps/description the real light
-    // projection omits, so the mock exercises the same "hydrate on expand via
-    // getTask" path as the server. Clone so callers never mutate. `open`
-    // (T-2b9d) drops the terminal rows, mirroring ?open=true byte-for-byte in
-    // behaviour so mock and http agree.
-    // `statuses` (T-a3e4) is the SET form, ANDed with `open` exactly as the
-    // server ANDs them — including the one rule that is not a plain status
-    // comparison: `reassigning` in the set matches the handover LOCK (T-9ca5),
-    // never the status column. Getting that wrong here would let a mock-backed
-    // test go green against a server that hides every 轉派中 row.
-    const wanted = new Set(opts?.statuses ?? []);
-    const named = new Set(opts?.ids ?? []);
-    if (named.size > 200) {
-      throw mockApiError(
-        "http 400 for /api/tasks",
-        400,
-        `ids may name at most 200 tasks — got ${named.size}`
-      );
+  async listTasks(
+    opts?: TaskPageQuery & { open?: boolean; limit?: number; offset?: number }
+  ): Promise<TaskView[]> {
+    // The LIGHT list (mirrors GET /api/tasks), the page's filter, lanes and
+    // order applied the server's way. Strip the heavy steps/description the
+    // real light projection omits, so the mock exercises the same "hydrate on
+    // expand via getTask" path as the server. Clone so callers never mutate.
+    const q = opts ?? {};
+    const refusal = mockPageRefusal(q);
+    if (refusal !== null) throw mockApiError("http 400 for /api/tasks", 400, refusal);
+    const clock = mockPageNow();
+    let rows = tasks.filter(
+      (t) =>
+        !(q.open && TERMINAL_TASK_STATUSES.has(t.status)) && mockPageMatch(t, q, clock)
+    );
+    const groupBy = q.groupBy ?? "none";
+    if (groupBy !== "none") {
+      const lane = q.lane ?? mockLanes(rows, groupBy, clock)[0]?.key;
+      rows = rows.filter((t) => lane !== undefined && mockLaneKey(t, groupBy, clock) === lane);
     }
-    const rows = tasks.filter((t) => {
-      if (named.size > 0 && !named.has(t.id)) return false;
-      if (opts?.open && TERMINAL_TASK_STATUSES.has(t.status)) return false;
-      if (wanted.size === 0) return true;
-      if (wanted.has(t.status)) return true;
-      // The lock counts only while the task is OPEN — terminate never clears it
-      // (T-a3e4). Same rule as the server's taskStatusSetMatch and TasksPage's
-      // matchesStatus; all three are deliberately identical.
-      return (
-        wanted.has("reassigning") &&
-        t.lock === "reassigning" &&
-        !TERMINAL_TASK_STATUSES.has(t.status)
-      );
-    });
+    if (q.limit !== undefined || q.offset !== undefined || q.groupBy !== undefined) {
+      const offset = q.offset ?? 0;
+      rows = [...rows]
+        .sort(mockPageOrder(groupBy, clock))
+        .slice(offset, q.limit === undefined ? undefined : offset + q.limit);
+    }
     // dep_tasks (T-a3e4): resolved against the WHOLE mock population, like the
     // server's single-query join — so a filtered list still names a dep the
     // filter excluded. A dep with no task keeps its derived number and stays
@@ -4700,6 +4873,50 @@ const mockApiImpl = {
     // as it is against a real server — never a silent [].
     const task = findTask(taskId);
     return structuredClone(task.artifacts ?? []);
+  },
+
+  async getTaskPageCount(q: TaskPageQuery): Promise<TaskPageCountView> {
+    const refusal = mockPageRefusal(q);
+    if (refusal !== null) throw mockApiError("http 400 for /api/tasks/count", 400, refusal);
+    const badge = await mockApiImpl.getTaskCount();
+    const clock = mockPageNow();
+    const groupBy = q.groupBy ?? "none";
+    const executorCounts: Record<string, number> = {};
+    let listDueNextChangeTs: number | null = null;
+    const watchDue = (q.due ?? []).length > 0 || groupBy === "due";
+    const matched: TaskView[] = [];
+    for (const t of tasks) {
+      if (mockPageMatch(t, q, clock, { skipExecutors: true, skipIds: true })) {
+        const key = mockExecutorKey(t);
+        if (key !== "") executorCounts[key] = (executorCounts[key] ?? 0) + 1;
+      }
+      if (
+        watchDue &&
+        t.dueTs != null &&
+        (groupBy === "due" || !TERMINAL_TASK_STATUSES.has(t.status)) &&
+        mockPageMatch(t, q, clock, { skipExecutors: true, skipIds: true, skipDue: true })
+      ) {
+        const lead = effectiveLeadMinutes(t.dueSoonLeadMinutes, clock.lead);
+        for (const edge of [t.dueTs - lead * 60, t.dueTs]) {
+          if (edge > clock.now && (listDueNextChangeTs === null || edge < listDueNextChangeTs)) {
+            listDueNextChangeTs = edge;
+          }
+        }
+      }
+      if (mockPageMatch(t, q, clock)) matched.push(t);
+    }
+    const lanes = groupBy === "none" ? [] : mockLanes(matched, groupBy, clock);
+    const lane = q.lane ?? lanes[0]?.key;
+    const listTotal =
+      groupBy === "none" ? matched.length : (lanes.find((l) => l.key === lane)?.count ?? 0);
+    return {
+      ...badge,
+      executorCounts,
+      lanes,
+      listTotal,
+      now: clock.now,
+      listDueNextChangeTs,
+    };
   },
 
   async getTaskCount(): Promise<TaskCountView> {

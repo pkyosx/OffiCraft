@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toTask, toTaskCount, toTaskListItem } from "./mappers";
+import { toTask, toTaskCount, toTaskPageCount, toTaskListItem } from "./mappers";
 import type { WireTask, WireTaskCount, WireTaskListItem } from "./wire";
 
 function wireTask(over: Partial<WireTask>): WireTask {
@@ -67,13 +67,13 @@ describe("toTaskListItem", () => {
 
 describe("toTaskCount", () => {
   it("maps the due counts and the next change moment", () => {
-    const wire: WireTaskCount = {
+    const wire = {
       open: 4,
       total: 9,
       overdue: 2,
       due_soon: 1,
       due_next_change_ts: 1792857599,
-    };
+    } as WireTaskCount;
     expect(toTaskCount(wire)).toEqual({
       open: 4,
       total: 9,
@@ -90,6 +90,56 @@ describe("toTaskCount", () => {
       overdue: 0,
       dueSoon: 0,
       dueNextChangeTs: null,
+    });
+  });
+});
+
+describe("toTaskPageCount", () => {
+  it("maps the page's list fields beside the badge fields", () => {
+    const wire: WireTaskCount = {
+      open: 4,
+      total: 9,
+      overdue: 2,
+      due_soon: 1,
+      due_next_change_ts: 1792857599,
+      executor_counts: { kip: 3, unassigned: 1 },
+      lanes: [
+        { key: "overdue", count: 2 },
+        { key: "nodue", count: 5 },
+      ],
+      list_total: 2,
+      now: 1792850000,
+      list_due_next_change_ts: 1792851000,
+    };
+    expect(toTaskPageCount(wire)).toEqual({
+      open: 4,
+      total: 9,
+      overdue: 2,
+      dueSoon: 1,
+      dueNextChangeTs: 1792857599,
+      executorCounts: { kip: 3, unassigned: 1 },
+      lanes: [
+        { key: "overdue", count: 2 },
+        { key: "nodue", count: 5 },
+      ],
+      listTotal: 2,
+      now: 1792850000,
+      listDueNextChangeTs: 1792851000,
+    });
+  });
+
+  it("reads a badge-only answer as an empty page count", () => {
+    expect(toTaskPageCount({ open: 4 } as WireTaskCount)).toEqual({
+      open: 4,
+      total: 0,
+      overdue: 0,
+      dueSoon: 0,
+      dueNextChangeTs: null,
+      executorCounts: {},
+      lanes: [],
+      listTotal: 0,
+      now: 0,
+      listDueNextChangeTs: null,
     });
   });
 });

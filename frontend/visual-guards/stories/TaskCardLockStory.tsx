@@ -11,7 +11,6 @@ export function TaskCardLockStory() {
     <I18nProvider>
       <TaskCard
         task={LOCKED_REASSIGNING}
-        allTasks={[LOCKED_REASSIGNING]}
         members={[MIRA]}
         workers={WORKERS}
         nowTs={3000}

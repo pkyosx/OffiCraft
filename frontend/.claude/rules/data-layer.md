@@ -33,7 +33,7 @@ downlink 只有一條、且是 module-level singleton。瀏覽器只會自己重
 
 **連線健康度要 publish 給 UI**（`Api.subscribeConnection`）。整個座艙都是 delta 驅動的，所以「連線死掉」跟「今天很安靜」在畫面上長得一模一樣；靜默自癒等於把一個看得見的停頓換成一個看不見的洞。mock 沒有 transport 可以掉，只回一次 `live`。
 
-deltaSink 每個 burst 只做一次同步決策；coalesce 留在決策層，不要跨 tick debounce。narrowToHeld 的語意固定為：null = 全量、非空 = 指定項目、空集合 = 只指向其他項目。task topic 不走 narrowToHeld：清單可能新增列，所以 useTasks 把 delta 點名的 id（加上依賴列顯示了它們的持有列）連同目前的狀態集合一起送 `GET /api/tasks?ids=`，回來的列取代或插入、問了卻沒回的列移除；沒點名任何 id 的 delta 才全量。chat、chat_read、roster 在沒有持有項目時可跳過。
+deltaSink 每個 burst 只做一次同步決策；coalesce 留在決策層，不要跨 tick debounce。narrowToHeld 的語意固定為：null = 全量、非空 = 指定項目、空集合 = 只指向其他項目。task topic 不走 narrowToHeld：清單可能新增列，所以 useTasks 把 delta 點名的 id（加上依賴列顯示了它們的持有列）連同目前的篩選與 lane 一起送 `GET /api/tasks?ids=`，問了卻沒回的列移除、排序欄位沒動的列原位取代；回來了卻不在手上或排序欄位動了，就從第一頁重問那份清單（問回手上同樣多的列），因為順序是伺服器的。沒點名任何 id 的 delta 才全量（每份清單從第一頁重問、計數重問）。chat、chat_read、roster 在沒有持有項目時可跳過。
 
 只有在單筆回應是清單列的真正 superset 時才可 per-item：
 

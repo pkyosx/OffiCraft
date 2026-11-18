@@ -29,8 +29,8 @@
 // tick every opener while the pane was collapsed, see 「所有開卡人」, unfold, and
 // have the newly-loaded opener silently excluded — a person they never
 // unticked, on an axis that claimed to be showing everyone. The 任務頁 axes are
-// the same mechanism; 負責人 can reach it too (its options are derived from the
-// loaded rows), while 狀態 cannot, since its options are a fixed module
+// the same mechanism; 負責人 can reach it too (its options follow the server's
+// counts), while 狀態 cannot, since its options are a fixed module
 // constant. Reverting either line below restores that defect.
 //
 // `constrained` follows the same rule for the same reason: a full set IS a

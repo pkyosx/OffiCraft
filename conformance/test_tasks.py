@@ -980,6 +980,49 @@ def test_id_set_returns_the_named_tasks_that_still_match_the_other_filters(
     assert r.json()["error"]["message"] == "ids may name at most 200 tasks — got 201"
 
 
+def test_page_params_filter_order_page_and_count_the_tasks_page_list(
+        client, owner_token, executor):
+    """The 任務 page's params on GET /api/tasks and GET /api/tasks/count. The DB
+    is shared, so a unique title token scopes every ask through ?q=."""
+    tag = f"page-{uuid.uuid4().hex[:10]}"
+    a = _create_task(client, executor, title=f"{tag} a")["task"]
+    b = _create_task(client, executor, title=f"{tag} b")["task"]
+    c = _create_task(client, executor, title=f"{tag} c")["task"]
+    assert client.post(f"/api/tasks/{b['id']}/priority", json={"priority": "high"},
+                       headers=_auth(owner_token)).status_code == 200
+    assert client.post(f"/api/tasks/{c['id']}/mark-terminated",
+                       headers=_auth(owner_token)).status_code == 200
+
+    def listed(**params) -> list[str]:
+        r = client.get("/api/tasks", params={"q": tag.upper(), **params},
+                       headers=_auth(owner_token))
+        assert r.status_code == 200, r.text
+        return [t["id"] for t in r.json()]
+
+    assert listed(limit=2) == [b["id"], a["id"]]
+    assert listed(limit=2, offset=2) == [c["id"]]
+    assert listed(executors=[executor.member_id], types=["adhoc"],
+                  statuses=["not_started"]) == [a["id"], b["id"]]
+    assert listed(executors=["unassigned"]) == []
+    assert listed(group_by="status") == [b["id"], a["id"]]
+    assert listed(group_by="status", lane="terminated") == [c["id"]]
+
+    r = client.get("/api/tasks/count", params={"q": tag, "group_by": "status"},
+                   headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["executor_counts"] == {executor.member_id: 3}
+    assert body["lanes"] == [{"key": "not_started", "count": 2},
+                             {"key": "terminated", "count": 1}]
+    assert body["list_total"] == 2
+    assert body["list_due_next_change_ts"] is None
+    assert body["now"] > 0
+
+    r = client.get("/api/tasks", params={"due": "late"}, headers=_auth(owner_token))
+    assert r.status_code == 400, r.text
+    assert r.json()["error"]["message"] == "due must each be one of overdue, soon — got 'late'"
+
+
 def test_dep_tasks_names_a_blocker_the_status_filter_excluded(
         client, owner_token, executor):
     """Every light row carries dep_tasks: each dep resolved SERVER-SIDE to the

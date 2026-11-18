@@ -97,6 +97,8 @@ import type {
   OutsourceWorkerView,
   TaskTypeView,
   TaskCountView,
+  TaskPageCountView,
+  TaskPageQuery,
   TaskStepDetailView,
   TaskArtifactView,
   TaskManualSummaryView,
@@ -171,6 +173,7 @@ import {
   toTask,
   toTaskListItem,
   toTaskCount,
+  toTaskPageCount,
   toTaskStepDetail,
   toTaskArtifact,
   toOutsourceWorker,
@@ -964,6 +967,28 @@ function toAnswerBody(answer: ReplyCardAnswerInput) {
         }
       : {}),
   };
+}
+
+function taskPageQueryParams(q: TaskPageQuery): {
+  statuses?: string[];
+  executors?: string[];
+  types?: string[];
+  due?: string[];
+  ids?: string[];
+  q?: string;
+  group_by?: string;
+  lane?: string;
+} {
+  const out: ReturnType<typeof taskPageQueryParams> = {};
+  if (q.statuses && q.statuses.length > 0) out.statuses = q.statuses;
+  if (q.executors && q.executors.length > 0) out.executors = q.executors;
+  if (q.types && q.types.length > 0) out.types = q.types;
+  if (q.due && q.due.length > 0) out.due = q.due;
+  if (q.ids && q.ids.length > 0) out.ids = q.ids;
+  if (q.q !== undefined && q.q.trim() !== "") out.q = q.q.trim();
+  if (q.groupBy !== undefined) out.group_by = q.groupBy;
+  if (q.lane !== undefined) out.lane = q.lane;
+  return out;
 }
 
 export const httpApi: Api = {
@@ -1847,26 +1872,20 @@ export const httpApi: Api = {
     return toReplyCardSnoozeReceipt(wire);
   },
 
-  async listTasks(opts?: {
-    open?: boolean;
-    statuses?: string[];
-    ids?: string[];
-  }): Promise<TaskView[]> {
-    // GET /api/tasks -> TaskListItemDTO[] (LIGHT: no steps/description/inputs).
-    // ?open=true (T-2b9d) drops the terminal rows server-side for the default
-    // 未結束-only view; omitted → the full population (清除篩選 全部). ?statuses=
-    // (T-a3e4) is the SET the 狀態 dropdown ticked, sent as one repeated param
-    // per state (openapi-fetch's default form/explode serialisation, the shape
-    // the spec declares) — the page asks for the rows it renders instead of
-    // filtering a full download. An EMPTY set is omitted entirely: it means
-    // 所有狀態, and sending nothing is exactly that. A card hydrates its heavy
-    // detail on expand via getTask.
-    const query: { open?: string; statuses?: string[]; ids?: string[] } = {};
-    if (opts?.open) query.open = "true";
-    if (opts?.statuses && opts.statuses.length > 0) {
-      query.statuses = opts.statuses;
-    }
-    if (opts?.ids && opts.ids.length > 0) query.ids = opts.ids;
+  async listTasks(
+    opts?: TaskPageQuery & { open?: boolean; limit?: number; offset?: number }
+  ): Promise<TaskView[]> {
+    // GET /api/tasks -> TaskListItemDTO[] (LIGHT: no steps/description/inputs;
+    // a card hydrates its detail on expand via getTask). Every set goes out as
+    // one repeated param per value (openapi-fetch's form/explode default, the
+    // shape the spec declares); an EMPTY set is omitted, which is the same
+    // answer as no constraint.
+    const query = {
+      ...taskPageQueryParams(opts ?? {}),
+      ...(opts?.open ? { open: "true" } : {}),
+      ...(opts?.limit !== undefined ? { limit: opts.limit } : {}),
+      ...(opts?.offset !== undefined ? { offset: opts.offset } : {}),
+    };
     const wire = unwrap(await client.GET("/api/tasks", { params: { query } }));
     return wire.map(toTaskListItem);
   },
@@ -1920,6 +1939,15 @@ export const httpApi: Api = {
     // (refetched on every "task" SSE delta without pulling the list); `total`
     // (T-a3e4) is the unfiltered count the 任務頁 words its empty state from.
     return toTaskCount(unwrap(await client.GET("/api/tasks/count")));
+  },
+
+  async getTaskPageCount(q: TaskPageQuery): Promise<TaskPageCountView> {
+    // The same route with the page's filter. group_by always goes out — it is
+    // what makes the server answer the list fields even when every set is empty.
+    const query = { ...taskPageQueryParams(q), group_by: q.groupBy ?? "none" };
+    return toTaskPageCount(
+      unwrap(await client.GET("/api/tasks/count", { params: { query } }))
+    );
   },
 
   async terminateTask(id: string): Promise<void> {

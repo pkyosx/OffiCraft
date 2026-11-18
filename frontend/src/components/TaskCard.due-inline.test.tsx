@@ -63,7 +63,6 @@ function cardElement(
     <I18nProvider>
       <TaskCard
         task={task}
-        allTasks={[task]}
         members={[]}
         workers={[]}
         nowTs={NOW}

@@ -2577,6 +2577,66 @@ func TestResumeTasksFor(t *testing.T) {
 	})
 }
 
+// newTaskPagePopulation builds the 任務 page's mixed population through the
+// real create / priority / terminate routes and answers the due_ts it gave the
+// one task that is due soon (it has to sit an hour after the server's now).
+//
+//	T-1 Alpha report    kip   low   open
+//	T-2 Beta fix        mira  high  open    due 1000 (overdue)
+//	T-3 Gamma docs      zed   mid   open    due 4102444800 (later)
+//	T-4 Delta closed    kip   mid   terminated first
+//	T-5 Epsilon closed  kip   mid   terminated second, due 2000
+//	T-6 Eta contracted  outsource, no worker
+//	T-7 Theta typed     kip   mid   type daily_report
+//	T-8 Zeta soon       mira  mid   due in an hour
+func newTaskPagePopulation(t *testing.T) (http.Handler, string, float64) {
+	t.Helper()
+	api, h, d, owner := newAPITestServer(t)
+	api.noOutsource = true
+	if err := d.putMemberWholeRowForTest(Member{ID: "zed", Name: "Ava", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive}); err != nil {
+		t.Fatalf("PutMember: %v", err)
+	}
+	soonDue := float64(time.Now().Unix() + 3600)
+	for _, req := range [][3]string{
+		{"POST", "/api/task-manuals", `{"type_key":"daily_report","display_name":"Daily report"}`},
+		{"POST", "/api/tasks", `{"title":"Alpha report","executor_member_id":"kip"}`},
+		{"POST", "/api/tasks/T-1/priority", `{"priority":"low"}`},
+		{"POST", "/api/tasks", `{"title":"Beta fix","executor_member_id":"mira","due_ts":1000}`},
+		{"POST", "/api/tasks/T-2/priority", `{"priority":"high"}`},
+		{"POST", "/api/tasks", `{"title":"Gamma docs","executor_member_id":"zed","due_ts":4102444800}`},
+		{"POST", "/api/tasks", `{"title":"Delta closed","executor_member_id":"kip"}`},
+		{"POST", "/api/tasks", `{"title":"Epsilon closed","executor_member_id":"kip","due_ts":2000}`},
+		{"POST", "/api/tasks/T-4/mark-terminated", ""},
+		{"POST", "/api/tasks/T-5/mark-terminated", ""},
+		{"POST", "/api/tasks", `{"title":"Eta contracted","target":{"kind":"outsource"}}`},
+		{"POST", "/api/tasks", `{"title":"Theta typed","type_key":"daily_report","executor_member_id":"kip"}`},
+		{"POST", "/api/tasks", fmt.Sprintf(`{"title":"Zeta soon","executor_member_id":"mira","due_ts":%.0f}`, soonDue)},
+	} {
+		if status, data := apiJSON(t, h, req[0], req[1], owner, req[2]); status != 200 {
+			t.Fatalf("%s %s: %d (%v)", req[0], req[1], status, data)
+		}
+	}
+	return h, owner, soonDue
+}
+
+// apiListedTaskIDs answers the ids of a GET /api/tasks answer, in order.
+func apiListedTaskIDs(t *testing.T, h http.Handler, target, token string) []string {
+	t.Helper()
+	rec := apiRequest(t, h, "GET", target, token, "")
+	if rec.Code != 200 {
+		t.Fatalf("GET %s: want 200, got %d (%s)", target, rec.Code, rec.Body.String())
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("non-JSON body: %s", rec.Body.String())
+	}
+	ids := []string{}
+	for _, row := range rows {
+		ids = append(ids, row["id"].(string))
+	}
+	return ids
+}
+
 func TestHandleListTasksApiTasksGet(t *testing.T) {
 	t.Run("every task on the roster is served as a full light list row", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
@@ -2893,6 +2953,130 @@ func TestHandleListTasksApiTasksGet(t *testing.T) {
 				"waiting_external, reassigning, done, terminated, duplicated — got 'nope'")
 	})
 
+	t.Run("limit and offset page through open tasks by priority then newest created, then closed tasks newest closed first", func(t *testing.T) {
+		h, owner, _ := newTaskPagePopulation(t)
+
+		pages := map[string][]string{
+			"/api/tasks?limit=3":          {"T-2", "T-8", "T-7"},
+			"/api/tasks?limit=3&offset=3": {"T-6", "T-3", "T-1"},
+			"/api/tasks?limit=3&offset=6": {"T-5", "T-4"},
+			"/api/tasks?limit=3&offset=9": {},
+			"/api/tasks?offset=6":         {"T-5", "T-4"},
+			"/api/tasks":                  {"T-1", "T-2", "T-3", "T-4", "T-5", "T-6", "T-7", "T-8"},
+		}
+		for target, want := range pages {
+			apiWantValue(t, target, any(apiListedTaskIDs(t, h, target, owner)), any(want))
+		}
+	})
+
+	t.Run("a paged row is the same full light row the unpaged list serves", func(t *testing.T) {
+		h, owner, _ := newTaskPagePopulation(t)
+
+		rec := apiRequest(t, h, "GET", "/api/tasks?limit=1&statuses=terminated", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", got, []any{map[string]any{
+			"id":                    "T-5",
+			"task_no":               "T-5",
+			"type_key":              "",
+			"title":                 "Epsilon closed",
+			"dedupe_key":            "",
+			"duplicate_of":          "",
+			"status":                "terminated",
+			"lock":                  "",
+			"priority":              "mid",
+			"executor_kind":         "staff",
+			"executor_id":           "kip",
+			"creator_id":            "owner",
+			"reassigned_from":       "",
+			"reassigned_from_kind":  "",
+			"waiting_reason":        "",
+			"created_ts":            apiAnyNumber,
+			"updated_ts":            apiAnyNumber,
+			"closed_ts":             apiAnyNumber,
+			"due_ts":                float64(2000),
+			"due_soon_lead_minutes": nil,
+			"deps":                  []any{},
+			"dep_tasks":             []any{},
+			"progress_done":         0,
+			"progress_total":        0,
+			"current_step_id":       "",
+			"current_step_name":     "",
+			"artifact_count":        0,
+		}})
+	})
+
+	t.Run("?executors= ?types= ?due= and ?q= narrow the rows with the page's semantics", func(t *testing.T) {
+		h, owner, _ := newTaskPagePopulation(t)
+
+		asks := map[string][]string{
+			"/api/tasks?executors=unassigned&executors=zed":      {"T-3", "T-6"},
+			"/api/tasks?executors=outsource":                     {},
+			"/api/tasks?executors=kip&statuses=not_started":      {"T-1", "T-7"},
+			"/api/tasks?types=daily_report":                      {"T-7"},
+			"/api/tasks?types=adhoc&executors=kip":               {"T-1", "T-4", "T-5"},
+			"/api/tasks?types=no_such_type":                      {},
+			"/api/tasks?due=overdue":                             {"T-2"},
+			"/api/tasks?due=soon":                                {"T-8"},
+			"/api/tasks?due=overdue&due=soon":                    {"T-2", "T-8"},
+			"/api/tasks?q=BETA":                                  {"T-2"},
+			"/api/tasks?q=%20t-7%20":                             {"T-7"},
+			"/api/tasks?q=closed&limit=5":                        {"T-5", "T-4"},
+			"/api/tasks?executor=outsource&executors=unassigned": {"T-6"},
+		}
+		for target, want := range asks {
+			apiWantValue(t, target, any(apiListedTaskIDs(t, h, target, owner)), any(want))
+		}
+	})
+
+	t.Run("?group_by= with ?lane= lists one lane in page order, and without ?lane= the first non-empty lane", func(t *testing.T) {
+		h, owner, _ := newTaskPagePopulation(t)
+
+		asks := map[string][]string{
+			"/api/tasks?group_by=due":                                 {"T-2", "T-5"},
+			"/api/tasks?group_by=due&lane=nodue":                      {"T-7", "T-6", "T-1", "T-4"},
+			"/api/tasks?group_by=due&lane=nodue&limit=2&offset=1":     {"T-6", "T-1"},
+			"/api/tasks?group_by=due&lane=soon":                       {"T-8"},
+			"/api/tasks?group_by=executor":                            {"T-6"},
+			"/api/tasks?group_by=executor&lane=mira":                  {"T-2", "T-8"},
+			"/api/tasks?group_by=type&lane=adhoc&statuses=terminated": {"T-5", "T-4"},
+			"/api/tasks?group_by=status&lane=terminated":              {"T-5", "T-4"},
+			"/api/tasks?group_by=priority&lane=low":                   {"T-1"},
+			"/api/tasks?group_by=due&lane=no_such_lane":               {},
+			"/api/tasks?group_by=due&executors=nobody":                {},
+			"/api/tasks?group_by=none":                                {"T-2", "T-8", "T-7", "T-6", "T-3", "T-1", "T-5", "T-4"},
+		}
+		for target, want := range asks {
+			apiWantValue(t, target, any(apiListedTaskIDs(t, h, target, owner)), any(want))
+		}
+	})
+
+	t.Run("an out-of-vocabulary page param answers 400 naming it", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		refusals := map[string]string{
+			"/api/tasks?due=late":                "due must each be one of overdue, soon — got 'late'",
+			"/api/tasks?group_by=owner":          "group_by must be one of none, due, priority, executor, type, status — got 'owner'",
+			"/api/tasks?lane=soon":               "lane needs a group_by other than none",
+			"/api/tasks?group_by=none&lane=soon": "lane needs a group_by other than none",
+			"/api/tasks?limit=0":                 "limit must be between 1 and 200 — got 0",
+			"/api/tasks?limit=201":               "limit must be between 1 and 200 — got 201",
+			"/api/tasks?offset=-1":               "offset must be 0 or more — got -1",
+		}
+		for target, message := range refusals {
+			status, data := apiJSON(t, h, "GET", target, owner, "")
+			if status != 400 {
+				t.Fatalf("%s: want 400, got %d (%v)", target, status, data)
+			}
+			apiWantError(t, data, "validation_error", message)
+		}
+	})
+
 	t.Run("a request without a token answers 401", func(t *testing.T) {
 		_, h, _, _ := newAPITestServer(t)
 
@@ -3051,6 +3235,99 @@ func TestHandleTaskCountApiTasksCountGet(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"open": 0, "total": 0, "overdue": 0, "due_soon": 0, "due_next_change_ts": nil,
 		})
+	})
+
+	t.Run("with the page's params the list fields describe that list while the badge fields stay whole", func(t *testing.T) {
+		h, owner, soonDue := newTaskPagePopulation(t)
+		badge := map[string]any{
+			"open": 6, "total": 8, "overdue": 1, "due_soon": 1, "due_next_change_ts": soonDue,
+		}
+		with := func(extra map[string]any) map[string]any {
+			out := map[string]any{"now": apiAnyNumber}
+			for k, v := range badge {
+				out[k] = v
+			}
+			for k, v := range extra {
+				out[k] = v
+			}
+			return out
+		}
+		lane := func(key string, n int) map[string]any { return map[string]any{"key": key, "count": n} }
+
+		asks := map[string]map[string]any{
+			"/api/tasks/count?statuses=not_started": with(map[string]any{
+				"executor_counts":         map[string]any{"unassigned": 1, "zed": 1, "kip": 2, "mira": 2},
+				"lanes":                   []any{},
+				"list_total":              6,
+				"list_due_next_change_ts": nil,
+			}),
+			"/api/tasks/count?executors=kip&group_by=due": with(map[string]any{
+				"executor_counts":         map[string]any{"unassigned": 1, "zed": 1, "kip": 4, "mira": 2},
+				"lanes":                   []any{lane("overdue", 1), lane("nodue", 3)},
+				"list_total":              1,
+				"list_due_next_change_ts": soonDue,
+			}),
+			"/api/tasks/count?group_by=executor&lane=mira": with(map[string]any{
+				"executor_counts":         map[string]any{"unassigned": 1, "zed": 1, "kip": 4, "mira": 2},
+				"lanes":                   []any{lane("unassigned", 1), lane("zed", 1), lane("kip", 4), lane("mira", 2)},
+				"list_total":              2,
+				"list_due_next_change_ts": nil,
+			}),
+			"/api/tasks/count?due=soon&group_by=status": with(map[string]any{
+				"executor_counts":         map[string]any{"mira": 1},
+				"lanes":                   []any{lane("not_started", 1)},
+				"list_total":              1,
+				"list_due_next_change_ts": soonDue,
+			}),
+			"/api/tasks/count?group_by=type": with(map[string]any{
+				"executor_counts":         map[string]any{"unassigned": 1, "zed": 1, "kip": 4, "mira": 2},
+				"lanes":                   []any{lane("daily_report", 1), lane("adhoc", 7)},
+				"list_total":              1,
+				"list_due_next_change_ts": nil,
+			}),
+			"/api/tasks/count?group_by=priority&statuses=terminated&statuses=not_started": with(map[string]any{
+				"executor_counts":         map[string]any{"unassigned": 1, "zed": 1, "kip": 4, "mira": 2},
+				"lanes":                   []any{lane("high", 1), lane("mid", 6), lane("low", 1)},
+				"list_total":              1,
+				"list_due_next_change_ts": nil,
+			}),
+			"/api/tasks/count?ids=T-3&q=gamma": with(map[string]any{
+				"executor_counts":         map[string]any{"zed": 1},
+				"lanes":                   []any{},
+				"list_total":              1,
+				"list_due_next_change_ts": nil,
+			}),
+			"/api/tasks/count?group_by=due&lane=no_such_lane": with(map[string]any{
+				"executor_counts":         map[string]any{"unassigned": 1, "zed": 1, "kip": 4, "mira": 2},
+				"lanes":                   []any{lane("overdue", 2), lane("soon", 1), lane("later", 1), lane("nodue", 4)},
+				"list_total":              0,
+				"list_due_next_change_ts": soonDue,
+			}),
+			"/api/tasks/count?ids=T-99&group_by=due": with(map[string]any{
+				"executor_counts":         map[string]any{"unassigned": 1, "zed": 1, "kip": 4, "mira": 2},
+				"lanes":                   []any{},
+				"list_total":              0,
+				"list_due_next_change_ts": soonDue,
+			}),
+		}
+		for target, want := range asks {
+			status, data := apiJSON(t, h, "GET", target, owner, "")
+			if status != 200 {
+				t.Fatalf("%s: want 200, got %d (%v)", target, status, data)
+			}
+			apiWantValue(t, target, any(data), any(want))
+		}
+	})
+
+	t.Run("an out-of-vocabulary page param answers 400 naming it", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/tasks/count?group_by=week", owner, "")
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"group_by must be one of none, due, priority, executor, type, status — got 'week'")
 	})
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {

@@ -238,6 +238,7 @@ export const zh = {
     emptyNone: "目前沒有任務",
     emptyFiltered: "沒有符合篩選條件的任務",
     loadError: "載入任務失敗，請稍後重試",
+    loadingMore: "載入中…",
     // 篩選列(任一生效顯「清除篩選」)
     filterIdLabel: "任務編號",
     clearFilters: "清除篩選",
@@ -469,6 +470,8 @@ export const zh = {
     markDuplicateBodyTail:
       "」標記為某張原票的重複?任務將結案為重複、無法恢復。請選擇原票:",
     markDuplicatePick: "請選擇原票",
+    markDuplicateSearch: "輸入任務編號或標題搜尋",
+    markDuplicateNoMatch: "沒有符合的任務",
     markDuplicateConfirm: "確認標記重複",
     duplicateOfLabel: "重複於",
     duplicateJump: "跳到原票",

@@ -6,49 +6,35 @@
 //             funnel button, its 取消/套用篩選 pair, its 已篩選 strip and the
 //             「案件」 sub-title above the list are all gone.
 //             🔴 ONE axis still does not commit on keystroke: 任務編號 waits for
-//             Enter or blur, because it changes a SERVER request (it is passed
-//             to `useTasks` below, which reads `GET /api/tasks/{id}`). That is
-//             the surviving half of 「每次都要全部都撈回來才濾不合理」 and the one
-//             timing owner named this round. The three dropdowns commit at
-//             once — a tick is already a whole condition.
-//             狀態 is asked of the SERVER (T-a3e4: the fetch carries the applied
-//             set, see the setStatuses effect); 負責人 / 類型 stay client-side
-//             over the already status-narrowed list.
+//             Enter or blur, because it changes a SERVER request. That is the
+//             surviving half of 「每次都要全部都撈回來才濾不合理」 and the one
+//             timing owner named this round. The dropdowns commit at once — a
+//             tick is already a whole condition.
+//             Every axis is asked of the SERVER (`useTasks`): the page holds the
+//             applied sets and renders what comes back.
 //   任務清單 — one list, no 未結案 / 已結案 sections: which side shows is the
 //             狀態 filter's job, and its 未結案 / 已結案 rows tick either side
-//             in one go (owner rc-ceb98bb8884f). Open tasks come first, ordered
-//             by priority 高→中→低→凍結 (凍結永遠最後), createdTs newest-first
-//             within a level; closed tasks follow, newest close first. The list
-//             is one flat list by default (不分組); the 分組依據 selector can
-//             split it into collapsible lanes (到期狀態: 已逾期 / 即將到期 /
-//             之後到期 / 沒有到期日, closed tasks included by their date,
-//             due-ascending in the first three). The chosen grouping is
-//             remembered in this browser (`oc_tasks_group_by`).
+//             in one go (owner rc-ceb98bb8884f). The server's page order: open
+//             tasks by priority 高→中→低→凍結, newest created first within a
+//             level; closed tasks follow, newest close first. The 分組依據
+//             selector splits it into collapsible lanes whose keys and counts
+//             come from the count. The chosen grouping is remembered in this
+//             browser (`oc_tasks_group_by`). Each list reads 50 rows, and 50
+//             more when the reader scrolls near the bottom.
 //
-// Empty states ×2 (spec §2.3): no tasks at all vs filters matching nothing —
-// plus the THREE by-id outcomes below, which replace both while an id is
-// applied.
+// Empty states ×2 (spec §2.3): no tasks at all vs filters matching nothing.
 // The 30s ticking clock drives every card's 已歷時 / step 耗時 counters (same
 // cadence as RepliesPage's 已等你).
 
 import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { taskTypeLabel } from "../lib/taskTypeLabel";
-import { useNowSeconds } from "../hooks/useNowSeconds";
-import {
-  DUE_FILTER_KEYS,
-  type DueBucket,
-  dueBucketOf,
-  dueFilterLabel,
-  effectiveLeadMinutes,
-  nextDueChangeAmong,
-} from "../lib/dueDate";
-import { PRIORITIES, priorityRank } from "../lib/taskPriority";
+import { DUE_FILTER_KEYS, dueFilterLabel } from "../lib/dueDate";
+import { PRIORITIES } from "../lib/taskPriority";
 import { readStoredChoice, writeStoredChoice } from "../lib/storedChoice";
-import type { TaskView } from "../api/adapter";
+import type { TaskGroupBy, TaskView } from "../api/adapter";
 import { viewerMayForceTaskDone } from "../api";
 import { useTasks } from "../hooks/useTasks";
-import { useTaskCount } from "../hooks/useTaskCount";
 import { useDueSoonLeadMinutes } from "../hooks/useDueSoonLeadMinutes";
 import { useMembers } from "../hooks/useMembers";
 import { useHashRoute } from "../lib/hashRoute";
@@ -79,7 +65,7 @@ const STATUS_OPTIONS = [
   "ready_for_done",
   // "reassigning" is NO LONGER a status (T-9ca5) — it moved to the orthogonal
   // `task.lock`. It stays a 狀態-filter row for continuity, but its predicate
-  // keys off task.lock (matchesStatus) and its label off lockReassigning.
+  // keys off task.lock (on the server) and its label off lockReassigning.
   "reassigning",
   "done",
   "terminated",
@@ -95,58 +81,24 @@ const STATUS_OPTIONS = [
 const DEFAULT_STATUS = STATUS_OPTIONS.filter((s) => !TERMINAL.has(s));
 
 const GROUP_BY_OPTIONS = ["none", "due", "priority", "executor", "type", "status"] as const;
-type GroupBy = (typeof GROUP_BY_OPTIONS)[number];
+type GroupBy = (typeof GROUP_BY_OPTIONS)[number] & TaskGroupBy;
 
 const GROUP_BY_KEY = "oc_tasks_group_by";
 
-// Cards rendered per list (the flat list, or each open lane) before the reader
-// scrolls near the bottom; every card is a heavy component, and the closed
-// archive runs to thousands. Filters and counts still read every fetched row.
-const RENDER_STEP = 50;
+// Every status but duplicated: the server refuses to point a duplicate at one.
+const DUPLICATE_TARGET_STATUSES = STATUS_OPTIONS.filter(
+  (s) => s !== "duplicated" && s !== "reassigning"
+);
+
 const NEAR_BOTTOM_PX = 120;
 
 interface Lane {
   key: string;
   title: string;
-  tasks: TaskView[];
+  count: number;
 }
 
-function dueLaneKey(task: TaskView, nowTs: number, workspaceLeadMinutes: number): DueBucket {
-  return dueBucketOf(
-    task.dueTs,
-    nowTs,
-    effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)
-  );
-}
-
-/** Buckets `tasks` (order kept) under `heads`, in `heads` order; a key no head
- * names gets a lane of its own after them, titled by `fallbackTitle`. Lanes
- * with no task are dropped. */
-function lanesInOrder(
-  tasks: TaskView[],
-  keyOf: (task: TaskView) => string,
-  heads: Omit<Lane, "tasks">[],
-  fallbackTitle: (key: string) => string
-): Lane[] {
-  const byKey = new Map<string, TaskView[]>();
-  for (const task of tasks) {
-    const key = keyOf(task);
-    const list = byKey.get(key);
-    if (list) list.push(task);
-    else byKey.set(key, [task]);
-  }
-  const lanes: Lane[] = [];
-  for (const head of heads) {
-    const list = byKey.get(head.key);
-    if (!list) continue;
-    lanes.push({ ...head, tasks: list });
-    byKey.delete(head.key);
-  }
-  for (const [key, list] of byKey) {
-    lanes.push({ key, title: fallbackTitle(key), tasks: list });
-  }
-  return lanes;
-}
+const sorted = (set: Set<string>) => [...set].sort();
 
 export function TasksPage() {
   const { t } = useI18n();
@@ -158,91 +110,32 @@ export function TasksPage() {
   // ── 請示 → 任務: a reply card 查看任務詳情 routes to #tasks/<id>. That id
   // is just another filter dimension — the list narrows to that one task in the
   // normal layout, cleared the same way any other axis is: empty its field.
-  // Read BEFORE useTasks so the anchored id reaches the hook in the SAME render
-  // the hash lands in: routed through an effect instead, the mount fetch and the
-  // page's empty-state decision would both run a commit before the hook knows
-  // there is an anchor at all.
+  // Read BEFORE the axes below so the very first ask already carries it.
   const [route, setRoute] = useHashRoute();
   const taskIdFilter = route.page === "tasks" ? route.taskId : undefined;
-  // The APPLIED id — declared HERE, above the hook, for the same reason the hash
-  // is read above it: the by-id read must be in flight on the first render the
-  // id exists in, or the page renders one commit's worth of 「找不到」 over a task
-  // whose fetch has not been started yet.
   const [appliedId, setAppliedId] = useState(taskIdFilter ?? "");
-  const {
-    tasks,
-    workers,
-    taskTypes,
-    loading,
-    error,
-    terminate,
-    forceDone,
-    markDuplicate,
-    setPriority,
-    setDue,
-    reassign,
-    sendMessage,
-    getDetail,
-    removeArtifact,
-    setStatuses,
-    anchorPending,
-    anchorFailed,
-    // The hook's FIRST fetch must already carry the page's default set — the
-    // mount fetch precedes any effect, and an unconstrained one would pull the
-    // whole archive once per page open (T-a3e4).
-    // The anchored id goes in as an ARGUMENT for the same reason: a jump landing
-    // straight on #tasks/<id> must hydrate that one task from its own endpoint
-    // on the very first pass, not one commit later.
-  } = useTasks(DEFAULT_STATUS, appliedId === "" ? undefined : appliedId);
-
-  // `total` is unfiltered — the only honest basis for 目前沒有任務 now that the
-  // list answers a status set (see the empty states).
-  const taskTotal = useTaskCount().total;
-  // Woken by the loaded tasks' own next due boundary, so a task changes lane at
-  // the same moment its card's 到期日 icon changes.
-  const dueSoonLeadMinutes = useDueSoonLeadMinutes();
-  const nowSec = useNowSeconds(
-    nextDueChangeAmong(tasks, Date.now() / 1000, dueSoonLeadMinutes)
-  );
-
-  // Ticking clock (30s) — drives 已歷時 and running-step 耗時 on every card.
-  const [nowTs, setNowTs] = useState(() => Date.now() / 1000);
-  useEffect(() => {
-    const timer = window.setInterval(
-      () => setNowTs(Date.now() / 1000),
-      30_000
-    );
-    return () => window.clearInterval(timer);
-  }, []);
 
   // ── THE FOUR AXES (T-118) ────────────────────────────────────────────────
-  // ONE copy of each axis now. Round 3 held two (applied / draft) because the
-  // fields lived in a panel with 取消 / 套用篩選 at the bottom; owner 2026-09-06
-  // 20:07 (c-c3d681fe05da) took the panel, both buttons and the draft away:
-  //「不要多filter那一層了,全部拉出來」. A dropdown click is a complete condition,
-  // so it takes effect at once and there is nothing left to stage.
+  // ONE copy of each axis: a dropdown click is a complete condition, so it
+  // takes effect at once (owner 2026-09-06 c-c3d681fe05da).
   //
   // 🔴 THE ID IS THE ONE EXCEPTION, AND IT IS NOT AN OVERSIGHT. It keeps a
   // second piece of state (`draftId`, what is in the box) because a half-typed
-  // id is not a condition — and because `useTasks(…, appliedId)` below turns an
-  // applied id into a SERVER request, so committing per keystroke is a fetch
-  // per keystroke. owner rejected that shape twice (「每次都要全部都撈回來才濾
-  // 不合理」) and named the replacement this round:「按enter或是點外面就視為
-  // apply」. `draftId` → `appliedId` happens on Enter and on blur, nowhere else.
+  // id is not a condition — and because an applied id is a SERVER request, so
+  // committing per keystroke is a fetch per keystroke. owner rejected that
+  // shape twice (「每次都要全部都撈回來才濾不合理」) and named the replacement:
+  // 「按enter或是點外面就視為apply」. `draftId` → `appliedId` happens on Enter
+  // and on blur, nowhere else.
   //
-  // A dimension's Set holds the keys ticked; an EMPTY set means "no constraint"
-  // (所有負責人 / 所有類型 / 所有狀態).
+  // A dimension's Set holds the keys ticked; an EMPTY set means "no constraint".
   //   executor keys: "outsource" | "unassigned" | <member id>
   //   type keys:     "adhoc" | <type_key>
   //   status keys:   <one of STATUS_OPTIONS>
   //   due keys:      "overdue" | "soon", OR'd together
   //
   // 狀態 opens at DEFAULT_STATUS — EXCEPT when the page opens on a #tasks/<id>
-  // link. A jump means 「給我看這一張」, so it lands with no other axis narrowing
-  // anything; seeded here in the initialiser rather than in the effect below so
-  // the very first render already agrees with the fetch (an effect would let one
-  // commit render the anchor against a status set the jump was about to drop —
-  // and that commit is exactly where the 「條件不符」 notice would flash).
+  // link: a jump means 「給我看這一張」, so it lands with no other axis narrowing
+  // anything, seeded in the initialiser so the very first ask agrees.
   const [appliedExecutor, setAppliedExecutor] = useState<Set<string>>(
     () => new Set()
   );
@@ -251,20 +144,14 @@ export function TasksPage() {
   const [appliedStatus, setAppliedStatus] = useState<Set<string>>(() =>
     taskIdFilter ? new Set<string>() : new Set(DEFAULT_STATUS)
   );
-
-  // What is IN THE BOX. `appliedId` above is what the page is filtered by; the
-  // two differ exactly while the owner is mid-word.
   const [draftId, setDraftId] = useState(taskIdFilter ?? "");
 
   /** Enter or blur on the 任務編號 field — the only two events that turn typed
    * text into a filter (owner 2026-09-06:「按enter或是點外面就視為apply了」). */
   function commitId(next: string) {
     const nextId = next.trim();
-    // Typing and then committing the SAME value must not re-run anything: this
-    // fires on blur too, so tabbing through an untouched field would otherwise
-    // repeat the by-id fetch for no reason.
+    // Committing the SAME value must not re-ask: this fires on blur too.
     if (nextId === appliedId) {
-      // Still normalise the box, so 「 t-1 」 settles to what is actually applied.
       if (nextId !== next) setDraftId(nextId);
       return;
     }
@@ -276,29 +163,14 @@ export function TasksPage() {
   }
 
   // ── ID 篩選 — 全部條件一起生效 (owner 2026-09-06, option ①) ─────────────────
-  // 🔴 The applied id does NOT filter the loaded list. It names ONE task, so the
-  // page asks the server for exactly that one (`GET /api/tasks/{id}`, through
-  // `useTasks`' anchor path) and then checks the answer against the OTHER
-  // applied conditions. Round 2 filtered the already-loaded rows by substring
-  // instead, and that is the defect this ticket exists for: 「不存在」 and
-  // 「存在，只是沒被載進來」 rendered as the same sentence and the owner read a
-  // present task as a deleted one in review.
-  //
-  // The three outcomes get three different answers on screen — see the by-id
-  // block in the render, and `idOutcome` below.
-  //
-  // ⚠️ Fetching is why the field is EXACT-match now, where round 2 was a
-  // substring: `GET /api/tasks/{id}` answers about one id. Nothing is asked
-  // while the owner types — the fetch rides the APPLIED id, so a half-typed id
-  // never reaches the wire.
+  // The applied id goes to the server as `?ids=`, ANDed with every other axis:
+  // an EXACT match on one task, not a substring of the loaded rows. A link
+  // carries no opinion about 負責人/類型/狀態/到期, so it clears them — that is
+  // what keeps a link to a 已完成 task landing: there is no status axis to fail.
   useEffect(() => {
     if (!taskIdFilter) return;
     setAppliedId(taskIdFilter);
     setDraftId(taskIdFilter);
-    // 「跳到這一張」 — a link carries no opinion about 負責人/類型/狀態, so it
-    // leaves none applied. Under 全部條件一起生效 this is what keeps a link to a
-    // 已完成 task landing (T-4108 regression class): the anchor is not exempt
-    // from the status axis, there simply is no status axis to fail.
     setAppliedExecutor(new Set());
     setAppliedType(new Set());
     setAppliedDue(new Set());
@@ -307,17 +179,9 @@ export function TasksPage() {
 
   // ── 聊天 header 任務圖示 → #tasks/executor/<memberId> (T-dfae). Owner asked
   // for "that member's tasks that aren't done yet", so the seed sets BOTH axes
-  // it promises rather than trusting the mount-time defaults: executor = that
-  // member, status = the four non-terminal states, type = 所有類型. Doing it
-  // explicitly matters — the page is NOT always a fresh mount (a stale
-  // appliedStatus from an earlier visit would otherwise silently break the
-  // "還沒完成" half of the promise, and a live type filter would hide rows).
-  // It seeds the APPLIED axes (the panel's draft is reseeded from them the next
-  // time it opens), and it clears any applied id: this jump is about a person,
-  // not about one task.
-  // One-shot (composeTaskNo precedent): the hash normalises back to #tasks the
-  // moment it is consumed, so the seeded filters are ordinary, owner-editable
-  // filter state — the fields edit them like any other.
+  // it promises rather than trusting the mount-time defaults (the page is not
+  // always a fresh mount), and clears any applied id: this jump is about a
+  // person, not about one task. One-shot: the hash normalises back to #tasks.
   const executorSeed = route.page === "tasks" ? route.executorId : undefined;
   useEffect(() => {
     if (!executorSeed) return;
@@ -326,68 +190,15 @@ export function TasksPage() {
     setAppliedDue(new Set());
     setAppliedStatus(new Set(DEFAULT_STATUS));
     setAppliedId("");
-    // 🔴 THE BOX TOO, NOT JUST THE APPLIED VALUE (T-118, found in independent
-    // review). `draftId` is what the 任務編號 field DISPLAYS; leaving it behind
-    // makes the field say 「t-aaa1」 over a list that is no longer filtered by
-    // it — and because the field commits on blur, one click into and out of it
-    // silently re-applies the id and throws the executor jump away. The
-    // draft/applied split only stays honest if every writer of `appliedId`
-    // moves both.
+    // 🔴 THE BOX TOO: the field commits on blur, so a stale draft would
+    // silently re-apply the id the moment the owner clicks into and out of it.
     setDraftId("");
     setRoute({ page: "tasks" });
   }, [executorSeed, setRoute]);
 
-  // ── 勾什麼就問什麼 (T-a3e4) ────────────────────────────────────────────────
-  // The fetch asks for the statuses the owner has APPLIED. ONE view genuinely
-  // needs every status and says so by sending nothing: every 狀態 box unticked
-  // (an empty set = 所有狀態) — there the owner asked for the whole population,
-  // so downloading it is the answer, not a defect.
-  //
-  // 🔴 A by-id view is NOT such a view, and that is the 432 KB defect (owner
-  // 2026-08-01): the id may name a task outside the ticked statuses, and the
-  // page used to answer that by dropping the constraint and pulling the whole
-  // history — 706 rows to make ONE card appear. `useTasks(…, appliedId)` reads
-  // that single task from `GET /api/tasks/{id}` instead.
-  // 🔴 …which is also why the effect SKIPS while an id is applied: with an id
-  // on, the page renders that ONE fetched row and nothing else, so the list ask
-  // is not on screen at all — re-asking it (with an empty set, i.e. the whole
-  // archive) would be paying for rows nobody can see. The ask resumes the
-  // moment the id comes off, which is the frame the list becomes visible again.
-  //
-  // What this REPLACED, and why the replacement is not just a rename: T-2b9d's
-  // `open=true` fast path was switched off in practice by a fourth clause that
-  // widened the fetch whenever ANY loaded task carried a dep — added by T-1d82
-  // because a dep row had to resolve its title out of this very list, and a
-  // closed dep was absent from the open-only list. With three live tasks
-  // carrying deps that clause was always true, so every 任務 SSE delta
-  // re-downloaded the entire history (measured: 408,482 B vs 17,295 B). The dep
-  // rows now read their titles from the server's dep_tasks join, so the reason
-  // for that clause is gone — deleted, not weakened. See TaskCard's dep block.
-  // A joined key, not the Set: the Set is rebuilt on every render, so an effect
-  // that depended on it would re-ask the server whenever anything else on the
-  // page re-rendered (a 30s clock tick is enough).
-  const statusAsk = [...appliedStatus].sort().join(",");
-  useEffect(() => {
-    if (appliedId !== "") return;
-    setStatuses(statusAsk === "" ? [] : statusAsk.split(","));
-  }, [statusAsk, appliedId, setStatuses]);
-
-  // 🔴 清除篩選 — REMOVED, THEN PUT BACK BY NAME (T-118). owner 2026-09-06
-  // named the 「N 筆 · 已篩選：<chip ×> · 清除全部」 strip when he asked for a
-  // removal (c-c3d681fe05da); I removed the BUTTON with it, because that is
-  // where it happened to live. He asked for it back the moment he saw the row
-  // without it (c-2423dba8b65b:「清除篩選還是要留著」). The strip and the button
-  // were two things, not one — the strip STATED the conditions (which the
-  // permanently-visible fields now do), the button ENDED them (which nothing
-  // else does in one gesture). Only the first was redundant.
-  //
-  // It is also the exit from a 404 anchor: an id that names nothing leaves the
-  // anchor applied, and this clears it together with the hash. The 編號 field is
-  // a second way out now that it is always on screen, but a reader who does not
-  // realise the id came from a link would not know to look there.
+  // 清除篩選 (owner c-2423dba8b65b:「清除篩選還是要留著」) = 顯示全部 (T-50bb):
+  // every axis to "no constraint" — status EMPTIES too, NOT back to the default.
   function clearFilters() {
-    // 清除篩選 = 顯示全部 (T-50bb): every axis to "no constraint" — status
-    // EMPTIES too (所有狀態, 已完成/終止 included), NOT back to the default four.
     setAppliedExecutor(new Set());
     setAppliedType(new Set());
     setAppliedDue(new Set());
@@ -396,11 +207,8 @@ export function TasksPage() {
     setDraftId("");
     if (taskIdFilter) setRoute({ page: "tasks" });
   }
-  // Something is narrowing the list ⇒ the button is offered. 🔴 The DEFAULT view
-  // counts: its status set hides the two terminals, so 清除篩選 is on from the
-  // first render and pressing it widens to 顯示全部 (T-50bb). A version that
-  // only counted "the owner touched something" would leave no way to reach the
-  // terminals without knowing the dropdown hides them.
+  // 🔴 The DEFAULT view counts as filtered: its status set hides the
+  // terminals, so 清除篩選 is on from the first render.
   const anyFilter =
     appliedExecutor.size > 0 ||
     appliedType.size > 0 ||
@@ -408,17 +216,95 @@ export function TasksPage() {
     appliedStatus.size > 0 ||
     appliedId !== "";
 
+  // The grouping is remembered per browser; the lane collapse state, like the
+  // filters, lives only in this mount. The default-open lane is picked when
+  // the default is applied and then held by key: a lane that appears ahead of
+  // it later (a task ticks overdue, an SSE arrival) must not collapse the one
+  // being read. Only when that lane empties out does the default move to
+  // whatever lane is first.
+  const [groupBy, setGroupByState] = useState<GroupBy>(() =>
+    readStoredChoice(GROUP_BY_KEY, GROUP_BY_OPTIONS, "none")
+  );
+  const [laneOpenOverrides, setLaneOpenOverrides] = useState<
+    Map<string, boolean>
+  >(() => new Map());
+  const [defaultOpenKey, setDefaultOpenKey] = useState<string | null>(null);
+  function setGroupBy(next: GroupBy) {
+    setGroupByState(next);
+    writeStoredChoice(GROUP_BY_KEY, next);
+    setLaneOpenOverrides(new Map());
+    setDefaultOpenKey(null);
+  }
+  function toggleLane(key: string, expandedNow: boolean) {
+    setLaneOpenOverrides((cur) => new Map(cur).set(key, !expandedNow));
+  }
+
+  const query = {
+    statuses: sorted(appliedStatus),
+    executors: sorted(appliedExecutor),
+    types: sorted(appliedType),
+    due: sorted(appliedDue),
+    ids: appliedId === "" ? [] : [appliedId],
+    groupBy,
+  };
+
+  // The lanes come from the count, so the lists to read are decided from the
+  // count the hook last answered — passed back in on the next render.
+  const [listKeys, setListKeys] = useState<string[]>(groupBy === "none" ? [""] : []);
+  const {
+    lists,
+    count,
+    answeredQuery,
+    settled,
+    loadMore,
+    loadingMore,
+    workers,
+    taskTypes,
+    loading,
+    error,
+    searchTasks,
+    terminate,
+    forceDone,
+    markDuplicate,
+    setPriority,
+    setDue,
+    reassign,
+    sendMessage,
+    getDetail,
+    removeArtifact,
+  } = useTasks(query, listKeys);
+
+  // Cards color their own 到期日 off the workspace lead; the lists' buckets are
+  // the server's.
+  const dueSoonLeadMinutes = useDueSoonLeadMinutes();
+
+  // Ticking clock (30s) — drives 已歷時 and running-step 耗時 on every card.
+  const [nowTs, setNowTs] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setNowTs(Date.now() / 1000),
+      30_000
+    );
+    return () => window.clearInterval(timer);
+  }, []);
+
   // Executor options: 外包 / 未指派 / 各成員 (real AI members only — machine-
   // layer wardens are not executors). An empty set = 所有人.
   const memberOptions = members.filter((m) => m.kind === "staff");
-  // Type options: 各手冊類型 (the manuals list) ∪ any type present on a task
-  // (covers a type whose manual was since deleted — closed tasks keep it).
+  const heldRows = [...lists.values()].flatMap((l) => l.tasks);
+  // Type options: 各手冊類型 (the manuals list) ∪ any type a held row or a type
+  // lane names (covers a type whose manual was since deleted — closed tasks
+  // keep it) ∪ what is ticked, so a ticked type can always be unticked.
   const typeOptions = [
     ...new Set([
       ...taskTypes.map((x) => x.typeKey),
-      ...tasks.map((x) => x.typeKey).filter((k) => k !== ""),
+      ...heldRows.map((x) => x.typeKey).filter((k) => k !== ""),
+      ...(groupBy === "type" ? count?.lanes ?? [] : []).map((l) => l.key),
+      ...appliedType,
     ]),
-  ].sort();
+  ]
+    .filter((k) => k !== "adhoc")
+    .sort();
   // type_key → display name (T-fa76): the filter labels and the cards' type
   // chips show the manual's human label; a deleted manual's key honestly
   // falls back to itself.
@@ -428,105 +314,17 @@ export function TasksPage() {
       .map((x) => [x.typeKey, taskTypeLabel(t, x.typeKey, x.displayName)])
   );
 
-  // The executor key a task filters under (mirrors matchesExecutor's mapping).
-  function executorKeyOf(task: TaskView): string {
-    if (task.executorKind === "staff") return task.executorId;
-    return task.executorId === "" ? "unassigned" : "outsource";
-  }
-
-  // Per-dimension predicates, PARAMETERISED by the set they judge against — the
-  // page now holds two copies of every axis (applied / draft) and both need the
-  // same rules: the list is filtered by the APPLIED sets, while the 負責人
-  // option counts describe the DRAFT the owner is currently editing.
-  function passesExecutor(task: TaskView, set: Set<string>): boolean {
-    return set.size === 0 || set.has(executorKeyOf(task));
-  }
-  function passesType(task: TaskView, set: Set<string>): boolean {
-    const key = task.typeKey === "" ? "adhoc" : task.typeKey;
-    return set.size === 0 || set.has(key);
-  }
-  function passesStatus(task: TaskView, set: Set<string>): boolean {
-    if (set.size === 0) return true;
-    if (set.has(task.status)) return true;
-    // "reassigning" is an orthogonal LOCK, not a status (T-9ca5) — match it off
-    // task.lock (a reassigned task still carries its honest derived status too).
-    // 🔴 …but only while the task is OPEN, byte-for-byte the server's
-    // taskStatusSetMatch rule (T-a3e4): terminate never clears the lock, so a
-    // task terminated mid-handover keeps `lock="reassigning"` forever, and that
-    // residue is not an intent. The three copies of this rule (server, here,
-    // mock) must stay identical — a divergence means the list the server sent
-    // and the list this page shows disagree about the same row.
-    if (
-      set.has("reassigning") &&
-      task.lock === "reassigning" &&
-      !TERMINAL.has(task.status)
-    ) {
-      return true;
-    }
-    return false;
-  }
-  // Judged on the page clock and the effective lead, the same as the lanes, so a
-  // task leaves 快到期 for 已逾期 at the moment it changes lane.
-  function passesDue(task: TaskView, set: Set<string>): boolean {
-    if (set.size === 0) return true;
-    if (TERMINAL.has(task.status)) return false;
-    return set.has(dueLaneKey(task, nowSec, dueSoonLeadMinutes));
-  }
-  const matchesExecutor = (task: TaskView) =>
-    passesExecutor(task, appliedExecutor);
-  const matchesType = (task: TaskView) => passesType(task, appliedType);
-  const matchesStatus = (task: TaskView) => passesStatus(task, appliedStatus);
-  const matchesDue = (task: TaskView) => passesDue(task, appliedDue);
-  // 全部條件一起生效 (owner ①) — the non-id axes AND together, and the id (when
-  // one is applied) ANDs with them too, judged on the row the server returned
-  // rather than on the loaded list. See `idOutcome`.
-  const matchesOthers = (task: TaskView) =>
-    matchesExecutor(task) &&
-    matchesType(task) &&
-    matchesStatus(task) &&
-    matchesDue(task);
-
   // ── filter option models (labels + 負責人 counts) ──────────────────────────
   // Per-owner count basis (T-be18 #3): the tasks that WOULD show if this owner
-  // were the sole executor pick — i.e. honouring the other live axes (status,
-  // type) but not the executor axis itself. So the default count reads as
-  // "active tasks on this person", and it moves in step with the status filter
-  // (add 已完成 → counts grow). taskIdFilter is ignored here (a single-task
-  // anchor isn't a status/type filter).
-  // T-118: these used to read the DRAFT sets, because the counts sat inside a
-  // panel and had to agree with the boxes next to them rather than with a list
-  // the owner had not applied yet. There is no draft any more — a tick IS the
-  // condition — so the applied sets are the only sets, and the counts and the
-  // list are now incapable of disagreeing.
-  const inCountScope = (task: TaskView) =>
-    passesStatus(task, appliedStatus) &&
-    passesType(task, appliedType) &&
-    passesDue(task, appliedDue);
-  const executorCount = (pred: (t: TaskView) => boolean) =>
-    tasks.filter((t) => inCountScope(t) && pred(t)).length;
+  // were the sole executor pick — the other axes honoured, the executor axis
+  // and the id not. The server counts them (`executorCounts`).
+  const executorCounts = count?.executorCounts ?? {};
   const executorOptions: MultiSelectOption[] = [
-    {
-      value: "outsource",
-      label: t.tasks.outsource,
-      count: executorCount(
-        (x) => x.executorKind === "outsource" && x.executorId !== ""
-      ),
-    },
-    {
-      value: "unassigned",
-      label: t.tasks.unassigned,
-      count: executorCount(
-        (x) => x.executorKind === "outsource" && x.executorId === ""
-      ),
-    },
-    ...memberOptions.map((m) => ({
-      value: m.id,
-      label: m.name,
-      count: executorCount(
-        (x) => x.executorKind === "staff" && x.executorId === m.id
-      ),
-    })),
+    { value: "outsource", label: t.tasks.outsource },
+    { value: "unassigned", label: t.tasks.unassigned },
+    ...memberOptions.map((m) => ({ value: m.id, label: m.name })),
   ]
+    .map((o) => ({ ...o, count: executorCounts[o.value] ?? 0 }))
     // 負責人下拉只列在當前 status/type 結果集中有任務的執行者 (owner 回饋:計數
     // 0 者隱藏;外包與未指派同規則,T-be18 #3)。邊界:已勾選的執行者即使計數
     // 歸 0 也保留 — 否則使用者無法取消勾選、勾選態會卡死。
@@ -549,85 +347,6 @@ export function TasksPage() {
     label: s === "reassigning" ? t.tasks.lockReassigning : t.tasks.status[s],
   }));
 
-  // ── the by-id outcome (owner 2026-09-06, option ①) ─────────────────────────
-  // 🔴 THE THREE ENDINGS MUST NOT COLLAPSE INTO EACH OTHER. Round 2 filtered
-  // the loaded list by substring, so 「這個編號不存在」 and 「它存在，只是不在這
-  // 批載進來的列裡」 printed the SAME sentence — and that sentence fooled the
-  // owner in review. With the id answered by `GET /api/tasks/{id}`, the page
-  // knows which of the two it is and says so:
-  //   "missing"  — the server answered 404. The id names nothing, today.
-  //   "filtered" — the row came back, and it FAILS the other applied
-  //                conditions. Named, with a one-press way to drop them.
-  //   "match"    — it came back and passes: that one row is the list.
-  //   "pending"  — the read has not landed. Say nothing at all yet.
-  //   "unreached"— the read FAILED for a non-404 reason. The server was never
-  //                reached, so 找不到 would be a lie about a question that was
-  //                never answered.
-  const idApplied = appliedId !== "";
-  const idRow = idApplied
-    ? tasks.find((x) => x.id === appliedId) ?? null
-    : null;
-  // FOUR outcomes, not the six of round 3. 「the server says it does not exist」
-  // and 「it exists but another axis excludes it」 used to be separate because
-  // each had its own notice on screen; owner 2026-09-06 removed both notices
-  // (c-86c129855835:「不用 比數本來就是要顯示篩選過的數量」), so the two now
-  // produce the identical screen — an empty result with the conditions in force
-  // beside the count. Keeping the distinction here would be a branch nothing can
-  // read. What still has to stay apart is 「we have an answer」 vs 「we do not」:
-  // pending and unreached suppress the empty message, `empty` states it.
-  const idOutcome: "none" | "pending" | "unreached" | "empty" | "match" =
-    !idApplied
-      ? "none"
-      : anchorPending || loading
-        ? "pending"
-        : anchorFailed || error
-          ? "unreached"
-          : idRow !== null && matchesOthers(idRow)
-            ? "match"
-            : "empty";
-
-  // 🔴 An applied id does NOT narrow the loaded list — it REPLACES it. The one
-  // row it names either shows or is explained above; the rest of the list is
-  // not "also matching", it is a different question.
-  const filtered = idApplied
-    ? idOutcome === "match" && idRow
-      ? [idRow]
-      : []
-    : tasks.filter(matchesOthers);
-  const open = filtered
-    .filter((x) => !TERMINAL.has(x.status))
-    .sort(
-      (a, b) =>
-        priorityRank(a.priority) - priorityRank(b.priority) ||
-        b.createdTs - a.createdTs
-    );
-  const closed = filtered
-    .filter((x) => TERMINAL.has(x.status))
-    .sort((a, b) => (b.closedTs ?? 0) - (a.closedTs ?? 0));
-  const shown = [...open, ...closed];
-
-  // The grouping is remembered per browser; the lane collapse state, like the
-  // filters, lives only in this mount. The default-open lane is picked when
-  // the default is applied and then held by key: a lane that appears ahead of
-  // it later (a task ticks
-  // overdue, an SSE arrival) must not collapse the one being read. Only when
-  // that lane empties out does the default move to whatever lane is first.
-  const [groupBy, setGroupByState] = useState<GroupBy>(() =>
-    readStoredChoice(GROUP_BY_KEY, GROUP_BY_OPTIONS, "none")
-  );
-  const [laneOpenOverrides, setLaneOpenOverrides] = useState<
-    Map<string, boolean>
-  >(() => new Map());
-  const [defaultOpenKey, setDefaultOpenKey] = useState<string | null>(null);
-  function setGroupBy(next: GroupBy) {
-    setGroupByState(next);
-    writeStoredChoice(GROUP_BY_KEY, next);
-    setLaneOpenOverrides(new Map());
-    setDefaultOpenKey(null);
-  }
-  function toggleLane(key: string, expandedNow: boolean) {
-    setLaneOpenOverrides((cur) => new Map(cur).set(key, !expandedNow));
-  }
   const laneIdBase = useId();
   const groupByLabels: Record<GroupBy, string> = {
     due: t.tasks.groupByDue,
@@ -638,74 +357,40 @@ export function TasksPage() {
     none: t.tasks.groupByNone,
   };
 
-  // Lane order follows the matching filter dropdown's option order.
-  function buildLanes(): Lane[] {
+  function laneTitle(key: string): string {
     switch (groupBy) {
-      case "due": {
-        const byDue = (a: TaskView, b: TaskView) =>
-          (a.dueTs ?? 0) - (b.dueTs ?? 0);
-        return lanesInOrder(
-          shown,
-          // A closed task goes by its date alone, like an open one (owner
-          // rc-4911902c169c), so 已逾期 here can hold more than the nav's
-          // overdue count, which leaves closed tasks out.
-          (task) => dueLaneKey(task, nowSec, dueSoonLeadMinutes),
-          [
-            { key: "overdue", title: t.tasks.laneOverdue },
-            { key: "soon", title: t.tasks.laneDueSoon },
-            { key: "later", title: t.tasks.laneDueLater },
-            { key: "nodue", title: t.tasks.laneNoDue },
-          ],
-          (key) => key
-        ).map((lane) =>
-          lane.key === "nodue"
-            ? lane
-            : { ...lane, tasks: [...lane.tasks].sort(byDue) }
+      case "due":
+        return (
+          {
+            overdue: t.tasks.laneOverdue,
+            soon: t.tasks.laneDueSoon,
+            later: t.tasks.laneDueLater,
+            nodue: t.tasks.laneNoDue,
+          }[key] ?? key
         );
-      }
       case "priority":
-        return lanesInOrder(
-          shown,
-          (task) => task.priority,
-          PRIORITIES.map((p) => ({
-            key: p,
-            title: t.tasks.priority[p],
-          })),
-          (key) => t.tasks.priority[key] ?? key
-        );
+        return (PRIORITIES as readonly string[]).includes(key)
+          ? t.tasks.priority[key as (typeof PRIORITIES)[number]]
+          : key;
       case "executor":
-        return lanesInOrder(
-          shown,
-          executorKeyOf,
-          [
-            { key: "outsource", title: t.tasks.outsource },
-            { key: "unassigned", title: t.tasks.unassigned },
-            ...memberOptions.map((m) => ({ key: m.id, title: m.name })),
-          ],
-          (key) => key
-        );
+        if (key === "outsource") return t.tasks.outsource;
+        if (key === "unassigned") return t.tasks.unassigned;
+        return memberOptions.find((m) => m.id === key)?.name ?? key;
       case "type":
-        return lanesInOrder(
-          shown,
-          (task) => (task.typeKey === "" ? "adhoc" : task.typeKey),
-          typeFilterOptions.map((o) => ({ key: o.value, title: o.label })),
-          (key) => typeNames.get(key) ?? key
-        );
+        return key === "adhoc" ? t.tasks.adhoc : typeNames.get(key) ?? key;
       case "status":
-        return lanesInOrder(
-          shown,
-          (task) => task.status,
-          STATUS_OPTIONS.filter((s) => s !== "reassigning").map((s) => ({
-            key: s,
-            title: t.tasks.status[s],
-          })),
-          (key) => t.tasks.status[key] ?? key
-        );
+        return t.tasks.status[key] ?? key;
       case "none":
-        return [];
+        return key;
     }
   }
-  const lanes = buildLanes();
+
+  // The server orders the lanes (spec: TaskCountDTO.lanes); the page only
+  // titles them.
+  const lanes: Lane[] =
+    groupBy === "none" || count === null || answeredQuery?.groupBy !== groupBy
+      ? []
+      : count.lanes.map((l) => ({ key: l.key, count: l.count, title: laneTitle(l.key) }));
   if (
     lanes.length > 0 &&
     !lanes.some((lane) => lane.key === defaultOpenKey)
@@ -714,6 +399,11 @@ export function TasksPage() {
   }
   const openByDefault =
     lanes.find((lane) => lane.key === defaultOpenKey)?.key ?? lanes[0]?.key;
+  const laneExpanded = (lane: Lane) =>
+    laneOpenOverrides.get(lane.key) ?? lane.key === openByDefault;
+  const shownKeys =
+    groupBy === "none" ? [""] : lanes.filter(laneExpanded).map((l) => l.key);
+  if (JSON.stringify(shownKeys) !== JSON.stringify(listKeys)) setListKeys(shownKeys);
   const laneLead: string | undefined = {
     due: undefined,
     executor: t.tasks.laneExecutorLead,
@@ -723,159 +413,67 @@ export function TasksPage() {
     none: undefined,
   }[groupBy];
 
-  const windowKey = [
-    groupBy,
-    appliedId,
-    ...[appliedExecutor, appliedType, appliedStatus, appliedDue].map((set) =>
-      [...set].sort().join(",")
-    ),
-  ].join("|");
-  const [renderLimit, setRenderLimit] = useState(RENDER_STEP);
-  const [renderLimitKey, setRenderLimitKey] = useState(windowKey);
-  if (renderLimitKey !== windowKey) {
-    setRenderLimitKey(windowKey);
-    setRenderLimit(RENDER_STEP);
-  }
-  const laneExpanded = (lane: Lane) =>
-    laneOpenOverrides.get(lane.key) ?? lane.key === openByDefault;
-  const moreToRender =
-    groupBy === "none"
-      ? shown.length > renderLimit
-      : lanes.some((lane) => laneExpanded(lane) && lane.tasks.length > renderLimit);
-  const moreToRenderRef = useRef(moreToRender);
-  moreToRenderRef.current = moreToRender;
+  const flat =
+    groupBy === "none" && answeredQuery?.groupBy === "none" ? lists.get("")?.tasks ?? [] : [];
+
+  // Scrolling near the bottom reads the next page of every list on screen
+  // that has more.
+  const moreRef = useRef<() => void>(() => {});
+  moreRef.current = () => {
+    for (const key of listKeys) {
+      const list = lists.get(key);
+      if (list && !list.complete && !loadingMore.has(key)) loadMore(key);
+    }
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     function onScroll() {
-      if (!el || !moreToRenderRef.current) return;
+      if (!el) return;
       if (el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX) {
-        setRenderLimit((n) => n + RENDER_STEP);
+        moreRef.current();
       }
     }
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  // A #tasks/<id> whose task does not exist USED TO self-heal: an effect here
-  // stripped the hash and the page settled on the ordinary filtered list, with
-  // nothing said. That is the defect owner 2026-09-05 ruled on (rc-428906235337,
-  // 「這一包一起改」): a link that resolves to nothing and a link that was never
-  // filtering look identical, so he cannot tell a broken link from a task that
-  // is genuinely gone. The anchor now STAYS, `filtered` is empty, and the page
-  // answers 沒有符合篩選條件的任務 — the same answer RepliesPage gives.
-  //
-  // 🔴 Removing the effect does not resurrect the flash it was written against:
-  // the flash was the effect firing in the frames before the anchor's own fetch
-  // landed, and `anchorPending` was the guard ON the effect, not a separate
-  // mechanism. With no effect there is nothing to fire early. The other half of
-  // its old job — the REJECTED-hydrate exit — is now served by the empty state:
-  // `useTasks` resolves a failed anchor fetch WITH the id and a null task, so
-  // `anchorPending` goes false and the page renders a message rather than a
-  // stuck 載入中.
-  //
-  // 🔴 There are TWO ways OUT, and both are on screen whenever this state is
-  // reachable. (a) The 任務編號 field itself: empty it and press Enter (or click
-  // away). (b) The 清除篩選 button at the end of the field row — `anyFilter`
-  // counts a non-empty `appliedId`, and a 404 anchor is exactly that, so the
-  // button IS rendered here.
-  //
-  // 🔁 This comment used to say the button and its two helpers (`clearFilters`,
-  // `anyFilter`) no longer existed. That was true for about forty minutes:
-  // T-118 removed the button along with the 已篩選 strip it stood on, and then
-  // owner asked「清除篩選怎麼不見了？」(`c-16e6fa704246`) and ruled it back in
-  // (`c-2423dba8b65b`, 2026-09-06). The button came back on the field row, not
-  // on a strip, and both helpers came back with it. Do not restore the older
-  // wording — read lines 298 and 313.
-  //
-  // The target's lane is expanded so the one match is visible.
-  // 🔴 Keyed on the APPLIED id, not the hash: an id TYPED into the field names a
-  // task exactly as often as a link does, and if its lane stays collapsed the
-  // page has "found and passes" as its verdict while showing no row at all —
-  // a fourth, silent outcome, which is the failure mode this ticket is about.
+  // An applied id expands the lane its task is in: with the id on there is
+  // only that lane, and it must be open, or the page would say "found" while
+  // showing no row at all. Keyed on the APPLIED id, not the hash — a typed id
+  // names a task exactly as often as a link does.
   useEffect(() => {
     if (appliedId === "") return;
     setLaneOpenOverrides(new Map());
     setDefaultOpenKey(null);
   }, [appliedId]);
 
-  // ── empty states, re-derived for the server-side ask (T-a3e4) ─────────────
-  // 目前沒有任務 is a claim about the WHOLE workshop, and the list can no longer
-  // support it: it answers only the ticked statuses, so zero rows equally means
-  // 「什麼都沒有」 or 「這幾個狀態裡沒有」. The claim therefore rests on
-  // `taskTotal` (GET /api/tasks/count's unfiltered total) — a grouped COUNT, NOT
-  // a widened list fetch: wording a screen must never put the archive back on
-  // the wire. Everything else falls to 沒有符合篩選條件的任務, which is true in
-  // both worlds. Judging it from `tasks.length` alone (the pre-T-a3e4 rule) now
-  // says 目前沒有任務 to an owner whose workshop is full of finished tasks.
-  // `anchorPending` gates both: while the anchored task's own fetch is in flight
-  // the filtered list is legitimately empty, and either message would be a claim
-  // about a question that has not been answered yet.
-  // 🔴 `anchorFailed` gates both for the same reason `anchorPending` does: it
-  // means the anchored task's fetch never got an answer (a 500, an offline
-  // browser), so BOTH messages would be claims about a question nobody asked.
-  // A 404 is different — that IS an answer, and 沒有符合篩選條件的任務 is the
-  // true thing to say about it. See useTasks' `anchorFailed`.
-  // 🔴 …and BOTH are silent while an id is applied. That view has its own three
-  // answers (see `idOutcome`), and the whole point of the ticket is that they
-  // must not fall back into 沒有符合篩選條件的任務 — the sentence that made
-  // 「不存在」 and 「在，只是沒被載進來」 look identical in the last round.
+  // ── empty states ─────────────────────────────────────────────────────────
+  // Neither speaks until the lists answer the CURRENT ask: until then what is
+  // held answers the previous one. A failed read says so instead.
+  //
+  // 目前沒有任務 is a claim about the WHOLE workshop, so it rests on the
+  // count's unfiltered `total`, never on an empty list.
+  //
+  // 🔴 AN APPLIED ID USES THE ORDINARY EMPTY STATE — owner 2026-09-06
+  // (rc-f603bbd447f4 「為什麼要顯示這種東西 拿掉!」, c-86c129855835 「不用 比數本來
+  // 就是要顯示篩選過的數量」). An id that names nothing and an id excluded by
+  // another axis both answer 沒有符合篩選條件的任務; do not "restore" by-id
+  // notices as a bug fix.
+  const idApplied = appliedId !== "";
+  const answered = settled && !error;
+  const listedNothing =
+    groupBy === "none" ? flat.length === 0 && lists.has("") : lanes.length === 0;
   const nothingAtAll =
-    !idApplied &&
-    !loading &&
-    !error &&
-    !anchorPending &&
-    !anchorFailed &&
-    tasks.length === 0 &&
-    taskTotal === 0;
-  // 🔴 AN APPLIED ID USES THE ORDINARY EMPTY STATE — owner 2026-09-06, four
-  // messages on rc-f603bbd447f4 / c-2580b547d1a1 / c-a497d775aa4b /
-  // c-86c129855835. Round 3 gave the by-id view two notices of its own (「找不到
-  // 「X」」 and 「找到了，但不符合其他條件…只用編號再找一次」). He saw the first
-  // one on the trial station and answered 「為什麼要顯示這種東西 拿掉!」, then
-  // 「UI不是本來就秀0筆了嗎」, then 「任務那邊也可以用同樣的方式就好,不用特別再
-  // 多個顯示框」.
-  //
-  // I put the second notice's case to him explicitly — a task that EXISTS but is
-  // excluded by another axis would read as deleted, which is the confusion this
-  // whole ticket was opened to end — and he overruled it: 「不用 比數本來就是要
-  // 顯示篩選過的數量」. His model: the conditions in force are on screen in the
-  // 已篩選 strip beside the count, so 0 筆 means "nothing matches what you asked
-  // for", and the reader can see what he asked for. That is his call, recorded
-  // here so the next person does not "restore" the notices as a bug fix.
-  //
-  // What that means mechanically: `idApplied` no longer suppresses this message.
-  // The two states that must still stay silent are the ones where NOBODY HAS AN
-  // ANSWER YET — the fetch is in flight (`pending`) or it never returned
-  // (`unreached`) — because 沒有符合篩選條件的任務 would be a claim about a
-  // question that was never answered. A 404 is an answer, so it says it.
-  const nothingMatches =
-    (!idApplied || (idOutcome !== "pending" && idOutcome !== "unreached")) &&
-    !loading &&
-    !error &&
-    !anchorPending &&
-    !anchorFailed &&
-    !nothingAtAll &&
-    filtered.length === 0;
-
-  // ── 已篩選 chips: GONE (T-118) ────────────────────────────────────────────
-  // owner 2026-09-06 (c-c3d681fe05da):「也不用再顯示14筆已篩選跟那一行」. The strip
-  // existed because a COLLAPSED panel could narrow the list silently, and the
-  // chips were the only place that said so. The panel does not collapse any
-  // more — every field is on screen holding its own value — so the property the
-  // chips protected is now carried by the fields themselves.
-  //
-  // ⇒ Re-adding a chip row would state each condition twice, in two places that
-  // can drift. If a future change puts the fields back behind anything, the
-  // chips have to come back WITH it; they are not independent decoration.
+    !idApplied && answered && listedNothing && (count?.total ?? 0) === 0;
+  const nothingMatches = answered && !nothingAtAll && listedNothing;
 
   function renderCard(task: TaskView) {
     return (
       <TaskCard
         key={task.id}
         task={task}
-        allTasks={tasks}
         members={members}
         workers={workers}
         rosterSettled={!membersLoading && !membersError && !loading && !error}
@@ -885,12 +483,12 @@ export function TasksPage() {
         onTerminate={terminate}
         onForceDone={forceDone}
         // Read HERE, once per render, rather than inside the card: the card
-        // stays a pure function of its props, and the arm where this is false
-        // is statable in a test without stubbing a module the card imports.
-        // What it means and what it does NOT defend is documented on
-        // `viewerMayForceTaskDone` itself — the server's route floor is the gate.
+        // stays a pure function of its props. What it means and what it does
+        // NOT defend is documented on `viewerMayForceTaskDone` itself — the
+        // server's route floor is the gate.
         canForceDone={viewerMayForceTaskDone()}
         onMarkDuplicate={markDuplicate}
+        onSearchDuplicateTargets={(q) => searchTasks(q, DUPLICATE_TARGET_STATUSES)}
         onSetPriority={setPriority}
         onSetDue={setDue}
         dueSoonLeadMinutes={dueSoonLeadMinutes}
@@ -902,6 +500,14 @@ export function TasksPage() {
         onRemoveArtifact={removeArtifact}
       />
     );
+  }
+
+  function renderMore(key: string) {
+    return loadingMore.has(key) ? (
+      <div className="tasks__more" data-testid={`tasks-loading-more${key === "" ? "" : `-${key}`}`}>
+        {t.tasks.loadingMore}
+      </div>
+    ) : null;
   }
 
   function renderLane(lane: Lane) {
@@ -933,7 +539,7 @@ export function TasksPage() {
             {lane.title}
           </span>
           <span data-testid={`lane-count-${lane.key}`}>
-            {` · ${lane.tasks.length}`}
+            {` · ${lane.count}`}
           </span>
         </button>
         <div
@@ -942,21 +548,27 @@ export function TasksPage() {
           aria-labelledby={`${regionId}-toggle`}
           className="tasks__list"
           hidden={!expanded}
+          aria-busy={expanded && !lists.has(lane.key)}
         >
-          {expanded && lane.tasks.slice(0, renderLimit).map(renderCard)}
+          {expanded && (lists.get(lane.key)?.tasks ?? []).map(renderCard)}
+          {expanded && renderMore(lane.key)}
         </div>
       </section>
     );
   }
 
   return (
-    <div className="tasks" ref={scrollRef}>
-      {(error || anchorFailed) && (
+    <div
+      className="tasks"
+      ref={scrollRef}
+      aria-busy={!settled || listKeys.some((k) => !lists.has(k))}
+    >
+      {error && (
         <div className="tasks__error" data-testid="tasks-error">
           {/* A failed by-id read is NOT 找不到 — it is 沒問到. Same box, and
             * deliberately different words: the owner must never read a broken
             * server as a deleted task. */}
-          {anchorFailed ? t.tasks.idUnreached(appliedId) : t.tasks.loadError}
+          {idApplied ? t.tasks.idUnreached(appliedId) : t.tasks.loadError}
         </div>
       )}
 
@@ -1052,9 +664,10 @@ export function TasksPage() {
           {lanes.map(renderLane)}
         </div>
       )}
-      {groupBy === "none" && shown.length > 0 && (
+      {groupBy === "none" && flat.length > 0 && (
         <div className="tasks__list" data-testid="task-list">
-          {shown.slice(0, renderLimit).map(renderCard)}
+          {flat.map(renderCard)}
+          {renderMore("")}
         </div>
       )}
     </div>

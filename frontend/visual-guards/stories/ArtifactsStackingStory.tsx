@@ -93,7 +93,6 @@ export function ArtifactsStackingStory() {
               <div className="tasks__list">
                 <TaskCard
                   task={TASK}
-                  allTasks={[TASK]}
                   members={[MIRA]}
                   workers={WORKERS}
                   nowTs={3000}

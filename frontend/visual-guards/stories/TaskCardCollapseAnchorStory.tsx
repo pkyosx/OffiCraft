@@ -87,7 +87,6 @@ export function TaskCardCollapseAnchorStory({
                   <TaskCard
                     key={task.id}
                     task={task}
-                    allTasks={TASKS}
                     members={[MIRA]}
                     workers={WORKERS}
                     nowTs={3000}

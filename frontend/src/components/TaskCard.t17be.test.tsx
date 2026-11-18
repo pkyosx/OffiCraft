@@ -93,7 +93,6 @@ function renderCardWithRoster(task: TaskView, members: Member[]) {
     <I18nProvider>
       <TaskCard
         task={task}
-        allTasks={[task]}
         members={members}
         workers={workers}
         nowTs={Date.now() / 1000}

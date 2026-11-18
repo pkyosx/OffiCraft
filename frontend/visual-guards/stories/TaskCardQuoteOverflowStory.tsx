@@ -34,7 +34,6 @@ function TasksShell({ task }: { task: ReturnType<typeof mkTask> }) {
               <div className="tasks__list">
                 <TaskCard
                   task={task}
-                  allTasks={[task]}
                   members={[MIRA]}
                   workers={WORKERS}
                   nowTs={3000}
