@@ -52,10 +52,18 @@ describe("SharedDocDetail", () => {
     expect(queryByTestId("shared-doc-edit")).toBeNull();
   });
 
-  it("編輯 saves the text as a new version under the same id", async () => {
-    const { getByTestId } = renderDetail("sd-3f9a2c71b0e4");
+  it("編輯 then 取消 leaves the text as it was; 編輯 then 儲存 saves it as a new version under the same id", async () => {
+    const { getByTestId, queryByTestId } = renderDetail("sd-3f9a2c71b0e4");
     await title(getByTestId);
     fireEvent.click(getByTestId("shared-doc-edit"));
+    fireEvent.change(getByTestId("shared-doc-editor"), { target: { value: "discarded" } });
+    fireEvent.click(getByTestId("shared-doc-editor-cancel"));
+    expect(queryByTestId("shared-doc-editor")).toBeNull();
+    expect(getByTestId("shared-doc-markdown").querySelector("h1")?.textContent).toBe("Review Rule");
+    fireEvent.click(getByTestId("shared-doc-edit"));
+    expect((getByTestId("shared-doc-editor") as HTMLTextAreaElement).value).toBe(
+      "# Review Rule\n\n1. 範圍：變更檔案逐一說得出必要性。\n2. 測試：新行為有測試。\n",
+    );
     fireEvent.change(getByTestId("shared-doc-editor"), { target: { value: "# Review Rule v3\n" } });
     fireEvent.click(getByTestId("shared-doc-editor-save"));
     await waitFor(() =>

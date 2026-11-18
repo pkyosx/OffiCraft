@@ -230,6 +230,14 @@ function SharedDocEditOverlay({
   };
   useEscapeLayer(close, rootRef);
 
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    rootRef.current?.focus();
+    return () => {
+      if (opener && opener.isConnected) opener.focus();
+    };
+  }, []);
+
   async function save() {
     if (!doc || draft === null) return;
     setBusy(true);
@@ -269,8 +277,8 @@ function SharedDocEditOverlay({
   } else {
     body = (
       <div className="shared-docs__overlay-notice">
-        <div className="shared-docs__notice" role="status" data-testid="shared-doc-edit-too-large">
-          {d.tooLargeToEdit}
+        <div className="shared-docs__notice" role="status" data-testid="shared-doc-edit-unavailable">
+          {doc.textOmitted === "too_large" ? d.tooLargeToEdit : d.editUnavailable}
         </div>
         <a
           className="secrets__btn"
@@ -288,6 +296,7 @@ function SharedDocEditOverlay({
     <div
       ref={rootRef}
       className="md-preview"
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-label={title}

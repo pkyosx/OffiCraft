@@ -6,6 +6,7 @@ import { __resetMock } from "../api/mock";
 import { api } from "../api";
 import { formatAbsolute } from "../lib/dateFormat";
 import { ApiError } from "../api/errors";
+import { codeForStatus } from "../api/errorCodes";
 
 const copyTextMock = vi.hoisted(() => vi.fn(async (_text: string) => true));
 vi.mock("../lib/clipboard", () => ({ copyText: copyTextMock }));
@@ -550,12 +551,15 @@ describe("SharedDocsPage", () => {
     expect(window.location.hash).toBe("#shared-docs");
   });
 
-  it("編輯 on a text file opens its content in an editor over the list: 取消, × and Esc close it unsaved, 儲存 puts it in as a new version", async () => {
+  it("編輯 on a text file opens its content in an editor over the list: 取消, × and Esc close it unsaved, 儲存 puts it in as a new version, focus going back to 編輯 each time", async () => {
     const original = "# Review Rule\n\n1. 範圍：變更檔案逐一說得出必要性。\n2. 測試：新行為有測試。\n";
     const { container, getByTestId, queryByTestId } = renderPage();
     const [, review] = await waitRows(container, 2);
+    const edit = within(review!).getByTestId("shared-doc-edit");
     const openEditor = async () => {
-      fireEvent.click(within(review!).getByTestId("shared-doc-edit"));
+      edit.focus();
+      fireEvent.click(edit);
+      expect(document.activeElement).toBe(getByTestId("shared-doc-edit-overlay"));
       return (await waitFor(() => getByTestId("shared-doc-editor"))) as HTMLTextAreaElement;
     };
 
@@ -571,24 +575,33 @@ describe("SharedDocsPage", () => {
     fireEvent.change(editor, { target: { value: "draft one" } });
     fireEvent.click(getByTestId("shared-doc-editor-cancel"));
     expect(queryByTestId("shared-doc-edit-overlay")).toBeNull();
+    expect(document.activeElement).toBe(edit);
 
     editor = await openEditor();
     expect(editor.value).toBe(original);
     fireEvent.change(editor, { target: { value: "draft two" } });
     fireEvent.click(getByTestId("shared-doc-edit-overlay").querySelector(".md-preview__close")!);
     expect(queryByTestId("shared-doc-edit-overlay")).toBeNull();
+    expect(document.activeElement).toBe(edit);
 
     editor = await openEditor();
     fireEvent.change(editor, { target: { value: "draft three" } });
     fireEvent.keyDown(editor, { key: "Escape" });
     expect(queryByTestId("shared-doc-edit-overlay")).toBeNull();
+    expect(document.activeElement).toBe(edit);
     expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({ text: original, versionCount: 2 });
 
     editor = await openEditor();
     expect(editor.value).toBe(original);
     fireEvent.change(editor, { target: { value: "# Review Rule v3\n" } });
+    const reads = vi.spyOn(api, "getSharedDoc");
+    await api.replaceSharedDoc("sd-3f9a2c71b0e4", { description: "別人剛改的說明" });
+    await waitFor(() => expect(reads).toHaveBeenCalledWith("sd-3f9a2c71b0e4"));
+    await waitFor(() => expect(cellTexts(review!)[1]).toBe("Review Rule別人剛改的說明"));
+    expect((getByTestId("shared-doc-editor") as HTMLTextAreaElement).value).toBe("# Review Rule v3\n");
     fireEvent.click(getByTestId("shared-doc-editor-save"));
     await waitFor(() => expect(queryByTestId("shared-doc-edit-overlay")).toBeNull());
+    expect(document.activeElement).toBe(edit);
     expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({
       text: "# Review Rule v3\n",
       filename: "review-rule.md",
@@ -609,7 +622,7 @@ describe("SharedDocsPage", () => {
     vi.spyOn(api, "uploadAttachment")
       .mockImplementationOnce(async () => {
         await new Promise<void>((open) => gates.push(open));
-        throw new ApiError("http 400", 400, "validation_error", "attachment exceeds the 100 MB size limit");
+        throw new ApiError("http 400", 400, codeForStatus(400), "attachment exceeds the 100 MB size limit");
       })
       .mockImplementation(realUpload);
     const { container, getByTestId } = renderPage();
@@ -633,25 +646,34 @@ describe("SharedDocsPage", () => {
     expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({ text: "# kept\n", versionCount: 3 });
   });
 
-  it("編輯 on a text file too large to show says it cannot be edited here and offers the download instead of an editor", async () => {
+  it("編輯 on a text file that cannot be shown offers the download instead of an editor, saying it is too large only when it is", async () => {
     const real = await api.getSharedDoc("sd-3f9a2c71b0e4");
-    vi.spyOn(api, "getSharedDoc").mockResolvedValue({ ...real, text: null, textOmitted: "too_large" });
+    vi.spyOn(api, "getSharedDoc")
+      .mockResolvedValueOnce({ ...real, text: null, textOmitted: "too_large" })
+      .mockResolvedValueOnce({ ...real, text: null, textOmitted: "binary" });
     const { container, getByTestId, queryByTestId } = renderPage();
     const [, review] = await waitRows(container, 2);
-    fireEvent.click(within(review!).getByTestId("shared-doc-edit"));
-    expect((await waitFor(() => getByTestId("shared-doc-edit-too-large"))).textContent).toBe(
+    const notice = async () => {
+      fireEvent.click(within(review!).getByTestId("shared-doc-edit"));
+      const el = await waitFor(() => getByTestId("shared-doc-edit-unavailable"));
+      const download = getByTestId("shared-doc-download");
+      expect([download.textContent, download.getAttribute("download")]).toEqual(["下載", "review-rule.md"]);
+      expect(download.getAttribute("href")).toContain("/api/chat/attachment/att-5d0c11a2b3c4");
+      expect(queryByTestId("shared-doc-editor")).toBeNull();
+      expect(document.activeElement).toBe(getByTestId("shared-doc-edit-overlay"));
+      return el.textContent;
+    };
+    expect(await notice()).toBe(
       "這份文字檔太大，無法在網頁上編輯；請下載修改後，用「上傳新版本」換上新的檔案。",
     );
-    const download = getByTestId("shared-doc-download");
-    expect([download.textContent, download.getAttribute("download")]).toEqual(["下載", "review-rule.md"]);
-    expect(download.getAttribute("href")).toContain("/api/chat/attachment/att-5d0c11a2b3c4");
-    expect(queryByTestId("shared-doc-editor")).toBeNull();
+    fireEvent.click(getByTestId("shared-doc-edit-overlay").querySelector(".md-preview__close")!);
+    expect(await notice()).toBe("這種檔案不能直接編輯，請上傳新版本");
   });
 
   it("編輯 on a doc that cannot be read shows why in the overlay: gone says not found, any other failure gives the server's message", async () => {
     vi.spyOn(api, "getSharedDoc")
-      .mockRejectedValueOnce(new ApiError("http 404", 404, "not_found", "shared doc not found"))
-      .mockRejectedValueOnce(new ApiError("http 500", 500, "internal", "database is locked"));
+      .mockRejectedValueOnce(new ApiError("http 404", 404, codeForStatus(404), "shared doc not found"))
+      .mockRejectedValueOnce(new ApiError("http 500", 500, codeForStatus(500), "database is locked"));
     const { container, getByTestId } = renderPage();
     const [, review] = await waitRows(container, 2);
     const status = () => getByTestId("shared-doc-edit-overlay").querySelector(".md-preview__status")?.textContent;
