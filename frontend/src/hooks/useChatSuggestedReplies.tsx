@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 
 export interface UseChatSuggestedReplies {
@@ -145,5 +145,40 @@ export function useChatSuggestedReplies(): UseChatSuggestedReplies {
 
   const reload = useCallback(() => loadRef.current(), []);
 
-  return { lists, loaded, loadFailed, saveFailedFor, dismissSaveFailed: clearSaveFailed, save, reload };
+  return useMemo(
+    () => ({ lists, loaded, loadFailed, saveFailedFor, dismissSaveFailed: clearSaveFailed, save, reload }),
+    [lists, loaded, loadFailed, saveFailedFor, clearSaveFailed, save, reload],
+  );
+}
+
+const noop = () => {};
+const NOT_PROVIDED: UseChatSuggestedReplies = {
+  lists: {},
+  loaded: false,
+  loadFailed: false,
+  saveFailedFor: new Set(),
+  dismissSaveFailed: noop,
+  save: noop,
+  reload: noop,
+};
+
+// A context, not a second hook call: <ChatArea> may not fetch while it paints
+// (ChatArea.quote-no-fetch.test.tsx), and the reply cards inside it need the
+// same lists the chat room shows.
+const ChatSuggestedRepliesContext = createContext<UseChatSuggestedReplies>(NOT_PROVIDED);
+
+export function ChatSuggestedRepliesProvider({
+  value,
+  children,
+}: {
+  value: UseChatSuggestedReplies;
+  children: React.ReactNode;
+}) {
+  return <ChatSuggestedRepliesContext.Provider value={value}>{children}</ChatSuggestedRepliesContext.Provider>;
+}
+
+/** App's one `useChatSuggestedReplies`. Outside a provider: nothing loaded, so
+ * no chips and no editor. */
+export function useChatSuggestedRepliesContext(): UseChatSuggestedReplies {
+  return useContext(ChatSuggestedRepliesContext);
 }

@@ -42,7 +42,10 @@ import {
   __injectMockReplyCard,
   __injectMockOutsourceWorker,
   __injectMockTask,
+  __setMockSuggestedRepliesReplyCard,
+  mockApi,
 } from "../api/mock";
+import { WithChatSuggestedReplies } from "../test/chatSuggestedReplies";
 import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
 import { ApiError } from "../api/errors";
@@ -91,6 +94,9 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
   };
 }
 
+const replyChips = (root: ParentNode) =>
+  [...root.querySelectorAll('[data-testid="reply-suggested-replies"] button')].map((b) => b.textContent);
+
 function Badge() {
   return <span data-testid="nav-badge">{useReplyCardWaitingCount()}</span>;
 }
@@ -98,10 +104,12 @@ function Badge() {
 function renderPage() {
   return render(
     <I18nProvider>
-      <ReplyCardsProvider>
-        <Badge />
-        <RepliesPage />
-      </ReplyCardsProvider>
+      <WithChatSuggestedReplies>
+        <ReplyCardsProvider>
+          <Badge />
+          <RepliesPage />
+        </ReplyCardsProvider>
+      </WithChatSuggestedReplies>
     </I18nProvider>
   );
 }
@@ -417,6 +425,37 @@ describe("RepliesPage", () => {
     const final = answeredCard.querySelector('[data-testid="final-answer"]');
     // The circled option IS the ai_pick one → the AI 建議 tag rides alongside.
     expect(final?.textContent).toBe("你選的AI 建議先不要");
+  });
+
+  it("a waiting card's answer box offers its author's sentences first, then the reply-card ones, each once", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬", "收到，照這樣做"]);
+    __setMockSuggestedRepliesReplyCard(["收到，照這樣做", "先擱著，這週不碰"]);
+    __injectMockReplyCard(mkCard({}));
+    const { findByTestId } = renderPage();
+    const card = await findByTestId("waiting-card");
+    await openCards();
+    await waitFor(() =>
+      expect(replyChips(card)).toEqual(["Mira 專屬", "收到，照這樣做", "先擱著，這週不碰"])
+    );
+  });
+
+  it("重新決定's answer box offers the card author's sentences first, then the reply-card ones", async () => {
+    await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬"]);
+    __setMockSuggestedRepliesReplyCard(["先擱著，這週不碰"]);
+    __injectMockReplyCard(
+      mkCard({
+        status: "answered",
+        answeredTs: Date.now() / 1000 - 60,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+      })
+    );
+    const { findByTestId, getByText } = renderPage();
+    fireEvent.click(await findByTestId("answered-toggle"));
+    const card = await findByTestId("answered-card");
+    await openCards();
+    fireEvent.click(getByText("查看當初選項"));
+    fireEvent.click(getByText("重新決定"));
+    await waitFor(() => expect(replyChips(card)).toEqual(["Mira 專屬", "先擱著，這週不碰"]));
   });
 
   // T-4166: a 409 on answer is TERMINAL for that card — its task closed

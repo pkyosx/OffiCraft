@@ -30,10 +30,13 @@ import {
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
 import { useSuggestedRepliesReplyCard } from "../hooks/useSuggestedReplies";
+import { useChatSuggestedRepliesContext } from "../hooks/useChatSuggestedReplies";
+import { mergeChatSuggestedReplies } from "../lib/chatSuggestedReplies";
 import { CloseIcon, PaperclipIcon, SendIcon } from "./icons";
 
 export function ReplyComposer({
   draftKey,
+  authorId,
   placeholder,
   hasSelection = false,
   sendNowRef,
@@ -45,6 +48,9 @@ export function ReplyComposer({
   /** Where the typed text and staged files survive a collapse or a page
    * switch (`chatDraftStore`). The quoted passage is the caller's to keep. */
   draftKey: string;
+  /** The card's author (`card.from`): that member's own chat 建議回覆 come
+   * before the reply-card list. */
+  authorId?: string;
   placeholder: string;
   /** The passage of the card's question this answer quotes (回覆這段), shown
    * above the box; "" shows nothing. It never makes an answer sendable on its
@@ -93,9 +99,14 @@ export function ReplyComposer({
   // Phone viewport → Enter inserts a newline, send button sends (same rule as
   // the chat composer; no physical keyboard means Shift+Enter is impossible).
   const isMobile = useIsMobile();
-  // T-122 建議回覆: the owner's one-click sentences, shown UNDER this box. The
-  // empty list (no setting, or a failed read) renders nothing at all.
-  const suggestedReplies = useSuggestedRepliesReplyCard();
+  // The owner's one-click sentences, shown UNDER this box. The empty list (no
+  // setting, or a failed read) renders nothing at all.
+  const replyCardSuggestedReplies = useSuggestedRepliesReplyCard();
+  const memberSuggestedReplies = useChatSuggestedRepliesContext().lists;
+  const suggestedReplies = mergeChatSuggestedReplies(
+    (authorId && memberSuggestedReplies[authorId]) || [],
+    replyCardSuggestedReplies,
+  );
   const candidates = useMentionRosterContext()?.candidates ?? [];
   const mention = useMentionComposer({
     inputRef: draftRef,

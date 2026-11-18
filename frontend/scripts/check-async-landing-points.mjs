@@ -581,6 +581,20 @@ const REGISTRY = [
       "the local-midnight re-render and the caller's optional wake-at re-render; each only bumps this mount's own counter so the next render re-reads the clock, reads no server data and carries no conversation's value, and is cleared on unmount (the wake-at timer also when wakeAt changes)",
   },
   {
+    file: "hooks/useChatSuggestedReplies.tsx",
+    kind: ".then/.catch/.finally",
+    count: 2,
+    verdict:
+      "every member's chat 建議回覆, keyed by member id; mounted once in App and read through a provider, so a landing writes the one global map, never one room's value into another. The read lands only if it is the newest op (opRef/latestReadRef/lastWriteRef); the PUT landing advances its own queue and, on failure, puts back only that member's last acknowledged list (unless a newer edit for that member is queued). `aliveRef` stops setState after unmount",
+  },
+  {
+    file: "hooks/useChatSuggestedReplies.tsx",
+    kind: "subscribe",
+    count: 1,
+    verdict:
+      "re-reads on a `chat_suggested_reply` delta; global, not per conversation, and the callback only starts a read. The unsubscribe runs on unmount.",
+  },
+  {
     file: "hooks/useOwnerName.tsx",
     kind: ".then/.catch/.finally",
     count: 4,

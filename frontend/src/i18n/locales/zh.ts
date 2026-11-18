@@ -1420,7 +1420,7 @@ export const zh = {
     roleSettingsLink: "開啟這個角色的定義設定",
     galleryLabel: "檔案與圖片",
     suggestedRepliesLabel: "建議回覆",
-    suggestedRepliesSub: "與這位成員對話時可一鍵帶入的句子。",
+    suggestedRepliesSub: "與這位成員對話、回覆他開的請示卡時可一鍵帶入的句子。",
     suggestedRepliesEmpty: "這位成員還沒有專屬的句子。",
     suggestedRepliesLoadError: "建議回覆載入失敗，再按一次標頭的建議回覆按鈕會重新載入",
     suggestedRepliesSaveError: "建議回覆沒有存成功，畫面已換回伺服器上的內容。",
