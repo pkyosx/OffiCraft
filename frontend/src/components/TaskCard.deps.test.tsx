@@ -403,7 +403,6 @@ describe("T-1d82 ③ 壞 id: 明說查無, 不可點, 不炸版", () => {
           // No depTasks: the server did not resolve deps. NOT the same as an
           // empty-status entry, which WOULD mean 查無此任務.
           task={{ ...blocked, depTasks: undefined }}
-          allTasks={[blocked]}
           members={[]}
           workers={[]}
           nowTs={Date.now() / 1000}

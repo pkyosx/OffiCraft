@@ -9,7 +9,6 @@ export function TaskCardProgressStory() {
     <I18nProvider>
       <TaskCard
         task={REPLANNED_2_OF_5}
-        allTasks={[REPLANNED_2_OF_5]}
         members={[MIRA]}
         workers={WORKERS}
         nowTs={3000}

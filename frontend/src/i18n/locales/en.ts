@@ -242,6 +242,7 @@ export const en: Dict = {
     emptyNone: "No tasks yet",
     emptyFiltered: "No tasks match the current filters",
     loadError: "Failed to load tasks. Please try again.",
+    loadingMore: "Loading…",
     filterIdLabel: "Task ID",
     clearFilters: "Clear filters",
     filterExecutorAll: "Everyone",
@@ -444,6 +445,8 @@ export const en: Dict = {
     markDuplicateBodyTail:
       "” a duplicate of another task? It moves to Duplicate and cannot be resumed. Pick the original:",
     markDuplicatePick: "Select the original task",
+    markDuplicateSearch: "Search by task number or title",
+    markDuplicateNoMatch: "No task matches",
     markDuplicateConfirm: "Mark duplicate",
     duplicateOfLabel: "Duplicate of",
     duplicateJump: "Jump to the original",

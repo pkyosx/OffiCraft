@@ -19,7 +19,6 @@ function Card({ task }: { task: typeof WITH_ARTIFACTS }) {
     <I18nProvider>
       <TaskCard
         task={task}
-        allTasks={[task]}
         members={[MIRA]}
         workers={WORKERS}
         nowTs={3000}

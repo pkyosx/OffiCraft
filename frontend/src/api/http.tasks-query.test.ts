@@ -76,8 +76,31 @@ describe("httpApi.listTasks · the status set goes on the wire (T-a3e4)", () => 
     ]);
   });
 
+  it("with ids alongside the status set → one repeated ids= per task next to the statuses", async () => {
+    await httpApi.listTasks({ statuses: ["done"], ids: ["T-3", "T-9"] });
+    expect(lastUrl().search).toBe("?statuses=done&ids=T-3&ids=T-9");
+  });
+
+  it("sends the page's sets, q, group_by, lane, limit and offset as the spec names them", async () => {
+    await httpApi.listTasks({
+      statuses: ["done"],
+      executors: ["outsource", "m-1"],
+      types: ["adhoc"],
+      due: ["overdue", "soon"],
+      q: " T-12 ",
+      groupBy: "due",
+      lane: "overdue",
+      limit: 50,
+      offset: 100,
+    });
+    expect(lastUrl().search).toBe(
+      "?statuses=done&executors=outsource&executors=m-1&types=adhoc&due=overdue&due=soon" +
+        "&q=T-12&group_by=due&lane=overdue&limit=50&offset=100"
+    );
+  });
+
   it("omits the param entirely for an EMPTY set (所有狀態) and for no opts", async () => {
-    await httpApi.listTasks({ statuses: [] });
+    await httpApi.listTasks({ statuses: [], ids: [] });
     expect(lastUrl().search).toBe("");
     await httpApi.listTasks();
     expect(lastUrl().search).toBe("");
@@ -144,5 +167,39 @@ describe("httpApi.listTasks · dep_tasks arrives as the server's answer (T-a3e4)
     const [task] = await httpApi.listTasks();
     expect(task.depTasks).toBeUndefined();
     expect(task.deps).toEqual(["t-2222bbbbcccc", "t-3333ddddeeee"]);
+  });
+});
+
+describe("httpApi.getTaskPageCount", () => {
+  it("asks the count route with the page's params, group_by always present, and maps the list fields", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        open: 3,
+        total: 40,
+        overdue: 1,
+        due_soon: 0,
+        due_next_change_ts: null,
+        executor_counts: { "m-1": 2 },
+        lanes: [],
+        list_total: 2,
+        now: 1792850000,
+        list_due_next_change_ts: 1792851000,
+      })
+    );
+    const got = await httpApi.getTaskPageCount({ statuses: ["in_progress"], executors: [] });
+    expect(lastUrl().pathname).toBe("/api/tasks/count");
+    expect(lastUrl().search).toBe("?statuses=in_progress&group_by=none");
+    expect(got).toEqual({
+      open: 3,
+      total: 40,
+      overdue: 1,
+      dueSoon: 0,
+      dueNextChangeTs: null,
+      executorCounts: { "m-1": 2 },
+      lanes: [],
+      listTotal: 2,
+      now: 1792850000,
+      listDueNextChangeTs: 1792851000,
+    });
   });
 });

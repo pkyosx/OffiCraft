@@ -84,7 +84,6 @@ function renderCard(task: TaskView, members: Member[] = [], rosterSettled = fals
     <I18nProvider>
       <TaskCard
         task={task}
-        allTasks={[task]}
         members={members}
         rosterSettled={rosterSettled}
         workers={[]}

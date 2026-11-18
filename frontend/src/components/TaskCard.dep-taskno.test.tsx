@@ -142,7 +142,6 @@ function renderCard(task: TaskView, allTasks: TaskView[], resolvable: boolean) {
     <I18nProvider>
       <TaskCard
         task={withDepJoin(task, allTasks, resolvable)}
-        allTasks={allTasks}
         members={[]}
         workers={[]}
         nowTs={Date.now() / 1000}

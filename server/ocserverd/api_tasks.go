@@ -740,12 +740,13 @@ func (s *apiServer) HandleListTasksApiTasksGet(w http.ResponseWriter, r *http.Re
 			"status must be one of not_started, in_progress, waiting_owner, waiting_external, reassigning, done, terminated, duplicated")
 		return
 	}
-	statusSet, badStatus := parseTaskStatusSet(params.Statuses)
-	if badStatus != "" {
-		writeError(w, http.StatusBadRequest,
-			"statuses must each be one of not_started, in_progress, waiting_owner, "+
-				"waiting_external, reassigning, done, terminated, duplicated — got '"+
-				badStatus+"'")
+	page, refusal := parseTaskPageQuery(taskPageParams{
+		Statuses: params.Statuses, Executors: params.Executors, Types: params.Types,
+		Due: params.Due, Ids: params.Ids, Q: params.Q, GroupBy: params.GroupBy,
+		Lane: params.Lane, Limit: params.Limit, Offset: params.Offset,
+	})
+	if refusal != "" {
+		writeError(w, http.StatusBadRequest, refusal)
 		return
 	}
 	executor := trimmedOrEmpty(params.Executor)
@@ -759,6 +760,56 @@ func (s *apiServer) HandleListTasksApiTasksGet(w http.ResponseWriter, r *http.Re
 	byID := make(map[string]Task, len(tasks))
 	for _, t := range tasks {
 		byID[t.ID] = t
+	}
+	clock := taskDueClock{now: nowSecs(), globalLead: s.taskDueSoonLeadMinutesSetting()}
+	matched := []Task{}
+	for _, t := range tasks {
+		if openOnly && TaskIsTerminal(t.Status) {
+			continue
+		}
+		if status != "" && t.Status != status {
+			continue
+		}
+		if typeKey != "" && t.TypeKey != typeKey {
+			continue
+		}
+		switch executor {
+		case "":
+		case TaskExecutorOutsource:
+			if t.ExecutorKind != TaskExecutorOutsource {
+				continue
+			}
+		case "unassigned":
+			if t.ExecutorKind != TaskExecutorOutsource || t.ExecutorID != "" {
+				continue
+			}
+		default:
+			if t.ExecutorID != executor {
+				continue
+			}
+		}
+		if !page.match(t, clock, taskPageAxes{}) {
+			continue
+		}
+		matched = append(matched, t)
+	}
+	if page.groupBy != taskGroupNone {
+		roster, err := s.taskLaneRoster(page.groupBy)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		lane, ok := page.laneToList(matched, clock, roster)
+		inLane := []Task{}
+		for _, t := range matched {
+			if ok && page.laneKeyOf(t, clock) == lane {
+				inLane = append(inLane, t)
+			}
+		}
+		matched = inLane
+	}
+	if page.paged {
+		matched = page.window(matched, clock)
 	}
 	progressByTask, err := s.dal.AllTaskStepProgress()
 	if err != nil {
@@ -780,41 +831,30 @@ func (s *apiServer) HandleListTasksApiTasksGet(w http.ResponseWriter, r *http.Re
 		internalError(w, err)
 		return
 	}
-	out := []taskListItemDTO{}
-	for _, t := range tasks {
-		if openOnly && TaskIsTerminal(t.Status) {
-			continue
-		}
-		if status != "" && t.Status != status {
-			continue
-		}
-		if len(statusSet) > 0 && !taskStatusSetMatch(t, statusSet) {
-			continue
-		}
-		if typeKey != "" && t.TypeKey != typeKey {
-			continue
-		}
-		switch executor {
-		case "":
-		case TaskExecutorOutsource:
-			if t.ExecutorKind != TaskExecutorOutsource {
-				continue
-			}
-		case "unassigned":
-			if t.ExecutorKind != TaskExecutorOutsource || t.ExecutorID != "" {
-				continue
-			}
-		default:
-			if t.ExecutorID != executor {
-				continue
-			}
-		}
+	out := make([]taskListItemDTO, 0, len(matched))
+	for _, t := range matched {
 		p := progressByTask[t.ID]
 		out = append(out, newTaskListItemDTO(
 			t, depsByTask[t.ID], p.Done, p.Total, artifactCountByTask[t.ID], byID,
 			currentByTask[t.ID]))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// taskListMaxIDs mirrors the spec's maxItems on ?ids=.
+const taskListMaxIDs = 200
+
+func parseTaskIDSet(raw *[]string) map[string]bool {
+	if raw == nil {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, v := range *raw {
+		if v = strings.TrimSpace(v); v != "" {
+			set[v] = true
+		}
+	}
+	return set
 }
 
 func parseTaskStatusSet(raw *[]string) (set map[string]bool, badStatus string) {
@@ -848,13 +888,414 @@ func taskStatusSetMatch(t Task, set map[string]bool) bool {
 		!TaskIsTerminal(t.Status)
 }
 
-func (s *apiServer) HandleTaskCountApiTasksCountGet(w http.ResponseWriter, r *http.Request) {
+const (
+	taskGroupNone     = "none"
+	taskGroupDue      = "due"
+	taskGroupPriority = "priority"
+	taskGroupExecutor = "executor"
+	taskGroupType     = "type"
+	taskGroupStatus   = "status"
+
+	taskDueOverdue = "overdue"
+	taskDueSoon    = "soon"
+	taskDueLater   = "later"
+	taskDueNone    = "nodue"
+
+	taskExecutorUnassigned = "unassigned"
+	taskTypeAdhoc          = "adhoc"
+
+	taskPageMaxLimit = 200
+)
+
+var taskGroupBys = map[string]bool{
+	taskGroupNone: true, taskGroupDue: true, taskGroupPriority: true,
+	taskGroupExecutor: true, taskGroupType: true, taskGroupStatus: true,
+}
+
+// The 任務 page reads these lane orders as its display order; the spec's
+// `lanes` description is the contract. ready_for_done is not named there and
+// sits where the page's 狀態 dropdown has always listed it.
+var (
+	taskDueLaneOrder      = []string{taskDueOverdue, taskDueSoon, taskDueLater, taskDueNone}
+	taskPriorityLaneOrder = []string{TaskPriorityHigh, TaskPriorityMid, TaskPriorityLow, TaskPriorityFrozen}
+	taskStatusLaneOrder   = []string{
+		TaskStatusNotStarted, TaskStatusInProgress, TaskStatusWaitingOwner,
+		TaskStatusWaitingExternal, TaskStatusReadyForDone, TaskStatusDone,
+		TaskStatusTerminated, TaskStatusDuplicated,
+	}
+)
+
+type taskPageParams struct {
+	Statuses, Executors, Types, Due, Ids *[]string
+	Q, GroupBy, Lane                     *string
+	Limit, Offset                        *int
+}
+
+// taskPageQuery is the 任務 page's ask, shared by the list and the count so the
+// rows one returns and the numbers the other reports cannot disagree.
+type taskPageQuery struct {
+	// sent: some page param was on the URL, so the count owes its list_* fields.
+	sent bool
+	// paged: limit, offset or group_by was given, so rows come in page order.
+	paged     bool
+	statuses  map[string]bool
+	executors map[string]bool
+	types     map[string]bool
+	due       map[string]bool
+	ids       map[string]bool
+	q         string
+	groupBy   string
+	lane      *string
+	limit     int
+	offset    int
+}
+
+type taskDueClock struct {
+	now        float64
+	globalLead int
+}
+
+// taskPageAxes names the axes a count leaves out of its scope.
+type taskPageAxes struct {
+	skipExecutors bool
+	skipIDs       bool
+	skipDue       bool
+}
+
+func parseTaskPageQuery(p taskPageParams) (taskPageQuery, string) {
+	q := taskPageQuery{groupBy: taskGroupNone}
+	q.sent = p.Statuses != nil || p.Executors != nil || p.Types != nil ||
+		p.Due != nil || p.Ids != nil || p.Q != nil || p.GroupBy != nil || p.Lane != nil
+	q.paged = p.Limit != nil || p.Offset != nil || p.GroupBy != nil
+
+	statuses, badStatus := parseTaskStatusSet(p.Statuses)
+	if badStatus != "" {
+		return q, "statuses must each be one of not_started, in_progress, waiting_owner, " +
+			"waiting_external, reassigning, done, terminated, duplicated — got '" + badStatus + "'"
+	}
+	q.statuses = statuses
+	q.ids = parseTaskIDSet(p.Ids)
+	if len(q.ids) > taskListMaxIDs {
+		return q, "ids may name at most " + strconv.Itoa(taskListMaxIDs) +
+			" tasks — got " + strconv.Itoa(len(q.ids))
+	}
+	q.executors = parseTaskIDSet(p.Executors)
+	q.types = parseTaskIDSet(p.Types)
+	q.due = parseTaskIDSet(p.Due)
+	for v := range q.due {
+		if v != taskDueOverdue && v != taskDueSoon {
+			return q, "due must each be one of overdue, soon — got '" + v + "'"
+		}
+	}
+	q.q = strings.ToLower(trimmedOrEmpty(p.Q))
+	if g := trimmedOrEmpty(p.GroupBy); g != "" {
+		if !taskGroupBys[g] {
+			return q, "group_by must be one of none, due, priority, executor, type, status — got '" + g + "'"
+		}
+		q.groupBy = g
+	}
+	if p.Lane != nil {
+		if q.groupBy == taskGroupNone {
+			return q, "lane needs a group_by other than none"
+		}
+		lane := strings.TrimSpace(*p.Lane)
+		q.lane = &lane
+	}
+	if p.Limit != nil {
+		if *p.Limit < 1 || *p.Limit > taskPageMaxLimit {
+			return q, "limit must be between 1 and " + strconv.Itoa(taskPageMaxLimit) +
+				" — got " + strconv.Itoa(*p.Limit)
+		}
+		q.limit = *p.Limit
+	}
+	if p.Offset != nil {
+		if *p.Offset < 0 {
+			return q, "offset must be 0 or more — got " + strconv.Itoa(*p.Offset)
+		}
+		q.offset = *p.Offset
+	}
+	return q, ""
+}
+
+func (c taskDueClock) bucketOf(t Task) string {
+	if t.DueTs <= 0 {
+		return taskDueNone
+	}
+	if t.DueTs <= c.now {
+		return taskDueOverdue
+	}
+	if t.DueTs-float64(c.leadOf(t))*secondsPerMinute <= c.now {
+		return taskDueSoon
+	}
+	return taskDueLater
+}
+
+func (c taskDueClock) leadOf(t Task) int {
+	if t.DueSoonLeadMinutes > 0 {
+		return t.DueSoonLeadMinutes
+	}
+	return c.globalLead
+}
+
+// taskExecutorKeyOf is the 負責人 key: a staff task is its member, an outsource
+// task is "outsource" once a worker holds it and "unassigned" before.
+func taskExecutorKeyOf(t Task) string {
+	if t.ExecutorKind == TaskExecutorStaff {
+		return t.ExecutorID
+	}
+	if t.ExecutorID == "" {
+		return taskExecutorUnassigned
+	}
+	return TaskExecutorOutsource
+}
+
+func taskTypeKeyOf(t Task) string {
+	if t.TypeKey == "" {
+		return taskTypeAdhoc
+	}
+	return t.TypeKey
+}
+
+func (q taskPageQuery) match(t Task, clock taskDueClock, skip taskPageAxes) bool {
+	if !skip.skipIDs && len(q.ids) > 0 && !q.ids[t.ID] {
+		return false
+	}
+	if len(q.statuses) > 0 && !taskStatusSetMatch(t, q.statuses) {
+		return false
+	}
+	if !skip.skipExecutors && len(q.executors) > 0 && !q.executors[taskExecutorKeyOf(t)] {
+		return false
+	}
+	if len(q.types) > 0 && !q.types[taskTypeKeyOf(t)] {
+		return false
+	}
+	if !skip.skipDue && len(q.due) > 0 &&
+		(TaskIsTerminal(t.Status) || !q.due[clock.bucketOf(t)]) {
+		return false
+	}
+	if q.q != "" && !strings.Contains(strings.ToLower(t.ID), q.q) &&
+		!strings.Contains(strings.ToLower(t.Title), q.q) {
+		return false
+	}
+	return true
+}
+
+func (q taskPageQuery) laneKeyOf(t Task, clock taskDueClock) string {
+	switch q.groupBy {
+	case taskGroupDue:
+		return clock.bucketOf(t)
+	case taskGroupPriority:
+		return t.Priority
+	case taskGroupExecutor:
+		return taskExecutorKeyOf(t)
+	case taskGroupType:
+		return taskTypeKeyOf(t)
+	case taskGroupStatus:
+		return t.Status
+	}
+	return ""
+}
+
+// taskLaneRoster is the member order the executor lanes follow — the order
+// GET /api/members lists them in.
+func (s *apiServer) taskLaneRoster(groupBy string) ([]string, error) {
+	if groupBy != taskGroupExecutor {
+		return nil, nil
+	}
+	members, err := s.dal.ListMembers()
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(members))
+	for _, m := range members {
+		if m.RosterStatus != RosterStatusRemoved {
+			ids = append(ids, m.ID)
+		}
+	}
+	return ids, nil
+}
+
+// lanes counts the tasks per lane and orders the non-empty ones for display.
+func (q taskPageQuery) lanes(tasks []Task, clock taskDueClock, roster []string) []taskCountLaneDTO {
+	counts := map[string]int{}
+	for _, t := range tasks {
+		counts[q.laneKeyOf(t, clock)]++
+	}
+	var head []string
+	switch q.groupBy {
+	case taskGroupDue:
+		head = taskDueLaneOrder
+	case taskGroupPriority:
+		head = taskPriorityLaneOrder
+	case taskGroupExecutor:
+		head = append([]string{TaskExecutorOutsource, taskExecutorUnassigned}, roster...)
+	case taskGroupStatus:
+		head = taskStatusLaneOrder
+	}
+	out := []taskCountLaneDTO{}
+	for _, key := range head {
+		if n := counts[key]; n > 0 {
+			out = append(out, taskCountLaneDTO{Key: key, Count: n})
+			delete(counts, key)
+		}
+	}
+	adhoc, hasAdhoc := 0, false
+	if q.groupBy == taskGroupType {
+		adhoc, hasAdhoc = counts[taskTypeAdhoc]
+		delete(counts, taskTypeAdhoc)
+	}
+	rest := make([]string, 0, len(counts))
+	for key := range counts {
+		rest = append(rest, key)
+	}
+	sort.Strings(rest)
+	for _, key := range rest {
+		out = append(out, taskCountLaneDTO{Key: key, Count: counts[key]})
+	}
+	if hasAdhoc {
+		out = append(out, taskCountLaneDTO{Key: taskTypeAdhoc, Count: adhoc})
+	}
+	return out
+}
+
+// laneToList is the lane the rows answer: the one asked for, else the first
+// non-empty lane. ok is false when no lane was asked for and none has a task.
+func (q taskPageQuery) laneToList(tasks []Task, clock taskDueClock, roster []string) (string, bool) {
+	if q.lane != nil {
+		return *q.lane, true
+	}
+	lanes := q.lanes(tasks, clock, roster)
+	if len(lanes) == 0 {
+		return "", false
+	}
+	return lanes[0].Key, true
+}
+
+// taskPagePriorityRank differs from the outsource queue's rank on purpose: the
+// page lists frozen last and an unknown priority with low.
+var taskPagePriorityRank = map[string]int{
+	TaskPriorityHigh: 0, TaskPriorityMid: 1, TaskPriorityLow: 2, TaskPriorityFrozen: 3,
+}
+
+func taskPageRankOf(p string) int {
+	if r, ok := taskPagePriorityRank[p]; ok {
+		return r
+	}
+	return taskPagePriorityRank[TaskPriorityLow]
+}
+
+// pageLess is the page order. In the dated lanes of group_by=due the due date
+// leads, so the lane reads soonest-first.
+func (q taskPageQuery) pageLess(a, b Task, clock taskDueClock) bool {
+	if q.groupBy == taskGroupDue {
+		if lane := clock.bucketOf(a); lane != taskDueNone && lane == clock.bucketOf(b) && a.DueTs != b.DueTs {
+			return a.DueTs < b.DueTs
+		}
+	}
+	aClosed, bClosed := TaskIsTerminal(a.Status), TaskIsTerminal(b.Status)
+	if aClosed != bClosed {
+		return !aClosed
+	}
+	if !aClosed {
+		if ra, rb := taskPageRankOf(a.Priority), taskPageRankOf(b.Priority); ra != rb {
+			return ra < rb
+		}
+		if a.CreatedTS != b.CreatedTS {
+			return a.CreatedTS > b.CreatedTS
+		}
+	} else if a.ClosedTS != b.ClosedTS {
+		return a.ClosedTS > b.ClosedTS
+	}
+	return a.ID < b.ID
+}
+
+func (q taskPageQuery) window(tasks []Task, clock taskDueClock) []Task {
+	sort.SliceStable(tasks, func(i, j int) bool { return q.pageLess(tasks[i], tasks[j], clock) })
+	if q.offset >= len(tasks) {
+		return []Task{}
+	}
+	tasks = tasks[q.offset:]
+	if q.limit > 0 && q.limit < len(tasks) {
+		tasks = tasks[:q.limit]
+	}
+	return tasks
+}
+
+func (q taskPageQuery) count(badge taskCountDTO, tasks []Task, clock taskDueClock, roster []string) taskPageCountDTO {
+	dto := taskPageCountDTO{
+		taskCountDTO:   badge,
+		ExecutorCounts: map[string]int{},
+		Lanes:          []taskCountLaneDTO{},
+		Now:            clock.now,
+	}
+	matched := []Task{}
+	watchDue := len(q.due) > 0 || q.groupBy == taskGroupDue
+	for _, t := range tasks {
+		if q.match(t, clock, taskPageAxes{skipExecutors: true, skipIDs: true}) {
+			if key := taskExecutorKeyOf(t); key != "" {
+				dto.ExecutorCounts[key]++
+			}
+		}
+		if watchDue && t.DueTs > 0 && (q.groupBy == taskGroupDue || !TaskIsTerminal(t.Status)) &&
+			q.match(t, clock, taskPageAxes{skipExecutors: true, skipIDs: true, skipDue: true}) {
+			for _, edge := range []float64{t.DueTs - float64(clock.leadOf(t))*secondsPerMinute, t.DueTs} {
+				if edge > clock.now && (dto.ListDueNextChangeTS == nil || edge < *dto.ListDueNextChangeTS) {
+					e := edge
+					dto.ListDueNextChangeTS = &e
+				}
+			}
+		}
+		if q.match(t, clock, taskPageAxes{}) {
+			matched = append(matched, t)
+		}
+	}
+	if q.groupBy == taskGroupNone {
+		dto.ListTotal = len(matched)
+		return dto
+	}
+	dto.Lanes = q.lanes(matched, clock, roster)
+	if lane, ok := q.laneToList(matched, clock, roster); ok {
+		for _, l := range dto.Lanes {
+			if l.Key == lane {
+				dto.ListTotal = l.Count
+			}
+		}
+	}
+	return dto
+}
+
+func (s *apiServer) HandleTaskCountApiTasksCountGet(w http.ResponseWriter, r *http.Request, params HandleTaskCountApiTasksCountGetParams) {
+	page, refusal := parseTaskPageQuery(taskPageParams{
+		Statuses: params.Statuses, Executors: params.Executors, Types: params.Types,
+		Due: params.Due, Ids: params.Ids, Q: params.Q, GroupBy: params.GroupBy,
+		Lane: params.Lane,
+	})
+	if refusal != "" {
+		writeError(w, http.StatusBadRequest, refusal)
+		return
+	}
 	total, open, err := s.dal.TaskCountFacts()
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newTaskCountDTO(total, open, s.taskDueSoonLeadMinutesSetting(), nowSecs()))
+	clock := taskDueClock{now: nowSecs(), globalLead: s.taskDueSoonLeadMinutesSetting()}
+	badge := newTaskCountDTO(total, open, clock.globalLead, clock.now)
+	if !page.sent {
+		writeJSON(w, http.StatusOK, badge)
+		return
+	}
+	tasks, err := s.dal.ListTasks()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	roster, err := s.taskLaneRoster(page.groupBy)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page.count(badge, tasks, clock, roster))
 }
 
 const secondsPerMinute = 60

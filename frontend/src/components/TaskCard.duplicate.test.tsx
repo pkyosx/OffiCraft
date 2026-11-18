@@ -73,24 +73,34 @@ describe("TaskCard duplicated 終態 + 原票指向 (T-02c9)", () => {
     const card = within(list).getByTestId("task-card");
     // the 重複 status badge …
     expect(within(card).getByTestId("task-status").textContent).toContain("重複");
-    // … and a link naming the original's task_no.
+    // … and a link naming the original by its id, which is its number.
     const link = within(card).getByTestId("task-duplicate-link");
-    expect(link.textContent).toContain(original.taskNo);
+    expect(link.textContent).toBe(`重複於 ${original.id}`);
 
     fireEvent.click(link);
     expect(window.location.hash).toBe(`#tasks/${original.id}`);
   });
 
-  it("marks a task duplicated through the ⋮ menu picker; it leaves the live list", async () => {
-    const original = mkTask({ title: "原始工單" });
+  it("marks a task duplicated by searching every task for the original; it leaves the live list", async () => {
+    const original = mkTask({
+      title: "原始工單",
+      status: "done",
+      closedTs: Date.now() / 1000 - 600,
+    });
+    const other = mkTask({ title: "另一張工單" });
     const shell = mkTask({ title: "空殼重複" });
+    const gone = mkTask({
+      title: "已重複的工單",
+      status: "duplicated",
+      closedTs: Date.now() / 1000 - 60,
+    });
     __injectMockTask(original);
+    __injectMockTask(other);
     __injectMockTask(shell);
+    __injectMockTask(gone);
     const { findByTestId } = renderPage();
 
     const list = await findByTestId("task-list");
-    // the shell's live card carries 標記重複 on its 狀態 badge dropdown (v5 —
-    // the action moved off the ⋮ menu).
     const shellCard = within(list)
       .getAllByTestId("task-card")
       .find((c) =>
@@ -99,21 +109,40 @@ describe("TaskCard duplicated 終態 + 原票指向 (T-02c9)", () => {
     fireEvent.click(within(shellCard).getByTestId("task-status"));
     fireEvent.click(within(shellCard).getByTestId("task-mark-duplicate"));
 
-    // pick the original in the modal, then confirm.
     const select = (await findByTestId(
       "mark-duplicate-select"
     )) as HTMLSelectElement;
+    const offered = () => [...select.options].slice(1).map((o) => o.textContent);
+    // Empty box: the first page of every task but itself and the duplicates —
+    // the closed original included, though the page never loaded it.
+    await waitFor(() =>
+      expect(offered()).toEqual([`${other.taskNo} · 另一張工單`, `${original.taskNo} · 原始工單`])
+    );
+
+    fireEvent.change(await findByTestId("mark-duplicate-search"), {
+      target: { value: "原始" },
+    });
+    await waitFor(() => expect(offered()).toEqual([`${original.taskNo} · 原始工單`]));
+
+    fireEvent.change(await findByTestId("mark-duplicate-search"), {
+      target: { value: "沒有這張" },
+    });
+    await findByTestId("mark-duplicate-none");
+    expect(offered()).toEqual([]);
+
+    fireEvent.change(await findByTestId("mark-duplicate-search"), {
+      target: { value: original.id },
+    });
+    await waitFor(() => expect(offered()).toEqual([`${original.taskNo} · 原始工單`]));
     fireEvent.change(select, { target: { value: original.id } });
     fireEvent.click(await findByTestId("mark-duplicate-btn"));
 
-    // the shell is now terminal (duplicated) and drops out of the live list.
     await waitFor(() => {
       const live = within(findByTestIdSync("task-list")).queryByText(shell.title);
       expect(live).toBeNull();
     });
-    // the original stays live.
     expect(
-      within(findByTestIdSync("task-list")).getByText(original.title)
+      within(findByTestIdSync("task-list")).getByText(other.title)
     ).toBeTruthy();
   });
 });

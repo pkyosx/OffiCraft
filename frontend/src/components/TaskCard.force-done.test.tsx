@@ -279,7 +279,6 @@ describe("② 強制結案 is offered to the principals the route floor admits �
       <I18nProvider>
         <TaskCard
           task={mkTask({ title: "一般成員看不到", status: "in_progress" })}
-          allTasks={[]}
           members={[]}
           workers={[]}
           nowTs={Date.now() / 1000}
@@ -448,7 +447,6 @@ describe("④ what the server recorded comes back onto the card", () => {
       <I18nProvider>
         <TaskCard
           task={mkTask({ id: "task-readback", title: "要讀回來" })}
-          allTasks={[]}
           members={[]}
           workers={[]}
           nowTs={Date.now() / 1000}
@@ -907,7 +905,6 @@ describe("①c the banner reads the HYDRATED status, not the list row's", () => 
       <I18nProvider>
         <TaskCard
           task={mkTask({ id: "t-hydrate", title: "狀態來源", status: taskStatus })}
-          allTasks={[]}
           members={[]}
           workers={[]}
           nowTs={Date.now() / 1000}
@@ -976,7 +973,6 @@ describe("②b canForceDone DEFAULTS to the safe shape — a caller that says no
       <I18nProvider>
         <TaskCard
           task={mkTask({ title: "忘記傳 canForceDone", status: "in_progress" })}
-          allTasks={[]}
           members={[]}
           workers={[]}
           nowTs={Date.now() / 1000}

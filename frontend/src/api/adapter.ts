@@ -640,6 +640,41 @@ export interface TaskCountView {
   dueNextChangeTs: number | null;
 }
 
+/** How the 任務 page splits its list into lanes (`group_by`). */
+export type TaskGroupBy = "none" | "due" | "priority" | "executor" | "type" | "status";
+
+/** The 任務 page's filter, asked of the server by both the list and the count
+ * (`GET /api/tasks`, `GET /api/tasks/count`). Every set ANDs with the others;
+ * an empty or omitted set is no constraint. `executors` keys are
+ * `outsource` / `unassigned` / a staff member id, `types` a type_key or
+ * `adhoc`, `due` `overdue` / `soon`. `lane` picks one lane of `groupBy`. */
+export interface TaskPageQuery {
+  statuses?: string[];
+  executors?: string[];
+  types?: string[];
+  due?: string[];
+  ids?: string[];
+  q?: string;
+  groupBy?: TaskGroupBy;
+  lane?: string;
+}
+
+/** `GET /api/tasks/count` asked with the page's filter: the badge counts as
+ * {@link TaskCountView}, plus the server's counts for that list. */
+export interface TaskPageCountView extends TaskCountView {
+  /** 負責人 option counts over the statuses / types / due / q scope — the
+   * executor and id axes left out; a zero count is absent. */
+  executorCounts: Record<string, number>;
+  /** The non-empty lanes in display order (empty under `groupBy` none). */
+  lanes: { key: string; count: number }[];
+  listTotal: number;
+  /** The server time the due buckets were judged at. */
+  now: number;
+  /** When the filtered list, its counts or its lanes next change with no task
+   * write (epoch seconds on the server's clock); null when never. */
+  listDueNextChangeTs: number | null;
+}
+
 /**
  * The executor track a task runs on — the closed set the server enforces
  * (`task.executor_kind`, and the same word `reassigned_from_kind` speaks).
@@ -2525,7 +2560,7 @@ export interface Api {
    * server-computed progress + deps, WITHOUT the heavy steps/description/inputs
    * — those hydrate on expand via getTask; the returned TaskView carries
    * `steps: []` and `description: ""` until then). Priority ordering AND the
-   * page's 篩選列 are applied CLIENT-SIDE.
+   * page's 篩選列 are applied by the SERVER through {@link TaskPageQuery}.
    *
    * `opts.open` (T-2b9d) sends `GET /api/tasks?open=true` — the server drops
    * the terminal (done/terminated/duplicated) rows so the DEFAULT 任務頁 view,
@@ -2540,11 +2575,19 @@ export interface Api {
    * browser. Pass the 狀態 dropdown's set verbatim, `reassigning` included (the
    * server matches that one against the handover lock, the same rule the
    * client-side predicate uses). An empty/omitted set means no constraint.
+   *
+   * `opts.ids` sends one repeated `?ids=` per task id, ANDed with the other
+   * filters: a named task that no longer matches them (or no longer exists) is
+   * simply absent. At most 200 per call — the server answers 400 above that.
+   *
+   * `limit` (1–200) / `offset` page the answer; with either, or with a
+   * `groupBy`, the rows come in the page's order (open tasks by priority then
+   * newest created, then closed tasks newest closed first). Fewer rows than
+   * `limit` means the end. `q` matches the id or title, case-insensitively.
    */
-  listTasks(opts?: {
-    open?: boolean;
-    statuses?: string[];
-  }): Promise<TaskView[]>;
+  listTasks(
+    opts?: TaskPageQuery & { open?: boolean; limit?: number; offset?: number }
+  ): Promise<TaskView[]>;
   /**
    * Fetch ONE task's FULL detail (`GET /api/tasks/{id}`): steps, description
    * and the rest of the heavy payload the light list omits. The 任務卡 calls
@@ -2591,6 +2634,10 @@ export interface Api {
    * SET, an empty list cannot by itself justify 目前沒有任務, and this is the
    * cheap way to know — never a widened list fetch. */
   getTaskCount(): Promise<TaskCountView>;
+  /** The same count route asked with the 任務 page's filter: the 負責人
+   * option counts, the lanes and their counts, and when the list next changes
+   * on its own. */
+  getTaskPageCount(query: TaskPageQuery): Promise<TaskPageCountView>;
   /**
    * Terminate a task (`POST /api/tasks/{id}/terminate`) — the ONLY owner-side
    * status change (spec §3.7). Non-terminal only (done/terminated → 409,

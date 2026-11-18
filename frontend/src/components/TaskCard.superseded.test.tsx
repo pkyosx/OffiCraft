@@ -49,7 +49,7 @@ function renderCard(task: TaskView, onHydrate: (id: string) => Promise<TaskView>
   return render(
     <I18nProvider>
       <TaskCard
-        task={task} allTasks={[task]} members={[MIRA]} workers={[]} nowTs={3000}
+        task={task} members={[MIRA]} workers={[]} nowTs={3000}
         onTerminate={noop as never} onMarkDuplicate={noop as never}
         onSetPriority={noop as never} onReassign={noop as never}
         onSendMessage={noop as never}

@@ -63,11 +63,19 @@ export function openDisplayOptions(): HTMLSelectElement {
   return document.querySelector<HTMLSelectElement>('[data-testid="group-by"]')!;
 }
 
-/** Pick a 分組依據 mode in the 顯示方式 panel. */
-export function chooseGroupBy(
+/** Wait until the page has the server's answer to what it currently asks:
+ * the filters, groupings and lanes are all asked of the server, so the screen
+ * catches up a moment after each gesture. */
+export async function waitForTasksSettled() {
+  await waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull());
+}
+
+/** Pick a 分組依據 mode in the 顯示方式 panel and wait for its lanes. */
+export async function chooseGroupBy(
   mode: "due" | "priority" | "executor" | "type" | "status" | "none"
 ) {
   fireEvent.change(openDisplayOptions(), { target: { value: mode } });
+  await waitForTasksSettled();
 }
 
 /** Wait until the 不分組 list holds exactly `count` cards. A 狀態 tick only
@@ -99,6 +107,13 @@ export async function expandLane(key: string, taskCount?: number) {
   }
   const toggle = screen.getByTestId(`lane-toggle-${key}`);
   if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
+  await waitForTasksSettled();
+}
+
+/** Click a lane's header and wait for the rows it asked for. */
+export async function toggleLane(key: string) {
+  fireEvent.click(screen.getByTestId(`lane-toggle-${key}`));
+  await waitForTasksSettled();
 }
 
 /** Every axis back to "no constraint".

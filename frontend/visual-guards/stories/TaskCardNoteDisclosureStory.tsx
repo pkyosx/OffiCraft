@@ -44,7 +44,6 @@ export function TaskCardNoteDisclosureStory() {
     <I18nProvider>
       <TaskCard
         task={TASK}
-        allTasks={[TASK]}
         members={[MIRA]}
         workers={WORKERS}
         nowTs={3000}

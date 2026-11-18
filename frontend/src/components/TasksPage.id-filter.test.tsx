@@ -268,8 +268,9 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     // asked, and the owner would read a broken server as a deleted task.
     __injectMockTask(mkTask({ id: "t-real" }));
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.spyOn(api, "getTask").mockRejectedValue(new Error("boom"));
     const { findByTestId, queryByTestId } = renderPage();
+    await findByTestId("task-list");
+    vi.spyOn(api, "listTasks").mockRejectedValue(new Error("boom"));
 
     applyIdFilter("t-real");
 
@@ -287,20 +288,21 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
   it("🔴 typing asks the server NOTHING; Enter asks exactly once", async () => {
     // 「一個字元一個請求」 is what this guards. A COMMITTED id costs exactly one
     // request; 「按enter或是點外面就視為apply了」 is a rule about when it may leave.
-    const spy = vi.spyOn(api, "getTask");
     __injectMockTask(mkTask({ id: "t-abcdef" }));
     const { findByTestId } = renderPage();
 
     const field = await findByTestId("filter-task-id");
+    await findByTestId("task-list");
+    const spy = vi.spyOn(api, "listTasks");
     for (const v of ["t", "t-", "t-a", "t-ab", "t-abc", "t-abcdef"]) {
       fireEvent.change(field, { target: { value: v } });
     }
     await waitFor(() =>
       expect((field as HTMLInputElement).value).toBe("t-abcdef")
     );
-    // Same real-clock wait as the guard above, and for the same reason: a
-    // debounced commit would otherwise sit in a pending timer and this spy
-    // would report zero calls for a version that does ask per keystroke.
+    // Real-clock wait: a debounced commit would otherwise sit in a pending
+    // timer and this spy would report zero calls for a version that does ask
+    // per keystroke.
     await new Promise((r) => setTimeout(r, 600));
     expect(
       spy,
@@ -308,12 +310,8 @@ describe("任務頁 ID 篩選 — 三種結局 (owner 2026-09-06 選項①)", ()
     ).not.toHaveBeenCalled();
 
     fireEvent.keyDown(field, { key: "Enter" });
-    await waitFor(() => expect(spy).toHaveBeenCalledWith("t-abcdef"));
-    // ⚠️ NOT asserted as "exactly one call ever": the located card expands
-    // itself (TaskCard's `located` effect) and hydrates its own detail through
-    // the same `api.getTask`, so a second read arrives for a reason that has
-    // nothing to do with filtering. What the filter must not do is ask PER
-    // KEYSTROKE, and that is the assertion above this one.
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy.mock.calls[0][0]?.ids).toEqual(["t-abcdef"]);
   });
 });
 

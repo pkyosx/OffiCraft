@@ -49,10 +49,9 @@ import {
   chooseGroupBy,
   clearAllFilters,
   openDisplayOptions,
+  toggleLane,
 } from "../test/tasksFilter";
 import { useEnglishLocale } from "../test/effortOptions";
-import { ApiError } from "../api/errors";
-import { codeForStatus } from "../api/errorCodes";
 import type { TaskView, TaskStepView, ReplyCard } from "../api/adapter";
 
 let seq = 0;
@@ -248,30 +247,6 @@ describe("TasksPage", () => {
     expect(closed.map((r) => r.id)).toContain(residue.id);
   });
 
-  it("matchesStatus drops a terminated+locked row even if the server sends one", async () => {
-    // The page's own copy, isolated by making the fetch return the residue row
-    // regardless — which is also the real transient case: rows from an earlier,
-    // wider ask are still in state while a narrower refetch is in flight.
-    const residue = mkTask({
-      title: "反悔終止的",
-      status: "terminated",
-      lock: "reassigning",
-      closedTs: Date.now() / 1000 - 50,
-    });
-    const live = mkTask({
-      title: "真的在轉派",
-      status: "in_progress",
-      lock: "reassigning",
-    });
-    vi.spyOn(mockApi, "listTasks").mockResolvedValue([residue, live]);
-    const { findAllByTestId } = renderPage();
-    const cards = await findAllByTestId("task-card");
-    const titles = cards.map((c) => c.textContent ?? "");
-    expect(titles.some((t) => t.includes("真的在轉派"))).toBe(true);
-    expect(titles.some((t) => t.includes("反悔終止的"))).toBe(false);
-    expect(cards).toHaveLength(1);
-  });
-
   it("lists open tasks by priority 高→中→低→凍結 (凍結墊底), createdTs newest-first within a level, and by default (不分組, nothing stored) the closed ones after them in one untitled list with no lanes", async () => {
     const now = Date.now() / 1000;
     __injectMockTask(
@@ -356,7 +331,7 @@ describe("TasksPage", () => {
 
     const { findByTestId, queryByTestId, findAllByTestId, getByTestId, queryByText } =
       renderPage();
-    chooseGroupBy("due");
+    await chooseGroupBy("due");
     // Default view EXCLUDES the two terminal states (T-be18 #2): only the live
     // task shows and there is no 沒有到期日 lane for the closed ones yet.
     expect((await findAllByTestId("task-card")).length).toBe(1);
@@ -372,7 +347,7 @@ describe("TasksPage", () => {
     expect(laneTitles("nodue")).toEqual([]);
     expect((await findAllByTestId("task-card")).length).toBe(1);
 
-    fireEvent.click(toggle);
+    await toggleLane("nodue");
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(laneTitles("nodue")).toEqual(["被終止的", "做完的"]);
 
@@ -395,6 +370,137 @@ describe("TasksPage", () => {
     await expandLane("nodue", 2);
     expect(laneTitles("nodue")).toEqual(["被終止的", "做完的"]);
     expect(queryByText("還在跑")).toBeNull();
+  });
+
+  it("with 60 closed tasks ticked → asks the server for the first 50 cards, the next page once the list is scrolled near its bottom, page 1 again when a filter changes, while the 負責人 count still counts all 61", async () => {
+    const now = Date.now() / 1000;
+    __injectMockTask(mkTask({ title: "live" }));
+    for (let i = 0; i < 60; i += 1) {
+      const title = `d${String(i).padStart(2, "0")}`;
+      __injectMockTask(mkTask({ title, status: "done", closedTs: now - 1000 + i }));
+    }
+    const { findByTestId } = renderPage();
+    await findByTestId("task-card");
+    toggleFilter("filter-status", "done");
+    await waitForListedCards(50);
+    const titles = () =>
+      [...document.querySelectorAll('[data-testid="task-list"] .task-card__title')].map(
+        (el) => el.textContent
+      );
+    const first50 = [
+      "live", "d59", "d58", "d57", "d56", "d55", "d54", "d53",
+      "d52", "d51", "d50", "d49", "d48", "d47", "d46", "d45",
+      "d44", "d43", "d42", "d41", "d40", "d39", "d38", "d37",
+      "d36", "d35", "d34", "d33", "d32", "d31", "d30", "d29",
+      "d28", "d27", "d26", "d25", "d24", "d23", "d22", "d21",
+      "d20", "d19", "d18", "d17", "d16", "d15", "d14", "d13",
+      "d12", "d11",
+    ];
+    expect(titles()).toEqual(first50);
+    fireEvent.click(await findByTestId("filter-executor"));
+    expect(
+      document.querySelector('[data-testid="filter-executor-count-mira"]')?.textContent
+    ).toBe("61");
+
+    const scroller = document.querySelector<HTMLElement>(".tasks")!;
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 5000 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 800 });
+    scroller.scrollTop = 1000;
+    fireEvent.scroll(scroller);
+    expect(titles()).toEqual(first50);
+
+    const listSpy = vi.spyOn(api, "listTasks");
+    scroller.scrollTop = 4100;
+    fireEvent.scroll(scroller);
+    await waitForListedCards(61);
+    const ask = {
+      statuses: [
+        "done",
+        "in_progress",
+        "not_started",
+        "ready_for_done",
+        "reassigning",
+        "waiting_external",
+        "waiting_owner",
+      ],
+      executors: [],
+      types: [],
+      due: [],
+      ids: [],
+      groupBy: "none",
+    };
+    expect(listSpy.mock.calls.map(([opts]) => opts)).toEqual([
+      { ...ask, limit: 50, offset: 50 },
+    ]);
+    expect(titles()).toEqual([
+      "live", "d59", "d58", "d57", "d56", "d55", "d54", "d53",
+      "d52", "d51", "d50", "d49", "d48", "d47", "d46", "d45",
+      "d44", "d43", "d42", "d41", "d40", "d39", "d38", "d37",
+      "d36", "d35", "d34", "d33", "d32", "d31", "d30", "d29",
+      "d28", "d27", "d26", "d25", "d24", "d23", "d22", "d21",
+      "d20", "d19", "d18", "d17", "d16", "d15", "d14", "d13",
+      "d12", "d11", "d10", "d09", "d08", "d07", "d06", "d05",
+      "d04", "d03", "d02", "d01", "d00",
+    ]);
+
+    toggleFilter("filter-status", "terminated");
+    await waitForListedCards(50);
+    expect(titles()).toEqual(first50);
+    expect(listSpy.mock.calls.at(-1)?.[0]).toEqual({
+      ...ask,
+      statuses: [...ask.statuses, "terminated"].sort(),
+      limit: 50,
+      offset: 0,
+    });
+  });
+
+  it("grouped, an open lane holding 60 closed tasks → renders its first 50 cards under a header counting 60, asks the lane's next page on scroll, and the first 50 again after the grouping changes", async () => {
+    const now = Date.now() / 1000;
+    for (let i = 0; i < 60; i += 1) {
+      const title = `d${String(i).padStart(2, "0")}`;
+      __injectMockTask(mkTask({ title, status: "done", closedTs: now - 1000 + i }));
+    }
+    renderPage();
+    await chooseGroupBy("status");
+    toggleFilter("filter-status", "done");
+    await expandLane("done", 60);
+    const first50 = [
+      "d59", "d58", "d57", "d56", "d55", "d54", "d53", "d52",
+      "d51", "d50", "d49", "d48", "d47", "d46", "d45", "d44",
+      "d43", "d42", "d41", "d40", "d39", "d38", "d37", "d36",
+      "d35", "d34", "d33", "d32", "d31", "d30", "d29", "d28",
+      "d27", "d26", "d25", "d24", "d23", "d22", "d21", "d20",
+      "d19", "d18", "d17", "d16", "d15", "d14", "d13", "d12",
+      "d11", "d10",
+    ];
+    await waitFor(() => expect(laneTitles("done")).toEqual(first50));
+    expect(laneCount("done")).toBe(" · 60");
+
+    const scroller = document.querySelector<HTMLElement>(".tasks")!;
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 5000 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 800 });
+    const listSpy = vi.spyOn(api, "listTasks");
+    scroller.scrollTop = 4100;
+    fireEvent.scroll(scroller);
+    await waitFor(() =>
+      expect(laneTitles("done")).toEqual([
+        "d59", "d58", "d57", "d56", "d55", "d54", "d53", "d52",
+        "d51", "d50", "d49", "d48", "d47", "d46", "d45", "d44",
+        "d43", "d42", "d41", "d40", "d39", "d38", "d37", "d36",
+        "d35", "d34", "d33", "d32", "d31", "d30", "d29", "d28",
+        "d27", "d26", "d25", "d24", "d23", "d22", "d21", "d20",
+        "d19", "d18", "d17", "d16", "d15", "d14", "d13", "d12",
+        "d11", "d10", "d09", "d08", "d07", "d06", "d05", "d04",
+        "d03", "d02", "d01", "d00",
+      ])
+    );
+
+    await chooseGroupBy("priority");
+    await waitFor(() => expect(laneTitles("mid")).toEqual(first50));
+    expect(listSpy.mock.calls.map(([opts]) => [opts?.groupBy, opts?.lane, opts?.offset])).toEqual([
+      ["status", "done", 50],
+      ["priority", "mid", 0],
+    ]);
   });
 
   it("multi-selects executor / type / status; emptying every axis shows 顯示全部; no-match empty state", async () => {
@@ -1017,7 +1123,7 @@ describe("TasksPage", () => {
       );
       const { findByText } = renderPage();
       await findByText("逾期的手冊任務");
-      chooseGroupBy("due");
+      await chooseGroupBy("due");
       toggleFilter("filter-status", "done");
       toggleFilter("filter-status", "terminated");
       await waitFor(() => expect(laneCount("overdue")).toBe(" · 4"));
@@ -1029,7 +1135,7 @@ describe("TasksPage", () => {
       ).toEqual(["true", "false", "false", "false"]);
       expect(laneTitles("soon")).toEqual([]);
       for (const key of ["soon", "later", "nodue"]) {
-        fireEvent.click(laneToggle(key));
+        await toggleLane(key);
       }
       expect(laneTitles("overdue")).toEqual([
         "逾期的手冊任務",
@@ -1096,8 +1202,8 @@ describe("TasksPage", () => {
       __injectMockTask(mkTask({ title: "全站三天外", dueTs: now + 10 * 86_400 }));
       const { findByText } = renderPage();
       await findByText("全站三天內");
-      chooseGroupBy("due");
-      fireEvent.click(laneToggle("later"));
+      await chooseGroupBy("due");
+      await toggleLane("later");
       expect(laneKeys()).toEqual(["soon", "later"]);
       expect(laneTitles("soon")).toEqual(["全站三天內", "自己七天內"]);
       expect(laneTitles("later")).toEqual(["自己只提前一天", "全站三天外"]);
@@ -1113,7 +1219,7 @@ describe("TasksPage", () => {
       __injectMockTask(mkTask({ title: "兩天後到期", dueTs: now + 2 * 86_400 }));
       const { findByText } = renderPage();
       await findByText("兩天後到期");
-      chooseGroupBy("due");
+      await chooseGroupBy("due");
       expect(laneKeys()).toEqual(["later"]);
       expect(
         (await findByText("兩天後到期"))
@@ -1146,7 +1252,7 @@ describe("TasksPage", () => {
   it("applies the filters before grouping and leaves out a lane the filters emptied", async () => {
     seedDueTasks(Date.now() / 1000);
     renderPage();
-    chooseGroupBy("due");
+    await chooseGroupBy("due");
     await waitFor(() =>
       expect(laneKeys()).toEqual(["overdue", "soon", "later", "nodue"])
     );
@@ -1209,7 +1315,7 @@ describe("TasksPage", () => {
     seedDueTasks(Date.now() / 1000);
     const { findByText, queryByText } = renderPage();
     await findByText("逾期的手冊任務");
-    chooseGroupBy("due");
+    await chooseGroupBy("due");
     const toggle = laneToggle("later");
     const region = document.getElementById(
       toggle.getAttribute("aria-controls")!
@@ -1220,12 +1326,12 @@ describe("TasksPage", () => {
     expect(queryByText("還早的")).toBeNull();
     expect(laneCount("later")).toBe(" · 2");
 
-    fireEvent.click(toggle);
+    await toggleLane("later");
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(region.hidden).toBe(false);
     expect(laneTitles("later")).toEqual(["一天又一秒後", "還早的"]);
 
-    fireEvent.click(laneToggle("overdue"));
+    await toggleLane("overdue");
     expect(laneToggle("overdue").getAttribute("aria-expanded")).toBe("false");
     expect(queryByText("逾期的手冊任務")).toBeNull();
     expect(laneCount("overdue")).toBe(" · 3");
@@ -1254,7 +1360,7 @@ describe("TasksPage", () => {
       });
       const { findByText } = renderPage();
       await findByText("先到期的");
-      chooseGroupBy("due");
+      await chooseGroupBy("due");
       const expandedStates = () =>
         laneKeys().map((key) => laneToggle(key).getAttribute("aria-expanded"));
       expect(laneKeys()).toEqual(["later", "nodue"]);
@@ -1311,7 +1417,7 @@ describe("TasksPage", () => {
         dueNextChangeTs: null,
       });
       renderPage();
-      chooseGroupBy("due");
+      await chooseGroupBy("due");
       toggleFilter("filter-status", "done");
       await waitFor(() => expect(laneKeys()).toEqual(["later"]));
 
@@ -1333,8 +1439,8 @@ describe("TasksPage", () => {
     __injectMockTask(mkTask({ title: "旁邊的" }));
     const { findByText, queryByText } = renderPage();
     await findByText("收起來的那張");
-    chooseGroupBy("due");
-    fireEvent.click(laneToggle("later"));
+    await chooseGroupBy("due");
+    await toggleLane("later");
     expect(queryByText("收起來的那張")).toBeNull();
 
     applyIdFilter(target.id);
@@ -1352,8 +1458,8 @@ describe("TasksPage", () => {
     __injectMockTask(mkTask({ title: "沒有到期日的" }));
     const { findByText, findByTestId, queryByText, getByTestId } = renderPage();
     await findByText("連結指向的");
-    chooseGroupBy("due");
-    fireEvent.click(laneToggle("soon"));
+    await chooseGroupBy("due");
+    await toggleLane("soon");
     expect(queryByText("連結指向的")).toBeNull();
     toggleFilter("filter-due", "overdue");
     await findByTestId("tasks-empty-filtered");
@@ -1390,7 +1496,7 @@ describe("TasksPage", () => {
     await findByText("Kai 的");
     toggleFilter("filter-status", "done");
     await waitForListedCards(6);
-    chooseGroupBy("executor");
+    await chooseGroupBy("executor");
     await waitFor(() =>
       expect(laneKeys()).toEqual(["outsource", "unassigned", "mira", "kai"])
     );
@@ -1402,7 +1508,7 @@ describe("TasksPage", () => {
       laneKeys().map((key) => laneToggle(key).getAttribute("aria-expanded"))
     ).toEqual(["true", "false", "false", "false"]);
     expect(laneTitles("outsource")).toEqual(["外包的"]);
-    fireEvent.click(laneToggle("mira"));
+    await toggleLane("mira");
     expect(laneTitles("mira")).toEqual(["Mira 的高", "Mira 的低", "Mira 的結案"]);
   });
 
@@ -1414,7 +1520,7 @@ describe("TasksPage", () => {
     __injectMockTask(mkTask({ title: "隨手的" }));
     const { findByText } = renderPage();
     await findByText("部署甲");
-    chooseGroupBy("type");
+    await chooseGroupBy("type");
     await waitFor(() =>
       expect(laneKeys()).toEqual(["audit", "deploy", "adhoc"])
     );
@@ -1430,7 +1536,7 @@ describe("TasksPage", () => {
     __injectMockTask(mkTask({ title: "中的", priority: "mid" }));
     const { findByText } = renderPage();
     await findByText("高的");
-    chooseGroupBy("priority");
+    await chooseGroupBy("priority");
     await waitFor(() =>
       expect(laneKeys()).toEqual(["high", "mid", "low", "frozen"])
     );
@@ -1458,7 +1564,7 @@ describe("TasksPage", () => {
     toggleFilter("filter-status", "terminated");
     toggleFilter("filter-status", "done");
     await waitForListedCards(5);
-    chooseGroupBy("status");
+    await chooseGroupBy("status");
     await waitFor(() =>
       expect(laneKeys()).toEqual([
         "not_started",
@@ -1471,7 +1577,7 @@ describe("TasksPage", () => {
     expect(laneToggle("waiting_owner").textContent).toBe("狀態：等我回覆 · 1");
     expect(laneToggle("done").textContent).toBe("狀態：已完成 · 1");
     expect(laneToggle("terminated").textContent).toBe("狀態：終止 · 1");
-    fireEvent.click(laneToggle("done"));
+    await toggleLane("done");
     expect(laneTitles("done")).toEqual(["結掉的"]);
   });
 
@@ -1509,7 +1615,7 @@ describe("TasksPage", () => {
     expect(select.closest(".filter-panel__actions")).not.toBeNull();
     expect(document.activeElement).toBe(panel);
 
-    chooseGroupBy("executor");
+    await chooseGroupBy("executor");
     await waitFor(() => expect(laneKeys()).toEqual(["mira"]));
     expect(queryByTestId("display-options-panel")).toBeNull();
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
@@ -1536,7 +1642,7 @@ describe("TasksPage", () => {
     __injectMockTask(mkTask({ title: "等我的", status: "waiting_owner" }));
     const { findByText, getByTestId } = renderPage();
     await findByText("跑著的");
-    chooseGroupBy("status");
+    await chooseGroupBy("status");
     toggleFilter("filter-type", "adhoc");
     await waitFor(() =>
       expect(laneKeys()).toEqual(["in_progress", "waiting_owner"])
@@ -1556,7 +1662,7 @@ describe("TasksPage", () => {
     __injectMockTask(mkTask({ title: "等我的", status: "waiting_owner" }));
     const first = renderPage();
     await first.findByText("跑著的");
-    chooseGroupBy("status");
+    await chooseGroupBy("status");
     expect(localStorage.getItem("oc_tasks_group_by")).toBe("status");
     first.unmount();
 
@@ -1592,7 +1698,7 @@ describe("TasksPage", () => {
     const onError = (e: ErrorEvent) => uncaught.push(e.error);
     window.addEventListener("error", onError);
     try {
-      chooseGroupBy("status");
+      await chooseGroupBy("status");
     } finally {
       window.removeEventListener("error", onError);
     }
@@ -1606,16 +1712,16 @@ describe("TasksPage", () => {
     seedDueTasks(Date.now() / 1000);
     const { findByText } = renderPage();
     await findByText("逾期的手冊任務");
-    chooseGroupBy("due");
-    fireEvent.click(laneToggle("overdue"));
-    fireEvent.click(laneToggle("nodue"));
+    await chooseGroupBy("due");
+    await toggleLane("overdue");
+    await toggleLane("nodue");
     const expandedStates = () =>
       laneKeys().map((key) => laneToggle(key).getAttribute("aria-expanded"));
     expect(expandedStates()).toEqual(["false", "false", "false", "true"]);
-    chooseGroupBy("executor");
+    await chooseGroupBy("executor");
     await waitFor(() => expect(laneKeys()).toEqual(["mira"]));
     expect(laneToggle("mira").getAttribute("aria-expanded")).toBe("true");
-    chooseGroupBy("due");
+    await chooseGroupBy("due");
     await waitFor(() =>
       expect(laneKeys()).toEqual(["overdue", "soon", "later", "nodue"])
     );
@@ -1730,44 +1836,27 @@ describe("TasksPage", () => {
       getTaskSpy.mockRestore();
     });
 
-    it("KEEPS the #tasks/<id> anchor and says the id DOES NOT EXIST when the server answers 404", async () => {
-      // owner 2026-09-05 (rc-428906235337) / 2026-09-06 option ①. A broken link
-      // must be told apart from a link that was never filtering, and 「不存在」
-      // from 「在，只是沒被載進來」: the shared 沒有符合篩選條件的任務 empty
-      // state is what the page shows for a real task outside the loaded page,
-      // so a 404 gets its own words.
-      //
-      // ⚠️ Anchor handling is also pinned in TasksPage.jump.test.tsx and
-      // TasksPage.anchor-fetch; the denominator for this behaviour is every
-      // file that renders this page, not only this one.
+    it("KEEPS the #tasks/<id> anchor and says nothing matches when no task has that id", async () => {
+      // owner 2026-09-05 (rc-428906235337) / 2026-09-06 option ①: a link to a
+      // task that does not exist keeps its anchor and answers the ordinary
+      // 沒有符合篩選條件的任務 — the id goes to the server as `?ids=`.
       __injectMockTask(mkTask({ title: "工作室裡確實有一張票" }));
-      // The real failure path: GET /api/tasks/{id} rejects (404 / deleted), and
-      // useTasks resolves the anchor WITH the id and a null task, so
-      // anchorPending goes false with nothing to show.
-      const getTaskSpy = vi
-        .spyOn(api, "getTask")
-        .mockRejectedValue(
-          new ApiError(
-            "http 404 for GET /api/tasks/t-does-not-exist",
-            404,
-            codeForStatus(404),
-            "task 't-does-not-exist' not found"
-          )
-        );
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const listSpy = vi.spyOn(api, "listTasks");
       window.location.hash = "#tasks/t-does-not-exist";
 
       const { findByTestId, queryByTestId } = renderPage();
 
-      // Wait for the anchor fetch to have been attempted and REJECTED, so every
-      // assertion below reads the SETTLED page rather than a frame on the way
-      // there. 🔴 This ordering is load-bearing: asserted before the settle, the
-      // empty-state half passes even against the self-heal mutant (it catches a
-      // transient frame), and only the hash half would have teeth.
-      await waitFor(() =>
-        expect(getTaskSpy).toHaveBeenCalledWith("t-does-not-exist")
-      );
       await findByTestId("tasks-empty-filtered");
+      expect(listSpy).toHaveBeenCalledWith({
+        statuses: [],
+        executors: [],
+        types: [],
+        due: [],
+        ids: ["t-does-not-exist"],
+        groupBy: "none",
+        limit: 50,
+        offset: 0,
+      });
 
       // The anchor survives: the hash still carries the id the owner clicked.
       expect(window.location.hash).toBe("#tasks/t-does-not-exist");
@@ -1790,9 +1879,6 @@ describe("TasksPage", () => {
         ).toHaveLength(1)
       );
       expect(window.location.hash).toBe("#tasks");
-
-      warnSpy.mockRestore();
-      getTaskSpy.mockRestore();
     });
 
     it("shows a loading placeholder (not the 規劃中 empty state) while a planned task's steps are in flight", async () => {

@@ -209,7 +209,6 @@ function buildTimeline(steps: TaskStepView[]): TimelineRow[] {
 
 export function TaskCard({
   task,
-  allTasks,
   members,
   workers,
   typeNames,
@@ -217,6 +216,7 @@ export function TaskCard({
   located = false,
   onTerminate,
   onMarkDuplicate,
+  onSearchDuplicateTargets,
   onSetPriority,
   onSetDue,
   dueSoonLeadMinutes = DEFAULT_DUE_SOON_LEAD_MINUTES,
@@ -229,9 +229,6 @@ export function TaskCard({
   rosterSettled = false,
 }: {
   task: TaskView;
-  /** The whole loaded list — the 重複於 link resolves its target's task_no
-   * through it (deps do NOT: they read task.depTasks, the server's join). */
-  allTasks: TaskView[];
   members: Member[];
   /** LIVE outsource workers — resolves the 外包 codename/model/effort. */
   workers: OutsourceWorkerView[];
@@ -254,6 +251,10 @@ export function TaskCard({
   /** Mark this task a duplicate of `duplicateOf` (T-02c9). The server enforces
    * the depth-1 graph + non-terminal guard; a rejection surfaces inline. */
   onMarkDuplicate: (id: string, duplicateOf: string) => Promise<void>;
+  /** The mark-duplicate picker's search: tasks whose number or title contains
+   * `q`, across every task, not only the loaded ones. Absent ⇒ the picker
+   * offers nothing to pick. */
+  onSearchDuplicateTargets?: (q: string) => Promise<TaskView[]>;
   onSetPriority: (id: string, priority: string) => Promise<void>;
   /** Set or clear (`null`) the due date. `leadMinutes` is passed only when the
    * lead changed (`null` = back to the workspace setting). Absent ⇒ the due
@@ -867,11 +868,6 @@ export function TaskCard({
   const [dupOpen, setDupOpen] = useState(false);
   const [dupTarget, setDupTarget] = useState("");
   const [dupError, setDupError] = useState<string | null>(null);
-  // Candidate originals: every OTHER task that is not itself a duplicate (the
-  // server rejects pointing at a duplicate — pre-filter for a clean picker).
-  const dupCandidates = allTasks.filter(
-    (x) => x.id !== task.id && x.status !== "duplicated"
-  );
 
   useEffect(() => {
     if (!prioOpen) return;
@@ -2384,9 +2380,9 @@ export function TaskCard({
            🔴 T-a3e4 moved the resolution to where the fact lives: the server
            ships `dep_tasks` (task_no + title + status per dep, joined off the
            read it already does), so a closed dep is named WITHOUT loading the
-           closed list, and the widening clause is gone. Do not reintroduce an
-           `allTasks.find` here — that lookup IS the reason the payload ticket
-           existed.
+           closed list, and the widening clause is gone. Do not reintroduce a
+           lookup in the loaded list here — the card is no longer given one,
+           and that lookup IS the reason the payload ticket existed.
            Here the row gains what the id never carried: the dep's TITLE (that is
            what "看不出在等什麼" was asking for) and a click through to that card,
            reusing the duplicated-link vocabulary right below (navigateHash +
@@ -2582,16 +2578,7 @@ export function TaskCard({
             }
           >
             <span>
-              {/* Same rule as the dep rows above (T-c21e): prefer the
-                  server's task_no, DERIVE the short number when the original
-                  is not in the loaded population — never print the raw id.
-                  This row was the third mouth of the same regression; the
-                  ticket named only the two dep branches, but a surface owner
-                  reads with the same eyes should not disagree with them. */}
-              {msg.taskDuplicateOf(
-                allTasks.find((x) => x.id === task.duplicateOf)?.taskNo ??
-                  deriveTaskNo(task.duplicateOf)
-              )}
+              {msg.taskDuplicateOf(deriveTaskNo(task.duplicateOf))}
             </span>
             <ExternalLinkIcon size={11} />
           </button>
@@ -2972,22 +2959,15 @@ export function TaskCard({
           body={
             <div className="task-card__dup-picker">
               <div>{msg.taskMarkDuplicateBody(task.taskNo)}</div>
-              <select
-                className="task-card__dup-select"
-                data-testid="mark-duplicate-select"
+              <DuplicateTargetPicker
+                selfId={task.id}
+                search={onSearchDuplicateTargets}
                 value={dupTarget}
-                onChange={(e) => {
-                  setDupTarget(e.target.value);
+                onChange={(id) => {
+                  setDupTarget(id);
                   setDupError(null);
                 }}
-              >
-                <option value="">{t.tasks.markDuplicatePick}</option>
-                {dupCandidates.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.taskNo} · {c.title}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
           }
           error={dupError}
@@ -3009,5 +2989,94 @@ export function TaskCard({
     >
       <MentionRosterContext.Provider value={mentionRoster}>{card}</MentionRosterContext.Provider>
     </AttachmentLinkCommentsContext.Provider>
+  );
+}
+
+// Typing re-asks after a short pause rather than per keystroke.
+const DUP_SEARCH_DELAY_MS = 250;
+
+/** The mark-duplicate picker: a search box over every task (the server's `q`),
+ * and the matches to pick from. The task itself is never offered. */
+function DuplicateTargetPicker({
+  selfId,
+  search,
+  value,
+  onChange,
+}: {
+  selfId: string;
+  search?: (q: string) => Promise<TaskView[]>;
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const { t } = useI18n();
+  const [q, setQ] = useState("");
+  const [found, setFound] = useState<TaskView[] | null>(null);
+  const seq = useRef(0);
+  const searchRef = useRef(search);
+  searchRef.current = search;
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  useEffect(() => {
+    const ask = ++seq.current;
+    const timer = window.setTimeout(
+      () => {
+        const run = searchRef.current;
+        if (!run) {
+          setFound([]);
+          return;
+        }
+        run(q)
+          .then((rows) => {
+            if (ask !== seq.current) return;
+            const offered = rows.filter((x) => x.id !== selfId && x.status !== "duplicated");
+            setFound(offered);
+            if (valueRef.current !== "" && !offered.some((x) => x.id === valueRef.current)) {
+              onChangeRef.current("");
+            }
+          })
+          .catch((e) => {
+            console.warn("TaskCard: duplicate-target search failed", e);
+            if (ask === seq.current) setFound([]);
+          });
+      },
+      q === "" ? 0 : DUP_SEARCH_DELAY_MS
+    );
+    return () => window.clearTimeout(timer);
+  }, [q, selfId]);
+
+  return (
+    <>
+      <input
+        type="search"
+        className="task-card__dup-select"
+        data-testid="mark-duplicate-search"
+        aria-label={t.tasks.markDuplicateSearch}
+        placeholder={t.tasks.markDuplicateSearch}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+      <select
+        className="task-card__dup-select"
+        data-testid="mark-duplicate-select"
+        aria-label={t.tasks.markDuplicatePick}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">{t.tasks.markDuplicatePick}</option>
+        {(found ?? []).map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.taskNo} · {c.title}
+          </option>
+        ))}
+      </select>
+      {found !== null && found.length === 0 && (
+        <div className="task-card__dup-none" data-testid="mark-duplicate-none">
+          {t.tasks.markDuplicateNoMatch}
+        </div>
+      )}
+    </>
   );
 }

@@ -11,7 +11,6 @@ export function TaskCardAssigneeStory() {
     <I18nProvider>
       <TaskCard
         task={LONG_ASSIGNEE}
-        allTasks={[LONG_ASSIGNEE]}
         members={[LONG_MEMBER]}
         workers={WORKERS}
         nowTs={3000}

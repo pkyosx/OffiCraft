@@ -99,6 +99,34 @@ describe("useWorkerCodenames", () => {
     });
   });
 
+  it("an answer for one id → re-renders only the callers holding that id", async () => {
+    let answerB!: (w: unknown) => void;
+    getOutsourceWorker.mockImplementation((id: string) =>
+      id === "ow-a"
+        ? Promise.resolve({ id: "ow-a", codename: "O-1" })
+        : new Promise((resolve) => (answerB = resolve)),
+    );
+    let rendersA = 0;
+    let rendersB = 0;
+    const a = renderHook(() => {
+      rendersA += 1;
+      return useWorkerCodenames(["ow-a"]);
+    });
+    const b = renderHook(() => {
+      rendersB += 1;
+      return useWorkerCodenames(["ow-b"]);
+    });
+    await waitFor(() => expect(a.result.current.get("ow-a")).toBe("O-1"));
+    const settledA = rendersA;
+    const beforeB = rendersB;
+
+    await act(async () => answerB({ id: "ow-b", codename: "O-2" }));
+
+    await waitFor(() => expect(b.result.current.get("ow-b")).toBe("O-2"));
+    expect(rendersB).toBe(beforeB + 1);
+    expect(rendersA).toBe(settledA);
+  });
+
   it("never reads an empty id", async () => {
     const { result } = renderHook(() => useWorkerCodenames([""]));
     expect(result.current.size).toBe(0);
@@ -312,6 +340,32 @@ describe("useWorkerCodenames", () => {
       expect(avatars.result.current.get("ow-abc")).toContain("ava-new"),
     );
     expect(tasks.result.current.get("ow-abc")?.taskId).toBe("T-9");
+  });
+
+  it("a current-task re-read of one worker → leaves callers holding only another worker un-rendered", async () => {
+    getOutsourceWorker.mockImplementation(async (id: string) => ({
+      id,
+      codename: id === "ow-a" ? "O-1" : "O-2",
+      taskId: "T-9",
+    }));
+    const tasks = renderHook(() => useWorkerCurrentTasks(["ow-a"]));
+    let rendersB = 0;
+    const b = renderHook(() => {
+      rendersB += 1;
+      return useWorkerCodenames(["ow-b"]);
+    });
+    await waitFor(() => expect(b.result.current.get("ow-b")).toBe("O-2"));
+    await waitFor(() => expect(tasks.result.current.get("ow-a")?.taskId).toBe("T-9"));
+    const settledB = rendersB;
+    getOutsourceWorker.mockClear();
+
+    await emit("task");
+
+    await waitFor(() => expect(getOutsourceWorker.mock.calls).toEqual([["ow-a"]]));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(rendersB).toBe(settledB);
   });
 
   it("coalesces bursts into ONE trailing round — a delta that lands mid-round is not lost", async () => {

@@ -79,15 +79,19 @@ vi.mock("../api", () => ({
       // the server), so the projection is a no-op — asserted in dtoParity.test.
       return projectSingleItem("outsourceWorker", found);
     },
-    listTasks: async (opts?: { statuses?: string[] }) => {
+    listTasks: async (opts?: { statuses?: string[]; ids?: string[] }) => {
       bump("listTasks");
-      // The status set is a SERVER-side filter (`?statuses=`), so the fake must
-      // apply it — a fake that returns every row no matter what is asked cannot
-      // show that a task which left the filter leaves the list.
-      const want = opts?.statuses;
-      return want === undefined
-        ? h.tasks
-        : h.tasks.filter((t) => want.includes(t.status as string));
+      // The status and id sets are SERVER-side filters (`?statuses=`, `?ids=`),
+      // so the fake must apply them — a fake that returns every row no matter
+      // what is asked cannot show that a task which left the filter leaves the
+      // list.
+      const want = opts?.statuses ?? [];
+      const named = opts?.ids ?? [];
+      return h.tasks.filter(
+        (t) =>
+          (want.length === 0 || want.includes(t.status as string)) &&
+          (named.length === 0 || named.includes(t.id as string))
+      );
     },
     getTask: async (id: string) => {
       bump("getTask");
@@ -104,6 +108,21 @@ vi.mock("../api", () => ({
     getTaskCount: async () => {
       bump("getTaskCount");
       return { total: 0, open: 0 };
+    },
+    getTaskPageCount: async () => {
+      bump("getTaskPageCount");
+      return {
+        total: 0,
+        open: 0,
+        overdue: 0,
+        dueSoon: 0,
+        dueNextChangeTs: null,
+        executorCounts: {},
+        lanes: [],
+        listTotal: 0,
+        now: 0,
+        listDueNextChangeTs: null,
+      };
     },
     getChatUnreadCount: async () => {
       bump("getChatUnreadCount");
@@ -141,7 +160,7 @@ import { useTasks } from "./useTasks";
 /** The conversation the cockpit has OPEN throughout. */
 const OPEN_PEER = "m-open";
 /** The status set the 任務頁 filter opens on. */
-const FILTER = ["in_progress"];
+const FILTER = { statuses: ["in_progress"], groupBy: "none" as const };
 
 function member(id: string, unreadCount = 0) {
   return { id, name: id, status: "active", lifecycle: "online", unreadCount };
@@ -184,7 +203,7 @@ function useCockpit() {
     unread: useChatUnread(),
     taskCount: useTaskCount(),
     chat: useChat(OPEN_PEER),
-    tasks: useTasks(FILTER).tasks,
+    tasks: useTasks(FILTER, [""]).lists.get("")?.tasks ?? [],
   };
 }
 
@@ -679,15 +698,14 @@ describe("one delta re-pulls only what it named (T-8115)", () => {
     await settle();
 
     expect(view.result.current.tasks.map((t) => t.id)).toEqual(["t-bbb"]);
-    expect(h.counts.listTasks).toBe(1);
+    // The `?ids=` read finds it gone; the re-read from the top closes the gap
+    // its leaving opened in the paged list.
+    expect(h.counts.listTasks).toBe(2);
     expect(h.counts.getTask ?? 0).toBe(0);
-    // TWO worker-list reads, and this is the honest price of giving the per-task
-    // shortcut back: useTasks' full path re-pulls the worker roster (it resolves
-    // the executor chip) and the 外包 RAIL re-pulls its own, because a task delta
-    // names a TASK id and the task→worker binding lives on the server. That is
-    // exactly the pre-T-8115 cost for this case — the delta's win here is the
-    // COALESCING (one decision per burst), not a narrower fetch.
-    expect(h.counts.listOutsourceWorkers).toBe(2);
+    // Only the 外包 RAIL re-pulls its worker list: a task delta names a TASK id
+    // and the task→worker binding lives on the server. useTasks leaves its
+    // roster to `member` deltas.
+    expect(h.counts.listOutsourceWorkers).toBe(1);
   });
 
   it("🔴 the NAMED row keeps its server-side dep join — a per-task read would lose it", async () => {
@@ -725,7 +743,9 @@ describe("one delta re-pulls only what it named (T-8115)", () => {
       "t-bbb",
       "t-new",
     ]);
-    expect(h.counts.listTasks).toBe(1);
+    // The `?ids=` read finds it; the re-read from the top is what places it,
+    // since the order is the server's.
+    expect(h.counts.listTasks).toBe(2);
   });
 
   it("a member delta re-pulls the worker rail — release is list membership", async () => {
@@ -741,6 +761,7 @@ describe("one delta re-pulls only what it named (T-8115)", () => {
 
     expect(view.result.current.workers.map((w) => w.id)).toEqual(["ow-2"]);
     expect(h.counts.listOutsourceWorkers).toBeGreaterThanOrEqual(1);
+    expect(h.counts.listTasks ?? 0).toBe(0);
   });
 });
 

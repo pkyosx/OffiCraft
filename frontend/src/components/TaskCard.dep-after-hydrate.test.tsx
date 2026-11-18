@@ -83,7 +83,6 @@ function renderCard(
     <I18nProvider>
       <TaskCard
         task={task}
-        allTasks={[task]}
         members={[MIRA]}
         workers={workers}
         nowTs={3000}

@@ -84,7 +84,6 @@ export function TaskCardLongTokenStory() {
     <I18nProvider>
       <TaskCard
         task={LONG_TASK}
-        allTasks={[LONG_TASK, DEP_TASK]}
         members={[MIRA]}
         workers={WORKERS}
         nowTs={3000}

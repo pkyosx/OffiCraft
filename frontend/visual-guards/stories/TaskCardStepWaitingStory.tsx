@@ -15,7 +15,6 @@ export function TaskCardStepWaitingStory() {
     <I18nProvider>
       <TaskCard
         task={STEP_WAITING_EXTERNAL}
-        allTasks={[STEP_WAITING_EXTERNAL]}
         members={[MIRA]}
         workers={WORKERS}
         nowTs={3000}

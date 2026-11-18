@@ -1010,6 +1010,11 @@ var identityGateLedger = map[string]string{
 		"the `executor=outsource` and `executor=unassigned` list filters — TWO sites " +
 		"(pinned at 2), the second adding `ExecutorID == \"\"` on top. A query facet " +
 		"the caller asked for, not a policy.",
+	"api_tasks.go :: taskExecutorKeyOf :: t.ExecutorKind == TaskExecutorStaff": "" +
+		"the 任務 page's 負責人 key (`executors`, lanes, executor_counts): a staff " +
+		"task is keyed by its member, an outsource task by whether a worker holds it. " +
+		"A query facet the spec defines (GET /api/tasks `executors`), not a policy — " +
+		"both kinds are listed, counted and ordered by the same rules.",
 	"api_tasks.go :: HandleReassignTaskApiTasksTaskIdReassignPost :: kind == TaskExecutorOutsource": "" +
 		"TWO sites, pinned at 2 in identityGateExpectedCount. (a) the 發包 authz " +
 		"choke: a reassign toward outsource lands the task UNASSIGNED and the " +

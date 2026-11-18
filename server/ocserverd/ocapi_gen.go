@@ -4485,13 +4485,34 @@ type TaskCountDTO struct {
 
 	// DueSoon Open tasks whose due date has not passed and is at most their lead away: the task's own ``due_soon_lead_minutes``, else the workspace ``task_due_soon_lead_minutes``, in minutes. additive-optional (absent reads as 0 for older servers).
 	DueSoon *int `json:"due_soon,omitempty"`
-	Open    int  `json:"open"`
+
+	// ExecutorCounts How many tasks each 負責人 option of the 任務 page would show: keys ``outsource``, ``unassigned`` and staff member ids, with the ``executors`` semantics. Counted over the tasks passing statuses, types, due and q — NOT executors and NOT ids, so ticking an executor or looking up an id does not change any count. Zero counts are omitted; empty when no filter param was sent. additive-optional.
+	ExecutorCounts *map[string]int `json:"executor_counts,omitempty"`
+
+	// Lanes With group_by other than none: every non-empty lane after ALL filters, in display order. due: overdue, soon, later, nodue. priority: high, mid, low, frozen, then other values sorted. executor: outsource, unassigned, then staff members in the order ``GET /api/members`` lists them, then member ids not on the roster, sorted. type: type_keys sorted, then adhoc. status: not_started, in_progress, waiting_owner, waiting_external, ready_for_done, done, terminated, duplicated. Empty otherwise. additive-optional.
+	Lanes *[]TaskCountLaneDTO `json:"lanes,omitempty"`
+
+	// ListDueNextChangeTs The earliest instant after ``now`` at which a task passing the filter params changes due bucket — closed tasks included when group_by=due, since they are filed by date there — i.e. when the filtered list, its counts or its lanes would change with no task write. It looks past the executors, ids and lane params (and past due itself), so it may come early — an extra re-ask — but never late. null when there is none, or when no filter param was sent. Unlike ``due_next_change_ts``, which serves the badge and only watches open tasks. additive-optional.
+	ListDueNextChangeTs *float64 `json:"list_due_next_change_ts,omitempty"`
+
+	// ListTotal How many tasks ``GET /api/tasks`` would return for the same filter params without limit/offset — for group_by other than none, the rows of ``lane`` only. Unlike ``total``, which is every task ever. 0 when no filter param was sent. additive-optional.
+	ListTotal *int `json:"list_total,omitempty"`
+
+	// Now The server time due buckets were judged at for this answer. additive-optional.
+	Now  *float64 `json:"now,omitempty"`
+	Open int      `json:"open"`
 
 	// Overdue Open tasks whose due date has passed. Closed tasks never count. additive-optional (absent reads as 0 for older servers).
 	Overdue *int `json:"overdue,omitempty"`
 
 	// Total Every task ever, terminal included — the honest basis for 「這個工作室一張任務都沒有」. additive-optional (absent reads as 0 for older servers).
 	Total *int `json:"total,omitempty"`
+}
+
+// TaskCountLaneDTO One lane of the 任務 page under a group_by (“GET /api/tasks/count“): its key and how many tasks it holds after all filters. Titles are the client's (i18n, member names, manual names).
+type TaskCountLaneDTO struct {
+	Count int    `json:"count"`
+	Key   string `json:"key"`
 }
 
 // TaskCreateDTO Create one task (agent-side; MCP “create_task“). With “type_key“ the server derives the dedupe key from the manual's is_key fields over “inputs“ and resolves the executor from the manual's assignee (staff → bound directly; outsource → unassigned, awaiting the scheduler); an unset manual assignee requires an explicit “executor_member_id“. Without “type_key“ (ad-hoc 自由代辦) “executor_member_id“ is mandatory. A dedupe hit on a NON-terminal task answers 200 with a bounded receipt (T-91) identifying the EXISTING ticket it folded onto — “task_id“, “title“, “status“, “deduped: true“ — not the task in full; “GET /api/tasks/{task_id}“ for the detail. “task_no“ WAS in that list while the receipt carried it and came off at owner ruling rc-f1c0fd3cf124: T-5291 made it the identity function, so it repeated “task_id“ byte for byte. Do not put it back. This field list is HAND-WRITTEN prose with no mechanical link to “TaskCreateResultDTO“'s properties and no assertion holding the two together — read the schema before trusting it. Dedupe is the normal path, never an error. Caller authorization (正職授權矩陣, T-23cf): an outsource worker (kind=outsource) may NEVER create a task (403); a 發包 create (“target.kind=outsource“ or a manual outsource assignee) is open to any 正職, owner/admin included; a typed task the manual assigns to a member X may be created ONLY by X — owner/admin are NOT exempt (403 otherwise); an ad-hoc (or manual-assignee-less) task with a member executor may name only the caller itself, unless the caller is the owner or an admin agent — a 一般正職 pointing “executor_member_id“ at another member is 403 (self, or a 發包, only). The authz gate precedes dedupe, so an unauthorized caller never receives the existing twin.
@@ -5503,9 +5524,63 @@ type HandleListTasksApiTasksGetParams struct {
 
 	// Statuses REPEATABLE status set (``?statuses=not_started&statuses=in_progress``) — the cockpit asks for exactly the states the owner ticked instead of downloading the whole archive and filtering in the browser (T-a3e4). A task matches when its ``status`` is in the set OR when the set contains ``reassigning`` and the task's ``lock`` is ``reassigning`` — the set vocabulary is the COCKPIT's 狀態 dropdown, which lists reassigning as a row even though T-9ca5 moved it from status to the orthogonal ``lock``. Accepted values: the seven statuses plus ``reassigning``; anything else is a 400. Absent or empty = no constraint. Deliberately a SECOND parameter rather than a widened ``?status=``: ``status=`` is frozen wire that REJECTS ``reassigning`` with a 400 and matches the literal column only, so teaching the set semantics to that name would change what a live client already sends. Both may be given — they are ANDed, as is ``open=true``. additive-optional.
 	Statuses *[]string `form:"statuses,omitempty" json:"statuses,omitempty"`
-	Status   *string   `form:"status,omitempty" json:"status,omitempty"`
-	Type     *string   `form:"type,omitempty" json:"type,omitempty"`
-	Open     *string   `form:"open,omitempty" json:"open,omitempty"`
+
+	// Ids REPEATABLE task-id set (``?ids=T-12&ids=T-40``): only those tasks, in the same light row shape. An id that does not exist is simply absent from the answer, never a 400 — the caller learns it is gone by its absence. ANDed with every other filter, so a client refreshing a few changed rows of a filtered view gets each one only if it still belongs there. Absent or empty = no constraint. additive-optional.
+	Ids *[]string `form:"ids,omitempty" json:"ids,omitempty"`
+
+	// Executors REPEATABLE executor set with the 任務 page's semantics: ``outsource`` = an outsource task that HAS a worker (non-empty executor_id); ``unassigned`` = an outsource task with no worker yet; any other value is a member id and matches a STAFF task executed by that member. 🔴 Not the same as the single ``executor`` param, which stays as it is: there ``outsource`` also matches unassigned outsource tasks and an id matches either executor kind. If both are given they are ANDed. Absent or empty = no constraint. additive-optional.
+	Executors *[]string `form:"executors,omitempty" json:"executors,omitempty"`
+
+	// Types REPEATABLE task-type set: type_keys, plus ``adhoc`` for a task with no type (type_key ""). ANDed with the single ``type`` param when both are given. An unknown type_key matches nothing rather than erroring. Absent or empty = no constraint. additive-optional.
+	Types *[]string `form:"types,omitempty" json:"types,omitempty"`
+
+	// Due REPEATABLE due set, values ``overdue`` and ``soon`` (ORed). ``overdue`` = due_ts at or before the server's now; ``soon`` = now < due_ts <= now + lead, lead being the task's own due_soon_lead_minutes, else the workspace task_due_soon_lead_minutes. A CLOSED task never matches either value. Anything else is a 400 naming the value. Absent or empty = no constraint. additive-optional.
+	Due *[]string `form:"due,omitempty" json:"due,omitempty"`
+
+	// Q Case-insensitive substring matched against the task id and the title (trimmed; empty = no constraint) — for pickers that search tasks, e.g. mark-duplicate. additive-optional.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// GroupBy ``none`` (the default), ``due``, ``priority``, ``executor``, ``type`` or ``status``; anything else is a 400. Together with ``lane`` it narrows the rows to ONE lane. Lane keys: due → overdue / soon / later / nodue (a closed task is filed by its date like an open one); priority → the priority value; executor → the ``executors`` keys above; type → the type_key or ``adhoc``; status → the status column (``reassigning`` is a lock, never a lane). The lanes themselves and their counts come from ``GET /api/tasks/count``. additive-optional.
+	GroupBy *string `form:"group_by,omitempty" json:"group_by,omitempty"`
+
+	// Lane The lane to list, a key as described under ``group_by``; only with a ``group_by`` other than ``none`` (otherwise 400). Absent = the first lane in the order ``GET /api/tasks/count`` lists ``lanes``. A key no task currently falls under answers an empty array, never a 400 (a lane can empty out between two asks). additive-optional.
+	Lane *string `form:"lane,omitempty" json:"lane,omitempty"`
+
+	// Limit Page size, 1 to 200; anything else is a 400. Absent = every matching task, as today. When ``limit``, ``offset`` or ``group_by`` is given the rows come in the page order: open tasks first by priority high, mid, low, frozen (an unknown priority ranks as low), newest created_ts first; then closed tasks, newest closed_ts first; in the overdue / soon / later lanes of group_by=due, due_ts ascending first; last tie-break id ascending. Without any of the three the order is unchanged (oldest created first). A caller has reached the end when fewer than ``limit`` rows come back. additive-optional.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many rows of that order to skip, 0 or more (default 0); a negative value is a 400. Paging by offset, like ``GET /api/lore``: a task written between two pages can shift rows across the boundary, so a caller that needs an exact list re-asks from offset 0. additive-optional.
+	Offset *int    `form:"offset,omitempty" json:"offset,omitempty"`
+	Status *string `form:"status,omitempty" json:"status,omitempty"`
+	Type   *string `form:"type,omitempty" json:"type,omitempty"`
+	Open   *string `form:"open,omitempty" json:"open,omitempty"`
+}
+
+// HandleTaskCountApiTasksCountGetParams defines parameters for HandleTaskCountApiTasksCountGet.
+type HandleTaskCountApiTasksCountGetParams struct {
+	// Statuses Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional.
+	Statuses *[]string `form:"statuses,omitempty" json:"statuses,omitempty"`
+
+	// Executors Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. Not applied to ``executor_counts``.
+	Executors *[]string `form:"executors,omitempty" json:"executors,omitempty"`
+
+	// Types Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional.
+	Types *[]string `form:"types,omitempty" json:"types,omitempty"`
+
+	// Due Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional.
+	Due *[]string `form:"due,omitempty" json:"due,omitempty"`
+
+	// Ids Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. Not applied to ``executor_counts``. At most 200 ids; more is a 400 naming the count.
+	Ids *[]string `form:"ids,omitempty" json:"ids,omitempty"`
+
+	// Q Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// GroupBy Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. Turns on ``lanes``.
+	GroupBy *string `form:"group_by,omitempty" json:"group_by,omitempty"`
+
+	// Lane Same vocabulary and rule as on ``GET /api/tasks``. Narrows only the list_* fields, ``executor_counts`` and ``lanes``; the badge fields never move. additive-optional. Narrows ``list_total`` to that lane (absent = the first lane); ``lanes`` always lists every lane.
+	Lane *string `form:"lane,omitempty" json:"lane,omitempty"`
 }
 
 // HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPostParams defines parameters for HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost.
@@ -6623,7 +6698,7 @@ type ServerInterface interface {
 	HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.Request)
 	// Open task count (the tasks nav badge).
 	// (GET /api/tasks/count)
-	HandleTaskCountApiTasksCountGet(w http.ResponseWriter, r *http.Request)
+	HandleTaskCountApiTasksCountGet(w http.ResponseWriter, r *http.Request, params HandleTaskCountApiTasksCountGetParams)
 	// Read one task — and read it knowing it is a SUMMARY, not the whole of it: the response says so itself (“detail_level“ = “summary“, “notes_included“ = false). WHAT IS COMPLETE HERE: the task's own fields, its deps, its progress counts, its gate cards, and EVERY ONE of its steps. The step list has no cap, no paging and no truncation of any kind — the rows you get back are all the rows there are, so a step that is not here does not exist on this task. WHAT IS OMITTED, AND EXACTLY HOW MUCH OF IT: each step's working-note TEXT (T-66). In its place every step carries “note_size_chars“ — the EXACT number of characters of note sitting on the server for that step, where 0 means that step genuinely has no note — and “note_cap_chars“, the ceiling. A positive “note_size_chars“ is a precise promise that that many characters are waiting for you, and “get_task_step(task_id, step_id)“ is the one call that returns them, one step at a time. Read the sizes first, then fetch only the notes you actually need. THE PINNED DELIVERABLES ARE OMITTED THE SAME WAY, AND SINCE T-92 THERE IS NOT EVEN AN INDEX OF THEM: “artifact_count“ is the only thing said about them here — an EXACT, un-truncated, un-capped count, 0 meaning the task genuinely has nothing pinned. No array, no ids, no names: “list_task_artifacts(task_id)“ returns every artifact on the ticket, complete, in ONE call, and there is deliberately no per-artifact read. Ask for that list when you are going to USE an artifact; a count is what you need to know one exists. Unknown id → 404.
 	// (GET /api/tasks/{task_id})
 	HandleGetTaskApiTasksTaskIdGet(w http.ResponseWriter, r *http.Request, taskId string)
@@ -10938,6 +11013,123 @@ func (siw *ServerInterfaceWrapper) HandleListTasksApiTasksGet(w http.ResponseWri
 		return
 	}
 
+	// ------------- Optional query parameter "ids" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ids", r.URL.Query(), &params.Ids, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ids"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ids", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "executors" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "executors", r.URL.Query(), &params.Executors, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "executors"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "executors", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "types" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "types", r.URL.Query(), &params.Types, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "types"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "types", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "due" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "due", r.URL.Query(), &params.Due, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "due"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "due", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "group_by" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "group_by", r.URL.Query(), &params.GroupBy, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "group_by"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "group_by", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "lane" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "lane", r.URL.Query(), &params.Lane, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "lane"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "lane", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "status" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -11005,8 +11197,118 @@ func (siw *ServerInterfaceWrapper) HandleCreateTaskApiTasksPost(w http.ResponseW
 // HandleTaskCountApiTasksCountGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleTaskCountApiTasksCountGet(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleTaskCountApiTasksCountGetParams
+
+	// ------------- Optional query parameter "statuses" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "statuses", r.URL.Query(), &params.Statuses, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "statuses"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "statuses", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "executors" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "executors", r.URL.Query(), &params.Executors, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "executors"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "executors", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "types" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "types", r.URL.Query(), &params.Types, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "types"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "types", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "due" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "due", r.URL.Query(), &params.Due, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "due"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "due", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "ids" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ids", r.URL.Query(), &params.Ids, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ids"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ids", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "group_by" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "group_by", r.URL.Query(), &params.GroupBy, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "group_by"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "group_by", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "lane" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "lane", r.URL.Query(), &params.Lane, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "lane"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "lane", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleTaskCountApiTasksCountGet(w, r)
+		siw.Handler.HandleTaskCountApiTasksCountGet(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

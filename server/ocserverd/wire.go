@@ -1730,6 +1730,22 @@ type taskCountDTO struct {
 	DueNextChangeTS *float64 `json:"due_next_change_ts"`
 }
 
+// taskPageCountDTO is the count answered when the 任務 page sent its params:
+// the badge fields unchanged, plus what describes the page's list.
+type taskPageCountDTO struct {
+	taskCountDTO
+	ExecutorCounts      map[string]int     `json:"executor_counts"`
+	Lanes               []taskCountLaneDTO `json:"lanes"`
+	ListTotal           int                `json:"list_total"`
+	Now                 float64            `json:"now"`
+	ListDueNextChangeTS *float64           `json:"list_due_next_change_ts"`
+}
+
+type taskCountLaneDTO struct {
+	Key   string `json:"key"`
+	Count int    `json:"count"`
+}
+
 type taskManualDTO struct {
 	SopMDChars    int           `json:"sop_md_chars"`
 	SopMDCapChars int           `json:"sop_md_cap_chars"`

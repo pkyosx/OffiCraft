@@ -1,33 +1,5 @@
-// T-c21e S1 — the duplicated-original row, the THIRD mouth of the same
-// regression owner reported on the T-1d82 驗收 card:
-//   「那些 ID 應該要跟任務卡上面顯示的一樣,任務卡上的 ID 似乎沒這麼長」
-//
-// The ticket named two fallback branches (the dep rows). Review found this one
-// carrying the identical `?? rawId` shape ~60 lines below them: when the
-// ORIGINAL task a duplicate points at is not in the loaded population, the row
-// printed the raw id where every other surface printed the short number.
-//
-// 🔴 T-5291 (owner 2026-08-25) ENDED that mismatch by moving the other way:
-// the number IS the id now, so this row and every other surface print the same
-// string. What this file still holds is that the row NAMES the original at all
-// — the `??` fallback must not print an empty cell.
-//
-// It is fixed here rather than deferred because "the ticket only named two"
-// is a reason about the ticket, not about what owner sees. A surface read with
-// the same eyes, on the same card, disagreeing with the rows right above it,
-// would have reproduced the exact complaint this ticket exists to close — and
-// the next person would reasonably read the two fixed branches as evidence
-// that this one was considered and deliberately left alone.
-//
-// ── HONEST LIMIT ──────────────────────────────────────────────────────────
-// Review could not construct a REAL cockpit state that reaches this fallback:
-// a duplicated card is terminal, so `needClosed` has usually widened the
-// population by the time it renders, and then the `??` left side wins. So this
-// may well be unreachable in production today. It is pinned anyway — the row
-// is one `needClosed` refactor away from being reachable, and the cost of the
-// pin is one file. What is NOT claimed: that this was visibly broken for
-// owner. The two dep branches were; this one is the same defect found by
-// inspection.
+// The duplicated-original row names the original by its id (the number IS the
+// id), so it never needs the original's row to be loaded.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "@testing-library/react";
@@ -68,12 +40,11 @@ function mkTask(over: Partial<TaskView>): TaskView {
 
 const NOOP = async () => {};
 
-function renderCard(task: TaskView, allTasks: TaskView[]) {
+function renderCard(task: TaskView) {
   return render(
     <I18nProvider>
       <TaskCard
         task={task}
-        allTasks={allTasks}
         members={[]}
         workers={[]}
         nowTs={Date.now() / 1000}
@@ -95,38 +66,18 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("T-c21e S1 重複原票列的編號", () => {
-  it("原票不在母體時,仍叫得出原票的識別值", () => {
+  it("names the original by its id", () => {
     const dupe = mkTask({
       title: "重複票",
       status: "duplicated",
       duplicateOf: LONG_ID,
     });
-    const { container } = renderCard(dupe, [dupe]);
+    const { container } = renderCard(dupe);
 
     const text = container.textContent ?? "";
     // Was `toContain("T-1d82")` + `not.toContain(LONG_ID)`. The second half is
     // deleted rather than relaxed: with the number equal to the id it directly
     // contradicts the first half and could only pass on an empty row.
     expect(text).toContain(LONG_ID);
-  });
-
-  it("原票在母體時,仍以 server 的 task_no 為準", () => {
-    // taskNo and id are deliberately INCONSISTENT so the two sources are
-    // distinguishable: derivation would say t-9999ffffffff, server says T-abcd.
-    const original = mkTask({
-      id: "t-9999ffffffff",
-      taskNo: "T-abcd",
-      title: "原票",
-    });
-    const dupe = mkTask({
-      title: "重複票",
-      status: "duplicated",
-      duplicateOf: original.id,
-    });
-    const { container } = renderCard(dupe, [dupe, original]);
-
-    const text = container.textContent ?? "";
-    expect(text).toContain("T-abcd");
-    expect(text).not.toContain("t-9999ffffffff");
   });
 });
