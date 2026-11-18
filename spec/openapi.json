@@ -9446,6 +9446,113 @@
         "title": "TaskCountDTO",
         "type": "object"
       },
+      "TaskPageDTO": {
+        "additionalProperties": false,
+        "description": "One page of ``GET /api/tasks/page``.",
+        "properties": {
+          "executor_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "How many tasks each 負責人 option would show: keys ``outsource``, ``unassigned`` and staff member ids, with the route's executor semantics. Counted over the tasks passing statuses, types, due and q — NOT executors and NOT id, so ticking one executor or applying an id does not change any count. Keys with a count of 0 are omitted.",
+            "title": "Executor Counts",
+            "type": "object"
+          },
+          "lane": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The lane these rows belong to; null when group_by is none or no lane has a task.",
+            "title": "Lane"
+          },
+          "lanes": {
+            "default": [],
+            "description": "group_by other than none: every non-empty lane after ALL filters, in display order. due: overdue, soon, later, nodue. priority: high, mid, low, frozen, then any other value sorted. executor: outsource, unassigned, then staff members in the order ``GET /api/members`` lists them, then member ids not on the roster, sorted. type: type_keys sorted, then adhoc. status: the seven statuses in the 狀態 filter's order (not_started, in_progress, waiting_owner, waiting_external, done, terminated, duplicated; reassigning is a lock, never a lane). Empty for group_by none.",
+            "items": {
+              "$ref": "#/components/schemas/TaskPageLaneDTO"
+            },
+            "title": "Lanes",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Pass as ``cursor`` for the next page; null when this page is the last.",
+            "title": "Next Cursor"
+          },
+          "next_due_change_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The earliest instant after ``now`` at which any OPEN task passing statuses, types, executors, q and id changes due bucket (enters its soon window or passes its due date) — when the answer would change with no task write. null when there is none. Ask again at that instant.",
+            "title": "Next Due Change Ts"
+          },
+          "now": {
+            "description": "The server time the due buckets were judged at.",
+            "title": "Now",
+            "type": "number"
+          },
+          "rows": {
+            "description": "The page, in the route's order. Each row's ``dep_tasks`` is resolved against every task, not against this page.",
+            "items": {
+              "$ref": "#/components/schemas/TaskListItemDTO"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "total": {
+            "description": "How many tasks this list has across all pages: every filter applied, and for group_by other than none only the rows of ``lane``.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rows",
+          "total",
+          "now"
+        ],
+        "title": "TaskPageDTO",
+        "type": "object"
+      },
+      "TaskPageLaneDTO": {
+        "additionalProperties": false,
+        "description": "One lane of a grouped ``GET /api/tasks/page``: its key and how many tasks it holds after all filters. Titles are the client's (i18n, member names, manual names).",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "count"
+        ],
+        "title": "TaskPageLaneDTO",
+        "type": "object"
+      },
       "TaskCreateDTO": {
         "additionalProperties": false,
         "description": "Create one task (agent-side; MCP ``create_task``). With ``type_key`` the server derives the dedupe key from the manual's is_key fields over ``inputs`` and resolves the executor from the manual's assignee (staff → bound directly; outsource → unassigned, awaiting the scheduler); an unset manual assignee requires an explicit ``executor_member_id``. Without ``type_key`` (ad-hoc 自由代辦) ``executor_member_id`` is mandatory. A dedupe hit on a NON-terminal task answers 200 with a bounded receipt (T-91) identifying the EXISTING ticket it folded onto — ``task_id``, ``title``, ``status``, ``deduped: true`` — not the task in full; ``GET /api/tasks/{task_id}`` for the detail. ``task_no`` WAS in that list while the receipt carried it and came off at owner ruling rc-f1c0fd3cf124: T-5291 made it the identity function, so it repeated ``task_id`` byte for byte. Do not put it back. This field list is HAND-WRITTEN prose with no mechanical link to ``TaskCreateResultDTO``'s properties and no assertion holding the two together — read the schema before trusting it. Dedupe is the normal path, never an error. Caller authorization (正職授權矩陣, T-23cf): an outsource worker (kind=outsource) may NEVER create a task (403); a 發包 create (``target.kind=outsource`` or a manual outsource assignee) is open to any 正職, owner/admin included; a typed task the manual assigns to a member X may be created ONLY by X — owner/admin are NOT exempt (403 otherwise); an ad-hoc (or manual-assignee-less) task with a member executor may name only the caller itself, unless the caller is the owner or an admin agent — a 一般正職 pointing ``executor_member_id`` at another member is 403 (self, or a 發包, only). The authz gate precedes dedupe, so an unauthorized caller never receives the existing twin.",
@@ -23764,6 +23871,210 @@
           }
         },
         "summary": "Open task count (the tasks nav badge).",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/tasks/page": {
+      "get": {
+        "description": "- The 任務 page's list: ONE page of light rows plus everything the page used to compute from the whole list — the 負責人 option counts, the lanes with their counts, and the row total. The page never downloads the full status-filtered list.\n- Filters are ANDed. statuses / executors / types / due are each a SET: empty or absent = no constraint on that axis.\n- Order (also the cursor order): open tasks first by priority high, mid, low, frozen (an unknown priority ranks as low), newest created_ts first; then closed tasks, newest closed_ts first; final tie-break id ascending. Inside the overdue / soon / later lanes of group_by=due, due_ts ascending comes first, then the same order.\n- Due buckets are judged at the server's clock (`now` in the answer) with each task's own due_soon_lead_minutes, else the workspace task_due_soon_lead_minutes.\n- A cockpit read, not an agent tool: agents keep list_tasks (GET /api/tasks), which is unchanged.",
+        "operationId": "handle_list_task_page_api_tasks_page_get",
+        "parameters": [
+          {
+            "description": "REPEATABLE status set, the same vocabulary and rule as ``GET /api/tasks?statuses=``: the seven statuses plus ``reassigning``, which matches an OPEN task whose ``lock`` is ``reassigning``. Anything else is a 400 naming the value.",
+            "in": "query",
+            "name": "statuses",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Statuses",
+              "type": "array"
+            }
+          },
+          {
+            "description": "REPEATABLE executor set. ``outsource`` = an outsource task that has a worker (non-empty executor_id); ``unassigned`` = an outsource task with no worker yet; any other value is a member id and matches a STAFF task executed by that member. 🔴 These are the 任務 page's semantics, NOT ``GET /api/tasks?executor=``'s (there ``outsource`` also matches unassigned outsource tasks and an id matches either kind) — the two routes deliberately differ.",
+            "in": "query",
+            "name": "executors",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Executors",
+              "type": "array"
+            }
+          },
+          {
+            "description": "REPEATABLE task-type set: type_keys, plus ``adhoc`` for a task with no type (type_key \"\"). An unknown type_key is not an error — it simply matches nothing.",
+            "in": "query",
+            "name": "types",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Types",
+              "type": "array"
+            }
+          },
+          {
+            "description": "REPEATABLE due set, values ``overdue`` and ``soon`` (ORed). ``overdue`` = due_ts at or before now; ``soon`` = now < due_ts <= now + lead. A CLOSED task never matches either value, though group_by=due still files it under its date. Anything else is a 400 naming the value.",
+            "in": "query",
+            "name": "due",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Due",
+              "type": "array"
+            }
+          },
+          {
+            "description": "One exact task id. The answer holds that task if it exists AND passes every other filter, and nothing otherwise — an unknown id is an empty page, never a 404. Counts and lanes still describe the other filters (see ``executor_counts``).",
+            "in": "query",
+            "name": "id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Id"
+            }
+          },
+          {
+            "description": "Case-insensitive substring matched against the task id and the title (whitespace-trimmed; empty = no constraint). For pickers that search tasks, e.g. mark-duplicate.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "description": "``none`` (default), ``due``, ``priority``, ``executor``, ``type`` or ``status``. When not ``none`` the answer carries ``lanes`` and the rows are ONE lane's rows (see ``lane``). Anything else is a 400.",
+            "in": "query",
+            "name": "group_by",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Group By"
+            }
+          },
+          {
+            "description": "The lane whose rows to page, as a key from ``lanes``. Only with group_by other than ``none`` (otherwise 400). Absent = the first lane in ``lanes`` order, echoed back in ``lane``. A key that is not a lane under the current filters answers an empty page with ``total`` 0 (a lane can empty out between two asks), never a 400.",
+            "in": "query",
+            "name": "lane",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Lane"
+            }
+          },
+          {
+            "description": "Page size, 1 to 200; default 50. Outside that range is a 400.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque ``next_cursor`` from the previous page of the SAME query (same filters, group_by and lane). A cursor from a different query, or one that does not parse, is a 400 — never a silently restarted list. Rows written after the first page may be skipped or not shown until the list is asked again from the start; no row appears twice.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskPageDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "One page of the 任務 page's list, with its counts and lanes.",
         "x-mcp": {
           "include": false
         }

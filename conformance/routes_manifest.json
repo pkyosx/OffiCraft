@@ -960,6 +960,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/tasks/page",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "get_task",
     "method": "GET",
     "path": "/api/tasks/{task_id}",
