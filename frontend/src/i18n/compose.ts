@@ -86,6 +86,7 @@ export interface Messages {
   secretDeleteConfirmBody: (name: string) => string;
   sharedDocCopyId: (docId: string) => string;
   sharedDocDeleteConfirmBody: (name: string) => string;
+  sharedDocEditHint: () => string;
   sharedDocUpdated: (by: string, when: string) => string;
   sharedDocVersionLabel: (when: string) => string;
   sharedDocVersionBy: (actor: string) => string;
@@ -452,6 +453,8 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     sharedDocCopyId: (docId) => `${t.sharedDocs.copyIdLabel} ${docId}`,
     sharedDocDeleteConfirmBody: (name) =>
       `${t.sharedDocs.deleteConfirmLead}${name}${t.sharedDocs.deleteConfirmTail}`,
+    sharedDocEditHint: () =>
+      `${t.sharedDocs.editHintLead}${t.sharedDocs.uploadVersion}${t.sharedDocs.editHintTail}`,
     sharedDocUpdated: (by, when) => `${by} · ${when}`,
     sharedDocVersionLabel: (when) =>
       `${t.sharedDocs.versionsVersionLabel} ${when}`,

@@ -22,11 +22,11 @@ import {
   saveSharedDocText,
 } from "./SharedDocDetail";
 import { kindMismatchMessage, sharedDocKindForFile } from "./SharedDocFormDialog";
-import { InlineEdit } from "./InlineEdit";
 import { MarkdownPreviewOverlay, isMarkdownAttachment } from "./MarkdownPreviewOverlay";
 import {
   CheckIcon,
   CloseIcon,
+  DownloadIcon,
   ExternalLinkIcon,
   FileTextIcon,
   ImageIcon,
@@ -36,6 +36,7 @@ import {
   TrashIcon,
   UploadIcon,
 } from "./icons";
+import "./confirm-modal.css";
 import "./inline-edit.css";
 import "./lore.css";
 import "./md-preview.css";
@@ -130,59 +131,192 @@ function KindMedia({ doc }: { doc: SharedDocView }) {
 }
 
 /** The 檔案 cell: the name opens the content itself — a link in a new tab,
- * anything stored in the preview overlay. `nameEditor`/`urlEditor` replace the
- * name or the line under it while that field is being edited in place. */
+ * anything stored in the preview overlay — and the pencil after it opens the
+ * name/description dialog. */
 function FileBlock({
   doc,
   onPreview,
-  nameEditor,
-  urlEditor,
+  onEditInfo,
 }: {
   doc: SharedDocView;
   onPreview: (doc: SharedDocView) => void;
-  nameEditor?: ReactNode;
-  urlEditor?: ReactNode;
+  onEditInfo: (doc: SharedDocView) => void;
 }) {
-  const description = doc.description && (
-    <span className="shared-docs__file-description">{doc.description}</span>
-  );
+  const { t } = useI18n();
+  const d = t.sharedDocs;
   const title = doc.description ? `${doc.name}\n${doc.description}` : doc.name;
-  const text = (
-    <>
-      <span className="shared-docs__name">{doc.name}</span>
-      {description}
-    </>
-  );
+  const name = <span className="shared-docs__name">{doc.name}</span>;
+  const infoLabel = doc.kind === "link" ? d.editLink : d.editInfo;
   return (
     <div className="shared-docs__file" data-testid="shared-doc-name">
       <KindMedia doc={doc} />
-      {nameEditor || urlEditor ? (
-        <span className="shared-docs__file-text">
-          {nameEditor ?? <span className="shared-docs__name">{doc.name}</span>}
-          {urlEditor ?? description}
+      <span className="shared-docs__file-text">
+        <span className="shared-docs__name-line">
+          {doc.kind === "link" ? (
+            <a
+              className="shared-docs__file-open"
+              data-testid="shared-doc-open"
+              href={doc.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={title}
+            >
+              {name}
+            </a>
+          ) : (
+            <button
+              type="button"
+              className="shared-docs__file-open"
+              data-testid="shared-doc-open"
+              title={title}
+              onClick={() => onPreview(doc)}
+            >
+              {name}
+            </button>
+          )}
+          <button
+            type="button"
+            className="shared-docs__name-edit"
+            data-testid="shared-doc-edit-info"
+            aria-label={`${infoLabel} ${doc.name}`}
+            title={infoLabel}
+            onClick={() => onEditInfo(doc)}
+          >
+            <PencilIcon size={13} />
+          </button>
         </span>
-      ) : doc.kind === "link" ? (
-        <a
-          className="shared-docs__file-text shared-docs__file-open"
-          data-testid="shared-doc-open"
-          href={doc.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={title}
-        >
-          {text}
-        </a>
-      ) : (
-        <button
-          type="button"
-          className="shared-docs__file-text shared-docs__file-open"
-          data-testid="shared-doc-open"
-          title={title}
-          onClick={() => onPreview(doc)}
-        >
-          {text}
-        </button>
-      )}
+        {doc.description && <span className="shared-docs__file-description">{doc.description}</span>}
+      </span>
+    </div>
+  );
+}
+
+/** The pencil's dialog: name and description for every kind, plus the URL for
+ * a link. Only changed fields are sent, so a name or description change makes
+ * no new version and a URL change makes one, as the server already decides. */
+function SharedDocInfoDialog({
+  doc,
+  run,
+  onDone,
+  onCancel,
+}: {
+  doc: SharedDocView;
+  run: (action: () => Promise<unknown>) => Promise<string>;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const { t } = useI18n();
+  const d = t.sharedDocs;
+  const link = doc.kind === "link";
+  const [name, setName] = useState(doc.name);
+  const [description, setDescription] = useState(doc.description);
+  const [url, setUrl] = useState(doc.url);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEscapeLayer(() => {
+    if (!busy) onCancel();
+  }, rootRef);
+  // Read during the first render: the name field's autoFocus has already moved
+  // focus by the time an effect runs.
+  const opener = useRef(document.activeElement as HTMLElement | null);
+  useEffect(() => {
+    const target = opener.current;
+    return () => {
+      if (target && target.isConnected) target.focus();
+    };
+  }, []);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    const change: { name?: string; description?: string; url?: string } = {};
+    if (name.trim() !== doc.name) change.name = name.trim();
+    if (description.trim() !== doc.description) change.description = description.trim();
+    if (link && url.trim() !== doc.url) change.url = url.trim();
+    if (Object.keys(change).length === 0) {
+      onCancel();
+      return;
+    }
+    setBusy(true);
+    setError("");
+    const err = await run(() => api.replaceSharedDoc(doc.id, change));
+    setBusy(false);
+    if (err) {
+      setError(err);
+      return;
+    }
+    onDone();
+  }
+
+  return (
+    <div ref={rootRef} className="confirm-modal" role="dialog" aria-modal="true" aria-label={link ? d.editLink : d.editInfo}>
+      <form
+        className="confirm-modal__box shared-docs__form shared-docs__info-dialog"
+        data-testid="shared-doc-info-dialog"
+        onSubmit={submit}
+      >
+        <div className="secrets__form-title">{link ? d.editLink : d.editInfo}</div>
+        <label className="secrets__field">
+          <span className="secrets__label">{d.nameLabel}</span>
+          <input
+            className="secrets__input"
+            data-testid="shared-doc-info-name"
+            maxLength={NAME_MAX_CHARS}
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        <label className="secrets__field">
+          <span className="secrets__label">{d.descriptionLabel}</span>
+          <textarea
+            className="secrets__input secrets__textarea"
+            data-testid="shared-doc-info-description"
+            rows={2}
+            maxLength={1024}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
+        {link && (
+          <label className="secrets__field">
+            <span className="secrets__label">{d.urlLabel}</span>
+            <input
+              type="url"
+              className="secrets__input"
+              data-testid="shared-doc-info-url"
+              maxLength={2048}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+          </label>
+        )}
+        {error && (
+          <div className="confirm-modal__error" role="alert" data-testid="shared-doc-info-error">
+            {error}
+          </div>
+        )}
+        <div className="secrets__form-actions">
+          <button
+            type="button"
+            className="secrets__btn"
+            data-testid="shared-doc-info-cancel"
+            disabled={busy}
+            onClick={onCancel}
+          >
+            {d.cancel}
+          </button>
+          <button
+            type="submit"
+            className="secrets__btn secrets__submit"
+            data-testid="shared-doc-info-save"
+            disabled={busy}
+          >
+            {d.save}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -194,13 +328,15 @@ function SharedDocEditOverlay({
   title,
   onClose,
   onSaved,
+  onUploadVersion,
 }: {
   id: string;
   title: string;
   onClose: () => void;
   onSaved: () => void;
+  onUploadVersion: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, msg } = useI18n();
   const d = t.sharedDocs;
   const { doc, notFound, loadError } = useSharedDoc(id, d.loadFailed);
   const run = useSharedDocAction(d.actionFailed);
@@ -266,18 +402,37 @@ function SharedDocEditOverlay({
     );
   } else {
     body = (
-      <div className="shared-docs__overlay-notice">
-        <div className="shared-docs__notice" role="status" data-testid="shared-doc-edit-unavailable">
-          {doc.textOmitted === "too_large" ? d.tooLargeToEdit : d.editUnavailable}
+      <div className="shared-docs__empty-state">
+        <div className="shared-docs__empty-state-card" role="status" data-testid="shared-doc-edit-unavailable">
+          <span className="shared-docs__empty-state-icon">
+            <FileTextIcon size={26} />
+          </span>
+          <div className="shared-docs__empty-state-title">
+            {doc.textOmitted === "too_large" ? d.tooLargeToEdit : d.editUnavailable}
+          </div>
+          <div className="shared-docs__empty-state-meta">{doc.filename || doc.name}</div>
+          <div className="shared-docs__empty-state-meta">{msg.sharedDocEditHint()}</div>
+          <div className="shared-docs__empty-state-actions">
+            <a
+              className="secrets__btn secrets__submit shared-docs__bar-btn"
+              data-testid="shared-doc-download"
+              href={authedAttachmentUrl(doc.url)}
+              download={doc.filename || doc.name}
+            >
+              <DownloadIcon size={14} />
+              {d.download}
+            </a>
+            <button
+              type="button"
+              className="secrets__btn shared-docs__bar-btn"
+              data-testid="shared-doc-edit-upload"
+              onClick={onUploadVersion}
+            >
+              <UploadIcon size={14} />
+              {d.uploadVersion}
+            </button>
+          </div>
         </div>
-        <a
-          className="secrets__btn"
-          data-testid="shared-doc-download"
-          href={authedAttachmentUrl(doc.url)}
-          download={doc.filename || doc.name}
-        >
-          {d.download}
-        </a>
       </div>
     );
   }
@@ -338,44 +493,27 @@ function UpdatedButton({ text, onOpen }: { text: string; onOpen: () => void }) {
   );
 }
 
-/** 編輯 | 上傳新版本 | 永久刪除, in the same places on every row; the ones a
- * row's kind cannot use stay put, dimmed, with a tooltip saying why. */
+/** 上傳新版本 | 永久刪除, in the same places on every row; a link cannot take
+ * an upload, so its button stays put, dimmed, with a tooltip saying why. */
 function RowActions({
   doc,
   isOwner,
   busy,
-  onEdit,
   onUpload,
   onDelete,
 }: {
   doc: SharedDocView;
   isOwner: boolean;
   busy: boolean;
-  onEdit: () => void;
   onUpload: () => void;
   onDelete: () => void;
 }) {
   const { t } = useI18n();
   const d = t.sharedDocs;
   const link = doc.kind === "link";
-  const canEdit = link || textEditable(doc);
-  const editTitle = link ? d.editUrl : canEdit ? d.edit : d.editUnavailable;
   const uploadTitle = link ? d.uploadVersionUnavailable : d.uploadVersion;
   return (
     <span className="shared-docs__actions">
-      <button
-        type="button"
-        className="ts-icon-btn"
-        data-testid="shared-doc-edit"
-        aria-label={`${editTitle} ${doc.name}`}
-        aria-disabled={!canEdit || undefined}
-        title={editTitle}
-        onClick={() => {
-          if (canEdit) onEdit();
-        }}
-      >
-        <PencilIcon size={14} />
-      </button>
       <button
         type="button"
         className="ts-icon-btn"
@@ -535,8 +673,7 @@ function SharedDocList({
   const [addingLink, setAddingLink] = useState(false);
   const [actionError, setActionError] = useState("");
   const [uploading, setUploading] = useState<string[]>([]);
-  const [namingId, setNamingId] = useState<string | null>(null);
-  const [urlEditId, setUrlEditId] = useState<string | null>(null);
+  const [infoId, setInfoId] = useState<string | null>(null);
   const [preview, setPreview] = useState<SharedDocView | null>(null);
   const [editing, setEditing] = useState<SharedDocView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SharedDocView | null>(null);
@@ -546,6 +683,7 @@ function SharedDocList({
   const fileInput = useRef<HTMLInputElement>(null);
   const pickTarget = useRef<PickTarget>({ mode: "create" });
   const isOwner = viewerIsOwner();
+  const infoDoc = infoId === null ? undefined : docs.find((doc) => doc.id === infoId);
   const nowSecs = Math.floor(Date.now() / 1000);
 
   function pick(target: PickTarget) {
@@ -593,18 +731,7 @@ function SharedDocList({
       return;
     }
     await reload();
-    if (createdId) setNamingId(createdId);
-  }
-
-  async function write(action: () => Promise<unknown>): Promise<boolean> {
-    setActionError("");
-    const err = await run(action);
-    if (err) {
-      setActionError(err);
-      return false;
-    }
-    await reload();
-    return true;
+    if (createdId) setInfoId(createdId);
   }
 
   async function confirmDelete() {
@@ -724,32 +851,10 @@ function SharedDocList({
                     <FileBlock
                       doc={doc}
                       onPreview={setPreview}
-                      nameEditor={
-                        namingId === doc.id ? (
-                          <InlineEdit
-                            className="shared-docs__inline-field"
-                            value={doc.name}
-                            ariaLabel={d.rename}
-                            openOnMount
-                            maxLength={NAME_MAX_CHARS}
-                            onCommit={(name) => write(() => api.replaceSharedDoc(doc.id, { name }))}
-                            onClose={() => setNamingId(null)}
-                          />
-                        ) : undefined
-                      }
-                      urlEditor={
-                        urlEditId === doc.id ? (
-                          <InlineEdit
-                            className="shared-docs__inline-field"
-                            value={doc.url}
-                            ariaLabel={d.editUrl}
-                            openOnMount
-                            maxLength={2048}
-                            onCommit={(url) => write(() => api.replaceSharedDoc(doc.id, { url }))}
-                            onClose={() => setUrlEditId(null)}
-                          />
-                        ) : undefined
-                      }
+                      onEditInfo={(target) => {
+                        setActionError("");
+                        setInfoId(target.id);
+                      }}
                     />
                   </td>
                   <td className="shared-docs__updated">
@@ -763,14 +868,6 @@ function SharedDocList({
                       doc={doc}
                       isOwner={isOwner}
                       busy={uploading.includes(doc.id)}
-                      onEdit={() => {
-                        if (doc.kind === "link") {
-                          setActionError("");
-                          setUrlEditId(doc.id);
-                        } else {
-                          setEditing(doc);
-                        }
-                      }}
                       onUpload={() => pick({ mode: "replace", doc })}
                       onDelete={() => {
                         setDeleteError("");
@@ -810,6 +907,22 @@ function SharedDocList({
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            void reload();
+          }}
+          onUploadVersion={() => {
+            setEditing(null);
+            pick({ mode: "replace", doc: editing });
+          }}
+        />
+      )}
+      {infoDoc && (
+        <SharedDocInfoDialog
+          key={infoDoc.id}
+          doc={infoDoc}
+          run={run}
+          onCancel={() => setInfoId(null)}
+          onDone={() => {
+            setInfoId(null);
             void reload();
           }}
         />
