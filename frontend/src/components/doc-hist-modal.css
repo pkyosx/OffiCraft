@@ -130,10 +130,6 @@
   text-transform: uppercase;
   color: var(--color-text-muted);
 }
-.doc-hist-modal__md {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
 .doc-hist-modal__notice,
 .doc-hist-modal__diff-note {
   margin: 0;

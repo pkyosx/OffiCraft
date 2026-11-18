@@ -88,8 +88,6 @@ export interface Messages {
   sharedDocDeleteConfirmBody: (name: string) => string;
   sharedDocEditHint: () => string;
   sharedDocUpdated: (by: string, when: string) => string;
-  sharedDocVersionLabel: (when: string) => string;
-  sharedDocVersionBy: (actor: string) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
   groupHeading: (name: string, count: number) => string;
@@ -456,9 +454,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     sharedDocEditHint: () =>
       `${t.sharedDocs.editHintLead}${t.sharedDocs.uploadVersion}${t.sharedDocs.editHintTail}`,
     sharedDocUpdated: (by, when) => `${by} · ${when}`,
-    sharedDocVersionLabel: (when) =>
-      `${t.sharedDocs.versionsVersionLabel} ${when}`,
-    sharedDocVersionBy: (actor) => `${t.sharedDocs.versionsByLabel} ${actor}`,
 
     // The outsource identity label has ONE source of the word 外包 now: the
     // section title. It used to have two (a title leaf and an identically

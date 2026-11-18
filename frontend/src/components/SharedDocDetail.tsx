@@ -393,11 +393,8 @@ export function SharedDocDetail({
         <SharedDocVersionsModal
           docId={doc.id}
           actorName={actorName}
-          run={run}
-          onClose={() => {
-            setVersionsOpen(false);
-            void reload();
-          }}
+          onRestored={() => void reload()}
+          onClose={() => setVersionsOpen(false)}
         />
       )}
     </div>

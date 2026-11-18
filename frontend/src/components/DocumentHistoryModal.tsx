@@ -37,19 +37,16 @@
 // both dialogs open; and a revision the server would refuse on size is inert
 // here too — marked, told why, and its control dead.
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useI18n } from "../i18n";
 import type { DocumentKind } from "../types";
 import { capForKind, docCapBlockedFields } from "../api/docCap";
 import type { DocCaps } from "../api/docCap";
-import { ApiError } from "../api/errors";
 import { comparedFieldNames, documentFields } from "../lib/docHistoryFields";
 import { formatAbsolute } from "../lib/dateFormat";
-import { useEscapeLayer } from "../lib/useEscapeLayer";
-import { ConfirmModal } from "./ConfirmModal";
+import { ContentView } from "./ContentView";
 import { DiffView } from "./DiffView";
-import { Markdown } from "./Markdown";
-import { CloseIcon } from "./icons";
+import { HistoryReaderWindow, type HistoryPane } from "./HistoryWindow";
 // Its own shell sheet, plus settings.css for the two SHARED atoms it wears —
 // `.doc-btn` (the cockpit's document button) and `.set-badge`. Importing the
 // sheet whose classes it draws with is the rule styleOwnership.test.ts exists
@@ -58,7 +55,7 @@ import { CloseIcon } from "./icons";
 import "./doc-hist-modal.css";
 import "./settings.css";
 
-type Pane = "content" | "diff";
+type Pane = HistoryPane;
 
 export function DocumentHistoryModal({
   kind,
@@ -143,19 +140,6 @@ export function DocumentHistoryModal({
 }) {
   const { t, msg } = useI18n();
   const [pane, setPane] = useState<Pane>("content");
-  const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [restoreError, setRestoreError] = useState<string | null>(null);
-
-  // Esc closes — as a LAYER, so the confirm dialog rendered inside this root
-  // takes the key while it is open and this surface only sees it once that
-  // dialog is gone. While a restore is in flight the key is swallowed: a
-  // committed destructive action must not lose its dialog mid-request.
-  const rootRef = useRef<HTMLDivElement>(null);
-  useEscapeLayer(() => {
-    if (!busy) onClose();
-  }, rootRef);
-
   const when = formatAbsolute(createdTs, Date.now() / 1000);
   /** What the diff's `-` side is called, and what the confirmation names. The
    * seed has no timestamp to name it by — 預設內容 IS its name. */
@@ -201,163 +185,34 @@ export function DocumentHistoryModal({
     ? t.settings.historyModalDefaultContent
     : t.settings.historyModalEmpty;
 
-  async function commitRestore() {
-    setBusy(true);
-    setRestoreError(null);
-    try {
-      await onRestore();
-      setConfirming(false);
-      onClose();
-    } catch (e) {
-      // The server's own message when it has one (404 pruned id / 400 size
-      // cap); the generic line otherwise. BOTH dialogs stay open — closing the
-      // reader on a failed restore would take the reason with it.
-      setRestoreError(
-        e instanceof ApiError && e.serverMessage
-          ? e.serverMessage
-          : t.settings.historyRestoreError
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <div
-      ref={rootRef}
-      className="doc-hist-modal"
-      data-testid="doc-history-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-label={t.settings.historyTitle}
-      onClick={() => {
-        if (!busy && !confirming) onClose();
-      }}
-    >
-      <div
-        className="doc-hist-modal__panel"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="doc-hist-modal__header">
+    <HistoryReaderWindow
+      ident={
+        <>
           {/* WHICH version this is — the timestamp and the actor, the same two
-            * facts the row carries, so the modal is never an anonymous body of
+            * facts the row carries, so the reader is never an anonymous body of
             * text the reader has to trace back to a row. The SEED has neither:
             * nobody wrote it and it has no time, so it is named instead of being
             * given a fabricated 修改者 line. */}
-          <div className="doc-hist-modal__ident">
-            <span className="doc-hist-modal__when">
-              {seed ? t.settings.historySeedTitle : when}
+          <span className="doc-hist-modal__when">
+            {seed ? t.settings.historySeedTitle : when}
+          </span>
+          {!seed && (
+            <span className="doc-hist-modal__actor">
+              {t.settings.historyByLabel} {actorLine}
             </span>
-            {!seed && (
-              <span className="doc-hist-modal__actor">
-                {t.settings.historyByLabel} {actorLine}
-              </span>
-            )}
-            {blocked && (
-              <span className="set-badge set-badge--blocked">
-                {t.settings.historyBlockedBadge}
-              </span>
-            )}
-          </div>
-          <div className="doc-hist-modal__actions">
-            <div
-              className="doc-hist-modal__tabs"
-              role="group"
-              aria-label={t.settings.historyPaneLabel}
-            >
-              {(["content", "diff"] as Pane[]).map((which) => (
-                <button
-                  key={which}
-                  type="button"
-                  className={`doc-hist-modal__tab${pane === which ? " doc-hist-modal__tab--on" : ""}`}
-                  data-testid={`doc-history-pane-${which}`}
-                  aria-pressed={pane === which}
-                  onClick={() => setPane(which)}
-                >
-                  {which === "content"
-                    ? t.settings.historyPaneContent
-                    : t.settings.historyPaneDiff}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="doc-hist-modal__close"
-              data-testid="doc-history-modal-close"
-              aria-label={t.settings.historyClose}
-              onClick={onClose}
-            >
-              <CloseIcon size={16} />
-            </button>
-          </div>
-        </div>
-
-        <div className="doc-hist-modal__body" data-pane={pane}>
-          {/* The default's content did not load. Saying 「這個版本沒有內容」 here
-            * would be a different — and false — claim, so both panes say what
-            * actually happened and the footer's restore stays live. */}
-          {contentUnreadable ? (
-            <p className="doc-hist-modal__notice" data-testid={unreadableTestId}>
-              {unreadableNotice}
-            </p>
-          ) : pane === "content" ? (
-            fields.length === 0 ? (
-              <p className="doc-hist-modal__notice">{emptyNotice}</p>
-            ) : (
-              fields.map(([name, value]) => (
-                <section className="doc-hist-modal__field" key={name}>
-                  {/* A single-field kind (SOP, 判準, 全域情境) needs no
-                    * label — the modal's own document IS that field. A kind
-                    * that carries several keeps them named and apart. */}
-                  {fields.length > 1 && (
-                    <h3 className="doc-hist-modal__field-name">
-                      {fieldLabel(name)}
-                    </h3>
-                  )}
-                  <Markdown
-                    source={value}
-                    className="doc-hist-modal__md doc-md"
-                  />
-                </section>
-              ))
-            )
-          ) : currentContent === undefined ? (
-            <p
-              className="doc-hist-modal__notice"
-              data-testid="doc-history-diff-pending"
-            >
-              {t.settings.historyDiffPending}
-            </p>
-          ) : (
-            <>
-              <p className="doc-hist-modal__diff-note">
-                {t.settings.historyDiffNote}
-              </p>
-              {compared.length === 0 ? (
-                <p className="doc-hist-modal__notice">{emptyNotice}</p>
-              ) : (
-                compared.map((name) => (
-                  <section className="doc-hist-modal__field" key={name}>
-                    {compared.length > 1 && (
-                      <h3 className="doc-hist-modal__field-name">
-                        {fieldLabel(name)}
-                      </h3>
-                    )}
-                    <DiffView
-                      before={content[name] ?? ""}
-                      after={currentContent[name] ?? ""}
-                      beforeLabel={versionLabel}
-                      afterLabel={t.settings.historyCurrentLabel}
-                      testId={`doc-history-diff-${name}`}
-                    />
-                  </section>
-                ))
-              )}
-            </>
           )}
-        </div>
-
-        {blocked && (
+          {blocked && (
+            <span className="set-badge set-badge--blocked">
+              {t.settings.historyBlockedBadge}
+            </span>
+          )}
+        </>
+      }
+      pane={pane}
+      onPane={setPane}
+      belowBody={
+        blocked && (
           <div
             className="doc-hist-modal__blocked"
             data-testid="doc-history-modal-blocked"
@@ -367,63 +222,70 @@ export function DocumentHistoryModal({
               (docCaps && capForKind(kind, docCaps)) ?? 0
             )}
           </div>
-        )}
-
-        <div className="doc-hist-modal__footer">
-          {onBack && (
-            <button
-              type="button"
-              className="doc-btn doc-hist-modal__back"
-              data-testid="doc-history-modal-back"
-              onClick={onBack}
-            >
-              {t.settings.historyBack}
-            </button>
+        )
+      }
+      onBack={onBack}
+      onClose={onClose}
+      restore={{
+        label: seed ? t.settings.historySeedRestore : t.settings.historyRestore,
+        disabled: blocked,
+        confirmBody,
+        confirmLabel: seed
+          ? t.settings.historySeedConfirmAction
+          : t.settings.historyRestoreConfirmAction,
+        run: onRestore,
+      }}
+    >
+      {/* The default's content did not load. Saying 「這個版本沒有內容」 here
+        * would be a different — and false — claim, so both panes say what
+        * actually happened and the footer's restore stays live. */}
+      {contentUnreadable ? (
+        <p className="doc-hist-modal__notice" data-testid={unreadableTestId}>
+          {unreadableNotice}
+        </p>
+      ) : pane === "content" ? (
+        fields.length === 0 ? (
+          <p className="doc-hist-modal__notice">{emptyNotice}</p>
+        ) : (
+          fields.map(([name, value]) => (
+            <section className="doc-hist-modal__field" key={name}>
+              {/* A single-field kind (SOP, 判準, 全域情境) needs no label —
+                * the modal's own document IS that field. A kind that carries
+                * several keeps them named and apart. */}
+              {fields.length > 1 && (
+                <h3 className="doc-hist-modal__field-name">{fieldLabel(name)}</h3>
+              )}
+              <ContentView kind="markdown" text={value} />
+            </section>
+          ))
+        )
+      ) : currentContent === undefined ? (
+        <p className="doc-hist-modal__notice" data-testid="doc-history-diff-pending">
+          {t.settings.historyDiffPending}
+        </p>
+      ) : (
+        <>
+          <p className="doc-hist-modal__diff-note">{t.settings.historyDiffNote}</p>
+          {compared.length === 0 ? (
+            <p className="doc-hist-modal__notice">{emptyNotice}</p>
+          ) : (
+            compared.map((name) => (
+              <section className="doc-hist-modal__field" key={name}>
+                {compared.length > 1 && (
+                  <h3 className="doc-hist-modal__field-name">{fieldLabel(name)}</h3>
+                )}
+                <DiffView
+                  before={content[name] ?? ""}
+                  after={currentContent[name] ?? ""}
+                  beforeLabel={versionLabel}
+                  afterLabel={t.settings.historyCurrentLabel}
+                  testId={`doc-history-diff-${name}`}
+                />
+              </section>
+            ))
           )}
-          <button
-            type="button"
-            className="doc-btn"
-            data-testid="doc-history-modal-close-footer"
-            onClick={onClose}
-          >
-            {t.settings.historyClose}
-          </button>
-          <button
-            type="button"
-            className="doc-btn doc-hist-modal__restore"
-            data-testid="doc-history-modal-restore"
-            disabled={blocked}
-            onClick={() => {
-              setConfirming(true);
-              setRestoreError(null);
-            }}
-          >
-            {seed ? t.settings.historySeedRestore : t.settings.historyRestore}
-          </button>
-        </div>
-      </div>
-
-      {confirming && (
-        <ConfirmModal
-          testId="doc-history-restore-confirm"
-          confirmTestId="doc-history-restore-confirm-btn"
-          danger
-          body={confirmBody}
-          error={restoreError}
-          busy={busy}
-          cancelLabel={t.settings.cancel}
-          confirmLabel={
-            seed
-              ? t.settings.historySeedConfirmAction
-              : t.settings.historyRestoreConfirmAction
-          }
-          onCancel={() => {
-            setConfirming(false);
-            setRestoreError(null);
-          }}
-          onConfirm={() => void commitRestore()}
-        />
+        </>
       )}
-    </div>
+    </HistoryReaderWindow>
   );
 }

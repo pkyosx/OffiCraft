@@ -1,76 +1,48 @@
-// SharedDocVersionsModal — 版本紀錄 of one shared document. Same shell as
-// TaskArtifactVersionsModal (version list left, 內容 / 差異 right, 差異 only when
-// both sides read as text), plus 「還原這一版」 acting on the selected version.
+// SharedDocVersionsModal — 版本紀錄 of one 檔案庫 document, in the same window
+// the documents' own history uses (HistoryWindow): a list of the retained
+// versions, then one version read on its own — its content by default, the
+// line diff against the current file one toggle away, and 還原 behind a
+// destructive confirmation.
 //
-// The current side is read from the server when the modal opens, together with
-// the list, so a diff never compares against a page that went stale.
+// What "content" and "diff" mean follows the document's kind: a text file is
+// drawn through ContentView and diffed as text; an image has no diff, only the
+// picture; a link shows the version's URL beside the current one.
+//
+// The current side is read from the server when the window opens, together
+// with the list, so a diff never compares against a page that went stale.
 
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import type { SharedDocDetailView, SharedDocVersionView } from "../types";
 import { formatAbsolute } from "../lib/dateFormat";
-import { useEscapeLayer } from "../lib/useEscapeLayer";
+import { useVersionPayload } from "../hooks/useVersionPayload";
 import { DiffView } from "./DiffView";
-import { CloseIcon } from "./icons";
-import {
-  loadArtifactPayload,
-  type ArtifactPayload,
-} from "./TaskArtifactVersionsModal";
+import { HistoryListWindow, HistoryReaderWindow, type HistoryPane } from "./HistoryWindow";
+import { VersionContent } from "./VersionContent";
+import "./doc-hist-modal.css";
+import "./settings.css";
 import "./task-artifact-versions.css";
-
-type Pane = "content" | "diff";
-
-function usePayload(
-  kind: SharedDocVersionView["kind"] | undefined,
-  url: string | undefined,
-  name: string,
-): ArtifactPayload {
-  const [payload, setPayload] = useState<ArtifactPayload>({ state: "loading" });
-  useEffect(() => {
-    if (kind === undefined || url === undefined) {
-      setPayload({ state: "loading" });
-      return;
-    }
-    let alive = true;
-    setPayload({ state: "loading" });
-    loadArtifactPayload(kind, url, name)
-      .then((p) => {
-        if (alive) setPayload(p);
-      })
-      .catch((e) => {
-        if (alive) setPayload({ state: "error" });
-        console.warn("SharedDocVersionsModal: content read failed", e);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [kind, url, name]);
-  return payload;
-}
 
 export function SharedDocVersionsModal({
   docId,
   actorName,
-  run,
+  onRestored,
   onClose,
 }: {
   docId: string;
   actorName: (id: string) => string;
-  run: (action: () => Promise<unknown>) => Promise<string>;
+  onRestored: () => void;
   onClose: () => void;
 }) {
   const { t, msg } = useI18n();
   const d = t.sharedDocs;
+  const s = t.settings;
   const [versions, setVersions] = useState<SharedDocVersionView[] | null>(null);
   const [current, setCurrent] = useState<SharedDocDetailView | null>(null);
   const [failed, setFailed] = useState(false);
-  const [selected, setSelected] = useState<number | "current" | null>(null);
-  const [pane, setPane] = useState<Pane>("content");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [nonce, setNonce] = useState(0);
+  const [reading, setReading] = useState<SharedDocVersionView | null>(null);
+  const [pane, setPane] = useState<HistoryPane>("content");
   const nowTs = Date.now() / 1000;
 
   useEffect(() => {
@@ -80,7 +52,6 @@ export function SharedDocVersionsModal({
         if (!alive) return;
         setVersions(list);
         setCurrent(doc);
-        setSelected(list.length > 0 ? list[0]!.id : "current");
       })
       .catch((e) => {
         if (alive) setFailed(true);
@@ -89,221 +60,156 @@ export function SharedDocVersionsModal({
     return () => {
       alive = false;
     };
-  }, [docId, nonce]);
+  }, [docId]);
 
-  const rootRef = useRef<HTMLDivElement>(null);
-  useEscapeLayer(onClose, rootRef);
-
-  const selectedVersion =
-    typeof selected === "number"
-      ? (versions?.find((v) => v.id === selected) ?? null)
-      : null;
-  const shown = selected === "current" ? current : selectedVersion;
-  const selectedPayload = usePayload(
-    shown?.kind,
-    shown?.url,
-    shown ? shown.filename || shown.name : "",
+  const readingPayload = useVersionPayload(
+    reading?.kind,
+    reading?.url,
+    reading ? reading.filename || reading.name : "",
+    "SharedDocVersionsModal",
   );
-  const currentPayload = usePayload(
-    current?.kind,
+  const currentPayload = useVersionPayload(
+    reading && current ? current.kind : undefined,
     current?.url,
     current ? current.filename || current.name : "",
+    "SharedDocVersionsModal",
   );
-  const diffable =
-    selected !== "current" &&
-    selectedPayload.state === "text" &&
-    currentPayload.state === "text";
+  const diffable = readingPayload.state === "text" && currentPayload.state === "text";
   useEffect(() => {
     if (!diffable) setPane("content");
   }, [diffable]);
 
-  const canRestore = selectedVersion !== null && current !== null;
+  const byLine = (id: string) => `${s.historyByLabel} ${actorName(id)}`;
+  const title = current ? `${current.name} · ${d.versions}` : d.versions;
 
-  async function restore() {
-    if (!selectedVersion || busy) return;
-    setBusy(true);
-    setError("");
-    const err = await run(() =>
-      api.restoreSharedDocVersion(docId, selectedVersion.id),
-    );
-    setBusy(false);
-    if (err) {
-      setError(err);
-      return;
-    }
-    setVersions(null);
-    setSelected(null);
-    setNonce((n) => n + 1);
-  }
-
-  function payloadBlock(p: ArtifactPayload) {
-    switch (p.state) {
-      case "loading":
-        return <p className="ta-versions__notice">{d.versionsLoading}</p>;
-      case "error":
-      case "gone":
-        return <p className="ta-versions__notice">{d.versionsLoadError}</p>;
-      case "opaque":
-        return <p className="ta-versions__notice">{d.binary}</p>;
-      case "link":
-        return (
-          <a
-            className="ta-versions__url"
-            href={p.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {p.url}
-          </a>
-        );
-      case "image":
-        return <img className="ta-versions__image" src={p.src} alt="" />;
-      case "text":
-        return (
-          <pre className="ta-versions__text" data-testid="sd-versions-text">
-            {p.text}
-          </pre>
-        );
-    }
-  }
-
-  function body() {
-    if (failed) {
-      return <p className="ta-versions__notice">{d.versionsLoadError}</p>;
-    }
-    if (versions === null || selected === null) {
-      return <p className="ta-versions__notice">{d.versionsLoading}</p>;
-    }
-    if (pane === "diff" && selectedVersion && diffable) {
-      if (selectedPayload.state !== "text" || currentPayload.state !== "text") {
-        return null;
-      }
-      return (
-        <DiffView
-          before={selectedPayload.text}
-          after={currentPayload.text}
-          beforeLabel={msg.sharedDocVersionLabel(
-            formatAbsolute(selectedVersion.createdTs, nowTs),
-          )}
-          afterLabel={d.versionsCurrent}
-          testId="sd-versions-diff"
-        />
-      );
-    }
-    return payloadBlock(selectedPayload);
-  }
-
-  return createPortal(
-    <div
-      ref={rootRef}
-      className="ta-versions"
-      data-testid="sd-versions-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-label={d.versions}
-      onClick={onClose}
-    >
-      <div className="ta-versions__panel" onClick={(e) => e.stopPropagation()}>
-        <div className="ta-versions__header">
-          <span className="ta-versions__title">
-            {current ? `${d.versions} · ${current.name}` : d.versions}
-          </span>
-          <div className="ta-versions__actions">
-            {diffable && (
-              <div
-                className="ta-versions__tabs"
-                role="group"
-                aria-label={d.versionsPaneLabel}
-              >
-                {(["content", "diff"] as Pane[]).map((which) => (
-                  <button
-                    key={which}
-                    type="button"
-                    className={`ta-versions__tab${pane === which ? " ta-versions__tab--on" : ""}`}
-                    data-testid={`sd-versions-pane-${which}`}
-                    aria-pressed={pane === which}
-                    onClick={() => setPane(which)}
-                  >
-                    {which === "content" ? d.versionsPaneContent : d.versionsPaneDiff}
-                  </button>
-                ))}
-              </div>
-            )}
-            {canRestore && (
-              <button
-                type="button"
-                className="ta-versions__tab"
-                data-testid="sd-versions-restore"
-                disabled={busy}
-                onClick={() => void restore()}
-              >
-                {d.restore}
-              </button>
-            )}
-            <button
-              type="button"
-              className="ta-versions__close"
-              aria-label={d.versionsClose}
-              onClick={onClose}
-            >
-              <CloseIcon size={16} />
-            </button>
+  if (reading === null) {
+    return (
+      <HistoryListWindow title={title} note={d.versionsNote} onClose={onClose}>
+        {failed ? (
+          <div className="set-error">{d.versionsLoadError}</div>
+        ) : versions === null ? (
+          <div className="doc-hist__empty">{d.versionsLoading}</div>
+        ) : versions.length === 0 ? (
+          <div className="doc-hist__empty" data-testid="sd-versions-empty">
+            {d.versionsEmpty}
           </div>
-        </div>
-        {error && (
-          <p className="ta-versions__notice" role="alert" data-testid="sd-versions-error">
-            {error}
-          </p>
-        )}
-        <div className="ta-versions__split">
-          <ul className="ta-versions__list" data-testid="sd-versions-list">
-            {current && (
-              <li>
-                <button
-                  type="button"
-                  className={`ta-versions__row${selected === "current" ? " ta-versions__row--on" : ""}`}
-                  data-testid="sd-versions-row-current"
-                  aria-pressed={selected === "current"}
-                  onClick={() => setSelected("current")}
+        ) : (
+          <ul className="doc-hist__list" data-testid="sd-versions-list">
+            {versions.map((v) => (
+              <li className="doc-hist__item" key={v.id}>
+                <div
+                  className="doc-hist__row"
+                  data-testid={`sd-versions-open-${v.id}`}
+                  role="button"
+                  tabIndex={0}
+                  title={s.historyOpen}
+                  onClick={() => setReading(v)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setReading(v);
+                    }
+                  }}
                 >
-                  <span className="ta-versions__row-name">{d.versionsCurrent}</span>
-                  <span className="ta-versions__row-meta">
-                    {formatAbsolute(current.updatedTs, nowTs)} ·{" "}
-                    {msg.sharedDocVersionBy(actorName(current.updatedBy))}
-                  </span>
-                </button>
-              </li>
-            )}
-            {(versions ?? []).map((v) => (
-              <li key={v.id}>
-                <button
-                  type="button"
-                  className={`ta-versions__row${selected === v.id ? " ta-versions__row--on" : ""}`}
-                  data-testid={`sd-versions-row-${v.id}`}
-                  aria-pressed={selected === v.id}
-                  onClick={() => setSelected(v.id)}
-                >
-                  <span className="ta-versions__row-name">
-                    {formatAbsolute(v.createdTs, nowTs)}
-                  </span>
-                  <span className="ta-versions__row-meta">
-                    {msg.sharedDocVersionBy(actorName(v.createdBy))}
-                  </span>
-                </button>
+                  <div className="doc-hist__meta">
+                    <span className="doc-hist__when">{formatAbsolute(v.createdTs, nowTs)}</span>
+                    <span className="doc-hist__actor">{byLine(v.createdBy)}</span>
+                    {v.kind !== "link" && current && v.filename && v.filename !== current.filename && (
+                      <span className="doc-hist__actor">{v.filename}</span>
+                    )}
+                    <span className="doc-hist__open">{s.historyOpen}</span>
+                  </div>
+                  {v.kind === "link" && <div className="doc-hist__empty">{v.url}</div>}
+                </div>
               </li>
             ))}
-            {versions !== null && versions.length === 0 && (
-              <li className="ta-versions__notice" data-testid="sd-versions-empty">
-                {d.versionsEmpty}
-              </li>
-            )}
           </ul>
-          <div className="ta-versions__body" data-pane={pane}>
-            {body()}
-          </div>
+        )}
+      </HistoryListWindow>
+    );
+  }
+
+  const when = formatAbsolute(reading.createdTs, nowTs);
+  const versionLabel = msg.docHistoryVersionLabel(when);
+
+  let body;
+  if (reading.kind === "link") {
+    body = (
+      <div className="ta-versions__urls" data-testid="sd-versions-urls">
+        <div className="ta-versions__url-row">
+          <span className="ta-versions__url-side">{versionLabel}</span>
+          <a className="ta-versions__url" href={reading.url} target="_blank" rel="noopener noreferrer">
+            {reading.url}
+          </a>
+        </div>
+        <div className="ta-versions__url-row">
+          <span className="ta-versions__url-side">{d.versionsCurrentUrl}</span>
+          {current && (
+            <a className="ta-versions__url" href={current.url} target="_blank" rel="noopener noreferrer">
+              {current.url}
+            </a>
+          )}
         </div>
       </div>
-    </div>,
-    document.body,
+    );
+  } else if (pane === "diff" && readingPayload.state === "text" && currentPayload.state === "text") {
+    body = (
+      <>
+        <p className="doc-hist-modal__diff-note">{s.historyDiffNote}</p>
+        <DiffView
+          before={readingPayload.text}
+          after={currentPayload.text}
+          beforeLabel={versionLabel}
+          afterLabel={s.historyCurrentLabel}
+          testId="sd-versions-diff"
+        />
+      </>
+    );
+  } else {
+    body = (
+      <>
+        <VersionContent
+          payload={readingPayload}
+          notices={{
+            loading: s.historyLoading,
+            error: s.historyVersionUnreadable,
+            gone: s.historyVersionUnreadable,
+            opaque: () => d.binary,
+          }}
+          noticeClassName="doc-hist-modal__notice"
+          label={reading.filename || reading.name}
+          testId="sd-versions-content"
+        />
+        {reading.kind === "image" && reading.filename && (
+          <p className="doc-hist-modal__notice">{reading.filename}</p>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <HistoryReaderWindow
+      ident={
+        <>
+          <span className="doc-hist-modal__when">{when}</span>
+          <span className="doc-hist-modal__actor">{byLine(reading.createdBy)}</span>
+        </>
+      }
+      pane={diffable ? pane : undefined}
+      onPane={setPane}
+      onBack={() => setReading(null)}
+      onClose={onClose}
+      restore={{
+        label: s.historyRestore,
+        confirmBody: msg.docHistoryRestoreConfirm(when),
+        confirmLabel: s.historyRestoreConfirmAction,
+        run: async () => {
+          await api.restoreSharedDocVersion(docId, reading.id);
+          onRestored();
+        },
+      }}
+    >
+      {body}
+    </HistoryReaderWindow>
   );
 }
