@@ -2540,10 +2540,15 @@ export interface Api {
    * browser. Pass the 狀態 dropdown's set verbatim, `reassigning` included (the
    * server matches that one against the handover lock, the same rule the
    * client-side predicate uses). An empty/omitted set means no constraint.
+   *
+   * `opts.ids` sends one repeated `?ids=` per task id, ANDed with the other
+   * filters: a named task that no longer matches them (or no longer exists) is
+   * simply absent. At most 200 per call — the server answers 400 above that.
    */
   listTasks(opts?: {
     open?: boolean;
     statuses?: string[];
+    ids?: string[];
   }): Promise<TaskView[]>;
   /**
    * Fetch ONE task's FULL detail (`GET /api/tasks/{id}`): steps, description

@@ -17,7 +17,9 @@ paths:
 
 ## 任務清單與錨點
 
-useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選仍在前端。清除狀態篩選才送空集合，代表使用者要完整清單。不要為 dependencies 再拉全歷史，也不要把每個 task SSE 變成全歷史下載。
+useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選仍在前端。清除狀態篩選才送空集合，代表使用者要完整清單。不要為 dependencies 再拉全歷史，也不要把每個 task SSE 變成全歷史下載：task delta 只用 `?ids=` 重讀被點名的列，member delta 只刷新外包名冊、不讀任務清單；清單讀取同時最多一支在飛，期間來的 delta 合併成一支後續讀取。
+
+任務頁每份清單（不分組的整份，或每個展開的 lane）先畫 50 張卡，捲到接近底部再多畫 50 張（scroll 事件，不用 IntersectionObserver：jsdom 沒有幾何）。篩選選項、負責人計數與 lane 計數仍讀完整抓回來的清單，只有畫卡被截；換篩選或分組依據就回到 50。
 
 跳到 #tasks/<id> 時，清單仍保留原篩選，另以 GET /api/tasks/{id} 補單張錨點。anchor id 是 effect 的參數；anchorPending 在補抓落定前擋住兩個空狀態，否則還在路上的那張會被說成不存在。
 

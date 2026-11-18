@@ -5503,9 +5503,12 @@ type HandleListTasksApiTasksGetParams struct {
 
 	// Statuses REPEATABLE status set (``?statuses=not_started&statuses=in_progress``) — the cockpit asks for exactly the states the owner ticked instead of downloading the whole archive and filtering in the browser (T-a3e4). A task matches when its ``status`` is in the set OR when the set contains ``reassigning`` and the task's ``lock`` is ``reassigning`` — the set vocabulary is the COCKPIT's 狀態 dropdown, which lists reassigning as a row even though T-9ca5 moved it from status to the orthogonal ``lock``. Accepted values: the seven statuses plus ``reassigning``; anything else is a 400. Absent or empty = no constraint. Deliberately a SECOND parameter rather than a widened ``?status=``: ``status=`` is frozen wire that REJECTS ``reassigning`` with a 400 and matches the literal column only, so teaching the set semantics to that name would change what a live client already sends. Both may be given — they are ANDed, as is ``open=true``. additive-optional.
 	Statuses *[]string `form:"statuses,omitempty" json:"statuses,omitempty"`
-	Status   *string   `form:"status,omitempty" json:"status,omitempty"`
-	Type     *string   `form:"type,omitempty" json:"type,omitempty"`
-	Open     *string   `form:"open,omitempty" json:"open,omitempty"`
+
+	// Ids REPEATABLE task-id set (``?ids=T-12&ids=T-40``): only those tasks, in the same light row shape. An id that does not exist is simply absent from the answer, never a 400 — the caller learns it is gone by its absence. ANDed with every other filter, so a client refreshing a few changed rows of a filtered view gets each one only if it still belongs there. Absent or empty = no constraint. additive-optional.
+	Ids    *[]string `form:"ids,omitempty" json:"ids,omitempty"`
+	Status *string   `form:"status,omitempty" json:"status,omitempty"`
+	Type   *string   `form:"type,omitempty" json:"type,omitempty"`
+	Open   *string   `form:"open,omitempty" json:"open,omitempty"`
 }
 
 // HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPostParams defines parameters for HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifactIdReplaceUploadPost.
@@ -10934,6 +10937,19 @@ func (siw *ServerInterfaceWrapper) HandleListTasksApiTasksGet(w http.ResponseWri
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "statuses"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "statuses", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "ids" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ids", r.URL.Query(), &params.Ids, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ids"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ids", Err: err})
 		}
 		return
 	}

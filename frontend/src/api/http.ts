@@ -1850,6 +1850,7 @@ export const httpApi: Api = {
   async listTasks(opts?: {
     open?: boolean;
     statuses?: string[];
+    ids?: string[];
   }): Promise<TaskView[]> {
     // GET /api/tasks -> TaskListItemDTO[] (LIGHT: no steps/description/inputs).
     // ?open=true (T-2b9d) drops the terminal rows server-side for the default
@@ -1860,11 +1861,12 @@ export const httpApi: Api = {
     // filtering a full download. An EMPTY set is omitted entirely: it means
     // 所有狀態, and sending nothing is exactly that. A card hydrates its heavy
     // detail on expand via getTask.
-    const query: { open?: string; statuses?: string[] } = {};
+    const query: { open?: string; statuses?: string[]; ids?: string[] } = {};
     if (opts?.open) query.open = "true";
     if (opts?.statuses && opts.statuses.length > 0) {
       query.statuses = opts.statuses;
     }
+    if (opts?.ids && opts.ids.length > 0) query.ids = opts.ids;
     const wire = unwrap(await client.GET("/api/tasks", { params: { query } }));
     return wire.map(toTaskListItem);
   },

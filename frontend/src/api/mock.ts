@@ -4541,6 +4541,7 @@ const mockApiImpl = {
   async listTasks(opts?: {
     open?: boolean;
     statuses?: string[];
+    ids?: string[];
   }): Promise<TaskView[]> {
     // The LIGHT list (mirrors GET /api/tasks — partitioning / ordering /
     // filtering are the FE's). Strip the heavy steps/description the real light
@@ -4554,7 +4555,16 @@ const mockApiImpl = {
     // never the status column. Getting that wrong here would let a mock-backed
     // test go green against a server that hides every 轉派中 row.
     const wanted = new Set(opts?.statuses ?? []);
+    const named = new Set(opts?.ids ?? []);
+    if (named.size > 200) {
+      throw mockApiError(
+        "http 400 for /api/tasks",
+        400,
+        `ids may name at most 200 tasks — got ${named.size}`
+      );
+    }
     const rows = tasks.filter((t) => {
+      if (named.size > 0 && !named.has(t.id)) return false;
       if (opts?.open && TERMINAL_TASK_STATUSES.has(t.status)) return false;
       if (wanted.size === 0) return true;
       if (wanted.has(t.status)) return true;

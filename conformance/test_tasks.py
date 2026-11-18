@@ -959,6 +959,27 @@ def test_status_set_returns_exactly_those_states(client, owner_token, executor):
     assert live["id"] not in both and fresh["id"] not in both
 
 
+def test_id_set_returns_the_named_tasks_that_still_match_the_other_filters(
+        client, owner_token, executor):
+    live = _create_task(client, executor, title="ids live")["task"]
+    closed = _create_task(client, executor, title="ids closed")["task"]
+    assert client.post(f"/api/tasks/{closed['id']}/mark-terminated",
+                       headers=_auth(owner_token)).status_code == 200
+    _create_task(client, executor, title="ids not asked")
+
+    r = client.get("/api/tasks",
+                   params={"ids": [live["id"], closed["id"], "T-does-not-exist"],
+                           "statuses": ["not_started"]},
+                   headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+    assert [t["id"] for t in r.json()] == [live["id"]]
+
+    r = client.get("/api/tasks", params={"ids": [f"T-{n}" for n in range(201)]},
+                   headers=_auth(owner_token))
+    assert r.status_code == 400, r.text
+    assert r.json()["error"]["message"] == "ids may name at most 200 tasks — got 201"
+
+
 def test_dep_tasks_names_a_blocker_the_status_filter_excluded(
         client, owner_token, executor):
     """Every light row carries dep_tasks: each dep resolved SERVER-SIDE to the

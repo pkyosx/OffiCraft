@@ -14,14 +14,19 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
+import type { SseDelta, TaskView } from "../api/adapter";
 
 const h = vi.hoisted(() => ({
   listTasks: vi.fn<
-    (opts?: { open?: boolean; statuses?: string[] }) => Promise<unknown[]>
+    (opts?: {
+      open?: boolean;
+      statuses?: string[];
+      ids?: string[];
+    }) => Promise<unknown[]>
   >(),
   listOutsourceWorkers: vi.fn<() => Promise<unknown[]>>(),
   listTaskTypes: vi.fn<() => Promise<unknown[]>>(),
-  sseHandler: null as ((topic: string) => void) | null,
+  sseHandler: null as ((topic: string, delta?: SseDelta) => void) | null,
 }));
 
 vi.mock("../api", () => ({
@@ -29,7 +34,7 @@ vi.mock("../api", () => ({
     listTasks: h.listTasks,
     listOutsourceWorkers: h.listOutsourceWorkers,
     listTaskTypes: h.listTaskTypes,
-    subscribeEvents: (cb: (topic: string) => void) => {
+    subscribeEvents: (cb: (topic: string, delta?: SseDelta) => void) => {
       h.sseHandler = cb;
       return () => {
         h.sseHandler = null;
@@ -54,6 +59,14 @@ beforeEach(() => {
   h.listTaskTypes.mockReset().mockResolvedValue([]);
   h.sseHandler = null;
 });
+
+function row(id: string, status = "in_progress", deps: string[] = []): TaskView {
+  return { id, status, title: id, deps } as unknown as TaskView;
+}
+
+function taskDelta(...ids: string[]): SseDelta {
+  return { topic: "task", names: { id: ids[0] }, ids };
+}
 
 function statusesOf(call: number): string[] | undefined {
   return h.listTasks.mock.calls[call][0]?.statuses;
@@ -111,6 +124,88 @@ describe("useTasks (T-a3e4)", () => {
     expect(
       h.listTasks.mock.calls.every((c) => c[0]?.statuses !== undefined)
     ).toBe(true);
+  });
+
+  it("a task delta naming tasks → one ids ask (named + held dependents) ANDed with the set; rows replaced, inserted and dropped", async () => {
+    h.listTasks.mockResolvedValueOnce([
+      row("t-a"),
+      row("t-b"),
+      row("t-c", "in_progress", ["t-a"]),
+      row("t-d"),
+    ]);
+    const { result } = renderHook(() => useTasks(NON_TERMINAL));
+    await waitFor(() => expect(result.current.tasks).toHaveLength(4));
+
+    h.listTasks.mockResolvedValueOnce([
+      { ...row("t-c", "in_progress", ["t-a"]), title: "t-c renamed" },
+      row("t-new"),
+    ]);
+    act(() => h.sseHandler?.("task", taskDelta("t-a", "t-b", "t-new")));
+    await waitFor(() => expect(result.current.tasks).toHaveLength(3));
+
+    expect(h.listTasks.mock.calls[1][0]).toEqual({
+      statuses: [...NON_TERMINAL].sort(),
+      ids: ["t-a", "t-b", "t-new", "t-c"],
+    });
+    expect(result.current.tasks.map((t) => [t.id, t.title])).toEqual([
+      ["t-c", "t-c renamed"],
+      ["t-d", "t-d"],
+      ["t-new", "t-new"],
+    ]);
+    expect(h.listOutsourceWorkers).toHaveBeenCalledTimes(1);
+  });
+
+  it("a task delta naming more than 200 tasks → asks in chunks of at most 200", async () => {
+    renderHook(() => useTasks(NON_TERMINAL));
+    await waitFor(() => expect(h.listTasks).toHaveBeenCalledTimes(1));
+    const ids = Array.from({ length: 450 }, (_, i) => `t-${i}`);
+
+    act(() => h.sseHandler?.("task", taskDelta(...ids)));
+    await waitFor(() => expect(h.listTasks).toHaveBeenCalledTimes(4));
+
+    expect(h.listTasks.mock.calls.slice(1).map((c) => c[0]?.ids)).toEqual([
+      ids.slice(0, 200),
+      ids.slice(200, 400),
+      ids.slice(400),
+    ]);
+  });
+
+  it("task deltas arriving while a list read is in flight → no second concurrent read, then ONE follow-up asking for all of them", async () => {
+    renderHook(() => useTasks(NON_TERMINAL));
+    await waitFor(() => expect(h.listTasks).toHaveBeenCalledTimes(1));
+    let land!: (rows: unknown[]) => void;
+    h.listTasks.mockImplementationOnce(
+      () => new Promise((resolve) => (land = resolve))
+    );
+
+    act(() => h.sseHandler?.("task", taskDelta("t-1")));
+    await waitFor(() => expect(h.listTasks).toHaveBeenCalledTimes(2));
+    act(() => h.sseHandler?.("task", taskDelta("t-2")));
+    await Promise.resolve();
+    act(() => h.sseHandler?.("task", taskDelta("t-3")));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.listTasks).toHaveBeenCalledTimes(2);
+
+    await act(async () => land([]));
+    await waitFor(() => expect(h.listTasks).toHaveBeenCalledTimes(3));
+    expect(h.listTasks.mock.calls.map((c) => c[0]?.ids)).toEqual([
+      undefined,
+      ["t-1"],
+      ["t-2", "t-3"],
+    ]);
+  });
+
+  it("a member delta → refreshes the worker roster and reads no task list", async () => {
+    const { result } = renderHook(() => useTasks(NON_TERMINAL));
+    await waitFor(() => expect(h.listOutsourceWorkers).toHaveBeenCalledTimes(1));
+    h.listOutsourceWorkers.mockResolvedValueOnce([{ id: "ow-9" }]);
+
+    act(() =>
+      h.sseHandler?.("member", { topic: "member", names: { id: "ow-9" }, ids: ["ow-9"] })
+    );
+    await waitFor(() => expect(result.current.workers).toEqual([{ id: "ow-9" }]));
+
+    expect(h.listTasks).toHaveBeenCalledTimes(1);
   });
 
   it("an equal-but-new array does not re-fire the fetch", async () => {

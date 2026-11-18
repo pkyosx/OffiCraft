@@ -1,24 +1,21 @@
-// hooks/useTasks.ts — the 任務頁's data: the full task list + the live
-// outsource-worker roster + the task-type list, kept fresh the same way as
-// useReplyCards. Reconcile-by-refetch (contract B): a "task" SSE delta (create
-// / plan / status / priority / terminate, from ANY entry point) → REFETCH the
-// list, never merge an event payload; "member" refreshes the worker roster
-// (assignment / release) and "task_manual" the type-filter options. The
-// owner actions (terminate / priority / reassign / message) also refetch
-// directly so the mock behaves identically.
+// hooks/useTasks.ts — the 任務頁's data: the task list + the live
+// outsource-worker roster + the task-type list. Reconcile-by-refetch: an SSE
+// delta is a reason to re-read, never a payload to merge. A "task" delta re-reads
+// only the rows it named (plus held rows whose dep join shows a named task)
+// through `?ids=`; one that names nothing re-reads the whole list. "member"
+// refreshes the worker roster only — it cannot change a task row — and
+// "task_manual" the type-filter options. Owner actions re-read the task they
+// wrote the same way.
 //
-// T-a3e4: the list is fetched by STATUS SET (`setStatuses`), not by a boolean
-// "also include closed". The page hands down what its 狀態 dropdown has ticked
-// and the server answers with those rows only, so an SSE-triggered refetch
-// costs the ~20 rows on screen instead of the whole task history. `interface
-// UseTasks` documents why the boolean had to go rather than be extended.
+// The list is fetched by STATUS SET (`setStatuses`): the page hands down what its
+// 狀態 dropdown has ticked and the server answers with those rows only.
 //
 // A #tasks/<id> link-jump does NOT widen that ask. `anchorTaskId` fetches
 // exactly that one task (GET /api/tasks/{id}) and MERGES it into `tasks` — see
 // the anchor block below for why "just drop the status constraint" was the
 // wrong shape for a one-row need.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   TaskView,
   TaskMessageInput,
@@ -30,9 +27,19 @@ import { api } from "../api";
 import { ApiError } from "../api/errors";
 import { createDeltaSink } from "../lib/deltaSink";
 
+/** The server's cap on one `?ids=` ask. */
+const LIST_IDS_MAX = 200;
+
+interface ListAsk {
+  full: boolean;
+  ids: Set<string>;
+  waiters: { resolve: () => void; reject: (e: unknown) => void }[];
+}
+
 interface UseTasks {
-  /** The tasks the LAST fetch asked for — every status when no set was given,
-   * otherwise exactly the ticked ones (T-a3e4) — PLUS the single anchored task
+  /** The tasks in the current status set (every status when no set was given),
+   * as the last full read left them with each later `?ids=` re-read applied —
+   * PLUS the single anchored task
    * when one was asked for and the status ask did not already contain it. Still
    * unordered/unpartitioned: the page partitions + orders, and applies the
    * executor/type axes, which stay client-side (they are not what made this
@@ -151,17 +158,100 @@ export function useTasks(
     );
   }, []);
 
-  const refetch = useCallback(async () => {
-    const [t, w] = await Promise.all([
-      api.listTasks(
-        statusKey === undefined ? undefined : { statuses: statusKey.split(",") }
-      ),
-      api.listOutsourceWorkers(),
-    ]);
-    setTasks(t);
-    setWorkers(w);
-    setError(false);
-  }, [statusKey]);
+  const statusKeyRef = useRef(statusKey);
+  statusKeyRef.current = statusKey;
+  const heldRef = useRef<TaskView[]>([]);
+  // At most one list read in flight; asks that arrive meanwhile are folded into
+  // `next` and served by ONE follow-up, which is sent after them and so can
+  // carry what they reported.
+  const loaderRef = useRef<{ busy: boolean; next: ListAsk | null }>({
+    busy: false,
+    next: null,
+  });
+
+  const runAsk = useCallback(async (ask: ListAsk) => {
+    const key = statusKeyRef.current;
+    const statuses = key === undefined ? undefined : key.split(",");
+    if (ask.full) {
+      const [t, w] = await Promise.all([
+        api.listTasks(statuses === undefined ? undefined : { statuses }),
+        api.listOutsourceWorkers(),
+      ]);
+      heldRef.current = t;
+      setTasks(t);
+      setWorkers(w);
+      setError(false);
+      return;
+    }
+    const asked = [...ask.ids];
+    const chunks: string[][] = [];
+    for (let i = 0; i < asked.length; i += LIST_IDS_MAX) {
+      chunks.push(asked.slice(i, i + LIST_IDS_MAX));
+    }
+    const answers = await Promise.all(
+      chunks.map((ids) =>
+        api.listTasks(statuses === undefined ? { ids } : { statuses, ids })
+      )
+    );
+    const fresh = new Map(answers.flat().map((t) => [t.id, t]));
+    const next: TaskView[] = [];
+    for (const t of heldRef.current) {
+      if (!ask.ids.has(t.id)) next.push(t);
+      else if (fresh.has(t.id)) {
+        next.push(fresh.get(t.id)!);
+        fresh.delete(t.id);
+      }
+    }
+    next.push(...fresh.values());
+    heldRef.current = next;
+    setTasks(next);
+  }, []);
+
+  const askList = useCallback(
+    (what: "full" | Iterable<string>): Promise<void> =>
+      new Promise((resolve, reject) => {
+        const l = loaderRef.current;
+        const ask = (l.next ??= { full: false, ids: new Set(), waiters: [] });
+        if (what === "full") ask.full = true;
+        else for (const id of what) ask.ids.add(id);
+        ask.waiters.push({ resolve, reject });
+        if (l.busy) return;
+        l.busy = true;
+        void (async () => {
+          try {
+            while (l.next) {
+              const job = l.next;
+              l.next = null;
+              try {
+                await runAsk(job);
+                for (const w of job.waiters) w.resolve();
+              } catch (e) {
+                for (const w of job.waiters) w.reject(e);
+              }
+            }
+          } finally {
+            l.busy = false;
+          }
+        })();
+      }),
+    [runAsk]
+  );
+
+  // The named tasks plus every held row whose dep join names one of them: that
+  // join (title/status of the blocker) lives only on the list row, so the
+  // blocker changing is a change to the dependent's row too.
+  const refreshTasks = useCallback(
+    (ids: Iterable<string>) => {
+      const named = new Set(ids);
+      for (const t of heldRef.current) {
+        if (t.deps.some((d) => named.has(d))) named.add(t.id);
+      }
+      return askList(named);
+    },
+    [askList]
+  );
+
+  const refetch = useCallback(() => askList("full"), [askList]);
 
   const refetchTypes = useCallback(async () => {
     setTaskTypes(await api.listTaskTypes());
@@ -240,31 +330,24 @@ export function useTasks(
 
   useEffect(() => {
     let alive = true;
-
-    Promise.all([refetch(), refetchTypes()])
+    refetch()
       .catch((e) => {
-        console.warn("useTasks: initial load failed", e);
+        console.warn("useTasks: list load failed", e);
         if (alive) setError(true);
       })
       .finally(() => {
         if (alive) setLoading(false);
       });
+    return () => {
+      alive = false;
+    };
+  }, [statusKey, refetch]);
 
-    // 🔴 NO per-task refetch here, and the reason is a wire fact, not a
-    // preference: `GET /api/tasks/{id}` carries no `dep_tasks`. The frozen spec
-    // puts that server-side dep join on `TaskListItemDTO` ONLY (see
-    // api/dtoParity.ts), and `TaskCard` renders "nobody resolved this dep"
-    // differently from "查無此任務" on purpose — so swapping a list row for a
-    // full task would silently degrade every dep row on that card to a bare
-    // short id (T-a3e4's 「已結案的 dep 仍講得出標題」 lost). Re-pulling the list
-    // is ONE GET either way; only the payload is bigger.
-    //
-    // What T-8115 still buys here is the COALESCING below: a resync fans 13
-    // topics synchronously and three of them land in this hook, which used to be
-    // two identical list re-pulls plus a types re-pull for one reconnect.
-    const full = () =>
-      refetch().catch((e) => console.warn("useTasks: SSE refetch failed", e));
-
+  useEffect(() => {
+    refetchTypes().catch((e) => {
+      console.warn("useTasks: types load failed", e);
+      setError(true);
+    });
     const unsubscribe = api.subscribeEvents(
       createDeltaSink((batch) => {
         if (batch.topics.has("task_manual")) {
@@ -272,19 +355,29 @@ export function useTasks(
             console.warn("useTasks: SSE types refetch failed", e)
           );
         }
-        const listTopics = [...batch.topics].filter(
-          (t) => t === "task" || t === "member"
-        );
-        if (listTopics.length === 0) return;
-        void full();
+        const taskDeltas = batch.deltas.filter((d) => d.topic === "task");
+        const arrivedWithoutDelta =
+          batch.unnamed && !batch.deltas.some((d) => d.ids.length === 0);
+        const full =
+          batch.topics.has("task") &&
+          (arrivedWithoutDelta ||
+            taskDeltas.length === 0 ||
+            taskDeltas.some((d) => d.ids.length === 0));
+        if (batch.topics.has("member") && !full) {
+          api
+            .listOutsourceWorkers()
+            .then(setWorkers)
+            .catch((e) => console.warn("useTasks: SSE workers refetch failed", e));
+        }
+        if (!batch.topics.has("task")) return;
+        const read = full
+          ? refetch()
+          : refreshTasks(taskDeltas.flatMap((d) => d.ids));
+        read.catch((e) => console.warn("useTasks: SSE refetch failed", e));
       })
     );
-
-    return () => {
-      alive = false;
-      unsubscribe();
-    };
-  }, [refetch, refetchTypes]);
+    return unsubscribe;
+  }, [refetch, refetchTypes, refreshTasks]);
 
   const terminate = useCallback(
     async (id: string) => {
@@ -292,7 +385,7 @@ export function useTasks(
       // The task is terminated; the list re-read only decides when the card
       // catches up. Its failure is not the termination's failure.
       try {
-        await refetch();
+        await refreshTasks([id]);
       } catch (e) {
         console.warn(
           "useTasks: post-terminate refetch failed (the task was terminated)",
@@ -300,14 +393,14 @@ export function useTasks(
         );
       }
     },
-    [refetch]
+    [refreshTasks]
   );
 
   const forceDone = useCallback(
     async (id: string, reason: string) => {
       await api.forceTaskDone(id, reason);
       try {
-        await refetch();
+        await refreshTasks([id]);
       } catch (e) {
         console.warn(
           "useTasks: post-force-done refetch failed (the task was closed)",
@@ -315,7 +408,7 @@ export function useTasks(
         );
       }
     },
-    [refetch]
+    [refreshTasks]
   );
 
   const markDuplicate = useCallback(
@@ -323,7 +416,7 @@ export function useTasks(
       await api.markTaskDuplicate(id, duplicateOf);
       // The duplicate mark is written — the list read that follows is separate.
       try {
-        await refetch();
+        await refreshTasks([id, duplicateOf]);
       } catch (e) {
         console.warn(
           "useTasks: post-mark-duplicate refetch failed (the task was marked)",
@@ -331,7 +424,7 @@ export function useTasks(
         );
       }
     },
-    [refetch]
+    [refreshTasks]
   );
 
   const setPriority = useCallback(
@@ -339,7 +432,7 @@ export function useTasks(
       await api.setTaskPriority(id, priority);
       // Priority is written; a failed list read must not read as a refused change.
       try {
-        await refetch();
+        await refreshTasks([id]);
       } catch (e) {
         console.warn(
           "useTasks: post-priority refetch failed (the priority was set)",
@@ -347,7 +440,7 @@ export function useTasks(
         );
       }
     },
-    [refetch]
+    [refreshTasks]
   );
 
   const setDue = useCallback(
@@ -355,12 +448,12 @@ export function useTasks(
       if (leadMinutes === undefined) await api.setTaskDue(id, dueTs);
       else await api.setTaskDue(id, dueTs, leadMinutes);
       try {
-        await refetch();
+        await refreshTasks([id]);
       } catch (e) {
         console.warn("useTasks: post-due refetch failed (the due date was set)", e);
       }
     },
-    [refetch]
+    [refreshTasks]
   );
 
   const updateDescription = useCallback(
@@ -369,7 +462,7 @@ export function useTasks(
       // The description is stored. Rejecting on the re-read here sends the editor
       // back into edit mode holding text the server already has.
       try {
-        await refetch();
+        await refreshTasks([id]);
       } catch (e) {
         console.warn(
           "useTasks: post-description refetch failed (the description was saved)",
@@ -377,7 +470,7 @@ export function useTasks(
         );
       }
     },
-    [refetch]
+    [refreshTasks]
   );
 
   const updateTitle = useCallback(
@@ -385,7 +478,7 @@ export function useTasks(
       await api.updateTaskTitle(id, title);
       // Same for the title: saved above, re-read below, two verdicts.
       try {
-        await refetch();
+        await refreshTasks([id]);
       } catch (e) {
         console.warn(
           "useTasks: post-title refetch failed (the title was saved)",
@@ -393,7 +486,7 @@ export function useTasks(
         );
       }
     },
-    [refetch]
+    [refreshTasks]
   );
 
   const reassign = useCallback(
@@ -402,7 +495,11 @@ export function useTasks(
       // The reassign has happened — a failed list read would otherwise invite the
       // owner to reassign the same task a second time.
       try {
-        await refetch();
+        const [, w] = await Promise.all([
+          refreshTasks([id]),
+          api.listOutsourceWorkers(),
+        ]);
+        setWorkers(w);
       } catch (e) {
         console.warn(
           "useTasks: post-reassign refetch failed (the task was reassigned)",
@@ -410,7 +507,7 @@ export function useTasks(
         );
       }
     },
-    [refetch]
+    [refreshTasks]
   );
 
   const sendMessage = useCallback(
@@ -427,7 +524,7 @@ export function useTasks(
       await api.removeTaskArtifact(taskId, artifactId);
       // The artifact is gone from the task whatever the list read does.
       try {
-        await refetch();
+        await refreshTasks([taskId]);
       } catch (e) {
         console.warn(
           "useTasks: post-remove-artifact refetch failed (the artifact was removed)",
@@ -435,7 +532,7 @@ export function useTasks(
         );
       }
     },
-    [refetch]
+    [refreshTasks]
   );
 
   return {

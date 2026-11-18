@@ -33,13 +33,13 @@ downlink 只有一條、且是 module-level singleton。瀏覽器只會自己重
 
 **連線健康度要 publish 給 UI**（`Api.subscribeConnection`）。整個座艙都是 delta 驅動的，所以「連線死掉」跟「今天很安靜」在畫面上長得一模一樣；靜默自癒等於把一個看得見的停頓換成一個看不見的洞。mock 沒有 transport 可以掉，只回一次 `live`。
 
-deltaSink 每個 burst 只做一次同步決策；coalesce 留在決策層，不要跨 tick debounce。narrowToHeld 的語意固定為：null = 全量、非空 = 指定項目、空集合 = 只指向其他項目。task topic 仍需全量，因為清單可能新增列；chat、chat_read、roster 在沒有持有項目時可跳過。
+deltaSink 每個 burst 只做一次同步決策；coalesce 留在決策層，不要跨 tick debounce。narrowToHeld 的語意固定為：null = 全量、非空 = 指定項目、空集合 = 只指向其他項目。task topic 不走 narrowToHeld：清單可能新增列，所以 useTasks 把 delta 點名的 id（加上依賴列顯示了它們的持有列）連同目前的狀態集合一起送 `GET /api/tasks?ids=`，回來的列取代或插入、問了卻沒回的列移除；沒點名任何 id 的 delta 才全量。chat、chat_read、roster 在沒有持有項目時可跳過。
 
 只有在單筆回應是清單列的真正 superset 時才可 per-item：
 
 - outsource worker 可按單筆更新，但 owner-unread 述詞要判斷是否真的可能改變；移動到 owner 才需要刷新。
 - member 可按單筆更新，且要保留 server unread count；一次事件超過一個 id 就全量。
-- task 不可按單筆更新：清單列有 dep_tasks，TaskDTO 沒有；TaskCard 的依賴 chip 以清單列為準。
+- task 不可用單筆 `GET /api/tasks/{id}` 更新：清單列有 dep_tasks，TaskDTO 沒有；TaskCard 的依賴 chip 以清單列為準。按 id 重讀一律走清單端點的 `?ids=`。
 - useChatUnread 只代表總聊天未讀；只有 chat 與 chat_read 都無持有項目時可跳過，其餘 topic 仍全量。
 
 GET /api/chat 在任何路徑都不會前進 watermark（T-48 owner 裁定：標已讀要由明確表達該意圖的 API 做，改為 POST /api/chat/mark-read；原本用來閃避這個副作用的 peek 參數同批刪除）；chat 用 from/to 判斷 peer，chat_read 用 reader 判斷 peer。沒有 peer 名稱時走全量路徑。

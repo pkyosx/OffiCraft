@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2689,6 +2690,67 @@ func TestHandleListTasksApiTasksGet(t *testing.T) {
 		if body := rec.Body.String(); body != "[]\n" && body != "[]" {
 			t.Fatalf("want an empty list for a state nothing is in, got %q", body)
 		}
+	})
+
+	t.Run("?ids= ANDed with ?statuses= answers only the named tasks still in those states and leaves unknown ids out", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"One","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Two","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Three","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-2/mark-terminated", owner, "")
+
+		rec := apiRequest(t, h, "GET",
+			"/api/tasks?ids=T-1&ids=T-2&ids=T-99&statuses=not_started", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var named any
+		if err := json.Unmarshal(rec.Body.Bytes(), &named); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", named, []any{map[string]any{
+			"id":                    "T-1",
+			"task_no":               "T-1",
+			"type_key":              "",
+			"title":                 "One",
+			"dedupe_key":            "",
+			"duplicate_of":          "",
+			"status":                "not_started",
+			"lock":                  "",
+			"priority":              "mid",
+			"executor_kind":         "staff",
+			"executor_id":           "kip",
+			"creator_id":            "owner",
+			"reassigned_from":       "",
+			"reassigned_from_kind":  "",
+			"waiting_reason":        "",
+			"created_ts":            apiAnyNumber,
+			"updated_ts":            apiAnyNumber,
+			"closed_ts":             nil,
+			"due_ts":                nil,
+			"due_soon_lead_minutes": nil,
+			"deps":                  []any{},
+			"dep_tasks":             []any{},
+			"progress_done":         0,
+			"progress_total":        0,
+			"current_step_id":       "",
+			"current_step_name":     "",
+			"artifact_count":        0,
+		}})
+	})
+
+	t.Run("?ids= naming more than 200 tasks answers 400 with the count", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		q := make([]string, 201)
+		for i := range q {
+			q[i] = "ids=T-" + strconv.Itoa(i+1)
+		}
+
+		status, data := apiJSON(t, h, "GET", "/api/tasks?"+strings.Join(q, "&"), owner, "")
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "ids may name at most 200 tasks — got 201")
 	})
 
 	t.Run("?executor= keeps only the tasks that member executes", func(t *testing.T) {

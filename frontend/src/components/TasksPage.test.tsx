@@ -397,6 +397,64 @@ describe("TasksPage", () => {
     expect(queryByText("還在跑")).toBeNull();
   });
 
+  it("with 120 closed tasks ticked → renders the first 50 cards, 50 more each time the list is scrolled near its bottom, while the 負責人 count still counts all 121", async () => {
+    const now = Date.now() / 1000;
+    __injectMockTask(mkTask({ title: "還在跑的" }));
+    for (let i = 0; i < 120; i += 1) {
+      __injectMockTask(
+        mkTask({ title: `做完的 ${i}`, status: "done", closedTs: now - 1000 + i })
+      );
+    }
+    const { findByTestId } = renderPage();
+    await findByTestId("task-card");
+    toggleFilter("filter-status", "done");
+    await waitForListedCards(50);
+
+    const titles = () =>
+      [...document.querySelectorAll('[data-testid="task-list"] .task-card__title')].map(
+        (el) => el.textContent
+      );
+    expect(titles().slice(0, 3)).toEqual(["還在跑的", "做完的 119", "做完的 118"]);
+    expect(titles().at(-1)).toBe("做完的 71");
+    fireEvent.click(await findByTestId("filter-executor"));
+    expect(
+      document.querySelector('[data-testid="filter-executor-count-mira"]')?.textContent
+    ).toBe("121");
+
+    const scroller = document.querySelector<HTMLElement>(".tasks")!;
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 5000 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 800 });
+    scroller.scrollTop = 1000;
+    fireEvent.scroll(scroller);
+    expect(titles()).toHaveLength(50);
+
+    scroller.scrollTop = 4100;
+    fireEvent.scroll(scroller);
+    await waitForListedCards(100);
+    fireEvent.scroll(scroller);
+    await waitForListedCards(121);
+    expect(titles().at(-1)).toBe("做完的 0");
+  });
+
+  it("grouped, an open lane holding 120 closed tasks → renders its first 50 cards while its header counts 120", async () => {
+    const now = Date.now() / 1000;
+    for (let i = 0; i < 120; i += 1) {
+      __injectMockTask(
+        mkTask({ title: `做完的 ${i}`, status: "done", closedTs: now - 1000 + i })
+      );
+    }
+    renderPage();
+    chooseGroupBy("status");
+    toggleFilter("filter-status", "done");
+    await expandLane("done", 120);
+
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-testid="lane-done"] [data-testid="task-card"]'))
+        .toHaveLength(50)
+    );
+    expect(laneCount("done")).toBe(" · 120");
+  });
+
   it("multi-selects executor / type / status; emptying every axis shows 顯示全部; no-match empty state", async () => {
     __injectMockTaskType({ typeKey: "review-pr", displayName: "", purpose: "" });
     __injectMockTask(

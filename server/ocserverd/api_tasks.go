@@ -748,6 +748,12 @@ func (s *apiServer) HandleListTasksApiTasksGet(w http.ResponseWriter, r *http.Re
 				badStatus+"'")
 		return
 	}
+	idSet := parseTaskIDSet(params.Ids)
+	if len(idSet) > taskListMaxIDs {
+		writeError(w, http.StatusBadRequest,
+			"ids may name at most "+strconv.Itoa(taskListMaxIDs)+" tasks — got "+strconv.Itoa(len(idSet)))
+		return
+	}
 	executor := trimmedOrEmpty(params.Executor)
 	typeKey := trimmedOrEmpty(params.Type)
 	openOnly := trimmedOrEmpty(params.Open) == "true"
@@ -782,6 +788,9 @@ func (s *apiServer) HandleListTasksApiTasksGet(w http.ResponseWriter, r *http.Re
 	}
 	out := []taskListItemDTO{}
 	for _, t := range tasks {
+		if len(idSet) > 0 && !idSet[t.ID] {
+			continue
+		}
 		if openOnly && TaskIsTerminal(t.Status) {
 			continue
 		}
@@ -815,6 +824,22 @@ func (s *apiServer) HandleListTasksApiTasksGet(w http.ResponseWriter, r *http.Re
 			currentByTask[t.ID]))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// taskListMaxIDs mirrors the spec's maxItems on ?ids=.
+const taskListMaxIDs = 200
+
+func parseTaskIDSet(raw *[]string) map[string]bool {
+	if raw == nil {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, v := range *raw {
+		if v = strings.TrimSpace(v); v != "" {
+			set[v] = true
+		}
+	}
+	return set
 }
 
 func parseTaskStatusSet(raw *[]string) (set map[string]bool, badStatus string) {

@@ -31,7 +31,7 @@
 // The 30s ticking clock drives every card's 已歷時 / step 耗時 counters (same
 // cadence as RepliesPage's 已等你).
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { useNowSeconds } from "../hooks/useNowSeconds";
@@ -98,6 +98,12 @@ const GROUP_BY_OPTIONS = ["none", "due", "priority", "executor", "type", "status
 type GroupBy = (typeof GROUP_BY_OPTIONS)[number];
 
 const GROUP_BY_KEY = "oc_tasks_group_by";
+
+// Cards rendered per list (the flat list, or each open lane) before the reader
+// scrolls near the bottom; every card is a heavy component, and the closed
+// archive runs to thousands. Filters and counts still read every fetched row.
+const RENDER_STEP = 50;
+const NEAR_BOTTOM_PX = 120;
 
 interface Lane {
   key: string;
@@ -717,6 +723,41 @@ export function TasksPage() {
     none: undefined,
   }[groupBy];
 
+  const windowKey = [
+    groupBy,
+    appliedId,
+    ...[appliedExecutor, appliedType, appliedStatus, appliedDue].map((set) =>
+      [...set].sort().join(",")
+    ),
+  ].join("|");
+  const [renderLimit, setRenderLimit] = useState(RENDER_STEP);
+  const [renderLimitKey, setRenderLimitKey] = useState(windowKey);
+  if (renderLimitKey !== windowKey) {
+    setRenderLimitKey(windowKey);
+    setRenderLimit(RENDER_STEP);
+  }
+  const laneExpanded = (lane: Lane) =>
+    laneOpenOverrides.get(lane.key) ?? lane.key === openByDefault;
+  const moreToRender =
+    groupBy === "none"
+      ? shown.length > renderLimit
+      : lanes.some((lane) => laneExpanded(lane) && lane.tasks.length > renderLimit);
+  const moreToRenderRef = useRef(moreToRender);
+  moreToRenderRef.current = moreToRender;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    function onScroll() {
+      if (!el || !moreToRenderRef.current) return;
+      if (el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX) {
+        setRenderLimit((n) => n + RENDER_STEP);
+      }
+    }
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
   // A #tasks/<id> whose task does not exist USED TO self-heal: an effect here
   // stripped the hash and the page settled on the ordinary filtered list, with
   // nothing said. That is the defect owner 2026-09-05 ruled on (rc-428906235337,
@@ -864,8 +905,7 @@ export function TasksPage() {
   }
 
   function renderLane(lane: Lane) {
-    const expanded =
-      laneOpenOverrides.get(lane.key) ?? lane.key === openByDefault;
+    const expanded = laneExpanded(lane);
     const regionId = `${laneIdBase}-lane-${lane.key}`;
     return (
       <section
@@ -903,14 +943,14 @@ export function TasksPage() {
           className="tasks__list"
           hidden={!expanded}
         >
-          {expanded && lane.tasks.map(renderCard)}
+          {expanded && lane.tasks.slice(0, renderLimit).map(renderCard)}
         </div>
       </section>
     );
   }
 
   return (
-    <div className="tasks">
+    <div className="tasks" ref={scrollRef}>
       {(error || anchorFailed) && (
         <div className="tasks__error" data-testid="tasks-error">
           {/* A failed by-id read is NOT 找不到 — it is 沒問到. Same box, and
@@ -1014,7 +1054,7 @@ export function TasksPage() {
       )}
       {groupBy === "none" && shown.length > 0 && (
         <div className="tasks__list" data-testid="task-list">
-          {shown.map(renderCard)}
+          {shown.slice(0, renderLimit).map(renderCard)}
         </div>
       )}
     </div>

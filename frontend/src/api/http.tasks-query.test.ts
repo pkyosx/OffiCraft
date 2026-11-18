@@ -76,8 +76,13 @@ describe("httpApi.listTasks · the status set goes on the wire (T-a3e4)", () => 
     ]);
   });
 
+  it("with ids alongside the status set → one repeated ids= per task next to the statuses", async () => {
+    await httpApi.listTasks({ statuses: ["done"], ids: ["T-3", "T-9"] });
+    expect(lastUrl().search).toBe("?statuses=done&ids=T-3&ids=T-9");
+  });
+
   it("omits the param entirely for an EMPTY set (所有狀態) and for no opts", async () => {
-    await httpApi.listTasks({ statuses: [] });
+    await httpApi.listTasks({ statuses: [], ids: [] });
     expect(lastUrl().search).toBe("");
     await httpApi.listTasks();
     expect(lastUrl().search).toBe("");

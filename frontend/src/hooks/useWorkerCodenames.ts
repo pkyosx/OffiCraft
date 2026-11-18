@@ -30,11 +30,28 @@ type WorkerIdentity = OutsourceWorkerView;
 // id → identity; null = fetch attempted, unresolvable (negative cache).
 const cache = new Map<string, WorkerIdentity | null>();
 const inflight = new Set<string>();
-// Subscribers to notify when any fetch settles (multiple mounted callers).
-const listeners = new Set<() => void>();
+// id → the mounted callers holding that id. A settle wakes only those: a page
+// of hundreds of cards each holding its own released worker would otherwise
+// re-render every card once per answer.
+const listeners = new Map<string, Set<() => void>>();
 
-function notifyAll() {
-  for (const l of listeners) l();
+function notify(id: string) {
+  for (const l of listeners.get(id) ?? []) l();
+}
+
+function listen(ids: readonly string[], l: () => void): () => void {
+  for (const id of ids) {
+    let set = listeners.get(id);
+    if (!set) listeners.set(id, (set = new Set()));
+    set.add(l);
+  }
+  return () => {
+    for (const id of ids) {
+      const set = listeners.get(id);
+      set?.delete(l);
+      if (set?.size === 0) listeners.delete(id);
+    }
+  };
 }
 
 /** Test seam: reset the module cache between tests. */
@@ -49,7 +66,7 @@ export function updateCachedWorkerAvatar(id: string, avatarUrl: string) {
   const current = cache.get(id);
   if (!current) return;
   cache.set(id, { ...current, avatarUrl });
-  notifyAll();
+  notify(id);
 }
 
 function readableIds(ids: readonly string[]): string[] {
@@ -72,8 +89,9 @@ export function useWorkerCodenames(ids: readonly string[]): Map<string, string> 
   );
 
   useEffect(() => {
-    const bump = () => setTick((n) => n + 1);
-    listeners.add(bump);
+    const unlisten = listen(key ? key.split("|") : [], () =>
+      setTick((n) => n + 1),
+    );
     for (const id of wanted) {
       if (cache.has(id) || inflight.has(id)) continue;
       inflight.add(id);
@@ -85,13 +103,11 @@ export function useWorkerCodenames(ids: readonly string[]): Map<string, string> 
         )
         .then(() => {
           inflight.delete(id);
-          notifyAll();
+          notify(id);
         });
     }
-    return () => {
-      listeners.delete(bump);
-    };
-  }, [wanted]);
+    return unlisten;
+  }, [key, wanted]);
 
   return useMemo(() => {
     const out = new Map<string, string>();
@@ -167,14 +183,14 @@ export function useWorkerCurrentTasks(
     let alive = true;
 
     /** What every pass publishes once its reads have landed. */
-    const settleRound = () => {
-      // The cache is shared and global, so this wakes EVERY mounted consumer
-      // (codename / avatar) — `cache.size` does not move on an overwrite, so
-      // nothing recomputes on its own. It runs even when THIS hook has since
-      // unmounted: the other consumers are still on screen holding the row we
-      // just replaced, and the same reasoning is why `updateCachedWorkerAvatar`
-      // notifies rather than mutating quietly.
-      notifyAll();
+    const settleRound = (reread: readonly string[]) => {
+      // The cache is shared, so this wakes every mounted consumer of the ids
+      // just re-read (codename / avatar) — `cache.size` does not move on an
+      // overwrite, so nothing recomputes on its own. It runs even when THIS hook
+      // has since unmounted: the other consumers are still on screen holding the
+      // row we just replaced, and the same reasoning is why
+      // `updateCachedWorkerAvatar` notifies rather than mutating quietly.
+      for (const id of reread) notify(id);
       if (alive) setTick((n) => n + 1);
     };
 
@@ -204,7 +220,7 @@ export function useWorkerCurrentTasks(
               ),
             ),
           );
-          settleRound();
+          settleRound(mine);
           // A burst that arrived mid-round is served by one more pass — a flat
           // loop rather than recursion, so "one more, then stop" is the shape
           // of the code and not a chain of pending promises.
