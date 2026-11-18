@@ -168,29 +168,6 @@ describe("SharedDocDetail", () => {
     expect(await api.getSharedDoc("sd-3f9a2c71b0e4")).toMatchObject({ text: "# v3", versionCount: 3 });
   });
 
-  it("opened from the list's 編輯, a text file too large to show says it cannot be edited here instead of opening an editor", async () => {
-    const real = await api.getSharedDoc("sd-3f9a2c71b0e4");
-    vi.spyOn(api, "getSharedDoc").mockResolvedValue({ ...real, text: null, textOmitted: "too_large" });
-    const { getByTestId, queryByTestId } = render(
-      <I18nProvider>
-        <SharedDocDetail id="sd-3f9a2c71b0e4" actorName={(a) => a} onBack={() => {}} startEditing />
-      </I18nProvider>,
-    );
-    expect((await waitFor(() => getByTestId("shared-doc-edit-too-large"))).textContent).toBe(
-      "這份文字檔太大，無法在網頁上編輯；請下載修改後，用「上傳新版本」換上新的檔案。",
-    );
-    expect(queryByTestId("shared-doc-editor")).toBeNull();
-    expect(getByTestId("shared-doc-download").textContent).toBe("下載");
-  });
-
-  it("a text file too large to show, opened normally, has no too-large-to-edit notice", async () => {
-    const real = await api.getSharedDoc("sd-3f9a2c71b0e4");
-    vi.spyOn(api, "getSharedDoc").mockResolvedValue({ ...real, text: null, textOmitted: "too_large" });
-    const { getByTestId, queryByTestId } = renderDetail("sd-3f9a2c71b0e4");
-    await waitFor(() => getByTestId("shared-doc-download"));
-    expect(queryByTestId("shared-doc-edit-too-large")).toBeNull();
-  });
-
   it("an unknown id says the doc was not found", async () => {
     const onBack = vi.fn();
     const { getByTestId } = renderDetail("sd-000000000000", onBack);

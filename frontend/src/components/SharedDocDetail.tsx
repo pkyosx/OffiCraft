@@ -1,7 +1,7 @@
 // SharedDocDetail — one shared document (#shared-docs/<id>): its name,
 // description, who changed it last, and its current content.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import { authedAttachmentUrl } from "../api/http";
@@ -21,10 +21,69 @@ import "./shared-docs.css";
 
 /** Only Markdown and plain text are edited in place; everything else gets a
  * new version by upload. */
-function editableText(doc: SharedDocDetailView): boolean {
+export function editableText(doc: SharedDocDetailView): boolean {
   if (doc.kind !== "file" || doc.text === null) return false;
   const mime = doc.mime.split(";")[0]!.trim().toLowerCase();
   return isMarkdownAttachment(mime, doc.filename) || mime === "text/plain";
+}
+
+/** Puts edited text in as the doc's new version, under its current filename. */
+export async function saveSharedDocText(doc: SharedDocDetailView, draft: string): Promise<void> {
+  const attachmentId = await api.uploadAttachment(
+    new Blob([draft], { type: doc.mime || "text/plain" }),
+    doc.filename || `${doc.name}.md`,
+  );
+  await api.replaceSharedDoc(doc.id, { attachmentId });
+}
+
+export function SharedDocTextEditor({
+  draft,
+  onDraft,
+  busy,
+  autoFocus,
+  onCancel,
+  onSave,
+}: {
+  draft: string;
+  onDraft: (next: string) => void;
+  busy: boolean;
+  autoFocus?: boolean;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const { t } = useI18n();
+  const d = t.sharedDocs;
+  return (
+    <div className="shared-docs__editor">
+      <textarea
+        className="secrets__input secrets__textarea shared-docs__editor-input"
+        data-testid="shared-doc-editor"
+        autoFocus={autoFocus}
+        value={draft}
+        onChange={(e) => onDraft(e.target.value)}
+      />
+      <div className="secrets__form-actions">
+        <button
+          type="button"
+          className="secrets__btn"
+          data-testid="shared-doc-editor-cancel"
+          disabled={busy}
+          onClick={onCancel}
+        >
+          {d.cancel}
+        </button>
+        <button
+          type="button"
+          className="secrets__btn secrets__submit"
+          data-testid="shared-doc-editor-save"
+          disabled={busy}
+          onClick={onSave}
+        >
+          {d.save}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function SharedDocContent({ doc }: { doc: SharedDocDetailView }) {
@@ -172,13 +231,10 @@ export function SharedDocDetail({
   id,
   actorName,
   onBack,
-  startEditing = false,
 }: {
   id: string;
   actorName: (actorId: string) => string;
   onBack: () => void;
-  /** Open the text editor as soon as the document arrives (the list's 編輯). */
-  startEditing?: boolean;
 }) {
   const { t, msg } = useI18n();
   const d = t.sharedDocs;
@@ -191,19 +247,6 @@ export function SharedDocDetail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const nowSecs = Math.floor(Date.now() / 1000);
-  const [pendingEdit, setPendingEdit] = useState(startEditing);
-  const [editTooLarge, setEditTooLarge] = useState(false);
-
-  useEffect(() => {
-    if (!pendingEdit || !doc) return;
-    setPendingEdit(false);
-    if (!editableText(doc)) {
-      setEditTooLarge(doc.textOmitted === "too_large");
-      return;
-    }
-    setDraft(doc.text ?? "");
-    setEditing(true);
-  }, [pendingEdit, doc]);
 
   async function act(action: () => Promise<unknown>): Promise<boolean> {
     setBusy(true);
@@ -220,15 +263,7 @@ export function SharedDocDetail({
 
   async function saveEdit() {
     if (!doc) return;
-    const filename = doc.filename || `${doc.name}.md`;
-    const ok = await act(async () => {
-      const attachmentId = await api.uploadAttachment(
-        new Blob([draft], { type: doc.mime || "text/plain" }),
-        filename,
-      );
-      await api.replaceSharedDoc(doc.id, { attachmentId });
-    });
-    if (ok) setEditing(false);
+    if (await act(() => saveSharedDocText(doc, draft))) setEditing(false);
   }
 
   const back = (
@@ -312,11 +347,6 @@ export function SharedDocDetail({
           </button>
         </div>
       </section>
-      {editTooLarge && (
-        <div className="shared-docs__notice" role="status" data-testid="shared-doc-edit-too-large">
-          {d.tooLargeToEdit}
-        </div>
-      )}
       {error && (
         <div className="secrets__error" role="alert" data-testid="shared-doc-error">
           {error}
@@ -324,28 +354,13 @@ export function SharedDocDetail({
       )}
       <section className="shared-docs__card shared-docs__body">
         {editing ? (
-          <div className="shared-docs__editor">
-            <textarea
-              className="secrets__input secrets__textarea shared-docs__editor-input"
-              data-testid="shared-doc-editor"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-            />
-            <div className="secrets__form-actions">
-              <button type="button" className="secrets__btn" disabled={busy} onClick={() => setEditing(false)}>
-                {d.cancel}
-              </button>
-              <button
-                type="button"
-                className="secrets__btn secrets__submit"
-                data-testid="shared-doc-editor-save"
-                disabled={busy}
-                onClick={() => void saveEdit()}
-              >
-                {d.save}
-              </button>
-            </div>
-          </div>
+          <SharedDocTextEditor
+            draft={draft}
+            onDraft={setDraft}
+            busy={busy}
+            onCancel={() => setEditing(false)}
+            onSave={() => void saveEdit()}
+          />
         ) : (
           <SharedDocContent doc={doc} />
         )}

@@ -2,17 +2,25 @@
 // reads by `sd-` id. The list is a table; #shared-docs/<id> opens one document.
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { api, viewerIsOwner } from "../api";
+import { authedAttachmentUrl } from "../api/http";
 import { useMembers } from "../hooks/useMembers";
 import { useOwnerDisplayName } from "../hooks/useOwnerName";
-import { useSharedDocAction, useSharedDocs } from "../hooks/useSharedDocs";
+import { useSharedDoc, useSharedDocAction, useSharedDocs } from "../hooks/useSharedDocs";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import { formatHash, useHashRoute } from "../lib/hashRoute";
+import { useEscapeLayer } from "../lib/useEscapeLayer";
 import type { SharedDocView } from "../types";
 import { ConfirmModal } from "./ConfirmModal";
-import { SharedDocDetail } from "./SharedDocDetail";
+import {
+  SharedDocDetail,
+  SharedDocTextEditor,
+  editableText,
+  saveSharedDocText,
+} from "./SharedDocDetail";
 import { kindMismatchMessage, sharedDocKindForFile } from "./SharedDocFormDialog";
 import { InlineEdit } from "./InlineEdit";
 import { MarkdownPreviewOverlay, isMarkdownAttachment } from "./MarkdownPreviewOverlay";
@@ -21,6 +29,7 @@ import {
   CloseIcon,
   CopyIcon,
   ExternalLinkIcon,
+  FileTextIcon,
   ImageIcon,
   LayersIcon,
   PaperclipIcon,
@@ -30,6 +39,7 @@ import {
 } from "./icons";
 import "./inline-edit.css";
 import "./lore.css";
+import "./md-preview.css";
 import "./office.css";
 import "./secrets.css";
 import "./theme-settings.css";
@@ -107,47 +117,38 @@ function textEditable(doc: SharedDocView): boolean {
   return isMarkdownAttachment(mime, doc.filename) || mime === "text/plain";
 }
 
-function KindMedia({ doc, onPreview }: { doc: SharedDocView; onPreview: (doc: SharedDocView) => void }) {
+function KindMedia({ doc }: { doc: SharedDocView }) {
   const { t } = useI18n();
   const d = t.sharedDocs;
-  if (doc.kind === "image") {
-    return (
-      <button
-        type="button"
-        className="shared-docs__kind shared-docs__kind--preview"
-        data-testid="shared-doc-kind-image"
-        aria-label={d.previewImage}
-        title={d.previewImage}
-        onClick={() => onPreview(doc)}
-      >
-        <ImageIcon size={15} />
-      </button>
-    );
-  }
-  const link = doc.kind === "link";
+  const label = doc.kind === "link" ? d.kindLink : doc.kind === "image" ? d.kindImage : d.kindFile;
   return (
     <span
       className="shared-docs__kind"
       data-testid={`shared-doc-kind-${doc.kind}`}
-      title={link ? d.kindLink : d.kindFile}
-      aria-label={link ? d.kindLink : d.kindFile}
+      title={label}
+      aria-label={label}
     >
-      {link ? <ExternalLinkIcon size={15} /> : <PaperclipIcon size={15} />}
+      {doc.kind === "link" ? (
+        <ExternalLinkIcon size={15} />
+      ) : doc.kind === "image" ? (
+        <ImageIcon size={15} />
+      ) : (
+        <PaperclipIcon size={15} />
+      )}
     </span>
   );
 }
 
-/** The 檔案 cell. `nameEditor`/`urlEditor` replace the name or the line under
- * it while that field is being edited in place. */
+/** The 檔案 cell: the name opens the content itself — a link in a new tab,
+ * anything stored in the preview overlay. `nameEditor`/`urlEditor` replace the
+ * name or the line under it while that field is being edited in place. */
 function FileBlock({
   doc,
-  onOpen,
   onPreview,
   nameEditor,
   urlEditor,
 }: {
   doc: SharedDocView;
-  onOpen: (id: string) => void;
   onPreview: (doc: SharedDocView) => void;
   nameEditor?: ReactNode;
   urlEditor?: ReactNode;
@@ -155,26 +156,186 @@ function FileBlock({
   const description = doc.description && (
     <span className="shared-docs__file-description">{doc.description}</span>
   );
+  const title = doc.description ? `${doc.name}\n${doc.description}` : doc.name;
+  const text = (
+    <>
+      <span className="shared-docs__name">{doc.name}</span>
+      {description}
+    </>
+  );
   return (
     <div className="shared-docs__file" data-testid="shared-doc-name">
-      <KindMedia doc={doc} onPreview={onPreview} />
+      <KindMedia doc={doc} />
       {nameEditor || urlEditor ? (
         <span className="shared-docs__file-text">
           {nameEditor ?? <span className="shared-docs__name">{doc.name}</span>}
           {urlEditor ?? description}
         </span>
+      ) : doc.kind === "link" ? (
+        <a
+          className="shared-docs__file-text shared-docs__file-open"
+          data-testid="shared-doc-open"
+          href={doc.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={title}
+        >
+          {text}
+        </a>
       ) : (
         <button
           type="button"
           className="shared-docs__file-text shared-docs__file-open"
-          title={doc.description ? `${doc.name}\n${doc.description}` : doc.name}
-          onClick={() => onOpen(doc.id)}
+          data-testid="shared-doc-open"
+          title={title}
+          onClick={() => onPreview(doc)}
         >
-          <span className="shared-docs__name">{doc.name}</span>
-          {description}
+          {text}
         </button>
       )}
     </div>
+  );
+}
+
+/** 編輯 on a text file: the file's content in an editor over the list. Closing
+ * it any way but 儲存 drops the edit, as the detail page's 取消 does. */
+function SharedDocEditOverlay({
+  id,
+  title,
+  onClose,
+  onSaved,
+}: {
+  id: string;
+  title: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t } = useI18n();
+  const d = t.sharedDocs;
+  const { doc, notFound, loadError } = useSharedDoc(id, d.loadFailed);
+  const run = useSharedDocAction(d.actionFailed);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Seeded once: the doc is re-read on every shared_doc delta, and a later read
+  // must not overwrite what is being typed.
+  useEffect(() => {
+    if (doc && draft === null && editableText(doc)) setDraft(doc.text ?? "");
+  }, [doc, draft]);
+
+  const close = () => {
+    if (!busy) onClose();
+  };
+  useEscapeLayer(close, rootRef);
+
+  async function save() {
+    if (!doc || draft === null) return;
+    setBusy(true);
+    setError("");
+    const err = await run(() => saveSharedDocText(doc, draft));
+    setBusy(false);
+    if (err) {
+      setError(err);
+      return;
+    }
+    onSaved();
+  }
+
+  let body: ReactNode;
+  if (notFound) {
+    body = <div className="md-preview__status">{d.notFound}</div>;
+  } else if (!doc) {
+    body = <div className="md-preview__status">{loadError || t.chat.mdPreview.loading}</div>;
+  } else if (draft !== null) {
+    body = (
+      <>
+        {error && (
+          <div className="secrets__error" role="alert" data-testid="shared-doc-edit-error">
+            {error}
+          </div>
+        )}
+        <SharedDocTextEditor
+          draft={draft}
+          onDraft={setDraft}
+          busy={busy}
+          autoFocus
+          onCancel={close}
+          onSave={() => void save()}
+        />
+      </>
+    );
+  } else {
+    body = (
+      <div className="shared-docs__overlay-notice">
+        <div className="shared-docs__notice" role="status" data-testid="shared-doc-edit-too-large">
+          {d.tooLargeToEdit}
+        </div>
+        <a
+          className="secrets__btn"
+          data-testid="shared-doc-download"
+          href={authedAttachmentUrl(doc.url)}
+          download={doc.filename || doc.name}
+        >
+          {d.download}
+        </a>
+      </div>
+    );
+  }
+
+  return createPortal(
+    <div
+      ref={rootRef}
+      className="md-preview"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      data-testid="shared-doc-edit-overlay"
+    >
+      <div className="md-preview__panel">
+        <div className="md-preview__header">
+          <span className="md-preview__title">
+            <FileTextIcon size={16} />
+            <span className="md-preview__title-text" title={title}>
+              {title}
+            </span>
+          </span>
+          <div className="md-preview__actions">
+            <button
+              type="button"
+              className="md-preview__close"
+              aria-label={d.cancel}
+              title={d.cancel}
+              disabled={busy}
+              onClick={close}
+            >
+              <CloseIcon size={16} />
+            </button>
+          </div>
+        </div>
+        <div className="md-preview__body shared-docs__overlay-body">{body}</div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** 最後修改 is the way into the doc's own page: its versions and description. */
+function UpdatedButton({ text, onOpen }: { text: string; onOpen: () => void }) {
+  const { t } = useI18n();
+  const d = t.sharedDocs;
+  return (
+    <button
+      type="button"
+      className="shared-docs__updated-open"
+      data-testid="shared-doc-updated"
+      aria-label={`${text} · ${d.openHistory}`}
+      title={d.openHistory}
+      onClick={onOpen}
+    >
+      {text}
+    </button>
   );
 }
 
@@ -344,30 +505,18 @@ function AddLinkForm({
 export function SharedDocsPage({ docId }: { docId?: string }) {
   const [, setRoute] = useHashRoute();
   const actorName = useActorName();
-  const [editOnOpen, setEditOnOpen] = useState<string | null>(null);
-  useEffect(() => {
-    if (docId) setEditOnOpen(null);
-  }, [docId]);
   if (docId) {
     return (
       <SharedDocDetail
         key={docId}
         id={docId}
         actorName={actorName}
-        startEditing={editOnOpen === docId}
         onBack={() => setRoute({ page: "shared_docs" })}
       />
     );
   }
   return (
-    <SharedDocList
-      actorName={actorName}
-      onOpen={(id) => setRoute({ page: "shared_docs", sharedDocId: id })}
-      onEdit={(id) => {
-        setEditOnOpen(id);
-        setRoute({ page: "shared_docs", sharedDocId: id });
-      }}
-    />
+    <SharedDocList actorName={actorName} onOpen={(id) => setRoute({ page: "shared_docs", sharedDocId: id })} />
   );
 }
 
@@ -376,11 +525,9 @@ type PickTarget = { mode: "create" } | { mode: "replace"; doc: SharedDocView };
 function SharedDocList({
   actorName,
   onOpen,
-  onEdit,
 }: {
   actorName: (id: string) => string;
   onOpen: (id: string) => void;
-  onEdit: (id: string) => void;
 }) {
   const { t, msg } = useI18n();
   const d = t.sharedDocs;
@@ -392,6 +539,7 @@ function SharedDocList({
   const [namingId, setNamingId] = useState<string | null>(null);
   const [urlEditId, setUrlEditId] = useState<string | null>(null);
   const [preview, setPreview] = useState<SharedDocView | null>(null);
+  const [editing, setEditing] = useState<SharedDocView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SharedDocView | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -555,10 +703,6 @@ function SharedDocList({
                   className="shared-docs__row"
                   data-testid="shared-doc-row"
                   data-doc-id={doc.id}
-                  onClick={(e) => {
-                    if ((e.target as Element).closest("button, a, input")) return;
-                    onOpen(doc.id);
-                  }}
                 >
                   <td className="shared-docs__col-id">
                     <span className="shared-docs__id-cell">
@@ -592,7 +736,6 @@ function SharedDocList({
                   <td className="shared-docs__col-file">
                     <FileBlock
                       doc={doc}
-                      onOpen={onOpen}
                       onPreview={setPreview}
                       nameEditor={
                         namingId === doc.id ? (
@@ -622,8 +765,11 @@ function SharedDocList({
                       }
                     />
                   </td>
-                  <td className="shared-docs__updated" data-testid="shared-doc-updated">
-                    {msg.sharedDocUpdated(actorName(doc.updatedBy), formatAbsolute(doc.updatedTs, nowSecs))}
+                  <td className="shared-docs__updated">
+                    <UpdatedButton
+                      text={msg.sharedDocUpdated(actorName(doc.updatedBy), formatAbsolute(doc.updatedTs, nowSecs))}
+                      onOpen={() => onOpen(doc.id)}
+                    />
                   </td>
                   <td className="shared-docs__col-actions">
                     <RowActions
@@ -635,7 +781,7 @@ function SharedDocList({
                           setActionError("");
                           setUrlEditId(doc.id);
                         } else {
-                          onEdit(doc.id);
+                          setEditing(doc);
                         }
                       }}
                       onUpload={() => pick({ mode: "replace", doc })}
@@ -660,6 +806,17 @@ function SharedDocList({
           attachmentId={preview.attachmentId}
           mime={preview.mime}
           onClose={() => setPreview(null)}
+        />
+      )}
+      {editing && (
+        <SharedDocEditOverlay
+          id={editing.id}
+          title={editing.name}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            void reload();
+          }}
         />
       )}
       {deleteTarget && (

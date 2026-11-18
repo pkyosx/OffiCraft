@@ -104,13 +104,6 @@
 .shared-docs__table th.shared-docs__col-actions {
   text-align: left;
 }
-.shared-docs__row {
-  cursor: pointer;
-  transition: background 0.12s;
-}
-.shared-docs__row:hover td {
-  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
-}
 .shared-docs__id-cell {
   display: inline-flex;
   align-items: center;
@@ -134,16 +127,6 @@
   height: 44px;
   border-radius: 8px;
   color: var(--color-text-muted);
-}
-.shared-docs__kind--preview {
-  padding: 0;
-  border: none;
-  background: none;
-  cursor: zoom-in;
-}
-.shared-docs__kind--preview:hover {
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
 }
 .shared-docs__file-text {
   display: flex;
@@ -183,8 +166,10 @@
   font-size: 12px;
   color: var(--color-text-muted);
 }
-.shared-docs__file-open:hover .shared-docs__name,
-.shared-docs__row:hover .shared-docs__name {
+.shared-docs__file-open {
+  text-decoration: none;
+}
+.shared-docs__file-open:hover .shared-docs__name {
   color: var(--color-accent);
 }
 .shared-docs__updated {
@@ -193,6 +178,21 @@
   text-overflow: ellipsis;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
+}
+.shared-docs__updated-open {
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.shared-docs__updated-open:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
 }
 
 /* ── one document ── */
@@ -311,6 +311,23 @@
 .shared-docs__editor-input {
   min-height: 50vh;
   font-family: var(--font-mono, monospace);
+}
+.shared-docs__overlay-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.shared-docs__overlay-body .shared-docs__editor {
+  flex: 1;
+}
+.shared-docs__overlay-body .shared-docs__editor-input {
+  flex: 1;
+}
+.shared-docs__overlay-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
 }
 
 /* ── 新增連結 ── */
