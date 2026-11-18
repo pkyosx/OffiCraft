@@ -23498,7 +23498,7 @@
     },
     "/api/tasks": {
       "get": {
-        "description": "- Light rows: no steps, description or inputs; call get_task for those.\n- ?status=: one of six states; anything else is 400.\n- ?statuses=: a SET of states; also accepts \"reassigning\", which matches the handover LOCK.\n- ?executor=: an id, or `outsource` / `unassigned`; ?type=: a type_key. Filters are ANDed.\n- current_step_id/name are \"\" when there is no plan or all steps finished: no current step.",
+        "description": "- Light rows: no steps, description or inputs; call get_task for those.\n- ?status=: one of six states; anything else is 400.\n- ?statuses=: a SET of states; also accepts \"reassigning\", which matches the handover LOCK.\n- ?ids=: a SET of task ids; unknown ids are just absent.\n- ?executor=: an id, or `outsource` / `unassigned`; ?type=: a type_key. Filters are ANDed.\n- current_step_id/name are \"\" when there is no plan or all steps finished: no current step.",
         "operationId": "handle_list_tasks_api_tasks_get",
         "parameters": [
           {
@@ -23527,6 +23527,20 @@
                 "type": "string"
               },
               "title": "Statuses",
+              "type": "array"
+            }
+          },
+          {
+            "description": "REPEATABLE task-id set (``?ids=T-12&ids=T-40``): only those tasks, in the same light row shape. An id that does not exist is simply absent from the answer, never a 400 — the caller learns it is gone by its absence. ANDed with every other filter, so a client refreshing a few changed rows of a filtered view gets each one only if it still belongs there. Absent or empty = no constraint. additive-optional.",
+            "in": "query",
+            "name": "ids",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 200,
+              "title": "Ids",
               "type": "array"
             }
           },
