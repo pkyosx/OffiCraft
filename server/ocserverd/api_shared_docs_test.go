@@ -378,7 +378,7 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 		}
 	})
 
-	t.Run("a name and description edit with no content keeps the content, names its editor and makes no version", func(t *testing.T) {
+	t.Run("a name and description edit with no content keeps the content, names its editor and makes no version, and the content's own author stamps it once replaced", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		id, att := apiTestSharedDocFile(t, h, owner, "Runbook", "runbook.md", "# v1")
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -400,6 +400,18 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 		apiWantBody(t, data, row)
 		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id+"/versions", owner, "")
 		apiWantBody(t, data, map[string]any{"doc_id": id, "versions": []any{}})
+
+		second := apiTestUploadBlob(t, h, owner, "runbook.md", "# v2")
+		if status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner,
+			`{"attachment_id":"`+second+`"}`); status != 200 {
+			t.Fatalf("replace the content: %d %v", status, data)
+		}
+		_, data = apiJSON(t, h, "GET", "/api/shared-docs/"+id+"/versions", agent, "")
+		apiWantBody(t, data, map[string]any{"doc_id": id, "versions": []any{map[string]any{
+			"id": 1, "kind": "file", "attachment_id": att, "name": "Release runbook",
+			"description": "how we ship", "filename": "runbook.md", "mime": "text/markdown",
+			"url": "/api/chat/attachment/" + att, "created_ts": apiAnyNumber, "created_by": "owner",
+		}}})
 	})
 
 	t.Run("a link document's name edit needs no url", func(t *testing.T) {
@@ -525,8 +537,8 @@ func TestHandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestore
 		api, h, _, owner := newAPITestServer(t)
 		id := apiTestCreateSharedDoc(t, h, owner, `{"kind":"link","name":"Board","url":"https://e.com/1"}`)
 		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner, `{"url":"https://e.com/2"}`)
-		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", owner, `{"name":"Roadmap","description":"the plan"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
+		apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/replace", agent, `{"name":"Roadmap","description":"the plan"}`)
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/shared-docs/"+id+"/versions/1/restore", agent, "")

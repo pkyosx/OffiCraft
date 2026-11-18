@@ -13203,12 +13203,12 @@ export interface components {
             attachment_id: string;
             /**
              * Created By
-             * @description Who last changed the document while this was its content, a name or description edit included.
+             * @description Who wrote this version.
              */
             created_by: string;
             /**
              * Created Ts
-             * @description When the document was last changed while this was its content.
+             * @description When this version was written.
              */
             created_ts: number;
             /**

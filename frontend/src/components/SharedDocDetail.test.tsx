@@ -67,7 +67,7 @@ describe("SharedDocDetail", () => {
     expect(doc).toMatchObject({ text: "# Review Rule v3\n", filename: "review-rule.md", versionCount: 3 });
   });
 
-  it("the pencil renames the doc in place, keeping its content and its versions", async () => {
+  it("the pencil renames the doc in place, keeping its content, its versions and who wrote that content", async () => {
     const { getByTestId, getByLabelText } = renderDetail("sd-3f9a2c71b0e4");
     await title(getByTestId);
     fireEvent.click(getByLabelText("改名"));
@@ -79,6 +79,18 @@ describe("SharedDocDetail", () => {
       attachmentId: "att-5d0c11a2b3c4",
       versionCount: 2,
     });
+    await expect(api.replaceSharedDoc("sd-3f9a2c71b0e4", { name: " " })).rejects.toMatchObject({
+      status: 400,
+      serverMessage: "name cannot be blank: omit it to keep the current name",
+    });
+    await api.replaceSharedDoc("sd-3f9a2c71b0e4", { attachmentId: "att-5d0c11a2b3b0" });
+    const [kept] = await api.listSharedDocVersions("sd-3f9a2c71b0e4");
+    expect([kept!.attachmentId, kept!.name, kept!.createdBy, kept!.createdTs]).toEqual([
+      "att-5d0c11a2b3c4",
+      "Review Rule v2",
+      "mira",
+      1763366700,
+    ]);
   });
 
   it("clicking the description edits it in a two-line box; ✓ saves once however often it is clicked and a blank clears it, ✗ leaves it as it was", async () => {

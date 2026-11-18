@@ -13104,12 +13104,12 @@
             "type": "string"
           },
           "created_by": {
-            "description": "Who last changed the document while this was its content, a name or description edit included.",
+            "description": "Who wrote this version.",
             "title": "Created By",
             "type": "string"
           },
           "created_ts": {
-            "description": "When the document was last changed while this was its content.",
+            "description": "When this version was written.",
             "title": "Created Ts",
             "type": "number"
           },

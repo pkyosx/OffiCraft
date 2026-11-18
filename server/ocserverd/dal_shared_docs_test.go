@@ -12,6 +12,7 @@ func dalTestSharedDoc(id, attachmentID string) SharedDoc {
 		ID: id, Kind: ArtifactKindFile, AttachmentID: attachmentID,
 		Name: "Runbook", Description: "how we ship",
 		CreatedTS: 100, CreatedBy: "kip", UpdatedTS: 100, UpdatedBy: "kip",
+		ContentUpdatedTS: 100, ContentUpdatedBy: "kip",
 	}
 }
 
@@ -114,6 +115,7 @@ func TestReplaceSharedDoc(t *testing.T) {
 		}
 		next := dalTestSharedDoc("sd-1", "att-2")
 		next.Name, next.Description, next.UpdatedTS, next.UpdatedBy = "Runbook v2", "", 200, "ann"
+		next.ContentUpdatedTS, next.ContentUpdatedBy = 200, "ann"
 		if got := dalMustGetSharedDoc(t, d, "sd-1"); !reflect.DeepEqual(got, next) {
 			t.Fatalf("current:\n got %+v\nwant %+v", got, next)
 		}
@@ -145,6 +147,7 @@ func TestReplaceSharedDoc(t *testing.T) {
 			ID: "sd-1", Kind: ArtifactKindFile, AttachmentID: "att-3",
 			Name: "Renamed", Description: "how we ship",
 			CreatedTS: 100, CreatedBy: "kip", UpdatedTS: 300, UpdatedBy: "bob",
+			ContentUpdatedTS: 300, ContentUpdatedBy: "bob",
 		}
 		if got := dalMustGetSharedDoc(t, d, "sd-1"); !reflect.DeepEqual(got, want) {
 			t.Fatalf("current:\n got %+v\nwant %+v", got, want)
@@ -181,7 +184,7 @@ func TestReplaceSharedDoc(t *testing.T) {
 		}
 	})
 
-	t.Run("an empty attachment id keeps the current content and changes the name in place without a version", func(t *testing.T) {
+	t.Run("an empty attachment id keeps the current content and changes the name in place without a version, and the next content stamps the version with its own author", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		dalCreateSharedDoc(t, d, dalTestSharedDoc("sd-1", "att-1"))
 		renamed := "Renamed"
@@ -197,6 +200,14 @@ func TestReplaceSharedDoc(t *testing.T) {
 		}
 		if got := dalSharedDocVersions(t, d, "sd-1"); got != nil {
 			t.Fatalf("versions: want none, got %+v", got)
+		}
+		dalReplaceSharedDocWith(t, d, "sd-1", "att-2", "bob", 300)
+		wantVersions := []SharedDocVersion{{
+			ID: 1, DocID: "sd-1", Kind: ArtifactKindFile, AttachmentID: "att-1",
+			Name: "Renamed", Description: "how we ship", CreatedTS: 100, CreatedBy: "kip",
+		}}
+		if got := dalSharedDocVersions(t, d, "sd-1"); !reflect.DeepEqual(got, wantVersions) {
+			t.Fatalf("versions:\n got %+v\nwant %+v", got, wantVersions)
 		}
 	})
 
@@ -227,7 +238,7 @@ func TestRestoreSharedDocVersion(t *testing.T) {
 		dalReplaceSharedDocWith(t, d, "sd-1", "att-3", "bob", 300)
 		renamed := "Renamed"
 		if err := d.ReplaceSharedDoc(SharedDocReplacement{
-			ID: "sd-1", Name: &renamed, UpdatedTS: 350, UpdatedBy: "bob",
+			ID: "sd-1", Name: &renamed, UpdatedTS: 350, UpdatedBy: "cy",
 		}, nil); err != nil {
 			t.Fatalf("rename: %v", err)
 		}
@@ -236,13 +247,14 @@ func TestRestoreSharedDocVersion(t *testing.T) {
 		}
 		wantDoc := dalTestSharedDoc("sd-1", "att-1")
 		wantDoc.Name, wantDoc.UpdatedTS, wantDoc.UpdatedBy = "Renamed", 400, "owner"
+		wantDoc.ContentUpdatedTS, wantDoc.ContentUpdatedBy = 400, "owner"
 		if got := dalMustGetSharedDoc(t, d, "sd-1"); !reflect.DeepEqual(got, wantDoc) {
 			t.Fatalf("current:\n got %+v\nwant %+v", got, wantDoc)
 		}
 		got := dalSharedDocVersions(t, d, "sd-1")
 		want := []SharedDocVersion{
 			{ID: 3, DocID: "sd-1", Kind: ArtifactKindFile, AttachmentID: "att-3",
-				Name: "Renamed", Description: "how we ship", CreatedTS: 350, CreatedBy: "bob"},
+				Name: "Renamed", Description: "how we ship", CreatedTS: 300, CreatedBy: "bob"},
 			{ID: 2, DocID: "sd-1", Kind: ArtifactKindFile, AttachmentID: "att-2",
 				Name: "Runbook", Description: "how we ship", CreatedTS: 200, CreatedBy: "ann"},
 		}

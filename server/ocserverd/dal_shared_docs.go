@@ -21,6 +21,10 @@ type SharedDoc struct {
 	CreatedBy    string
 	UpdatedTS    float64
 	UpdatedBy    string
+	// ContentUpdatedTS/By move only with the content, never on a rename: they
+	// stamp the version this content becomes once it is replaced.
+	ContentUpdatedTS float64
+	ContentUpdatedBy string
 }
 
 type SharedDocVersion struct {
@@ -35,7 +39,7 @@ type SharedDocVersion struct {
 }
 
 const sharedDocColumns = `id, kind, attachment_id, name, description,
-	created_ts, created_by, updated_ts, updated_by`
+	created_ts, created_by, updated_ts, updated_by, content_updated_ts, content_updated_by`
 
 const sharedDocVersionColumns = `id, doc_id, kind, attachment_id, name,
 	description, created_ts, created_by`
@@ -43,7 +47,8 @@ const sharedDocVersionColumns = `id, doc_id, kind, attachment_id, name,
 func scanSharedDoc(row interface{ Scan(...any) error }) (SharedDoc, error) {
 	var d SharedDoc
 	err := row.Scan(&d.ID, &d.Kind, &d.AttachmentID, &d.Name, &d.Description,
-		&d.CreatedTS, &d.CreatedBy, &d.UpdatedTS, &d.UpdatedBy)
+		&d.CreatedTS, &d.CreatedBy, &d.UpdatedTS, &d.UpdatedBy,
+		&d.ContentUpdatedTS, &d.ContentUpdatedBy)
 	return d, err
 }
 
@@ -135,9 +140,10 @@ func (d *DAL) CreateSharedDoc(doc SharedDoc, minted *ChatAttachment) error {
 			}
 		}
 		_, err := tx.Exec(`INSERT INTO shared_doc (`+sharedDocColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			doc.ID, doc.Kind, doc.AttachmentID, doc.Name, doc.Description,
-			doc.CreatedTS, doc.CreatedBy, doc.UpdatedTS, doc.UpdatedBy)
+			doc.CreatedTS, doc.CreatedBy, doc.UpdatedTS, doc.UpdatedBy,
+			doc.ContentUpdatedTS, doc.ContentUpdatedBy)
 		return err
 	})
 }
@@ -162,16 +168,17 @@ func retainSharedDocVersion(tx *writeTx, current SharedDoc) error {
 		(doc_id, kind, attachment_id, name, description, created_ts, created_by)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		current.ID, current.Kind, current.AttachmentID, current.Name,
-		current.Description, current.UpdatedTS, current.UpdatedBy)
+		current.Description, current.ContentUpdatedTS, current.ContentUpdatedBy)
 	return err
 }
 
 func writeSharedDocCurrent(tx *writeTx, next SharedDoc) error {
 	_, err := tx.Exec(`UPDATE shared_doc
-		SET attachment_id = ?, name = ?, description = ?, updated_ts = ?, updated_by = ?
+		SET attachment_id = ?, name = ?, description = ?, updated_ts = ?, updated_by = ?,
+			content_updated_ts = ?, content_updated_by = ?
 		WHERE id = ?`,
 		next.AttachmentID, next.Name, next.Description, next.UpdatedTS, next.UpdatedBy,
-		next.ID)
+		next.ContentUpdatedTS, next.ContentUpdatedBy, next.ID)
 	return err
 }
 
@@ -214,6 +221,7 @@ func (d *DAL) ReplaceSharedDoc(r SharedDocReplacement, minted *ChatAttachment) e
 			return writeSharedDocCurrent(tx, next)
 		}
 		next.AttachmentID = r.AttachmentID
+		next.ContentUpdatedTS, next.ContentUpdatedBy = r.UpdatedTS, r.UpdatedBy
 		if minted != nil {
 			if err := putChatAttachmentOn(tx, *minted); err != nil {
 				return err
@@ -258,6 +266,7 @@ func (d *DAL) RestoreSharedDocVersion(docID string, versionID int64, actor strin
 		next := *current
 		next.AttachmentID = v.AttachmentID
 		next.UpdatedTS, next.UpdatedBy = now, actor
+		next.ContentUpdatedTS, next.ContentUpdatedBy = now, actor
 		return writeSharedDocCurrent(tx, next)
 	})
 }

@@ -196,6 +196,7 @@ func (s *apiServer) HandleCreateSharedDocApiSharedDocsPost(w http.ResponseWriter
 		ID: "sd-" + newHexID(12), Kind: kind, AttachmentID: attID,
 		Name: name, Description: description,
 		CreatedTS: now, CreatedBy: actor, UpdatedTS: now, UpdatedBy: actor,
+		ContentUpdatedTS: now, ContentUpdatedBy: actor,
 	}
 	if err := s.dal.CreateSharedDoc(doc, minted); err != nil {
 		internalError(w, err)

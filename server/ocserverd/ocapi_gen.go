@@ -4501,10 +4501,10 @@ type SharedDocVersionDTO struct {
 	// AttachmentId The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.
 	AttachmentId string `json:"attachment_id"`
 
-	// CreatedBy Who last changed the document while this was its content, a name or description edit included.
+	// CreatedBy Who wrote this version.
 	CreatedBy string `json:"created_by"`
 
-	// CreatedTs When the document was last changed while this was its content.
+	// CreatedTs When this version was written.
 	CreatedTs   float64 `json:"created_ts"`
 	Description *string `json:"description,omitempty"`
 

@@ -3232,6 +3232,13 @@ let mockSharedDocVersions: Record<string, WireSharedDocVersion[]> =
   structuredClone(MOCK_WIRE_SHARED_DOC_VERSIONS);
 let mockBlobs: Record<string, MockBlob> = structuredClone(MOCK_SHARED_DOC_BLOBS);
 let mockSharedDocVersionSeq = 100;
+// Who wrote each doc's current content, and when: the server keeps this off the
+// wire and stamps a retained version with it, so a rename never re-attributes it.
+let mockSharedDocContentStamps: Record<string, { ts: number; by: string }> = {};
+
+function mockSharedDocContentStamp(row: WireSharedDoc): { ts: number; by: string } {
+  return mockSharedDocContentStamps[row.id] ?? { ts: row.updated_ts, by: row.updated_by };
+}
 
 function mockHex12(): string {
   return Math.random().toString(16).slice(2, 14).padEnd(12, "0");
@@ -3266,6 +3273,7 @@ function mockSharedDocContent(
 }
 
 function mockSharedDocVersionOf(row: WireSharedDoc): WireSharedDocVersion {
+  const stamp = mockSharedDocContentStamp(row);
   return {
     id: ++mockSharedDocVersionSeq,
     kind: row.kind,
@@ -3275,8 +3283,8 @@ function mockSharedDocVersionOf(row: WireSharedDoc): WireSharedDocVersion {
     filename: row.filename,
     mime: row.mime,
     url: row.url,
-    created_ts: row.updated_ts,
-    created_by: row.updated_by,
+    created_ts: stamp.ts,
+    created_by: stamp.by,
   };
 }
 
@@ -6888,9 +6896,17 @@ const mockApiImpl = {
   async replaceSharedDoc(id: string, input: SharedDocReplaceInput): Promise<void> {
     const path = `/api/shared-docs/${id}/replace`;
     const row = mockSharedDocOrThrow("POST", path, id);
+    mockSharedDocContentStamps[id] = mockSharedDocContentStamp(row);
     const name = input.name?.trim() ?? row.name;
     const description = input.description?.trim() ?? row.description;
     const newContent = Boolean(input.attachmentId?.trim() || input.url?.trim());
+    if (input.name !== undefined && !name) {
+      throw mockApiError(
+        `http 400 for POST ${path}`,
+        400,
+        "name cannot be blank: omit it to keep the current name",
+      );
+    }
     if (!newContent && input.name === undefined && input.description === undefined) {
       const field = row.kind === "link" ? "url" : "attachment_id";
       const kind = row.kind === "image" ? "an image" : `a ${row.kind}`;
@@ -6912,9 +6928,11 @@ const mockApiImpl = {
       mockSharedDocVersions[id] = history.slice(0, MOCK_SHARED_DOC_KEEP);
       Object.assign(row, mockSharedDocContent(row.kind, input.attachmentId, input.url));
     }
+    const now = Date.now() / 1000;
+    if (newContent) mockSharedDocContentStamps[id] = { ts: now, by: "owner" };
     row.name = name;
     row.description = description;
-    row.updated_ts = Date.now() / 1000;
+    row.updated_ts = now;
     row.updated_by = "owner";
     row.version_count = (mockSharedDocVersions[id]?.length ?? 0) + 1;
     emitTopic("shared_doc");
@@ -6949,6 +6967,7 @@ const mockApiImpl = {
       updated_ts: Date.now() / 1000,
       updated_by: "owner",
     });
+    mockSharedDocContentStamps[id] = { ts: row.updated_ts, by: "owner" };
     emitTopic("shared_doc");
   },
 
@@ -8625,6 +8644,7 @@ export function __resetMock(): void {
   mockSharedDocVersions = structuredClone(MOCK_WIRE_SHARED_DOC_VERSIONS);
   mockBlobs = structuredClone(MOCK_SHARED_DOC_BLOBS);
   mockSharedDocVersionSeq = 100;
+  mockSharedDocContentStamps = {};
   wireMembers = structuredClone(MOCK_WIRE_MEMBERS);
   wireMonitoring = structuredClone(MOCK_WIRE_MONITORING);
   mockBinStatus.clear();
