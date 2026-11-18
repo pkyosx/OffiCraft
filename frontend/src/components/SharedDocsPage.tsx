@@ -2,7 +2,6 @@
 // reads by `sd-` id. The list is a table; #shared-docs/<id> opens one document.
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { api, viewerIsOwner } from "../api";
 import { authedAttachmentUrl } from "../api/http";
@@ -23,7 +22,7 @@ import {
   saveSharedDocText,
 } from "./SharedDocDetail";
 import { kindMismatchMessage, sharedDocKindForFile } from "./SharedDocFormDialog";
-import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
+import { MarkdownPreviewOverlay, PreviewShell } from "./MarkdownPreviewOverlay";
 import {
   CheckIcon,
   CloseIcon,
@@ -342,8 +341,6 @@ function SharedDocEditOverlay({
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const rootRef = useRef<HTMLDivElement>(null);
-
   // Seeded once: the doc is re-read on every shared_doc delta, and a later read
   // must not overwrite what is being typed.
   useEffect(() => {
@@ -353,15 +350,6 @@ function SharedDocEditOverlay({
   const close = () => {
     if (!busy) onClose();
   };
-  useEscapeLayer(close, rootRef);
-
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    rootRef.current?.focus();
-    return () => {
-      if (opener && opener.isConnected) opener.focus();
-    };
-  }, []);
 
   async function save() {
     if (!doc || draft === null) return;
@@ -436,41 +424,17 @@ function SharedDocEditOverlay({
     );
   }
 
-  return createPortal(
-    <div
-      ref={rootRef}
-      className="md-preview"
-      tabIndex={-1}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      data-testid="shared-doc-edit-overlay"
+  return (
+    <PreviewShell
+      title={title}
+      onClose={close}
+      closeLabel={d.cancel}
+      closeDisabled={busy}
+      dismissOnBackdrop={false}
+      testId="shared-doc-edit-overlay"
     >
-      <div className="md-preview__panel">
-        <div className="md-preview__header">
-          <span className="md-preview__title">
-            <FileTextIcon size={16} />
-            <span className="md-preview__title-text" title={title}>
-              {title}
-            </span>
-          </span>
-          <div className="md-preview__actions">
-            <button
-              type="button"
-              className="md-preview__close"
-              aria-label={d.cancel}
-              title={d.cancel}
-              disabled={busy}
-              onClick={close}
-            >
-              <CloseIcon size={16} />
-            </button>
-          </div>
-        </div>
-        <div className="md-preview__body shared-docs__overlay-body">{body}</div>
-      </div>
-    </div>,
-    document.body,
+      <div className="md-preview__body shared-docs__overlay-body">{body}</div>
+    </PreviewShell>
   );
 }
 

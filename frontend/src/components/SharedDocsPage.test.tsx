@@ -227,11 +227,19 @@ describe("SharedDocsPage", () => {
     ).toEqual(["shared-doc-id"]);
   });
 
-  it("the name opens the content itself, a link in a new tab and a file or image in the preview over the list with the preview's own actions plus 編輯 on a text file, and 最後修改 opens the doc's page", async () => {
+  it("the name opens the content itself, a link in a new tab and a file or image in the preview over the list with the preview's own actions plus 編輯 on any text file, and 最後修改 opens the doc's page", async () => {
     const contractId = await createUploaded("file", "Contract", "contract.pdf", "pdf");
     const shotId = await createUploaded("image", "Shot", "shot.png", "png");
+    const configId = await createUploaded("file", "Config", "ci.yaml", "# keep\nkey:  v\n");
+    const configDoc = await api.getSharedDoc(configId);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        new Response(url.startsWith(configDoc.url) ? "# keep\nkey:  v\n" : "", { status: 200 }),
+      ),
+    );
     const { container } = renderPage();
-    await waitRows(container, 4);
+    await waitRows(container, 5);
     const row = (id: string) => container.querySelector<HTMLElement>(`[data-doc-id="${id}"]`)!;
     const actions = (overlay: HTMLElement) =>
       Array.from(overlay.querySelectorAll(".md-preview__actions > *")).map((el) => el.getAttribute("aria-label"));
@@ -273,6 +281,18 @@ describe("SharedDocsPage", () => {
     fireEvent.click(within(document.body).getByTestId("shared-doc-editor-cancel"));
     expect(document.body.querySelector(".md-preview")).toBeNull();
     expect(document.activeElement).toBe(within(row("sd-3f9a2c71b0e4")).getByTestId("shared-doc-open"));
+
+    const config = await openPreview(configId);
+    await waitFor(() => expect(config.querySelector("pre.md-preview__text")?.textContent).toBe("# keep\nkey:  v\n"));
+    await waitFor(() =>
+      expect(actions(config)).toEqual(["編輯", "複製分享連結", "在新頁面顯示", "下載", "關閉預覽"]),
+    );
+    fireEvent.click(within(config).getByRole("button", { name: "編輯" }));
+    expect(
+      ((await waitFor(() => within(document.body).getByTestId("shared-doc-editor"))) as HTMLTextAreaElement).value,
+    ).toBe("# keep\nkey:  v\n");
+    fireEvent.click(within(document.body).getByTestId("shared-doc-editor-cancel"));
+    await waitFor(() => expect(document.body.querySelector(".md-preview")).toBeNull());
 
     const contract = await openPreview(contractId);
     expect(contract.querySelector(".md-preview__title")?.textContent).toBe("Contract");

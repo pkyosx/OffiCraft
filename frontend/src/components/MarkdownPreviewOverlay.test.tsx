@@ -320,6 +320,30 @@ describe("MarkdownPreviewOverlay", () => {
     );
   });
 
+  it.each([
+    ["ci.yaml", "text/plain", "# keep\nkey:  v\n", "pre.md-preview__text", "# keep\nkey:  v\n"],
+    ["feed.xml", "text/xml", "<a><b>1</b></a>", "pre.md-preview__text", "<a>\n  <b>1</b>\n</a>"],
+    ["main.py", "text/plain", "print(1)\n", "pre.md-preview__text", "print(1)\n"],
+    ["t.csv", "text/csv", "a,b\n1,2\n", ".md-preview__csv table", "ab12"],
+  ])("draws a %s attachment in the panel instead of sending it to a tab", async (title, mime, text, selector, shown) => {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => text })) as unknown as typeof fetch;
+    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue("/api/chat/attachment/att-t?sig=s");
+    render(
+      <I18nProvider>
+        <MarkdownPreviewOverlay
+          title={title}
+          url="/api/chat/attachment/att-t"
+          attachmentId="att-t"
+          mime={mime}
+          onClose={() => {}}
+        />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(document.body.querySelector(selector)).toBeTruthy());
+    expect(document.body.querySelector(selector)?.textContent).toBe(shown);
+    expect(document.body.querySelector(".md-preview__status")).toBeNull();
+  });
+
   it("shows invalid JSON unchanged with the unparseable explanation", async () => {
     const raw = '{"name":}';
     globalThis.fetch = vi.fn(async () => ({
