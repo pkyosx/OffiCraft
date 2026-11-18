@@ -613,6 +613,44 @@ def _matrix_lore_entry(ctx: Ctx) -> str:
     return r.json()["id"]
 
 
+def _matrix_shared_doc(ctx: Ctx, *, versions: int = 0, archived: bool = False) -> str:
+    """A fresh link shared document made by the owner; returns its ``sd-`` id.
+
+    One per cell, like the scratch tasks: replace, restore, archive, unarchive
+    and delete all mutate the row they aim at. ``versions`` replaces it that
+    many times so a restore cell has a retained version to name."""
+    headers = {"Authorization": f"Bearer {ctx.owner_token}"}
+    r = ctx.client.post(
+        "/api/shared-docs",
+        json={"kind": "link", "name": "conf shared doc", "url": "https://example.com/doc/0"},
+        headers=headers,
+    )
+    assert r.status_code == 200, f"scratch shared doc failed: {r.status_code} {r.text}"
+    doc_id = r.json()["id"]
+    for n in range(versions):
+        r = ctx.client.post(
+            f"/api/shared-docs/{doc_id}/replace",
+            json={"url": f"https://example.com/doc/{n + 1}"},
+            headers=headers,
+        )
+        assert r.status_code == 200, f"scratch shared doc replace failed: {r.status_code} {r.text}"
+    if archived:
+        r = ctx.client.post(f"/api/shared-docs/{doc_id}/archive", headers=headers)
+        assert r.status_code == 200, f"scratch shared doc archive failed: {r.status_code} {r.text}"
+    return doc_id
+
+
+def _matrix_shared_doc_version(ctx: Ctx) -> tuple[str, int]:
+    """A fresh shared document with one retained version; returns (id, version id)."""
+    doc_id = _matrix_shared_doc(ctx, versions=1)
+    r = ctx.client.get(
+        f"/api/shared-docs/{doc_id}/versions",
+        headers={"Authorization": f"Bearer {ctx.owner_token}"},
+    )
+    assert r.status_code == 200, f"scratch shared doc versions failed: {r.status_code} {r.text}"
+    return doc_id, r.json()["versions"][0]["id"]
+
+
 # T-3201 — a boot document's write face takes the EDITABLE HALF and nothing
 # else; the server joins the read-only head back on. These rows are about the
 # AUTHZ FLOOR, and the body used to read the document first and re-send its head
@@ -2097,6 +2135,48 @@ MATRIX: dict[str, Route] = {
         requires="admin_agent",
         path=lambda ctx, _i: f"/api/lore/{_matrix_lore_entry(ctx)}/scope",
         body={"scope_kind": "everyone"},
+    ),
+    # ── 共用文件 shared docs ──────────────────────────────────────────────────
+    # Reads sit on the machine floor and writes on the agent floor with no
+    # per-caller guard: a shared document belongs to no one member, so agent B
+    # changes a document the owner made exactly as agent A does. Only the
+    # permanent delete is owner-only.
+    "GET /api/shared-docs": Route(requires="machine"),
+    "POST /api/shared-docs": Route(
+        requires="agent",
+        body={"kind": "link", "name": "conf matrix doc", "url": "https://example.com/doc"},
+    ),
+    "GET /api/shared-docs/{doc_id}": Route(
+        requires="machine",
+        path=lambda ctx, _i: f"/api/shared-docs/{_matrix_shared_doc(ctx)}",
+    ),
+    "POST /api/shared-docs/{doc_id}/replace": Route(
+        requires="agent",
+        path=lambda ctx, _i: f"/api/shared-docs/{_matrix_shared_doc(ctx)}/replace",
+        body={"url": "https://example.com/doc/next"},
+    ),
+    "GET /api/shared-docs/{doc_id}/versions": Route(
+        requires="machine",
+        path=lambda ctx, _i: f"/api/shared-docs/{_matrix_shared_doc(ctx, versions=1)}/versions",
+    ),
+    "POST /api/shared-docs/{doc_id}/versions/{version_id}/restore": Route(
+        requires="agent",
+        path=lambda ctx, _i: "/api/shared-docs/{}/versions/{}/restore".format(
+            *_matrix_shared_doc_version(ctx)),
+    ),
+    "POST /api/shared-docs/{doc_id}/archive": Route(
+        requires="agent",
+        path=lambda ctx, _i: f"/api/shared-docs/{_matrix_shared_doc(ctx)}/archive",
+    ),
+    "POST /api/shared-docs/{doc_id}/unarchive": Route(
+        # Owner decision: archiving is reversible by any member; only the
+        # permanent delete is owner-only.
+        requires="agent",
+        path=lambda ctx, _i: f"/api/shared-docs/{_matrix_shared_doc(ctx, archived=True)}/unarchive",
+    ),
+    "DELETE /api/shared-docs/{doc_id}": Route(
+        requires="owner",
+        path=lambda ctx, _i: f"/api/shared-docs/{_matrix_shared_doc(ctx, archived=True)}",
     ),
     # ── secrets ─────────────────────────────────────────────────────────────
     "GET /api/secrets": Route(requires="owner"),

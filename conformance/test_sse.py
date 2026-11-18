@@ -393,6 +393,17 @@ def test_every_closed_topic_emits(
         if r.status_code == 200:
             upgrade_started.update(r.json())
         return r
+    shared_doc_created: dict[str, Any] = {}
+
+    def create_shared_doc() -> Any:
+        r = client.post(
+            "/api/shared-docs",
+            json={"kind": "link", "name": f"topic probe {tag}",
+                  "url": "https://example.com/topic-probe"},
+            headers=_auth(agent_a.token))
+        if r.status_code == 200:
+            shared_doc_created.update(r.json())
+        return r
     triggers: list[tuple[str, Any]] = [
         ("member", lambda: client.patch(
             f"/api/members/{member}", json=member_patch_body,
@@ -451,6 +462,7 @@ def test_every_closed_topic_emits(
             headers=_auth(agent_a.token))),
         ("runtime_login", start_login),
         ("runtime_upgrade", start_upgrade),
+        ("shared_doc", create_shared_doc),
     ]
     expected_op = {
         "member": "patch", "chat": "patch", "chat_read": "patch", "chat_group": "patch",
@@ -463,6 +475,7 @@ def test_every_closed_topic_emits(
         "context": "signal", "monitoring": "signal",
         "runtime_login": "signal",
         "runtime_upgrade": "signal",
+        "shared_doc": "patch",
     }
     # ── the self-confrontation: this table IS the closed set, not a subset ────
     closed = _closed_topic_set()
@@ -606,6 +619,10 @@ def test_every_closed_topic_emits(
             assert frame["data"]["key"] == login_started["login_id"], (frame, login_started)
         if topic == "runtime_upgrade":
             assert frame["data"]["key"] == upgrade_started["upgrade_id"], (frame, upgrade_started)
+        if topic == "shared_doc":
+            # Bound to this write: the payload names the document just created.
+            assert frame["data"]["payload"] == {"id": shared_doc_created["id"]}, (
+                frame, shared_doc_created)
         if frame["op"] == "signal":
             # §3.2: volatile in-memory store change — payload always null.
             assert frame["data"]["payload"] is None, (topic, frame)
