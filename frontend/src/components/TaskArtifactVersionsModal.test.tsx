@@ -376,7 +376,7 @@ describe("TaskArtifactVersionsModal", () => {
     await waitFor(() => expect(read(screen.getByTestId("ta-versions-content-text"))).toBe(shown));
   });
 
-  it("frames an HTML version at its own share link, never at a token address", async () => {
+  it("frames an HTML version at its own share link, never at a token address, and says it cannot be previewed here when no link can be made", async () => {
     mockedApi.listTaskArtifactVersions.mockResolvedValue([
       mkVersion({ name: "page.html", filename: "page.html", mime: "text/html", url: "/api/chat/attachment/att-0123456789ab" }),
     ]);
@@ -386,7 +386,7 @@ describe("TaskArtifactVersionsModal", () => {
       "/api/chat/attachment/att-0123456789ab": { mime: "text/html", text: "<p>old</p>" },
       "/api/chat/attachment/att-live": { mime: "text/html", text: "<p>new</p>" },
     });
-    openModal();
+    const framed = openModal();
     await waitFor(() => expect(screen.getByTestId("ta-versions-content-text").tagName).toBe("IFRAME"));
     expect(mockedApi.getChatAttachmentShareLink).toHaveBeenCalledWith("att-0123456789ab");
     expect(screen.getByTestId("ta-versions-content-text").getAttribute("src")).toBe(
@@ -394,6 +394,14 @@ describe("TaskArtifactVersionsModal", () => {
     );
     expect(screen.getByTestId("ta-versions-content-text").getAttribute("sandbox")).toBe(
       "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    );
+    framed.unmount();
+
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockedApi.getChatAttachmentShareLink.mockRejectedValue(new Error("http 500"));
+    openModal();
+    await waitFor(() =>
+      expect(screen.getByTestId("ta-versions-content-text").textContent).toBe("此檔案無法在這裡預覽。"),
     );
   });
 

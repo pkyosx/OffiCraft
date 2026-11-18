@@ -51,8 +51,9 @@ export type ContentViewProps = {
   /** The host has no 「在新頁面顯示」 of its own, so a file that cannot be
    * drawn here offers one in the body. */
   newTabLink?: boolean;
-  /** What a file that cannot be drawn says when there is no tab to open it in —
-   * the host knows whether a download is on offer. */
+  /** What a file that cannot be drawn says when there is no tab to open it in,
+   * or an HTML page whose share link could not be made — the host knows
+   * whether a download is on offer. */
   unavailable?: ReactNode;
   testId?: string;
 };
@@ -98,7 +99,7 @@ export function ContentView({
   }
 
   if (kind === "html") {
-    if (shareHref === null) return status(shareFailed ? p.unavailable : p.loading);
+    if (shareHref === null) return status(shareFailed ? (unavailable ?? p.unavailable) : p.loading);
     return (
       <iframe
         ref={frameRef}

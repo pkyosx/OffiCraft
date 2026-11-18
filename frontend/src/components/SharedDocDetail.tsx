@@ -145,7 +145,7 @@ function SharedDocContent({ doc }: { doc: SharedDocDetailView }) {
       testId={`shared-doc-${kind}`}
     />
   );
-  if (kind === "pdf" || kind === "binary") {
+  if (kind === "pdf" || kind === "binary" || (kind === "html" && share.failed)) {
     return (
       <div className="shared-docs__opaque">
         {view}

@@ -110,6 +110,9 @@ describe("ContentView", () => {
     const failed = mount({ kind: "html", shareHref: null, shareFailed: true });
     expect(statusText(failed.container)).toEqual([p.unavailable]);
     failed.unmount();
+    const hostLine = mount({ kind: "html", shareHref: null, shareFailed: true, unavailable: "only download" });
+    expect(statusText(hostLine.container)).toEqual(["only download"]);
+    hostLine.unmount();
     const { container } = mount({
       kind: "html",
       shareHref: "https://studio.test/api/chat/attachment/att-1?sig=s",

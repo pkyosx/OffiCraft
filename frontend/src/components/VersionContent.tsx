@@ -5,6 +5,7 @@
 // wording for the states that are about the version rather than the bytes.
 
 import type { ReactNode } from "react";
+import { useI18n } from "../i18n";
 import { authedAttachmentUrl } from "../api/http";
 import { useShareHref } from "../hooks/useShareHref";
 import type { ArtifactPayload } from "../hooks/useVersionPayload";
@@ -39,6 +40,7 @@ export function VersionContent({
   label?: string;
   testId: string;
 }) {
+  const { t } = useI18n();
   const shareUrl = shareableUrl(payload);
   const share = useShareHref(
     shareUrl === undefined ? undefined : attachmentLinkFromHref(shareUrl)?.attachmentId,
@@ -85,6 +87,7 @@ export function VersionContent({
           label={label}
           shareHref={share.href}
           shareFailed={share.failed}
+          unavailable={t.chat.mdPreview.unavailableHere}
           resolveImageSrc={authedAttachmentUrl}
           testId={`${testId}-text`}
         />

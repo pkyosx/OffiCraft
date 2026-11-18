@@ -221,15 +221,30 @@ describe("SharedDocDetail", () => {
     ).toEqual(["1", "2"]);
   });
 
-  it("an HTML file is its page in a sandboxed frame at its share link, never at a token address", async () => {
-    const { getByTestId } = showDoc(fileDoc("page.html", "text/html", "<p>hi</p>"));
-    await title(getByTestId);
-    const frame = await waitFor(() => getByTestId("shared-doc-html"));
+  it("an HTML file is its page in a sandboxed frame at its share link, never at a token address; without a link it says so beside 下載", async () => {
+    const framed = showDoc(fileDoc("page.html", "text/html", "<p>hi</p>"));
+    await title(framed.getByTestId);
+    const frame = await waitFor(() => framed.getByTestId("shared-doc-html"));
     expect(frame.tagName).toBe("IFRAME");
     expect(frame.getAttribute("src")).toBe(
       `${window.location.origin}/api/chat/attachment/att-aaaaaaaaaaaa?sig=s1`,
     );
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-popups allow-popups-to-escape-sandbox");
+    framed.unmount();
+    vi.restoreAllMocks();
+
+    const failed = showDoc(fileDoc("page.html", "text/html", "<p>hi</p>"));
+    vi.spyOn(api, "getChatAttachmentShareLink").mockRejectedValue(new Error("http 500"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await title(failed.getByTestId);
+    await waitFor(() => expect(failed.getByTestId("shared-doc-html").textContent).toBe("這個檔案無法在這裡顯示。"));
+    const download = failed.getByTestId("shared-doc-download");
+    expect([download.textContent, download.getAttribute("href"), download.getAttribute("download")]).toEqual([
+      "下載",
+      "/api/chat/attachment/att-aaaaaaaaaaaa",
+      "page.html",
+    ]);
+    expect(failed.container.querySelector("iframe")).toBeNull();
   });
 
   it("a PDF opens in a new tab at its share link beside 下載, and is not framed", async () => {
