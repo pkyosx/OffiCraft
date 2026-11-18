@@ -1017,7 +1017,7 @@ describe("MarkdownPreviewOverlay", () => {
         "oc_doc_comments:att-aaaaaaaaaaaa",
         JSON.stringify([
           { id: "c1", excerpt: "第一段要修改的內容。\n\n第二段保持原樣。", comment: "兩段合併\n並縮短" },
-          { id: "c2", excerpt: "週報", comment: "標題加日期" },
+          { id: "c2", excerpt: "週報_v2", comment: "標題加日期" },
         ]),
       );
       const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
@@ -1044,7 +1044,7 @@ describe("MarkdownPreviewOverlay", () => {
               "   並縮短\n" +
               "\n" +
               "2. 原文：\n" +
-              "   > 週報\n" +
+              "   > 週報_v2\n" +
               "\n" +
               "   註解：標題加日期",
           },
@@ -1055,7 +1055,7 @@ describe("MarkdownPreviewOverlay", () => {
       const bubble = render(<Markdown source={post.mock.calls[0][0].body} breaks />).container;
       expect([...bubble.querySelectorAll("ol > li > blockquote")].map((q) => q.textContent)).toEqual([
         "第一段要修改的內容。第二段保持原樣。",
-        "週報",
+        "週報_v2",
       ]);
       expect(bubble.querySelector("a")!.getAttribute("href")).toBe("/api/chat/attachment/att-aaaaaaaaaaaa");
     });
@@ -1365,14 +1365,20 @@ describe("MarkdownPreviewOverlay", () => {
         expect(document.body.querySelector(".doc-comments b")).toBeNull();
       });
 
-      it("offers 加註解 for the text the page reports selected and sends a comment quoting exactly that text as plain text, ignoring another window and a malformed or oversize selection", async () => {
+      it("offers 加註解 for the text the page reports selected once it said ready, and sends a comment quoting that text with markdown in it kept as plain text, ignoring another window, a malformed or oversize selection and a selection from before the page last said ready", async () => {
         const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
         const { fromPage, toggle } = await renderPage();
         toggle();
-        fromPage({ ...OC, type: "ready" });
         const rect = { left: 10, top: 20, width: 80, height: 16 };
         const select = (text: unknown, r: unknown = rect) => ({ ...OC, type: "select", text, rect: r });
         const float = () => screen.queryByRole("button", { name: "加註解" });
+        fromPage(select("在 GitHub 開啟 PR #702"));
+        expect(float()).toBeNull();
+        fromPage({ ...OC, type: "ready" });
+        fromPage(select("在 GitHub 開啟 PR #702"));
+        expect(float()).not.toBeNull();
+        fromPage({ ...OC, type: "ready" });
+        expect(float()).toBeNull();
 
         fromPage(select("在 GitHub 開啟 PR #702"), window);
         fromPage(select("在 GitHub 開啟 PR #702"), null);
@@ -1389,14 +1395,15 @@ describe("MarkdownPreviewOverlay", () => {
         fromPage(select(""));
         expect(float()).toBeNull();
 
-        fromPage(select("  <b>粗</b> 在 GitHub\n開啟 PR #702 "));
+        const hostile = "<b>粗</b> [x](https://evil.example) **b**\n```js\n# 標題\n開啟 PR #702";
+        fromPage(select(`  ${hostile} `));
         fireEvent.click(float()!);
         expect(document.body.querySelector(".doc-comments__item--compose .doc-comments__excerpt")?.textContent).toBe(
-          "<b>粗</b> 在 GitHub\n開啟 PR #702",
+          hostile,
         );
         expect(float()).toBeNull();
         saveComposed("這個連結打不開");
-        expect(listed()).toEqual(["<b>粗</b> 在 GitHub\n開啟 PR #7021. 這個連結打不開"]);
+        expect(listed()).toEqual([`${hostile}1. 這個連結打不開`]);
         expect(document.body.querySelector(".doc-comments b")).toBeNull();
 
         fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
@@ -1405,11 +1412,23 @@ describe("MarkdownPreviewOverlay", () => {
           "**文件註解**：[pr-702.html](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
             "\n" +
             "1. 原文：\n" +
-            "   > <b>粗</b> 在 GitHub\n" +
+            "   > \\<b\\>粗\\</b\\> \\[x\\](https\\://evil.example) \\*\\*b\\*\\*\n" +
+            "   > \\`\\`\\`js\n" +
+            "   > \\# 標題\n" +
             "   > 開啟 PR #702\n" +
             "\n" +
             "   註解：這個連結打不開",
         );
+        const bubble = render(<Markdown source={post.mock.calls[0][0].body} breaks />).container;
+        expect([...bubble.querySelectorAll("ol > li > blockquote")].map((q) => q.textContent)).toEqual([
+          "<b>粗</b> [x](https://evil.example) **b**```js# 標題開啟 PR #702",
+        ]);
+        expect([...bubble.querySelectorAll("blockquote *")].map((el) => el.outerHTML)).toEqual([
+          "<p>&lt;b&gt;粗&lt;/b&gt; [x](https://evil.example) **b**<br>```js<br># 標題<br>開啟 PR #702</p>",
+          "<br>",
+          "<br>",
+          "<br>",
+        ]);
       });
 
       it("tells the page which places carry comments whenever the draft changes, and asks it to show the place of a clicked comment", async () => {
@@ -1602,6 +1621,9 @@ describe("MarkdownPreviewOverlay", () => {
             ["ac-AC-2", "oc-commented"],
           ]);
           fromScript.length = 0;
+          doc.getSelection()!.addRange(range);
+          fireEvent.mouseUp(link);
+          doc.getSelection()!.removeAllRanges();
           expect(fireEvent.click(doc.querySelector("a")!)).toBe(true);
           fireEvent.click(doc.querySelector("p")!);
           await settle();

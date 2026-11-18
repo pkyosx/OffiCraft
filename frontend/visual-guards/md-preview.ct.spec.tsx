@@ -1071,6 +1071,29 @@ for (const size of [NARROW, WIDE]) {
     ]);
     await page.waitForTimeout(200);
     expect(page.context().pages().length).toBe(tabs);
+    const pageFrame = page.frames().find((f) => f.url().includes("att-ct-html"))!;
+    for (const rect of [
+      { left: -5000, top: -5000, width: 10, height: 10 },
+      { left: 99999, top: 99999, width: 10, height: 10 },
+      { left: -50, top: 2000, width: 1e6, height: 1e6 },
+    ]) {
+      await pageFrame.evaluate(
+        (r) => parent.postMessage({ oc: "doc-comments", v: 1, type: "select", text: "外部連結", rect: r }, "*"),
+        rect,
+      );
+      await expect(add).toBeVisible();
+      const placed = await page.evaluate(() => {
+        const box = (sel: string) => {
+          const r = document.querySelector(sel)!.getBoundingClientRect();
+          return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+        };
+        return { float: box(".doc-comments__float"), frame: box("iframe.md-preview__frame") };
+      });
+      expect(placed.float.left, JSON.stringify(rect)).toBeGreaterThanOrEqual(placed.frame.left);
+      expect(placed.float.right, JSON.stringify(rect)).toBeLessThanOrEqual(placed.frame.right);
+      expect(placed.float.top, JSON.stringify(rect)).toBeGreaterThanOrEqual(placed.frame.top);
+      expect(placed.float.bottom, JSON.stringify(rect)).toBeLessThanOrEqual(placed.frame.bottom);
+    }
   });
 }
 

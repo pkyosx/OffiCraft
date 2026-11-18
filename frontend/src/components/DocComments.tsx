@@ -46,7 +46,8 @@ function newCommentId(): string {
   return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
-type Pick = { anchor: DocCommentAnchor; rect: DOMRect };
+/** `bounds`: the box the 加註解 float must stay inside. */
+type Pick = { anchor: DocCommentAnchor; rect: DOMRect; bounds?: DOMRect };
 
 type Located = Range | HTMLImageElement;
 
@@ -206,13 +207,12 @@ function useDocImagePick(docRef: RefObject<HTMLElement | null>, active: boolean)
   return [pick, () => setPick(null)] as const;
 }
 
-/** A page-reported selection box on the reader's screen, kept inside the frame. */
 function frameRectOnScreen(frame: DOMRect, rect: FrameRect): DOMRect {
-  const x = (v: number) => Math.min(Math.max(frame.left + v, frame.left), frame.right);
-  const y = (v: number) => Math.min(Math.max(frame.top + v, frame.top), frame.bottom);
-  const left = x(rect.left);
-  const top = y(rect.top);
-  return new DOMRect(left, top, x(rect.left + rect.width) - left, y(rect.top + rect.height) - top);
+  return new DOMRect(frame.left + rect.left, frame.top + rect.top, rect.width, rect.height);
+}
+
+function clampInto(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(value, max));
 }
 
 function newComment(anchor: DocCommentAnchor, comment: string): DocComment {
@@ -225,7 +225,9 @@ function newComment(anchor: DocCommentAnchor, comment: string): DocComment {
     case "document":
       return { id, kind: "document", comment };
     case "text":
-      return { id, excerpt: anchor.excerpt, comment };
+      return anchor.page
+        ? { id, excerpt: anchor.excerpt, page: true, comment }
+        : { id, excerpt: anchor.excerpt, comment };
   }
 }
 
@@ -249,7 +251,7 @@ function anchorOf(c: DocComment): DocCommentAnchor {
     case "document":
       return { kind: "document" };
     case undefined:
-      return { kind: "text", excerpt: c.excerpt };
+      return c.page ? { kind: "text", excerpt: c.excerpt, page: true } : { kind: "text", excerpt: c.excerpt };
   }
 }
 
@@ -316,10 +318,11 @@ export function DocCommentPanel({
     if (message.type === "select") {
       const box = frame.current?.getBoundingClientRect();
       setFrameSelection(
-        message.selection && box
+        message.selection && box && frameReady > 0
           ? {
-              anchor: { kind: "text", excerpt: message.selection.text },
+              anchor: { kind: "text", excerpt: message.selection.text, page: true },
               rect: frameRectOnScreen(box, message.selection.rect),
+              bounds: box,
             }
           : null,
       );
@@ -330,6 +333,8 @@ export function DocCommentPanel({
     setCollapsed(false);
     setComposing({ anchor: { kind: "anchor", ...message.anchor }, text: "" });
   });
+
+  useEffect(() => setFrameSelection(null), [frameReady]);
 
   useEffect(() => {
     if (frameReady === 0) return;
@@ -434,10 +439,12 @@ export function DocCommentPanel({
   useLayoutEffect(() => {
     const el = floatRef.current;
     if (!el || !pick) return;
-    const { left, top } = placeUnderSelection(pick.rect, {
-      width: el.offsetWidth,
-      height: el.offsetHeight,
-    });
+    const size = { width: el.offsetWidth, height: el.offsetHeight };
+    let { left, top } = placeUnderSelection(pick.rect, size);
+    if (pick.bounds) {
+      left = clampInto(left, pick.bounds.left, pick.bounds.right - size.width);
+      top = clampInto(top, pick.bounds.top, pick.bounds.bottom - size.height);
+    }
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
   }, [pick]);

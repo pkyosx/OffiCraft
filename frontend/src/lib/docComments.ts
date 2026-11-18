@@ -6,19 +6,19 @@
 import { OWNER_ID } from "./ownerUnread";
 import { isSyntheticSender } from "./syntheticSender";
 
-/** A comment on a passage (`excerpt`), an image, a place an HTML page marked
- * (`anchorId`/`label`, named by the page) or the whole document. Text comments
- * carry no `kind`, which is also the shape drafts were stored in before images
- * could be commented on. */
+/** A comment on a passage (`excerpt`; `page` when an HTML page reported it),
+ * an image, a place an HTML page marked (`anchorId`/`label`, named by the page)
+ * or the whole document. Text comments carry no `kind`, which is also the shape
+ * drafts were stored in before images could be commented on. */
 export type DocComment =
-  | { id: string; comment: string; kind?: undefined; excerpt: string }
+  | { id: string; comment: string; kind?: undefined; excerpt: string; page?: true }
   | { id: string; comment: string; kind: "image"; alt: string; src: string }
   | { id: string; comment: string; kind: "anchor"; anchorId: string; label: string }
   | { id: string; comment: string; kind: "document" };
 
 /** What a new comment is about, before it has a comment. */
 export type DocCommentAnchor =
-  | { kind: "text"; excerpt: string }
+  | { kind: "text"; excerpt: string; page?: true }
   | { kind: "image"; alt: string; src: string }
   | { kind: "anchor"; id: string; label: string }
   | { kind: "document" };
@@ -81,7 +81,11 @@ function isDocComment(value: unknown): value is DocComment {
   if (c.kind === "image") return typeof c.alt === "string" && typeof c.src === "string";
   if (c.kind === "anchor") return typeof c.anchorId === "string" && typeof c.label === "string";
   if (c.kind === "document") return true;
-  return c.kind === undefined && typeof c.excerpt === "string";
+  return (
+    c.kind === undefined &&
+    typeof c.excerpt === "string" &&
+    (c.page === undefined || c.page === true)
+  );
 }
 
 export function saveDocCommentDraft(attachmentId: string, comments: DocComment[]): void {
@@ -179,7 +183,9 @@ function quoteLines(c: DocComment): string[] {
     return [`   > 位置：${escapePageText(c.label)}（#${escapePageText(c.anchorId)}）`];
   }
   if (c.kind === "document") return ["   > 整份文件"];
-  return excerptLines(c.excerpt).map((l) => (l === "" ? "   >" : `   > ${l}`));
+  // The page's script, not the owner's selection, decides what that text is.
+  const line = c.page ? (l: string) => escapeBlockMarker(escapePageText(l)) : (l: string) => l;
+  return excerptLines(c.excerpt).map((l) => (l === "" ? "   >" : `   > ${line(l)}`));
 }
 
 /** The chat message body. It is read by an AI through get_chat, so its labels
