@@ -24,7 +24,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { LS_SEASONAL_PAINT, LS_SEASONAL_THEME, LS_THEME, LS_THEME_PAINT } from "./themePaint";
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
 import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
-import { BUILTIN_THEME_IDS } from "./themeBundleCore";
+import { BUILTIN_THEME_IDS, BUNDLED_BUILTIN_THEMES } from "./themeBundleCore";
 
 const FE_ROOT = resolve(__dirname, "../..");
 // A dedicated outDir: `dist/` belongs to the developer and to the gate-4c paint
@@ -156,22 +156,25 @@ describe("no second source of truth for the theme storage keys", () => {
   }
 });
 
-describe("dist/ — every seasonal theme file ships as its own lazily loaded chunk", () => {
+describe("dist/ — every seasonal and bundled built-in theme file ships as its own JSON asset, fetched on use", () => {
   const themesDir = resolve(FE_ROOT, "../themes");
   const schedule = JSON.parse(
     readFileSync(resolve(themesDir, "seasonal-schedule.json"), "utf8")
   ) as { theme?: string; schedule?: { theme: string }[] }[];
-  const files = schedule.flatMap((e) => (e.schedule ? e.schedule.map((r) => r.theme) : [e.theme!]));
+  const files = [
+    ...schedule.flatMap((e) => (e.schedule ? e.schedule.map((r) => r.theme) : [e.theme!])),
+    ...BUNDLED_BUILTIN_THEMES.map(({ id }) => `${id}.theme.json`),
+  ];
   const assetsDir = resolve(FE_ROOT, OUT_DIR, "assets");
 
   for (const theme of files) {
-    it(`${theme} is in no script the page loads up front, and in exactly one other chunk`, () => {
+    it(`${theme} is in no script the page loads up front, and in exactly one file: its own .json asset`, () => {
       const bundle = JSON.parse(readFileSync(resolve(themesDir, theme), "utf8")) as {
         backgrounds?: { canvas?: string };
         avatars?: Record<string, string>;
       };
       const image = bundle.backgrounds?.canvas ?? Object.values(bundle.avatars ?? {})[0];
-      expect(image, `${theme} carries no image to recognise its chunk by`).toBeTruthy();
+      expect(image, `${theme} carries no image to recognise its file by`).toBeTruthy();
       const needle = (image as string).slice(-64);
 
       const entries = [...html.matchAll(/<script[^>]*\ssrc="\/assets\/([^"]+)"/g)].map((m) => m[1]);
@@ -181,13 +184,15 @@ describe("dist/ — every seasonal theme file ships as its own lazily loaded chu
         readFileSync(resolve(assetsDir, f), "utf8").includes(needle)
       );
       expect(carriers).toHaveLength(1);
+      expect(carriers[0].startsWith(`${theme.replace(/\.json$/, "")}-`), carriers[0]).toBe(true);
+      expect(carriers[0].endsWith(".json"), carriers[0]).toBe(true);
       expect(entries).not.toContain(carriers[0]);
       const preloaded = [...html.matchAll(/<link[^>]*href="\/assets\/([^"]+)"/g)].map((m) => m[1]);
       expect(preloaded).not.toContain(carriers[0]);
     });
   }
 
-  it("ships no chunk for a built-in theme's file — those reach the page through theme.css", () => {
+  it("ships no file for a theme.css built-in's theme file — those reach the page through theme.css", () => {
     const shipped = readdirSync(assetsDir);
     for (const id of BUILTIN_THEME_IDS) {
       expect(shipped.filter((f) => f.startsWith(`${id}.theme-`)), id).toEqual([]);

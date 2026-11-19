@@ -200,11 +200,16 @@ export async function pinClockOutsideSeasonalWindows(page: Page): Promise<void> 
   await pinClock(page, OUTSIDE_SEASONAL_WINDOWS);
 }
 
-/** Every request for a seasonal theme chunk (built from themes/*.theme.json). */
-export function captureSeasonalChunkRequests(page: Page): string[] {
+/** Matches the built asset of a seasonal theme file (themes/<name>.theme.json
+ * ships as /assets/<name>.theme-<hash>.json); the bundled desk themes' files
+ * share the shape and are excluded. */
+export const SEASONAL_THEME_FILE_URL = /\/assets\/(?!modern-office-desk-)[^/]+\.theme-[\w-]+\.json$/;
+
+/** Every request for a seasonal theme file. */
+export function captureSeasonalThemeFileRequests(page: Page): string[] {
   const urls: string[] = [];
   page.on("request", (req) => {
-    if (/\/assets\/[^/]+\.theme-[^/]+\.js$/.test(new URL(req.url()).pathname)) urls.push(req.url());
+    if (SEASONAL_THEME_FILE_URL.test(new URL(req.url()).pathname)) urls.push(req.url());
   });
   return urls;
 }

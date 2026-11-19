@@ -1,4 +1,5 @@
 import type { ThemeBundle } from "./themeBundleCore";
+import { themeFileLoaders } from "./themeFileFetch";
 import {
   SEASONAL_SCHEDULE,
   type SeasonalDayPart,
@@ -6,18 +7,18 @@ import {
   type SeasonalWindow,
 } from "./seasonalSchedule";
 
-// A lazy glob keeps every theme file in its own chunk: nothing is fetched until
-// a window opens and load() is called. The theme.css built-ins' files feed
-// theme.css through gen-builtin-themes.mjs and must not ship as chunks; the
-// bundled built-ins are lib/bundledBuiltinThemes.ts's.
-const THEME_FILES = import.meta.glob<ThemeBundle>(
+// Only the URLs are in the app bundle; each theme file ships as its own JSON
+// asset, fetched when a window opens and load() is called. The theme.css
+// built-ins' files feed theme.css through gen-builtin-themes.mjs and must not
+// ship at all; the bundled built-ins are lib/bundledBuiltinThemes.ts's.
+const THEME_FILE_URLS = import.meta.glob<string>(
   [
     "../../../themes/*.theme.json",
     "!../../../themes/office.theme.json",
     "!../../../themes/office-light.theme.json",
     "!../../../themes/modern-office-desk-*.theme.json",
   ],
-  { import: "default" }
+  { query: "?url&no-inline", import: "default", eager: true }
 );
 
 export interface LoadableSeasonalWindow extends SeasonalWindow {
@@ -46,5 +47,5 @@ export function seasonalWindowsFrom(
 
 export const SEASONAL_WINDOWS: readonly LoadableSeasonalWindow[] = seasonalWindowsFrom(
   SEASONAL_SCHEDULE,
-  THEME_FILES
+  themeFileLoaders(THEME_FILE_URLS)
 );
