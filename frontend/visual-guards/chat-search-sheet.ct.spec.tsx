@@ -9,11 +9,26 @@ const thread = Array.from({ length: 30 }, (_, i) => ({
   id: `c-sheet-${i}`,
   from: i % 3 ? "rd" : "owner",
   to: i % 3 ? "owner" : "rd",
-  body: `第 ${i + 1} 次 deploy 的紀錄`,
+  body: `第 ${i + 1} 次 deploy 的紀錄：PR 頁面固定規格、權限圖重新設計與設定改列啟用開關，請確認`,
   ts: now - (i + 1) * 600,
   attachments: [],
   replyCardId: null,
 }));
+
+async function expectItemsStacked(page: Page) {
+  const items = await page.locator(".chat-search__item").evaluateAll((els) =>
+    els.map((el) => {
+      const r = el.getBoundingClientRect();
+      const s = el.querySelector(".chat-search__snippet")!.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, snippetBottom: s.bottom };
+    }),
+  );
+  expect(items.length).toBe(30);
+  items.forEach((it, i) => {
+    expect(it.snippetBottom).toBeLessThanOrEqual(it.bottom + 0.5);
+    if (i > 0) expect(it.top).toBeGreaterThanOrEqual(items[i - 1].bottom - 0.5);
+  });
+}
 
 async function openResults(page: Page) {
   await page.getByTestId("chat-header-search").click();
@@ -24,7 +39,7 @@ async function openResults(page: Page) {
   await page.locator(".chat-search__item").first().waitFor();
 }
 
-test("390px: the search text is 16px so iOS does not zoom on focus; the results rise from the bottom edge, full width, at most 70% tall, and the list scrolls inside", async ({ mount, page }) => {
+test("390px: the search text is 16px so iOS does not zoom on focus; the results rise from the bottom edge, full width, at most 70% tall, and the list scrolls inside with every result whole", async ({ mount, page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mount(<ChatSuggestedRepliesStory name="GF Eva Slack Inbox" thread={thread} />);
   await openResults(page);
@@ -39,12 +54,13 @@ test("390px: the search text is 16px so iOS does not zoom on focus; the results 
   expect(backdrop).toEqual({ x: 0, y: 0, width: 390, height: 844 });
   const list = page.locator(".chat-search__sheet .chat-search__list");
   expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  await expectItemsStacked(page);
 
   await page.mouse.click(195, 40);
   await expect(page.locator(".chat-search__sheet")).toHaveCount(0);
 });
 
-test("1280px: the search text stays 14px and the results stay a side panel that leaves the search box uncovered", async ({ mount, page }) => {
+test("1280px: the search text stays 14px and the results stay a side panel that leaves the search box uncovered, every result whole", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   const cmp = await mount(<ChatSuggestedRepliesStory name="GF Eva Slack Inbox" thread={thread} />);
   await openResults(page);
@@ -56,5 +72,6 @@ test("1280px: the search text stays 14px and the results stay a side panel that 
   expect(panel.width).toBe(340);
   expect(panel.x + panel.width).toBeCloseTo(host.x + host.width, 0);
   expect(panel.y).toBeGreaterThanOrEqual(box.y + box.height);
+  await expectItemsStacked(page);
   await expect(page.locator(".chat-search__sheet")).toHaveCount(0);
 });
