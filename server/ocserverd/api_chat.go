@@ -606,6 +606,7 @@ const (
 	chatUnreadTrue               = "true"
 	chatIncludeDeletedTrue       = "true"
 	chatHideDeleteNoticesTrue    = "true"
+	chatExcludeInterAgentTrue    = "true"
 	chatIncludeDeleteNoticesTrue = "true"
 
 	chatUnreadDeletedMsg = "unread cannot be combined with include_deleted — a deleted " +
@@ -896,6 +897,7 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 		hideDeleted:       strOrEmpty(params.IncludeDeleted) != chatIncludeDeletedTrue,
 		hideDeleteNotices: hideDeleteNoticesParam(params.HideDeleteNotices),
 		bodyContains:      trimmedOrEmpty(params.Q),
+		ownerLineOnly:     strOrEmpty(params.ExcludeInterAgent) == chatExcludeInterAgentTrue,
 	}
 	if filter.bodyContains != "" && filter.participant == "" {
 		writeError(w, http.StatusUnprocessableEntity, chatSearchWithoutConversationMsg)

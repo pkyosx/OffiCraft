@@ -732,6 +732,7 @@ export interface paths {
          *     - `cursor`: hand it back verbatim; it works only on the path that minted it, and mixing cursor families is 422.
          *     - `with=<id>`: either side of a conversation; limit is applied after filtering.
          *     - `q=`: body substring search within the `with` conversation; ASCII letters match case-insensitively; pages with `cursor` only; adds `match_count`.
+         *     - `exclude_inter_agent=true`: only messages the owner sent or received; with `q`, `match_count` counts the same set.
          *     - `sender=` / `recipient=`: one side only; sent together they AND, pinning one direction.
          *     - `start_id=` / `end_id=`: an inclusive window running newer / older; limit must be 1..200 here; no next_cursor.
          *     - `ids=`: just the set you name; no next_cursor.
@@ -14860,6 +14861,8 @@ export interface operations {
                 include_deleted?: string | null;
                 /** @description ``true`` (the STRING) leaves out the notices the server sends when the owner deletes a message: messages from ``system`` carrying ``meta.delete_notice``. By default they are listed like any other message. 422 alongside ``unread=true``. Not consulted on the ``ids`` path, which always returns them. Any other value reads as not sent. */
                 hide_delete_notices?: string | null;
+                /** @description ``true`` (the STRING) keeps only messages the owner sent or received, leaving out messages between two members (and system notices to a member). Any other value reads as not sent. Not consulted on the ``ids`` path. */
+                exclude_inter_agent?: string | null;
             };
             header?: never;
             path?: never;

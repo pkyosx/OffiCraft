@@ -444,6 +444,7 @@ type chatListFilter struct {
 	hideDeleted       bool
 	hideDeleteNotices bool
 	bodyContains      string
+	ownerLineOnly     bool
 }
 
 func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
@@ -461,6 +462,10 @@ func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
 	if f.recipient != "" {
 		*query += ` AND ` + col + `recipient = ?`
 		*args = append(*args, f.recipient)
+	}
+	if f.ownerLineOnly {
+		*query += ` AND (` + col + `sender = ? OR ` + col + `recipient = ?)`
+		*args = append(*args, wireOwnerID, wireOwnerID)
 	}
 	if f.bodyContains != "" {
 		// SQLite lower() folds ASCII only; spec/openapi.json promises exactly that.

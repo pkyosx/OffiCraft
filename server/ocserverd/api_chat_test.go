@@ -1430,7 +1430,7 @@ func TestServeChatByIDs(t *testing.T) {
 func TestChatDeclaredQueryParams(t *testing.T) {
 	t.Run("the accepted set is every parameter the route declares plus the transport token, sorted", func(t *testing.T) {
 		if got := chatDeclaredQueryParams(); !reflect.DeepEqual(got, []string{
-			"before_id", "before_ts", "cursor", "end_id", "hide_delete_notices", "ids", "include_deleted", "limit",
+			"before_id", "before_ts", "cursor", "end_id", "exclude_inter_agent", "hide_delete_notices", "ids", "include_deleted", "limit",
 			"q", "recipient", "sender", "start_id", "token", "unread", "with",
 		}) {
 			t.Fatalf("chatDeclaredQueryParams = %#v", got)
@@ -1885,6 +1885,40 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 		}
 	})
 
+	t.Run("exclude_inter_agent keeps only the owner's messages on the line, and match_count counts the same set", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		apiTestAgentToken(t, api, "mira", "")
+		_, fromOwner := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"deploy from owner"}`)
+		_, toOwner := apiJSON(t, h, "POST", "/api/chat", kip, `{"to":"owner","body":"deploy to owner"}`)
+		_, between := apiJSON(t, h, "POST", "/api/chat", kip, `{"to":"mira","body":"deploy between members"}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/chat?with=kip&q=deploy", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"messages": []any{
+				apiTestChatRow(fromOwner["id"].(string), "owner", "kip", "deploy from owner"),
+				apiTestChatRow(toOwner["id"].(string), "kip", "owner", "deploy to owner"),
+				apiTestChatRow(between["id"].(string), "kip", "mira", "deploy between members"),
+			},
+			"match_count": float64(3),
+		})
+
+		status, data = apiJSON(t, h, "GET", "/api/chat?with=kip&q=deploy&exclude_inter_agent=true", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"messages": []any{
+				apiTestChatRow(fromOwner["id"].(string), "owner", "kip", "deploy from owner"),
+				apiTestChatRow(toOwner["id"].(string), "kip", "owner", "deploy to owner"),
+			},
+			"match_count": float64(2),
+		})
+	})
+
 	t.Run("q pages through older matches with the cursor", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiTestAgentToken(t, api, "kip", "")
@@ -1998,7 +2032,7 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 			"unknown query parameter(s) on GET /api/chat: nope, zzz — this route "+
 				"refuses parameters it does not declare rather than ignoring them, "+
 				"because an ignored parameter silently answers a question you did "+
-				"not ask; accepted here: before_id, before_ts, cursor, end_id, hide_delete_notices, ids, "+
+				"not ask; accepted here: before_id, before_ts, cursor, end_id, exclude_inter_agent, hide_delete_notices, ids, "+
 				"include_deleted, limit, q, recipient, sender, start_id, token, unread, with")
 	})
 

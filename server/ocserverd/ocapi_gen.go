@@ -5592,6 +5592,9 @@ type HandleListChatApiChatGetParams struct {
 
 	// HideDeleteNotices ``true`` (the STRING) leaves out the notices the server sends when the owner deletes a message: messages from ``system`` carrying ``meta.delete_notice``. By default they are listed like any other message. 422 alongside ``unread=true``. Not consulted on the ``ids`` path, which always returns them. Any other value reads as not sent.
 	HideDeleteNotices *string `form:"hide_delete_notices,omitempty" json:"hide_delete_notices,omitempty"`
+
+	// ExcludeInterAgent ``true`` (the STRING) keeps only messages the owner sent or received, leaving out messages between two members (and system notices to a member). Any other value reads as not sent. Not consulted on the ``ids`` path.
+	ExcludeInterAgent *string `form:"exclude_inter_agent,omitempty" json:"exclude_inter_agent,omitempty"`
 }
 
 // HandleListChatAttachmentsApiChatAttachmentsGetParams defines parameters for HandleListChatAttachmentsApiChatAttachmentsGet.
@@ -7796,6 +7799,19 @@ func (siw *ServerInterfaceWrapper) HandleListChatApiChatGet(w http.ResponseWrite
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "hide_delete_notices"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "hide_delete_notices", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "exclude_inter_agent" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "exclude_inter_agent", r.URL.Query(), &params.ExcludeInterAgent, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "exclude_inter_agent"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "exclude_inter_agent", Err: err})
 		}
 		return
 	}
