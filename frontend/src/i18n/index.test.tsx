@@ -19,12 +19,15 @@ import type { LoadableSeasonalWindow } from "../lib/seasonalTheme";
 import type { ThemeBundle } from "../lib/themeBundleCore";
 import { paintRecordFor, readValidatedSchedulePaint } from "../lib/themePaint";
 import { scheduleFrom } from "../lib/seasonalSchedule";
+import { DEFAULT_THEME_SCHEDULE } from "../lib/themeSchedule";
 
 const seasonalWindows = vi.hoisted(() => [] as LoadableSeasonalWindow[]);
 vi.mock("../lib/seasonalTheme", () => ({ SEASONAL_WINDOWS: seasonalWindows }));
 const builtinLoads = vi.hoisted(() => [] as string[]);
 /** A built-in id whose load waits for `release` — to land it late on purpose. */
 const builtinHold = vi.hoisted(() => ({ id: "", until: Promise.resolve() }));
+/** Built-in ids whose file fails to load, as a dropped network request would. */
+const builtinOffline = vi.hoisted(() => new Set<string>());
 vi.mock("../lib/bundledBuiltinThemes", async (importOriginal) => {
   const real = await importOriginal<typeof import("../lib/bundledBuiltinThemes")>();
   return {
@@ -32,6 +35,7 @@ vi.mock("../lib/bundledBuiltinThemes", async (importOriginal) => {
     loadBundledBuiltinTheme: async (id: string) => {
       builtinLoads.push(id);
       if (id === builtinHold.id) await builtinHold.until;
+      if (builtinOffline.has(id)) throw new TypeError("Failed to fetch");
       return real.loadBundledBuiltinTheme(id);
     },
   };
@@ -1035,6 +1039,7 @@ describe("I18nProvider seasonal theme", () => {
   afterEach(() => {
     seasonalWindows.length = 0;
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("before the window opens, shows the selected theme and never loads the seasonal theme file", async () => {
@@ -1177,9 +1182,32 @@ describe("I18nProvider seasonal theme", () => {
     expect(localStorage.getItem("oc.seasonalTheme")).toBe("true");
   });
 
-  it("inside the window, a seasonal theme file that fails to load shows the selected theme, and later clock readings never pass through the seasonal path or retry", async () => {
+  /** Records every data-theme / --color-bg the root passes through until stopped. */
+  function watchPaint() {
+    const painted: string[] = [];
+    const observer = new MutationObserver(() =>
+      painted.push(`${root.dataset.theme}|${root.style.getPropertyValue("--color-bg")}`)
+    );
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme", "style"] });
+    return {
+      painted,
+      stop: () => {
+        observer.disconnect();
+        return painted;
+      },
+    };
+  }
+
+  const RESUME_EVENTS = [
+    [window, "focus"],
+    [document, "visibilitychange"],
+    [window, "online"],
+  ] as const;
+
+  it("inside the window, a seasonal theme file that fails to load with nothing cached shows the selected theme, stays on it while retries on focus, visibility and online fail, and switches once one lands", async () => {
     load.mockReset();
-    load.mockRejectedValue(new Error("chunk fetch failed"));
+    load.mockRejectedValue(new Error("fetch failed"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     at(new Date(2030, 9, 28, 12, 0));
     await mount();
 
@@ -1188,30 +1216,60 @@ describe("I18nProvider seasonal theme", () => {
     expect(root.style.getPropertyValue("--color-bg")).toBe("");
     expect(load).toHaveBeenCalledTimes(1);
 
-    const painted: string[] = [];
-    const observer = new MutationObserver(() =>
-      painted.push(`${root.dataset.theme}|${root.style.getPropertyValue("--color-bg")}`)
-    );
-    observer.observe(root, { attributes: true, attributeFilter: ["data-theme", "style"] });
+    const watch = watchPaint();
     const visible = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
-    for (const [minute, target, event] of [
-      [5, window, "focus"],
-      [6, document, "visibilitychange"],
-      [7, window, "focus"],
-    ] as const) {
-      vi.setSystemTime(new Date(2030, 9, 28, 12, minute));
+    for (const [i, [target, event]] of RESUME_EVENTS.entries()) {
+      vi.setSystemTime(new Date(2030, 9, 28, 12, 5 + i));
       await act(async () => {
         target.dispatchEvent(new Event(event));
       });
-      painted.push(`${root.dataset.theme}|${root.style.getPropertyValue("--color-bg")}`);
+      watch.painted.push(`${root.dataset.theme}|${root.style.getPropertyValue("--color-bg")}`);
     }
-    observer.disconnect();
+    expect(watch.stop().filter((p) => p !== "office-light|")).toEqual([]);
+    expect(ctx.t.nav.office).toBe(zh.nav.office);
+    expect(load).toHaveBeenCalledTimes(1 + RESUME_EVENTS.length);
+
+    load.mockResolvedValue(HARVEST);
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
     visible.mockRestore();
 
-    expect(painted.filter((p) => p !== "office-light|")).toEqual([]);
-    expect(painted.slice(-3)).toEqual(["office-light|", "office-light|", "office-light|"]);
-    expect(ctx.t.nav.office).toBe(zh.nav.office);
-    expect(load).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+    expect(root.dataset.theme).toBe("office");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#15101f");
+    expect(ctx.seasonalThemeName).toBe("Harvest");
+  });
+
+  it("inside the window, a seasonal theme file that fails to load keeps painting its cached record, unchanged through a failed retry, until a retry brings the whole theme", async () => {
+    localStorage.setItem("oc.seasonalPaint", JSON.stringify([paintRecordFor(HARVEST)]));
+    load.mockReset();
+    load.mockRejectedValue(new Error("fetch failed"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    at(new Date(2030, 9, 28, 12, 0));
+    await mount();
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    await act(async () => {});
+
+    expect(ctx.shownTheme).toBe("harvest");
+    expect(root.dataset.theme).toBe("office");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#15101f");
+    expect(root.style.getPropertyValue("--color-accent")).toBe("#ff8c2b");
+    expect(ctx.theme).toBe("office-light");
+
+    const watch = watchPaint();
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(load).toHaveBeenCalledTimes(2);
+    load.mockResolvedValue(HARVEST);
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+    expect(watch.stop().filter((p) => p !== "office|#15101f")).toEqual([]);
+    expect(ctx.activeLogo).toBe(PNG);
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#15101f");
   });
 
   for (const [event, target] of [
@@ -1439,7 +1497,7 @@ describe("I18nProvider seasonal theme with day parts", () => {
     await waitFor(() => expect(withImage("oc.seasonalPaint")).toEqual({ "harvest-day": true, "harvest-night": false }));
   });
 
-  it("when the next day part's prefetch fails, keeps showing this part until its start, then the user's schedule for the rest of the page, without retrying, and its records go back to the schedule's tiering", async () => {
+  it("when the next day part's prefetch fails, keeps showing this part until its start, then the user's schedule with its records back on the schedule's tiering until a retry on focus or online lands the day part", async () => {
     const DUSK = { id: "dusk", name: "Dusk", colors: { "--color-bg": "#0a0b0c" }, backgrounds: { canvas: PNG } };
     const SCHEDULE = [
       { start: "00:00", theme: "dusk" },
@@ -1451,7 +1509,7 @@ describe("I18nProvider seasonal theme with day parts", () => {
     localStorage.setItem("oc.schedulePaint", JSON.stringify([paintRecordFor(DUSK)]));
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
     load.mockImplementation((file?: string) =>
-      file === "harvest-day.theme.json" ? Promise.reject(new Error("chunk gone")) : Promise.resolve(NIGHT)
+      file === "harvest-day.theme.json" ? Promise.reject(new Error("fetch failed")) : Promise.resolve(NIGHT)
     );
     vi.spyOn(console, "warn").mockImplementation(() => {});
     at(new Date(2030, 9, 25, 5, 40));
@@ -1480,7 +1538,79 @@ describe("I18nProvider seasonal theme with day parts", () => {
       window.dispatchEvent(new Event("focus"));
     });
     expect(ctx.scheduledTheme).toBe("dusk");
-    expect(load).toHaveBeenCalledTimes(2);
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#0a0b0c");
+    expect(load).toHaveBeenCalledTimes(3);
+
+    load.mockImplementation((file?: string) =>
+      Promise.resolve(file === "harvest-day.theme.json" ? DAY : NIGHT)
+    );
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await waitFor(() => expect(ctx.seasonalThemeName).toBe("豐收白天"));
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#f5f0e6");
+    expect(load.mock.calls.at(-1)).toEqual(["harvest-day.theme.json"]);
+  });
+
+  it("a failed next-part prefetch is retried on focus before its start, and the part opens with that bundle", async () => {
+    load.mockImplementation((file?: string) =>
+      file === "harvest-night.theme.json" ? Promise.reject(new Error("fetch failed")) : Promise.resolve(DAY)
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    at(new Date(2030, 9, 25, 17, 55));
+    await mount();
+    await waitFor(() => expect(ctx.seasonalThemeName).toBe("豐收白天"));
+    await waitFor(() => expect(load.mock.calls).toContainEqual(["harvest-night.theme.json"]));
+
+    load.mockImplementation((file?: string) =>
+      Promise.resolve(file === "harvest-day.theme.json" ? DAY : NIGHT)
+    );
+    await act(async () => {
+      vi.setSystemTime(new Date(2030, 9, 25, 17, 57));
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() =>
+      expect(load.mock.calls.filter(([f]) => f === "harvest-night.theme.json")).toHaveLength(2)
+    );
+    expect(ctx.seasonalThemeName).toBe("豐收白天");
+
+    await act(async () => {
+      vi.advanceTimersByTime(3 * 60 * 1000);
+    });
+    expect(ctx.seasonalThemeName).toBe("豐收之夜");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#101014");
+  });
+
+  it("a failed day part shown from its cached record gives way to the user's schedule once storage drops that record", async () => {
+    localStorage.setItem("oc.seasonalPaint", JSON.stringify([paintRecordFor(DAY)]));
+    load.mockImplementation((file?: string) =>
+      file === "harvest-day.theme.json" ? Promise.reject(new Error("fetch failed")) : Promise.resolve(NIGHT)
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let refuse = false;
+    const setItem = localStorage.setItem.bind(localStorage);
+    vi.spyOn(localStorage, "setItem").mockImplementation((k: string, v: string) => {
+      if (refuse && k === "oc.seasonalPaint") throw new DOMException("quota", "QuotaExceededError");
+      setItem(k, v);
+    });
+    at(new Date(2030, 9, 25, 17, 40));
+    await mount();
+    await waitFor(() => expect(load.mock.calls).toEqual([["harvest-day.theme.json"]]));
+    await act(async () => {});
+    expect(ctx.shownTheme).toBe("harvest-day");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#f5f0e6");
+
+    refuse = true;
+    await act(async () => {
+      vi.advanceTimersByTime(10 * 60 * 1000);
+    });
+    await waitFor(() => expect(load.mock.calls).toContainEqual(["harvest-night.theme.json"]));
+    await waitFor(() => expect(localStorage.getItem("oc.seasonalPaint")).toBeNull());
+
+    expect(ctx.shownTheme).toBe("office-light");
+    expect(ctx.scheduledTheme).toBe("office-light");
+    expect(root.dataset.theme).toBe("office-light");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("");
   });
 
   it("keeps records only for this window's day parts, dropping any other window's", async () => {
@@ -1998,6 +2128,7 @@ describe("I18nProvider under the desk default", () => {
     root.removeAttribute("style");
     delete root.dataset.theme;
     builtinLoads.length = 0;
+    builtinOffline.clear();
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
   });
   afterEach(() => {
@@ -2052,6 +2183,33 @@ describe("I18nProvider under the desk default", () => {
     await waitFor(() => expect(ctx.activeThemeBundle?.id).toBe(NIGHT));
     expect(localStorage.getItem("oc.themePaint")).toBeNull();
     builtinHold.id = "";
+  });
+
+  it("a desk slot whose file fails to load keeps painting its cached picture, unchanged, and switches to the loaded bundle on the next focus", async () => {
+    const night = themeFile(`${NIGHT}.theme.json`);
+    localStorage.setItem("oc.themeSchedule", JSON.stringify(DEFAULT_THEME_SCHEDULE));
+    localStorage.setItem("oc.schedulePaint", JSON.stringify([paintRecordFor(night)]));
+    builtinOffline.add(NIGHT);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    at(new Date(2030, 0, 15, 20, 0));
+    await mount();
+    await waitFor(() =>
+      expect(warn).toHaveBeenCalledWith("theme schedule: bundle load failed", expect.any(Error))
+    );
+    await act(async () => {});
+
+    expect(ctx.scheduledTheme).toBe(NIGHT);
+    expect(ctx.shownThemeBundle).toBeNull();
+    expect(root.dataset.theme).toBe("office");
+    expect(root.style.getPropertyValue("--color-bg")).toBe(night.colors["--color-bg"]);
+
+    builtinOffline.clear();
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe(NIGHT));
+    expect(root.style.getPropertyValue("--color-bg")).toBe(night.colors["--color-bg"]);
+    expect(ctx.activeAvatars).toEqual(night.avatars);
   });
 
   it("恢復預設 at night loads only the night slot", async () => {

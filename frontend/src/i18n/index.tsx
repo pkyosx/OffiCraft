@@ -155,9 +155,16 @@ const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
  * is fetched. */
 const SCHEDULE_PREFETCH_LEAD_MS = 10 * 60 * 1000;
 
-/** A theme's bundle: a bundled built-in from its own chunk, else the server's. */
+/** A theme's bundle: a bundled built-in from its own file, else the server's. */
 function fetchThemeBundle(id: string): Promise<ThemeBundle> {
   return isBundledBuiltinTheme(id) ? loadBundledBuiltinTheme(id) : api.getTheme(id);
+}
+
+interface SeasonalLoadFailure {
+  w: LoadableSeasonalWindow;
+  pick: { id: string; file: string | undefined };
+  /** Whether a validated paint record for the pick was cached at the failure. */
+  cached: boolean;
 }
 
 function scheduledCustomThemes(schedule: readonly ThemeScheduleEntry[]): string[] {
@@ -300,9 +307,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const scheduleBundlesRef = useRef(scheduleBundles);
   // The open window's day parts seen so far, by bundle id.
   const [seasonalBundles, setSeasonalBundles] = useState<Record<string, ThemeBundle>>({});
-  // ⚠️ No retry: browsers cache a failed dynamic import per URL, so importing
-  // the same chunk again rejects at once; only a reload can recover it.
-  const [seasonalLoadFailedId, setSeasonalLoadFailedId] = useState<string | null>(null);
+  // Day parts whose load failed, by bundle id. One with a cached record stays on
+  // screen from that record; one without gives way to the user's own theme
+  // until a retry lands. ⚠️ An entry is cleared in the same update that adds
+  // its bundle: clearing it before the retry would flash the office base.
+  const [seasonalLoadFailed, setSeasonalLoadFailed] = useState<Record<string, SeasonalLoadFailure>>({});
+  const seasonalLoadFailedRef = useRef(seasonalLoadFailed);
+  seasonalLoadFailedRef.current = seasonalLoadFailed;
+  // Bumped when the page is shown or focused again or comes back online; the
+  // loaders below then retry what is missing.
+  const [resumeTick, setResumeTick] = useState(0);
   const [themeList, setThemeList] = useState<ThemeListItem[]>([]);
   // A settings or theme-list read that overlaps any part of one of this tab's
   // own writes may carry the value from before it. Such a read is not adopted; the reread
@@ -372,6 +386,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [activeThemeBundle, theme]
   );
 
+  const displayThemeExists = useMemo(
+    () => isBundledBuiltinTheme(theme) || themeList.some((x) => x.id === theme),
+    [theme, themeList]
+  );
+
   const openSeasonalWindow = useMemo(
     () => activeSeasonalWindow(new Date(clock), SEASONAL_WINDOWS),
     [clock]
@@ -380,8 +399,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     ? seasonalPickAt(new Date(clock), openSeasonalWindow)
     : null;
   // The seasonal bundle id on screen (this day part's), or null.
+  const seasonalFailure = openSeasonalPick ? seasonalLoadFailed[openSeasonalPick.id] : undefined;
   const seasonalId =
-    seasonalTheme && openSeasonalPick && openSeasonalPick.id !== seasonalLoadFailedId
+    seasonalTheme && openSeasonalPick && (!seasonalFailure || seasonalFailure.cached)
       ? openSeasonalPick.id
       : null;
   // The theme on screen: the seasonal one while its window is open and the
@@ -481,15 +501,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       const cached = readValidatedSchedulePaint(scheduledTheme);
       return cached ? paint(cached) : undefined;
     }
-    // [T-1500] the bundle is unresolved AND reconcile has not spoken: keep
-    // the cached picture standing (it is already on the DOM when the pre-React
-    // applier ran; re-applying the same values is a visual no-op and covers the
-    // paths where it did not run — dev, CT, a cold main.tsx).
-    if (!themesLoaded) {
+    // The bundle is unresolved: before reconcile has spoken, or after its fetch
+    // failed for a theme that still exists, keep the cached picture standing
+    // (the pre-React applier may already have put it on the DOM; re-applying
+    // the same values is a visual no-op and covers dev, CT and a cold main.tsx).
+    if (!themesLoaded || displayThemeExists) {
       const cached = readValidatedPaint();
       if (cached && cached.id === theme) return paint(cached);
     }
-  }, [theme, shownTheme, shownBundle, seasonalId, scheduledTheme, themesLoaded, bgMotion]);
+  }, [theme, shownTheme, shownBundle, seasonalId, scheduledTheme, themesLoaded, displayThemeExists, bgMotion]);
 
   useEffect(() => {
     const now = new Date(clock);
@@ -506,14 +526,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, [clock, themeSchedule]);
 
   useEffect(() => {
-    const reread = () => {
-      if (document.visibilityState === "visible") setClock(Date.now());
+    const resume = () => {
+      if (document.visibilityState !== "visible") return;
+      setClock(Date.now());
+      setResumeTick((n) => n + 1);
     };
-    document.addEventListener("visibilitychange", reread);
-    window.addEventListener("focus", reread);
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("focus", resume);
+    window.addEventListener("online", resume);
     return () => {
-      document.removeEventListener("visibilitychange", reread);
-      window.removeEventListener("focus", reread);
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("focus", resume);
+      window.removeEventListener("online", resume);
     };
   }, []);
 
@@ -537,6 +561,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     if (!writeStored(LS_SEASONAL_PAINT, records.length ? JSON.stringify(records) : null)) {
       writeStored(LS_SEASONAL_PAINT, null);
     }
+    // A failed day part shown from its record must give way once the record is gone.
+    const cachedNow = Object.fromEntries(
+      Object.keys(seasonalLoadFailedRef.current).map((id) => [id, readValidatedSeasonalPaint(id) !== null])
+    );
+    setSeasonalLoadFailed((prev) => {
+      const changed = Object.entries(prev).filter(([id, f]) => id in cachedNow && f.cached !== cachedNow[id]);
+      if (!changed.length) return prev;
+      return { ...prev, ...Object.fromEntries(changed.map(([id, f]) => [id, { ...f, cached: cachedNow[id] }])) };
+    });
   }, []);
 
   // Loads the day part `pick` of window `w` once.
@@ -549,11 +582,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
           if (b.id !== pick.id) throw new Error(`seasonal theme file carries id ${b.id}, not ${pick.id}`);
           seasonalBundlesRef.current = { ...seasonalBundlesRef.current, [b.id]: b };
           setSeasonalBundles(seasonalBundlesRef.current);
+          setSeasonalLoadFailed((prev) => {
+            if (!prev[b.id]) return prev;
+            const rest = { ...prev };
+            delete rest[b.id];
+            return rest;
+          });
           writeSeasonalRecords(w);
         })
         .catch((e) => {
           console.warn("seasonal theme: load failed", e);
-          setSeasonalLoadFailedId(pick.id);
+          const failure = { w, pick, cached: readValidatedSeasonalPaint(pick.id) !== null };
+          setSeasonalLoadFailed((prev) => ({ ...prev, [pick.id]: failure }));
         })
         .finally(() => seasonalInFlight.current.delete(pick.id));
     },
@@ -566,37 +606,61 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     }
   }, [seasonalId]);
 
-  // The next day part is prefetched like the next schedule slot, and so is a
-  // window's first day part before the window opens.
-  useEffect(() => {
-    if (!seasonalTheme) return;
+  // The next day part, prefetched like the next schedule slot; before a window
+  // opens, its first day part.
+  const upcomingSeasonal = useMemo(() => {
+    if (!seasonalTheme) return null;
     let w: LoadableSeasonalWindow | null;
     let next: { at: Date; row: { start: string; theme: string } } | null;
     if (openSeasonalWindow) {
       w = openSeasonalWindow;
-      if (!seasonalId || !w.schedule?.length) return;
+      if (!seasonalId || !w.schedule?.length) return null;
       next = nextDayPart(new Date(clock), w.schedule);
-      if (!next || next.at.getTime() >= w.end.getTime()) return;
+      if (!next || next.at.getTime() >= w.end.getTime()) return null;
     } else {
       const at = nextSeasonalBoundary(new Date(clock), SEASONAL_WINDOWS);
       w = at ? activeSeasonalWindow(at, SEASONAL_WINDOWS) : null;
       const first = w && at ? seasonalPickAt(at, w) : null;
-      if (!w || !at || !first?.file) return;
+      if (!w || !at || !first?.file) return null;
       next = { at, row: { start: "", theme: first.file } };
     }
     const pick = {
       id: w.schedule?.length ? themeIdOfFile(next.row.theme) : w.id,
       file: next.row.theme,
     };
-    if (seasonalBundles[pick.id] || pick.id === seasonalLoadFailedId) return;
-    const lead = next.at.getTime() - SCHEDULE_PREFETCH_LEAD_MS - Date.now();
+    return { w, pick, at: next.at };
+  }, [clock, seasonalTheme, seasonalId, openSeasonalWindow]);
+
+  // Only the day part due now and the one prefetched next are retried; a failure
+  // the clock has moved past is dropped.
+  useEffect(() => {
+    if (!resumeTick || !seasonalTheme) return;
+    const due = new Set([openSeasonalPick?.id, upcomingSeasonal?.pick.id]);
+    const passed = Object.keys(seasonalLoadFailed).filter((id) => !due.has(id));
+    if (passed.length) {
+      setSeasonalLoadFailed((prev) => {
+        const rest = { ...prev };
+        for (const id of passed) delete rest[id];
+        return rest;
+      });
+    }
+    for (const [id, { w, pick }] of Object.entries(seasonalLoadFailed)) {
+      if (due.has(id)) loadSeasonalPick(w, pick);
+    }
+  }, [resumeTick]);
+
+  useEffect(() => {
+    if (!upcomingSeasonal) return;
+    const { w, pick, at } = upcomingSeasonal;
+    if (seasonalBundles[pick.id] || seasonalLoadFailed[pick.id]) return;
+    const lead = at.getTime() - SCHEDULE_PREFETCH_LEAD_MS - Date.now();
     if (lead <= 0) {
       loadSeasonalPick(w, pick);
       return;
     }
     const timer = window.setTimeout(() => loadSeasonalPick(w, pick), Math.min(lead, MAX_TIMER_DELAY_MS));
     return () => window.clearTimeout(timer);
-  }, [clock, seasonalTheme, seasonalId, openSeasonalWindow, seasonalBundles, seasonalLoadFailedId, loadSeasonalPick]);
+  }, [upcomingSeasonal, seasonalBundles, seasonalLoadFailed, loadSeasonalPick]);
 
   useEffect(() => {
     if (!openSeasonalWindow) {
@@ -810,10 +874,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   );
 
   // The slot on screen loads when it is reached (open, reconcile, wake,
-  // boundary); until it lands the apply effect paints its cached record.
+  // boundary) and again on resume while it is missing; until it lands the
+  // apply effect paints its cached record.
   useEffect(() => {
     if (scheduledTheme) loadScheduleBundle(scheduledTheme);
-  }, [scheduledTheme, activeThemeBundle, themeSchedule, loadScheduleBundle]);
+  }, [scheduledTheme, activeThemeBundle, themeSchedule, loadScheduleBundle, resumeTick]);
 
   // As the slot moves, the slot left behind keeps only its colours.
   useEffect(() => {
@@ -898,10 +963,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   // Re-tier every paint record when the seasonal theme comes on screen (window
   // open, page load mid-window with older whole records stored, turned on) or
-  // leaves it (window end, turned off, its day part failed to load). The side
-  // losing pictures is written first, so the other side's write has the room;
-  // the seasonal records are rewritten after, as an earlier write of them may
-  // have been refused for want of it.
+  // leaves it (window end, turned off, its day part failed to load with no
+  // cached record). The side losing pictures is written first, so the other
+  // side's write has the room; the seasonal records are rewritten after, as an
+  // earlier write of them may have been refused for want of it.
   useEffect(() => {
     const held = activeThemeBundleRef.current;
     const display = held && held.id === themeRef.current ? held : null;
@@ -923,14 +988,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     if (display && displayShownRef.current) writePaint(display);
   }, [seasonalShown, openSeasonalWindow, adoptScheduleBundles, writePaint, writeSeasonalRecords]);
 
-  // display_theme coming on screen with its bundle not in hand (the schedule
-  // turned off, a seasonal window ending): fetch it now.
+  // display_theme on screen with its bundle not in hand (the schedule turned
+  // off, a seasonal window ending, a failed fetch on resume): fetch it now.
   useEffect(() => {
     if (!displayShown || isBuiltinTheme(theme) || bundleForTheme) return;
     if (!themesLoaded && !isBundledBuiltinTheme(theme)) return;
-    if (!isBundledBuiltinTheme(theme) && !themeList.some((x) => x.id === theme)) return;
+    if (!displayThemeExists) return;
     void loadDisplayBundle(theme);
-  }, [displayShown, theme, bundleForTheme, themesLoaded, themeList, loadDisplayBundle]);
+  }, [displayShown, theme, bundleForTheme, themesLoaded, displayThemeExists, loadDisplayBundle, resumeTick]);
 
   // [T-83ef] Switching theme now has to FETCH the chosen bundle: the provider no
   // longer holds every bundle, only the active one. The id is cached first and

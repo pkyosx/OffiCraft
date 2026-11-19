@@ -1,10 +1,11 @@
 // [T-1500] the DECISION-level guards for the paint cache (jsdom
 // cannot see colour — the frame-sequence proof lives in the real-load probe).
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, waitFor, act } from "@testing-library/react";
 import { I18nProvider, useI18n } from "./index";
 import { mockApi, __resetMock, __setMockNoAppearance } from "../api/mock";
 import { TOKEN_KEY } from "../api/auth";
+import { api } from "../api";
 
 function bg(): string {
   return document.documentElement.style.getPropertyValue("--color-bg");
@@ -45,6 +46,7 @@ describe("D2 paint cache", () => {
     document.documentElement.removeAttribute("style");
     delete document.documentElement.dataset.theme;
   });
+  afterEach(() => vi.restoreAllMocks());
 
   it("(i) pre-auth: an unresolved bundle paints the CACHED colours", () => {
     localStorage.setItem("oc.theme", "midnight");
@@ -199,6 +201,34 @@ describe("D2 paint cache", () => {
       await Promise.resolve();
     });
     expect(localStorage.getItem("oc.themePaint")).toBe(before);
+  });
+
+  it("(v-d) a reconcile whose bundle fetch fails keeps the cached picture of a theme the server still has, and a retry on online lands the server's copy", async () => {
+    localStorage.setItem("oc.theme", "midnight");
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    seedPaint(MIDNIGHT);
+    await mockApi.putTheme({ ...MIDNIGHT, colors: { "--color-bg": "#ff0000" } });
+    await mockApi.patchServerSettings({ displayTheme: "midnight" });
+    const getTheme = vi.spyOn(api, "getTheme").mockRejectedValue(new Error("offline"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    render(
+      <I18nProvider>
+        <Capture />
+      </I18nProvider>
+    );
+    await waitFor(() => expect(ctx.themeList).toEqual([{ id: "midnight", name: "Midnight" }]));
+    await waitFor(() =>
+      expect(warn).toHaveBeenCalledWith("display theme: bundle load failed", expect.any(Error))
+    );
+    await act(async () => {});
+    expect(ctx.activeThemeBundle).toBeNull();
+    expect(bg()).toBe("#010203");
+
+    getTheme.mockRestore();
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await waitFor(() => expect(bg()).toBe("#ff0000"));
   });
 
   // [T-1500] step-5 ③ CROSS-DEVICE: device A edited this theme's COLOURS — the
