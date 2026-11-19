@@ -338,33 +338,6 @@
   flex: 1;
 }
 
-/* ── 新增連結 ── */
-.shared-docs__link-form {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 14px;
-  color: var(--color-text-muted);
-}
-.shared-docs__link-url {
-  flex: 2 1 260px;
-  min-width: 0;
-}
-.shared-docs__link-name {
-  flex: 1 1 180px;
-  min-width: 0;
-}
-.shared-docs__link-description {
-  flex: 2 1 220px;
-  min-width: 0;
-}
-.shared-docs__link-error {
-  flex-basis: 100%;
-  font-size: 12.5px;
-  color: var(--color-danger);
-}
-
 /* ── replace dialog ── */
 .shared-docs__form {
   max-width: 480px;

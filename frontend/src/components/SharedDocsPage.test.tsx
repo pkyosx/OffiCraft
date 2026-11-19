@@ -378,7 +378,7 @@ describe("SharedDocsPage", () => {
     const openPicker = vi.spyOn(input, "click");
     fireEvent.click(getByTestId("shared-docs-add-menu-upload"));
     expect(openPicker).toHaveBeenCalledTimes(1);
-    expect([queryByRole("menu"), queryByTestId("shared-docs-link-form")]).toEqual([null, null]);
+    expect([queryByRole("menu"), queryByTestId("shared-doc-info-dialog")]).toEqual([null, null]);
 
     const file = new File(["# Notes"], "release-notes.md", { type: "text/markdown" });
     pickFile(container, file);
@@ -430,6 +430,12 @@ describe("SharedDocsPage", () => {
     expect([upload.mock.calls.length, create.mock.calls.length, rows(container).length]).toEqual([1, 2, 3]);
     chooseAdd("upload");
     pickFile(container, new File(["png"], "shot.png", { type: "image/png" }));
+    fireEvent.keyDown(await waitFor(() => getByTestId("shared-doc-info-name")), { key: "Escape" });
+    expect(queryByTestId("shared-doc-info-dialog")).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect([upload.mock.calls.length, create.mock.calls.length, rows(container).length]).toEqual([1, 2, 3]);
+    chooseAdd("upload");
+    pickFile(container, new File(["png"], "shot.png", { type: "image/png" }));
     fireEvent.click(await waitFor(() => getByTestId("shared-doc-info-save")));
     await waitRows(container, 4);
     expect(create.mock.calls[2]).toEqual([
@@ -437,38 +443,60 @@ describe("SharedDocsPage", () => {
     ]);
   });
 
-  it("新增連結 adds a link from the URL, name and description typed on the page, a blank name taking the URL's host and last segment", async () => {
+  it("新增連結 opens a dialog for the URL, name and description that 儲存 adds as a link, a blank name taking the URL's host and last segment, and 取消 adds nothing", async () => {
     const create = vi.spyOn(api, "createSharedDoc");
     const { container, getByTestId, queryByTestId } = renderPage();
     await waitRows(container, 2);
+    const addLink = (url: string, description = "") => {
+      chooseAdd("link");
+      fireEvent.change(getByTestId("shared-doc-info-url"), { target: { value: url } });
+      if (description) fireEvent.change(getByTestId("shared-doc-info-description"), { target: { value: description } });
+      fireEvent.click(getByTestId("shared-doc-info-save"));
+    };
     chooseAdd("link");
-    const form = getByTestId("shared-docs-link-form");
+    const dialog = getByTestId("shared-doc-info-dialog");
+    expect(dialog.querySelector(".secrets__form-title")?.textContent).toBe("新增連結");
     expect(
-      Array.from(form.querySelectorAll("input")).map((el) => [el.getAttribute("aria-label"), el.placeholder]),
+      Array.from(dialog.querySelectorAll(".secrets__field")).map((f) => [
+        f.querySelector(".secrets__label")?.textContent,
+        f.querySelector<HTMLInputElement>("input, textarea")?.placeholder,
+      ]),
     ).toEqual([
       ["網址", "https://"],
-      ["改名", "名稱（留空就從網址取）"],
-      ["說明", "加上說明"],
+      ["名稱", "名稱（留空就從網址取）"],
+      ["說明", ""],
     ]);
-    expect(document.activeElement).toBe(getByTestId("shared-docs-link-url"));
-    const save = getByTestId("shared-docs-link-save") as HTMLButtonElement;
+    expect(Array.from(dialog.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["取消", "儲存"]);
+    expect(document.activeElement).toBe(getByTestId("shared-doc-info-url"));
+    const save = getByTestId("shared-doc-info-save") as HTMLButtonElement;
     expect(save.disabled).toBe(true);
-    fireEvent.change(getByTestId("shared-docs-link-url"), { target: { value: "https://example.com/board" } });
-    fireEvent.change(getByTestId("shared-docs-link-name"), { target: { value: "Board" } });
-    fireEvent.change(getByTestId("shared-docs-link-description"), { target: { value: " 每週排程看板 " } });
-    fireEvent.click(save);
+    fireEvent.change(getByTestId("shared-doc-info-url"), { target: { value: "https://example.com/draft" } });
+    fireEvent.change(getByTestId("shared-doc-info-description"), { target: { value: "草稿" } });
+    fireEvent.click(getByTestId("shared-doc-info-cancel"));
+    expect(queryByTestId("shared-doc-info-dialog")).toBeNull();
+    expect([create.mock.calls.length, rows(container).length]).toEqual([0, 2]);
+    chooseAdd("link");
+    fireEvent.change(getByTestId("shared-doc-info-url"), { target: { value: "https://example.com/draft" } });
+    fireEvent.keyDown(getByTestId("shared-doc-info-url"), { key: "Escape" });
+    expect(queryByTestId("shared-doc-info-dialog")).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect([create.mock.calls.length, rows(container).length]).toEqual([0, 2]);
+
+    chooseAdd("link");
+    expect((getByTestId("shared-doc-info-url") as HTMLInputElement).value).toBe("");
+    fireEvent.change(getByTestId("shared-doc-info-url"), { target: { value: "https://example.com/board" } });
+    fireEvent.change(getByTestId("shared-doc-info-name"), { target: { value: "Board" } });
+    fireEvent.change(getByTestId("shared-doc-info-description"), { target: { value: " 每週排程看板 " } });
+    fireEvent.click(getByTestId("shared-doc-info-save"));
     await waitRows(container, 3);
     const board = container.querySelector<HTMLElement>(`[data-doc-id="${await create.mock.results[0]!.value}"]`);
-    expect(queryByTestId("shared-docs-link-form")).toBeNull();
+    expect(queryByTestId("shared-doc-info-dialog")).toBeNull();
     expect(create.mock.calls[0]).toEqual([
       { kind: "link", name: "Board", description: "每週排程看板", url: "https://example.com/board" },
     ]);
     expect(cellTexts(board!)[1]).toBe("Board每週排程看板");
 
-    chooseAdd("link");
-    fireEvent.change(getByTestId("shared-docs-link-url"), { target: { value: "https://example.com/wiki" } });
-    fireEvent.change(getByTestId("shared-docs-link-description"), { target: { value: "團隊 wiki 首頁" } });
-    fireEvent.submit(getByTestId("shared-docs-link-form"));
+    addLink("https://example.com/wiki", "團隊 wiki 首頁");
     await waitRows(container, 4);
     expect(create.mock.calls[1]).toEqual([
       { kind: "link", name: "example.com/wiki", description: "團隊 wiki 首頁", url: "https://example.com/wiki" },
@@ -476,17 +504,13 @@ describe("SharedDocsPage", () => {
 
     const docsUrl = `https://docs.google.com/document/d/${"1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT".repeat(4)}/edit?usp=sharing&ouid=${"9".repeat(21)}`;
     expect(docsUrl.length).toBeGreaterThan(128);
-    chooseAdd("link");
-    fireEvent.change(getByTestId("shared-docs-link-url"), { target: { value: docsUrl } });
-    fireEvent.submit(getByTestId("shared-docs-link-form"));
+    addLink(docsUrl);
     await waitRows(container, 5);
     expect((await api.listSharedDocs()).find((d) => d.url === docsUrl)?.name).toBe("docs.google.com/edit");
 
     const longSegment = "季度規劃".repeat(40);
     const encodedUrl = `https://drive.example.com/files/${encodeURIComponent(longSegment)}`;
-    chooseAdd("link");
-    fireEvent.change(getByTestId("shared-docs-link-url"), { target: { value: encodedUrl } });
-    fireEvent.submit(getByTestId("shared-docs-link-form"));
+    addLink(encodedUrl);
     await waitRows(container, 6);
     expect((await api.listSharedDocs()).find((d) => d.url === encodedUrl)?.name).toBe(
       `drive.example.com/${longSegment}`.slice(0, 128),
@@ -495,19 +519,19 @@ describe("SharedDocsPage", () => {
     expect(create.mock.calls.map(([input]) => input.description)).toEqual(["每週排程看板", "團隊 wiki 首頁", "", ""]);
   });
 
-  it("a 新增連結 the server refuses keeps the form open with the server's message", async () => {
+  it("a 新增連結 the server refuses keeps the dialog open with the server's message and what was typed", async () => {
     vi.spyOn(api, "createSharedDoc").mockRejectedValueOnce(
-      new ApiError("http 400", 400, "validation_error", "url must be http or https"),
+      new ApiError("http 400", 400, "validation_error", "url must start with https:// or http://"),
     );
     const { container, getByTestId } = renderPage();
     await waitRows(container, 2);
     chooseAdd("link");
-    fireEvent.change(getByTestId("shared-docs-link-url"), { target: { value: "ftp://x" } });
-    fireEvent.submit(getByTestId("shared-docs-link-form"));
-    expect((await waitFor(() => getByTestId("shared-docs-link-error"))).textContent).toBe(
-      "url must be http or https",
+    fireEvent.change(getByTestId("shared-doc-info-url"), { target: { value: "not a url" } });
+    fireEvent.click(getByTestId("shared-doc-info-save"));
+    expect((await waitFor(() => getByTestId("shared-doc-info-error"))).textContent).toBe(
+      "url must start with https:// or http://",
     );
-    expect((getByTestId("shared-docs-link-url") as HTMLInputElement).value).toBe("ftp://x");
+    expect((getByTestId("shared-doc-info-url") as HTMLInputElement).value).toBe("not a url");
     expect(rows(container)).toHaveLength(2);
   });
 
