@@ -1842,13 +1842,17 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 		apiWantBody(t, data, map[string]any{"messages": []any{}})
 	})
 
-	t.Run("q keeps the with-line messages whose body contains it, ASCII letters in any case", func(t *testing.T) {
+	t.Run("q keeps the with-line messages whose body contains it literally, ASCII letters in any case, deleted ones left out", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "kip", "")
 		_, merged := apiJSON(t, h, "POST", "/api/chat", agent, `{"to":"owner","body":"Merged #712 into OffiCraft"}`)
 		_, reload := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"officraft 換版了，進度 50%"}`)
-		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"unrelated"}`)
+		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"unrelated axb"}`)
 		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"OFFICRAFT on another line"}`)
+		_, gone := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"officraft deleted"}`)
+		if status, data := apiJSON(t, h, "DELETE", "/api/chat/"+gone["id"].(string), owner, ""); status != 200 {
+			t.Fatalf("delete: want 200, got %d (%v)", status, data)
+		}
 
 		for _, tc := range []struct {
 			query string
@@ -1870,6 +1874,7 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 			{"q=+%23712+", []any{
 				apiTestChatRow(merged["id"].(string), "kip", "owner", "Merged #712 into OffiCraft"),
 			}},
+			{"q=a_b", []any{}},
 			{"q=nowhere", []any{}},
 		} {
 			status, data := apiJSON(t, h, "GET", "/api/chat?with=kip&"+tc.query, owner, "")
