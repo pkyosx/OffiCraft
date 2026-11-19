@@ -22,6 +22,7 @@ import {
 } from "./SharedDocDetail";
 import { kindMismatchMessage, sharedDocKindForFile } from "./SharedDocFormDialog";
 import { MarkdownPreviewOverlay, PreviewShell } from "./MarkdownPreviewOverlay";
+import { RuntimeActionMenu } from "./RuntimeActionMenu";
 import { SharedDocVersionsModal } from "./SharedDocVersionsModal";
 import {
   CheckIcon,
@@ -174,25 +175,32 @@ function FileBlock({
 
 /** The pencil's dialog: name and description for every kind, plus the URL for
  * a link. Only changed fields are sent, so a name or description change makes
- * no new version and a URL change makes one, as the server already decides. */
+ * no new version and a URL change makes one, as the server already decides.
+ * Given `file` instead of `doc`, it is 上傳檔案's dialog: the name starts as
+ * the filename and 儲存 uploads the file and creates the doc with both fields. */
 function SharedDocInfoDialog({
   doc,
+  file,
   run,
   onDone,
   onCancel,
 }: {
-  doc: SharedDocView;
+  doc?: SharedDocView;
+  file?: File;
   run: (action: () => Promise<unknown>) => Promise<string>;
   onDone: () => void;
   onCancel: () => void;
 }) {
   const { t } = useI18n();
   const d = t.sharedDocs;
-  const link = doc.kind === "link";
+  const link = doc?.kind === "link";
+  const title = file ? d.uploadFile : link ? d.editLink : d.editInfo;
   // The fields as they were when the dialog opened: the list row behind `doc`
   // is re-read on every shared_doc delta, and diffing against it would send
   // an untouched field back over another writer's change.
-  const [base] = useState(doc);
+  const [base] = useState(() => doc ?? { name: defaultDocName(file?.name ?? ""), description: "", url: "" });
+  // A save the server refuses must not upload the same file again on retry.
+  const uploaded = useRef("");
   const [name, setName] = useState(base.name);
   const [description, setDescription] = useState(base.description);
   const [url, setUrl] = useState(base.url);
@@ -212,9 +220,34 @@ function SharedDocInfoDialog({
     };
   }, []);
 
+  async function create(newFile: File) {
+    setBusy(true);
+    setError("");
+    const err = await run(async () => {
+      uploaded.current ||= await api.uploadAttachment(newFile, newFile.name);
+      await api.createSharedDoc({
+        kind: sharedDocKindForFile(newFile.name),
+        name: name.trim(),
+        description: description.trim(),
+        attachmentId: uploaded.current,
+      });
+    });
+    setBusy(false);
+    if (err) {
+      setError(err);
+      return;
+    }
+    onDone();
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (busy || name.trim() === "") return;
+    if (file) {
+      await create(file);
+      return;
+    }
+    if (!doc) return;
     const change: { name?: string; description?: string; url?: string } = {};
     if (name.trim() !== base.name) change.name = name.trim();
     if (description.trim() !== base.description) change.description = description.trim();
@@ -235,13 +268,21 @@ function SharedDocInfoDialog({
   }
 
   return (
-    <div ref={rootRef} className="confirm-modal" role="dialog" aria-modal="true" aria-label={link ? d.editLink : d.editInfo}>
+    <div ref={rootRef} className="confirm-modal" role="dialog" aria-modal="true" aria-label={title}>
       <form
         className="confirm-modal__box shared-docs__form shared-docs__info-dialog"
         data-testid="shared-doc-info-dialog"
         onSubmit={submit}
       >
-        <div className="secrets__form-title">{link ? d.editLink : d.editInfo}</div>
+        <div className="secrets__form-title">{title}</div>
+        {file && (
+          <div className="secrets__field">
+            <span className="secrets__label">{d.fileLabel}</span>
+            <span className="shared-docs__info-filename" data-testid="shared-doc-info-filename">
+              {file.name}
+            </span>
+          </div>
+        )}
         <label className="secrets__field">
           <span className="secrets__label">{d.nameLabel}</span>
           <input
@@ -494,7 +535,7 @@ function RowActions({
   );
 }
 
-/** 新增連結: a URL and a name entered right on the page. */
+/** 新增連結: a URL, a name and a description entered right on the page. */
 function AddLinkForm({
   run,
   onDone,
@@ -508,6 +549,7 @@ function AddLinkForm({
   const d = t.sharedDocs;
   const [url, setUrl] = useState("");
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -518,7 +560,12 @@ function AddLinkForm({
     setBusy(true);
     setError("");
     const err = await run(() =>
-      api.createSharedDoc({ kind: "link", name: name.trim() || defaultLinkName(target), description: "", url: target }),
+      api.createSharedDoc({
+        kind: "link",
+        name: name.trim() || defaultLinkName(target),
+        description: description.trim(),
+        url: target,
+      }),
     );
     setBusy(false);
     if (err) {
@@ -560,6 +607,15 @@ function AddLinkForm({
         maxLength={NAME_MAX_CHARS}
         value={name}
         onChange={(e) => setName(e.target.value)}
+      />
+      <input
+        className="secrets__input shared-docs__link-description"
+        data-testid="shared-docs-link-description"
+        aria-label={d.descriptionLabel}
+        placeholder={d.descriptionPlaceholder}
+        maxLength={1024}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
       />
       <button
         type="submit"
@@ -617,6 +673,7 @@ function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
   const [actionError, setActionError] = useState("");
   const [uploading, setUploading] = useState<string[]>([]);
   const [infoId, setInfoId] = useState<string | null>(null);
+  const [newFile, setNewFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<SharedDocView | null>(null);
   const [editing, setEditing] = useState<SharedDocView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SharedDocView | null>(null);
@@ -643,28 +700,20 @@ function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
   async function onPicked(file: File) {
     const target = pickTarget.current;
     setActionError("");
-    if (target.mode === "replace") {
-      const mismatch = kindMismatchMessage(target.doc.kind, file.name, d);
-      if (mismatch) {
-        setActionError(mismatch);
-        return;
-      }
+    if (target.mode === "create") {
+      setNewFile(file);
+      return;
     }
-    const busyKey = target.mode === "replace" ? target.doc.id : "";
+    const mismatch = kindMismatchMessage(target.doc.kind, file.name, d);
+    if (mismatch) {
+      setActionError(mismatch);
+      return;
+    }
+    const busyKey = target.doc.id;
     setUploading((keys) => [...keys, busyKey]);
-    let createdId = "";
     const err = await run(async () => {
       const attachmentId = await api.uploadAttachment(file, file.name);
-      if (target.mode === "replace") {
-        await api.replaceSharedDoc(target.doc.id, { attachmentId });
-        return;
-      }
-      createdId = await api.createSharedDoc({
-        kind: sharedDocKindForFile(file.name),
-        name: defaultDocName(file.name),
-        description: "",
-        attachmentId,
-      });
+      await api.replaceSharedDoc(target.doc.id, { attachmentId });
     });
     setUploading((keys) => {
       const at = keys.indexOf(busyKey);
@@ -675,7 +724,6 @@ function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
       return;
     }
     await reload();
-    if (createdId) setInfoId(createdId);
   }
 
   async function confirmDelete() {
@@ -695,28 +743,36 @@ function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
   return (
     <div className="shared-docs" data-testid="shared-docs-page">
       <div className="shared-docs__bar">
-        <button
-          type="button"
-          className="secrets__btn shared-docs__bar-btn"
-          data-testid="shared-docs-add-link"
-          onClick={() => {
-            setActionError("");
-            setAddingLink(true);
-          }}
+        <RuntimeActionMenu
+          label={d.add}
+          testIdPrefix="shared-docs-add"
+          buttonClassName="secrets__btn secrets__submit shared-docs__bar-btn"
+          items={[
+            {
+              key: "upload",
+              label: d.uploadFile,
+              icon: <UploadIcon size={15} />,
+              onSelect: () => pick({ mode: "create" }),
+            },
+            {
+              key: "link",
+              label: d.addLink,
+              icon: <ExternalLinkIcon size={15} />,
+              onSelect: () => {
+                setActionError("");
+                setAddingLink(true);
+              },
+            },
+          ]}
         >
-          <ExternalLinkIcon size={14} />
-          {d.addLink}
-        </button>
-        <button
-          type="button"
-          className="secrets__btn secrets__submit shared-docs__bar-btn"
-          data-testid="shared-docs-upload"
-          disabled={uploading.includes("")}
-          onClick={() => pick({ mode: "create" })}
-        >
-          <UploadIcon size={14} />
-          {d.uploadFile}
-        </button>
+          {(chevron) => (
+            <>
+              <span aria-hidden="true">+</span>
+              {d.add}
+              {chevron}
+            </>
+          )}
+        </RuntimeActionMenu>
         <input
           ref={fileInput}
           type="file"
@@ -865,6 +921,17 @@ function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
           actorName={actorName}
           onRestored={() => void reload()}
           onClose={() => setHistoryId(null)}
+        />
+      )}
+      {newFile && (
+        <SharedDocInfoDialog
+          file={newFile}
+          run={run}
+          onCancel={() => setNewFile(null)}
+          onDone={() => {
+            setNewFile(null);
+            void reload();
+          }}
         />
       )}
       {infoDoc && (

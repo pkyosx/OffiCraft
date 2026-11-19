@@ -14,6 +14,7 @@ import "./runtime-login.css";
 /* The menu overlaps the trigger's border by one pixel so the two read as one
  * attached control with a single hairline between them. */
 const OVERLAP = 1;
+const GAP = 4;
 const EDGE = 8;
 const ITEM = "[role='menuitem']";
 const MODAL = "[aria-modal='true']";
@@ -39,18 +40,26 @@ export interface RuntimeActionItem {
  * say which column it is in. The popup is portalled to <body> with fixed positioning (the
  * InstantHint pattern): the machine table sits in an `overflow: auto` wrapper
  * that clips anything rendered in place, and a one-row table leaves no room
- * below. */
+ * below.
+ *
+ * `buttonClassName` makes the trigger a standalone button with that class
+ * instead of the quiet pill; its menu is then a separate card a few pixels
+ * below, aligned to the button's right edge, for a button at the right end of
+ * a toolbar. */
 export function RuntimeActionMenu({
   label,
   items,
   testIdPrefix,
+  buttonClassName,
   children,
 }: {
   label: string;
   items: RuntimeActionItem[];
   testIdPrefix: string;
+  buttonClassName?: string;
   children: ReactNode | ((chevron: ReactNode) => ReactNode);
 }) {
+  const detached = buttonClassName !== undefined;
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<CSSProperties | null>(null);
   const [placement, setPlacement] = useState<"below" | "above">("below");
@@ -96,15 +105,15 @@ export function RuntimeActionMenu({
     const box = popRef.current?.getBoundingClientRect();
     if (!trigger || !box) return;
     const width = Math.max(box.width, trigger.width);
-    const below = trigger.bottom - OVERLAP;
-    const above = trigger.top + OVERLAP - box.height;
+    const below = detached ? trigger.bottom + GAP : trigger.bottom - OVERLAP;
+    const above = detached ? trigger.top - GAP - box.height : trigger.top + OVERLAP - box.height;
     const fitsBelow = below + box.height <= window.innerHeight - EDGE;
     const goBelow = fitsBelow || above < EDGE;
     const maxLeft = Math.max(EDGE, window.innerWidth - EDGE - width);
-    const left = Math.min(Math.max(EDGE, trigger.left), maxLeft);
+    const left = Math.min(Math.max(EDGE, detached ? trigger.right - width : trigger.left), maxLeft);
     setPlacement(goBelow ? "below" : "above");
-    setPos({ top: goBelow ? below : above, left, minWidth: trigger.width });
-  }, [open]);
+    setPos({ top: goBelow ? below : above, left, minWidth: detached ? width : trigger.width });
+  }, [open, detached]);
 
   useEffect(() => {
     if (!open) return;
@@ -140,7 +149,7 @@ export function RuntimeActionMenu({
       <button
         ref={triggerRef}
         type="button"
-        className="runtime-menu__trigger"
+        className={detached ? `runtime-menu__button ${buttonClassName}` : "runtime-menu__trigger"}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -166,7 +175,7 @@ export function RuntimeActionMenu({
         createPortal(
           <div
             ref={popRef}
-            className="runtime-menu__pop"
+            className={`runtime-menu__pop${detached ? " runtime-menu__pop--detached" : ""}`}
             role="menu"
             aria-label={label}
             data-placement={placement}

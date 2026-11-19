@@ -44,6 +44,12 @@
   color: var(--color-text);
   transform: rotate(180deg);
 }
+.runtime-menu__button .runtime-menu__chevron {
+  color: inherit;
+}
+.runtime-menu__button[aria-expanded="true"] .runtime-menu__chevron {
+  transform: rotate(180deg);
+}
 @media (prefers-reduced-motion: reduce) {
   .runtime-menu__chevron {
     transition: none;
@@ -84,6 +90,18 @@
 .runtime-menu__pop[data-placement="above"] {
   border-radius: 7px 7px 0 0;
   border-bottom-color: color-mix(in srgb, var(--color-overlay) 7%, transparent);
+}
+.runtime-menu__pop--detached,
+.runtime-menu__pop--detached[data-placement] {
+  min-width: 180px;
+  padding: 4px 0;
+  border-color: color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  border-radius: 8px;
+}
+.runtime-menu__pop--detached .runtime-menu__item {
+  height: 36px;
+  padding: 0 12px;
+  gap: 10px;
 }
 .runtime-menu__item {
   display: flex;

@@ -1528,6 +1528,7 @@ var messageKeys = map[string]bool{
 	"settings.wardenCredentialLifetime":                true,
 	"settings.wardenCredentialLifetimeSub":             true,
 	"sharedDocs.actionFailed":                          true,
+	"sharedDocs.add":                                   true,
 	"sharedDocs.addLink":                               true,
 	"sharedDocs.back":                                  true,
 	"sharedDocs.binary":                                true,

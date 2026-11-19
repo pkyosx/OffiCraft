@@ -195,6 +195,7 @@ export const en: Dict = {
   sharedDocs: {
     loadFailed: "Could not load the files. Please try again later.",
     empty: "No files yet",
+    add: "Add",
     uploadFile: "Upload file",
     addLink: "Add link",
     linkUrlPlaceholder: "https://",

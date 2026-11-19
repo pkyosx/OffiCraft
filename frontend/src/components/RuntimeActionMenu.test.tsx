@@ -178,6 +178,25 @@ describe("RuntimeActionMenu", () => {
     expect(trigger().getAttribute("data-placement")).toBeNull();
   });
 
+  it("under buttonClassName, the trigger is that button and the menu is a separate card a few pixels below, its right edge on the button's", () => {
+    stubRects({ top: 100, left: 300, width: 60, height: 30 });
+    render(
+      <RuntimeActionMenu label="新增" testIdPrefix="add" items={[login()]} buttonClassName="secrets__btn">
+        新增
+      </RuntimeActionMenu>,
+    );
+    const button = screen.getByRole("button", { name: "新增" });
+    expect(button.className).toBe("runtime-menu__button secrets__btn");
+    fireEvent.click(button);
+    const pop = screen.getByRole("menu");
+    expect([pop.className, pop.style.top, pop.style.left, pop.style.minWidth]).toEqual([
+      "runtime-menu__pop runtime-menu__pop--detached",
+      "134px",
+      "280px",
+      "80px",
+    ]);
+  });
+
   it("under no room below, the menu sits flush above the trigger instead", () => {
     stubRects({ top: window.innerHeight - 30, left: 200, width: 120, height: 24 });
     render(menu([login()]));

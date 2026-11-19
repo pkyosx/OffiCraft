@@ -355,6 +355,10 @@
   flex: 1 1 180px;
   min-width: 0;
 }
+.shared-docs__link-description {
+  flex: 2 1 220px;
+  min-width: 0;
+}
 .shared-docs__link-error {
   flex-basis: 100%;
   font-size: 12.5px;
@@ -367,6 +371,9 @@
 }
 .shared-docs__info-dialog {
   width: min(480px, 100%);
+}
+.shared-docs__info-filename {
+  overflow-wrap: anywhere;
 }
 
 /* 編輯 on a file that cannot be edited here */
