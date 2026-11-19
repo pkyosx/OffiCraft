@@ -3,6 +3,7 @@ import {
   createStaleBuildWatch,
   reportStaleAsset,
   STALE_BUILD_RELOADED_KEY,
+  WRITE_SETTLE_RETRY_MS,
   type StaleBuildWatchDeps,
 } from "./staleBuild";
 
@@ -17,7 +18,7 @@ function memoryStorage(): Storage {
 function harness(overrides: Partial<StaleBuildWatchDeps> = {}) {
   const shas: (string | Error)[] = [];
   const connection = new Set<(s: string) => void>();
-  const state = { watched: false, unsaved: false };
+  const state = { watched: false, unsaved: false, writing: false };
   const reload = vi.fn();
   const deps: StaleBuildWatchDeps = {
     readServerSha: () => {
@@ -31,6 +32,7 @@ function harness(overrides: Partial<StaleBuildWatchDeps> = {}) {
     },
     isWatched: () => state.watched,
     hasUnsavedInput: () => state.unsaved,
+    hasWritesInFlight: () => state.writing,
     reload,
     storage: memoryStorage(),
     ...overrides,
@@ -38,7 +40,9 @@ function harness(overrides: Partial<StaleBuildWatchDeps> = {}) {
   const watch = createStaleBuildWatch(deps);
   const changes = vi.fn();
   watch.subscribe(changes);
-  const settle = () => new Promise((r) => setTimeout(r, 0));
+  const settle = async () => {
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  };
   const setConnection = async (s: string) => {
     for (const cb of [...connection]) cb(s);
     await settle();
@@ -125,6 +129,27 @@ describe("createStaleBuildWatch", () => {
     h.state.unsaved = false;
     window.dispatchEvent(new Event("blur"));
     expect(h.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for a sent write to be answered before reloading an unwatched page", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      h.state.writing = true;
+      stops.push(await startedOn(h, "aaa1111"));
+      h.shas.push("bbb2222");
+      await h.setConnection("connecting");
+      await h.setConnection("live");
+      expect(h.reload).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(WRITE_SETTLE_RETRY_MS);
+      expect(h.reload).not.toHaveBeenCalled();
+      h.state.writing = false;
+      vi.advanceTimersByTime(WRITE_SETTLE_RETRY_MS);
+      expect(h.reload).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reloads when the watched tab is sent to the background", async () => {

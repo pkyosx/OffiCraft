@@ -1,5 +1,6 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "../api";
+import { hasWritesInFlight } from "../api/client";
 import { useI18n } from "../i18n";
 import { isWindowActive } from "../hooks/useWindowActive";
 import { hasAnyChatDraft } from "../lib/chatDraftStore";
@@ -9,13 +10,14 @@ import "./status-banner.css";
 
 export function BuildUpdateBanner(): JSX.Element | null {
   const { t } = useI18n();
-  const [fields] = useState(() => trackUnsavedTextFields(document));
+  const hasEditedField = useRef<() => boolean>(() => false);
   const [watch] = useState(() =>
     createStaleBuildWatch({
       readServerSha: () => api.getVersion().then((v) => v.gitSha),
       subscribeConnection: (cb) => api.subscribeConnection(cb),
       isWatched: isWindowActive,
-      hasUnsavedInput: () => hasAnyChatDraft() || fields.hasEditedField(),
+      hasUnsavedInput: () => hasAnyChatDraft() || hasEditedField.current(),
+      hasWritesInFlight,
       reload: () => window.location.reload(),
       storage: {
         getItem: (key) => window.sessionStorage.getItem(key),
@@ -23,8 +25,12 @@ export function BuildUpdateBanner(): JSX.Element | null {
       },
     })
   );
+  useEffect(() => {
+    const fields = trackUnsavedTextFields(document);
+    hasEditedField.current = fields.hasEditedField;
+    return fields.stop;
+  }, []);
   useEffect(() => watch.start(), [watch]);
-  useEffect(() => fields.stop, [fields]);
   const newerSha = useSyncExternalStore(watch.subscribe, watch.getNewerSha);
 
   if (newerSha === null) return null;

@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
@@ -21,6 +22,12 @@ vi.mock("../api", () => ({
   },
 }));
 
+let writing = false;
+vi.mock("../api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/client")>()),
+  hasWritesInFlight: () => writing,
+}));
+
 import { BuildUpdateBanner } from "./BuildUpdateBanner";
 
 const reload = vi.fn();
@@ -35,9 +42,11 @@ async function flush() {
 
 async function mount() {
   const view = render(
-    <I18nProvider>
-      <BuildUpdateBanner />
-    </I18nProvider>
+    <StrictMode>
+      <I18nProvider>
+        <BuildUpdateBanner />
+      </I18nProvider>
+    </StrictMode>
   );
   await flush();
   return view;
@@ -57,6 +66,7 @@ async function serverUpdatedTo(sha: string) {
 beforeEach(() => {
   serverSha = "aaa1111";
   focused = true;
+  writing = false;
   subscribers.clear();
   resetChatDrafts();
   window.sessionStorage.clear();
@@ -118,6 +128,14 @@ describe("BuildUpdateBanner", () => {
     field.value = "編輯中";
     await serverUpdatedTo("bbb2222");
 
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("does not reload while a sent message is still on its way", async () => {
+    focused = false;
+    writing = true;
+    await mount();
+    await serverUpdatedTo("bbb2222");
     expect(reload).not.toHaveBeenCalled();
   });
 });

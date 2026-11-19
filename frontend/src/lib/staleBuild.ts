@@ -17,6 +17,7 @@ function onStaleAsset(cb: () => void): () => void {
 }
 
 export const STALE_BUILD_RELOADED_KEY = "oc.staleBuildReloadedSha";
+export const WRITE_SETTLE_RETRY_MS = 1000;
 
 /** The server reports "unknown" when it cannot read its own git sha. */
 function usableSha(sha: string | null | undefined): string | null {
@@ -28,6 +29,8 @@ export interface StaleBuildWatchDeps {
   subscribeConnection: (cb: (state: string) => void) => () => void;
   isWatched: () => boolean;
   hasUnsavedInput: () => boolean;
+  /** A sent write not yet answered; it clears by itself, so the watch retries. */
+  hasWritesInFlight: () => boolean;
   reload: () => void;
   /** Throws when the browser refuses storage; the watch then never reloads on its own. */
   storage: Pick<Storage, "getItem" | "setItem">;
@@ -52,8 +55,19 @@ export function createStaleBuildWatch(deps: StaleBuildWatchDeps): StaleBuildWatc
     for (const cb of [...listeners]) cb();
   }
 
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
   function maybeReload(): void {
     if (newerSha === null || deps.isWatched() || deps.hasUnsavedInput()) return;
+    if (deps.hasWritesInFlight()) {
+      if (retryTimer === null) {
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          maybeReload();
+        }, WRITE_SETTLE_RETRY_MS);
+      }
+      return;
+    }
     try {
       // One automatic reload per tab per build: a reload that comes back still
       // stale must not turn into a reload loop.
@@ -104,6 +118,8 @@ export function createStaleBuildWatch(deps: StaleBuildWatchDeps): StaleBuildWatc
       window.removeEventListener("vite:preloadError", check);
       window.removeEventListener("blur", maybeReload);
       document.removeEventListener("visibilitychange", maybeReload);
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      retryTimer = null;
     };
   }
 
