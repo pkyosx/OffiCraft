@@ -94,6 +94,11 @@
   text-decoration: underline 2px var(--color-warn-border);
 }
 
+/* The gallery (office.css `.chat__gallery`, top: 64px) drops below the row too. */
+.chat-search__bar ~ .chat__gallery {
+  top: calc(64px + 52px);
+}
+
 /* The results list: the gallery panel's place and look (office.css
  * `.chat__gallery`), pushed down by the search row's 52px so ▲/▼ stay usable. */
 .chat-search__panel {

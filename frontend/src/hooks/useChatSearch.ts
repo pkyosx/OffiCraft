@@ -49,6 +49,8 @@ export function useChatSearch(
   );
   const jumpRef = useRef(onJump);
   jumpRef.current = onJump;
+  const indexRef = useRef(index);
+  indexRef.current = index;
   // ⚠️ Only the latest search may land: an earlier, slower answer would
   // otherwise replace the newer query's results under the newer query's words.
   const searchSeq = useRef(0);
@@ -56,6 +58,7 @@ export function useChatSearch(
 
   const go = (list: ChatMessage[], i: number) => {
     setIndex(i);
+    setOlderStatus((cur) => (cur === "failed" ? "idle" : cur));
     jumpRef.current(list[i].id);
   };
 
@@ -113,8 +116,9 @@ export function useChatSearch(
         if (seq !== searchSeq.current) return;
         olderInFlight.current = false;
         const list = [...results, ...[...page.messages].reverse()];
+        // matchCount stays the first page's: positions are counted from the
+        // oldest match, and a match that arrived since is not in `results`.
         setResults(list);
-        setMatchCount(page.matchCount);
         setNextCursor(page.nextCursor);
         setOlderStatus("idle");
         then?.(list);
@@ -128,15 +132,20 @@ export function useChatSearch(
     );
   };
 
-  const canOlder = index >= 0 && (index + 1 < results.length || nextCursor !== undefined);
-  const canNewer = index > 0;
+  const paging = olderStatus === "loading";
+  const canOlder =
+    !paging && index >= 0 && (index + 1 < results.length || nextCursor !== undefined);
+  const canNewer = !paging && index > 0;
 
   const older = () => {
     if (!canOlder) return;
     if (index + 1 < results.length) go(results, index + 1);
-    else fetchOlder((list) => {
-      if (index + 1 < list.length) go(list, index + 1);
-    });
+    else {
+      const from = index;
+      fetchOlder((list) => {
+        if (indexRef.current === from && from + 1 < list.length) go(list, from + 1);
+      });
+    }
   };
 
   const newer = () => {

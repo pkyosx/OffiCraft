@@ -33,9 +33,11 @@ export function ChatSearchBar({
         ? t.chat.searchFailed
         : search.status === "done" && search.results.length === 0
           ? msg.chatSearchEmpty(search.query)
-          : search.status === "done"
-            ? msg.chatSearchCount(search.position, search.matchCount)
-            : "";
+          : search.status === "done" && search.olderStatus === "failed"
+            ? t.chat.searchFailed
+            : search.status === "done"
+              ? msg.chatSearchCount(search.position, search.matchCount)
+              : "";
 
   return (
     <div ref={rootRef} className="chat-search__bar" role="search">
@@ -59,7 +61,9 @@ export function ChatSearchBar({
           <span
             className={
               "chat-search__status" +
-              (search.status === "failed" ? " chat-search__status--error" : "")
+              (search.status === "failed" || search.olderStatus === "failed"
+                ? " chat-search__status--error"
+                : "")
             }
             role="status"
             title={status}
@@ -74,7 +78,7 @@ export function ChatSearchBar({
               className="chat-search__step"
               aria-label={t.chat.searchPrev}
               title={t.chat.searchPrev}
-              disabled={!search.canOlder || search.olderStatus === "loading"}
+              disabled={!search.canOlder}
               onClick={search.older}
             >
               <ChevronUpIcon size={16} />

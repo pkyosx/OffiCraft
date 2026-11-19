@@ -121,12 +121,71 @@ describe("ChatSearchBar", () => {
       ["m-1", "deploy", undefined],
       ["m-1", "deploy", "cur-1"],
     ]);
-    expect(bar(container)).toEqual({ status: "3/4", older: "disabled", newer: "enabled" });
+    expect(bar(container)).toEqual({ status: "3/4", older: "disabled", newer: "disabled" });
     expect(onJump.mock.calls).toEqual([["c-4"], ["c-3"]]);
 
     await answer(1, { messages: [msg("c-1", 1), msg("c-2", 2)], matchCount: 4 });
     expect(bar(container)).toEqual({ status: "2/4", older: "enabled", newer: "enabled" });
     expect(onJump.mock.calls).toEqual([["c-4"], ["c-3"], ["c-2"]]);
+  });
+
+  it("while the older page is in flight, ▼ does nothing, and the landing page moves one step older from where ▲ was pressed", async () => {
+    const { input, container, onJump } = renderBar();
+    await search(input, "deploy");
+    await answer(0, { messages: [msg("c-3", 3), msg("c-4", 4)], matchCount: 4, nextCursor: "cur-1" });
+    fireEvent.click(screen.getByLabelText(zh.chat.searchPrev));
+    fireEvent.click(screen.getByLabelText(zh.chat.searchPrev));
+    fireEvent.click(screen.getByLabelText(zh.chat.searchNext));
+    expect(onJump.mock.calls).toEqual([["c-4"], ["c-3"]]);
+
+    await answer(1, { messages: [msg("c-1", 1), msg("c-2", 2)], matchCount: 4 });
+    expect(bar(container)).toEqual({ status: "2/4", older: "enabled", newer: "enabled" });
+    expect(onJump.mock.calls).toEqual([["c-4"], ["c-3"], ["c-2"]]);
+  });
+
+  it("when a match arrives after the search, positions stay counted against the first answer's total", async () => {
+    const { input, container } = renderBar();
+    await search(input, "deploy");
+    await answer(0, { messages: [msg("c-3", 3), msg("c-4", 4)], matchCount: 4, nextCursor: "cur-1" });
+    fireEvent.click(screen.getByLabelText(zh.chat.searchPrev));
+    fireEvent.click(screen.getByLabelText(zh.chat.searchPrev));
+    await answer(1, { messages: [msg("c-1", 1), msg("c-2", 2)], matchCount: 5 });
+    expect(bar(container).status).toBe("2/4");
+    fireEvent.click(screen.getByLabelText(zh.chat.searchPrev));
+    expect(bar(container)).toEqual({ status: "1/4", older: "disabled", newer: "enabled" });
+  });
+
+  it("when the older page fails, the row says the search failed and ▲ retries back to i/N", async () => {
+    const { input, container, onJump } = renderBar();
+    await search(input, "deploy");
+    await answer(0, { messages: [msg("c-4", 4)], matchCount: 2, nextCursor: "cur-1" });
+    fireEvent.click(screen.getByLabelText(zh.chat.searchPrev));
+    await act(async () => {
+      pending[1].reject(new Error("502"));
+    });
+    expect(bar(container)).toEqual({ status: zh.chat.searchFailed, older: "enabled", newer: "disabled" });
+    expect(container.querySelector(".chat-search__status")!.className).toBe(
+      "chat-search__status chat-search__status--error",
+    );
+
+    fireEvent.click(screen.getByLabelText(zh.chat.searchPrev));
+    expect(pending[2].args).toEqual(["m-1", "deploy", "cur-1"]);
+    await answer(2, { messages: [msg("c-1", 1)], matchCount: 2 });
+    expect(bar(container)).toEqual({ status: "1/2", older: "disabled", newer: "enabled" });
+    expect(onJump.mock.calls).toEqual([["c-4"], ["c-1"]]);
+  });
+
+  it("when an older page from a previous search lands after a new search, keeps the new search's results, count and current match", async () => {
+    const { input, container, onJump } = renderBar();
+    await search(input, "alpha");
+    await answer(0, { messages: [msg("c-4", 4)], matchCount: 3, nextCursor: "cur-1" });
+    fireEvent.click(screen.getByLabelText(zh.chat.searchPrev));
+    await search(input, "beta");
+    await answer(2, { messages: [msg("c-9", 9)], matchCount: 1 });
+    await answer(1, { messages: [msg("c-1", 1), msg("c-2", 2)], matchCount: 3 });
+
+    expect(bar(container)).toEqual({ status: "1/1", older: "disabled", newer: "disabled" });
+    expect(onJump.mock.calls).toEqual([["c-4"], ["c-9"]]);
   });
 
   it("when nothing matches, says 找不到含「q」的訊息 where the count goes; when the search fails, says it failed", async () => {
