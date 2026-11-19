@@ -90,7 +90,7 @@
 }
 
 /* ── breadcrumbs (T-8f6e unified settings navigation) — generalized from the
- * 任務手冊 detail page's crumbs: 「設定 › 子頁 › …」 heads EVERY settings page
+ * 任務手冊 detail page's crumbs: 「設定 › 子頁 › …」 heads every settings sub-page
  * (each segment clickable back up the tree; the trailing segment is the
  * current page), with the page title directly below. No back button. ── */
 .crumbs {

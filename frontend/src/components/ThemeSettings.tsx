@@ -11,7 +11,6 @@ import {
   RESERVED_THEME_IDS,
   isBuiltinTheme,
   isBundledBuiltinTheme,
-  NAV_ICON_KEYS,
   NAV_TAB_KEYS,
   isValidAvatarValue,
   isValidBackgroundValue,
@@ -687,10 +686,12 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     }
 
     // Same for nav-tab icons — keep only the tabs that hold an image (an absent
-    // tab keeps its built-in icon). The logo is a single value (absent = built-in
-    // mark). Both already passed the shared image gate at upload time.
+    // tab keeps its built-in icon). A pack's guide icon is accepted on import
+    // but dropped here: no tab shows it any more. The logo is a single value
+    // (absent = built-in mark). Both already passed the shared image gate at
+    // upload time.
     const navIcons: Partial<Record<NavIconKey, string>> = {};
-    for (const key of NAV_ICON_KEYS) {
+    for (const key of NAV_TAB_KEYS) {
       const v = editNavIcons[key];
       if (typeof v === "string" && v !== "") navIcons[key] = v;
     }

@@ -2915,7 +2915,7 @@ export interface Api {
    * admin only). The server derives the scope key. Resolves to nothing —
    * `LorePage` refetches. */
   setLoreEntryScope(entryId: string, scopeKind: LoreScopeKind): Promise<void>;
-  // ── Product guide (the 使用說明 nav tab) ──────────────────────────────────
+  // ── Product guide (設定 › 使用說明) ──────────────────────────────────
   /** List the product-guide docs (`GET /api/docs`) — the 使用說明 landing
    * (slug + title cards). The same embed Mira reads via get_doc. */
   listDocs(): Promise<DocSummaryView[]>;

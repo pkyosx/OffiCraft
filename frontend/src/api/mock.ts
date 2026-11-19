@@ -1176,7 +1176,7 @@ function withManualSizes(m: StoredTaskManual): TaskManualView {
   };
 }
 
-// Product-guide docs (the 使用說明 nav tab) — a representative fixture so mock-mode
+// Product-guide docs (設定 › 使用說明) — a representative fixture so mock-mode
 // (dev screenshots / vitest) renders the same list→doc flow the real embed
 // serves. NOT the authoritative content (that is docs/guide/, embedded
 // server-side); real-SHAPED docs keep the mock honest about the shape.

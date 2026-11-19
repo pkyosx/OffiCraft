@@ -849,7 +849,7 @@ describe("ThemeSettings · alias-default colours", () => {
 });
 
 describe("ThemeSettings · nav icon uploads", () => {
-  it("a pack carrying a guide icon imports; the editor offers one upload per nav tab, none for the guide", async () => {
+  it("a pack carrying a guide icon imports; the editor offers one upload per nav tab, none for the guide, and saving keeps only tab icons", async () => {
     setToken("owner-token");
     const utils = await renderManage();
     const png =
@@ -859,7 +859,7 @@ describe("ThemeSettings · nav icon uploads", () => {
       id: "nav-icons",
       name: "導覽圖示測試",
       colors: { "--color-bg": "#101018" },
-      navIcons: { guide: png },
+      navIcons: { office: png, guide: png },
     });
     await openEditor(utils, "導覽圖示測試");
 
@@ -881,6 +881,9 @@ describe("ThemeSettings · nav icon uploads", () => {
       navSlots?.querySelectorAll<HTMLInputElement>("input.ts-file") ?? [],
     ).map((input) => input.getAttribute("aria-label"));
     expect(uploadLabels).toEqual(labels);
+
+    await clickSave(utils);
+    expect((await savedTheme("nav-icons")).navIcons).toEqual({ office: png });
   });
 });
 

@@ -118,9 +118,9 @@ describe("使用說明 · page header + navigation", () => {
     expect(
       utils.container.querySelectorAll(".settings__title--doc"),
     ).toHaveLength(0);
-    expectHeader(utils, [settingsTitle, g.title, docTitle]);
-    expect(utils.getByRole("button", { name: g.title })).toBeTruthy();
-    expect(utils.getByRole("navigation", { name: settingsTitle })).toBeTruthy();
+    expectHeader(utils, ["設定", "使用說明", docTitle]);
+    expect(utils.getByRole("button", { name: "使用說明" })).toBeTruthy();
+    expect(utils.getByRole("navigation", { name: "設定" })).toBeTruthy();
   });
 
   it("the open doc is in the URL (#settings/guide/<slug>), so it survives a reload", async () => {
@@ -139,7 +139,7 @@ describe("使用說明 · page header + navigation", () => {
     history.replaceState(null, "", window.location.pathname + deepLink);
     const reloaded = renderGuide();
     await waitForDocBody(reloaded, docTitle);
-    expectHeader(reloaded, [settingsTitle, g.title, docTitle]);
+    expectHeader(reloaded, ["設定", "使用說明", docTitle]);
   });
 
   // A slug that is not embedded must not fabricate a doc; the page reports the
@@ -148,7 +148,7 @@ describe("使用說明 · page header + navigation", () => {
     history.replaceState(null, "", window.location.pathname + "#settings/guide/nope");
     const utils = renderGuide();
     await utils.findByText(g.loadError);
-    fireEvent.click(utils.getByRole("button", { name: g.title }));
+    fireEvent.click(utils.getByRole("button", { name: "使用說明" }));
     await utils.findAllByTestId("guide-doc-entry");
   });
 });
@@ -183,7 +183,7 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
 
     // The destination doc is showing, and the crumb trail followed it.
     await waitForDocBody(utils, "為什麼是 OffiCraft");
-    expectHeader(utils, [settingsTitle, g.title, "為什麼是 OffiCraft"]);
+    expectHeader(utils, ["設定", "使用說明", "為什麼是 OffiCraft"]);
   });
 
   it("chains: doc → doc → doc, each hop landing on the linked doc", async () => {
@@ -193,7 +193,7 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
     await waitForDocBody(utils, "介面說明");
     fireEvent.click(utils.getByRole("button", { name: "為什麼是 OffiCraft" }));
     await waitForDocBody(utils, "為什麼是 OffiCraft");
-    expectHeader(utils, [settingsTitle, g.title, "為什麼是 OffiCraft"]);
+    expectHeader(utils, ["設定", "使用說明", "為什麼是 OffiCraft"]);
   });
 
   // The same doc is reachable by two different written forms, because the
@@ -206,7 +206,7 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
     await openDoc(utils, "為什麼是 OffiCraft");
     fireEvent.click(utils.getByRole("button", { name: "介面說明(長路徑)" }));
     await waitForDocBody(utils, "介面說明");
-    expectHeader(utils, [settingsTitle, g.title, "介面說明"]);
+    expectHeader(utils, ["設定", "使用說明", "介面說明"]);
   });
 
   // settings.css's `.md-doclink` rationale states WHERE the post-click URL
