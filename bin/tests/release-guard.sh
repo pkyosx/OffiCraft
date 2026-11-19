@@ -727,7 +727,7 @@ jobs_reads() { grep -c '/jobs?per_page=100$' "$API_WIRE" || true; }
 # ⚠️ `?per_page=100` and NO `filter` parameter: the API defaults to
 # filter=latest, which is what excludes a re-run's superseded earlier attempt.
 GATE_JOBS=(go-checks frontend-checks frontend-ct drift-checks contract-guards
-           conformance hygiene bin-guards tcc-anchor e2e-isolation-guard macos-e2e)
+           conformance hygiene bin-guards tcc-anchor e2e-isolation-guard linux-go-checks macos-e2e)
 gh_run_json() { # gh_run_json [head_sha] [id]
   GH_RUN_JSON="$(python3 -c '
 import json, sys

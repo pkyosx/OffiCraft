@@ -111,10 +111,8 @@ fi
 #
 # ruby is the one that is always there. This guard's ONLY execution surface is
 # macOS — bin/tests/run.sh is reached through bin/ci.sh locally and through the
-# bin-guards cell in the cloud, and since T-4d88 EVERY cloud cell runs on macOS
-# (the ubuntu lane this paragraph used to name is gone, along with the
-# macos-host-gates cell). macOS ships ruby; the macOS runner ships ruby and does NOT
-# have PyYAML. Missing ruby is a FAIL with instructions, never a skip and never
+# bin-guards cell in the cloud, which runs on macOS. macOS ships ruby; the macOS
+# runner ships ruby and does NOT have PyYAML. Missing ruby is a FAIL with instructions, never a skip and never
 # a quiet downgrade to some other parser: "no parser" must not look like "file
 # is fine", and neither must "a different parser".
 #

@@ -57,6 +57,7 @@ go-checks           lint-go-fmt
 go-checks           lint-go-vet
 go-checks           build-go
 go-checks           test-go
+go-checks           build-go-cross
 go-checks           test-system-interaction-examples
 contract-guards     lint-ci-round
 contract-guards     lint-uplink-contract

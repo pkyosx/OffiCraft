@@ -30,7 +30,7 @@
 #                   invoking worktree is never built in and never mutated.
 #   2b. CI GATE   — the verdict of the GitHub Actions round THIS COMMIT already
 #                   went through, read back from the Actions API: that round's
-#                   head_sha must be <sha> exactly, and all eleven gate jobs must
+#                   head_sha must be <sha> exactly, and every gate job must
 #                   be present with conclusion exactly "success". Evidence goes to
 #                   a per-run directory under the output dir. Not green ⇒ nothing
 #                   is built, packaged, uploaded or tagged. Publish no longer runs
@@ -419,7 +419,7 @@ cmd_promote() {
 # verification helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-# The eleven jobs that MUST be green for a commit to be shippable. This list is
+# The jobs that MUST be green for a commit to be shippable. This list is
 # `auto-beta`'s own `needs:` in .github/workflows/ci.yml, verbatim — the gate set
 # that workflow already declares, transcribed here because the release command
 # has to be able to state what it requires without trusting the very file whose
@@ -443,6 +443,7 @@ hygiene
 bin-guards
 tcc-anchor
 e2e-isolation-guard
+linux-go-checks
 macos-e2e"
 
 # run_release_ci <sha> <short> — THE release gate (T-b65e; rebuilt on GitHub's

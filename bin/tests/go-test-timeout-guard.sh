@@ -93,10 +93,11 @@
 #     lint-go-fmt, lint-go-vet, build-go and test-system-interaction-examples.
 #     Their cost is in the Makefile's prose budget, not in any assertion here.
 #     Strictly-less is necessary, never sufficient.
-#  3. OTHER JOBS. Only the job that RUNS test-go is examined. Another cell that
-#     grew its own `go test` call site would be found by the call-site scan (T1
-#     covers the Makefile, which is the one place a check's HOW is written), but
-#     its ceiling is not compared to anything.
+#  3. OTHER JOBS. Only the jobs that RUN test-go are examined, and the one with
+#     the tightest ceiling is the one compared. Another cell that grew its own
+#     `go test` call site would be found by the call-site scan (T1 covers the
+#     Makefile, which is the one place a check's HOW is written), but its
+#     ceiling is not compared to anything.
 #  4. RUNTIME OVERRIDES. `GOFLAGS=-timeout=1h`, a `-timeout` appended by a
 #     wrapper, `make GO_TEST_TIMEOUT=1h`, or a job re-declaring its ceiling in a
 #     reusable workflow all defeat the intent while keeping the text. Nothing
@@ -440,22 +441,26 @@ jobs.each do |name, job|
   hits << [name, job_tm, running]
 end
 
+# Several jobs may run the target (go-checks on macOS, linux-go-checks on
+# Linux). go's timeout has to fire first in EVERY one of them, so the job that
+# binds is the one with the tightest ceiling.
 if hits.empty?
   puts "NO-JOB"
-elsif hits.size > 1
-  puts "MULTIPLE-JOBS:" + hits.map(&:first).join(',')
 else
-  name, job_tm, running = hits.first
-  # One row per step that runs the target: the deadline that fires first ON THAT
-  # STEP. Several such steps in one job would each have their own; the guard is
-  # held to the tightest, because that is the one that can cut a run short.
-  per = running.map do |i, sname, st|
-    cands = [job_tm, st].compact
-    [i, sname, st, cands.min]
-  end
-  if per.any? { |row| row[3].nil? }
-    puts "NO-CEILING:#{name}"
-  else
+  rows = []
+  hits.each do |name, job_tm, running|
+    # One row per step that runs the target: the deadline that fires first ON
+    # THAT STEP. Several such steps in one job would each have their own; the
+    # guard is held to the tightest, because that is the one that can cut a run
+    # short.
+    per = running.map do |i, sname, st|
+      cands = [job_tm, st].compact
+      [i, sname, st, cands.min]
+    end
+    if per.any? { |row| row[3].nil? }
+      rows << [name, nil, nil]
+      next
+    end
     idx, sname, st, eff = per.min_by { |row| row[3] }
     origin =
       if st && (job_tm.nil? || st < job_tm)
@@ -464,6 +469,12 @@ else
       else
         "job"
       end
+    rows << [name, eff, origin]
+  end
+  if (missing = rows.find { |row| row[1].nil? })
+    puts "NO-CEILING:#{missing[0]}"
+  else
+    name, eff, origin = rows.min_by { |row| row[1] }
     puts "#{name}\t#{eff}\t#{origin}"
   end
 end
@@ -478,7 +489,7 @@ round_lane_of() { # TARGET -> lane | ""
   awk -v t="$1" '{sub(/#.*/,"")} NF==2 && $2==t {print $1; exit}' "$f"
 }
 
-ci_job_ceiling() { # FILE [TARGET] -> "<job>\t<minutes>\t<job|step#N>" or a NO-*/MULTIPLE-* word
+ci_job_ceiling() { # FILE [TARGET] -> "<job>\t<minutes>\t<job|step#N>" or a NO-* word
   local target="${2:-test-go}"
   "$RUBY" "$SCANNER" "$1" "$target" "$(round_lane_of "$target")" 2>&1
 }
@@ -679,6 +690,32 @@ if [[ "$GOT" == $'the-real-one\t25\tjob' ]]; then
   ok "ci.yml side: picks the job that RUNS test-go (the-real-one, 25, set at job level) past two decoy jobs"
 else
   bad "ci.yml side: should pick 'the-real-one' with 25 from the job level (got: ${GOT//$'\t'/ })"
+fi
+
+# --- B1a: when several jobs run it, the tightest ceiling binds --------------
+# go's timeout must fire first in every job that runs test-go. A scanner that
+# kept the first or the loosest job would compare against 40 and pass a 25m
+# timeout that the 20-minute job cancels first.
+cat >"$WORK/many-jobs.yml" <<'YML_EOF'
+name: fixture
+on: [push]
+jobs:
+  loose:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - run: bash bin/run-checks.sh lint-go-vet build-go test-go
+  tight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - run: bash bin/run-checks.sh lint-go-fmt test-go
+YML_EOF
+GOT="$(ci_job_ceiling "$WORK/many-jobs.yml")"
+if [[ "$GOT" == $'tight\t20\tjob' ]]; then
+  ok "ci.yml side: with two jobs running test-go, the tighter one (tight, 20) binds"
+else
+  bad "ci.yml side: should pick 'tight' with 20, the smaller of two jobs running test-go (got: ${GOT//$'\t'/ })"
 fi
 
 # --- B1b: a STEP-level timeout-minutes on the step that runs it BINDS --------
@@ -948,14 +985,13 @@ esac
 # claim is meaningless once the real tree does NOT satisfy it — the mutant would
 # be red for the pre-existing reason, not for the mutation. Worse, the mutant
 # GENERATORS locate their edit by what the parser found (REAL_TOKEN, REAL_JOB),
-# so on a broken tree they produce noise that reads like an unrelated defect: run
-# the guard against a ci.yml where two jobs run test-go and M2/M3 each announce
-# `could not find MULTIPLE-JOBS:go-checks,contract-guards's timeout-minutes` —
-# a message about a job name that does not exist, chasing a reader away from the
-# one real finding above it. So when either side of the real tree failed to
+# so on a broken tree they produce noise that reads like an unrelated defect,
+# chasing a reader away from the one real finding above it. So when either side of the real tree failed to
 # parse, the mutants are SKIPPED and say why. The run is still red: the real-tree
 # assertions above already failed.
-REAL_TOKEN="$(makefile_go_test_sites "$MAKEFILE" | awk -F'\t' 'NF { print $3; exit }')"
+# A site with no -timeout (build-go-cross's `go test -c`, which compiles and
+# never runs) has nothing for M2 to raise.
+REAL_TOKEN="$(makefile_go_test_sites "$MAKEFILE" | awk -F'\t' 'NF && $3 != "-" { print $3; exit }')"
 MUTANTS_MEANINGFUL=1
 case "$REAL_GO" in ''|*[!0-9]*) MUTANTS_MEANINGFUL=0 ;; esac
 case "$REAL_CI" in *$'\t'*$'\t'*) : ;; *) MUTANTS_MEANINGFUL=0 ;; esac

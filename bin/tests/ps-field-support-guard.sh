@@ -27,8 +27,9 @@
 #
 # This guard is HOST-SHAPED on purpose: it asserts a property of the machine CI
 # runs on, not of the source. That is the point, and it survived the verdict
-# moving: since T-4d88 every cloud cell runs on macOS too, so a host-shaped
-# assertion is as authoritative as the rest of the gate wherever the gate runs.
+# moving: the bin-guards cell that runs it is on macOS, like the machines it
+# describes, so a host-shaped assertion is as authoritative as the rest of the
+# gate wherever the gate runs.
 # (This paragraph used to justify itself with "the repo's land authority is the
 # local bin/ci.sh run on a fleet machine". That premise is gone — owner ruled on
 # 2026-08-11, card rc-c16ac4679fab, that the merge verdict is the cloud round.
