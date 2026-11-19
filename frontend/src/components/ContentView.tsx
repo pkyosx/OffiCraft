@@ -19,7 +19,7 @@ import { useI18n } from "../i18n";
 import type { ContentKind } from "../lib/contentKind";
 import { formatJson, formatXml, parseCsv, yamlParses } from "../lib/formatContent";
 import { Markdown } from "./Markdown";
-import { ExternalLinkIcon } from "./icons";
+import { AlertTriangleIcon, ExternalLinkIcon } from "./icons";
 import "./md-preview.css";
 
 export type ContentViewProps = {
@@ -99,11 +99,16 @@ export function ContentView({
   const { t } = useI18n();
   const p = t.chat.mdPreview;
   const yamlOk = useYamlParses(kind === "yaml" ? (text ?? null) : null);
-  // A line above a body that carries testId passes `null`: `undefined` would
-  // fall back to testId and name two elements.
-  const status = (line: ReactNode, id: string | null | undefined = testId) => (
-    <div className="md-preview__status" data-testid={id ?? undefined}>
+  const status = (line: ReactNode) => (
+    <div className="md-preview__status" data-testid={testId}>
       {line}
+    </div>
+  );
+
+  const malformed = (line: ReactNode) => (
+    <div className="md-preview__malformed" role="note">
+      <AlertTriangleIcon size={16} />
+      <span>{line}</span>
     </div>
   );
 
@@ -204,7 +209,7 @@ export function ContentView({
     const { body, unparseable } = kind === "json" ? formatJson(text) : formatXml(text);
     return (
       <>
-        {unparseable && status(kind === "json" ? p.jsonUnparseable : p.xmlUnparseable, null)}
+        {unparseable && malformed(kind === "json" ? p.jsonUnparseable : p.xmlUnparseable)}
         <pre className="md-preview__text" data-testid={testId}>
           {body}
         </pre>
@@ -215,7 +220,7 @@ export function ContentView({
   if (kind === "yaml") {
     return (
       <>
-        {yamlOk === false && status(p.yamlUnparseable, null)}
+        {yamlOk === false && malformed(p.yamlUnparseable)}
         <pre className="md-preview__text" data-testid={testId}>
           {text}
         </pre>
@@ -228,7 +233,7 @@ export function ContentView({
     if ("error" in table) {
       return (
         <>
-          {status(table.error === "too_large" ? p.csvTooLarge : p.csvUnparseable, null)}
+          {malformed(table.error === "too_large" ? p.csvTooLarge : p.csvUnparseable)}
           <pre className="md-preview__text" data-testid={testId}>
             {text}
           </pre>

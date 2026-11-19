@@ -1514,11 +1514,11 @@ export const zh = {
       // 壞掉的 JSON 不給一片空白、也不給錯誤畫面：讀者是來看內容的，而內容
       // 就算不是合法 JSON 也還是讀得懂。原文照顯示，另外用一行講明為什麼沒
       // 有縮排。（owner rc-38132b95dcf7 圈 [1]）
-      jsonUnparseable: "這不是合法的 JSON，無法排版；以下是檔案的原始內容。",
-      xmlUnparseable: "這不是合法的 XML，無法排版；以下是檔案的原始內容。",
-      yamlUnparseable: "這不是合法的 YAML；以下是檔案的原始內容。",
-      csvUnparseable: "這份 CSV 排不成表格；以下是檔案的原始內容。",
-      csvTooLarge: "這份 CSV 太大，不排成表格；以下是檔案的原始內容。",
+      jsonUnparseable: "JSON 格式錯誤，以下照檔案原文顯示。",
+      xmlUnparseable: "XML 格式錯誤，以下照檔案原文顯示。",
+      yamlUnparseable: "YAML 格式錯誤，以下照檔案原文顯示。",
+      csvUnparseable: "CSV 格式錯誤，排不成表格，以下照檔案原文顯示。",
+      csvTooLarge: "CSV 太大，不排成表格，以下照檔案原文顯示。",
       unavailableHere: "此檔案無法在這裡預覽。",
       download: "下載",
       edit: "編輯",

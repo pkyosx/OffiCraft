@@ -238,6 +238,23 @@
   overflow-y: auto;
   padding: 18px 20px;
 }
+.md-preview__malformed {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--color-warn-border);
+  border-radius: 8px;
+  background: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.md-preview__malformed svg {
+  flex: none;
+  margin-top: 2px;
+}
 .md-preview__status {
   display: grid;
   place-items: center;

@@ -18,6 +18,8 @@ function mount(props: ContentViewProps) {
 
 const statusText = (c: HTMLElement) =>
   Array.from(c.querySelectorAll(".md-preview__status")).map((el) => el.textContent);
+const malformedText = (c: HTMLElement) =>
+  Array.from(c.querySelectorAll(".md-preview__malformed")).map((el) => el.textContent);
 
 describe("ContentView", () => {
   it("renders markdown through the shared document skin, with block images when the host resolves them", () => {
@@ -44,10 +46,10 @@ describe("ContentView", () => {
   it("indents JSON, and shows unparseable JSON as stored under one line saying why", () => {
     const ok = mount({ kind: "json", text: '{"a":[1]}' });
     expect(ok.container.querySelector("pre.md-preview__text")?.textContent).toBe('{\n  "a": [\n    1\n  ]\n}');
-    expect(statusText(ok.container)).toEqual([]);
+    expect(malformedText(ok.container)).toEqual([]);
     ok.unmount();
     const bad = mount({ kind: "json", text: "{nope", testId: "body" });
-    expect(statusText(bad.container)).toEqual([p.jsonUnparseable]);
+    expect(malformedText(bad.container)).toEqual([p.jsonUnparseable]);
     expect(bad.getByTestId("body").outerHTML).toBe('<pre class="md-preview__text" data-testid="body">{nope</pre>');
   });
 
@@ -56,7 +58,7 @@ describe("ContentView", () => {
     expect(ok.container.querySelector("pre.md-preview__text")?.textContent).toBe("<a>\n  <b>1</b>\n</a>");
     ok.unmount();
     const bad = mount({ kind: "xml", text: "<a><b></a>", testId: "body" });
-    expect(statusText(bad.container)).toEqual([p.xmlUnparseable]);
+    expect(malformedText(bad.container)).toEqual([p.xmlUnparseable]);
     expect(bad.getByTestId("body").tagName).toBe("PRE");
     expect(bad.getByTestId("body").textContent).toBe("<a><b></a>");
   });
@@ -69,7 +71,7 @@ describe("ContentView", () => {
 
     const broken = "a:\n  b: 1\n c: 2\n";
     const bad = mount({ kind: "yaml", text: broken, testId: "body" });
-    await waitFor(() => expect(statusText(bad.container)).toEqual([p.yamlUnparseable]));
+    await waitFor(() => expect(malformedText(bad.container)).toEqual([p.yamlUnparseable]));
     expect(bad.getByTestId("body").textContent).toBe(broken);
 
     const fixed = "a:\n  b: 1\n  c: 2\n";
@@ -80,7 +82,7 @@ describe("ContentView", () => {
         </div>
       </I18nProvider>,
     );
-    expect(statusText(bad.container)).toEqual([]);
+    expect(malformedText(bad.container)).toEqual([]);
     expect(bad.getByTestId("body").textContent).toBe(fixed);
   });
 
@@ -105,7 +107,7 @@ describe("ContentView", () => {
 
   it("shows a CSV that will not parse as raw text under one line saying why", () => {
     const { container, getByTestId } = mount({ kind: "csv", text: 'a,"b\n1,2', testId: "body" });
-    expect(statusText(container)).toEqual([p.csvUnparseable]);
+    expect(malformedText(container)).toEqual([p.csvUnparseable]);
     expect(container.querySelector("table")).toBeNull();
     expect(getByTestId("body").tagName).toBe("PRE");
     expect(getByTestId("body").textContent).toBe('a,"b\n1,2');
