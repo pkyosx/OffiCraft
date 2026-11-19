@@ -731,7 +731,7 @@ export interface paths {
          *     - Answers {messages, next_cursor}, never a bare array; only a missing next_cursor ends the walk, a short page does not.
          *     - `cursor`: hand it back verbatim; it works only on the path that minted it, and mixing cursor families is 422.
          *     - `with=<id>`: either side of a conversation; limit is applied after filtering.
-         *     - `q=`: body substring search within the `with` conversation; ASCII letters match case-insensitively.
+         *     - `q=`: body substring search within the `with` conversation; ASCII letters match case-insensitively; pages with `cursor` only; adds `match_count`.
          *     - `sender=` / `recipient=`: one side only; sent together they AND, pinning one direction.
          *     - `start_id=` / `end_id=`: an inclusive window running newer / older; limit must be 1..200 here; no next_cursor.
          *     - `ids=`: just the set you name; no next_cursor.
@@ -5899,6 +5899,11 @@ export interface components {
          *     It replaced a bare ``ChatMessageDTO`` array, which had nowhere to say "there is more in this direction". A caller could only infer exhaustion from a short page, and a page is short for reasons that have nothing to do with exhaustion — a participant filter, a ``caller_only`` narrowing, an unread set spread across senders. The envelope moves that answer from inference to statement.
          */
         ChatListDTO: {
+            /**
+             * Match Count
+             * @description How many messages in the whole ``with`` conversation match ``q`` — not this page. Present only when ``q`` is sent, so a client can show "2/3".
+             */
+            match_count?: number;
             /**
              * Messages
              * @description The page, oldest→newest on every path — the SAME rows in the SAME order the bare array carried before T-48. An empty array is a real answer (a filter that matched nothing, or the end of a walk), never an error.
@@ -14812,7 +14817,7 @@ export interface operations {
         parameters: {
             query?: {
                 with?: string | null;
-                /** @description Keep only messages whose body contains this text, ignoring ASCII letter case (trimmed; empty = no constraint). Requires `with`, so a search never leaves one conversation. Matches the body only, not attachments or reply-card answers. Pages like any other filter: resend it with `cursor`. */
+                /** @description Keep only messages whose body contains this text, ignoring ASCII letter case (trimmed; empty = no constraint). Requires `with`, so a search never leaves one conversation. Matches the body only, not attachments or reply-card answers. Pages from the newest match: resend it with `cursor`; not combinable with `start_id`/`end_id`/`unread`. The answer carries `match_count`. */
                 q?: string | null;
                 limit?: number;
                 /**

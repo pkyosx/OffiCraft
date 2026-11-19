@@ -5357,8 +5357,8 @@ def test_chat_sender_and_recipient_narrow_one_side_each(hctx: HCtx) -> None:
 
 def test_chat_q_searches_one_conversations_bodies(hctx: HCtx) -> None:
     """``q`` keeps the ``with`` line's messages whose body contains it, ASCII
-    letters in any case, pages by the same cursor, and is refused without
-    ``with``."""
+    letters in any case, pages by the same cursor with ``match_count`` for the
+    whole conversation, and is refused without ``with`` or with ``unread``."""
     tag = uuid.uuid4().hex[:8]
     peer = hctx.agent.member_id
     hit = hctx.client.post(
@@ -5385,6 +5385,7 @@ def test_chat_q_searches_one_conversations_bodies(hctx: HCtx) -> None:
     assert [m["id"] for m in chat_messages(r)] == [
         hit.json()["id"], older.json()["id"], newer.json()["id"]
     ]
+    assert r.json()["match_count"] == 3
 
     r = hctx.client.get(
         "/api/chat", params={"with": peer, "q": f"found-{tag}", "limit": 2}, headers=_auth(hctx.owner_token)
@@ -5399,8 +5400,13 @@ def test_chat_q_searches_one_conversations_bodies(hctx: HCtx) -> None:
     assert r.status_code == 200, r.text
     assert [m["id"] for m in chat_messages(r)] == [hit.json()["id"]]
     assert "next_cursor" not in r.json()
+    assert r.json()["match_count"] == 3, "the count spans the conversation, not the page"
 
     r = hctx.client.get("/api/chat", params={"q": f"found-{tag}"}, headers=_auth(hctx.owner_token))
+    assert r.status_code == 422, f"{r.status_code} {r.text}"
+    r = hctx.client.get(
+        "/api/chat", params={"with": peer, "q": f"found-{tag}", "unread": "true"}, headers=_auth(hctx.owner_token)
+    )
     assert r.status_code == 422, f"{r.status_code} {r.text}"
 
 

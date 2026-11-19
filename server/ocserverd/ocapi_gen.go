@@ -1390,6 +1390,9 @@ type ChatInlineReplyCardDTO struct {
 //
 // It replaced a bare “ChatMessageDTO“ array, which had nowhere to say "there is more in this direction". A caller could only infer exhaustion from a short page, and a page is short for reasons that have nothing to do with exhaustion — a participant filter, a “caller_only“ narrowing, an unread set spread across senders. The envelope moves that answer from inference to statement.
 type ChatListDTO struct {
+	// MatchCount How many messages in the whole ``with`` conversation match ``q`` — not this page. Present only when ``q`` is sent, so a client can show "2/3".
+	MatchCount *int `json:"match_count,omitempty"`
+
 	// Messages The page, oldest→newest on every path — the SAME rows in the SAME order the bare array carried before T-48. An empty array is a real answer (a filter that matched nothing, or the end of a walk), never an error.
 	Messages []ChatMessageDTO `json:"messages"`
 
@@ -5543,7 +5546,7 @@ type WorkerBootContextDTO struct {
 type HandleListChatApiChatGetParams struct {
 	With *string `form:"with,omitempty" json:"with,omitempty"`
 
-	// Q Keep only messages whose body contains this text, ignoring ASCII letter case (trimmed; empty = no constraint). Requires `with`, so a search never leaves one conversation. Matches the body only, not attachments or reply-card answers. Pages like any other filter: resend it with `cursor`.
+	// Q Keep only messages whose body contains this text, ignoring ASCII letter case (trimmed; empty = no constraint). Requires `with`, so a search never leaves one conversation. Matches the body only, not attachments or reply-card answers. Pages from the newest match: resend it with `cursor`; not combinable with `start_id`/`end_id`/`unread`. The answer carries `match_count`.
 	Q     *string `form:"q,omitempty" json:"q,omitempty"`
 	Limit *int    `form:"limit,omitempty" json:"limit,omitempty"`
 

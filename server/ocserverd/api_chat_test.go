@@ -1876,7 +1876,7 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 			if status != 200 {
 				t.Fatalf("%s: want 200, got %d (%v)", tc.query, status, data)
 			}
-			apiWantBody(t, data, map[string]any{"messages": tc.want})
+			apiWantBody(t, data, map[string]any{"messages": tc.want, "match_count": float64(len(tc.want))})
 		}
 	})
 
@@ -1896,6 +1896,7 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 				apiTestChatRow(second["id"].(string), "owner", "kip", "deploy two"),
 			},
 			"next_cursor": apiAnyString,
+			"match_count": float64(2),
 		})
 
 		status, data = apiJSON(t, h, "GET",
@@ -1903,12 +1904,15 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"messages": []any{
-			apiTestChatRow(first["id"].(string), "owner", "kip", "deploy one"),
-		}})
+		apiWantBody(t, data, map[string]any{
+			"messages": []any{
+				apiTestChatRow(first["id"].(string), "owner", "kip", "deploy one"),
+			},
+			"match_count": float64(2),
+		})
 	})
 
-	t.Run("q without with is refused; a blank q is no constraint", func(t *testing.T) {
+	t.Run("q without with, or with a window or unread, is refused; a blank q is no constraint", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		_, only := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"one"}`)
 
@@ -1918,6 +1922,15 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 		}
 		apiWantError(t, data, "validation_error",
 			"q requires with — a keyword search reads one conversation; name the peer whose line to search")
+
+		for _, query := range []string{"q=one&with=mira&unread=true", "q=one&with=mira&start_id=" + only["id"].(string)} {
+			status, data = apiJSON(t, h, "GET", "/api/chat?"+query, owner, "")
+			if status != 422 {
+				t.Fatalf("%s: want 422, got %d (%v)", query, status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				"q cannot be combined with start_id/end_id or unread — a keyword search pages from the newest match with cursor")
+		}
 
 		status, data = apiJSON(t, h, "GET", "/api/chat?q=+++", owner, "")
 		if status != 200 {

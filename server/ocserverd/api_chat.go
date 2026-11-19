@@ -596,6 +596,9 @@ const (
 	chatSearchWithoutConversationMsg = "q requires with — a keyword search reads one " +
 		"conversation; name the peer whose line to search"
 
+	chatSearchMixedMsg = "q cannot be combined with start_id/end_id or unread — a keyword " +
+		"search pages from the newest match with cursor"
+
 	chatUnknownParamMsg = "unknown query parameter(s) on GET /api/chat: %s — this route " +
 		"refuses parameters it does not declare rather than ignoring them, because an " +
 		"ignored parameter silently answers a question you did not ask; accepted here: %s"
@@ -751,6 +754,25 @@ func chatPageWindow(limit int) int {
 }
 
 func (s *apiServer) writeChatPage(w http.ResponseWriter, msgs []ChatMessage, nextCursor string) {
+	s.writeChatPageWithCount(w, msgs, nextCursor, nil)
+}
+
+// writeChatSearchPage adds match_count when the filter carries q: the count
+// spans the whole conversation, not this page, so a client can show "2/3".
+func (s *apiServer) writeChatSearchPage(w http.ResponseWriter, f chatListFilter, msgs []ChatMessage, nextCursor string) {
+	if f.bodyContains == "" {
+		s.writeChatPage(w, msgs, nextCursor)
+		return
+	}
+	n, err := s.dal.countChat(f)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	s.writeChatPageWithCount(w, msgs, nextCursor, &n)
+}
+
+func (s *apiServer) writeChatPageWithCount(w http.ResponseWriter, msgs []ChatMessage, nextCursor string, matchCount *int) {
 	out := []chatMessageDTO{}
 	for _, m := range msgs {
 		dto, err := s.servedChatMessageDTO(m)
@@ -760,7 +782,7 @@ func (s *apiServer) writeChatPage(w http.ResponseWriter, msgs []ChatMessage, nex
 		}
 		out = append(out, dto)
 	}
-	writeJSON(w, http.StatusOK, chatListDTO{Messages: out, NextCursor: nextCursor})
+	writeJSON(w, http.StatusOK, chatListDTO{Messages: out, NextCursor: nextCursor, MatchCount: matchCount})
 }
 
 // PRESENCE, not emptiness, selects the window path: a blank ?start_id= is refused
@@ -886,6 +908,10 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 	startID, hasStart, endID, hasEnd := requestedChatWindow(params)
 	beforeSent := params.BeforeTs != nil || params.BeforeId != nil
 	cursorSent := params.Cursor != nil
+	if filter.bodyContains != "" && (hasStart || hasEnd || strOrEmpty(params.Unread) == chatUnreadTrue) {
+		writeError(w, http.StatusUnprocessableEntity, chatSearchMixedMsg)
+		return
+	}
 
 	if strOrEmpty(params.Unread) == chatUnreadTrue {
 		if beforeSent || hasStart || hasEnd {
@@ -944,7 +970,7 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	msgs, next := trimChatPageOlder(msgs, limit)
-	s.writeChatPage(w, msgs, next)
+	s.writeChatSearchPage(w, filter, msgs, next)
 }
 
 func (s *apiServer) serveChatOlder(w http.ResponseWriter, f chatListFilter, before chatAnchor, limit int) {
@@ -954,7 +980,7 @@ func (s *apiServer) serveChatOlder(w http.ResponseWriter, f chatListFilter, befo
 		return
 	}
 	msgs, next := trimChatPageOlder(msgs, limit)
-	s.writeChatPage(w, msgs, next)
+	s.writeChatSearchPage(w, f, msgs, next)
 }
 
 func trimChatPageOlder(msgs []ChatMessage, limit int) ([]ChatMessage, string) {

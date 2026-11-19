@@ -606,6 +606,13 @@ func (d *DAL) ListChatLatest(participant string, limit int) ([]ChatMessage, erro
 	return d.listChatLatest(chatListFilter{participant: participant}, limit)
 }
 
+func (d *DAL) countChat(f chatListFilter) (int, error) {
+	query, args := f.selectSQL(`chat_message`, `1=1`, nil, "", false, -1)
+	var n int
+	err := d.rdb.QueryRow(`SELECT COUNT(*) FROM (`+query+`)`, args...).Scan(&n)
+	return n, err
+}
+
 func (d *DAL) listChatLatest(f chatListFilter, limit int) ([]ChatMessage, error) {
 	if limit == 0 {
 		return nil, nil

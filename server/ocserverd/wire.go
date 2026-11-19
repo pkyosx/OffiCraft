@@ -1004,6 +1004,7 @@ type replyCardSnoozeReceiptDTO struct {
 type chatListDTO struct {
 	Messages   []chatMessageDTO `json:"messages"`
 	NextCursor string           `json:"next_cursor,omitempty"`
+	MatchCount *int             `json:"match_count,omitempty"`
 }
 
 type chatUnreadCountDTO struct {
