@@ -15132,7 +15132,7 @@
     },
     "/api/chat": {
       "get": {
-        "description": "- Never marks anything read: paging the backlog leaves it unread; only POST /api/chat/mark-read clears it.\n- Answers {messages, next_cursor}, never a bare array; only a missing next_cursor ends the walk, a short page does not.\n- `cursor`: hand it back verbatim; it works only on the path that minted it, and mixing cursor families is 422.\n- `with=<id>`: either side of a conversation; limit is applied after filtering.\n- `sender=` / `recipient=`: one side only; sent together they AND, pinning one direction.\n- `start_id=` / `end_id=`: an inclusive window running newer / older; limit must be 1..200 here; no next_cursor.\n- `ids=`: just the set you name; no next_cursor.\n- `unread=true`: only what others sent you above your per-sender watermark, oldest first; your own messages are never unread; any value but the string `true` reads as not sent.\n- Deleted messages are left out of every listing; `include_deleted=true` lists them too (not with `unread=true`).\n- `hide_delete_notices=true` leaves out the notices sent when the owner deletes a message (not with `unread=true`); by default they are listed.\n- `before_ts`+`before_id`: deprecated backwards paging, valid only as a pair.\n- `limit` bounds rows, not bytes (200 rows measured at 687 KB); on the legacy paths 0 is an empty page and a negative value is uncapped.",
+        "description": "- Never marks anything read: paging the backlog leaves it unread; only POST /api/chat/mark-read clears it.\n- Answers {messages, next_cursor}, never a bare array; only a missing next_cursor ends the walk, a short page does not.\n- `cursor`: hand it back verbatim; it works only on the path that minted it, and mixing cursor families is 422.\n- `with=<id>`: either side of a conversation; limit is applied after filtering.\n- `q=`: body substring search within the `with` conversation; ASCII letters match case-insensitively.\n- `sender=` / `recipient=`: one side only; sent together they AND, pinning one direction.\n- `start_id=` / `end_id=`: an inclusive window running newer / older; limit must be 1..200 here; no next_cursor.\n- `ids=`: just the set you name; no next_cursor.\n- `unread=true`: only what others sent you above your per-sender watermark, oldest first; your own messages are never unread; any value but the string `true` reads as not sent.\n- Deleted messages are left out of every listing; `include_deleted=true` lists them too (not with `unread=true`).\n- `hide_delete_notices=true` leaves out the notices sent when the owner deletes a message (not with `unread=true`); by default they are listed.\n- `before_ts`+`before_id`: deprecated backwards paging, valid only as a pair.\n- `limit` bounds rows, not bytes (200 rows measured at 687 KB); on the legacy paths 0 is an empty page and a negative value is uncapped.",
         "operationId": "handle_list_chat_api_chat_get",
         "parameters": [
           {
@@ -15149,6 +15149,23 @@
                 }
               ],
               "title": "With"
+            }
+          },
+          {
+            "description": "Keep only messages whose body contains this text, ignoring ASCII letter case (trimmed; empty = no constraint). Requires `with`, so a search never leaves one conversation. Matches the body only, not attachments or reply-card answers. Pages like any other filter: resend it with `cursor`.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
             }
           },
           {

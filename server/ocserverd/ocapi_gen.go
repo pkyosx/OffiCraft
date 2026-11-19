@@ -5541,7 +5541,10 @@ type WorkerBootContextDTO struct {
 
 // HandleListChatApiChatGetParams defines parameters for HandleListChatApiChatGet.
 type HandleListChatApiChatGetParams struct {
-	With  *string `form:"with,omitempty" json:"with,omitempty"`
+	With *string `form:"with,omitempty" json:"with,omitempty"`
+
+	// Q Keep only messages whose body contains this text, ignoring ASCII letter case (trimmed; empty = no constraint). Requires `with`, so a search never leaves one conversation. Matches the body only, not attachments or reply-card answers. Pages like any other filter: resend it with `cursor`.
+	Q     *string `form:"q,omitempty" json:"q,omitempty"`
 	Limit *int    `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// BeforeTs DEPRECATED (T-48) — superseded by ``start_id``/``end_id``, which take a message id instead of a composite keyset cursor and can walk FORWARDS as well as back. Still honoured, still a matched pair (one without the other is 422), still never combined with the new parameters (422). Kept because the agent-side ``get_chat`` and the cockpit scrollback both still send it.
@@ -7621,6 +7624,19 @@ func (siw *ServerInterfaceWrapper) HandleListChatApiChatGet(w http.ResponseWrite
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "with"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "with", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
 		}
 		return
 	}
