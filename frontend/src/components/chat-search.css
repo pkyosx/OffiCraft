@@ -1,0 +1,297 @@
+/* The search row sits under the chat header (office.css `.chat__header`). */
+.chat-search__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 52px;
+  padding: 6px 14px 8px;
+  box-sizing: border-box;
+  flex: none;
+}
+.chat-search__box {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 6px 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-card);
+}
+.chat-search__box:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+.chat-search__box-icon {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.chat-search__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+}
+/* Under 16px, iOS zooms the page in on focus. */
+.chat-search__bar--touch .chat-search__input {
+  font-size: 16px;
+}
+.chat-search__status {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+.chat-search__status--error {
+  color: var(--color-danger);
+}
+.chat-search__step,
+.chat-search__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+.chat-search__step {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+.chat-search__action {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+.chat-search__step:hover:not(:disabled),
+.chat-search__action:hover,
+.chat-search__action[aria-expanded="true"] {
+  color: var(--color-text-strong);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.chat-search__step:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+::highlight(oc-chat-search) {
+  background-color: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+  text-decoration: underline 2px var(--color-warn-border);
+}
+
+/* The gallery (office.css `.chat__gallery`, top: 64px) drops below the row too. */
+.chat-search__bar ~ .chat__gallery {
+  top: calc(64px + 52px);
+}
+
+/* The results list: the gallery panel's place and look (office.css
+ * `.chat__gallery`), pushed down by the search row's 52px so ▲/▼ stay usable. */
+.chat-search__panel {
+  position: absolute;
+  top: calc(64px + 52px);
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  width: min(340px, 100%);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  border-radius: 0 0 14px 0;
+  background: var(--color-card);
+  box-shadow: -12px 0 28px color-mix(in srgb, var(--color-shadow) 35%, transparent);
+}
+.chat-search__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
+}
+.chat-search__title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.chat-search__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+.chat-search__close:hover {
+  color: var(--color-text-strong);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.chat-search__state {
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.chat-search__state--error {
+  color: var(--color-danger);
+}
+.chat-search__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-search__hint {
+  padding: 0 4px 4px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+.chat-search__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.chat-search__item[aria-current="true"] {
+  background: var(--color-accent-soft);
+}
+.chat-search__item:hover,
+.chat-search__item:focus-visible {
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+}
+.chat-search__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+.chat-search__who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-strong);
+  font-weight: 600;
+}
+.chat-search__time {
+  flex: none;
+  white-space: nowrap;
+}
+.chat-search__snippet {
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.chat-search__snippet mark {
+  border-radius: 3px;
+  padding: 0 1px;
+  background: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+  box-shadow: inset 0 -2px 0 var(--color-warn-border);
+}
+.chat-search__older {
+  align-self: center;
+  margin-top: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-strong);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.chat-search__older:disabled {
+  cursor: default;
+  color: var(--color-text-muted);
+}
+
+/* Phone: the list rises from the bottom (the chat group menu's sheet shape),
+ * never past 70% so the dimmed strip above stays there to tap closed. */
+.chat-search__sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  background: color-mix(in srgb, var(--color-backdrop) 45%, transparent);
+}
+.chat-search__sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 70%;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-radius: 14px 14px 0 0;
+  background: var(--color-card);
+  outline: none;
+}
+.chat-search__sheet-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 10px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
+}
+.chat-search__done {
+  flex: none;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  border-radius: 8px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chat-search__sheet .chat-search__list {
+  overscroll-behavior: contain;
+}
+.chat-search__sheet .chat-search__item {
+  min-height: 44px;
+}

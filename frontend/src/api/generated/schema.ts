@@ -708,7 +708,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the chat stream (?with=<id>&limit=<n>; oldest→newest). Answers an OBJECT {messages, next_cursor}, never a bare array: next_cursor is opaque, send it back as cursor= for the next page, and its ABSENCE — not a short page — is the only 'nothing more' signal. Your unread backfill: unread=true returns the OLDEST unread addressed to you, judged against the per-sender watermark, and still marks nothing read. Narrow either side with sender= / recipient=. Window by message id: start_id walks TOWARDS THE NEWEST, end_id TOWARDS THE OLDEST, both inclusive. The older before_ts + before_id cursor still works but is deprecated. Re-read specific messages by id: ids=<id>&ids=<id>. THIS ROUTE NEVER MARKS ANYTHING READ (T-48) — to mark a conversation read, call mark_read explicitly.
+         * List the chat stream (?with=<id>&limit=<n>; oldest→newest). Answers an OBJECT {messages, next_cursor}, never a bare array: next_cursor is opaque, send it back as cursor= for the next page, and its ABSENCE — not a short page — is the only 'nothing more' signal. Your unread backfill: unread=true returns the OLDEST unread addressed to you, judged against the per-sender watermark, and still marks nothing read. Narrow either side with sender= / recipient=. Search one line's messages with with=<id>&q=<text>: bodies, plus a reply card's question and answer (ASCII letters in any case; pages with cursor like the plain listing). Window by message id: start_id walks TOWARDS THE NEWEST, end_id TOWARDS THE OLDEST, both inclusive. The older before_ts + before_id cursor still works but is deprecated. Re-read specific messages by id: ids=<id>&ids=<id>. THIS ROUTE NEVER MARKS ANYTHING READ (T-48) — to mark a conversation read, call mark_read explicitly.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
          *     - `before_ts`: DEPRECATED (T-48) — prefer start_id/end_id. Paging cursor, the ts of the OLDEST message you already hold. Must be sent TOGETHER with before_id - supplying only one is refused with 422, which is the one mistake here that announces itself. The pair is otherwise not validated against anything real: a cursor pointing nowhere in the stream (a fabricated value, or the right instant expressed in the wrong unit - these timestamps are epoch SECONDS, not milliseconds) is not an error, it just answers 200 with an EMPTY page. An empty page is the same answer you get at the true start of history, so it cannot tell you 'you have reached the beginning' apart from 'your cursor was garbage'. Copy both values from a message you actually received rather than constructing them.
@@ -731,6 +731,8 @@ export interface paths {
          *     - Answers {messages, next_cursor}, never a bare array; only a missing next_cursor ends the walk, a short page does not.
          *     - `cursor`: hand it back verbatim; it works only on the path that minted it, and mixing cursor families is 422.
          *     - `with=<id>`: either side of a conversation; limit is applied after filtering.
+         *     - `q=`: body substring search within the `with` conversation; ASCII letters match case-insensitively; pages with `cursor` only; adds `match_count`.
+         *     - `exclude_inter_agent=true`: only messages the owner sent or received; with `q`, `match_count` counts the same set.
          *     - `sender=` / `recipient=`: one side only; sent together they AND, pinning one direction.
          *     - `start_id=` / `end_id=`: an inclusive window running newer / older; limit must be 1..200 here; no next_cursor.
          *     - `ids=`: just the set you name; no next_cursor.
@@ -5898,6 +5900,11 @@ export interface components {
          *     It replaced a bare ``ChatMessageDTO`` array, which had nowhere to say "there is more in this direction". A caller could only infer exhaustion from a short page, and a page is short for reasons that have nothing to do with exhaustion — a participant filter, a ``caller_only`` narrowing, an unread set spread across senders. The envelope moves that answer from inference to statement.
          */
         ChatListDTO: {
+            /**
+             * Match Count
+             * @description How many messages in the whole ``with`` conversation match ``q`` — not this page. Present only when ``q`` is sent, so a client can show "2/3".
+             */
+            match_count?: number;
             /**
              * Messages
              * @description The page, oldest→newest on every path — the SAME rows in the SAME order the bare array carried before T-48. An empty array is a real answer (a filter that matched nothing, or the end of a walk), never an error.
@@ -14811,6 +14818,8 @@ export interface operations {
         parameters: {
             query?: {
                 with?: string | null;
+                /** @description Keep only messages whose body contains this text, ignoring ASCII letter case (trimmed; empty = no constraint). Requires `with`, so a search never leaves one conversation. Matches the message body and, on a reply-card message, the card's question body and the owner's answer; never attachments. Pages from the newest match: resend it with `cursor`; not combinable with `start_id`/`end_id`/`unread`. The answer carries `match_count`. */
+                q?: string | null;
                 limit?: number;
                 /**
                  * @deprecated
@@ -14852,6 +14861,8 @@ export interface operations {
                 include_deleted?: string | null;
                 /** @description ``true`` (the STRING) leaves out the notices the server sends when the owner deletes a message: messages from ``system`` carrying ``meta.delete_notice``. By default they are listed like any other message. 422 alongside ``unread=true``. Not consulted on the ``ids`` path, which always returns them. Any other value reads as not sent. */
                 hide_delete_notices?: string | null;
+                /** @description ``true`` (the STRING) keeps only messages the owner sent or received, leaving out messages between two members (and system notices to a member). Any other value reads as not sent. Not consulted on the ``ids`` path. */
+                exclude_inter_agent?: string | null;
             };
             header?: never;
             path?: never;

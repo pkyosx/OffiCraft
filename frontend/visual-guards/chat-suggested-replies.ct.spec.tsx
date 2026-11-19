@@ -52,28 +52,79 @@ for (const width of [390, 1280]) {
   });
 }
 
-test("390px: the tasks, role, suggested-replies and gallery buttons all fit the header, in a row, leaving the name room", async ({ mount, page }) => {
-  await page.setViewportSize({ width: 390, height: 800 });
-  const cmp = await mount(<ChatSuggestedRepliesStory replies={["繼續"]} allHeaderButtons />);
+async function headerBoxes(cmp: import("@playwright/test").Locator) {
+  const box = async (sel: string) => (await cmp.locator(sel).boundingBox())!;
+  return {
+    header: await box(".chat__header"),
+    name: await box(".chat__header-text"),
+    top: [
+      await box("[data-testid=chat-header-tasks]"),
+      await box("[data-testid=chat-header-role-settings]"),
+      await box("[data-testid=chat-header-suggested-replies]"),
+    ],
+    bottom: [await box("[data-testid=chat-header-search]"), await box(".chat__gallery-toggle")],
+  };
+}
 
-  const header = (await cmp.locator(".chat__header").boundingBox())!;
-  const buttons = [
-    (await cmp.getByTestId("chat-header-tasks").boundingBox())!,
-    (await cmp.getByTestId("chat-header-role-settings").boundingBox())!,
-    (await cmp.getByTestId("chat-header-suggested-replies").boundingBox())!,
-    (await cmp.locator(".chat__gallery-toggle").boundingBox())!,
-  ];
-  buttons.forEach((b, i) => {
-    expect(b.x).toBeGreaterThanOrEqual(header.x);
-    expect(b.x + b.width).toBeLessThanOrEqual(header.x + header.width);
-    expect(b.y).toBeGreaterThanOrEqual(header.y);
-    expect(b.y + b.height).toBeLessThanOrEqual(header.y + header.height);
-    if (i > 0) expect(b.x).toBeGreaterThanOrEqual(buttons[i - 1].x + buttons[i - 1].width);
+const inside = (b: { x: number; y: number; width: number; height: number }, h: typeof b) => {
+  expect(b.x).toBeGreaterThanOrEqual(h.x);
+  expect(b.x + b.width).toBeLessThanOrEqual(h.x + h.width);
+  expect(b.y).toBeGreaterThanOrEqual(h.y);
+  expect(b.y + b.height).toBeLessThanOrEqual(h.y + h.height);
+};
+
+test("390px: the tasks, role and suggested-replies buttons stack over search and gallery at the right, leaving a long name whole without growing the header", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  const name = "GF Eva Slack Inbox";
+  const bare = await mount(<ChatSuggestedRepliesStory name={name} />);
+  const bareHeight = (await bare.locator(".chat__header").boundingBox())!.height;
+  await bare.unmount();
+
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["繼續"]} allHeaderButtons name={name} />);
+  const { header, name: text, top, bottom } = await headerBoxes(cmp);
+  [...top, ...bottom].forEach((b) => {
+    inside(b, header);
+    expect(b.width).toBeGreaterThanOrEqual(30);
+    expect(b.height).toBeGreaterThanOrEqual(30);
   });
-  const name = (await cmp.locator(".chat__header-text").boundingBox())!;
-  expect(name.width).toBeGreaterThan(80);
-  expect(name.x + name.width).toBeLessThanOrEqual(buttons[0].x);
+  for (const row of [top, bottom]) {
+    row.forEach((b, i) => {
+      expect(b.y).toBeCloseTo(row[0].y, 0);
+      if (i > 0) expect(b.x).toBeGreaterThanOrEqual(row[i - 1].x + row[i - 1].width);
+    });
+  }
+  expect(bottom[0].y).toBeGreaterThanOrEqual(top[0].y + top[0].height);
+  expect(top[2].x + top[2].width).toBeCloseTo(bottom[1].x + bottom[1].width, 0);
+  expect(text.x + text.width).toBeLessThanOrEqual(top[0].x);
+  const nameSpan = cmp.locator(".chat__header-name > span:last-child");
+  expect(await nameSpan.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  expect(header.height).toBeCloseTo(bareHeight, 0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("390px: with only search and gallery, the two sit in one row at the header's right edge", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory name="GF Eva Slack Inbox" />);
+  const header = (await cmp.locator(".chat__header").boundingBox())!;
+  const search = (await cmp.getByTestId("chat-header-search").boundingBox())!;
+  const gallery = (await cmp.locator(".chat__gallery-toggle").boundingBox())!;
+  inside(search, header);
+  inside(gallery, header);
+  expect(search.y).toBeCloseTo(gallery.y, 0);
+  expect(gallery.x).toBeGreaterThanOrEqual(search.x + search.width);
+  expect(header.x + header.width - (gallery.x + gallery.width)).toBeLessThanOrEqual(12);
+});
+
+test("1280px: all five header buttons stay in one row, 12px apart", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const cmp = await mount(<ChatSuggestedRepliesStory replies={["繼續"]} allHeaderButtons name="GF Eva Slack Inbox" />);
+  const { header, top, bottom } = await headerBoxes(cmp);
+  const row = [...top, ...bottom];
+  row.forEach((b, i) => {
+    inside(b, header);
+    expect(b.y).toBeCloseTo(row[0].y, 0);
+    if (i > 0) expect(b.x - (row[i - 1].x + row[i - 1].width)).toBeCloseTo(12, 0);
+  });
 });
 
 // Focus order across a blur, a save and a click only exists in a real browser;

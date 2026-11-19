@@ -23,6 +23,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, act, waitFor, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ChatArea } from "./ChatArea";
+import { zh } from "../i18n/locales/zh";
+import { useHashRoute } from "../lib/hashRoute";
 import type { Member } from "../types";
 import type { ChatMessage, ReplyCard, SseDelta } from "../api/adapter";
 
@@ -36,6 +38,8 @@ const B = "m-bbbbbbbbbbbb";
 let plainCalls: string[] = [];
 /** Every `lastReadTs` this room marked read — see the api mock. */
 let markReads: number[] = [];
+/** Every `searchChat`, in order. */
+let searchCalls: { q: string; cursor?: string }[] = [];
 let windowCalls: { withId: string; anchor: { startId?: string; endId?: string } }[] =
   [];
 
@@ -89,6 +93,11 @@ let cardReads: { id: string; rowPainted: number }[] = [];
 /** The waiting cards a test deliberately put in the thread — the afterEach's
  * denominator. */
 let seededWaitingCards: string[] = [];
+/** Cards a test opened by stepping the search onto them — a user action, so
+ * their read is the expected one and the afterEach guard does not count it. */
+let openedBySearch: string[] = [];
+/** The question body `getReplyCard` answers per card id ("" when absent). */
+let cardBodies: Record<string, string> = {};
 
 const CARD: ReplyCard = {
   id: "rc-1",
@@ -221,7 +230,7 @@ vi.mock("../api", () => ({
       // task queue), so a zero-delay mock is not a simplification of the network,
       // it is a different machine.
       await new Promise((r) => setTimeout(r, 0));
-      return { ...CARD, id };
+      return { ...CARD, id, body: cardBodies[id] ?? "" };
     },
     getFirstUnreadChat: async (withId: string) => {
       firstUnreadAsks.push(withId);
@@ -249,6 +258,22 @@ vi.mock("../api", () => ({
           replyCardId: null,
         }
       );
+    },
+    searchChat: async (withId: string, q: string, cursor?: string) => {
+      searchCalls.push({ q, cursor });
+      const all = threadOf(withId).filter(
+        (m) =>
+          (m.from === OWNER || m.to === OWNER) &&
+          (m.body.toLowerCase().includes(q.toLowerCase()) ||
+            (cardBodies[m.replyCardId ?? ""] ?? "").toLowerCase().includes(q.toLowerCase())),
+      );
+      const upTo = cursor ? all.findIndex((m) => m.id === cursor) : all.length;
+      const page = all.slice(Math.max(0, upTo - 30), upTo);
+      return {
+        messages: page,
+        matchCount: all.length,
+        ...(upTo > 30 ? { nextCursor: page[0].id } : {}),
+      };
     },
     listChatReads: async () => [],
     /** Every mark-read this room sent, with the watermark it claimed. This is
@@ -315,6 +340,13 @@ function view(m: Member, jumpToMsgId?: string) {
   );
 }
 
+/** Mounted under the hash route the way `OfficePage` feeds `jumpToMsgId`, so a
+ * jump ChatArea starts itself goes through the real route. */
+function RoutedRoom({ m }: { m: Member }) {
+  const [route] = useHashRoute();
+  return view(m, route.chatId === m.id ? route.msgId : undefined);
+}
+
 function bubbles(container: HTMLElement): (string | null)[] {
   return Array.from(container.querySelectorAll(".chat__msg-bubble")).map(
     (n) => n.textContent,
@@ -338,6 +370,7 @@ function seed(peer: string, tag: string, count: number, tsStart: number) {
 
 beforeEach(() => {
   log.length = 0;
+  searchCalls = [];
   plainCalls = [];
   windowCalls = [];
   holdWindows = null;
@@ -355,6 +388,8 @@ beforeEach(() => {
   scrolls = [];
   cardReads = [];
   seededWaitingCards = [];
+  openedBySearch = [];
+  cardBodies = {};
   localStorage.clear();
   Element.prototype.scrollIntoView = vi.fn(function (
     this: Element,
@@ -390,7 +425,7 @@ beforeEach(() => {
  * the guard says so instead of passing. */
 afterEach(() => {
   expect(
-    cardReads,
+    cardReads.filter((r) => !openedBySearch.includes(r.id)),
     "a card was fetched just by rendering the thread — the row can now grow under the reader, which is exactly the +254px shift. Every card renders COLLAPSED and reads nothing until it is expanded.",
   ).toEqual([]);
   for (const id of seededWaitingCards) {
@@ -1006,6 +1041,185 @@ describe("ChatArea 進房錨點優先(useChat 的 anchor 參數)", () => {
       plainCalls,
       "錨點落地之後這間房必須回到一般的刷新 —— 空的就是 anchorPending 被留在 true",
     ).toEqual([A]);
+  });
+
+  it("搜尋後 ▲ 一路往舊走、走過已載入的結果就先撈下一頁再跳:目標亮起並持續框住、關鍵字被標示(成員之間的訊息不標)、中間的不標已讀;從結果列表再點同一筆會再定位;X 清掉標示與框", async () => {
+    history.replaceState(null, "", "/");
+    const highlights = new Map<string, { ranges: Range[] }>();
+    const g = globalThis as Record<string, unknown>;
+    const savedCss = g.CSS;
+    const savedHighlight = g.Highlight;
+    g.CSS = { highlights };
+    g.Highlight = class {
+      ranges: Range[];
+      constructor(...ranges: Range[]) {
+        this.ranges = ranges;
+      }
+    };
+    const marked = () =>
+      (highlights.get("oc-chat-search")?.ranges ?? []).map((r) => r.toString());
+    try {
+      seed(A, "a", 300, 100);
+      log[3].body = "a3 Deploy 完成";
+      for (let i = 270; i < 300; i++) log[i].body = `deploy a${i}`;
+      log[4] = { ...log[4], id: "x1", to: B, body: "deploy between members" };
+      const { container } = render(<RoutedRoom m={alice} />);
+      await waitFor(() =>
+        expect(container.querySelector('[data-msg-id="a299"]')).not.toBeNull(),
+      );
+      expect(container.querySelector('.chat__msg[data-msg-id="a3"]')).toBeNull();
+      await settle();
+      markReads = [];
+      seed(A, "n", 10, 400);
+
+      fireEvent.click(container.querySelector('[data-testid="chat-header-search"]')!);
+      const input = container.querySelector<HTMLInputElement>(".chat-search__input")!;
+      fireEvent.change(input, { target: { value: "DEPLOY" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      const status = () => container.querySelector(".chat-search__status")?.textContent;
+      const current = () =>
+        Array.from(container.querySelectorAll(".chat__msg--search-current")).map((n) =>
+          n.getAttribute("data-msg-id"),
+        );
+      await waitFor(() => expect(status()).toBe("31/31"));
+      await waitFor(() => expect(current()).toEqual(["a299"]));
+      expect(window.location.hash).toBe(`#office/chat/${A}/msg/a299`);
+      expect(marked()).toEqual(Array(30).fill("deploy"));
+
+      const older = container.querySelector<HTMLButtonElement>(
+        `[aria-label="${zh.chat.searchPrev}"]`,
+      )!;
+      for (let i = 0; i < 29; i++) fireEvent.click(older);
+      await waitFor(() => expect(current()).toEqual(["a270"]));
+      expect(status()).toBe("2/31");
+      expect(windowCalls).toEqual([]);
+
+      fireEvent.click(older);
+      await waitFor(() =>
+        expect(
+          container.querySelector('.chat__msg--located[data-msg-id="a3"]'),
+        ).not.toBeNull(),
+      );
+      await settle();
+      expect(searchCalls).toEqual([
+        { q: "DEPLOY", cursor: undefined },
+        { q: "DEPLOY", cursor: "a270" },
+      ]);
+      expect(status()).toBe("1/31");
+      expect(older.disabled).toBe(true);
+      expect(current()).toEqual(["a3"]);
+      expect(windowCalls.slice(0, 2).map((c) => c.anchor)).toEqual([
+        { endId: "a3" },
+        { startId: "a3" },
+      ]);
+      expect(bubbles(container)).toContain("n9");
+      expect(marked()).toEqual(["Deploy", ...Array(30).fill("deploy")]);
+      fireEvent.click(container.querySelector(".chat__inter-toggle")!);
+      await waitFor(() =>
+        expect(container.querySelector('.chat__msg[data-msg-id="x1"]')).not.toBeNull(),
+      );
+      expect(marked()).toEqual(["Deploy", ...Array(30).fill("deploy")]);
+      // 399 was already read on entry; n0..n9 (400..409) have not been seen.
+      expect(markReads.filter((ts) => ts > 399)).toEqual([]);
+
+      fireEvent.click(container.querySelector(`[aria-label="${zh.chat.searchList}"]`)!);
+      await waitFor(
+        () => expect(container.querySelector(".chat__msg--located")).toBeNull(),
+        { timeout: 4000 },
+      );
+      const scrollsOnA3 = scrolls.filter((x) => x.on === "a3").length;
+      const items = container.querySelectorAll(".chat-search__item");
+      fireEvent.click(items[items.length - 1]);
+      await waitFor(() =>
+        expect(
+          container.querySelector('.chat__msg--located[data-msg-id="a3"]'),
+        ).not.toBeNull(),
+      );
+      expect(scrolls.filter((x) => x.on === "a3")).toHaveLength(scrollsOnA3 + 1);
+      expect(container.querySelector(".chat-search__panel")).not.toBeNull();
+      await settle();
+      expect(markReads.filter((ts) => ts > 399)).toEqual([]);
+
+      fireEvent.click(container.querySelector(`[aria-label="${zh.chat.searchExit}"]`)!);
+      expect(current()).toEqual([]);
+      expect(highlights.size).toBe(0);
+      expect(container.querySelector(".chat-search__bar")).toBeNull();
+
+      await act(async () => {
+        fireEvent.scroll(container.querySelector(".chat__messages")!);
+        await new Promise((r) => setTimeout(r, 30));
+      });
+      expect(markReads.at(-1)).toBe(409);
+    } finally {
+      g.CSS = savedCss;
+      g.Highlight = savedHighlight;
+    }
+  }, 15000);
+
+  it("搜尋停在一張收合的請示卡上時,那張卡自己展開、問題內容裡的關鍵字被標示;不是目前那一筆的請示卡維持收合、一次都不撈", async () => {
+    history.replaceState(null, "", "/");
+    const highlights = new Map<string, { ranges: Range[] }>();
+    const g = globalThis as Record<string, unknown>;
+    const savedCss = g.CSS;
+    const savedHighlight = g.Highlight;
+    g.CSS = { highlights };
+    g.Highlight = class {
+      ranges: Range[];
+      constructor(...ranges: Range[]) {
+        this.ranges = ranges;
+      }
+    };
+    try {
+      seed(A, "a", 20, 100);
+      seedWaitingCard(A, "k2", "rc-k2", 130);
+      log.push({
+        id: "k1",
+        from: A,
+        to: OWNER,
+        body: "要寄出嗎?",
+        ts: 140,
+        attachments: [],
+        replyCardId: "rc-k1",
+        replyCardStatus: "waiting",
+      });
+      cardBodies = { "rc-k1": "先 deploy 到 staging", "rc-k2": "deploy 第二張" };
+      openedBySearch = ["rc-k1"];
+      const { container } = render(<RoutedRoom m={alice} />);
+      await waitFor(() =>
+        expect(container.querySelector('[data-reply-card-id="rc-k1"]')).not.toBeNull(),
+      );
+      await settle();
+      expect(cardReads, "前提:畫出房間時一張卡都沒撈").toEqual([]);
+
+      fireEvent.click(container.querySelector('[data-testid="chat-header-search"]')!);
+      const input = container.querySelector<HTMLInputElement>(".chat-search__input")!;
+      fireEvent.change(input, { target: { value: "deploy" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      await waitFor(() =>
+        expect(
+          container.querySelector('[data-msg-id="k1"] .reply-card__body')?.textContent,
+        ).toBe("先 deploy 到 staging"),
+      );
+      await waitFor(() =>
+        expect(
+          (highlights.get("oc-chat-search")?.ranges ?? []).map((r) => [
+            r.startContainer.parentElement!.closest(".reply-card__body") !== null,
+            r.toString(),
+          ]),
+        ).toEqual([[true, "deploy"]]),
+      );
+      expect(container.querySelector(".chat-search__status")?.textContent).toBe("2/2");
+      expect(cardReads.map((r) => r.id)).toEqual(["rc-k1"]);
+      expect(
+        container
+          .querySelector('[data-reply-card-id="rc-k2"]')!
+          .classList.contains("reply-card--collapsed"),
+      ).toBe(true);
+    } finally {
+      g.CSS = savedCss;
+      g.Highlight = savedHighlight;
+    }
   });
 });
 

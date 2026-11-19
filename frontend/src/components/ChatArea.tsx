@@ -49,6 +49,10 @@ import { AttachmentStrip } from "./AttachmentStrip";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ChatGalleryPanel } from "./ChatGalleryPanel";
+import { ChatSearchPanel } from "./ChatSearchPanel";
+import { ChatSearchBar } from "./ChatSearchBar";
+import { paintChatSearchHighlights } from "../lib/chatSearchHighlight";
+import { useChatSearch } from "../hooks/useChatSearch";
 import { ChatJumpLatestButton } from "./ChatJumpLatestButton";
 import { ChatThreadLoading } from "./ChatThreadLoading";
 import { ChatNewMsgPreview } from "./ChatNewMsgPreview";
@@ -81,6 +85,7 @@ import {
   MoonIcon,
   PaperclipIcon,
   ReplyIcon,
+  SearchIcon,
   SendIcon,
   SuggestedRepliesIcon,
   TasksIcon,
@@ -752,6 +757,16 @@ export function ChatArea({
   // header said Bruno while the panel still showed A's files labelled with A's
   // sender name.
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchListOpen, setSearchListOpen] = useState(false);
+  const searchListToggleRef = useRef<HTMLButtonElement>(null);
+  const chatSearch = useChatSearch(member.id, (msgId) => jumpToMessage(msgId));
+  const exitSearch = () => {
+    setSearchMode(false);
+    setSearchListOpen(false);
+    chatSearch.reset();
+  };
+  const searchCurrentId = searchMode ? chatSearch.current?.id : undefined;
   // The attachment whose share link was just copied (transient 「已複製」
   // feedback on that one button; null = none).
   // Inter-agent (agent↔agent) groups that the owner has EXPANDED (keyed by the
@@ -920,6 +935,30 @@ export function ChatArea({
   const [jumpRetry, setJumpRetry] = useState(0);
   // The transient highlight on the row a jump located (cleared after the flash).
   const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null);
+
+  const searchPaintQuery =
+    searchMode && chatSearch.status === "done" ? chatSearch.query : "";
+  useEffect(() => {
+    const root = messagesRef.current;
+    const searchable = new Set(
+      messages.filter((m) => !isInterAgent(m)).map((m) => m.id),
+    );
+    const paint = () =>
+      paintChatSearchHighlights(root, searchPaintQuery, (id) => searchable.has(id));
+    let clear = paint();
+    if (!root || searchPaintQuery === "") return clear;
+    // A reply card fills in its question and answer after its own fetch, which
+    // changes no state here — only the DOM tells us there is more to paint.
+    const observer = new MutationObserver(() => {
+      clear();
+      clear = paint();
+    });
+    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    return () => {
+      observer.disconnect();
+      clear();
+    };
+  }, [searchPaintQuery, messages, expandedGroups]);
 
   // T-8aaa: persist the TYPED half of the draft to the per-peer store on every
   // change, so an unmount (跳頁 or a switch to another room) leaves the latest
@@ -2111,6 +2150,7 @@ export function ChatArea({
           fallbackSummary={m.body}
           initialStatus={m.replyCardStatus}
           commentRecipientFor={docCommentRecipientFor}
+          expandWhen={m.id === searchCurrentId}
         />
       </MentionRosterContext.Provider>
     ) : (
@@ -2217,7 +2257,8 @@ export function ChatArea({
           className={
             `chat__msg${mine ? " chat__msg--me" : ""}` +
             (m.replyCardId ? " chat__msg--card" : "") +
-            (m.id === highlightMsgId ? " chat__msg--located" : "")
+            (m.id === highlightMsgId ? " chat__msg--located" : "") +
+            (m.id === searchCurrentId ? " chat__msg--search-current" : "")
           }
           data-msg-id={m.id}
         >
@@ -2301,6 +2342,9 @@ export function ChatArea({
     );
   }
 
+  const showSuggestedReplies = Boolean(onSaveSuggestedReplies || onRetrySuggestedReplies) && !composerLocked;
+  const hasTopActions = Boolean(onOpenTasks || onOpenRoleSettings) || showSuggestedReplies;
+
   return (
     // Drag-drop staging surface: dropping files anywhere over the chat window
     // stages them as attachments (no-op while the composer is locked — the
@@ -2373,74 +2417,112 @@ export function ChatArea({
          * that would lie. Own classes, NOT chat__gallery-toggle: that class is a
          * querySelector handle in ChatArea.gallery.test.tsx and a second element
          * wearing it would be silently picked up instead. */}
-        {onOpenTasks && (
-          <button
-            type="button"
-            className="chat__header-action"
-            aria-label={t.chat.tasksLink}
-            title={t.chat.tasksLink}
-            data-testid="chat-header-tasks"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenTasks();
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <TasksIcon size={17} />
-          </button>
-        )}
-        {onOpenRoleSettings && (
-          <button
-            type="button"
-            className="chat__header-action"
-            aria-label={t.chat.roleSettingsLink}
-            title={t.chat.roleSettingsLink}
-            data-testid="chat-header-role-settings"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenRoleSettings();
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <UserGearIcon size={17} />
-          </button>
-        )}
-        {(onSaveSuggestedReplies || onRetrySuggestedReplies) && !composerLocked && (
-          <button
-            ref={suggestedRepliesButtonRef}
-            type="button"
-            className="chat__header-action"
-            aria-label={t.chat.suggestedRepliesLabel}
-            title={t.chat.suggestedRepliesLabel}
-            data-testid="chat-header-suggested-replies"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (onSaveSuggestedReplies) setSuggestedRepliesOpen(true);
-              else onRetrySuggestedReplies?.();
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <SuggestedRepliesIcon size={17} />
-          </button>
-        )}
-        {/* M2-3: the conversation's file & image gallery toggle. The header
-         * itself may be clickable (open detail) — stopPropagation keeps the
-         * gallery click/keys from bubbling into that. */}
-        <button
-          type="button"
-          className="chat__gallery-toggle"
-          aria-label={t.chat.galleryLabel}
-          title={t.chat.galleryLabel}
-          aria-expanded={galleryOpen}
-          onClick={(e) => {
-            e.stopPropagation();
-            setGalleryOpen((v) => !v);
-          }}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          <ImageIcon size={17} />
-        </button>
+        <div className="chat__header-actions">
+          {hasTopActions && (
+            <div className="chat__header-actions-row">
+              {onOpenTasks && (
+                <button
+                  type="button"
+                  className="chat__header-action"
+                  aria-label={t.chat.tasksLink}
+                  title={t.chat.tasksLink}
+                  data-testid="chat-header-tasks"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenTasks();
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <TasksIcon size={17} />
+                </button>
+              )}
+              {onOpenRoleSettings && (
+                <button
+                  type="button"
+                  className="chat__header-action"
+                  aria-label={t.chat.roleSettingsLink}
+                  title={t.chat.roleSettingsLink}
+                  data-testid="chat-header-role-settings"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenRoleSettings();
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <UserGearIcon size={17} />
+                </button>
+              )}
+              {showSuggestedReplies && (
+                <button
+                  ref={suggestedRepliesButtonRef}
+                  type="button"
+                  className="chat__header-action"
+                  aria-label={t.chat.suggestedRepliesLabel}
+                  title={t.chat.suggestedRepliesLabel}
+                  data-testid="chat-header-suggested-replies"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onSaveSuggestedReplies) setSuggestedRepliesOpen(true);
+                    else onRetrySuggestedReplies?.();
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <SuggestedRepliesIcon size={17} />
+                </button>
+              )}
+            </div>
+          )}
+          <div className="chat__header-actions-row">
+            <button
+              type="button"
+              className="chat__search-toggle"
+              aria-label={t.chat.searchOpen}
+              title={t.chat.searchOpen}
+              aria-expanded={searchMode}
+              data-testid="chat-header-search"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (searchMode) exitSearch();
+                else setSearchMode(true);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              <SearchIcon size={17} />
+            </button>
+            {/* M2-3: the conversation's file & image gallery toggle. The header
+             * itself may be clickable (open detail) — stopPropagation keeps the
+             * gallery click/keys from bubbling into that. */}
+            <button
+              type="button"
+              className="chat__gallery-toggle"
+              aria-label={t.chat.galleryLabel}
+              title={t.chat.galleryLabel}
+              aria-expanded={galleryOpen}
+              onClick={(e) => {
+                e.stopPropagation();
+                setGalleryOpen((v) => !v);
+                setSearchListOpen(false);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              <ImageIcon size={17} />
+            </button>
+          </div>
+        </div>
       </header>
+      {searchMode && (
+        <ChatSearchBar
+          search={chatSearch}
+          listOpen={searchListOpen}
+          onToggleList={() => {
+            setSearchListOpen((v) => !v);
+            setGalleryOpen(false);
+          }}
+          onExit={exitSearch}
+          listToggleRef={searchListToggleRef}
+          mobile={isMobile}
+        />
+      )}
 
       {galleryOpen && (
         <ChatGalleryPanel
@@ -2448,6 +2530,26 @@ export function ChatArea({
           resolveSender={nameOf}
           docComments={roomDocComments}
           onClose={() => setGalleryOpen(false)}
+        />
+      )}
+      {searchMode && searchListOpen && (
+        <ChatSearchPanel
+          search={chatSearch}
+          labelOf={(m) =>
+            m.from === OWNER_ID
+              ? t.chat.me
+              : m.to !== OWNER_ID
+                ? directionLabel(m.from, m.to)
+                : nameOf(m.from)
+          }
+          onPick={(msgId) => {
+            chatSearch.pick(msgId);
+            // The list covers the whole thread on a phone.
+            if (isMobile) setSearchListOpen(false);
+          }}
+          onClose={() => setSearchListOpen(false)}
+          mobile={isMobile}
+          returnFocusTo={searchListToggleRef}
         />
       )}
 

@@ -1390,6 +1390,9 @@ type ChatInlineReplyCardDTO struct {
 //
 // It replaced a bare “ChatMessageDTO“ array, which had nowhere to say "there is more in this direction". A caller could only infer exhaustion from a short page, and a page is short for reasons that have nothing to do with exhaustion — a participant filter, a “caller_only“ narrowing, an unread set spread across senders. The envelope moves that answer from inference to statement.
 type ChatListDTO struct {
+	// MatchCount How many messages in the whole ``with`` conversation match ``q`` — not this page. Present only when ``q`` is sent, so a client can show "2/3".
+	MatchCount *int `json:"match_count,omitempty"`
+
 	// Messages The page, oldest→newest on every path — the SAME rows in the SAME order the bare array carried before T-48. An empty array is a real answer (a filter that matched nothing, or the end of a walk), never an error.
 	Messages []ChatMessageDTO `json:"messages"`
 
@@ -5541,7 +5544,10 @@ type WorkerBootContextDTO struct {
 
 // HandleListChatApiChatGetParams defines parameters for HandleListChatApiChatGet.
 type HandleListChatApiChatGetParams struct {
-	With  *string `form:"with,omitempty" json:"with,omitempty"`
+	With *string `form:"with,omitempty" json:"with,omitempty"`
+
+	// Q Keep only messages whose body contains this text, ignoring ASCII letter case (trimmed; empty = no constraint). Requires `with`, so a search never leaves one conversation. Matches the message body and, on a reply-card message, the card's question body and the owner's answer; never attachments. Pages from the newest match: resend it with `cursor`; not combinable with `start_id`/`end_id`/`unread`. The answer carries `match_count`.
+	Q     *string `form:"q,omitempty" json:"q,omitempty"`
 	Limit *int    `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// BeforeTs DEPRECATED (T-48) — superseded by ``start_id``/``end_id``, which take a message id instead of a composite keyset cursor and can walk FORWARDS as well as back. Still honoured, still a matched pair (one without the other is 422), still never combined with the new parameters (422). Kept because the agent-side ``get_chat`` and the cockpit scrollback both still send it.
@@ -5586,6 +5592,9 @@ type HandleListChatApiChatGetParams struct {
 
 	// HideDeleteNotices ``true`` (the STRING) leaves out the notices the server sends when the owner deletes a message: messages from ``system`` carrying ``meta.delete_notice``. By default they are listed like any other message. 422 alongside ``unread=true``. Not consulted on the ``ids`` path, which always returns them. Any other value reads as not sent.
 	HideDeleteNotices *string `form:"hide_delete_notices,omitempty" json:"hide_delete_notices,omitempty"`
+
+	// ExcludeInterAgent ``true`` (the STRING) keeps only messages the owner sent or received, leaving out messages between two members (and system notices to a member). Any other value reads as not sent. Not consulted on the ``ids`` path.
+	ExcludeInterAgent *string `form:"exclude_inter_agent,omitempty" json:"exclude_inter_agent,omitempty"`
 }
 
 // HandleListChatAttachmentsApiChatAttachmentsGetParams defines parameters for HandleListChatAttachmentsApiChatAttachmentsGet.
@@ -6335,7 +6344,7 @@ type ServerInterface interface {
 	// Assemble an agent boot context + mint the member JWT (spawn seam).
 	// (POST /api/bootstrap)
 	HandleBootstrapApiBootstrapPost(w http.ResponseWriter, r *http.Request)
-	// List the chat stream (?with=<id>&limit=<n>; oldest→newest). Answers an OBJECT {messages, next_cursor}, never a bare array: next_cursor is opaque, send it back as cursor= for the next page, and its ABSENCE — not a short page — is the only 'nothing more' signal. Your unread backfill: unread=true returns the OLDEST unread addressed to you, judged against the per-sender watermark, and still marks nothing read. Narrow either side with sender= / recipient=. Window by message id: start_id walks TOWARDS THE NEWEST, end_id TOWARDS THE OLDEST, both inclusive. The older before_ts + before_id cursor still works but is deprecated. Re-read specific messages by id: ids=<id>&ids=<id>. THIS ROUTE NEVER MARKS ANYTHING READ (T-48) — to mark a conversation read, call mark_read explicitly.
+	// List the chat stream (?with=<id>&limit=<n>; oldest→newest). Answers an OBJECT {messages, next_cursor}, never a bare array: next_cursor is opaque, send it back as cursor= for the next page, and its ABSENCE — not a short page — is the only 'nothing more' signal. Your unread backfill: unread=true returns the OLDEST unread addressed to you, judged against the per-sender watermark, and still marks nothing read. Narrow either side with sender= / recipient=. Search one line's messages with with=<id>&q=<text>: bodies, plus a reply card's question and answer (ASCII letters in any case; pages with cursor like the plain listing). Window by message id: start_id walks TOWARDS THE NEWEST, end_id TOWARDS THE OLDEST, both inclusive. The older before_ts + before_id cursor still works but is deprecated. Re-read specific messages by id: ids=<id>&ids=<id>. THIS ROUTE NEVER MARKS ANYTHING READ (T-48) — to mark a conversation read, call mark_read explicitly.
 	//
 	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
 	// - `before_ts`: DEPRECATED (T-48) — prefer start_id/end_id. Paging cursor, the ts of the OLDEST message you already hold. Must be sent TOGETHER with before_id - supplying only one is refused with 422, which is the one mistake here that announces itself. The pair is otherwise not validated against anything real: a cursor pointing nowhere in the stream (a fabricated value, or the right instant expressed in the wrong unit - these timestamps are epoch SECONDS, not milliseconds) is not an error, it just answers 200 with an EMPTY page. An empty page is the same answer you get at the true start of history, so it cannot tell you 'you have reached the beginning' apart from 'your cursor was garbage'. Copy both values from a message you actually received rather than constructing them.
@@ -7625,6 +7634,19 @@ func (siw *ServerInterfaceWrapper) HandleListChatApiChatGet(w http.ResponseWrite
 		return
 	}
 
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "limit" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
@@ -7777,6 +7799,19 @@ func (siw *ServerInterfaceWrapper) HandleListChatApiChatGet(w http.ResponseWrite
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "hide_delete_notices"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "hide_delete_notices", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "exclude_inter_agent" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "exclude_inter_agent", r.URL.Query(), &params.ExcludeInterAgent, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "exclude_inter_agent"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "exclude_inter_agent", Err: err})
 		}
 		return
 	}

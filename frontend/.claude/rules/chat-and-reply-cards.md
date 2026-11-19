@@ -213,7 +213,7 @@ class 名 `.reply-tag--ai` / `.reply-option--ai` **不要改**:`TaskReplyCard` �
 
 輕量列只帶 title/status/時間戳/task ref —— 不要把它補成 `ReplyCard`（body/options/chat message id 在單張才有，補成 "" 會畫出一張問題不見了的卡而且不會丟錯）。等待卡的 expire 規則以 server 為準：owner/admin 或卡片作者可過期自己的 waiting 卡；其他人 403，已回答 409。
 
-hash route #office/chat/<id>/msg/<msgId> 只做一次定位與 highlight。產生它的是「請示」頁的**跳到原訊息**、任務卡內嵌回覆卡的**在聊天室回覆**，以及「看原訊息」覆蓋層上的**跳到原訊息**（外加使用者自己留存的舊 URL）；聊天氣泡引用列的**看原訊息**本身不走這條，它撈那一則開覆蓋層（見下方「看原訊息」一節）。⚠️ T-0b78 曾把那兩顆也改成覆蓋層，owner 2026-08-29 裁定「1 跟 2 變回去原本那樣」—— 所以不要順手把它們改回覆蓋層。
+hash route #office/chat/<id>/msg/<msgId> 只做一次定位與 highlight。產生它的是「請示」頁的**跳到原訊息**、任務卡內嵌回覆卡的**在聊天室回覆**、「看原訊息」覆蓋層上的**跳到原訊息**，以及聊天室搜尋（搜尋列的 ▲／▼ 與結果清單）（外加使用者自己留存的舊 URL）。ChatArea 內一律經 `jumpToMessage` 產生：路由已經指著同一則時它改呼叫 `retryJump` 重新定位，因為同一個 hash 不會觸發路由變化；聊天氣泡引用列的**看原訊息**本身不走這條，它撈那一則開覆蓋層（見下方「看原訊息」一節）。⚠️ T-0b78 曾把那兩顆也改成覆蓋層，owner 2026-08-29 裁定「1 跟 2 變回去原本那樣」—— 所以不要順手把它們改回覆蓋層。
 
 **目標不在最近視窗時是撈，不是落到底（T-48，取代上面那一段原本的「知情接受」）。** owner 後來把那個暫緩解掉了（「都可以正確定位到該訊息」），所以這條路現在是：**進房當下就以那個 id 開窗**——`useChat(peer, jumpToMsgId)` 收到 anchor 就**完全不載最新那一頁**，ChatArea 的 jump reactor 從一個空 thread 直接打 `loadAround`（`?end_id=` 往舊、`?start_id=` 往新，兩端都含，兩頁而已，不是整條歷史）。⚠️ 這條鏈有一個**沒有機械保護的不變量**：anchor 被指定時**一定要有人真的去撈**，否則房間永遠空白；今天唯一的撈家是那個 reactor，它的 miss 分支再退回 `resetToLatest`。
 

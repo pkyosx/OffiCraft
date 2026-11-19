@@ -112,6 +112,8 @@ export interface Messages {
   chatWakeQueueHint: (name: string) => string;
   chatStoppingQueueHint: (name: string) => string;
   chatInterAgentExpand: (count: number) => string;
+  chatSearchEmpty: (query: string) => string;
+  chatSearchCount: (position: number, total: number) => string;
   // ── member panel ──
   memberForceStopConfirmBody: (name: string) => string;
   memberRefocusSince: (elapsed: string) => string;
@@ -485,6 +487,10 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // Only the plural BRANCH is code; both branches' words are overridable.
     chatInterAgentExpand: (count) =>
       `${count} ${count === 1 ? chat.interAgentExpandOne : chat.interAgentExpandMany}`,
+    chatSearchEmpty: (query) =>
+      `${chat.searchEmptyLead}${query}${chat.searchEmptyTail}`,
+    chatSearchCount: (position, total) =>
+      `${position}${chat.searchCountSep}${total}`,
 
     memberForceStopConfirmBody: (name) =>
       `${mp.forceStopConfirmBodyLead} ${name}${sp}${mp.forceStopConfirmBodyTail}`,

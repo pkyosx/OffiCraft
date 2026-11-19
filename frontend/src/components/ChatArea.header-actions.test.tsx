@@ -37,6 +37,20 @@ vi.mock("../hooks/useChat", () => ({
 vi.mock("../api", () => ({
   api: {
     listChatAttachments: vi.fn(async () => []),
+    searchChat: vi.fn(async () => ({
+      messages: [
+        {
+          id: "c-1",
+          from: "m1",
+          to: "owner",
+          body: "deploy 完成",
+          ts: 1794963900,
+          attachments: [],
+          replyCardId: null,
+        },
+      ],
+      matchCount: 1,
+    })),
     subscribeEvents: () => () => {},
   },
 }));
@@ -377,6 +391,134 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     // this render, under their own class — so the "1" above is a real
     // separation, not an empty header.
     expect(container.querySelectorAll(".chat__header-action")).toHaveLength(2);
+  });
+
+  it("the search toggle sits right before the gallery toggle and turns search mode on and off — a search row under the header with its input focused — without opening the member detail", () => {
+    const onOpenDetail = vi.fn();
+    const { container, getByLabelText } = renderChat({ onOpenDetail });
+    const toggle = getByLabelText(zh.chat.searchOpen);
+    expect(toggle.getAttribute("title")).toBe("搜尋這段對話");
+    expect(toggle.nextElementSibling).toBe(
+      container.querySelector(".chat__gallery-toggle"),
+    );
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const row = container.querySelector(".chat__header")!.nextElementSibling!;
+    expect(row.className).toBe("chat-search__bar");
+    expect(document.activeElement).toBe(row.querySelector(".chat-search__input"));
+    expect(
+      Array.from(row.querySelectorAll("button")).map((b) => b.getAttribute("aria-label")),
+    ).toEqual([zh.chat.searchList, zh.chat.searchExit]);
+    expect(onOpenDetail).not.toHaveBeenCalled();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(".chat-search__bar")).toBeNull();
+  });
+
+  it("opening the results list closes the gallery, and opening the gallery closes the results list", () => {
+    const { container, getByLabelText } = renderChat();
+    fireEvent.click(getByLabelText(zh.chat.searchOpen));
+    fireEvent.click(getByLabelText(zh.chat.galleryLabel));
+    expect(container.querySelector(".chat__gallery")).not.toBeNull();
+
+    fireEvent.click(getByLabelText(zh.chat.searchList));
+    expect(container.querySelector(".chat-search__panel")).not.toBeNull();
+    expect(container.querySelector(".chat__gallery")).toBeNull();
+
+    fireEvent.click(getByLabelText(zh.chat.galleryLabel));
+    expect(container.querySelector(".chat__gallery")).not.toBeNull();
+    expect(container.querySelector(".chat-search__panel")).toBeNull();
+    expect(getByLabelText(zh.chat.searchList).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  async function searchDeploy(container: HTMLElement) {
+    const input = container.querySelector<HTMLInputElement>(".chat-search__input")!;
+    fireEvent.change(input, { target: { value: "deploy" } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+  }
+
+  it("closing and reopening the results list within search mode keeps the results; X ends search mode and reopening starts empty", async () => {
+    const { container, getByLabelText } = renderChat();
+    fireEvent.click(getByLabelText(zh.chat.searchOpen));
+    await searchDeploy(container);
+    fireEvent.click(getByLabelText(zh.chat.searchList));
+    expect(container.querySelector(".chat-search__snippet")?.textContent).toBe("deploy 完成");
+
+    fireEvent.click(getByLabelText(zh.chat.searchClose));
+    expect(container.querySelector(".chat-search__panel")).toBeNull();
+    fireEvent.click(getByLabelText(zh.chat.searchList));
+    expect(container.querySelector(".chat-search__snippet")?.textContent).toBe("deploy 完成");
+    expect(container.querySelector(".chat-search__status")?.textContent).toBe("1/1");
+
+    fireEvent.click(getByLabelText(zh.chat.searchExit));
+    expect(container.querySelector(".chat-search__bar")).toBeNull();
+    expect(container.querySelector(".chat-search__panel")).toBeNull();
+
+    fireEvent.click(getByLabelText(zh.chat.searchOpen));
+    expect(container.querySelector<HTMLInputElement>(".chat-search__input")!.value).toBe("");
+    expect(container.querySelector(".chat-search__status")).toBeNull();
+    fireEvent.click(getByLabelText(zh.chat.searchList));
+    expect(container.querySelector(".chat-search__item")).toBeNull();
+  });
+
+  it.each([
+    ["wide", "the side panel, and picking a result keeps it open", false, true],
+    [
+      "phone-width",
+      "a bottom sheet that takes focus; picking a result, 完成, the backdrop or Esc closes it, hands focus back to the list button and keeps the search",
+      true,
+      false,
+    ],
+  ])("on a %s layout, the results list is %s", async (_w, _what, phone, staysOpen) => {
+    const saved = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: phone && query === "(max-width: 720px)",
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const { container, getByLabelText } = renderChat();
+      fireEvent.click(getByLabelText(zh.chat.searchOpen));
+      await searchDeploy(container);
+      fireEvent.click(getByLabelText(zh.chat.searchList));
+      const list = screen.getByRole("dialog", { name: zh.chat.searchResultsTitle });
+      expect(list.className).toBe(phone ? "chat-search__sheet" : "chat-search__panel");
+      expect(container.contains(list)).toBe(!phone);
+      fireEvent.click(list.querySelector(".chat-search__item")!);
+      expect(screen.queryByRole("dialog", { name: zh.chat.searchResultsTitle }) !== null).toBe(
+        staysOpen,
+      );
+      if (phone) {
+        const toggle = getByLabelText(zh.chat.searchList);
+        const closers = [
+          () => {},
+          () => fireEvent.click(screen.getByRole("button", { name: zh.office.groups.done })),
+          () => fireEvent.click(screen.getByTestId("chat-search-sheet-backdrop")),
+          () => fireEvent.keyDown(window, { key: "Escape" }),
+        ];
+        for (const [i, close] of closers.entries()) {
+          if (i > 0) {
+            fireEvent.click(toggle);
+            const sheet = screen.getByRole("dialog", { name: zh.chat.searchResultsTitle });
+            expect(sheet.contains(document.activeElement)).toBe(true);
+            close();
+          }
+          expect(screen.queryByRole("dialog", { name: zh.chat.searchResultsTitle })).toBeNull();
+          expect(document.activeElement).toBe(toggle);
+          expect(container.querySelector<HTMLInputElement>(".chat-search__input")!.value).toBe(
+            "deploy",
+          );
+          expect(container.querySelector(".chat-search__status")?.textContent).toBe("1/1");
+        }
+      }
+    } finally {
+      window.matchMedia = saved;
+    }
   });
 
   it("a LONG member name never wraps the header into a second line", () => {

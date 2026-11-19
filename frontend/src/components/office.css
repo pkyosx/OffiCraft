@@ -1672,6 +1672,13 @@
 }
 /* B3 跳到原訊息: the located message flashes an accent ring, then settles
  * back into the thread (the state is cleared after the pulse). */
+/* The current keyword-search match, for as long as it stays current. Outline,
+ * not box-shadow: the located pulse animates box-shadow on the same box. */
+.chat__msg--search-current .chat__msg-bubble,
+.chat__msg--search-current .reply-card {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
 .chat__msg--located .chat__msg-bubble,
 .chat__msg--located .reply-card {
   animation: chat-located-pulse 2.4s ease-out;
@@ -1762,6 +1769,7 @@
  * same muted-until-hover weight. `flex: none` on all three is what keeps the
  * TEXT column (flex:1, min-width:0) the only thing that shrinks. */
 .chat__header-action,
+.chat__search-toggle,
 .chat__gallery-toggle {
   display: flex;
   align-items: center;
@@ -1780,10 +1788,43 @@
 }
 .chat__header-action:hover,
 .chat__header-action:focus-visible,
+.chat__search-toggle:hover,
+.chat__search-toggle[aria-expanded="true"],
 .chat__gallery-toggle:hover,
 .chat__gallery-toggle[aria-expanded="true"] {
   color: var(--color-text-strong);
   background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.chat__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+.chat__header-actions-row {
+  display: contents;
+}
+@media (max-width: 720px) {
+  /* Two right-aligned rows (jumps on top, search + gallery below) so the name
+   * gets the width. The negative block margins sink the rows into the header's
+   * padding so the header does not grow: `.chat__gallery` and
+   * `.chat-search__panel` hardcode their top offset onto its height. */
+  .chat__header-actions {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    margin: -5px 0 -18px;
+  }
+  .chat__header-actions-row {
+    display: flex;
+    gap: 2px;
+  }
+  .chat__header-action,
+  .chat__search-toggle,
+  .chat__gallery-toggle {
+    width: 32px;
+    height: 30px;
+  }
 }
 .chat__gallery {
   position: absolute;

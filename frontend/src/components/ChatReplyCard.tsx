@@ -52,6 +52,7 @@ export function ChatReplyCard({
   fallbackSummary,
   initialStatus,
   commentRecipientFor,
+  expandWhen = false,
 }: {
   replyCardId: string;
   /** The carrying message's body (the server posts the card's summary as the
@@ -67,6 +68,9 @@ export function ChatReplyCard({
   /** Who a document linked from the card is commented to, by author id;
    * absent ⇒ such documents open read-only. */
   commentRecipientFor?: (id: string) => DocCommentRecipient | null;
+  /** Opens the card each time this turns true (the current search match), the
+   * same as a click on the collapsed row. It never collapses it again. */
+  expandWhen?: boolean;
 }) {
   const { t, msg } = useI18n();
   const [, setRoute] = useHashRoute();
@@ -85,6 +89,9 @@ export function ChatReplyCard({
   // its final height WITHOUT fetching anything, so the cache, the await and the
   // module that enforced the await are all gone.
   const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (expandWhen) setExpanded(true);
+  }, [expandWhen]);
   // Latest known status, read inside the SSE callback WITHOUT re-subscribing.
   // SEEDED from the message hint so a collapsed, never-fetched TERMINAL card
   // satisfies the T-cdf4 guard below — an unrelated reply_card fan-out must NOT

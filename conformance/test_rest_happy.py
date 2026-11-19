@@ -5355,6 +5355,61 @@ def test_chat_sender_and_recipient_narrow_one_side_each(hctx: HCtx) -> None:
     ), "every row must match both filters"
 
 
+def test_chat_q_searches_one_conversations_bodies(hctx: HCtx) -> None:
+    """``q`` keeps the ``with`` line's messages whose body contains it, ASCII
+    letters in any case, pages by the same cursor with ``match_count`` for the
+    whole conversation, and is refused without ``with`` or with ``unread``."""
+    tag = uuid.uuid4().hex[:8]
+    peer = hctx.agent.member_id
+    hit = hctx.client.post(
+        "/api/chat", json={"to": peer, "body": f"Found-{tag} 換版"}, headers=_auth(hctx.owner_token)
+    )
+    assert hit.status_code == 200, hit.text
+    older = hctx.client.post(
+        "/api/chat", json={"to": "owner", "body": f"found-{tag.upper()} #712"}, headers=_auth(hctx.agent.token)
+    )
+    assert older.status_code == 200, older.text
+    newer = hctx.client.post(
+        "/api/chat", json={"to": peer, "body": f"FOUND-{tag} again"}, headers=_auth(hctx.owner_token)
+    )
+    assert newer.status_code == 200, newer.text
+    other_line = hctx.client.post(
+        "/api/chat", json={"to": "mira", "body": f"found-{tag} elsewhere"}, headers=_auth(hctx.owner_token)
+    )
+    assert other_line.status_code == 200, other_line.text
+
+    r = hctx.client.get(
+        "/api/chat", params={"with": peer, "q": f"found-{tag}", "limit": -1}, headers=_auth(hctx.owner_token)
+    )
+    assert r.status_code == 200, r.text
+    assert [m["id"] for m in chat_messages(r)] == [
+        hit.json()["id"], older.json()["id"], newer.json()["id"]
+    ]
+    assert r.json()["match_count"] == 3
+
+    r = hctx.client.get(
+        "/api/chat", params={"with": peer, "q": f"found-{tag}", "limit": 2}, headers=_auth(hctx.owner_token)
+    )
+    assert r.status_code == 200, r.text
+    assert [m["id"] for m in chat_messages(r)] == [older.json()["id"], newer.json()["id"]]
+    r = hctx.client.get(
+        "/api/chat",
+        params={"with": peer, "q": f"found-{tag}", "limit": 2, "cursor": r.json()["next_cursor"]},
+        headers=_auth(hctx.owner_token),
+    )
+    assert r.status_code == 200, r.text
+    assert [m["id"] for m in chat_messages(r)] == [hit.json()["id"]]
+    assert "next_cursor" not in r.json()
+    assert r.json()["match_count"] == 3, "the count spans the conversation, not the page"
+
+    r = hctx.client.get("/api/chat", params={"q": f"found-{tag}"}, headers=_auth(hctx.owner_token))
+    assert r.status_code == 422, f"{r.status_code} {r.text}"
+    r = hctx.client.get(
+        "/api/chat", params={"with": peer, "q": f"found-{tag}", "unread": "true"}, headers=_auth(hctx.owner_token)
+    )
+    assert r.status_code == 422, f"{r.status_code} {r.text}"
+
+
 def test_chat_listing_leaves_deleted_out_unless_include_deleted(hctx: HCtx) -> None:
     """A deleted message is left out of every listing for every caller;
     ``include_deleted=true`` lists it again, flagged by ``deleted_ts``. It never

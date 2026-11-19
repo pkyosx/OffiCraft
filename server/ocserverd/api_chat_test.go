@@ -1430,8 +1430,8 @@ func TestServeChatByIDs(t *testing.T) {
 func TestChatDeclaredQueryParams(t *testing.T) {
 	t.Run("the accepted set is every parameter the route declares plus the transport token, sorted", func(t *testing.T) {
 		if got := chatDeclaredQueryParams(); !reflect.DeepEqual(got, []string{
-			"before_id", "before_ts", "cursor", "end_id", "hide_delete_notices", "ids", "include_deleted", "limit",
-			"recipient", "sender", "start_id", "token", "unread", "with",
+			"before_id", "before_ts", "cursor", "end_id", "exclude_inter_agent", "hide_delete_notices", "ids", "include_deleted", "limit",
+			"q", "recipient", "sender", "start_id", "token", "unread", "with",
 		}) {
 			t.Fatalf("chatDeclaredQueryParams = %#v", got)
 		}
@@ -1842,6 +1842,188 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 		apiWantBody(t, data, map[string]any{"messages": []any{}})
 	})
 
+	t.Run("q keeps the with-line messages whose body contains it literally, ASCII letters in any case, deleted ones left out", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, merged := apiJSON(t, h, "POST", "/api/chat", agent, `{"to":"owner","body":"Merged #712 into OffiCraft"}`)
+		_, reload := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"officraft 換版了，進度 50%"}`)
+		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"unrelated axb"}`)
+		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"OFFICRAFT on another line"}`)
+		_, gone := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"officraft deleted"}`)
+		if status, data := apiJSON(t, h, "DELETE", "/api/chat/"+gone["id"].(string), owner, ""); status != 200 {
+			t.Fatalf("delete: want 200, got %d (%v)", status, data)
+		}
+
+		for _, tc := range []struct {
+			query string
+			want  []any
+		}{
+			{"q=OFFICRAFT", []any{
+				apiTestChatRow(merged["id"].(string), "kip", "owner", "Merged #712 into OffiCraft"),
+				apiTestChatRow(reload["id"].(string), "owner", "kip", "officraft 換版了，進度 50%"),
+			}},
+			{"q=%E6%8F%9B%E7%89%88", []any{
+				apiTestChatRow(reload["id"].(string), "owner", "kip", "officraft 換版了，進度 50%"),
+			}},
+			{"q=%23712", []any{
+				apiTestChatRow(merged["id"].(string), "kip", "owner", "Merged #712 into OffiCraft"),
+			}},
+			{"q=0%25", []any{
+				apiTestChatRow(reload["id"].(string), "owner", "kip", "officraft 換版了，進度 50%"),
+			}},
+			{"q=+%23712+", []any{
+				apiTestChatRow(merged["id"].(string), "kip", "owner", "Merged #712 into OffiCraft"),
+			}},
+			{"q=a_b", []any{}},
+			{"q=nowhere", []any{}},
+		} {
+			status, data := apiJSON(t, h, "GET", "/api/chat?with=kip&"+tc.query, owner, "")
+			if status != 200 {
+				t.Fatalf("%s: want 200, got %d (%v)", tc.query, status, data)
+			}
+			apiWantBody(t, data, map[string]any{"messages": tc.want, "match_count": float64(len(tc.want))})
+		}
+	})
+
+	t.Run("exclude_inter_agent keeps only the owner's messages on the line, and match_count counts the same set", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		apiTestAgentToken(t, api, "mira", "")
+		_, fromOwner := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"deploy from owner"}`)
+		_, toOwner := apiJSON(t, h, "POST", "/api/chat", kip, `{"to":"owner","body":"deploy to owner"}`)
+		_, between := apiJSON(t, h, "POST", "/api/chat", kip, `{"to":"mira","body":"deploy between members"}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/chat?with=kip&q=deploy", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"messages": []any{
+				apiTestChatRow(fromOwner["id"].(string), "owner", "kip", "deploy from owner"),
+				apiTestChatRow(toOwner["id"].(string), "kip", "owner", "deploy to owner"),
+				apiTestChatRow(between["id"].(string), "kip", "mira", "deploy between members"),
+			},
+			"match_count": float64(3),
+		})
+
+		status, data = apiJSON(t, h, "GET", "/api/chat?with=kip&q=deploy&exclude_inter_agent=true", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"messages": []any{
+				apiTestChatRow(fromOwner["id"].(string), "owner", "kip", "deploy from owner"),
+				apiTestChatRow(toOwner["id"].(string), "kip", "owner", "deploy to owner"),
+			},
+			"match_count": float64(2),
+		})
+	})
+
+	t.Run("q also matches a reply card's question body and the owner's answer on the with line only, not only its summary", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		open := func(summary, body string) (string, string) {
+			t.Helper()
+			status, card := apiJSON(t, h, "POST", "/api/reply-cards", kip,
+				`{"kind":"decision","summary":"`+summary+`","body":"`+body+`","options":[{"text":"ok"}],"linked_task":null}`)
+			if status != 200 {
+				t.Fatalf("open %s: %d %v", summary, status, card)
+			}
+			return card["id"].(string), card["chat_message_id"].(string)
+		}
+		bodyCard, inBody := open("要不要上線", "背景：Deploy 要停機十分鐘")
+		answered, inAnswer := open("選哪個時段", "背景：維護時段")
+		open("無關的卡", "背景：沒有關鍵字")
+		mira := apiTestAgentToken(t, api, "mira", "")
+		if status, card := apiJSON(t, h, "POST", "/api/reply-cards", mira,
+			`{"kind":"decision","summary":"別條線的卡","body":"背景：deploy 也在這裡","options":[{"text":"ok"}],"linked_task":null}`); status != 200 {
+			t.Fatalf("open mira's card: %d %v", status, card)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+answered+"/answer", owner,
+			`{"text":"週四晚上 deploy"}`); status != 200 {
+			t.Fatalf("answer: %d %v", status, data)
+		}
+		cardRow := func(msgID, cardID, summary, status string) map[string]any {
+			row := apiTestChatRow(msgID, "kip", "owner", summary)
+			row["meta"] = map[string]any{"reply_card_id": cardID}
+			row["reply_card_status"] = status
+			return row
+		}
+
+		status, data := apiJSON(t, h, "GET", "/api/chat?with=kip&q=DEPLOY", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"messages": []any{
+				cardRow(inBody, bodyCard, "要不要上線", "waiting"),
+				cardRow(inAnswer, answered, "選哪個時段", "answered"),
+			},
+			"match_count": float64(2),
+		})
+	})
+
+	t.Run("q pages through older matches with the cursor", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiTestAgentToken(t, api, "kip", "")
+		_, first := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"deploy one"}`)
+		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"between"}`)
+		_, second := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"deploy two"}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/chat?with=kip&q=deploy&limit=1", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"messages": []any{
+				apiTestChatRow(second["id"].(string), "owner", "kip", "deploy two"),
+			},
+			"next_cursor": apiAnyString,
+			"match_count": float64(2),
+		})
+
+		status, data = apiJSON(t, h, "GET",
+			"/api/chat?with=kip&q=deploy&limit=1&cursor="+data["next_cursor"].(string), owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"messages": []any{
+				apiTestChatRow(first["id"].(string), "owner", "kip", "deploy one"),
+			},
+			"match_count": float64(2),
+		})
+	})
+
+	t.Run("q without with, or with a window or unread, is refused; a blank q is no constraint", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		_, only := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"one"}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/chat?q=one", owner, "")
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"q requires with — a keyword search reads one conversation; name the peer whose line to search")
+
+		for _, query := range []string{"q=one&with=mira&unread=true", "q=one&with=mira&start_id=" + only["id"].(string)} {
+			status, data = apiJSON(t, h, "GET", "/api/chat?"+query, owner, "")
+			if status != 422 {
+				t.Fatalf("%s: want 422, got %d (%v)", query, status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				"q cannot be combined with start_id/end_id or unread — a keyword search pages from the newest match with cursor")
+		}
+
+		status, data = apiJSON(t, h, "GET", "/api/chat?q=+++", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"messages": []any{
+			apiTestChatRow(only["id"].(string), "owner", "mira", "one"),
+		}})
+	})
+
 	t.Run("a page shorter than the stream carries a cursor that walks to the older page", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		_, first := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"one"}`)
@@ -1894,8 +2076,8 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 			"unknown query parameter(s) on GET /api/chat: nope, zzz — this route "+
 				"refuses parameters it does not declare rather than ignoring them, "+
 				"because an ignored parameter silently answers a question you did "+
-				"not ask; accepted here: before_id, before_ts, cursor, end_id, hide_delete_notices, ids, "+
-				"include_deleted, limit, recipient, sender, start_id, token, unread, with")
+				"not ask; accepted here: before_id, before_ts, cursor, end_id, exclude_inter_agent, hide_delete_notices, ids, "+
+				"include_deleted, limit, q, recipient, sender, start_id, token, unread, with")
 	})
 
 	t.Run("unread combined with a stream position is refused", func(t *testing.T) {

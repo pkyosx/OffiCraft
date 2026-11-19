@@ -273,6 +273,13 @@ const REGISTRY = [
       "the delete POST. Its writes are this hook's own deleted-id map, dialog target and error, all keyed by message id; the hook lives in ChatArea, mounted under `key={peerId}`, so a response that lands after a room switch writes into a discarded component",
   },
   {
+    file: "hooks/useChatSearch.ts",
+    kind: ".then/.catch/.finally",
+    count: 2,
+    verdict:
+      "the search and its older page. Both write only this hook's own results, which live in ChatArea under `key={peerId}`, so a room switch discards them; a newer search outdates both through `searchSeq`",
+  },
+  {
     file: "hooks/useChatDelete.tsx",
     kind: "subscribe",
     count: 1,
@@ -309,9 +316,9 @@ const REGISTRY = [
   {
     file: "components/ChatArea.tsx",
     kind: "Observer",
-    count: 1,
+    count: 2,
     verdict:
-      "the PURE-READ latestInView observer (T-48). It writes one boolean derived from this mount's own scroller and nothing else — no scrollTop — so a callback that lands after the screen has moved on can only re-answer a question about a room React has already discarded; disconnected in the same effect's cleanup",
+      "(2) the search-highlight MutationObserver: it repaints the CSS highlight registry from this mount's own messages box and writes no React state; disconnected (and its highlight cleared) in the same effect's cleanup, which also runs when the query, the thread or the room changes. (1) the PURE-READ latestInView observer (T-48). It writes one boolean derived from this mount's own scroller and nothing else — no scrollTop — so a callback that lands after the screen has moved on can only re-answer a question about a room React has already discarded; disconnected in the same effect's cleanup",
   },
   {
     file: "components/ChatArea.tsx",

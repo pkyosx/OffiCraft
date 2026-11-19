@@ -292,6 +292,17 @@ export interface ChatMarkReadReceipt {
   advanced: boolean;
 }
 
+export interface ChatSearchPage {
+  messages: ChatMessage[];
+  /** Absent when there is nothing older to fetch. */
+  nextCursor?: string;
+  /** Matches in the whole conversation, not just this page. */
+  matchCount: number;
+}
+
+/** Page size of a conversation keyword search. */
+export const CHAT_SEARCH_PAGE_SIZE = 30;
+
 /** The scrollback keyset cursor (T-bf82): the (ts, id) of the OLDEST message
  * the caller already holds — `listChat` with this returns the page strictly
  * OLDER than that point. Composite on purpose: `ts` (epoch REAL) can collide,
@@ -2387,6 +2398,14 @@ export interface Api {
    * read door here. Messages between `withId` and other members never count,
    * so this is the answer a loaded page cannot give once they fill it. */
   getFirstUnreadChat(withId: string): Promise<ChatMessage | null>;
+  /** One page of the messages in the conversation with `withId` whose body —
+   * or, for a reply-card message, the card's question body or free-text
+   * answer — contains `q` (`GET /api/chat?with=&q=`; ASCII letters match
+   * regardless of case), among the messages the owner sent or received — member-to-member
+   * messages are not searched. The first page is the newest matches; pass the
+   * page's `nextCursor` back to get the next OLDER page. Each page is oldest→newest. Deleted
+   * messages are not searched. Read-only. */
+  searchChat(withId: string, q: string, cursor?: string): Promise<ChatSearchPage>;
   /** The M2 gallery query (`GET /api/chat/attachments?with=<memberId>`): every
    * attachment of the member's conversations, flattened newest→oldest —
    * owner↔member BOTH directions AND the member's inter-agent threads — each
