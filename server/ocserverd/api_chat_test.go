@@ -1919,7 +1919,7 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 		})
 	})
 
-	t.Run("q also matches a reply card's question body and the owner's answer, not only its summary", func(t *testing.T) {
+	t.Run("q also matches a reply card's question body and the owner's answer on the with line only, not only its summary", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		kip := apiTestAgentToken(t, api, "kip", "")
 		open := func(summary, body string) (string, string) {
@@ -1934,6 +1934,11 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 		bodyCard, inBody := open("要不要上線", "背景：Deploy 要停機十分鐘")
 		answered, inAnswer := open("選哪個時段", "背景：維護時段")
 		open("無關的卡", "背景：沒有關鍵字")
+		mira := apiTestAgentToken(t, api, "mira", "")
+		if status, card := apiJSON(t, h, "POST", "/api/reply-cards", mira,
+			`{"kind":"decision","summary":"別條線的卡","body":"背景：deploy 也在這裡","options":[{"text":"ok"}],"linked_task":null}`); status != 200 {
+			t.Fatalf("open mira's card: %d %v", status, card)
+		}
 		if status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+answered+"/answer", owner,
 			`{"text":"週四晚上 deploy"}`); status != 200 {
 			t.Fatalf("answer: %d %v", status, data)
