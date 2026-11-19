@@ -285,7 +285,7 @@ export function MarkdownPreviewOverlay({
     inlineInBrowser,
     "MarkdownPreviewOverlay",
   );
-  const framed = html || (pdf && shareHref !== null);
+  const framed = html || (pdf && typeof shareHref === "string");
   // The text to render. An inline source is authoritative and synchronous — it
   // never passes through the loading/error states, which only describe a fetch.
   const source = inlineSource ?? fetched;
@@ -306,7 +306,7 @@ export function MarkdownPreviewOverlay({
   // says ready again, and comment mode has to be re-sent to the new page.
   const [frameReady, setFrameReady] = useState(0);
   useEffect(() => setFrameReady(0), [shareHref]);
-  useFrameMessages(frameRef, html && shareHref !== null, (message) => {
+  useFrameMessages(frameRef, html && typeof shareHref === "string", (message) => {
     if (message.type === "ready") setFrameReady((n) => n + 1);
   });
   const [zoom, setZoom] = useState(1);
@@ -856,7 +856,7 @@ export function MarkdownPreviewOverlay({
            * token has no business sitting in another tab's address bar.
            * Present only when the browser would show the file rather than
            * download it (see `inlineInBrowser`). */}
-          {shareHref !== null && (
+          {typeof shareHref === "string" && (
             <a
               /* ⚠️ NOT `md-preview__download`. Four existing tests reach for
                * the download link as `querySelector("a.md-preview__download")`
@@ -936,7 +936,7 @@ export function MarkdownPreviewOverlay({
               filename={typeName}
               target={docComments}
               docRef={bodyRef}
-              docReady={html ? shareHref !== null : !failed && source !== null}
+              docReady={html ? typeof shareHref === "string" : !failed && source !== null}
               imagePickable={!plainText && !html}
               frameRef={html ? frameRef : undefined}
               frameReady={frameReady}

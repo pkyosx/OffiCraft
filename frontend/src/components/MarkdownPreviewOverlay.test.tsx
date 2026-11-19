@@ -9,7 +9,7 @@
 // returns null and reads like the overlay never rendered.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, fireEvent, waitFor, screen, act } from "@testing-library/react";
+import { render, fireEvent, waitFor, screen, act, cleanup } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
@@ -488,7 +488,7 @@ describe("MarkdownPreviewOverlay", () => {
   it.each([
     ["text/html", "pr-702.html", "allow-scripts allow-popups allow-popups-to-escape-sandbox"],
     ["application/pdf", "spec.pdf", null],
-  ])("shows a %s attachment as its share-link page in a frame filling the body, loading until the link is minted, without fetching its bytes", async (mime, title, sandbox) => {
+  ])("shows a %s attachment as its share-link page in a frame filling the body, loading until the link is minted, without fetching its bytes; with an empty attachment id to mint from it says 請下載", async (mime, title, sandbox) => {
     let mint!: (href: string) => void;
     vi.spyOn(api, "getChatAttachmentShareLink").mockImplementation(
       () => new Promise((resolve) => (mint = resolve)),
@@ -531,6 +531,15 @@ describe("MarkdownPreviewOverlay", () => {
     );
     expect(document.body.querySelector("a.md-preview__download")?.getAttribute("download")).toBe(title);
     expect(globalThis.fetch).not.toHaveBeenCalled();
+    cleanup();
+
+    render(
+      <I18nProvider>
+        <MarkdownPreviewOverlay title={title} url="/api/chat/attachment/att-html" attachmentId="" mime={mime} onClose={() => {}} />
+      </I18nProvider>,
+    );
+    expect(document.body.querySelector(".md-preview__status")?.textContent).toBe("此檔案無法預覽，請下載");
+    expect(document.body.querySelector("iframe")).toBeNull();
   });
 
   it("shows an honest error state on a failed fetch (never a blank render)", async () => {

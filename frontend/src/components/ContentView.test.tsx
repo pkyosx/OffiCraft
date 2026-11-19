@@ -149,11 +149,15 @@ describe("ContentView", () => {
     expect(img.getAttribute("alt")).toBe("shot.png");
   });
 
-  it("frames a PDF at its share link without a sandbox attribute, with 在新頁面顯示 below it when the host has none", () => {
+  it("frames a PDF at its share link without a sandbox attribute, with 在新頁面顯示 below it when the host has none; with no link coming it shows the host's line", () => {
     const minting = mount({ kind: "pdf", shareHref: null });
     expect(statusText(minting.container)).toEqual([p.loading]);
     expect(minting.container.querySelector("iframe")).toBeNull();
     minting.unmount();
+    const unminted = mount({ kind: "pdf", unavailable: "only download" });
+    expect(statusText(unminted.container)).toEqual(["only download"]);
+    expect(unminted.container.querySelector("iframe")).toBeNull();
+    unminted.unmount();
     const failed = mount({ kind: "pdf", shareHref: null, shareFailed: true, unavailable: "only download" });
     expect(statusText(failed.container)).toEqual(["only download"]);
     expect(failed.container.querySelector("iframe")).toBeNull();

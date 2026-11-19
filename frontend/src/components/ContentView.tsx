@@ -33,8 +33,9 @@ export type ContentViewProps = {
   /** What the image or page is called, for its alt text / frame title. */
   label?: string;
   /** The file's minted share link: an HTML page's or a PDF's frame address,
-   * and the 「在新頁面顯示」 target for a file that cannot be drawn here. `null` while
-   * it is being minted or when the browser would download the file. */
+   * and the 「在新頁面顯示」 target for a file that cannot be drawn here.
+   * `null` while it is being minted or after the mint failed; undefined when
+   * no link will be made. */
   shareHref?: string | null;
   shareFailed?: boolean;
   frameRef?: Ref<HTMLIFrameElement>;
@@ -84,7 +85,7 @@ export function ContentView({
   failed,
   src,
   label,
-  shareHref = null,
+  shareHref,
   shareFailed,
   frameRef,
   fill,
@@ -107,6 +108,8 @@ export function ContentView({
   );
 
   if (failed) return status(p.error);
+  const linkPending = () =>
+    status(shareHref === null && !shareFailed ? p.loading : (unavailable ?? p.unavailable));
 
   if (kind === "image") {
     return (
@@ -120,7 +123,7 @@ export function ContentView({
   }
 
   if (kind === "html") {
-    if (shareHref === null) return status(shareFailed ? (unavailable ?? p.unavailable) : p.loading);
+    if (typeof shareHref !== "string") return linkPending();
     return (
       <iframe
         ref={frameRef}
@@ -135,7 +138,7 @@ export function ContentView({
   }
 
   if (kind === "pdf") {
-    if (shareHref === null) return status(shareFailed ? (unavailable ?? p.unavailable) : p.loading);
+    if (typeof shareHref !== "string") return linkPending();
     // No sandbox attribute: Chromium refuses to draw a PDF in a sandboxed frame
     // (「已封鎖這個網頁」). The server's CSP sandbox, which it sends on every
     // non-HTML response, still keeps the document from scripting.
@@ -166,7 +169,7 @@ export function ContentView({
   }
 
   if (kind === "binary") {
-    if (shareHref === null || !newTabLink) return status(unavailable ?? p.unavailable);
+    if (typeof shareHref !== "string" || !newTabLink) return status(unavailable ?? p.unavailable);
     return (
       <div className="md-preview__status" data-testid={testId}>
         <span>{p.unavailableHere}</span>

@@ -76,7 +76,7 @@ export function VersionContent({
     case "image":
       return <ContentView kind="image" src={payload.src} label={label} testId={`${testId}-image`} />;
     case "opaque":
-      return share.href === null ? (
+      return typeof share.href !== "string" ? (
         notice(notices.opaque(payload.mime), "opaque")
       ) : (
         <ContentView
