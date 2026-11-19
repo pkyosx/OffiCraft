@@ -5,6 +5,7 @@ import { build as esbuild } from "esbuild";
 import { fileURLToPath } from "node:url";
 import { localTestWorkers } from "./local-test-workers";
 import { NO_SEASONAL_SCHEDULE_ALIAS } from "./seasonal-test-alias";
+import { THEME_FILE_REQUEST_ALIAS } from "./theme-file-request-alias";
 
 // [T-1500] Inline the pre-React theme applier into index.html.
 // It is bundled FROM src/paint/prePaint.ts — i.e. it imports the real
@@ -68,7 +69,7 @@ export default defineConfig(({ mode }) => ({
     // CI runners are on UTC, where formatting in UTC instead of local time
     // looks correct; a fixed non-UTC zone makes that mistake fail everywhere.
     env: { TZ: "Asia/Taipei" },
-    alias: [NO_SEASONAL_SCHEDULE_ALIAS],
+    alias: [NO_SEASONAL_SCHEDULE_ALIAS, THEME_FILE_REQUEST_ALIAS],
     ...testWorkerOptions(mode),
     // T-187c: the Playwright Component-Testing visual guards live in
     // visual-guards/*.ct.spec.tsx and run in a REAL browser (see

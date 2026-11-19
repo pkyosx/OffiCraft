@@ -47,7 +47,7 @@ import {
   badFrames,
   captureSettingsResponses,
   captureThemeBundleResponses,
-  captureSeasonalChunkRequests,
+  captureSeasonalThemeFileRequests,
   captureThemeListResponses,
   collect,
   collectPageErrors,
@@ -96,7 +96,7 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
     const settingsBodies = captureSettingsResponses(page);
     const themeListBodies = captureThemeListResponses(page);
     const themeBundleBodies = captureThemeBundleResponses(page);
-    const seasonalChunks = captureSeasonalChunkRequests(page);
+    const seasonalFiles = captureSeasonalThemeFileRequests(page);
 
     await page.goto(OK_SERVER);
     await seedSession(page, {
@@ -169,8 +169,8 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
     expect(pageErrors, "uncaught page errors").toEqual([]);
     expect(prototypePolluted).toBe(false);
 
-    // ---- outside every seasonal window: no seasonal chunk, no seasonal picture ----
-    expect(seasonalChunks, "a seasonal theme chunk was fetched outside its window").toEqual([]);
+    // ---- outside every seasonal window: no seasonal theme file, no seasonal picture ----
+    expect(seasonalFiles, "a seasonal theme file was fetched outside its window").toEqual([]);
     expect(
       await page.evaluate((k) => localStorage.getItem(k), LS_SEASONAL_PAINT),
       "the seasonal picture outlived its window"
@@ -309,7 +309,7 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
   }) => {
     const pageErrors = collectPageErrors(page);
     const settingsBodies = captureSettingsResponses(page);
-    const seasonalChunks = captureSeasonalChunkRequests(page);
+    const seasonalFiles = captureSeasonalThemeFileRequests(page);
     const seasonalBg = SEASONAL_BUNDLE.colors["--color-bg"];
     expect(seasonalBg, `setup error: ${SEASON_FILE} changed its --color-bg`).toBe("#15101f");
 
@@ -343,8 +343,8 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
     expect(pageErrors, "uncaught page errors").toEqual([]);
 
     expect(
-      seasonalChunks.filter((u) => u.includes(SEASON_FILE.replace(/\.json$/, ""))),
-      "the seasonal theme chunk was never fetched inside its window"
+      seasonalFiles.filter((u) => u.includes(SEASON_FILE.replace(/\.json$/, ""))),
+      "the seasonal theme file was never fetched inside its window"
     ).not.toEqual([]);
     // Unthrottled, React mounts before the first sampled frame, so only the
     // throttled run has pre-mount frames to attribute to the pre-paint.

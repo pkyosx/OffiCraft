@@ -1,9 +1,12 @@
 import { isBundledBuiltinTheme, type ThemeBundle } from "./themeBundleCore";
+import { themeFileLoaders } from "./themeFileFetch";
 
-// Lazy: each file is its own chunk, fetched the first time its theme is shown
-// or previewed. Not importable by the pre-paint script (import.meta.glob).
-const FILES = import.meta.glob<ThemeBundle>("../../../themes/modern-office-desk-*.theme.json", {
+// Each file ships as its own JSON asset, fetched the first time its theme is
+// shown or previewed. Not importable by the pre-paint script (import.meta.glob).
+const FILE_URLS = import.meta.glob<string>("../../../themes/modern-office-desk-*.theme.json", {
+  query: "?url&no-inline",
   import: "default",
+  eager: true,
 });
 
 export function bundledBuiltinThemeLoaderFrom(
@@ -15,4 +18,4 @@ export function bundledBuiltinThemeLoaderFrom(
   };
 }
 
-export const loadBundledBuiltinTheme = bundledBuiltinThemeLoaderFrom(FILES);
+export const loadBundledBuiltinTheme = bundledBuiltinThemeLoaderFrom(themeFileLoaders(FILE_URLS));
