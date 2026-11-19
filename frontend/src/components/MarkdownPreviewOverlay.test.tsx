@@ -341,7 +341,7 @@ describe("MarkdownPreviewOverlay", () => {
     );
     await waitFor(() => expect(document.body.querySelector(selector)).toBeTruthy());
     expect(document.body.querySelector(selector)?.textContent).toBe(shown);
-    expect(document.body.querySelector(".md-preview__status")).toBeNull();
+    expect(document.body.querySelector(".md-preview__status, .md-preview__malformed")).toBeNull();
   });
 
   it("shows invalid JSON unchanged with the unparseable explanation", async () => {
