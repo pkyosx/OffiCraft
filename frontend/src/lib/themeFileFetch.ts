@@ -1,5 +1,6 @@
 import type { ThemeBundle } from "./themeBundleCore";
 import { themeFileRequest } from "./themeFileRequest";
+import { reportStaleAsset } from "./staleBuild";
 
 // Fetched rather than imported: a browser caches a failed dynamic import per
 // URL and rejects every later import of it without a request, so a theme file
@@ -18,6 +19,7 @@ async function fetchThemeFile(
   url: string
 ): Promise<ThemeBundle> {
   const res = await request(url);
+  if (res.status === 404) reportStaleAsset();
   if (!res.ok) throw new Error(`theme file ${url}: HTTP ${res.status}`);
   return (await res.json()) as ThemeBundle;
 }

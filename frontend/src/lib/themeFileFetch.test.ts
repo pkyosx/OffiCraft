@@ -1,5 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { themeFileLoaders } from "./themeFileFetch";
+import { reportStaleAsset } from "./staleBuild";
+
+vi.mock("./staleBuild", () => ({ reportStaleAsset: vi.fn() }));
+
+beforeEach(() => vi.mocked(reportStaleAsset).mockClear());
 
 describe("themeFileLoaders", () => {
   const bundle = { id: "harvest", name: "Harvest", colors: { "--color-bg": "#15101f" } };
@@ -32,5 +37,17 @@ describe("themeFileLoaders", () => {
     await expect(load()).rejects.toThrow("theme file /assets/harvest.theme-abc.json: HTTP 503");
     await expect(load()).resolves.toEqual(bundle);
     expect(request).toHaveBeenCalledTimes(2);
+    expect(reportStaleAsset).not.toHaveBeenCalled();
+  });
+
+  it("reports a stale build and rejects when the file answers 404", async () => {
+    const request = vi.fn(async () => new Response("not found", { status: 404 }));
+    const load = themeFileLoaders(
+      { "../../../themes/harvest.theme.json": "/assets/harvest.theme-abc.json" },
+      request
+    )["../../../themes/harvest.theme.json"];
+
+    await expect(load()).rejects.toThrow("theme file /assets/harvest.theme-abc.json: HTTP 404");
+    expect(reportStaleAsset).toHaveBeenCalledTimes(1);
   });
 });

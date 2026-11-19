@@ -206,6 +206,12 @@ export function saveChatDraftQuote(draftKey: string, quote: string): void {
   });
 }
 
+/** Whether any composer anywhere (chat, reply card, task message) holds
+ * something a page reload would throw away. */
+export function hasAnyChatDraft(): boolean {
+  return drafts.size > 0;
+}
+
 /** Drop a whole draft. Leaves the staging rejection notice alone; that has
  * its own lifetime. */
 export function clearChatDraft(draftKey: string): void {

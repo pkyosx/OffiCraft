@@ -47,6 +47,12 @@ export const en: Dict = {
     reload: "Reload",
     ariaLabel: "Live connection status",
   },
+  buildUpdate: {
+    title: "A new version of the console is available",
+    body: "The server was updated. Reload to use it.",
+    reload: "Reload",
+    ariaLabel: "Console version status",
+  },
   nav: {
     office: "Office",
     officeUnread: "Unread messages",

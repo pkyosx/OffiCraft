@@ -48,6 +48,12 @@ export const zh = {
     reload: "重新整理",
     ariaLabel: "即時連線狀態",
   },
+  buildUpdate: {
+    title: "控制台有新版本",
+    body: "站台已更新，重新整理後才會套用。",
+    reload: "重新整理",
+    ariaLabel: "控制台版本狀態",
+  },
   nav: {
     office: "辦公室",
     officeUnread: "有未讀訊息",

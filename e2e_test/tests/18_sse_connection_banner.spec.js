@@ -74,7 +74,7 @@ test.describe('T-b0bb · SSE downlink death is visible, and self-heals', () => {
     await bootAuthedSpa(page, token);
 
     // ── 1. the page admits it is not receiving ──────────────────────────────
-    const banner = page.locator('.connection-banner');
+    const banner = page.getByRole('status', { name: '即時連線狀態' });
     await expect(banner, 'a dead downlink must be visible, not silent').toBeVisible({
       timeout: APPEAR_MS,
     });
@@ -122,6 +122,6 @@ test.describe('T-b0bb · SSE downlink death is visible, and self-heals', () => {
     // station that is working. A warning that shows up in normal operation is a
     // warning the owner learns to ignore, which would cost us the first test.
     await page.waitForTimeout(8000);
-    await expect(page.locator('.connection-banner')).toHaveCount(0);
+    await expect(page.getByRole('status', { name: '即時連線狀態' })).toHaveCount(0);
   });
 });

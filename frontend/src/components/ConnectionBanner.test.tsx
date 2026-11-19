@@ -97,7 +97,7 @@ describe("ConnectionBanner", () => {
   it("says NOTHING while the stream is live — a healthy cockpit carries no chrome", () => {
     const { container } = mount();
     waitOutGrace();
-    expect(container.querySelector(".connection-banner")).toBe(null);
+    expect(container.querySelector(".status-banner")).toBe(null);
   });
 
   it("stays silent through a SHORT drop: the browser's own retry must not strobe a warning at the owner", () => {
@@ -106,11 +106,11 @@ describe("ConnectionBanner", () => {
     act(() => {
       vi.advanceTimersByTime(CONNECTION_BANNER_GRACE_MS - 1);
     });
-    expect(container.querySelector(".connection-banner")).toBe(null);
+    expect(container.querySelector(".status-banner")).toBe(null);
 
     set("live");
     waitOutGrace();
-    expect(container.querySelector(".connection-banner")).toBe(null);
+    expect(container.querySelector(".status-banner")).toBe(null);
   });
 
   it("SHOWS the bar once the page has really stopped receiving, and says what that means for what is on screen", () => {
@@ -118,7 +118,7 @@ describe("ConnectionBanner", () => {
     set("connecting");
     waitOutGrace();
 
-    const bar = container.querySelector(".connection-banner");
+    const bar = container.querySelector(".status-banner");
     expect(bar).not.toBe(null);
     // The consequence, not just the fact: "disconnected" alone leaves the owner
     // to guess whether the page in front of him is still trustworthy.
@@ -132,24 +132,24 @@ describe("ConnectionBanner", () => {
     const { container } = mount();
     set("connecting");
     waitOutGrace();
-    expect(container.querySelector(".connection-banner")).not.toBe(null);
+    expect(container.querySelector(".status-banner")).not.toBe(null);
 
     set("live");
-    expect(container.querySelector(".connection-banner")).toBe(null);
+    expect(container.querySelector(".status-banner")).toBe(null);
   });
 
   it("says nothing when the session is dead: the login wall is already the message", () => {
     const { container } = mount();
     set("unauthorized");
     waitOutGrace();
-    expect(container.querySelector(".connection-banner")).toBe(null);
+    expect(container.querySelector(".status-banner")).toBe(null);
   });
 
   it("says nothing when idle (logged out / torn down) — no subscriber is not a fault", () => {
     const { container } = mount();
     set("idle");
     waitOutGrace();
-    expect(container.querySelector(".connection-banner")).toBe(null);
+    expect(container.querySelector(".status-banner")).toBe(null);
   });
 
   it("unsubscribes on unmount — a leaked subscriber outlives the component and setStates into a corpse", () => {

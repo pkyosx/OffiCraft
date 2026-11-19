@@ -69,6 +69,8 @@ const OWNED_SHEETS = [
   "chat-groups.css",
   // The 顯示方式 button sits on both list pages.
   "display-options.css",
+  // ConnectionBanner and BuildUpdateBanner.
+  "status-banner.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the

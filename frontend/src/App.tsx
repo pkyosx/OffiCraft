@@ -33,6 +33,7 @@ import { OnboardingBanner } from "./components/OnboardingBanner";
 import { DiffModalHost } from "./components/DiffModalHost";
 import { AttachmentModalHost } from "./components/AttachmentModalHost";
 import { ConnectionBanner } from "./components/ConnectionBanner";
+import { BuildUpdateBanner } from "./components/BuildUpdateBanner";
 import { InlineEdit } from "./components/InlineEdit";
 import { PushNotifications } from "./components/PushNotifications";
 import { useOrgName } from "./hooks/useOrgName";
@@ -352,6 +353,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           screen whichever page the owner is on: the stall is app-wide, not a
           property of any one tab. Renders nothing while the stream is healthy. */}
       <ConnectionBanner />
+      <BuildUpdateBanner />
 
       <nav className="nav-tabs">
         <div className="nav-tabs__seg">

@@ -1,12 +1,12 @@
-/* connection-banner.css — the "live updates are down" bar.
+/* status-banner.css — the app-wide bars above the tabs ("live updates are
+   down", "the server was updated").
 
    Sits between the topbar and the page content, full width, in the app's warn
    tint. It is deliberately part of the document flow rather than a floating
    toast: a toast that auto-dismisses would be worse than nothing here, because
-   the condition it reports does not auto-dismiss. It stays until the stream is
-   back. */
+   the conditions it reports do not auto-dismiss. */
 
-.connection-banner {
+.status-banner {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -23,7 +23,7 @@
 
 /* A second, non-colour cue: the state must still read for anyone who cannot
    tell the warn tint from the page. */
-.connection-banner__dot {
+.status-banner__dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -31,16 +31,16 @@
   flex: none;
 }
 
-.connection-banner__title {
+.status-banner__title {
   font-weight: 600;
 }
 
-.connection-banner__body {
+.status-banner__body {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.connection-banner__reload {
+.status-banner__reload {
   flex: none;
   padding: 3px 10px;
   border: 1px solid var(--color-warn-border);
@@ -52,6 +52,6 @@
   cursor: pointer;
 }
 
-.connection-banner__reload:hover {
+.status-banner__reload:hover {
   background: var(--color-warn-border);
 }

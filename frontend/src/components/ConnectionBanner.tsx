@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type SseConnectionState } from "../api";
 import { useI18n } from "../i18n";
-import "./connection-banner.css";
+import "./status-banner.css";
 
 /**
  * ConnectionBanner — the cockpit saying out loud that it is no longer live.
@@ -70,21 +70,21 @@ export function ConnectionBanner(): JSX.Element | null {
 
   return (
     <div
-      className="connection-banner"
+      className="status-banner"
       role="status"
       aria-live="polite"
       aria-label={t.connection.ariaLabel}
     >
-      <span className="connection-banner__dot" aria-hidden="true" />
-      <span className="connection-banner__title">{t.connection.lostTitle}</span>
-      <span className="connection-banner__body">{t.connection.lostBody}</span>
+      <span className="status-banner__dot" aria-hidden="true" />
+      <span className="status-banner__title">{t.connection.lostTitle}</span>
+      <span className="status-banner__body">{t.connection.lostBody}</span>
       {/* The manual escape hatch stays reachable while the automatic one is
           still trying. The owner's only previous remedy was F5; keeping it one
           click away costs nothing and is honest about the fact that automatic
           recovery is an attempt, not a promise. */}
       <button
         type="button"
-        className="connection-banner__reload"
+        className="status-banner__reload"
         onClick={() => window.location.reload()}
       >
         {t.connection.reload}

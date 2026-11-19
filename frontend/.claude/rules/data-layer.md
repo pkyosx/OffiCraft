@@ -6,6 +6,9 @@ paths:
   - "src/lib/ownerUnread.ts"
   - "src/lib/sharedSnapshot.ts"
   - "src/components/OnboardingBanner*"
+  - "src/components/BuildUpdateBanner*"
+  - "src/lib/staleBuild*"
+  - "src/lib/unsavedInput*"
   - "src/types.ts"
 ---
 
@@ -32,6 +35,8 @@ downlink 只有一條、且是 module-level singleton。瀏覽器只會自己重
 401 不走重連：先問 `/api/events` 本身拿到什麼狀態碼（`onerror` 不帶狀態碼，猜就是二選一都會錯——猜過期會被伺服器抖一下就登出，猜抖動會對已經說不的伺服器無限重打），401／403 ⇒ `handleUnauthorized()` 停止重試。連不到（fetch reject）不是 401。
 
 **連線健康度要 publish 給 UI**（`Api.subscribeConnection`）。整個座艙都是 delta 驅動的，所以「連線死掉」跟「今天很安靜」在畫面上長得一模一樣；靜默自癒等於把一個看得見的停頓換成一個看不見的洞。mock 沒有 transport 可以掉，只回一次 `live`。
+
+**站台換版偵測**（`lib/staleBuild.ts`，由 `BuildUpdateBanner` 啟動）：頁面的版本是載入後第一次讀到的 `/api/version` git_sha，不是前端 build 時的 sha——self-build 的 git_sha 在執行時讀 git，跟前端 build 的 commit 不一定相同，拿 build 時的 sha 比會永遠提示。連線從非 live 回到 live、主題檔回 404（`reportStaleAsset`）、`vite:preloadError` 時重讀；`"unknown"`、空字串與讀取失敗都當讀不到，不提示也不重新整理。沒人在看（`isWindowActive` 為假）且沒有未送出內容（`hasAnyChatDraft` 或打過字的文字欄位）才自動重新整理，同一分頁同一個新 sha 只自動一次（sessionStorage `oc.staleBuildReloadedSha`；存不進去就不自動）。
 
 deltaSink 每個 burst 只做一次同步決策；coalesce 留在決策層，不要跨 tick debounce。narrowToHeld 的語意固定為：null = 全量、非空 = 指定項目、空集合 = 只指向其他項目。task topic 不走 narrowToHeld：清單可能新增列，所以 useTasks 把 delta 點名的 id（加上依賴列顯示了它們的持有列）連同目前的篩選與 lane 一起送 `GET /api/tasks?ids=`，排序欄位沒動的列原位取代；問了卻沒回（離開清單）、回來了卻不在手上或排序欄位動了，就從第一頁重問那份清單（問回手上同樣多的列），因為順序與 offset 是伺服器的。完整讀取失敗後，下一次讀取一律升級成完整讀取。沒點名任何 id 的 delta 才全量（每份清單從第一頁重問、計數重問）。chat、chat_read、roster 在沒有持有項目時可跳過。
 
