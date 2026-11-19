@@ -5,8 +5,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { useI18n } from "../i18n";
 import { api, viewerIsOwner } from "../api";
 import { authedAttachmentUrl } from "../api/http";
-import { useMembers } from "../hooks/useMembers";
-import { useOwnerDisplayName } from "../hooks/useOwnerName";
+import { useActorName } from "../hooks/useActorName";
 import { useSharedDoc, useSharedDocAction, useSharedDocs } from "../hooks/useSharedDocs";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
@@ -44,19 +43,6 @@ import "./md-preview.css";
 import "./secrets.css";
 import "./theme-settings.css";
 import "./shared-docs.css";
-
-function useActorName(): (id: string) => string {
-  const { t } = useI18n();
-  const { members } = useMembers();
-  const ownerName = useOwnerDisplayName(t.user);
-  return useCallback(
-    (id: string) => {
-      if (id === "owner") return ownerName;
-      return members.find((m) => m.id === id)?.name || id;
-    },
-    [members, ownerName],
-  );
-}
 
 function useFlash(): [string | null, (key: string) => void] {
   const [flashed, setFlashed] = useState<string | null>(null);

@@ -19,6 +19,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { TaskArtifactVersionsModal } from "./TaskArtifactVersionsModal";
+import { OwnerNameProvider } from "../hooks/useOwnerName";
 import { toTaskArtifactVersion } from "../api/mappers";
 import type {
   TaskArtifactView,
@@ -30,6 +31,7 @@ vi.mock("../api", () => ({
     listTaskArtifacts: vi.fn(),
     listTaskArtifactVersions: vi.fn(),
     getChatAttachmentShareLink: vi.fn(),
+    listMembers: vi.fn(),
     subscribeEvents: () => () => {},
   },
 }));
@@ -38,6 +40,7 @@ const mockedApi = api as unknown as {
   listTaskArtifacts: ReturnType<typeof vi.fn>;
   listTaskArtifactVersions: ReturnType<typeof vi.fn>;
   getChatAttachmentShareLink: ReturnType<typeof vi.fn>;
+  listMembers: ReturnType<typeof vi.fn>;
 };
 
 const realFetch = globalThis.fetch;
@@ -125,7 +128,9 @@ function stubFetch(
 function openModal() {
   return render(
     <I18nProvider>
-      <TaskArtifactVersionsModal taskId="t-1" artifactId="ta-1" onClose={() => {}} />
+      <OwnerNameProvider value="Eva">
+        <TaskArtifactVersionsModal taskId="t-1" artifactId="ta-1" onClose={() => {}} />
+      </OwnerNameProvider>
     </I18nProvider>,
   );
 }
@@ -155,6 +160,7 @@ function diffLinesOnScreen(): string[] {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedApi.listMembers.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -162,6 +168,27 @@ afterEach(() => {
 });
 
 describe("TaskArtifactVersionsModal", () => {
+  it("shows the member's name, the owner's name, and the raw id for an actor no longer on the roster", async () => {
+    mockedApi.listTaskArtifactVersions.mockResolvedValue([
+      mkVersion({ id: 3, createdBy: "mira" }),
+      mkVersion({ id: 2, createdBy: "owner" }),
+      mkVersion({ id: 1, createdBy: "m-retired" }),
+    ]);
+    mockedApi.listTaskArtifacts.mockResolvedValue(mkArtifacts([mkArtifact({})]));
+    mockedApi.listMembers.mockResolvedValue([{ id: "mira", name: "Mira" }]);
+    stubFetch({
+      "/api/chat/attachment/att-old": { mime: "text/plain", text: "old" },
+      "/api/chat/attachment/att-live": { mime: "text/plain", text: "current" },
+    });
+    openModal();
+
+    await waitFor(() => {
+      expect(rowMeta("ta-versions-row-3").split(" · ")[1]).toBe("修改者 Mira");
+      expect(rowMeta("ta-versions-row-2").split(" · ")[1]).toBe("修改者 Eva");
+      expect(rowMeta("ta-versions-row-1").split(" · ")[1]).toBe("修改者 m-retired");
+    });
+  });
+
   it("diffs against the artifact the SERVER holds, not a row handed in from elsewhere", async () => {
     // The task read is the ONLY source of the 「目前版本」 side. If this modal ever
     // learns to accept the popover's artifact row instead, this stays the

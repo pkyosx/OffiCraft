@@ -61,7 +61,7 @@ export interface Messages {
   // ── task artifact versions (T-60) ──
   taskArtifactVersionCount: (n: number) => string;
   taskArtifactVersionLabel: (when: string) => string;
-  taskArtifactVersionBy: (actorId: string) => string;
+  taskArtifactVersionBy: (actorName: string) => string;
   taskArtifactOpaque: (mime: string) => string;
   // ── login / the credential-attempt brake ──
   loginThrottled: (secs: number) => string;
@@ -367,11 +367,8 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // reader names its own: two unlabelled columns do not say which is which.
     taskArtifactVersionLabel: (when) =>
       `${tasks.artifacts.versionsVersionLabel} ${when}`,
-    // The raw actor id, never a resolved display name — this panel holds no
-    // roster, and inventing a name for an id it cannot resolve would misname
-    // whoever replaced the deliverable.
-    taskArtifactVersionBy: (actorId) =>
-      `${tasks.artifacts.versionsByLabel} ${actorId}`,
+    taskArtifactVersionBy: (actorName) =>
+      `${tasks.artifacts.versionsByLabel} ${actorName}`,
     // A file this panel can neither render nor compare. It names the mime the
     // SERVER reported rather than calling the version empty.
     taskArtifactOpaque: (mime) =>
