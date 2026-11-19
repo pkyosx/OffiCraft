@@ -114,7 +114,7 @@ describe("createStaleBuildWatch", () => {
     expect(h.deps.storage.getItem(STALE_BUILD_RELOADED_KEY)).toBe("bbb2222");
   });
 
-  it("does not reload a page holding unsaved input, and reloads once the input is gone and the window loses focus", async () => {
+  it("does not reload a page holding unsaved input, and reloads once the input is gone and the tab is sent to the background", async () => {
     const h = harness();
     h.state.unsaved = true;
     stops.push(await startedOn(h, "aaa1111"));
@@ -122,12 +122,12 @@ describe("createStaleBuildWatch", () => {
     h.shas.push("bbb2222");
     await h.setConnection("connecting");
     await h.setConnection("live");
-    window.dispatchEvent(new Event("blur"));
+    document.dispatchEvent(new Event("visibilitychange"));
     expect(h.watch.getNewerSha()).toBe("bbb2222");
     expect(h.reload).not.toHaveBeenCalled();
 
     h.state.unsaved = false;
-    window.dispatchEvent(new Event("blur"));
+    document.dispatchEvent(new Event("visibilitychange"));
     expect(h.reload).toHaveBeenCalledTimes(1);
   });
 
@@ -174,7 +174,7 @@ describe("createStaleBuildWatch", () => {
     h.shas.push("bbb2222");
     await h.setConnection("connecting");
     await h.setConnection("live");
-    window.dispatchEvent(new Event("blur"));
+    document.dispatchEvent(new Event("visibilitychange"));
 
     expect(h.watch.getNewerSha()).toBe("bbb2222");
     expect(h.reload).not.toHaveBeenCalled();
@@ -273,7 +273,7 @@ describe("createStaleBuildWatch", () => {
 
       reportStaleAsset();
       window.dispatchEvent(new Event("vite:preloadError"));
-      window.dispatchEvent(new Event("blur"));
+      document.dispatchEvent(new Event("visibilitychange"));
       await h.settle();
       expect(h.connection.size).toBe(0);
       expect(h.shas).toEqual([]);

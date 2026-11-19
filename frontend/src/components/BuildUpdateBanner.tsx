@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "../api";
 import { hasWritesInFlight } from "../api/client";
 import { useI18n } from "../i18n";
-import { isWindowActive } from "../hooks/useWindowActive";
 import { hasAnyChatDraft } from "../lib/chatDraftStore";
 import { createStaleBuildWatch } from "../lib/staleBuild";
 import { trackUnsavedTextFields } from "../lib/unsavedInput";
@@ -15,7 +14,9 @@ export function BuildUpdateBanner(): JSX.Element | null {
     createStaleBuildWatch({
       readServerSha: () => api.getVersion().then((v) => v.gitSha),
       subscribeConnection: (cb) => api.subscribeConnection(cb),
-      isWatched: isWindowActive,
+      // Not isWindowActive: WebKit in-app browsers and home-screen apps report
+      // no focus until the first tap, which would reload a page being read.
+      isWatched: () => document.visibilityState === "visible",
       hasUnsavedInput: () => hasAnyChatDraft() || hasEditedField.current(),
       hasWritesInFlight,
       reload: () => window.location.reload(),

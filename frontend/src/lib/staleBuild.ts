@@ -113,14 +113,12 @@ export function createStaleBuildWatch(deps: StaleBuildWatchDeps): StaleBuildWatc
     });
     const offStaleAsset = onStaleAsset(check);
     window.addEventListener("vite:preloadError", check);
-    window.addEventListener("blur", maybeReload);
     document.addEventListener("visibilitychange", maybeReload);
     return () => {
       running = false;
       offConnection();
       offStaleAsset();
       window.removeEventListener("vite:preloadError", check);
-      window.removeEventListener("blur", maybeReload);
       document.removeEventListener("visibilitychange", maybeReload);
     };
   }

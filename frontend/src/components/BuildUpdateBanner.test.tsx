@@ -32,6 +32,7 @@ import { BuildUpdateBanner } from "./BuildUpdateBanner";
 
 const reload = vi.fn();
 const originalLocation = window.location;
+let visibility: DocumentVisibilityState = "visible";
 let focused = true;
 
 async function flush() {
@@ -65,6 +66,7 @@ async function serverUpdatedTo(sha: string) {
 
 beforeEach(() => {
   serverSha = "aaa1111";
+  visibility = "visible";
   focused = true;
   writing = false;
   subscribers.clear();
@@ -72,6 +74,7 @@ beforeEach(() => {
   window.sessionStorage.clear();
   reload.mockClear();
   Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, reload } });
+  vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
   vi.spyOn(document, "hasFocus").mockImplementation(() => focused);
 });
 
@@ -88,7 +91,8 @@ describe("BuildUpdateBanner", () => {
     expect(container.querySelector(".status-banner")).toBe(null);
   });
 
-  it("asks the person looking at the page to reload once the server runs a newer build, and reloads on click", async () => {
+  it("asks the person looking at the page to reload once the server runs a newer build, even when the browser reports no focus, and reloads on click", async () => {
+    focused = false;
     const { container, getByRole } = await mount();
     await serverUpdatedTo("bbb2222");
 
@@ -101,8 +105,8 @@ describe("BuildUpdateBanner", () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  it("reloads a page whose window is not focused without showing anything first", async () => {
-    focused = false;
+  it("reloads a page in a background tab without showing anything first", async () => {
+    visibility = "hidden";
     await mount();
     await serverUpdatedTo("bbb2222");
     expect(reload).toHaveBeenCalledTimes(1);
@@ -110,7 +114,7 @@ describe("BuildUpdateBanner", () => {
   });
 
   it("keeps an unsent chat draft by not reloading on its own", async () => {
-    focused = false;
+    visibility = "hidden";
     saveChatDraftText("m-aaa", "還沒送出");
     const { container } = await mount();
     await serverUpdatedTo("bbb2222");
@@ -120,7 +124,7 @@ describe("BuildUpdateBanner", () => {
   });
 
   it("keeps a text field typed into by not reloading on its own", async () => {
-    focused = false;
+    visibility = "hidden";
     await mount();
     const field = document.createElement("textarea");
     document.body.append(field);
@@ -132,7 +136,7 @@ describe("BuildUpdateBanner", () => {
   });
 
   it("does not reload while a sent message is still on its way", async () => {
-    focused = false;
+    visibility = "hidden";
     writing = true;
     await mount();
     await serverUpdatedTo("bbb2222");
