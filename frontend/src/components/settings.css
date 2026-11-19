@@ -724,10 +724,10 @@
  * (`interface.md`, `../dev/agent-env.md`), NOT a URL, and only the host
  * surface's resolver can say whether it maps onto a shipped slug — it may
  * DECLINE, in which case the reference stays literal text. The 使用說明 page
- * DOES have a hash route (`#guide/<slug>`, since it became a top-level tab),
- * but that URL is built from the target's BASENAME (`docSlugForRef`) and only
- * after the resolver has checked that basename against the docs the server
- * actually served (UserGuidePage's `docs.some(...)`), so it can only ever name
+ * DOES have a hash route (`#settings/guide/<slug>`), but that URL is built
+ * from the target's BASENAME (`docSlugForRef`) and only after the resolver
+ * has checked that basename against the docs the server actually served
+ * (UserGuidePage's `docs.some(...)`), so it can only ever name
  * a shipped doc — the target is never used verbatim, and never as a path. See
  * `docSlugForRef`'s doc-comment: that basename reduction IS the containment
  * layer. And having no href means there is no navigation
@@ -815,7 +815,7 @@
 }
 
 /* ── product guide (使用說明) reading surface ──────────────────────────────
- * The guide borrows the .settings shell. Its two views want DIFFERENT layouts:
+ * The guide is a settings page. Its two views want DIFFERENT layouts:
  *
  *   • The LIST (章節首頁: title + entry cards) stays a bare .settings surface —
  *     flush-left, full-width, IDENTICAL to every other settings page (系統更新與備份 /

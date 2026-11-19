@@ -12,6 +12,7 @@ import {
   isBuiltinTheme,
   isBundledBuiltinTheme,
   NAV_ICON_KEYS,
+  NAV_TAB_KEYS,
   isValidAvatarValue,
   isValidBackgroundValue,
   validateThemeBundle,
@@ -20,6 +21,7 @@ import {
   type AvatarKind,
   type BackgroundMode,
   type NavIconKey,
+  type NavTabKey,
   type ThemeBundle,
 } from "../lib/themeBundle";
 import { SAFE_FONT_FAMILIES } from "../styles/themeFonts.generated";
@@ -123,9 +125,8 @@ type NavIconLabelKey =
   | "themeNavLore"
   | "themeNavSharedDocs"
   | "themeNavSecrets"
-  | "themeNavMonitor"
-  | "themeNavGuide";
-const NAV_ICON_LABEL_KEYS: Record<NavIconKey, NavIconLabelKey> = {
+  | "themeNavMonitor";
+const NAV_ICON_LABEL_KEYS: Record<NavTabKey, NavIconLabelKey> = {
   office: "themeNavOffice",
   replies: "themeNavReplies",
   tasks: "themeNavTasks",
@@ -133,9 +134,8 @@ const NAV_ICON_LABEL_KEYS: Record<NavIconKey, NavIconLabelKey> = {
   shared_docs: "themeNavSharedDocs",
   secrets: "themeNavSecrets",
   monitor: "themeNavMonitor",
-  guide: "themeNavGuide",
 };
-const NAV_ICON_SLOTS = NAV_ICON_KEYS.map((key) => ({
+const NAV_ICON_SLOTS = NAV_TAB_KEYS.map((key) => ({
   key,
   labelKey: NAV_ICON_LABEL_KEYS[key],
 }));
@@ -232,8 +232,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     shared_docs: useRef<HTMLInputElement>(null),
     secrets: useRef<HTMLInputElement>(null),
     monitor: useRef<HTMLInputElement>(null),
-    guide: useRef<HTMLInputElement>(null),
-  } satisfies Record<NavIconKey, RefObject<HTMLInputElement>>;
+  } satisfies Record<NavTabKey, RefObject<HTMLInputElement>>;
   const [wordingLang, setWordingLang] = useState<"zh" | "en">("zh");
   const [wordingSearch, setWordingSearch] = useState("");
   // Only so a new search result set can be scrolled back to the top; the list

@@ -1,4 +1,4 @@
-// Story — the product-guide DOC page (使用說明 › <doc>) rendered against the REAL
+// Story — the product-guide DOC page (設定 › 使用說明 › <doc>) rendered against the REAL
 // app shell + sheets, so a CT can measure it at phone width (T-23df follow-up).
 //
 // Owner (phone, v0.5.19): opening a guide doc made the text jump huge and the
@@ -59,7 +59,9 @@ export function GuideDocOverflowStory({
     <div className="app">
       <main className="app__main">
         <div className="settings guide-view guide-view--doc">
-          <Breadcrumbs items={[{ label: "使用說明" }, { label: title }]} />
+          <Breadcrumbs
+            items={[{ label: "設定" }, { label: "使用說明" }, { label: title }]}
+          />
           <div className="doc-card">
             <Markdown
               source={source}

@@ -191,9 +191,7 @@ export function FileTextIcon({ size = 16, className }: IconProps) {
   );
 }
 
-/** Open-book glyph — the 傳承 nav tab's fallback icon (T-33). Deliberately NOT
- * FileTextIcon, which the 使用說明 tab already wears two slots away: two tabs
- * carrying the same glyph is exactly the thing a nav bar cannot afford. A book
+/** Open-book glyph — the 傳承 nav tab's fallback icon (T-33). A book
  * (something handed on and read) rather than a page (something written once). */
 export function BookIcon({ size = 16, className }: IconProps) {
   return (

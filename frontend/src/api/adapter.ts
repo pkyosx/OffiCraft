@@ -1164,7 +1164,7 @@ export interface TaskManualView extends TaskManualSummaryView {
   sopMd: string;
 }
 
-/** One product-guide doc row (使用說明 tab landing): the addressable slug +
+/** One product-guide doc row (the 使用說明 list): the addressable slug +
  * its display title. The full body is fetched per-slug via getDoc. */
 export interface DocSummaryView {
   slug: string;

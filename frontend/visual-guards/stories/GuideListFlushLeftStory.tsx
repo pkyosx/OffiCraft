@@ -17,8 +17,8 @@
 // same inner edge for each — any left-edge delta between the two set-entries is
 // therefore the guide's OWN doing, not a shell difference. The list's DOM/class
 // chain mirrors UserGuidePage.tsx's UserGuideList exactly (settings guide-view >
-// settings__title--doc + set-entries); the reference mirrors SettingsPage.tsx's
-// landing (settings > crumbs + settings__title + set-entries).
+// crumbs + settings__title--doc + set-entries); the reference mirrors
+// SettingsPage.tsx's landing (settings > settings__title + set-entries).
 import { Breadcrumbs } from "../../src/components/Breadcrumbs";
 import { ChevronRightIcon } from "../../src/components/icons";
 import "../../src/styles/theme.css";
@@ -41,10 +41,13 @@ export function GuideListFlushLeftStory() {
   return (
     <div className="app">
       <main className="app__main">
-        {/* 使用說明 LIST — mirrors UserGuideList: `settings guide-view`, a
-            `settings__title--doc`, then `set-entries`. NO breadcrumb (the real
-            list drops it), and crucially NO `guide-view--doc`. */}
+        {/* 使用說明 LIST — mirrors UserGuideList: `settings guide-view`, the
+            設定 › 使用說明 crumbs, a `settings__title--doc`, then `set-entries`,
+            and crucially NO `guide-view--doc`. */}
         <div className="settings guide-view" data-testid="guide-list">
+          <Breadcrumbs
+            items={[{ label: "設定", onClick: () => {} }, { label: "使用說明" }]}
+          />
           <h1 className="settings__title settings__title--doc">使用說明</h1>
           <div className="set-entries" data-testid="guide-set-entries">
             {ENTRIES.map((e) => (
@@ -56,7 +59,6 @@ export function GuideListFlushLeftStory() {
         {/* REFERENCE — a bare `.settings` landing, the shape 系統更新與備份 / 角色 /
             參數 use. This is the pixel target the list must match. */}
         <div className="settings" data-testid="settings-ref">
-          <Breadcrumbs items={[{ label: "設定" }]} />
           <h1 className="settings__title">設定</h1>
           <div className="set-entries" data-testid="ref-set-entries">
             {ENTRIES.map((e) => (

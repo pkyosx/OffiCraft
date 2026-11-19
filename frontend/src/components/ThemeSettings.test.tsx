@@ -849,13 +849,17 @@ describe("ThemeSettings · alias-default colours", () => {
 });
 
 describe("ThemeSettings · nav icon uploads", () => {
-  it("labels an upload control for every navigation tab", async () => {
+  it("a pack carrying a guide icon imports; the editor offers one upload per nav tab, none for the guide", async () => {
     setToken("owner-token");
     const utils = await renderManage();
+    const png =
+      "data:image/png;base64," +
+      btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1));
     await importBundle(utils, {
       id: "nav-icons",
       name: "導覽圖示測試",
       colors: { "--color-bg": "#101018" },
+      navIcons: { guide: png },
     });
     await openEditor(utils, "導覽圖示測試");
 
@@ -867,7 +871,6 @@ describe("ThemeSettings · nav icon uploads", () => {
       "檔案庫圖示",
       "傳承圖示",
       "監控圖示",
-      "使用說明圖示",
     ];
     const navSection = Array.from(
       utils.container.querySelectorAll(".ts-section-label"),

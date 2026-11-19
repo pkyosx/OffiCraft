@@ -65,7 +65,9 @@ export const AVATAR_KINDS = ["staff", "outsource", "owner", "assistant"] as cons
 export type AvatarKind = (typeof AVATAR_KINDS)[number];
 
 /** The nav tabs a navIcons overlay may key on. The Go allowlist is covered by
- * the frontend parity test. */
+ * the frontend parity test. ⚠️ "guide" has no tab any more (the guide lives in
+ * Settings) but must stay accepted on both sides: packs that carry a guide icon
+ * would otherwise fail to import. */
 export const NAV_ICON_KEYS = [
   "office",
   "replies",
@@ -77,6 +79,11 @@ export const NAV_ICON_KEYS = [
   "guide",
 ] as const;
 export type NavIconKey = (typeof NAV_ICON_KEYS)[number];
+/** The navIcons keys that still have a nav tab to draw on. */
+export type NavTabKey = Exclude<NavIconKey, "guide">;
+export const NAV_TAB_KEYS: readonly NavTabKey[] = NAV_ICON_KEYS.filter(
+  (key): key is NavTabKey => key !== "guide",
+);
 
 /** The chrome zones a backgrounds overlay may key on — the twin of the Go
  * backgroundKeyAllowed set (T-081b). DELIBERATELY just the outermost canvas:

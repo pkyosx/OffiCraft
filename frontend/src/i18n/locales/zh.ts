@@ -59,15 +59,10 @@ export const zh = {
     sharedDocs: "檔案庫",
     secrets: "密鑰",
     monitor: "監控",
-    // 使用說明 — 主導覽最右的分頁(owner:「user guide 改放在 tab 中,監控的
-    // 右邊」)。分頁標籤與頁面標題分開兩個 key:標籤要短,標題可以完整。
-    guide: "使用說明",
     // 左上 logo = 回首頁的入口(aria-label/title)
     home: "回首頁",
   },
   // ── 使用說明(產品說明書)──
-  // 從「設定 › 使用說明」升為主導覽分頁後,這三個字串不再屬於 settings 命名空間
-  // (owner:「user guide 改放在 tab 中,監控的右邊,不要放在 settings 裡」)。
   guide: {
     title: "使用說明",
     loadError: "載入使用說明失敗，請稍後重試",
@@ -2448,7 +2443,6 @@ export const zh = {
     themeNavSharedDocs: "檔案庫圖示",
     themeNavSecrets: "密鑰圖示",
     themeNavMonitor: "監控圖示",
-    themeNavGuide: "使用說明圖示",
     // ── 外框背景圖 (T-081b) ──
     themeCanvasBgSection: "外框背景",
     themeCanvasBgHint:

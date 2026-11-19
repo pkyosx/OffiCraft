@@ -19,7 +19,7 @@
 
 ## 導航總覽
 
-主導航**五個頁籤**，順序即畫面上的順序（`App.tsx` 的 `nav-tabs__seg`，一顆 `<button>` 一個頁籤），
+主導航的頁籤，順序即畫面上的順序（`App.tsx` 的 `nav-tabs__seg`，一顆 `<button>` 一個頁籤），
 外加右上角的設定齒輪與個人頭像下拉：
 
 | 頁籤 | i18n key | 中文 / English | 徽章 | 對應元件 |
@@ -28,10 +28,9 @@
 | 2 | `nav.replies` | 請示 / Ask | 還在等你回覆的卡片數（`useReplyCardCount`） | `RepliesPage` |
 | 3 | `nav.tasks` | 任務 / Task | 還沒結案的任務數（`useTaskCount`） | `TasksPage` |
 | 4 | `nav.monitor` | 監控 / Monitor | 無 | `MonitorPage` |
-| 5 | `nav.guide` | 使用說明 / Guide | 無（文件燒在 binary 裡，沒有數可以顯示） | `GuidePage`（`UserGuidePage.tsx`） |
 
 - **設定**不是頁籤：齒輪打開的是覆蓋在頁籤之上的 `SettingsPage`（`settingsOpen` 為真時，
-  五顆頁籤都不帶 active 樣式）。
+  所有頁籤都不帶 active 樣式）。使用說明也在設定裡（§5）。
 - **個人檔案**在右上角頭像下拉（`ProfileDropdown`）。
 - 頁籤列之上還有一條 `ConnectionBanner`：**唯一一個會承認「座艙已經收不到東西」的地方**。
   下面每一頁都是 delta 驅動的，斷線與「今天很安靜」畫出來一模一樣；串流健康時它不渲染任何東西。
@@ -429,14 +428,15 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 
 ## 5. 使用說明（Guide）
 
-`GuidePage`（`UserGuidePage.tsx`），**最右邊的頁籤、緊鄰監控**（owner 2026-07-22：
-「user guide 改放在 tab 中,監控的右邊,不要放在 settings 裡」）。它以前是設定的子頁，
-所以還借用 `.settings` 的版面 class —— 只有它在導航裡的位置變了。
+`GuidePage`（`UserGuidePage.tsx`），**設定的子頁**，設定首頁最後一個入口（owner 裁定：
+放在設定裡，不是頁籤）。開著時齒輪亮、沒有頁籤亮。
 
-- **列表**（`#guide`）：大標「使用說明」，底下一列一份文件（只有標題 ＋ chevron，
-  沒有分組、沒有圖示、沒有描述）。空狀態「還沒有說明頁」。**沒有麵包屑**（一段式的麵包屑不是導航）。
-- **內文**（`#guide/<slug>`）：麵包屑「使用說明 › {文件標題}」，第一段是回列表的按鈕；
+- **列表**（`#settings/guide`）：麵包屑「設定 › 使用說明」，大標「使用說明」，底下一列一份文件
+  （只有標題 ＋ chevron，沒有分組、沒有圖示、沒有描述）。空狀態「還沒有說明頁」。
+- **內文**（`#settings/guide/<slug>`）：麵包屑「設定 › 使用說明 › {文件標題}」，前兩段都可點；
   **沒有 `<h1>`**（文件自己的 `# ` 標題由 Markdown 畫）。
+- 舊連結 `#guide`、`#guide/<slug>` 仍開同一頁（貼在聊天與文件裡的連結不能失效）；
+  程式產生的連結一律用 `#settings/guide…`。
 - **內容從哪來**：跟 Mira 讀的是同一份。清單走 `api.listDocs()`、內文走 `api.getDoc(slug)`，
   兩者都讀 server binary 裡 embed 的 `docsdist`。
 - 🔴 **範圍是 `docs/guide/` 而且只有它**（`bin/build-docsdist` 的 SCOPE 註記，owner 裁定）：
@@ -451,8 +451,8 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 
 ## 6. 設定
 
-齒輪進入（覆蓋在頁籤之上，不是第六個頁籤）。landing 標題「設定」，**六個入口**，
-依 `SettingsPage` landing 的 DOM 順序：
+齒輪進入（覆蓋在頁籤之上，不是頁籤）。landing 只有標題「設定」，**沒有麵包屑**；
+**七個入口**，依 `SettingsPage` landing 的 DOM 順序：
 
 | # | 入口 | View kind | 這份文件寫到哪 |
 |---|---|---|---|
@@ -462,10 +462,10 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 | 4 | 任務手冊 | `manuals` | §6.4 |
 | 5 | 參數調整 | `params` | §6.5 |
 | 6 | 主題 | `theme` | §6.6 |
+| 7 | 使用說明 | 走 hash（`#settings/guide`），不是 view kind | §5 |
 
-（面向 owner 的同一份清單在 [docs/guide/interface.md](../guide/interface.md) 的「⚙️齒輪 › 設定，六個子頁」，
+（面向 owner 的同一份清單在 [docs/guide/interface.md](../guide/interface.md) 的「設定」一節，
 順序與這裡逐項相同。）
-⚠️ **使用說明不在這裡** —— 它是頁籤（§5）。
 
 ### 6.1 系統更新與備份
 麵包屑 `設定 › 系統更新與備份`。

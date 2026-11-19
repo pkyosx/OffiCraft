@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "./i18n";
 import { useHashRoute } from "./lib/hashRoute";
-import type { NavIconKey } from "./lib/themeBundle";
+import type { NavTabKey } from "./lib/themeBundle";
 import {
   RefreshIcon,
   GearIcon,
@@ -13,7 +13,6 @@ import {
   LayersIcon,
   KeyIcon,
   MonitorIcon,
-  FileTextIcon,
   AlertTriangleIcon,
 } from "./components/icons";
 import { InstantHint } from "./components/InstantHint";
@@ -28,7 +27,6 @@ import { LorePage } from "./components/LorePage";
 import { SecretsPage } from "./components/SecretsPage";
 import { SharedDocsPage } from "./components/SharedDocsPage";
 import { MonitorPage } from "./components/MonitorPage";
-import { GuidePage } from "./components/UserGuidePage";
 import { SettingsPage } from "./components/SettingsPage";
 import { ProfileDropdown } from "./components/ProfileDropdown";
 import { OnboardingBanner } from "./components/OnboardingBanner";
@@ -45,7 +43,7 @@ import { useChatUnread } from "./hooks/useChatUnread";
 import { useTaskCount } from "./hooks/useTaskCount";
 import "./components/chrome.css";
 
-type Tab = NavIconKey;
+type Tab = NavTabKey;
 
 // Which peer the office was last left on. Browser-local by nature (it is this
 // browser's last position, not studio state), so it stays out of the server and
@@ -98,19 +96,17 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const tab: Tab =
     route.page === "monitor"
       ? "monitor"
-      : route.page === "guide"
-        ? "guide"
-        : route.page === "replies"
-          ? "replies"
-          : route.page === "tasks"
-            ? "tasks"
-            : route.page === "lore"
-              ? "lore"
-              : route.page === "shared_docs"
-                ? "shared_docs"
-                : route.page === "secrets"
-                  ? "secrets"
-                  : "office";
+      : route.page === "replies"
+        ? "replies"
+        : route.page === "tasks"
+          ? "tasks"
+          : route.page === "lore"
+            ? "lore"
+            : route.page === "shared_docs"
+              ? "shared_docs"
+              : route.page === "secrets"
+                ? "secrets"
+                : "office";
   // The 等我回覆 nav badge: how many reply cards are WAITING (answered never
   // counts). Live via the count endpoint + "reply_card" SSE deltas. A separate
   // signal from the per-member chat unread red dot (different clearing rules —
@@ -476,22 +472,6 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             <NavIcon tabKey="monitor" fallback={<MonitorIcon size={15} />} />
             <span>{t.nav.monitor}</span>
           </button>
-          {/* 使用說明 — LAST tab, immediately right of 監控 (owner 2026-07-22:
-              「user guide 改放在 tab 中,監控的右邊,不要放在 settings 裡」).
-              It used to be a settings sub-page; a first-run owner had to open
-              the gear to find out how the product works, which is the wrong
-              place for the one page that explains the product. No badge: the
-              docs are baked into the binary, so there is no count to show. */}
-          <button
-            type="button"
-            className={`nav-tab${
-              !settingsOpen && tab === "guide" ? " nav-tab--active" : ""
-            }`}
-            onClick={() => selectTab("guide")}
-          >
-            <NavIcon tabKey="guide" fallback={<FileTextIcon size={15} />} />
-            <span>{t.nav.guide}</span>
-          </button>
         </div>
       </nav>
 
@@ -525,8 +505,6 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <SharedDocsPage docId={route.sharedDocId} />
         ) : tab === "secrets" ? (
           <SecretsPage />
-        ) : tab === "guide" ? (
-          <GuidePage />
         ) : (
           <MonitorPage />
         )}

@@ -1422,7 +1422,7 @@ const mockDocs: DocView[] = [
       "# 為什麼是 OffiCraft\n\n" +
       "OffiCraft 是一間跑在你自己 Mac 上的 AI 工作室。\n\n" +
       "## 使用說明\n\n" +
-      "在主導覽最右邊的「使用說明」分頁裡閱讀各項功能的說明。\n\n" +
+      "在「設定 › 使用說明」裡閱讀各項功能的說明。\n\n" +
       "- 介面上的欄位是什麼意思 → [介面說明](interface.md)\n" +
       "- 同一份、從 repo root 看的路徑 → [介面說明(長路徑)](docs/guide/interface.md)\n" +
       "- 完整安裝、升級與移除 → [安裝、升級與移除](install.md)\n" +

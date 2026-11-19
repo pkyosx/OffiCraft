@@ -58,15 +58,10 @@ export const en: Dict = {
     sharedDocs: "Files",
     secrets: "Secrets",
     monitor: "Monitor",
-    // 使用說明 — the rightmost main nav tab (owner: it belongs next to Monitor,
-    // not buried in Settings). Separate key from the page title on purpose: a
-    // tab label has to stay short.
-    guide: "Guide",
     // Top-left logo = home entry (aria-label/title).
     home: "Home",
   },
   // ── User guide (the embedded product docs) ──
-  // Promoted out of the settings namespace when it became a top-level tab.
   guide: {
     title: "User guide",
     loadError: "Failed to load the user guide. Please try again.",
@@ -2430,7 +2425,6 @@ export const en: Dict = {
     themeNavSharedDocs: "Files icon",
     themeNavSecrets: "Secrets icon",
     themeNavMonitor: "Monitor icon",
-    themeNavGuide: "User guide icon",
     // ── outer-canvas background image (T-081b) ──
     themeCanvasBgSection: "Outer canvas",
     themeCanvasBgHint:
