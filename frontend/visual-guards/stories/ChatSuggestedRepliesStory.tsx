@@ -36,15 +36,12 @@ export function ChatSuggestedRepliesStory({
   replies,
   allHeaderButtons = false,
   name = MEMBER.name,
-  id = MEMBER.id,
   thread = [],
 }: {
   /** Leave out for a peer without the suggested-replies button. */
   replies?: string[];
   allHeaderButtons?: boolean;
   name?: string;
-  /** A mock-api member id, for a thread with messages to search. */
-  id?: string;
   /** Lands in the mock chat log before mounting, so the thread can be searched. */
   thread?: ChatMessage[];
 }) {
@@ -54,7 +51,7 @@ export function ChatSuggestedRepliesStory({
     <I18nProvider>
       <div style={{ height: 700, display: "flex", flexDirection: "column" }} data-testid="host">
         <ChatArea
-          member={{ ...MEMBER, id, name }}
+          member={{ ...MEMBER, name }}
           suggestedReplies={saved}
           onSaveSuggestedReplies={replies ? setSaved : undefined}
           onOpenTasks={allHeaderButtons ? noop : undefined}

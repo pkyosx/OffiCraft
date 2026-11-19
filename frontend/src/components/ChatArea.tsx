@@ -759,6 +759,7 @@ export function ChatArea({
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
   const [searchListOpen, setSearchListOpen] = useState(false);
+  const searchListToggleRef = useRef<HTMLButtonElement>(null);
   const chatSearch = useChatSearch(member.id, (msgId) => jumpToMessage(msgId));
   const exitSearch = () => {
     setSearchMode(false);
@@ -2518,6 +2519,7 @@ export function ChatArea({
             setGalleryOpen(false);
           }}
           onExit={exitSearch}
+          listToggleRef={searchListToggleRef}
         />
       )}
 
@@ -2546,6 +2548,7 @@ export function ChatArea({
           }}
           onClose={() => setSearchListOpen(false)}
           mobile={isMobile}
+          returnFocusTo={searchListToggleRef}
         />
       )}
 

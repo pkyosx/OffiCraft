@@ -468,7 +468,12 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
 
   it.each([
     ["wide", "the side panel, and picking a result keeps it open", false, true],
-    ["phone-width", "a bottom sheet, and picking a result closes it", true, false],
+    [
+      "phone-width",
+      "a bottom sheet that takes focus; picking a result, 完成, the backdrop or Esc closes it, hands focus back to the list button and keeps the search",
+      true,
+      false,
+    ],
   ])("on a %s layout, the results list is %s", async (_w, _what, phone, staysOpen) => {
     const saved = window.matchMedia;
     window.matchMedia = ((query: string) => ({
@@ -488,6 +493,29 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
       expect(screen.queryByRole("dialog", { name: zh.chat.searchResultsTitle }) !== null).toBe(
         staysOpen,
       );
+      if (phone) {
+        const toggle = getByLabelText(zh.chat.searchList);
+        const closers = [
+          () => {},
+          () => fireEvent.click(screen.getByRole("button", { name: zh.office.groups.done })),
+          () => fireEvent.click(screen.getByTestId("chat-search-sheet-backdrop")),
+          () => fireEvent.keyDown(window, { key: "Escape" }),
+        ];
+        for (const [i, close] of closers.entries()) {
+          if (i > 0) {
+            fireEvent.click(toggle);
+            const sheet = screen.getByRole("dialog", { name: zh.chat.searchResultsTitle });
+            expect(sheet.contains(document.activeElement)).toBe(true);
+            close();
+          }
+          expect(screen.queryByRole("dialog", { name: zh.chat.searchResultsTitle })).toBeNull();
+          expect(document.activeElement).toBe(toggle);
+          expect(container.querySelector<HTMLInputElement>(".chat-search__input")!.value).toBe(
+            "deploy",
+          );
+          expect(container.querySelector(".chat-search__status")?.textContent).toBe("1/1");
+        }
+      }
     } finally {
       window.matchMedia = saved;
     }

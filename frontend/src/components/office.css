@@ -1807,8 +1807,8 @@
 @media (max-width: 720px) {
   /* Two right-aligned rows (jumps on top, search + gallery below) so the name
    * gets the width. The negative block margins sink the rows into the header's
-   * padding: the header must stay 64px tall, which `.chat__gallery` and
-   * `.chat-search__panel` hardcode as their top offset. */
+   * padding so the header does not grow: `.chat__gallery` and
+   * `.chat-search__panel` hardcode their top offset onto its height. */
   .chat__header-actions {
     flex-direction: column;
     align-items: flex-end;

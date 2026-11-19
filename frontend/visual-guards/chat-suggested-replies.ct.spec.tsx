@@ -115,7 +115,7 @@ test("390px: with only search and gallery, the two sit in one row at the header'
   expect(header.x + header.width - (gallery.x + gallery.width)).toBeLessThanOrEqual(12);
 });
 
-test("1280px: all five header buttons stay in one row", async ({ mount, page }) => {
+test("1280px: all five header buttons stay in one row, 12px apart", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   const cmp = await mount(<ChatSuggestedRepliesStory replies={["繼續"]} allHeaderButtons name="GF Eva Slack Inbox" />);
   const { header, top, bottom } = await headerBoxes(cmp);
@@ -123,7 +123,7 @@ test("1280px: all five header buttons stay in one row", async ({ mount, page }) 
   row.forEach((b, i) => {
     inside(b, header);
     expect(b.y).toBeCloseTo(row[0].y, 0);
-    if (i > 0) expect(b.x).toBeGreaterThanOrEqual(row[i - 1].x + row[i - 1].width);
+    if (i > 0) expect(b.x - (row[i - 1].x + row[i - 1].width)).toBeCloseTo(12, 0);
   });
 });
 

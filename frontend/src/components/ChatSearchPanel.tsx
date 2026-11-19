@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
@@ -22,6 +22,17 @@ function Snippet({ body, query }: { body: string; query: string }) {
   );
 }
 
+/** Tab and Shift+Tab go round the buttons inside `box`. */
+function trapTab(e: KeyboardEvent<HTMLElement>, box: HTMLElement | null) {
+  if (e.key !== "Tab" || !box) return;
+  const buttons = Array.from(box.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+  if (buttons.length === 0) return;
+  const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const next = e.shiftKey ? (i <= 0 ? buttons.length - 1 : i - 1) : (i + 1) % buttons.length;
+  e.preventDefault();
+  buttons[next].focus();
+}
+
 /** The search results list, opened from the search row's speech bubble: a
  * side panel over the thread, or a bottom sheet on a phone. */
 export function ChatSearchPanel({
@@ -30,16 +41,26 @@ export function ChatSearchPanel({
   onPick,
   onClose,
   mobile = false,
+  returnFocusTo,
 }: {
   search: ChatSearch;
   labelOf: (m: ChatMessage) => string;
   onPick: (msgId: string) => void;
   onClose: () => void;
   mobile?: boolean;
+  /** Where focus goes back to when the phone sheet closes. */
+  returnFocusTo?: RefObject<HTMLElement | null>;
 }) {
   const { t, msg } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
   useEscapeLayer(onClose, rootRef);
+
+  useEffect(() => {
+    if (!mobile) return;
+    rootRef.current?.focus();
+    const back = returnFocusTo?.current;
+    return () => back?.focus({ preventScroll: true });
+  }, [mobile, returnFocusTo]);
   const now = Date.now() / 1000;
 
   const results =
@@ -104,6 +125,8 @@ export function ChatSearchPanel({
           role="dialog"
           aria-modal="true"
           aria-label={t.chat.searchResultsTitle}
+          tabIndex={-1}
+          onKeyDown={(e) => trapTab(e, rootRef.current)}
         >
           <div className="chat-search__sheet-head">
             <span className="chat-search__title">{t.chat.searchResultsTitle}</span>

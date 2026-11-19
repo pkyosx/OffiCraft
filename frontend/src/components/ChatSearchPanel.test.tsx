@@ -195,7 +195,7 @@ describe("ChatSearchPanel", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("on a phone, the results rise as a sheet over a dimmed backdrop: tapping a result picks it, 完成 or the backdrop closes it, a tap inside does not", async () => {
+  it("on a phone, the results rise as a focused sheet over a dimmed backdrop that Tab cannot leave: tapping a result picks it, 完成 or the backdrop closes it, a tap inside does not", async () => {
     const { input, onPick, onClose } = renderPanel({ mobile: true });
     fireEvent.change(input, { target: { value: "deploy" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -203,6 +203,14 @@ describe("ChatSearchPanel", () => {
 
     const sheet = screen.getByRole("dialog", { name: zh.chat.searchResultsTitle });
     expect(sheet.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).toBe(sheet);
+    const done = screen.getByRole("button", { name: zh.office.groups.done });
+    const item = sheet.querySelector<HTMLElement>(".chat-search__item")!;
+    item.focus();
+    fireEvent.keyDown(item, { key: "Tab" });
+    expect(document.activeElement).toBe(done);
+    fireEvent.keyDown(done, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(item);
     expect(screen.queryByRole("button", { name: zh.chat.searchClose })).toBeNull();
 
     fireEvent.click(sheet.querySelector(".chat-search__item")!);

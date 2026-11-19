@@ -260,6 +260,7 @@
   padding-bottom: env(safe-area-inset-bottom);
   border-radius: 14px 14px 0 0;
   background: var(--color-card);
+  outline: none;
 }
 .chat-search__sheet-head {
   flex: none;

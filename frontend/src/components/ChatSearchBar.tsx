@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type RefObject } from "react";
 import { useI18n } from "../i18n";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import type { ChatSearch } from "../hooks/useChatSearch";
@@ -16,11 +16,13 @@ export function ChatSearchBar({
   listOpen,
   onToggleList,
   onExit,
+  listToggleRef,
 }: {
   search: ChatSearch;
   listOpen: boolean;
   onToggleList: () => void;
   onExit: () => void;
+  listToggleRef?: RefObject<HTMLButtonElement>;
 }) {
   const { t, msg } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -97,6 +99,7 @@ export function ChatSearchBar({
         )}
       </div>
       <button
+        ref={listToggleRef}
         type="button"
         className="chat-search__action"
         aria-label={t.chat.searchList}
