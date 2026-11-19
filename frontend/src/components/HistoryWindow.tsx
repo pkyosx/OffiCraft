@@ -1,6 +1,6 @@
 // The version-history window: a list of retained versions, and the reader one
 // click deeper (the version's identity top-left, the 內容 / 差異 toggle
-// top-right, 返回版本列表 / 關閉 / 還原 along the foot). The documents'
+// top-right, 返回版本列表 / 還原 along the foot). The documents'
 // history (DocumentHistoryEntry + DocumentHistoryModal) and the 檔案庫's both
 // draw it from here, so the two cannot grow apart.
 //
@@ -186,34 +186,32 @@ export function HistoryReaderWindow({
 
         {belowBody}
 
-        {(onBack || restore) && (
-          <div className="doc-hist-modal__footer">
-            {onBack && (
-              <button
-                type="button"
-                className="doc-btn doc-hist-modal__back"
-                data-testid="doc-history-modal-back"
-                onClick={onBack}
-              >
-                {t.settings.historyBack}
-              </button>
-            )}
-            {restore && (
-              <button
-                type="button"
-                className="doc-btn doc-hist-modal__restore"
-                data-testid="doc-history-modal-restore"
-                disabled={restore.disabled}
-                onClick={() => {
-                  setConfirming(true);
-                  setRestoreError(null);
-                }}
-              >
-                {restore.label}
-              </button>
-            )}
-          </div>
-        )}
+        <div className="doc-hist-modal__footer">
+          {onBack && (
+            <button
+              type="button"
+              className="doc-btn doc-hist-modal__back"
+              data-testid="doc-history-modal-back"
+              onClick={onBack}
+            >
+              {t.settings.historyBack}
+            </button>
+          )}
+          {restore && (
+            <button
+              type="button"
+              className="doc-btn doc-hist-modal__restore"
+              data-testid="doc-history-modal-restore"
+              disabled={restore.disabled}
+              onClick={() => {
+                setConfirming(true);
+                setRestoreError(null);
+              }}
+            >
+              {restore.label}
+            </button>
+          )}
+        </div>
       </div>
 
       {confirming && restore && (

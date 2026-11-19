@@ -138,4 +138,4 @@ TaskArtifactVersionsModal 是任務產物「被換過幾次、換掉的是什麼
 
 ## 檔案庫版本紀錄
 
-SharedDocVersionsModal 用的是文件版本紀錄的同一個視窗（`HistoryWindow.tsx`：`HistoryListWindow` 清單、`HistoryReaderWindow` 閱讀；DocumentHistoryEntry／DocumentHistoryModal 也從這裡畫）。清單列保留的舊版本；點一版：內容預設、右上角切逐行差異（兩邊都是文字才有）、底部 返回版本列表／關閉／還原。還原一律經 ConfirmModal，失敗顯示 server 的原話、兩層都不關，進行中 Esc 與背景點擊無效。圖片版本只顯示圖與檔名、沒有差異；連結版本列出那一版與目前的網址。「目前」在開啟時向 server 讀。
+SharedDocVersionsModal 用的是文件版本紀錄的同一個視窗（`HistoryWindow.tsx`：`HistoryListWindow` 清單、`HistoryReaderWindow` 閱讀；DocumentHistoryEntry／DocumentHistoryModal 也從這裡畫）。清單列保留的舊版本；點一版：內容預設、右上角切逐行差異（兩邊都是文字才有）、底部 返回版本列表／還原。還原一律經 ConfirmModal，失敗顯示 server 的原話、兩層都不關，進行中 Esc 與背景點擊無效。圖片版本只顯示圖與檔名、沒有差異；連結版本列出那一版與目前的網址。「目前」在開啟時向 server 讀。
