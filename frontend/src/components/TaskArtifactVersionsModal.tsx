@@ -76,6 +76,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { api } from "../api";
+import { useActorName } from "../hooks/useActorName";
 import type {
   TaskArtifactView,
   TaskArtifactVersionView,
@@ -100,6 +101,7 @@ export function TaskArtifactVersionsModal({
   onClose: () => void;
 }) {
   const { t, msg } = useI18n();
+  const actorName = useActorName();
   const [versions, setVersions] = useState<TaskArtifactVersionView[] | null>(
     null,
   );
@@ -397,7 +399,7 @@ export function TaskArtifactVersionsModal({
                     <span className="ta-versions__row-meta">
                       {formatAbsolute(row.v!.createdTs, nowTs)}
                       {row.v!.createdBy
-                        ? ` · ${msg.taskArtifactVersionBy(row.v!.createdBy)}`
+                        ? ` · ${msg.taskArtifactVersionBy(actorName(row.v!.createdBy))}`
                         : ""}
                     </span>
                   </button>
