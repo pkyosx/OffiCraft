@@ -1410,7 +1410,7 @@ const mockDocs: DocView[] = [
     title: "介面說明",
     markdownMd:
       "# 介面說明\n\n" +
-      "控制台的主導覽有辦公室、請示、任務、監控、使用說明五個分頁,設定在右上角的齒輪裡。\n\n" +
+      "控制台的主導覽有辦公室、請示、任務、密鑰、檔案庫、傳承、監控七個分頁,設定與使用說明在右上角的齒輪裡。\n\n" +
       "想知道為什麼這樣設計 → [為什麼是 OffiCraft](why.md)\n\n" +
       "你正在看的就是這一份 → [介面說明(本頁)](interface.md)\n\n" +
       "專案首頁 → [GitHub](https://github.com/pkyosx/OffiCraft)\n",
