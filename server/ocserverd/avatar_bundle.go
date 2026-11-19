@@ -157,6 +157,8 @@ func validateAvatars(avatars *map[string]string, where string) error {
 }
 
 // The frontend parity test compares this order with NAV_ICON_KEYS.
+// "guide" has no nav tab any more but stays allowed: dropping it would 422
+// every existing theme pack that carries a guide icon.
 var navIconKeys = []string{
 	"office", "replies", "tasks", "secrets", "shared_docs", "lore", "monitor", "guide",
 }

@@ -45,7 +45,7 @@ import { isHttpStatus } from "../api/errors";
 import { BootDocPage } from "./BootDocPage";
 import { DocCard } from "./DocCard";
 import { InsightCard } from "./InsightCard";
-import { navigateHash } from "../lib/hashRoute";
+import { navigateHash, useHashRoute } from "../lib/hashRoute";
 import { DOC_CAP_CHARS_MIN } from "../api/docCap";
 import {
   CHAT_BUDGET_CHARS_MAX,
@@ -208,6 +208,7 @@ import {
   PersonPlusIcon,
   CheckIcon,
   BellIcon,
+  UnknownIcon,
 } from "./icons";
 
 /** WHICH GROUP a boot document's list row sits in — the owner's own reading of
@@ -420,6 +421,7 @@ function bootDocRowsIn(
   ).filter(([, row]) => row.group === group);
 }
 import { ThemeSettings } from "./ThemeSettings";
+import { GuidePage } from "./UserGuidePage";
 import { ConfirmModal } from "./ConfirmModal";
 import "./settings.css";
 
@@ -489,6 +491,7 @@ export function SettingsPage({
   initialRoleKey?: string;
 } = {}) {
   const { t } = useI18n();
+  const [route] = useHashRoute();
   const [view, setView] = useState<View>(
     initialManualKey
       ? { kind: "manual", key: initialManualKey }
@@ -541,8 +544,7 @@ export function SettingsPage({
     navigateHash({ page: "settings", settingsRoles: true });
   };
   // 全域情境 has no hash route of its own — none of the ten documents ever had
-  // one (lib/hashRoute knows only #settings, #settings/roles[…] and
-  // #settings/manuals/<key>), so this jump moves the internal view and writes
+  // one (see lib/hashRoute), so this jump moves the internal view and writes
   // nothing. Inventing a route here would put an address in the URL that a
   // reload could not honour.
   const goGlobalContext = () => setView({ kind: "globalContext" });
@@ -554,6 +556,10 @@ export function SettingsPage({
     label: t.settings.globalContext,
     onClick: goGlobalContext,
   };
+
+  if (route.page === "settings" && route.settingsGuide) {
+    return <GuidePage crumbRoot={crumbRoot} />;
+  }
 
   if (view.kind === "software") {
     return (
@@ -1121,12 +1127,8 @@ export function SettingsPage({
   }
 
   // ── landing ──
-  // The root page follows the same pattern as every sub-page (T-8f6e): a
-  // breadcrumb on top — here just the single 「設定」 current segment — with
-  // the page title directly below.
   return (
     <div className="settings">
-      <Breadcrumbs items={[{ label: t.settings.title }]} />
       <h1 className="settings__title">{t.settings.title}</h1>
       <div className="set-entries">
         <button
@@ -1216,9 +1218,18 @@ export function SettingsPage({
           <span className="set-entry__name">{t.settings.themeManage}</span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
-        {/* 使用說明 is NOT here any more — it is a top-level nav tab, to the
-         * right of 監控 (owner 2026-07-22:「user guide 改放在 tab 中,監控的
-         * 右邊,不要放在 settings 裡」). See components/UserGuidePage.tsx. */}
+        <button
+          type="button"
+          className="set-entry"
+          data-testid="settings-guide-entry"
+          onClick={() => navigateHash({ page: "settings", settingsGuide: true })}
+        >
+          <span className="set-entry__icon set-entry__icon--neutral">
+            <UnknownIcon size={18} />
+          </span>
+          <span className="set-entry__name">{t.guide.title}</span>
+          <ChevronRightIcon size={18} className="set-entry__chev" />
+        </button>
       </div>
     </div>
   );

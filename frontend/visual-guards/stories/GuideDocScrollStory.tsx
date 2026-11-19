@@ -36,7 +36,7 @@ export function GuideDocScrollStory({ start = "why" }: { start?: string }) {
         <UserGuideDoc
           slug={slug}
           docs={DOCS}
-          crumbs={[{ label: "使用說明" }]}
+          crumbs={[{ label: "設定" }, { label: "使用說明" }]}
           onOpenDoc={setSlug}
         />
       </div>

@@ -4,11 +4,8 @@
 // component, with relative image refs (already rewritten server-side to
 // /api/docs/assets/…) loaded through the gated ?token= auth a bare <img> needs.
 //
-// It is a TOP-LEVEL nav tab, to the right of 監控 (owner: 「user guide 改放在
-// tab 中,監控的右邊,不要放在 settings 裡」). It used to be a settings
-// sub-page, which is why the layout still borrows the `.settings` shell
-// classes — the visual container is the same full-width document surface;
-// only its place in the navigation changed.
+// A Settings sub-page (owner ruling: the guide lives in Settings, not in a nav
+// tab), opened from the settings landing's last row.
 //
 // T-68f1: the doc text also carries repo-relative links between docs
 // (`[介面說明](interface.md)`). This is the ONE surface that opts in to
@@ -25,33 +22,28 @@ import { navigateHash, useHashRoute } from "../lib/hashRoute";
 import { Markdown } from "./Markdown";
 import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
 import { ChevronRightIcon } from "./icons";
-// The guide is a top-level route, not a SettingsPage child, so it must load
-// the shared document-layout rules itself.
+// The visual guards mount UserGuideDoc without SettingsPage, and its scroll
+// box only exists with these rules loaded.
 import "./settings.css";
 
 export function UserGuideList({
   docs,
   loading,
   error,
+  crumbs,
   onOpen,
 }: {
   docs: DocSummaryView[];
   loading: boolean;
   error: boolean;
+  /** 設定 › 使用說明. */
+  crumbs: Crumb[];
   onOpen: (slug: string) => void;
 }) {
   const { t } = useI18n();
   return (
     <div className="settings guide-view">
-      {/* NO breadcrumb here, unlike the settings landing. A one-segment trail
-          is not navigation — it renders as plain text with nothing to click —
-          and on this surface it was the THIRD copy of the word 使用說明 in the
-          top 200px, after the active nav tab and the <h1> directly below it.
-          The settings landing keeps its single 設定 crumb because Settings is
-          an overlay with no tab of its own; this page's tab is always visible
-          and always says the same word. The doc view below DOES keep the
-          trail: there the first segment is a real button and the only way
-          back to this list. */}
+      <Breadcrumbs items={crumbs} />
       <h1 className="settings__title settings__title--doc">{t.guide.title}</h1>
       {error ? (
         <p className="settings__error">{t.guide.loadError}</p>
@@ -112,10 +104,9 @@ export function UserGuideDoc({
   slug: string;
   /** The embedded doc index — the existence check for an in-app link. */
   docs: DocSummaryView[];
-  /** 使用說明 › <this doc>. The last crumb's label is filled with the doc
-   * title once it loads (the caller passes the trail up to 使用說明). */
+  /** The trail up to 使用說明; this doc's title is appended once it loads. */
   crumbs: Crumb[];
-  /** Navigate to another doc (the caller writes #guide/<slug>). */
+  /** Navigate to another doc (the caller writes the hash). */
   onOpenDoc: (slug: string) => void;
 }) {
   const { t } = useI18n();
@@ -198,30 +189,28 @@ export function UserGuideDoc({
   );
 }
 
-/** 使用說明 — the whole tab. Owns the doc index and reads the current view off
- * the hash (`#guide` = list, `#guide/<slug>` = that doc), so the reader's place
- * survives a refresh and any doc is linkable. As a settings sub-page it kept
- * that state in a local `useState` and had no route at all; a top-level tab
- * without one would silently reset to the list on every reload.
+/** 使用說明 — list and doc. Owns the doc index and reads the current view off
+ * the hash (`#settings/guide` = list, `#settings/guide/<slug>` = that doc), so
+ * the reader's place survives a refresh and any doc is linkable.
  *
  * An unknown slug in the hash self-heals: the doc simply reports a load error
  * and the 使用說明 crumb goes back to the list. */
-export function GuidePage() {
+export function GuidePage({ crumbRoot }: { crumbRoot: Crumb }) {
   const { t } = useI18n();
   const [route] = useHashRoute();
   const { docs, loading, error } = useDocs();
-  const slug = route.page === "guide" ? route.guideSlug : undefined;
+  const slug = route.settingsGuide ? route.guideSlug : undefined;
 
-  const goList = () => navigateHash({ page: "guide" });
+  const goList = () => navigateHash({ page: "settings", settingsGuide: true });
   const openDoc = (next: string) =>
-    navigateHash({ page: "guide", guideSlug: next });
+    navigateHash({ page: "settings", settingsGuide: true, guideSlug: next });
 
   if (slug) {
     return (
       <UserGuideDoc
         slug={slug}
         docs={docs}
-        crumbs={[{ label: t.guide.title, onClick: goList }]}
+        crumbs={[crumbRoot, { label: t.guide.title, onClick: goList }]}
         onOpenDoc={openDoc}
       />
     );
@@ -231,6 +220,7 @@ export function GuidePage() {
       docs={docs}
       loading={loading}
       error={error}
+      crumbs={[crumbRoot, { label: t.guide.title }]}
       onOpen={openDoc}
     />
   );

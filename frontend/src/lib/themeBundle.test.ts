@@ -430,7 +430,7 @@ describe("validateLogo", () => {
 });
 
 describe("validateNavIcons", () => {
-  it("accepts undefined (optional) and all seven legal nav-tab keys", () => {
+  it("accepts undefined and every allowed key, including guide (no tab, still importable)", () => {
     expect(validateNavIcons(undefined)).toBeNull();
     expect(
       validateNavIcons({

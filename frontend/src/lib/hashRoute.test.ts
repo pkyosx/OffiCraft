@@ -17,8 +17,11 @@ describe("parseHash", () => {
       page: "shared_docs",
       sharedDocId: "sd-0c41e97a2b58",
     });
-    expect(parseHash("#guide")).toEqual({ page: "guide" });
     expect(parseHash("#settings")).toEqual({ page: "settings" });
+    expect(parseHash("#settings/guide")).toEqual({
+      page: "settings",
+      settingsGuide: true,
+    });
   });
 
   it("restores office chat / detail selections", () => {
@@ -129,11 +132,19 @@ describe("parseHash", () => {
     });
   });
 
-  // 使用說明 is a top-level tab whose open doc lives in the URL, so a reader's
-  // place survives a reload and any doc is linkable.
   it("restores the open guide doc", () => {
+    expect(parseHash("#settings/guide/interface")).toEqual({
+      page: "settings",
+      settingsGuide: true,
+      guideSlug: "interface",
+    });
+  });
+
+  it("legacy #guide links → the same settings guide routes", () => {
+    expect(parseHash("#guide")).toEqual({ page: "settings", settingsGuide: true });
     expect(parseHash("#guide/interface")).toEqual({
-      page: "guide",
+      page: "settings",
+      settingsGuide: true,
       guideSlug: "interface",
     });
   });
@@ -182,7 +193,11 @@ describe("parseHash", () => {
     expect(parseHash("#nope")).toEqual({ page: "office" });
     expect(parseHash("#office/chat")).toEqual({ page: "office" });
     expect(parseHash("#monitor/member")).toEqual({ page: "monitor" });
-    expect(parseHash("#guide/")).toEqual({ page: "guide" });
+    expect(parseHash("#guide/")).toEqual({ page: "settings", settingsGuide: true });
+    expect(parseHash("#settings/guide/")).toEqual({
+      page: "settings",
+      settingsGuide: true,
+    });
   });
 
   it("a malformed percent-escape does not take the page down", () => {
@@ -224,8 +239,13 @@ describe("formatHash", () => {
     expect(
       formatHash({ page: "shared_docs", sharedDocId: "sd-0c41e97a2b58" }),
     ).toBe("#shared-docs/sd-0c41e97a2b58");
-    expect(formatHash({ page: "guide" })).toBe("#guide");
     expect(formatHash({ page: "settings" })).toBe("#settings");
+    expect(formatHash({ page: "settings", settingsGuide: true })).toBe(
+      "#settings/guide",
+    );
+    expect(
+      formatHash({ page: "settings", settingsGuide: true, guideSlug: "interface" }),
+    ).toBe("#settings/guide/interface");
     expect(formatHash({ page: "office", chatId: "mira" })).toBe(
       "#office/chat/mira"
     );
@@ -340,8 +360,8 @@ describe("formatHash", () => {
       { page: "secrets" as const },
       { page: "shared_docs" as const },
       { page: "shared_docs" as const, sharedDocId: "sd-0c41e97a2b58" },
-      { page: "guide" as const },
-      { page: "guide" as const, guideSlug: "interface" },
+      { page: "settings" as const, settingsGuide: true },
+      { page: "settings" as const, settingsGuide: true, guideSlug: "interface" },
       { page: "settings" as const },
       { page: "settings" as const, manualKey: "review-pr" },
       {

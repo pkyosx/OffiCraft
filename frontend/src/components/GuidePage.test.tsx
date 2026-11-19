@@ -1,10 +1,7 @@
-// 使用說明 (product guide) — the TOP-LEVEL tab (owner 2026-07-22:「user guide
-// 改放在 tab 中,監控的右邊,不要放在 settings 裡」).
+// 使用說明 (product guide) — a Settings sub-page.
 //
-// Crumb trails have no leading 設定 segment because 設定 is not the parent.
-// Pinned below: the doc-link contract (T-68f1), the hash route, and the
-// absence of a settings parent.
-//
+// Pinned below: the crumb trail under 設定, the doc-link contract (T-68f1) and
+// the hash route.
 // Runs against the REAL mock adapter, like the sibling SettingsPage tests.
 //
 // 🔴 KNOWN COVERAGE GAP — no test anywhere renders the REAL docs/guide/*.md
@@ -28,7 +25,7 @@
 //
 // No ticket is tracking this; this comment is the only record.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
@@ -36,11 +33,12 @@ import { GuidePage } from "./UserGuidePage";
 import { __resetMock } from "../api/mock";
 
 const g = zh.guide;
+const settingsTitle = zh.settings.title;
 
-function renderGuide() {
+function renderGuide(onRoot: () => void = () => {}) {
   return render(
     <I18nProvider>
-      <GuidePage />
+      <GuidePage crumbRoot={{ label: settingsTitle, onClick: onRoot }} />
     </I18nProvider>
   );
 }
@@ -75,33 +73,30 @@ function expectHeader(utils: Utils, segs: string[]) {
 beforeEach(() => {
   __resetMock();
   // The page reads its view off the hash — start every test on the list.
-  history.replaceState(null, "", window.location.pathname + "#guide");
+  history.replaceState(null, "", window.location.pathname + "#settings/guide");
 });
 
 describe("使用說明 · page header + navigation", () => {
-  it("列表: 使用說明 + title; doc: 使用說明 › <title>", async () => {
-    const utils = renderGuide();
+  it("列表: 設定 › 使用說明 + title; doc: 設定 › 使用說明 › <title>", async () => {
+    const onRoot = vi.fn();
+    const utils = renderGuide(onRoot);
     const entries = await utils.findAllByTestId("guide-doc-entry");
-    // The LIST carries no trail at all: a single terminal segment is plain text
-    // with nothing to click, and it made 使用說明 appear three times above the
-    // fold — tab, crumb, h1.
-    expectHeader(utils, []);
-    expect(utils.container.querySelector("nav.crumbs")).toBeNull();
-    // The page is still HEADED by 使用說明, and now exactly once.
-    expect(utils.getByRole("heading", { name: g.title })).toBeTruthy();
-    expect(utils.getAllByRole("heading", { name: g.title })).toHaveLength(1);
+    expectHeader(utils, ["設定", "使用說明"]);
+    expect(utils.getAllByRole("heading", { name: "使用說明" })).toHaveLength(1);
 
-    // Open the doc — its markdown renders and its title trails the crumb.
     const entry = entries[0];
     const docTitle = entry.textContent ?? "";
     fireEvent.click(entry);
     await waitForDocBody(utils, docTitle);
-    expectHeader(utils, [g.title, docTitle]);
+    expectHeader(utils, ["設定", "使用說明", docTitle]);
 
-    // The 使用說明 crumb jumps back to the list.
-    fireEvent.click(utils.getByRole("button", { name: g.title }));
+    fireEvent.click(utils.getByRole("button", { name: "設定" }));
+    expect(onRoot).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(utils.getByRole("button", { name: "使用說明" }));
     await utils.findAllByTestId("guide-doc-entry");
-    expectHeader(utils, []);
+    expectHeader(utils, ["設定", "使用說明"]);
+    expect(window.location.hash).toBe("#settings/guide");
   });
 
   // The server derives a doc's title FROM its first `# ` heading (api_docs.go
@@ -123,37 +118,19 @@ describe("使用說明 · page header + navigation", () => {
     expect(
       utils.container.querySelectorAll(".settings__title--doc"),
     ).toHaveLength(0);
-    // Navigation: the trail ends on this doc and offers 使用說明 as a real button back to the list.
-    expectHeader(utils, [g.title, docTitle]);
-    expect(utils.getByRole("button", { name: g.title })).toBeTruthy();
-
-    // ...and the landmark a screen reader announces is this page's region, not
-    // 設定. Breadcrumbs.test.tsx pins the component's rule; this pins the real
-    // page's WIRING, which is what was actually wrong: promoting the guide out
-    // of Settings left the trail announcing 設定 here. Queried by role+name
-    // because an aria-label is not a text node.
-    expect(
-      utils.getByRole("navigation", { name: g.title }),
-      "the guide's breadcrumb landmark must be named after the guide",
-    ).toBeTruthy();
-    expect(
-      utils.queryByRole("navigation", { name: zh.settings.title }),
-      "no landmark on the guide tab may announce itself as 設定",
-    ).toBeNull();
+    expectHeader(utils, ["設定", "使用說明", docTitle]);
+    expect(utils.getByRole("button", { name: "使用說明" })).toBeTruthy();
+    expect(utils.getByRole("navigation", { name: "設定" })).toBeTruthy();
   });
 
-  // NEW with the promotion to a tab. As a settings sub-page the open doc lived
-  // in a local useState with no route, so a refresh (or the top-bar reload
-  // button, which is a full reload) silently dropped the reader back to the
-  // list and no doc could be linked to.
-  it("the open doc is in the URL (#guide/<slug>), so it survives a reload", async () => {
+  it("the open doc is in the URL (#settings/guide/<slug>), so it survives a reload", async () => {
     const utils = renderGuide();
     const entries = await utils.findAllByTestId("guide-doc-entry");
     fireEvent.click(entries[0]);
     const docTitle = entries[0].textContent ?? "";
     await waitForDocBody(utils, docTitle);
     await waitFor(() => {
-      expect(window.location.hash).toMatch(/^#guide\/.+/);
+      expect(window.location.hash).toMatch(/^#settings\/guide\/.+/);
     });
     const deepLink = window.location.hash;
 
@@ -162,16 +139,16 @@ describe("使用說明 · page header + navigation", () => {
     history.replaceState(null, "", window.location.pathname + deepLink);
     const reloaded = renderGuide();
     await waitForDocBody(reloaded, docTitle);
-    expectHeader(reloaded, [g.title, docTitle]);
+    expectHeader(reloaded, ["設定", "使用說明", docTitle]);
   });
 
   // A slug that is not embedded must not fabricate a doc; the page reports the
   // honest load error and the crumb still walks back to the list.
   it("an unknown slug in the hash self-heals to an error, not a fake doc", async () => {
-    history.replaceState(null, "", window.location.pathname + "#guide/nope");
+    history.replaceState(null, "", window.location.pathname + "#settings/guide/nope");
     const utils = renderGuide();
     await utils.findByText(g.loadError);
-    fireEvent.click(utils.getByRole("button", { name: g.title }));
+    fireEvent.click(utils.getByRole("button", { name: "使用說明" }));
     await utils.findAllByTestId("guide-doc-entry");
   });
 });
@@ -206,7 +183,7 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
 
     // The destination doc is showing, and the crumb trail followed it.
     await waitForDocBody(utils, "為什麼是 OffiCraft");
-    expectHeader(utils, [g.title, "為什麼是 OffiCraft"]);
+    expectHeader(utils, ["設定", "使用說明", "為什麼是 OffiCraft"]);
   });
 
   it("chains: doc → doc → doc, each hop landing on the linked doc", async () => {
@@ -216,7 +193,7 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
     await waitForDocBody(utils, "介面說明");
     fireEvent.click(utils.getByRole("button", { name: "為什麼是 OffiCraft" }));
     await waitForDocBody(utils, "為什麼是 OffiCraft");
-    expectHeader(utils, [g.title, "為什麼是 OffiCraft"]);
+    expectHeader(utils, ["設定", "使用說明", "為什麼是 OffiCraft"]);
   });
 
   // The same doc is reachable by two different written forms, because the
@@ -229,7 +206,7 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
     await openDoc(utils, "為什麼是 OffiCraft");
     fireEvent.click(utils.getByRole("button", { name: "介面說明(長路徑)" }));
     await waitForDocBody(utils, "介面說明");
-    expectHeader(utils, [g.title, "介面說明"]);
+    expectHeader(utils, ["設定", "使用說明", "介面說明"]);
   });
 
   // settings.css's `.md-doclink` rationale states WHERE the post-click URL
@@ -244,19 +221,19 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
   it("the post-click hash is the target's BASENAME, and only for a shipped doc", async () => {
     const utils = renderGuide();
     await openDoc(utils, "為什麼是 OffiCraft");
-    expect(window.location.hash).toBe("#guide/why");
+    expect(window.location.hash).toBe("#settings/guide/why");
 
     fireEvent.click(utils.getByRole("button", { name: "介面說明" }));
     await waitForDocBody(utils, "介面說明");
-    expect(window.location.hash).toBe("#guide/interface");
+    expect(window.location.hash).toBe("#settings/guide/interface");
 
     // The long-path form of the same target: same basename → same URL. If the
-    // directory prefix reached the hash, this would read #guide/docs/guide/….
+    // directory prefix reached the hash, this would read …/guide/docs/guide/….
     fireEvent.click(utils.getByRole("button", { name: "為什麼是 OffiCraft" }));
     await waitForDocBody(utils, "為什麼是 OffiCraft");
     fireEvent.click(utils.getByRole("button", { name: "介面說明(長路徑)" }));
     await waitForDocBody(utils, "介面說明");
-    expect(window.location.hash).toBe("#guide/interface");
+    expect(window.location.hash).toBe("#settings/guide/interface");
 
   });
 
@@ -306,11 +283,11 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
   it("browser Back lands at the top too, not at the old offset", async () => {
     const utils = renderGuide();
     await openDoc(utils, "為什麼是 OffiCraft");
-    expect(window.location.hash).toBe("#guide/why");
+    expect(window.location.hash).toBe("#settings/guide/why");
 
     fireEvent.click(utils.getByRole("button", { name: "介面說明" }));
     await waitForDocBody(utils, "介面說明");
-    expect(window.location.hash).toBe("#guide/interface");
+    expect(window.location.hash).toBe("#settings/guide/interface");
 
     // The reader scrolls down inside the doc they navigated TO...
     const box = utils.container.querySelector(".settings") as HTMLElement;
@@ -321,7 +298,7 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
     // assigns window.location.hash, which pushes an entry and fires hashchange.
     history.back();
     await waitFor(() => {
-      expect(window.location.hash).toBe("#guide/why");
+      expect(window.location.hash).toBe("#settings/guide/why");
     });
     await waitForDocBody(utils, "為什麼是 OffiCraft");
 
@@ -338,7 +315,7 @@ describe("使用說明 · in-app doc links (T-68f1)", () => {
     // served — `docs.some(...)` declines it, so it is not even a control and
     // the URL has no way to acquire it.
     const parked = window.location.hash;
-    expect(parked).toBe("#guide/install");
+    expect(parked).toBe("#settings/guide/install");
     expect(
       utils.queryByRole("button", { name: "../dev/agent-env.md" }),
     ).toBeNull();

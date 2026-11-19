@@ -1,10 +1,11 @@
-// T-8f6e 設定導航統一 — EVERY settings page heads with the shared breadcrumb
-// (「設定 › 子頁 › …」, each parent segment clickable back up the tree) with
-// the page title directly below, and no 返回 back button.
+// T-8f6e 設定導航統一 — every settings sub-page heads with the shared
+// breadcrumb (「設定 › 子頁 › …」, each parent segment clickable back up the
+// tree) with the page title directly below, and no 返回 back button. The
+// landing itself has no breadcrumb.
 //
 //   1. Per-page header assertions: landing / 系統更新與備份 / 角色誌 / 角色詳情 /
-//      系統互動·使用者自訂·啟動步驟 / 任務手冊 (list + hub) / 參數調整 all
-//      render the breadcrumb and NO back button.
+//      系統互動·使用者自訂·啟動步驟 / 任務手冊 (list + hub) / 參數調整 /
+//      使用說明 (list + doc).
 //   2. Crumb jumps: a parent segment click lands on that page; jumps that have
 //      a hash route (#settings / #settings/roles) also write the hash through
 //      lib/hashRoute so the URL follows.
@@ -12,7 +13,7 @@
 // Runs against the REAL mock adapter, like the sibling SettingsPage tests.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
@@ -50,13 +51,24 @@ beforeEach(() => {
 });
 
 describe("SettingsPage · unified breadcrumb header (T-8f6e)", () => {
-  it("landing: single 設定 segment with the title below", async () => {
+  it("landing: no breadcrumb nav, only the 設定 title", async () => {
     const utils = renderSettings();
-    expectHeader(utils, [s.title]);
-    // Title sits below the crumbs — and the landing's crumb is the current
-    // page (plain text), so the only 設定 button would be none.
-    expect(utils.getByRole("heading", { name: s.title })).toBeTruthy();
-    expect(utils.queryByRole("button", { name: s.title })).toBeNull();
+    expect(utils.container.querySelector("nav.crumbs")).toBeNull();
+    expect(utils.getByRole("heading", { name: "設定" })).toBeTruthy();
+    expect(utils.queryByRole("button", { name: "設定" })).toBeNull();
+  });
+
+  it("#settings/guide/<slug>: that doc under 設定 › 使用說明 › <doc>", async () => {
+    history.replaceState(null, "", window.location.pathname + "#settings/guide/why");
+    const utils = renderSettings();
+    await waitFor(() => {
+      expect(utils.container.querySelector(".doc-md h1")?.textContent).toBe(
+        "為什麼是 OffiCraft",
+      );
+    });
+    expectHeader(utils, ["設定", "使用說明", "為什麼是 OffiCraft"]);
+    expect(utils.getByRole("button", { name: "設定" })).toBeTruthy();
+    expect(utils.getByRole("button", { name: "使用說明" })).toBeTruthy();
   });
 
   it("系統更新與備份: 設定 › 系統更新與備份 + title, no back button", async () => {
@@ -169,6 +181,20 @@ describe("SettingsPage · unified breadcrumb header (T-8f6e)", () => {
 });
 
 describe("SettingsPage · crumb jumps write the hash (lib/hashRoute)", () => {
+  it("使用說明 row: opens the list under 設定 › 使用說明; its 設定 crumb returns to the landing", async () => {
+    const utils = renderSettings();
+    expect(utils.getByTestId("settings-guide-entry").textContent).toBe("使用說明");
+    fireEvent.click(utils.getByTestId("settings-guide-entry"));
+    expect(window.location.hash).toBe("#settings/guide");
+    await utils.findAllByTestId("guide-doc-entry");
+    expectHeader(utils, ["設定", "使用說明"]);
+
+    fireEvent.click(utils.getByRole("button", { name: "設定" }));
+    expect(await utils.findByTestId("settings-guide-entry")).toBeTruthy();
+    expect(window.location.hash).toBe("#settings");
+    expect(utils.container.querySelector("nav.crumbs")).toBeNull();
+  });
+
   it("設定 crumb: back to the landing, hash → #settings", async () => {
     const utils = renderSettings();
     fireEvent.click(utils.getByTestId("settings-params-entry"));

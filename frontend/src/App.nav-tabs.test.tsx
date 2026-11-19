@@ -1,20 +1,4 @@
 // 主導覽分頁 — the tab strip itself.
-//
-// Added when 使用說明 was promoted out of Settings into a top-level tab
-// (owner 2026-07-22:「user guide 改放在 tab 中,監控的右邊,不要放在 settings
-// 裡」). What is locked here is the part a screenshot conveys and a component
-// test otherwise cannot:
-//   1. ORDER — 辦公室 / 請示 / 任務 / 密鑰 / 檔案庫 / 傳承 / 監控 / 使用說明, with 使用說明 LAST,
-//      i.e. immediately to the right of 監控. The owner's红框 was a position, so
-//      position is the requirement; "the tab exists somewhere" would not be.
-//      T-33 inserted 傳承 between 任務 and 監控. That is a WIDENING of the strip,
-//      not a reversal of the ruling this test was written for: the ruling was
-//      about where 使用說明 sits relative to 監控, and the second assertion
-//      below — the one that states it as a RELATION rather than a literal list
-//      — is the one that carries it and is untouched.
-//   2. It routes: clicking it writes #guide and renders the guide page.
-//   3. It is a NAV tab, not a settings sub-page — opening Settings deactivates
-//      it, exactly like every sibling tab.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, screen, waitFor, act } from "@testing-library/react";
@@ -36,11 +20,8 @@ vi.mock("./components/OfficePage", () => ({ OfficePage: () => null }));
 vi.mock("./components/RepliesPage", () => ({ RepliesPage: () => null }));
 vi.mock("./components/TasksPage", () => ({ TasksPage: () => null }));
 vi.mock("./components/MonitorPage", () => ({ MonitorPage: () => null }));
-vi.mock("./components/SettingsPage", () => ({ SettingsPage: () => null }));
-// The guide body itself is exercised in GuidePage.test.tsx; here we only need
-// to see WHICH page App mounted.
-vi.mock("./components/UserGuidePage", () => ({
-  GuidePage: () => <div data-testid="guide-page" />,
+vi.mock("./components/SettingsPage", () => ({
+  SettingsPage: () => <div data-testid="settings-page" />,
 }));
 
 import App from "./App";
@@ -97,56 +78,31 @@ describe("主導覽分頁", () => {
     expect(tab?.querySelector("svg")).toBeNull();
   });
 
-  it("使用說明 is the last tab, immediately right of 監控", () => {
+  it("the nav row is 辦公室 / 請示 / 任務 / 密鑰 / 檔案庫 / 傳承 / 監控, in that order", () => {
     renderApp();
-    const labels = tabLabels();
-    expect(labels).toEqual([
-      zh.nav.office,
-      zh.nav.replies,
-      zh.nav.tasks,
-      zh.nav.secrets,
-      zh.nav.sharedDocs,
-      zh.nav.lore,
-      zh.nav.monitor,
-      zh.nav.guide,
+    expect(tabLabels()).toEqual([
+      "辦公室",
+      "請示",
+      "任務",
+      "密鑰",
+      "檔案庫",
+      "傳承",
+      "監控",
     ]);
-    expect(labels.indexOf(zh.nav.guide)).toBe(
-      labels.indexOf(zh.nav.monitor) + 1,
-    );
   });
 
-  // Every nav tab navigates through the hash (lib/hashRoute), and the browser
-  // delivers `hashchange` asynchronously — hence the await. That is the
-  // pre-existing mechanism, not something this tab introduced.
-  it("selecting it routes to #guide and mounts the guide page", async () => {
-    renderApp();
-    expect(screen.queryByTestId("guide-page")).toBeNull();
-    fireEvent.click(screen.getByText(zh.nav.guide));
-    expect(window.location.hash).toBe("#guide");
-    expect(await screen.findByTestId("guide-page")).toBeTruthy();
-    expect(
-      screen.getByText(zh.nav.guide).closest(".nav-tab")?.className,
-    ).toContain("nav-tab--active");
-  });
-
-  it("a #guide/<slug> deep link opens the guide tab", () => {
-    history.replaceState(null, "", window.location.pathname + "#guide/why");
-    renderApp();
-    expect(screen.getByTestId("guide-page")).toBeTruthy();
-    expect(
-      screen.getByText(zh.nav.guide).closest(".nav-tab")?.className,
-    ).toContain("nav-tab--active");
-  });
-
-  it("opening Settings deactivates it, like every other tab", () => {
-    history.replaceState(null, "", window.location.pathname + "#guide");
-    renderApp();
-    fireEvent.click(screen.getByLabelText("settings"));
-    expect(screen.queryByTestId("guide-page")).toBeNull();
-    expect(
-      screen.getByText(zh.nav.guide).closest(".nav-tab")?.className,
-    ).not.toContain("nav-tab--active");
-  });
+  it.each(["#settings/guide/why", "#guide/why"])(
+    "%s opens Settings with the gear active and no nav tab active",
+    (hash) => {
+      history.replaceState(null, "", window.location.pathname + hash);
+      renderApp();
+      expect(screen.getByTestId("settings-page")).toBeTruthy();
+      expect(screen.getByLabelText("settings").className).toContain(
+        "icon-btn--active",
+      );
+      expect(document.querySelector(".nav-tabs .nav-tab--active")).toBeNull();
+    },
+  );
 
   it("a #shared-docs/<id> deep link opens that shared doc under the 檔案庫 tab", async () => {
     history.replaceState(null, "", window.location.pathname + "#shared-docs/sd-3f9a2c71b0e4");

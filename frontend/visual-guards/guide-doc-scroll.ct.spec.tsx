@@ -1,7 +1,7 @@
 // HOTSPOT — following an in-app doc link must land the reader at the TOP of the
 // new document, in a REAL browser (T-68f1 · fixround5 G1).
 //
-// The defect, measured on a live server at 1280×800: from #guide/why, clicking
+// The defect, measured on a live server at 1280×800: from the why doc, clicking
 // 介面說明 switched the URL and the body correctly, but `.settings`.scrollTop
 // went 1759 → 1749 (it only moved because the new doc is shorter and the
 // browser clamped it). The reader was dropped into the MIDDLE of a document

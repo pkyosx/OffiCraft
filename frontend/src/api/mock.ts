@@ -1176,7 +1176,7 @@ function withManualSizes(m: StoredTaskManual): TaskManualView {
   };
 }
 
-// Product-guide docs (the 使用說明 nav tab) — a representative fixture so mock-mode
+// Product-guide docs (設定 › 使用說明) — a representative fixture so mock-mode
 // (dev screenshots / vitest) renders the same list→doc flow the real embed
 // serves. NOT the authoritative content (that is docs/guide/, embedded
 // server-side); real-SHAPED docs keep the mock honest about the shape.
@@ -1410,7 +1410,7 @@ const mockDocs: DocView[] = [
     title: "介面說明",
     markdownMd:
       "# 介面說明\n\n" +
-      "控制台的主導覽有辦公室、請示、任務、監控、使用說明五個分頁,設定在右上角的齒輪裡。\n\n" +
+      "控制台的主導覽有辦公室、請示、任務、密鑰、檔案庫、傳承、監控七個分頁,設定與使用說明在右上角的齒輪裡。\n\n" +
       "想知道為什麼這樣設計 → [為什麼是 OffiCraft](why.md)\n\n" +
       "你正在看的就是這一份 → [介面說明(本頁)](interface.md)\n\n" +
       "專案首頁 → [GitHub](https://github.com/pkyosx/OffiCraft)\n",
@@ -1422,7 +1422,7 @@ const mockDocs: DocView[] = [
       "# 為什麼是 OffiCraft\n\n" +
       "OffiCraft 是一間跑在你自己 Mac 上的 AI 工作室。\n\n" +
       "## 使用說明\n\n" +
-      "在主導覽最右邊的「使用說明」分頁裡閱讀各項功能的說明。\n\n" +
+      "在「設定 › 使用說明」裡閱讀各項功能的說明。\n\n" +
       "- 介面上的欄位是什麼意思 → [介面說明](interface.md)\n" +
       "- 同一份、從 repo root 看的路徑 → [介面說明(長路徑)](docs/guide/interface.md)\n" +
       "- 完整安裝、升級與移除 → [安裝、升級與移除](install.md)\n" +

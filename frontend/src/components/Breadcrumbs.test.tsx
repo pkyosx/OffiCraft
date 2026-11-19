@@ -42,7 +42,7 @@ describe("Breadcrumbs", () => {
     expect(here.className).toContain("manual-key");
   });
 
-  it("a single-segment breadcrumb (the 設定 root) renders as the current page only", () => {
+  it("a single-segment breadcrumb renders as the current page only", () => {
     const utils = renderCrumbs([{ label: "設定" }]);
     const here = utils.getByText("設定");
     expect(here.tagName).not.toBe("BUTTON");
@@ -69,11 +69,9 @@ describe("Breadcrumbs", () => {
 });
 
 // The landmark's ACCESSIBLE NAME — deliberately queried by role+name, never by
-// text. An aria-label is not a text node, which is why the whole suite (and
-// GuidePage's `queryByText("設定") === null`, written to prove the guide had
-// left Settings) sailed over a landmark that was still announcing 設定 on the
-// 使用說明 tab. Every assertion below reads what a screen reader would compute,
-// so a name that drifts away from the visible trail reddens here.
+// text: an aria-label is not a text node. Every assertion below reads what a
+// screen reader would compute, so a name that drifts away from the visible
+// trail reddens here.
 describe("Breadcrumbs · the landmark's accessible name", () => {
   it("is the trail's own root, so it names the region the reader is in", () => {
     // Settings tree → 設定.
@@ -91,15 +89,14 @@ describe("Breadcrumbs · the landmark's accessible name", () => {
     // reason. (It did, on the first run of this test.)
     s.unmount();
 
-    // 使用說明 tab → 使用說明. This is the case the pack broke: same component,
-    // different region, and the name must follow the region, not the component.
+    // Same component, different root: the name follows the root.
     const g = renderCrumbs([
       { label: "使用說明", onClick: () => {} },
       { label: "介面說明" },
     ]);
     expect(
       g.getByRole("navigation", { name: "使用說明" }),
-      "the guide trail's landmark must be named 使用說明, not 設定"
+      "a trail rooted at 使用說明 must be named 使用說明, not 設定"
     ).toBeTruthy();
     expect(
       g.queryByRole("navigation", { name: "設定" }),

@@ -30,8 +30,6 @@
  *   #secrets                                      → Secrets page
  *   #monitor                                      → monitor page
  *   #monitor/member/<detailId>                    → monitor's member detail
- *   #guide                                        → 使用說明 (product guide) list
- *   #guide/<docSlug>                              → that guide doc
  *   #settings                                     → settings overlay
  *   #settings/roles                               → settings, opened on the
  *                                                   角色誌 (roles) list (deep-link)
@@ -41,6 +39,12 @@
  *                                                   role's definition page
  *   #settings/manuals/<typeKey>                   → settings, opened on that
  *                                                   task manual's hub (deep-link)
+ *   #settings/guide                               → settings, 使用說明 (product
+ *                                                   guide) list
+ *   #settings/guide/<docSlug>                     → settings, that guide doc
+ *   #guide, #guide/<docSlug>                      → legacy aliases of the two
+ *                                                   above (links already pasted
+ *                                                   into chats and docs)
  *
  * Unknown / malformed hashes parse to the office home (self-healing — a stale
  * id inside a valid shape is healed by the consuming page when the lookup
@@ -58,7 +62,6 @@ export interface HashRoute {
     | "shared_docs"
     | "secrets"
     | "monitor"
-    | "guide"
     | "settings";
   /** replies only — the card to show (e.g. a Web Push tap, or a link an agent
    * pasted into chat).
@@ -124,13 +127,12 @@ export interface HashRoute {
    * literally keyed "new" cannot be deep-linked (owner-minted keys never
    * are). A stale/unknown key self-heals to the roles list (SettingsPage). */
   roleKey?: string;
-  /** guide only — the doc being read (#guide/<slug>). Absent → the doc LIST.
-   * The guide is a top-level tab (owner: "user guide 改放在 tab 中,監控的右邊"),
-   * so unlike its previous life as a settings sub-page it needs a route of its
-   * own: without one a refresh, or the top-bar reload button, would drop the
-   * reader back to the list, and no doc would be linkable. An unknown slug
-   * self-heals to the list on the consuming page (the doc index is the
-   * existence check). */
+  /** settings only — the 使用說明 (product guide) is open (#settings/guide).
+   * Owner ruling: the guide lives in Settings, not in a nav tab. */
+  settingsGuide?: boolean;
+  /** settings only, requires settingsGuide — the doc being read
+   * (#settings/guide/<slug>); absent → the doc list. An unknown slug is
+   * answered by the guide page with its load error. */
   guideSlug?: string;
   /** shared_docs only — the document open (#shared-docs/<id>); absent → the
    * list. An unknown id is answered by the page, not healed here. */
@@ -169,6 +171,12 @@ function decodeSegment(seg: string): string {
   }
 }
 
+function guideRoute(slug: string | undefined): HashRoute {
+  return slug
+    ? { page: "settings", settingsGuide: true, guideSlug: slug }
+    : { page: "settings", settingsGuide: true };
+}
+
 export function parseHash(raw: string): HashRoute {
   const segs = raw
     .replace(/^#/, "")
@@ -177,7 +185,10 @@ export function parseHash(raw: string): HashRoute {
     .map(decodeSegment);
   const [head, ...rest] = segs;
 
+  if (head === "guide") return guideRoute(rest[0]);
+
   if (head === "settings") {
+    if (rest[0] === "guide") return guideRoute(rest[1]);
     if (rest[0] === "manuals" && rest[1]) {
       return { page: "settings", manualKey: rest[1] };
     }
@@ -234,10 +245,6 @@ export function parseHash(raw: string): HashRoute {
     return { page: "secrets" };
   }
 
-  if (head === "guide") {
-    return rest[0] ? { page: "guide", guideSlug: rest[0] } : { page: "guide" };
-  }
-
   if (head === "monitor") {
     if (rest[0] === "member" && rest[1]) {
       return { page: "monitor", detailId: rest[1] };
@@ -280,6 +287,10 @@ export function parseHash(raw: string): HashRoute {
 
 export function formatHash(route: HashRoute): string {
   if (route.page === "settings") {
+    if (route.settingsGuide)
+      return route.guideSlug
+        ? `#settings/guide/${encodeURIComponent(route.guideSlug)}`
+        : "#settings/guide";
     if (route.manualKey)
       return `#settings/manuals/${encodeURIComponent(route.manualKey)}`;
     if (route.settingsRoles) {
@@ -310,11 +321,6 @@ export function formatHash(route: HashRoute): string {
       ? `#shared-docs/${encodeURIComponent(route.sharedDocId)}`
       : "#shared-docs";
   if (route.page === "secrets") return "#secrets";
-  if (route.page === "guide") {
-    return route.guideSlug
-      ? `#guide/${encodeURIComponent(route.guideSlug)}`
-      : "#guide";
-  }
   if (route.page === "monitor") {
     return route.detailId
       ? `#monitor/member/${encodeURIComponent(route.detailId)}`
