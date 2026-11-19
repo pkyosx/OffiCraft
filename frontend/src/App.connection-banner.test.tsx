@@ -84,6 +84,7 @@ describe("App · ConnectionBanner wiring", () => {
     const tabs = container.querySelector(".nav-tabs");
     expect(tabs, "the tab strip rendered").not.toBe(null);
     for (const id of ["connection-banner-mount", "build-update-banner-mount"]) {
+      expect(getByTestId(id).parentElement?.className).toBe("app__notices");
       // DOCUMENT_POSITION_FOLLOWING: the tab strip comes AFTER the banner.
       expect(
         getByTestId(id).compareDocumentPosition(tabs as Node) &
