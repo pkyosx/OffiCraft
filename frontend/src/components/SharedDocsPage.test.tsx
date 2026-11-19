@@ -227,7 +227,7 @@ describe("SharedDocsPage", () => {
     ).toEqual(["shared-doc-id"]);
   });
 
-  it("the name opens the content itself, a link in a new tab and a file or image in the preview over the list with the preview's own actions plus 編輯 on any text file, and 最後修改 opens the doc's page", async () => {
+  it("the name opens the content itself, a link in a new tab and a file or image in the preview over the list with the preview's own actions plus 編輯 on any text file, and 最後修改 opens the doc's version history over the list, a restore there showing on the row", async () => {
     const contractId = await createUploaded("file", "Contract", "contract.pdf", "pdf");
     const shotId = await createUploaded("image", "Shot", "shot.png", "png");
     const configId = await createUploaded("file", "Config", "ci.yaml", "# keep\nkey:  v\n");
@@ -318,7 +318,18 @@ describe("SharedDocsPage", () => {
       "查看版本紀錄",
     ]);
     fireEvent.click(updated);
-    expect(window.location.hash).toBe("#shared-docs/sd-3f9a2c71b0e4");
+    fireEvent.click(await waitFor(() => within(document.body).getByTestId("sd-versions-open-1")));
+    fireEvent.click(await waitFor(() => within(document.body).getByTestId("doc-history-modal-restore")));
+    fireEvent.click(within(document.body).getByTestId("doc-history-restore-confirm-btn"));
+    await waitFor(() => expect(document.body.querySelector("[data-testid='sd-versions-list']")).toBeNull());
+    const restored = await api.getSharedDoc("sd-3f9a2c71b0e4");
+    expect(restored.attachmentId).toBe("att-5d0c11a2b3b0");
+    await waitFor(() =>
+      expect(within(row("sd-3f9a2c71b0e4")).getByTestId("shared-doc-updated").textContent).toBe(
+        `CEO（你） · ${formatAbsolute(restored.updatedTs, Math.floor(Date.now() / 1000))}`,
+      ),
+    );
+    expect(window.location.hash).toBe("#shared-docs");
   });
 
   it("a member's token gets no 永久刪除", async () => {

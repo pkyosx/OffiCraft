@@ -23,6 +23,7 @@ import {
 } from "./SharedDocDetail";
 import { kindMismatchMessage, sharedDocKindForFile } from "./SharedDocFormDialog";
 import { MarkdownPreviewOverlay, PreviewShell } from "./MarkdownPreviewOverlay";
+import { SharedDocVersionsModal } from "./SharedDocVersionsModal";
 import {
   CheckIcon,
   CloseIcon,
@@ -438,7 +439,8 @@ function SharedDocEditOverlay({
   );
 }
 
-/** 最後修改 is the way into the doc's own page: its versions and description. */
+/** 最後修改 opens the doc's version history over the list. The doc's own
+ * page (#shared-docs/<id>) is where a shared link lands. */
 function UpdatedButton({ text, onOpen }: { text: string; onOpen: () => void }) {
   const { t } = useI18n();
   const d = t.sharedDocs;
@@ -615,20 +617,12 @@ export function SharedDocsPage({ docId }: { docId?: string }) {
       />
     );
   }
-  return (
-    <SharedDocList actorName={actorName} onOpen={(id) => setRoute({ page: "shared_docs", sharedDocId: id })} />
-  );
+  return <SharedDocList actorName={actorName} />;
 }
 
 type PickTarget = { mode: "create" } | { mode: "replace"; doc: SharedDocView };
 
-function SharedDocList({
-  actorName,
-  onOpen,
-}: {
-  actorName: (id: string) => string;
-  onOpen: (id: string) => void;
-}) {
+function SharedDocList({ actorName }: { actorName: (id: string) => string }) {
   const { t, msg } = useI18n();
   const d = t.sharedDocs;
   const { docs, loading, loadError, reload } = useSharedDocs(d.loadFailed);
@@ -640,6 +634,7 @@ function SharedDocList({
   const [preview, setPreview] = useState<SharedDocView | null>(null);
   const [editing, setEditing] = useState<SharedDocView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SharedDocView | null>(null);
+  const [historyId, setHistoryId] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [flashed, flash] = useFlash();
@@ -823,7 +818,7 @@ function SharedDocList({
                   <td className="shared-docs__updated">
                     <UpdatedButton
                       text={msg.sharedDocUpdated(actorName(doc.updatedBy), formatAbsolute(doc.updatedTs, nowSecs))}
-                      onOpen={() => onOpen(doc.id)}
+                      onOpen={() => setHistoryId(doc.id)}
                     />
                   </td>
                   <td className="shared-docs__col-actions">
@@ -876,6 +871,14 @@ function SharedDocList({
             setEditing(null);
             pick({ mode: "replace", doc: editing });
           }}
+        />
+      )}
+      {historyId !== null && (
+        <SharedDocVersionsModal
+          docId={historyId}
+          actorName={actorName}
+          onRestored={() => void reload()}
+          onClose={() => setHistoryId(null)}
         />
       )}
       {infoDoc && (
