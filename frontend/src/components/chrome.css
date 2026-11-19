@@ -196,14 +196,6 @@
   color: var(--color-text-muted);
 }
 
-/* The vertical padding is SYMMETRIC (7px + 7px = the 2px + 12px it replaces, so
-   nothing below moves) — T-081b round 10, owner ruling. Asymmetric padding sat
-   the rounded .nav-tabs__seg frame visibly high inside the band. Under the
-   built-in dark theme the band is the same colour as the page, so nothing showed
-   it; a light pack that gives --color-nav-bg its own colour makes the band
-   visible and the offset with it. Any future change here must keep the two sides
-   equal — pinned in visual-guards/nav-tabs-narrow.ct.spec.tsx, which measures the
-   band in a real browser rather than reading this declaration. */
 /* The banners above the tabs sit in a band of the column's own colour, so the
    page canvas does not show through between the top bar and the tabs. */
 .app__notices {
@@ -218,6 +210,14 @@
   display: none;
 }
 
+/* The vertical padding is SYMMETRIC (7px + 7px = the 2px + 12px it replaces, so
+   nothing below moves) — T-081b round 10, owner ruling. Asymmetric padding sat
+   the rounded .nav-tabs__seg frame visibly high inside the band. Under the
+   built-in dark theme the band is the same colour as the page, so nothing showed
+   it; a light pack that gives --color-nav-bg its own colour makes the band
+   visible and the offset with it. Any future change here must keep the two sides
+   equal — pinned in visual-guards/nav-tabs-narrow.ct.spec.tsx, which measures the
+   band in a real browser rather than reading this declaration. */
 .nav-tabs {
   display: flex;
   padding: 7px 22px;

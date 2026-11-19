@@ -2,9 +2,9 @@
    down", "the server was updated").
 
    Sits in the column band between the topbar and the tabs (.app__notices in
-   chrome.css), in the app's warn tint. It is deliberately part of the document flow rather than a floating
-   toast: a toast that auto-dismisses would be worse than nothing here, because
-   the conditions it reports do not auto-dismiss. */
+   chrome.css), in the app's warn tint. It is deliberately part of the document
+   flow rather than a floating toast: a toast that auto-dismisses would be worse
+   than nothing here, because the conditions it reports do not auto-dismiss. */
 
 .status-banner {
   display: flex;
