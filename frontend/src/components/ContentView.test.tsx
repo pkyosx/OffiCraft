@@ -71,6 +71,17 @@ describe("ContentView", () => {
     const bad = mount({ kind: "yaml", text: broken, testId: "body" });
     await waitFor(() => expect(statusText(bad.container)).toEqual([p.yamlUnparseable]));
     expect(bad.getByTestId("body").textContent).toBe(broken);
+
+    const fixed = "a:\n  b: 1\n  c: 2\n";
+    bad.rerender(
+      <I18nProvider>
+        <div data-testid="host">
+          <ContentView kind="yaml" text={fixed} testId="body" />
+        </div>
+      </I18nProvider>,
+    );
+    expect(statusText(bad.container)).toEqual([]);
+    expect(bad.getByTestId("body").textContent).toBe(fixed);
   });
 
   it("lays CSV out as a table with the first row as its header, padding short rows, every cell as text even when it reads as markup", () => {
