@@ -9,11 +9,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
-	"slices"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -964,11 +967,85 @@ func (g pidGuardRunner) Run(name string, args ...string) (string, error) {
 	call := strings.Join(append([]string{name}, args...), " ")
 	yieldsPIDs := name == "ps" || name == "lsof" || name == "pgrep" ||
 		strings.Contains(call, "#{pane_pid}") || strings.Contains(call, "list-panes")
-	if yieldsPIDs && strings.TrimSpace(out) != "" {
+	if yieldsPIDs && strings.TrimSpace(out) != "" && !onlyStandInPIDs(out) {
 		g.t.Errorf("the fake runner answered %q with %q: the real stop() would signal those pids", call, out)
 		return "", err
 	}
 	return out, err
+}
+
+var standInPIDs sync.Map
+
+// onlyStandInPIDs admits an lsof answer naming nothing but stand-in listeners.
+func onlyStandInPIDs(out string) bool {
+	for _, ln := range strings.Split(strings.TrimSpace(out), "\n") {
+		if !strings.HasPrefix(ln, "p") {
+			continue
+		}
+		pid, err := strconv.Atoi(ln[1:])
+		if err != nil {
+			return false
+		}
+		if _, ok := standInPIDs.Load(pid); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// startStandInListener runs a real process in workdir, standing in
+// for a leftover `ocagent listen`: the production sweep signals every pid it
+// finds, so the only pid it may find is one this test owns. Where the sweep asks
+// lsof, the fake runner answers with that pid. The returned func waits for the
+// process and reports the signal that ended it.
+func startStandInListener(t *testing.T, r *wardenRunner, workdir string) func() syscall.Signal {
+	t.Helper()
+	bin := "/bin/sleep"
+	if runtime.GOOS == "linux" {
+		// The proc sweep matches the process name. macOS kills a copied system
+		// binary on exec, and its sweep reads the fake lsof, so only Linux copies.
+		raw, err := os.ReadFile(bin)
+		if err != nil {
+			t.Fatalf("read %s: %v", bin, err)
+		}
+		bin = filepath.Join(t.TempDir(), "ocagent")
+		if err := os.WriteFile(bin, raw, 0o755); err != nil {
+			t.Fatalf("stage the stand-in listener: %v", err)
+		}
+	}
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "60")
+	cmd.Dir = workdir
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start the stand-in listener: %v", err)
+	}
+	pid := cmd.Process.Pid
+	standInPIDs.Store(pid, true)
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	t.Cleanup(func() { _ = cmd.Process.Kill(); <-exited; standInPIDs.Delete(pid) })
+	if runtime.GOOS != "linux" {
+		const lsofCmd = "lsof -a -c ocagent -d cwd -F pn"
+		if r.script == nil {
+			r.script = map[string]wardenRun{}
+		}
+		prev := r.script[lsofCmd]
+		prev.out += "p" + strconv.Itoa(pid) + "\nn" + workdir + "\n"
+		r.script[lsofCmd] = prev
+	}
+	return func() syscall.Signal {
+		select {
+		case <-exited:
+		case <-time.After(10 * time.Second):
+			return 0
+		}
+		if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			return ws.Signal()
+		}
+		return 0
+	}
 }
 
 func TestBuildCommandDeps(t *testing.T) {
@@ -1058,6 +1135,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
 			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
 		}}
+		leftover := startStandInListener(t, runner, filepath.Join(box, "agents", "m1"))
 		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, pidGuardRunner{t, runner}, nil, nil)
 
 		slept = 0
@@ -1094,14 +1172,10 @@ func TestBuildCommandDeps(t *testing.T) {
 		if n := countCalls(runner.calls, "new-session -d -s member-m1"); n != 2 {
 			t.Errorf("the member was launched %d times, want twice", n)
 		}
-		// The teardown's snapshot includes the workdir's leftover ocagent (lsof
-		// by cwd), between the first launch and its kill: the mod's listener is
-		// not a descendant of the pane once Claude Code is gone.
-		firstLaunch := slices.IndexFunc(runner.calls, func(c string) bool { return strings.Contains(c, "new-session -d -s member-m1") })
-		kill := slices.Index(runner.calls, "tmux -L officraft kill-session -t member-m1")
-		if firstLaunch < 0 || kill < 0 ||
-			!slices.Contains(runner.calls[firstLaunch:kill], "lsof -a -c ocagent -d cwd -F pn") {
-			t.Errorf("the restart's teardown did not sweep the workdir's ocagent before the kill:\n%v", runner.calls)
+		// The mod's listener is not a descendant of the pane once Claude Code is
+		// gone, so only the workdir sweep reaches it.
+		if sig := leftover(); sig != syscall.SIGTERM {
+			t.Errorf("the restart's teardown left the workdir's ocagent to end with %v, want %v", sig, syscall.SIGTERM)
 		}
 		// Both 30 s waits ran (recorded, not slept).
 		if slept < 2*nudgeMaxAttempts*nudgeSettle {
@@ -1176,6 +1250,30 @@ func TestBuildCommandDeps(t *testing.T) {
 		}
 		if !strings.Contains(launch, "CLAUDE_CONFIG_DIR="+configDir) {
 			t.Errorf("launch line must export the redirected config home:\n%s", launch)
+		}
+	})
+
+	t.Run("every sweep ends the member workdir's leftover ocagent with SIGTERM", func(t *testing.T) {
+		agents := t.TempDir()
+		sweepEnv := envMap(map[string]string{"HOME": root, "OC_AGENT_HOME": agents,
+			"OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0"})
+		runner := &wardenRunner{}
+		stopped := startStandInListener(t, runner, filepath.Join(agents, "m1"))
+		reaped := startStandInListener(t, runner, filepath.Join(agents, "m2"))
+		attempted := startStandInListener(t, runner, filepath.Join(agents, "m3"))
+
+		buildCommandDeps(Config{}, sweepEnv, pidGuardRunner{t, runner}, nil, nil).Stop("member-m1")
+		if sig := stopped(); sig != syscall.SIGTERM {
+			t.Errorf("Stop: the listener ended with %v, want %v", sig, syscall.SIGTERM)
+		}
+		spawnDeps := buildSpawnDeps(Config{}, sweepEnv, pidGuardRunner{t, runner}, "officraft", "")
+		spawnDeps.ReapWorkdirListeners(filepath.Join(agents, "m2"))
+		if sig := reaped(); sig != syscall.SIGTERM {
+			t.Errorf("ReapWorkdirListeners: the listener ended with %v, want %v", sig, syscall.SIGTERM)
+		}
+		spawnDeps.StopAttempt("officraft", "member-m3", filepath.Join(agents, "m3"))
+		if sig := attempted(); sig != syscall.SIGTERM {
+			t.Errorf("StopAttempt: the listener ended with %v, want %v", sig, syscall.SIGTERM)
 		}
 	})
 

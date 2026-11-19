@@ -692,7 +692,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	anchorPath := ""
 	agentSocket := ""
 	if exe, err := os.Executable(); err == nil {
-		if p, perr := resolvePaths(renv, exe, os.Getuid()); perr == nil {
+		if p, perr := resolvePaths(renv, exe, os.Getuid(), runtime.GOOS); perr == nil {
 			wardenPathsOrNil = &p
 			anchorPath = p.anchorPath
 			agentSocket = tmuxSocketFor(p.namespace)
@@ -721,7 +721,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		fmt.Fprintf(out, "%s "+format+"\n", append([]any{time.Now().UTC().Format(time.RFC3339)}, args...)...)
 	}
 	if cfg.Token != "" && iters == 0 && wardenPathsOrNil != nil {
-		maybeStartAnchorCutover(*wardenPathsOrNil, os.Getppid(), logf)
+		maybeStartAnchorCutover(*wardenPathsOrNil, os.Getppid(), runtime.GOOS, logf)
 	}
 
 	commandDeps, login, setLoginIntervals := wireLoginCheck(cfg, env, runner, runtime.GOOS, logf,

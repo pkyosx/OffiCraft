@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -488,16 +489,20 @@ func defaultAgentEnvFile(env func(string) string) string {
 	return filepath.Join(officraftRootFor(home, ns), "env")
 }
 
+func defaultCaptureEnv(env func(string) string) func() (string, error) {
+	return captureEnvFor(env, runtime.GOOS, currentUserLoginShell)
+}
+
 // OC_AGENT_ENV_INHERIT is the owner's kill switch back to the old behaviour
 // without a rebuild: this feature runs on EVERY spawn.
-func defaultCaptureEnv(env func(string) string) func() (string, error) {
+func captureEnvFor(env func(string) string, goos string, loginShell func() string) func() (string, error) {
 	switch strings.ToLower(strings.TrimSpace(env("OC_AGENT_ENV_INHERIT"))) {
 	case "0", "false", "no", "off":
 		return nil
 	}
 	shell := env("OC_AGENT_ENV_SHELL")
 	if shell == "" {
-		shell = interactiveEnvShell
+		shell = interactiveEnvShellFor(goos, loginShell)
 	}
 	return func() (string, error) { return captureInteractiveEnv(shell, interactiveEnvTimeout) }
 }

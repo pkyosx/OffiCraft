@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -25,7 +28,9 @@ import (
 // and still looks green; export -p also quotes values in a shell dialect.
 
 // Absolute: under launchd neither PATH nor $SHELL can be trusted.
-const interactiveEnvShell = "/bin/zsh"
+const darwinInteractiveEnvShell = "/bin/zsh"
+
+const fallbackInteractiveEnvShell = "/bin/bash"
 
 // Absolute too: the owner's rc files may leave PATH in any state.
 const interactiveEnvDumper = "/usr/bin/env -0"
@@ -60,9 +65,51 @@ var interactiveEnvSessionLocal = map[string]bool{
 	"LINES":     true,
 }
 
+// Off darwin the owner's shell varies, so the capture asks the account
+// database rather than $SHELL, which a service manager need not set.
+func interactiveEnvShellFor(goos string, loginShell func() string) string {
+	if goos == "darwin" {
+		return darwinInteractiveEnvShell
+	}
+	if shell := loginShell(); shell != "" {
+		return shell
+	}
+	return fallbackInteractiveEnvShell
+}
+
+// getent first: the account may live in NSS (LDAP, sssd) rather than /etc/passwd.
+func currentUserLoginShell() string {
+	uid := os.Getuid()
+	if out, err := exec.Command("getent", "passwd", strconv.Itoa(uid)).Output(); err == nil {
+		if shell := loginShellFromPasswd(string(out), uid); shell != "" {
+			return shell
+		}
+	}
+	passwd, err := os.ReadFile("/etc/passwd")
+	if err != nil {
+		return ""
+	}
+	return loginShellFromPasswd(string(passwd), uid)
+}
+
+func loginShellFromPasswd(passwd string, uid int) string {
+	want := strconv.Itoa(uid)
+	for _, line := range strings.Split(passwd, "\n") {
+		fields := strings.Split(strings.TrimRight(line, "\r"), ":")
+		if len(fields) != 7 || fields[2] != want {
+			continue
+		}
+		if shell := fields[6]; filepath.IsAbs(shell) {
+			return shell
+		}
+		return ""
+	}
+	return ""
+}
+
 func captureInteractiveEnv(shell string, timeout time.Duration) (string, error) {
 	if shell == "" {
-		shell = interactiveEnvShell
+		shell = darwinInteractiveEnvShell
 	}
 	if timeout <= 0 {
 		timeout = interactiveEnvTimeout

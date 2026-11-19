@@ -164,6 +164,8 @@ func installFixture() wardenPaths {
 		anchorPath: "/Users/eva/.officraft/warden/officraft",
 		guiDomain:  "gui/501",
 		ocAgentBin: "/Users/eva/.officraft/warden/ocagent",
+
+		minimalPATH: "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 	}
 }
 
@@ -367,7 +369,11 @@ func TestResolvePaths(t *testing.T) {
 		anchorPath: "/Users/eva/.officraft/warden/officraft",
 		guiDomain:  "gui/501",
 		ocAgentBin: "/Users/eva/.officraft/warden/ocagent",
+
+		minimalPATH: "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 	}
+	onLinux := main
+	onLinux.minimalPATH = "/Users/eva/.local/bin:/usr/local/bin:/usr/bin:/bin"
 	namespaced := wardenPaths{
 		root:       "/Users/eva/.officraft-lab",
 		home:       "/Users/eva",
@@ -387,23 +393,29 @@ func TestResolvePaths(t *testing.T) {
 		ocAgentSrc: "/opt/ocagent",
 		ocAgentBin: "/Users/eva/.officraft-lab/warden/ocagent",
 		credCheck:  "0",
+
+		minimalPATH: "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 	}
 
 	cases := []struct {
 		name string
+		goos string
 		env  map[string]string
 		want wardenPaths
 	}{
-		{"main instance", map[string]string{
+		{"main instance", "darwin", map[string]string{
 			"HOME": "/Users/eva", "OC_BASE": "http://oc.example.com/", "OC_TOKEN": jwtWardenOne, "OC_ID": "machine-7",
 		}, main},
-		{"namespaced instance with a local ocagent and the cred gate opted out", map[string]string{
+		{"namespaced instance with a local ocagent and the cred gate opted out", "darwin", map[string]string{
 			"HOME": "/Users/eva", "OC_BASE": "https://127.0.0.1:7755", "OC_TOKEN": jwtWardenOne,
 			"OC_NAMESPACE": "lab", "OC_AGENT_BIN": "/opt/ocagent", "OC_CLAUDE_CRED_CHECK": "0",
 		}, namespaced},
+		{"on linux the minimal PATH starts at the home's .local/bin and carries no Homebrew", "linux", map[string]string{
+			"HOME": "/Users/eva", "OC_BASE": "http://oc.example.com/", "OC_TOKEN": jwtWardenOne, "OC_ID": "machine-7",
+		}, onLinux},
 	}
 	for _, c := range cases {
-		got, err := resolvePaths(envMap(c.env), "/tmp/clone/bin/ocwarden", 501)
+		got, err := resolvePaths(envMap(c.env), "/tmp/clone/bin/ocwarden", 501, c.goos)
 		if err != nil {
 			t.Errorf("%s: err = %v, want nil", c.name, err)
 			continue
@@ -448,7 +460,7 @@ func TestResolvePaths(t *testing.T) {
 			"OC_AGENT_BIN must be an absolute path with no whitespace, got: /opt/oc agent"},
 	}
 	for _, c := range refused {
-		got, err := resolvePaths(envMap(c.env), "/tmp/clone/bin/ocwarden", 501)
+		got, err := resolvePaths(envMap(c.env), "/tmp/clone/bin/ocwarden", 501, "darwin")
 		if err == nil || err.Error() != c.want {
 			t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
 		}
@@ -467,6 +479,18 @@ func TestRenderPlist(t *testing.T) {
 	zeroLabel.label = ""
 	if got := renderPlist(zeroLabel); got != minimalPlist {
 		t.Errorf("a zero-value label must render the canonical label; got\n%s", got)
+	}
+
+	linux := installFixture()
+	linux.minimalPATH = "/home/eva/.local/bin:/usr/local/bin:/usr/bin:/bin"
+	wantLinux := strings.Replace(minimalPlist,
+		"<key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>",
+		"<key>PATH</key><string>/home/eva/.local/bin:/usr/local/bin:/usr/bin:/bin</string>", 1)
+	if wantLinux == minimalPlist {
+		t.Fatal("the PATH line was not found in minimalPlist")
+	}
+	if got := renderPlist(linux); got != wantLinux {
+		t.Errorf("with no installer PATH the minimal PATH is stamped; render =\n%s\nwant\n%s", got, wantLinux)
 	}
 
 	full := installFixture()
@@ -578,6 +602,7 @@ func TestXmlWellFormed(t *testing.T) {
 }
 
 func TestResolveClaudeForInstall(t *testing.T) {
+	const probeMinimalPATH = "/minimal/bin:/usr/bin"
 	env := envMap(map[string]string{"HOME": "/Users/eva", "PATH": "/Users/eva/.asdf/shims:/usr/bin"})
 
 	cases := []struct {
@@ -618,13 +643,13 @@ func TestResolveClaudeForInstall(t *testing.T) {
 			lookup:    func() string { return "/opt/homebrew/bin/claude" },
 			probe:     func(string, string, string) error { return nil },
 			wantBin:   "/opt/homebrew/bin/claude",
-			wantProbe: []string{"/opt/homebrew/bin/claude|" + wardenPlistPATH + "|/Users/eva"},
+			wantProbe: []string{"/opt/homebrew/bin/claude|" + probeMinimalPATH + "|/Users/eva"},
 		},
 		{
 			name: "a shim needs the installer PATH carried into the plist", env: env,
 			lookup: func() string { return "/Users/eva/.asdf/shims/claude" },
 			probe: func(_, pathEnv, _ string) error {
-				if pathEnv == wardenPlistPATH {
+				if pathEnv == probeMinimalPATH {
 					return errors.New("env: node: No such file or directory")
 				}
 				return nil
@@ -634,7 +659,7 @@ func TestResolveClaudeForInstall(t *testing.T) {
 			wantLog: "claude at /Users/eva/.asdf/shims/claude needs the installer's PATH to run " +
 				"(version-manager shim / env-shebang) — stamping the full installer PATH into the warden plist alongside OC_CLAUDE_BIN\n",
 			wantProbe: []string{
-				"/Users/eva/.asdf/shims/claude|" + wardenPlistPATH + "|/Users/eva",
+				"/Users/eva/.asdf/shims/claude|" + probeMinimalPATH + "|/Users/eva",
 				"/Users/eva/.asdf/shims/claude|/Users/eva/.asdf/shims:/usr/bin|/Users/eva",
 			},
 		},
@@ -646,7 +671,7 @@ func TestResolveClaudeForInstall(t *testing.T) {
 			wantLog: "WARN: claude at /opt/homebrew/bin/claude failed `--version` under both the minimal launchd PATH " +
 				"and the installer PATH — stamping OC_CLAUDE_BIN best-effort; spawns may still fail (check that claude runs headless)\n",
 			wantProbe: []string{
-				"/opt/homebrew/bin/claude|" + wardenPlistPATH + "|/Users/eva",
+				"/opt/homebrew/bin/claude|" + probeMinimalPATH + "|/Users/eva",
 				"/opt/homebrew/bin/claude|/Users/eva/.asdf/shims:/usr/bin|/Users/eva",
 			},
 		},
@@ -658,7 +683,7 @@ func TestResolveClaudeForInstall(t *testing.T) {
 			wantBin: "/opt/homebrew/bin/claude",
 			wantLog: "WARN: claude at /opt/homebrew/bin/claude failed `--version` under both the minimal launchd PATH " +
 				"and the installer PATH — stamping OC_CLAUDE_BIN best-effort; spawns may still fail (check that claude runs headless)\n",
-			wantProbe: []string{"/opt/homebrew/bin/claude|" + wardenPlistPATH + "|/Users/eva"},
+			wantProbe: []string{"/opt/homebrew/bin/claude|" + probeMinimalPATH + "|/Users/eva"},
 		},
 	}
 
@@ -674,7 +699,7 @@ func TestResolveClaudeForInstall(t *testing.T) {
 		}
 		logf := func(format string, a ...any) { fmt.Fprintf(&log, format+"\n", a...) }
 
-		bin, plistPATH := resolveClaudeForInstall(c.env, c.lookup, probe, logf)
+		bin, plistPATH := resolveClaudeForInstall(c.env, probeMinimalPATH, c.lookup, probe, logf)
 		if bin != c.wantBin || plistPATH != c.wantPATH {
 			t.Errorf("%s: resolveClaudeForInstall = (%q, %q), want (%q, %q)", c.name, bin, plistPATH, c.wantBin, c.wantPATH)
 		}
@@ -684,6 +709,29 @@ func TestResolveClaudeForInstall(t *testing.T) {
 		if !reflect.DeepEqual(probed, c.wantProbe) {
 			t.Errorf("%s: probes = %v, want %v", c.name, probed, c.wantProbe)
 		}
+	}
+}
+
+func TestBindRuntimeResolvers(t *testing.T) {
+	const minimalPATH, installerPATH = "/home/eva/.local/bin:/usr/bin", "/installer/bin"
+	runsUnderEitherPATH := "#!/bin/sh\ncase \"$PATH\" in " + minimalPATH + "|" + installerPATH + ") exit 0;; esac\nexit 1\n"
+	box := t.TempDir()
+	claude := stageBinary(t, filepath.Join(box, "bin", "claude"), runsUnderEitherPATH)
+	codex := stageBinary(t, filepath.Join(box, "bin", "codex"), runsUnderEitherPATH)
+	env := envMap(map[string]string{"HOME": "/home/eva", "OC_CLAUDE_BIN": claude, "OC_CODEX_BIN": codex,
+		"PATH": installerPATH})
+	var out bytes.Buffer
+	i := &installer{out: &out}
+	i.bindRuntimeResolvers(env, minimalPATH, realVersionProbe)
+
+	if bin, path := i.resolveClaude(); bin != claude || path != "" {
+		t.Errorf("resolveClaude = (%q, %q), want (%q, \"\")", bin, path, claude)
+	}
+	if bin, path := i.resolveCodex(); bin != codex || path != "" {
+		t.Errorf("resolveCodex = (%q, %q), want (%q, \"\")", bin, path, codex)
+	}
+	if out.String() != "" {
+		t.Errorf("install output = %q, want none", out.String())
 	}
 }
 

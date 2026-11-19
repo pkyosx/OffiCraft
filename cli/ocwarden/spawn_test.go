@@ -990,6 +990,21 @@ func TestDefaultCaptureEnv(t *testing.T) {
 	}
 }
 
+func TestCaptureEnvFor(t *testing.T) {
+	dir := t.TempDir()
+	loginShell := filepath.Join(dir, "login-shell")
+	if err := os.WriteFile(loginShell, []byte("#!/bin/sh\nprintf 'FROM=login\\0'\n"), 0o700); err != nil {
+		t.Fatalf("write fake login shell: %v", err)
+	}
+
+	// A failure names the expected shell, never the captured bytes: a wrong shell
+	// here is a real one, and its capture carries the runner's credentials.
+	raw, err := captureEnvFor(func(string) string { return "" }, "linux", func() string { return loginShell })()
+	if err != nil || raw != "FROM=login\x00" {
+		t.Errorf("linux capture: err = %v, and the account's login shell %s did not run", err, loginShell)
+	}
+}
+
 func TestInteractiveEnvPairs(t *testing.T) {
 	t.Run("a usable capture becomes pairs and a value-free log line", func(t *testing.T) {
 		var logs []string

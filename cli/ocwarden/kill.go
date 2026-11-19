@@ -122,7 +122,7 @@ const (
 )
 
 type sweepSeams struct {
-	// production: ocagentPIDsByCwd
+	// production: ocagentPIDsByCwdFor
 	listenPIDs func(workdir string) []int
 	workdir    string
 	sleep      func(time.Duration)
@@ -199,16 +199,56 @@ func sweepPIDs(pids []int, kill killFunc, sleep func(time.Duration)) bool {
 
 // Matching by cwd works because the spawn shim and the listener both cd into
 // the member's own workdir before exec; other members' listeners never match.
+// Linux reads /proc so the sweep does not depend on lsof being installed.
+func ocagentPIDsByCwdFor(goos string, r CmdRunner, procRoot string) func(workdir string) []int {
+	if goos == "linux" {
+		return func(workdir string) []int { return ocagentPIDsByCwdFromProc(procRoot, workdir) }
+	}
+	return func(workdir string) []int { return ocagentPIDsByCwd(r, workdir) }
+}
+
+// The kernel reports the resolved cwd (macOS /var → /private/var), so the
+// symlink-resolved workdir must match too.
+func workdirMatchSet(workdir string) map[string]bool {
+	want := map[string]bool{filepath.Clean(workdir): true}
+	if resolved, e := filepath.EvalSymlinks(workdir); e == nil {
+		want[filepath.Clean(resolved)] = true
+	}
+	return want
+}
+
+// Prefix match on the command name, as `lsof -c ocagent` does.
+func ocagentPIDsByCwdFromProc(procRoot, workdir string) []int {
+	entries, err := os.ReadDir(procRoot)
+	if err != nil {
+		return nil
+	}
+	want := workdirMatchSet(workdir)
+	var pids []int
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+		comm, err := os.ReadFile(filepath.Join(procRoot, e.Name(), "comm"))
+		if err != nil || !strings.HasPrefix(strings.TrimSpace(string(comm)), "ocagent") {
+			continue
+		}
+		cwd, err := os.Readlink(filepath.Join(procRoot, e.Name(), "cwd"))
+		if err != nil || !want[filepath.Clean(cwd)] {
+			continue
+		}
+		pids = append(pids, pid)
+	}
+	return pids
+}
+
 func ocagentPIDsByCwd(r CmdRunner, workdir string) []int {
 	out, err := r.Run("lsof", "-a", "-c", "ocagent", "-d", "cwd", "-F", "pn")
 	if err != nil {
 		return nil
 	}
-	// lsof reports the kernel-resolved cwd (macOS /var → /private/var).
-	want := map[string]bool{filepath.Clean(workdir): true}
-	if resolved, e := filepath.EvalSymlinks(workdir); e == nil {
-		want[filepath.Clean(resolved)] = true
-	}
+	want := workdirMatchSet(workdir)
 	var pids []int
 	cur := 0
 	for _, ln := range strings.Split(out, "\n") {

@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	// Imported by production code on purpose: testing.Testing() is how the real
 	// seam constructors know they are about to hand the LIVE machine to `go test`.
@@ -175,6 +176,8 @@ type wardenPaths struct {
 	claudeBin  string
 	codexBin   string
 	plistPATH  string
+	// Stamped when plistPATH is empty, and the PATH the claude/codex probe tries first.
+	minimalPATH string
 }
 
 func (p wardenPaths) labelOrDefault() string {
@@ -186,7 +189,7 @@ func (p wardenPaths) labelOrDefault() string {
 
 // The env contract (OC_BASE / OC_TOKEN / OC_ID) is defined to align with the
 // server's boot_command.
-func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, error) {
+func resolvePaths(env func(string) string, exe string, uid int, goos string) (wardenPaths, error) {
 	home := env("HOME")
 	if home == "" {
 		return wardenPaths{}, errors.New("HOME must be set")
@@ -244,10 +247,21 @@ func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, er
 		ocAgentSrc: ocAgentSrc,
 		ocAgentBin: filepath.Join(root, "warden", "ocagent"),
 		credCheck:  relayedCredCheck(env),
+
+		minimalPATH: wardenMinimalPATH(goos, home),
 	}, nil
 }
 
-const wardenPlistPATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+const darwinWardenPATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+// The warden's PATH when the installer's own PATH is not needed. On Linux
+// ~/.local/bin is where the claude installer puts its binary.
+func wardenMinimalPATH(goos, home string) string {
+	if goos == "darwin" {
+		return darwinWardenPATH
+	}
+	return filepath.Join(home, ".local", "bin") + ":/usr/local/bin:/usr/bin:/bin"
+}
 
 // ProgramArguments names the TCC identity anchor (which forks the sibling
 // ocwarden), not ocwarden: launchd's job leader is the responsible process for
@@ -294,7 +308,7 @@ func renderPlist(p wardenPaths) string {
 	}
 	pathVal := p.plistPATH
 	if pathVal == "" {
-		pathVal = wardenPlistPATH
+		pathVal = p.minimalPATH
 	}
 	return fmt.Sprintf(plistTemplate, p.root, p.anchorPath, p.ocBase, p.home, p.tokfile, p.logDir, p.labelOrDefault(), extraEnv, xmlEscape(pathVal), xmlCommentSafe(p.root))
 }
@@ -340,7 +354,7 @@ func stampableClaude(p string) bool {
 // plist carries OC_CLAUDE_BIN from `bin/ocserver install`). The probe catches
 // the shim/shebang trap: an asdf shim or `#!/usr/bin/env node` launcher needs
 // its manager/interpreter on PATH, so the installer's PATH then rides along.
-func resolveClaudeForInstall(env func(string) string, lookup func() string,
+func resolveClaudeForInstall(env func(string) string, minimalPATH string, lookup func() string,
 	probe func(bin, pathEnv, home string) error, logf func(string, ...any)) (string, string) {
 	cand := lookup()
 	if cand == "" {
@@ -354,7 +368,7 @@ func resolveClaudeForInstall(env func(string) string, lookup func() string,
 		return cand, ""
 	}
 	home := env("HOME")
-	if probe(cand, wardenPlistPATH, home) == nil {
+	if probe(cand, minimalPATH, home) == nil {
 		return cand, ""
 	}
 	if userPATH := env("PATH"); userPATH != "" && probe(cand, userPATH, home) == nil {
@@ -881,6 +895,27 @@ func (i *installer) runInstall(p wardenPaths) error {
 	return nil
 }
 
+func (i *installer) bindRuntimeResolvers(env func(string) string, minimalPATH string,
+	probe func(bin, pathEnv, home string) error) {
+	i.resolveClaude = func() (string, string) {
+		return resolveClaudeForInstall(env, minimalPATH, func() string { return resolveClaudeBin(env) }, probe, i.logf)
+	}
+	i.resolveCodex = func() (string, string) {
+		candidate := resolveCodexBin(env)
+		if candidate == "" || !stampableClaude(candidate) {
+			return "", ""
+		}
+		if probe(candidate, minimalPATH, env("HOME")) == nil {
+			return candidate, ""
+		}
+		if path := env("PATH"); path != "" &&
+			probe(candidate, path, env("HOME")) == nil {
+			return candidate, path
+		}
+		return candidate, ""
+	}
+}
+
 func installCmd(env func(string) string, out io.Writer, force bool) int {
 	exe, err := os.Executable()
 	if err != nil {
@@ -900,28 +935,12 @@ func installCmd(env func(string) string, out io.Writer, force bool) int {
 		agentGet:   host.agentGet(cfg.Base, cfg.Token),
 		agentProbe: host.agentProbe,
 	}
-	i.resolveClaude = func() (string, string) {
-		return resolveClaudeForInstall(env, func() string { return resolveClaudeBin(env) }, host.versionProbe, i.logf)
-	}
-	i.resolveCodex = func() (string, string) {
-		candidate := resolveCodexBin(env)
-		if candidate == "" || !stampableClaude(candidate) {
-			return "", ""
-		}
-		if host.versionProbe(candidate, wardenPlistPATH, env("HOME")) == nil {
-			return candidate, ""
-		}
-		if path := env("PATH"); path != "" &&
-			host.versionProbe(candidate, path, env("HOME")) == nil {
-			return candidate, path
-		}
-		return candidate, ""
-	}
-	p, err := resolvePaths(env, exe, os.Getuid())
+	p, err := resolvePaths(env, exe, os.Getuid(), runtime.GOOS)
 	if err != nil {
 		i.errf("%v", err)
 		return 1
 	}
+	i.bindRuntimeResolvers(env, p.minimalPATH, host.versionProbe)
 	if err := i.runInstall(p); err != nil {
 		i.errf("%v (re-run is safe — idempotent)", err)
 		return 1

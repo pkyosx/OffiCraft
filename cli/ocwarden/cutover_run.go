@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -29,7 +30,7 @@ func cutoverCmd(env func(string) string, out io.Writer) int {
 		logf("FATAL: cannot resolve own binary: %v", err)
 		return 1
 	}
-	p, err := resolvePaths(env, exe, os.Getuid())
+	p, err := resolvePaths(env, exe, os.Getuid(), runtime.GOOS)
 	if err != nil {
 		logf("FATAL: %v", err)
 		return 1

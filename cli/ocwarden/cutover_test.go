@@ -759,7 +759,7 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var log []string
 
-		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+		maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 		if len(rec.spawns) != 1 {
 			t.Fatalf("spawns = %#v, want exactly one converter", rec.spawns)
@@ -802,7 +802,7 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		namespaced := p
 		namespaced.namespace = "beta"
 
-		maybeStartAnchorCutover(namespaced, ppid, func(string, ...any) {})
+		maybeStartAnchorCutover(namespaced, ppid, "darwin", func(string, ...any) {})
 
 		if len(rec.spawns) != 1 {
 			t.Fatalf("spawns = %#v, want one", rec.spawns)
@@ -825,11 +825,24 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 			bindCutoverOps(t, rec)
 			var log []string
 
-			maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+			maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 			if len(rec.spawns) != 0 || len(rec.created) != 0 || len(log) != 0 {
 				t.Errorf("%s: spawns=%v locks=%v log=%#v, want nothing at all", c.name, rec.spawns, rec.created, log)
 			}
+		}
+	})
+
+	t.Run("on linux a machine whose parent looks like the legacy shape starts no conversion and touches nothing", func(t *testing.T) {
+		rec := legacyRec()
+		bindCutoverOps(t, rec)
+		var log []string
+
+		maybeStartAnchorCutover(p, ppid, "linux", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+
+		if len(rec.spawns) != 0 || len(rec.created) != 0 || len(rec.writes) != 0 || len(rec.runExits) != 0 || len(log) != 0 {
+			t.Errorf("spawns=%v locks=%v writes=%v runs=%v log=%#v, want nothing at all",
+				rec.spawns, rec.created, rec.writes, rec.runExits, log)
 		}
 	})
 
@@ -839,7 +852,7 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var log []string
 
-		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+		maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 		if len(rec.spawns) != 0 || len(rec.created) != 0 {
 			t.Errorf("spawns=%v locks=%v, want nothing", rec.spawns, rec.created)
@@ -860,7 +873,7 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var log []string
 
-		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+		maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 		if len(rec.spawns) != 0 || len(rec.created) != 0 {
 			t.Errorf("spawns=%v locks=%v, want nothing", rec.spawns, rec.created)
@@ -879,7 +892,7 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var log []string
 
-		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+		maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 		if len(rec.spawns) != 0 || len(rec.created) != 0 {
 			t.Errorf("spawns=%v locks=%v, want nothing", rec.spawns, rec.created)
@@ -898,7 +911,7 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var log []string
 
-		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+		maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 		if len(rec.spawns) != 0 {
 			t.Errorf("spawns = %v, want none", rec.spawns)
@@ -915,7 +928,7 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var log []string
 
-		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+		maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 		if len(rec.spawns) != 0 {
 			t.Errorf("spawns = %v, want none", rec.spawns)

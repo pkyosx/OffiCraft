@@ -317,7 +317,13 @@ func realRunExit(name string, args ...string) (int, error) {
 
 // Best-effort and NEVER fails the warden: a warden that will not start is
 // strictly worse than one running the old shape.
-func maybeStartAnchorCutover(p wardenPaths, ppid int, logf func(string, ...any)) {
+//
+// darwin only: the anchor exists for macOS privacy grants, and shape detection
+// reads `ps -o comm=` as an executable path, which elsewhere is a short name.
+func maybeStartAnchorCutover(p wardenPaths, ppid int, goos string, logf func(string, ...any)) {
+	if goos != "darwin" {
+		return
+	}
 	ops := newCutoverOps()
 	wardenDir := filepath.Join(p.root, "warden")
 

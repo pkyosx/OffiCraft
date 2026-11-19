@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -411,6 +412,7 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 	claudeBin := resolveClaudeBin(env)
 	codexBin := resolveCodexBin(env)
 	wardenBin, _ := os.Executable()
+	listenPIDs := ocagentPIDsByCwdFor(runtime.GOOS, runner, "/proc")
 	return SpawnDeps{
 		Runner:    runner,
 		Base:      cfg.Base,
@@ -447,13 +449,13 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		ModTime:           fileModTime,
 		Now:               time.Now,
 		ReapWorkdirListeners: func(workdir string) (int, bool) {
-			pids := ocagentPIDsByCwd(runner, workdir)
+			pids := listenPIDs(workdir)
 			return len(pids), sweepPIDs(pids, realKill, spawnSleep)
 		},
 		// The same ladder as the Stop verb, minus the trash purge.
 		StopAttempt: func(socket, session, workdir string) bool {
 			stopped, _ := stop(runner, socket, session, realKill, realGetpgid, sweepSeams{
-				listenPIDs: func(wd string) []int { return ocagentPIDsByCwd(runner, wd) },
+				listenPIDs: listenPIDs,
 				workdir:    workdir,
 				sleep:      spawnSleep,
 			})
@@ -475,6 +477,7 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 	spawnDeps.LaunchEnv = launchEnv
 	spawnDeps.LoginCheck = buildLoginGate(env, login)
 	claudeJSONPath := spawnDeps.ClaudeHome.ClaudeJSONPath()
+	listenPIDs := ocagentPIDsByCwdFor(runtime.GOOS, runner, "/proc")
 	return CommandDeps{
 		Spawn: func(p StartParams) SpawnOutcome {
 			workdir := agentWorkdir(spawnDeps.Home, p.MemberID)
@@ -485,7 +488,7 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 		},
 		Stop: func(session string) (bool, bool) {
 			// An `ocagent listen` that outlived its Claude Code never receives the
-			// session's SIGHUP, so the sweep finds it by workdir (lsof) and reaps it
+			// session's SIGHUP, so the sweep finds it by workdir and reaps it
 			// by pid. A legacy
 			// worker-<ow-id> session resolves the retired workers/ root; an unresolvable
 			// session keeps root "", which makes purgeTrash refuse.
@@ -499,7 +502,7 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 				root = ""
 			}
 			return stop(runner, socket, session, realKill, realGetpgid, sweepSeams{
-				listenPIDs: func(wd string) []int { return ocagentPIDsByCwd(runner, wd) },
+				listenPIDs: listenPIDs,
 				workdir:    workdir,
 				sleep:      spawnSleep,
 				purgeTrash: func() { purgeTrash(root, workdir, stderrLogf) },
