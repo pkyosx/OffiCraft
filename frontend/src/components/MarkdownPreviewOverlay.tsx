@@ -78,6 +78,7 @@ import { useFrameMessages } from "../lib/docCommentFrame";
 import { ContentView } from "./ContentView";
 import { contentKindOf, isTextKind } from "../lib/contentKind";
 import "./md-preview.css";
+import "./replies.css"; // .reply-card__jump
 import {
   AlertTriangleIcon,
   ChatBubbleIcon,
@@ -155,6 +156,9 @@ type MarkdownPreviewOverlayProps = {
   /** Absent = no 編輯 button. The caller decides what editing means; the
    * overlay only offers the entry. */
   onEdit?: () => void;
+  /** Absent = no 跳到原訊息 button. The caller closes the overlay and decides
+   * where the message lives. */
+  onJumpToMessage?: () => void;
   onClose: () => void;
 } & (
   | {
@@ -239,6 +243,7 @@ export function MarkdownPreviewOverlay({
   source: inlineSource,
   trailing,
   onEdit,
+  onJumpToMessage,
   onClose,
 }: MarkdownPreviewOverlayProps) {
   const { t } = useI18n();
@@ -788,6 +793,19 @@ export function MarkdownPreviewOverlay({
               params={diffParams}
               className="md-preview__download md-preview__share"
             />
+          )}
+          {/* ⚠️ Text, unlike the icon-only controls beside it: owner
+            * rc-94eeef1b229c wants it to read and look exactly like the 請示卡's
+            * 跳到原訊息, so it borrows that button's class and wording. */}
+          {onJumpToMessage !== undefined && (
+            <button
+              type="button"
+              className="reply-card__jump"
+              data-testid="md-preview-jump"
+              onClick={onJumpToMessage}
+            >
+              {t.replies.jumpToChat}
+            </button>
           )}
           {onEdit !== undefined && (
             <button

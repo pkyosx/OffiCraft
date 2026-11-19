@@ -13,9 +13,7 @@
 // The fixture is built to exercise the two ways this row can break a side panel
 // that is NARROWER than the chat pane the quote line was designed in:
 //   - PARTY NAMES LONG ENOUGH TO NOT FIT on one line at the narrow end. The
-//     chat pane answers this by dropping its jump label under
-//     `@container chat-pane`; this card is not inside that container, so that
-//     rule can never fire here and the line has to wrap on its own.
+//     line has to wrap on its own.
 //   - AN EXCERPT WITH NO BREAK OPPORTUNITY — 60 runes of unbroken latin, the
 //     server's own cap. A quote that cannot shrink widens the whole card.
 import { I18nProvider, useI18n } from "../../src/i18n";

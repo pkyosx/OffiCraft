@@ -35,7 +35,7 @@
 // (visual-guards/chat-reply-to.ct.spec.tsx). A jsdom test that "checked" those
 // would be green against a completely unstyled button.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { OwnerNameProvider } from "../hooks/useOwnerName";
@@ -199,6 +199,11 @@ function firstTextNode(root: Element): Text {
 }
 
 describe("ChatArea 回覆這則", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    window.location.hash = "";
+  });
+
   beforeEach(() => {
     resetChatDrafts();
     send.mockClear();
@@ -325,15 +330,13 @@ describe("ChatArea 回覆這則", () => {
     expect(entry.getAttribute("aria-label")).toBe(zh.chat.replyAction);
     expect(entry.getAttribute("title")).toBe(zh.chat.replyAction);
 
-    // The jump lives on the reply's own row and has a visible label too — but
-    // that label is DELETED OUTRIGHT below 520px of pane (`@container chat-pane`
-    // in office.css), not trimmed: nothing in the stylesheet can ellipsise it.
-    // So the accessible name may not depend on it being rendered at all.
+    // The jump is an empty overlay over the quote, so its name must be explicit.
     const jump = rowOf(container, "c-2").querySelector(
       "[data-testid='msg-quote-jump']",
     )!;
     expect(jump.getAttribute("aria-label")).toBe(zh.chat.replyQuoteJump);
     expect(jump.getAttribute("title")).toBe(zh.chat.replyQuoteJump);
+    expect(jump.textContent).toBe("");
 
     fireEvent.click(entry);
     const x = container.querySelector(".chat__reply-banner__x")!;
@@ -727,6 +730,148 @@ describe("ChatArea 回覆這則", () => {
       "很久以前說的全文",
     );
     get.mockRestore();
+  });
+
+  it("跳到原訊息 routes to the original's room — this room when its peer is on either end, otherwise the sender's", async () => {
+    messages = [
+      ...messages,
+      mkMsg({
+        id: "c-6",
+        from: "owner",
+        to: "m1",
+        body: "回這則",
+        ts: 6,
+        replyTo: "c-1",
+        replyToChat: mkQuote("c-1", "m1", "owner", "第一個問題"),
+      }),
+      mkMsg({
+        id: "c-7",
+        from: "owner",
+        to: "m1",
+        body: "引用別人的對話",
+        ts: 7,
+        replyTo: "c-x",
+        replyToChat: mkQuote("c-x", "ow-512", "m3", "CI 已全綠"),
+      }),
+    ];
+    const originals: Record<string, ChatMessage> = {
+      "c-1": mkMsg({ id: "c-1", from: "m1", to: "owner", body: "第一個問題", deletedTs: 0 }),
+      "c-x": mkMsg({ id: "c-x", from: "ow-512", to: "m3", body: "CI 已全綠", deletedTs: 0 }),
+    };
+    vi.spyOn(api, "getChatMessage").mockImplementation((id) =>
+      Promise.resolve(originals[id]),
+    );
+    window.location.hash = "#office/chat/m1";
+    const { container } = renderChat();
+
+    for (const [row, hash] of [
+      ["c-6", "#office/chat/m1/msg/c-1"],
+      ["c-7", "#office/chat/ow-512/msg/c-x"],
+    ] as const) {
+      await act(async () => {
+        fireEvent.click(rowOf(container, row).querySelector("[data-testid='msg-quote-jump']")!);
+      });
+      await act(async () => {
+        fireEvent.click(document.querySelector("[data-testid='md-preview-jump']")!);
+      });
+      expect(window.location.hash).toBe(hash);
+      expect(document.querySelector(".md-preview")).toBeNull();
+    }
+  });
+
+  it("跳到原訊息 is not offered for a deleted original", async () => {
+    messages = [
+      mkMsg({
+        id: "c-6",
+        from: "owner",
+        to: "m1",
+        body: "回這則",
+        ts: 6,
+        replyTo: "c-1",
+        replyToChat: { ...mkQuote("c-1", "m1", "owner", ""), deleted: true },
+      }),
+    ];
+    vi.spyOn(api, "getChatMessage").mockResolvedValue(
+      mkMsg({ id: "c-1", from: "m1", to: "owner", body: "原文", deletedTs: 1700000000 }),
+    );
+    const { container } = renderChat();
+    await act(async () => {
+      fireEvent.click(rowOf(container, "c-6").querySelector("[data-testid='msg-quote-jump']")!);
+    });
+    expect(document.querySelector(".md-preview")?.textContent).toContain("原文");
+    expect(document.querySelector("[data-testid='md-preview-jump']")).toBeNull();
+  });
+
+  it("跳到原訊息 follows the route as it is when pressed, not as it was when the overlay opened", async () => {
+    messages = [
+      ...messages,
+      mkMsg({
+        id: "c-6",
+        from: "owner",
+        to: "m1",
+        body: "回這則",
+        ts: 6,
+        replyTo: "c-1",
+        replyToChat: mkQuote("c-1", "m1", "owner", "第一個問題"),
+      }),
+    ];
+    vi.spyOn(api, "getChatMessage").mockResolvedValue(
+      mkMsg({ id: "c-1", from: "m1", to: "owner", body: "第一個問題", deletedTs: 0 }),
+    );
+    window.location.hash = "#office/chat/m1/msg/c-1";
+    const view = render(
+      <I18nProvider>
+        <ChatArea key={m1.id} member={m1} jumpToMsgId="c-1" />
+      </I18nProvider>,
+    );
+    await act(async () => {
+      fireEvent.click(rowOf(view.container, "c-6").querySelector("[data-testid='msg-quote-jump']")!);
+    });
+    window.location.hash = "#office/chat/m1";
+    view.rerender(
+      <I18nProvider>
+        <ChatArea key={m1.id} member={m1} />
+      </I18nProvider>,
+    );
+    await act(async () => {
+      fireEvent.click(document.querySelector("[data-testid='md-preview-jump']")!);
+    });
+    expect(window.location.hash).toBe("#office/chat/m1/msg/c-1");
+  });
+
+  it("跳到原訊息 locates the message again when the route already names it", async () => {
+    messages = [
+      ...messages,
+      mkMsg({
+        id: "c-6",
+        from: "owner",
+        to: "m1",
+        body: "回這則",
+        ts: 6,
+        replyTo: "c-1",
+        replyToChat: mkQuote("c-1", "m1", "owner", "第一個問題"),
+      }),
+    ];
+    vi.spyOn(api, "getChatMessage").mockResolvedValue(
+      mkMsg({ id: "c-1", from: "m1", to: "owner", body: "第一個問題" }),
+    );
+    window.location.hash = "#office/chat/m1/msg/c-1";
+    const { container } = render(
+      <I18nProvider>
+        <ChatArea key={m1.id} member={m1} jumpToMsgId="c-1" />
+      </I18nProvider>,
+    );
+    expect(scrolled).toContain(rowOf(container, "c-1"));
+    scrolled = [];
+
+    await act(async () => {
+      fireEvent.click(rowOf(container, "c-6").querySelector("[data-testid='msg-quote-jump']")!);
+    });
+    await act(async () => {
+      fireEvent.click(document.querySelector("[data-testid='md-preview-jump']")!);
+    });
+    expect(scrolled).toEqual([rowOf(container, "c-1")]);
+    expect(window.location.hash).toBe("#office/chat/m1/msg/c-1");
   });
 
   it("says so, in place and once, when that one read fails", async () => {

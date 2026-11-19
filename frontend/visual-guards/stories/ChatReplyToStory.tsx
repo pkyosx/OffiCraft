@@ -7,42 +7,19 @@
 // PRESENTATIONAL (hover reveal, one-line clipping, the quote row staying inside
 // the bubble column), and jsdom can measure none of them. The behavioural half
 // is already pinned in ChatArea.reply-to.test.tsx.
-/** `jumpLabel` exists because the label's WIDTH is the thing under test and it is
- * not the same in every language. Measured in THIS harness (11px, viewport 1280,
- * i.e. a pane above the collapse threshold so the label renders whole) —
- * label box / whole-button box:
- *
- *   「跳到原訊息」                   54.7px /  68.7px
- *   「看原訊息」                     43.8px /  57.8px
- *   "Go to the original message"   140.4px / 154.4px
- *   "View the original message"    137.0px / 151.0px
- *
- * The guard that matters (the jump must not end up under the corner buttons)
- * only fails on the long ones. A story hard-wired to Chinese measured a control
- * ~85px narrower than half the users see.
- *
- * ⚠️ THE 69px / 154px QUOTED ELSEWHERE IN THIS PACKAGE ARE THE BUTTON, NOT THE
- * STRING — the button adds a 12px chevron and a 2px gap on top of the label.
- * Read those figures as whole-control widths.
- *
- * ⚠️ THE DEFAULT BELOW, AND THE ENGLISH STRING THE SPEC USUALLY PASSES, ARE THE
- * RETIRED LABELS — deliberately, and they are NOT what the app renders. Since
- * `d7752781` the product says 「看原訊息」 / "View the original message"
- * (`chat.replyQuoteJump`). The retired pair is the WIDER pair (by ~11px in
- * Chinese, ~3px in English), which is exactly why they are kept as worst-case
- * width fixtures. Do not read a product label off this file, and do not swap
- * them for the current strings: narrower fixtures loosen the geometric guards. */
 export function ChatReplyToStory({
   bannerWho = "正在回覆 Mira → 韓立",
-  jumpLabel = "跳到原訊息",
+  quoteError = false,
 }: {
-  /** The banner's WHO half. A prop for the same reason `jumpLabel` is one: its
-   * WIDTH is the thing under test, and display names are free text. The default
+  /** The banner's WHO half. A prop because its WIDTH is the thing under test,
+   * and display names are free text. The default
    * is the production shape 「正在回覆 寄件者 → 收件者」 — still short, which is
    * exactly why the long-name case needs its own mount rather than trusting
    * this row. */
   bannerWho?: string;
-  jumpLabel?: string;
+  /** Show the one-off 「拿不到這則訊息」 on the incoming quote row, the way
+   * useQuotedMessageOverlay's failureNotice renders it after a failed read. */
+  quoteError?: boolean;
 } = {}) {
   // 🔴 A LONG SENDER, not "Mira". What makes a long one real is that display
   // names are OWNER-SET FREE TEXT — there is no cap on what he types. (An
@@ -51,8 +28,8 @@ export function ChatReplyToStory({
   // not to fire until 33 — so the fallback would sail straight past it.)
   // The story used a four-character name and therefore walked past the overflow
   // it exists to guard — measured: with the guard reverted, the story still
-  // passed. This length is the one that actually reproduces the failure (the
-  // jump reaching the corner controls) at 390px.
+  // passed. This length is the one that actually reproduces the failure (line
+  // 1 reaching the corner controls) at 390px.
   //
   // It is NOT the only row that matters: a short name is the everyday case and
   // it broke in the opposite direction, so row 3 below pins that half.
@@ -178,28 +155,15 @@ export function ChatReplyToStory({
                       <span className="chat__msg-quote__who">
                         {`${unresolvedSender} → ${quotedRecipient}`}
                       </span>
-                      <button
-                        type="button"
-                        className="chat__msg-quote__jump"
-                        data-testid="quote-jump"
-                      >
-                        <span className="chat__msg-quote__jump-label">{jumpLabel}</span>
-                        <svg
-                          className="chat__msg-quote__jump-chevron"
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
-                      </button>
                     </div>
                     <span className="chat__msg-quote__body">{longQuote}</span>
+                    <button
+                      type="button"
+                      className="chat__msg-quote__jump"
+                      data-testid="quote-jump"
+                      aria-label="看原訊息"
+                      title="看原訊息"
+                    />
                   </div>
                   <div className="chat__msg-text doc-md">好，我照這個做</div>
                 </div>
@@ -253,30 +217,17 @@ export function ChatReplyToStory({
                       <span className="chat__msg-quote__who" data-testid="quote-who-short">
                         {`Mira → ${quotedRecipient}`}
                       </span>
-                      <button
-                        type="button"
-                        className="chat__msg-quote__jump"
-                        data-testid="quote-jump-short"
-                      >
-                        <span className="chat__msg-quote__jump-label">{jumpLabel}</span>
-                        <svg
-                          className="chat__msg-quote__jump-chevron"
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
-                      </button>
                     </div>
                     <span className="chat__msg-quote__body" data-testid="quote-body-short">
                       {veryLongQuote}
                     </span>
+                    <button
+                      type="button"
+                      className="chat__msg-quote__jump"
+                      data-testid="quote-jump-short"
+                      aria-label="看原訊息"
+                      title="看原訊息"
+                    />
                   </div>
                   <div className="chat__msg-text doc-md">好，我照這個做</div>
                 </div>
@@ -332,30 +283,17 @@ export function ChatReplyToStory({
                       <span className="chat__msg-quote__who" data-testid="quote-who-tight">
                         {`${rawIdSender} → ${quotedRecipient}`}
                       </span>
-                      <button
-                        type="button"
-                        className="chat__msg-quote__jump"
-                        data-testid="quote-jump-tight"
-                      >
-                        <span className="chat__msg-quote__jump-label">{jumpLabel}</span>
-                        <svg
-                          className="chat__msg-quote__jump-chevron"
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
-                      </button>
                     </div>
                     <span className="chat__msg-quote__body" data-testid="quote-body-tight">
                       好
                     </span>
+                    <button
+                      type="button"
+                      className="chat__msg-quote__jump"
+                      data-testid="quote-jump-tight"
+                      aria-label="看原訊息"
+                      title="看原訊息"
+                    />
                   </div>
                   <div className="chat__msg-text doc-md">好</div>
                 </div>
@@ -422,30 +360,26 @@ export function ChatReplyToStory({
                       <span className="chat__msg-quote__who" data-testid="quote-who-incoming">
                         {`CEO → ${quotedRecipient}`}
                       </span>
-                      <button
-                        type="button"
-                        className="chat__msg-quote__jump"
-                        data-testid="quote-jump-incoming"
-                      >
-                        <span className="chat__msg-quote__jump-label">{jumpLabel}</span>
-                        <svg
-                          className="chat__msg-quote__jump-chevron"
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
+                      {quoteError && (
+                        <span
+                          className="chat__msg-quote__error"
+                          data-testid="quote-error-incoming"
+                          role="status"
                         >
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
-                      </button>
+                          拿不到這則訊息
+                        </span>
+                      )}
                     </div>
                     <span className="chat__msg-quote__body" data-testid="quote-body-incoming">
                       好
                     </span>
+                    <button
+                      type="button"
+                      className="chat__msg-quote__jump"
+                      data-testid="quote-jump-incoming"
+                      aria-label="看原訊息"
+                      title="看原訊息"
+                    />
                   </div>
                   <div className="chat__msg-text doc-md">好，我照這個做</div>
                 </div>
@@ -508,30 +442,17 @@ export function ChatReplyToStory({
                       <span className="chat__msg-quote__who" data-testid="quote-who-pane347">
                         {`${shellSender} \u2192 ${ownerDefaultName}`}
                       </span>
-                      <button
-                        type="button"
-                        className="chat__msg-quote__jump"
-                        data-testid="quote-jump-pane347"
-                      >
-                        <span className="chat__msg-quote__jump-label">{jumpLabel}</span>
-                        <svg
-                          className="chat__msg-quote__jump-chevron"
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
-                      </button>
                     </div>
                     <span className="chat__msg-quote__body" data-testid="quote-body-pane347">
                       {shellQuote}
                     </span>
+                    <button
+                      type="button"
+                      className="chat__msg-quote__jump"
+                      data-testid="quote-jump-pane347"
+                      aria-label="看原訊息"
+                      title="看原訊息"
+                    />
                   </div>
                   <div className="chat__msg-text doc-md">answering it</div>
                 </div>

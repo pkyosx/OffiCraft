@@ -245,9 +245,8 @@ export function ChatRow({
         * WITHOUT the machine would put a dead affordance on screen. The row is
         * also styled for a chat bubble: a `border-bottom` separator (this card
         * already HAS a frame, so that would be a second line inside one box) and
-        * a label that collapses under `@container chat-pane` — a container this
-        * card is not inside, so that rule can never fire here and the label
-        * would stay full width in the NARROWER surface. What is copied is the
+        * one ellipsised line of names, which in this NARROWER surface would cut
+        * most of them away. What is copied is the
         * CONTENT and the two-state rule; the geometry is this card's own, and
         * it is measured by visual-guards/resume-chat-quote.ct.spec.tsx at both
         * ends of the width range because none of it is visible to jsdom.
