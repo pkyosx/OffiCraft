@@ -439,8 +439,8 @@ function SharedDocEditOverlay({
   );
 }
 
-/** 最後修改 opens the doc's version history over the list. The doc's own
- * page (#shared-docs/<id>) is where a shared link lands. */
+/** 最後修改 opens the doc's version history over the list; the doc's own
+ * page stays at #shared-docs/<id>. */
 function UpdatedButton({ text, onOpen }: { text: string; onOpen: () => void }) {
   const { t } = useI18n();
   const d = t.sharedDocs;
