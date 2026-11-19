@@ -37,7 +37,7 @@ import { useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
 import { InlineEdit } from "./InlineEdit";
-import { Markdown } from "./Markdown";
+import { ContentView } from "./ContentView";
 import { ChevronDownIcon, ChevronRightIcon, PencilIcon } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
 import {
@@ -342,7 +342,7 @@ export function DocCard({
   const head = readOnlyHead ? (
     <div className="doc-card__readonly-head" data-testid="doc-card-readonly-head">
       <div className="doc-card__readonly-label">{t.settings.docReadOnlyHead}</div>
-      <Markdown source={readOnlyHead} className="doc-md" />
+      <ContentView kind="markdown" text={readOnlyHead} padded />
     </div>
   ) : null;
 
@@ -359,7 +359,7 @@ export function DocCard({
       onChange={(e) => setDraft(e.target.value)}
     />
   ) : (
-    <Markdown source={text} className="doc-md" />
+    <ContentView kind="markdown" text={text} padded />
   );
 
   return (

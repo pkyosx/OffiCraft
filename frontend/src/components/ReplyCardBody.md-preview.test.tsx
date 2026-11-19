@@ -143,7 +143,7 @@ describe("reply-card question attachments: .md preview (T-7bc2)", () => {
     );
   });
 
-  it("opens the common popup for a non-previewable PDF", async () => {
+  it("opens a PDF in the common popup, drawn in a frame at its share link", async () => {
     __resetMock();
     __injectMockReplyCard(mkCard({ attachments: [pdfAtt()] }));
     const { container, findByTestId } = render(
@@ -157,16 +157,8 @@ describe("reply-card question attachments: .md preview (T-7bc2)", () => {
     expect(file).not.toBeNull();
     expect(container.querySelector("a.chat__msg-file")).toBeNull();
     fireEvent.click(file!);
-    // T-36 (B1) — a PDF still cannot be DRAWN in this panel, so the status line
-    // is still what the body shows. What changed is where that line sends the
-    // reader: the header now carries 「在新頁面顯示」 for a pdf (the browser
-    // displays it), so the line points at that button instead of back at 下載.
-    // Before the share link is minted there is no button yet and the original
-    // 請下載 line stands, which is why this waits for the settled text.
     await waitFor(() =>
-      expect(document.body.querySelector(".md-preview__status")?.textContent).toBe(
-        "此檔案無法在這裡預覽，請用上方的「在新頁面顯示」開啟。",
-      )
+      expect(document.body.querySelector("iframe.md-preview__frame")?.getAttribute("src")).toMatch(/\?sig=/),
     );
   });
 });

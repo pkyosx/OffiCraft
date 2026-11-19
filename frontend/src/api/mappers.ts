@@ -42,6 +42,10 @@ import type {
   SigningKeyView,
   SecretView,
   PasskeyView,
+  SharedDocKind,
+  SharedDocView,
+  SharedDocDetailView,
+  SharedDocVersionView,
   BackupHealthStatus,
   BackupHealthCode,
   GlobalContextView,
@@ -84,6 +88,9 @@ import type {
   WireSecret,
   WirePasskey,
   WireSecrets,
+  WireSharedDoc,
+  WireSharedDocDetail,
+  WireSharedDocVersion,
   WireGlobalContext,
   WireBootDoc,
   WireDocumentHistory,
@@ -1744,6 +1751,53 @@ export function toSecret(w: WireSecret): SecretView {
 
 export function toSecrets(w: WireSecrets): SecretView[] {
   return w.secrets.map(toSecret);
+}
+
+function toSharedDocKind(kind: string): SharedDocKind {
+  return kind === "file" || kind === "image" ? kind : "link";
+}
+
+export function toSharedDoc(w: WireSharedDoc): SharedDocView {
+  return {
+    id: w.id,
+    kind: toSharedDocKind(w.kind),
+    attachmentId: w.attachment_id,
+    name: w.name,
+    description: w.description ?? "",
+    filename: w.filename ?? "",
+    mime: w.mime ?? "",
+    url: w.url ?? "",
+    createdTs: w.created_ts,
+    createdBy: w.created_by,
+    updatedTs: w.updated_ts,
+    updatedBy: w.updated_by,
+    versionCount: w.version_count,
+  };
+}
+
+export function toSharedDocDetail(w: WireSharedDocDetail): SharedDocDetailView {
+  const omitted = w.text_omitted;
+  return {
+    ...toSharedDoc(w),
+    text: w.text ?? null,
+    textOmitted:
+      omitted === "binary" || omitted === "too_large" ? omitted : null,
+  };
+}
+
+export function toSharedDocVersion(w: WireSharedDocVersion): SharedDocVersionView {
+  return {
+    id: w.id,
+    kind: toSharedDocKind(w.kind),
+    attachmentId: w.attachment_id,
+    name: w.name,
+    description: w.description ?? "",
+    filename: w.filename ?? "",
+    mime: w.mime ?? "",
+    url: w.url ?? "",
+    createdTs: w.created_ts,
+    createdBy: w.created_by,
+  };
 }
 
 export function toBackupHealth(w: WireBackupHealth): BackupHealthView {

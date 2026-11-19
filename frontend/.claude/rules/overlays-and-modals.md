@@ -30,6 +30,16 @@ paths:
   - "src/components/diff-screen.css"
   - "src/lib/diffLink.ts"
   - "src/components/DocumentHistory*"
+  - "src/components/HistoryWindow*"
+  - "src/components/ContentView*"
+  - "src/components/VersionContent*"
+  - "src/components/SharedDocVersions*"
+  - "src/components/SharedDocDetail*"
+  - "src/components/SharedDocsPage*"
+  - "src/lib/contentKind.ts"
+  - "src/lib/formatContent.ts"
+  - "src/hooks/useVersionPayload.ts"
+  - "src/hooks/useShareHref.ts"
   - "src/components/TaskArtifactVersions*"
   - "src/components/task-artifact-versions.css"
   - "src/lib/escapeLayers.ts"
@@ -43,6 +53,14 @@ paths:
 
 # 全幅閱覽 overlay、Esc 分層、DocCard、差異呈現
 
+## 檔案內容：一個判型、一個 body
+
+「這個檔案是什麼」只有一個答案：`lib/contentKind.ts` 的 `contentKindOf(mime, filename)`（markdown、json、xml、yaml、csv、text、html、image、pdf、binary）。mime 先說話；mime 是空的、`application/octet-stream` 或 `text/plain`（server 把 .yaml/.py/.sql 存成 text/plain）時才看副檔名，副檔名清單是封閉的。HTML 只認 served mime 是 `text/html`，因為頁面是讓 frame 去載 serve route。`isInlineDisplayableMime` 不併進來：它是 server `isPreviewableAttachment` 的鏡像，回答的是另一個問題。
+
+畫 body 的只有 `ContentView`：markdown 渲染（`.md-preview__md.doc-md`）、JSON 縮排（原生 JSON.parse）、XML 縮排（原生 DOMParser，混排內容與命名空間照寫）、YAML 與其他文字照原樣、CSV 排成表格（RFC 4180；解析失敗或超過 `CSV_MAX_ROWS`／`CSV_MAX_CHARS` 時照原樣加一行說明）、HTML 是 sandbox iframe 載分享連結、PDF 是不帶 sandbox 屬性的 iframe 載分享連結（Chromium 不在 sandbox frame 裡畫 PDF；擋 script 的是 server 對非 HTML 回應一律加的 CSP sandbox）、其他檔指向「在新頁面顯示」。不加任何語法上色或解析依賴。用它的面：全幅閱覽 overlay、檔案庫檔案頁、兩個版本閱讀器（經 `VersionContent`）、DocumentHistoryModal 的內容分頁、DocCard 閱讀模式與唯讀上半、任務手冊 SOP、Insight 卡（後三者傳 `padded` 保留 `.doc-md` 自己的 padding）。外殼（下載、分享、註解、縮放、pager、Esc）留在各自的面。class 名沿用 `md-preview__` 前綴，由 md-preview.css 擁有、ContentView 自己 import。
+
+🔴 frame 的位址永遠是 mint 出來的 `?sig=` 分享連結（`hooks/useShareHref.ts`），不是帶 `?token=` 的 `authedAttachmentUrl`——後者會把 owner 的 token 放進 agent 寫的頁面看得到的地方。PDF 也不用 token 位址嵌入。
+
 ## 全幅閱覽
 
 MarkdownPreviewOverlay 是唯一的全幅面，props 是互斥的 url+attachmentId、source、imageSrc 或 diffParams（diffParams 是一份比較，由 /diff 網址的兩個位址指名）。url 自己 fetch，保留下載與以 att- blob id mint 的分享連結；text/html 例外，不 fetch 內容，而是把 mint 到的分享連結（`?sig=`）放進 body 裡的 iframe（`referrerpolicy="no-referrer"`），iframe 的 sandbox 與 server 對 sig-only HTML 加的 CSP sandbox 都只給 `allow-scripts allow-popups allow-popups-to-escape-sandbox`——兩者取交集，CSP 少了 popups 頁面裡的連結就開不了新分頁；不給 allow-same-origin，否則 agent 寫的 script 會跑在 studio 的 origin、拿得到 owner 存的 token；連結還在 mint 時是載入中，mint 失敗是「無法預覽」；source 是聊天本文，不 fetch、不可下載或分享；imageSrc 是尚未上傳的圖片 bytes，只能下載。
@@ -53,13 +71,13 @@ MarkdownPreviewOverlay 是唯一的全幅面，props 是互斥的 url+attachment
 
 單指 touch 交給圖片自己的原生捲動，避免 double-apply；雙指由 overlay 接管，frame 用 touch-action: pan-x pan-y，並以 non-passive touch handler 改 zoom。iOS 的 gesture 事件與 touch 事件用互斥旗標；不可用 user-scalable=no 或 maximum-scale=1 禁掉整頁縮放。
 
-overlay portal 到 document.body，避免宿主 stacking context 困住它；需要 click-outside 的 caller 以 .md-preview 選擇器辨識，不再靠 ancestor contains。render 與 CT 查詢從 document.body/page 找 overlay。圖片、文件都要戴共用 .doc-md；source 開 breaks，url 不開。圖片展開鈕只在有本文的 incoming bubble，位置由 bubble padding 讓位。
+外殼是同檔的 `PreviewShell`（portal、panel、header、×、Esc 層、開關時的 focus），檔案庫的編輯 overlay 也穿它，不再手抄 `.md-preview` markup。overlay portal 到 document.body，避免宿主 stacking context 困住它；需要 click-outside 的 caller 以 .md-preview 選擇器辨識，不再靠 ancestor contains。render 與 CT 查詢從 document.body/page 找 overlay。圖片、文件都要戴共用 .doc-md；source 開 breaks，url 不開。圖片展開鈕只在有本文的 incoming bubble，位置由 bubble padding 讓位。
 
 ### 文件註解
 
 url 模式的 markdown 文件把獨立成行的圖片畫出來，走的就是使用說明頁那條 `resolveImageSrc={authedAttachmentUrl}`（同一個 SAFE_IMG_SRC_RE 閘）；source 模式（訊息本文）不傳，`![…](…)` 照舊是字。
 
-註解模式開在 url 模式的文字文件（markdown、純文字、JSON）與 HTML（圖片附件沒有），開不開由 overlay 的 `commentable` 一個條件決定。文字文件的選取與點圖都是在 bodyRef 裡找；HTML 在另一個 origin 的 iframe 裡，選取、點圖、Highlight、泡泡都碰不到它，面板拿到 `frameRef` 就全部關掉，改用 `lib/docCommentFrame.ts` 的 postMessage 協定：只收 `event.source` 是這個 iframe 的訊息，格式、型別、長度不符一律忽略不報錯；頁面送 `ready` 之後才送 `mode`／`commented`（`commented` 每次草稿變動都重送），註解模式下頁面送來的 `pick`（`data-oc-anchor` 的 id 與 label）開一則 `kind: "anchor"` 的草稿，點清單上那則的原文就送 `focus`；頁面送來的 `select`（選取的文字與它在頁面 viewport 裡的框；`text` 是空字串＝沒有選取）跟文字文件的選取走同一條路：頁面送 `ready` 之前的 `select` 不收、每次 `ready` 都清掉先前的選取；框換算到 iframe 的位置，「加註解」浮鈕夾在 iframe 的框內（頁面給的框可以是任意數字，不夾會蓋到送出鈕或面板上）；存成沒有 kind、帶 `page: true` 的文字註解。引言格式與文字文件相同，但那段字是頁面 script 說了算、不一定是 owner 選到的字，所以每一行照位置 label 的規則跳脫（再加行首區塊符號），送出的訊息裡不會變成連結、粗體、程式碼或標題；文字文件的選取照舊不跳脫。文字上限是聊天本文的 4000 字，超過整則忽略。iframe 裡的文字標不了色、也定位不到，所以這種註解沒有泡泡、沒有跳轉鈕。頁面 script 在註解模式下：click 時頁面上有選取（拖曳選取的結尾）就擋掉預設動作與 pick，所以選取落在標記位置或連結裡時是選取優先、連結不會打開；Chromium 從連結上開始拖曳不會選字而是拖連結，所以從 `a[href]` 開始的拖曳由 script 自己用 caret 位置畫選取；沒有選取的單擊照舊（標記位置是 pick，連結照常打開）。點在標記位置裡面的 `summary`、`button`、`input`、`select`、`textarea`、`label`、可編輯（`contenteditable`，值不是 `false`）的元素或 `[data-oc-interactive]` 上時 script 完全不動（不擋預設、不擋傳遞、不 pick），頁面上留著選取也一樣（點在控制項裡的 click 不可能是從外面拖進來的選取結尾），`<details>` 照常開合、頁面自己的 handler 照常跑；只算夾在點擊目標與標記位置之間的控制項——控制項包住標記位置、或標記位置本身就是控制項，照舊 pick；連結比控制項更靠近點擊目標時照連結的規則走。頁面沒送 `ready`（沒貼 script）時清單空白處只提「對整份文件加註解」。頁面那一半是 `cli/ocagent/doc_comments_snippet.html`，`ocagent upload --help` 原樣印出、overlay 的測試原樣執行，改協定兩邊一起改。面板最上面的「對整份文件加註解」對所有文件都在，存成 `kind: "document"`。呼叫端要傳 `docComments`（收件人＋任務產物資訊）；沒傳就沒有「註解」鈕。收件人由開啟的那個面決定、overlay 不猜（owner：「從哪邊開，就是回在哪個聊天室」）：聊天室裡的附件列、圖庫與訊息本文連結都回給這個聊天室的對象——包括別的成員寄給他、出現在他串裡的訊息，不是寄件人；請示卡裡的連結與它的提問／回答附件回給開卡人；任務卡裡的連結與任務產物回給負責人。收件人的 roster 是四態，聊天室、請示卡與任務卡都由 `lib/docComments.ts` 的 `docCommentRecipient` 判（owner 與空 id 回 null；listed 由各面自己的名冊給，任務卡是 members 加 live workers）：收件人是 server 蓋的身分（system、`hook:`、`sched:`，見 `lib/syntheticSender.ts`）是 not-member，顯示「不是成員寄出的」而不是「已離開」；live 名冊（members 或 live 外包 workers）查得到是 active；名冊還沒載完（呼叫端的 rosterSettled 為 false）是 pending——送出鈕停用但不說對方已離開，因為查不到可能只是還沒到；載完仍查不到才是 left、顯示原因。送出的本文格式由 `lib/docComments.ts` 的 `formatDocCommentMessage` 獨占——它是給 AI 讀的固定格式，不走 i18n、不讓主題用詞覆寫；引言要寫在清單項的續行，因為 Markdown.tsx 把清單項第一行當 inline 讀，寫在第一行的 `>` 不會變成引言。註解續行開頭的區塊符號（`>`、`#`、`-`/`*`/`+`、`1.`、fence、`---`）與檔名裡的 `\`、`[`、`]`、反引號都以反斜線跳脫，Markdown.tsx 照 CommonMark 把反斜線後的 ASCII 標點當字面字元，否則註解裡的一行 `> …` 或 `2. 原文：` 會畫成另一段原文或另一項。送出成功只從草稿刪掉送出的那幾則（依 id），另一個開著的同份文件在送出途中加的註解要留著。標色用 CSS Custom Highlight API，不改 Markdown 畫出來的 DOM（React 還管著那些節點）；圖片註解（`kind: "image"`，存 alt 與 src）例外地由 effect 在 `<img>` 上設 `data-doc-comment`——React 沒有 render 那個屬性，reconcile 不會動它，cleanup 會拿掉。存下的 src 是文件寫的位址：同源就去 host、去掉 authedAttachmentUrl 加的 `?token=`（會進聊天訊息）；送出時引言是 `> 圖片：[alt 或檔名](src)`，alt 走檔名同一套 escapeLinkText——放在連結文字裡，因為 Markdown.tsx 在連結外不認反斜線跳脫的 `[`。找原文時忽略空白，因為選取文字在區塊之間帶換行、DOM 文字節點沒有。位置註解送出時引言是 `> 位置：label（#id）`、整份文件是 `> 整份文件`，label 與 id 是頁面給的字，空白收成一格，`\`、`[`、`]`、反引號、`*`、`_`、`<`、`>` 與 URL scheme 後的 `:` 都以反斜線跳脫，送出的訊息裡不會變成粗體、程式碼、連結或自動連結；畫面上只當純文字。頁面送來的 `pick` 遇到正在寫、已有字的註解就忽略，不換掉他打到一半的字。草稿存 localStorage（以附件 id 為鍵，讀寫都包 try/catch）；沒有 kind 的一則就是文字註解，那也是舊版存的形狀，讀取不能要求它帶 kind。註解面板以 attachmentId 為 key：pager 換到另一份時整個重掛，否則上一份的註解會出現在下一份、存進下一份的草稿、掛在下一份的連結下送出。
+註解模式開在 url 模式的文字文件（`isTextKind` 為真的每一種：markdown、JSON、XML、YAML、CSV、純文字）與 HTML（圖片附件沒有），開不開由 overlay 的 `commentable` 一個條件決定。文字文件的選取與點圖都是在 bodyRef 裡找；HTML 在另一個 origin 的 iframe 裡，選取、點圖、Highlight、泡泡都碰不到它，面板拿到 `frameRef` 就全部關掉，改用 `lib/docCommentFrame.ts` 的 postMessage 協定：只收 `event.source` 是這個 iframe 的訊息，格式、型別、長度不符一律忽略不報錯；頁面送 `ready` 之後才送 `mode`／`commented`（`commented` 每次草稿變動都重送），註解模式下頁面送來的 `pick`（`data-oc-anchor` 的 id 與 label）開一則 `kind: "anchor"` 的草稿，點清單上那則的原文就送 `focus`；頁面送來的 `select`（選取的文字與它在頁面 viewport 裡的框；`text` 是空字串＝沒有選取）跟文字文件的選取走同一條路：頁面送 `ready` 之前的 `select` 不收、每次 `ready` 都清掉先前的選取；框換算到 iframe 的位置，「加註解」浮鈕夾在 iframe 的框內（頁面給的框可以是任意數字，不夾會蓋到送出鈕或面板上）；存成沒有 kind、帶 `page: true` 的文字註解。引言格式與文字文件相同，但那段字是頁面 script 說了算、不一定是 owner 選到的字，所以每一行照位置 label 的規則跳脫（再加行首區塊符號），送出的訊息裡不會變成連結、粗體、程式碼或標題；文字文件的選取照舊不跳脫。文字上限是聊天本文的 4000 字，超過整則忽略。iframe 裡的文字標不了色、也定位不到，所以這種註解沒有泡泡、沒有跳轉鈕。頁面 script 在註解模式下：click 時頁面上有選取（拖曳選取的結尾）就擋掉預設動作與 pick，所以選取落在標記位置或連結裡時是選取優先、連結不會打開；Chromium 從連結上開始拖曳不會選字而是拖連結，所以從 `a[href]` 開始的拖曳由 script 自己用 caret 位置畫選取；沒有選取的單擊照舊（標記位置是 pick，連結照常打開）。點在標記位置裡面的 `summary`、`button`、`input`、`select`、`textarea`、`label`、可編輯（`contenteditable`，值不是 `false`）的元素或 `[data-oc-interactive]` 上時 script 完全不動（不擋預設、不擋傳遞、不 pick），頁面上留著選取也一樣（點在控制項裡的 click 不可能是從外面拖進來的選取結尾），`<details>` 照常開合、頁面自己的 handler 照常跑；只算夾在點擊目標與標記位置之間的控制項——控制項包住標記位置、或標記位置本身就是控制項，照舊 pick；連結比控制項更靠近點擊目標時照連結的規則走。頁面沒送 `ready`（沒貼 script）時清單空白處只提「對整份文件加註解」。頁面那一半是 `cli/ocagent/doc_comments_snippet.html`，`ocagent upload --help` 原樣印出、overlay 的測試原樣執行，改協定兩邊一起改。面板最上面的「對整份文件加註解」對所有文件都在，存成 `kind: "document"`。呼叫端要傳 `docComments`（收件人＋任務產物資訊）；沒傳就沒有「註解」鈕。收件人由開啟的那個面決定、overlay 不猜（owner：「從哪邊開，就是回在哪個聊天室」）：聊天室裡的附件列、圖庫與訊息本文連結都回給這個聊天室的對象——包括別的成員寄給他、出現在他串裡的訊息，不是寄件人；請示卡裡的連結與它的提問／回答附件回給開卡人；任務卡裡的連結與任務產物回給負責人。收件人的 roster 是四態，聊天室、請示卡與任務卡都由 `lib/docComments.ts` 的 `docCommentRecipient` 判（owner 與空 id 回 null；listed 由各面自己的名冊給，任務卡是 members 加 live workers）：收件人是 server 蓋的身分（system、`hook:`、`sched:`，見 `lib/syntheticSender.ts`）是 not-member，顯示「不是成員寄出的」而不是「已離開」；live 名冊（members 或 live 外包 workers）查得到是 active；名冊還沒載完（呼叫端的 rosterSettled 為 false）是 pending——送出鈕停用但不說對方已離開，因為查不到可能只是還沒到；載完仍查不到才是 left、顯示原因。送出的本文格式由 `lib/docComments.ts` 的 `formatDocCommentMessage` 獨占——它是給 AI 讀的固定格式，不走 i18n、不讓主題用詞覆寫；引言要寫在清單項的續行，因為 Markdown.tsx 把清單項第一行當 inline 讀，寫在第一行的 `>` 不會變成引言。註解續行開頭的區塊符號（`>`、`#`、`-`/`*`/`+`、`1.`、fence、`---`）與檔名裡的 `\`、`[`、`]`、反引號都以反斜線跳脫，Markdown.tsx 照 CommonMark 把反斜線後的 ASCII 標點當字面字元，否則註解裡的一行 `> …` 或 `2. 原文：` 會畫成另一段原文或另一項。送出成功只從草稿刪掉送出的那幾則（依 id），另一個開著的同份文件在送出途中加的註解要留著。標色用 CSS Custom Highlight API，不改 Markdown 畫出來的 DOM（React 還管著那些節點）；圖片註解（`kind: "image"`，存 alt 與 src）例外地由 effect 在 `<img>` 上設 `data-doc-comment`——React 沒有 render 那個屬性，reconcile 不會動它，cleanup 會拿掉。存下的 src 是文件寫的位址：同源就去 host、去掉 authedAttachmentUrl 加的 `?token=`（會進聊天訊息）；送出時引言是 `> 圖片：[alt 或檔名](src)`，alt 走檔名同一套 escapeLinkText——放在連結文字裡，因為 Markdown.tsx 在連結外不認反斜線跳脫的 `[`。找原文時忽略空白，因為選取文字在區塊之間帶換行、DOM 文字節點沒有。位置註解送出時引言是 `> 位置：label（#id）`、整份文件是 `> 整份文件`，label 與 id 是頁面給的字，空白收成一格，`\`、`[`、`]`、反引號、`*`、`_`、`<`、`>` 與 URL scheme 後的 `:` 都以反斜線跳脫，送出的訊息裡不會變成粗體、程式碼、連結或自動連結；畫面上只當純文字。頁面送來的 `pick` 遇到正在寫、已有字的註解就忽略，不換掉他打到一半的字。草稿存 localStorage（以附件 id 為鍵，讀寫都包 try/catch）；沒有 kind 的一則就是文字註解，那也是舊版存的形狀，讀取不能要求它帶 kind。註解面板以 attachmentId 為 key：pager 換到另一份時整個重掛，否則上一份的註解會出現在下一份、存進下一份的草稿、掛在下一份的連結下送出。
 
 註解泡泡（只有文字文件的註解模式、只算草稿裡還沒送出的）：Highlight 不能點，所以泡泡是 DocComments 以 portal 放進 bodyRef（文件的捲動容器）的絕對定位 `<button>`，跟著內文一起捲。同一段原文（定位到同一個 Range）或同一張圖的註解合成一顆，多則時顯示數字；數字走 `data-count` 的 `::after`、圖示是 svg——bodyRef 裡不能多出文字節點，否則 `locateExcerpt` 會把泡泡上的數字當成原文、選取也會帶進去。文字泡泡放在註解模式下 body 多出的右側留白（md-preview.css 的 `padding-right`），垂直對齊原文最後一行（`getClientRects` 最後一個有寬度的框），兩顆會重疊時往下錯開——錯開要照量到的位置由上往下走，不是照清單（加註解的先後）順序，否則先註解下段、再註解上段時上段的泡泡會被推到下段旁邊；圖片泡泡在圖片右上角。位置在註解變動、視窗 resize 與 ResizeObserver（body 與它的內容）時重算；圖片晚於文字載入、把下面的段落往下推時，只有 ResizeObserver 會觸發。泡泡的名稱帶那段原文的前 20 字（多則時是則數），螢幕報讀才分得出哪顆是哪段。點泡泡：手機上註解清單收合時先展開（收合鈕只在 720px 以下出現，`aria-controls` 指向清單；按「加註解」也要先展開，因為輸入框在清單裡），清單捲到那顆泡泡的第一則、焦點移到那則的原文鈕，並加 `doc-comments__item--flash` 1.5 秒；點清單上一則的原文：文件捲到那段原文（第二個 Highlight `oc-doc-comment-focus`，priority 1）或那張圖（`data-doc-comment-focus`），同樣 1.5 秒。找不到原文的那一則沒有跳轉鈕。
 
@@ -104,7 +122,7 @@ token 標亮只在兩側有共同非空白 token 時做，每側有上限；顏�
 
 ## 產物版本閱讀器
 
-TaskArtifactVersionsModal 是任務產物「被換過幾次、換掉的是什麼」的唯一讀面，形狀沿用 DocumentHistoryModal（左版本清單、右內容／差異），由產物列在 versionCount > 1 時的入口開啟。它 portal 到 document.body，所以產物 popover 的 click-outside 述詞要認得它的 root，跟 .md-preview 同一格。
+TaskArtifactVersionsModal 是任務產物「被換過幾次、換掉的是什麼」的唯一讀面；內容分頁經 `VersionContent` 走 ContentView（md 渲染、JSON/XML 縮排、CSV 表格、HTML 以那一版自己的分享連結開 frame），讀取在 `hooks/useVersionPayload.ts`，檔案庫的版本紀錄共用同一支，形狀沿用 DocumentHistoryModal（左版本清單、右內容／差異），由產物列在 versionCount > 1 時的入口開啟。它 portal 到 document.body，所以產物 popover 的 click-outside 述詞要認得它的 root，跟 .md-preview 同一格。
 
 「目前版本」一律在開啟時向 server 讀（listTaskArtifacts——T-92 之後 getTask 只回 artifact_count，一列都不回，拿不到版本讀面要的 kind／url／mime），不得改讀 popover 手上的 SSE 快取——差異說的話必須等於伺服器現在的狀態，這條與文件閱讀器同一條判準。server 說產物已不在任務上就照實講，不拿手上最後知道的那份當現況。
 
@@ -116,4 +134,8 @@ TaskArtifactVersionsModal 是任務產物「被換過幾次、換掉的是什麼
 
 🔴 但 mime 不是唯一判準：`text/*` 是文字、`image/*` 是圖片，兩者皆非時再看檔名副檔名，命中一份封閉的文字副檔名清單就當文字讀。副檔名要從哪裡拿，兩側不對稱：版本的 `filename` 由 wire 從它自己的 attachment_id 解出，是那一版自己的事實；live 產物在 T-92 之後**沒有 filename 欄**，而它的 `name` 是**作者寫的標題**（`artifactDisplayName` 第一順位就回 stored name，T-92 又讓寫入必填），常態上根本沒有副檔名——只讀 `name` 會讓一份 `.md` 報告的 live 側判成 opaque，差異分頁整個消失。所以 live 側的檔名改從**下載回應自己的 `Content-Disposition`** 取（`filename*=UTF-8''…` 優先、`filename="…"` 次之；那個 header 是 server 對每個非圖片附件都會寫的），兩邊任一看起來是文字就當文字。清單本身仍是封閉的，不因此放寬。理由是 agent 上傳的報告回來是 `application/octet-stream`——那是上傳端「不知道」，不是「這是二進位」；只信 mime 會把報告、log、spec 這些最常見的產物全部推去前後切換，永遠 diff 不到。清單是封閉的，不在清單上的仍然不讀 body。
 
-沒有還原面，server 也沒有還原動詞；舊版要回來是往前 replace。
+沒有還原面，server 也沒有還原動詞；舊版要回來是往前 replace。它還留著左清單、右內容的 split 外殼（含可選的「目前版本」列與「已不在任務上」狀態），沒有改成下面那個清單→閱讀的視窗。
+
+## 檔案庫版本紀錄
+
+SharedDocVersionsModal 用的是文件版本紀錄的同一個視窗（`HistoryWindow.tsx`：`HistoryListWindow` 清單、`HistoryReaderWindow` 閱讀；DocumentHistoryEntry／DocumentHistoryModal 也從這裡畫）。清單列保留的舊版本；點一版：內容預設、右上角切逐行差異（兩邊都是文字才有）、底部 返回版本列表／還原。還原一律經 ConfirmModal，失敗顯示 server 的原話、兩層都不關，進行中 Esc 與背景點擊無效。圖片版本只顯示圖與檔名、沒有差異；連結版本列出那一版與目前的網址。「目前」在開啟時向 server 讀。

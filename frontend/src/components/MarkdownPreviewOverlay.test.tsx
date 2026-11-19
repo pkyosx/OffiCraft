@@ -1,8 +1,7 @@
-// MarkdownPreviewOverlay + isMarkdownAttachment (T-a1c4). The overlay fetches
+// MarkdownPreviewOverlay (T-a1c4). The overlay fetches
 // the .md blob text and renders it through the shared Markdown.tsx (NOT the
 // browser's raw-source tab); preview and download are two distinct actions, so
-// the header keeps a 下載 link alongside the render. isMarkdownAttachment gates
-// which attachments get the 預覽 action.
+// the header keeps a 下載 link alongside the render.
 //
 // The overlay PORTALS to `document.body` (T-76cd), so it is not inside the
 // container `render()` hands back — every DOM reach for it goes through
@@ -10,56 +9,14 @@
 // returns null and reads like the overlay never rendered.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, fireEvent, waitFor, screen, act } from "@testing-library/react";
+import { render, fireEvent, waitFor, screen, act, cleanup } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
-import {
-  MarkdownPreviewOverlay,
-  formatJsonForPreview,
-  isJsonAttachment,
-  isMarkdownAttachment,
-} from "./MarkdownPreviewOverlay";
+import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { AlertTriangleIcon } from "./icons";
 import { Markdown } from "./Markdown";
 import { zh } from "../i18n/locales/zh";
 import snippet from "../../../cli/ocagent/doc_comments_snippet.html?raw";
-
-describe("isMarkdownAttachment", () => {
-  it("accepts markdown mimes and .md/.markdown filenames", () => {
-    expect(isMarkdownAttachment("text/markdown", "x")).toBe(true);
-    expect(isMarkdownAttachment("text/x-markdown", "x")).toBe(true);
-    expect(isMarkdownAttachment("text/plain", "design.md")).toBe(true);
-    expect(
-      isMarkdownAttachment("application/octet-stream", "NOTES.MARKDOWN"),
-    ).toBe(true);
-  });
-  it("rejects non-markdown", () => {
-    expect(isMarkdownAttachment("application/pdf", "report.pdf")).toBe(false);
-    expect(isMarkdownAttachment("image/png", "shot.png")).toBe(false);
-    expect(isMarkdownAttachment("text/plain", "notes.txt")).toBe(false);
-  });
-});
-
-describe("isJsonAttachment and formatJsonForPreview", () => {
-  it("recognizes declared JSON and an octet-stream .json filename", () => {
-    expect(isJsonAttachment("application/json", "report.data")).toBe(true);
-    expect(isJsonAttachment("application/json; charset=utf-8", "report.data")).toBe(true);
-    expect(isJsonAttachment("application/octet-stream", "REPORT.JSON")).toBe(true);
-    expect(isJsonAttachment("application/octet-stream", "report.txt")).toBe(false);
-    expect(isJsonAttachment("application/zip", "report.json")).toBe(false);
-  });
-
-  it("indents valid JSON and preserves invalid JSON for the caller", () => {
-    expect(formatJsonForPreview('{"name":"Mira","items":[1,2]}')).toEqual({
-      body: '{\n  "name": "Mira",\n  "items": [\n    1,\n    2\n  ]\n}',
-      unparseable: false,
-    });
-    expect(formatJsonForPreview('{"name":}')).toEqual({
-      body: '{"name":}',
-      unparseable: true,
-    });
-  });
-});
 
 describe("MarkdownPreviewOverlay", () => {
   const realFetch = globalThis.fetch;
@@ -363,6 +320,30 @@ describe("MarkdownPreviewOverlay", () => {
     );
   });
 
+  it.each([
+    ["ci.yaml", "text/plain", "# keep\nkey:  v\n", "pre.md-preview__text", "# keep\nkey:  v\n"],
+    ["feed.xml", "text/xml", "<a><b>1</b></a>", "pre.md-preview__text", "<a>\n  <b>1</b>\n</a>"],
+    ["main.py", "text/plain", "print(1)\n", "pre.md-preview__text", "print(1)\n"],
+    ["t.csv", "text/csv", "a,b\n1,2\n", ".md-preview__csv table", "ab12"],
+  ])("draws a %s attachment in the panel instead of sending it to a tab", async (title, mime, text, selector, shown) => {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => text })) as unknown as typeof fetch;
+    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue("/api/chat/attachment/att-t?sig=s");
+    render(
+      <I18nProvider>
+        <MarkdownPreviewOverlay
+          title={title}
+          url="/api/chat/attachment/att-t"
+          attachmentId="att-t"
+          mime={mime}
+          onClose={() => {}}
+        />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(document.body.querySelector(selector)).toBeTruthy());
+    expect(document.body.querySelector(selector)?.textContent).toBe(shown);
+    expect(document.body.querySelector(".md-preview__status, .md-preview__malformed")).toBeNull();
+  });
+
   it("shows invalid JSON unchanged with the unparseable explanation", async () => {
     const raw = '{"name":}';
     globalThis.fetch = vi.fn(async () => ({
@@ -442,7 +423,8 @@ describe("MarkdownPreviewOverlay", () => {
   // The blob actions belong to `url` mode and must survive the message mode
   // being added beside them (T-4fdc gave the share link a REQUIRED attachment
   // id; PR #18 must not quietly drop either).
-  it("keeps the share link + download on a blob, and gives an inline source neither", async () => {
+  it("keeps the share link + download on a blob, with 編輯 first when the caller offers it, and gives an inline source none of them", async () => {
+    const onEdit = vi.fn();
     const mint = vi
       .spyOn(api, "getChatAttachmentShareLink")
       .mockResolvedValue("/api/chat/attachment/att-backing?sig=test");
@@ -461,6 +443,7 @@ describe("MarkdownPreviewOverlay", () => {
           title="doc.md"
           url="/api/chat/attachment/att-doc"
           attachmentId="att-backing"
+          onEdit={onEdit}
           onClose={() => {}}
         />
       </I18nProvider>,
@@ -470,6 +453,15 @@ describe("MarkdownPreviewOverlay", () => {
         document.body.querySelector("button.md-preview__share"),
       ).toBeTruthy(),
     );
+    await waitFor(() =>
+      expect(
+        Array.from(document.body.querySelectorAll(".md-preview__actions > *")).map((el) =>
+          el.getAttribute("aria-label"),
+        ),
+      ).toEqual(["編輯", "複製分享連結", "在新頁面顯示", "下載", "關閉預覽"]),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "編輯" }));
+    expect(onEdit).toHaveBeenCalledTimes(1);
     fireEvent.click(document.body.querySelector("button.md-preview__share")!);
     // The share link is minted for the ATTACHMENT ID, never the serve path.
     await waitFor(() => expect(mint).toHaveBeenCalledWith("att-backing"));
@@ -486,11 +478,17 @@ describe("MarkdownPreviewOverlay", () => {
         />
       </I18nProvider>,
     );
-    expect(document.body.querySelector("button.md-preview__share")).toBeNull();
-    expect(document.body.querySelector("a.md-preview__download")).toBeNull();
+    expect(
+      Array.from(document.body.querySelectorAll(".md-preview__actions > *")).map((el) =>
+        el.getAttribute("aria-label"),
+      ),
+    ).toEqual(["關閉預覽"]);
   });
 
-  it("shows an HTML attachment as its share-link page in a sandboxed frame, loading until the link is minted, without fetching its text", async () => {
+  it.each([
+    ["text/html", "pr-702.html", "allow-scripts allow-popups allow-popups-to-escape-sandbox"],
+    ["application/pdf", "spec.pdf", null],
+  ])("shows a %s attachment as its share-link page in a frame filling the body, loading until the link is minted, without fetching its bytes; with an empty attachment id to mint from it says 請下載", async (mime, title, sandbox) => {
     let mint!: (href: string) => void;
     vi.spyOn(api, "getChatAttachmentShareLink").mockImplementation(
       () => new Promise((resolve) => (mint = resolve)),
@@ -499,10 +497,10 @@ describe("MarkdownPreviewOverlay", () => {
     render(
       <I18nProvider>
         <MarkdownPreviewOverlay
-          title="pr-702.html"
+          title={title}
           url="/api/chat/attachment/att-html"
           attachmentId="att-html"
-          mime="text/html"
+          mime={mime}
           onClose={() => {}}
         />
       </I18nProvider>,
@@ -521,15 +519,27 @@ describe("MarkdownPreviewOverlay", () => {
     }).toEqual({
       className: "md-preview__frame",
       src: `${window.location.origin}/api/chat/attachment/att-html?sig=s1`,
-      sandbox: "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+      sandbox,
       referrerPolicy: "no-referrer",
-      title: "pr-702.html",
+      title,
     });
+    expect(document.body.querySelector(".md-preview__body--frame")).not.toBeNull();
+    expect(document.body.querySelector(".md-preview__panel--frame")).not.toBeNull();
     expect(document.body.querySelector(".md-preview__status")).toBeNull();
     expect(screen.getByRole("link", { name: "在新頁面顯示" }).getAttribute("href")).toBe(
       `${window.location.origin}/api/chat/attachment/att-html?sig=s1`,
     );
+    expect(document.body.querySelector("a.md-preview__download")?.getAttribute("download")).toBe(title);
     expect(globalThis.fetch).not.toHaveBeenCalled();
+    cleanup();
+
+    render(
+      <I18nProvider>
+        <MarkdownPreviewOverlay title={title} url="/api/chat/attachment/att-html" attachmentId="" mime={mime} onClose={() => {}} />
+      </I18nProvider>,
+    );
+    expect(document.body.querySelector(".md-preview__status")?.textContent).toBe("此檔案無法預覽，請下載");
+    expect(document.body.querySelector("iframe")).toBeNull();
   });
 
   it("shows an honest error state on a failed fetch (never a blank render)", async () => {

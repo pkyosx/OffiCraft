@@ -4,7 +4,7 @@
 // (owner 2026-07-22:「user guide 改放在 tab 中,監控的右邊,不要放在 settings
 // 裡」). What is locked here is the part a screenshot conveys and a component
 // test otherwise cannot:
-//   1. ORDER — 辦公室 / 請示 / 任務 / 傳承 / 密鑰 / 監控 / 使用說明, with 使用說明 LAST,
+//   1. ORDER — 辦公室 / 請示 / 任務 / 密鑰 / 檔案庫 / 傳承 / 監控 / 使用說明, with 使用說明 LAST,
 //      i.e. immediately to the right of 監控. The owner's红框 was a position, so
 //      position is the requirement; "the tab exists somewhere" would not be.
 //      T-33 inserted 傳承 between 任務 and 監控. That is a WIDENING of the strip,
@@ -104,8 +104,9 @@ describe("主導覽分頁", () => {
       zh.nav.office,
       zh.nav.replies,
       zh.nav.tasks,
-      zh.nav.lore,
       zh.nav.secrets,
+      zh.nav.sharedDocs,
+      zh.nav.lore,
       zh.nav.monitor,
       zh.nav.guide,
     ]);
@@ -145,6 +146,21 @@ describe("主導覽分頁", () => {
     expect(
       screen.getByText(zh.nav.guide).closest(".nav-tab")?.className,
     ).not.toContain("nav-tab--active");
+  });
+
+  it("a #shared-docs/<id> deep link opens that shared doc under the 檔案庫 tab", async () => {
+    history.replaceState(null, "", window.location.pathname + "#shared-docs/sd-3f9a2c71b0e4");
+    renderApp();
+    expect((await screen.findByTestId("shared-doc-title")).textContent).toBe("Review Rule");
+    const active = document.querySelector(".nav-tabs .nav-tab--active");
+    expect(active?.textContent).toBe(zh.nav.sharedDocs);
+  });
+
+  it("selecting 檔案庫 routes to #shared-docs and mounts the list", async () => {
+    renderApp();
+    fireEvent.click(screen.getByText(zh.nav.sharedDocs));
+    expect(window.location.hash).toBe("#shared-docs");
+    expect(await screen.findByTestId("shared-docs-page")).toBeTruthy();
   });
 
   it("a #secrets deep link opens the Secrets page and marks its tab active", async () => {

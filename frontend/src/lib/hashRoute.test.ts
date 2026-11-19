@@ -12,6 +12,11 @@ describe("parseHash", () => {
     expect(parseHash("#replies")).toEqual({ page: "replies" });
     expect(parseHash("#monitor")).toEqual({ page: "monitor" });
     expect(parseHash("#secrets")).toEqual({ page: "secrets" });
+    expect(parseHash("#shared-docs")).toEqual({ page: "shared_docs" });
+    expect(parseHash("#shared-docs/sd-0c41e97a2b58")).toEqual({
+      page: "shared_docs",
+      sharedDocId: "sd-0c41e97a2b58",
+    });
     expect(parseHash("#guide")).toEqual({ page: "guide" });
     expect(parseHash("#settings")).toEqual({ page: "settings" });
   });
@@ -215,6 +220,10 @@ describe("formatHash", () => {
     expect(formatHash({ page: "replies" })).toBe("#replies");
     expect(formatHash({ page: "monitor" })).toBe("#monitor");
     expect(formatHash({ page: "secrets" })).toBe("#secrets");
+    expect(formatHash({ page: "shared_docs" })).toBe("#shared-docs");
+    expect(
+      formatHash({ page: "shared_docs", sharedDocId: "sd-0c41e97a2b58" }),
+    ).toBe("#shared-docs/sd-0c41e97a2b58");
     expect(formatHash({ page: "guide" })).toBe("#guide");
     expect(formatHash({ page: "settings" })).toBe("#settings");
     expect(formatHash({ page: "office", chatId: "mira" })).toBe(
@@ -329,6 +338,8 @@ describe("formatHash", () => {
       { page: "monitor" as const },
       { page: "monitor" as const, detailId: "mira" },
       { page: "secrets" as const },
+      { page: "shared_docs" as const },
+      { page: "shared_docs" as const, sharedDocId: "sd-0c41e97a2b58" },
       { page: "guide" as const },
       { page: "guide" as const, guideSlug: "interface" },
       { page: "settings" as const },

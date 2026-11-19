@@ -295,29 +295,13 @@ for (const [shotName, label, className, itemClassName] of ENTRY_FIXTURES) {
       popup.getByRole("button", { name: "複製分享連結" }),
     ).toBeVisible();
     await expect(popup.getByRole("link", { name: "下載" })).toBeVisible();
-    // T-36 — the fixture's mime is application/pdf, which `isInlineDisplayableMime`
-    // accepts (the mirror of the server's isPreviewableAttachment: image/* ∪
-    // text/* ∪ application/pdf ∪ application/json ∪ .json), so this popup now
-    // carries 「在新頁面顯示」 and the biggest
-    // line on the screen points AT that control instead of at 下載.
-    //
-    // WHAT THIS PAIR STILL GUARDS, and why it is two assertions and not one: the
-    // sentence NAMES a button, so the screen is only honest when both halves are
-    // there. A screen with the line but no button strands the reader at an
-    // instruction they cannot follow; a screen with the button but the old
-    // 「請下載」 wording sends the owner back to the very complaint that opened
-    // this ticket, past a control that would have answered it. Either half alone
-    // would let its opposite regress silently.
     await expect(
       popup.getByRole("link", { name: "在新頁面顯示" }),
     ).toBeVisible();
-    await expect(
-      popup.getByText("此檔案無法在這裡預覽，請用上方的「在新頁面顯示」開啟。"),
-    ).toBeVisible();
-    // 「請下載」 is still the right line for a file with no button (a mint that
-    // failed, or a mime the browser downloads) — it must simply not be THIS
-    // screen's line, where the button exists.
-    await expect(popup.getByText("此檔案無法預覽，請下載")).toHaveCount(0);
+    await expect(popup.locator("iframe.md-preview__frame")).toHaveAttribute(
+      "src",
+      new RegExp(`/api/chat/attachment/att-${shotName}\\?sig=`),
+    );
     await page.screenshot({
       path: `${SHOT_DIR}/${shotName}.png`,
       fullPage: true,

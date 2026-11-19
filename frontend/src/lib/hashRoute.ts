@@ -25,6 +25,8 @@
  *   #tasks/executor/<memberId>                    → tasks page, filtered to that
  *                                                   member's unfinished tasks
  *   #lore                                         → 傳承 page (T-33)
+ *   #shared-docs                                  → 檔案庫 list
+ *   #shared-docs/<docId>                          → that shared document
  *   #secrets                                      → Secrets page
  *   #monitor                                      → monitor page
  *   #monitor/member/<detailId>                    → monitor's member detail
@@ -53,6 +55,7 @@ export interface HashRoute {
     | "replies"
     | "tasks"
     | "lore"
+    | "shared_docs"
     | "secrets"
     | "monitor"
     | "guide"
@@ -129,6 +132,9 @@ export interface HashRoute {
    * self-heals to the list on the consuming page (the doc index is the
    * existence check). */
   guideSlug?: string;
+  /** shared_docs only — the document open (#shared-docs/<id>); absent → the
+   * list. An unknown id is answered by the page, not healed here. */
+  sharedDocId?: string;
   /** office / monitor — the member whose detail panel is open. */
   detailId?: string;
   /** office only — the outsource worker whose detail panel is open (mutually
@@ -218,6 +224,12 @@ export function parseHash(raw: string): HashRoute {
     return { page: "lore" };
   }
 
+  if (head === "shared-docs") {
+    return rest[0]
+      ? { page: "shared_docs", sharedDocId: rest[0] }
+      : { page: "shared_docs" };
+  }
+
   if (head === "secrets") {
     return { page: "secrets" };
   }
@@ -293,6 +305,10 @@ export function formatHash(route: HashRoute): string {
       : "#tasks";
   }
   if (route.page === "lore") return "#lore";
+  if (route.page === "shared_docs")
+    return route.sharedDocId
+      ? `#shared-docs/${encodeURIComponent(route.sharedDocId)}`
+      : "#shared-docs";
   if (route.page === "secrets") return "#secrets";
   if (route.page === "guide") {
     return route.guideSlug

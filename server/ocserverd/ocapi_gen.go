@@ -4358,6 +4358,177 @@ type SettingsUpdateDTO struct {
 	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
 }
 
+// SharedDocCreateDTO Create one shared document.
+type SharedDocCreateDTO struct {
+	// AttachmentId Required for ``file``/``image``, refused for ``link``: a blob already in the store (``ocagent upload``).
+	AttachmentId *string `json:"attachment_id,omitempty"`
+
+	// Description At most 1024 runes; omitted means empty.
+	Description *string `json:"description,omitempty"`
+
+	// Kind ``file``, ``image`` or ``link``. Cannot be changed later.
+	Kind string `json:"kind"`
+
+	// Name Required, at most 128 runes. Need not be unique.
+	Name string `json:"name"`
+
+	// Url Required for ``link``, refused for ``file``/``image``: ``http(s)://``, at most 2048 runes. Stored as sent, never fetched.
+	Url *string `json:"url,omitempty"`
+}
+
+// SharedDocDTO One shared document's metadata and current version.
+type SharedDocDTO struct {
+	// AttachmentId The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.
+	AttachmentId string `json:"attachment_id"`
+
+	// CreatedBy Who created the document. Never changes.
+	CreatedBy string `json:"created_by"`
+
+	// CreatedTs When the document was created. Never changes.
+	CreatedTs float64 `json:"created_ts"`
+
+	// Description May be empty.
+	Description *string `json:"description,omitempty"`
+
+	// Filename The blob's own file name, resolved read-time; empty for a link. Not the display name.
+	Filename *string `json:"filename,omitempty"`
+
+	// Id ``sd-`` id. Stays the same across versions; manuals and tasks cite the document by it.
+	Id string `json:"id"`
+
+	// Kind ``file``, ``image`` or ``link``; fixed for the life of the document.
+	Kind string `json:"kind"`
+
+	// Mime The blob's content type, resolved read-time; ``text/uri-list`` for a link.
+	Mime *string `json:"mime,omitempty"`
+	Name string  `json:"name"`
+
+	// UpdatedBy Who last changed the document: by create, replace (content, name or description) or restore.
+	UpdatedBy string `json:"updated_by"`
+
+	// UpdatedTs When the document was last changed.
+	UpdatedTs float64 `json:"updated_ts"`
+
+	// Url Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.
+	Url *string `json:"url,omitempty"`
+
+	// VersionCount Versions that exist, the current one included. Stops climbing at the retention depth: from then on each new version discards the oldest.
+	VersionCount int `json:"version_count"`
+}
+
+// SharedDocDeleteReceiptDTO Receipt of a permanent shared-document delete.
+type SharedDocDeleteReceiptDTO struct {
+	Id string `json:"id"`
+}
+
+// SharedDocDetailDTO One shared document with its current content inline when that content is text.
+type SharedDocDetailDTO struct {
+	// AttachmentId The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.
+	AttachmentId string `json:"attachment_id"`
+
+	// CreatedBy Who created the document. Never changes.
+	CreatedBy string `json:"created_by"`
+
+	// CreatedTs When the document was created. Never changes.
+	CreatedTs float64 `json:"created_ts"`
+
+	// Description May be empty.
+	Description *string `json:"description,omitempty"`
+
+	// Filename The blob's own file name, resolved read-time; empty for a link. Not the display name.
+	Filename *string `json:"filename,omitempty"`
+
+	// Id ``sd-`` id. Stays the same across versions; manuals and tasks cite the document by it.
+	Id string `json:"id"`
+
+	// Kind ``file``, ``image`` or ``link``; fixed for the life of the document.
+	Kind string `json:"kind"`
+
+	// Mime The blob's content type, resolved read-time; ``text/uri-list`` for a link.
+	Mime *string `json:"mime,omitempty"`
+	Name string  `json:"name"`
+
+	// Text The current version's content when it is text: a ``text/*`` or ``application/json`` blob of at most 256 KiB that is valid UTF-8, or a link's URL. Otherwise null, and ``text_omitted`` says why.
+	Text *string `json:"text"`
+
+	// TextOmitted Null when ``text`` is present; otherwise ``binary`` or ``too_large``. Read such content by downloading ``attachment_id``.
+	TextOmitted *string `json:"text_omitted"`
+
+	// UpdatedBy Who last changed the document: by create, replace (content, name or description) or restore.
+	UpdatedBy string `json:"updated_by"`
+
+	// UpdatedTs When the document was last changed.
+	UpdatedTs float64 `json:"updated_ts"`
+
+	// Url Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.
+	Url *string `json:"url,omitempty"`
+
+	// VersionCount Versions that exist, the current one included. Stops climbing at the retention depth: from then on each new version discards the oldest.
+	VersionCount int `json:"version_count"`
+}
+
+// SharedDocListDTO Shared documents sorted by name, then id. Metadata only.
+type SharedDocListDTO struct {
+	Docs []SharedDocDTO `json:"docs"`
+}
+
+// SharedDocReceiptDTO Bounded receipt of a shared-document write.
+type SharedDocReceiptDTO struct {
+	Id        string  `json:"id"`
+	UpdatedTs float64 `json:"updated_ts"`
+
+	// VersionCount As on ``SharedDocDTO``. Unchanged after new content means the oldest retained version was just discarded; a name or description edit never changes it.
+	VersionCount int `json:"version_count"`
+}
+
+// SharedDocReplaceDTO New content for a shared document, a new name or description, or both. Send the content field its kind uses; the other is refused.
+type SharedDocReplaceDTO struct {
+	// AttachmentId For a ``file``/``image`` document: a blob already in the store. Omit it, and ``url``, to keep the current content.
+	AttachmentId *string `json:"attachment_id,omitempty"`
+
+	// Description Omitted or null keeps the current one; blank clears it. At most 1024 runes.
+	Description *string `json:"description,omitempty"`
+
+	// Name Omitted or null keeps the current one; blank is refused. At most 128 runes.
+	Name *string `json:"name,omitempty"`
+
+	// Url For a ``link`` document: ``http(s)://``, at most 2048 runes. Omit it, and ``attachment_id``, to keep the current content.
+	Url *string `json:"url,omitempty"`
+}
+
+// SharedDocVersionDTO One retained previous version of a shared document.
+type SharedDocVersionDTO struct {
+	// AttachmentId The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.
+	AttachmentId string `json:"attachment_id"`
+
+	// CreatedBy Who wrote this version.
+	CreatedBy string `json:"created_by"`
+
+	// CreatedTs When this version was written.
+	CreatedTs   float64 `json:"created_ts"`
+	Description *string `json:"description,omitempty"`
+
+	// Filename The blob's own file name, resolved read-time; empty for a link. Not the display name.
+	Filename *string `json:"filename,omitempty"`
+
+	// Id The version id ``restore_shared_doc_version`` takes. Valid only under this document; it stops resolving once the version is restored or discarded.
+	Id   int64  `json:"id"`
+	Kind string `json:"kind"`
+
+	// Mime The blob's content type, resolved read-time; ``text/uri-list`` for a link.
+	Mime *string `json:"mime,omitempty"`
+	Name string  `json:"name"`
+
+	// Url Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.
+	Url *string `json:"url,omitempty"`
+}
+
+// SharedDocVersionListDTO A shared document's retained previous versions, newest first. The current version is not in this list.
+type SharedDocVersionListDTO struct {
+	DocId    string                `json:"doc_id"`
+	Versions []SharedDocVersionDTO `json:"versions"`
+}
+
 // SigningKeyDTO ONE signing key, as the outside is allowed to see it: which key it is, when it was made, and whether it is the one signing. There is deliberately no field that could carry key material — not the key, not a fingerprint, not a hash prefix — so "did this leak the key" is answered by the shape of the type rather than by remembering to strip a field at each call site.
 type SigningKeyDTO struct {
 	CreatedTs float64 `json:"created_ts"`
@@ -5797,6 +5968,12 @@ type HandleReportWakingApiSelfWakingPostJSONRequestBody = ReportWakingDTO
 // HandleUpdateSettingsApiSettingsPatchJSONRequestBody defines body for HandleUpdateSettingsApiSettingsPatch for application/json ContentType.
 type HandleUpdateSettingsApiSettingsPatchJSONRequestBody = SettingsUpdateDTO
 
+// HandleCreateSharedDocApiSharedDocsPostJSONRequestBody defines body for HandleCreateSharedDocApiSharedDocsPost for application/json ContentType.
+type HandleCreateSharedDocApiSharedDocsPostJSONRequestBody = SharedDocCreateDTO
+
+// HandleReplaceSharedDocApiSharedDocsDocIdReplacePostJSONRequestBody defines body for HandleReplaceSharedDocApiSharedDocsDocIdReplacePost for application/json ContentType.
+type HandleReplaceSharedDocApiSharedDocsDocIdReplacePostJSONRequestBody = SharedDocReplaceDTO
+
 // HandleReplaceSystemInteractionApiSystemInteractionPostJSONRequestBody defines body for HandleReplaceSystemInteractionApiSystemInteractionPost for application/json ContentType.
 type HandleReplaceSystemInteractionApiSystemInteractionPostJSONRequestBody = BootDocumentReplaceDTO
 
@@ -6657,6 +6834,27 @@ type ServerInterface interface {
 	// - `lore_cap_chars_title`, `lore_cap_chars_body`: Max title / body length of one new 傳承 entry; entries are immutable, so lowering never affects stored ones.
 	// (PATCH /api/settings)
 	HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, r *http.Request)
+	// List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.
+	// (GET /api/shared-docs)
+	HandleListSharedDocsApiSharedDocsGet(w http.ResponseWriter, r *http.Request)
+	// Create a shared document: a named file, image or link that every member can read and replace, kept with a short version history and not tied to any task.
+	// (POST /api/shared-docs)
+	HandleCreateSharedDocApiSharedDocsPost(w http.ResponseWriter, r *http.Request)
+	// Permanently delete a shared document with all its versions. Owner only.
+	// (DELETE /api/shared-docs/{doc_id})
+	HandleDeleteSharedDocApiSharedDocsDocIdDelete(w http.ResponseWriter, r *http.Request, docId string)
+	// Read one shared document: its metadata and, when the current version is text, its content.
+	// (GET /api/shared-docs/{doc_id})
+	HandleGetSharedDocApiSharedDocsDocIdGet(w http.ResponseWriter, r *http.Request, docId string)
+	// Replace a shared document's content, edit its name or description, or both. The id stays the same.
+	// (POST /api/shared-docs/{doc_id}/replace)
+	HandleReplaceSharedDocApiSharedDocsDocIdReplacePost(w http.ResponseWriter, r *http.Request, docId string)
+	// List a shared document's retained previous versions, newest first. The current version is not included.
+	// (GET /api/shared-docs/{doc_id}/versions)
+	HandleListSharedDocVersionsApiSharedDocsDocIdVersionsGet(w http.ResponseWriter, r *http.Request, docId string)
+	// Make a retained previous version the current one again.
+	// (POST /api/shared-docs/{doc_id}/versions/{version_id}/restore)
+	HandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestorePost(w http.ResponseWriter, r *http.Request, docId string, versionId int64)
 	// Read the 系統互動 block of the boot context — the shared studio handbook every agent reads at boot. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.
 	// (GET /api/system-interaction)
 	HandleGetSystemInteractionApiSystemInteractionGet(w http.ResponseWriter, r *http.Request)
@@ -10778,6 +10976,173 @@ func (siw *ServerInterfaceWrapper) HandleUpdateSettingsApiSettingsPatch(w http.R
 	handler.ServeHTTP(w, r)
 }
 
+// HandleListSharedDocsApiSharedDocsGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListSharedDocsApiSharedDocsGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListSharedDocsApiSharedDocsGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleCreateSharedDocApiSharedDocsPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleCreateSharedDocApiSharedDocsPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleCreateSharedDocApiSharedDocsPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleDeleteSharedDocApiSharedDocsDocIdDelete operation middleware
+func (siw *ServerInterfaceWrapper) HandleDeleteSharedDocApiSharedDocsDocIdDelete(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "doc_id" -------------
+	var docId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "doc_id", r.PathValue("doc_id"), &docId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "doc_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleDeleteSharedDocApiSharedDocsDocIdDelete(w, r, docId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetSharedDocApiSharedDocsDocIdGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetSharedDocApiSharedDocsDocIdGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "doc_id" -------------
+	var docId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "doc_id", r.PathValue("doc_id"), &docId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "doc_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetSharedDocApiSharedDocsDocIdGet(w, r, docId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleReplaceSharedDocApiSharedDocsDocIdReplacePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleReplaceSharedDocApiSharedDocsDocIdReplacePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "doc_id" -------------
+	var docId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "doc_id", r.PathValue("doc_id"), &docId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "doc_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleReplaceSharedDocApiSharedDocsDocIdReplacePost(w, r, docId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleListSharedDocVersionsApiSharedDocsDocIdVersionsGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListSharedDocVersionsApiSharedDocsDocIdVersionsGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "doc_id" -------------
+	var docId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "doc_id", r.PathValue("doc_id"), &docId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "doc_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListSharedDocVersionsApiSharedDocsDocIdVersionsGet(w, r, docId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestorePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestorePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "doc_id" -------------
+	var docId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "doc_id", r.PathValue("doc_id"), &docId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "doc_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "version_id" -------------
+	var versionId int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "version_id", r.PathValue("version_id"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestorePost(w, r, docId, versionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleGetSystemInteractionApiSystemInteractionGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleGetSystemInteractionApiSystemInteractionGet(w http.ResponseWriter, r *http.Request) {
 
@@ -12808,6 +13173,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/waking", wrapper.HandleReportWakingApiSelfWakingPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/settings", wrapper.HandleGetSettingsApiSettingsGet)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/settings", wrapper.HandleUpdateSettingsApiSettingsPatch)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shared-docs", wrapper.HandleListSharedDocsApiSharedDocsGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shared-docs", wrapper.HandleCreateSharedDocApiSharedDocsPost)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/shared-docs/{doc_id}", wrapper.HandleDeleteSharedDocApiSharedDocsDocIdDelete)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shared-docs/{doc_id}", wrapper.HandleGetSharedDocApiSharedDocsDocIdGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shared-docs/{doc_id}/replace", wrapper.HandleReplaceSharedDocApiSharedDocsDocIdReplacePost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/shared-docs/{doc_id}/versions", wrapper.HandleListSharedDocVersionsApiSharedDocsDocIdVersionsGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/shared-docs/{doc_id}/versions/{version_id}/restore", wrapper.HandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestorePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/system-interaction", wrapper.HandleGetSystemInteractionApiSystemInteractionGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/system-interaction", wrapper.HandleReplaceSystemInteractionApiSystemInteractionPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/system-interaction/reset", wrapper.HandleResetSystemInteractionApiSystemInteractionResetPost)

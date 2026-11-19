@@ -1,0 +1,417 @@
+/* 檔案庫 page (`.shared-docs*`): the list table, one document's page and the
+ * replace dialog's extras. Buttons and fields reuse secrets.css, the id
+ * badge lore.css, the copy-link button office.css, the ✓/✗ inline-edit.css —
+ * each importer pulls those sheets itself. Theme tokens only. */
+
+.shared-docs {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+.shared-docs__bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.shared-docs__bar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shared-docs__card {
+  border-radius: var(--radius-card);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
+  background: var(--color-card);
+  min-width: 0;
+}
+.shared-docs__empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.shared-docs__muted {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+/* ── list ── */
+.shared-docs__table-wrap {
+  overflow-x: auto;
+  padding: 4px 8px;
+}
+.shared-docs__table {
+  width: 100%;
+  min-width: 760px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.shared-docs__table th {
+  padding: 10px 10px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.shared-docs__table td {
+  padding: 6px 10px;
+  vertical-align: middle;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 4%, transparent);
+}
+.shared-docs__table tr:last-child td {
+  border-bottom: none;
+}
+/* Fixed so a copy (✓ swapped for the glyph) never shifts the columns. */
+.shared-docs__col-id {
+  width: 210px;
+}
+.shared-docs__col-updated {
+  width: 230px;
+}
+/* Fixed so 編輯 | 上傳新版本 | 永久刪除 line up down the column whatever a
+ * row's kind; a member, who has no 永久刪除, sees the same two on every row. */
+.shared-docs__col-actions {
+  width: 132px;
+  text-align: left;
+}
+.shared-docs__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.shared-docs__actions .ts-icon-btn[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.shared-docs__actions .ts-icon-btn[aria-disabled="true"]:hover {
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+}
+.shared-docs__table th.shared-docs__col-actions {
+  text-align: left;
+}
+.shared-docs__id-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.shared-docs__file {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  color: var(--color-text);
+}
+.shared-docs__kind {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  color: var(--color-text-muted);
+}
+.shared-docs__file-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.shared-docs__name-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.shared-docs__file-open {
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+/* The whole cell (icon, name, description) is the open target; the pencil
+ * sits above that stretched area so it stays its own button. */
+.shared-docs__file-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.shared-docs__name-edit {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.shared-docs__file:hover .shared-docs__name-edit,
+.shared-docs__name-edit:focus-visible {
+  opacity: 1;
+}
+.shared-docs__name-edit:hover {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+/* Hidden means unclickable too, so a click just past the name opens the file. */
+@media (hover: hover) {
+  .shared-docs__name-edit {
+    pointer-events: none;
+  }
+  .shared-docs__file:hover .shared-docs__name-edit,
+  .shared-docs__name-edit:focus-visible {
+    pointer-events: auto;
+  }
+}
+@media (hover: none) {
+  .shared-docs__name-edit {
+    opacity: 1;
+  }
+}
+.shared-docs__name,
+.shared-docs__file-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shared-docs__name {
+  font-weight: 600;
+}
+.shared-docs__file-description {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.shared-docs__file-open:hover .shared-docs__name {
+  color: var(--color-accent);
+}
+.shared-docs__updated {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.shared-docs__updated-open {
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.shared-docs__updated-open:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+/* ── one document ── */
+.shared-docs__back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.shared-docs__back:hover {
+  color: var(--color-text);
+}
+.shared-docs__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px 20px;
+  flex-wrap: wrap;
+}
+.shared-docs__head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.shared-docs__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.shared-docs__description {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--color-text);
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+.shared-docs__description-edit {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 600px;
+}
+.shared-docs__description-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  resize: vertical;
+}
+.shared-docs__head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.shared-docs__body {
+  padding: 18px 22px;
+}
+.shared-docs__link {
+  color: var(--color-accent);
+  overflow-wrap: anywhere;
+}
+.shared-docs__opaque {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.shared-docs__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.shared-docs__editor-input {
+  min-height: 50vh;
+  font-family: var(--font-mono, monospace);
+}
+.shared-docs__overlay-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.shared-docs__overlay-body .shared-docs__editor {
+  flex: 1;
+}
+.shared-docs__overlay-body .shared-docs__editor-input {
+  flex: 1;
+}
+
+/* ── 新增連結 ── */
+.shared-docs__link-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  color: var(--color-text-muted);
+}
+.shared-docs__link-url {
+  flex: 2 1 260px;
+  min-width: 0;
+}
+.shared-docs__link-name {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.shared-docs__link-error {
+  flex-basis: 100%;
+  font-size: 12.5px;
+  color: var(--color-danger);
+}
+
+/* ── replace dialog ── */
+.shared-docs__form {
+  max-width: 480px;
+}
+.shared-docs__info-dialog {
+  width: min(480px, 100%);
+}
+
+/* 編輯 on a file that cannot be edited here */
+.shared-docs__empty-state {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-height: 420px;
+}
+.shared-docs__empty-state-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 420px;
+  padding: 32px 36px;
+  text-align: center;
+}
+.shared-docs__empty-state-icon {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  margin-bottom: 6px;
+  border-radius: 16px;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.shared-docs__empty-state-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.shared-docs__empty-state-meta {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.shared-docs__empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.shared-docs__empty-state-actions a {
+  text-decoration: none;
+}

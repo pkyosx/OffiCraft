@@ -1531,6 +1531,11 @@ func TestCollectSurvivingBlobRefs(t *testing.T) {
 	member.AvatarAttachmentID = "att-avatar"
 	dalPutMember(t, d, member)
 	dalPutMember(t, d, dalTestMember("eve", "Eve"))
+	doc := dalTestSharedDoc("sd-1", "att-shared-retired")
+	dalCreateSharedDoc(t, d, doc)
+	if err := d.ReplaceSharedDoc(SharedDocReplacement{ID: "sd-1", AttachmentID: "att-shared"}, nil); err != nil {
+		t.Fatalf("ReplaceSharedDoc: %v", err)
+	}
 
 	var got []string
 	if err := d.inTx(func(tx *writeTx) error {
@@ -1545,7 +1550,7 @@ func TestCollectSurvivingBlobRefs(t *testing.T) {
 	}
 	want := []string{
 		"already-there", "att-answer", "att-artifact", "att-avatar",
-		"att-chat", "att-question", "att-retired",
+		"att-chat", "att-question", "att-retired", "att-shared", "att-shared-retired",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("the liveness verdict:\n got %v\nwant %v", got, want)

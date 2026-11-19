@@ -2416,25 +2416,32 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 		})
 	})
 
-	t.Run("a non-HTML blob keeps the full sandbox under either credential", func(t *testing.T) {
+	t.Run("a non-HTML blob keeps the full sandbox under either credential, and a PDF stays inline for the frame that draws it", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
-		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename=icon.svg", owner, "<svg/>")
-		id := uploaded["id"].(string)
-		_, minted := apiJSON(t, h, "GET", "/api/chat/attachments/"+id+"/share-link", owner, "")
-
-		for _, target := range []string{
-			"/api/chat/attachment/" + id + "?token=" + url.QueryEscape(owner),
-			minted["url"].(string),
+		for _, tc := range []struct{ filename, body, wantType string }{
+			{"icon.svg", "<svg/>", "image/svg+xml"},
+			{"spec.pdf", "%PDF-1.7", "application/pdf"},
 		} {
-			rec := apiRequest(t, h, "GET", target, "", "")
-			if rec.Code != 200 {
-				t.Fatalf("%s: want 200, got %d (%s)", target, rec.Code, rec.Body.String())
+			_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename="+tc.filename, owner, tc.body)
+			id := uploaded["id"].(string)
+			_, minted := apiJSON(t, h, "GET", "/api/chat/attachments/"+id+"/share-link", owner, "")
+
+			for _, target := range []string{
+				"/api/chat/attachment/" + id + "?token=" + url.QueryEscape(owner),
+				minted["url"].(string),
+			} {
+				rec := apiRequest(t, h, "GET", target, "", "")
+				if rec.Code != 200 {
+					t.Fatalf("%s: want 200, got %d (%s)", target, rec.Code, rec.Body.String())
+				}
+				apiWantHeaders(t, rec, map[string]string{
+					"Content-Type":            tc.wantType,
+					"Content-Disposition":     `inline; filename="` + tc.filename + `"; filename*=UTF-8''` + tc.filename,
+					"Content-Security-Policy": "sandbox",
+					"X-Content-Type-Options":  "nosniff",
+					"X-Frame-Options":         "",
+				})
 			}
-			apiWantHeaders(t, rec, map[string]string{
-				"Content-Disposition":     `inline; filename="icon.svg"; filename*=UTF-8''icon.svg`,
-				"Content-Security-Policy": "sandbox",
-				"X-Content-Type-Options":  "nosniff",
-			})
 		}
 	})
 

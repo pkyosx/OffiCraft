@@ -27,6 +27,7 @@
     "@dnd-kit/core": "6.3.1",
     "@dnd-kit/sortable": "10.0.0",
     "@dnd-kit/utilities": "3.2.2",
+    "js-yaml": "5.5.0",
     "openapi-fetch": "0.17.0",
     "qrcode-generator": "2.0.4",
     "react": "^18.3.1",

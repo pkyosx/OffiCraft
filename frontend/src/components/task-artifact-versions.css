@@ -178,22 +178,6 @@
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
 }
-.ta-versions__text {
-  margin: 0;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--color-text);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  min-width: 0;
-}
-.ta-versions__image {
-  max-width: 100%;
-  height: auto;
-  border-radius: 8px;
-  align-self: flex-start;
-}
 .ta-versions__urls {
   display: flex;
   flex-direction: column;

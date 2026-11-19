@@ -66,7 +66,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { authedAttachmentUrl } from "../api/http";
-import { attachmentShareLinkUrl, copyAttachmentShareLink } from "../lib/shareLink";
+import { copyAttachmentShareLink } from "../lib/shareLink";
+import { useShareHref } from "../hooks/useShareHref";
 import type { DiffParams } from "../lib/diffLink";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { DiffScreen } from "./DiffScreen";
@@ -74,7 +75,8 @@ import { DiffShareLinkButton } from "./DiffShareLinkButton";
 import { DocCommentPanel } from "./DocComments";
 import type { DocCommentTarget } from "../lib/docComments";
 import { useFrameMessages } from "../lib/docCommentFrame";
-import { Markdown } from "./Markdown";
+import { ContentView } from "./ContentView";
+import { contentKindOf, isTextKind } from "../lib/contentKind";
 import "./md-preview.css";
 import {
   AlertTriangleIcon,
@@ -87,6 +89,7 @@ import {
   DownloadIcon,
   ExternalLinkIcon,
   FileTextIcon,
+  PencilIcon,
 } from "./icons";
 
 const ZOOM_MIN = 0.5;
@@ -149,6 +152,9 @@ type MarkdownPreviewOverlayProps = {
   /** Absent = this overlay shows one item with nothing either side of it, and
    * no paging control renders. */
   pager?: PreviewPager;
+  /** Absent = no 編輯 button. The caller decides what editing means; the
+   * overlay only offers the entry. */
+  onEdit?: () => void;
   onClose: () => void;
 } & (
   | {
@@ -232,6 +238,7 @@ export function MarkdownPreviewOverlay({
   typePending,
   source: inlineSource,
   trailing,
+  onEdit,
   onClose,
 }: MarkdownPreviewOverlayProps) {
   const { t } = useI18n();
@@ -239,47 +246,48 @@ export function MarkdownPreviewOverlay({
   const [failed, setFailed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
-  // The share link, resolved AHEAD of the click so the 「在新頁面顯示」 control
-  // can be a real <a target="_blank">, and so an HTML body has an address to
-  // load. It cannot be built here: the ?sig= credential is minted by the
-  // server, and the two ways to open a tab after an await are both worse — a
-  // popup blocker eats a late `window.open`, and the
-  // `window.open("", "_blank")`-then-navigate trick has to keep the opener
-  // handle, which is exactly what `rel="noopener"` is here to deny.
-  // null = no link to offer (not minted yet, or the mint failed): the anchor is
-  // then absent rather than pointing at a URL that would 404.
-  const [shareHref, setShareHref] = useState<string | null>(null);
-  const [shareFailed, setShareFailed] = useState(false);
-  // The text to render. An inline source is authoritative and synchronous — it
-  // never passes through the loading/error states, which only describe a fetch.
-  const image = imageSrc !== undefined || (mime?.startsWith("image/") ?? false);
-  // WHAT THE THREE DETECTORS ASK, and it is deliberately not `title`: they read
+  // WHAT THE TYPE DETECTION ASKS, and it is deliberately not `title`: it reads
   // a file EXTENSION whenever the mime cannot answer, and `title` is a display
   // name that need not carry one. `filename` when the caller separated the two,
   // `title` when it did not (a chat attachment's title IS its blob name).
   const typeName = filename ?? title;
-  const previewableText = isPreviewableTextAttachment(mime ?? "text/markdown", typeName);
+  const kind =
+    imageSrc !== undefined
+      ? "image"
+      : inlineSource !== undefined
+        ? "markdown"
+        : contentKindOf(mime ?? "text/markdown", typeName);
+  const image = kind === "image";
+  const previewableText = isTextKind(kind);
   // A comparison is not a stored blob at all — it carries no `url`, so none of
   // the blob branches below (fetch, download, share link, "open in a tab") can
-  // fire for it, and it must not fall into `unavailable`, which is the "this
-  // overlay cannot draw these bytes" state.
+  // fire for it, and it must not fall into `unread`, which is the "this
+  // overlay does not read these bytes" state.
   const diff = diffParams !== undefined;
-  const html = url !== undefined && isHtmlAttachment(mime ?? "text/markdown");
-  const unavailable = url !== undefined && !image && !previewableText && !html;
+  const html = url !== undefined && kind === "html";
+  const pdf = url !== undefined && kind === "pdf";
+  const unread = pdf || (url !== undefined && kind === "binary");
   // WHOSE CALL IS "opens in a tab"? THE SERVER'S. This mirrors api_chat.go's
   // isPreviewableAttachment, which is what decides between
   // `Content-Disposition: inline` and `attachment` on the serve route. Offering
   // 「在新頁面顯示」 on anything else would be a lie: the browser would download
   // the file instead of showing it, and the button would look broken.
-  // Deliberately WIDER than what this overlay draws: a .pdf cannot be drawn
-  // here, but the browser can show it perfectly well in a tab of its own.
   const inlineInBrowser =
     attachmentId !== undefined && isInlineDisplayableMime(mime ?? "text/markdown");
-  const plainText = previewableText && !isMarkdownAttachment(mime ?? "text/markdown", typeName);
-  // JSON rides the SAME <pre> as .txt/.log — one plain-text surface, not a
-  // second renderer. All that is added is the indenting, and the one line that
-  // says why it is missing when the bytes will not parse.
-  const jsonAttachment = plainText && isJsonAttachment(mime ?? "text/markdown", typeName);
+  const plainText = previewableText && kind !== "markdown";
+  // The share link for the tab anchor and an HTML or PDF body's frame — only
+  // for an attachment the browser would actually DISPLAY; a downloadable one
+  // gets no anchor, so it needs no link either. It is the ?sig= credential, never the
+  // ?token= one: a whole owner session token has no business in another tab's
+  // address bar or in a frame running agent-written script.
+  const { href: shareHref, failed: shareFailed } = useShareHref(
+    attachmentId,
+    inlineInBrowser,
+    "MarkdownPreviewOverlay",
+  );
+  const framed = html || (pdf && typeof shareHref === "string");
+  // The text to render. An inline source is authoritative and synchronous — it
+  // never passes through the loading/error states, which only describe a fetch.
   const source = inlineSource ?? fetched;
   // Which bodies take comments: a text-selection or image-pick surface inside
   // `bodyRef`, or an HTML page that reports its own selections and picks
@@ -298,7 +306,7 @@ export function MarkdownPreviewOverlay({
   // says ready again, and comment mode has to be re-sent to the new page.
   const [frameReady, setFrameReady] = useState(0);
   useEffect(() => setFrameReady(0), [shareHref]);
-  useFrameMessages(frameRef, html && shareHref !== null, (message) => {
+  useFrameMessages(frameRef, html && typeof shareHref === "string", (message) => {
     if (message.type === "ready") setFrameReady((n) => n + 1);
   });
   const [zoom, setZoom] = useState(1);
@@ -380,7 +388,7 @@ export function MarkdownPreviewOverlay({
   // download/thumbnail paths use). A non-ok response / network error surfaces
   // the honest error state, never a blank render.
   useEffect(() => {
-    if (url === undefined || image || unavailable || html || typePending) return;
+    if (url === undefined || image || unread || html || typePending) return;
     let alive = true;
     setFetched(null);
     setFailed(false);
@@ -399,29 +407,8 @@ export function MarkdownPreviewOverlay({
     return () => {
       alive = false;
     };
-  }, [url, image, unavailable, html, diff, typePending]);
+  }, [url, image, unread, html, diff, typePending]);
 
-  // Mint the share link for the tab anchor (and an HTML body's frame). Only
-  // for an attachment the browser would actually DISPLAY — a downloadable one
-  // gets no anchor, so it needs no link either.
-  useEffect(() => {
-    setShareHref(null);
-    setShareFailed(false);
-    if (attachmentId === undefined || !inlineInBrowser) return;
-    let alive = true;
-    attachmentShareLinkUrl(attachmentId)
-      .then((href) => {
-        if (alive) setShareHref(href);
-      })
-      .catch((e) => {
-        // No link, no anchor. Never a half-built href.
-        console.warn("MarkdownPreviewOverlay: share link for new tab failed", e);
-        if (alive) setShareFailed(true);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [attachmentId, inlineInBrowser]);
 
   // A new blob is a new image, so the zoom starts over. This predates paging and
   // is exactly what paging needs: T-51 ① made the shown item change WITHOUT a
@@ -671,57 +658,8 @@ export function MarkdownPreviewOverlay({
     }
   }
 
-  // Esc closes — as the TOP layer. The overlay only mounts open, so it holds a
-  // layer for exactly its lifetime; whatever opened it (a popover, a gallery,
-  // a chat thread) sits below and does not see the key.
-  const rootRef = useRef<HTMLDivElement>(null);
-  /* A comparison reading ONE of its sides on its own answers Esc itself, with a
-   * layer NESTED inside this one (DiffScreen) — Esc there goes back to the
-   * comparison rather than out of the overlay, and this handler never sees the
-   * key while that pane is open. That is escapeLayers' whole job; neither side
-   * has to know about the other. */
-  useEscapeLayer(onClose, rootRef);
-
-  // 🔴 A DIALOG THE KEYBOARD NEVER ENTERS IS NOT A DIALOG. Measured before this
-  // existed: open the overlay from any of its three entry points and
-  // `document.activeElement` was still the button that opened it, OUTSIDE the
-  // portal — so Tab walked the page behind the backdrop, the zoom controls and
-  // the close button were reachable only by tabbing through the whole cockpit
-  // first, and a screen reader was still reading the thread. `aria-modal="true"`
-  // is a promise to assistive tech, not a behaviour the browser implements.
-  //
-  // So: focus the root on mount (it takes `tabIndex={-1}` for exactly this — it
-  // is not in the tab order, it is a landing spot), and hand focus BACK to
-  // whatever had it when the overlay closes. The restore is the half people
-  // forget and the half a keyboard user notices: without it, closing drops focus
-  // onto <body> and the next Tab restarts from the top of the page instead of
-  // resuming beside the control that was pressed.
-  //
-  // Deliberately NOT a focus trap. This repo has no trap primitive, Esc is
-  // already handled as a layer, and a half-built trap that leaks on one edge is
-  // worse than none. What is promised here is "focus goes in, and comes back",
-  // and that is what the tests assert.
-  //
-  // ⚠️ THE OPENER IS WHATEVER HAD FOCUS AT MOUNT, so a caller that BLURS its own
-  // control before opening this hands over the wrong element and the restore
-  // lands on <body>. That is not hypothetical: T-4e95's quote-row button briefly
-  // carried `disabled` while its read was in flight, which blurs a focused
-  // button, and the restore was measured landing on BODY in a real Chromium
-  // every time. The fix was on the caller's side (the attribute is gone), and
-  // this note is here so the next caller does not rediscover it.
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    rootRef.current?.focus();
-    return () => {
-      // The opener can be gone (its row unmounted while the overlay was up), in
-      // which case there is nothing to restore to and focus falls to <body> —
-      // the same place it would have been anyway.
-      if (opener && opener.isConnected) opener.focus();
-    };
-  }, []);
-
   const body = (
-    <div className={"md-preview__body" + (html ? " md-preview__body--frame" : "")} ref={bodyRef}>
+    <div className={"md-preview__body" + (framed ? " md-preview__body--frame" : "")} ref={bodyRef}>
       {image && imageBytes !== undefined ? (
         <div className="md-preview__image-viewport">
           <div
@@ -776,45 +714,6 @@ export function MarkdownPreviewOverlay({
             </button>
           </div>
         </div>
-      ) : html ? (
-        shareHref !== null ? (
-          /* No allow-same-origin: the page is agent-written script, and with
-           * it the frame would run on the studio's origin with the owner's
-           * stored token in reach. The share link's own CSP sandbox applies
-           * on top, so a flag added here does nothing unless the server's
-           * CSP for sig-only HTML (api_chat.go) carries it too. Anything that
-           * has to reach into the page goes through lib/docCommentFrame's
-           * messages. */
-          <iframe
-            ref={frameRef}
-            className="md-preview__frame"
-            title={title}
-            src={shareHref}
-            referrerPolicy="no-referrer"
-            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
-          />
-        ) : (
-          <div className="md-preview__status">
-            {shareFailed ? t.chat.mdPreview.unavailable : t.chat.mdPreview.loading}
-          </div>
-        )
-      ) : unavailable ? (
-        /* 🔴 DO NOT SEND HIM BACK TO THE THING HE COMPLAINED ABOUT. A file
-         * this overlay cannot draw (a .pdf) but the header's 「在新頁面顯示」
-         * can open must point AT that button rather than at 下載 — the
-         * owner's words were 「不然我都要複製以後找新的頁面貼很麻煩」.
-         * 「請下載」 survives only where there is genuinely no button: a
-         * file the browser would download anyway, or a mint that failed.
-         * The line follows the BUTTON, not the mime: while the share link
-         * is still being minted neither exists yet, and they appear
-         * together on the same state change. */
-        <div className="md-preview__status">
-          {shareHref !== null
-            ? t.chat.mdPreview.unavailableOpenInNewTab
-            : t.chat.mdPreview.unavailable}
-        </div>
-      ) : failed ? (
-        <div className="md-preview__status">{t.chat.mdPreview.error}</div>
       ) : diff ? (
         /* The compare screen is DiffScreen and only DiffScreen — the
          * same one the standalone /diff page draws, which is in turn
@@ -822,52 +721,314 @@ export function MarkdownPreviewOverlay({
          * be a second authority on the owner's six 2026-07-31 rulings, and
          * the two would start to drift. */
         <DiffScreen params={diffParams} />
-      ) : source === null ? (
-        <div className="md-preview__status">{t.chat.mdPreview.loading}</div>
-      ) : (
-        /* `.doc-md` is the SHARED markdown skin (headings, code, tables,
-         * links, callouts) every other render site wears — the task manual,
-         * the role doc, the reply card, the chat bubble. Rendering without
-         * it left this overlay on bare UA defaults: black-on-card headings,
-         * unstyled code, no callout colour. One class, same document look
-         * as the surface the file was opened from. */
-        plainText ? (
-          jsonAttachment ? (
-            (() => {
-              const { body, unparseable } = formatJsonForPreview(source);
-              return (
-                <>
-                  {unparseable ? (
-                    <div className="md-preview__status">
-                      {t.chat.mdPreview.jsonUnparseable}
-                    </div>
-                  ) : null}
-                  <pre className="md-preview__text">{body}</pre>
-                </>
-              );
-            })()
-          ) : (
-            <pre className="md-preview__text">{source}</pre>
-          )
-        ) : inlineSource === "" && trailing ? null : <Markdown
-          source={source}
-          className="md-preview__md doc-md"
-          /* An inline source is a CHAT message: Enter meant "new line"
-           * when it was typed and the bubble renders it that way, so the
-           * full-view read of the same text must keep those newlines.
-           * Standard markdown folds them into spaces, which reflowed a
-           * plain multi-line message into one run-on line. A fetched .md
-           * blob is a document, not a chat line — it keeps standard
-           * soft-wrap, same as every other document surface. */
+      ) : inlineSource === "" && trailing ? null : (
+        /* An inline source is a CHAT message: Enter meant "new line" when it
+         * was typed, so the full-view read keeps those newlines (`breaks`). A
+         * fetched .md blob is a document and keeps standard soft-wrap; it may
+         * show images, through the same gate the 使用說明 page uses, while a
+         * message body keeps `![…](…)` as text. */
+        <ContentView
+          kind={kind}
+          text={source}
+          failed={failed}
+          label={title}
+          shareHref={shareHref}
+          shareFailed={shareFailed}
+          frameRef={frameRef}
+          fill
           breaks={inlineSource !== undefined}
-          /* A delivered document may show images, through the same gate the
-           * 使用說明 page uses; a message body keeps `![…](…)` as text. */
           resolveImageSrc={inlineSource === undefined ? authedAttachmentUrl : undefined}
         />
       )}
       {trailing}
     </div>
   );
+
+  return (
+    <PreviewShell
+      title={title}
+      frame={framed}
+      onClose={onClose}
+      closeLabel={t.chat.mdPreview.close}
+      headerExtra={
+        <>
+          {/* Position within the caller's list. Digits only — nothing to
+            * translate, and it is the one thing the two chevrons cannot say:
+            * whether there are three more or three hundred.
+            *
+            * ⚠️ OUTSIDE the title span, not inside it: that span is the one
+            * that ellipsises, so a long filename would eat the counter before
+            * it eats itself. */}
+          {pager !== undefined && (
+            <span className="md-preview__pager-count">
+              {pager.index + 1} / {pager.total}
+            </span>
+          )}
+        </>
+      }
+      actions={
+        <>
+          {/* T-59 — the EXTERNAL link to this comparison, in the same slot
+           * and the same skin as the file-level share control below. The
+           * owner is looking at the comparison here and wants to hand it to
+           * someone outside the studio; until now that was a CLI action only.
+           *
+           * 🔴 A SESSION IS STRUCTURAL HERE. This overlay is only ever
+           * mounted with `diffParams` by DiffModalHost, and DiffModalHost is
+           * only mounted inside the studio, behind AuthGate. The standalone
+           * page (DiffPage) never mounts this overlay at all, so the
+           * unauthenticated reader of a ?sig= link cannot reach this button
+           * — no runtime gate can regress into offering it to them.
+           *
+           * The `sig` the clicked link may have carried rides along in
+           * `diffParams` and is dropped by the mint; the server signs the
+           * addresses and labels, never a signature. */}
+          {diffParams !== undefined && (
+            <DiffShareLinkButton
+              params={diffParams}
+              className="md-preview__download md-preview__share"
+            />
+          )}
+          {onEdit !== undefined && (
+            <button
+              type="button"
+              className="md-preview__download md-preview__edit"
+              aria-label={t.chat.mdPreview.edit}
+              title={t.chat.mdPreview.edit}
+              onClick={onEdit}
+            >
+              <PencilIcon size={14} />
+            </button>
+          )}
+          {commentable && (
+            <button
+              type="button"
+              className="md-preview__download md-preview__comment-toggle"
+              aria-pressed={commenting}
+              aria-label={t.chat.mdPreview.comments.toggle}
+              title={t.chat.mdPreview.comments.toggle}
+              onClick={() => setCommenting((v) => !v)}
+            >
+              <ChatBubbleIcon size={14} />
+            </button>
+          )}
+          {/* Share needs a STORED blob id. Download only needs bytes, so it
+           * also serves a staged `imageSrc`. An inline text source has
+           * neither — nothing is fabricated for it. */}
+          {attachmentId !== undefined && (
+            <button
+              type="button"
+              className="md-preview__download md-preview__share"
+              aria-label={
+                copyFailed
+                  ? t.chat.shareLinkCopyFailed
+                  : copied
+                    ? t.chat.shareLinkCopied
+                    : t.chat.copyShareLink
+              }
+              title={
+                copyFailed
+                  ? t.chat.shareLinkCopyFailed
+                  : copied
+                    ? t.chat.shareLinkCopied
+                    : t.chat.copyShareLink
+              }
+              onClick={() => void onCopyShareLink()}
+            >
+              {/* ⚠️ THREE STATES, THREE ICONS. While the button carried its
+                * label, a failed copy said so in words; icon-only, a failure
+                * drawn as the idle icon is indistinguishable from "nothing
+                * happened yet" — and a copy that silently did not happen is
+                * the one outcome the reader must not have to guess at. The
+                * accessible name says the same thing (it already switched on
+                * these three states); this is the half a sighted reader gets. */}
+              {copied ? (
+                <CheckIcon size={14} />
+              ) : copyFailed ? (
+                <AlertTriangleIcon size={14} />
+              ) : (
+                <CopyIcon size={14} />
+              )}
+            </button>
+          )}
+          {/* 「在新頁面顯示」 opens the SHARE link (the ?sig= credential), not
+           * the ?token= authed URL the download uses — a whole owner session
+           * token has no business sitting in another tab's address bar.
+           * Present only when the browser would show the file rather than
+           * download it (see `inlineInBrowser`). */}
+          {typeof shareHref === "string" && (
+            <a
+              /* ⚠️ NOT `md-preview__download`. Four existing tests reach for
+               * the download link as `querySelector("a.md-preview__download")`
+               * — the FIRST match — so borrowing that class for its styling
+               * silently handed them this anchor instead. The shared look is
+               * shared in the stylesheet, not by wearing the other control's
+               * name. */
+              className="md-preview__new-tab"
+              href={shareHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t.chat.mdPreview.openInNewTab}
+              title={t.chat.mdPreview.openInNewTab}
+            >
+              <ExternalLinkIcon size={14} />
+            </a>
+          )}
+          {/* Download — the SECOND action, distinct from preview: the authed
+           * blob URL (or the staged data: URI) with a download attribute. */}
+          {downloadHref !== undefined && (
+            <a
+              className="md-preview__download"
+              href={downloadHref}
+              download={title || undefined}
+              aria-label={t.chat.mdPreview.download}
+              title={t.chat.mdPreview.download}
+            >
+              <DownloadIcon size={14} />
+            </a>
+          )}
+        </>
+      }
+    >
+      {/* T-51 ① — the two chevrons ride the PANEL's edges rather than the
+        * header, for two reasons that are not taste: the header at 390px is
+        * already carrying a filename plus four controls, and an edge chevron
+        * is where a thumb goes. They are `disabled` at the ends instead of
+        * wrapping — a gallery has a first and a last item, and silently
+        * jumping from one end to the other is how a reader loses their place
+        * in a list of a thousand. */}
+      {pager !== undefined && (
+        <>
+          <button
+            type="button"
+            className="md-preview__pager md-preview__pager--prev"
+            aria-label={t.chat.mdPreview.previous}
+            title={t.chat.mdPreview.previous}
+            disabled={pager.index <= 0}
+            onClick={() => pager.onGo(pager.index - 1)}
+          >
+            <ChevronLeftIcon size={20} />
+          </button>
+          <button
+            type="button"
+            className="md-preview__pager md-preview__pager--next"
+            aria-label={t.chat.mdPreview.next}
+            title={t.chat.mdPreview.next}
+            disabled={pager.index >= pager.total - 1}
+            onClick={() => pager.onGo(pager.index + 1)}
+          >
+            <ChevronRightIcon size={20} />
+          </button>
+        </>
+      )}
+      {commentable ? (
+        <div
+          className={
+            "md-preview__content" +
+            (commenting ? " md-preview__content--commenting" : "")
+          }
+        >
+          {body}
+          {commenting && (
+            <DocCommentPanel
+              key={attachmentId}
+              attachmentId={attachmentId}
+              filename={typeName}
+              target={docComments}
+              docRef={bodyRef}
+              docReady={html ? typeof shareHref === "string" : !failed && source !== null}
+              imagePickable={!plainText && !html}
+              frameRef={html ? frameRef : undefined}
+              frameReady={frameReady}
+              onSent={onClose}
+            />
+          )}
+        </div>
+      ) : (
+        body
+      )}
+    </PreviewShell>
+  );
+}
+
+/** The full-view shell every in-place reader wears: the portalled backdrop, the
+ * panel, the header (icon + title, then the host's controls, then ×), Esc as
+ * the top layer, and focus in on open / back on close. MarkdownPreviewOverlay
+ * is its main tenant; the 檔案庫 edit overlay is the other, so the two cannot
+ * drift into two looks.
+ */
+export function PreviewShell({
+  title,
+  frame,
+  onClose,
+  closeLabel,
+  closeDisabled,
+  dismissOnBackdrop = true,
+  headerExtra,
+  actions,
+  testId,
+  children,
+}: {
+  title: string;
+  /** The body is a page frame: the panel takes the frame's height rules. */
+  frame?: boolean;
+  onClose: () => void;
+  closeLabel: string;
+  closeDisabled?: boolean;
+  dismissOnBackdrop?: boolean;
+  headerExtra?: ReactNode;
+  actions?: ReactNode;
+  testId?: string;
+  children: ReactNode;
+}) {
+  // Esc closes — as the TOP layer. The overlay only mounts open, so it holds a
+  // layer for exactly its lifetime; whatever opened it (a popover, a gallery,
+  // a chat thread) sits below and does not see the key.
+  const rootRef = useRef<HTMLDivElement>(null);
+  /* A comparison reading ONE of its sides on its own answers Esc itself, with a
+   * layer NESTED inside this one (DiffScreen) — Esc there goes back to the
+   * comparison rather than out of the overlay, and this handler never sees the
+   * key while that pane is open. That is escapeLayers' whole job; neither side
+   * has to know about the other. */
+  useEscapeLayer(onClose, rootRef);
+
+  // 🔴 A DIALOG THE KEYBOARD NEVER ENTERS IS NOT A DIALOG. Measured before this
+  // existed: open the overlay from any of its three entry points and
+  // `document.activeElement` was still the button that opened it, OUTSIDE the
+  // portal — so Tab walked the page behind the backdrop, the zoom controls and
+  // the close button were reachable only by tabbing through the whole cockpit
+  // first, and a screen reader was still reading the thread. `aria-modal="true"`
+  // is a promise to assistive tech, not a behaviour the browser implements.
+  //
+  // So: focus the root on mount (it takes `tabIndex={-1}` for exactly this — it
+  // is not in the tab order, it is a landing spot), and hand focus BACK to
+  // whatever had it when the overlay closes. The restore is the half people
+  // forget and the half a keyboard user notices: without it, closing drops focus
+  // onto <body> and the next Tab restarts from the top of the page instead of
+  // resuming beside the control that was pressed.
+  //
+  // Deliberately NOT a focus trap. This repo has no trap primitive, Esc is
+  // already handled as a layer, and a half-built trap that leaks on one edge is
+  // worse than none. What is promised here is "focus goes in, and comes back",
+  // and that is what the tests assert.
+  //
+  // ⚠️ THE OPENER IS WHATEVER HAD FOCUS AT MOUNT, so a caller that BLURS its own
+  // control before opening this hands over the wrong element and the restore
+  // lands on <body>. That is not hypothetical: T-4e95's quote-row button briefly
+  // carried `disabled` while its read was in flight, which blurs a focused
+  // button, and the restore was measured landing on BODY in a real Chromium
+  // every time. The fix was on the caller's side (the attribute is gone), and
+  // this note is here so the next caller does not rediscover it.
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    rootRef.current?.focus();
+    return () => {
+      // The opener can be gone (its row unmounted while the overlay was up), in
+      // which case there is nothing to restore to and focus falls to <body> —
+      // the same place it would have been anyway.
+      if (opener && opener.isConnected) opener.focus();
+    };
+  }, []);
 
   // T-76cd — PORTALLED TO `document.body`, and that is a correctness property,
   // not tidiness. `z-index: 1100` is only worth what its nearest stacking-context
@@ -896,10 +1057,11 @@ export function MarkdownPreviewOverlay({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      onClick={onClose}
+      data-testid={testId}
+      onClick={dismissOnBackdrop ? onClose : undefined}
     >
       <div
-        className={"md-preview__panel" + (html ? " md-preview__panel--frame" : "")}
+        className={"md-preview__panel" + (frame ? " md-preview__panel--frame" : "")}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="md-preview__header">
@@ -909,207 +1071,25 @@ export function MarkdownPreviewOverlay({
               {title}
             </span>
           </span>
-          {/* Position within the caller's list. Digits only — nothing to
-            * translate, and it is the one thing the two chevrons cannot say:
-            * whether there are three more or three hundred.
-            *
-            * ⚠️ OUTSIDE the title span, not inside it: that span is the one
-            * that ellipsises, so a long filename would eat the counter before
-            * it eats itself. */}
-          {pager !== undefined && (
-            <span className="md-preview__pager-count">
-              {pager.index + 1} / {pager.total}
-            </span>
-          )}
+          {headerExtra}
           <div className="md-preview__actions">
-            {/* T-59 — the EXTERNAL link to this comparison, in the same slot
-             * and the same skin as the file-level share control below. The
-             * owner is looking at the comparison here and wants to hand it to
-             * someone outside the studio; until now that was a CLI action only.
-             *
-             * 🔴 A SESSION IS STRUCTURAL HERE. This overlay is only ever
-             * mounted with `diffParams` by DiffModalHost, and DiffModalHost is
-             * only mounted inside the studio, behind AuthGate. The standalone
-             * page (DiffPage) never mounts this overlay at all, so the
-             * unauthenticated reader of a ?sig= link cannot reach this button
-             * — no runtime gate can regress into offering it to them.
-             *
-             * The `sig` the clicked link may have carried rides along in
-             * `diffParams` and is dropped by the mint; the server signs the
-             * addresses and labels, never a signature. */}
-            {diffParams !== undefined && (
-              <DiffShareLinkButton
-                params={diffParams}
-                className="md-preview__download md-preview__share"
-              />
-            )}
-            {commentable && (
-              <button
-                type="button"
-                className="md-preview__download md-preview__comment-toggle"
-                aria-pressed={commenting}
-                aria-label={t.chat.mdPreview.comments.toggle}
-                title={t.chat.mdPreview.comments.toggle}
-                onClick={() => setCommenting((v) => !v)}
-              >
-                <ChatBubbleIcon size={14} />
-              </button>
-            )}
-            {/* Share needs a STORED blob id. Download only needs bytes, so it
-             * also serves a staged `imageSrc`. An inline text source has
-             * neither — nothing is fabricated for it. */}
-            {attachmentId !== undefined && (
-              <button
-                type="button"
-                className="md-preview__download md-preview__share"
-                aria-label={
-                  copyFailed
-                    ? t.chat.shareLinkCopyFailed
-                    : copied
-                      ? t.chat.shareLinkCopied
-                      : t.chat.copyShareLink
-                }
-                title={
-                  copyFailed
-                    ? t.chat.shareLinkCopyFailed
-                    : copied
-                      ? t.chat.shareLinkCopied
-                      : t.chat.copyShareLink
-                }
-                onClick={() => void onCopyShareLink()}
-              >
-                {/* ⚠️ THREE STATES, THREE ICONS. While the button carried its
-                  * label, a failed copy said so in words; icon-only, a failure
-                  * drawn as the idle icon is indistinguishable from "nothing
-                  * happened yet" — and a copy that silently did not happen is
-                  * the one outcome the reader must not have to guess at. The
-                  * accessible name says the same thing (it already switched on
-                  * these three states); this is the half a sighted reader gets. */}
-                {copied ? (
-                  <CheckIcon size={14} />
-                ) : copyFailed ? (
-                  <AlertTriangleIcon size={14} />
-                ) : (
-                  <CopyIcon size={14} />
-                )}
-              </button>
-            )}
-            {/* 「在新頁面顯示」 opens the SHARE link (the ?sig= credential), not
-             * the ?token= authed URL the download uses — a whole owner session
-             * token has no business sitting in another tab's address bar.
-             * Present only when the browser would show the file rather than
-             * download it (see `inlineInBrowser`). */}
-            {shareHref !== null && (
-              <a
-                /* ⚠️ NOT `md-preview__download`. Four existing tests reach for
-                 * the download link as `querySelector("a.md-preview__download")`
-                 * — the FIRST match — so borrowing that class for its styling
-                 * silently handed them this anchor instead. The shared look is
-                 * shared in the stylesheet, not by wearing the other control's
-                 * name. */
-                className="md-preview__new-tab"
-                href={shareHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={t.chat.mdPreview.openInNewTab}
-                title={t.chat.mdPreview.openInNewTab}
-              >
-                <ExternalLinkIcon size={14} />
-              </a>
-            )}
-            {/* Download — the SECOND action, distinct from preview: the authed
-             * blob URL (or the staged data: URI) with a download attribute. */}
-            {downloadHref !== undefined && (
-              <a
-                className="md-preview__download"
-                href={downloadHref}
-                download={title || undefined}
-                aria-label={t.chat.mdPreview.download}
-                title={t.chat.mdPreview.download}
-              >
-                <DownloadIcon size={14} />
-              </a>
-            )}
+            {actions}
             <button
               type="button"
               className="md-preview__close"
-              aria-label={t.chat.mdPreview.close}
+              aria-label={closeLabel}
+              disabled={closeDisabled}
               onClick={onClose}
             >
               <CloseIcon size={16} />
             </button>
           </div>
         </div>
-        {/* T-51 ① — the two chevrons ride the PANEL's edges rather than the
-          * header, for two reasons that are not taste: the header at 390px is
-          * already carrying a filename plus four controls, and an edge chevron
-          * is where a thumb goes. They are `disabled` at the ends instead of
-          * wrapping — a gallery has a first and a last item, and silently
-          * jumping from one end to the other is how a reader loses their place
-          * in a list of a thousand. */}
-        {pager !== undefined && (
-          <>
-            <button
-              type="button"
-              className="md-preview__pager md-preview__pager--prev"
-              aria-label={t.chat.mdPreview.previous}
-              title={t.chat.mdPreview.previous}
-              disabled={pager.index <= 0}
-              onClick={() => pager.onGo(pager.index - 1)}
-            >
-              <ChevronLeftIcon size={20} />
-            </button>
-            <button
-              type="button"
-              className="md-preview__pager md-preview__pager--next"
-              aria-label={t.chat.mdPreview.next}
-              title={t.chat.mdPreview.next}
-              disabled={pager.index >= pager.total - 1}
-              onClick={() => pager.onGo(pager.index + 1)}
-            >
-              <ChevronRightIcon size={20} />
-            </button>
-          </>
-        )}
-        {commentable ? (
-          <div
-            className={
-              "md-preview__content" +
-              (commenting ? " md-preview__content--commenting" : "")
-            }
-          >
-            {body}
-            {commenting && (
-              <DocCommentPanel
-                key={attachmentId}
-                attachmentId={attachmentId}
-                filename={typeName}
-                target={docComments}
-                docRef={bodyRef}
-                docReady={html ? shareHref !== null : !failed && source !== null}
-                imagePickable={!plainText && !html}
-                frameRef={html ? frameRef : undefined}
-                frameReady={frameReady}
-                onSent={onClose}
-              />
-            )}
-          </div>
-        ) : (
-          body
-        )}
+        {children}
       </div>
     </div>,
     document.body,
   );
-}
-
-/** Whether an attachment (by mime / filename) is a markdown doc the preview
- * overlay can render. Mirrors the server's text/markdown handling; also accepts
- * a `.md`/`.markdown` filename when the mime is a generic text/plain. */
-export function isMarkdownAttachment(mime: string, filename: string): boolean {
-  if (mime === "text/markdown" || mime === "text/x-markdown") return true;
-  const name = filename.toLowerCase();
-  return name.endsWith(".md") || name.endsWith(".markdown");
 }
 
 /** Whether the BROWSER will display these bytes in a tab of its own instead of
@@ -1122,9 +1102,8 @@ export function isMarkdownAttachment(mime: string, filename: string): boolean {
  * carries is already the one the serve route answers with, so the filename is
  * not consulted.
  *
- * ⚠️ NOT the same question as `isPreviewableTextAttachment` below, and the two
- * must not be merged: that one asks what THIS overlay can render in-panel and
- * is narrow on purpose. */
+ * ⚠️ NOT the same question as `contentKindOf` (lib/contentKind.ts), and the
+ * two must not be merged: that one asks what the cockpit can draw itself. */
 export function isInlineDisplayableMime(mime: string): boolean {
   const baseMime = mime.split(";")[0]!.trim().toLowerCase();
   return (
@@ -1133,46 +1112,4 @@ export function isInlineDisplayableMime(mime: string): boolean {
     baseMime === "application/pdf" ||
     baseMime === "application/json"
   );
-}
-
-/** The stored text formats this overlay fetches and draws itself. Keep this
- * narrow: arbitrary text/* stays outside it, and HTML is not drawn from its
- * text at all (see `isHtmlAttachment`). */
-export function isPreviewableTextAttachment(mime: string, filename: string): boolean {
-  return (
-    isMarkdownAttachment(mime, filename) ||
-    /\.(txt|log)$/i.test(filename) ||
-    isJsonAttachment(mime, filename)
-  );
-}
-
-/** HTML by its served type: the page is loaded from the serve route in a
- * sandboxed iframe, so only what the server sends as text/html will show as a
- * page there. */
-export function isHtmlAttachment(mime: string): boolean {
-  return mime.split(";")[0]!.trim().toLowerCase() === "text/html";
-}
-
-/** JSON by declared type, or by a .json suffix when the MIME is generic. */
-export function isJsonAttachment(mime: string, filename: string): boolean {
-  const base = mime.split(";")[0]!.trim().toLowerCase();
-  return (
-    base === "application/json" ||
-    (base === "" || base === "application/octet-stream") && /\.json$/i.test(filename)
-  );
-}
-
-/** Pretty-print JSON for the in-panel preview, or hand back the raw text when
- * it will not parse.
- *
- * The failure path is the point. Bad JSON must not render as a blank panel or
- * an error screen: the reader came to SEE THE BYTES, and the bytes are still
- * readable even when they are not valid JSON. So the text is shown as it was
- * stored, with one line saying why it is not indented. */
-export function formatJsonForPreview(text: string): { body: string; unparseable: boolean } {
-  try {
-    return { body: JSON.stringify(JSON.parse(text), null, 2), unparseable: false };
-  } catch {
-    return { body: text, unparseable: true };
-  }
 }

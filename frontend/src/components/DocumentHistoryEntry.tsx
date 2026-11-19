@@ -28,7 +28,7 @@
 //    失敗時，還原照樣按得下去（modal 的 `seedUnavailable` 誠實說明看不到，而不是
 //    假裝這個版本是空白的）。
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useI18n } from "../i18n";
 import type { DocumentHistoryEntryView, DocumentKind } from "../types";
 import {
@@ -45,9 +45,8 @@ import type { DocCaps } from "../api/docCap";
 import { TASK_EVENT_CAP_CHARS_DEFAULT } from "../api/docCap";
 import { documentHasContent } from "../lib/docHistoryFields";
 import { formatAbsolute } from "../lib/dateFormat";
-import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { DocumentHistoryModal } from "./DocumentHistoryModal";
-import { CloseIcon, LayersIcon } from "./icons";
+import { HistoryListWindow } from "./HistoryWindow";
 // The list wears the modal shell (`.doc-hist-modal*`) and the row atoms that
 // still live in the settings sheet (`.doc-hist__*`, `.doc-btn`, `.set-badge`),
 // so it imports BOTH — the styleOwnership rule: draw a sheet's classes, own its
@@ -169,8 +168,6 @@ export function DocumentHistoryEntry({
     reading?.kind === "version" ? reading.version.id : null
   );
 
-  const listRef = useRef<HTMLDivElement>(null);
-  useEscapeLayer(() => setOpen(false), listRef, open && reading === null);
 
   // 🔴 owner 設過的暱稱，不是主題的預設稱謂。`t.user` 是主題給「人類」的預設
   // 字（預設「CEO（你）」、仙俠主題「市長（你）」），而他真正設的名字在
@@ -207,198 +204,165 @@ export function DocumentHistoryEntry({
       </button>
 
       {open && reading === null && (
-        <div
-          ref={listRef}
-          className="doc-hist-modal"
-          data-testid="doc-history-list"
-          role="dialog"
-          aria-modal="true"
-          aria-label={title}
-          onClick={() => setOpen(false)}
+        <HistoryListWindow
+          title={title}
+          note={note ?? t.settings.historySub}
+          onClose={() => setOpen(false)}
         >
-          <div
-            className="doc-hist-modal__panel"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="doc-hist-modal__header">
-              <span className="doc-hist__title">
-                <LayersIcon size={15} className="doc-hist__icon" />
-                <span>{title}</span>
-              </span>
-              <div className="doc-hist-modal__actions">
-                <button
-                  type="button"
-                  className="doc-hist-modal__close"
-                  data-testid="doc-history-list-close"
-                  aria-label={t.settings.historyClose}
-                  onClick={() => setOpen(false)}
-                >
-                  <CloseIcon size={16} />
-                </button>
-              </div>
+          {loading && (
+            <div className="doc-hist__empty">
+              {t.settings.historyLoading}
             </div>
-
-            <div className="doc-hist-modal__body">
-              <div className="doc-hist__note">
-                {note ?? t.settings.historySub}
-              </div>
-              {loading && (
-                <div className="doc-hist__empty">
-                  {t.settings.historyLoading}
-                </div>
-              )}
-              {/* A failed load is reported, but it does NOT take 預設內容 with
-                * it. That row is the only reset affordance left in the cockpit
-                * and it needs no server data at all — gating it on this GET
-                * made 重置 the hostage of an unrelated request. */}
-              {!loading && error && (
-                <div className="set-error">{t.settings.historyError}</div>
-              )}
-              {!loading && !error && versions.length === 0 && !onReset && (
-                <div className="doc-hist__empty">{t.settings.historyEmpty}</div>
-              )}
-              {!loading && (versions.length > 0 || onReset) && (
-                <ul className="doc-hist__list">
-                  {versions.map((v) => {
-                    const when = formatAbsolute(v.createdTs, nowSecs);
-                    const hasContent = documentHasContent(kind, v.sizes);
-                    // A revision the server WOULD refuse is still listed —
-                    // hiding it would deny the owner the one place that content
-                    // still exists. It is marked and told why HERE, and the
-                    // modal it opens repeats the verdict with a dead control.
-                    const blockedFields = docCapBlockedFields(
-                      kind,
-                      v.sizes,
-                      currentContent,
-                      docCaps
-                    );
-                    const blocked = blockedFields.length > 0;
-                    return (
-                      <li
-                        className={`doc-hist__item${blocked ? " doc-hist__item--blocked" : ""}`}
-                        key={v.id}
-                        data-testid={`doc-history-item-${v.id}`}
-                        data-blocked={blocked ? "true" : undefined}
-                      >
-                        {/* The WHOLE row is the control — a blocked revision
-                          * opens too, because reading it is precisely what is
-                          * still possible when restoring it is not. */}
-                        {/* role="button" rather than a real <button>: the row's
-                          * body is a <dl> of previews, which a button may not
-                          * contain (phrasing content only). */}
-                        <div
-                          className="doc-hist__row"
-                          data-testid={`doc-history-open-${v.id}`}
-                          role="button"
-                          tabIndex={0}
-                          title={t.settings.historyOpen}
-                          onClick={() => setReading({ kind: "version", version: v })}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              setReading({ kind: "version", version: v });
-                            }
-                          }}
-                        >
-                          <div className="doc-hist__meta">
-                            <span className="doc-hist__when">{when}</span>
-                            <span className="doc-hist__actor">
-                              {t.settings.historyByLabel}{" "}
-                              {actorLine(v.actorId)}
-                            </span>
-                            {blocked && (
-                              <span className="set-badge set-badge--blocked">
-                                {t.settings.historyBlockedBadge}
-                              </span>
-                            )}
-                            <span className="doc-hist__open">
-                              {t.settings.historyOpen}
-                            </span>
-                          </div>
-                          {blocked && (
-                            <div
-                              className="doc-hist__blocked"
-                              data-testid={`doc-history-blocked-${v.id}`}
-                            >
-                              {msg.docHistoryBlockedReason(
-                                blockedFields.map(fieldLabel),
-                                (docCaps && capForKind(kind, docCaps)) ?? 0
-                              )}
-                            </div>
-                          )}
-                          {/* NO content preview here (owner 2026-07-31:
-                            * 「點了應該先挑選要看哪個版本就好，不用一次顯示多個
-                            * 版本出來」). This list is a PICKER: several long
-                            * revisions previewed at once is the wall of text
-                            * the reader has to scroll past to reach the one
-                            * they came for. The content lives one click deeper,
-                            * where it gets the whole panel. The only thing kept
-                            * beside the identity line is a revision that CANNOT
-                            * be restored, which has to say so before the click,
-                            * not after. */}
-                          {!hasContent && (
-                            <div className="doc-hist__empty">
-                              {t.settings.historyNoContent}
-                            </div>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-
-                  {/* 預設內容 — the file seed, at the BOTTOM because it is the
-                    * oldest thing this document has ever been, and the list is
-                    * newest-first. Only where a seed exists. */}
-                  {onReset && (
-                    <li
-                      className="doc-hist__item doc-hist__item--seed"
-                      data-testid="doc-history-seed"
+          )}
+          {/* A failed load is reported, but it does NOT take 預設內容 with
+            * it. That row is the only reset affordance left in the cockpit
+            * and it needs no server data at all — gating it on this GET
+            * made 重置 the hostage of an unrelated request. */}
+          {!loading && error && (
+            <div className="set-error">{t.settings.historyError}</div>
+          )}
+          {!loading && !error && versions.length === 0 && !onReset && (
+            <div className="doc-hist__empty">{t.settings.historyEmpty}</div>
+          )}
+          {!loading && (versions.length > 0 || onReset) && (
+            <ul className="doc-hist__list">
+              {versions.map((v) => {
+                const when = formatAbsolute(v.createdTs, nowSecs);
+                const hasContent = documentHasContent(kind, v.sizes);
+                // A revision the server WOULD refuse is still listed —
+                // hiding it would deny the owner the one place that content
+                // still exists. It is marked and told why HERE, and the
+                // modal it opens repeats the verdict with a dead control.
+                const blockedFields = docCapBlockedFields(
+                  kind,
+                  v.sizes,
+                  currentContent,
+                  docCaps
+                );
+                const blocked = blockedFields.length > 0;
+                return (
+                  <li
+                    className={`doc-hist__item${blocked ? " doc-hist__item--blocked" : ""}`}
+                    key={v.id}
+                    data-testid={`doc-history-item-${v.id}`}
+                    data-blocked={blocked ? "true" : undefined}
+                  >
+                    {/* The WHOLE row is the control — a blocked revision
+                      * opens too, because reading it is precisely what is
+                      * still possible when restoring it is not. */}
+                    {/* role="button" rather than a real <button>: the row's
+                      * body is a <dl> of previews, which a button may not
+                      * contain (phrasing content only). */}
+                    <div
+                      className="doc-hist__row"
+                      data-testid={`doc-history-open-${v.id}`}
+                      role="button"
+                      tabIndex={0}
+                      title={t.settings.historyOpen}
+                      onClick={() => setReading({ kind: "version", version: v })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setReading({ kind: "version", version: v });
+                        }
+                      }}
                     >
-                      <div
-                        className="doc-hist__row"
-                        data-testid="doc-history-seed-open"
-                        role="button"
-                        tabIndex={0}
-                        title={t.settings.historyOpen}
-                        onClick={() => setReading({ kind: "seed" })}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setReading({ kind: "seed" });
-                          }
-                        }}
-                      >
-                        <div className="doc-hist__meta">
-                          <span className="doc-hist__when">
-                            {t.settings.historySeedTitle}
+                      <div className="doc-hist__meta">
+                        <span className="doc-hist__when">{when}</span>
+                        <span className="doc-hist__actor">
+                          {t.settings.historyByLabel}{" "}
+                          {actorLine(v.actorId)}
+                        </span>
+                        {blocked && (
+                          <span className="set-badge set-badge--blocked">
+                            {t.settings.historyBlockedBadge}
                           </span>
-                          {/* 「檢視這個版本」, the same affordance every other row
-                            * offers — the row no longer promises a restore it is
-                            * not about to perform (T-40f0). */}
-                          <span className="doc-hist__open">
-                            {t.settings.historyOpen}
-                          </span>
-                        </div>
-                        <div className="doc-hist__seed-note">
-                          {t.settings.historySeedNote}
-                        </div>
+                        )}
+                        <span className="doc-hist__open">
+                          {t.settings.historyOpen}
+                        </span>
                       </div>
-                    </li>
-                  )}
-                </ul>
-              )}
-              {docDeletable && (
-                <p
-                  className="doc-hist__scope"
-                  data-testid="doc-history-scope-note"
-                >
-                  {t.settings.historyDeleteNote}
-                </p>
-              )}
-            </div>
-          </div>
+                      {blocked && (
+                        <div
+                          className="doc-hist__blocked"
+                          data-testid={`doc-history-blocked-${v.id}`}
+                        >
+                          {msg.docHistoryBlockedReason(
+                            blockedFields.map(fieldLabel),
+                            (docCaps && capForKind(kind, docCaps)) ?? 0
+                          )}
+                        </div>
+                      )}
+                      {/* NO content preview here (owner 2026-07-31:
+                        * 「點了應該先挑選要看哪個版本就好，不用一次顯示多個
+                        * 版本出來」). This list is a PICKER: several long
+                        * revisions previewed at once is the wall of text
+                        * the reader has to scroll past to reach the one
+                        * they came for. The content lives one click deeper,
+                        * where it gets the whole panel. The only thing kept
+                        * beside the identity line is a revision that CANNOT
+                        * be restored, which has to say so before the click,
+                        * not after. */}
+                      {!hasContent && (
+                        <div className="doc-hist__empty">
+                          {t.settings.historyNoContent}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
 
-        </div>
+              {/* 預設內容 — the file seed, at the BOTTOM because it is the
+                * oldest thing this document has ever been, and the list is
+                * newest-first. Only where a seed exists. */}
+              {onReset && (
+                <li
+                  className="doc-hist__item doc-hist__item--seed"
+                  data-testid="doc-history-seed"
+                >
+                  <div
+                    className="doc-hist__row"
+                    data-testid="doc-history-seed-open"
+                    role="button"
+                    tabIndex={0}
+                    title={t.settings.historyOpen}
+                    onClick={() => setReading({ kind: "seed" })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setReading({ kind: "seed" });
+                      }
+                    }}
+                  >
+                    <div className="doc-hist__meta">
+                      <span className="doc-hist__when">
+                        {t.settings.historySeedTitle}
+                      </span>
+                      {/* 「檢視這個版本」, the same affordance every other row
+                        * offers — the row no longer promises a restore it is
+                        * not about to perform (T-40f0). */}
+                      <span className="doc-hist__open">
+                        {t.settings.historyOpen}
+                      </span>
+                    </div>
+                    <div className="doc-hist__seed-note">
+                      {t.settings.historySeedNote}
+                    </div>
+                  </div>
+                </li>
+              )}
+            </ul>
+          )}
+          {docDeletable && (
+            <p
+              className="doc-hist__scope"
+              data-testid="doc-history-scope-note"
+            >
+              {t.settings.historyDeleteNote}
+            </p>
+          )}
+        </HistoryListWindow>
       )}
 
       {reading && (

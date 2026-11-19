@@ -3,7 +3,7 @@
 // unmounts it on onClose and would otherwise leave the pencil-only display.
 
 import { describe, it, expect, vi } from "vitest";
-import { render, fireEvent, screen } from "@testing-library/react";
+import { render, fireEvent, screen, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { InlineEdit } from "./InlineEdit";
 
@@ -52,6 +52,33 @@ describe("InlineEdit openOnMount / onClose", () => {
     fireEvent.change(input, { target: { value: "new" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onCommit).toHaveBeenCalledWith("new");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("a save that rejects keeps the field open with the typed value; Enter retries and Escape still closes once", async () => {
+    const onCommit = vi.fn(async (_next: string): Promise<boolean> => {
+      throw new Error("http 500");
+    });
+    const onClose = vi.fn();
+    render(
+      <I18nProvider>
+        <InlineEdit value="old" onCommit={onCommit} onClose={onClose} ariaLabel="rename" openOnMount />
+      </I18nProvider>
+    );
+    const input = screen.getByRole("textbox", { name: "rename" }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "new" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    expect((screen.getByRole("textbox", { name: "rename" }) as HTMLInputElement).value).toBe("new");
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(2));
+    await waitFor(() => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "rename" }), { key: "Escape" });
+      expect(screen.queryByRole("textbox")).toBeNull();
+    });
+    expect(onCommit.mock.calls).toEqual([["new"], ["new"]]);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

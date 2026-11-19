@@ -4604,6 +4604,123 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/shared-docs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List shared documents, sorted by name. Metadata only: read the content with get_shared_doc. */
+        get: operations["handle_list_shared_docs_api_shared_docs_get"];
+        put?: never;
+        /**
+         * Create a shared document: a named file, image or link that every member can read and replace, kept with a short version history and not tied to any task.
+         * @description - For reference material that several tasks or manuals cite over time; output that belongs to one task goes on that task as an artifact.
+         *     - A file or image goes in two steps: `ocagent upload` it, then pass the attachment id here.
+         *     - `kind` is fixed for the life of the document.
+         *     - Caps are refused, never truncated.
+         */
+        post: operations["handle_create_shared_doc_api_shared_docs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-docs/{doc_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one shared document: its metadata and, when the current version is text, its content.
+         * @description - A task manual or task cites a shared document by its `sd-` id; the id stays the same when the content is replaced or restored.
+         *     - When `text` is null, download `attachment_id` for the content.
+         *     - The `attachment_id` of the current version, or of any retained version from list_shared_doc_versions, works as a side of `ocagent diff`.
+         */
+        get: operations["handle_get_shared_doc_api_shared_docs__doc_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Permanently delete a shared document with all its versions. Owner only.
+         * @description - Irreversible: the document, every retained version and their files are gone, and the id answers 404 from then on.
+         *     - Task manuals and tasks that cite the id are not updated: their references stop resolving.
+         */
+        delete: operations["handle_delete_shared_doc_api_shared_docs__doc_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-docs/{doc_id}/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace a shared document's content, edit its name or description, or both. The id stays the same.
+         * @description - Send `attachment_id` for a file or image document and `url` for a link; the other field is a 400, because the kind cannot change.
+         *     - To change only `name` or `description`, send neither: the current content is kept and no version is made or discarded, because versions hold content only. A name and description equal to the current ones, with no content, is a 400.
+         *     - New content retains the replaced version, but only the most recent few previous versions are kept: once `version_count` is at the retention depth, the oldest retained version and its blob are discarded for good.
+         */
+        post: operations["handle_replace_shared_doc_api_shared_docs__doc_id__replace_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-docs/{doc_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a shared document's retained previous versions, newest first. The current version is not included.
+         * @description - Only the most recent few previous versions are retained.
+         */
+        get: operations["handle_list_shared_doc_versions_api_shared_docs__doc_id__versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-docs/{doc_id}/versions/{version_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a retained previous version the current one again.
+         * @description - The current version takes the restored one's place among the retained versions, so nothing is discarded, `version_count` does not change, and restoring that one undoes this.
+         *     - The restored version leaves the list and its version id stops resolving.
+         *     - Only the content comes back: the current name and description stay.
+         *     - `updated_by` / `updated_ts` become the caller and now.
+         *     - A version id that is not one of this document's retained versions is a 404.
+         */
+        post: operations["handle_restore_shared_doc_version_api_shared_docs__doc_id__versions__version_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -12825,6 +12942,319 @@ export interface components {
              * @description The SERVER's stamp for THIS write, epoch seconds. It moves on both doors and on every call, so it — not ``effective_ts`` — is what says the write happened at all.
              */
             updated_ts: number;
+        };
+        /**
+         * SharedDocCreateDTO
+         * @description Create one shared document.
+         */
+        SharedDocCreateDTO: {
+            /**
+             * Attachment Id
+             * @description Required for ``file``/``image``, refused for ``link``: a blob already in the store (``ocagent upload``).
+             * @default null
+             */
+            attachment_id: string | null;
+            /**
+             * Description
+             * @description At most 1024 runes; omitted means empty.
+             * @default null
+             */
+            description: string | null;
+            /**
+             * Kind
+             * @description ``file``, ``image`` or ``link``. Cannot be changed later.
+             */
+            kind: string;
+            /**
+             * Name
+             * @description Required, at most 128 runes. Need not be unique.
+             */
+            name: string;
+            /**
+             * Url
+             * @description Required for ``link``, refused for ``file``/``image``: ``http(s)://``, at most 2048 runes. Stored as sent, never fetched.
+             * @default null
+             */
+            url: string | null;
+        };
+        /**
+         * SharedDocDTO
+         * @description One shared document's metadata and current version.
+         */
+        SharedDocDTO: {
+            /**
+             * Attachment Id
+             * @description The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.
+             */
+            attachment_id: string;
+            /**
+             * Created By
+             * @description Who created the document. Never changes.
+             */
+            created_by: string;
+            /**
+             * Created Ts
+             * @description When the document was created. Never changes.
+             */
+            created_ts: number;
+            /**
+             * Description
+             * @description May be empty.
+             * @default
+             */
+            description: string;
+            /**
+             * Filename
+             * @description The blob's own file name, resolved read-time; empty for a link. Not the display name.
+             * @default
+             */
+            filename: string;
+            /**
+             * Id
+             * @description ``sd-`` id. Stays the same across versions; manuals and tasks cite the document by it.
+             */
+            id: string;
+            /**
+             * Kind
+             * @description ``file``, ``image`` or ``link``; fixed for the life of the document.
+             */
+            kind: string;
+            /**
+             * Mime
+             * @description The blob's content type, resolved read-time; ``text/uri-list`` for a link.
+             * @default
+             */
+            mime: string;
+            /** Name */
+            name: string;
+            /**
+             * Updated By
+             * @description Who last changed the document: by create, replace (content, name or description) or restore.
+             */
+            updated_by: string;
+            /**
+             * Updated Ts
+             * @description When the document was last changed.
+             */
+            updated_ts: number;
+            /**
+             * Url
+             * @description Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.
+             * @default
+             */
+            url: string;
+            /**
+             * Version Count
+             * @description Versions that exist, the current one included. Stops climbing at the retention depth: from then on each new version discards the oldest.
+             */
+            version_count: number;
+        };
+        /**
+         * SharedDocDeleteReceiptDTO
+         * @description Receipt of a permanent shared-document delete.
+         */
+        SharedDocDeleteReceiptDTO: {
+            /** Id */
+            id: string;
+        };
+        /**
+         * SharedDocDetailDTO
+         * @description One shared document with its current content inline when that content is text.
+         */
+        SharedDocDetailDTO: {
+            /**
+             * Attachment Id
+             * @description The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.
+             */
+            attachment_id: string;
+            /**
+             * Created By
+             * @description Who created the document. Never changes.
+             */
+            created_by: string;
+            /**
+             * Created Ts
+             * @description When the document was created. Never changes.
+             */
+            created_ts: number;
+            /**
+             * Description
+             * @description May be empty.
+             * @default
+             */
+            description: string;
+            /**
+             * Filename
+             * @description The blob's own file name, resolved read-time; empty for a link. Not the display name.
+             * @default
+             */
+            filename: string;
+            /**
+             * Id
+             * @description ``sd-`` id. Stays the same across versions; manuals and tasks cite the document by it.
+             */
+            id: string;
+            /**
+             * Kind
+             * @description ``file``, ``image`` or ``link``; fixed for the life of the document.
+             */
+            kind: string;
+            /**
+             * Mime
+             * @description The blob's content type, resolved read-time; ``text/uri-list`` for a link.
+             * @default
+             */
+            mime: string;
+            /** Name */
+            name: string;
+            /**
+             * Text
+             * @description The current version's content when it is text: a ``text/*`` or ``application/json`` blob of at most 256 KiB that is valid UTF-8, or a link's URL. Otherwise null, and ``text_omitted`` says why.
+             */
+            text: string | null;
+            /**
+             * Text Omitted
+             * @description Null when ``text`` is present; otherwise ``binary`` or ``too_large``. Read such content by downloading ``attachment_id``.
+             */
+            text_omitted: string | null;
+            /**
+             * Updated By
+             * @description Who last changed the document: by create, replace (content, name or description) or restore.
+             */
+            updated_by: string;
+            /**
+             * Updated Ts
+             * @description When the document was last changed.
+             */
+            updated_ts: number;
+            /**
+             * Url
+             * @description Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.
+             * @default
+             */
+            url: string;
+            /**
+             * Version Count
+             * @description Versions that exist, the current one included. Stops climbing at the retention depth: from then on each new version discards the oldest.
+             */
+            version_count: number;
+        };
+        /**
+         * SharedDocListDTO
+         * @description Shared documents sorted by name, then id. Metadata only.
+         */
+        SharedDocListDTO: {
+            /** Docs */
+            docs: components["schemas"]["SharedDocDTO"][];
+        };
+        /**
+         * SharedDocReceiptDTO
+         * @description Bounded receipt of a shared-document write.
+         */
+        SharedDocReceiptDTO: {
+            /** Id */
+            id: string;
+            /** Updated Ts */
+            updated_ts: number;
+            /**
+             * Version Count
+             * @description As on ``SharedDocDTO``. Unchanged after new content means the oldest retained version was just discarded; a name or description edit never changes it.
+             */
+            version_count: number;
+        };
+        /**
+         * SharedDocReplaceDTO
+         * @description New content for a shared document, a new name or description, or both. Send the content field its kind uses; the other is refused.
+         */
+        SharedDocReplaceDTO: {
+            /**
+             * Attachment Id
+             * @description For a ``file``/``image`` document: a blob already in the store. Omit it, and ``url``, to keep the current content.
+             * @default null
+             */
+            attachment_id: string | null;
+            /**
+             * Description
+             * @description Omitted or null keeps the current one; blank clears it. At most 1024 runes.
+             * @default null
+             */
+            description: string | null;
+            /**
+             * Name
+             * @description Omitted or null keeps the current one; blank is refused. At most 128 runes.
+             * @default null
+             */
+            name: string | null;
+            /**
+             * Url
+             * @description For a ``link`` document: ``http(s)://``, at most 2048 runes. Omit it, and ``attachment_id``, to keep the current content.
+             * @default null
+             */
+            url: string | null;
+        };
+        /**
+         * SharedDocVersionDTO
+         * @description One retained previous version of a shared document.
+         */
+        SharedDocVersionDTO: {
+            /**
+             * Attachment Id
+             * @description The blob holding this version's content (a link's target is a ``text/uri-list`` blob). Usable as a side of ``ocagent diff``.
+             */
+            attachment_id: string;
+            /**
+             * Created By
+             * @description Who wrote this version.
+             */
+            created_by: string;
+            /**
+             * Created Ts
+             * @description When this version was written.
+             */
+            created_ts: number;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Filename
+             * @description The blob's own file name, resolved read-time; empty for a link. Not the display name.
+             * @default
+             */
+            filename: string;
+            /**
+             * Id
+             * Format: int64
+             * @description The version id ``restore_shared_doc_version`` takes. Valid only under this document; it stops resolving once the version is restored or discarded.
+             */
+            id: number;
+            /** Kind */
+            kind: string;
+            /**
+             * Mime
+             * @description The blob's content type, resolved read-time; ``text/uri-list`` for a link.
+             * @default
+             */
+            mime: string;
+            /** Name */
+            name: string;
+            /**
+             * Url
+             * @description Where the content is: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link.
+             * @default
+             */
+            url: string;
+        };
+        /**
+         * SharedDocVersionListDTO
+         * @description A shared document's retained previous versions, newest first. The current version is not in this list.
+         */
+        SharedDocVersionListDTO: {
+            /** Doc Id */
+            doc_id: string;
+            /** Versions */
+            versions: components["schemas"]["SharedDocVersionDTO"][];
         };
     };
     responses: never;
@@ -23303,6 +23733,354 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoreEntryStateReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_shared_docs_api_shared_docs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedDocListDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_create_shared_doc_api_shared_docs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SharedDocCreateDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedDocReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_shared_doc_api_shared_docs__doc_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedDocDetailDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_delete_shared_doc_api_shared_docs__doc_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedDocDeleteReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_replace_shared_doc_api_shared_docs__doc_id__replace_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SharedDocReplaceDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedDocReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_shared_doc_versions_api_shared_docs__doc_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedDocVersionListDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_restore_shared_doc_version_api_shared_docs__doc_id__versions__version_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+                version_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedDocReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

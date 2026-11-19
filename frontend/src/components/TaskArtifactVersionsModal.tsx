@@ -63,15 +63,19 @@
 // each side under its own name rather than under the live row's.
 //
 // 🔴 WITH ONE FALLBACK: an `application/octet-stream` response whose NAME ends
-// in a text extension is read as text (TEXTUAL_EXTENSIONS below). That mime says
-// the type is not known, not that the bytes are binary — the server answers it
-// for text extensions outside its own type table (.ini, .env, .css).
+// in a text extension is read as text (hooks/useVersionPayload.ts). That mime
+// says the type is not known, not that the bytes are binary — the server
+// answers it for text extensions outside its own type table (.ini, .env, .css).
+//
+// THE CONTENT PANE IS ContentView, the same body every other file surface
+// draws: a markdown report is read rendered, JSON/XML indented, a CSV as a
+// table, an HTML page in the sandboxed frame at its minted share link. The
+// 差異 pane stays the raw-text DiffView.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { api } from "../api";
-import { authedAttachmentUrl } from "../api/http";
 import type {
   TaskArtifactView,
   TaskArtifactVersionView,
@@ -79,161 +83,12 @@ import type {
 import { formatAbsolute } from "../lib/dateFormat";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { DiffView } from "./DiffView";
+import { VersionContent } from "./VersionContent";
+import { useVersionPayload, type ArtifactPayload } from "../hooks/useVersionPayload";
 import { CloseIcon } from "./icons";
 import "./task-artifact-versions.css";
 
 type Pane = "content" | "diff";
-/** Which side of a non-text comparison the single viewing area is showing. */
-
-/** What one version's bytes turned out to BE. `opaque` is the honest answer for
- * a file this surface cannot render or compare — it is never collapsed into
- * "empty", which is a different and false statement. */
-export type ArtifactPayload =
-  | { state: "loading" }
-  | { state: "text"; text: string }
-  | { state: "image"; src: string }
-  | { state: "opaque"; mime: string }
-  | { state: "link"; url: string }
-  | { state: "gone" }
-  | { state: "error" };
-
-/** Extensions this panel reads as text when the RESPONSE will not say so
- * (`application/octet-stream`). Wrong in the OTHER direction is cheap: this list
- * is closed and holds only extensions whose bytes are text by definition, so the
- * worst case is text rendered as text. */
-const TEXTUAL_EXTENSIONS = new Set([
-  "md", "txt", "log", "json", "csv", "yaml", "yml", "diff", "patch", "sql",
-  "go", "ts", "tsx", "js", "py", "sh", "toml", "ini", "env", "html", "css",
-  "xml",
-]);
-
-/** Whether a deliverable's NAME says its bytes are text. A name with no
- * extension — which is the NORMAL shape of a live artifact's `name` since T-92
- * made it a required, author-chosen title ("週報 v3") rather than a filename —
- * simply answers false here and has to be judged by some other fact; see
- * `filenameFromContentDisposition`. */
-export function looksTextualByName(name: string): boolean {
-  const dot = name.lastIndexOf(".");
-  if (dot < 0) return false;
-  return TEXTUAL_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
-}
-
-/** The blob's REAL filename, out of the download response's own
- * `Content-Disposition`.
- *
- * 🔴 This is the only place the live side can still learn it. A retained
- * version carries its own `filename` on the wire, but T-92 took that field off
- * the live artifact and left `name` — an author-chosen title with no extension
- * — in its place, so a `.md` report pinned as 「週報 v3」 has nothing in the
- * JSON that says "text". The bytes response does: the server writes
- * `filename="…"; filename*=UTF-8''…` on every attachment
- * (api_chat.go), and this panel is already fetching exactly that response.
- *
- * `filename*` wins when both are present — it is the one that survives
- * non-ASCII, since the plain `filename` is the same name with every non-ASCII
- * rune dropped. The server percent-encodes it with Go's `url.QueryEscape`,
- * which writes a space as `+`; that is cosmetic for the one question asked of
- * this value (its extension), so the `+` is left alone rather than guessed at.
- * Returns "" when the header is absent or unparseable — never a made-up name. */
-export function filenameFromContentDisposition(header: string | null): string {
-  if (!header) return "";
-  const ext = /;\s*filename\*\s*=\s*[^']*'[^']*'([^;]+)/i.exec(header);
-  if (ext?.[1]) {
-    const raw = ext[1].trim();
-    try {
-      return decodeURIComponent(raw);
-    } catch {
-      return raw;
-    }
-  }
-  const quoted = /;\s*filename\s*=\s*"((?:[^"\\]|\\.)*)"/i.exec(header);
-  if (quoted?.[1] !== undefined) return quoted[1].replace(/\\(.)/g, "$1");
-  const bare = /;\s*filename\s*=\s*([^;]+)/i.exec(header);
-  return bare?.[1] ? bare[1].trim() : "";
-}
-
-/** Read ONE version's content. The kind decides how far this has to go: a link
- * needs no fetch at all, an image is displayed by the browser rather than read
- * here, and only a file is actually fetched — headers first, body only if the
- * bytes are text.
- *
- * `name` is the second opinion on that last question. The server's own
- * `Content-Type` still has the FIRST word (both directions: `text/*` is text,
- * `image/*` is an image and the name never overrules it), and the name is only
- * consulted when the mime is neither — which is where `application/octet-stream`
- * lands.
- *
- * The THIRD opinion, and the one that saves the live side, is the filename the
- * response itself carries in `Content-Disposition`. The caller's `name` is a
- * version's `filename` on one side but an author-chosen title on the other, so
- * consulting only it makes the two sides disagree about the SAME blob; the
- * header is the one fact both sides read identically. Either says text ⇒ text.
- * Neither widens `looksTextualByName`: the extension list stays closed, and a
- * blob with no recognised extension anywhere still reads as opaque. */
-export async function loadArtifactPayload(
-  kind: "file" | "image" | "link",
-  url: string,
-  name = "",
-): Promise<ArtifactPayload> {
-  if (!url) return { state: "gone" };
-  if (kind === "link") return { state: "link", url };
-  if (kind === "image") return { state: "image", src: authedAttachmentUrl(url) };
-  const res = await fetch(authedAttachmentUrl(url));
-  if (!res.ok) throw new Error(`http ${res.status}`);
-  const mime = (res.headers.get("content-type") ?? "")
-    .split(";")[0]!
-    .trim()
-    .toLowerCase();
-  const isImageMime = mime.startsWith("image/");
-  const textualByName =
-    !isImageMime &&
-    (looksTextualByName(name) ||
-      looksTextualByName(
-        filenameFromContentDisposition(res.headers.get("content-disposition")),
-      ));
-  if (mime.startsWith("text/") || textualByName) {
-    return { state: "text", text: await res.text() };
-  }
-  // Not text: drop the body instead of downloading a binary this panel cannot
-  // show anyway. An image mime still displays — `kind` only tells us the server
-  // did not flag it as one.
-  await res.body?.cancel().catch(() => {});
-  if (isImageMime) {
-    return { state: "image", src: authedAttachmentUrl(url) };
-  }
-  return { state: "opaque", mime };
-}
-
-/** The one loader both sides share. Nothing about it is version-specific, which
- * is the point: the live artifact's bytes are read exactly the way a retained
- * version's are, so neither side can be measured more generously than the other. */
-function usePayload(
-  kind: "file" | "image" | "link" | undefined,
-  url: string | undefined,
-  name = "",
-): ArtifactPayload {
-  const [payload, setPayload] = useState<ArtifactPayload>({ state: "loading" });
-  useEffect(() => {
-    if (kind === undefined || url === undefined) {
-      setPayload({ state: "loading" });
-      return;
-    }
-    let alive = true;
-    setPayload({ state: "loading" });
-    loadArtifactPayload(kind, url, name)
-      .then((p) => {
-        if (alive) setPayload(p);
-      })
-      .catch((e) => {
-        if (alive) setPayload({ state: "error" });
-        console.warn("TaskArtifactVersionsModal: content read failed", e);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [kind, url, name]);
-  return payload;
-}
 
 export function TaskArtifactVersionsModal({
   taskId,
@@ -317,7 +172,7 @@ export function TaskArtifactVersionsModal({
   // ordinary deliverable this panel has.
   const versionName = (v: TaskArtifactVersionView) => v.filename || v.name;
   const liveName = live ? live.name : "";
-  const selectedPayload = usePayload(
+  const selectedPayload = useVersionPayload(
     selected === "live" ? live?.kind : selectedVersion?.kind,
     selected === "live" ? live?.url : selectedVersion?.url,
     selected === "live"
@@ -325,8 +180,9 @@ export function TaskArtifactVersionsModal({
       : selectedVersion
         ? versionName(selectedVersion)
         : "",
+    "TaskArtifactVersionsModal",
   );
-  const livePayload = usePayload(live?.kind, live?.url, liveName);
+  const livePayload = useVersionPayload(live?.kind, live?.url, liveName, "TaskArtifactVersionsModal");
 
   /**
    * Whether the 差異 tab exists AT ALL for what is on screen.
@@ -378,59 +234,19 @@ export function TaskArtifactVersionsModal({
   );
 
   function payloadBlock(p: ArtifactPayload, testId: string) {
-    switch (p.state) {
-      case "loading":
-        return (
-          <p className="ta-versions__notice" data-testid={`${testId}-loading`}>
-            {t.tasks.artifacts.versionsLoading}
-          </p>
-        );
-      case "error":
-        return (
-          <p className="ta-versions__notice" data-testid={`${testId}-error`}>
-            {t.tasks.artifacts.versionsContentError}
-          </p>
-        );
-      case "gone":
-        return (
-          <p className="ta-versions__notice" data-testid={`${testId}-gone`}>
-            {t.tasks.artifacts.versionsContentGone}
-          </p>
-        );
-      case "opaque":
-        return (
-          <p className="ta-versions__notice" data-testid={`${testId}-opaque`}>
-            {msg.taskArtifactOpaque(p.mime)}
-          </p>
-        );
-      case "link":
-        return (
-          <a
-            className="ta-versions__url"
-            data-testid={`${testId}-link`}
-            href={p.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {p.url}
-          </a>
-        );
-      case "image":
-        return (
-          <img
-            className="ta-versions__image"
-            data-testid={`${testId}-image`}
-            src={p.src}
-            alt=""
-          />
-        );
-      case "text":
-        return (
-          <pre className="ta-versions__text" data-testid={`${testId}-text`}>
-            {p.text}
-          </pre>
-        );
-    }
+    return (
+      <VersionContent
+        payload={p}
+        notices={{
+          loading: t.tasks.artifacts.versionsLoading,
+          error: t.tasks.artifacts.versionsContentError,
+          gone: t.tasks.artifacts.versionsContentGone,
+          opaque: (mime) => msg.taskArtifactOpaque(mime),
+        }}
+        noticeClassName="ta-versions__notice"
+        testId={testId}
+      />
+    );
   }
 
   /**

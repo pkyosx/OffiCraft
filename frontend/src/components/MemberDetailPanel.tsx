@@ -557,7 +557,7 @@ export function MemberDetailPanel({
             <NameWithActivity activity={member.activity} presence={member.lifecycle} testId="mp-identity-activity" layout="group">
               <InlineEdit
                 value={member.name}
-                onCommit={(next) => onRename?.(next)}
+                onCommit={(next) => void onRename?.(next)}
                 placeholder={t.mp.renamePlaceholder}
                 ariaLabel={t.mp.rename}
                 displayClassName="mp-identity__name"

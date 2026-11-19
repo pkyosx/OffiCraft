@@ -1486,6 +1486,48 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:    w.HandleRevealSelfSecretsApiSelfSecretsRevealPost,
 			MCPExclude: true,
 		}),
+		Gated(principalMachine, routeDef{
+			Method:  "GET",
+			Path:    "/api/shared-docs",
+			Handler: w.HandleListSharedDocsApiSharedDocsGet,
+			MCPTool: "list_shared_docs",
+		}),
+		Gated(principalAgent, routeDef{
+			Method:  "POST",
+			Path:    "/api/shared-docs",
+			Handler: w.HandleCreateSharedDocApiSharedDocsPost,
+			MCPTool: "create_shared_doc",
+		}),
+		Gated(principalMachine, routeDef{
+			Method:  "GET",
+			Path:    "/api/shared-docs/{doc_id}",
+			Handler: w.HandleGetSharedDocApiSharedDocsDocIdGet,
+			MCPTool: "get_shared_doc",
+		}),
+		Gated(principalAgent, routeDef{
+			Method:  "POST",
+			Path:    "/api/shared-docs/{doc_id}/replace",
+			Handler: w.HandleReplaceSharedDocApiSharedDocsDocIdReplacePost,
+			MCPTool: "replace_shared_doc",
+		}),
+		Gated(principalMachine, routeDef{
+			Method:  "GET",
+			Path:    "/api/shared-docs/{doc_id}/versions",
+			Handler: w.HandleListSharedDocVersionsApiSharedDocsDocIdVersionsGet,
+			MCPTool: "list_shared_doc_versions",
+		}),
+		Gated(principalAgent, routeDef{
+			Method:  "POST",
+			Path:    "/api/shared-docs/{doc_id}/versions/{version_id}/restore",
+			Handler: w.HandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestorePost,
+			MCPTool: "restore_shared_doc_version",
+		}),
+		Gated(principalOwner, routeDef{
+			Method:  "DELETE",
+			Path:    "/api/shared-docs/{doc_id}",
+			Handler: w.HandleDeleteSharedDocApiSharedDocsDocIdDelete,
+			MCPTool: "delete_shared_doc",
+		}),
 	}
 	out := make([]RouteSpec, len(rows))
 	for i, r := range rows {

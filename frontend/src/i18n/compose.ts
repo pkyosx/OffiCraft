@@ -84,6 +84,10 @@ export interface Messages {
   // ── secrets ──
   secretCopyId: (secretId: string) => string;
   secretDeleteConfirmBody: (name: string) => string;
+  sharedDocCopyId: (docId: string) => string;
+  sharedDocDeleteConfirmBody: (name: string) => string;
+  sharedDocEditHint: () => string;
+  sharedDocUpdated: (by: string, when: string) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
   groupHeading: (name: string, count: number) => string;
@@ -444,6 +448,12 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     secretCopyId: (secretId) => `${t.secrets.copyIdLabel} ${secretId}`,
     secretDeleteConfirmBody: (name) =>
       `${t.secrets.deleteConfirmLead}${name}${t.secrets.deleteConfirmTail}`,
+    sharedDocCopyId: (docId) => `${t.sharedDocs.copyIdLabel} ${docId}`,
+    sharedDocDeleteConfirmBody: (name) =>
+      `${t.sharedDocs.deleteConfirmLead}${name}${t.sharedDocs.deleteConfirmTail}`,
+    sharedDocEditHint: () =>
+      `${t.sharedDocs.editHintLead}${t.sharedDocs.uploadVersion}${t.sharedDocs.editHintTail}`,
+    sharedDocUpdated: (by, when) => `${by} · ${when}`,
 
     // The outsource identity label has ONE source of the word 外包 now: the
     // section title. It used to have two (a title leaf and an identically

@@ -16,6 +16,7 @@
     "runtime_login",
     "runtime_upgrade",
     "settings",
+    "shared_doc",
     "task",
     "task_manual"
   ]

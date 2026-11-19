@@ -87,6 +87,13 @@ export function viewerMaySetLoreScope(members: readonly Member[]): boolean {
   return !!me && me.kind !== "warden" && me.role === "assistant";
 }
 
+/** Is this viewer the owner? Mirrors owner-only route floors such as a shared
+ * document's 永久刪除. Display only — the server still refuses everyone else. */
+export function viewerIsOwner(): boolean {
+  if (USE_MOCK) return true;
+  return tokenClaims()?.scope === "owner";
+}
+
 export type {
   Api,
   SseConnectionState,

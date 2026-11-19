@@ -25,6 +25,11 @@ import type {
   PasskeyCeremonyView,
   SecretCreateInput,
   SecretUpdateInput,
+  SharedDocView,
+  SharedDocDetailView,
+  SharedDocVersionView,
+  SharedDocCreateInput,
+  SharedDocReplaceInput,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -134,6 +139,8 @@ import type {
   WireSigningKeys,
   WireSecret,
   WirePasskey,
+  WireSharedDoc,
+  WireSharedDocVersion,
   WireGlobalContext,
   WireBootDoc,
   WireDocumentHistory,
@@ -158,6 +165,9 @@ import {
   toSigningKeys,
   toSecret,
   toSecrets,
+  toSharedDoc,
+  toSharedDocDetail,
+  toSharedDocVersion,
   toPasskey,
   toGlobalContext,
   toBootDoc,
@@ -3149,6 +3159,145 @@ const MOCK_WIRE_SECRETS: WireSecret[] = [
   },
 ];
 let mockSecrets: WireSecret[] = structuredClone(MOCK_WIRE_SECRETS);
+
+interface MockBlob {
+  filename: string;
+  mime: string;
+  text: string | null;
+}
+
+const MOCK_SHARED_DOC_KEEP = 3;
+const MOCK_WIRE_SHARED_DOCS: WireSharedDoc[] = [
+  {
+    id: "sd-3f9a2c71b0e4",
+    kind: "file",
+    attachment_id: "att-5d0c11a2b3c4",
+    name: "Review Rule",
+    description: "PR 審查時逐項核對的規則與退件標準",
+    filename: "review-rule.md",
+    mime: "text/markdown",
+    url: "/api/chat/attachment/att-5d0c11a2b3c4",
+    created_ts: 1762900000,
+    created_by: "mira",
+    updated_ts: 1763366700,
+    updated_by: "mira",
+    version_count: 2,
+  },
+  {
+    id: "sd-0c41e97a2b58",
+    kind: "link",
+    attachment_id: "att-9e8d7c6b5a40",
+    name: "API 規格",
+    description: "GitHub 上的 spec/openapi.json，改 wire 前先讀",
+    filename: "",
+    mime: "text/uri-list",
+    url: "https://github.com/example/officraft/blob/main/spec/openapi.json",
+    created_ts: 1761600000,
+    created_by: "mira",
+    updated_ts: 1761648240,
+    updated_by: "mira",
+    version_count: 1,
+  },
+];
+const MOCK_SHARED_DOC_BLOBS: Record<string, MockBlob> = {
+  "att-5d0c11a2b3c4": {
+    filename: "review-rule.md",
+    mime: "text/markdown",
+    text: "# Review Rule\n\n1. 範圍：變更檔案逐一說得出必要性。\n2. 測試：新行為有測試。\n",
+  },
+  "att-5d0c11a2b3b0": {
+    filename: "review-rule.md",
+    mime: "text/markdown",
+    text: "# Review Rule\n\n1. 範圍：變更檔案逐一說得出必要性。\n",
+  },
+};
+const MOCK_WIRE_SHARED_DOC_VERSIONS: Record<string, WireSharedDocVersion[]> = {
+  "sd-3f9a2c71b0e4": [
+    {
+      id: 1,
+      kind: "file",
+      attachment_id: "att-5d0c11a2b3b0",
+      name: "Review Rule",
+      description: "PR 審查時逐項核對的規則與退件標準",
+      filename: "review-rule.md",
+      mime: "text/markdown",
+      url: "/api/chat/attachment/att-5d0c11a2b3b0",
+      created_ts: 1762900000,
+      created_by: "mira",
+    },
+  ],
+};
+let mockSharedDocs: WireSharedDoc[] = structuredClone(MOCK_WIRE_SHARED_DOCS);
+let mockSharedDocVersions: Record<string, WireSharedDocVersion[]> =
+  structuredClone(MOCK_WIRE_SHARED_DOC_VERSIONS);
+let mockBlobs: Record<string, MockBlob> = structuredClone(MOCK_SHARED_DOC_BLOBS);
+let mockSharedDocVersionSeq = 100;
+// Who wrote each doc's current content, and when: the server keeps this off the
+// wire and stamps a retained version with it, so a rename never re-attributes it.
+let mockSharedDocContentStamps: Record<string, { ts: number; by: string }> = {};
+
+function mockSharedDocContentStamp(row: WireSharedDoc): { ts: number; by: string } {
+  return mockSharedDocContentStamps[row.id] ?? { ts: row.updated_ts, by: row.updated_by };
+}
+
+function mockHex12(): string {
+  return Math.random().toString(16).slice(2, 14).padEnd(12, "0");
+}
+
+function mockSharedDocOrThrow(method: string, path: string, id: string): WireSharedDoc {
+  const row = mockSharedDocs.find((d) => d.id === id);
+  if (!row) {
+    throw mockApiError(`http 404 for ${method} ${path}`, 404, `shared doc '${id}' not found`);
+  }
+  return row;
+}
+
+function mockSharedDocNameOrThrow(method: string, path: string, name: string) {
+  const n = Array.from(name).length;
+  if (n > 128) {
+    throw mockApiError(
+      `http 400 for ${method} ${path}`,
+      400,
+      `shared doc name is ${n} chars, over the 128-char limit`,
+    );
+  }
+}
+
+function mockSharedDocContent(
+  kind: string,
+  attachmentId: string | undefined,
+  url: string | undefined,
+): Pick<WireSharedDoc, "attachment_id" | "filename" | "mime" | "url"> {
+  if (kind === "link") {
+    const id = `att-${mockHex12()}`;
+    mockBlobs[id] = { filename: "", mime: "text/uri-list", text: url ?? "" };
+    return { attachment_id: id, filename: "", mime: "text/uri-list", url: url ?? "" };
+  }
+  const id = attachmentId ?? "";
+  const blob = mockBlobs[id];
+  return {
+    attachment_id: id,
+    filename: blob?.filename ?? "",
+    mime: blob?.mime ?? "",
+    url: `/api/chat/attachment/${id}`,
+  };
+}
+
+function mockSharedDocVersionOf(row: WireSharedDoc): WireSharedDocVersion {
+  const stamp = mockSharedDocContentStamp(row);
+  return {
+    id: ++mockSharedDocVersionSeq,
+    kind: row.kind,
+    attachment_id: row.attachment_id,
+    name: row.name,
+    description: row.description,
+    filename: row.filename,
+    mime: row.mime,
+    url: row.url,
+    created_ts: stamp.ts,
+    created_by: stamp.by,
+  };
+}
 
 function mockSecretOrThrow(method: string, id: string): WireSecret {
   const row = mockSecrets.find((s) => s.id === id);
@@ -6704,6 +6853,144 @@ const mockApiImpl = {
     return toSecret(row);
   },
 
+  async uploadAttachment(file: Blob, filename: string): Promise<string> {
+    const id = `att-${mockHex12()}`;
+    const mime = attachmentMimeForName(filename);
+    const textual = mime.startsWith("text/") || mime === "application/json";
+    const text = textual
+      ? await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsText(file);
+        })
+      : null;
+    mockBlobs[id] = { filename, mime, text };
+    return id;
+  },
+
+  async listSharedDocs(): Promise<SharedDocView[]> {
+    return [...mockSharedDocs]
+      .sort((a, b) => (a.name === b.name ? (a.id < b.id ? -1 : 1) : a.name < b.name ? -1 : 1))
+      .map(toSharedDoc);
+  },
+
+  async getSharedDoc(id: string): Promise<SharedDocDetailView> {
+    const row = mockSharedDocOrThrow("GET", `/api/shared-docs/${id}`, id);
+    const text = row.kind === "link" ? row.url : (mockBlobs[row.attachment_id]?.text ?? null);
+    return toSharedDocDetail({
+      ...row,
+      text,
+      text_omitted: text === null ? "binary" : null,
+    });
+  },
+
+  async createSharedDoc(input: SharedDocCreateInput): Promise<string> {
+    mockSharedDocNameOrThrow("POST", "/api/shared-docs", input.name.trim());
+    const now = Date.now() / 1000;
+    const row: WireSharedDoc = {
+      id: `sd-${mockHex12()}`,
+      kind: input.kind,
+      name: input.name.trim(),
+      description: input.description.trim(),
+      ...mockSharedDocContent(input.kind, input.attachmentId, input.url),
+      created_ts: now,
+      created_by: "owner",
+      updated_ts: now,
+      updated_by: "owner",
+      version_count: 1,
+    };
+    mockSharedDocs.push(row);
+    emitTopic("shared_doc");
+    return row.id;
+  },
+
+  async replaceSharedDoc(id: string, input: SharedDocReplaceInput): Promise<void> {
+    const path = `/api/shared-docs/${id}/replace`;
+    const row = mockSharedDocOrThrow("POST", path, id);
+    mockSharedDocContentStamps[id] = mockSharedDocContentStamp(row);
+    const name = input.name?.trim() ?? row.name;
+    const description = input.description?.trim() ?? row.description;
+    const newContent = Boolean(input.attachmentId?.trim() || input.url?.trim());
+    mockSharedDocNameOrThrow("POST", path, name);
+    if (input.name !== undefined && !name) {
+      throw mockApiError(
+        `http 400 for POST ${path}`,
+        400,
+        "name cannot be blank: omit it to keep the current name",
+      );
+    }
+    if (!newContent && input.name === undefined && input.description === undefined) {
+      const field = row.kind === "link" ? "url" : "attachment_id";
+      const kind = row.kind === "image" ? "an image" : `a ${row.kind}`;
+      throw mockApiError(
+        `http 400 for POST ${path}`,
+        400,
+        `nothing to replace: send ${field} for ${kind} shared doc, a name, or a description`,
+      );
+    }
+    if (!newContent && name === row.name && description === row.description) {
+      throw mockApiError(
+        `http 400 for POST ${path}`,
+        400,
+        "nothing to replace: the name and description sent are the current ones",
+      );
+    }
+    if (newContent) {
+      const history = [mockSharedDocVersionOf(row), ...(mockSharedDocVersions[id] ?? [])];
+      mockSharedDocVersions[id] = history.slice(0, MOCK_SHARED_DOC_KEEP);
+      Object.assign(row, mockSharedDocContent(row.kind, input.attachmentId, input.url));
+    }
+    const now = Date.now() / 1000;
+    if (newContent) mockSharedDocContentStamps[id] = { ts: now, by: "owner" };
+    row.name = name;
+    row.description = description;
+    row.updated_ts = now;
+    row.updated_by = "owner";
+    row.version_count = (mockSharedDocVersions[id]?.length ?? 0) + 1;
+    emitTopic("shared_doc");
+  },
+
+  async listSharedDocVersions(id: string): Promise<SharedDocVersionView[]> {
+    mockSharedDocOrThrow("GET", `/api/shared-docs/${id}/versions`, id);
+    return (mockSharedDocVersions[id] ?? []).map(toSharedDocVersion);
+  },
+
+  async restoreSharedDocVersion(id: string, versionId: number): Promise<void> {
+    const path = `/api/shared-docs/${id}/versions/${versionId}/restore`;
+    const row = mockSharedDocOrThrow("POST", path, id);
+    const history = mockSharedDocVersions[id] ?? [];
+    const version = history.find((v) => v.id === versionId);
+    if (!version) {
+      throw mockApiError(
+        `http 404 for POST ${path}`,
+        404,
+        `version ${versionId} is not a retained version of shared doc '${id}'`,
+      );
+    }
+    mockSharedDocVersions[id] = [
+      mockSharedDocVersionOf(row),
+      ...history.filter((v) => v.id !== versionId),
+    ];
+    Object.assign(row, {
+      attachment_id: version.attachment_id,
+      filename: version.filename,
+      mime: version.mime,
+      url: version.url,
+      updated_ts: Date.now() / 1000,
+      updated_by: "owner",
+    });
+    mockSharedDocContentStamps[id] = { ts: row.updated_ts, by: "owner" };
+    emitTopic("shared_doc");
+  },
+
+  async deleteSharedDoc(id: string): Promise<void> {
+    mockSharedDocOrThrow("DELETE", `/api/shared-docs/${id}`, id);
+    mockSharedDocs = mockSharedDocs.filter((d) => d.id !== id);
+    delete mockSharedDocVersions[id];
+    emitTopic("shared_doc");
+  },
+
   async getAuthStatus(): Promise<AuthStatusView> {
     return {
       passwordSet: mockPasswordSet,
@@ -8366,6 +8653,11 @@ export function __resetMock(): void {
   // failure lands on the innocent test.
   mockSigningKeys = structuredClone(MOCK_WIRE_SIGNING_KEYS);
   mockSecrets = structuredClone(MOCK_WIRE_SECRETS);
+  mockSharedDocs = structuredClone(MOCK_WIRE_SHARED_DOCS);
+  mockSharedDocVersions = structuredClone(MOCK_WIRE_SHARED_DOC_VERSIONS);
+  mockBlobs = structuredClone(MOCK_SHARED_DOC_BLOBS);
+  mockSharedDocVersionSeq = 100;
+  mockSharedDocContentStamps = {};
   wireMembers = structuredClone(MOCK_WIRE_MEMBERS);
   wireMonitoring = structuredClone(MOCK_WIRE_MONITORING);
   mockBinStatus.clear();

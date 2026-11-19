@@ -29,6 +29,7 @@ vi.mock("../api", () => ({
   api: {
     listTaskArtifacts: vi.fn(),
     listTaskArtifactVersions: vi.fn(),
+    getChatAttachmentShareLink: vi.fn(),
     subscribeEvents: () => () => {},
   },
 }));
@@ -36,6 +37,7 @@ vi.mock("../api", () => ({
 const mockedApi = api as unknown as {
   listTaskArtifacts: ReturnType<typeof vi.fn>;
   listTaskArtifactVersions: ReturnType<typeof vi.fn>;
+  getChatAttachmentShareLink: ReturnType<typeof vi.fn>;
 };
 
 const realFetch = globalThis.fetch;
@@ -359,6 +361,70 @@ describe("TaskArtifactVersionsModal", () => {
 
   // The other side of the same rule: the fallback is a CLOSED list of textual
   // extensions, not "octet-stream means try reading it".
+  it.each([
+    ["週報.md", "text/markdown", "# 週報\n\n- 一\n", (el: HTMLElement) => el.querySelector("h1")?.textContent, "週報"],
+    ["data.json", "application/json", '{"a":1}', (el: HTMLElement) => el.textContent, '{\n  "a": 1\n}'],
+    ["t.csv", "text/csv", "a,b\n1,2\n", (el: HTMLElement) => [...el.querySelectorAll("td")].map((c) => c.textContent).join("|"), "1|2"],
+  ])("draws a %s version through the shared content view", async (filename, mime, text, read, shown) => {
+    mockedApi.listTaskArtifactVersions.mockResolvedValue([mkVersion({ name: filename, filename, mime })]);
+    mockedApi.listTaskArtifacts.mockResolvedValue(mkArtifacts([mkArtifact({ name: filename, mime })]));
+    stubFetch({
+      "/api/chat/attachment/att-old": { mime, text },
+      "/api/chat/attachment/att-live": { mime, text },
+    });
+    openModal();
+    await waitFor(() => expect(read(screen.getByTestId("ta-versions-content-text"))).toBe(shown));
+  });
+
+  it("frames an HTML version at its own share link, never at a token address, and says it cannot be previewed here when no link can be made", async () => {
+    mockedApi.listTaskArtifactVersions.mockResolvedValue([
+      mkVersion({ name: "page.html", filename: "page.html", mime: "text/html", url: "/api/chat/attachment/att-0123456789ab" }),
+    ]);
+    mockedApi.listTaskArtifacts.mockResolvedValue(mkArtifacts([mkArtifact({ name: "page.html", mime: "text/html" })]));
+    mockedApi.getChatAttachmentShareLink.mockResolvedValue("/api/chat/attachment/att-0123456789ab?sig=s");
+    stubFetch({
+      "/api/chat/attachment/att-0123456789ab": { mime: "text/html", text: "<p>old</p>" },
+      "/api/chat/attachment/att-live": { mime: "text/html", text: "<p>new</p>" },
+    });
+    const framed = openModal();
+    await waitFor(() => expect(screen.getByTestId("ta-versions-content-text").tagName).toBe("IFRAME"));
+    expect(mockedApi.getChatAttachmentShareLink).toHaveBeenCalledWith("att-0123456789ab");
+    expect(screen.getByTestId("ta-versions-content-text").getAttribute("src")).toBe(
+      `${window.location.origin}/api/chat/attachment/att-0123456789ab?sig=s`,
+    );
+    expect(screen.getByTestId("ta-versions-content-text").getAttribute("sandbox")).toBe(
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    );
+    framed.unmount();
+
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockedApi.getChatAttachmentShareLink.mockRejectedValue(new Error("http 500"));
+    openModal();
+    await waitFor(() =>
+      expect(screen.getByTestId("ta-versions-content-text").textContent).toBe("此檔案無法在這裡預覽。"),
+    );
+  });
+
+  it("frames a PDF version at its own share link, with 在新頁面顯示 below it, and reads none of its bytes", async () => {
+    mockedApi.listTaskArtifactVersions.mockResolvedValue([
+      mkVersion({ name: "spec.pdf", filename: "spec.pdf", mime: "application/pdf", url: "/api/chat/attachment/att-0123456789ab" }),
+    ]);
+    mockedApi.listTaskArtifacts.mockResolvedValue(mkArtifacts([mkArtifact({ name: "spec.pdf", mime: "application/pdf" })]));
+    mockedApi.getChatAttachmentShareLink.mockResolvedValue("/api/chat/attachment/att-0123456789ab?sig=s");
+    const { readText } = stubFetch({
+      "/api/chat/attachment/att-0123456789ab": { mime: "application/pdf" },
+      "/api/chat/attachment/att-live": { mime: "application/pdf" },
+    });
+    openModal();
+    const shareLink = `${window.location.origin}/api/chat/attachment/att-0123456789ab?sig=s`;
+    await waitFor(() => expect(screen.getByTestId("ta-versions-content-opaque").tagName).toBe("IFRAME"));
+    const frame = screen.getByTestId("ta-versions-content-opaque");
+    expect(frame.getAttribute("src")).toBe(shareLink);
+    expect(frame.hasAttribute("sandbox")).toBe(false);
+    expect(screen.getByRole("link", { name: "在新頁面顯示" }).getAttribute("href")).toBe(shareLink);
+    expect(readText).not.toHaveBeenCalled();
+  });
+
   it("calls an octet-stream .bin opaque and reads none of its bytes", async () => {
     mockedApi.listTaskArtifactVersions.mockResolvedValue([
       mkVersion({ name: "core.bin", filename: "" }),
@@ -413,11 +479,7 @@ describe("TaskArtifactVersionsModal", () => {
   // 🔴 WHAT IS NOW UNGUARDED, so nobody reads the file above and assumes
   // otherwise: an `application/pdf` pair reaching the 差異 tab again — because
   // someone widened `diffable` past "both sides read as text", or dropped one
-  // side's half of that test — would not redden anything here. Neither would
-  // that pair losing its 內容-pane 「無法顯示」 notice, or its bytes being
-  // downloaded to be thrown away, for a mime the RESPONSE (not the name) calls
-  // non-text: the .bin case above only covers the name-cannot-vouch half of
-  // that rule, and no case covers the mime half.
+  // side's half of that test — would not redden anything here.
 
   it("shows each image version under its own src", async () => {
     mockedApi.listTaskArtifactVersions.mockResolvedValue([

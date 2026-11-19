@@ -2181,6 +2181,39 @@ def _check_secret_revealed(ctx: HCtx, r: httpx.Response) -> None:
     (listed,) = [s for s in listing.json()["secrets"] if s["id"] == row["id"]]
     assert isinstance(listed["last_accessed_ts"], (int, float)), listed
 
+def _happy_shared_doc(ctx: HCtx, *, versions: int = 0) -> str:
+    """A fresh link shared document made by the owner; ``versions`` replaces it
+    that many times."""
+    r = ctx.client.post(
+        "/api/shared-docs",
+        json={"kind": "link", "name": "conf happy doc", "url": "https://example.com/doc/0"},
+        headers=_auth(ctx.owner_token),
+    )
+    assert r.status_code == 200, (r.status_code, r.text)
+    doc_id = r.json()["id"]
+    for n in range(versions):
+        r = ctx.client.post(
+            f"/api/shared-docs/{doc_id}/replace",
+            json={"url": f"https://example.com/doc/{n + 1}"},
+            headers=_auth(ctx.owner_token),
+        )
+        assert r.status_code == 200, (r.status_code, r.text)
+    return doc_id
+
+
+def _happy_shared_doc_restore_path(ctx: HCtx) -> str:
+    doc_id = _happy_shared_doc(ctx, versions=1)
+    r = ctx.client.get(f"/api/shared-docs/{doc_id}/versions", headers=_auth(ctx.owner_token))
+    assert r.status_code == 200, (r.status_code, r.text)
+    return f"/api/shared-docs/{doc_id}/versions/{r.json()['versions'][0]['id']}/restore"
+
+
+def _check_shared_doc_deleted(ctx: HCtx, r: httpx.Response) -> None:
+    doc_id = r.json()["id"]
+    gone = ctx.client.get(f"/api/shared-docs/{doc_id}", headers=_auth(ctx.owner_token))
+    assert gone.status_code == 404, (gone.status_code, gone.text)
+
+
 HAPPY: dict[str, Happy] = {
     # ── public ───────────────────────────────────────────────────────────────
     "GET /api/health": Happy(identity="none"),
@@ -3718,6 +3751,50 @@ HAPPY: dict[str, Happy] = {
             r,
             lambda d: d["slug"] == "why" and len(d["markdown_md"]) > 0,
         ),
+    ),
+    # ── 檔案庫 shared docs ────────────────────────────────────────────────────
+    "GET /api/shared-docs": Happy(
+        identity="agent",
+        check=lambda _c, r: _expect(r, lambda d: isinstance(d["docs"], list)),
+    ),
+    "POST /api/shared-docs": Happy(
+        identity="agent",
+        body={"kind": "link", "name": "conf happy doc", "url": "https://example.com/doc"},
+        check=lambda _c, r: _expect(
+            r, lambda d: d["id"].startswith("sd-") and d["version_count"] == 1
+        ),
+    ),
+    "GET /api/shared-docs/{doc_id}": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/shared-docs/{_happy_shared_doc(ctx)}",
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: d["kind"] == "link" and d["text"] == "https://example.com/doc/0"
+            and d["text_omitted"] is None,
+        ),
+    ),
+    "POST /api/shared-docs/{doc_id}/replace": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/shared-docs/{_happy_shared_doc(ctx)}/replace",
+        body={"url": "https://example.com/doc/next"},
+        check=lambda _c, r: _expect(r, lambda d: d["version_count"] == 2),
+    ),
+    "GET /api/shared-docs/{doc_id}/versions": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/shared-docs/{_happy_shared_doc(ctx, versions=1)}/versions",
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: [v["url"] for v in d["versions"]] == ["https://example.com/doc/0"],
+        ),
+    ),
+    "POST /api/shared-docs/{doc_id}/versions/{version_id}/restore": Happy(
+        identity="agent",
+        path=_happy_shared_doc_restore_path,
+        check=lambda _c, r: _expect(r, lambda d: d["version_count"] == 2),
+    ),
+    "DELETE /api/shared-docs/{doc_id}": Happy(
+        path=lambda ctx: f"/api/shared-docs/{_happy_shared_doc(ctx)}",
+        check=_check_shared_doc_deleted,
     ),
     # ── secrets ─────────────────────────────────────────────────────────────
     "GET /api/secrets": Happy(check=_check_secret_list_without_values),

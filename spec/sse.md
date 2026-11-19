@@ -139,11 +139,12 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     with `payload` `null`, owner-only, because it moves every task's due-soon state at
     once without writing a task
   - `task_manual`: `payload` is `null` (manual create/edit/delete)
+  - `shared_doc`: `{id}`; refetch `GET /api/shared-docs/{doc_id}`. A permanent delete rides `remove` with `deleted` true
   - `global_context` / `role_def`: `payload` is `null`
   - `context` / `monitoring` signals: `payload` is `null`
 - `key` MUST be treated as an **opaque change hint**. Current key formats (clients MUST NOT
   parse them): `{owner}::{id}` for member/chat/reply_card/task/role_def,
-  `{owner}::{type_key}` for task_manual, `{owner}::task.due_soon_lead_minutes` for the
+  `{owner}::{type_key}` for task_manual, `{owner}::{doc_id}` for shared_doc, `{owner}::task.due_soon_lead_minutes` for the
   due-soon lead change on task,
   `{owner}::{reader}::{peer}` for chat_read, the bare owner id for chat_group, chat_suggested_reply and settings,
   `{owner}::{role_key}` for insight, the bare owner id for global_context, the bare agent id for context/monitoring signals.
@@ -243,7 +244,8 @@ riding a topic that names a different document; `runtime_login` joined in T-309,
 machine runtime-login relay; `runtime_upgrade` joined with the machine runtime-upgrade
 relay; `chat_group` joined with the owner's chat-list groups; `chat_suggested_reply` joined with
 the owner's per-member chat suggested replies; `settings` joined so another open
-browser or device follows a settings change, the display preferences above all; everything else
+browser or device follows a settings change, the display preferences above all; `shared_doc` joined
+with shared documents; everything else
 is the M1 freeze):
 
 | topic | trigger | op |
@@ -257,6 +259,7 @@ is the M1 freeze):
 | `reply_card` | reply-card create / answer / answer revision / expire / the owner's snooze or unsnooze | patch |
 | `task` | any durable task write (create / status / priority / plan / step / deps / executor assignment / terminate); a change to the workspace due-soon lead | patch |
 | `task_manual` | manual create / edit / delete | patch |
+| `shared_doc` | shared-document create / replace / restore; the owner's permanent delete | patch / remove |
 | `global_context` | user-context overlay write/reset | patch |
 | `role_def` | role overlay write/reset/delete | patch |
 | `insight` | insight overlay write (replace / patch / reset) / restore / cascade delete | patch |
@@ -324,6 +327,7 @@ server's own deps-fulfill, not by eavesdropping on another member's stream):
 | `reply_card` | the initiator (`from`) and, while the card's task is open, that task's acting executor (`task_executor`) — the one audience read from another row: the card stores only the task id, and a stored executor would go stale on reassignment. The owner's snooze or unsnooze is owner cockpit only: it changes nothing an agent acts on. A snooze running out writes nothing and emits nothing; the cockpit refetches at `waiting_next_change_ts` |
 | `task` | the executor ONLY (NOT the creator, NOT dependents); a reassign additionally fans one delta to the OLD executor — the row's executor just changed, so the person unassigned would otherwise be silently dropped from the audience |
 | `task_manual` | — (owner cockpit only) |
+| `shared_doc` | every agent connection (system broadcast): a shared document belongs to no one member |
 | `global_context` / `role_def` / `insight` | — (owner cockpit only) |
 | `context` / `monitoring` | — (owner cockpit only; `context` also drives the server-side §6 band) |
 | `runtime_login` | — (owner cockpit only; refetch `GET /api/machines/{machine_id}/runtime-login/{login_id}`) |
@@ -331,7 +335,7 @@ server's own deps-fulfill, not by eavesdropping on another member's stream):
 
 A blank id in an audience (an unassigned executor) is dropped — it narrows the
 set, never widens it. An implementation MAY carry a
-system-broadcast audience (reaches every agent) for a future producer; no current producer
+system-broadcast audience (reaches every agent); `shared_doc` is the only producer that
 emits one.
 
 ## 5. Presence = pure connection projection

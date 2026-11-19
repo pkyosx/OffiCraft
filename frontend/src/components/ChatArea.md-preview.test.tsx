@@ -283,11 +283,11 @@ describe("chat message links to a stored attachment", () => {
     "   註解：看 [規格](https://example.com/spec)，以及 [架構圖](/api/chat/attachment/att-cccccccccccc)、[流程圖](/api/chat/attachment/att-dddddddddddd)、[導覽.html](/api/chat/attachment/att-eeeeeeeeeeee)",
   ].join("\n");
 
-  function readingTheCommentMessage() {
+  function readingTheCommentMessage(text = body) {
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
     vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue("/api/chat/attachment/x?sig=s");
     const windowOpen = vi.spyOn(window, "open").mockReturnValue(null);
-    messages = [{ ...msgWith([]), body }];
+    messages = [{ ...msgWith([]), body: text }];
     const room = (members: Member[] = [], rosterSettled = false) => (
       <I18nProvider>
         <AttachmentModalHost>
@@ -539,6 +539,20 @@ describe("chat message links to a stored attachment", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
     fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
     expect(document.body.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
+  });
+
+  it.each([
+    ["資料.json", '{"a":1}', "pre", '{\n  "a": 1\n}'],
+    ["feed.xml", "<a><b>1</b></a>", "pre", "<a>\n  <b>1</b>\n</a>"],
+    ["設定.yaml", "# keep\nk:  v\n", "pre", "# keep\nk:  v\n"],
+    ["表.csv", "a,b\n1,2\n", "td", "1|2"],
+  ])("previews a %s link in place as its own kind, typed by its link text's extension without asking the server", async (name, stored, cell, shown) => {
+    const { link } = readingTheCommentMessage(`看 [${name}](/api/chat/attachment/att-ffffffffffff)`);
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => stored })) as unknown as typeof fetch;
+    fireEvent.click(link(name));
+    await waitFor(() => expect(overlay()?.querySelector(cell)).toBeTruthy());
+    expect([...overlay()!.querySelectorAll(cell)].map((el) => el.textContent).join("|")).toBe(shown);
+    expect(vi.mocked(globalThis.fetch).mock.calls).toEqual([["/api/chat/attachment/att-ffffffffffff?token=jwt-1"]]);
   });
 
   it("asks the server for the type once when the link text has no extension, loading meanwhile, and shows the image it answers", async () => {
