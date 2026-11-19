@@ -443,6 +443,7 @@ type chatListFilter struct {
 	recipient         string
 	hideDeleted       bool
 	hideDeleteNotices bool
+	bodyContains      string
 }
 
 func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
@@ -460,6 +461,11 @@ func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
 	if f.recipient != "" {
 		*query += ` AND ` + col + `recipient = ?`
 		*args = append(*args, f.recipient)
+	}
+	if f.bodyContains != "" {
+		// SQLite lower() folds ASCII only; spec/openapi.json promises exactly that.
+		*query += ` AND instr(lower(` + col + `body), lower(?)) > 0`
+		*args = append(*args, f.bodyContains)
 	}
 }
 

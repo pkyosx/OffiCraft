@@ -1431,7 +1431,7 @@ func TestChatDeclaredQueryParams(t *testing.T) {
 	t.Run("the accepted set is every parameter the route declares plus the transport token, sorted", func(t *testing.T) {
 		if got := chatDeclaredQueryParams(); !reflect.DeepEqual(got, []string{
 			"before_id", "before_ts", "cursor", "end_id", "hide_delete_notices", "ids", "include_deleted", "limit",
-			"recipient", "sender", "start_id", "token", "unread", "with",
+			"q", "recipient", "sender", "start_id", "token", "unread", "with",
 		}) {
 			t.Fatalf("chatDeclaredQueryParams = %#v", got)
 		}
@@ -1842,6 +1842,92 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 		apiWantBody(t, data, map[string]any{"messages": []any{}})
 	})
 
+	t.Run("q keeps the with-line messages whose body contains it, ASCII letters in any case", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		_, merged := apiJSON(t, h, "POST", "/api/chat", agent, `{"to":"owner","body":"Merged #712 into OffiCraft"}`)
+		_, reload := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"officraft 換版了，進度 50%"}`)
+		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"unrelated"}`)
+		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"OFFICRAFT on another line"}`)
+
+		for _, tc := range []struct {
+			query string
+			want  []any
+		}{
+			{"q=OFFICRAFT", []any{
+				apiTestChatRow(merged["id"].(string), "kip", "owner", "Merged #712 into OffiCraft"),
+				apiTestChatRow(reload["id"].(string), "owner", "kip", "officraft 換版了，進度 50%"),
+			}},
+			{"q=%E6%8F%9B%E7%89%88", []any{
+				apiTestChatRow(reload["id"].(string), "owner", "kip", "officraft 換版了，進度 50%"),
+			}},
+			{"q=%23712", []any{
+				apiTestChatRow(merged["id"].(string), "kip", "owner", "Merged #712 into OffiCraft"),
+			}},
+			{"q=0%25", []any{
+				apiTestChatRow(reload["id"].(string), "owner", "kip", "officraft 換版了，進度 50%"),
+			}},
+			{"q=+%23712+", []any{
+				apiTestChatRow(merged["id"].(string), "kip", "owner", "Merged #712 into OffiCraft"),
+			}},
+			{"q=nowhere", []any{}},
+		} {
+			status, data := apiJSON(t, h, "GET", "/api/chat?with=kip&"+tc.query, owner, "")
+			if status != 200 {
+				t.Fatalf("%s: want 200, got %d (%v)", tc.query, status, data)
+			}
+			apiWantBody(t, data, map[string]any{"messages": tc.want})
+		}
+	})
+
+	t.Run("q pages through older matches with the cursor", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiTestAgentToken(t, api, "kip", "")
+		_, first := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"deploy one"}`)
+		apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"between"}`)
+		_, second := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"kip","body":"deploy two"}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/chat?with=kip&q=deploy&limit=1", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"messages": []any{
+				apiTestChatRow(second["id"].(string), "owner", "kip", "deploy two"),
+			},
+			"next_cursor": apiAnyString,
+		})
+
+		status, data = apiJSON(t, h, "GET",
+			"/api/chat?with=kip&q=deploy&limit=1&cursor="+data["next_cursor"].(string), owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"messages": []any{
+			apiTestChatRow(first["id"].(string), "owner", "kip", "deploy one"),
+		}})
+	})
+
+	t.Run("q without with is refused; a blank q is no constraint", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		_, only := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"one"}`)
+
+		status, data := apiJSON(t, h, "GET", "/api/chat?q=one", owner, "")
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"q requires with — a keyword search reads one conversation; name the peer whose line to search")
+
+		status, data = apiJSON(t, h, "GET", "/api/chat?q=+++", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"messages": []any{
+			apiTestChatRow(only["id"].(string), "owner", "mira", "one"),
+		}})
+	})
+
 	t.Run("a page shorter than the stream carries a cursor that walks to the older page", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		_, first := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"one"}`)
@@ -1895,7 +1981,7 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 				"refuses parameters it does not declare rather than ignoring them, "+
 				"because an ignored parameter silently answers a question you did "+
 				"not ask; accepted here: before_id, before_ts, cursor, end_id, hide_delete_notices, ids, "+
-				"include_deleted, limit, recipient, sender, start_id, token, unread, with")
+				"include_deleted, limit, q, recipient, sender, start_id, token, unread, with")
 	})
 
 	t.Run("unread combined with a stream position is refused", func(t *testing.T) {

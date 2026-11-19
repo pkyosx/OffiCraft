@@ -593,6 +593,9 @@ const (
 		"start_id/end_id — those name a position in the whole stream, unread names " +
 		"the set your read watermarks define; page unread with cursor instead"
 
+	chatSearchWithoutConversationMsg = "q requires with — a keyword search reads one " +
+		"conversation; name the peer whose line to search"
+
 	chatUnknownParamMsg = "unknown query parameter(s) on GET /api/chat: %s — this route " +
 		"refuses parameters it does not declare rather than ignoring them, because an " +
 		"ignored parameter silently answers a question you did not ask; accepted here: %s"
@@ -870,6 +873,11 @@ func (s *apiServer) HandleListChatApiChatGet(w http.ResponseWriter, r *http.Requ
 		recipient:         strOrEmpty(params.Recipient),
 		hideDeleted:       strOrEmpty(params.IncludeDeleted) != chatIncludeDeletedTrue,
 		hideDeleteNotices: hideDeleteNoticesParam(params.HideDeleteNotices),
+		bodyContains:      trimmedOrEmpty(params.Q),
+	}
+	if filter.bodyContains != "" && filter.participant == "" {
+		writeError(w, http.StatusUnprocessableEntity, chatSearchWithoutConversationMsg)
+		return
 	}
 	limit := chatListDefaultLimit
 	if params.Limit != nil {
