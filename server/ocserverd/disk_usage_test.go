@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -49,7 +50,7 @@ func diskTestInt(n int) *int { return &n }
 // neither; diskTestOldCopiesBytes is what the two take.
 //
 //	officraft.db.bak-pre-v0.5.28   4096 B -> 4096
-//	retreat-t-dd7a/RETREAT.dbfile  8000 B -> 8192
+//	retreat-t-dd7a/RETREAT.dbfile  8000 B -> 8192, plus the directory itself
 //	notes.txt                      4096 B (not a copy)
 func diskTestOldCopies(t *testing.T, dbPath string) {
 	t.Helper()
@@ -59,7 +60,24 @@ func diskTestOldCopies(t *testing.T, dbPath string) {
 	diskTestWrite(t, filepath.Join(dir, "notes.txt"), 4096)
 }
 
-const diskTestOldCopiesBytes = 12288
+func diskTestOldCopiesBytes(t *testing.T) int {
+	return 12288 + diskTestDirBytes(t)
+}
+
+// diskTestDirBytes is what this host's filesystem allocates to a directory
+// holding one small file, read from the filesystem rather than assumed: APFS
+// allocates 0, ext4 one 4 KiB block. The measurement counts directories as du
+// does, so a fixture's expected bytes include its directories.
+func diskTestDirBytes(t *testing.T) int {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "probe")
+	diskTestWrite(t, filepath.Join(dir, "f"), 1)
+	var st syscall.Stat_t
+	if err := syscall.Stat(dir, &st); err != nil {
+		t.Fatalf("stat %s: %v", dir, err)
+	}
+	return int(st.Blocks) * 512
+}
 
 func TestMeasureServerDisk(t *testing.T) {
 	at := time.Unix(1759500000, 500_000_000)
@@ -82,7 +100,7 @@ func TestMeasureServerDisk(t *testing.T) {
 		apiWantValue(t, "sample", any(measureServerDisk(dbPath, root, at)), any(serverDiskSample{
 			DatabaseBytes:   diskTestInt(16384),
 			BackupsBytes:    diskTestInt(20480),
-			OldCopiesBytes:  diskTestInt(diskTestOldCopiesBytes),
+			OldCopiesBytes:  diskTestInt(diskTestOldCopiesBytes(t)),
 			MeasuredAt:      1759500000.5,
 			DBInStationRoot: true,
 		}))
@@ -98,7 +116,7 @@ func TestMeasureServerDisk(t *testing.T) {
 		apiWantValue(t, "sample", any(measureServerDisk(dbPath, root, at)), any(serverDiskSample{
 			DatabaseBytes:   diskTestInt(16384),
 			BackupsBytes:    diskTestInt(20480),
-			OldCopiesBytes:  diskTestInt(8192 + 4096 + 4096 + 4096),
+			OldCopiesBytes:  diskTestInt(8192 + 4096 + 4096 + 4096 + diskTestDirBytes(t)),
 			MeasuredAt:      1759500000.5,
 			DBInStationRoot: true,
 		}))
