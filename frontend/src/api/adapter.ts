@@ -2398,9 +2398,10 @@ export interface Api {
    * read door here. Messages between `withId` and other members never count,
    * so this is the answer a loaded page cannot give once they fill it. */
   getFirstUnreadChat(withId: string): Promise<ChatMessage | null>;
-  /** One page of the messages in the conversation with `withId` whose body
-   * contains `q` (`GET /api/chat?with=&q=`; ASCII letters match regardless of
-   * case), among the messages the owner sent or received — member-to-member
+  /** One page of the messages in the conversation with `withId` whose body —
+   * or, for a reply-card message, the card's question body or free-text
+   * answer — contains `q` (`GET /api/chat?with=&q=`; ASCII letters match
+   * regardless of case), among the messages the owner sent or received — member-to-member
    * messages are not searched. The first page is the newest matches; pass the
    * page's `nextCursor` back to get the next OLDER page. Each page is oldest→newest. Deleted
    * messages are not searched. Read-only. */

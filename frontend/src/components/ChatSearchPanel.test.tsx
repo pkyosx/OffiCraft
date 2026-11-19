@@ -95,17 +95,18 @@ describe("ChatSearchPanel", () => {
     vi.useRealTimers();
   });
 
-  it("when results arrive, lists them newest first with sender, time and a snippet marking every match in any ASCII case", async () => {
+  it("when results arrive, lists them newest first with sender, time and a snippet marking every match in any ASCII case; a reply card matched only inside the card shows its summary unmarked", async () => {
     const { input, container } = renderPanel();
     fireEvent.change(input, { target: { value: "deploy" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await answer(0, {
       messages: [
+        { ...msg("c-0", "m-1", "要寄出嗎?", DEC31_2025_2310 - 60), replyCardId: "rc-1" },
         msg("c-1", "owner", "DEPLOY 前先跑測試", DEC31_2025_2310),
         msg("c-2", "m-1", "x".repeat(50) + "我 deploy 了，Deploy 結果正常" + "y".repeat(50), NOV17_2140),
         msg("c-3", "m-1", "deploy 完成", NOV18_0905),
       ],
-      matchCount: 3,
+      matchCount: 4,
     });
 
     expect(container.querySelector(".chat-search__hint")!.textContent).toBe("從最新的開始列出");
@@ -118,6 +119,7 @@ describe("ChatSearchPanel", () => {
         marks: ["deploy", "Deploy"],
       },
       { who: "我", time: "2025/12/31 23:10", snippet: "DEPLOY 前先跑測試", marks: ["DEPLOY"] },
+      { who: "Mira", time: "2025/12/31 23:09", snippet: "要寄出嗎?", marks: [] },
     ]);
     expect(container.querySelector(".chat-search__older")).toBeNull();
   });

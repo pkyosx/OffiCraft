@@ -31,13 +31,21 @@ describe("paintChatSearchHighlights", () => {
     document.body.innerHTML = "";
   });
 
-  it("registers every ASCII-case-insensitive occurrence in the message texts of searchable rows only, including one split across elements, and leaves the DOM untouched", () => {
+  it("registers every ASCII-case-insensitive occurrence in the message texts — and a reply card's question body and free-text answer, not its option labels or buttons — of searchable rows only, including one split across elements, and leaves the DOM untouched", () => {
     const html =
       '<div data-msg-id="c-1"><div class="chat__msg-text">Deploy 完成，再 <b>dep</b>loy</div>' +
       '<div class="chat__msg-time">deploy</div></div>' +
       '<div data-msg-id="c-2"><div class="chat__msg-text">no match</div></div>' +
       '<div data-msg-id="c-3"><div class="chat__msg-text">deploy between two members</div></div>' +
-      '<div data-msg-id="c-4"><div class="chat__msg-text">DEPLOY</div></div>';
+      '<div data-msg-id="c-4"><div class="chat__msg-text">DEPLOY</div></div>' +
+      '<div data-msg-id="c-5"><article class="reply-card">' +
+      '<div class="reply-card__summary">要寄出嗎?</div>' +
+      '<div class="reply-card__body">先 deploy 到 staging</div>' +
+      '<button class="reply-card__toggle">deploy</button></article></div>' +
+      '<div data-msg-id="c-6"><article class="reply-card">' +
+      '<span class="reply-card__collapsed-summary">要寄出嗎?</span>' +
+      '<span class="reply-card__answer-text"><span class="reply-card__answer-option">Deploy now</span>' +
+      '<span class="reply-card__answer-free">明天再 Deploy</span></span></article></div>';
     const root = thread(html);
     const cleanup = paintChatSearchHighlights(root, " deploy ", (id) => id !== "c-3");
 
@@ -51,7 +59,12 @@ describe("paintChatSearchHighlights", () => {
       ["c-1", "Deploy"],
       ["c-1", "deploy"],
       ["c-4", "DEPLOY"],
+      ["c-5", "deploy"],
+      ["c-6", "Deploy"],
     ]);
+    expect(
+      registry.get(CHAT_SEARCH_HIGHLIGHT)!.ranges.slice(-2).map((r) => r.startContainer.parentElement!.className),
+    ).toEqual(["reply-card__body", "reply-card__answer-free"]);
     expect(root.innerHTML).toBe(html);
 
     cleanup();

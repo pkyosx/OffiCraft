@@ -1,6 +1,26 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { mockApi, __resetMock, __injectMockChat } from "./mock";
-import type { ChatMessage } from "./adapter";
+import { mockApi, __resetMock, __injectMockChat, __injectMockReplyCard } from "./mock";
+import type { ChatMessage, ReplyCard } from "./adapter";
+
+function card(over: Partial<ReplyCard> & { id: string }): ReplyCard {
+  return {
+    from: "mira",
+    kind: "decision",
+    summary: "要寄出嗎?",
+    body: "",
+    options: [{ text: "deploy now", aiPick: false }],
+    selectMode: "single",
+    status: "waiting",
+    createdTs: 1,
+    attachments: [],
+    answeredTs: null,
+    expiredTs: null,
+    chatMessageId: "",
+    answer: null,
+    task: null,
+    ...over,
+  };
+}
 
 function inject(over: Partial<ChatMessage> & { id: string; ts: number }) {
   __injectMockChat({
@@ -33,6 +53,24 @@ describe("mock searchChat", () => {
       ],
       matchCount: 2,
     });
+  });
+
+  it("matches a reply-card message by the card's question body or free-text answer, not by its option labels", async () => {
+    __injectMockReplyCard(card({ id: "rc-1", body: "先 Deploy 到 staging" }));
+    __injectMockReplyCard(
+      card({ id: "rc-2", status: "answered", answer: { optionIdxs: null, text: "明天再 deploy", attachments: [] } }),
+    );
+    __injectMockReplyCard(card({ id: "rc-3" }));
+    inject({ id: "c-1", ts: 1, from: "mira", to: "owner", body: "要寄出嗎?", replyCardId: "rc-1" });
+    inject({ id: "c-2", ts: 2, from: "mira", to: "owner", body: "要寄出嗎?", replyCardId: "rc-2" });
+    inject({ id: "c-3", ts: 3, from: "mira", to: "owner", body: "要寄出嗎?", replyCardId: "rc-3" });
+
+    const page = await mockApi.searchChat("mira", "deploy");
+    expect(page.messages.map((m) => [m.id, m.body])).toEqual([
+      ["c-1", "要寄出嗎?"],
+      ["c-2", "要寄出嗎?"],
+    ]);
+    expect(page.matchCount).toBe(2);
   });
 
   it("pages 30 matches at a time from the newest, oldest→newest within a page, the cursor reaches the older ones, and every page counts all matches", async () => {

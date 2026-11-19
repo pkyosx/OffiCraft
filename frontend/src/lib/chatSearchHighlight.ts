@@ -2,6 +2,17 @@ import { asciiLower } from "./chatSearch";
 
 export const CHAT_SEARCH_HIGHLIGHT = "oc-chat-search";
 
+/** The rendered text the server's `q` matches: a message body, and for a
+ * reply card its summary (the message body), question body and free-text
+ * answer. Option labels are not searched, so they are not painted. */
+const SEARCHED_TEXT = [
+  ".chat__msg-text",
+  ".reply-card__collapsed-summary",
+  ".reply-card__summary",
+  ".reply-card__body",
+  ".reply-card__answer-free",
+].join(", ");
+
 type HighlightRegistry = { set(name: string, h: unknown): void; delete(name: string): void };
 type HighlightCtor = new (...ranges: Range[]) => unknown;
 
@@ -52,7 +63,7 @@ export function paintChatSearchHighlights(
   const hl = highlightApi();
   const needle = asciiLower(query.trim());
   if (!hl || !root || needle === "") return () => {};
-  const ranges = Array.from(root.querySelectorAll(".chat__msg-text"))
+  const ranges = Array.from(root.querySelectorAll(SEARCHED_TEXT))
     .filter((el) => searchable(el.closest("[data-msg-id]")?.getAttribute("data-msg-id") ?? ""))
     .flatMap((el) => rangesIn(el, needle));
   hl.registry.set(CHAT_SEARCH_HIGHLIGHT, new hl.Highlight(...ranges));

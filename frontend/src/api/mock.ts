@@ -4296,6 +4296,13 @@ const mockApiImpl = {
     q: string,
     cursor?: string,
   ): Promise<ChatSearchPage> {
+    const cardMatches = (cardId: string | null) => {
+      const card = cardId ? replyCards.find((c) => c.id === cardId) : undefined;
+      return (
+        card !== undefined &&
+        (chatBodyMatches(card.body, q) || chatBodyMatches(card.answer?.text ?? "", q))
+      );
+    };
     let msgs = chatLog
       .filter(
         (m) =>
@@ -4303,7 +4310,7 @@ const mockApiImpl = {
           (m.from === MOCK_OWNER_ID || m.to === MOCK_OWNER_ID) &&
           notDeleteNotice(m) &&
           !((m.deletedTs ?? 0) > 0) &&
-          chatBodyMatches(m.body, q),
+          (chatBodyMatches(m.body, q) || cardMatches(m.replyCardId)),
       )
       .sort((a, b) => a.ts - b.ts || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     const matchCount = msgs.length;
