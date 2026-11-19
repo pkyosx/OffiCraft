@@ -1762,6 +1762,7 @@
  * same muted-until-hover weight. `flex: none` on all three is what keeps the
  * TEXT column (flex:1, min-width:0) the only thing that shrinks. */
 .chat__header-action,
+.chat__search-toggle,
 .chat__gallery-toggle {
   display: flex;
   align-items: center;
@@ -1780,6 +1781,8 @@
 }
 .chat__header-action:hover,
 .chat__header-action:focus-visible,
+.chat__search-toggle:hover,
+.chat__search-toggle[aria-expanded="true"],
 .chat__gallery-toggle:hover,
 .chat__gallery-toggle[aria-expanded="true"] {
   color: var(--color-text-strong);

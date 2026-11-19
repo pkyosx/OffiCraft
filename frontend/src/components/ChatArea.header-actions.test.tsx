@@ -37,6 +37,19 @@ vi.mock("../hooks/useChat", () => ({
 vi.mock("../api", () => ({
   api: {
     listChatAttachments: vi.fn(async () => []),
+    searchChat: vi.fn(async () => ({
+      messages: [
+        {
+          id: "c-1",
+          from: "m1",
+          to: "owner",
+          body: "deploy 完成",
+          ts: 1794963900,
+          attachments: [],
+          replyCardId: null,
+        },
+      ],
+    })),
     subscribeEvents: () => () => {},
   },
 }));
@@ -377,6 +390,61 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     // this render, under their own class — so the "1" above is a real
     // separation, not an empty header.
     expect(container.querySelectorAll(".chat__header-action")).toHaveLength(2);
+  });
+
+  it("the search toggle sits right before the gallery toggle, opens 搜尋這段對話 and closes it again, without opening the member detail", () => {
+    const onOpenDetail = vi.fn();
+    const { container, getByLabelText } = renderChat({ onOpenDetail });
+    const toggle = getByLabelText(zh.chat.searchOpen);
+    expect(toggle.getAttribute("title")).toBe("搜尋這段對話");
+    expect(toggle.nextElementSibling).toBe(
+      container.querySelector(".chat__gallery-toggle"),
+    );
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      container.querySelector(".chat-search__title")?.textContent,
+    ).toBe("搜尋這段對話");
+    expect(onOpenDetail).not.toHaveBeenCalled();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(".chat-search")).toBeNull();
+  });
+
+  it("opening the search panel closes the gallery, and opening the gallery closes the search panel", () => {
+    const { container, getByLabelText } = renderChat();
+    fireEvent.click(getByLabelText(zh.chat.galleryLabel));
+    expect(container.querySelector(".chat__gallery")).not.toBeNull();
+
+    fireEvent.click(getByLabelText(zh.chat.searchOpen));
+    expect(container.querySelector(".chat-search")).not.toBeNull();
+    expect(container.querySelector(".chat__gallery")).toBeNull();
+
+    fireEvent.click(getByLabelText(zh.chat.galleryLabel));
+    expect(container.querySelector(".chat__gallery")).not.toBeNull();
+    expect(container.querySelector(".chat-search")).toBeNull();
+    expect(getByLabelText(zh.chat.searchOpen).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("closing and reopening the search panel keeps the query and its results", async () => {
+    const { container, getByLabelText } = renderChat();
+    fireEvent.click(getByLabelText(zh.chat.searchOpen));
+    const input = container.querySelector<HTMLInputElement>(".chat-search__input")!;
+    fireEvent.change(input, { target: { value: "deploy" } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+    expect(container.querySelector(".chat-search__snippet")?.textContent).toBe("deploy 完成");
+
+    fireEvent.click(getByLabelText(zh.chat.searchClose));
+    expect(container.querySelector(".chat-search")).toBeNull();
+    fireEvent.click(getByLabelText(zh.chat.searchOpen));
+
+    expect(container.querySelector<HTMLInputElement>(".chat-search__input")!.value).toBe("deploy");
+    expect(container.querySelector(".chat-search__snippet")?.textContent).toBe("deploy 完成");
   });
 
   it("a LONG member name never wraps the header into a second line", () => {

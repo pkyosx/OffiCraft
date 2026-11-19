@@ -73,6 +73,7 @@ import type { ThemeBundle } from "../lib/themeBundle";
 import type {
   Api,
   ChatCursor,
+  ChatSearchPage,
   ChatAnchor,
   ChatMessage,
   ChatReadReceipt,
@@ -134,6 +135,7 @@ import type {
   ChatGroupView,
   ChatGroupWrite,
 } from "./adapter";
+import { CHAT_SEARCH_PAGE_SIZE } from "./adapter";
 import {
   toMember,
   toChatMessage,
@@ -1595,6 +1597,32 @@ export const httpApi: Api = {
       throw new Error(`GET /api/chat?ids=${id} returned no row`);
     }
     return toChatMessage(first);
+  },
+
+  async searchChat(
+    withId: string,
+    q: string,
+    cursor?: string,
+  ): Promise<ChatSearchPage> {
+    // No include_deleted: a deleted message still carries its body on the
+    // wire, and a search hit would show the deleted text in its snippet.
+    const wire = unwrap(
+      await client.GET("/api/chat", {
+        params: {
+          query: {
+            with: withId,
+            q,
+            limit: CHAT_SEARCH_PAGE_SIZE,
+            cursor,
+            hide_delete_notices: HIDE_DELETE_NOTICES,
+          },
+        },
+      }),
+    );
+    return {
+      messages: wire.messages.map(toChatMessage),
+      ...(wire.next_cursor ? { nextCursor: wire.next_cursor } : {}),
+    };
   },
 
   async getFirstUnreadChat(withId: string): Promise<ChatMessage | null> {

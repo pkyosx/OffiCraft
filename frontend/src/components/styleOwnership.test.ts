@@ -71,6 +71,7 @@ const OWNED_SHEETS = [
   "display-options.css",
   // ConnectionBanner and BuildUpdateBanner.
   "status-banner.css",
+  "chat-search.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the

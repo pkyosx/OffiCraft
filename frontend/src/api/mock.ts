@@ -61,6 +61,7 @@ import type {
 import type {
   Api,
   ChatCursor,
+  ChatSearchPage,
   ChatAnchor,
   ChatMessage,
   ChatReplyQuote,
@@ -254,6 +255,8 @@ import {
   SEED_TASK_READY_FOR_DONE_MD,
 } from "./seeds";
 import { mockApiError } from "./errorCodes";
+import { CHAT_SEARCH_PAGE_SIZE } from "./adapter";
+import { chatBodyMatches } from "../lib/chatSearch";
 import { isIpHost } from "../lib/webauthn";
 import { isLoreType } from "./loreType";
 import { formatDiffUrl, type DiffParams } from "../lib/diffLink";
@@ -4286,6 +4289,44 @@ const mockApiImpl = {
     const found = chatLog.find((m) => m.id === id);
     if (!found) throw new Error(`no message carries id ${id}`);
     return mockServedChatMessage(found);
+  },
+
+  async searchChat(
+    withId: string,
+    q: string,
+    cursor?: string,
+  ): Promise<ChatSearchPage> {
+    let msgs = chatLog
+      .filter(
+        (m) =>
+          (m.from === withId || m.to === withId) &&
+          notDeleteNotice(m) &&
+          !((m.deletedTs ?? 0) > 0) &&
+          chatBodyMatches(m.body, q),
+      )
+      .sort((a, b) => a.ts - b.ts || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (cursor !== undefined) {
+      const sep = cursor.indexOf("|");
+      const beforeTs = Number(cursor.slice(0, sep));
+      const beforeId = cursor.slice(sep + 1);
+      if (sep < 0 || !Number.isFinite(beforeTs))
+        throw mockApiError(
+          `http 422 for GET /api/chat?with=${withId}`,
+          422,
+          "cursor is not a token this route minted",
+        );
+      msgs = msgs.filter(
+        (m) => m.ts < beforeTs || (m.ts === beforeTs && m.id < beforeId),
+      );
+    }
+    const page = msgs.slice(-CHAT_SEARCH_PAGE_SIZE);
+    const oldest = page[0];
+    return {
+      messages: page.map(mockServedChatMessage),
+      ...(msgs.length > page.length && oldest
+        ? { nextCursor: `${oldest.ts}|${oldest.id}` }
+        : {}),
+    };
   },
 
   async getFirstUnreadChat(withId: string): Promise<ChatMessage | null> {

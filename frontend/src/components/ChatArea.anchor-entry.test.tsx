@@ -23,6 +23,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, act, waitFor, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ChatArea } from "./ChatArea";
+import { useHashRoute } from "../lib/hashRoute";
 import type { Member } from "../types";
 import type { ChatMessage, ReplyCard, SseDelta } from "../api/adapter";
 
@@ -250,6 +251,11 @@ vi.mock("../api", () => ({
         }
       );
     },
+    searchChat: async (withId: string, q: string) => ({
+      messages: threadOf(withId)
+        .filter((m) => m.body.toLowerCase().includes(q.toLowerCase()))
+        .slice(-30),
+    }),
     listChatReads: async () => [],
     /** Every mark-read this room sent, with the watermark it claimed. This is
      * the ONE thing a front-end flag cannot fake: the server's unread count is
@@ -313,6 +319,13 @@ function view(m: Member, jumpToMsgId?: string) {
       />
     </I18nProvider>
   );
+}
+
+/** Mounted under the hash route the way `OfficePage` feeds `jumpToMsgId`, so a
+ * jump ChatArea starts itself goes through the real route. */
+function RoutedRoom({ m }: { m: Member }) {
+  const [route] = useHashRoute();
+  return view(m, route.chatId === m.id ? route.msgId : undefined);
 }
 
 function bubbles(container: HTMLElement): (string | null)[] {
@@ -1007,6 +1020,67 @@ describe("ChatArea 進房錨點優先(useChat 的 anchor 參數)", () => {
       "錨點落地之後這間房必須回到一般的刷新 —— 空的就是 anchorPending 被留在 true",
     ).toEqual([A]);
   });
+
+  it("點搜尋結果跳到已載入範圍外的那一則:撈那一段、亮起那一則、面板留著、中間的不標已讀;再點同一筆會再定位、再亮一次", async () => {
+    history.replaceState(null, "", "/");
+    seed(A, "a", 300, 100);
+    log[3].body = "a3 Deploy 完成";
+    const { container } = render(<RoutedRoom m={alice} />);
+    await waitFor(() =>
+      expect(container.querySelector('[data-msg-id="a299"]')).not.toBeNull(),
+    );
+    expect(container.querySelector('.chat__msg[data-msg-id="a3"]')).toBeNull();
+    await settle();
+    markReads = [];
+    seed(A, "n", 10, 400);
+
+    fireEvent.click(container.querySelector('[data-testid="chat-header-search"]')!);
+    const input = container.querySelector<HTMLInputElement>(".chat-search__input")!;
+    fireEvent.change(input, { target: { value: "deploy" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(container.querySelector(".chat-search__item")).not.toBeNull(),
+    );
+
+    fireEvent.click(container.querySelector(".chat-search__item")!);
+    await waitFor(() =>
+      expect(
+        container.querySelector('.chat__msg--located[data-msg-id="a3"]'),
+      ).not.toBeNull(),
+    );
+    await settle();
+
+    expect(window.location.hash).toBe(`#office/chat/${A}/msg/a3`);
+    expect(windowCalls.slice(0, 2).map((c) => c.anchor)).toEqual([
+      { endId: "a3" },
+      { startId: "a3" },
+    ]);
+    expect(bubbles(container)).toContain("n9");
+    expect(scrolls.filter((x) => x.on === "a3")).toHaveLength(1);
+    expect(container.querySelector(".chat-search")).not.toBeNull();
+    expect(markReads).toEqual([]);
+
+    await waitFor(
+      () =>
+        expect(container.querySelector(".chat__msg--located")).toBeNull(),
+      { timeout: 4000 },
+    );
+    fireEvent.click(container.querySelector(".chat-search__item")!);
+    await waitFor(() =>
+      expect(
+        container.querySelector('.chat__msg--located[data-msg-id="a3"]'),
+      ).not.toBeNull(),
+    );
+    expect(scrolls.filter((x) => x.on === "a3")).toHaveLength(2);
+    await settle();
+    expect(markReads).toEqual([]);
+
+    await act(async () => {
+      fireEvent.scroll(container.querySelector(".chat__messages")!);
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    expect(markReads.at(-1)).toBe(409);
+  }, 10000);
 });
 
 // ── 帶著未讀進房:停在伺服器說的第一則未讀 ────────────────────────────────────

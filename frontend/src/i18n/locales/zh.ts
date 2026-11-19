@@ -1502,6 +1502,17 @@ export const zh = {
     // 檔案不見了。
     galleryEmptyFiltered: "選取的上傳者在這個分頁沒有檔案",
     galleryClose: "關閉檔案庫",
+    searchOpen: "搜尋這段對話",
+    searchTitle: "搜尋這段對話",
+    searchPlaceholder: "輸入關鍵字",
+    searchSubmit: "搜尋",
+    searchClose: "關閉搜尋",
+    searchLoading: "搜尋中…",
+    searchFailed: "搜尋失敗，沒有拿到伺服器的回應，請再試一次",
+    searchOrderHint: "從最新的開始列出",
+    searchLoadOlder: "載入更早的結果",
+    searchEmptyLead: "找不到含「",
+    searchEmptyTail: "」的訊息",
     galleryPreviewHint: "開新分頁預覽",
     galleryDownloadHint: "下載",
     // 檔案級分享連結(?sig= HMAC)— 複製到剪貼簿。不會過期,但不是永久:

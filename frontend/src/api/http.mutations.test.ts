@@ -366,6 +366,62 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     expect(got.map((m) => m.id)).toEqual(["c-9"]);
   });
 
+  it("searchChat sends with, q, limit 30 and no cursor on the first page, and leaves deleted messages unsearched", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        messages: [
+          {
+            id: "c-9",
+            from: "m-1",
+            from_name: "",
+            to: "owner",
+            to_name: "",
+            body: "deploy 完成",
+            ts: 1,
+            ts_display: "",
+            meta: {},
+            reply_card_id: "",
+            reply_card_status: "",
+            reply_to: "",
+            body_omitted_chars: 0,
+          },
+        ],
+        next_cursor: "b3wAMQBjLTk",
+      }),
+    );
+    const got = await httpApi.searchChat("m-1", "deploy");
+    const { url, method } = await lastRequest();
+    expect(method).toBe("GET");
+    expect(url.split("?")[0]).toBe("/api/chat");
+    expect([...new URLSearchParams(url.split("?")[1] ?? "")].sort()).toEqual([
+      ["hide_delete_notices", "true"],
+      ["limit", "30"],
+      ["q", "deploy"],
+      ["with", "m-1"],
+    ]);
+    expect(got.messages.map((m) => [m.id, m.body])).toEqual([["c-9", "deploy 完成"]]);
+    expect(got.nextCursor).toBe("b3wAMQBjLTk");
+  });
+
+  it("searchChat hands the cursor back for an older page, and a page without next_cursor has none", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
+    const got = await httpApi.searchChat("m-1", "deploy", "b3wAMQBjLTk");
+    const q = new URLSearchParams((await lastRequest()).url.split("?")[1] ?? "");
+    expect(q.get("cursor")).toBe("b3wAMQBjLTk");
+    expect(q.get("q")).toBe("deploy");
+    expect(q.get("with")).toBe("m-1");
+    expect(got).toEqual({ messages: [] });
+  });
+
+  it("searchChat turns a failed search into an ApiError carrying the server's code", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ error: { code: codeForStatus(422), message: "q requires with" } }, 422),
+    );
+    const err = await httpApi.searchChat("m-1", "deploy").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect([err.status, err.code]).toEqual([422, codeForStatus(422)]);
+  });
+
   it("listChat(-1) still asks for the WHOLE history (the gallery path)", async () => {
     fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
     await httpApi.listChat("m-1", -1);

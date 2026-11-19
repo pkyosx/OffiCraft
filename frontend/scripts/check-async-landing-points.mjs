@@ -273,6 +273,13 @@ const REGISTRY = [
       "the delete POST. Its writes are this hook's own deleted-id map, dialog target and error, all keyed by message id; the hook lives in ChatArea, mounted under `key={peerId}`, so a response that lands after a room switch writes into a discarded component",
   },
   {
+    file: "hooks/useChatSearch.ts",
+    kind: ".then/.catch/.finally",
+    count: 2,
+    verdict:
+      "the search and its older page. Both write only this hook's own results, which live in ChatArea under `key={peerId}`, so a room switch discards them; a newer search outdates both through `searchSeq`",
+  },
+  {
     file: "hooks/useChatDelete.tsx",
     kind: "subscribe",
     count: 1,

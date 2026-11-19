@@ -49,6 +49,8 @@ import { AttachmentStrip } from "./AttachmentStrip";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ChatGalleryPanel } from "./ChatGalleryPanel";
+import { ChatSearchPanel } from "./ChatSearchPanel";
+import { useChatSearch } from "../hooks/useChatSearch";
 import { ChatJumpLatestButton } from "./ChatJumpLatestButton";
 import { ChatThreadLoading } from "./ChatThreadLoading";
 import { ChatNewMsgPreview } from "./ChatNewMsgPreview";
@@ -81,6 +83,7 @@ import {
   MoonIcon,
   PaperclipIcon,
   ReplyIcon,
+  SearchIcon,
   SendIcon,
   SuggestedRepliesIcon,
   TasksIcon,
@@ -752,6 +755,8 @@ export function ChatArea({
   // header said Bruno while the panel still showed A's files labelled with A's
   // sender name.
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const chatSearch = useChatSearch(member.id);
   // The attachment whose share link was just copied (transient 「已複製」
   // feedback on that one button; null = none).
   // Inter-agent (agent↔agent) groups that the owner has EXPANDED (keyed by the
@@ -2423,6 +2428,22 @@ export function ChatArea({
             <SuggestedRepliesIcon size={17} />
           </button>
         )}
+        <button
+          type="button"
+          className="chat__search-toggle"
+          aria-label={t.chat.searchOpen}
+          title={t.chat.searchOpen}
+          aria-expanded={searchOpen}
+          data-testid="chat-header-search"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSearchOpen((v) => !v);
+            setGalleryOpen(false);
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          <SearchIcon size={17} />
+        </button>
         {/* M2-3: the conversation's file & image gallery toggle. The header
          * itself may be clickable (open detail) — stopPropagation keeps the
          * gallery click/keys from bubbling into that. */}
@@ -2435,6 +2456,7 @@ export function ChatArea({
           onClick={(e) => {
             e.stopPropagation();
             setGalleryOpen((v) => !v);
+            setSearchOpen(false);
           }}
           onKeyDown={(e) => e.stopPropagation()}
         >
@@ -2448,6 +2470,20 @@ export function ChatArea({
           resolveSender={nameOf}
           docComments={roomDocComments}
           onClose={() => setGalleryOpen(false)}
+        />
+      )}
+      {searchOpen && (
+        <ChatSearchPanel
+          search={chatSearch}
+          labelOf={(m) =>
+            m.from === OWNER_ID
+              ? t.chat.me
+              : m.to !== OWNER_ID
+                ? directionLabel(m.from, m.to)
+                : nameOf(m.from)
+          }
+          onJump={(msgId) => jumpToMessage(msgId)}
+          onClose={() => setSearchOpen(false)}
         />
       )}
 
