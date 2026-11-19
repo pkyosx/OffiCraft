@@ -46,6 +46,7 @@ export interface StaleBuildWatch {
 export function createStaleBuildWatch(deps: StaleBuildWatchDeps): StaleBuildWatch {
   let pageSha: string | null = null;
   let pageShaRead = false;
+  let running = false;
   let newerSha: string | null = null;
   const listeners = new Set<() => void>();
 
@@ -58,7 +59,7 @@ export function createStaleBuildWatch(deps: StaleBuildWatchDeps): StaleBuildWatc
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   function maybeReload(): void {
-    if (newerSha === null || deps.isWatched() || deps.hasUnsavedInput()) return;
+    if (!running || newerSha === null || deps.isWatched() || deps.hasUnsavedInput()) return;
     if (deps.hasWritesInFlight()) {
       if (retryTimer === null) {
         retryTimer = setTimeout(() => {
@@ -83,6 +84,7 @@ export function createStaleBuildWatch(deps: StaleBuildWatchDeps): StaleBuildWatc
     deps
       .readServerSha()
       .then((raw) => {
+        if (!running) return;
         const sha = usableSha(raw);
         if (sha === null) return;
         if (!pageShaRead) {
@@ -99,6 +101,7 @@ export function createStaleBuildWatch(deps: StaleBuildWatchDeps): StaleBuildWatc
   }
 
   function start(): () => void {
+    running = true;
     check();
     let everLive = false;
     let wasLive = false;
@@ -113,13 +116,12 @@ export function createStaleBuildWatch(deps: StaleBuildWatchDeps): StaleBuildWatc
     window.addEventListener("blur", maybeReload);
     document.addEventListener("visibilitychange", maybeReload);
     return () => {
+      running = false;
       offConnection();
       offStaleAsset();
       window.removeEventListener("vite:preloadError", check);
       window.removeEventListener("blur", maybeReload);
       document.removeEventListener("visibilitychange", maybeReload);
-      if (retryTimer !== null) clearTimeout(retryTimer);
-      retryTimer = null;
     };
   }
 

@@ -257,15 +257,43 @@ describe("createStaleBuildWatch", () => {
     expect(h.watch.getNewerSha()).toBe("bbb2222");
   });
 
-  it("stops listening once stopped", async () => {
-    const h = harness();
-    const stop = await startedOn(h, "aaa1111");
-    stop();
+  it("stops listening once stopped, and neither a pending retry nor a late version answer reloads afterwards", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      h.state.writing = true;
+      const stop = await startedOn(h, "aaa1111");
+      h.shas.push("bbb2222");
+      await h.setConnection("connecting");
+      await h.setConnection("live");
+      stop();
+      h.state.writing = false;
+      vi.advanceTimersByTime(WRITE_SETTLE_RETRY_MS * 3);
+      expect(h.reload).not.toHaveBeenCalled();
 
-    reportStaleAsset();
-    window.dispatchEvent(new Event("vite:preloadError"));
-    await h.settle();
-    expect(h.connection.size).toBe(0);
-    expect(h.shas).toEqual([]);
+      reportStaleAsset();
+      window.dispatchEvent(new Event("vite:preloadError"));
+      window.dispatchEvent(new Event("blur"));
+      await h.settle();
+      expect(h.connection.size).toBe(0);
+      expect(h.shas).toEqual([]);
+      expect(h.reload).not.toHaveBeenCalled();
+
+      let answer: (sha: string) => void = () => {};
+      const late = harness({ readServerSha: () => new Promise<string>((r) => (answer = r)) });
+      const stopLate = late.watch.start();
+      answer("aaa1111");
+      await late.settle();
+      await late.setConnection("live");
+      await late.setConnection("connecting");
+      await late.setConnection("live");
+      stopLate();
+      answer("ccc3333");
+      await late.settle();
+      expect(late.watch.getNewerSha()).toBe(null);
+      expect(late.reload).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
