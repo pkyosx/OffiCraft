@@ -247,16 +247,31 @@ describe("SharedDocDetail", () => {
     expect(failed.container.querySelector("iframe")).toBeNull();
   });
 
-  it("a PDF opens in a new tab at its share link beside 下載, and is not framed", async () => {
-    const { getByTestId, container } = showDoc(fileDoc("spec.pdf", "application/pdf", null));
+  it("a PDF is drawn in a frame at its share link, with 在新頁面顯示 and 下載 beside it; without a link it says so above 下載", async () => {
+    const framed = showDoc(fileDoc("spec.pdf", "application/pdf", null));
+    const { getByTestId, container } = framed;
     await title(getByTestId);
-    const open = await waitFor(() => getByTestId("shared-doc-pdf").querySelector("a")!);
-    expect(open.getAttribute("href")).toBe(
-      `${window.location.origin}/api/chat/attachment/att-aaaaaaaaaaaa?sig=s1`,
-    );
-    expect(open.getAttribute("target")).toBe("_blank");
-    expect(container.querySelector("iframe")).toBeNull();
+    const shareLink = `${window.location.origin}/api/chat/attachment/att-aaaaaaaaaaaa?sig=s1`;
+    const frame = await waitFor(() => {
+      const el = getByTestId("shared-doc-pdf");
+      expect(el.tagName).toBe("IFRAME");
+      return el;
+    });
+    expect(frame.getAttribute("src")).toBe(shareLink);
+    expect(frame.hasAttribute("sandbox")).toBe(false);
+    const open = container.querySelector("a.md-preview__new-tab")!;
+    expect([open.getAttribute("href"), open.getAttribute("target")]).toEqual([shareLink, "_blank"]);
     expect(getByTestId("shared-doc-download").textContent).toBe("下載");
+    framed.unmount();
+    vi.restoreAllMocks();
+
+    const failed = showDoc(fileDoc("spec.pdf", "application/pdf", null));
+    vi.spyOn(api, "getChatAttachmentShareLink").mockRejectedValue(new Error("http 500"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await title(failed.getByTestId);
+    await waitFor(() => expect(failed.getByTestId("shared-doc-pdf").textContent).toBe("這個檔案無法在這裡顯示。"));
+    expect(failed.getByTestId("shared-doc-download").textContent).toBe("下載");
+    expect(failed.container.querySelector("iframe")).toBeNull();
   });
 
   it("every text file, HTML included, offers 編輯 as plain text; an image or a PDF does not", async () => {

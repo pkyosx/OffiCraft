@@ -57,7 +57,7 @@ paths:
 
 「這個檔案是什麼」只有一個答案：`lib/contentKind.ts` 的 `contentKindOf(mime, filename)`（markdown、json、xml、yaml、csv、text、html、image、pdf、binary）。mime 先說話；mime 是空的、`application/octet-stream` 或 `text/plain`（server 把 .yaml/.py/.sql 存成 text/plain）時才看副檔名，副檔名清單是封閉的。HTML 只認 served mime 是 `text/html`，因為頁面是讓 frame 去載 serve route。`isInlineDisplayableMime` 不併進來：它是 server `isPreviewableAttachment` 的鏡像，回答的是另一個問題。
 
-畫 body 的只有 `ContentView`：markdown 渲染（`.md-preview__md.doc-md`）、JSON 縮排（原生 JSON.parse）、XML 縮排（原生 DOMParser，混排內容與命名空間照寫）、YAML 與其他文字照原樣、CSV 排成表格（RFC 4180；解析失敗或超過 `CSV_MAX_ROWS`／`CSV_MAX_CHARS` 時照原樣加一行說明）、HTML 是 sandbox iframe 載分享連結、PDF 與其他檔指向「在新頁面顯示」。不加任何語法上色或解析依賴。用它的面：全幅閱覽 overlay、檔案庫檔案頁、兩個版本閱讀器（經 `VersionContent`）、DocumentHistoryModal 的內容分頁、DocCard 閱讀模式與唯讀上半、任務手冊 SOP、Insight 卡（後三者傳 `padded` 保留 `.doc-md` 自己的 padding）。外殼（下載、分享、註解、縮放、pager、Esc）留在各自的面。class 名沿用 `md-preview__` 前綴，由 md-preview.css 擁有、ContentView 自己 import。
+畫 body 的只有 `ContentView`：markdown 渲染（`.md-preview__md.doc-md`）、JSON 縮排（原生 JSON.parse）、XML 縮排（原生 DOMParser，混排內容與命名空間照寫）、YAML 與其他文字照原樣、CSV 排成表格（RFC 4180；解析失敗或超過 `CSV_MAX_ROWS`／`CSV_MAX_CHARS` 時照原樣加一行說明）、HTML 是 sandbox iframe 載分享連結、PDF 是不帶 sandbox 屬性的 iframe 載分享連結（Chromium 不在 sandbox frame 裡畫 PDF；擋 script 的是 server 對非 HTML 回應一律加的 CSP sandbox）、其他檔指向「在新頁面顯示」。不加任何語法上色或解析依賴。用它的面：全幅閱覽 overlay、檔案庫檔案頁、兩個版本閱讀器（經 `VersionContent`）、DocumentHistoryModal 的內容分頁、DocCard 閱讀模式與唯讀上半、任務手冊 SOP、Insight 卡（後三者傳 `padded` 保留 `.doc-md` 自己的 padding）。外殼（下載、分享、註解、縮放、pager、Esc）留在各自的面。class 名沿用 `md-preview__` 前綴，由 md-preview.css 擁有、ContentView 自己 import。
 
 🔴 frame 的位址永遠是 mint 出來的 `?sig=` 分享連結（`hooks/useShareHref.ts`），不是帶 `?token=` 的 `authedAttachmentUrl`——後者會把 owner 的 token 放進 agent 寫的頁面看得到的地方。PDF 也不用 token 位址嵌入。
 

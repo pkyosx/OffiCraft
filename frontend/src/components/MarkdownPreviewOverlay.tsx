@@ -261,24 +261,23 @@ export function MarkdownPreviewOverlay({
   const previewableText = isTextKind(kind);
   // A comparison is not a stored blob at all — it carries no `url`, so none of
   // the blob branches below (fetch, download, share link, "open in a tab") can
-  // fire for it, and it must not fall into `unavailable`, which is the "this
-  // overlay cannot draw these bytes" state.
+  // fire for it, and it must not fall into `unread`, which is the "this
+  // overlay does not read these bytes" state.
   const diff = diffParams !== undefined;
   const html = url !== undefined && kind === "html";
-  const unavailable = url !== undefined && (kind === "pdf" || kind === "binary");
+  const pdf = url !== undefined && kind === "pdf";
+  const unread = pdf || (url !== undefined && kind === "binary");
   // WHOSE CALL IS "opens in a tab"? THE SERVER'S. This mirrors api_chat.go's
   // isPreviewableAttachment, which is what decides between
   // `Content-Disposition: inline` and `attachment` on the serve route. Offering
   // 「在新頁面顯示」 on anything else would be a lie: the browser would download
   // the file instead of showing it, and the button would look broken.
-  // Deliberately WIDER than what this overlay draws: a .pdf cannot be drawn
-  // here, but the browser can show it perfectly well in a tab of its own.
   const inlineInBrowser =
     attachmentId !== undefined && isInlineDisplayableMime(mime ?? "text/markdown");
   const plainText = previewableText && kind !== "markdown";
-  // The share link for the tab anchor and an HTML body's frame — only for an
-  // attachment the browser would actually DISPLAY; a downloadable one gets no
-  // anchor, so it needs no link either. It is the ?sig= credential, never the
+  // The share link for the tab anchor and an HTML or PDF body's frame — only
+  // for an attachment the browser would actually DISPLAY; a downloadable one
+  // gets no anchor, so it needs no link either. It is the ?sig= credential, never the
   // ?token= one: a whole owner session token has no business in another tab's
   // address bar or in a frame running agent-written script.
   const { href: shareHref, failed: shareFailed } = useShareHref(
@@ -286,6 +285,7 @@ export function MarkdownPreviewOverlay({
     inlineInBrowser,
     "MarkdownPreviewOverlay",
   );
+  const framed = html || (pdf && shareHref !== null);
   // The text to render. An inline source is authoritative and synchronous — it
   // never passes through the loading/error states, which only describe a fetch.
   const source = inlineSource ?? fetched;
@@ -388,7 +388,7 @@ export function MarkdownPreviewOverlay({
   // download/thumbnail paths use). A non-ok response / network error surfaces
   // the honest error state, never a blank render.
   useEffect(() => {
-    if (url === undefined || image || unavailable || html || typePending) return;
+    if (url === undefined || image || unread || html || typePending) return;
     let alive = true;
     setFetched(null);
     setFailed(false);
@@ -407,7 +407,7 @@ export function MarkdownPreviewOverlay({
     return () => {
       alive = false;
     };
-  }, [url, image, unavailable, html, diff, typePending]);
+  }, [url, image, unread, html, diff, typePending]);
 
 
   // A new blob is a new image, so the zoom starts over. This predates paging and
@@ -659,7 +659,7 @@ export function MarkdownPreviewOverlay({
   }
 
   const body = (
-    <div className={"md-preview__body" + (html ? " md-preview__body--frame" : "")} ref={bodyRef}>
+    <div className={"md-preview__body" + (framed ? " md-preview__body--frame" : "")} ref={bodyRef}>
       {image && imageBytes !== undefined ? (
         <div className="md-preview__image-viewport">
           <div
@@ -723,11 +723,11 @@ export function MarkdownPreviewOverlay({
         <DiffScreen params={diffParams} />
       ) : inlineSource === "" && trailing ? null : (
         /* 🔴 DO NOT SEND HIM BACK TO THE THING HE COMPLAINED ABOUT. A file
-         * this overlay cannot draw (a .pdf) but the header's 「在新頁面顯示」
-         * can open points AT that button rather than at 下載 — the owner's
-         * words were 「不然我都要複製以後找新的頁面貼很麻煩」. ContentView
-         * follows the BUTTON (`shareHref`), not the mime: while the link is
-         * still being minted neither exists yet, and they appear together.
+         * this overlay cannot draw but the header's 「在新頁面顯示」 can open
+         * points AT that button rather than at 下載 — the owner's words were
+         * 「不然我都要複製以後找新的頁面貼很麻煩」. ContentView follows the
+         * BUTTON (`shareHref`), not the mime: while the link is still being
+         * minted neither exists yet, and they appear together.
          *
          * An inline source is a CHAT message: Enter meant "new line" when it
          * was typed, so the full-view read keeps those newlines (`breaks`). A
@@ -754,7 +754,7 @@ export function MarkdownPreviewOverlay({
   return (
     <PreviewShell
       title={title}
-      frame={html}
+      frame={framed}
       onClose={onClose}
       closeLabel={t.chat.mdPreview.close}
       headerExtra={

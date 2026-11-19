@@ -32,8 +32,8 @@ export type ContentViewProps = {
   src?: string;
   /** What the image or page is called, for its alt text / frame title. */
   label?: string;
-  /** The file's minted share link: an HTML page's frame address, and the
-   * 「在新頁面顯示」 target for a file that cannot be drawn here. `null` while
+  /** The file's minted share link: an HTML page's or a PDF's frame address,
+   * and the 「在新頁面顯示」 target for a file that cannot be drawn here. `null` while
    * it is being minted or when the browser would download the file. */
   shareHref?: string | null;
   shareFailed?: boolean;
@@ -134,7 +134,38 @@ export function ContentView({
     );
   }
 
-  if (kind === "pdf" || kind === "binary") {
+  if (kind === "pdf") {
+    if (shareHref === null) return status(shareFailed ? (unavailable ?? p.unavailable) : p.loading);
+    // No sandbox attribute: Chromium refuses to draw a PDF in a sandboxed frame
+    // (「已封鎖這個網頁」). The server's CSP sandbox, which it sends on every
+    // non-HTML response, still keeps the document from scripting.
+    const frame = (
+      <iframe
+        className={"md-preview__frame" + (fill ? "" : " md-preview__frame--fixed")}
+        data-testid={testId}
+        title={label}
+        src={shareHref}
+        referrerPolicy="no-referrer"
+      />
+    );
+    if (!newTabLink) return frame;
+    return (
+      <div className="md-preview__pdf">
+        {frame}
+        <a
+          className="md-preview__new-tab md-preview__new-tab--inline"
+          href={shareHref}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <ExternalLinkIcon size={14} />
+          {p.openInNewTab}
+        </a>
+      </div>
+    );
+  }
+
+  if (kind === "binary") {
     if (shareHref === null) return status(unavailable ?? p.unavailable);
     if (!newTabLink) return status(p.unavailableOpenInNewTab);
     return (

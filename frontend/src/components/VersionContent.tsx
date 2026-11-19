@@ -1,8 +1,9 @@
 // One retained version's content, for the version readers (task artifacts and
 // the 檔案庫). The bytes go through ContentView like everywhere else a file is
 // shown: markdown rendered, JSON / XML indented, CSV a table, HTML its page in
-// the sandboxed frame at its minted share link. Each reader keeps its own
-// wording for the states that are about the version rather than the bytes.
+// the sandboxed frame at its minted share link, a PDF in a frame at its link.
+// Each reader keeps its own wording for the states that are about the version
+// rather than the bytes.
 
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
@@ -10,6 +11,7 @@ import { authedAttachmentUrl } from "../api/http";
 import { useShareHref } from "../hooks/useShareHref";
 import type { ArtifactPayload } from "../hooks/useVersionPayload";
 import { attachmentLinkFromHref } from "../lib/attachmentLink";
+import { contentKindOf } from "../lib/contentKind";
 import { isInlineDisplayableMime } from "./MarkdownPreviewOverlay";
 import { ContentView } from "./ContentView";
 import "./task-artifact-versions.css";
@@ -77,7 +79,13 @@ export function VersionContent({
       return share.href === null ? (
         notice(notices.opaque(payload.mime), "opaque")
       ) : (
-        <ContentView kind="binary" shareHref={share.href} newTabLink testId={`${testId}-opaque`} />
+        <ContentView
+          kind={contentKindOf(payload.mime, "") === "pdf" ? "pdf" : "binary"}
+          shareHref={share.href}
+          label={label}
+          newTabLink
+          testId={`${testId}-opaque`}
+        />
       );
     case "text":
       return (

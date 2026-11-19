@@ -405,6 +405,26 @@ describe("TaskArtifactVersionsModal", () => {
     );
   });
 
+  it("frames a PDF version at its own share link, with 在新頁面顯示 below it, and reads none of its bytes", async () => {
+    mockedApi.listTaskArtifactVersions.mockResolvedValue([
+      mkVersion({ name: "spec.pdf", filename: "spec.pdf", mime: "application/pdf", url: "/api/chat/attachment/att-0123456789ab" }),
+    ]);
+    mockedApi.listTaskArtifacts.mockResolvedValue(mkArtifacts([mkArtifact({ name: "spec.pdf", mime: "application/pdf" })]));
+    mockedApi.getChatAttachmentShareLink.mockResolvedValue("/api/chat/attachment/att-0123456789ab?sig=s");
+    const { readText } = stubFetch({
+      "/api/chat/attachment/att-0123456789ab": { mime: "application/pdf" },
+      "/api/chat/attachment/att-live": { mime: "application/pdf" },
+    });
+    openModal();
+    const shareLink = `${window.location.origin}/api/chat/attachment/att-0123456789ab?sig=s`;
+    await waitFor(() => expect(screen.getByTestId("ta-versions-content-opaque").tagName).toBe("IFRAME"));
+    const frame = screen.getByTestId("ta-versions-content-opaque");
+    expect(frame.getAttribute("src")).toBe(shareLink);
+    expect(frame.hasAttribute("sandbox")).toBe(false);
+    expect(screen.getByRole("link", { name: "在新頁面顯示" }).getAttribute("href")).toBe(shareLink);
+    expect(readText).not.toHaveBeenCalled();
+  });
+
   it("calls an octet-stream .bin opaque and reads none of its bytes", async () => {
     mockedApi.listTaskArtifactVersions.mockResolvedValue([
       mkVersion({ name: "core.bin", filename: "" }),
@@ -459,11 +479,7 @@ describe("TaskArtifactVersionsModal", () => {
   // 🔴 WHAT IS NOW UNGUARDED, so nobody reads the file above and assumes
   // otherwise: an `application/pdf` pair reaching the 差異 tab again — because
   // someone widened `diffable` past "both sides read as text", or dropped one
-  // side's half of that test — would not redden anything here. Neither would
-  // that pair losing its 內容-pane 「無法顯示」 notice, or its bytes being
-  // downloaded to be thrown away, for a mime the RESPONSE (not the name) calls
-  // non-text: the .bin case above only covers the name-cannot-vouch half of
-  // that rule, and no case covers the mime half.
+  // side's half of that test — would not redden anything here.
 
   it("shows each image version under its own src", async () => {
     mockedApi.listTaskArtifactVersions.mockResolvedValue([

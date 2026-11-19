@@ -149,11 +149,42 @@ describe("ContentView", () => {
     expect(img.getAttribute("alt")).toBe("shot.png");
   });
 
+  it("frames a PDF at its share link without a sandbox attribute, with 在新頁面顯示 below it when the host has none", () => {
+    const minting = mount({ kind: "pdf", shareHref: null });
+    expect(statusText(minting.container)).toEqual([p.loading]);
+    expect(minting.container.querySelector("iframe")).toBeNull();
+    minting.unmount();
+    const failed = mount({ kind: "pdf", shareHref: null, shareFailed: true, unavailable: "only download" });
+    expect(statusText(failed.container)).toEqual(["only download"]);
+    expect(failed.container.querySelector("iframe")).toBeNull();
+    failed.unmount();
+
+    const overlay = mount({ kind: "pdf", shareHref: "https://s/x?sig=1", label: "spec.pdf", fill: true, testId: "body" });
+    const frame = overlay.getByTestId("body");
+    expect(frame.tagName).toBe("IFRAME");
+    expect(frame.getAttribute("src")).toBe("https://s/x?sig=1");
+    expect(frame.getAttribute("title")).toBe("spec.pdf");
+    expect(frame.hasAttribute("sandbox")).toBe(false);
+    expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(frame.className).toBe("md-preview__frame");
+    expect(overlay.container.querySelector("a")).toBeNull();
+    overlay.unmount();
+
+    const page = mount({ kind: "pdf", shareHref: "https://s/x?sig=1", newTabLink: true });
+    expect(page.container.querySelector("iframe")!.className).toBe("md-preview__frame md-preview__frame--fixed");
+    const a = page.container.querySelector("a.md-preview__new-tab")!;
+    expect([a.getAttribute("href"), a.getAttribute("target"), a.textContent]).toEqual([
+      "https://s/x?sig=1",
+      "_blank",
+      p.openInNewTab,
+    ]);
+  });
+
   it("points a file it cannot draw at the new-tab button when one exists, at the host's line when none does", () => {
-    const header = mount({ kind: "pdf", shareHref: "https://s/x?sig=1" });
+    const header = mount({ kind: "binary", shareHref: "https://s/x?sig=1" });
     expect(statusText(header.container)).toEqual([p.unavailableOpenInNewTab]);
     header.unmount();
-    const inline = mount({ kind: "pdf", shareHref: "https://s/x?sig=1", newTabLink: true });
+    const inline = mount({ kind: "binary", shareHref: "https://s/x?sig=1", newTabLink: true });
     const a = inline.container.querySelector("a.md-preview__new-tab")!;
     expect(a.getAttribute("href")).toBe("https://s/x?sig=1");
     expect(a.getAttribute("target")).toBe("_blank");

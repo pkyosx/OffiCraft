@@ -485,7 +485,10 @@ describe("MarkdownPreviewOverlay", () => {
     ).toEqual(["關閉預覽"]);
   });
 
-  it("shows an HTML attachment as its share-link page in a sandboxed frame, loading until the link is minted, without fetching its text", async () => {
+  it.each([
+    ["text/html", "pr-702.html", "allow-scripts allow-popups allow-popups-to-escape-sandbox"],
+    ["application/pdf", "spec.pdf", null],
+  ])("shows a %s attachment as its share-link page in a frame filling the body, loading until the link is minted, without fetching its bytes", async (mime, title, sandbox) => {
     let mint!: (href: string) => void;
     vi.spyOn(api, "getChatAttachmentShareLink").mockImplementation(
       () => new Promise((resolve) => (mint = resolve)),
@@ -494,10 +497,10 @@ describe("MarkdownPreviewOverlay", () => {
     render(
       <I18nProvider>
         <MarkdownPreviewOverlay
-          title="pr-702.html"
+          title={title}
           url="/api/chat/attachment/att-html"
           attachmentId="att-html"
-          mime="text/html"
+          mime={mime}
           onClose={() => {}}
         />
       </I18nProvider>,
@@ -516,14 +519,17 @@ describe("MarkdownPreviewOverlay", () => {
     }).toEqual({
       className: "md-preview__frame",
       src: `${window.location.origin}/api/chat/attachment/att-html?sig=s1`,
-      sandbox: "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+      sandbox,
       referrerPolicy: "no-referrer",
-      title: "pr-702.html",
+      title,
     });
+    expect(document.body.querySelector(".md-preview__body--frame")).not.toBeNull();
+    expect(document.body.querySelector(".md-preview__panel--frame")).not.toBeNull();
     expect(document.body.querySelector(".md-preview__status")).toBeNull();
     expect(screen.getByRole("link", { name: "在新頁面顯示" }).getAttribute("href")).toBe(
       `${window.location.origin}/api/chat/attachment/att-html?sig=s1`,
     );
+    expect(document.body.querySelector("a.md-preview__download")?.getAttribute("download")).toBe(title);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 

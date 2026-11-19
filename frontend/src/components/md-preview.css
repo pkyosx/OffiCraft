@@ -449,11 +449,15 @@
   width: 100%;
   height: min(70vh, 720px);
 }
-.md-preview__status .md-preview__new-tab--inline {
+.md-preview__status .md-preview__new-tab--inline,
+.md-preview__pdf .md-preview__new-tab--inline {
   width: auto;
   gap: 6px;
   margin-top: 10px;
   padding: 0 12px;
+}
+.md-preview__pdf {
+  width: 100%;
 }
 .md-preview__md.doc-md > :first-child {
   margin-top: 0;

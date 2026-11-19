@@ -1,14 +1,14 @@
 // WHAT THE OWNER SEES in the body of the preview overlay for a file it cannot
-// draw but the header's 「在新頁面顯示」 can open (a .pdf). The button itself,
-// its href and its gate are pinned by MarkdownPreviewOverlay.new-tab.test.tsx.
-// The body copy must point at the button, not back at 下載: the owner's words
-// were 「不然我都要複製以後找新的頁面貼很麻煩」.
+// draw. The header's 「在新頁面顯示」 button, its href and its gate are pinned
+// by MarkdownPreviewOverlay.new-tab.test.tsx. Where that button exists the body
+// copy must point at it, not back at 下載: the owner's words were
+// 「不然我都要複製以後找新的頁面貼很麻煩」.
 //
 // The overlay PORTALS to document.body (T-76cd): every reach goes through
 // `document.body` / `screen`, never render()'s container.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, waitFor, screen } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
@@ -43,30 +43,6 @@ describe("the body copy of a file shown only in a new tab points at the button, 
   afterEach(() => {
     globalThis.fetch = realFetch;
     vi.restoreAllMocks();
-  });
-
-  it("does NOT tell the reader to download a pdf attachment that has a new-tab button", async () => {
-    mintOk();
-    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
-
-    mountOverlay("application/pdf", "report.pdf");
-
-    // The button really is there — otherwise 「請下載」 would be the honest line
-    // and this test would be pinning the wrong thing.
-    await waitFor(() => expect(document.body.querySelector(NEW_TAB)).toBeTruthy());
-    const status = document.body.querySelector(STATUS);
-    expect(
-      status !== null && status.textContent === zh.chat.mdPreview.unavailable
-        ? "REGRESSION: the pdf preview is still telling the owner to " +
-          "DOWNLOAD the file (「此檔案無法預覽，請下載」) in the largest, most " +
-          "central line on screen — while a 「在新頁面顯示」 button sits in the " +
-          "header right above it. His words on this ticket were 「不然我都要複製" +
-          "以後找新的頁面貼很麻煩」; this line is asking him to do exactly that."
-        : "points elsewhere",
-    ).toBe("points elsewhere");
-    expect(status?.textContent).toBe(zh.chat.mdPreview.unavailableOpenInNewTab);
-    // A render assertion, not just a string compare on the bundle.
-    expect(screen.getByText(zh.chat.mdPreview.unavailableOpenInNewTab)).toBeTruthy();
   });
 
   it("keeps 請下載 where there is genuinely no button — a downloadable attachment", async () => {
