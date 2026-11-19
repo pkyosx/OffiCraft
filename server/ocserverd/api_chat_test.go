@@ -1919,6 +1919,45 @@ func TestHandleListChatApiChatGet(t *testing.T) {
 		})
 	})
 
+	t.Run("q also matches a reply card's question body and the owner's answer, not only its summary", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		open := func(summary, body string) (string, string) {
+			t.Helper()
+			status, card := apiJSON(t, h, "POST", "/api/reply-cards", kip,
+				`{"kind":"decision","summary":"`+summary+`","body":"`+body+`","options":[{"text":"ok"}],"linked_task":null}`)
+			if status != 200 {
+				t.Fatalf("open %s: %d %v", summary, status, card)
+			}
+			return card["id"].(string), card["chat_message_id"].(string)
+		}
+		bodyCard, inBody := open("要不要上線", "背景：Deploy 要停機十分鐘")
+		answered, inAnswer := open("選哪個時段", "背景：維護時段")
+		open("無關的卡", "背景：沒有關鍵字")
+		if status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+answered+"/answer", owner,
+			`{"text":"週四晚上 deploy"}`); status != 200 {
+			t.Fatalf("answer: %d %v", status, data)
+		}
+		cardRow := func(msgID, cardID, summary, status string) map[string]any {
+			row := apiTestChatRow(msgID, "kip", "owner", summary)
+			row["meta"] = map[string]any{"reply_card_id": cardID}
+			row["reply_card_status"] = status
+			return row
+		}
+
+		status, data := apiJSON(t, h, "GET", "/api/chat?with=kip&q=DEPLOY", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"messages": []any{
+				cardRow(inBody, bodyCard, "要不要上線", "waiting"),
+				cardRow(inAnswer, answered, "選哪個時段", "answered"),
+			},
+			"match_count": float64(2),
+		})
+	})
+
 	t.Run("q pages through older matches with the cursor", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiTestAgentToken(t, api, "kip", "")

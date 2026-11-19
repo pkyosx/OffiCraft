@@ -469,9 +469,23 @@ func (f chatListFilter) appendSQL(query *string, args *[]any, col string) {
 	}
 	if f.bodyContains != "" {
 		// SQLite lower() folds ASCII only; spec/openapi.json promises exactly that.
-		*query += ` AND instr(lower(` + col + `body), lower(?)) > 0`
-		*args = append(*args, f.bodyContains)
+		*query += ` AND (instr(lower(` + col + `body), lower(?)) > 0 OR ` + chatReplyCardContainsSQL(col) + `)`
+		*args = append(*args, f.bodyContains, f.bodyContains, f.bodyContains)
 	}
+}
+
+// A reply-card message's body is only the card summary; its question body and
+// the owner's answer live on the card. The card is found by primary key from
+// meta.reply_card_id (reply_card.chat_message_id has no index). ⚠️ Keep the
+// CASE: meta may not be JSON and json_extract raises on malformed input.
+func chatReplyCardContainsSQL(col string) string {
+	msgTable := col
+	if msgTable == "" {
+		msgTable = `chat_message.`
+	}
+	return `EXISTS (SELECT 1 FROM reply_card rc WHERE rc.id = CASE WHEN json_valid(` + msgTable + `meta) ` +
+		`THEN json_extract(` + msgTable + `meta, '$.reply_card_id') END ` +
+		`AND (instr(lower(rc.body), lower(?)) > 0 OR instr(lower(rc.answer_text), lower(?)) > 0))`
 }
 
 // The sender test is what makes the marker trustworthy: POST /api/chat keeps
