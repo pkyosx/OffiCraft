@@ -4616,7 +4616,8 @@ export interface paths {
         put?: never;
         /**
          * Create a shared document: a named file, image or link that every member can read and replace, kept with a short version history and not tied to any task.
-         * @description - A file or image goes in two steps: `ocagent upload` it, then pass the attachment id here.
+         * @description - For reference material that several tasks or manuals cite over time; output that belongs to one task goes on that task as an artifact.
+         *     - A file or image goes in two steps: `ocagent upload` it, then pass the attachment id here.
          *     - `kind` is fixed for the life of the document.
          *     - Caps are refused, never truncated.
          */
