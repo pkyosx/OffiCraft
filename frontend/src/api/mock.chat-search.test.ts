@@ -16,12 +16,14 @@ function inject(over: Partial<ChatMessage> & { id: string; ts: number }) {
 describe("mock searchChat", () => {
   beforeEach(() => __resetMock());
 
-  it("keeps only this conversation's undeleted messages whose body contains the trimmed query in any ASCII case", async () => {
+  it("keeps only this conversation's undeleted messages the owner sent or received whose body contains the trimmed query in any ASCII case, and counts the same set", async () => {
     inject({ id: "c-1", ts: 1, body: "Deploy 完成" });
     inject({ id: "c-2", ts: 2, body: "午餐吃什麼" });
     inject({ id: "c-3", ts: 3, body: "deploy again", from: "mira", to: "owner" });
     inject({ id: "c-4", ts: 4, body: "deploy elsewhere", to: "kye" });
     inject({ id: "c-5", ts: 5, body: "deploy deleted", deletedTs: 6 });
+    inject({ id: "c-6", ts: 7, body: "deploy between members", from: "mira", to: "kye" });
+    inject({ id: "c-7", ts: 8, body: "deploy between members", from: "kye", to: "mira" });
 
     const page = await mockApi.searchChat("mira", "  DEPLOY ");
     expect(page).toEqual({

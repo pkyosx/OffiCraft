@@ -366,7 +366,7 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     expect(got.map((m) => m.id)).toEqual(["c-9"]);
   });
 
-  it("searchChat sends with, q, limit 30 and no cursor on the first page, leaves deleted messages unsearched, and reads the whole-conversation match_count", async () => {
+  it("searchChat sends with, q, limit 30 and no cursor on the first page, leaves deleted and member-to-member messages unsearched, and reads the whole-conversation match_count", async () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse({
         messages: [
@@ -395,6 +395,7 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     expect(method).toBe("GET");
     expect(url.split("?")[0]).toBe("/api/chat");
     expect([...new URLSearchParams(url.split("?")[1] ?? "")].sort()).toEqual([
+      ["exclude_inter_agent", "true"],
       ["hide_delete_notices", "true"],
       ["limit", "30"],
       ["q", "deploy"],
@@ -410,6 +411,7 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     const got = await httpApi.searchChat("m-1", "deploy", "b3wAMQBjLTk");
     const q = new URLSearchParams((await lastRequest()).url.split("?")[1] ?? "");
     expect(q.get("cursor")).toBe("b3wAMQBjLTk");
+    expect(q.get("exclude_inter_agent")).toBe("true");
     expect(q.get("q")).toBe("deploy");
     expect(q.get("with")).toBe("m-1");
     expect(got).toEqual({ messages: [], matchCount: 7 });

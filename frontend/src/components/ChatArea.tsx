@@ -937,10 +937,14 @@ export function ChatArea({
 
   const searchPaintQuery =
     searchMode && chatSearch.status === "done" ? chatSearch.query : "";
-  useEffect(
-    () => paintChatSearchHighlights(messagesRef.current, searchPaintQuery),
-    [searchPaintQuery, messages, expandedGroups],
-  );
+  useEffect(() => {
+    const searchable = new Set(
+      messages.filter((m) => !isInterAgent(m)).map((m) => m.id),
+    );
+    return paintChatSearchHighlights(messagesRef.current, searchPaintQuery, (id) =>
+      searchable.has(id),
+    );
+  }, [searchPaintQuery, messages, expandedGroups]);
 
   // T-8aaa: persist the TYPED half of the draft to the per-peer store on every
   // change, so an unmount (跳頁 or a switch to another room) leaves the latest

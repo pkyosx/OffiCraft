@@ -2400,8 +2400,9 @@ export interface Api {
   getFirstUnreadChat(withId: string): Promise<ChatMessage | null>;
   /** One page of the messages in the conversation with `withId` whose body
    * contains `q` (`GET /api/chat?with=&q=`; ASCII letters match regardless of
-   * case). The first page is the newest matches; pass the page's `nextCursor`
-   * back to get the next OLDER page. Each page is oldest→newest. Deleted
+   * case), among the messages the owner sent or received — member-to-member
+   * messages are not searched. The first page is the newest matches; pass the
+   * page's `nextCursor` back to get the next OLDER page. Each page is oldest→newest. Deleted
    * messages are not searched. Read-only. */
   searchChat(withId: string, q: string, cursor?: string): Promise<ChatSearchPage>;
   /** The M2 gallery query (`GET /api/chat/attachments?with=<memberId>`): every

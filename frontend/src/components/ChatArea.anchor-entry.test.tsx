@@ -256,8 +256,10 @@ vi.mock("../api", () => ({
     },
     searchChat: async (withId: string, q: string, cursor?: string) => {
       searchCalls.push({ q, cursor });
-      const all = threadOf(withId).filter((m) =>
-        m.body.toLowerCase().includes(q.toLowerCase()),
+      const all = threadOf(withId).filter(
+        (m) =>
+          (m.from === OWNER || m.to === OWNER) &&
+          m.body.toLowerCase().includes(q.toLowerCase()),
       );
       const upTo = cursor ? all.findIndex((m) => m.id === cursor) : all.length;
       const page = all.slice(Math.max(0, upTo - 30), upTo);
@@ -1033,7 +1035,7 @@ describe("ChatArea 進房錨點優先(useChat 的 anchor 參數)", () => {
     ).toEqual([A]);
   });
 
-  it("搜尋後 ▲ 一路往舊走、走過已載入的結果就先撈下一頁再跳:目標亮起並持續框住、關鍵字被標示、中間的不標已讀;從結果列表再點同一筆會再定位;X 清掉標示與框", async () => {
+  it("搜尋後 ▲ 一路往舊走、走過已載入的結果就先撈下一頁再跳:目標亮起並持續框住、關鍵字被標示(成員之間的訊息不標)、中間的不標已讀;從結果列表再點同一筆會再定位;X 清掉標示與框", async () => {
     history.replaceState(null, "", "/");
     const highlights = new Map<string, { ranges: Range[] }>();
     const g = globalThis as Record<string, unknown>;
@@ -1052,6 +1054,7 @@ describe("ChatArea 進房錨點優先(useChat 的 anchor 參數)", () => {
       seed(A, "a", 300, 100);
       log[3].body = "a3 Deploy 完成";
       for (let i = 270; i < 300; i++) log[i].body = `deploy a${i}`;
+      log[4] = { ...log[4], id: "x1", to: B, body: "deploy between members" };
       const { container } = render(<RoutedRoom m={alice} />);
       await waitFor(() =>
         expect(container.querySelector('[data-msg-id="a299"]')).not.toBeNull(),
@@ -1102,6 +1105,11 @@ describe("ChatArea 進房錨點優先(useChat 的 anchor 參數)", () => {
         { startId: "a3" },
       ]);
       expect(bubbles(container)).toContain("n9");
+      expect(marked()).toEqual(["Deploy", ...Array(30).fill("deploy")]);
+      fireEvent.click(container.querySelector(".chat__inter-toggle")!);
+      await waitFor(() =>
+        expect(container.querySelector('.chat__msg[data-msg-id="x1"]')).not.toBeNull(),
+      );
       expect(marked()).toEqual(["Deploy", ...Array(30).fill("deploy")]);
       // 399 was already read on entry; n0..n9 (400..409) have not been seen.
       expect(markReads.filter((ts) => ts > 399)).toEqual([]);

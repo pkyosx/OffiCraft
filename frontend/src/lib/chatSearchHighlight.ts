@@ -40,15 +40,21 @@ function rangesIn(el: Element, needle: string): Range[] {
 }
 
 /** Paints every occurrence of `query` in the message texts under `root`
- * through the CSS Custom Highlight API — the message DOM is never touched.
- * Returns the cleanup. Without the API it paints nothing. */
-export function paintChatSearchHighlights(root: Element | null, query: string): () => void {
+ * through the CSS Custom Highlight API — the message DOM is never touched —
+ * but only in rows (`[data-msg-id]`) that `searchable` admits, so nothing is
+ * marked that the search itself can never step to. Returns the cleanup.
+ * Without the API it paints nothing. */
+export function paintChatSearchHighlights(
+  root: Element | null,
+  query: string,
+  searchable: (msgId: string) => boolean,
+): () => void {
   const hl = highlightApi();
   const needle = asciiLower(query.trim());
   if (!hl || !root || needle === "") return () => {};
-  const ranges = Array.from(root.querySelectorAll(".chat__msg-text")).flatMap((el) =>
-    rangesIn(el, needle),
-  );
+  const ranges = Array.from(root.querySelectorAll(".chat__msg-text"))
+    .filter((el) => searchable(el.closest("[data-msg-id]")?.getAttribute("data-msg-id") ?? ""))
+    .flatMap((el) => rangesIn(el, needle));
   hl.registry.set(CHAT_SEARCH_HIGHLIGHT, new hl.Highlight(...ranges));
   return () => hl.registry.delete(CHAT_SEARCH_HIGHLIGHT);
 }

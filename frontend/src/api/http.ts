@@ -1615,6 +1615,7 @@ export const httpApi: Api = {
             limit: CHAT_SEARCH_PAGE_SIZE,
             cursor,
             hide_delete_notices: HIDE_DELETE_NOTICES,
+            exclude_inter_agent: "true",
           },
         },
       }),

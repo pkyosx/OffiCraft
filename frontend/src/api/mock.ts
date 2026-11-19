@@ -4300,6 +4300,7 @@ const mockApiImpl = {
       .filter(
         (m) =>
           (m.from === withId || m.to === withId) &&
+          (m.from === MOCK_OWNER_ID || m.to === MOCK_OWNER_ID) &&
           notDeleteNotice(m) &&
           !((m.deletedTs ?? 0) > 0) &&
           chatBodyMatches(m.body, q),
