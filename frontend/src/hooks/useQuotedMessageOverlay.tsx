@@ -55,7 +55,7 @@ import { api } from "../api";
 import { useI18n } from "../i18n";
 import { MarkdownPreviewOverlay } from "../components/MarkdownPreviewOverlay";
 import { AttachmentStrip } from "../components/AttachmentStrip";
-import type { ChatAttachmentView } from "../api/adapter";
+import type { ChatAttachmentView, ChatMessage } from "../api/adapter";
 import "../components/office.css"; // .chat__msg-quote__error
 
 export type QuotedMessageOverlay = {
@@ -86,15 +86,20 @@ export type QuotedMessageOverlay = {
  * codenames, 系統). Surfaces without a roster omit it and get the server's
  * resolved `fromName`, falling back to the raw address — never a fabricated
  * name.
+ * @param jumpFor the 跳到原訊息 action for the message just read, or null when
+ * the cockpit has no thread to put it in. Asked once per read, from the read
+ * message itself.
  */
 export function useQuotedMessageOverlay(
   resolveName?: (id: string) => string,
+  jumpFor?: (original: ChatMessage) => (() => void) | null,
 ): QuotedMessageOverlay {
   const { t } = useI18n();
   const [shown, setShown] = useState<{
     title: string;
     source: string;
     attachments: ChatAttachmentView[];
+    jump: (() => void) | null;
   } | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
   // The in-flight latch. A `useState` flag cannot do this job: two clicks
@@ -114,6 +119,7 @@ export function useQuotedMessageOverlay(
           : original.fromName || original.from,
         source: original.body,
         attachments: original.attachments,
+        jump: jumpFor?.(original) ?? null,
       });
     } catch {
       // Deliberately swallowed rather than logged-and-retried: the person who
@@ -127,6 +133,7 @@ export function useQuotedMessageOverlay(
   // FOCUS IS NOT HANDLED HERE. MarkdownPreviewOverlay focuses itself on mount
   // and hands focus back on unmount — to the button that was clicked. Doing it
   // again from this side would be two owners for one behaviour.
+  const jump = shown?.jump;
   const overlay = shown ? (
     <MarkdownPreviewOverlay
       title={shown.title}
@@ -140,6 +147,14 @@ export function useQuotedMessageOverlay(
             imageClassName="chat__msg-image chat__msg-image--clickable"
           />
         ) : undefined
+      }
+      onJumpToMessage={
+        jump
+          ? () => {
+              setShown(null);
+              jump();
+            }
+          : undefined
       }
       onClose={() => setShown(null)}
     />

@@ -943,28 +943,14 @@
   flex-direction: column;
   gap: 12px;
   padding-right: 4px;
-  /* 🔴 THE QUOTE ROW'S BREAKPOINT HANGS OFF THIS BOX, NOT OFF THE WINDOW
-   * (T-4e95). Named `chat-pane`; the rule is the `@container` block beside
-   * `.chat__msg-quote__jump-label`.
-   *
-   * The reason is a measured discontinuity, not tidiness. This pane is NOT a
-   * monotonic function of the viewport: the app shell brings in a 264px roster
-   * column at 721px, so the pane DROPS 281px as the window gets WIDER —
-   * measured in the running app, 628px of pane at vw=720 and 347px at vw=721.
-   * A `@media (max-width: …)` on the viewport therefore collapses the label at
-   * the narrow end and then hands it back at exactly the width where the pane
-   * is at its smallest. The English excerpt measured 0 visible characters from
-   * vw=721 all the way to ~880 while the label sat there at full size, and the
-   * old viewport rule could not see it: widening the window showed the reader
-   * LESS.
-   *
-   * `container-type: inline-size` costs layout + style containment on this box.
-   * That is safe here because this pane's inline size is already
-   * content-independent (`width: 100%` inside the shell's grid), and nothing in
-   * the thread positions itself against an ancestor further out — the bubbles'
-   * corner actions anchor on `.chat__msg-bubble`, and the full-view overlay
-   * portals to <body> precisely so no ancestor can confine it (see
-   * md-preview.css, which names container-type among the traps it dodges). */
+  /* A breakpoint for anything inside the thread belongs on this container,
+   * not on the viewport: the pane is not monotonic in the window width — the
+   * shell brings in a 264px roster at vw 721, dropping the pane from 628px to
+   * 347px as the window gets WIDER. No `@container chat-pane` rule exists
+   * today; the containment is kept so the next one has something to query.
+   * It is safe because this box's inline size is already content-independent
+   * (`width: 100%` in the shell's grid) and the full-view overlay portals to
+   * <body>, so nothing in the thread positions itself against it. */
   container-type: inline-size;
   container-name: chat-pane;
 }
@@ -1050,7 +1036,10 @@
   padding: 9px 13px;
   border-radius: 12px;
   background: var(--color-card);
-  color: var(--color-text);
+  /* The bubble's ink, named so the quote row (which sets its own muted
+   * colour) can still draw its hover wash from it. */
+  --chat-bubble-ink: var(--color-text);
+  color: var(--chat-bubble-ink);
   font-size: 14px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -1324,9 +1313,13 @@
  * its own is a separate ticket, not this one.
  *
  * Modelled on the 精簡任務資訊 row a task-derived ask wears (.reply-card__task):
- * a truncating identity + text, then a jump control that keeps its intrinsic
- * width. A hairline under it separates the quote from the message body, so the
- * two never read as one paragraph.
+ * a truncating identity + text. A hairline under it separates the quote from
+ * the message body, so the two never read as one paragraph.
+ *
+ * When the original can be opened, the WHOLE ROW is the click target (owner
+ * rc-4f3663c42554): `.chat__msg-quote__jump` is an empty button stretched over
+ * it, and the row itself paints the hover wash so the wash sits under the
+ * text rather than on top of it.
  *
  * ONE LINE, always. The quoted text belongs to a DIFFERENT message and its
  * length is not this message's to control — letting it wrap would grow a copy
@@ -1334,7 +1327,7 @@
  * was meant to avoid. */
 .chat__msg-quote {
   /* 🔴 TWO LINES SINCE 2026-08-22 (owner: 「換成兩行？ 一行是誰跟誰說話 一行是
-   * 內容？」). Line 1 is 「寄件者 → 收件者」 plus the control; line 2 is the
+   * 內容？」). Line 1 is 「寄件者 → 收件者」; line 2 is the
    * quoted sentence. It was ONE line until T-4e95 added the recipient half, and
    * the two halves then fought over the same horizontal space — with the excerpt
    * losing, because it is the item that gives way first (see the shrink note
@@ -1355,36 +1348,39 @@
   flex-direction: column;
   align-items: stretch;
   gap: 1px;
-  max-width: 100%;
-  /* NO `overflow: hidden` and no `min-width: 0` here — but the honest claim is
-   * narrow: an earlier comment called them load-bearing, and mutating each in
-   * turn (CT `chat-reply-to`, 390 and 1280) changed nothing, all guards green.
-   * That measures "not needed at the widths and fixtures we guard", NOT "dead".
-   * A later review found the row CAN still run past the bubble, but the trigger
-   * is the jump control's width, not this clip — in both languages, and earliest
-   * on an INCOMING bubble WITH A BODY (`!mine && m.body` → `--acts2`), which
-   * reserves the widest corner. TWO SEPARATE CONDITIONS, do not collapse them:
-   * what reserves 56px is `!mine && m.body` — being a reply has no part in it —
-   * but the row that then overflows is the QUOTE row, and that one renders only
-   * when `m.replyTo` is set. So the worst case needs BOTH: incoming, with a
-   * body, and itself a reply. That is fixed where it is caused, but NOT by
-   * making the jump shrink — it does not shrink, it is `flex: none`. Below a
-   * 520px pane the jump's LABEL goes to `display: none` and the button
-   * collapses to its arrow (see the `@container chat-pane` block below); above
-   * that pane width the label renders whole. Whole or absent, never squeezed —
-   * and either way the give happens there rather than in a clip here. Clipping
-   * here has a standing cost anyway: it cuts the focus ring off 「看原訊息」,
-   * whose right edge is flush with the row's. */
-  margin-bottom: 6px;
-  padding-bottom: 5px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  position: relative;
+  /* The hover wash needs a little room around the text. Negative margin plus
+   * equal padding gives it that without moving a single glyph, and stays
+   * inside the 6px between the row and the corner buttons. A `max-width: 100%`
+   * here would cancel the right-hand margin and narrow the text by 6px.
+   * No `overflow: hidden` either: it would clip the overlay's focus ring. */
+  margin: -2px -3px 6px;
+  padding: 2px 3px 6px;
+  border-radius: 4px;
   font-size: 11px;
   line-height: 1.35;
   color: var(--color-text-muted);
+  transition: background-color 0.15s;
+}
+/* The divider, drawn rather than a border so it keeps the text's width instead
+ * of the wash's, and stays straight under the rounded corners. */
+.chat__msg-quote::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+}
+/* An inline reply card's quote sits outside any bubble, hence the fallback. */
+.chat__msg-quote:has(> .chat__msg-quote__jump:hover),
+.chat__msg-quote:has(> .chat__msg-quote__jump:focus-visible) {
+  background: color-mix(in srgb, var(--chat-bubble-ink, var(--color-text)) 12%, transparent);
 }
 /* Line 1. The only shrinkable thing on it is the name pair, so a long
- * 「寄件者 → 收件者」 ellipsises rather than pushing the control out of the
- * bubble — the same give the sender half already had, now covering both halves.
+ * 「寄件者 → 收件者」 ellipsises rather than pushing the failure sentence out
+ * of the bubble — the same give the sender half already had, now covering both halves.
  * That is a truncation of the existing drawing, not a second drawing: the arrow
  * and both names stay in the same span, in the same order. */
 .chat__msg-quote__head {
@@ -1421,10 +1417,10 @@
  * 🔴 SO THE PREMISE OF THIS DECLARATION CHANGED ON 2026-08-22 AND THE
  * DECLARATION DID NOT. It used to be one shrinkable item competing with another
  * (the excerpt) for one line's width, arbitrated by shrink factors. It is now
- * the ONLY shrinkable item on line 1, competing with nothing — the icon, the
- * jump and the failure sentence are all `flex: none`. What it still buys is ①:
- * a free-text name that cannot shrink pushes the control out of the bubble and
- * under the corner buttons. What it no longer costs is ②, because the excerpt
+ * the ONLY shrinkable item on line 1, competing with nothing — the icon and the
+ * failure sentence are both `flex: none`. What it still buys is ①: a free-text
+ * name that cannot shrink overflows the bubble and runs under the corner
+ * buttons. What it no longer costs is ②, because the excerpt
  * is not there to be dragged down with it.
  *
  * ⚠️ AND WHAT IT DEGRADES TO IS AN ELLIPSIS, NOT A THIRD DRAWING. On a pane too
@@ -1454,49 +1450,29 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The quote text takes priority over the navigation label. On narrow panes,
- * the label disappears while the chevron and accessible name remain. The
- * breakpoint follows pane width because shell chrome can make the pane
- * narrower as the viewport grows: at vw 721 the roster reduces it from
- * 628px to 347px. */
-
+/* The whole-row target: empty and transparent, so the text under it is what
+ * shows. Its box is the row's, so the focus ring outlines the quote. */
 .chat__msg-quote__jump {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
+  position: absolute;
+  inset: 0;
   padding: 0;
   border: none;
-  background: none;
+  border-radius: inherit;
+  background: transparent;
   cursor: pointer;
-  font-size: 11px;
-  color: var(--color-accent);
-  white-space: nowrap;
 }
-.chat__msg-quote__jump-chevron {
-  flex: none;
-}
-/* The quote excerpt is the row content; the jump label is secondary.
- * At or below 520px of pane width, hide the label and keep the chevron.
- * A pane-based threshold matters because the shell adds its 264px roster
- * at vw 721, reducing the pane from 628px to 347px as the viewport grows.
- * The button keeps its accessible name and title when the label is hidden. */
-
-@container chat-pane (max-width: 520px) {
-  .chat__msg-quote__jump-label {
-    display: none;
-  }
-}
-.chat__msg-quote__jump:hover,
 .chat__msg-quote__jump:focus-visible {
-  text-decoration: underline;
+  outline: 2px solid var(--color-accent);
+  outline-offset: 0;
 }
-/* The one-off 「拿不到這則訊息」 beside the button that was pressed. `flex: none`
- * and nowrap: it is the OUTCOME of an action the owner just took, so it is the
+/* The one-off 「拿不到這則訊息」 on the row that was pressed. Positioned above
+ * the overlay so the overlay never sits on it. `flex: none` and nowrap: it is the OUTCOME of an action the owner just took, so it is the
  * last thing on this row that should be squeezed away — everything else here is
  * already shrinkable and gives first. It exists only while that one click's
  * failure is the most recent thing to have happened. */
 .chat__msg-quote__error {
+  position: relative;
+  z-index: 1;
   flex: none;
   white-space: nowrap;
   font-size: 11px;
@@ -1638,7 +1614,8 @@
 }
 .chat__msg--me .chat__msg-bubble {
   background: var(--color-accent-cta-bg);
-  color: var(--color-accent);
+  --chat-bubble-ink: var(--color-accent);
+  color: var(--chat-bubble-ink);
 }
 /* LINE-style outgoing row: the meta column sits to the LEFT of the bubble and
  * both bottoms line up (flex-end), so "已讀"/time hug the bubble's lower edge. */

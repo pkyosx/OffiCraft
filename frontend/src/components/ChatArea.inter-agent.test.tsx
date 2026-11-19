@@ -15,7 +15,7 @@
 //      sender name; an id missing from the roster falls back to the raw id.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ChatArea } from "./ChatArea";
 import type { Member } from "../types";
@@ -37,12 +37,20 @@ vi.mock("../hooks/useWorkerCodenames", () => ({
     return new Map(ids.filter((id) => id in UNLISTED_NAMES).map((id) => [id, UNLISTED_NAMES[id]]));
   },
 }));
+// Stable across renders like the real hook's useCallbacks: a fresh function per
+// render would re-run the jump effect on its own and hide a missing dependency.
+const chatFns = vi.hoisted(() => ({
+  loadAround: vi.fn(() => Promise.resolve("found" as const)),
+  resetToLatest: vi.fn(() => Promise.resolve()),
+}));
 vi.mock("../hooks/useChat", () => ({
   useChat: () => ({
     messages,
     peerLastReadTs: 0,
     send: vi.fn(() => Promise.resolve()),
     markRead: vi.fn(() => Promise.resolve()),
+    loadAround: chatFns.loadAround,
+    resetToLatest: chatFns.resetToLatest,
   }),
 }));
 
@@ -124,6 +132,87 @@ describe("ChatArea inter-agent thread", () => {
     ).map((n) => n.textContent);
     expect(names).toContain("Alma → Beto");
     expect(names).toContain("Beto → Alma");
+  });
+
+  it("a jump to a message inside a collapsed run opens that run and locates the message", () => {
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    } as typeof Element.prototype.scrollIntoView;
+    messages = [
+      { id: "c0", from: "owner", to: "b", body: "早安", ts: 999, attachments: [], replyCardId: null },
+      { id: "c1", from: "a", to: "b", body: "hey Beto", ts: 1000, attachments: [], replyCardId: null },
+      { id: "c2", from: "b", to: "a", body: "hi Alma", ts: 1001, attachments: [], replyCardId: null },
+    ];
+    const { container } = render(
+      <I18nProvider>
+        <ChatArea key={beto.id} member={beto} members={[beto, alma]} jumpToMsgId="c2" />
+      </I18nProvider>,
+    );
+
+    const row = container.querySelector('[data-msg-id="c2"]');
+    expect(row).not.toBeNull();
+    expect(container.querySelector(".chat__inter-toggle")?.getAttribute("aria-expanded")).toBe("true");
+    expect(scrolled).toContain(row);
+    expect(row!.classList.contains("chat__msg--located")).toBe(true);
+  });
+
+  it("a jump target that arrives later inside a collapsed run is opened and located once it lands", async () => {
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    } as typeof Element.prototype.scrollIntoView;
+    chatFns.loadAround.mockClear();
+    const view = render(
+      <I18nProvider>
+        <ChatArea key={beto.id} member={beto} members={[beto, alma]} jumpToMsgId="c2" />
+      </I18nProvider>,
+    );
+    await act(async () => {});
+    expect(chatFns.loadAround).toHaveBeenCalledTimes(1);
+    expect(chatFns.loadAround).toHaveBeenCalledWith("c2");
+
+    messages = [
+      { id: "c1", from: "a", to: "b", body: "hey Beto", ts: 1000, attachments: [], replyCardId: null },
+      { id: "c2", from: "b", to: "a", body: "hi Alma", ts: 1001, attachments: [], replyCardId: null },
+    ];
+    view.rerender(
+      <I18nProvider>
+        <ChatArea key={beto.id} member={beto} members={[beto, alma]} jumpToMsgId="c2" />
+      </I18nProvider>,
+    );
+
+    const row = view.container.querySelector('[data-msg-id="c2"]');
+    expect(row).not.toBeNull();
+    expect(scrolled).toContain(row);
+    expect(chatFns.loadAround).toHaveBeenCalledTimes(1);
+  });
+
+  it("a run the owner collapses after a jump stays collapsed when new messages arrive", () => {
+    messages = [
+      { id: "c1", from: "a", to: "b", body: "hey Beto", ts: 1000, attachments: [], replyCardId: null },
+      { id: "c2", from: "b", to: "a", body: "hi Alma", ts: 1001, attachments: [], replyCardId: null },
+    ];
+    const view = render(
+      <I18nProvider>
+        <ChatArea key={beto.id} member={beto} members={[beto, alma]} jumpToMsgId="c2" />
+      </I18nProvider>,
+    );
+    const toggle = () => view.container.querySelector(".chat__inter-toggle") as HTMLButtonElement;
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(toggle());
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+
+    messages = [
+      ...messages,
+      { id: "c3", from: "b", to: "owner", body: "好了", ts: 1002, attachments: [], replyCardId: null },
+    ];
+    view.rerender(
+      <I18nProvider>
+        <ChatArea key={beto.id} member={beto} members={[beto, alma]} jumpToMsgId="c2" />
+      </I18nProvider>,
+    );
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
   });
 
   it("collapses an expanded run again when the room is re-entered", () => {

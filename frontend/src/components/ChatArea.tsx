@@ -68,6 +68,8 @@ import { NameWithActivity } from "./MemberActivity";
 import { PresenceAvatar } from "./PresenceAvatar";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { isSyntheticSender } from "../lib/syntheticSender";
+import { quotedMessageThreadPeer } from "../lib/quotedMessageThread";
+import { useHashRoute } from "../lib/hashRoute";
 import { docCommentRecipient, type DocCommentTarget } from "../lib/docComments";
 import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
 import {
@@ -376,8 +378,9 @@ export function ChatArea({
   //
   // 🔴 THE COCKPIT ROUTES HERE AGAIN (owner 2026-08-29: 「1 跟 2 變回去原本那
   // 樣」). The 請示 page's 跳到原訊息 and the inline task card's 在聊天室回覆
-  // both write #office/chat/<id>/msg/<msgId> once more; only the chat bubble's
-  // 看原訊息 takes the overlay (hooks/useQuotedMessageOverlay).
+  // both write #office/chat/<id>/msg/<msgId> once more; the chat bubble's
+  // 看原訊息 takes the overlay (hooks/useQuotedMessageOverlay), and of that
+  // overlay only its 跳到原訊息 routes here (`jumpToMessage`).
   //
   // ⚠️ AND THE KNOWN COST CAME BACK WITH THEM, knowingly: this path can only
   // find a row the thread has already PAINTED. When the target is outside the
@@ -607,7 +610,20 @@ export function ChatArea({
   // The shared 看原訊息 exit. Declared here rather than at the top of the
   // component because it is handed `nameOf`, and `nameOf` needs the roster
   // hooks above it. It is still an unconditional top-level hook call.
-  const quotedMessage = useQuotedMessageOverlay(nameOf);
+  const [, setRoute] = useHashRoute();
+  // ⚠️ The overlay builds its jump when it opens; the route can move (Back,
+  // another jump) before the button is pressed, so the press must reach the
+  // CURRENT render's `jumpToMessage`, not the one captured at open time.
+  const jumpToMessageRef = useRef(jumpToMessage);
+  useLayoutEffect(() => {
+    jumpToMessageRef.current = jumpToMessage;
+  });
+  const quotedMessage = useQuotedMessageOverlay(nameOf, (original) => {
+    const peerId = quotedMessageThreadPeer(member.id, original);
+    return peerId === null
+      ? null
+      : () => jumpToMessageRef.current(original.id, peerId);
+  });
   const chatDelete = useChatDelete();
   // Is the owner ACTUALLY looking (window focused + tab visible)? Read side
   // effects (mark-read below) are gated on this: a backgrounded window must
@@ -1264,6 +1280,16 @@ export function ChatArea({
     setJumpRetry((n) => n + 1);
   }
 
+  // ⚠️ The route already naming this message is not a new jump: the hash does
+  // not change, so the reactor's spent latch has to be released instead.
+  function jumpToMessage(msgId: string, peerId: string = member.id) {
+    if (peerId === member.id && msgId === jumpToMsgId) {
+      retryJump();
+      return;
+    }
+    setRoute({ page: "office", chatId: peerId, msgId });
+  }
+
   // ===== T-4e95 quote resolution =====
   //
   // 🔴 THERE IS NO RESOLUTION ANY MORE, AND THAT IS THE WHOLE REDESIGN (owner
@@ -1330,8 +1356,9 @@ export function ChatArea({
   // the thread still opens, and nothing pretends the target was found).
   //
   // ⚠️ Its callers are the 請示 page's 跳到原訊息, the inline task card's
-  // 在聊天室回覆, and any URL somebody kept (bookmark, pasted link, restored
-  // tab) — see the prop's note for the miss this can still land on.
+  // 在聊天室回覆, the quoted-message overlay's 跳到原訊息 (`jumpToMessage`),
+  // and any URL somebody kept (bookmark, pasted link, restored tab) — see the
+  // prop's note for the miss this can still land on.
   useEffect(() => {
     if (!jumpToMsgId) return;
     // 🔴 AN EMPTY THREAD IS THE NORMAL ENTRY NOW, NOT A REASON TO WAIT (T-48).
@@ -1341,6 +1368,14 @@ export function ChatArea({
     // sends this straight down the fetch branch below — which is the point:
     // the FIRST request the room makes is the window around the target.
     if (session.jumpConsumed === jumpToMsgId) return;
+    // ⚠️ An agent↔agent target folds into a collapsed block that draws no row,
+    // so the lookup below would miss a message that IS loaded. Open its block
+    // first; `expandedGroups` in the deps brings this effect back to locate it.
+    const target = messages.find((m) => m.id === jumpToMsgId);
+    if (target && isInterAgent(target) && !expandedGroups.has(target.id)) {
+      setExpandedGroups((prev) => new Set(prev).add(target.id));
+      return;
+    }
     // Raw interpolation matches the chip-jump selector above — message ids
     // are server-minted (`c-<hex>`), never arbitrary strings.
     const el = messagesRef.current?.querySelector(
@@ -1476,7 +1511,7 @@ export function ChatArea({
     // to fetch and nothing to grow into (T-48, owner 2026-09-04). What is still
     // accepted is late content of every OTHER kind.
     // Do not add a compensator.
-  }, [jumpToMsgId, messages, loadAround, resetToLatest, jumpRetry]);
+  }, [jumpToMsgId, messages, loadAround, resetToLatest, jumpRetry, expandedGroups]);
 
   // The jump highlight is a transient flash — clear it after the CSS pulse so
   // the row returns to the normal thread look.
@@ -1969,7 +2004,7 @@ export function ChatArea({
          * quote through its aria-label, so an unnamed <img> node in the tree
          * beside it is pure noise. Only this one is hidden — the rest of the
          * app's icons are a separate, pre-existing question. */}
-        {/* 🔴 LINE 1 — WHO SAID IT TO WHOM, and the control. Owner ruling
+        {/* 🔴 LINE 1 — WHO SAID IT TO WHOM. Owner ruling
          * 2026-08-22 (「換成兩行？ 一行是誰跟誰說話 一行是內容？」): the row is
          * two lines, so 「→ 收件者」 and the quoted sentence stop competing for
          * the same horizontal space. Before that ruling they shared one line and
@@ -1985,90 +2020,8 @@ export function ChatArea({
             aria-hidden="true"
           />
           {quoteWho && <span className="chat__msg-quote__who">{quoteWho}</span>}
-          {/* The control is its own element, the way 查看任務詳情 is on a
-           * task-derived ask (ReplyCardTaskRef) — owner 2026-08-20.
-           *
-           * 🔴 IT IS OFFERED FOR EVERY REPLY, UNCONDITIONALLY (owner ruling
-           * 2026-08-21: 「全部統一就撈那一則顯示出來就好」). It used to appear only
-           * when the quoted row was already in the loaded window, on the argument
-           * that an affordance which scrolls nowhere is worse than none — true of
-           * a control that SCROLLS. This one does not scroll: it reads that one
-           * message back from the server and opens it in the full-view overlay,
-           * so it works identically for a quote from ten seconds ago and one from
-           * ten thousand messages ago. The window-membership question is gone, and
-           * with it the row's only piece of local, disagreeable state.
-           *
-           * The row still shows the SERVER's 60-rune excerpt; the overlay shows
-           * the whole body. Nothing here re-cuts anything.
-           *
-           * ⚠️ ONE CONDITION SURVIVES, AND IT IS NOT THE WINDOW ONE. `quoted` —
-           * the server's snapshot — must be present. When it is absent this row is
-           * printing 「這則訊息已不存在」, which is the server's own answer from
-           * THIS read: the original is gone. Offering a control there would be
-           * offering to open a message we have just told the reader does not
-           * exist, and pressing it could only ever produce 「拿不到這則訊息」 one
-           * line below. That is not the window check coming back through a side
-           * door — the window is never consulted — it is the row declining to
-           * contradict itself.
-           *
-           * 🔴 THE LABEL IS ITS OWN ELEMENT so it can be the thing that
-           * DISAPPEARS. It is not trimmed and it never was made trimmable in the
-           * end: nothing in office.css can ellipsise it — the button is
-           * `flex: none` with `white-space: nowrap`, and the label's ONLY rule is
-           * `display: none` inside `@container chat-pane (max-width: 520px)`. So
-           * on a narrow pane the whole label goes and the arrow is what is left;
-           * on a wide one the label renders whole. Whole or absent, never cut.
-           *
-           * The control used to keep its intrinsic width on the reasoning that a
-           * cut 跳到原訊息 helps nobody — true of the Chinese control, which was
-           * 69px. The English one at the time was "Go to the original message" at
-           * 154px (both figures are the WHOLE BUTTON: label + 2px gap + 12px
-           * chevron). Today the labels read 「看原訊息」 / "View the original
-           * message" — `d7752781` renamed them with the behaviour — and the
-           * English control measures ~151px, so the pressure is unchanged. A
-           * control that cannot give way does not stay politely inside the
-           * bubble: it
-           * runs past the edge and under the corner buttons, which are absolutely
-           * positioned and therefore painted on top of it. Measured against the
-           * running app: it fails at the narrow end in BOTH languages, and again
-           * just past the two-column breakpoint on an INCOMING bubble WITH A BODY
-           * (`!mine && m.body` → `--acts2`) — that one reserves 56px of corner
-           * where your own reserves 32. Two conditions, not one: `!mine &&
-           * m.body` is what widens the corner, and `m.replyTo` is what puts a
-           * quote row there to overflow. The worst case is both together. Two earlier versions of this note quoted exact ranges;
-           * both were wrong, because the range moves with the bubble kind, the
-           * language and the display name. The guard holds the numbers.
-           * Dropping the whole label and keeping its arrow beats a control hidden
-           * under another control. */}
-          {m.replyTo && quoted && (
-            <button
-              type="button"
-              className="chat__msg-quote__jump"
-              data-testid="msg-quote-jump"
-              /* 🔴 THE NAME CANNOT RIDE ON THE VISIBLE LABEL. That label is the
-               * first thing this row gives up when the PANE runs short (see the
-               * note above), and it does not shrink on the way out — below 520px
-               * of pane it is `display: none` outright. A name riding on it would
-               * not degrade, it would VANISH, leaving a button whose only content
-               * is a decorative chevron and whose accessible name is the empty
-               * string. Naming the control explicitly is what keeps it named in
-               * the half of the width range where the label is not rendered at
-               * all. */
-              aria-label={t.chat.replyQuoteJump}
-              title={t.chat.replyQuoteJump}
-              onClick={() => void quotedMessage.open(m.replyTo as string)}
-            >
-              <span className="chat__msg-quote__jump-label">
-                {t.chat.replyQuoteJump}
-              </span>
-              <ChevronRightIcon
-                size={12}
-                className="chat__msg-quote__jump-chevron"
-              />
-            </button>
-          )}
-          {/* The failure sentence comes from the hook, so it lands beside the
-           * button that was pressed, and NEVER over the quote line, whose
+          {/* The failure sentence comes from the hook, so it lands on the row
+           * that was pressed, and NEVER replaces the quoted excerpt, whose
            * sentence is a claim about whether the original EXISTS. (It used to
            * be shared with the 請示 page and the inline task card; those two
            * navigate again since 2026-08-29 and have no fetch to fail.) */}
@@ -2082,6 +2035,28 @@ export function ChatArea({
         <span className="chat__msg-quote__body" title={quoteText}>
           {quoteText}
         </span>
+        {/* Offered for EVERY reply whose snapshot is present, never gated on
+         * the quoted message being in the loaded window (owner ruling): it
+         * re-reads that one message and opens it in the full-view overlay, so
+         * it works the same for a quote of any age. Do not bring the window
+         * check back. Without `quoted` the row is printing
+         * 「這則訊息已不存在」, and a control offering to open that message
+         * would contradict the line it sits on.
+         *
+         * The whole row is the target (owner rc-4f3663c42554): this button is
+         * an empty, transparent overlay stretched over the quote, so its name
+         * lives only in aria-label/title. The failure sentence on line 1 is
+         * lifted above it in office.css so it stays readable. */}
+        {m.replyTo && quoted && (
+          <button
+            type="button"
+            className="chat__msg-quote__jump"
+            data-testid="msg-quote-jump"
+            aria-label={t.chat.replyQuoteJump}
+            title={t.chat.replyQuoteJump}
+            onClick={() => void quotedMessage.open(m.replyTo as string)}
+          />
+        )}
       </div>
     );
 

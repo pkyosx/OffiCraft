@@ -14,14 +14,8 @@
 //     跳動 —— 那才是這一條原本要守的事。
 //  ③ 引用列必須留在氣泡那一欄裡，不得溢出訊息串的可視寬度（窄視窗尤其）。
 //
-// 四個寬度都量：手機寬、小平板寬與桌面寬在這個元件上是不同的失敗面。
-// 🔴 375 與 720 是 2026-08-22 加的。那一天引用列從「寄件者」變成「寄件者 →
-// 收件者」——同一條列多了一個名字加一個箭頭，而它本來就是這個元件最會溢出的
-// 那一列。（同一天稍後 owner 把那一列拆成兩行，因為多出來的那半是直接從句子身上
-// 扣寬度；拆完之後最先撞牆的不再是句子，而是第一行的控制項。）只量 390／1280 量到的是兩個端點：窄到跳轉標籤整個消失，與寬到什麼
-// 都塞得下。375 是實機最窄的那一格；720 落在 520 這個 container 斷點的另一
-// 側（pane 672px：標籤畫得出來，卻沒有 1280 的餘裕），正是變長之後最先撞牆
-// 的那一段。
+// 四個寬度都量：手機寬、小平板寬與桌面寬在這個元件上是不同的失敗面。375 是實機
+// 最窄的那一格；720 在 1280 的餘裕之下，第一行的名字最先擠向角落的按鈕。
 import { test, expect } from "@playwright/experimental-ct-react";
 import { ChatReplyToStory } from "./stories/ChatReplyToStory";
 import { ChatSelectionReplyStory } from "./stories/ChatSelectionReplyStory";
@@ -59,6 +53,60 @@ function contrast(fg: string, bg: string): number {
   const l2 = lum([br, bg_, bb]);
   const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1];
   return (hi + 0.05) / (lo + 0.05);
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+
+function intersects(a: Box, b: Box): boolean {
+  return (
+    a.x < b.x + b.width &&
+    b.x < a.x + a.width &&
+    a.y < b.y + b.height &&
+    b.y < a.y + a.height
+  );
+}
+
+/** The whole quote row is the 看原訊息 target (owner rc-4f3663c42554): the
+ * overlay button's box is the row's, it never reaches the corner controls, and
+ * a click at each corner button's centre still lands on that corner button. */
+async function expectWholeRowTarget(
+  row: import("@playwright/test").Locator,
+  label: string,
+): Promise<void> {
+  // elementFromPoint only sees the viewport.
+  await row.scrollIntoViewIfNeeded();
+  const quote = (await row.locator(".chat__msg-quote").boundingBox())!;
+  const jump = (await row.locator(".chat__msg-quote__jump").boundingBox())!;
+  for (const k of ["x", "y", "width", "height"] as const) {
+    expect(
+      Math.abs(jump[k] - quote[k]),
+      `${label}: the jump overlay's ${k} is not the quote row's`,
+    ).toBeLessThanOrEqual(0.5);
+  }
+  const bubble = (await row.locator(".chat__msg-bubble").boundingBox())!;
+  expect(jump.x, `${label}: jump escapes the bubble`).toBeGreaterThanOrEqual(bubble.x - 0.5);
+  expect(jump.x + jump.width, `${label}: jump escapes the bubble`).toBeLessThanOrEqual(
+    bubble.x + bubble.width + 0.5,
+  );
+  const corners = row.locator(".chat__msg-actions > button");
+  const n = await corners.count();
+  expect(n, `${label}: the row has corner controls to check against`).toBeGreaterThan(0);
+  for (let i = 0; i < n; i++) {
+    const corner = corners.nth(i);
+    const c = (await corner.boundingBox())!;
+    expect(intersects(jump, c), `${label}: jump overlaps corner button ${i}`).toBe(false);
+    const hit = await corner.evaluate((el, [x, y]) => {
+      const at = document.elementFromPoint(x, y);
+      return !!at && el.contains(at);
+    }, [c.x + c.width / 2, c.y + c.height / 2] as const);
+    expect(hit, `${label}: corner button ${i} is not what its own centre hits`).toBe(true);
+  }
+  const head = await row
+    .locator(".chat__msg-quote__head")
+    .evaluate((e) => ({ scroll: e.scrollWidth, client: e.clientWidth }));
+  expect(head.scroll, `${label}: line 1 overflows instead of truncating`).toBeLessThanOrEqual(
+    head.client + 1,
+  );
 }
 
 for (const width of [375, 390, 720, 1280]) {
@@ -146,7 +194,8 @@ for (const width of [375, 390, 720, 1280]) {
     // quoted text is long enough to wrap to three or four lines if anything let
     // it, so a third line is still the failure.
     //
-    // Measured in this harness at all four widths: 36.7px. 46 is a ceiling with
+    // Measured in this harness at all four widths: 38.7px (the text's 36.7 plus
+    // the 2px the hover wash borrows from the margin). 46 is a ceiling with
     // room for a font, not a reading of a declaration.
     expect(quoteBox.height).toBeLessThan(46);
     expect(quoteBox.height).toBeGreaterThan(24);
@@ -171,45 +220,22 @@ for (const width of [375, 390, 720, 1280]) {
     );
     expect(quoteBox.y).toBeGreaterThanOrEqual(bubbleBox.y - 0.5);
 
-    // The jump stays inside the bubble. Its LABEL is not necessarily HERE at all,
-    // and when it is absent it is GONE, not shortened: the label's only rule in
-    // office.css is `display: none` inside `@container chat-pane
-    // (max-width: 520px)`, and this harness hands the pane 342px at viewport 390
-    // and 1232px at 1280 — so this loop sees the arrow alone at 375/390 and the
-    // whole label at 720/1280. Nothing in the stylesheet can TRIM it: the button is
-    // `flex: none` with `white-space: nowrap` and the label carries no
-    // `text-overflow` of its own. What may never go is the arrow: what survives
-    // must still read as "go somewhere".
-    //
-    // This replaces an earlier `jump.width > 40`, which encoded "the jump keeps
-    // its whole width, a cut 跳到原訊息 helps nobody". That rule was measured
-    // against the 69px Chinese string and could not survive the 154px English
-    // one: a control that never gives way does not stay inside the bubble, it
-    // runs under the corner buttons. Dropping the whole label is the lesser
-    // loss, and which side of that the row is on is pinned separately below, on
-    // the pane's width ("the jump label collapses on the PANE's width, at 520").
-    const jump = (await cmp.getByTestId("quote-jump").boundingBox())!;
-    expect(jump.x + jump.width).toBeLessThanOrEqual(
-      bubbleBox.x + bubbleBox.width + 0.5,
-    );
-    const chevron = (await cmp
-      .getByTestId("row-mine")
-      .locator(".chat__msg-quote__jump-chevron")
-      .boundingBox())!;
-    expect(chevron.width).toBeGreaterThanOrEqual(11.5);
-    expect(chevron.x + chevron.width).toBeLessThanOrEqual(
-      jump.x + jump.width + 0.5,
-    );
+    await expectWholeRowTarget(cmp.getByTestId("row-mine"), "row-mine");
+    await expectWholeRowTarget(cmp.getByTestId("row-incoming-quote"), "row-incoming-quote");
 
-    // 🔴 AND IT MUST NOT REACH THE CORNER CONTROLS. Measured, not inferred: a
-    // row whose min-content width exceeded the bubble pushed the jump ON TOP of
-    // the reply button — the affordance covering the affordance. Nothing about
-    // the DOM says that; only geometry does.
-    const acts = (await cmp
-      .getByTestId("row-mine")
-      .locator(".chat__msg-actions")
-      .boundingBox())!;
-    expect(jump.x + jump.width).toBeLessThanOrEqual(acts.x + 0.5);
+    // The hover wash is painted by the ROW, under the text, and only on hover.
+    for (const id of ["quote-row", "quote-row-incoming"]) {
+      const bg = () =>
+        cmp.getByTestId(id).evaluate((e) => getComputedStyle(e).backgroundColor);
+      await page.mouse.move(0, 0);
+      await expect.poll(bg, { message: `${id} is washed at rest` }).toBe("rgba(0, 0, 0, 0)");
+      await cmp.getByTestId(id).hover();
+      await expect
+        .poll(async () => parseColour(await bg())[3], {
+          message: `${id} shows no wash on hover`,
+        })
+        .toBeGreaterThan(0.05);
+    }
   });
 
   test(`width ${width}: a short sender name in the quote row is never ellipsised`, async ({
@@ -239,16 +265,6 @@ for (const width of [375, 390, 720, 1280]) {
     );
     expect(whoCut).toBe(false);
     expect((await who.textContent())?.trim()).toBe("Mira → 韓立");
-
-    // …and the jump's label is whole here. Nothing in the stylesheet can trim
-    // it — the button is `flex: none` with `white-space: nowrap` and the label
-    // carries no `text-overflow` — so the label is present whole or absent
-    // outright, never cut. This is a floor, not a discriminator.
-    const labelCut = await cmp
-      .getByTestId("row-mine-short")
-      .locator(".chat__msg-quote__jump-label")
-      .evaluate((e) => e.scrollWidth > e.clientWidth + 0.5);
-    expect(labelCut).toBe(false);
   });
 
   test(`width ${width}: a name is never cut while the excerpt still fits`, async ({
@@ -520,272 +536,73 @@ for (const width of [390, 1200, 1250, 1280]) {
   });
 }
 
-// The longer English label is the limiting case for the jump control's width.
-// Pane width can drop when shell chrome appears at a larger viewport.
+// The whole-row target against the corner controls, on every quote row
+// including the incoming one with a body (`--acts2`, the widest corner).
+// Narrow widths are where a name pair that failed to give way would push line
+// 1 under them.
 for (const width of [300, 320, 336, 360, 390, 600, 640, 760]) {
-  test(`width ${width}: the English jump label never reaches the corner controls`, async ({
+  test(`width ${width}: the whole quote row is the jump target and never reaches the corner controls`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
-    const cmp = await mount(
-      <ChatReplyToStory jumpLabel="Go to the original message" />,
-    );
-
-    // ⚠️ WHICH DECLARATION HAS A WITNESS, AND WHICH HAS NONE.
-    //
-    // 🔴 RE-MEASURED 2026-08-22 AGAINST THIS FILE. The table that sat here on
-    // 2026-08-21 named three mutants that CANNOT BE PERFORMED — it asked for
-    // `flex: 0 10 auto`, the label's `min-width: 0` and the button's
-    // `min-width: 14px` to be mutated, and all three had been deleted from
-    // office.css by the very commit that wrote the table. It also pointed at a
-    // "run log in the task report" that is not in this repository. Do not copy a
-    // table forward, and do not cite evidence that does not live beside the code.
-    //
-    // Run: one declaration at a time in `src/components/office.css`, restored
-    // from a `cp` backup between runs, `npx playwright test -c
-    // playwright-ct.config.ts chat-reply-to`. RE-RUN 2026-08-22 after the row was
-    // split into two lines; baseline 45 passed. (The table this replaces claimed
-    // a baseline of 32, which was already wrong when it was written — the file
-    // had 44 tests before this change added one. Do not copy a count forward.)
-    //
-    //   MUTANT                              RESULT
-    //   @container … max-width: 520px→400   1 failed / 44 · width 560
-    //                                       "pane 512px: the label must be
-    //                                       collapsed to its arrow"
-    //   @container … max-width: 520px→900   1 failed / 44 · width 620
-    //                                       "pane 572px: the label must be
-    //                                       rendered whole"
-    //   the whole @container block deleted  3 failed / 42 · widths 300/320 of
-    //                                       "row-mine: the arrow reaches the
-    //                                       corner controls", and width 560
-    //   the two-line split reverted         5 failed / 40 · all four widths of
-    //   (`.chat__msg-quote` back to a row,  "the quote row is two lines…", and
-    //    `__head` display: contents,        "pane 347px: the quoted sentence
-    //    `__body` flex: 1 10000 auto)       still has characters"
-    //   .chat__msg-quote__jump              45 passed — NO WITNESS
-    //     flex: none → flex: 0 10 auto
-    //   .chat__msg-quote__jump-chevron      45 passed — NO WITNESS
-    //     flex: none → flex: 1 1 auto
-    //
-    // ⚠️ THE @container BLOCK'S WITNESS NARROWED FROM 7 ROWS TO 3, AND THAT IS A
-    // CONSEQUENCE OF THE SPLIT, NOT A REGRESSION IN THE GUARD. Four of the seven
-    // were "the quoted sentence outranks the jump's boilerplate" and width 336 —
-    // both of which measured the label stealing width from the EXCERPT. It
-    // cannot: they are not on the same line any more. What is left is the label
-    // colliding with the corner controls, which is a real failure and is still
-    // caught.
-    //
-    // 🔴 READ THE LAST TWO ROWS AS THEY ARE WRITTEN. Those two declarations are
-    // not guarded by anything in this suite, and that is a consequence of the
-    // redesign rather than a hole to plug here: a button that is never asked to
-    // shrink has no observable flex behaviour. What the widths 600/640/760 buy
-    // is not a witness for them — it is that the corner-collision geometry below
-    // is measured at all with the label present, which before 2026-08-21 it
-    // never was.
-    //
-    // The loop stops at the first failing row, so a report naming a later row
-    // means the earlier ones passed. Do not delete widths from this list on the
-    // belief that one of them does the work.
-    // ⚠️ THE CSS-PROPERTY TRIPWIRE THAT USED TO SIT HERE IS GONE, AND SO ARE
-    // THE DECLARATIONS IT WATCHED. It pinned `overflow: hidden` and
-    // `text-overflow: ellipsis` on `.chat__msg-quote__jump-label`, which existed
-    // because the label had to be TRIMMABLE: the button was `flex: 0 10 auto`
-    // with a `min-width: 14px` floor, so under pressure it shrank and the label
-    // ellipsised inside it. That whole mechanism is retired — the label is now
-    // either rendered whole or `display: none`, decided by the pane's width, and
-    // the button is `flex: none` again.
-    //
-    // They were removed on the strength of a measurement taken while they still
-    // existed — each of the three mutated with the container rule in place, each
-    // leaving the suite green. ⚠️ THAT RUN IS NOT REPRODUCIBLE FROM THIS TREE:
-    // the declarations are gone, so the mutants cannot be re-performed, and the
-    // count it reported ("all 30 tests") is not this file's count (32 today).
-    // What IS reproducible, and what the table above records, is the modern
-    // equivalent of the same question — `flex: none` → `flex: 0 10 auto` on the
-    // button leaves all 32 green — which is the same conclusion reached against
-    // the file as it stands. The geometry below is what remains, and it is real.
+    const cmp = await mount(<ChatReplyToStory />);
 
     for (const row of [
       "row-mine",
       "row-mine-short",
       "row-mine-tight",
       "row-incoming-quote",
+      "row-mine-pane347",
     ]) {
-      const jump = (await cmp
-        .getByTestId(row)
-        .locator(".chat__msg-quote__jump")
-        .boundingBox())!;
-      const acts = (await cmp
-        .getByTestId(row)
-        .locator(".chat__msg-actions")
-        .boundingBox())!;
-      const bubble = (await cmp
-        .getByTestId(row)
-        .locator(".chat__msg-bubble")
-        .boundingBox())!;
-
-      // 🔴 MEASURE THE ARROW, NOT THE BOX. The first version of this loop
-      // asserted only on the button's own rectangle, and a later review showed
-      // why that guards nothing: with `min-width: 0` the button collapsed to
-      // ZERO width — satisfying every "does not reach the corner controls"
-      // assertion vacuously — while the arrow inside it, being `flex: none`,
-      // kept its 12px and painted outside the box and under the corner buttons.
-      // The box was innocent; the pixels were not.
-      const chevron = (await cmp
-        .getByTestId(row)
-        .locator(".chat__msg-quote__jump-chevron")
-        .boundingBox())!;
-
-      // This one catches a collapse to zero and nothing finer. ⚠️ IT PINS NO
-      // NUMBER. There is no `min-width` floor on this button any more — the
-      // width it reports is whatever its content comes to (collapsed: the
-      // chevron; whole: chevron + gap + label), so 11.5 is a floor below which
-      // the control has visibly vanished, not a declaration read back out of the
-      // stylesheet. An earlier version of this note claimed the next assertion
-      // pinned 14 "measured by setting the floor to 12"; that floor no longer
-      // exists and the mutant cannot be performed. What the next assertion
-      // actually catches is the arrow painting outside its own button box.
-      expect(
-        jump.width,
-        `${row}: the jump collapsed past its arrow`,
-      ).toBeGreaterThanOrEqual(11.5);
-      expect(
-        chevron.x + chevron.width,
-        `${row}: the arrow paints outside its own button`,
-      ).toBeLessThanOrEqual(jump.x + jump.width + 0.5);
-      expect(
-        chevron.x + chevron.width,
-        `${row}: the arrow reaches the corner controls`,
-      ).toBeLessThanOrEqual(acts.x + 0.5);
-
-      // …and the box itself, which is still worth stating now that it cannot be
-      // satisfied by vanishing.
-      expect(
-        jump.x + jump.width,
-        `${row}: jump overlaps the corner controls`,
-      ).toBeLessThanOrEqual(acts.x + 0.5);
-      expect(
-        jump.x + jump.width,
-        `${row}: jump escapes the bubble`,
-      ).toBeLessThanOrEqual(bubble.x + bubble.width + 0.5);
+      await expectWholeRowTarget(cmp.getByTestId(row), row);
     }
   });
 }
 
-// ── the collapse threshold, in both directions ───────────────────────────────
-// The label hides at a pane width of 520px. Pane width matters because shell
-// chrome can narrow the pane even when viewport width grows.
-for (const width of [560, 620]) {
-  test(`width ${width}: the jump label collapses on the PANE's width, at 520`, async ({
+// 「拿不到這則訊息」 lands on a row the overlay covers; it must be painted
+// above the overlay, not under it.
+for (const width of [320, 1280]) {
+  test(`width ${width}: the failure notice on line 1 sits above the overlay`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
-    const cmp = await mount(
-      <ChatReplyToStory jumpLabel="View the original message" />,
-    );
-    const seen = await cmp.getByTestId("row-mine").evaluate((row) => {
-      const pane = document.querySelector(".chat__messages") as HTMLElement;
-      const label = row.querySelector(
-        ".chat__msg-quote__jump-label",
-      ) as HTMLElement;
-      const body = row.querySelector(".chat__msg-quote__body") as HTMLElement;
-      return {
-        paneW: pane.clientWidth,
-        display: getComputedStyle(label).display,
-        bodyW: body.clientWidth,
-      };
-    });
-    // The mapping the stylesheet promises, read off the box that actually
-    // decides it. A viewport-based rule cannot satisfy this in production (the
-    // shell breaks the two apart at 721) and a moved threshold cannot satisfy it
-    // anywhere.
-    expect(
-      seen.display,
-      `pane ${seen.paneW}px: the label must be ${
-        seen.paneW <= 520 ? "collapsed to its arrow" : "rendered whole"
-      }`,
-    ).toBe(seen.paneW <= 520 ? "none" : "block");
-    // POSITIVE CONTROL, and the reason the threshold is where it is: above it
-    // the excerpt must still have room to say something WITH the label present.
-    // A threshold pushed too high satisfies the line above by collapsing the
-    // label everywhere; this one goes red if the label is ever kept at a width
-    // where it leaves the quote nothing.
-    expect(
-      seen.bodyW,
-      `pane ${seen.paneW}px: the quoted sentence must still be readable`,
-    ).toBeGreaterThan(0);
+    const cmp = await mount(<ChatReplyToStory quoteError />);
+
+    const error = cmp.getByTestId("quote-error-incoming");
+    await expect(error).toBeVisible();
+    const e = (await error.boundingBox())!;
+    expect(e.width, "the failure notice was squeezed away").toBeGreaterThan(20);
+    const hit = await error.evaluate((el, [x, y]) => {
+      const at = document.elementFromPoint(x, y);
+      return !!at && el.contains(at);
+    }, [e.x + e.width / 2, e.y + e.height / 2] as const);
+    expect(hit, "the overlay paints over the failure notice").toBe(true);
+    await expectWholeRowTarget(cmp.getByTestId("row-incoming-quote"), "row-incoming-quote");
   });
 }
 
-// 🔴 WHAT THE ROW IS FOR MUST GET THE WIDTH. Since 2026-08-21 the quoted
-// SENTENCE is shipped with the reply and is the entire value of this row; the
-// jump label is boilerplate the arrow already implies (and `aria-label` still
-// carries in full). The shrink order in office.css was tuned before that — it
-// let the jump keep its intrinsic width and the excerpt absorb everything — and
-// measured in a real browser it produced 「Mira 他… Go to the original messa… ›」:
-// at 390px/en the excerpt held 26px and the label 154px; at 320px the excerpt
-// was 0.
-//
-// ⚠️ THE EXISTING GUARDS HAVE ZERO DISCRIMINATION HERE, which is why this one
-// exists as its own loop. Everything above measures where the jump ENDS (does it
-// reach the corner buttons, does the arrow paint outside its box); a 0px excerpt
-// satisfies every one of them perfectly. Nothing in this file asked how much of
-// the quote survived.
-//
-// STATED WITHOUT A NUMBER FROM THIS MACHINE, on purpose — this file has been
-// burned three times by width-shaped constants. The claim is an ORDERING
-// between two things on the same row, and it holds at any width where both are
-// present. English, because it reaches the failure first (154px vs 69px), and
-// the narrow end, because that is where the row runs out of width at all.
+// A one-character quote must survive whole at the narrow end — there is no
+// version of "not enough room" that justifies eating it — and the jump must
+// still be there: deleting the control would satisfy the first half too.
 for (const width of [320, 360, 390]) {
-  test(`width ${width}: the quoted sentence outranks the jump's boilerplate`, async ({
+  test(`width ${width}: a one-character quote is never trimmed and the jump is still there`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
-    const cmp = await mount(
-      <ChatReplyToStory jumpLabel="Go to the original message" />,
-    );
+    const cmp = await mount(<ChatReplyToStory />);
 
-    // ① THE LONG-EXCERPT ROW. Its quoted text cannot fit at these widths, so
-    // something must be trimmed — and what is left of the quote must still be
-    // worth more room than the control that only says how to navigate to it.
-    //
-    // ⚠️ AND SINCE 2026-08-22 THIS PARTICULAR COMPARISON HAS LITTLE LEFT TO
-    // DISCRIMINATE — say so rather than let it read as a live guard. The two are
-    // on different lines now, so the excerpt gets the whole row by construction
-    // and this can only fail if the split itself is undone (in which case the
-    // two tests named in the mutant table go red first and more loudly). It is
-    // kept because the RULE it states is still the rule, and because ② and ③
-    // below are not covered anywhere else.
-    const share = await cmp.getByTestId("row-mine-short").evaluate((row) => {
-      const b = row.querySelector(".chat__msg-quote__body") as HTMLElement;
-      const j = row.querySelector(".chat__msg-quote__jump") as HTMLElement;
-      return { body: b.clientWidth, jump: j.clientWidth };
-    });
-    expect(
-      share.body,
-      "the quoted sentence is the row; the jump label is not",
-    ).toBeGreaterThan(share.jump);
-
-    // ② AND A SHORT QUOTE MUST SURVIVE WHOLE. This row quotes one character —
-    // there is no version of "not enough room" that justifies eating it. A
-    // cut here is the layout spending the row's width on boilerplate.
     const cut = await cmp
       .getByTestId("quote-body-incoming")
       .evaluate((e) => e.scrollWidth > e.clientWidth + 0.5);
     expect(cut, "a one-character quote was trimmed away").toBe(false);
 
-    // ③ POSITIVE CONTROL: the jump is still THERE and still usable. The two
-    // assertions above are also satisfied by deleting the control outright,
-    // which would take the only way back to the original with it.
-    const chevron = (await cmp
-      .getByTestId("row-mine-short")
-      .locator(".chat__msg-quote__jump-chevron")
-      .boundingBox())!;
-    expect(chevron.width).toBeGreaterThanOrEqual(11.5);
+    const jump = (await cmp.getByTestId("quote-jump-short").boundingBox())!;
+    const row = (await cmp.getByTestId("quote-row-short").boundingBox())!;
+    expect(jump.width).toBeGreaterThanOrEqual(row.width - 0.5);
+    expect(jump.height).toBeGreaterThanOrEqual(row.height - 0.5);
     await expect(cmp.getByTestId("quote-jump-short")).toHaveJSProperty(
       "tagName",
       "BUTTON",
@@ -802,9 +619,7 @@ test("pane 347px: the quoted sentence still has characters (the width the shell 
   page,
 }) => {
   await page.setViewportSize({ width: 395, height: 900 });
-  const cmp = await mount(
-    <ChatReplyToStory jumpLabel="View the original message" />,
-  );
+  const cmp = await mount(<ChatReplyToStory />);
 
   const seen = await cmp
     .getByTestId("quote-body-pane347")
@@ -836,9 +651,11 @@ test("pane 347px: the quoted sentence still has characters (the width the shell 
   const geom = await cmp.getByTestId("quote-row-pane347").evaluate((row) => {
     const b = row.querySelector(".chat__msg-quote__body") as HTMLElement;
     const h = row.querySelector(".chat__msg-quote__head") as HTMLElement;
+    const cs = getComputedStyle(row);
     return {
       bodyW: b.clientWidth,
-      rowW: row.clientWidth,
+      rowW:
+        row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
       headBoxes: h.getClientRects().length,
       bodyBoxes: b.getClientRects().length,
     };
@@ -861,6 +678,12 @@ test("narrow 390: the reply entry and the banner x are focusable native buttons"
     await control.focus();
     await expect(control).toBeFocused();
   }
+  // Keyboard focus outlines the whole quote: the overlay is the row's box.
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  const jump = cmp.getByTestId("quote-jump");
+  await expect(jump).toBeFocused();
+  await expect(jump).not.toHaveCSS("outline-style", "none");
 });
 
 // A coarse pointer has no hover to reveal these buttons with, so the

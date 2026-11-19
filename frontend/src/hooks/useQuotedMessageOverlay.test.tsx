@@ -48,11 +48,13 @@ function mkMsg(over: Partial<ChatMessage> & { id: string }): ChatMessage {
 function Harness({
   windowMsgs,
   targetId,
+  jumpFor,
 }: {
   windowMsgs: ChatMessage[];
   targetId: string;
+  jumpFor?: (original: ChatMessage) => (() => void) | null;
 }) {
-  const quoted = useQuotedMessageOverlay(undefined);
+  const quoted = useQuotedMessageOverlay(undefined, jumpFor);
   return (
     <div>
       {windowMsgs.map((m) => (
@@ -69,10 +71,14 @@ function Harness({
   );
 }
 
-function renderHarness(windowMsgs: ChatMessage[], targetId: string) {
+function renderHarness(
+  windowMsgs: ChatMessage[],
+  targetId: string,
+  jumpFor?: (original: ChatMessage) => (() => void) | null,
+) {
   return render(
     <I18nProvider>
-      <Harness windowMsgs={windowMsgs} targetId={targetId} />
+      <Harness windowMsgs={windowMsgs} targetId={targetId} jumpFor={jumpFor} />
     </I18nProvider>,
   );
 }
@@ -142,6 +148,61 @@ describe("useQuotedMessageOverlay", () => {
     expect(overlay.textContent).toContain("被洗掉的那一則的全文");
     // and it did NOT fall back to whatever the window happened to hold.
     expect(overlay.textContent).not.toContain("後續洗版");
+  });
+
+  it("offers 跳到原訊息 when the message has a thread, and pressing it jumps and closes the overlay", async () => {
+    const original = mkMsg({ id: "c-1", from: "m1", body: "原文" });
+    vi.spyOn(api, "getChatMessage").mockResolvedValue(original);
+    const asked: ChatMessage[] = [];
+    const jumped = vi.fn();
+    const jumpFor = (m: ChatMessage) => {
+      asked.push(m);
+      return jumped;
+    };
+
+    const { getByText } = renderHarness([], "c-1", jumpFor);
+    await act(async () => {
+      fireEvent.click(getByText("看原訊息"));
+    });
+    expect(asked).toEqual([original]);
+    const jump = document.querySelector("[data-testid='md-preview-jump']")!;
+    expect(jump.textContent).toBe(zh.replies.jumpToChat);
+
+    await act(async () => {
+      fireEvent.click(jump);
+    });
+    expect(jumped).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".md-preview")).toBeNull();
+  });
+
+  it("closing the overlay with ✕ does not jump", async () => {
+    vi.spyOn(api, "getChatMessage").mockResolvedValue(
+      mkMsg({ id: "c-1", from: "m1", body: "原文" }),
+    );
+    const jumped = vi.fn();
+
+    const { getByText } = renderHarness([], "c-1", () => jumped);
+    await act(async () => {
+      fireEvent.click(getByText("看原訊息"));
+    });
+    await act(async () => {
+      fireEvent.click(document.querySelector(".md-preview__close")!);
+    });
+    expect(document.querySelector(".md-preview")).toBeNull();
+    expect(jumped).not.toHaveBeenCalled();
+  });
+
+  it("offers no 跳到原訊息 when the message has no thread to go to", async () => {
+    vi.spyOn(api, "getChatMessage").mockResolvedValue(
+      mkMsg({ id: "c-1", from: "system", body: "原文" }),
+    );
+
+    const { getByText } = renderHarness([], "c-1", () => null);
+    await act(async () => {
+      fireEvent.click(getByText("看原訊息"));
+    });
+    expect(document.querySelector(".md-preview")?.textContent).toContain("原文");
+    expect(document.querySelector("[data-testid='md-preview-jump']")).toBeNull();
   });
 
   it("says the read failed, on screen, and opens nothing", async () => {

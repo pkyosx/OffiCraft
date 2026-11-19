@@ -1808,9 +1808,8 @@
   color: var(--color-text-muted);
 }
 /* Wraps rather than truncating: this card lives in a side panel that is
-   NARROWER than the chat pane, and the pane's own answer to a long parties line
-   (drop the jump label at `@container chat-pane`) cannot fire here — this card
-   is not inside that container. Wrapping needs no container to be right. */
+   NARROWER than the chat pane, and it has no jump control to keep on the
+   parties line, so nothing here needs the chat row's one-line ellipsis. */
 .mp-resume__chatquoteparties {
   display: flex;
   flex-wrap: wrap;

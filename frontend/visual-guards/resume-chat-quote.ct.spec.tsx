@@ -7,15 +7,13 @@
 // it is 200px wider than the card it sits in.
 //
 // ── THE TRAP THIS EXISTS FOR ─────────────────────────────────────────────────
-// The chat pane's quote row survives a narrow pane by DROPPING its jump label,
-// and that rule lives inside `@container chat-pane (max-width: 520px)`. This
-// card is rendered by the member / worker DETAIL PANEL, which is not inside
-// that container — so the rule can never match here, and anything copied from
-// the chat pane that relies on it is silently unprotected in the surface that
-// is NARROWER than the one it was designed for. Nothing goes red; the strip
-// just runs past the card's edge. So this row was given no such control, and
-// its own answers (wrap the parties, break the excerpt, stretch to the card)
-// are measured here at both ends of the width range.
+// The chat pane's quote row is built for a chat bubble: one ellipsised line of
+// names, and the whole row a click target. This card is rendered by the member / worker
+// DETAIL PANEL, which is NARROWER than the chat pane, and anything copied from
+// the bubble's row is silently unprotected here. Nothing goes red; the strip
+// just runs past the card's edge. So this row has no control, and its own
+// answers (wrap the parties, break the excerpt, stretch to the card) are
+// measured here at both ends of the width range.
 //
 // ── ORDERING ─────────────────────────────────────────────────────────────────
 // The per-surface assertions come BEFORE the page-level scroll one on purpose:
@@ -109,16 +107,14 @@ for (const width of [320, 1280]) {
       // ── ② THE NAMES FIT, at whatever length. Asserted on the parties line
       //      ITSELF and BEFORE the whole-strip measurement below, because the
       //      strip contains it: a single "the strip overflows" assertion would
-      //      go red for either cause and name neither. In the chat pane this
-      //      pressure is relieved by hiding a control under
-      //      `@container chat-pane`; that rule cannot fire in this card, so the
-      //      names have to give way on their own.
+      //      go red for either cause and name neither. The names have to
+      //      give way on their own by wrapping.
       const parties = quotes.nth(i).locator(".mp-resume__chatquoteparties");
       if ((await parties.count()) > 0) {
         expect(
           await inkOverflow(parties),
           `[${width}px] row ${i}: the quoted parties line does not fit its own ` +
-            `box — and no container query is coming to hide anything here`,
+            `box`,
         ).toBeLessThanOrEqual(1);
         const pBox = await box(parties);
         expect(

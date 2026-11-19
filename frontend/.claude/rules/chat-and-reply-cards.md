@@ -213,7 +213,7 @@ class 名 `.reply-tag--ai` / `.reply-option--ai` **不要改**:`TaskReplyCard` �
 
 輕量列只帶 title/status/時間戳/task ref —— 不要把它補成 `ReplyCard`（body/options/chat message id 在單張才有，補成 "" 會畫出一張問題不見了的卡而且不會丟錯）。等待卡的 expire 規則以 server 為準：owner/admin 或卡片作者可過期自己的 waiting 卡；其他人 403，已回答 409。
 
-hash route #office/chat/<id>/msg/<msgId> 只做一次定位與 highlight。產生它的是「請示」頁的**跳到原訊息**與任務卡內嵌回覆卡的**在聊天室回覆**（外加使用者自己留存的舊 URL）；聊天氣泡引用列的**看原訊息**不走這條，它撈那一則開覆蓋層（見下方「看原訊息」一節）。⚠️ T-0b78 曾把那兩顆也改成覆蓋層，owner 2026-08-29 裁定「1 跟 2 變回去原本那樣」—— 所以不要順手把它們改回覆蓋層。
+hash route #office/chat/<id>/msg/<msgId> 只做一次定位與 highlight。產生它的是「請示」頁的**跳到原訊息**、任務卡內嵌回覆卡的**在聊天室回覆**，以及「看原訊息」覆蓋層上的**跳到原訊息**（外加使用者自己留存的舊 URL）；聊天氣泡引用列的**看原訊息**本身不走這條，它撈那一則開覆蓋層（見下方「看原訊息」一節）。⚠️ T-0b78 曾把那兩顆也改成覆蓋層，owner 2026-08-29 裁定「1 跟 2 變回去原本那樣」—— 所以不要順手把它們改回覆蓋層。
 
 **目標不在最近視窗時是撈，不是落到底（T-48，取代上面那一段原本的「知情接受」）。** owner 後來把那個暫緩解掉了（「都可以正確定位到該訊息」），所以這條路現在是：**進房當下就以那個 id 開窗**——`useChat(peer, jumpToMsgId)` 收到 anchor 就**完全不載最新那一頁**，ChatArea 的 jump reactor 從一個空 thread 直接打 `loadAround`（`?end_id=` 往舊、`?start_id=` 往新，兩端都含，兩頁而已，不是整條歷史）。⚠️ 這條鏈有一個**沒有機械保護的不變量**：anchor 被指定時**一定要有人真的去撈**，否則房間永遠空白；今天唯一的撈家是那個 reactor，它的 miss 分支再退回 `resetToLatest`。
 
@@ -276,9 +276,9 @@ composer 上方的橫幅走同一個形狀（它從已載入視窗解析，是�
 `grep -rn "replyToChat\|messageById" frontend/src`，命中的每一個 component 都是
 一個面；新增一個面時，把它加進本檔的 `paths:`，否則下一個人同樣看不到。
 
-**但「一起改」不等於「長一樣」。** 快照卡不在 `chat-pane` 這個 container 裡，所以
-聊天面靠 `@container chat-pane` 收掉 jump label 的那條規則在它身上**永遠不會觸發**；
-它也沒有 `openQuotedMessage` 那套 overlay 與再撈，而它本身已經是一張有邊框的卡。
+**但「一起改」不等於「長一樣」。** 快照卡在比聊天 pane 更窄的詳情面板裡，聊天面那一行
+截短一行名字的版面搬過去會把名字切掉大半；它也沒有 `openQuotedMessage` 那套
+overlay 與再撈，而它本身已經是一張有邊框的卡。
 所以那一面是**沒有控制項、靠換行與 `overflow-wrap` 自己撐住**的另一種畫法，幾何由
 `visual-guards/resume-chat-quote.ct.spec.tsx` 在寬窄兩端量著。要對齊的是**內容與兩
 態規則**（有快照就畫、沒有就畫固定的 `chat.replyQuoteGone`；`content` 為空是合法的
@@ -343,6 +343,26 @@ effect 裡發請求。** 引用列畫的是 server 這次隨訊息一起送來�
 覆蓋層畫正文，下面接那則的附件（同一個 `AttachmentStrip`、同一組聊天氣泡的 class）；正文空白時只畫附件，不畫空的文字區（owner 裁定）。
 這一段是刻意合成的：以前它問「那則在不在視窗」來決定給不給鈕，owner 把它改成一律
 給、按了才撈，所以**不要再把窗口成員資格的判斷加回去**。
+引用列上的「看原訊息」**沒有看得見的圖示或字，整列引用就是點擊目標**（owner `rc-4f3663c42554`；
+圖示版本會被看成氣泡角落回覆／刪除那組的一部分）：`.chat__msg-quote__jump` 仍是一顆真的
+`<button>`（`data-testid="msg-quote-jump"` 不變），內容是空的、透明、`position: absolute; inset: 0`
+蓋滿整個 `.chat__msg-quote`。「看原訊息」這句只留在 `aria-label` 與 `title`。hover 時的淡底
+（`--chat-bubble-ink` 的 12%）由引用列自己透過 `:has()` 畫在字的**下面**，不是畫在覆蓋鈕上；
+focus-visible 的外框畫在覆蓋鈕上，正好框住整列。淡底需要的留白用負 margin 加等量 padding 借來，
+靜止時字的位置不動；分隔線改成 `::after` 畫，寬度仍跟字一樣。`quotedMessage.failureNotice`
+的「拿不到這則訊息」留在第一行，`position: relative; z-index: 1` 疊在覆蓋鈕上面。原訊息已不存在
+（`quoted` 為空）時沒有這顆鈕，整列不可點。CT `chat-reply-to` 量著：覆蓋鈕的框＝引用列的框、
+不碰角落按鈕（角落按鈕中心點到的仍是角落按鈕）、靜止透明 hover 有底、失敗訊息不被蓋住。
+
+**覆蓋層上的「跳到原訊息」（T-684，owner `rc-9194339a2f84`、`rc-38583da201d3`）。** 一律先開覆蓋層顯示原文，
+跨聊天室也一樣；覆蓋層 header（✕ 左邊）才有跳到原訊息，按下關掉覆蓋層、寫上面那條 hash route。它是文字鈕，跟請示卡的跳到原訊息同一個 class（`.reply-card__jump`）與同一個用語（`replies.jumpToChat`），不跟旁邊的圖示鈕一樣只放圖示（owner `rc-94eeef1b229c`）。
+跳到哪間聊天室由 `lib/quotedMessageThread.ts` 決定（選項 A）：目前聊天室的對象是原訊息的寄件人或收件人就留在這
+間；都不是就去寄件人那間，寄件人是 owner 或 server 蓋的身分（`isSyntheticSender`）時改去收件人那間；兩端都沒有
+聊天室、或原訊息已刪除（`deletedTs`）就不給鈕。已讀照跳轉那條的 `tailSeen` 規則，這顆鈕不另加已讀邏輯（owner 裁定維持）。
+⚠️ 路由已經指著同一則時 hash 不會變、reactor 的 latch 已經用掉，`ChatArea` 的 `jumpToMessage` 因此改呼叫
+`retryJump` 放掉 latch，否則第二次按下去畫面不動、也不會有任何錯誤。
+⚠️ 目標是成員間的訊息時，它在聊天室裡收在預設收合的成員間對話區塊裡，畫面上沒有那一列；reactor 先把那個區塊展開
+（`expandedGroups` 在 deps 裡，展開後再跑一次）才定位得到。少了這一步，跳轉會停在原地、不標示，也不出任何提示。
 
 ⚠️ 但「點下去才撈」有兩條紀律：**一次點擊只准一次請求**（`quoteBusyRef` 這個
 in-flight latch，不是 state —— 同一個 tick 的兩次點擊都會讀到更新前的 state），
