@@ -4305,6 +4305,7 @@ const mockApiImpl = {
           chatBodyMatches(m.body, q),
       )
       .sort((a, b) => a.ts - b.ts || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const matchCount = msgs.length;
     if (cursor !== undefined) {
       const sep = cursor.indexOf("|");
       const beforeTs = Number(cursor.slice(0, sep));
@@ -4323,6 +4324,7 @@ const mockApiImpl = {
     const oldest = page[0];
     return {
       messages: page.map(mockServedChatMessage),
+      matchCount,
       ...(msgs.length > page.length && oldest
         ? { nextCursor: `${oldest.ts}|${oldest.id}` }
         : {}),

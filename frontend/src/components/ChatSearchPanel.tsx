@@ -5,7 +5,7 @@ import { chatSearchSnippet } from "../lib/chatSearch";
 import { formatAbsolute } from "../lib/dateFormat";
 import type { ChatMessage } from "../api/adapter";
 import type { ChatSearch } from "../hooks/useChatSearch";
-import { CloseIcon, SearchIcon } from "./icons";
+import { CloseIcon } from "./icons";
 import "./chat-search.css";
 
 function Snippet({ body, query }: { body: string; query: string }) {
@@ -21,15 +21,16 @@ function Snippet({ body, query }: { body: string; query: string }) {
   );
 }
 
+/** The search results list, opened from the search row's speech bubble. */
 export function ChatSearchPanel({
   search,
   labelOf,
-  onJump,
+  onPick,
   onClose,
 }: {
   search: ChatSearch;
   labelOf: (m: ChatMessage) => string;
-  onJump: (msgId: string) => void;
+  onPick: (msgId: string) => void;
   onClose: () => void;
 }) {
   const { t, msg } = useI18n();
@@ -40,12 +41,12 @@ export function ChatSearchPanel({
   return (
     <div
       ref={rootRef}
-      className="chat-search"
+      className="chat-search__panel"
       role="dialog"
-      aria-label={t.chat.searchTitle}
+      aria-label={t.chat.searchResultsTitle}
     >
       <div className="chat-search__header">
-        <span className="chat-search__title">{t.chat.searchTitle}</span>
+        <span className="chat-search__title">{t.chat.searchResultsTitle}</span>
         <button
           type="button"
           className="chat-search__close"
@@ -53,30 +54,6 @@ export function ChatSearchPanel({
           onClick={onClose}
         >
           <CloseIcon size={16} />
-        </button>
-      </div>
-      <div className="chat-search__bar">
-        <input
-          className="chat-search__input"
-          type="search"
-          value={search.draft}
-          placeholder={t.chat.searchPlaceholder}
-          aria-label={t.chat.searchPlaceholder}
-          autoFocus
-          onChange={(e) => search.setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-            e.preventDefault();
-            search.submit();
-          }}
-        />
-        <button
-          type="button"
-          className="chat-search__submit"
-          onClick={search.submit}
-        >
-          <SearchIcon size={14} />
-          <span>{t.chat.searchSubmit}</span>
         </button>
       </div>
       {search.status === "loading" ? (
@@ -95,8 +72,8 @@ export function ChatSearchPanel({
               type="button"
               key={m.id}
               className="chat-search__item"
-              data-msg-id={m.id}
-              onClick={() => onJump(m.id)}
+              aria-current={m.id === search.current?.id ? "true" : undefined}
+              onClick={() => onPick(m.id)}
             >
               <span className="chat-search__meta">
                 <span className="chat-search__who">{labelOf(m)}</span>

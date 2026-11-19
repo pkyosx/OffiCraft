@@ -1672,6 +1672,13 @@
 }
 /* B3 跳到原訊息: the located message flashes an accent ring, then settles
  * back into the thread (the state is cleared after the pulse). */
+/* The current keyword-search match, for as long as it stays current. Outline,
+ * not box-shadow: the located pulse animates box-shadow on the same box. */
+.chat__msg--search-current .chat__msg-bubble,
+.chat__msg--search-current .reply-card {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
 .chat__msg--located .chat__msg-bubble,
 .chat__msg--located .reply-card {
   animation: chat-located-pulse 2.4s ease-out;

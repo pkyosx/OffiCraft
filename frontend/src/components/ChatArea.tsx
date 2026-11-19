@@ -50,6 +50,8 @@ import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ChatGalleryPanel } from "./ChatGalleryPanel";
 import { ChatSearchPanel } from "./ChatSearchPanel";
+import { ChatSearchBar } from "./ChatSearchBar";
+import { paintChatSearchHighlights } from "../lib/chatSearchHighlight";
 import { useChatSearch } from "../hooks/useChatSearch";
 import { ChatJumpLatestButton } from "./ChatJumpLatestButton";
 import { ChatThreadLoading } from "./ChatThreadLoading";
@@ -755,8 +757,15 @@ export function ChatArea({
   // header said Bruno while the panel still showed A's files labelled with A's
   // sender name.
   const [galleryOpen, setGalleryOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const chatSearch = useChatSearch(member.id);
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchListOpen, setSearchListOpen] = useState(false);
+  const chatSearch = useChatSearch(member.id, (msgId) => jumpToMessage(msgId));
+  const exitSearch = () => {
+    setSearchMode(false);
+    setSearchListOpen(false);
+    chatSearch.reset();
+  };
+  const searchCurrentId = searchMode ? chatSearch.current?.id : undefined;
   // The attachment whose share link was just copied (transient 「已複製」
   // feedback on that one button; null = none).
   // Inter-agent (agent↔agent) groups that the owner has EXPANDED (keyed by the
@@ -925,6 +934,13 @@ export function ChatArea({
   const [jumpRetry, setJumpRetry] = useState(0);
   // The transient highlight on the row a jump located (cleared after the flash).
   const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null);
+
+  const searchPaintQuery =
+    searchMode && chatSearch.status === "done" ? chatSearch.query : "";
+  useEffect(
+    () => paintChatSearchHighlights(messagesRef.current, searchPaintQuery),
+    [searchPaintQuery, messages, expandedGroups],
+  );
 
   // T-8aaa: persist the TYPED half of the draft to the per-peer store on every
   // change, so an unmount (跳頁 or a switch to another room) leaves the latest
@@ -2222,7 +2238,8 @@ export function ChatArea({
           className={
             `chat__msg${mine ? " chat__msg--me" : ""}` +
             (m.replyCardId ? " chat__msg--card" : "") +
-            (m.id === highlightMsgId ? " chat__msg--located" : "")
+            (m.id === highlightMsgId ? " chat__msg--located" : "") +
+            (m.id === searchCurrentId ? " chat__msg--search-current" : "")
           }
           data-msg-id={m.id}
         >
@@ -2433,12 +2450,12 @@ export function ChatArea({
           className="chat__search-toggle"
           aria-label={t.chat.searchOpen}
           title={t.chat.searchOpen}
-          aria-expanded={searchOpen}
+          aria-expanded={searchMode}
           data-testid="chat-header-search"
           onClick={(e) => {
             e.stopPropagation();
-            setSearchOpen((v) => !v);
-            setGalleryOpen(false);
+            if (searchMode) exitSearch();
+            else setSearchMode(true);
           }}
           onKeyDown={(e) => e.stopPropagation()}
         >
@@ -2456,13 +2473,24 @@ export function ChatArea({
           onClick={(e) => {
             e.stopPropagation();
             setGalleryOpen((v) => !v);
-            setSearchOpen(false);
+            setSearchListOpen(false);
           }}
           onKeyDown={(e) => e.stopPropagation()}
         >
           <ImageIcon size={17} />
         </button>
       </header>
+      {searchMode && (
+        <ChatSearchBar
+          search={chatSearch}
+          listOpen={searchListOpen}
+          onToggleList={() => {
+            setSearchListOpen((v) => !v);
+            setGalleryOpen(false);
+          }}
+          onExit={exitSearch}
+        />
+      )}
 
       {galleryOpen && (
         <ChatGalleryPanel
@@ -2472,7 +2500,7 @@ export function ChatArea({
           onClose={() => setGalleryOpen(false)}
         />
       )}
-      {searchOpen && (
+      {searchMode && searchListOpen && (
         <ChatSearchPanel
           search={chatSearch}
           labelOf={(m) =>
@@ -2482,8 +2510,12 @@ export function ChatArea({
                 ? directionLabel(m.from, m.to)
                 : nameOf(m.from)
           }
-          onJump={(msgId) => jumpToMessage(msgId)}
-          onClose={() => setSearchOpen(false)}
+          onPick={(msgId) => {
+            chatSearch.pick(msgId);
+            // The list covers the whole thread on a phone.
+            if (isMobile) setSearchListOpen(false);
+          }}
+          onClose={() => setSearchListOpen(false)}
         />
       )}
 

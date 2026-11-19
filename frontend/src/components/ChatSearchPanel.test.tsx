@@ -31,28 +31,39 @@ function msg(id: string, from: string, body: string, ts: number): ChatMessage {
   return { id, from, to: from === "owner" ? "m-1" : "owner", body, ts, attachments: [], replyCardId: null };
 }
 
-function Harness({ onJump, onClose }: { onJump: (id: string) => void; onClose: () => void }) {
-  const search = useChatSearch("m-1");
+function Harness({ onPick, onClose }: { onPick: (id: string) => void; onClose: () => void }) {
+  const search = useChatSearch("m-1", () => {});
   return (
-    <ChatSearchPanel
-      search={search}
-      labelOf={(m) => (m.from === "owner" ? zh.chat.me : "Mira")}
-      onJump={onJump}
-      onClose={onClose}
-    />
+    <>
+      <input
+        aria-label="query"
+        value={search.draft}
+        onChange={(e) => search.setDraft(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && search.submit()}
+      />
+      <ChatSearchPanel
+        search={search}
+        labelOf={(m) => (m.from === "owner" ? zh.chat.me : "Mira")}
+        onPick={(id) => {
+          search.pick(id);
+          onPick(id);
+        }}
+        onClose={onClose}
+      />
+    </>
   );
 }
 
 function renderPanel() {
-  const onJump = vi.fn();
+  const onPick = vi.fn();
   const onClose = vi.fn();
   const utils = render(
     <I18nProvider>
-      <Harness onJump={onJump} onClose={onClose} />
+      <Harness onPick={onPick} onClose={onClose} />
     </I18nProvider>,
   );
-  const input = screen.getByPlaceholderText(zh.chat.searchPlaceholder) as HTMLInputElement;
-  return { ...utils, onJump, onClose, input };
+  const input = screen.getByLabelText("query") as HTMLInputElement;
+  return { ...utils, onPick, onClose, input };
 }
 
 async function answer(i: number, page: ChatSearchPage) {
@@ -84,37 +95,6 @@ describe("ChatSearchPanel", () => {
     vi.useRealTimers();
   });
 
-  it("when typing without Enter, sends no search; Enter then searches the trimmed query and shows 搜尋中…", () => {
-    const { input, container } = renderPanel();
-    expect(document.activeElement).toBe(input);
-    fireEvent.change(input, { target: { value: "  deploy " } });
-    fireEvent.blur(input);
-    expect(pending).toEqual([]);
-
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(pending.map((p) => p.args)).toEqual([["m-1", "deploy", undefined]]);
-    expect(stateText(container)).toEqual(["搜尋中…"]);
-  });
-
-  it("when Enter confirms an IME composition, sends no search", () => {
-    const { input } = renderPanel();
-    fireEvent.change(input, { target: { value: "部署" } });
-    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
-    expect(pending).toEqual([]);
-  });
-
-  it("when the query is only spaces, neither Enter nor 搜尋 sends a search; with a query, 搜尋 sends one", () => {
-    const { input } = renderPanel();
-    fireEvent.change(input, { target: { value: "   " } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.click(screen.getByRole("button", { name: zh.chat.searchSubmit }));
-    expect(pending).toEqual([]);
-
-    fireEvent.change(input, { target: { value: "Deploy" } });
-    fireEvent.click(screen.getByRole("button", { name: zh.chat.searchSubmit }));
-    expect(pending.map((p) => p.args)).toEqual([["m-1", "Deploy", undefined]]);
-  });
-
   it("when results arrive, lists them newest first with sender, time and a snippet marking every match in any ASCII case", async () => {
     const { input, container } = renderPanel();
     fireEvent.change(input, { target: { value: "deploy" } });
@@ -125,6 +105,7 @@ describe("ChatSearchPanel", () => {
         msg("c-2", "m-1", "x".repeat(50) + "我 deploy 了，Deploy 結果正常" + "y".repeat(50), NOV17_2140),
         msg("c-3", "m-1", "deploy 完成", NOV18_0905),
       ],
+      matchCount: 3,
     });
 
     expect(container.querySelector(".chat-search__hint")!.textContent).toBe("從最新的開始列出");
@@ -145,7 +126,7 @@ describe("ChatSearchPanel", () => {
     const { input, container } = renderPanel();
     fireEvent.change(input, { target: { value: "rollback" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    await answer(0, { messages: [] });
+    await answer(0, { messages: [], matchCount: 0 });
     expect(stateText(container)).toEqual(["找不到含「rollback」的訊息"]);
     expect(container.querySelector(".chat-search__item")).toBeNull();
   });
@@ -167,6 +148,7 @@ describe("ChatSearchPanel", () => {
     await answer(0, {
       messages: [msg("c-5", "m-1", "deploy 5", NOV18_0905 + 5), msg("c-6", "m-1", "deploy 6", NOV18_0905 + 6)],
       nextCursor: "cur-1",
+      matchCount: 4,
     });
 
     fireEvent.change(input, { target: { value: "typed but not searched" } });
@@ -174,33 +156,28 @@ describe("ChatSearchPanel", () => {
     expect(pending[1].args).toEqual(["m-1", "deploy", "cur-1"]);
     await answer(1, {
       messages: [msg("c-3", "m-1", "deploy 3", NOV18_0905 + 3), msg("c-4", "m-1", "deploy 4", NOV18_0905 + 4)],
+      matchCount: 4,
     });
 
     expect(rows(container).map((r) => r.snippet)).toEqual(["deploy 6", "deploy 5", "deploy 4", "deploy 3"]);
     expect(container.querySelector(".chat-search__older")).toBeNull();
   });
 
-  it("when an earlier search answers after a newer one, keeps the newer search's results", async () => {
-    const { input, container } = renderPanel();
-    fireEvent.change(input, { target: { value: "alpha" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.change(input, { target: { value: "beta" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await answer(1, { messages: [msg("c-2", "m-1", "beta here", NOV18_0905)] });
-    await answer(0, { messages: [msg("c-1", "m-1", "alpha here", NOV17_2140)] });
-
-    expect(rows(container).map((r) => r.snippet)).toEqual(["beta here"]);
-  });
-
-  it("clicking a result asks to jump to that message and leaves the panel open; Esc closes it", async () => {
-    const { input, container, onJump, onClose } = renderPanel();
+  it("clicking a result makes it the current one and leaves the panel to its host; Esc closes it", async () => {
+    const { input, container, onPick, onClose } = renderPanel();
     fireEvent.change(input, { target: { value: "deploy" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    await answer(0, { messages: [msg("c-9", "m-1", "deploy", NOV18_0905)] });
+    await answer(0, {
+      messages: [msg("c-8", "m-1", "deploy 8", NOV18_0905), msg("c-9", "m-1", "deploy 9", NOV18_0905 + 1)],
+      matchCount: 2,
+    });
+    const current = () =>
+      Array.from(container.querySelectorAll(".chat-search__item")).map((r) => r.getAttribute("aria-current"));
+    expect(current()).toEqual(["true", null]);
 
-    fireEvent.click(container.querySelector(".chat-search__item")!);
-    expect(onJump.mock.calls).toEqual([["c-9"]]);
+    fireEvent.click(container.querySelectorAll(".chat-search__item")[1]);
+    expect(onPick.mock.calls).toEqual([["c-8"]]);
+    expect(current()).toEqual([null, "true"]);
     expect(onClose).not.toHaveBeenCalled();
 
     fireEvent.keyDown(window, { key: "Escape" });

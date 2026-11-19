@@ -12,27 +12,65 @@ export interface ChatSearch {
   status: ChatSearchStatus;
   /** Newest first. */
   results: ChatMessage[];
+  matchCount: number;
+  /** The current match, or null before a search lands or when nothing matched. */
+  current: ChatMessage | null;
+  /** 1-based, counted from the OLDEST match; 0 when there is no current match. */
+  position: number;
   hasOlder: boolean;
+  canOlder: boolean;
+  canNewer: boolean;
   olderStatus: "idle" | "loading" | "failed";
   submit: () => void;
+  /** Step to the next older match, fetching the next page first when needed. */
+  older: () => void;
+  newer: () => void;
+  /** Make this listed result the current match. */
+  pick: (msgId: string) => void;
   loadOlder: () => void;
+  reset: () => void;
 }
 
-/** One conversation's keyword search. Lives in ChatArea rather than the panel
- * so closing and reopening the panel keeps the query and its results. */
-export function useChatSearch(withId: string): ChatSearch {
+/** One conversation's keyword search. Every change of the current match is
+ * handed to `onJump`, which moves the thread there. */
+export function useChatSearch(
+  withId: string,
+  onJump: (msgId: string) => void,
+): ChatSearch {
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<ChatSearchStatus>("idle");
   const [results, setResults] = useState<ChatMessage[]>([]);
+  const [matchCount, setMatchCount] = useState(0);
+  const [index, setIndex] = useState(-1);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
   const [olderStatus, setOlderStatus] = useState<"idle" | "loading" | "failed">(
     "idle",
   );
+  const jumpRef = useRef(onJump);
+  jumpRef.current = onJump;
   // ⚠️ Only the latest search may land: an earlier, slower answer would
   // otherwise replace the newer query's results under the newer query's words.
   const searchSeq = useRef(0);
   const olderInFlight = useRef(false);
+
+  const go = (list: ChatMessage[], i: number) => {
+    setIndex(i);
+    jumpRef.current(list[i].id);
+  };
+
+  const reset = () => {
+    searchSeq.current += 1;
+    olderInFlight.current = false;
+    setDraft("");
+    setQuery("");
+    setStatus("idle");
+    setResults([]);
+    setMatchCount(0);
+    setIndex(-1);
+    setNextCursor(undefined);
+    setOlderStatus("idle");
+  };
 
   const submit = () => {
     const q = draft.trim();
@@ -42,14 +80,19 @@ export function useChatSearch(withId: string): ChatSearch {
     setQuery(q);
     setStatus("loading");
     setResults([]);
+    setMatchCount(0);
+    setIndex(-1);
     setNextCursor(undefined);
     setOlderStatus("idle");
     api.searchChat(withId, q).then(
       (page) => {
         if (seq !== searchSeq.current) return;
-        setResults([...page.messages].reverse());
+        const list = [...page.messages].reverse();
+        setResults(list);
+        setMatchCount(page.matchCount);
         setNextCursor(page.nextCursor);
         setStatus("done");
+        if (list.length > 0) go(list, 0);
       },
       (e) => {
         if (seq !== searchSeq.current) return;
@@ -59,7 +102,8 @@ export function useChatSearch(withId: string): ChatSearch {
     );
   };
 
-  const loadOlder = () => {
+  /** Fetches the next older page; `then` gets the grown list. */
+  const fetchOlder = (then?: (list: ChatMessage[]) => void) => {
     if (nextCursor === undefined || olderInFlight.current) return;
     const seq = searchSeq.current;
     olderInFlight.current = true;
@@ -68,9 +112,12 @@ export function useChatSearch(withId: string): ChatSearch {
       (page) => {
         if (seq !== searchSeq.current) return;
         olderInFlight.current = false;
-        setResults((cur) => [...cur, ...[...page.messages].reverse()]);
+        const list = [...results, ...[...page.messages].reverse()];
+        setResults(list);
+        setMatchCount(page.matchCount);
         setNextCursor(page.nextCursor);
         setOlderStatus("idle");
+        then?.(list);
       },
       (e) => {
         if (seq !== searchSeq.current) return;
@@ -81,15 +128,46 @@ export function useChatSearch(withId: string): ChatSearch {
     );
   };
 
+  const canOlder = index >= 0 && (index + 1 < results.length || nextCursor !== undefined);
+  const canNewer = index > 0;
+
+  const older = () => {
+    if (!canOlder) return;
+    if (index + 1 < results.length) go(results, index + 1);
+    else fetchOlder((list) => {
+      if (index + 1 < list.length) go(list, index + 1);
+    });
+  };
+
+  const newer = () => {
+    if (canNewer) go(results, index - 1);
+  };
+
+  const pick = (msgId: string) => {
+    const i = results.findIndex((m) => m.id === msgId);
+    if (i >= 0) go(results, i);
+  };
+
+  const current = index >= 0 ? results[index] ?? null : null;
+
   return {
     draft,
     setDraft,
     query,
     status,
     results,
+    matchCount,
+    current,
+    position: current ? matchCount - index : 0,
     hasOlder: nextCursor !== undefined,
+    canOlder,
+    canNewer,
     olderStatus,
     submit,
-    loadOlder,
+    older,
+    newer,
+    pick,
+    loadOlder: () => fetchOlder(),
+    reset,
   };
 }

@@ -296,6 +296,8 @@ export interface ChatSearchPage {
   messages: ChatMessage[];
   /** Absent when there is nothing older to fetch. */
   nextCursor?: string;
+  /** Matches in the whole conversation, not just this page. */
+  matchCount: number;
 }
 
 /** Page size of a conversation keyword search. */

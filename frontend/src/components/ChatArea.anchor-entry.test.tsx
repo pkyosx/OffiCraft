@@ -23,6 +23,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, act, waitFor, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ChatArea } from "./ChatArea";
+import { zh } from "../i18n/locales/zh";
 import { useHashRoute } from "../lib/hashRoute";
 import type { Member } from "../types";
 import type { ChatMessage, ReplyCard, SseDelta } from "../api/adapter";
@@ -37,6 +38,8 @@ const B = "m-bbbbbbbbbbbb";
 let plainCalls: string[] = [];
 /** Every `lastReadTs` this room marked read — see the api mock. */
 let markReads: number[] = [];
+/** Every `searchChat`, in order. */
+let searchCalls: { q: string; cursor?: string }[] = [];
 let windowCalls: { withId: string; anchor: { startId?: string; endId?: string } }[] =
   [];
 
@@ -251,11 +254,19 @@ vi.mock("../api", () => ({
         }
       );
     },
-    searchChat: async (withId: string, q: string) => ({
-      messages: threadOf(withId)
-        .filter((m) => m.body.toLowerCase().includes(q.toLowerCase()))
-        .slice(-30),
-    }),
+    searchChat: async (withId: string, q: string, cursor?: string) => {
+      searchCalls.push({ q, cursor });
+      const all = threadOf(withId).filter((m) =>
+        m.body.toLowerCase().includes(q.toLowerCase()),
+      );
+      const upTo = cursor ? all.findIndex((m) => m.id === cursor) : all.length;
+      const page = all.slice(Math.max(0, upTo - 30), upTo);
+      return {
+        messages: page,
+        matchCount: all.length,
+        ...(upTo > 30 ? { nextCursor: page[0].id } : {}),
+      };
+    },
     listChatReads: async () => [],
     /** Every mark-read this room sent, with the watermark it claimed. This is
      * the ONE thing a front-end flag cannot fake: the server's unread count is
@@ -351,6 +362,7 @@ function seed(peer: string, tag: string, count: number, tsStart: number) {
 
 beforeEach(() => {
   log.length = 0;
+  searchCalls = [];
   plainCalls = [];
   windowCalls = [];
   holdWindows = null;
@@ -1021,66 +1033,112 @@ describe("ChatArea 進房錨點優先(useChat 的 anchor 參數)", () => {
     ).toEqual([A]);
   });
 
-  it("點搜尋結果跳到已載入範圍外的那一則:撈那一段、亮起那一則、面板留著、中間的不標已讀;再點同一筆會再定位、再亮一次", async () => {
+  it("搜尋後 ▲ 一路往舊走、走過已載入的結果就先撈下一頁再跳:目標亮起並持續框住、關鍵字被標示、中間的不標已讀;從結果列表再點同一筆會再定位;X 清掉標示與框", async () => {
     history.replaceState(null, "", "/");
-    seed(A, "a", 300, 100);
-    log[3].body = "a3 Deploy 完成";
-    const { container } = render(<RoutedRoom m={alice} />);
-    await waitFor(() =>
-      expect(container.querySelector('[data-msg-id="a299"]')).not.toBeNull(),
-    );
-    expect(container.querySelector('.chat__msg[data-msg-id="a3"]')).toBeNull();
-    await settle();
-    markReads = [];
-    seed(A, "n", 10, 400);
+    const highlights = new Map<string, { ranges: Range[] }>();
+    const g = globalThis as Record<string, unknown>;
+    const savedCss = g.CSS;
+    const savedHighlight = g.Highlight;
+    g.CSS = { highlights };
+    g.Highlight = class {
+      ranges: Range[];
+      constructor(...ranges: Range[]) {
+        this.ranges = ranges;
+      }
+    };
+    const marked = () =>
+      (highlights.get("oc-chat-search")?.ranges ?? []).map((r) => r.toString());
+    try {
+      seed(A, "a", 300, 100);
+      log[3].body = "a3 Deploy 完成";
+      for (let i = 270; i < 300; i++) log[i].body = `deploy a${i}`;
+      const { container } = render(<RoutedRoom m={alice} />);
+      await waitFor(() =>
+        expect(container.querySelector('[data-msg-id="a299"]')).not.toBeNull(),
+      );
+      expect(container.querySelector('.chat__msg[data-msg-id="a3"]')).toBeNull();
+      await settle();
+      markReads = [];
+      seed(A, "n", 10, 400);
 
-    fireEvent.click(container.querySelector('[data-testid="chat-header-search"]')!);
-    const input = container.querySelector<HTMLInputElement>(".chat-search__input")!;
-    fireEvent.change(input, { target: { value: "deploy" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() =>
-      expect(container.querySelector(".chat-search__item")).not.toBeNull(),
-    );
+      fireEvent.click(container.querySelector('[data-testid="chat-header-search"]')!);
+      const input = container.querySelector<HTMLInputElement>(".chat-search__input")!;
+      fireEvent.change(input, { target: { value: "DEPLOY" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      const status = () => container.querySelector(".chat-search__status")?.textContent;
+      const current = () =>
+        Array.from(container.querySelectorAll(".chat__msg--search-current")).map((n) =>
+          n.getAttribute("data-msg-id"),
+        );
+      await waitFor(() => expect(status()).toBe("31/31"));
+      await waitFor(() => expect(current()).toEqual(["a299"]));
+      expect(window.location.hash).toBe(`#office/chat/${A}/msg/a299`);
+      expect(marked()).toEqual(Array(30).fill("deploy"));
 
-    fireEvent.click(container.querySelector(".chat-search__item")!);
-    await waitFor(() =>
-      expect(
-        container.querySelector('.chat__msg--located[data-msg-id="a3"]'),
-      ).not.toBeNull(),
-    );
-    await settle();
+      const older = container.querySelector<HTMLButtonElement>(
+        `[aria-label="${zh.chat.searchPrev}"]`,
+      )!;
+      for (let i = 0; i < 29; i++) fireEvent.click(older);
+      await waitFor(() => expect(current()).toEqual(["a270"]));
+      expect(status()).toBe("2/31");
+      expect(windowCalls).toEqual([]);
 
-    expect(window.location.hash).toBe(`#office/chat/${A}/msg/a3`);
-    expect(windowCalls.slice(0, 2).map((c) => c.anchor)).toEqual([
-      { endId: "a3" },
-      { startId: "a3" },
-    ]);
-    expect(bubbles(container)).toContain("n9");
-    expect(scrolls.filter((x) => x.on === "a3")).toHaveLength(1);
-    expect(container.querySelector(".chat-search")).not.toBeNull();
-    expect(markReads).toEqual([]);
+      fireEvent.click(older);
+      await waitFor(() =>
+        expect(
+          container.querySelector('.chat__msg--located[data-msg-id="a3"]'),
+        ).not.toBeNull(),
+      );
+      await settle();
+      expect(searchCalls).toEqual([
+        { q: "DEPLOY", cursor: undefined },
+        { q: "DEPLOY", cursor: "a270" },
+      ]);
+      expect(status()).toBe("1/31");
+      expect(older.disabled).toBe(true);
+      expect(current()).toEqual(["a3"]);
+      expect(windowCalls.slice(0, 2).map((c) => c.anchor)).toEqual([
+        { endId: "a3" },
+        { startId: "a3" },
+      ]);
+      expect(bubbles(container)).toContain("n9");
+      expect(marked()).toEqual(["Deploy", ...Array(30).fill("deploy")]);
+      // 399 was already read on entry; n0..n9 (400..409) have not been seen.
+      expect(markReads.filter((ts) => ts > 399)).toEqual([]);
 
-    await waitFor(
-      () =>
-        expect(container.querySelector(".chat__msg--located")).toBeNull(),
-      { timeout: 4000 },
-    );
-    fireEvent.click(container.querySelector(".chat-search__item")!);
-    await waitFor(() =>
-      expect(
-        container.querySelector('.chat__msg--located[data-msg-id="a3"]'),
-      ).not.toBeNull(),
-    );
-    expect(scrolls.filter((x) => x.on === "a3")).toHaveLength(2);
-    await settle();
-    expect(markReads).toEqual([]);
+      fireEvent.click(container.querySelector(`[aria-label="${zh.chat.searchList}"]`)!);
+      await waitFor(
+        () => expect(container.querySelector(".chat__msg--located")).toBeNull(),
+        { timeout: 4000 },
+      );
+      const scrollsOnA3 = scrolls.filter((x) => x.on === "a3").length;
+      const items = container.querySelectorAll(".chat-search__item");
+      fireEvent.click(items[items.length - 1]);
+      await waitFor(() =>
+        expect(
+          container.querySelector('.chat__msg--located[data-msg-id="a3"]'),
+        ).not.toBeNull(),
+      );
+      expect(scrolls.filter((x) => x.on === "a3")).toHaveLength(scrollsOnA3 + 1);
+      expect(container.querySelector(".chat-search__panel")).not.toBeNull();
+      await settle();
+      expect(markReads.filter((ts) => ts > 399)).toEqual([]);
 
-    await act(async () => {
-      fireEvent.scroll(container.querySelector(".chat__messages")!);
-      await new Promise((r) => setTimeout(r, 30));
-    });
-    expect(markReads.at(-1)).toBe(409);
-  }, 10000);
+      fireEvent.click(container.querySelector(`[aria-label="${zh.chat.searchExit}"]`)!);
+      expect(current()).toEqual([]);
+      expect(highlights.size).toBe(0);
+      expect(container.querySelector(".chat-search__bar")).toBeNull();
+
+      await act(async () => {
+        fireEvent.scroll(container.querySelector(".chat__messages")!);
+        await new Promise((r) => setTimeout(r, 30));
+      });
+      expect(markReads.at(-1)).toBe(409);
+    } finally {
+      g.CSS = savedCss;
+      g.Highlight = savedHighlight;
+    }
+  }, 15000);
 });
 
 // ── 帶著未讀進房:停在伺服器說的第一則未讀 ────────────────────────────────────

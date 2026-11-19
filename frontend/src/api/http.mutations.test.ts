@@ -366,7 +366,7 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     expect(got.map((m) => m.id)).toEqual(["c-9"]);
   });
 
-  it("searchChat sends with, q, limit 30 and no cursor on the first page, and leaves deleted messages unsearched", async () => {
+  it("searchChat sends with, q, limit 30 and no cursor on the first page, leaves deleted messages unsearched, and reads the whole-conversation match_count", async () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse({
         messages: [
@@ -387,6 +387,7 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
           },
         ],
         next_cursor: "b3wAMQBjLTk",
+        match_count: 7,
       }),
     );
     const got = await httpApi.searchChat("m-1", "deploy");
@@ -401,16 +402,17 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     ]);
     expect(got.messages.map((m) => [m.id, m.body])).toEqual([["c-9", "deploy 完成"]]);
     expect(got.nextCursor).toBe("b3wAMQBjLTk");
+    expect(got.matchCount).toBe(7);
   });
 
   it("searchChat hands the cursor back for an older page, and a page without next_cursor has none", async () => {
-    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [], match_count: 7 }));
     const got = await httpApi.searchChat("m-1", "deploy", "b3wAMQBjLTk");
     const q = new URLSearchParams((await lastRequest()).url.split("?")[1] ?? "");
     expect(q.get("cursor")).toBe("b3wAMQBjLTk");
     expect(q.get("q")).toBe("deploy");
     expect(q.get("with")).toBe("m-1");
-    expect(got).toEqual({ messages: [] });
+    expect(got).toEqual({ messages: [], matchCount: 7 });
   });
 
   it("searchChat turns a failed search into an ApiError carrying the server's code", async () => {

@@ -1622,6 +1622,7 @@ export const httpApi: Api = {
     return {
       messages: wire.messages.map(toChatMessage),
       ...(wire.next_cursor ? { nextCursor: wire.next_cursor } : {}),
+      matchCount: wire.match_count ?? wire.messages.length,
     };
   },
 
