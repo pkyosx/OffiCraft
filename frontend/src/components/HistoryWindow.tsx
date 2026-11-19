@@ -186,40 +186,34 @@ export function HistoryReaderWindow({
 
         {belowBody}
 
-        <div className="doc-hist-modal__footer">
-          {onBack && (
-            <button
-              type="button"
-              className="doc-btn doc-hist-modal__back"
-              data-testid="doc-history-modal-back"
-              onClick={onBack}
-            >
-              {t.settings.historyBack}
-            </button>
-          )}
-          <button
-            type="button"
-            className="doc-btn"
-            data-testid="doc-history-modal-close-footer"
-            onClick={onClose}
-          >
-            {t.settings.historyClose}
-          </button>
-          {restore && (
-            <button
-              type="button"
-              className="doc-btn doc-hist-modal__restore"
-              data-testid="doc-history-modal-restore"
-              disabled={restore.disabled}
-              onClick={() => {
-                setConfirming(true);
-                setRestoreError(null);
-              }}
-            >
-              {restore.label}
-            </button>
-          )}
-        </div>
+        {(onBack || restore) && (
+          <div className="doc-hist-modal__footer">
+            {onBack && (
+              <button
+                type="button"
+                className="doc-btn doc-hist-modal__back"
+                data-testid="doc-history-modal-back"
+                onClick={onBack}
+              >
+                {t.settings.historyBack}
+              </button>
+            )}
+            {restore && (
+              <button
+                type="button"
+                className="doc-btn doc-hist-modal__restore"
+                data-testid="doc-history-modal-restore"
+                disabled={restore.disabled}
+                onClick={() => {
+                  setConfirming(true);
+                  setRestoreError(null);
+                }}
+              >
+                {restore.label}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {confirming && restore && (

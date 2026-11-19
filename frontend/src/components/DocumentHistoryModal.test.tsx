@@ -346,11 +346,16 @@ describe("DocumentHistoryModal", () => {
   // a way back into it. Closing is a different exit — it leaves the history
   // altogether — and a reader that only closes turns "compare the next version
   // too" into a round trip out through the editor and back in.
-  it("steps back to the list it was opened from, without closing the history", () => {
+  it("offers only 返回版本列表 and the restore in the footer, and steps back to the list without closing the history", () => {
     const onBack = vi.fn();
     const onClose = vi.fn();
     const utils = open({ onBack, onClose });
 
+    const footer = document.querySelector(".doc-hist-modal__footer")!;
+    expect(Array.from(footer.querySelectorAll("button")).map((b) => b.textContent)).toEqual([
+      zh.settings.historyBack,
+      "還原這個版本",
+    ]);
     fireEvent.click(utils.getByTestId("doc-history-modal-back"));
     expect(onBack).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
