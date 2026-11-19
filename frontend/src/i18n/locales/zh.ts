@@ -1516,6 +1516,7 @@ export const zh = {
       // 有縮排。（owner rc-38132b95dcf7 圈 [1]）
       jsonUnparseable: "這不是合法的 JSON，無法排版；以下是檔案的原始內容。",
       xmlUnparseable: "這不是合法的 XML，無法排版；以下是檔案的原始內容。",
+      yamlUnparseable: "這不是合法的 YAML；以下是檔案的原始內容。",
       csvUnparseable: "這份 CSV 排不成表格；以下是檔案的原始內容。",
       csvTooLarge: "這份 CSV 太大，不排成表格；以下是檔案的原始內容。",
       unavailableHere: "此檔案無法在這裡預覽。",

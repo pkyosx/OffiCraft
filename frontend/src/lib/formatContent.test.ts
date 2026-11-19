@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CSV_MAX_CHARS, CSV_MAX_ROWS, formatJson, formatXml, parseCsv } from "./formatContent";
+import { CSV_MAX_CHARS, CSV_MAX_ROWS, formatJson, formatXml, parseCsv, yamlParses } from "./formatContent";
 
 describe("formatJson", () => {
   it("indents valid JSON and hands invalid JSON back unchanged", () => {
@@ -45,6 +45,16 @@ describe("formatXml", () => {
 
   it("hands malformed XML back unchanged", () => {
     expect(formatXml("<a><b></a>")).toEqual({ body: "<a><b></a>", unparseable: true });
+  });
+});
+
+describe("yamlParses", () => {
+  it("accepts comments, multi-document streams and custom tags, and rejects broken indentation, tabs and unclosed brackets", async () => {
+    expect(await yamlParses("# c\na: 1\n---\nb: [1, 2]\n")).toBe(true);
+    expect(await yamlParses("Value: !Ref MyBucket\n")).toBe(true);
+    expect(await yamlParses("a:\n  b: 1\n c: 2\n")).toBe(false);
+    expect(await yamlParses("a:\n\tb: 1\n")).toBe(false);
+    expect(await yamlParses("a: [1, 2\n")).toBe(false);
   });
 });
 

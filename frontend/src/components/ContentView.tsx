@@ -14,10 +14,10 @@
 // sandbox for sig-only HTML applies on top, so a flag added here does nothing
 // unless api_chat.go carries it too.
 
-import type { ReactNode, Ref } from "react";
+import { useEffect, useState, type ReactNode, type Ref } from "react";
 import { useI18n } from "../i18n";
 import type { ContentKind } from "../lib/contentKind";
-import { formatJson, formatXml, parseCsv } from "../lib/formatContent";
+import { formatJson, formatXml, parseCsv, yamlParses } from "../lib/formatContent";
 import { Markdown } from "./Markdown";
 import { ExternalLinkIcon } from "./icons";
 import "./md-preview.css";
@@ -58,6 +58,26 @@ export type ContentViewProps = {
   testId?: string;
 };
 
+/** `null` until the parser has answered for this exact text. A parser that
+ * fails to load also stays `null`: no verdict is shown rather than a wrong one. */
+function useYamlParses(text: string | null): boolean | null {
+  const [verdict, setVerdict] = useState<{ text: string; ok: boolean } | null>(null);
+  useEffect(() => {
+    if (text === null) return;
+    let live = true;
+    yamlParses(text).then(
+      (ok) => {
+        if (live) setVerdict({ text, ok });
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [text]);
+  return verdict !== null && verdict.text === text ? verdict.ok : null;
+}
+
 export function ContentView({
   kind,
   text,
@@ -77,6 +97,7 @@ export function ContentView({
 }: ContentViewProps) {
   const { t } = useI18n();
   const p = t.chat.mdPreview;
+  const yamlOk = useYamlParses(kind === "yaml" ? (text ?? null) : null);
   // A line above a body that carries testId passes `null`: `undefined` would
   // fall back to testId and name two elements.
   const status = (line: ReactNode, id: string | null | undefined = testId) => (
@@ -153,6 +174,17 @@ export function ContentView({
         {unparseable && status(kind === "json" ? p.jsonUnparseable : p.xmlUnparseable, null)}
         <pre className="md-preview__text" data-testid={testId}>
           {body}
+        </pre>
+      </>
+    );
+  }
+
+  if (kind === "yaml") {
+    return (
+      <>
+        {yamlOk === false && status(p.yamlUnparseable, null)}
+        <pre className="md-preview__text" data-testid={testId}>
+          {text}
         </pre>
       </>
     );

@@ -1,5 +1,6 @@
-// Formatting for the text kinds ContentView draws. Browser built-ins only
-// (JSON, DOMParser) — no parser dependency ships to the page for this.
+// Formatting for the text kinds ContentView draws. JSON and XML use browser
+// built-ins (JSON, DOMParser); the YAML parser is loaded on the first YAML file
+// a page opens, so no other page downloads it.
 //
 // Every formatter hands the raw text back when it cannot do its job: the reader
 // came to see the bytes, and a broken file is still readable as it was stored.
@@ -56,6 +57,19 @@ export function formatJson(text: string): Formatted {
     i += 1;
   }
   return { body: out, unparseable: false };
+}
+
+/** Whether the text is well-formed YAML, every document of a `---` stream
+ * included. Syntax only: a custom tag such as CloudFormation's `!Ref` is not
+ * an error, because loading it would need a schema the viewer does not have. */
+export async function yamlParses(text: string): Promise<boolean> {
+  const { parseEvents } = await import("js-yaml");
+  try {
+    parseEvents(text, {});
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const XML_DECLARATION = /^\s*(<\?xml[^>]*\?>)/;

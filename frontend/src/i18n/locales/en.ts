@@ -1463,6 +1463,7 @@ export const en: Dict = {
       // 有縮排。（owner rc-38132b95dcf7 圈 [1]）
       jsonUnparseable: "This is not valid JSON, so it cannot be indented. The raw file contents are below.",
       xmlUnparseable: "This is not valid XML, so it cannot be indented. The raw file contents are below.",
+      yamlUnparseable: "This is not valid YAML. The raw file contents are below.",
       csvUnparseable: "This CSV cannot be laid out as a table. The raw file contents are below.",
       csvTooLarge: "This CSV is too large to lay out as a table. The raw file contents are below.",
       unavailableHere: "This file cannot be previewed here.",

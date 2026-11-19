@@ -133,6 +133,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "chat.mdPreview.unavailableHere",
   "chat.mdPreview.unavailableOpenInNewTab",
   "chat.mdPreview.xmlUnparseable",
+  "chat.mdPreview.yamlUnparseable",
   "chat.mdPreview.zoomControls",
   "chat.mdPreview.zoomIn",
   "chat.mdPreview.zoomOut",

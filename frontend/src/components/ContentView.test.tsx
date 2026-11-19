@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { ContentView, type ContentViewProps } from "./ContentView";
@@ -61,10 +61,16 @@ describe("ContentView", () => {
     expect(bad.getByTestId("body").textContent).toBe("<a><b></a>");
   });
 
-  it("shows YAML and plain text exactly as stored, comments included", () => {
+  it("shows YAML exactly as stored, comments included, with one line saying so when it is not valid YAML", async () => {
     const yaml = "# keep me\nkey:   value\n";
-    const { container } = mount({ kind: "yaml", text: yaml });
-    expect(container.querySelector("pre.md-preview__text")?.textContent).toBe(yaml);
+    const good = mount({ kind: "yaml", text: yaml, testId: "body" });
+    expect(good.getByTestId("body").textContent).toBe(yaml);
+    good.unmount();
+
+    const broken = "a:\n  b: 1\n c: 2\n";
+    const bad = mount({ kind: "yaml", text: broken, testId: "body" });
+    await waitFor(() => expect(statusText(bad.container)).toEqual([p.yamlUnparseable]));
+    expect(bad.getByTestId("body").textContent).toBe(broken);
   });
 
   it("lays CSV out as a table with the first row as its header, padding short rows, every cell as text even when it reads as markup", () => {

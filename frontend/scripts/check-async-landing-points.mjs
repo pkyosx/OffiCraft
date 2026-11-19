@@ -454,6 +454,19 @@ const REGISTRY = [
       "blob fetch; writes only this overlay's own state, and the overlay dies with whatever opened it",
   },
   {
+    file: "components/ContentView.tsx",
+    kind: ".then/.catch/.finally",
+    count: 1,
+    verdict:
+      "YAML syntax check; writes only this view's own verdict state, guarded by a `live` flag reset whenever the text changes, and the verdict is read back only for the exact text it was computed on",
+  },
+  {
+    file: "lib/formatContent.ts",
+    kind: "await",
+    count: 1,
+    verdict: "loads the YAML parser chunk; commits nothing, it only returns the verdict to its caller",
+  },
+  {
     file: "hooks/useShareHref.ts",
     kind: ".then/.catch/.finally",
     count: 2,

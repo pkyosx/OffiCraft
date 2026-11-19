@@ -134,6 +134,7 @@ var messageKeys = map[string]bool{
 	"chat.mdPreview.unavailableHere":                   true,
 	"chat.mdPreview.unavailableOpenInNewTab":           true,
 	"chat.mdPreview.xmlUnparseable":                    true,
+	"chat.mdPreview.yamlUnparseable":                   true,
 	"chat.mdPreview.zoomControls":                      true,
 	"chat.mdPreview.zoomIn":                            true,
 	"chat.mdPreview.zoomOut":                           true,
