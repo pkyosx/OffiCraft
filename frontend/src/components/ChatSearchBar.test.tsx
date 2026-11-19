@@ -28,7 +28,14 @@ function msg(id: string, ts: number): ChatMessage {
 
 function Harness({ onJump, onExit }: { onJump: (id: string) => void; onExit: () => void }) {
   const search = useChatSearch("m-1", onJump);
-  return <ChatSearchBar search={search} listOpen={false} onToggleList={() => {}} onExit={onExit} />;
+  return (
+    <>
+      <ChatSearchBar search={search} listOpen={false} onToggleList={() => {}} onExit={onExit} />
+      {search.results.map((m) => (
+        <button key={m.id} type="button" aria-label={`pick ${m.id}`} onClick={() => search.pick(m.id)} />
+      ))}
+    </>
+  );
 }
 
 function renderBar() {
@@ -141,6 +148,36 @@ describe("ChatSearchBar", () => {
     await answer(1, { messages: [msg("c-1", 1), msg("c-2", 2)], matchCount: 4 });
     expect(bar(container)).toEqual({ status: "2/4", older: "enabled", newer: "enabled" });
     expect(onJump.mock.calls).toEqual([["c-4"], ["c-3"], ["c-2"]]);
+  });
+
+  it("when a result is picked while the older page is in flight, the picked match stays current after the page lands and the landing jumps nowhere", async () => {
+    const { input, container, onJump } = renderBar();
+    await search(input, "deploy");
+    await answer(0, { messages: [msg("c-3", 3), msg("c-4", 4)], matchCount: 4, nextCursor: "cur-1" });
+    fireEvent.click(screen.getByLabelText(zh.chat.searchPrev));
+    fireEvent.click(screen.getByLabelText(zh.chat.searchPrev));
+    fireEvent.click(screen.getByLabelText("pick c-4"));
+    expect(onJump.mock.calls).toEqual([["c-4"], ["c-3"], ["c-4"]]);
+
+    await answer(1, { messages: [msg("c-1", 1), msg("c-2", 2)], matchCount: 4 });
+    expect(bar(container)).toEqual({ status: "4/4", older: "enabled", newer: "disabled" });
+    expect(onJump.mock.calls).toEqual([["c-4"], ["c-3"], ["c-4"]]);
+  });
+
+  it("after the older page fails, ▼ brings the row back from the failed wording to i/N", async () => {
+    const { input, container } = renderBar();
+    await search(input, "deploy");
+    await answer(0, { messages: [msg("c-3", 3), msg("c-4", 4)], matchCount: 4, nextCursor: "cur-1" });
+    fireEvent.click(screen.getByLabelText(zh.chat.searchPrev));
+    fireEvent.click(screen.getByLabelText(zh.chat.searchPrev));
+    await act(async () => {
+      pending[1].reject(new Error("502"));
+    });
+    expect(bar(container).status).toBe(zh.chat.searchFailed);
+
+    fireEvent.click(screen.getByLabelText(zh.chat.searchNext));
+    expect(bar(container)).toEqual({ status: "4/4", older: "enabled", newer: "disabled" });
+    expect(container.querySelector(".chat-search__status")!.className).toBe("chat-search__status");
   });
 
   it("when a match arrives after the search, positions stay counted against the first answer's total", async () => {
