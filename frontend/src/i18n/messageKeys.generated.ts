@@ -1527,6 +1527,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.wardenCredentialLifetime",
   "settings.wardenCredentialLifetimeSub",
   "sharedDocs.actionFailed",
+  "sharedDocs.add",
   "sharedDocs.addLink",
   "sharedDocs.back",
   "sharedDocs.binary",

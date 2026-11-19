@@ -190,6 +190,7 @@ export const zh = {
   sharedDocs: {
     loadFailed: "讀不到檔案庫，請稍後再試",
     empty: "檔案庫裡還沒有檔案",
+    add: "新增",
     uploadFile: "上傳檔案",
     addLink: "新增連結",
     linkUrlPlaceholder: "https://",
