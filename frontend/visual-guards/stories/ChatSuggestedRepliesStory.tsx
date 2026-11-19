@@ -3,6 +3,8 @@ import { I18nProvider } from "../../src/i18n";
 import { ChatArea } from "../../src/components/ChatArea";
 import "../../src/components/office.css";
 import type { Member } from "../../src/types";
+import type { ChatMessage } from "../../src/api/adapter";
+import { __injectMockChat } from "../../src/api/mock";
 
 const MEMBER = {
   id: "rd",
@@ -33,18 +35,28 @@ const noop = () => {};
 export function ChatSuggestedRepliesStory({
   replies,
   allHeaderButtons = false,
+  name = MEMBER.name,
+  id = MEMBER.id,
+  thread = [],
 }: {
-  replies: string[];
+  /** Leave out for a peer without the suggested-replies button. */
+  replies?: string[];
   allHeaderButtons?: boolean;
+  name?: string;
+  /** A mock-api member id, for a thread with messages to search. */
+  id?: string;
+  /** Lands in the mock chat log before mounting, so the thread can be searched. */
+  thread?: ChatMessage[];
 }) {
-  const [saved, setSaved] = useState(replies);
+  useState(() => thread.forEach(__injectMockChat));
+  const [saved, setSaved] = useState(replies ?? []);
   return (
     <I18nProvider>
       <div style={{ height: 700, display: "flex", flexDirection: "column" }} data-testid="host">
         <ChatArea
-          member={MEMBER}
+          member={{ ...MEMBER, id, name }}
           suggestedReplies={saved}
-          onSaveSuggestedReplies={setSaved}
+          onSaveSuggestedReplies={replies ? setSaved : undefined}
           onOpenTasks={allHeaderButtons ? noop : undefined}
           onOpenRoleSettings={allHeaderButtons ? noop : undefined}
         />

@@ -2341,6 +2341,9 @@ export function ChatArea({
     );
   }
 
+  const showSuggestedReplies = Boolean(onSaveSuggestedReplies || onRetrySuggestedReplies) && !composerLocked;
+  const hasTopActions = Boolean(onOpenTasks || onOpenRoleSettings) || showSuggestedReplies;
+
   return (
     // Drag-drop staging surface: dropping files anywhere over the chat window
     // stages them as attachments (no-op while the composer is locked — the
@@ -2413,90 +2416,98 @@ export function ChatArea({
          * that would lie. Own classes, NOT chat__gallery-toggle: that class is a
          * querySelector handle in ChatArea.gallery.test.tsx and a second element
          * wearing it would be silently picked up instead. */}
-        {onOpenTasks && (
-          <button
-            type="button"
-            className="chat__header-action"
-            aria-label={t.chat.tasksLink}
-            title={t.chat.tasksLink}
-            data-testid="chat-header-tasks"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenTasks();
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <TasksIcon size={17} />
-          </button>
-        )}
-        {onOpenRoleSettings && (
-          <button
-            type="button"
-            className="chat__header-action"
-            aria-label={t.chat.roleSettingsLink}
-            title={t.chat.roleSettingsLink}
-            data-testid="chat-header-role-settings"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenRoleSettings();
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <UserGearIcon size={17} />
-          </button>
-        )}
-        {(onSaveSuggestedReplies || onRetrySuggestedReplies) && !composerLocked && (
-          <button
-            ref={suggestedRepliesButtonRef}
-            type="button"
-            className="chat__header-action"
-            aria-label={t.chat.suggestedRepliesLabel}
-            title={t.chat.suggestedRepliesLabel}
-            data-testid="chat-header-suggested-replies"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (onSaveSuggestedReplies) setSuggestedRepliesOpen(true);
-              else onRetrySuggestedReplies?.();
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <SuggestedRepliesIcon size={17} />
-          </button>
-        )}
-        <button
-          type="button"
-          className="chat__search-toggle"
-          aria-label={t.chat.searchOpen}
-          title={t.chat.searchOpen}
-          aria-expanded={searchMode}
-          data-testid="chat-header-search"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (searchMode) exitSearch();
-            else setSearchMode(true);
-          }}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          <SearchIcon size={17} />
-        </button>
-        {/* M2-3: the conversation's file & image gallery toggle. The header
-         * itself may be clickable (open detail) — stopPropagation keeps the
-         * gallery click/keys from bubbling into that. */}
-        <button
-          type="button"
-          className="chat__gallery-toggle"
-          aria-label={t.chat.galleryLabel}
-          title={t.chat.galleryLabel}
-          aria-expanded={galleryOpen}
-          onClick={(e) => {
-            e.stopPropagation();
-            setGalleryOpen((v) => !v);
-            setSearchListOpen(false);
-          }}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          <ImageIcon size={17} />
-        </button>
+        <div className="chat__header-actions">
+          {hasTopActions && (
+            <div className="chat__header-actions-row">
+              {onOpenTasks && (
+                <button
+                  type="button"
+                  className="chat__header-action"
+                  aria-label={t.chat.tasksLink}
+                  title={t.chat.tasksLink}
+                  data-testid="chat-header-tasks"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenTasks();
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <TasksIcon size={17} />
+                </button>
+              )}
+              {onOpenRoleSettings && (
+                <button
+                  type="button"
+                  className="chat__header-action"
+                  aria-label={t.chat.roleSettingsLink}
+                  title={t.chat.roleSettingsLink}
+                  data-testid="chat-header-role-settings"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenRoleSettings();
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <UserGearIcon size={17} />
+                </button>
+              )}
+              {showSuggestedReplies && (
+                <button
+                  ref={suggestedRepliesButtonRef}
+                  type="button"
+                  className="chat__header-action"
+                  aria-label={t.chat.suggestedRepliesLabel}
+                  title={t.chat.suggestedRepliesLabel}
+                  data-testid="chat-header-suggested-replies"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onSaveSuggestedReplies) setSuggestedRepliesOpen(true);
+                    else onRetrySuggestedReplies?.();
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <SuggestedRepliesIcon size={17} />
+                </button>
+              )}
+            </div>
+          )}
+          <div className="chat__header-actions-row">
+            <button
+              type="button"
+              className="chat__search-toggle"
+              aria-label={t.chat.searchOpen}
+              title={t.chat.searchOpen}
+              aria-expanded={searchMode}
+              data-testid="chat-header-search"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (searchMode) exitSearch();
+                else setSearchMode(true);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              <SearchIcon size={17} />
+            </button>
+            {/* M2-3: the conversation's file & image gallery toggle. The header
+             * itself may be clickable (open detail) — stopPropagation keeps the
+             * gallery click/keys from bubbling into that. */}
+            <button
+              type="button"
+              className="chat__gallery-toggle"
+              aria-label={t.chat.galleryLabel}
+              title={t.chat.galleryLabel}
+              aria-expanded={galleryOpen}
+              onClick={(e) => {
+                e.stopPropagation();
+                setGalleryOpen((v) => !v);
+                setSearchListOpen(false);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              <ImageIcon size={17} />
+            </button>
+          </div>
+        </div>
       </header>
       {searchMode && (
         <ChatSearchBar
@@ -2534,6 +2545,7 @@ export function ChatArea({
             if (isMobile) setSearchListOpen(false);
           }}
           onClose={() => setSearchListOpen(false)}
+          mobile={isMobile}
         />
       )}
 

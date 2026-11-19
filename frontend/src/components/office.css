@@ -1795,6 +1795,37 @@
   color: var(--color-text-strong);
   background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
+.chat__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+.chat__header-actions-row {
+  display: contents;
+}
+@media (max-width: 720px) {
+  /* Two right-aligned rows (jumps on top, search + gallery below) so the name
+   * gets the width. The negative block margins sink the rows into the header's
+   * padding: the header must stay 64px tall, which `.chat__gallery` and
+   * `.chat-search__panel` hardcode as their top offset. */
+  .chat__header-actions {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    margin: -5px 0 -18px;
+  }
+  .chat__header-actions-row {
+    display: flex;
+    gap: 2px;
+  }
+  .chat__header-action,
+  .chat__search-toggle,
+  .chat__gallery-toggle {
+    width: 32px;
+    height: 30px;
+  }
+}
 .chat__gallery {
   position: absolute;
   top: 64px;

@@ -31,7 +31,15 @@ function msg(id: string, from: string, body: string, ts: number): ChatMessage {
   return { id, from, to: from === "owner" ? "m-1" : "owner", body, ts, attachments: [], replyCardId: null };
 }
 
-function Harness({ onPick, onClose }: { onPick: (id: string) => void; onClose: () => void }) {
+function Harness({
+  onPick,
+  onClose,
+  mobile,
+}: {
+  onPick: (id: string) => void;
+  onClose: () => void;
+  mobile: boolean;
+}) {
   const search = useChatSearch("m-1", () => {});
   return (
     <>
@@ -49,17 +57,18 @@ function Harness({ onPick, onClose }: { onPick: (id: string) => void; onClose: (
           onPick(id);
         }}
         onClose={onClose}
+        mobile={mobile}
       />
     </>
   );
 }
 
-function renderPanel() {
+function renderPanel({ mobile = false } = {}) {
   const onPick = vi.fn();
   const onClose = vi.fn();
   const utils = render(
     <I18nProvider>
-      <Harness onPick={onPick} onClose={onClose} />
+      <Harness onPick={onPick} onClose={onClose} mobile={mobile} />
     </I18nProvider>,
   );
   const input = screen.getByLabelText("query") as HTMLInputElement;
@@ -184,5 +193,28 @@ describe("ChatSearchPanel", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("on a phone, the results rise as a sheet over a dimmed backdrop: tapping a result picks it, 完成 or the backdrop closes it, a tap inside does not", async () => {
+    const { input, onPick, onClose } = renderPanel({ mobile: true });
+    fireEvent.change(input, { target: { value: "deploy" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await answer(0, { messages: [msg("c-8", "m-1", "deploy 8", NOV18_0905)], matchCount: 1 });
+
+    const sheet = screen.getByRole("dialog", { name: zh.chat.searchResultsTitle });
+    expect(sheet.getAttribute("aria-modal")).toBe("true");
+    expect(screen.queryByRole("button", { name: zh.chat.searchClose })).toBeNull();
+
+    fireEvent.click(sheet.querySelector(".chat-search__item")!);
+    expect(onPick.mock.calls).toEqual([["c-8"]]);
+    fireEvent.click(sheet.querySelector(".chat-search__title")!);
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: zh.office.groups.done }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("chat-search-sheet-backdrop"));
+    expect(onClose).toHaveBeenCalledTimes(2);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(3);
   });
 });

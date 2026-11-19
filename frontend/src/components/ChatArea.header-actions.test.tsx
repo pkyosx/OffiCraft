@@ -467,9 +467,9 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
   });
 
   it.each([
-    ["wide", "keeps the results list open", false, true],
-    ["phone-width", "closes the results list", true, false],
-  ])("on a %s layout, picking a result %s", async (_w, _what, phone, staysOpen) => {
+    ["wide", "the side panel, and picking a result keeps it open", false, true],
+    ["phone-width", "a bottom sheet, and picking a result closes it", true, false],
+  ])("on a %s layout, the results list is %s", async (_w, _what, phone, staysOpen) => {
     const saved = window.matchMedia;
     window.matchMedia = ((query: string) => ({
       matches: phone && query === "(max-width: 720px)",
@@ -481,8 +481,13 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
       fireEvent.click(getByLabelText(zh.chat.searchOpen));
       await searchDeploy(container);
       fireEvent.click(getByLabelText(zh.chat.searchList));
-      fireEvent.click(container.querySelector(".chat-search__item")!);
-      expect(container.querySelector(".chat-search__panel") !== null).toBe(staysOpen);
+      const list = screen.getByRole("dialog", { name: zh.chat.searchResultsTitle });
+      expect(list.className).toBe(phone ? "chat-search__sheet" : "chat-search__panel");
+      expect(container.contains(list)).toBe(!phone);
+      fireEvent.click(list.querySelector(".chat-search__item")!);
+      expect(screen.queryByRole("dialog", { name: zh.chat.searchResultsTitle }) !== null).toBe(
+        staysOpen,
+      );
     } finally {
       window.matchMedia = saved;
     }
