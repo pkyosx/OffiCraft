@@ -7,6 +7,7 @@
 
 /* centered content column (~1040px) with side gutters, per mockup */
 .topbar,
+.app__notices,
 .nav-tabs,
 .app__main {
   width: 100%;
@@ -30,7 +31,7 @@
    max(1040px, calc(100% - 96px))，把「寬版永遠不得比窄版窄」這個不變式寫進算式
    裡（不是靠斷點湊）。同理外區要用固定值而非百分比：百分比會讓螢幕愈大外區愈寬，
    等於退回窄版行為。 */
-:root[data-layout="wide"] :is(.topbar, .nav-tabs, .app__main) {
+:root[data-layout="wide"] :is(.topbar, .app__notices, .nav-tabs, .app__main) {
   max-width: none;
 }
 
@@ -193,6 +194,20 @@
 
 .profile-pill__chevron {
   color: var(--color-text-muted);
+}
+
+/* The banners above the tabs sit in a band of the column's own colour, so the
+   page canvas does not show through between the top bar and the tabs. */
+.app__notices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 22px 0;
+  background: var(--color-nav-bg);
+}
+
+.app__notices:empty {
+  display: none;
 }
 
 /* The vertical padding is SYMMETRIC (7px + 7px = the 2px + 12px it replaces, so

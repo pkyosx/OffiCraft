@@ -105,4 +105,27 @@ export const client = createClient<paths>({
   // stubbing working and is behavior-identical in production.
   fetch: (request) => globalThis.fetch(request),
 });
+const writesInFlight = new Set<Request>();
+
+/** Whether a write (anything but GET/HEAD) has been sent and not yet answered.
+ * A page reload in that window aborts the write after its composer was cleared. */
+export function hasWritesInFlight(): boolean {
+  return writesInFlight.size > 0;
+}
+
+const writesInFlightMiddleware: Middleware = {
+  onRequest({ request }) {
+    if (request.method !== "GET" && request.method !== "HEAD") writesInFlight.add(request);
+  },
+  onResponse({ request }) {
+    writesInFlight.delete(request);
+  },
+  onError({ request }) {
+    writesInFlight.delete(request);
+  },
+};
+
 client.use(authMiddleware);
+// After authMiddleware: onResponse runs in reverse order, so this one settles
+// the write before authMiddleware throws on a non-2xx.
+client.use(writesInFlightMiddleware);

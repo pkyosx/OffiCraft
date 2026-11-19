@@ -4,7 +4,6 @@
    miss on a fresh install that did not come up). */
 
 .onboarding-banner {
-  margin: 12px 16px 0;
   padding: 12px 14px;
   border: 1px solid var(--color-onboarding-border);
   border-radius: 8px;

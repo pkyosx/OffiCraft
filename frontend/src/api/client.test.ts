@@ -19,7 +19,7 @@
 // the client) — the same rule http.global-context.test.ts follows.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { client } from "./client";
+import { client, hasWritesInFlight } from "./client";
 import { ApiError } from "./errors";
 import { TOKEN_KEY } from "./auth";
 
@@ -128,5 +128,40 @@ describe("client · non-2xx error contract (unified envelope → ApiError)", () 
         params: { query: { with: "mira", limit: 5 } },
       })
     ).rejects.toThrow("http 500 for GET /api/chat?with=mira&limit=5");
+  });
+});
+
+describe("hasWritesInFlight", () => {
+  it("is true while a write is unanswered and false once it is answered, rejected or fails to send; reads never count", async () => {
+    let answer: (r: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((r) => (answer = r)));
+    const write = client.POST("/api/members/{member_id}/deactivate", {
+      params: { path: { member_id: "m-a" } },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hasWritesInFlight()).toBe(true);
+    answer(jsonResponse({}));
+    await write;
+    expect(hasWritesInFlight()).toBe(false);
+
+    fetchMock.mockImplementationOnce(async () => errorResponse(409, "conflict", "busy"));
+    await client.DELETE("/api/roles/{role}", { params: { path: { role: "qa" } } }).catch(() => {});
+    expect(hasWritesInFlight()).toBe(false);
+
+    fetchMock.mockImplementationOnce(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    await client.DELETE("/api/roles/{role}", { params: { path: { role: "qa" } } }).catch(() => {});
+    expect(hasWritesInFlight()).toBe(false);
+
+    let answerRead: (r: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((r) => (answerRead = r)));
+    const read = client.GET("/api/members");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hasWritesInFlight()).toBe(false);
+    answerRead(jsonResponse([]));
+    await read;
   });
 });

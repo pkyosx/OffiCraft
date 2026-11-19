@@ -730,6 +730,12 @@ const REGISTRY = [
  * that: the SSE transport is exactly where a per-room cache would be put. */
 const MODULE_STATE = [
   {
+    file: "api/client.ts",
+    name: "writesInFlight",
+    verdict:
+      "the app-wide set of sent, unanswered write requests, read only as a count to hold off an automatic page reload; each request removes itself when answered or failed, and no room's value is stored here",
+  },
+  {
     file: "components/InstantHint.tsx",
     name: "closeOpenHint",
     verdict:

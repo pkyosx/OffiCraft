@@ -33,6 +33,7 @@ import { OnboardingBanner } from "./components/OnboardingBanner";
 import { DiffModalHost } from "./components/DiffModalHost";
 import { AttachmentModalHost } from "./components/AttachmentModalHost";
 import { ConnectionBanner } from "./components/ConnectionBanner";
+import { BuildUpdateBanner } from "./components/BuildUpdateBanner";
 import { InlineEdit } from "./components/InlineEdit";
 import { PushNotifications } from "./components/PushNotifications";
 import { useOrgName } from "./hooks/useOrgName";
@@ -340,18 +341,22 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         </div>
       </header>
 
-      {/* T-ba62: the ONLY surface on which a fresh install can read WHY the
-          automatic first-run setup did not produce a working studio. Renders
-          nothing at all unless that run actually failed. */}
-      <OnboardingBanner />
+      {/* Empty when no banner renders; the band then takes no space. */}
+      <div className="app__notices">
+        {/* T-ba62: the ONLY surface on which a fresh install can read WHY the
+            automatic first-run setup did not produce a working studio. Renders
+            nothing at all unless that run actually failed. */}
+        <OnboardingBanner />
 
-      {/* T-b0bb: the ONE place the cockpit admits it has stopped receiving.
-          Every view below this line is delta-driven, so a dead downlink and a
-          quiet office render identically — without this bar a frozen page is
-          indistinguishable from a calm one. Sits ABOVE the tabs so it is on
-          screen whichever page the owner is on: the stall is app-wide, not a
-          property of any one tab. Renders nothing while the stream is healthy. */}
-      <ConnectionBanner />
+        {/* T-b0bb: the ONE place the cockpit admits it has stopped receiving.
+            Every view below this line is delta-driven, so a dead downlink and a
+            quiet office render identically — without this bar a frozen page is
+            indistinguishable from a calm one. Sits ABOVE the tabs so it is on
+            screen whichever page the owner is on: the stall is app-wide, not a
+            property of any one tab. Renders nothing while the stream is healthy. */}
+        <ConnectionBanner />
+        <BuildUpdateBanner />
+      </div>
 
       <nav className="nav-tabs">
         <div className="nav-tabs__seg">

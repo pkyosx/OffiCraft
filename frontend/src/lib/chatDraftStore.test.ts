@@ -30,6 +30,7 @@ import {
   restoreChatDraft,
   getChatDraftAttachments,
   getChatAttachError,
+  hasAnyChatDraft,
   resetChatDrafts,
   saveChatDraftQuote,
   saveChatDraftText,
@@ -68,7 +69,9 @@ describe("chatDraftStore", () => {
   });
 
   it("keeps a quoted passage as a draft on its own and across text and attachment writes", () => {
+    expect(hasAnyChatDraft()).toBe(false);
     saveChatDraftQuote(A, "引用的段落");
+    expect(hasAnyChatDraft()).toBe(true);
     expect(getChatDraft(A)).toEqual({
       text: "",
       attachments: [],
@@ -91,6 +94,7 @@ describe("chatDraftStore", () => {
     updateChatDraftAttachments(A, () => []);
     saveChatDraftQuote(A, "");
     expect(getChatDraft(A)).toBeUndefined();
+    expect(hasAnyChatDraft()).toBe(false);
   });
 
   it("drops the whole draft on clear and notifies only that room", () => {

@@ -55,6 +55,9 @@ vi.mock("./components/UserGuidePage", () => ({ GuidePage: () => null }));
 vi.mock("./components/ConnectionBanner", () => ({
   ConnectionBanner: () => <div data-testid="connection-banner-mount" />,
 }));
+vi.mock("./components/BuildUpdateBanner", () => ({
+  BuildUpdateBanner: () => <div data-testid="build-update-banner-mount" />,
+}));
 
 import App from "./App";
 
@@ -76,16 +79,18 @@ describe("App · ConnectionBanner wiring", () => {
     expect(getByTestId("connection-banner-mount")).toBeTruthy();
   });
 
-  it("mounts it ABOVE the tab strip, so a stall is admitted whichever tab is open", () => {
+  it("mounts it and BuildUpdateBanner ABOVE the tab strip, so either is seen whichever tab is open", () => {
     const { getByTestId, container } = renderApp();
-    const banner = getByTestId("connection-banner-mount");
     const tabs = container.querySelector(".nav-tabs");
     expect(tabs, "the tab strip rendered").not.toBe(null);
-    // DOCUMENT_POSITION_FOLLOWING: the tab strip comes AFTER the banner.
-    expect(
-      banner.compareDocumentPosition(tabs as Node) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      "the banner must precede the tabs, not live inside a page body",
-    ).toBeTruthy();
+    for (const id of ["connection-banner-mount", "build-update-banner-mount"]) {
+      expect(getByTestId(id).parentElement?.className).toBe("app__notices");
+      // DOCUMENT_POSITION_FOLLOWING: the tab strip comes AFTER the banner.
+      expect(
+        getByTestId(id).compareDocumentPosition(tabs as Node) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+        `${id} must precede the tabs, not live inside a page body`,
+      ).toBeTruthy();
+    }
   });
 });
