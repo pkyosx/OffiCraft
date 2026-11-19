@@ -40,6 +40,10 @@
   font: inherit;
   font-size: 14px;
 }
+/* Under 16px, iOS zooms the page in on focus. */
+.chat-search__bar--touch .chat-search__input {
+  font-size: 16px;
+}
 .chat-search__status {
   flex: 0 1 auto;
   min-width: 0;

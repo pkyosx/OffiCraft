@@ -17,12 +17,14 @@ export function ChatSearchBar({
   onToggleList,
   onExit,
   listToggleRef,
+  mobile = false,
 }: {
   search: ChatSearch;
   listOpen: boolean;
   onToggleList: () => void;
   onExit: () => void;
   listToggleRef?: RefObject<HTMLButtonElement>;
+  mobile?: boolean;
 }) {
   const { t, msg } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -42,7 +44,11 @@ export function ChatSearchBar({
               : "";
 
   return (
-    <div ref={rootRef} className="chat-search__bar" role="search">
+    <div
+      ref={rootRef}
+      className={`chat-search__bar${mobile ? " chat-search__bar--touch" : ""}`}
+      role="search"
+    >
       <div className="chat-search__box">
         <SearchIcon size={16} className="chat-search__box-icon" />
         <input

@@ -2520,6 +2520,7 @@ export function ChatArea({
           }}
           onExit={exitSearch}
           listToggleRef={searchListToggleRef}
+          mobile={isMobile}
         />
       )}
 

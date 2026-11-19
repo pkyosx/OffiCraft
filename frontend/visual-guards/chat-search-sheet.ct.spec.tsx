@@ -24,10 +24,11 @@ async function openResults(page: Page) {
   await page.locator(".chat-search__item").first().waitFor();
 }
 
-test("390px: the results rise from the bottom edge, full width, at most 70% tall, and the list scrolls inside", async ({ mount, page }) => {
+test("390px: the search text is 16px so iOS does not zoom on focus; the results rise from the bottom edge, full width, at most 70% tall, and the list scrolls inside", async ({ mount, page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mount(<ChatSuggestedRepliesStory name="GF Eva Slack Inbox" thread={thread} />);
   await openResults(page);
+  await expect(page.locator(".chat-search__input")).toHaveCSS("font-size", "16px");
 
   const sheet = (await page.locator(".chat-search__sheet").boundingBox())!;
   expect(sheet.x).toBe(0);
@@ -43,10 +44,11 @@ test("390px: the results rise from the bottom edge, full width, at most 70% tall
   await expect(page.locator(".chat-search__sheet")).toHaveCount(0);
 });
 
-test("1280px: the results stay a side panel that leaves the search box uncovered", async ({ mount, page }) => {
+test("1280px: the search text stays 14px and the results stay a side panel that leaves the search box uncovered", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   const cmp = await mount(<ChatSuggestedRepliesStory name="GF Eva Slack Inbox" thread={thread} />);
   await openResults(page);
+  await expect(page.locator(".chat-search__input")).toHaveCSS("font-size", "14px");
 
   const host = (await cmp.boundingBox())!;
   const box = (await page.locator(".chat-search__box").boundingBox())!;
