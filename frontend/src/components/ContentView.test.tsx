@@ -180,9 +180,10 @@ describe("ContentView", () => {
     ]);
   });
 
-  it("points a file it cannot draw at the new-tab button when one exists, at the host's line when none does", () => {
-    const header = mount({ kind: "binary", shareHref: "https://s/x?sig=1" });
-    expect(statusText(header.container)).toEqual([p.unavailableOpenInNewTab]);
+  it("offers a file it cannot draw a new-tab link in the body when the host asks for one, and the host's line otherwise", () => {
+    const header = mount({ kind: "binary", shareHref: "https://s/x?sig=1", unavailable: "only download" });
+    expect(statusText(header.container)).toEqual(["only download"]);
+    expect(header.container.querySelector("a")).toBeNull();
     header.unmount();
     const inline = mount({ kind: "binary", shareHref: "https://s/x?sig=1", newTabLink: true });
     const a = inline.container.querySelector("a.md-preview__new-tab")!;

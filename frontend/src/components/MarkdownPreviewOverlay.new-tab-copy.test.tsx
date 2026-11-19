@@ -1,8 +1,8 @@
 // WHAT THE OWNER SEES in the body of the preview overlay for a file it cannot
-// draw. The header's 「在新頁面顯示」 button, its href and its gate are pinned
-// by MarkdownPreviewOverlay.new-tab.test.tsx. Where that button exists the body
-// copy must point at it, not back at 下載: the owner's words were
-// 「不然我都要複製以後找新的頁面貼很麻煩」.
+// draw: 請下載 for a file the browser would only download, and for an HTML page
+// or a PDF whose share link could not be made. The header's 「在新頁面顯示」
+// button, its href and its gate are pinned by
+// MarkdownPreviewOverlay.new-tab.test.tsx.
 //
 // The overlay PORTALS to document.body (T-76cd): every reach goes through
 // `document.body` / `screen`, never render()'s container.

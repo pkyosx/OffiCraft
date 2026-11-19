@@ -722,14 +722,7 @@ export function MarkdownPreviewOverlay({
          * the two would start to drift. */
         <DiffScreen params={diffParams} />
       ) : inlineSource === "" && trailing ? null : (
-        /* 🔴 DO NOT SEND HIM BACK TO THE THING HE COMPLAINED ABOUT. A file
-         * this overlay cannot draw but the header's 「在新頁面顯示」 can open
-         * points AT that button rather than at 下載 — the owner's words were
-         * 「不然我都要複製以後找新的頁面貼很麻煩」. ContentView follows the
-         * BUTTON (`shareHref`), not the mime: while the link is still being
-         * minted neither exists yet, and they appear together.
-         *
-         * An inline source is a CHAT message: Enter meant "new line" when it
+        /* An inline source is a CHAT message: Enter meant "new line" when it
          * was typed, so the full-view read keeps those newlines (`breaks`). A
          * fetched .md blob is a document and keeps standard soft-wrap; it may
          * show images, through the same gate the 使用說明 page uses, while a

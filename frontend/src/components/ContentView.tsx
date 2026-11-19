@@ -166,8 +166,7 @@ export function ContentView({
   }
 
   if (kind === "binary") {
-    if (shareHref === null) return status(unavailable ?? p.unavailable);
-    if (!newTabLink) return status(p.unavailableOpenInNewTab);
+    if (shareHref === null || !newTabLink) return status(unavailable ?? p.unavailable);
     return (
       <div className="md-preview__status" data-testid={testId}>
         <span>{p.unavailableHere}</span>
