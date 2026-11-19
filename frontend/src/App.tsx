@@ -434,18 +434,15 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               </span>
             )}
           </InstantHint>
-          {/* 傳承 (T-33) — between 任務 and 監控. No badge: an entry sitting in
-              the log is not something waiting on the owner, and a count here
-              would read like one. */}
           <button
             type="button"
             className={`nav-tab${
-              !settingsOpen && tab === "lore" ? " nav-tab--active" : ""
+              !settingsOpen && tab === "secrets" ? " nav-tab--active" : ""
             }`}
-            onClick={() => selectTab("lore")}
+            onClick={() => selectTab("secrets")}
           >
-            <NavIcon tabKey="lore" fallback={<BookIcon size={15} />} />
-            <span>{t.nav.lore}</span>
+            <NavIcon tabKey="secrets" fallback={<KeyIcon size={15} />} />
+            <span>{t.nav.secrets}</span>
           </button>
           <button
             type="button"
@@ -457,15 +454,17 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             <NavIcon tabKey="shared_docs" fallback={<LayersIcon size={15} />} />
             <span>{t.nav.sharedDocs}</span>
           </button>
+          {/* 傳承: no badge. An entry sitting in the log is not something
+              waiting on the owner, and a count here would read like one. */}
           <button
             type="button"
             className={`nav-tab${
-              !settingsOpen && tab === "secrets" ? " nav-tab--active" : ""
+              !settingsOpen && tab === "lore" ? " nav-tab--active" : ""
             }`}
-            onClick={() => selectTab("secrets")}
+            onClick={() => selectTab("lore")}
           >
-            <NavIcon tabKey="secrets" fallback={<KeyIcon size={15} />} />
-            <span>{t.nav.secrets}</span>
+            <NavIcon tabKey="lore" fallback={<BookIcon size={15} />} />
+            <span>{t.nav.lore}</span>
           </button>
           <button
             type="button"

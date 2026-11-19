@@ -158,7 +158,7 @@ func validateAvatars(avatars *map[string]string, where string) error {
 
 // The frontend parity test compares this order with NAV_ICON_KEYS.
 var navIconKeys = []string{
-	"office", "replies", "tasks", "lore", "shared_docs", "secrets", "monitor", "guide",
+	"office", "replies", "tasks", "secrets", "shared_docs", "lore", "monitor", "guide",
 }
 
 var navIconKeyAllowed = func() map[string]bool {

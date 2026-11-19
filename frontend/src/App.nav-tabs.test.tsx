@@ -4,7 +4,7 @@
 // (owner 2026-07-22:「user guide 改放在 tab 中,監控的右邊,不要放在 settings
 // 裡」). What is locked here is the part a screenshot conveys and a component
 // test otherwise cannot:
-//   1. ORDER — 辦公室 / 請示 / 任務 / 傳承 / 檔案庫 / 密鑰 / 監控 / 使用說明, with 使用說明 LAST,
+//   1. ORDER — 辦公室 / 請示 / 任務 / 密鑰 / 檔案庫 / 傳承 / 監控 / 使用說明, with 使用說明 LAST,
 //      i.e. immediately to the right of 監控. The owner's红框 was a position, so
 //      position is the requirement; "the tab exists somewhere" would not be.
 //      T-33 inserted 傳承 between 任務 and 監控. That is a WIDENING of the strip,
@@ -104,9 +104,9 @@ describe("主導覽分頁", () => {
       zh.nav.office,
       zh.nav.replies,
       zh.nav.tasks,
-      zh.nav.lore,
-      zh.nav.sharedDocs,
       zh.nav.secrets,
+      zh.nav.sharedDocs,
+      zh.nav.lore,
       zh.nav.monitor,
       zh.nav.guide,
     ]);

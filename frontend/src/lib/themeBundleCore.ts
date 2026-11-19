@@ -70,9 +70,9 @@ export const NAV_ICON_KEYS = [
   "office",
   "replies",
   "tasks",
-  "lore",
-  "shared_docs",
   "secrets",
+  "shared_docs",
+  "lore",
   "monitor",
   "guide",
 ] as const;

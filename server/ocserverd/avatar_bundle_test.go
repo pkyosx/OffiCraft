@@ -217,7 +217,7 @@ func TestNavIconRefusalMessageListsApprovedNavIconKeys(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unknown tab key must be refused")
 	}
-	want := `theme[0]: nav icon key "settings" is not allowed (only office, replies, tasks, lore, shared_docs, secrets, monitor, guide)`
+	want := `theme[0]: nav icon key "settings" is not allowed (only office, replies, tasks, secrets, shared_docs, lore, monitor, guide)`
 	if err.Error() != want {
 		t.Fatalf("refusal = %q, want %q", err, want)
 	}
