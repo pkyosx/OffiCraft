@@ -938,12 +938,25 @@ export function ChatArea({
   const searchPaintQuery =
     searchMode && chatSearch.status === "done" ? chatSearch.query : "";
   useEffect(() => {
+    const root = messagesRef.current;
     const searchable = new Set(
       messages.filter((m) => !isInterAgent(m)).map((m) => m.id),
     );
-    return paintChatSearchHighlights(messagesRef.current, searchPaintQuery, (id) =>
-      searchable.has(id),
-    );
+    const paint = () =>
+      paintChatSearchHighlights(root, searchPaintQuery, (id) => searchable.has(id));
+    let clear = paint();
+    if (!root || searchPaintQuery === "") return clear;
+    // A reply card fills in its question and answer after its own fetch, which
+    // changes no state here — only the DOM tells us there is more to paint.
+    const observer = new MutationObserver(() => {
+      clear();
+      clear = paint();
+    });
+    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    return () => {
+      observer.disconnect();
+      clear();
+    };
   }, [searchPaintQuery, messages, expandedGroups]);
 
   // T-8aaa: persist the TYPED half of the draft to the per-peer store on every
@@ -2136,6 +2149,7 @@ export function ChatArea({
           fallbackSummary={m.body}
           initialStatus={m.replyCardStatus}
           commentRecipientFor={docCommentRecipientFor}
+          expandWhen={m.id === searchCurrentId}
         />
       </MentionRosterContext.Provider>
     ) : (

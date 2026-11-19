@@ -93,6 +93,11 @@ let cardReads: { id: string; rowPainted: number }[] = [];
 /** The waiting cards a test deliberately put in the thread — the afterEach's
  * denominator. */
 let seededWaitingCards: string[] = [];
+/** Cards a test opened by stepping the search onto them — a user action, so
+ * their read is the expected one and the afterEach guard does not count it. */
+let openedBySearch: string[] = [];
+/** The question body `getReplyCard` answers per card id ("" when absent). */
+let cardBodies: Record<string, string> = {};
 
 const CARD: ReplyCard = {
   id: "rc-1",
@@ -225,7 +230,7 @@ vi.mock("../api", () => ({
       // task queue), so a zero-delay mock is not a simplification of the network,
       // it is a different machine.
       await new Promise((r) => setTimeout(r, 0));
-      return { ...CARD, id };
+      return { ...CARD, id, body: cardBodies[id] ?? "" };
     },
     getFirstUnreadChat: async (withId: string) => {
       firstUnreadAsks.push(withId);
@@ -259,7 +264,8 @@ vi.mock("../api", () => ({
       const all = threadOf(withId).filter(
         (m) =>
           (m.from === OWNER || m.to === OWNER) &&
-          m.body.toLowerCase().includes(q.toLowerCase()),
+          (m.body.toLowerCase().includes(q.toLowerCase()) ||
+            (cardBodies[m.replyCardId ?? ""] ?? "").toLowerCase().includes(q.toLowerCase())),
       );
       const upTo = cursor ? all.findIndex((m) => m.id === cursor) : all.length;
       const page = all.slice(Math.max(0, upTo - 30), upTo);
@@ -382,6 +388,8 @@ beforeEach(() => {
   scrolls = [];
   cardReads = [];
   seededWaitingCards = [];
+  openedBySearch = [];
+  cardBodies = {};
   localStorage.clear();
   Element.prototype.scrollIntoView = vi.fn(function (
     this: Element,
@@ -417,7 +425,7 @@ beforeEach(() => {
  * the guard says so instead of passing. */
 afterEach(() => {
   expect(
-    cardReads,
+    cardReads.filter((r) => !openedBySearch.includes(r.id)),
     "a card was fetched just by rendering the thread — the row can now grow under the reader, which is exactly the +254px shift. Every card renders COLLAPSED and reads nothing until it is expanded.",
   ).toEqual([]);
   for (const id of seededWaitingCards) {
@@ -1147,6 +1155,72 @@ describe("ChatArea 進房錨點優先(useChat 的 anchor 參數)", () => {
       g.Highlight = savedHighlight;
     }
   }, 15000);
+
+  it("搜尋停在一張收合的請示卡上時,那張卡自己展開、問題內容裡的關鍵字被標示;不是目前那一筆的請示卡維持收合、一次都不撈", async () => {
+    history.replaceState(null, "", "/");
+    const highlights = new Map<string, { ranges: Range[] }>();
+    const g = globalThis as Record<string, unknown>;
+    const savedCss = g.CSS;
+    const savedHighlight = g.Highlight;
+    g.CSS = { highlights };
+    g.Highlight = class {
+      ranges: Range[];
+      constructor(...ranges: Range[]) {
+        this.ranges = ranges;
+      }
+    };
+    try {
+      seed(A, "a", 20, 100);
+      seedWaitingCard(A, "k2", "rc-k2", 130);
+      log.push({
+        id: "k1",
+        from: A,
+        to: OWNER,
+        body: "要寄出嗎?",
+        ts: 140,
+        attachments: [],
+        replyCardId: "rc-k1",
+        replyCardStatus: "waiting",
+      });
+      cardBodies = { "rc-k1": "先 deploy 到 staging", "rc-k2": "deploy 第二張" };
+      openedBySearch = ["rc-k1"];
+      const { container } = render(<RoutedRoom m={alice} />);
+      await waitFor(() =>
+        expect(container.querySelector('[data-reply-card-id="rc-k1"]')).not.toBeNull(),
+      );
+      await settle();
+      expect(cardReads, "前提:畫出房間時一張卡都沒撈").toEqual([]);
+
+      fireEvent.click(container.querySelector('[data-testid="chat-header-search"]')!);
+      const input = container.querySelector<HTMLInputElement>(".chat-search__input")!;
+      fireEvent.change(input, { target: { value: "deploy" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      await waitFor(() =>
+        expect(
+          container.querySelector('[data-msg-id="k1"] .reply-card__body')?.textContent,
+        ).toBe("先 deploy 到 staging"),
+      );
+      await waitFor(() =>
+        expect(
+          (highlights.get("oc-chat-search")?.ranges ?? []).map((r) => [
+            r.startContainer.parentElement!.closest(".reply-card__body") !== null,
+            r.toString(),
+          ]),
+        ).toEqual([[true, "deploy"]]),
+      );
+      expect(container.querySelector(".chat-search__status")?.textContent).toBe("2/2");
+      expect(cardReads.map((r) => r.id)).toEqual(["rc-k1"]);
+      expect(
+        container
+          .querySelector('[data-reply-card-id="rc-k2"]')!
+          .classList.contains("reply-card--collapsed"),
+      ).toBe(true);
+    } finally {
+      g.CSS = savedCss;
+      g.Highlight = savedHighlight;
+    }
+  });
 });
 
 // ── 帶著未讀進房:停在伺服器說的第一則未讀 ────────────────────────────────────

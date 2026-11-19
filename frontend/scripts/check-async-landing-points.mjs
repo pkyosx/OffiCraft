@@ -316,9 +316,9 @@ const REGISTRY = [
   {
     file: "components/ChatArea.tsx",
     kind: "Observer",
-    count: 1,
+    count: 2,
     verdict:
-      "the PURE-READ latestInView observer (T-48). It writes one boolean derived from this mount's own scroller and nothing else — no scrollTop — so a callback that lands after the screen has moved on can only re-answer a question about a room React has already discarded; disconnected in the same effect's cleanup",
+      "(2) the search-highlight MutationObserver: it repaints the CSS highlight registry from this mount's own messages box and writes no React state; disconnected (and its highlight cleared) in the same effect's cleanup, which also runs when the query, the thread or the room changes. (1) the PURE-READ latestInView observer (T-48). It writes one boolean derived from this mount's own scroller and nothing else — no scrollTop — so a callback that lands after the screen has moved on can only re-answer a question about a room React has already discarded; disconnected in the same effect's cleanup",
   },
   {
     file: "components/ChatArea.tsx",
