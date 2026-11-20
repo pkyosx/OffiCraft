@@ -541,7 +541,7 @@ make_out() { # make_out <serverd-binary> [member-to-omit] [ocagent-binary]
     printf '#!/bin/sh\n' > "$pkg/install.sh"; printf 'MIT\n' > "$pkg/LICENSE"
     printf '# OffiCraft %s\n' "$TAG" > "$pkg/README.md"
     if [[ "$p" == "$mut" && -n "${2:-}" ]]; then rm -f "$pkg/$2"; fi
-    tar -C "$WORK/pkg" -czf "$AOUT/officraft-$TAG-$p.tar.gz" "officraft-$TAG-$p"
+    COPYFILE_DISABLE=1 tar --no-xattrs -C "$WORK/pkg" -czf "$AOUT/officraft-$TAG-$p.tar.gz" "officraft-$TAG-$p"
   done
   printf '#!/bin/sh\n' > "$AOUT/install.sh"
   write_checksums
@@ -550,7 +550,7 @@ write_checksums() {
   ( cd "$AOUT" && shasum -a 256 "$TARBALL" "$TARBALL_LINUX_AMD64" "$TARBALL_LINUX_ARM64" install.sh > checksums.txt )
 }
 retar() { # retar <os-arch> — re-pack one tarball after a hand edit to its package dir
-  tar -C "$WORK/pkg" -czf "$AOUT/officraft-$TAG-$1.tar.gz" "officraft-$TAG-$1"
+  COPYFILE_DISABLE=1 tar --no-xattrs -C "$WORK/pkg" -czf "$AOUT/officraft-$TAG-$1.tar.gz" "officraft-$TAG-$1"
   write_checksums
 }
 verify_out() { # verify_out — call the real verify_artifacts against $AOUT
@@ -597,6 +597,12 @@ printf 'oops\n' > "$WORK/pkg/officraft-$TAG-darwin-arm64/scratch.log"
 retar darwin-arm64
 verify_out
 named_failure "A3b the tarball grew a STRAY member" tarball-members "$RC" "$OUT"
+
+make_out "$STAMPED"
+printf 'meta\n' > "$WORK/pkg/officraft-$TAG-linux-arm64/._ocwarden"
+retar linux-arm64
+verify_out
+named_failure "A3c an AppleDouble ._ entry in the tarball is a stray member" tarball-members "$RC" "$OUT"
 
 make_out "$STAMPED"
 printf 'not a binary' > "$WORK/pkg/officraft-$TAG-darwin-arm64/ocagent"

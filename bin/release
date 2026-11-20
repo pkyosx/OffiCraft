@@ -322,7 +322,9 @@ cmd_publish() {
     cp "$STAGE/LICENSE"             "$PKG/LICENSE"
     chmod +x "$PKG/ocserverd" "$PKG/ocwarden" "$PKG/ocagent" "$PKG/officraft" "$PKG/install.sh"
     write_package_readme "$PKG/README.md" "$TAG" "$SHORT" "$p"
-    tar -C "$STAGE/.release-pkg" -czf "$OUT/$NAME.tar.gz" "$NAME"
+    # macOS tar otherwise adds an AppleDouble ._<file> beside every member and
+    # xattr headers; GNU tar on Linux extracts those as stray files and warnings.
+    COPYFILE_DISABLE=1 tar --no-xattrs -C "$STAGE/.release-pkg" -czf "$OUT/$NAME.tar.gz" "$NAME"
     TARBALLS+=("$NAME.tar.gz")
   done
   # install.sh doubles as a standalone release asset (the documented curl|bash
@@ -796,8 +798,11 @@ verify_tarball() {
   # quietly grew a stray file — is a broken install, not a cosmetic issue.
   local want_members got_members
   want_members="$(printf '%s\n' LICENSE README.md install.sh ocagent ocserverd ocwarden officraft)"
-  got_members="$(tar -tzf "$OUT/$NAME.tar.gz" \
-    | sed -e "s|^$NAME/||" -e '/^$/d' | LC_ALL=C sort)"
+  # Read the raw entries: macOS tar -t folds AppleDouble ._<file> entries into
+  # their files and would list a tarball that unpacks junk on Linux as clean.
+  got_members="$(python3 -I -c 'import sys, tarfile
+for m in tarfile.open(sys.argv[1]).getmembers(): print(m.name)' "$OUT/$NAME.tar.gz" \
+    | sed -e "s|^$NAME/||" -e "s|^$NAME\$||" -e '/^$/d' | LC_ALL=C sort)"
   [[ "$got_members" == "$want_members" ]] || fail_item tarball-members \
     "$NAME.tar.gz member list is wrong. want: $(echo "$want_members" | tr '\n' ' ')| got: $(echo "$got_members" | tr '\n' ' ')"
 
