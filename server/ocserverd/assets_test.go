@@ -22,7 +22,12 @@ func TestSeedsdistFS(t *testing.T) {
 }
 
 func TestBindistFS(t *testing.T) {
-	for _, name := range []string{"ocwarden", "ocagent", "officraft", "mcp-catalog.json"} {
+	for _, name := range []string{
+		"darwin-arm64/ocwarden", "darwin-arm64/ocagent", "darwin-arm64/officraft",
+		"linux-amd64/ocwarden", "linux-amd64/ocagent", "linux-amd64/officraft",
+		"linux-arm64/ocwarden", "linux-arm64/ocagent", "linux-arm64/officraft",
+		"mcp-catalog.json",
+	} {
 		data, err := fs.ReadFile(bindistFS(), name)
 		if err != nil {
 			t.Fatalf("ReadFile(%q): %v", name, err)
@@ -422,22 +427,25 @@ func TestBinHashPrefix(t *testing.T) {
 
 func TestBindistBinaryHashesFrom(t *testing.T) {
 	got := bindistBinaryHashesFrom(fstest.MapFS{
-		"ocwarden": &fstest.MapFile{Data: []byte("warden")},
-		"ocagent":  &fstest.MapFile{Data: []byte("agent")},
+		"darwin-arm64/ocwarden": &fstest.MapFile{Data: []byte("warden")},
+		"darwin-arm64/ocagent":  &fstest.MapFile{Data: []byte("agent")},
+		"linux-amd64/ocwarden":  &fstest.MapFile{Data: []byte("binary payload")},
+		"mcp-catalog.json":      &fstest.MapFile{Data: []byte("{}")},
 	})
-	want := map[string]string{
-		"ocwarden": "8bdb247a2a76",
-		"ocagent":  "d4f0bc5a29de",
+	want := map[string]map[string]string{
+		"darwin/arm64": {"ocwarden": "8bdb247a2a76", "ocagent": "d4f0bc5a29de"},
+		"linux/amd64":  {"ocwarden": "ba8f38fbdbe5"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("bindistBinaryHashesFrom = %#v, want %#v", got, want)
 	}
 
 	got = bindistBinaryHashesFrom(fstest.MapFS{
-		"ocwarden": &fstest.MapFile{},
+		"darwin-arm64/ocwarden": &fstest.MapFile{},
+		"Darwin-ARM64/ocwarden": &fstest.MapFile{Data: []byte("warden")},
 	})
 	if len(got) != 0 {
-		t.Fatalf("bindistBinaryHashesFrom(empty/missing) = %#v, want empty", got)
+		t.Fatalf("bindistBinaryHashesFrom(empty/missing/not a platform) = %#v, want empty", got)
 	}
 }
 

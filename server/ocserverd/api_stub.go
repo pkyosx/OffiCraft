@@ -183,7 +183,7 @@ type apiServer struct {
 
 	root assetRoot
 
-	binHashes map[string]string
+	binHashes map[string]map[string]string
 
 	backupHealth *backupHealthMonitor
 
@@ -191,9 +191,13 @@ type apiServer struct {
 	// vault is nil until serve wires it beside the database; every secret route
 	// then answers 503 instead of sealing under a key nobody can find.
 	vault *secretVault
-	// ocwardenFS is a test seam (nil in production → bindistFS()). The EXEC seam
-	// is the package-level runOcwarden var — do not add a second one here.
+	// ocwardenFS is a test seam (nil in production → the server platform's
+	// bindist). The EXEC seam is the package-level runOcwarden var — do not add
+	// a second one here.
 	ocwardenFS fs.FS
+	// bindist is a test seam for the binary downloads (nil in production →
+	// bindistFS()).
+	bindist fs.FS
 
 	mcpTools map[string]RouteSpec
 	// loopback: tools/call re-enters this mux in-process so the auth gate, RBAC
@@ -261,6 +265,9 @@ type apiServer struct {
 	updateCheck updateCheckState
 
 	releaseSiteBase string
+	// releasePlatform is a test seam (zero in production → serverBinPlatform):
+	// the platform whose release tarball an upgrade installs.
+	releasePlatform binPlatform
 
 	upgradeMu txguard.Mutex
 

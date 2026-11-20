@@ -201,7 +201,7 @@ func (s *apiServer) kickFirstRunOnboardingWith(run onboardingRunner) {
 func (s *apiServer) newOnboardingRunner() onboardingRunner {
 	return onboardingRunner{
 		installWarden: func(machine Member) (bootstrapResultDTO, error) {
-			binPath, err := s.resolveOcwardenBinaryFrom(bindistFS())
+			binPath, err := s.resolveOcwardenBinaryFrom(bindistPlatformFS(bindistFS(), serverBinPlatform))
 			if err != nil {
 				return bootstrapResultDTO{}, err
 			}

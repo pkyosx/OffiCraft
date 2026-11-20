@@ -55,6 +55,7 @@ func TestAutoUpdateTick(t *testing.T) {
 			updaterAutoUpdate:        true,
 			updaterCheckIntervalSecs: 300,
 			releaseSiteBase:          srv.URL,
+			releasePlatform:          upgradeTestReleasePlatform,
 			upgradeExeOverride:       exe,
 			upgradeRestart:           func(path string) { restarted <- path },
 		}
