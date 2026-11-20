@@ -254,7 +254,7 @@ bin/release publish --beta <tag> --target <sha> [--dry-run] [--no-settle]
 bin/release promote <tag>                       [--dry-run]
 ```
 
-- `publish` 從 `<sha>` 切一個**丟棄式 detached staging worktree**(不是「當前 tree 乾淨就好」——bytes 來自你指名的那個 commit),在裡面 build、打包、**上傳前先驗 artifact**(tarball member list、三顆 binary 的 arm64 mach-o、從 `go version -m` 讀 ocserverd 真正被 link 進去的 `appVersion`/`buildSHA`、`shasum -c`),然後**一次** `gh release create --prerelease --target <sha>` 帶齊三個 asset(所以不存在「release 已建立但 asset 只上傳一半」的視窗)。
+- `publish` 從 `<sha>` 切一個**丟棄式 detached staging worktree**(不是「當前 tree 乾淨就好」——bytes 來自你指名的那個 commit),在裡面 build、打包每個支援平台各一個 tarball(平台清單是 `bin/release` 的 `RELEASE_PLATFORMS`),**上傳前先驗 artifact**(每個 tarball 的 member list、每顆 binary 都是該 tarball 平台的執行檔格式、從 `go version -m` 讀 ocserverd 真正被 link 進去的 `appVersion`/`buildSHA`、`shasum -c`),然後**一次** `gh release create --prerelease --target <sha>` 帶齊全部 asset(所以不存在「release 已建立但 asset 只上傳一半」的視窗)。
 - 🔴 **`publish` 在 build 之前會先讀「這顆 commit 自己那一輪 GitHub Actions 的判決」,不綠就不發(T-b65e 立閘;T-7e6c 換證據來源,owner 卡 `rc-56fecb4d5aa3`)**。它**不再自己重跑一輪 CI**,而是拿 `GITHUB_RUN_ID` 去問 Actions API 兩件事:
   - **綁定**:`/actions/runs/<id>` 的 `head_sha` 必須**逐字等於** `--target` 那顆 sha(另一顆 commit 的全綠對這棵樹什麼都沒說),而且回來的 `id` 必須就是我們問的那一個;
   - **判決**:`/actions/runs/<id>/jobs?per_page=100`(🔴 **不帶 `filter`**——預設 `filter=latest` 才會排除 re-run 的舊 attempt)裡,`auto-beta` 的那 **11 個 gate job 一個不少地出現**,且每一個的 `conclusion` **逐字 `== "success"`**。🔴 少一個 job **不會產生條目**(`paths-ignore`、拔掉 `needs`、改名),所以「看得到的都綠」對一個根本沒檢查的 round 也成立 ⇒ 點名比對是必要的;`!= "failure"` 也不行——實測最近 200 輪的 conclusion 是 success 168 / cancelled 23 / failure 7 / action_required 2,再加上前面紅了之後所有 gate 都是 `skipped`。

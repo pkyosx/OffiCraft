@@ -4159,8 +4159,8 @@ def test_claim_code_is_single_use(hctx: HCtx) -> None:
 
 def test_install_sh_code_variant_claims_before_download(hctx: HCtx) -> None:
     """install.sh?code= serves the claim-code variant: a HEAD probe of the
-    warden binary route runs FIRST (a 503-ing server must not burn the
-    one-time code), then the code is templated into a POST /api/machines/claim
+    warden binary route runs FIRST (a server answering 404 or 503 must not burn
+    the one-time code), then the code is templated into a POST /api/machines/claim
     exchange that runs BEFORE the binary download, and sed joins the tool
     precheck. The legacy ?token= variant is pinned untouched by the
     GET /install.sh happy row."""
@@ -4170,13 +4170,48 @@ def test_install_sh_code_variant_claims_before_download(hctx: HCtx) -> None:
     body = r.text
     assert '"code":"conf-happy-claim-code"' in body, "code not templated into the claim body"
     assert "for tool in tmux curl sed; do" in body, "sed missing from the precheck"
-    probe_at = body.find("curl -fsI ")
+    url_at = body.find('WARDEN_URL="')
+    probe_at = body.find("curl -sI ")
     claim_at = body.find("/api/machines/claim")
     # the double quote skips the '# Usage: curl -fsSL ...' comment line
     download_at = body.find('curl -fsSL "')
-    assert 0 <= probe_at < claim_at, "the binary probe must precede the claim exchange"
+    assert 0 <= url_at < probe_at < claim_at, "the binary probe must precede the claim exchange"
     assert claim_at < download_at, "the claim exchange must precede the binary download"
-    assert "/api/warden/binary" in body[probe_at:claim_at], "the probe must hit the binary route"
+    assert "/api/warden/binary?os=$OC_OS&arch=$OC_ARCH" in body[url_at:probe_at], (
+        "the probed and downloaded warden must be the one for this machine's platform"
+    )
+    assert '"$WARDEN_URL"' in body[probe_at:claim_at], "the probe must hit the platform's binary route"
+    assert body[download_at:].startswith('curl -fsSL "$WARDEN_URL"'), "the download must fetch the probed URL"
+
+
+# ELF e_machine values and the Mach-O arm64 header, as each platform's
+# executable begins.
+_PLATFORM_HEADERS = {
+    ("linux", "amd64"): lambda b: b[:4] == b"\x7fELF" and b[18:20] == b"\x3e\x00",
+    ("linux", "arm64"): lambda b: b[:4] == b"\x7fELF" and b[18:20] == b"\xb7\x00",
+    ("darwin", "arm64"): lambda b: b[:8] == b"\xcf\xfa\xed\xfe\x0c\x00\x00\x01",
+}
+
+
+def test_binary_downloads_serve_the_requested_platform(hctx: HCtx) -> None:
+    """os/arch pick which platform's build the binary routes stream; without
+    them the server's own platform is served, and a platform the server does
+    not carry is a 404 in the unified error envelope."""
+    for route, binary in (("/api/warden/binary", "ocwarden"), ("/api/agent/binary", "ocagent")):
+        bodies = []
+        for (goos, goarch), is_platform in _PLATFORM_HEADERS.items():
+            r = hctx.client.get(f"{route}?os={goos}&arch={goarch}")
+            assert r.status_code == 200, f"{route} {goos}/{goarch}: {r.status_code} {r.text[:200]}"
+            assert is_platform(r.content), f"{route} {goos}/{goarch} served another platform's executable"
+            bodies.append(r.content)
+        plain = hctx.client.get(route)
+        assert plain.status_code == 200, plain.text[:200]
+        assert plain.content in bodies, f"{route} without os/arch served none of the carried platforms"
+        missing = hctx.client.get(f"{route}?os=windows&arch=amd64")
+        assert missing.status_code == 404, missing.text[:200]
+        assert missing.json() == {
+            "error": {"code": "not_found", "message": f"this server carries no {binary} binary for windows/amd64"}
+        }, missing.text
 
 
 # ── machine placement: an explicit machine id, or nothing ────────────────────
