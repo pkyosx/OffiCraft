@@ -1074,7 +1074,8 @@ write_package_readme() { # write_package_readme <path> <tag> <short-sha> <os-arc
   cat > "$path" <<EOF
 # OffiCraft $TAG ($PLATFORM)
 
-Run your own AI staff office on a Mac. This package contains everything —
+Run your own AI staff office on macOS (Apple Silicon) or Linux (Windows: inside
+WSL2). This package contains everything —
 no Go/Node toolchain needed.
 
 ## Install (one command)
@@ -1085,8 +1086,9 @@ no Go/Node toolchain needed.
 
 Installs to \`~/.officraft/bin\`, creates/migrates the database at
 \`~/.officraft/server/data/officraft.db\`, then registers and starts the
-launchd job \`com.officraft.serve\` (starts at login, restarts on crash; logs
-to \`~/.officraft/server/log/serve.log\`). It does NOT hold your terminal —
+service \`com.officraft.serve\` — a launchd job on macOS, a \`systemd --user\`
+unit on Linux (starts at login, restarts on crash; logs to
+\`~/.officraft/server/log/serve.log\`). It does NOT hold your terminal —
 pass \`--foreground\` if you want that instead. The installer then prints a
 one-time setup link (\`http://127.0.0.1:7755/?code=…\`) — open it to set your
 owner password.
@@ -1108,13 +1110,14 @@ LIVE it refuses outright — restarting it drops every connected cockpit and
 agent — until you also pass \`--restart-live\`.
 
 Stop/start the service with
-\`launchctl bootout|bootstrap gui/\$(id -u) ~/Library/LaunchAgents/com.officraft.serve.plist\`.
+\`launchctl bootout|bootstrap gui/\$(id -u) ~/Library/LaunchAgents/com.officraft.serve.plist\`
+on macOS, or \`systemctl --user stop|start com.officraft.serve\` on Linux.
 
 ## Contents
 
 - \`ocserverd\` — the server (web app, seeds and agent binaries embedded)
 - \`ocwarden\`, \`ocagent\` — fleet CLI binaries (also served by ocserverd)
-- \`officraft\` — the warden's fixed launchd identity; \`install.sh\` needs it
+- \`officraft\` — the warden's fixed service identity; \`install.sh\` needs it
   beside itself and refuses without it
 - \`install.sh\` — the installer above
 - \`LICENSE\` — MIT
