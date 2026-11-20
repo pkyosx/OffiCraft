@@ -639,7 +639,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		case cutoverSubcmd:
 			// Internal step of the legacy->anchor migration, spawned detached by a
 			// legacy-shape `run`; deliberately absent from the usage banner.
-			return cutoverCmd(env, out)
+			return cutoverCmd(env, out, runtime.GOOS)
 		case "codex-session":
 			return runCodexSession(argv[1:], env, out)
 		case "version", "--version", "-v":
@@ -654,7 +654,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	if len(argv) == 0 || argv[0] != "run" {
 		fmt.Fprintln(out, "usage: ocwarden {run [--once] | install | teardown [--canonical]}")
 		fmt.Fprintln(out, "  run       officraft per-machine hardware telemetry + command producer.")
-		fmt.Fprintln(out, "  install   install + start the launchd warden job on this machine.")
+		fmt.Fprintln(out, "  install   install + start the warden service on this machine (launchd on macOS, systemd --user on Linux).")
 		fmt.Fprintln(out, "  teardown  stop + remove a namespaced warden; canonical requires --canonical.")
 		return 0
 	}
@@ -702,7 +702,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		}
 	}
 	fingerprints := newBinFingerprinter(os.Executable, anchorPath)
-	wardenShapeOf := newShapeReporter(anchorPath, os.Getppid())
+	wardenShapeOf := newShapeReporter(anchorPath, os.Getppid(), runtime.GOOS)
 	cutoverEffectOf := newCutoverEffectReporter(anchorPath, agentSocket, os.Getppid())
 	claudeProbe := newClaudeProber(env, runner, runtime.GOOS)
 

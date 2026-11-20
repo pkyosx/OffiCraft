@@ -186,7 +186,7 @@ func TestStationAddressGate(t *testing.T) {
 		if rc != 1 || !stop {
 			t.Errorf("gate = (%d, %v), want (1, true)", rc, stop)
 		}
-		want := noBaseGolden + "[ocwarden] --once: refusing and exiting non-zero (no sentinel written; the launchd path halts instead)\n"
+		want := noBaseGolden + "[ocwarden] --once: refusing and exiting non-zero (no sentinel written; the installed service halts instead)\n"
 		if out.String() != want {
 			t.Errorf("out =\n%s\nwant\n%s", out.String(), want)
 		}

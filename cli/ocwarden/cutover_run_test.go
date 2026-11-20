@@ -604,7 +604,7 @@ func TestCutoverCmd(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var out bytes.Buffer
 
-		if code := cutoverCmd(envMap(map[string]string{}), &out); code != 1 {
+		if code := cutoverCmd(envMap(map[string]string{}), &out, "darwin"); code != 1 {
 			t.Errorf("cutoverCmd = %d, want 1", code)
 		}
 		if want := []string{"[cutover] FATAL: HOME must be set"}; !reflect.DeepEqual(stripTimestamps(t, out.String()), want) {
@@ -620,7 +620,7 @@ func TestCutoverCmd(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var out bytes.Buffer
 
-		code := cutoverCmd(envMap(map[string]string{"HOME": "/Users/eva", "OC_TOKEN": jwtWardenOne}), &out)
+		code := cutoverCmd(envMap(map[string]string{"HOME": "/Users/eva", "OC_TOKEN": jwtWardenOne}), &out, "darwin")
 
 		if code != 1 {
 			t.Errorf("cutoverCmd = %d, want 1", code)
@@ -628,6 +628,27 @@ func TestCutoverCmd(t *testing.T) {
 		lines := stripTimestamps(t, out.String())
 		if len(lines) != 1 || !strings.HasPrefix(lines[0], "[cutover] FATAL: OC_BASE is not set") {
 			t.Errorf("output = %#v, want one FATAL naming OC_BASE", lines)
+		}
+	})
+
+	t.Run("under linux, the converter refuses because the cutover is launchd-only", func(t *testing.T) {
+		rec := newCutoverRec()
+		bindCutoverOps(t, rec)
+		var out bytes.Buffer
+
+		code := cutoverCmd(envMap(map[string]string{
+			"HOME": "/home/eva", "OC_BASE": "https://station.example", "OC_TOKEN": jwtWardenOne,
+		}), &out, "linux")
+
+		if code != 1 {
+			t.Errorf("cutoverCmd = %d, want 1", code)
+		}
+		want := []string{"[cutover] REFUSED: the anchor cutover converts a launchd job and exists on macOS only; on linux re-run `ocwarden install --force` instead"}
+		if got := stripTimestamps(t, out.String()); !reflect.DeepEqual(got, want) {
+			t.Errorf("output = %#v, want %#v", got, want)
+		}
+		if len(rec.installerCalls) != 0 || len(rec.writes) != 0 {
+			t.Errorf("installs=%v writes=%v, want none", rec.installerCalls, rec.writes)
 		}
 	})
 
@@ -649,7 +670,7 @@ func TestCutoverCmd(t *testing.T) {
 			"OC_BASE":         "https://station.example",
 			"OC_TOKEN":        jwtWardenOne,
 			"OC_CUTOVER_LOCK": lock,
-		}), &out)
+		}), &out, "darwin")
 
 		if code != 0 {
 			t.Fatalf("cutoverCmd = %d, want 0\n%s", code, out.String())

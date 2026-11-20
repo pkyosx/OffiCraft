@@ -1227,7 +1227,7 @@ func TestRealMain(t *testing.T) {
 	t.Run("no verb prints the usage banner", func(t *testing.T) {
 		want := "usage: ocwarden {run [--once] | install | teardown [--canonical]}\n" +
 			"  run       officraft per-machine hardware telemetry + command producer.\n" +
-			"  install   install + start the launchd warden job on this machine.\n" +
+			"  install   install + start the warden service on this machine (launchd on macOS, systemd --user on Linux).\n" +
 			"  teardown  stop + remove a namespaced warden; canonical requires --canonical.\n"
 		for _, argv := range [][]string{{}, {"serve"}, {"--help"}} {
 			var out bytes.Buffer
@@ -1319,7 +1319,7 @@ func TestRealMain(t *testing.T) {
 			t.Errorf("rc = %d, want 1", rc)
 		}
 		first := "[ocwarden] FATAL: OC_BASE is not set — this warden was never told which station to talk to.\n"
-		last := "[ocwarden] --once: refusing and exiting non-zero (no sentinel written; the launchd path halts instead)\n"
+		last := "[ocwarden] --once: refusing and exiting non-zero (no sentinel written; the installed service halts instead)\n"
 		if !strings.HasPrefix(out.String(), first) || !strings.HasSuffix(out.String(), last) {
 			t.Errorf("out = %q, want the station-address refusal", out.String())
 		}

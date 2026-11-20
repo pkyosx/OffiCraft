@@ -369,7 +369,7 @@ func TestNewShapeReporter(t *testing.T) {
 	rec.ppidExe[4242] = "/sbin/launchd"
 	bindCutoverOps(t, rec)
 
-	report := newShapeReporter(anchor, 4242)
+	report := newShapeReporter(anchor, 4242, "darwin")
 	if got := report(); got != "legacy" {
 		t.Errorf("first sample = %q, want %q", got, "legacy")
 	}
@@ -379,7 +379,15 @@ func TestNewShapeReporter(t *testing.T) {
 		t.Errorf("sample after the conversion = %q, want %q — the shape is re-read every cycle", got, "anchor")
 	}
 
-	blind := newShapeReporter("", 4242)
+	rec.ppidExe[1] = "systemd"
+	if got := newShapeReporter(anchor, 1, "darwin")(); got != "legacy" {
+		t.Errorf("a pid-1 parent under darwin = %q, want %q", got, "legacy")
+	}
+	if got := newShapeReporter(anchor, 1, "linux")(); got != "unknown" {
+		t.Errorf("a pid-1 parent under linux = %q, want %q — both shapes describe a launchd job", got, "unknown")
+	}
+
+	blind := newShapeReporter("", 4242, "darwin")
 	if got := blind(); got != "unknown" {
 		t.Errorf("a reporter with no anchor path = %q, want %q", got, "unknown")
 	}
