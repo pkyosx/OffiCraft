@@ -3,13 +3,14 @@
 #
 #   A. package mode (ships INSIDE the release tarball, binaries next to it):
 #      ./install.sh            # install to ~/.officraft/bin, migrate, start serve
-#                              # as a launchd BACKGROUND service (survives closing
-#                              # the terminal; restarts on crash and at login)
+#                              # as a BACKGROUND service — launchd on macOS,
+#                              # systemd --user on Linux (survives closing the
+#                              # terminal; restarts on crash and at login)
 #      ./install.sh --force    # overwrite an EXISTING install without the prompt
 #                              # (the only way to proceed non-interactively)
 #      ./install.sh --foreground
 #                              # developer mode: run serve in THIS terminal
-#                              # (Ctrl-C stops it), no launchd job is created
+#                              # (Ctrl-C stops it), no service is created
 #      ./install.sh --relocate # consent to MOVING an existing service to a
 #                              # different port/config (see the relocation gate)
 #      ./install.sh --restart-live
@@ -36,7 +37,8 @@
 #      install the safe default still applies: abort unless --force.
 #
 # What it does, in order:
-#   1. preflight          — darwin/arm64, tmux, claude OR codex — or STOP untouched.
+#   1. preflight          — darwin/arm64 or linux/amd64|arm64 (Linux: systemd
+#                           as PID 1), tmux, claude OR codex — or STOP untouched.
 #   2. live-service gate  — if the launchd label this run would claim is
 #                           ALREADY REGISTERED AND RUNNING, installing means
 #                           bootout+bootstrap: a REAL restart that DISCONNECTS
@@ -76,6 +78,11 @@
 #                           http://127.0.0.1:<port>/?code=… setup link.
 #                           With --foreground: serve runs in the terminal
 #                           instead and NO launchd job is touched.
+#                           On Linux the same job is the systemd --user unit
+#                           ~/.config/systemd/user/com.officraft.serve.service
+#                           (Restart=always, WantedBy=default.target, log
+#                           appended to serve.log): daemon-reload, enable,
+#                           restart, and linger so it outlives the login.
 #   6b. relocation gate   — replacing a job of OURS must be a reload, not a
 #                           move. If this run resolved a different port or a
 #                           different config than the job already running, that
@@ -224,6 +231,51 @@ plist_program() { plist_raw "$1" ProgramArguments.0; }
 # EnvironmentVariables.<key> of a plist, or "" when absent. Used by the
 # relocation gate far below.
 plist_env() { plist_raw "$1" "EnvironmentVariables.$2"; }
+
+# ── systemd --user unit helpers (the Linux counterpart of the plist readers) ─
+# Inside a double-quoted unit-file string systemd unescapes \\ and \" and
+# expands %-specifiers, so all three must be escaped or the value changes.
+sd_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g'; }
+# The first word of a unit-file value, undoing sd_escape when it is quoted.
+sd_first_word() {
+  local s="$1" out="" c i=1
+  if [[ "${s:0:1}" != '"' ]]; then printf '%s' "${s%% *}"; return 0; fi
+  while (( i < ${#s} )); do
+    c="${s:i:1}"
+    if [[ "$c" == '\' ]]; then
+      i=$((i + 1)); out+="${s:i:1}"
+    elif [[ "$c" == '"' ]]; then
+      break
+    elif [[ "$c" == '%' ]]; then
+      if [[ "${s:i+1:1}" == '%' ]]; then i=$((i + 1)); fi
+      out+='%'
+    else
+      out+="$c"
+    fi
+    i=$((i + 1))
+  done
+  printf '%s' "$out"
+}
+unit_program() {
+  local line
+  line="$(grep -m1 '^ExecStart=' "$1" 2>/dev/null)" || return 0
+  sd_first_word "${line#ExecStart=}"
+}
+unit_env() {
+  local line
+  line="$(grep -m1 "^Environment=\"$2=" "$1" 2>/dev/null)" || return 0
+  sd_first_word "\"${line#Environment=\"$2=}"
+}
+# "" when the unit has no running main process (0 is systemd's "none").
+systemd_main_pid() {
+  local out
+  out="$(systemctl --user show -p MainPID --value "$1" 2>/dev/null || true)"
+  if [[ "$out" =~ ^[1-9][0-9]*$ ]]; then printf '%s' "$out"; fi
+  return 0
+}
+systemd_loaded() {
+  [[ "$(systemctl --user show -p LoadState --value "$1" 2>/dev/null || true)" == "loaded" ]]
+}
 
 # ── --uninstall: reverse of this installer, never needs a download ──────────
 # See mode C in the header above for the flag shapes. Called from the top-level
@@ -669,7 +721,35 @@ for _oc_arg in "$@"; do
 done
 unset _oc_arg
 
-# ── preflight: platform + tools ──────────────────────────────────────────────
+# ── preflight: platform ──────────────────────────────────────────────────────
+# Sets OC_OS/OC_ARCH, which name the release asset and pick the service manager,
+# so an unlisted {os, arch} pair stops here instead of becoming a download that
+# 404s. Called before oc_preflight and before any network access, both modes.
+# sd_booted(3): systemd is PID 1 exactly when this directory exists.
+OC_SD_BOOTED_DIR="${OC_SD_BOOTED_DIR:-/run/systemd/system}"
+oc_platform() {
+  case "$(uname -s)/$(uname -m)" in
+    Darwin/arm64)               OC_OS=darwin; OC_ARCH=arm64 ;;
+    Linux/x86_64)               OC_OS=linux;  OC_ARCH=amd64 ;;
+    Linux/aarch64|Linux/arm64)  OC_OS=linux;  OC_ARCH=arm64 ;;
+    *)
+      echo "[install] FATAL: OffiCraft v0.x supports macOS on Apple Silicon (darwin/arm64) and Linux on x86_64 or arm64 (linux/amd64, linux/arm64) only." >&2
+      echo "[install]        This machine reports: $(uname -s)/$(uname -m)" >&2
+      exit 1 ;;
+  esac
+  if [[ "$OC_OS" == "linux" && "${FOREGROUND:-0}" == 0 && ! -d "$OC_SD_BOOTED_DIR" ]]; then
+    echo "[install] FATAL: systemd is not running as PID 1 on this machine (/run/systemd/system is missing)," >&2
+    echo "[install]        so there is no systemd --user manager to run the OffiCraft service. NOTHING was installed." >&2
+    echo "[install]        On WSL2: add these lines to /etc/wsl.conf, run 'wsl.exe --shutdown' from Windows," >&2
+    echo "[install]        reopen the distro and re-run this installer:" >&2
+    echo "[install]          [boot]" >&2
+    echo "[install]          systemd=true" >&2
+    echo "[install]        Or run the server in this terminal instead: --foreground" >&2
+    exit 1
+  fi
+}
+
+# ── preflight: tools ─────────────────────────────────────────────────────────
 # Everything that must hold BEFORE the machine is touched, both modes. tmux is
 # unconditional (both runtimes go through one tmuxNewSession, spawn.go:950); the
 # runtime is claude OR codex, like `ocwarden install`'s runtime_bin_unresolved gate.
@@ -677,16 +757,17 @@ unset _oc_arg
 # (transport.go), else a stale export buys a green install nothing honours. Why it
 # is fail-closed at all: bin/tests/install-preflight-guard.sh.
 oc_preflight() {
-  local miss=() c x p
-  if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
-    echo "[install] FATAL: OffiCraft v0.x supports macOS Apple Silicon (darwin/arm64) only." >&2
-    echo "[install]        This machine reports: $(uname -s)/$(uname -m)" >&2
-    exit 1
+  local miss=() c x p dirs
+  if [[ "$OC_OS" == "darwin" ]]; then
+    command -v tmux >/dev/null 2>&1 || miss+=("tmux — brew install tmux")
+    dirs=("$HOME/.local/bin" "$HOME/.npm-global/bin" /opt/homebrew/bin /usr/local/bin)
+  else
+    command -v tmux >/dev/null 2>&1 || miss+=("tmux — install it with your package manager, e.g. sudo apt install tmux")
+    dirs=("$HOME/.local/bin" "$HOME/.npm-global/bin" /usr/local/bin)
   fi
-  command -v tmux >/dev/null 2>&1 || miss+=("tmux — brew install tmux")
   c="${OC_CLAUDE_BIN:-}"; [[ -f "$c" && -x "$c" ]] || c="$(command -v claude 2>/dev/null || true)"
   x="${OC_CODEX_BIN:-}"; [[ -f "$x" && -x "$x" ]] || x="$(command -v codex 2>/dev/null || true)"
-  for p in "$HOME/.local/bin" "$HOME/.npm-global/bin" /opt/homebrew/bin /usr/local/bin; do
+  for p in "${dirs[@]}"; do
     [[ -z "$c" && -x "$p/claude" ]] && c="$p/claude"
     [[ -z "$x" && -x "$p/codex" ]] && x="$p/codex"
   done
@@ -718,7 +799,7 @@ if [[ "$IN_PACKAGE" == 0 ]]; then
         TAG="$2"; shift 2 ;;
       --tag=*) TAG="${1#--tag=}"; shift ;;
       --force) FWD+=("--force"); shift ;;
-      --foreground) FWD+=("--foreground"); shift ;;
+      --foreground) FWD+=("--foreground"); FOREGROUND=1; shift ;;
       --relocate) FWD+=("--relocate"); shift ;;
       --restart-live) FWD+=("--restart-live"); shift ;;
       # Forwarded verbatim: the namespace decision belongs to the packaged
@@ -735,8 +816,9 @@ if [[ "$IN_PACKAGE" == 0 ]]; then
 OffiCraft standalone installer — downloads the latest official release,
 verifies its sha256 against the published checksums.txt, unpacks it and runs
 the packaged install.sh (which installs to ~/.officraft/bin, migrates the
-database, then starts the server as a launchd BACKGROUND service — it keeps
-running after you close the terminal, and comes back after a crash or reboot).
+database, then starts the server as a BACKGROUND service — launchd on macOS,
+systemd --user on Linux — it keeps running after you close the terminal, and
+comes back after a crash or reboot).
 
   curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
   curl -fsSL … | bash -s -- --force            # overwrite an existing install
@@ -748,7 +830,7 @@ Over an existing install (~/.officraft binaries or database) the installer
 aborts unless --force — piped stdin is non-interactive, so nothing is ever
 overwritten silently.
 
-If a launchd OffiCraft service is RUNNING right now, re-installing restarts it
+If an OffiCraft service is RUNNING right now, re-installing restarts it
 and disconnects every open cockpit and connected agent. That is gated
 separately and --force does NOT authorize it; a piped run aborts unless you
 pass --restart-live:
@@ -766,7 +848,8 @@ EOF
     esac
   done
 
-  oc_preflight  # before the download
+  oc_platform   # before the download
+  oc_preflight
 
   if [[ -z "$TAG" ]]; then
     echo "[install] resolving latest release of $OC_REPO …"
@@ -782,23 +865,13 @@ EOF
     fi
   fi
 
-  case "$(uname -s)" in
-    Darwin) OC_OS=darwin ;;
-    Linux)  OC_OS=linux ;;
-    *)      OC_OS="$(uname -s)" ;;
-  esac
-  case "$(uname -m)" in
-    x86_64)        OC_ARCH=amd64 ;;
-    aarch64|arm64) OC_ARCH=arm64 ;;
-    *)             OC_ARCH="$(uname -m)" ;;
-  esac
   PKG_NAME="officraft-$TAG-$OC_OS-$OC_ARCH"
   ASSET="$PKG_NAME.tar.gz"
   # OC_INSTALL_BASE_URL: optional override of the asset download base
   # (mirrors / hermetic tests). Default: the official GitHub release.
   BASE_URL="${OC_INSTALL_BASE_URL:-https://github.com/$OC_REPO/releases/download/$TAG}"
 
-  TMP="$(mktemp -d -t officraft-install.XXXXXX)"
+  TMP="$(mktemp -d "${TMPDIR:-/tmp}/officraft-install.XXXXXX")"
   # Default (launchd) path: the delegated installer returns once the service is
   # registered and listening, and the trap removes the temp dir then — safe,
   # because launchd re-execs the binary from ~/.officraft/bin, not from here.
@@ -838,10 +911,18 @@ EOF
     echo "[install] FATAL: checksums.txt has no entry for $ASSET — refusing to install." >&2
     exit 1
   fi
-  if ! (cd "$TMP" && printf '%s\n' "$CHECK_LINE" | shasum -a 256 -c - >/dev/null 2>&1); then
+  if command -v shasum >/dev/null 2>&1; then
+    SHA256=(shasum -a 256)
+  elif command -v sha256sum >/dev/null 2>&1; then
+    SHA256=(sha256sum)
+  else
+    echo "[install] FATAL: neither shasum nor sha256sum is installed — cannot verify $ASSET, refusing to install." >&2
+    exit 1
+  fi
+  if ! (cd "$TMP" && printf '%s\n' "$CHECK_LINE" | "${SHA256[@]}" -c - >/dev/null 2>&1); then
     echo "[install] FATAL: sha256 verification FAILED for $ASSET." >&2
     echo "[install]        expected: $CHECK_LINE" >&2
-    echo "[install]        actual:   $(cd "$TMP" && shasum -a 256 "$ASSET")" >&2
+    echo "[install]        actual:   $(cd "$TMP" && "${SHA256[@]}" "$ASSET")" >&2
     echo "[install]        The download is corrupt or tampered with — NOTHING was installed." >&2
     exit 1
   fi
@@ -928,6 +1009,7 @@ if [[ -n "$PORT_FLAG" ]] && ! printf '%s' "$PORT_FLAG" | grep -qE '^[0-9]{2,5}$'
   exit 2
 fi
 
+oc_platform
 oc_preflight
 
 HERE="$(cd "$(dirname "$SELF")" && pwd)"
@@ -986,6 +1068,34 @@ GUI="gui/$(id -u)"
 TARGET="$GUI/$LABEL"
 LOG_DIR="$ROOT_DIR/server/log"
 SERVE_LOG="$LOG_DIR/serve.log"
+SVC_MGR="launchd"; SVC_KIND="launchd job"; SVC_NOUN="plist"; SVC_ID="$LABEL"
+STOP_CMD="launchctl bootout $TARGET"
+if [[ "$OC_OS" == "linux" ]]; then
+  # systemctl --user cannot reach the user manager without it, and su, sudo -u
+  # and cron sessions leave it unset.
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  UNIT="$LABEL.service"
+  # From here on LA_DIR/PLIST name the service definition's directory and file
+  # on either OS.
+  LA_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+  PLIST="$LA_DIR/$UNIT"
+  SVC_MGR="systemd"; SVC_KIND="systemd unit"; SVC_NOUN="unit file"; SVC_ID="$UNIT"
+  STOP_CMD="systemctl --user stop $UNIT"
+fi
+
+svc_program() {
+  if [[ "$OC_OS" == "linux" ]]; then unit_program "$PLIST"; else plist_program "$PLIST"; fi
+}
+svc_env() {
+  if [[ "$OC_OS" == "linux" ]]; then unit_env "$PLIST" "$1"; else plist_env "$PLIST" "$1"; fi
+}
+svc_registered() {
+  if [[ "$OC_OS" == "linux" ]]; then
+    systemd_loaded "$UNIT"
+  else
+    launchctl print "$TARGET" >/dev/null 2>&1
+  fi
+}
 
 job_pid_of() {
   # pid of a registered launchd job, or "" when absent/loaded-but-not-running.
@@ -998,8 +1108,43 @@ job_pid_of() {
   # turning "no job is registered", the most ordinary state on a clean machine,
   # into a silent abort with no diagnostic.
   local out
+  if [[ "$OC_OS" == "linux" ]]; then
+    systemd_main_pid "$UNIT"
+    return 0
+  fi
   out="$(launchctl print "$1" 2>/dev/null || true)"
   printf '%s\n' "$out" | sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1
+}
+
+# lsof where it exists (always on macOS); minimal Linux and WSL images often
+# lack it and have ss (iproute2) instead.
+port_listening() {
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  else
+    [[ -n "$(ss -ltnH "sport = :$1" 2>/dev/null || true)" ]]
+  fi
+}
+# One pid per listener on port $1. ss shows no pid for another user's process;
+# that listener prints "?" so it can never pass for our own job.
+port_listener_pids() {
+  local line pid
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null || true
+    return 0
+  fi
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    pid="$(printf '%s' "$line" | sed -n 's/.*pid=\([0-9]*\).*/\1/p')"
+    printf '%s\n' "${pid:-?}"
+  done <<< "$(ss -ltnpH "sport = :$1" 2>/dev/null || true)"
+}
+port_listing() {
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null || true
+  else
+    ss -ltnpH "sport = :$1" 2>/dev/null || true
+  fi
 }
 
 listening_ports_of() {
@@ -1014,6 +1159,12 @@ listening_ports_of() {
   # BLANK screen, from a gate whose entire job is to explain itself. The port
   # list is cosmetic; it must never be able to abort the run.
   local out
+  if ! command -v lsof >/dev/null 2>&1; then
+    out="$(ss -ltnpH 2>/dev/null || true)"
+    printf '%s\n' "$out" | awk -v p="pid=$1," 'index($0, p) { n = split($4, a, ":"); print a[n] }' \
+      | sort -u | tr '\n' ' ' | sed 's/ $//'
+    return 0
+  fi
   out="$(lsof -nP -iTCP -sTCP:LISTEN -a -p "$1" 2>/dev/null || true)"
   printf '%s\n' "$out" \
     | sed -n 's/.*:\([0-9]\{2,5\}\) (LISTEN).*/\1/p' | sort -u | tr '\n' ' ' | sed 's/ $//'
@@ -1050,12 +1201,17 @@ fi
 if [[ -n "$LIVE_PID" ]]; then
   live_ports="$(listening_ports_of "$LIVE_PID")"
   echo "[install] ⚠️  A LIVE OffiCraft service is running on this machine RIGHT NOW."
-  echo "[install]      launchd job: $LABEL (pid $LIVE_PID)"
-  echo "[install]      plist:       ${PLIST}"
+  echo "[install]      $SVC_KIND: $SVC_ID (pid $LIVE_PID)"
+  printf '[install]      %-12s %s\n' "$SVC_NOUN:" "$PLIST"
   [[ -n "$live_ports" ]] && echo "[install]      listening on: port(s) $live_ports"
   echo "[install]"
-  echo "[install]    Installing REPLACES that job: this script runs 'launchctl bootout'"
-  echo "[install]    and bootstraps it again. That is a REAL restart, not a hot swap —"
+  if [[ "$OC_OS" == "linux" ]]; then
+    echo "[install]    Installing REPLACES that job: this script runs 'systemctl --user restart'"
+    echo "[install]    on it. That is a REAL restart, not a hot swap —"
+  else
+    echo "[install]    Installing REPLACES that job: this script runs 'launchctl bootout'"
+    echo "[install]    and bootstraps it again. That is a REAL restart, not a hot swap —"
+  fi
   echo "[install]    the server goes DOWN and comes back, so every open cockpit tab and"
   echo "[install]    every connected agent is DISCONNECTED for the duration."
   echo "[install]    The port and the database are inherited, so no data is lost; what"
@@ -1075,7 +1231,7 @@ if [[ -n "$LIVE_PID" ]]; then
     # it is the absence of anyone to ask. Never treat it as a yes.
     echo "[install] FATAL: this run would restart the LIVE '$LABEL' service, but nothing is" >&2
     echo "[install]        attached to stdin to confirm it (piped/non-interactive run)." >&2
-    echo "[install]        NOTHING was changed — no binaries, no database, no launchd job." >&2
+    echo "[install]        NOTHING was changed — no binaries, no database, no $SVC_KIND." >&2
     echo "[install]" >&2
     echo "[install]        Your options:" >&2
     echo "[install]          • re-run it in a terminal to get the confirmation prompt, or" >&2
@@ -1084,7 +1240,7 @@ if [[ -n "$LIVE_PID" ]]; then
     echo "[install]          • install alongside it instead, leaving the live one running:" >&2
     echo "[install]              OC_LAUNCHD_LABEL=$LABEL.alt ./install.sh --force" >&2
     echo "[install]          • or stop it first, on your own schedule:" >&2
-    echo "[install]              launchctl bootout $TARGET" >&2
+    echo "[install]              $STOP_CMD" >&2
     echo "[install]        (--force alone does NOT authorize this: it speaks about" >&2
     echo "[install]         overwriting files, not about dropping live connections.)" >&2
     exit 1
@@ -1140,7 +1296,9 @@ for b in ocserverd ocwarden ocagent officraft; do
   chmod +x "$BIN_DIR/$b.new"
   # Strip a quarantine flag if a browser download attached one (curl/tar does
   # not; Safari does). Best-effort — absence is the norm.
-  xattr -d com.apple.quarantine "$BIN_DIR/$b.new" 2>/dev/null || true
+  if [[ "$OC_OS" == "darwin" ]]; then
+    xattr -d com.apple.quarantine "$BIN_DIR/$b.new" 2>/dev/null || true
+  fi
   mv "$BIN_DIR/$b.new" "$BIN_DIR/$b"
 done
 
@@ -1264,10 +1422,10 @@ serve_cmd() {
 OURS=0
 if [[ "$FOREGROUND" == 0 ]]; then
   if [[ -f "$PLIST" ]]; then
-    existing_prog="$(plist_program "$PLIST")"
+    existing_prog="$(svc_program)"
     if [[ "$existing_prog" != "$BIN_DIR/ocserverd" ]]; then
-      echo "[install] FATAL: launchd label '$LABEL' is already taken by a DIFFERENT service." >&2
-      echo "[install]        plist:   $PLIST" >&2
+      echo "[install] FATAL: $SVC_MGR label '$LABEL' is already taken by a DIFFERENT service." >&2
+      printf '[install]        %-8s %s\n' "$SVC_NOUN:" "$PLIST" >&2
       echo "[install]        program: ${existing_prog:-<unreadable>}" >&2
       echo "[install]        expected: $BIN_DIR/ocserverd" >&2
       echo "[install]        Refusing to overwrite it — NOTHING was changed about that job." >&2
@@ -1278,10 +1436,10 @@ if [[ "$FOREGROUND" == 0 ]]; then
     fi
     OURS=1
     echo "[install] existing '$LABEL' job points at our binary — reloading it in place."
-  elif launchctl print "$TARGET" >/dev/null 2>&1; then
+  elif svc_registered; then
     # Registered with no plist on disk (bootstrapped from elsewhere). Same rule:
     # we cannot prove it is ours, so we do not touch it.
-    echo "[install] FATAL: launchd label '$LABEL' is already registered (no plist at $PLIST)." >&2
+    echo "[install] FATAL: $SVC_MGR label '$LABEL' is already registered (no $SVC_NOUN at $PLIST)." >&2
     echo "[install]        Refusing to overwrite an unidentified job — NOTHING was changed." >&2
     echo "[install]        Install under a different label instead:" >&2
     echo "[install]          OC_LAUNCHD_LABEL=com.officraft.serve.alt ./install.sh --force" >&2
@@ -1313,7 +1471,7 @@ fi
 #   - port or config would actually CHANGE       -> that is a relocation, not a
 #     reload. Hard stop, print the before/after, require --relocate.
 if [[ "$OURS" == 1 ]]; then
-  OLD_CFG="$(plist_env "$PLIST" OC_CONFIG)"
+  OLD_CFG="$(svc_env OC_CONFIG)"
 
   if [[ "$CFG_SRC" == "none" && -n "$OLD_CFG" && -f "$OLD_CFG" ]]; then
     CFG_ABS="$OLD_CFG"
@@ -1362,12 +1520,12 @@ fi
 # further down and it is released before the new one binds. A foreign squatter —
 # or ANY listener in --foreground mode, where nothing gets booted out — still
 # fails exactly as before.
-if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+if port_listening "$PORT"; then
   port_conflict=1
   if [[ "$OURS" == 1 ]]; then
     job_pid="$(job_pid_of "$TARGET")"
     if [[ -n "$job_pid" ]]; then
-      foreign="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | grep -vx "$job_pid" || true)"
+      foreign="$(port_listener_pids "$PORT" | grep -vx "$job_pid" || true)"
       if [[ -z "$foreign" ]]; then
         port_conflict=0
         echo "[install] port $PORT is held by our own '$LABEL' job (pid $job_pid) — it will be replaced."
@@ -1376,7 +1534,7 @@ if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   fi
   if [[ "$port_conflict" == 1 ]]; then
     echo "[install] FATAL: port $PORT is already in use on this machine:" >&2
-    lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | sed 's/^/[install]   /' >&2 || true
+    port_listing "$PORT" | sed 's/^/[install]   /' >&2 || true
     echo "[install] The binaries are installed and the database is migrated, but the server was" >&2
     echo "[install] NOT started. Pick a free port by writing an oc.toml next to where you run serve:" >&2
     echo "[install]   printf '[server]\\nport = <free-port>\\n' > oc.toml" >&2
@@ -1507,6 +1665,7 @@ oc_probe_runtime() {
 }
 
 COMMON_PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+[[ "$OC_OS" == "linux" ]] && COMMON_PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 CLAUDE_BIN="${OC_PF_CLAUDE:-}"   # resolved once, in oc_preflight
 SERVE_PATH="$COMMON_PATH"
 if [[ -n "$CLAUDE_BIN" ]]; then
@@ -1514,10 +1673,10 @@ if [[ -n "$CLAUDE_BIN" ]]; then
     echo "[install] WARN: resolved claude path '$CLAUDE_BIN' is not stampable (must be absolute, no whitespace/XML-special chars) — not stamping OC_CLAUDE_BIN" >&2
     CLAUDE_BIN=""
   elif oc_probe_runtime "$CLAUDE_BIN" "$COMMON_PATH"; then
-    echo "[install] claude resolved: $CLAUDE_BIN (runs under the minimal launchd PATH; stamping OC_CLAUDE_BIN)"
+    echo "[install] claude resolved: $CLAUDE_BIN (runs under the minimal $SVC_MGR PATH; stamping OC_CLAUDE_BIN)"
   elif oc_probe_runtime "$CLAUDE_BIN" "$PATH"; then
     if [[ "$PATH" == *[\"\'\<\>\&]* ]]; then
-      echo "[install] WARN: installer PATH contains XML-special chars — cannot stamp it into the serve plist; stamping OC_CLAUDE_BIN only (the claude shim may fail under the minimal PATH)" >&2
+      echo "[install] WARN: installer PATH contains XML-special chars — cannot stamp it into the serve $SVC_NOUN; stamping OC_CLAUDE_BIN only (the claude shim may fail under the minimal PATH)" >&2
     else
       SERVE_PATH="$PATH"
       echo "[install] claude resolved: $CLAUDE_BIN (version-manager shim — stamping OC_CLAUDE_BIN AND the full installer PATH)"
@@ -1556,10 +1715,10 @@ if [[ -n "$CODEX_BIN" ]]; then
     echo "[install] WARN: resolved codex path '$CODEX_BIN' is not stampable (must be absolute, no whitespace/XML-special chars) — not stamping OC_CODEX_BIN" >&2
     CODEX_BIN=""
   elif oc_probe_runtime "$CODEX_BIN" "$COMMON_PATH"; then
-    echo "[install] codex resolved: $CODEX_BIN (runs under the minimal launchd PATH; stamping OC_CODEX_BIN)"
+    echo "[install] codex resolved: $CODEX_BIN (runs under the minimal $SVC_MGR PATH; stamping OC_CODEX_BIN)"
   elif oc_probe_runtime "$CODEX_BIN" "$PATH"; then
     if [[ "$PATH" == *[\"\'\<\>\&]* ]]; then
-      echo "[install] WARN: installer PATH contains XML-special chars — cannot stamp it into the serve plist; stamping OC_CODEX_BIN only (the codex shim may fail under the minimal PATH)" >&2
+      echo "[install] WARN: installer PATH contains XML-special chars — cannot stamp it into the serve $SVC_NOUN; stamping OC_CODEX_BIN only (the codex shim may fail under the minimal PATH)" >&2
     else
       SERVE_PATH="$PATH"
       echo "[install] codex resolved: $CODEX_BIN (version-manager shim — stamping OC_CODEX_BIN AND the full installer PATH)"
@@ -1588,12 +1747,37 @@ if [[ -n "$CFG_ABS" ]]; then
 "
 fi
 
+# Path-valued unit settings expand %-specifiers but take no quotes, so only %
+# is escaped there.
+sd_pct() { printf '%s' "$1" | sed 's/%/%%/g'; }
+render_unit() {
+  local kv
+  printf '[Unit]\nDescription=OffiCraft server (%s)\n\n' "$(sd_pct "$LABEL")"
+  printf '[Service]\nType=simple\n'
+  printf 'ExecStart="%s" serve\n' "$(sd_escape "$BIN_DIR/ocserverd")"
+  printf 'WorkingDirectory=%s\n' "$(sd_pct "$ROOT_DIR")"
+  for kv in "PATH=$SERVE_PATH" "HOME=$HOME" \
+            ${CLAUDE_BIN:+"OC_CLAUDE_BIN=$CLAUDE_BIN"} \
+            ${CODEX_BIN:+"OC_CODEX_BIN=$CODEX_BIN"} \
+            ${CFG_ABS:+"OC_CONFIG=$CFG_ABS"} \
+            "OC_NO_OPEN_BROWSER=1"; do
+    printf 'Environment="%s"\n' "$(sd_escape "$kv")"
+  done
+  printf 'Restart=always\nRestartSec=10\n'
+  printf 'StandardOutput=append:%s\n' "$(sd_pct "$SERVE_LOG")"
+  printf 'StandardError=append:%s\n\n' "$(sd_pct "$SERVE_LOG")"
+  printf '[Install]\nWantedBy=default.target\n'
+}
+
 # Rendered to a sibling temp file first, so a write failure (read-only
 # LaunchAgents, full disk) cannot leave a half-written plist where a valid one
 # used to be. The explicit guard keeps this path speaking the same language as
 # every other failure here — without it `set -e` aborts on a raw shell
 # redirection error and the operator gets a bare "Permission denied".
-if ! cat 2>/dev/null > "$PLIST.new" <<PLIST_EOF
+write_failed=0
+if [[ "$OC_OS" == "linux" ]]; then
+  render_unit 2>/dev/null > "$PLIST.new" || write_failed=1
+elif ! cat 2>/dev/null > "$PLIST.new" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1620,22 +1804,25 @@ $claude_entry$codex_entry$cfg_entry    <key>OC_NO_OPEN_BROWSER</key><string>1</s
 </plist>
 PLIST_EOF
 then
+  write_failed=1
+fi
+if [[ "$write_failed" == 1 ]]; then
   rm -f "$PLIST.new" 2>/dev/null || true
-  echo "[install] FATAL: could not write the launchd plist: $PLIST.new" >&2
+  echo "[install] FATAL: could not write the $SVC_MGR $SVC_NOUN: $PLIST.new" >&2
   echo "[install]        Check that $LA_DIR exists and is writable." >&2
   echo "[install]        The binaries are installed and the database is migrated, but no" >&2
   echo "[install]        service was registered and no existing job was touched." >&2
   exit 1
 fi
 
-if ! plutil -lint "$PLIST.new" >/dev/null 2>&1; then
+if [[ "$OC_OS" == "darwin" ]] && ! plutil -lint "$PLIST.new" >/dev/null 2>&1; then
   rm -f "$PLIST.new"
   echo "[install] FATAL: the rendered launchd plist failed plutil -lint — refusing to install it." >&2
   exit 1
 fi
 if ! mv "$PLIST.new" "$PLIST"; then
   rm -f "$PLIST.new" 2>/dev/null || true
-  echo "[install] FATAL: could not install the launchd plist to $PLIST" >&2
+  echo "[install] FATAL: could not install the $SVC_MGR $SVC_NOUN to $PLIST" >&2
   echo "[install]        No service was registered and no existing job was touched." >&2
   exit 1
 fi
@@ -1654,41 +1841,64 @@ fi
 log_mark=0
 [[ -f "$SERVE_LOG" ]] && log_mark="$(wc -c < "$SERVE_LOG" | tr -d ' ')"
 
-launchctl bootout "$TARGET" >/dev/null 2>&1 || true
-gone=0
-for _ in $(seq 1 25); do
-  launchctl print "$TARGET" >/dev/null 2>&1 || { gone=1; break; }
-  sleep 0.2
-done
-[[ "$gone" == 1 ]] || echo "[install] WARN: '$LABEL' still registered ~5s after bootout; bootstrapping anyway." >&2
+if [[ "$OC_OS" == "linux" ]]; then
+  if ! { systemctl --user daemon-reload && systemctl --user enable "$UNIT" && systemctl --user restart "$UNIT"; }; then
+    echo "[install] FATAL: systemctl --user could not enable and start $UNIT" >&2
+    echo "[install]        The binaries are installed and the database is migrated, but the" >&2
+    echo "[install]        service is NOT running. Start it in the foreground with:" >&2
+    echo "[install]          $(serve_cmd)" >&2
+    exit 1
+  fi
+  registered=0
+  systemd_loaded "$UNIT" && registered=1
+  # Without linger the user manager, and this service with it, stops at logout
+  # and does not come back at boot until the user logs in again.
+  oc_user="$(id -un)"
+  if [[ "$(loginctl show-user "$oc_user" -p Linger --value 2>/dev/null || true)" != "yes" ]]; then
+    loginctl enable-linger >/dev/null 2>&1 || true
+  fi
+  if [[ "$(loginctl show-user "$oc_user" -p Linger --value 2>/dev/null || true)" != "yes" ]]; then
+    echo "[install] WARN: could not turn on linger for user $oc_user — the service stops when you log out" >&2
+    echo "[install]       and only comes back at your next login. To keep it running, have an admin run:" >&2
+    echo "[install]         sudo loginctl enable-linger $oc_user" >&2
+  fi
+else
+  launchctl bootout "$TARGET" >/dev/null 2>&1 || true
+  gone=0
+  for _ in $(seq 1 25); do
+    launchctl print "$TARGET" >/dev/null 2>&1 || { gone=1; break; }
+    sleep 0.2
+  done
+  [[ "$gone" == 1 ]] || echo "[install] WARN: '$LABEL' still registered ~5s after bootout; bootstrapping anyway." >&2
 
-if ! launchctl bootstrap "$GUI" "$PLIST"; then
-  echo "[install] FATAL: launchctl bootstrap failed for $PLIST" >&2
-  echo "[install]        The binaries are installed and the database is migrated, but the" >&2
-  echo "[install]        service is NOT running. Start it in the foreground with:" >&2
-  echo "[install]          $(serve_cmd)" >&2
-  exit 1
+  if ! launchctl bootstrap "$GUI" "$PLIST"; then
+    echo "[install] FATAL: launchctl bootstrap failed for $PLIST" >&2
+    echo "[install]        The binaries are installed and the database is migrated, but the" >&2
+    echo "[install]        service is NOT running. Start it in the foreground with:" >&2
+    echo "[install]          $(serve_cmd)" >&2
+    exit 1
+  fi
+  # CONFIRM the bootstrap actually registered the label, in the gap between the two
+  # verbs (T-908d). `launchctl bootstrap` can exit 0 and register NOTHING; the next
+  # verb, kickstart, is swallowed with `|| true` here, so the FIRST thing to notice
+  # used to be the port health gate below — which then reported "the service was
+  # registered but nothing is listening", a sentence that is literally FALSE in this
+  # state, and offered a `launchctl bootout` that fails for the same reason.
+  #
+  # BOUNDED AND NON-FATAL ON TIMEOUT (~5s = 25 x 0.2s, the bootout poll above run in
+  # the opposite direction): registration can merely LAG a bootstrap that exited 0,
+  # and failing here on the lag alone would turn machines that install fine today
+  # into machines that refuse to install. This only records WHICH diagnosis the port
+  # gate is allowed to print; a machine that comes up listening never reads it.
+  registered=0
+  for _ in $(seq 1 25); do
+    if launchctl print "$TARGET" >/dev/null 2>&1; then registered=1; break; fi
+    sleep 0.2
+  done
+  [[ "$registered" == 1 ]] || echo "[install] WARN: launchd still does not know '$LABEL' ~5s after bootstrap exited 0." >&2
+
+  launchctl kickstart "$TARGET" >/dev/null 2>&1 || true
 fi
-# CONFIRM the bootstrap actually registered the label, in the gap between the two
-# verbs (T-908d). `launchctl bootstrap` can exit 0 and register NOTHING; the next
-# verb, kickstart, is swallowed with `|| true` here, so the FIRST thing to notice
-# used to be the port health gate below — which then reported "the service was
-# registered but nothing is listening", a sentence that is literally FALSE in this
-# state, and offered a `launchctl bootout` that fails for the same reason.
-#
-# BOUNDED AND NON-FATAL ON TIMEOUT (~5s = 25 x 0.2s, the bootout poll above run in
-# the opposite direction): registration can merely LAG a bootstrap that exited 0,
-# and failing here on the lag alone would turn machines that install fine today
-# into machines that refuse to install. This only records WHICH diagnosis the port
-# gate is allowed to print; a machine that comes up listening never reads it.
-registered=0
-for _ in $(seq 1 25); do
-  if launchctl print "$TARGET" >/dev/null 2>&1; then registered=1; break; fi
-  sleep 0.2
-done
-[[ "$registered" == 1 ]] || echo "[install] WARN: launchd still does not know '$LABEL' ~5s after bootstrap exited 0." >&2
-
-launchctl kickstart "$TARGET" >/dev/null 2>&1 || true
 
 # Health gate: "bootstrap returned 0" only means launchd accepted the job, not
 # that serve bound the port. Wait for the socket before claiming success, so a
@@ -1696,9 +1906,24 @@ launchctl kickstart "$TARGET" >/dev/null 2>&1 || true
 # URL that refuses connections.
 up=0
 for _ in $(seq 1 50); do
-  if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then up=1; break; fi
+  if port_listening "$PORT"; then up=1; break; fi
   sleep 0.2
 done
+if [[ "$up" != 1 && "$OC_OS" == "linux" ]]; then
+  if [[ "$registered" != 1 ]]; then
+    echo "[install] FATAL: systemctl --user exited 0 but systemd does not know '$UNIT'," >&2
+    echo "[install]        so the service was never loaded and nothing came up on port $PORT." >&2
+    echo "[install]        The unit file to look at: $PLIST" >&2
+    echo "[install]        Retry the load with:  systemctl --user daemon-reload && systemctl --user enable --now $UNIT" >&2
+    echo "[install]        Or run it in the foreground: $(serve_cmd)" >&2
+    echo "[install]        Remove the unit file with: rm -f $PLIST" >&2
+    exit 1
+  fi
+  echo "[install] FATAL: the '$UNIT' service was started but nothing is listening on port $PORT after 10s." >&2
+  echo "[install]        Check the log: $SERVE_LOG (and: journalctl --user -u $UNIT)" >&2
+  echo "[install]        Remove the service with: systemctl --user disable --now $UNIT && rm -f $PLIST" >&2
+  exit 1
+fi
 if [[ "$up" != 1 ]]; then
   if [[ "$registered" != 1 ]]; then
     # NEVER claim the job was registered here — it was not, and the bootout the
@@ -1729,11 +1954,19 @@ claim_url="$(tail -c "+$((log_mark + 1))" "$SERVE_LOG" 2>/dev/null \
 [[ -n "$claim_url" ]] && URL="$claim_url"
 
 echo
-echo "[install] ✅ OffiCraft is installed and running in the background (launchd job '$LABEL')."
-echo
-echo "  open:    $URL"
-echo "  stop:    launchctl bootout $TARGET"
-echo "  remove:  launchctl bootout $TARGET && rm -f $PLIST"
+if [[ "$OC_OS" == "linux" ]]; then
+  echo "[install] ✅ OffiCraft is installed and running in the background (systemd --user unit '$UNIT')."
+  echo
+  echo "  open:    $URL"
+  echo "  stop:    systemctl --user stop $UNIT"
+  echo "  remove:  systemctl --user disable --now $UNIT && rm -f $PLIST"
+else
+  echo "[install] ✅ OffiCraft is installed and running in the background (launchd job '$LABEL')."
+  echo
+  echo "  open:    $URL"
+  echo "  stop:    launchctl bootout $TARGET"
+  echo "  remove:  launchctl bootout $TARGET && rm -f $PLIST"
+fi
 echo
 
 }
