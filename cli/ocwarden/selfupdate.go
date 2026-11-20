@@ -41,16 +41,26 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 )
 
+// A download that names no platform gets the server's own, which is only right
+// for a warden that happens to share it.
+func binaryPlatformQuery(goos, goarch string) string {
+	return "?os=" + goos + "&arch=" + goarch
+}
+
+var (
+	wardenBinaryPath = "/api/warden/binary" + binaryPlatformQuery(runtime.GOOS, runtime.GOARCH)
+	agentBinaryPath  = "/api/agent/binary" + binaryPlatformQuery(runtime.GOOS, runtime.GOARCH)
+)
+
 const (
-	versionPath      = "/api/version"
-	wardenBinaryPath = "/api/warden/binary"
-	agentBinaryPath  = "/api/agent/binary"
+	versionPath = "/api/version"
 
 	// The same telemetry ingest the hardware loop posts to; the server merges the
 	// `self_update` field onto the per-agent entry.

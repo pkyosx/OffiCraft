@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1031,8 +1032,8 @@ func TestInstallOcAgent(t *testing.T) {
 		if err := i.installOcAgent(download); err != nil {
 			t.Fatalf("installOcAgent: %v", err)
 		}
-		if !reflect.DeepEqual(asked, []string{"/api/agent/binary"}) {
-			t.Errorf("requested %v, want [/api/agent/binary]", asked)
+		if !reflect.DeepEqual(asked, []string{installTestAgentBinaryPath}) {
+			t.Errorf("requested %v, want ["+installTestAgentBinaryPath+"]", asked)
 		}
 		wantCalls := []string{
 			"mkdir /Users/eva/.officraft/warden 755",
@@ -1049,7 +1050,7 @@ func TestInstallOcAgent(t *testing.T) {
 		if sys.files["/Users/eva/.officraft/warden/ocagent"] != "DOWNLOADED-OCAGENT" {
 			t.Errorf("installed bytes = %q", sys.files["/Users/eva/.officraft/warden/ocagent"])
 		}
-		want := "[ocwarden install] downloading ocagent from https://oc.example.com/api/agent/binary ...\n" +
+		want := "[ocwarden install] downloading ocagent from https://oc.example.com" + installTestAgentBinaryPath + " ...\n" +
 			"[ocwarden install] installed ocagent (0755): /Users/eva/.officraft/warden/ocagent\n"
 		if out.String() != want {
 			t.Errorf("log =\n%s\nwant\n%s", out.String(), want)
@@ -1113,7 +1114,7 @@ func TestInstallOcAgent(t *testing.T) {
 			t.Errorf("calls = %v, want none", sys.calls)
 		}
 		want := "[ocwarden install] DRYRUN would: mkdir -p /Users/eva/.officraft/warden; download ocagent from " +
-			"https://oc.example.com/api/agent/binary -> verify-exec -> atomic rename -> /Users/eva/.officraft/warden/ocagent\n"
+			"https://oc.example.com" + installTestAgentBinaryPath + " -> verify-exec -> atomic rename -> /Users/eva/.officraft/warden/ocagent\n"
 		if out.String() != want {
 			t.Errorf("log = %q, want %q", out.String(), want)
 		}
@@ -1144,13 +1145,13 @@ func TestDownloadOcAgent(t *testing.T) {
 	}{
 		{"a served binary", 200, []byte("OCAGENT-BYTES"), nil, "OCAGENT-BYTES", ""},
 		{"transport failure", 0, nil, errors.New("dial tcp: connection refused"), "",
-			"download ocagent from https://oc.example.com/api/agent/binary: dial tcp: connection refused"},
+			"download ocagent from https://oc.example.com" + installTestAgentBinaryPath + ": dial tcp: connection refused"},
 		{"not found", 404, []byte("no such route"), nil, "",
-			"download ocagent from https://oc.example.com/api/agent/binary: status 404"},
+			"download ocagent from https://oc.example.com" + installTestAgentBinaryPath + ": status 404"},
 		{"server error", 500, []byte("boom"), nil, "",
-			"download ocagent from https://oc.example.com/api/agent/binary: status 500"},
+			"download ocagent from https://oc.example.com" + installTestAgentBinaryPath + ": status 500"},
 		{"an empty 200 is not a binary", 200, nil, nil, "",
-			"download ocagent from https://oc.example.com/api/agent/binary: empty body"},
+			"download ocagent from https://oc.example.com" + installTestAgentBinaryPath + ": empty body"},
 	}
 	for _, c := range cases {
 		i, _, out := newRecordingInstaller(false)
@@ -1169,10 +1170,10 @@ func TestDownloadOcAgent(t *testing.T) {
 		if string(body) != c.wantBody {
 			t.Errorf("%s: body = %q, want %q", c.name, body, c.wantBody)
 		}
-		if !reflect.DeepEqual(asked, []string{"/api/agent/binary"}) {
-			t.Errorf("%s: requested %v, want [/api/agent/binary]", c.name, asked)
+		if !reflect.DeepEqual(asked, []string{installTestAgentBinaryPath}) {
+			t.Errorf("%s: requested %v, want ["+installTestAgentBinaryPath+"]", c.name, asked)
 		}
-		if want := "[ocwarden install] downloading ocagent from https://oc.example.com/api/agent/binary ...\n"; out.String() != want {
+		if want := "[ocwarden install] downloading ocagent from https://oc.example.com" + installTestAgentBinaryPath + " ...\n"; out.String() != want {
 			t.Errorf("%s: log = %q, want %q", c.name, out.String(), want)
 		}
 	}
@@ -1900,11 +1901,11 @@ func TestRunInstall(t *testing.T) {
 		}
 		wantLog := "[ocwarden install] resolved: ROOT=/Users/eva/.officraft HOME=/Users/eva OC_BASE=https://oc.example.com OC_ID=<derive-from-token-sub>\n" +
 			"[ocwarden install] targets:  TOKFILE=/Users/eva/.officraft/warden/exec-warden.tok PLIST=/Users/eva/Library/LaunchAgents/com.officraft.ocwarden.plist BIN=/Users/eva/.officraft/warden/ocwarden SRC=/tmp/clone/ocwarden\n" +
-			"[ocwarden install] ocagent:  DOWNLOAD https://oc.example.com/api/agent/binary -> BIN=/Users/eva/.officraft/warden/ocagent (home sibling; runtime-discovered, not in plist)\n" +
+			"[ocwarden install] ocagent:  DOWNLOAD https://oc.example.com" + installTestAgentBinaryPath + " -> BIN=/Users/eva/.officraft/warden/ocagent (home sibling; runtime-discovered, not in plist)\n" +
 			"[ocwarden install] DRY-RUN mode: no file writes / no launchctl / no verification.\n" +
 			"[ocwarden install] DRYRUN would: mkdir -p /Users/eva/.officraft/warden; copy /tmp/clone/ocwarden -> a 0755 temp then atomic rename -> /Users/eva/.officraft/warden/ocwarden\n" +
 			"[ocwarden install] DRYRUN would: copy fixed identity anchor /tmp/clone/officraft -> /Users/eva/.officraft/warden/officraft only if absent\n" +
-			"[ocwarden install] DRYRUN would: mkdir -p /Users/eva/.officraft/warden; download ocagent from https://oc.example.com/api/agent/binary -> verify-exec -> atomic rename -> /Users/eva/.officraft/warden/ocagent\n" +
+			"[ocwarden install] DRYRUN would: mkdir -p /Users/eva/.officraft/warden; download ocagent from https://oc.example.com" + installTestAgentBinaryPath + " -> verify-exec -> atomic rename -> /Users/eva/.officraft/warden/ocagent\n" +
 			"[ocwarden install] DRYRUN would: mkdir -p /Users/eva/.officraft/warden; write <token> to a 0600 temp then atomic rename -> /Users/eva/.officraft/warden/exec-warden.tok\n" +
 			"[ocwarden install] DRYRUN would: mkdir -p /Users/eva/.officraft/warden/log\n" +
 			"[ocwarden install] DRYRUN would: mkdir -p /Users/eva/Library/LaunchAgents; render plist -> /Users/eva/Library/LaunchAgents/com.officraft.ocwarden.plist (XML-lint clean)\n" +
@@ -1988,7 +1989,7 @@ func TestRunInstall(t *testing.T) {
 		}
 		wantHead := "[ocwarden install] resolved: ROOT=/Users/eva/.officraft HOME=/Users/eva OC_BASE=https://oc.example.com OC_ID=<derive-from-token-sub>\n" +
 			"[ocwarden install] targets:  TOKFILE=/Users/eva/.officraft/warden/exec-warden.tok PLIST=/Users/eva/Library/LaunchAgents/com.officraft.ocwarden.plist BIN=/Users/eva/.officraft/warden/ocwarden SRC=/tmp/clone/ocwarden\n" +
-			"[ocwarden install] ocagent:  DOWNLOAD https://oc.example.com/api/agent/binary -> BIN=/Users/eva/.officraft/warden/ocagent (home sibling; runtime-discovered, not in plist)\n" +
+			"[ocwarden install] ocagent:  DOWNLOAD https://oc.example.com" + installTestAgentBinaryPath + " -> BIN=/Users/eva/.officraft/warden/ocagent (home sibling; runtime-discovered, not in plist)\n" +
 			"[ocwarden install] claude:   /opt/claude (stamped OC_CLAUDE_BIN into the plist)\n" +
 			"[ocwarden install] codex:    /opt/codex (stamped OC_CODEX_BIN into the plist)\n"
 		if !strings.HasPrefix(out.String(), wantHead) {
@@ -2063,3 +2064,5 @@ func TestRunInstall(t *testing.T) {
 func TestInstallCmd(t *testing.T) {
 	t.Skip("the entry point builds its effects from newHostSeam(), which this package binds to realHostSeam — calling it from a test binary is a deliberate os.Exit(1) (TestRealHostSeam) that would take the whole test process with it")
 }
+
+const installTestAgentBinaryPath = "/api/agent/binary?os=" + runtime.GOOS + "&arch=" + runtime.GOARCH
