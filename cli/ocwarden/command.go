@@ -86,6 +86,9 @@ type CommandDeps struct {
 	Spawn    func(StartParams) SpawnOutcome
 	Stop     func(session string) (ok, noop bool)
 	Teardown func() (ok bool, log string)
+	// SelfStop ends the warden through its service manager after the uninstall
+	// receipt; nil means exit(0) is enough.
+	SelfStop func() error
 	Exit     func(int)
 	// No receipt: the swap announces via the telemetry self_update field, and
 	// convergence is observed through heartbeat bin_status.
@@ -304,6 +307,11 @@ func dispatchCommand(cmd *Command, deps CommandDeps) error {
 		// would be unmanageable).
 		if !ok {
 			return fmt.Errorf("command: uninstall teardown incomplete for %q (receipt delivered); staying alive for retry", memberID)
+		}
+		// Under systemd Restart=always an exit would be restarted; the queued stop
+		// job SIGTERMs this process instead. A refused stop still falls back to exit.
+		if deps.SelfStop != nil && deps.SelfStop() == nil {
+			return nil
 		}
 		exit := deps.Exit
 		if exit == nil {

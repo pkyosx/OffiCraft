@@ -509,14 +509,30 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 			})
 		},
 		Teardown: func() (bool, string) {
-			p, err := resolveTeardownPaths(env, os.Getuid())
+			p, err := resolveTeardownPaths(env, os.Getuid(), runtime.GOOS)
 			if err != nil {
 				return false, fmt.Sprintf("[ocwarden teardown] cannot resolve paths: %v\n", err)
 			}
-			return doTeardown(newHostSeam().sys, env(dryRunEnv) == "1", p)
+			return doTeardown(newHostSeam().sys, env(dryRunEnv) == "1", p, true)
 		},
-		Exit:   os.Exit,
-		Report: newCommandReporter(cfg),
+		SelfStop: selfStopFor(env, runtime.GOOS),
+		Exit:     os.Exit,
+		Report:   newCommandReporter(cfg),
+	}
+}
+
+// nil off Linux and in a dry run: there exit(0) is the way out (launchd does not
+// relaunch a booted-out job; a dry-run warden is meant to come back).
+func selfStopFor(env func(string) string, goos string) func() error {
+	if goos != "linux" || env(dryRunEnv) == "1" {
+		return nil
+	}
+	return func() error {
+		p, err := resolveTeardownPaths(env, os.Getuid(), goos)
+		if err != nil {
+			return err
+		}
+		return stopUnitNoBlock(newHostSeam().sys, p)
 	}
 }
 

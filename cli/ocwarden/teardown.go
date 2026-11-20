@@ -1,6 +1,7 @@
 // `ocwarden teardown` — inverse of `ocwarden install`. The process is stopped only
-// by launchd bootout, never pkill. It removes ONLY the two files install wrote
-// (tokfile + plist), never ~/.officraft wholesale: that dir also holds agents/ state.
+// by the service manager (launchd bootout / systemctl disable), never pkill. It
+// removes ONLY the two files install wrote (tokfile + plist or unit), never
+// ~/.officraft wholesale: that dir also holds agents/ state.
 package main
 
 import (
@@ -9,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -18,6 +20,10 @@ type teardownPaths struct {
 	plistPath string
 	guiDomain string
 	label     string
+
+	goos       string
+	unitPath   string
+	runtimeDir string
 }
 
 func (p teardownPaths) resolvedLabel() string {
@@ -27,7 +33,7 @@ func (p teardownPaths) resolvedLabel() string {
 	return wardenLabel
 }
 
-func resolveTeardownPaths(env func(string) string, uid int) (teardownPaths, error) {
+func resolveTeardownPaths(env func(string) string, uid int, goos string) (teardownPaths, error) {
 	home := env("HOME")
 	if home == "" {
 		return teardownPaths{}, errors.New("HOME must be set")
@@ -37,6 +43,15 @@ func resolveTeardownPaths(env func(string) string, uid int) (teardownPaths, erro
 		return teardownPaths{}, err
 	}
 	label := wardenLabelFor(ns)
+	if goos == "linux" {
+		return teardownPaths{
+			tokfile:    tokfileFor(home, ns),
+			label:      label,
+			goos:       goos,
+			unitPath:   filepath.Join(systemdUnitDir(env, home), unitNameFor(label)),
+			runtimeDir: userRuntimeDir(env, uid),
+		}, nil
+	}
 	return teardownPaths{
 		tokfile:   tokfileFor(home, ns),
 		plistPath: filepath.Join(home, "Library", "LaunchAgents", label+".plist"),
@@ -70,12 +85,25 @@ func (i *installer) removeFile(path string) {
 
 // doTeardown is shared by the `ocwarden teardown` CLI and the server-directed
 // uninstall RPC, which folds log into the command_result the server records.
-func doTeardown(sys sysOps, dryRun bool, p teardownPaths) (ok bool, log string) {
+// insideUnit is the RPC case: the caller is the warden being removed.
+func doTeardown(sys sysOps, dryRun bool, p teardownPaths, insideUnit bool) (ok bool, log string) {
 	var b strings.Builder
 	logf := func(format string, a ...any) {
 		fmt.Fprintf(&b, "[ocwarden teardown] "+format+"\n", a...)
 	}
 	label := p.resolvedLabel()
+	if p.goos == "linux" {
+		gone, okTok, okUnit := systemdTeardown(sys, dryRun, p, insideUnit, logf)
+		ok = gone && okTok && okUnit
+		if dryRun {
+			logf("DRYRUN complete — no machine state changed.")
+		} else if ok {
+			logf("teardown complete for %s", label)
+		} else {
+			logf("teardown INCOMPLETE for %s — the systemd unit was not confirmed gone or a required artifact could not be removed", label)
+		}
+		return ok, b.String()
+	}
 	target := p.guiDomain + "/" + label
 	gone := true
 	if dryRun {
@@ -105,7 +133,7 @@ func doTeardown(sys sysOps, dryRun bool, p teardownPaths) (ok bool, log string) 
 }
 
 func (i *installer) runTeardown(p teardownPaths) (ok bool) {
-	ok, log := doTeardown(i.sys, i.dryRun, p)
+	ok, log := doTeardown(i.sys, i.dryRun, p, false)
 	for _, line := range strings.Split(strings.TrimRight(log, "\n"), "\n") {
 		fmt.Fprintln(i.out, line)
 	}
@@ -126,7 +154,7 @@ func validateTeardownTarget(env func(string) string, canonicalExplicit bool) err
 		// Message order is deliberate: a wrapper that scrapes stderr for a fix-up must
 		// read what this destroys and the namespaced escape before it finds --canonical.
 		return fmt.Errorf("refusing: this would tear down the CANONICAL warden on this host " +
-			"(launchd com.officraft.ocwarden, its exec token and plist) and stop every agent it " +
+			"(the com.officraft.ocwarden service, its exec token and service definition) and stop every agent it " +
 			"supervises. For an isolated instance set OC_NAMESPACE=<ns>; if destroying the " +
 			"canonical warden is genuinely intended, authorize it explicitly with --canonical")
 	}
@@ -141,7 +169,7 @@ func teardownCmd(env func(string) string, out io.Writer, canonicalExplicit bool)
 		i.errf("%v", err)
 		return 1
 	}
-	p, err := resolveTeardownPaths(env, os.Getuid())
+	p, err := resolveTeardownPaths(env, os.Getuid(), runtime.GOOS)
 	if err != nil {
 		i.errf("%v", err)
 		return 1

@@ -1398,6 +1398,26 @@ func TestNewCommandReporter(t *testing.T) {
 	dialErr = nil
 }
 
+func TestSelfStopFor(t *testing.T) {
+	live := envMap(map[string]string{"HOME": "/home/eva"})
+	dry := envMap(map[string]string{"HOME": "/home/eva", "WARDEN_INSTALL_DRYRUN": "1"})
+	cases := []struct {
+		name  string
+		env   func(string) string
+		goos  string
+		wired bool
+	}{
+		{"under linux, the uninstall ends through the service manager", live, "linux", true},
+		{"under darwin, exit(0) stays the way out", live, "darwin", false},
+		{"under a linux dry run, the warden exits and Restart=always brings it back", dry, "linux", false},
+	}
+	for _, c := range cases {
+		if got := selfStopFor(c.env, c.goos) != nil; got != c.wired {
+			t.Errorf("%s: wired = %v, want %v", c.name, got, c.wired)
+		}
+	}
+}
+
 func TestNewCommandTransport(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("PATH", filepath.Join(root, "nothing-here"))

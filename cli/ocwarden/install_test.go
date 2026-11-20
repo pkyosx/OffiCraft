@@ -372,9 +372,43 @@ func TestResolvePaths(t *testing.T) {
 		ocAgentBin: "/Users/eva/.officraft/warden/ocagent",
 
 		minimalPATH: "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+		goos:        "darwin",
+		uid:         501,
 	}
-	onLinux := main
-	onLinux.minimalPATH = "/Users/eva/.local/bin:/usr/local/bin:/usr/bin:/bin"
+	onLinux := wardenPaths{
+		root:       "/home/eva/.officraft",
+		home:       "/home/eva",
+		label:      "com.officraft.ocwarden",
+		srcExe:     "/tmp/clone/bin/ocwarden",
+		ocBase:     "https://oc.example.com",
+		ocToken:    jwtWardenOne,
+		ocID:       "machine-7",
+		tokfile:    "/home/eva/.officraft/warden/exec-warden.tok",
+		logDir:     "/home/eva/.officraft/warden/log",
+		binPath:    "/home/eva/.officraft/warden/ocwarden",
+		anchorSrc:  "/tmp/clone/bin/officraft",
+		anchorPath: "/home/eva/.officraft/warden/officraft",
+		ocAgentBin: "/home/eva/.officraft/warden/ocagent",
+
+		minimalPATH: "/home/eva/.local/bin:/usr/local/bin:/usr/bin:/bin",
+		goos:        "linux",
+		uid:         501,
+		unitDir:     "/home/eva/.config/systemd/user",
+		unitPath:    "/home/eva/.config/systemd/user/com.officraft.ocwarden.service",
+		runtimeDir:  "/run/user/501",
+	}
+	onLinuxXDG := onLinux
+	onLinuxXDG.namespace = "lab"
+	onLinuxXDG.label = "com.officraft.ocwarden.lab"
+	onLinuxXDG.root = "/home/eva/.officraft-lab"
+	onLinuxXDG.tokfile = "/home/eva/.officraft-lab/warden/exec-warden.tok"
+	onLinuxXDG.logDir = "/home/eva/.officraft-lab/warden/log"
+	onLinuxXDG.binPath = "/home/eva/.officraft-lab/warden/ocwarden"
+	onLinuxXDG.anchorPath = "/home/eva/.officraft-lab/warden/officraft"
+	onLinuxXDG.ocAgentBin = "/home/eva/.officraft-lab/warden/ocagent"
+	onLinuxXDG.unitDir = "/srv/eva-config/systemd/user"
+	onLinuxXDG.unitPath = "/srv/eva-config/systemd/user/com.officraft.ocwarden.lab.service"
+	onLinuxXDG.runtimeDir = "/run/user/eva-session"
 	namespaced := wardenPaths{
 		root:       "/Users/eva/.officraft-lab",
 		home:       "/Users/eva",
@@ -396,6 +430,8 @@ func TestResolvePaths(t *testing.T) {
 		credCheck:  "0",
 
 		minimalPATH: "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+		goos:        "darwin",
+		uid:         501,
 	}
 
 	cases := []struct {
@@ -411,9 +447,17 @@ func TestResolvePaths(t *testing.T) {
 			"HOME": "/Users/eva", "OC_BASE": "https://127.0.0.1:7755", "OC_TOKEN": jwtWardenOne,
 			"OC_NAMESPACE": "lab", "OC_AGENT_BIN": "/opt/ocagent", "OC_CLAUDE_CRED_CHECK": "0",
 		}, namespaced},
-		{"on linux the minimal PATH starts at the home's .local/bin and carries no Homebrew", "linux", map[string]string{
-			"HOME": "/Users/eva", "OC_BASE": "http://oc.example.com/", "OC_TOKEN": jwtWardenOne, "OC_ID": "machine-7",
+		{"under linux, a systemd user unit in ~/.config replaces the LaunchAgent and the runtime dir is derived from the uid", "linux", map[string]string{
+			"HOME": "/home/eva", "OC_BASE": "http://oc.example.com/", "OC_TOKEN": jwtWardenOne, "OC_ID": "machine-7",
 		}, onLinux},
+		{"under linux with a relative XDG_CONFIG_HOME and XDG_RUNTIME_DIR, both are ignored", "linux", map[string]string{
+			"HOME": "/home/eva", "OC_BASE": "http://oc.example.com/", "OC_TOKEN": jwtWardenOne, "OC_ID": "machine-7",
+			"XDG_CONFIG_HOME": "cfg", "XDG_RUNTIME_DIR": "run",
+		}, onLinux},
+		{"under linux with absolute XDG dirs, the unit lands in XDG_CONFIG_HOME and systemctl uses the given runtime dir", "linux", map[string]string{
+			"HOME": "/home/eva", "OC_BASE": "http://oc.example.com/", "OC_TOKEN": jwtWardenOne, "OC_ID": "machine-7",
+			"OC_NAMESPACE": "lab", "XDG_CONFIG_HOME": "/srv/eva-config", "XDG_RUNTIME_DIR": "/run/user/eva-session",
+		}, onLinuxXDG},
 	}
 	for _, c := range cases {
 		got, err := resolvePaths(envMap(c.env), "/tmp/clone/bin/ocwarden", 501, c.goos)
@@ -439,12 +483,12 @@ func TestResolvePaths(t *testing.T) {
 		{"OC_BASE unset", map[string]string{"HOME": "/Users/eva", "OC_TOKEN": jwtWardenOne},
 			"OC_BASE is not set — refusing to install a warden that does not know which station to talk to. " +
 				"Re-run with OC_BASE set to the station URL (e.g. OC_BASE=https://station.example ocwarden install). " +
-				"Guessing http://127.0.0.1:7755 here would be written into this machine's launchd job permanently, " +
+				"Guessing http://127.0.0.1:7755 here would be written into this machine's warden service permanently, " +
 				"and members started from it would join whatever is listening there"},
 		{"OC_BASE is blank", map[string]string{"HOME": "/Users/eva", "OC_BASE": "   ", "OC_TOKEN": jwtWardenOne},
 			"OC_BASE is not set — refusing to install a warden that does not know which station to talk to. " +
 				"Re-run with OC_BASE set to the station URL (e.g. OC_BASE=https://station.example ocwarden install). " +
-				"Guessing http://127.0.0.1:7755 here would be written into this machine's launchd job permanently, " +
+				"Guessing http://127.0.0.1:7755 here would be written into this machine's warden service permanently, " +
 				"and members started from it would join whatever is listening there"},
 		{"OC_BASE carries a foreign scheme", map[string]string{"HOME": "/Users/eva", "OC_BASE": "ftp://x", "OC_TOKEN": jwtWardenOne},
 			"OC_BASE must be http(s)://host[:port] with no whitespace/XML-special chars, got: ftp://x"},
@@ -1898,6 +1942,45 @@ func TestVerify(t *testing.T) {
 			t.Errorf("log = %q, want %q", out.String(), want)
 		}
 	})
+
+	t.Run("under linux, a main pid that holds is a stable warden", func(t *testing.T) {
+		lp := linuxInstallFixture()
+		i, sys, out := newRecordingInstaller(false)
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		if err := i.verify(lp); err != nil {
+			t.Fatalf("verify: %v", err)
+		}
+		want := header + "[ocwarden install] SUCCESS: com.officraft.ocwarden is running and STABLE (pid=4001 held >=6s). " +
+			"Logs: /home/eva/.officraft/warden/log/ocwarden.{out,err}.log\n"
+		if out.String() != want {
+			t.Errorf("log =\n%s\nwant\n%s", out.String(), want)
+		}
+	})
+
+	t.Run("under linux, a unit restarted under a new main pid is crash-looping", func(t *testing.T) {
+		lp := linuxInstallFixture()
+		i, sys, _ := newRecordingInstaller(false)
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		m.crashLoop = true
+		err := i.verify(lp)
+		wantErr := "com.officraft.ocwarden is CRASH-LOOPING — pid did not hold across the settle window " +
+			"(first=4002, then=4003); likely bad token / server unreachable / auth reject"
+		if err == nil || err.Error() != wantErr {
+			t.Errorf("err = %v, want %q", err, wantErr)
+		}
+	})
+
+	t.Run("under linux, a unit that never runs reports no pid", func(t *testing.T) {
+		lp := linuxInstallFixture()
+		i, sys, _ := newRecordingInstaller(false)
+		newFakeUserManager(sys)
+		err := i.verify(lp)
+		if err == nil || err.Error() != "com.officraft.ocwarden did not report a live PID within 30s" {
+			t.Errorf("err = %v, want the no-pid refusal", err)
+		}
+	})
 }
 
 func TestWardenPID(t *testing.T) {
@@ -2105,6 +2188,111 @@ func TestRunInstall(t *testing.T) {
 		}
 		if _, wrote := sys.files["/Users/eva/Library/LaunchAgents/com.officraft.ocwarden.plist"]; wrote {
 			t.Error("a failed install still wrote the plist")
+		}
+	})
+
+	t.Run("under linux, the steps leave the unit enabled, running and lingering", func(t *testing.T) {
+		i, sys, out := newRecordingInstaller(false)
+		m := newFakeUserManager(sys)
+		sys.files["/tmp/clone/ocwarden"] = "OCWARDEN-BYTES"
+		sys.files["/tmp/clone/officraft"] = "ANCHOR-BYTES"
+		i.agentGet = func(string) (int, []byte, error) { return 200, []byte("OCAGENT-BYTES"), nil }
+		i.agentProbe = func(string) error { return nil }
+		i.resolveClaude = func() (string, string) { return "/opt/claude", "" }
+		i.resolveCodex = func() (string, string) { return "/opt/codex", "/opt/x&y:/bin" }
+
+		if err := i.runInstall(linuxInstallFixture()); err != nil {
+			t.Fatalf("runInstall: %v\n%s", err, out.String())
+		}
+
+		wantFiles := map[string]string{
+			"/tmp/clone/ocwarden":                                           "OCWARDEN-BYTES",
+			"/tmp/clone/officraft":                                          "ANCHOR-BYTES",
+			"/home/eva/.officraft/warden/ocwarden":                          "OCWARDEN-BYTES",
+			"/home/eva/.officraft/warden/officraft":                         "ANCHOR-BYTES",
+			"/home/eva/.officraft/warden/ocagent":                           "OCAGENT-BYTES",
+			"/home/eva/.officraft/warden/exec-warden.tok":                   jwtWardenOne,
+			"/home/eva/.config/systemd/user/com.officraft.ocwarden.service": stampedUnit,
+		}
+		if !reflect.DeepEqual(sys.files, wantFiles) {
+			for path, body := range sys.files {
+				if wantFiles[path] != body {
+					t.Errorf("%s holds\n%s\nwant\n%s", path, body, wantFiles[path])
+				}
+			}
+			if len(sys.files) != len(wantFiles) {
+				t.Errorf("installed paths = %d, want %d", len(sys.files), len(wantFiles))
+			}
+		}
+		if got, want := m.state("com.officraft.ocwarden.service"), "load=loaded enabled=true active=true pid=4001"; got != want {
+			t.Errorf("unit state = %s, want %s", got, want)
+		}
+		if !m.linger {
+			t.Error("linger = off, want on")
+		}
+		wantHead := "[ocwarden install] resolved: ROOT=/home/eva/.officraft HOME=/home/eva OC_BASE=https://oc.example.com OC_ID=<derive-from-token-sub>\n" +
+			"[ocwarden install] targets:  TOKFILE=/home/eva/.officraft/warden/exec-warden.tok UNIT=/home/eva/.config/systemd/user/com.officraft.ocwarden.service BIN=/home/eva/.officraft/warden/ocwarden SRC=/tmp/clone/ocwarden\n" +
+			"[ocwarden install] ocagent:  DOWNLOAD https://oc.example.com" + installTestAgentBinaryPath + " -> BIN=/home/eva/.officraft/warden/ocagent (home sibling; runtime-discovered, not in unit)\n" +
+			"[ocwarden install] claude:   /opt/claude (stamped OC_CLAUDE_BIN into the unit)\n" +
+			"[ocwarden install] codex:    /opt/codex (stamped OC_CODEX_BIN into the unit)\n" +
+			"[ocwarden install] enabled linger for uid 1000\n"
+		wantTail := "[ocwarden install] enabled + restarted com.officraft.ocwarden.service (exact unit)\n" +
+			"[ocwarden install] verifying com.officraft.ocwarden is alive AND STABLE...\n" +
+			"[ocwarden install] SUCCESS: com.officraft.ocwarden is running and STABLE (pid=4001 held >=6s). Logs: /home/eva/.officraft/warden/log/ocwarden.{out,err}.log\n"
+		if !strings.HasPrefix(out.String(), wantHead) || !strings.HasSuffix(out.String(), wantTail) {
+			t.Errorf("log =\n%s\nwant it to open with\n%s\nand end with\n%s", out.String(), wantHead, wantTail)
+		}
+	})
+
+	t.Run("under linux without systemd as PID 1, nothing is installed", func(t *testing.T) {
+		i, sys, _ := newRecordingInstaller(false)
+		m := newFakeUserManager(sys)
+		delete(sys.perms, systemdBootedMarker)
+		sys.files["/tmp/clone/ocwarden"] = "OCWARDEN-BYTES"
+		sys.files["/tmp/clone/officraft"] = "ANCHOR-BYTES"
+		i.agentGet = func(string) (int, []byte, error) { return 200, []byte("OCAGENT-BYTES"), nil }
+		i.agentProbe = func(string) error { return nil }
+
+		err := i.runInstall(linuxInstallFixture())
+		if err == nil || !strings.HasPrefix(err.Error(), "systemd is not running as PID 1 on this host") {
+			t.Errorf("err = %v, want the not-booted refusal", err)
+		}
+		want := map[string]string{"/tmp/clone/ocwarden": "OCWARDEN-BYTES", "/tmp/clone/officraft": "ANCHOR-BYTES"}
+		if !reflect.DeepEqual(sys.files, want) {
+			t.Errorf("files = %v, want only the sources %v", sys.files, want)
+		}
+		if len(m.units) != 0 || m.linger {
+			t.Errorf("units = %d, linger = %v, want none and off", len(m.units), m.linger)
+		}
+	})
+
+	t.Run("under linux in a dry run, the systemd steps are narrated and nothing changes", func(t *testing.T) {
+		i, sys, out := newRecordingInstaller(true)
+		m := newFakeUserManager(sys)
+		if err := i.runInstall(linuxInstallFixture()); err != nil {
+			t.Fatalf("runInstall: %v", err)
+		}
+		if len(sys.files) != 0 || len(m.units) != 0 || m.linger {
+			t.Errorf("files = %v, units = %d, linger = %v, want an untouched machine", sys.files, len(m.units), m.linger)
+		}
+		wantLog := "[ocwarden install] resolved: ROOT=/home/eva/.officraft HOME=/home/eva OC_BASE=https://oc.example.com OC_ID=<derive-from-token-sub>\n" +
+			"[ocwarden install] targets:  TOKFILE=/home/eva/.officraft/warden/exec-warden.tok UNIT=/home/eva/.config/systemd/user/com.officraft.ocwarden.service BIN=/home/eva/.officraft/warden/ocwarden SRC=/tmp/clone/ocwarden\n" +
+			"[ocwarden install] ocagent:  DOWNLOAD https://oc.example.com" + installTestAgentBinaryPath + " -> BIN=/home/eva/.officraft/warden/ocagent (home sibling; runtime-discovered, not in unit)\n" +
+			"[ocwarden install] DRY-RUN mode: no file writes / no systemctl / no verification.\n" +
+			"[ocwarden install] DRYRUN would: require /run/systemd/system (systemd as PID 1), then `loginctl enable-linger 1000` unless Linger=yes\n" +
+			"[ocwarden install] DRYRUN would: mkdir -p /home/eva/.officraft/warden; copy /tmp/clone/ocwarden -> a 0755 temp then atomic rename -> /home/eva/.officraft/warden/ocwarden\n" +
+			"[ocwarden install] DRYRUN would: copy fixed identity anchor /tmp/clone/officraft -> /home/eva/.officraft/warden/officraft only if absent\n" +
+			"[ocwarden install] DRYRUN would: mkdir -p /home/eva/.officraft/warden; download ocagent from https://oc.example.com" + installTestAgentBinaryPath + " -> verify-exec -> atomic rename -> /home/eva/.officraft/warden/ocagent\n" +
+			"[ocwarden install] DRYRUN would: mkdir -p /home/eva/.officraft/warden; write <token> to a 0600 temp then atomic rename -> /home/eva/.officraft/warden/exec-warden.tok\n" +
+			"[ocwarden install] DRYRUN would: mkdir -p /home/eva/.officraft/warden/log\n" +
+			"[ocwarden install] DRYRUN would: mkdir -p /home/eva/.config/systemd/user; render unit -> /home/eva/.config/systemd/user/com.officraft.ocwarden.service\n" +
+			"[ocwarden install] DRYRUN would run: systemctl --user daemon-reload, then require LoadState=loaded for com.officraft.ocwarden.service\n" +
+			"[ocwarden install] DRYRUN would run: systemctl --user enable com.officraft.ocwarden.service\n" +
+			"[ocwarden install] DRYRUN would run: systemctl --user restart com.officraft.ocwarden.service\n" +
+			"[ocwarden install] DRYRUN: skipping live verification (no machine state changed)\n" +
+			"[ocwarden install] DRYRUN complete — no machine state changed.\n"
+		if out.String() != wantLog {
+			t.Errorf("log =\n%s\nwant\n%s", out.String(), wantLog)
 		}
 	})
 }
