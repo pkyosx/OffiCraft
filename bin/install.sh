@@ -108,7 +108,8 @@
 #      (targets ~/.officraft-<ns> + com.officraft.serve.<ns>; without it the
 #      MAIN instance, as before.)
 #      Default keeps the database — it MOVES ~/.officraft's release-path pieces
-#      to ~/.officraft.bak-<timestamp> (plist inside it, under launchd/) rather
+#      to ~/.officraft.bak-<timestamp> (plist inside it, under launchd/; the
+#      unit file under systemd/ on Linux) rather
 #      than deleting them, and prints a restore command that puts back both the
 #      files and the launchd registration. --purge deletes instead.
 #      --purge asks you to type "purge" unless --yes — but over `curl … | bash`
@@ -316,7 +317,8 @@ WHAT IT TOUCHES — only what this installer itself created:
                                            keep anything else in bin/ (old
                                            backups, rollback copies), it goes too
   ~/.officraft/server/data, oc.toml, log   (the database lives in data/)
-  the launchd job + plist for OC_LAUNCHD_LABEL (default com.officraft.serve)
+  the launchd job + plist for OC_LAUNCHD_LABEL (default com.officraft.serve);
+  on Linux the systemd --user unit <label>.service + its unit file
 
 WHAT IT LEAVES ALONE — created at runtime by other programs, never by this
 installer, so removal has no business moving them:
@@ -365,11 +367,22 @@ EOF
   fi
 
   local LABEL LA_DIR PLIST GUI TARGET ROOT_DIR BIN_DIR SERVER_DIR
+  local linux=0 UNIT UNIT_DIR SVC_MGR SVC_KIND SVC_NOUN
+  [[ "$(uname -s)" == "Linux" ]] && linux=1
   LABEL="${OC_LAUNCHD_LABEL:-com.officraft.serve$ns_dot}"
   LA_DIR="$HOME/Library/LaunchAgents"
   PLIST="$LA_DIR/$LABEL.plist"
   GUI="gui/$(id -u)"
   TARGET="$GUI/$LABEL"
+  SVC_MGR="launchd"; SVC_KIND="launchd job"; SVC_NOUN="plist"
+  if [[ "$linux" == 1 ]]; then
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    UNIT="$LABEL.service"
+    UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    # From here on PLIST names the service definition file on either OS.
+    PLIST="$UNIT_DIR/$UNIT"
+    SVC_MGR="systemd"; SVC_KIND="systemd unit"; SVC_NOUN="unit file"
+  fi
   ROOT_DIR="$HOME/.officraft$ns_dash"
   BIN_DIR="$ROOT_DIR/bin"
   SERVER_DIR="$ROOT_DIR/server"
@@ -396,14 +409,20 @@ EOF
   [[ -x "$BIN_DIR/ocserverd" ]] && have_files=1
 
   local job_pid="" plist_ours=0 plist_foreign=0
+  local svc_program=plist_program
+  [[ "$linux" == 1 ]] && svc_program=unit_program
   if [[ -f "$PLIST" ]]; then
-    if [[ "$(plist_program "$PLIST")" == "$BIN_DIR/ocserverd" ]]; then
+    if [[ "$("$svc_program" "$PLIST")" == "$BIN_DIR/ocserverd" ]]; then
       plist_ours=1
       # `|| true` is LOAD-BEARING: under `set -euo pipefail`, `launchctl print`
       # exits NON-ZERO for the ordinary "plist on disk, job not loaded" state, so
       # pipefail+set -e killed the run and --uninstall exited 1 printing NOTHING.
       # No pid is an ANSWER ("not running"), not an error.
-      job_pid="$(launchctl print "$TARGET" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1 || true)"
+      if [[ "$linux" == 1 ]]; then
+        job_pid="$(systemd_main_pid "$UNIT")"
+      else
+        job_pid="$(launchctl print "$TARGET" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1 || true)"
+      fi
     else
       plist_foreign=1
     fi
@@ -411,18 +430,18 @@ EOF
 
   if [[ "$have_files" == 0 && "$plist_ours" == 0 ]]; then
     if [[ "$plist_foreign" == 1 ]]; then
-      echo "[install] nothing OF OURS to remove: no $BIN_DIR/ocserverd, and launchd label '$LABEL' belongs to a different program ($PLIST) — not touching it." >&2
+      echo "[install] nothing OF OURS to remove: no $BIN_DIR/ocserverd, and $SVC_MGR label '$LABEL' belongs to a different program ($PLIST) — not touching it." >&2
       echo "[install]   If that is actually your OffiCraft install under a different label, point OC_LAUNCHD_LABEL at it and re-run." >&2
       exit 0
     fi
-    echo "[install] nothing to remove — no $BIN_DIR/ocserverd and no '$LABEL' launchd job. Already clean."
+    echo "[install] nothing to remove — no $BIN_DIR/ocserverd and no '$LABEL' $SVC_MGR job. Already clean."
     exit 0
   fi
 
   if [[ "$plist_foreign" == 1 ]]; then
-    echo "[install] FATAL: launchd label '$LABEL' is registered but points at a DIFFERENT program:" >&2
-    echo "[install]        plist:    $PLIST" >&2
-    local prog; prog="$(plist_program "$PLIST")"
+    echo "[install] FATAL: $SVC_MGR label '$LABEL' is registered but points at a DIFFERENT program:" >&2
+    echo "[install]        $SVC_NOUN:    $PLIST" >&2
+    local prog; prog="$("$svc_program" "$PLIST")"
     echo "[install]        program:  ${prog:-<unreadable>}" >&2
     echo "[install]        expected: $BIN_DIR/ocserverd" >&2
     echo "[install]        Refusing to touch a job this installer did not create, and refusing to remove" >&2
@@ -483,12 +502,12 @@ EOF
   for ent in data oc.toml log; do
     [[ -e "$SERVER_DIR/$ent" ]] && will+=("$SERVER_DIR/$ent")
   done
-  [[ -f "$PLIST" ]] && will+=("launchd job $LABEL and its plist")
+  [[ -f "$PLIST" ]] && will+=("$SVC_KIND $LABEL and its $SVC_NOUN")
   if [[ "${#will[@]}" -gt 0 ]]; then
     echo "[install] will touch:"
     for ent in "${will[@]}"; do echo "[install]     $ent"; done
   else
-    echo "[install] will touch: nothing — none of this installer's files or its plist are present"
+    echo "[install] will touch: nothing — none of this installer's files or its $SVC_NOUN are present"
   fi
   if [[ "${#kept[@]}" -gt 0 ]]; then
     echo "[install] will NOT touch, under $ROOT_DIR — left exactly where they are:"
@@ -503,8 +522,10 @@ EOF
       # registered and RUNNING" without looking is this ticket's own defect
       # class (saying more than was measured).
       local warden_label="com.officraft.ocwarden$ns_dot"
-      if [[ -f "$LA_DIR/$warden_label.plist" ]]; then
-        echo "[install]   warden/ belongs to the ocwarden daemon; its own launchd job ($warden_label) is"
+      local warden_def="$LA_DIR/$warden_label.plist"
+      [[ "$linux" == 1 ]] && warden_def="$UNIT_DIR/$warden_label.service"
+      if [[ -f "$warden_def" ]]; then
+        echo "[install]   warden/ belongs to the ocwarden daemon; its own $SVC_KIND ($warden_label) is"
         echo "[install]   registered and this script leaves it that way."
       else
         echo "[install]   warden/ belongs to the ocwarden daemon; this script never touches it."
@@ -565,27 +586,36 @@ EOF
   local backup="" plist_backup=""
   if [[ "$purge" != "1" ]]; then
     backup="$ROOT_DIR.bak-$(date +%Y%m%d%H%M%S)"
-    plist_backup="$backup/launchd/$LABEL.plist"
+    plist_backup="$backup/$SVC_MGR/${PLIST##*/}"
   fi
 
   if [[ -n "$job_pid" ]]; then
-    echo "[install] stopping launchd job $LABEL (pid $job_pid)"
-    run launchctl bootout "$TARGET"
+    echo "[install] stopping $SVC_KIND $LABEL (pid $job_pid)"
   elif [[ "$plist_ours" == "1" ]]; then
     if [[ "$purge" == "1" ]]; then
-      echo "[install] launchd job $LABEL is registered but not running — removing its plist"
+      echo "[install] $SVC_KIND $LABEL is registered but not running — removing its $SVC_NOUN"
     else
-      echo "[install] launchd job $LABEL is registered but not running — moving its plist into the backup"
+      echo "[install] $SVC_KIND $LABEL is registered but not running — moving its $SVC_NOUN into the backup"
     fi
+  fi
+  if [[ "$linux" == 1 && "$plist_ours" == "1" ]]; then
+    # disable also removes the default.target.wants link, which would otherwise
+    # dangle once the unit file moves.
+    run systemctl --user disable --now "$UNIT" || echo "[install] WARN: systemctl --user disable --now $UNIT failed — continuing with the files." >&2
+  elif [[ -n "$job_pid" ]]; then
+    run launchctl bootout "$TARGET"
   fi
   local plist_saved=0
   if [[ -f "$PLIST" ]]; then
     if [[ "$purge" == "1" ]]; then
       run rm -f "$PLIST"
     else
-      run mkdir -p "$backup/launchd"
+      run mkdir -p "$backup/$SVC_MGR"
       run mv "$PLIST" "$plist_backup"
       plist_saved=1
+    fi
+    if [[ "$linux" == 1 ]]; then
+      run systemctl --user daemon-reload || true
     fi
   fi
 
@@ -637,10 +667,10 @@ EOF
       if [[ "${#moved[@]}" -gt 0 ]]; then
         echo "[install]   what moved: ${moved[*]}"
       else
-        echo "[install]   what moved: the launchd plist only — no installed files were present."
+        echo "[install]   what moved: the $SVC_MGR $SVC_NOUN only — no installed files were present."
       fi
     else
-      echo "[install] nothing needed moving — no installed files and no plist of ours were present."
+      echo "[install] nothing needed moving — no installed files and no $SVC_NOUN of ours were present."
     fi
     if [[ "${#kept[@]}" -gt 0 ]]; then
       echo "[install]   what stayed in $ROOT_DIR (untouched, still in place):"
@@ -652,7 +682,11 @@ EOF
     # assembled from what was really moved: a fixed line referencing
     # "$backup/bin" breaks its own `&&` chain on the first cp when bin/ was never
     # there, and the plist half then never runs at all.
-    [[ "$plist_saved" == "1" ]] && restore_files+=("cp \"$plist_backup\" \"$PLIST\"" "launchctl bootstrap \"$GUI\" \"$PLIST\"")
+    if [[ "$plist_saved" == "1" && "$linux" == 1 ]]; then
+      restore_files+=("mkdir -p \"$UNIT_DIR\"" "cp \"$plist_backup\" \"$PLIST\"" "systemctl --user daemon-reload" "systemctl --user enable --now $UNIT")
+    elif [[ "$plist_saved" == "1" ]]; then
+      restore_files+=("cp \"$plist_backup\" \"$PLIST\"" "launchctl bootstrap \"$GUI\" \"$PLIST\"")
+    fi
     if [[ "${#restore_files[@]}" -gt 0 ]]; then
       local restore_cmd="${restore_files[0]}" i
       for ((i = 1; i < ${#restore_files[@]}; i++)); do restore_cmd+=" && ${restore_files[$i]}"; done
