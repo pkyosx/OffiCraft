@@ -895,8 +895,9 @@ func (i *installer) runInstall(p wardenPaths) error {
 	return nil
 }
 
-func (i *installer) bindRuntimeResolvers(env func(string) string, minimalPATH string,
+func (i *installer) bindRuntimeResolvers(env func(string) string, p wardenPaths,
 	probe func(bin, pathEnv, home string) error) {
+	minimalPATH := p.minimalPATH
 	i.resolveClaude = func() (string, string) {
 		return resolveClaudeForInstall(env, minimalPATH, func() string { return resolveClaudeBin(env) }, probe, i.logf)
 	}
@@ -940,7 +941,7 @@ func installCmd(env func(string) string, out io.Writer, force bool) int {
 		i.errf("%v", err)
 		return 1
 	}
-	i.bindRuntimeResolvers(env, p.minimalPATH, host.versionProbe)
+	i.bindRuntimeResolvers(env, p, host.versionProbe)
 	if err := i.runInstall(p); err != nil {
 		i.errf("%v (re-run is safe — idempotent)", err)
 		return 1

@@ -535,41 +535,53 @@ func TestOcagentPIDsByCwdFromProc(t *testing.T) {
 	stageProcEntry(t, procRoot, "self", "ocagent", m1)
 	stageProcEntry(t, procRoot, "0", "ocagent", m1)
 	stageProcEntry(t, procRoot, "108", "ocagent.prev", m1)
+	stageProcEntry(t, procRoot, "109", "ocagent", m1+"0")
+	stageProcEntry(t, procRoot, "110", "ocagent", m1+"/sub")
 
-	got := ocagentPIDsByCwdFromProc(procRoot, m1)
-	sort.Ints(got)
-	if want := []int{101, 103, 108}; !reflect.DeepEqual(got, want) {
-		t.Errorf("pids = %v, want %v", got, want)
-	}
+	t.Run("ocagent processes whose cwd is exactly the workdir match", func(t *testing.T) {
+		got := ocagentPIDsByCwdFromProc(procRoot, m1)
+		sort.Ints(got)
+		if want := []int{101, 103, 108}; !reflect.DeepEqual(got, want) {
+			t.Errorf("pids = %v, want %v", got, want)
+		}
+	})
 
-	got = ocagentPIDsByCwdFromProc(procRoot, m1+"/")
-	sort.Ints(got)
-	if want := []int{101, 103, 108}; !reflect.DeepEqual(got, want) {
-		t.Errorf("trailing-slash workdir: pids = %v, want %v", got, want)
-	}
+	t.Run("a workdir with a trailing slash matches the same processes", func(t *testing.T) {
+		got := ocagentPIDsByCwdFromProc(procRoot, m1+"/")
+		sort.Ints(got)
+		if want := []int{101, 103, 108}; !reflect.DeepEqual(got, want) {
+			t.Errorf("pids = %v, want %v", got, want)
+		}
+	})
 
-	if got := ocagentPIDsByCwdFromProc(procRoot, "/home/eva/.officraft/agents/m9"); got != nil {
-		t.Errorf("another member's workdir matches nothing, got %v", got)
-	}
+	t.Run("a workdir no process sits in matches nothing", func(t *testing.T) {
+		if got := ocagentPIDsByCwdFromProc(procRoot, "/home/eva/.officraft/agents/m9"); got != nil {
+			t.Errorf("pids = %v, want nil", got)
+		}
+	})
 
-	if got := ocagentPIDsByCwdFromProc(filepath.Join(procRoot, "missing"), m1); got != nil {
-		t.Errorf("an unreadable proc root reads nil, got %v", got)
-	}
+	t.Run("an unreadable proc root reads as no processes", func(t *testing.T) {
+		if got := ocagentPIDsByCwdFromProc(filepath.Join(procRoot, "missing"), m1); got != nil {
+			t.Errorf("pids = %v, want nil", got)
+		}
+	})
 
-	real := t.TempDir()
-	link := filepath.Join(t.TempDir(), "link")
-	if err := os.Symlink(real, link); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
-	resolved, err := filepath.EvalSymlinks(real)
-	if err != nil {
-		t.Fatalf("evalsymlinks: %v", err)
-	}
-	symRoot := t.TempDir()
-	stageProcEntry(t, symRoot, "107", "ocagent", resolved)
-	if got := ocagentPIDsByCwdFromProc(symRoot, link); !reflect.DeepEqual(got, []int{107}) {
-		t.Errorf("the kernel-resolved cwd must match the symlinked workdir, got %v", got)
-	}
+	t.Run("a symlinked workdir matches the kernel-resolved cwd", func(t *testing.T) {
+		real := t.TempDir()
+		link := filepath.Join(t.TempDir(), "link")
+		if err := os.Symlink(real, link); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		resolved, err := filepath.EvalSymlinks(real)
+		if err != nil {
+			t.Fatalf("evalsymlinks: %v", err)
+		}
+		symRoot := t.TempDir()
+		stageProcEntry(t, symRoot, "107", "ocagent", resolved)
+		if got := ocagentPIDsByCwdFromProc(symRoot, link); !reflect.DeepEqual(got, []int{107}) {
+			t.Errorf("pids = %v, want [107]", got)
+		}
+	})
 }
 
 func TestOcagentPIDsByCwdFor(t *testing.T) {

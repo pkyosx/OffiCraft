@@ -122,7 +122,6 @@ const (
 )
 
 type sweepSeams struct {
-	// production: ocagentPIDsByCwdFor
 	listenPIDs func(workdir string) []int
 	workdir    string
 	sleep      func(time.Duration)

@@ -723,7 +723,7 @@ func TestBindRuntimeResolvers(t *testing.T) {
 		"PATH": installerPATH})
 	var out bytes.Buffer
 	i := &installer{out: &out}
-	i.bindRuntimeResolvers(env, minimalPATH, realVersionProbe)
+	i.bindRuntimeResolvers(env, wardenPaths{minimalPATH: minimalPATH}, realVersionProbe)
 
 	if bin, path := i.resolveClaude(); bin != claude || path != "" {
 		t.Errorf("resolveClaude = (%q, %q), want (%q, \"\")", bin, path, claude)
