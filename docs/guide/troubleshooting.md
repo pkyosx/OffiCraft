@@ -4,13 +4,23 @@
 
 ## 安裝
 
-### 安裝腳本說只支援 macOS Apple Silicon
+### 安裝腳本說這台電腦不支援
 
-OffiCraft 只支援 Apple Silicon 的 Mac（darwin/arm64）。Intel Mac、Linux、Windows 都會在安裝一開始被拒絕。
+OffiCraft 支援三種電腦：Apple Silicon 的 Mac（darwin/arm64）、x86_64 的 Linux（amd64）、arm64 的 Linux（aarch64）。Intel Mac 與其他處理器架構的 Linux 會在安裝一開始、下載任何東西之前被拒絕。
+
+直接在 Windows 上執行也不支援。Windows 要先裝 WSL2 與 Ubuntu，再在 Ubuntu 裡安裝，步驟見 [安裝、升級與移除](install.md) 的「Windows（WSL2）」。
+
+### 安裝腳本說 systemd 沒有在執行
+
+Linux 上的 OffiCraft 以 systemd 的使用者服務在背景執行（systemd 是 Linux 用來啟動、停止背景服務的系統元件）。systemd 沒有在執行時，安裝腳本會停下，不安裝任何東西。
+
+這個情形最常出現在 Windows 的 WSL2，因為 WSL2 預設不啟動 systemd。打開 systemd 的方式見 [安裝、升級與移除](install.md) 的「Windows（WSL2）」：在 `/etc/wsl.conf` 加入 `[boot]` 與 `systemd=true`，從 Windows 執行 `wsl.exe --shutdown`，重新打開 Ubuntu 視窗後再執行安裝。WSL 版本低於 0.67.6 時不支援 systemd，要先用 `wsl --update` 更新。
+
+在 Ubuntu 視窗裡執行 `ps -p 1 -o comm=`，印出 `systemd` 代表 systemd 正在執行。
 
 ### 安裝腳本說缺少 tmux 或 agent runtime
 
-安裝腳本在動到機器之前會先檢查 `tmux`，以及 `claude`（Claude Code）或 `codex`（Codex）至少一種；缺任何一樣就停下，什麼都不安裝。補裝的指令在 [安裝、升級與移除](install.md) 的「安裝前要準備的東西」，補上後重新執行安裝指令即可。只裝其中一種也可以，但它必須已經登入，成員才能用它啟動。
+安裝腳本在動到機器之前會先檢查 `tmux`，以及 `claude`（Claude Code）或 `codex`（Codex）至少一種；缺任何一樣就停下，什麼都不安裝。補裝的指令在 [安裝、升級與移除](install.md) 的「安裝前要準備的東西」，補上後重新執行安裝指令即可。只裝其中一種也可以，但裝的那一種必須已經登入，成員才能啟動。Windows（WSL2）上，Claude Code 或 Codex 要裝在 WSL2 的 Ubuntu 裡；裝在 Windows 那一邊的不算。
 
 ### 7755 埠被占用
 
@@ -46,7 +56,14 @@ port = 7756
 
 ### 忘記密碼、驗證器遺失或通行密鑰無法使用
 
-這三種情況都用裝 server 那台機器上的 `~/.officraft/bin/ocserverd` 復原指令處理。能在那台機器上執行指令，就證明你是工作室的主人，所以不需要其他驗證。重新啟動 server 的指令是 `launchctl kickstart -k gui/$(id -u)/com.officraft.serve`。
+這三種情況都用裝 server 那台機器上的 `~/.officraft/bin/ocserverd` 復原指令處理。能在那台機器上執行指令，就證明你是工作室的主人，所以不需要其他驗證。重新啟動 server 的指令：
+
+```bash
+# macOS
+launchctl kickstart -k gui/$(id -u)/com.officraft.serve
+# Linux 與 Windows（WSL2）
+systemctl --user restart com.officraft.serve.service
+```
 
 - **重設密碼**：`OC_NEW_PASSWORD='新密碼' ~/.officraft/bin/ocserverd set-password`。新密碼從環境變數 `OC_NEW_PASSWORD` 帶入，指令本身不接受參數；server 重新啟動之前，新密碼不會生效。
 - **關閉兩步驟驗證**：`~/.officraft/bin/ocserverd mfa-disable`。server 重新啟動之前，登入仍會要求驗證碼。
@@ -62,7 +79,7 @@ port = 7756
 
 - **成員詳情的「最近操作」**：最後一次喚醒的結果與原因，是最準確的一行。
 - **監控 › 機器資訊**：成員所在的機器是否線上；Claude、Codex 欄顯示的是版本、「未安裝」、「未登入」還是「版本太舊」。
-- **那台機器上的 warden 紀錄**：`~/.officraft/warden/log/ocwarden.err.log`，記錄 warden 啟動成員時的詳細過程。
+- **那台機器上的 warden 紀錄**：`~/.officraft/warden/log/ocwarden.err.log`，記錄 warden 啟動成員時的詳細過程。macOS 與 Linux 的位置相同。
 
 server 送出喚醒後，成員會先顯示「喚醒中」；大約兩分鐘內沒有連上，這次喚醒算失敗，原因寫進最近操作。
 
@@ -123,7 +140,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 原因看 監控 › 機器資訊 中那台機器的狀態：
 
-- **離線**：那台 Mac 關機或連不到 server。warden 每台獨立運作，一台離線只影響在那台上的成員。
+- **離線**：那台機器關機或連不到 server。warden 每台獨立運作，一台離線只影響在那台上的成員。
 - **長時間離線、連上網路也沒恢復**：可能是機器憑證過期。每台機器的憑證有效期是 設定 › 參數調整 的「機器憑證壽命」（預設 30 天），warden 會在到期前自動換新；機器長時間關機而錯過換新時，要重新安裝那台機器。機器名稱選單中的「安裝」（線上時顯示「重新安裝」）會產生要在那台機器上執行的安裝指令。
 - **機器欄位有驚嘆號寫著「未生效」**：這台機器上的成員全部停止、再逐一喚醒後恢復。
 
@@ -131,6 +148,12 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 - 辦公室側欄「外包」頁籤顯示「已暫停指派」：外包上限是 0。上限在「外包」頁籤「招攬新成員」裡的「最多雇用」。
 - 任務手冊的負責成員是外包、但沒有選機器，或選的機器離線：外包只會在選定的機器上啟動。機器在 設定 › 任務手冊 中選定，選定的機器上線後外包才會啟動。
+
+### Windows（WSL2）關掉終端機後，成員會不會離線
+
+<!-- TODO(WSL2 實測) -->
+關掉 Windows 上的 Ubuntu 視窗之後，WSL2 裡的 warden 與成員是否繼續保持線上，目前還在實際驗證中。Windows 可能在 WSL2 一段時間沒有使用後把 WSL2 關掉，關掉時這台機器上的成員會離線。驗證結果確定後會更新這一段。
+<!-- /TODO(WSL2 實測) -->
 
 ## 回呼端點
 
@@ -197,17 +220,24 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 ### 換電腦時要帶走 vault.key
 
-資料庫備份（不論自動或手動）都不包含 `vault.key`，密鑰的值與 Secret 請示卡尚未刪除的內容都是用 `vault.key` 加密的。在同一台 Mac 上還原時，`vault.key` 還在原本的資料夾，不用處理；把備份搬到別台電腦還原時，要連同 `vault.key` 一起帶過去，否則還原後的密鑰無法讀取。詳細說明見 [保護你的工作室](security.md) 的「密鑰與 vault.key」。
+資料庫備份（不論自動或手動）都不包含 `vault.key`，密鑰的值與 Secret 請示卡尚未刪除的內容都是用 `vault.key` 加密的。在同一台電腦上還原時，`vault.key` 還在原本的資料夾，不用處理；把備份搬到別台電腦還原時，要連同 `vault.key` 一起帶過去，否則還原後的密鑰無法讀取。詳細說明見 [保護你的工作室](security.md) 的「密鑰與 vault.key」。
 
 ### 從備份還原
 
 還原是在 server 停止時，用備份檔取代 `~/.officraft/server/data/` 中的資料庫：現有的 `officraft.db`、`officraft.db-wal`、`officraft.db-shm` 三個檔移到別處，再把備份檔複製成 `officraft.db`（例如 `cp backups/officraft-20261020-060000-scheduled.db officraft.db`）。同一個資料夾裡要有當時的 `vault.key`，少了它，還原後的密鑰無法讀取。
 
-停止與啟動 server 的指令：
+停止與啟動 server 的指令，macOS：
 
 ```bash
 launchctl bootout gui/$(id -u)/com.officraft.serve
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.officraft.serve.plist
+```
+
+Linux 與 Windows（WSL2）：
+
+```bash
+systemctl --user stop com.officraft.serve.service
+systemctl --user start com.officraft.serve.service
 ```
 
 ## 升級
