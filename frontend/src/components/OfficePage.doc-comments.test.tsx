@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { OfficePage } from "./OfficePage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { __resetMock, __injectMockChat } from "../api/mock";
 
 const realFetch = globalThis.fetch;
@@ -37,7 +38,7 @@ describe("OfficePage — comments on a chat attachment", () => {
     window.location.hash = "#office/chat/mira";
     render(
       <I18nProvider>
-        <OfficePage />
+        <ReplyCardsProvider><OfficePage /></ReplyCardsProvider>
       </I18nProvider>,
     );
 
@@ -66,7 +67,7 @@ describe("OfficePage — comments on a chat attachment", () => {
     window.location.hash = `#office/chat/${goneId}`;
     render(
       <I18nProvider>
-        <OfficePage />
+        <ReplyCardsProvider><OfficePage /></ReplyCardsProvider>
       </I18nProvider>,
     );
 

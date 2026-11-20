@@ -617,3 +617,19 @@ export function useReplyCardWaitingCount(): number {
   // Snoozed cards are not in `waiting`, matching the server's badge count.
   return useReplyCards().waiting.length;
 }
+
+/** The waiting cards one member opened — the 聊天 header's 請示卡 badge. Read
+ * from the same waiting array as the nav badge. MUST be used under a
+ * <ReplyCardsProvider>. */
+export function useReplyCardWaitingCountFrom(openerId: string): number {
+  return useReplyCards().waiting.filter((c) => c.from === openerId).length;
+}
+
+/** Whether this waiting card is snoozed right now — it flips back when the
+ * provider's own return timer moves the card into `waiting`. Unlike its
+ * siblings it answers false without a provider: the inline cards are mounted
+ * bare by many suites that stub or count api reads, which a provider would add. */
+export function useReplyCardSnoozed(id: string): boolean {
+  const ctx = useContext(ReplyCardsContext);
+  return ctx ? ctx.snoozed.some((c) => c.id === id) : false;
+}

@@ -18,6 +18,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { OfficePage } from "./OfficePage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { api } from "../api";
 import { zh } from "../i18n/locales/zh";
 import {
@@ -84,7 +85,7 @@ function openChat(peerId: string) {
   window.location.hash = `#office/chat/${peerId}`;
   const utils = render(
     <I18nProvider>
-      <OfficePage />
+      <ReplyCardsProvider><OfficePage /></ReplyCardsProvider>
     </I18nProvider>,
   );
   const query = () => ({

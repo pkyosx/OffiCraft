@@ -946,3 +946,33 @@
   opacity: 0.5;
   cursor: default;
 }
+
+/* 只看待回覆 — shaped like the active filter pills beside it (.tasks__filter +
+ * .tasks__ms-trigger--active in tasks.css); keep the two in step. */
+.replies__filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: var(--color-card);
+  color: var(--color-text-strong);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.replies__filter-pill svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.replies__filter-pill:hover svg {
+  color: var(--color-text);
+}
+/* 已延後 on an inline stub: still the owner's (the waiting colour), but set
+ * aside — a dashed outline and muted text so it does not read as 待回覆. */
+.reply-tag--snoozed {
+  color: var(--color-text-muted);
+  border: 1px dashed color-mix(in srgb, var(--color-dot-waking) 45%, transparent);
+  flex-shrink: 0;
+}

@@ -121,7 +121,12 @@ ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意
 - 任務列的優先序／期限是 server 在回應當下讀任務本身的值（`TaskRefDTO`），卡片不存。⇒ `useReplyCards` 除了 `reply_card` 也要在 `task` delta 重抓，否則改任務的優先序或期限，請示頁要等下一張卡變動才跟上。期限顏色走 `TaskDueChip`（`useDueState`，在跨過邊界的那一刻重繪，不是輪詢）。任務列畫在卡片最上方、抬頭之上；外包的「目前任務」那一行永遠照畫，即使跟任務列是同一個任務。
 - 優先序／期限篩選跟開卡人軸同一套：選項與張數從 pane 資料算，每一軸的張數只套用**其他**軸；三軸彼此 AND、也跟 id AND，同時作用在待回覆、已延後、近期已處理。
 - 🔴 稍後再看的卡仍是 waiting：`listReplyCards("waiting")` 照列、帶 `snoozedUntilTs`；provider 依自己的時鐘把它分到 `snoozed`，`waiting`（也就是徽章）不含它。到時間 server 什麼都不寫、不發事件，所以 provider 自己在最早的 `snoozedUntilTs` 設 timer 讓卡回來，並在 `count.waiting_next_change_ts` 重抓一次。
+- 聊天室收合列與任務卡內嵌卡的標籤：延後中的等待卡標「已延後」（`tasks.replySnoozedTag`，`.reply-tag--snoozed`），不標待回覆／等你回覆，跟聊天室標頭徽章不數它同一個判準。判斷只讀 provider 的 `snoozed`（`useReplyCardSnoozed`），所以時間到、取消延後、回答都由 provider 那份清單帶著翻，卡片自己不設 timer、不另讀；沒有 provider 時答 false（掛裸卡的測試很多，provider 會多出讀取）。`ResumeSummaryCard` 印的是喚醒快照當下的 status 原值，不跟。
 - 🔴 `snooze()` 跟 answer／expire 一樣要「握到快照同意為止」：寫入前就在飛的那支 waiting 讀取會帶著舊的 snooze 回來，直接採用會把剛延後的卡放回待回覆（取消延後則相反）。`heldSnoozeRef` 依 id 握住寫入存下的值，直到快照列出同一個值、卡不在 waiting 了、或握住的時間已過。409 跟回答一樣是「卡已經被處理」，要講清楚並 `refresh()`（延後與取消延後各用自己的句子）；其他失敗留在選單裡（取消延後則在卡上）顯示，不清掉畫面。
+
+## 聊天室標頭的請示卡跳轉（`#replies/opener/<memberId>`）
+
+聊天室標頭最左邊那顆（正職、外包、已釋出的對象都有，由 OfficePage 的 `repliesSlots` 接）：徽章是 `useReplyCardWaitingCountFrom`——跟 nav 徽章同一份 waiting 陣列、只數 `from` 是這位的，不另打請求。按下去到 `#replies/opener/<id>`：RepliesPage 把開卡人種成那一位、清掉其他軸與編號（照任務頁 `#tasks/executor/<id>` 的種法），但 hash 留著，重新整理照樣是同一個畫面；route 在的期間是「只看待回覆」：只畫待回覆一段（強制展開，標題鈕 `aria-disabled`、點了不收合），已延後與近期已處理不畫。「只看待回覆 ✕」導回 `#replies`、開卡人保留；「清除篩選」導回 `#replies` 並清掉全部。route 還在時重新整理會再種一次開卡人，即使 owner 已經取消勾選（已接受）。`#replies/card/<id>` 進來時反過來清掉開卡人、優先序與期限，那張卡是誰開的都看得到。只看待回覆算進 `anyFilter`、不算 `narrowing`：空的待回覆在只剩它時印 ✓，有開卡人勾著時印「沒有符合篩選條件」。測試在 `RepliesPage.id-filter.test.tsx`、`ChatArea.header-actions.test.tsx`、`OfficePage.chat-header-replies.test.tsx`；窄寬的標頭由 `visual-guards/chat-suggested-replies.ct.spec.tsx` 量。
 
 ## 請示卡頁的 ID 篩選（T-118，owner 2026-09-06 20:07／20:19）
 

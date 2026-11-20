@@ -19,6 +19,7 @@ import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { RepliesPage } from "./RepliesPage";
 import { ReplyCardsProvider } from "../hooks/useReplyCards";
+import { useHashRoute } from "../lib/hashRoute";
 import { __resetMock, __injectMockReplyCard } from "../api/mock";
 import { api } from "../api";
 import { ApiError } from "../api/errors";
@@ -894,5 +895,173 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
     await waitFor(() => expect(shownIds()).toHaveLength(5));
     expect(document.querySelector('[data-testid="filter-priority"]')?.textContent).toContain("所有任務優先序");
     expect(document.querySelector('[data-testid="filter-due"]')?.textContent).toContain("所有任務到期");
+  });
+});
+
+describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
+  const H = 3600;
+  function seed() {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(mkCard({ id: "rc-wait-mira", createdTs: now - 60 }));
+    __injectMockReplyCard(mkCard({ id: "rc-wait-mira2", createdTs: now - 90 }));
+    __injectMockReplyCard(mkCard({ id: "rc-wait-kyle", from: "kyle", createdTs: now - 120 }));
+    __injectMockReplyCard(mkCard({ id: "rc-later", createdTs: now - 180, snoozedUntilTs: now + H }));
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-done",
+        status: "answered",
+        answeredTs: now - 60,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+      })
+    );
+  }
+  function shownIds(): string[] {
+    return [...document.querySelectorAll<HTMLElement>("[data-reply-card-id][aria-expanded]")].map(
+      (el) => el.dataset.replyCardId!
+    );
+  }
+  const section = (testId: string) => document.querySelector(`[data-testid="${testId}"]`);
+  const openerTrigger = () => document.querySelector('[data-testid="filter-opener"]')!;
+  function RoutedPage() {
+    const [route] = useHashRoute();
+    return <RepliesPage replyCardId={route.replyCardId} openerId={route.openerId} />;
+  }
+  function renderRouted() {
+    return render(
+      <I18nProvider>
+        <ReplyCardsProvider>
+          <RoutedPage />
+        </ReplyCardsProvider>
+      </I18nProvider>
+    );
+  }
+
+  it("without the route 已延後 and 近期已處理 are on the page and no 只看待回覆 pill shows", async () => {
+    seed();
+    const { findAllByTestId, findByTestId } = renderRouted();
+    expect(await findAllByTestId("waiting-card")).toHaveLength(3);
+    expect((await findByTestId("snoozed-toggle")).textContent).toContain("已延後 · 1");
+    expect((await findByTestId("answered-toggle")).textContent).toContain("近期已處理 · 1");
+    expect(section("filter-waiting-only")).toBeNull();
+    expect(section("replies-filter-clear")).toBeNull();
+  });
+
+  it("the route ticks that opener and shows only their waiting cards, kept open, with an active 只看待回覆 pill and 清除篩選", async () => {
+    seed();
+    window.location.hash = "#replies/opener/mira";
+    const { getByTestId } = renderRouted();
+    await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
+    expect(openerTrigger().textContent).toBe("Mira");
+    expect(section("snoozed-section")).toBeNull();
+    expect(section("answered-toggle")).toBeNull();
+    expect(getByTestId("filter-waiting-only").textContent).toBe("只看待回覆");
+    expect(section("replies-filter-clear")).not.toBeNull();
+
+    expect(getByTestId("waiting-toggle").getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(getByTestId("waiting-toggle"));
+    expect(getByTestId("waiting-toggle").getAttribute("aria-expanded")).toBe("true");
+    expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]);
+  });
+
+  it("committing an id under it leaves only that card, the id staying in its field", async () => {
+    seed();
+    window.location.hash = "#replies/opener/mira";
+    renderRouted();
+    await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
+    applyId("rc-wait-mira2");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira2"]));
+    expect(idField().value).toBe("rc-wait-mira2");
+  });
+
+  it("the pill turns waiting-only off: back to #replies with 已延後 and 近期已處理 again, the opener tick kept", async () => {
+    seed();
+    window.location.hash = "#replies/opener/mira";
+    const { findByTestId, getByTestId } = renderRouted();
+    await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
+    fireEvent.click(getByTestId("waiting-toggle"));
+
+    fireEvent.click(getByTestId("filter-waiting-only"));
+    expect(window.location.hash).toBe("#replies");
+    expect((await findByTestId("snoozed-toggle")).textContent).toContain("已延後 · 1");
+    expect((await findByTestId("answered-toggle")).textContent).toContain("近期已處理 · 1");
+    expect(getByTestId("waiting-toggle").getAttribute("aria-expanded")).toBe("true");
+    expect(openerTrigger().textContent).toBe("Mira");
+    expect(section("filter-waiting-only")).toBeNull();
+    expect(section("replies-filter-clear")).not.toBeNull();
+  });
+
+  it("清除篩選 returns to #replies with every axis cleared", async () => {
+    seed();
+    window.location.hash = "#replies/opener/mira";
+    const { findAllByTestId, findByTestId, getByTestId } = renderRouted();
+    await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
+
+    fireEvent.click(getByTestId("replies-filter-clear"));
+    expect(window.location.hash).toBe("#replies");
+    expect(await findAllByTestId("waiting-card")).toHaveLength(3);
+    expect((await findByTestId("snoozed-toggle")).textContent).toContain("已延後 · 1");
+    expect(openerTrigger().textContent).toBe("所有開卡人");
+    expect(section("replies-filter-clear")).toBeNull();
+  });
+
+  it("arriving from a #replies/card/<id> link drops that id and shows the opener's waiting cards", async () => {
+    seed();
+    window.location.hash = "#replies/card/rc-done";
+    const { findByTestId } = renderRouted();
+    await waitFor(() => expect(shownIds()).toEqual(["rc-done"]));
+
+    window.location.hash = "#replies/opener/mira";
+    expect(await findByTestId("filter-waiting-only")).toBeTruthy();
+    await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
+    expect(idField().value).toBe("");
+  });
+
+  it.each([
+    ["straight from the opener jump", "jump"],
+    ["after ✕ turned waiting-only off", "pillOff"],
+    ["after 任務優先序 高 was picked on plain #replies", "priority"],
+  ])("a #replies/card/<id> link %s shows that card, every other axis cleared", async (_name, start) => {
+    seed();
+    window.location.hash = start === "priority" ? "#replies" : "#replies/opener/mira";
+    const { getByTestId } = renderRouted();
+    if (start === "priority") {
+      await waitFor(() => expect(shownIds()).toHaveLength(3));
+      fireEvent.click(document.querySelector('[data-testid="filter-priority"]')!);
+      fireEvent.click(document.querySelector('[data-testid="filter-priority-opt-high"] input')!);
+      await waitFor(() => expect(shownIds()).toEqual([]));
+    } else {
+      await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
+    }
+    if (start === "pillOff") {
+      fireEvent.click(getByTestId("filter-waiting-only"));
+      await waitFor(() => expect(section("filter-waiting-only")).toBeNull());
+    }
+
+    window.location.hash = "#replies/card/rc-wait-kyle";
+    await waitFor(() => expect(shownIds()).toEqual(["rc-wait-kyle"]));
+    expect(openerTrigger().textContent).toBe("所有開卡人");
+    expect(document.querySelector('[data-testid="filter-priority"]')!.textContent).toBe("所有任務優先序");
+  });
+
+  it("unticking the opener with no waiting card at all says ✓ 目前沒有待處理的請示, waiting-only still on", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(mkCard({ id: "rc-later", createdTs: now - 180, snoozedUntilTs: now + H }));
+    window.location.hash = "#replies/opener/mira";
+    const { findByTestId, getByTestId } = renderRouted();
+    expect((await findByTestId("replies-empty")).textContent).toBe("沒有符合篩選條件的請示");
+
+    fireEvent.click(openerTrigger());
+    fireEvent.click(document.querySelector('[data-testid="filter-opener-opt-mira"] input')!);
+    await waitFor(() => expect(getByTestId("replies-empty").textContent).toBe("✓ 目前沒有待處理的請示"));
+    expect(getByTestId("filter-waiting-only")).toBeTruthy();
+    expect(getByTestId("replies-filter-clear")).toBeTruthy();
+  });
+
+  it("for a member with no waiting card it says 沒有符合篩選條件的請示, not a blank pane", async () => {
+    seed();
+    window.location.hash = "#replies/opener/zoe";
+    const { findByTestId } = renderRouted();
+    expect((await findByTestId("replies-empty")).textContent).toBe("沒有符合篩選條件的請示");
+    expect(section("snoozed-section")).toBeNull();
   });
 });

@@ -20,6 +20,7 @@ import {
   mockApi,
 } from "../api/mock";
 import { WithChatSuggestedReplies } from "../test/chatSuggestedReplies";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 
 function mkCard(over: Partial<ReplyCard>): ReplyCard {
   return {
@@ -223,6 +224,28 @@ describe("TaskReplyCard", () => {
     const final = await findByTestId("final-answer");
     expect(final.textContent).toBe("你選的AI 建議先不要");
     expect(getSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a snoozed waiting card's head says 已延後 where a plain waiting one says 等你回覆, and 等你回覆 again once unsnoozed", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: Date.now() / 1000 + 3600 }));
+    __injectMockReplyCard(mkCard({ id: "rc-2" }));
+    render(
+      <I18nProvider>
+        <ReplyCardsProvider>
+          <TaskReplyCard replyCardId="rc-1" />
+          <TaskReplyCard replyCardId="rc-2" />
+        </ReplyCardsProvider>
+      </I18nProvider>
+    );
+    const headTag = (id: string) =>
+      document.querySelector(`[data-reply-card-id="${id}"] .task-reply-card__head .reply-tag`)?.textContent ?? null;
+    await waitFor(() => expect(headTag("rc-1")).toBe("已延後"));
+    expect(headTag("rc-2")).toBe("等你回覆");
+
+    await act(async () => {
+      await api.snoozeReplyCard("rc-1", null);
+    });
+    await waitFor(() => expect(headTag("rc-1")).toBe("等你回覆"));
   });
 
   it("a WAITING-hinted card loads eagerly on mount (waiting 卡照常)", async () => {

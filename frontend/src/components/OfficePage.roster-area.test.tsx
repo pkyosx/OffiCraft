@@ -14,6 +14,7 @@ import { render, waitFor, fireEvent, screen, within } from "@testing-library/rea
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { OfficePage } from "./OfficePage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import {
   __resetMock,
   __injectMockChat,
@@ -27,7 +28,7 @@ import type { TaskView } from "../api/adapter";
 function renderOffice() {
   return render(
     <I18nProvider>
-      <OfficePage />
+      <ReplyCardsProvider><OfficePage /></ReplyCardsProvider>
     </I18nProvider>
   );
 }

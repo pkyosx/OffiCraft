@@ -32,6 +32,7 @@ import type {
 } from "../api/adapter";
 import { api } from "../api";
 import { useHashRoute } from "../lib/hashRoute";
+import { useReplyCardSnoozed } from "../hooks/useReplyCards";
 import { mergeReplyCardWrite, secretCardMayStillChange } from "../lib/replyCardReceipt";
 import { Markdown } from "./Markdown";
 import {
@@ -100,6 +101,7 @@ export function ChatReplyCard({
   // refetches on a delta, which is how its stub flips 待回覆 → 已回覆 in place
   // when the card is answered from another surface.
   const statusRef = useRef<ReplyCard["status"] | null>(initialStatus ?? null);
+  const snoozed = useReplyCardSnoozed(replyCardId);
   const cardRef = useRef(card);
   cardRef.current = card;
 
@@ -339,7 +341,9 @@ export function ChatReplyCard({
               cls: "reply-tag reply-tag--answered",
               label: t.tasks.replyAnsweredTag,
             }
-          : { cls: "reply-tag reply-tag--waiting", label: t.tasks.replyWaitingTag };
+          : snoozed
+            ? { cls: "reply-tag reply-tag--snoozed", label: t.tasks.replySnoozedTag }
+            : { cls: "reply-tag reply-tag--waiting", label: t.tasks.replyWaitingTag };
     return (
       <div
         className="reply-card reply-card--chat reply-card--collapsed"

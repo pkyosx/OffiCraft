@@ -608,6 +608,7 @@ export const en: Dict = {
     gateMark: "Approval",
     replyAnsweredTag: "Answered",
     replyWaitingTag: "Pending",
+    replySnoozedTag: "Snoozed",
     expandReply: "Expand reply card",
     collapseReply: "Collapse reply card",
     // Artifact set (T-3dc5): the deliverables (file/image/link) pinned onto a
@@ -675,6 +676,7 @@ export const en: Dict = {
     filterOpenerNoun: "Opener",
     filterOpenerAll: "All openers",
     filterIdLabel: "Reply-card id",
+    filterWaitingOnly: "Waiting only",
     clearFilters: "Clear filters",
     // ── Filter panel (T-93 round 2) ──
     // 🔴 Three outcomes, three sentences — never merged. Round 1 had one, so
@@ -1416,6 +1418,7 @@ export const en: Dict = {
     interAgentExpandMany: "messages between agents · expand",
     interAgentCollapse: "Collapse agent-to-agent messages",
     // M2-3 conversation file/image gallery (header icon → panel).
+    waitingRepliesLink: "Asks from this member still waiting on you",
     tasksLink: "See this member's unfinished tasks",
     roleSettingsLink: "Open this role's definition settings",
     galleryLabel: "Files & images",

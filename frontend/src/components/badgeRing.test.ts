@@ -1,8 +1,8 @@
 // T-d593 — every unread-badge render site must reach the ONE ring slot.
 //
 // WHY A SOURCE SCAN, and why in vitest rather than only CT:
-//   * The claim "all SEVEN render sites are themed by one token" is a chain with
-//     two links: 7 sites → 3 CSS classes, and 3 classes → the ring token. The
+//   * The claim "every render site is themed by one token" is a chain with
+//     two links: sites → 3 CSS classes, and 3 classes → the ring token. The
 //     browser guard (visual-guards/badge-ring-token.ct.spec.tsx) proves the
 //     SECOND link by measuring real painted colour. Nothing proved the FIRST —
 //     `npm run lint:token-roles` checks the three SELECTORS, never which
@@ -32,9 +32,9 @@ const BADGE_RULES: Array<{ cls: string; sheet: string }> = [
   { cls: "member-card__unread", sheet: "office.css" },
 ];
 
-// Every render site, verbatim from the audit (T-d593 node 1) — SEVEN of them.
+// Every render site: the audit (T-d593 node 1) plus the chat header 請示卡 jump.
 //
-// ⚠️ Seven render sites are NOT seven className literals, and an earlier draft of
+// ⚠️ Render sites are NOT className literals one-to-one, and an earlier draft of
 // this file asserted they were and went red. Sites 4 and 5 are ONE piece of JSX:
 // `SidebarTab` in OfficeSidebarTabs.tsx carries a single
 // `className="office__tab-badge"` and is INVOKED TWICE (unread={staffUnread} and
@@ -44,6 +44,7 @@ const RENDER_SITES: Array<{ file: string; cls: string; what: string }> = [
   { file: "../App.tsx", cls: "nav-tab__badge", what: "nav tab — office unread" },
   { file: "../App.tsx", cls: "nav-tab__badge", what: "nav tab — replies waiting" },
   { file: "../App.tsx", cls: "nav-tab__badge", what: "nav tab — open tasks" },
+  { file: "./ChatArea.tsx", cls: "nav-tab__badge", what: "chat header — this peer's waiting asks" },
   { file: "./OfficeSidebarTabs.tsx", cls: "office__tab-badge", what: "sidebar tab — staff unread" },
   { file: "./OfficeSidebarTabs.tsx", cls: "office__tab-badge", what: "sidebar tab — outsource unread" },
   { file: "./MemberCard.tsx", cls: "member-card__unread", what: "roster row — member unread" },
@@ -53,6 +54,7 @@ const RENDER_SITES: Array<{ file: string; cls: string; what: string }> = [
 /** How many literal `className="…"` occurrences each file is expected to carry. */
 const LITERALS_PER_FILE: Array<{ file: string; cls: string; count: number; note?: string }> = [
   { file: "../App.tsx", cls: "nav-tab__badge", count: 3 },
+  { file: "./ChatArea.tsx", cls: "nav-tab__badge", count: 1 },
   {
     file: "./OfficeSidebarTabs.tsx",
     cls: "office__tab-badge",
@@ -98,7 +100,7 @@ describe("unread badge ring — one themeable slot, all render sites", () => {
     }
   });
 
-  it("all seven render sites wear one of the three badge classes", () => {
+  it("every render site wears one of the three badge classes", () => {
     const known = new Set(BADGE_RULES.map((r) => r.cls));
     for (const site of RENDER_SITES) {
       expect(known.has(site.cls), `${site.what}: unknown badge class ${site.cls}`).toBe(true);
@@ -107,7 +109,7 @@ describe("unread badge ring — one themeable slot, all render sites", () => {
         `${site.what} (${site.file}) must render className="${site.cls}"`
       ).toBe(true);
     }
-    expect(RENDER_SITES.length, "the audit found seven render sites").toBe(7);
+    expect(RENDER_SITES.length, "the audit found eight render sites").toBe(8);
   });
 
   it("the literal count per file matches the audit — a badge added or dropped shows up here", () => {

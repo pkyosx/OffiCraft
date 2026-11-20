@@ -1804,6 +1804,20 @@
 .chat__header-actions-row {
   display: contents;
 }
+/* The badge stays inside its own button: the neighbouring button is 2px away on
+ * a phone, so a badge hanging past the edge would sit on it. */
+.chat__header-action--badged {
+  position: relative;
+}
+.chat__header-action--badged > .nav-tab__badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+}
 @media (max-width: 720px) {
   .chat__header-actions,
   .chat__header-actions-row {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { OfficePage } from "./OfficePage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { __resetWorkerCodenameCache } from "../hooks/useWorkerCodenames";
 import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 import { api } from "../api";
@@ -26,7 +27,7 @@ function openRoom(id: string) {
   return render(
     <I18nProvider>
       <WithChatSuggestedReplies>
-        <OfficePage />
+        <ReplyCardsProvider><OfficePage /></ReplyCardsProvider>
       </WithChatSuggestedReplies>
     </I18nProvider>,
   );

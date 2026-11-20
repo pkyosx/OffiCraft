@@ -622,6 +622,7 @@ export const zh = {
     // 卡片一律收合成一行摘要(可展開),標籤說明它現在的狀態
     replyAnsweredTag: "已回覆",
     replyWaitingTag: "待回覆",
+    replySnoozedTag: "已延後",
     expandReply: "展開回覆卡",
     collapseReply: "收合回覆卡",
     // 產物集(T-3dc5):任務卡上釘的交付物(檔案/圖片/連結)。徽章「產物 N」
@@ -695,6 +696,7 @@ export const zh = {
     filterOpenerNoun: "開卡人",
     filterOpenerAll: "所有開卡人",
     filterIdLabel: "請示卡編號",
+    filterWaitingOnly: "只看待回覆",
     clearFilters: "清除篩選",
     // ── 篩選面板（T-93 第二輪）──
     // 🔴 三種結局三句話，不可合併成一句。第一輪只有「沒有符合篩選條件的請示」，
@@ -1473,6 +1475,7 @@ export const zh = {
     // M2-3 對話檔案/圖片庫:標題列圖示開啟的面板。M2 批次 16 起收錄該成員
     // 「全部對話」的附件(owner↔成員雙向 + 成員↔其他 agent 雙向),
     // 並分「圖片 / 檔案」兩個分頁(各自誠實空狀態)。
+    waitingRepliesLink: "這位成員還沒回的請示卡",
     tasksLink: "查看這位成員未完成的任務",
     roleSettingsLink: "開啟這個角色的定義設定",
     galleryLabel: "檔案與圖片",

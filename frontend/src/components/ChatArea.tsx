@@ -85,6 +85,7 @@ import {
   MoonIcon,
   PaperclipIcon,
   ReplyIcon,
+  InboxIcon,
   SearchIcon,
   SendIcon,
   SuggestedRepliesIcon,
@@ -310,6 +311,8 @@ export function ChatArea({
   onOpenDetail,
   onOpenTasks,
   onOpenRoleSettings,
+  waitingReplyCount = 0,
+  onOpenReplies,
   suggestedReplies,
   allMemberSuggestedReplies,
   suggestedRepliesError,
@@ -355,6 +358,10 @@ export function ChatArea({
   // T-dfae 角色設定圖示: jump to this peer's role definition page. Optional —
   // absent = no button (an outsource peer has no role to define).
   onOpenRoleSettings?: () => void;
+  /** Waiting 請示卡 this peer opened (snoozed excluded), for the badge. */
+  waitingReplyCount?: number;
+  /** Jump to the 請示 page narrowed to this peer's waiting cards. */
+  onOpenReplies?: () => void;
   /** This member's own 建議回覆; the dialog edits exactly these. */
   suggestedReplies?: readonly string[];
   /** The 建議回覆 set for every member, offered after the member's own. */
@@ -2343,7 +2350,12 @@ export function ChatArea({
   }
 
   const showSuggestedReplies = Boolean(onSaveSuggestedReplies || onRetrySuggestedReplies) && !composerLocked;
-  const topActionCount = [Boolean(onOpenTasks), Boolean(onOpenRoleSettings), showSuggestedReplies].filter(Boolean).length;
+  const topActionCount = [
+    Boolean(onOpenReplies),
+    Boolean(onOpenTasks),
+    Boolean(onOpenRoleSettings),
+    showSuggestedReplies,
+  ].filter(Boolean).length;
 
   return (
     // Drag-drop staging surface: dropping files anywhere over the chat window
@@ -2420,6 +2432,27 @@ export function ChatArea({
         <div className={`chat__header-actions${topActionCount > 1 ? " chat__header-actions--stacked" : ""}`}>
           {topActionCount > 0 && (
             <div className="chat__header-actions-row">
+              {onOpenReplies && (
+                <button
+                  type="button"
+                  className="chat__header-action chat__header-action--badged"
+                  aria-label={t.chat.waitingRepliesLink}
+                  title={t.chat.waitingRepliesLink}
+                  data-testid="chat-header-replies"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenReplies();
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <InboxIcon size={17} />
+                  {waitingReplyCount > 0 && (
+                    <span className="nav-tab__badge" data-testid="chat-header-replies-badge">
+                      {waitingReplyCount > 99 ? "99+" : waitingReplyCount}
+                    </span>
+                  )}
+                </button>
+              )}
               {onOpenTasks && (
                 <button
                   type="button"

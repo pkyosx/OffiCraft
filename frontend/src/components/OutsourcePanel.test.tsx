@@ -30,6 +30,7 @@ import { act, render, fireEvent, screen, waitFor, within } from "@testing-librar
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { OfficePage } from "./OfficePage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import {
   __resetMock,
   __injectMockTask,
@@ -88,7 +89,7 @@ function mkWorker(over: Partial<OutsourceWorkerView>): OutsourceWorkerView {
 function renderOffice() {
   return render(
     <I18nProvider>
-      <OfficePage />
+      <ReplyCardsProvider><OfficePage /></ReplyCardsProvider>
     </I18nProvider>
   );
 }

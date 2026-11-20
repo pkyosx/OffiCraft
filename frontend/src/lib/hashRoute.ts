@@ -20,6 +20,9 @@
  *   #replies                                      → awaiting-reply page
  *   #replies/card/<replyCardId>                   → awaiting-reply page,
  *                                                   FILTERED to that card
+ *   #replies/opener/<memberId>                    → awaiting-reply page, only
+ *                                                   the 待回覆 section, 開卡人
+ *                                                   seeded with that member
  *   #tasks                                        → tasks page (M3)
  *   #tasks/<taskId>                               → tasks page, located on <taskId>
  *   #tasks/executor/<memberId>                    → tasks page, filtered to that
@@ -74,6 +77,10 @@ export interface HashRoute {
    * still works, and the owner's way out is 清除篩選, not the hash clearing
    * itself. */
   replyCardId?: string;
+  /** replies only — the 聊天 header's 請示卡 jump: seeds the 開卡人 axis with
+   * this member and shows only the 待回覆 section for as long as the route
+   * stays. "opener" is a reserved segment, like tasks' "executor". */
+  openerId?: string;
   /** office only — the member whose chat is open. */
   chatId?: string;
   /** office only, requires chatId — the message the chat locates + highlights
@@ -207,8 +214,11 @@ export function parseHash(raw: string): HashRoute {
   }
 
   if (head === "replies") {
-    return rest[0] === "card" && rest[1]
-      ? { page: "replies", replyCardId: rest[1] }
+    if (rest[0] === "card" && rest[1]) {
+      return { page: "replies", replyCardId: rest[1] };
+    }
+    return rest[0] === "opener" && rest[1]
+      ? { page: "replies", openerId: rest[1] }
       : { page: "replies" };
   }
 
@@ -304,7 +314,9 @@ export function formatHash(route: HashRoute): string {
   if (route.page === "replies")
     return route.replyCardId
       ? `#replies/card/${encodeURIComponent(route.replyCardId)}`
-      : "#replies";
+      : route.openerId
+        ? `#replies/opener/${encodeURIComponent(route.openerId)}`
+        : "#replies";
   if (route.page === "tasks") {
     // executor (filter) and taskId (single-task anchor) are mutually exclusive
     // — opposite semantics (narrow vs. override-all). executor wins if both are

@@ -23,6 +23,7 @@ import { useI18n } from "../i18n";
 import type { ReplyCard, ReplyCardAnswerInput } from "../api/adapter";
 import { api } from "../api";
 import { useHashRoute } from "../lib/hashRoute";
+import { useReplyCardSnoozed } from "../hooks/useReplyCards";
 import { secretCardMayStillChange } from "../lib/replyCardReceipt";
 import { Markdown } from "./Markdown";
 import {
@@ -81,6 +82,7 @@ export function TaskReplyCard({
   // answered card (not yet fetched) also ignores the reply_card fan-out — else
   // an unrelated delta would wake it into a fetch and defeat lazy-load (this is
   // the T-cdf4 guard extended to the never-fetched case).
+  const snoozed = useReplyCardSnoozed(replyCardId);
   const statusRef = useRef<ReplyCard["status"] | null>(
     lazyTerminal ? initialStatus : null
   );
@@ -300,9 +302,12 @@ export function TaskReplyCard({
       >
         <header className="task-reply-card__head">
           <span className="task-reply-card__title">{t.tasks.replyHeader}</span>
-          {card?.status === "waiting" && (
-            <span className="reply-tag reply-tag--ai">{t.tasks.replyBadge}</span>
-          )}
+          {card?.status === "waiting" &&
+            (snoozed ? (
+              <span className="reply-tag reply-tag--snoozed">{t.tasks.replySnoozedTag}</span>
+            ) : (
+              <span className="reply-tag reply-tag--ai">{t.tasks.replyBadge}</span>
+            ))}
           {card && (
             <button
               type="button"
