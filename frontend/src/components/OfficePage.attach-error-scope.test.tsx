@@ -24,6 +24,7 @@ import { StrictMode } from "react";
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { OfficePage } from "./OfficePage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { __resetMock } from "../api/mock";
 import {
   getChatAttachError,
@@ -46,7 +47,7 @@ function renderOffice() {
   return render(
     <StrictMode>
       <I18nProvider>
-        <OfficePage />
+        <ReplyCardsProvider><OfficePage /></ReplyCardsProvider>
       </I18nProvider>
     </StrictMode>,
   );

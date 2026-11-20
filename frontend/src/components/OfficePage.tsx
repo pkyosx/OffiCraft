@@ -8,6 +8,7 @@ import { toStatus } from "../api/mappers";
 import { useMembers } from "../hooks/useMembers";
 import { useMonitoring } from "../hooks/useMonitoring";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
+import { useReplyCardWaitingCountFrom } from "../hooks/useReplyCards";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useChatGroups } from "../hooks/useChatGroups";
 import { useChatSuggestedRepliesContext } from "../hooks/useChatSuggestedReplies";
@@ -39,6 +40,8 @@ type ChatSlotName =
   | "onOpenDetail"
   | "onOpenTasks"
   | "onOpenRoleSettings"
+  | "waitingReplyCount"
+  | "onOpenReplies"
   | "suggestedReplies"
   | "allMemberSuggestedReplies"
   | "suggestedRepliesError"
@@ -499,6 +502,9 @@ export function OfficePage({
         }
       : undefined;
 
+  const chatPeerId = releasedPeer?.id ?? workerPeer?.id ?? selected?.id ?? "";
+  const peerWaitingReplies = useReplyCardWaitingCountFrom(chatPeerId);
+
   if (workerDetail) {
     return (
       <WorkerDetailPanel
@@ -742,6 +748,10 @@ export function OfficePage({
 
   // Every conversation reaches one ChatArea mount. Only this typed projection
   // varies by peer kind; the conversation plumbing below is written once.
+  const repliesSlots = (id: string) => ({
+    waitingReplyCount: peerWaitingReplies,
+    onOpenReplies: () => setRoute({ page: "replies", openerId: id }),
+  });
   const suggestedRepliesSlots = (id: string) => ({
     suggestedReplies: chatSuggestedReplies.lists[id],
     allMemberSuggestedReplies,
@@ -763,6 +773,7 @@ export function OfficePage({
           onOpenDetail: undefined,
           onOpenTasks: undefined,
           onOpenRoleSettings: undefined,
+          ...repliesSlots(releasedPeer.id),
           suggestedReplies: undefined,
           allMemberSuggestedReplies: undefined,
           suggestedRepliesError: undefined,
@@ -792,6 +803,7 @@ export function OfficePage({
             onOpenDetail: () => setWorkerDetailId(workerPeer.id),
             onOpenTasks: undefined,
             onOpenRoleSettings: undefined,
+            ...repliesSlots(workerPeer.id),
             ...suggestedRepliesSlots(workerPeer.id),
             onWake: () => api.activateMember(workerPeer.id),
             jumpToMsgId: route.msgId,
@@ -827,6 +839,7 @@ export function OfficePage({
                       roleKey: selected.role,
                     })
                 : undefined,
+              ...repliesSlots(selected.id),
               ...suggestedRepliesSlots(selected.id),
               onWake: async () => {
                 const result = await api.activateMember(selected.id);

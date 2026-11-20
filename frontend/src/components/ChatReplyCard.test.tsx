@@ -35,6 +35,7 @@ import {
   mockApi,
 } from "../api/mock";
 import { WithChatSuggestedReplies } from "../test/chatSuggestedReplies";
+import { ReplyCardsProvider, useReplyCards } from "../hooks/useReplyCards";
 
 // The ChatArea integration test drives the thread through a mocked useChat
 // (the same harness as the other ChatArea test files); the direct
@@ -548,6 +549,79 @@ describe("ChatReplyCard", () => {
         ?.getAttribute("data-reply-card-status"),
     ).toBe("answered");
     expect(container.querySelector(".reply-composer")).toBeNull();
+  });
+
+  function SnoozedIds() {
+    return <span data-testid="snoozed-ids">{useReplyCards().snoozed.map((c) => c.id).join(",")}</span>;
+  }
+  function renderThreadRows() {
+    return render(
+      <I18nProvider>
+        <ReplyCardsProvider>
+          <ChatReplyCard replyCardId="rc-1" fallbackSummary="延後的那張" initialStatus="waiting" />
+          <ChatReplyCard replyCardId="rc-2" fallbackSummary="沒延後的那張" initialStatus="waiting" />
+        </ReplyCardsProvider>
+      </I18nProvider>
+    );
+  }
+  const tagOf = (id: string) =>
+    document.querySelector(`[data-reply-card-id="${id}"] .reply-tag`)?.textContent ?? null;
+
+  it("a snoozed waiting card is tagged 已延後 beside a plain waiting one tagged 待回覆, and says 待回覆 again once its time is up", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: Date.now() / 1000 + 3600 }));
+      __injectMockReplyCard(mkCard({ id: "rc-2" }));
+      renderThreadRows();
+      await waitFor(() => expect(tagOf("rc-1")).toBe("已延後"));
+      expect(tagOf("rc-2")).toBe("待回覆");
+
+      await act(async () => {
+        vi.advanceTimersByTime(3601 * 1000);
+      });
+      await waitFor(() => expect(tagOf("rc-1")).toBe("待回覆"));
+      expect(tagOf("rc-2")).toBe("待回覆");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["answered", "已回覆"],
+    ["expired", "已過期"],
+  ] as const)("a %s card whose id the provider still lists as snoozed is tagged %s, not 已延後", async (status, tag) => {
+    __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: Date.now() / 1000 + 3600 }));
+    render(
+      <I18nProvider>
+        <ReplyCardsProvider>
+          <ChatReplyCard replyCardId="rc-1" fallbackSummary="已處理的那張" initialStatus={status} />
+          <SnoozedIds />
+        </ReplyCardsProvider>
+      </I18nProvider>
+    );
+    await waitFor(() => expect(document.querySelector('[data-testid="snoozed-ids"]')?.textContent).toBe("rc-1"));
+    expect(tagOf("rc-1")).toBe(tag);
+  });
+
+  it("a snoozed card flips to 待回覆 when unsnoozed elsewhere, and to 已回覆 when answered", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: Date.now() / 1000 + 3600 }));
+    __injectMockReplyCard(mkCard({ id: "rc-2" }));
+    renderThreadRows();
+    await waitFor(() => expect(tagOf("rc-1")).toBe("已延後"));
+
+    await act(async () => {
+      await api.snoozeReplyCard("rc-1", null);
+    });
+    await waitFor(() => expect(tagOf("rc-1")).toBe("待回覆"));
+
+    await act(async () => {
+      await api.snoozeReplyCard("rc-1", Date.now() / 1000 + 3600);
+    });
+    await waitFor(() => expect(tagOf("rc-1")).toBe("已延後"));
+    await act(async () => {
+      await api.answerReplyCard("rc-1", { optionIdxs: [0] });
+    });
+    await waitFor(() => expect(tagOf("rc-1")).toBe("已回覆"));
   });
 
   it("an EXPIRED-hinted card is collapsed, tagged 已過期, and fetches nothing", async () => {

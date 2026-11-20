@@ -22,6 +22,7 @@ import { api } from "../api";
 import { zh } from "../i18n/locales/zh";
 import { ApiError } from "../api/errors";
 import { OfficePage } from "./OfficePage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { WorkerDetailPanel } from "./WorkerDetailPanel";
 import {
   __resetMock,
@@ -179,7 +180,7 @@ function renderOfficeAt(hash: string) {
   window.location.hash = hash;
   return render(
     <I18nProvider>
-      <OfficePage />
+      <ReplyCardsProvider><OfficePage /></ReplyCardsProvider>
     </I18nProvider>,
   );
 }
@@ -761,7 +762,7 @@ describe("WorkerDetailPanel — 設定改走喚醒區 (T-7526 parity)", () => {
     window.dispatchEvent(new HashChangeEvent("hashchange"));
     rerender(
       <I18nProvider>
-        <OfficePage />
+        <ReplyCardsProvider><OfficePage /></ReplyCardsProvider>
       </I18nProvider>,
     );
     // Positive control: the panel really did move to ow-2 …
@@ -1957,7 +1958,7 @@ describe("WorkerDetailPanel — initial-prompt preview (T-ba6b)", () => {
     // A repaint — an ordinary SSE delta is enough in the running app.
     rerender(
       <I18nProvider>
-        <OfficePage />
+        <ReplyCardsProvider><OfficePage /></ReplyCardsProvider>
       </I18nProvider>,
     );
     land("外包啟動指示");

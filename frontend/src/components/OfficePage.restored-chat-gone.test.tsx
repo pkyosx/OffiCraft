@@ -18,6 +18,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { OfficePage } from "./OfficePage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { __resetMock, __injectMockChat } from "../api/mock";
 
 function renderOffice(props: {
@@ -26,7 +27,7 @@ function renderOffice(props: {
 }) {
   return render(
     <I18nProvider>
-      <OfficePage {...props} />
+      <ReplyCardsProvider><OfficePage {...props} /></ReplyCardsProvider>
     </I18nProvider>,
   );
 }

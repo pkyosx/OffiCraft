@@ -501,7 +501,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             onRestoredChatGone={forgetRestoredChat}
           />
         ) : tab === "replies" ? (
-          <RepliesPage replyCardId={route.replyCardId} />
+          <RepliesPage replyCardId={route.replyCardId} openerId={route.openerId} />
         ) : tab === "tasks" ? (
           <TasksPage />
         ) : tab === "lore" ? (

@@ -86,6 +86,8 @@ type Wiring = {
   onOpenDetail?: () => void;
   onOpenTasks?: () => void;
   onOpenRoleSettings?: () => void;
+  onOpenReplies?: () => void;
+  waitingReplyCount?: number;
   member?: Member;
   headerSub?: React.ReactNode;
 };
@@ -98,6 +100,8 @@ function renderChat(w: Wiring = {}) {
         onOpenDetail={w.onOpenDetail}
         onOpenTasks={w.onOpenTasks}
         onOpenRoleSettings={w.onOpenRoleSettings}
+        onOpenReplies={w.onOpenReplies}
+        waitingReplyCount={w.waitingReplyCount}
         headerSub={w.headerSub}
       />
     </I18nProvider>
@@ -129,6 +133,39 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     fireEvent.click(getByLabelText(zh.chat.roleSettingsLink));
     expect(onOpenRoleSettings).toHaveBeenCalledTimes(1);
     expect(onOpenTasks).toHaveBeenCalledTimes(1); // still just the one
+  });
+
+  it("the 請示卡 jump is the first header action, badged with the waiting count, and fires its own jump", () => {
+    const onOpenReplies = vi.fn();
+    const onOpenTasks = vi.fn();
+    const { getByLabelText, getByTestId, queryByTestId, rerender } = renderChat({
+      onOpenReplies,
+      onOpenTasks,
+      onOpenRoleSettings: vi.fn(),
+      waitingReplyCount: 3,
+    });
+    const actions = [...document.querySelectorAll(".chat__header-actions button")];
+    expect(actions[0]).toBe(getByLabelText(zh.chat.waitingRepliesLink));
+    expect(actions[0].getAttribute("title")).toBe("這位成員還沒回的請示卡");
+    expect(getByTestId("chat-header-replies-badge").textContent).toBe("3");
+
+    fireEvent.click(getByLabelText(zh.chat.waitingRepliesLink));
+    expect(onOpenReplies).toHaveBeenCalledTimes(1);
+    expect(onOpenTasks).not.toHaveBeenCalled();
+
+    const again = (waitingReplyCount: number) =>
+      rerender(
+        <I18nProvider>
+          <ChatArea member={mkMember()} onOpenReplies={onOpenReplies} waitingReplyCount={waitingReplyCount} />
+        </I18nProvider>
+      );
+    again(120);
+    expect(getByTestId("chat-header-replies-badge").textContent).toBe("99+");
+    again(0);
+    expect(queryByTestId("chat-header-replies-badge")).toBeNull();
+    expect(document.querySelector(".chat__header-actions button")).toBe(
+      getByLabelText(zh.chat.waitingRepliesLink)
+    );
   });
 
   it("under a runtime login warning, the header's presence line carries the exclamation whose hint shows on keyboard focus, and without one it does not", () => {
@@ -335,8 +372,11 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
       onOpenDetail,
       onOpenTasks: vi.fn(),
       onOpenRoleSettings: vi.fn(),
+      onOpenReplies: vi.fn(),
     });
 
+    fireEvent.click(getByLabelText(zh.chat.waitingRepliesLink));
+    expect(onOpenDetail).not.toHaveBeenCalled();
     fireEvent.click(getByLabelText(zh.chat.tasksLink));
     expect(onOpenDetail).not.toHaveBeenCalled();
     fireEvent.click(getByLabelText(zh.chat.roleSettingsLink));

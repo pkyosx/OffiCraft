@@ -147,6 +147,57 @@ test("1280px: all five header buttons stay in one row, 12px apart", async ({ mou
   });
 });
 
+for (const width of [390, 430]) {
+  for (const outsource of [false, true]) {
+    test(`${width}px ${outsource ? "outsource" : "staff"} header: the 請示卡 jump is the left-most action, its 99+ badge inside it, nothing overlapping`, async ({ mount, page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      const cmp = await mount(
+        <ChatSuggestedRepliesStory replies={["繼續"]} allHeaderButtons outsource={outsource} waitingReplies={120} name="GF Eva Slack Inbox" />
+      );
+      await expect(cmp.getByTestId("chat-header-replies-badge")).toHaveText("99+");
+      const m = await cmp.locator(".chat__header").evaluate((header) => {
+        const box = (el: Element) => {
+          const r = el.getBoundingClientRect();
+          return { x: r.x, y: r.y, w: r.width, h: r.height };
+        };
+        const buttons = [...header.querySelectorAll(".chat__header-actions button")];
+        const badge = header.querySelector("[data-testid=chat-header-replies-badge]")!;
+        const b = badge.getBoundingClientRect();
+        const hit = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+        return {
+          header: box(header),
+          name: box(header.querySelector(".chat__header-text")!),
+          buttons: buttons.map((el) => ({ id: el.getAttribute("data-testid") ?? el.className, ...box(el) })),
+          badge: box(badge),
+          badgeOnTop: hit !== null && badge.contains(hit),
+          pageFits: document.documentElement.scrollWidth <= window.innerWidth,
+        };
+      });
+      console.log(`@${width} ${outsource ? "outsource" : "staff"} ` + JSON.stringify(m));
+
+      const [replies, ...others] = m.buttons;
+      expect(replies.id).toBe("chat-header-replies");
+      expect(others).toHaveLength(outsource ? 3 : 5);
+      for (const o of others) expect(replies.x).toBeLessThanOrEqual(o.x + 0.5);
+      type Box = { x: number; y: number; w: number; h: number };
+      const overlaps = (a: Box, b: Box) =>
+        a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
+      m.buttons.forEach((a, i) => m.buttons.slice(i + 1).forEach((b) => expect(overlaps(a, b), `${a.id} × ${b.id}`).toBe(false)));
+      for (const b of [...m.buttons, m.badge]) {
+        expect(b.x).toBeGreaterThanOrEqual(m.header.x);
+        expect(b.x + b.w).toBeLessThanOrEqual(m.header.x + m.header.w);
+        expect(b.y).toBeGreaterThanOrEqual(m.header.y);
+        expect(b.y + b.h).toBeLessThanOrEqual(m.header.y + m.header.h);
+      }
+      expect(m.badge.x + m.badge.w).toBeLessThanOrEqual(replies.x + replies.w + 0.5);
+      for (const o of others) expect(overlaps(m.badge, o), `badge × ${o.id}`).toBe(false);
+      expect(m.badgeOnTop).toBe(true);
+      expect(m.name.x + m.name.w).toBeLessThanOrEqual(replies.x);
+      expect(m.pageFits).toBe(true);
+    });
+  }
+}
+
 // Focus order across a blur, a save and a click only exists in a real browser;
 // jsdom never moves focus to what was clicked.
 test("emptying a row and clicking the row below it edits the sentence clicked", async ({ mount, page }) => {

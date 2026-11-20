@@ -10,6 +10,8 @@ describe("parseHash", () => {
     expect(parseHash("#")).toEqual({ page: "office" });
     expect(parseHash("#office")).toEqual({ page: "office" });
     expect(parseHash("#replies")).toEqual({ page: "replies" });
+    expect(parseHash("#replies/opener/ow-7")).toEqual({ page: "replies", openerId: "ow-7" });
+    expect(parseHash("#replies/opener")).toEqual({ page: "replies" });
     expect(parseHash("#monitor")).toEqual({ page: "monitor" });
     expect(parseHash("#secrets")).toEqual({ page: "secrets" });
     expect(parseHash("#shared-docs")).toEqual({ page: "shared_docs" });
@@ -233,6 +235,7 @@ describe("formatHash", () => {
   it("writes each route as its anchor (bare office = clean root)", () => {
     expect(formatHash({ page: "office" })).toBe("");
     expect(formatHash({ page: "replies" })).toBe("#replies");
+    expect(formatHash({ page: "replies", openerId: "mira" })).toBe("#replies/opener/mira");
     expect(formatHash({ page: "monitor" })).toBe("#monitor");
     expect(formatHash({ page: "secrets" })).toBe("#secrets");
     expect(formatHash({ page: "shared_docs" })).toBe("#shared-docs");
@@ -352,6 +355,8 @@ describe("formatHash", () => {
       { page: "office" as const, workerId: "ow-7" },
       { page: "office" as const, chatId: "ow-7", workerId: "ow-7" },
       { page: "replies" as const },
+      { page: "replies" as const, openerId: "ow-7" },
+      { page: "replies" as const, replyCardId: "rc-0c41e97a2b58" },
       { page: "tasks" as const },
       { page: "tasks" as const, taskId: "t-7d40" },
       { page: "tasks" as const, executorId: "mira" },

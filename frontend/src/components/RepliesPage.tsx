@@ -90,7 +90,7 @@ import { avatarKindForMember } from "../lib/avatarKind";
 import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { OutsourceTaskLine } from "./OutsourcePanel";
-import { ChevronRightIcon } from "./icons";
+import { ChevronRightIcon, CloseIcon } from "./icons";
 import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
@@ -154,7 +154,13 @@ function ReplyCardMentionProvider({
   );
 }
 
-export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
+export function RepliesPage({
+  replyCardId,
+  openerId,
+}: {
+  replyCardId?: string;
+  openerId?: string;
+}) {
   const { t, msg } = useI18n();
   // Light roster (T-cf91): the page attributes each card to its asker by
   // name + role only, so it takes the identity-only projection AND does not
@@ -185,6 +191,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     provideSecret,
   } = useReplyCards();
   const [, setRoute] = useHashRoute();
+  const waitingOnly = openerId !== undefined;
 
   // ── 篩選 (T-93 round 2) ─────────────────────────────────────────────────
   // ── ID 篩選 (T-118) ──────────────────────────────────────────────────────
@@ -209,11 +216,16 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const [draftId, setDraftId] = useState(replyCardId ?? "");
   // `#replies/card/<id>` still seeds the APPLIED id (unchanged from round 1):
   // a notification tap or a shared link lands on that one card without the
-  // owner having to open the panel and press anything.
+  // owner having to open the panel and press anything. The link names one card,
+  // so every other axis is cleared: an opener ticked by an earlier
+  // #replies/opener jump would otherwise hide another member's card.
   useEffect(() => {
     if (!replyCardId) return;
     setAppliedId(replyCardId);
     setDraftId(replyCardId);
+    setOpenerFilter(new Set());
+    setPriorityFilter(new Set());
+    setDueFilter(new Set());
   }, [replyCardId]);
   const idQuery = appliedId.trim();
   const filtering = idQuery !== "";
@@ -311,7 +323,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     setOpenerFilter(new Set());
     setPriorityFilter(new Set());
     setDueFilter(new Set());
-    if (replyCardId) setRoute({ page: "replies" });
+    if (replyCardId || waitingOnly) setRoute({ page: "replies" });
   }
 
   // ── 開卡人 (T-118, owner 2026-09-06 c-782404ee53d8「請示卡我想多一個開卡的人
@@ -332,7 +344,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   //
   // An EMPTY set = 所有開卡人 (no constraint), same convention as 任務頁.
   const [openerFilter, setOpenerFilter] = useState<Set<string>>(
-    () => new Set()
+    () => new Set(openerId ? [openerId] : [])
   );
   // What 清除篩選 is offered for — EITHER axis, not just the id. `filtering`
   // stays id-only on purpose: it also gates the by-id lookup's three outcomes
@@ -342,11 +354,26 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // counts as 無任務 on the first and matches no option on the second.
   const [priorityFilter, setPriorityFilter] = useState<Set<string>>(() => new Set());
   const [dueFilter, setDueFilter] = useState<Set<string>>(() => new Set());
-  const anyFilter =
+  // Seeded like 任務頁's #tasks/executor/<id>: this jump is about one person's
+  // waiting cards, so every other axis starts clear (an id kept from an earlier
+  // #replies/card link would otherwise narrow the list to nothing). Unlike that
+  // route the hash stays, so a reload lands on the same view.
+  useEffect(() => {
+    if (!openerId) return;
+    setOpenerFilter(new Set([openerId]));
+    setPriorityFilter(new Set());
+    setDueFilter(new Set());
+    setAppliedId("");
+    setDraftId("");
+  }, [openerId]);
+  const narrowing =
     idQuery !== "" ||
     openerFilter.size > 0 ||
     priorityFilter.size > 0 ||
     dueFilter.size > 0;
+  // 只看待回覆 hides whole sections but drops no waiting card, so it is not
+  // `narrowing`: alone it leaves an empty 待回覆 saying ✓ 目前沒有待處理.
+  const anyFilter = narrowing || waitingOnly;
 
   const [waitingSort, setWaitingSortState] = useState<WaitingSort>(() =>
     readStoredChoice(WAITING_SORT_KEY, WAITING_SORTS, "createdDesc")
@@ -677,8 +704,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
               expiredTs: card.expiredTs ?? null,
             })
           );
-          setHandledOpen(true);
-          if (!handledLoaded) void loadHandledForPage();
+          if (!waitingOnly) {
+            setHandledOpen(true);
+            if (!handledLoaded) void loadHandledForPage();
+          }
           try {
             await refresh();
             if (handledLoaded) setHandledLoadError(false);
@@ -692,7 +721,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         setOpenErrors((prev) => new Set(prev).add(id));
       }
     },
-    [handledLoaded, loadHandledForPage, refresh]
+    [handledLoaded, loadHandledForPage, refresh, waitingOnly]
   );
 
   // 🔴 THE ONLY PLACE A CARD IS READ. Opening a row does not fetch by itself —
@@ -816,7 +845,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // while loadHandled is still in flight — and folding them together would make
   // the caret lie for the length of that request.
   const handledExpanded = filtering || handledOpen;
-  const waitingExpanded = filtering || waitingOpen;
+  const waitingExpanded = filtering || waitingOnly || waitingOpen;
   const handledListShown =
     filtering ||
     (handledOpen &&
@@ -1540,6 +1569,17 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           onChange={setDueFilter}
           testId="filter-due"
         />
+        {waitingOnly && (
+          <button
+            type="button"
+            className="replies__filter-pill"
+            data-testid="filter-waiting-only"
+            onClick={() => setRoute({ page: "replies" })}
+          >
+            <span>{t.replies.filterWaitingOnly}</span>
+            <CloseIcon size={13} />
+          </button>
+        )}
       </FilterPanel>
 
       <section className="replies__section">
@@ -1547,7 +1587,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           type="button"
           className="replies__section-toggle replies__section-title"
           aria-expanded={waitingExpanded}
-          onClick={() => setWaitingOpen((v) => !v)}
+          aria-disabled={waitingOnly || undefined}
+          onClick={() => {
+            if (!waitingOnly) setWaitingOpen((v) => !v);
+          }}
           data-testid="waiting-toggle"
         >
           <ChevronRightIcon
@@ -1594,7 +1637,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
             </div>
           ) : (
             <div className="replies__empty" data-testid="replies-empty">
-              {/* 🔴 `anyFilter`, NOT `filtering`. `filtering` is id-only, and it
+              {/* 🔴 `narrowing`, NOT `filtering`. `filtering` is id-only, and it
                 * has a second job (gating the by-id lookup's three outcomes)
                 * that an 開卡人 tick must not switch on. But the sentence below
                 * is not about the id — it is about whether ANY axis is hiding
@@ -1603,7 +1646,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
                 * cards sat behind the filter: precisely the 「you are all caught
                 * up」 lie the comment above this block forbids. Found by
                 * independent review of 8204de4f. */}
-              {anyFilter ? t.replies.emptyFiltered : t.replies.empty}
+              {narrowing ? t.replies.emptyFiltered : t.replies.empty}
             </div>
           )
         ) : (
@@ -1613,7 +1656,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         )}
       </section>
 
-      {snoozedShownRows.length > 0 && (
+      {!waitingOnly && snoozedShownRows.length > 0 && (
         <section className="replies__section" data-testid="snoozed-section">
           <button
             type="button"
@@ -1645,13 +1688,13 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         * pane and makes "no match" indistinguishable from "nothing exists"
         * (independent review, 2026-09-05).
         *
-        * 🔴 `anyFilter`, NOT `filtering` — the 2026-09-05 defect above was
+        * 🔴 `narrowing`, NOT `filtering` — the 2026-09-05 defect above was
         * reopened by the 開卡人 axis, because `filtering` only counts the id.
         * Ticking a person made this whole section vanish along with the only
         * handle for opening it, which is the same「no match looks like nothing
         * exists」failure, one axis over. Found by independent review of
         * 8204de4f. */}
-      {(handledShown > 0 || anyFilter) && (
+      {!waitingOnly && (handledShown > 0 || narrowing) && (
         <section className="replies__section">
           {/* The whole title row IS the toggle (collapsed by default): the
            * handled pane only unfolds on demand, vibe-clicking style — and the

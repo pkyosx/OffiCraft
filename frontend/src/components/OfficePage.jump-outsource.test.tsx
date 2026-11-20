@@ -17,6 +17,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { OfficePage } from "./OfficePage";
+import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { zh } from "../i18n/locales/zh";
 import { __resetWorkerCodenameCache } from "../hooks/useWorkerCodenames";
 import { api } from "../api";
@@ -30,7 +31,7 @@ import {
 function renderOffice() {
   return render(
     <I18nProvider>
-      <OfficePage />
+      <ReplyCardsProvider><OfficePage /></ReplyCardsProvider>
     </I18nProvider>,
   );
 }

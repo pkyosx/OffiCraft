@@ -608,6 +608,34 @@ const REGISTRY = [
       "the local-midnight re-render and the caller's optional wake-at re-render; each only bumps this mount's own counter so the next render re-reads the clock, reads no server data and carries no conversation's value, and is cleared on unmount (the wake-at timer also when wakeAt changes)",
   },
   {
+    file: "hooks/useReplyCards.tsx",
+    kind: ".then/.catch/.finally",
+    count: 5,
+    verdict:
+      "the 請示卡 waiting/handled lists; mounted once app-wide (AuthGate) and read through a provider, so a landing writes the one global snapshot, never one room's value into another. The chat surface only reads it (the inline tag's 已延後). Refetches commit only while their generation ticket is the latest (waitingGenRef/handledGenRef); the initial-load landing is gated by `alive`",
+  },
+  {
+    file: "hooks/useReplyCards.tsx",
+    kind: "await",
+    count: 9,
+    verdict:
+      "the same global lists: the refetches' awaits land behind their generation tickets, and the owner-write awaits adopt the server's receipt by card id (held until a snapshot agrees), so nothing written belongs to a conversation",
+  },
+  {
+    file: "hooks/useReplyCards.tsx",
+    kind: "setTimeout/setInterval",
+    count: 2,
+    verdict:
+      "the snooze-return re-split (bumps the provider's own clock) and the count's next-change refetch; both global, cleared when their deps change or on unmount",
+  },
+  {
+    file: "hooks/useReplyCards.tsx",
+    kind: "subscribe",
+    count: 1,
+    verdict:
+      "re-reads the lists on reply_card / task deltas; global, the callback only starts a generation-guarded read, and the unsubscribe runs on unmount",
+  },
+  {
     file: "hooks/useChatSuggestedReplies.tsx",
     kind: ".then/.catch/.finally",
     count: 2,

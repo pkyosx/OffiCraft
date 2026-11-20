@@ -37,6 +37,8 @@ export function ChatSuggestedRepliesStory({
   allHeaderButtons = false,
   name = MEMBER.name,
   thread = [],
+  waitingReplies,
+  outsource = false,
 }: {
   /** Leave out for a peer without the suggested-replies button. */
   replies?: string[];
@@ -44,6 +46,10 @@ export function ChatSuggestedRepliesStory({
   name?: string;
   /** Lands in the mock chat log before mounting, so the thread can be searched. */
   thread?: ChatMessage[];
+  /** The 請示卡 jump with this many waiting cards; left out = no jump button. */
+  waitingReplies?: number;
+  /** An outsource peer: no tasks or role jump, whatever allHeaderButtons says. */
+  outsource?: boolean;
 }) {
   useState(() => thread.forEach(__injectMockChat));
   const [saved, setSaved] = useState(replies ?? []);
@@ -51,11 +57,13 @@ export function ChatSuggestedRepliesStory({
     <I18nProvider>
       <div style={{ height: 700, display: "flex", flexDirection: "column" }} data-testid="host">
         <ChatArea
-          member={{ ...MEMBER, name }}
+          member={outsource ? { ...MEMBER, id: "ow-ct", kind: "outsource", role: "", name } : { ...MEMBER, name }}
           suggestedReplies={saved}
           onSaveSuggestedReplies={replies ? setSaved : undefined}
-          onOpenTasks={allHeaderButtons ? noop : undefined}
-          onOpenRoleSettings={allHeaderButtons ? noop : undefined}
+          onOpenTasks={allHeaderButtons && !outsource ? noop : undefined}
+          onOpenRoleSettings={allHeaderButtons && !outsource ? noop : undefined}
+          onOpenReplies={waitingReplies === undefined ? undefined : noop}
+          waitingReplyCount={waitingReplies}
         />
       </div>
     </I18nProvider>
