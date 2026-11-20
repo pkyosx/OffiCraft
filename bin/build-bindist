@@ -16,13 +16,13 @@
 # binary still builds but serves an EMPTY bindist embed (tools/list, the binary
 # downloads, and bootstrap-here all fail).
 #
-# ocwarden/ocagent are built FRESH here for the server's own GOOS/GOARCH
-# (single platform on purpose: bootstrap-here installs on the server host
-# itself, which is by definition the same platform; cross-platform remote
-# installs still need the on-disk bin/ artifacts). Chicken-and-egg ordering:
-# this MUST run before the ocserverd build that embeds it.
+# ocwarden/ocagent/officraft are built FRESH here for every platform in
+# bin/lib/member-platforms.sh, one directory each (bindist/<os>-<arch>/), so a member
+# machine of any of those platforms joins and self-updates from its own server.
+# Chicken-and-egg ordering: this MUST run before the ocserverd build that embeds
+# it.
 #
-#   bash bin/build-bindist            # stage ocwarden + ocagent + catalog
+#   bash bin/build-bindist            # stage the binaries + catalog
 #   (cd server/ocserverd && go build) # then bakes them into the binary
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,74 +45,76 @@ if [[ -z "$OCAGENT_SHA" ]]; then
   exit 1
 fi
 
+# The server's own platform is always carried (bootstrap-here installs on the
+# server host itself) and is built LAST, so cli/ocwarden/anchordist ends up
+# holding this host's anchor for a local `go build` / `go test` of ocwarden.
+HOST_PLATFORM="$(go env GOOS)/$(go env GOARCH)"
+. "$ROOT/bin/lib/member-platforms.sh"
+PLATFORMS=()
+for platform in $OC_MEMBER_PLATFORMS; do
+  [[ "$platform" == "$HOST_PLATFORM" ]] || PLATFORMS+=("$platform")
+done
+PLATFORMS+=("$HOST_PLATFORM")
+
 BINDIST="$ROOT/server/ocserverd/bindist"
 rm -rf "$BINDIST"
 mkdir -p "$BINDIST"
-# 🔴 ocagent CARRIES ITS BUILD SHA; the other two deliberately do NOT.
-# A listener process holds the image it started with. Measured on this fleet:
-# one listener sat on inode 65557770 while the file on disk turned over four
-# times (65845892 → 66185238 → 66321537) — so a FIXED bug is, for every
-# long-lived agent, unfixed until it restarts, and "ship it and watch the fleet
-# get better" returns a false negative. T-5b83 lost two generations to exactly
-# that, both nearly concluding cloudflared was stripping a header. Without a
-# stamp the only way to know which ocagent a listener runs is lsof from outside.
-#
-# ⚠️ NOT cli/officraft (below): its -trimpath -buildvcs=false exist precisely to
-# keep the git revision OUT of the bits (dist/officraft/BUILD.md), because that
-# binary is the ONE committed prebuilt whose bytes are compared.
-#
-# 🔴 AND NOTHING THAT EXISTED BEFORE WOULD HAVE CAUGHT IT. An earlier version of
-# this comment claimed stamping all three makes check-officraft-dist go rc=1 with
-# `stale: cli/officraft source hash`. That is FALSE — I measured it: rc=0, no
-# output. check-officraft-dist hashes cli/officraft's SOURCE files and
-# dist/officraft/officraft's bytes; it never reads this script and never looks at
-# server/ocserverd/bindist/officraft, so stamping — which changes no source file —
-# is invisible to it. What actually happens is worse than the wrong claim: the
-# SHIPPED anchor silently diverges from the committed one (measured: bindist copy
-# 710a2525… → d8fb53dd… under the stamp, while dist/officraft/officraft and
-# binary.sha256 both stay 710a2525…), and the embedded copy is what every install
-# receives. ⚠️ And the copy that reaches machines is the one staged on to
-# cli/ocwarden/anchordist, which anchor_embed.go go:embeds into ocwarden.
-# ⚠️ server/ocserverd/bindist/officraft is not served over HTTP — serveBinary is
-# only ever called for ocwarden and ocagent (api_machines.go) — but it DOES ship:
-# bin/release copies THAT file into the release tarball, where `officraft` is one
-# of the seven members verify_artifacts pins. Divergence there is not cosmetic.
-# bin/tests/agent-build-sha-guard.sh is the only thing in the tree that catches
-# any of this: case 4 checks that this line carries no -X, case 9 compares both
-# staged copies against the committed anchor, and case 10 reads the shipped
-# ocwarden to prove the anchor actually got embedded rather than merely staged.
-# ocwarden is not a listener and needs none. -s -w strips symbols and DWARF,
-# neither of which -X uses, so stamping costs no strip.
-#
-# 🔴 NO SHA ⇒ DIE, never an empty stamp. `|| echo ''` here was a silent downgrade
-# to a completely unstamped fleet: measured on a tree unpacked with `git archive`
-# (no .git at all — the shape of a source tarball build), the build succeeded, the
-# guard printed 6 ok, and the real listener printed no [agent …] segment at all.
-# That is the exact false negative this whole feature exists to kill, reinstated by
-# a fallback nobody would look at. A build that cannot name itself must not ship.
-(cd "$ROOT/cli/ocagent" && go build -ldflags="-s -w -X main.buildSHA=$OCAGENT_SHA" -o "$BINDIST/ocagent" ./...)
-# The anchor is built BEFORE ocwarden and staged into cli/ocwarden/anchordist,
-# because ocwarden embeds it: the cockpit's one-liner downloads ocwarden alone,
-# and `ocwarden install` refuses without an anchor. Staging into both places
-# from ONE build is what keeps the embedded copy, the tarball copy and the
-# committed dist/officraft byte-identical — three different builds would be
-# three different TCC identities and three separate authorization prompts.
-#
-# -trimpath -buildvcs=false: TCC identifies an ad-hoc signed binary by the hash
-# of its bytes. Both flags are load-bearing — -trimpath keeps the build
-# directory out of the bytes, and -buildvcs=false keeps the git revision and the
-# dirty-tree flag out (without it the anchor's bytes change on every commit, and
-# building the same source twice from different checkouts gives two different
-# identities). dist/officraft/BUILD.md builds the committed reference copy with
-# exactly these flags.
 ANCHORDIST="$ROOT/cli/ocwarden/anchordist"
 mkdir -p "$ANCHORDIST"
-(cd "$ROOT/cli/officraft" && go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$BINDIST/officraft" ./...)
-cp "$BINDIST/officraft" "$ANCHORDIST/officraft"
-touch "$ANCHORDIST/.gitkeep"
 
-# ocwarden LAST of the two, so its embed picks up the anchor staged just above.
-(cd "$ROOT/cli/ocwarden" && go build -ldflags="-s -w" -o "$BINDIST/ocwarden" ./...)
+for platform in "${PLATFORMS[@]}"; do
+  goos="${platform%/*}"
+  goarch="${platform#*/}"
+  out="$BINDIST/$goos-$goarch"
+  mkdir -p "$out"
+  # Linux binaries are static so one build runs on any distro. darwin keeps Go's
+  # default: the committed darwin anchor was built that way, and CGO_ENABLED=0
+  # changes its bytes.
+  goenv=(GOOS="$goos" GOARCH="$goarch")
+  [[ "$goos" == linux ]] && goenv+=(CGO_ENABLED=0)
+
+  # 🔴 Only ocagent carries its build SHA: a long-lived listener keeps the image it
+  # started with, and the stamp is the only way to tell which build it runs. No
+  # SHA ⇒ the script already died above; never fall back to an empty stamp.
+  # ⚠️ Never stamp officraft or ocwarden: officraft's bytes are its identity and
+  # ship in every tarball, and check-officraft-dist cannot see a stamp added here —
+  # only bin/tests/agent-build-sha-guard.sh does.
+  (cd "$ROOT/cli/ocagent" && env "${goenv[@]}" \
+    go build -ldflags="-s -w -X main.buildSHA=$OCAGENT_SHA" -o "$out/ocagent" ./...)
+
+  # The anchor is staged BEFORE ocwarden into cli/ocwarden/anchordist, because
+  # ocwarden embeds it: the cockpit's one-liner downloads ocwarden alone, and
+  # `ocwarden install` refuses without an anchor. Staging both places from ONE
+  # file is what keeps the embedded copy and the tarball copy byte-identical.
+  #
+  # The darwin anchor is the committed dist/officraft/officraft itself: those
+  # bytes ARE the TCC identity, and a different copy means a separate
+  # authorization prompt on every Mac. Other platforms have no TCC and no
+  # committed copy; theirs is built from source with dist/officraft/BUILD.md's
+  # flags, so it is reproducible like the darwin one.
+  if [[ "$platform" == darwin/arm64 ]]; then
+    cp "$ROOT/dist/officraft/officraft" "$out/officraft"
+  else
+    (cd "$ROOT/cli/officraft" && env "${goenv[@]}" \
+      go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$out/officraft" ./...)
+  fi
+  cp "$out/officraft" "$ANCHORDIST/officraft"
+
+  # ocwarden LAST, so its embed picks up the anchor staged just above.
+  (cd "$ROOT/cli/ocwarden" && env "${goenv[@]}" \
+    go build -ldflags="-s -w" -o "$out/ocwarden" ./...)
+
+  # A wrong-platform binary builds cleanly and is only refused at release time;
+  # a member machine that downloads one cannot run it.
+  for bin in ocagent officraft ocwarden; do
+    mismatch="$(binary_platform_mismatch "$out/$bin" "$goos-$goarch")"
+    if [[ -n "$mismatch" ]]; then
+      echo "build-bindist: bindist/$goos-$goarch/$bin is not a $goos/$goarch executable (file says: $mismatch)" >&2
+      exit 1
+    fi
+  done
+done
+touch "$ANCHORDIST/.gitkeep"
 # THE FLEET-SERVED BINARIES ARE NOT CODE-SIGNED, and this script has no way to
 # sign them (T-0398, owner 2026-07-31). They carry whatever `go build` produces —
 # an adhoc signature with a fresh cdhash per build. The signing machinery is
@@ -123,4 +125,4 @@ touch "$ANCHORDIST/.gitkeep"
 # mechanism never depended on a signing identity.
 cp "$ROOT/spec/mcp-catalog.json" "$BINDIST/"
 touch "$BINDIST/.gitkeep"
-echo "[build-bindist] staged ocwarden (anchor embedded) + ocagent + officraft + mcp-catalog.json → server/ocserverd/bindist"
+echo "[build-bindist] staged ocwarden (anchor embedded) + ocagent + officraft for ${PLATFORMS[*]} + mcp-catalog.json → server/ocserverd/bindist"

@@ -604,7 +604,8 @@ jobs:
   # approval environment and no confirmation gate here.
   #
   # WHY macos-15: bin/release publish refuses to run anywhere but darwin/arm64
-  # (the asset IS darwin-arm64), and it builds the real product there.
+  # (the darwin-arm64 asset is built natively; linux is cross-built), and it
+  # builds the real product there.
   # ⚠️ THIS USED TO SAY it runs the full bin/ci.sh in a staging worktree first.
   # That stopped being true at T-7e6c, which replaced the local round with a read
   # of THIS workflow's verdict on the same commit (owner card rc-56fecb4d5aa3);

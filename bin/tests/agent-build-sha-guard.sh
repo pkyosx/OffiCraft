@@ -30,14 +30,8 @@
 # bytes; stamping changes no source file and it never looks at the bindist copy.
 # What stamping actually does is split the SHIPPED anchor from the committed one
 # (measured: bindist copy 710a2525… → d8fb53dd… while dist/ and binary.sha256 stay
-# 710a2525…), and the bindist copy is what every install receives. Case 4 below
-# checks the flag; case 7 checks the bytes, which is the consequence.
-#
-# 🔴 EMPTY-EXTRACTION IS THE TRAP. If a pattern stops matching because someone
-# reformatted a line, the extraction is "" — and a naive comparison of "" against
-# "" passes. So each check asserts a NON-EMPTY find before it asserts anything
-# about the value, and case 6 plants a real mutant to prove the checks can still
-# go red.
+# 710a2525…), and the bindist copy is what every install receives. Cases 4 and 9
+# below compare the bytes of every anchor that ships.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -61,27 +55,6 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   — %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL — %s\n' "$1"; }
 
-# The -X target, taken from the ldflags of the ocagent build line only. Anchored
-# on the ocagent directory so the ocwarden/officraft lines below it cannot satisfy
-# it, and on `-X` inside an ldflags= so the prose in this file's own comments
-# cannot either.
-xflag_target() { # MODULE_DIR (e.g. cli/ocagent) -> "main.buildSHA" or empty
-                 # Reads $BUILD_FILE, which case 6 overrides per-call to point at
-                 # its mutant copy.
-  grep -E "cd \"\\\$ROOT/$1\".*go build" "$BUILD_FILE" 2>/dev/null |
-    sed -nE 's/.*-X[[:space:]]+([A-Za-z0-9_.]+)=.*/\1/p' | head -1
-}
-
-# ── 1. the ocagent build line stamps main.buildSHA ──────────────────────────
-TARGET="$(xflag_target cli/ocagent)"
-if [[ -z "$TARGET" ]]; then
-  bad "bin/build-bindist: the cli/ocagent build line carries no -X <var>= — every listener it produces will omit its own version from the connection line, and it will look exactly like a dev build doing the right thing (no Go test can tell the difference)"
-elif [[ "$TARGET" != "main.buildSHA" ]]; then
-  bad "bin/build-bindist: the ocagent build stamps '$TARGET', but the variable the connection line reads is main.buildSHA — a stamp on a name nobody reads is the same silence by another route"
-else
-  ok "bin/build-bindist: the cli/ocagent build stamps main.buildSHA at link time"
-fi
-
 # ── 2. the value it stamps is derived, not a literal ────────────────────────
 if grep -qE '\-X main\.buildSHA=\$\{?[A-Za-z_][A-Za-z0-9_]*' "$BUILD_FILE"; then
   ok "bin/build-bindist: the stamped value comes from a variable, not a literal baked into the script"
@@ -94,14 +67,6 @@ if grep -qE '^var buildSHA string' "$MAIN_FILE"; then
   ok "cli/ocagent/main.go: 'var buildSHA string' is there for -X to fill (a -X against a name that does not exist is silently ignored by the linker)"
 else
   bad "cli/ocagent/main.go: no 'var buildSHA string' — the linker DISCARDS a -X for an unknown symbol without warning, so the build would keep succeeding and every line would stay unstamped"
-fi
-
-# ── 4. cli/officraft must NOT be stamped ───────────────────────────────────
-ANCHOR_TARGET="$(xflag_target cli/officraft)"
-if [[ -n "$ANCHOR_TARGET" ]]; then
-  bad "bin/build-bindist: the cli/officraft build carries -X $ANCHOR_TARGET=. That binary is the ONE committed prebuilt (dist/officraft/officraft); its -trimpath -buildvcs=false exist to keep the git revision out of the bits so check-officraft-dist can compare them from a clean clone. Stamping it changes the anchor's identity every commit — measured: check-officraft-dist rc=1"
-else
-  ok "bin/build-bindist: the cli/officraft anchor is NOT stamped — its bytes stay reproducible for bin/check-officraft-dist"
 fi
 
 # ── 5. BREADCRUMB, NOT A DEFENCE — the blank-stamp path is guarded in Go ────
@@ -121,29 +86,12 @@ else
   bad "cli/ocagent/listen_run.go: the connection line no longer mentions TrimSpace(buildSHA). This case cannot tell you what broke — go read the Go tests for the blank-stamp path — but the two adjacent segments have stopped agreeing on what counts as a missing value, which is how ' [agent \\t]' shipped once already"
 fi
 
-# ── 6. POSITIVE CONTROL (text side): the checks above can still go red ─────────────────
-# Without this, a reformat that broke every pattern would print all green. The
-# mutant is one character on a copy; nothing in the tree is touched.
-MUT="$(mktemp -t oc-agent-sha-guard.XXXXXX)"
-trap 'rm -f "$MUT"' EXIT
-sed -E 's/-X main\.buildSHA=/-X main.buildSHAX=/' "$BUILD_FILE" > "$MUT"
-if ! grep -q 'main.buildSHAX=' "$MUT"; then
-  bad "positive control: the mutant generator changed nothing — it could not find the -X to rename, so checks 1 and 2 are not actually exercised"
-else
-  MUT_TARGET="$(BUILD_FILE="$MUT" xflag_target cli/ocagent)"
-  if [[ "$MUT_TARGET" == "main.buildSHA" ]]; then
-    bad "positive control: a renamed -X target still extracted as main.buildSHA — check 1 cannot go red and is decoration"
-  else
-    ok "positive control: renaming the -X target one character is detected (extracted '$MUT_TARGET'), so check 1 is load-bearing"
-  fi
-fi
-
 # ═════════════════════════════════════════════════════════════════════════════
 # 🔴 BUILD IT AND LOOK AT THE BINARY. Everything above is text matching, and text
 # matching cannot see the three ways this feature dies silently while every
 # pattern above still matches:
 #   * a tree with no .git — the sha lookup came back empty and the build shipped
-#     an unstamped fleet (this is now fatal in build-bindist, and case 6 proves it
+#     an unstamped fleet (this is now fatal in build-bindist, and case 8 proves it
 #     stays fatal);
 #   * a SECOND, unstamped `go build` for ocagent appended after the stamped one —
 #     the last write wins on disk, while a first-match text scan never sees it;
@@ -160,7 +108,8 @@ if ! command -v git >/dev/null 2>&1 || ! git -C "$ROOT" rev-parse --short HEAD >
 else
   HEAD_SHA="$(git -C "$ROOT" rev-parse --short HEAD)"
   BUILD_LOG="$(mktemp -t oc-agent-sha-build.XXXXXX)"
-  trap 'rm -f "$MUT" "$BUILD_LOG"' EXIT
+  REBUILT_ANCHOR="$(mktemp -t oc-agent-sha-anchor.XXXXXX)"
+  trap 'rm -f "$BUILD_LOG" "$REBUILT_ANCHOR"' EXIT
   if ! bash "$ROOT/bin/build-bindist" >"$BUILD_LOG" 2>&1; then
     bad "bin/build-bindist FAILED, so nothing below could be checked (last lines: $(tail -3 "$BUILD_LOG" | tr '\n' ' '))"
   else
@@ -189,7 +138,8 @@ else
     # -ldflags with `go version -m` on the artifact about to be published. It lives
     # there rather than here because a real ocserverd only exists at release time —
     # not because of cost. See the comment beside it for the full reasoning.
-    AGENT_BIN="$ROOT/server/ocserverd/bindist/ocagent"
+    # Executed, so it has to be this host's build.
+    AGENT_BIN="$ROOT/server/ocserverd/bindist/$(go env GOOS)-$(go env GOARCH)/ocagent"
     if [[ ! -f "$AGENT_BIN" ]]; then
       bad "bin/build-bindist produced no ocagent at $AGENT_BIN"
     # ⚠️ grep -c, NOT grep -q. Under `set -o pipefail`, grep -q exits the moment it
@@ -202,6 +152,24 @@ else
     else
       bad "the ocagent bin/build-bindist just produced reports build.sha=\"${REPORTED:-<none>}\", not this tree's sha ($HEAD_SHA). Every listener from this build will print no [agent …] segment, or name a different build — and both are byte-indistinguishable from a dev build behaving correctly, which is the failure this whole feature exists to remove. Causes seen: an empty sha lookup (no .git), a second unstamped go build overwriting the first, or a stamp fed from the wrong revision"
     fi
+
+    # ── 4. every non-darwin anchor is reproducible from source ──────────────
+    # A stamp changes the anchor's bytes on every commit, and -trimpath keeps
+    # -ldflags out of `go version -m`, so only the bytes can show it. Rebuilt with
+    # dist/officraft/BUILD.md's flags; darwin's is the committed file (case 9).
+    for anchor in "$ROOT"/server/ocserverd/bindist/*/officraft; do
+      [[ -f "$anchor" ]] || { bad "bin/build-bindist produced no anchor under server/ocserverd/bindist/<os>-<arch>/"; continue; }
+      plat="$(basename "$(dirname "$anchor")")"
+      [[ "$plat" == darwin-arm64 ]] && continue
+      if ! (cd "$ROOT/cli/officraft" && GOOS="${plat%-*}" GOARCH="${plat#*-}" CGO_ENABLED=0 \
+            go build -trimpath -buildvcs=false -ldflags="-s -w" -o "$REBUILT_ANCHOR" ./...) >/dev/null 2>&1; then
+        bad "could not rebuild the $plat anchor from cli/officraft to compare against"
+      elif cmp -s "$anchor" "$REBUILT_ANCHOR"; then
+        ok "the $plat anchor that ships is byte-identical to a fresh build of cli/officraft with BUILD.md's flags"
+      else
+        bad "the $plat anchor bin/build-bindist produced differs from a fresh build of cli/officraft with -trimpath -buildvcs=false -ldflags=\"-s -w\" — a stamp or extra flag makes its bytes change per commit, so no one can reproduce the anchor that ships"
+      fi
+    done
 
     # ── 9. the shipped anchors still equal the committed one ────────────────
     # The consequence case 4 is really about. check-officraft-dist cannot see this
@@ -219,7 +187,7 @@ else
       bad "cannot compare the shipped anchors: $ANCHOR_COMMITTED is missing"
     else
       B="$(shasum -a 256 "$ANCHOR_COMMITTED" | cut -d' ' -f1)"
-      for staged in "$ROOT/server/ocserverd/bindist/officraft" "$ROOT/cli/ocwarden/anchordist/officraft"; do
+      for staged in "$ROOT/server/ocserverd/bindist/darwin-arm64/officraft" "$ROOT/cli/ocwarden/anchordist/officraft"; do
         if [[ ! -f "$staged" ]]; then
           bad "cannot compare the shipped anchor against the committed one: $staged is missing"
           continue
@@ -252,20 +220,36 @@ else
       # particular mutant by hash, but the cell case 10 claims for itself — the
       # embed's OUTPUT — was green on a shipped ocwarden carrying the wrong anchor.
       # Containment of the ENTIRE file is the identity claim, and it costs 0.054s.
-      WARDEN_BIN="$ROOT/server/ocserverd/bindist/ocwarden"
-      if [[ -z "$RUBY" ]]; then
-        bad "cannot check whether the shipped ocwarden embeds the anchor: no ruby (the same dependency the ci.yml side already needs)"
-      elif [[ ! -f "$WARDEN_BIN" ]]; then
-        bad "bin/build-bindist produced no ocwarden at $WARDEN_BIN"
-      elif "$RUBY" -e '
-            anchor = File.binread(ARGV[0])
-            warden = File.binread(ARGV[1])
-            exit(anchor.bytesize > 0 && warden.include?(anchor) ? 0 : 1)
-          ' "$ANCHOR_COMMITTED" "$WARDEN_BIN"; then
-        ok "the ocwarden that ships contains the committed anchor IN FULL (all $(wc -c < "$ANCHOR_COMMITTED" | tr -d ' ') bytes, found inside the binary) — the embed's output, not the order the build stages its input in"
-      else
-        bad "the ocwarden bin/build-bindist just produced does NOT contain the committed anchor's bytes in full. cli/ocwarden/anchordist is go:embedded into it and 'ocwarden install' refuses without an anchor, so the cockpit one-liner fails on every new machine — and staging the file next to the build is not the same as the build having read it. Check the ORDER in bin/build-bindist: the anchor must be staged BEFORE ocwarden is compiled"
+      # Every platform's ocwarden must carry ITS OWN platform's anchor: the
+      # anchordist slot is reused per platform, so a warden compiled before its
+      # anchor was staged embeds the previous platform's one instead. darwin's is
+      # compared against the committed file itself.
+      PLATFORM_DIRS=("$ROOT"/server/ocserverd/bindist/*/)
+      if [[ ! -d "${PLATFORM_DIRS[0]}" ]]; then
+        bad "bin/build-bindist produced no bindist/<os>-<arch>/ directory at all"
       fi
+      for pdir in "${PLATFORM_DIRS[@]}"; do
+        [[ -d "$pdir" ]] || continue
+        plat="$(basename "$pdir")"
+        WARDEN_BIN="${pdir}ocwarden"
+        ANCHOR_WANT="${pdir}officraft"
+        [[ "$plat" == darwin-arm64 ]] && ANCHOR_WANT="$ANCHOR_COMMITTED"
+        if [[ -z "$RUBY" ]]; then
+          bad "cannot check whether the shipped $plat ocwarden embeds the anchor: no ruby (the same dependency the ci.yml side already needs)"
+        elif [[ ! -f "$WARDEN_BIN" ]]; then
+          bad "bin/build-bindist produced no ocwarden at $WARDEN_BIN"
+        elif [[ ! -s "$ANCHOR_WANT" ]]; then
+          bad "bin/build-bindist produced no $plat anchor at $ANCHOR_WANT"
+        elif "$RUBY" -e '
+              anchor = File.binread(ARGV[0])
+              warden = File.binread(ARGV[1])
+              exit(anchor.bytesize > 0 && warden.include?(anchor) ? 0 : 1)
+            ' "$ANCHOR_WANT" "$WARDEN_BIN"; then
+          ok "the $plat ocwarden that ships contains its own platform's anchor IN FULL (all $(wc -c < "$ANCHOR_WANT" | tr -d ' ') bytes of ${ANCHOR_WANT#"$ROOT/"}, found inside the binary) — the embed's output, not the order the build stages its input in"
+        else
+          bad "the $plat ocwarden bin/build-bindist just produced does NOT contain ${ANCHOR_WANT#"$ROOT/"} in full. cli/ocwarden/anchordist is go:embedded into it and 'ocwarden install' refuses without an anchor, so the cockpit one-liner fails on every new $plat machine — and staging the file next to the build is not the same as the build having read it. Check the ORDER in bin/build-bindist: each platform's anchor must be staged BEFORE that platform's ocwarden is compiled"
+        fi
+      done
 
     # ⚠️ THE REMAINING CASES RUN LAST ON PURPOSE. They build twice more — once
     # refused, once to repair — and a LATER BUILD STAGES WHAT AN EARLIER ONE

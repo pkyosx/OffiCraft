@@ -1151,7 +1151,15 @@ sha_run() {
 # gate that refuses every download is not a gate, it is an outage. This is also
 # the control that proves the harness can actually get a run all the way through
 # verification: the two refusals below mean nothing if nothing ever passes.
-sha_run "$SHA_GOOD  $SHA_ASSET"
+# The list has the shape a real release publishes: every platform's tarball plus
+# install.sh, with the darwin-arm64 entry (the platform the uname shim reports)
+# LAST and the others carrying digests that match nothing, so only picking that
+# platform's own line can pass.
+SHA_ZERO="0000000000000000000000000000000000000000000000000000000000000000"
+sha_run "$SHA_ZERO  officraft-$SHA_TAG-linux-amd64.tar.gz
+$SHA_ZERO  officraft-$SHA_TAG-linux-arm64.tar.gz
+$SHA_ZERO  install.sh
+$SHA_GOOD  $SHA_ASSET"
 check "sha256 sentinel: a matching digest is accepted and the run proceeds" "0" "$SHA_RC"
 case "$SHA_OUT" in
   *"sha256 verified OK"*) ok "sha256 sentinel: verification reported OK" ;;
