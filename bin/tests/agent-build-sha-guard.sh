@@ -37,9 +37,6 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 
-BUILD_FILE="$ROOT/bin/build-bindist"
-MAIN_FILE="$ROOT/cli/ocagent/main.go"
-LINE_FILE="$ROOT/cli/ocagent/listen_run.go"
 
 # ruby is resolved the same way bin/tests/go-test-timeout-guard.sh and
 # auto-beta-guard.sh do: the hosted macOS runner has system ruby, and case 10 needs
@@ -55,50 +52,16 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   — %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL — %s\n' "$1"; }
 
-# ── 2. the value it stamps is derived, not a literal ────────────────────────
-if grep -qE '\-X main\.buildSHA=\$\{?[A-Za-z_][A-Za-z0-9_]*' "$BUILD_FILE"; then
-  ok "bin/build-bindist: the stamped value comes from a variable, not a literal baked into the script"
-else
-  bad "bin/build-bindist: -X main.buildSHA is not fed from a shell variable — a hard-coded sha would name the same commit forever, which is worse than naming none"
-fi
-
-# ── 3. the variable exists in the ocagent main package ─────────────────────
-if grep -qE '^var buildSHA string' "$MAIN_FILE"; then
-  ok "cli/ocagent/main.go: 'var buildSHA string' is there for -X to fill (a -X against a name that does not exist is silently ignored by the linker)"
-else
-  bad "cli/ocagent/main.go: no 'var buildSHA string' — the linker DISCARDS a -X for an unknown symbol without warning, so the build would keep succeeding and every line would stay unstamped"
-fi
-
-# ── 5. BREADCRUMB, NOT A DEFENCE — the blank-stamp path is guarded in Go ────
-# ⚠️ READ THIS BEFORE TRUSTING THIS CASE. It is a bare grep for the characters
-# `TrimSpace(buildSHA)`, so it only notices the text disappearing outright.
-# Measured: review kept the `TrimSpace(buildSHA)` call and made the segment print
-# UNCONDITIONALLY — this case stayed green (guard rc=0) and three Go tests went
-# red (rc=1). The blank/missing-stamp behaviour is genuinely covered there, in
-# the one place that can see it, which is why nothing is added here: a second
-# check over the same behaviour would only make this file look like it is doing
-# more than it does. What this line is for is naming the coupling — the segment
-# and the [station …] segment next to it must agree on what counts as missing
-# (they once did not, and the disagreement printed ' [agent \t]').
-if grep -qE 'TrimSpace\(buildSHA\)' "$LINE_FILE"; then
-  ok "cli/ocagent/listen_run.go: still spells the stamp read as TrimSpace(buildSHA) — a breadcrumb for the coupling with the [station …] segment, NOT a guard (the Go tests own the blank-stamp behaviour; this grep cannot see it)"
-else
-  bad "cli/ocagent/listen_run.go: the connection line no longer mentions TrimSpace(buildSHA). This case cannot tell you what broke — go read the Go tests for the blank-stamp path — but the two adjacent segments have stopped agreeing on what counts as a missing value, which is how ' [agent \\t]' shipped once already"
-fi
-
 # ═════════════════════════════════════════════════════════════════════════════
-# 🔴 BUILD IT AND LOOK AT THE BINARY. Everything above is text matching, and text
-# matching cannot see the three ways this feature dies silently while every
-# pattern above still matches:
+# 🔴 BUILD IT AND LOOK AT THE BINARY. A text check over the build script or the
+# ocagent source cannot see the ways this feature dies silently:
 #   * a tree with no .git — the sha lookup came back empty and the build shipped
-#     an unstamped fleet (this is now fatal in build-bindist, and case 8 proves it
-#     stays fatal);
+#     an unstamped fleet (fatal in build-bindist; case 8 proves it stays fatal);
 #   * a SECOND, unstamped `go build` for ocagent appended after the stamped one —
 #     the last write wins on disk, while a first-match text scan never sees it;
 #   * a stamp fed from the wrong revision (HEAD~5, a stale variable) — shape-valid,
 #     confidently naming a build this is not.
-# All three were green against the text checks alone. So the last cases run the
-# real bin/build-bindist and read the bytes it produced.
+# So every case runs the real bin/build-bindist and reads the bytes it produced.
 # ⚠️ SIDE EFFECT, ON PURPOSE: this rebuilds server/ocserverd/bindist/ (gitignored
 # build output, which build-bindist rewrites from scratch anyway). ~1s. Anything
 # cheaper would be back to grepping the script that is the thing under test.
