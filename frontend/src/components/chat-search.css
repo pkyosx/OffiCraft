@@ -292,6 +292,9 @@
 .chat-search__sheet .chat-search__list {
   overscroll-behavior: contain;
 }
+/* ⚠️ An explicit min-height replaces flex's content-based minimum, so without
+ * flex: none a long list squeezes every result to 44px and the lines overlap. */
 .chat-search__sheet .chat-search__item {
+  flex: none;
   min-height: 44px;
 }

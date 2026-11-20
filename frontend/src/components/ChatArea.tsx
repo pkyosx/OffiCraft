@@ -2343,7 +2343,7 @@ export function ChatArea({
   }
 
   const showSuggestedReplies = Boolean(onSaveSuggestedReplies || onRetrySuggestedReplies) && !composerLocked;
-  const hasTopActions = Boolean(onOpenTasks || onOpenRoleSettings) || showSuggestedReplies;
+  const topActionCount = [Boolean(onOpenTasks), Boolean(onOpenRoleSettings), showSuggestedReplies].filter(Boolean).length;
 
   return (
     // Drag-drop staging surface: dropping files anywhere over the chat window
@@ -2417,8 +2417,8 @@ export function ChatArea({
          * that would lie. Own classes, NOT chat__gallery-toggle: that class is a
          * querySelector handle in ChatArea.gallery.test.tsx and a second element
          * wearing it would be silently picked up instead. */}
-        <div className="chat__header-actions">
-          {hasTopActions && (
+        <div className={`chat__header-actions${topActionCount > 1 ? " chat__header-actions--stacked" : ""}`}>
+          {topActionCount > 0 && (
             <div className="chat__header-actions-row">
               {onOpenTasks && (
                 <button
