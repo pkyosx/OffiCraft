@@ -28,7 +28,7 @@
 #      curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
 #      It bootstraps: resolves the latest release tag (override with
 #      OC_INSTALL_TAG=vX.Y.Z or `--tag vX.Y.Z`), downloads the official
-#      officraft-<tag>-darwin-arm64.tar.gz + checksums.txt from GitHub
+#      officraft-<tag>-<os>-<arch>.tar.gz + checksums.txt from GitHub
 #      Releases, verifies sha256 (a mismatch ABORTS before anything touches
 #      the machine), unpacks to a temp dir and DELEGATES to the install.sh
 #      inside the package — one code path, no duplicated install logic.
@@ -782,7 +782,18 @@ EOF
     fi
   fi
 
-  ASSET="officraft-$TAG-darwin-arm64.tar.gz"
+  case "$(uname -s)" in
+    Darwin) OC_OS=darwin ;;
+    Linux)  OC_OS=linux ;;
+    *)      OC_OS="$(uname -s)" ;;
+  esac
+  case "$(uname -m)" in
+    x86_64)        OC_ARCH=amd64 ;;
+    aarch64|arm64) OC_ARCH=arm64 ;;
+    *)             OC_ARCH="$(uname -m)" ;;
+  esac
+  PKG_NAME="officraft-$TAG-$OC_OS-$OC_ARCH"
+  ASSET="$PKG_NAME.tar.gz"
   # OC_INSTALL_BASE_URL: optional override of the asset download base
   # (mirrors / hermetic tests). Default: the official GitHub release.
   BASE_URL="${OC_INSTALL_BASE_URL:-https://github.com/$OC_REPO/releases/download/$TAG}"
@@ -837,7 +848,7 @@ EOF
   echo "[install] sha256 verified OK."
 
   tar -xzf "$TMP/$ASSET" -C "$TMP"
-  PKG_DIR="$TMP/officraft-$TAG-darwin-arm64"
+  PKG_DIR="$TMP/$PKG_NAME"
   if [[ ! -f "$PKG_DIR/install.sh" ]]; then
     echo "[install] FATAL: unpacked package has no install.sh at $PKG_DIR — refusing to continue." >&2
     exit 1

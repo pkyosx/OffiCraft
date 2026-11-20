@@ -35,7 +35,7 @@ for d in seedsdist docsdist; do
       || { echo "[arm] build-$d failed" >&2; exit 1; }
   fi
 done
-if [[ ! -f "$WT/server/ocserverd/bindist/ocwarden" ]]; then
+if [[ ! -f "$WT/server/ocserverd/bindist/$(go env GOOS)-$(go env GOARCH)/ocwarden" ]]; then
   (cd "$WT" && bash bin/build-bindist >/dev/null 2>&1) \
     || { echo "[arm] build-bindist failed" >&2; exit 1; }
 fi
