@@ -61,8 +61,8 @@ const (
 )
 
 // releaseAssetName must match the tarball name bin/release packages.
-func releaseAssetName(tag string) string {
-	return "officraft-" + tag + "-darwin-arm64.tar.gz"
+func releaseAssetName(tag string, platform binPlatform) string {
+	return "officraft-" + tag + "-" + platform.dir() + ".tar.gz"
 }
 
 type upgradeFailure struct {
@@ -353,6 +353,13 @@ func smokeTestBinary(path string) *upgradeFailure {
 	}
 }
 
+func (s *apiServer) upgradePlatform() binPlatform {
+	if s.releasePlatform != (binPlatform{}) {
+		return s.releasePlatform
+	}
+	return serverBinPlatform
+}
+
 func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
 	tag, fail := s.pinUpgradeRelease()
 	if fail != nil {
@@ -368,7 +375,7 @@ func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
 	}
 
 	base := s.releaseSiteBaseURL()
-	asset := pinnedReleaseAsset(base, tag, releaseAssetName(tag))
+	asset := pinnedReleaseAsset(base, tag, releaseAssetName(tag, s.upgradePlatform()))
 	expectedSHA, fail := fetchExpectedSHA(pinnedReleaseAsset(base, tag, checksumsAssetName), asset.name)
 	if fail != nil {
 		return "", fail

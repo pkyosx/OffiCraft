@@ -94,6 +94,10 @@ func upgradeTestKnownRelease(t *testing.T, api *apiServer, tag string) {
 	}
 }
 
+// upgradeTestReleasePlatform is not the host's, so an upgrade that ignores the
+// platform it was given asks for a tarball upgradeTestReleaseServer never serves.
+var upgradeTestReleasePlatform = binPlatform{os: "linux", arch: "riscv64"}
+
 // upgradeTestReleaseServer serves github.com's release pages for a release
 // marked Latest at tag, carrying every asset except the names in missing.
 func upgradeTestReleaseServer(t *testing.T, tag, binary string, missing ...string) *httptest.Server {
@@ -109,8 +113,8 @@ func upgradeTestReleaseServer(t *testing.T, tag, binary string, missing ...strin
 	digest := sha256.Sum256(tarball)
 	sha := hex.EncodeToString(digest[:])
 	assets := map[string][]byte{
-		checksumsAssetName:    []byte(sha + "  " + releaseAssetName(tag) + "\n"),
-		releaseAssetName(tag): tarball,
+		checksumsAssetName:                           []byte(sha + "  officraft-" + tag + "-linux-riscv64.tar.gz\n"),
+		"officraft-" + tag + "-linux-riscv64.tar.gz": tarball,
 	}
 	for _, name := range missing {
 		delete(assets, name)
@@ -168,6 +172,21 @@ func TestPinUpgradeRelease(t *testing.T) {
 			t.Fatalf("failure: %#v", fail)
 		}
 	})
+}
+
+func TestReleaseAssetName(t *testing.T) {
+	for _, c := range []struct {
+		platform binPlatform
+		want     string
+	}{
+		{binPlatform{os: "darwin", arch: "arm64"}, "officraft-v1.2.3-darwin-arm64.tar.gz"},
+		{binPlatform{os: "linux", arch: "amd64"}, "officraft-v1.2.3-linux-amd64.tar.gz"},
+		{binPlatform{os: "linux", arch: "arm64"}, "officraft-v1.2.3-linux-arm64.tar.gz"},
+	} {
+		if got := releaseAssetName("v1.2.3", c.platform); got != c.want {
+			t.Errorf("releaseAssetName(v1.2.3, %v) = %q, want %q", c.platform, got, c.want)
+		}
+	}
 }
 
 func TestPinnedReleaseAsset(t *testing.T) {
@@ -1100,7 +1119,7 @@ func TestExecuteUpgrade(t *testing.T) {
 		if err := os.WriteFile(exe, []byte("running binary"), 0o755); err != nil {
 			t.Fatalf("write old binary: %v", err)
 		}
-		api := &apiServer{releaseSiteBase: srv.URL, upgradeExeOverride: exe}
+		api := &apiServer{releaseSiteBase: srv.URL, releasePlatform: upgradeTestReleasePlatform, upgradeExeOverride: exe}
 
 		version, fail := api.executeUpgrade()
 
@@ -1136,8 +1155,8 @@ func TestExecuteUpgrade(t *testing.T) {
 	}{
 		{
 			name:    "a release whose tarball is not downloadable refuses and leaves the running binary alone",
-			missing: "officraft-v1.2.3-darwin-arm64.tar.gz",
-			message: `release v1.2.3 carries no "officraft-v1.2.3-darwin-arm64.tar.gz" asset — refusing an unverifiable install; nothing was changed`,
+			missing: "officraft-v1.2.3-linux-riscv64.tar.gz",
+			message: `release v1.2.3 carries no "officraft-v1.2.3-linux-riscv64.tar.gz" asset — refusing an unverifiable install; nothing was changed`,
 		},
 		{
 			name:    "a release whose checksums.txt is not downloadable refuses and leaves the running binary alone",
@@ -1152,7 +1171,7 @@ func TestExecuteUpgrade(t *testing.T) {
 			if err := os.WriteFile(exe, []byte("running binary"), 0o755); err != nil {
 				t.Fatalf("write old binary: %v", err)
 			}
-			api := &apiServer{releaseSiteBase: srv.URL, upgradeExeOverride: exe}
+			api := &apiServer{releaseSiteBase: srv.URL, releasePlatform: upgradeTestReleasePlatform, upgradeExeOverride: exe}
 
 			version, fail := api.executeUpgrade()
 
@@ -1178,7 +1197,7 @@ func TestExecuteUpgrade(t *testing.T) {
 		if err := os.WriteFile(exe, []byte("running binary"), 0o755); err != nil {
 			t.Fatalf("write old binary: %v", err)
 		}
-		api := &apiServer{releaseSiteBase: srv.URL, upgradeExeOverride: exe}
+		api := &apiServer{releaseSiteBase: srv.URL, releasePlatform: upgradeTestReleasePlatform, upgradeExeOverride: exe}
 
 		version, fail := api.executeUpgrade()
 
@@ -1231,7 +1250,7 @@ func TestRunUpgrade(t *testing.T) {
 	if err := os.WriteFile(exe, []byte("running binary"), 0o755); err != nil {
 		t.Fatalf("write old binary: %v", err)
 	}
-	api := &apiServer{releaseSiteBase: srv.URL, upgradeExeOverride: exe, updaterCheckIntervalSecs: 300}
+	api := &apiServer{releaseSiteBase: srv.URL, releasePlatform: upgradeTestReleasePlatform, upgradeExeOverride: exe, updaterCheckIntervalSecs: 300}
 	upgradeTestKnownRelease(t, api, "v1.2.3")
 
 	version, path, fail := api.runUpgrade()
@@ -1342,6 +1361,7 @@ func TestHandleUpgradeApiUpdateUpgradePost(t *testing.T) {
 			t.Fatalf("write old binary: %v", err)
 		}
 		api.releaseSiteBase = srv.URL
+		api.releasePlatform = upgradeTestReleasePlatform
 		api.upgradeExeOverride = exe
 		upgradeTestKnownRelease(t, api, "v1.2.3")
 		restarted := make(chan string, 1)

@@ -593,10 +593,11 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		body.Binaries == nil && body.Claude == nil && body.Cost == nil &&
 		body.Effort == nil && body.Runtime == nil && body.Runtimes == nil &&
 		body.SelfUpdate == nil && body.CommandResult == nil && body.WardenShape == nil &&
-		body.CutoverEffect == nil && body.ModelCall == nil && body.DiskUsage == nil {
+		body.CutoverEffect == nil && body.ModelCall == nil && body.DiskUsage == nil &&
+		body.Platform == nil {
 		writeError(w, http.StatusBadRequest,
 			"rate_limits, tokens, hardware, binaries, claude, cost, effort, runtime, runtimes, "+
-				"self_update, command_result, warden_shape, cutover_effect, model_call or disk_usage is required")
+				"self_update, command_result, warden_shape, cutover_effect, model_call, disk_usage or platform is required")
 		return
 	}
 	if body.ModelCall != nil && !validModelCallReport(body.ModelCall) {
@@ -696,6 +697,15 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		}
 		wardenShape = &text
 	}
+	var platform *string
+	if body.Platform != nil {
+		text, isStr := body.Platform.(string)
+		if _, valid := parseWireBinPlatform(text); !isStr || !valid {
+			writeError(w, http.StatusBadRequest, "platform must be '<os>/<arch>', e.g. 'linux/amd64'")
+			return
+		}
+		platform = &text
+	}
 	var cutoverEffect *string
 	if body.CutoverEffect != nil {
 		text, isStr := body.CutoverEffect.(string)
@@ -773,6 +783,9 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	}
 	if cutoverEffect != nil {
 		entry["cutover_effect"] = *cutoverEffect
+	}
+	if platform != nil {
+		entry["platform"] = *platform
 	}
 	if body.Claude != nil {
 		entry["claude"] = claude

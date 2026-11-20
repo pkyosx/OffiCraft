@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -318,19 +320,10 @@ OC_BASE="` + base + `" OC_TOKEN="` + token + `" ./ocwarden install --force
 func TestBuildInstallScriptWithCode_Mainline(t *testing.T) {
 	const base, code = "http://127.0.0.1:8770", "one-time-code-abc"
 
-	t.Run("probes the binary, then claims the token, then downloads", func(t *testing.T) {
+	t.Run("the script carries the tool precheck, the claim body and its error messages", func(t *testing.T) {
 		got := buildInstallScriptWithCode(base, code, "")
 		if !strings.Contains(got, "for tool in tmux curl sed; do") {
 			t.Fatalf("sed missing from the tool precheck:\n%s", got)
-		}
-		// A 503-ing binary route must fail BEFORE the one-time code is burnt:
-		// HEAD probe → claim → download, strictly in that order.
-		probe := strings.Index(got, `curl -fsI "`+base+`/api/warden/binary"`)
-		claim := strings.Index(got, base+"/api/machines/claim")
-		download := strings.Index(got, `curl -fsSL "`+base+`/api/warden/binary"`)
-		if probe == -1 || claim == -1 || download == -1 || probe > claim || claim > download {
-			t.Fatalf("want probe < claim < download (probe=%d claim=%d download=%d):\n%s",
-				probe, claim, download, got)
 		}
 		if !strings.Contains(got, "the install code was NOT consumed") {
 			t.Fatalf("probe failure message must say the code survives:\n%s", got)
@@ -352,6 +345,46 @@ func TestBuildInstallScriptWithCode_Mainline(t *testing.T) {
 		}
 		if !strings.Contains(got, `OC_BASE="`+base+`" OC_TOKEN="$OC_TOKEN" ./ocwarden install --force`) {
 			t.Fatalf("install line must ride the claimed $OC_TOKEN:\n%s", got)
+		}
+	})
+
+	t.Run("run on a machine, the script downloads the warden built for that machine's platform", func(t *testing.T) {
+		for _, c := range []struct {
+			kernel, machine, wantURL string
+		}{
+			{"Linux", "x86_64", base + "/api/warden/binary?os=linux&arch=amd64"},
+			{"Linux", "aarch64", base + "/api/warden/binary?os=linux&arch=arm64"},
+			{"Darwin", "arm64", base + "/api/warden/binary?os=darwin&arch=arm64"},
+		} {
+			run := runInstallScriptWithStubs(t, buildInstallScriptWithCode(base, code, ""), c.kernel, c.machine, "200")
+			wantCurl := []string{
+				"-sI -o /dev/null -w %{http_code} " + c.wantURL,
+				"-fsS -X POST " + base + "/api/machines/claim -H Content-Type: application/json --data {\"code\":\"" + code + "\"}",
+				"-fsSL " + c.wantURL + " -o ocwarden",
+			}
+			if run.err != nil || !reflect.DeepEqual(run.curl, wantCurl) || run.warden != "install --force" {
+				t.Fatalf("%s %s: err=%v\ncurl=%q\nwant %q\nwarden=%q\noutput:\n%s",
+					c.kernel, c.machine, run.err, run.curl, wantCurl, run.warden, run.output)
+			}
+		}
+	})
+
+	t.Run("on a platform it cannot map, the script stops before touching the server", func(t *testing.T) {
+		run := runInstallScriptWithStubs(t, buildInstallScriptWithCode(base, code, ""), "FreeBSD", "x86_64", "200")
+		want := "Error: OffiCraft does not run on this machine (FreeBSD x86_64). It runs on macOS and Linux, on x86_64 or arm64.\n"
+		if run.err == nil || len(run.curl) != 0 || run.warden != "" || run.output != want {
+			t.Fatalf("err=%v curl=%q warden=%q output=%q, want a failure with %q and no curl",
+				run.err, run.curl, run.warden, run.output, want)
+		}
+	})
+
+	t.Run("when the server carries no warden for the platform, the script stops before the code is claimed", func(t *testing.T) {
+		run := runInstallScriptWithStubs(t, buildInstallScriptWithCode(base, code, ""), "Linux", "aarch64", "404")
+		wantCurl := []string{"-sI -o /dev/null -w %{http_code} " + base + "/api/warden/binary?os=linux&arch=arm64"}
+		want := "Error: this server has no OffiCraft warden for linux/arm64.\nThe install code was NOT consumed.\n"
+		if run.err == nil || !reflect.DeepEqual(run.curl, wantCurl) || run.warden != "" || run.output != want {
+			t.Fatalf("err=%v curl=%q warden=%q output=%q, want a failure with %q after only the probe",
+				run.err, run.curl, run.warden, run.output, want)
 		}
 	})
 
@@ -642,7 +675,9 @@ func TestMachineBinStatus_Mainline(t *testing.T) {
 		// Pin the embed hashes: the go:embed bindist content depends on what a
 		// CI stage left behind, so the verdict logic is tested against fixed
 		// fixtures, never the checkout state.
-		s.binHashes = map[string]string{"ocwarden": "aaa111", "ocagent": "bbb222"}
+		s.binHashes = map[string]map[string]string{
+			serverBinPlatform.wire(): {"ocwarden": "aaa111", "ocagent": "bbb222"},
+		}
 		return s
 	}
 	report := func(s *apiServer, id string, bins map[string]any) {
@@ -692,7 +727,7 @@ func TestMachineBinStatus_Mainline(t *testing.T) {
 
 	t.Run("no embedded bindist to compare against reads unknown", func(t *testing.T) {
 		s := newMachinesTestServer(t)
-		s.binHashes = map[string]string{}
+		s.binHashes = map[string]map[string]string{}
 		report(s, "m-box", map[string]any{"ocwarden": "aaa111", "ocagent": "bbb222"})
 		if got := s.machineBinStatus("m-box"); got != nil {
 			t.Fatalf("verdict = %s, want nil (nothing embedded)", verdict(got))
@@ -1199,4 +1234,68 @@ func envValue(env []string, key string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+type installScriptRun struct {
+	curl   []string
+	warden string
+	output string
+	err    error
+}
+
+// runInstallScriptWithStubs executes a rendered install script under bash with
+// uname, curl, tmux and sed answered by stubs, so what it would fetch on a given
+// machine is observed without a network or a real install.
+func runInstallScriptWithStubs(t *testing.T, script, kernel, machine, probeStatus string) installScriptRun {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	work := filepath.Join(dir, "work")
+	for _, d := range []string{bin, work} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	curlLog := filepath.Join(dir, "curl.log")
+	wardenLog := filepath.Join(dir, "warden.log")
+	stubs := map[string]string{
+		"uname": `#!/bin/sh
+case "$1" in -s) echo "` + kernel + `" ;; -m) echo "` + machine + `" ;; esac
+`,
+		"tmux": "#!/bin/sh\n",
+		"curl": `#!/bin/sh
+printf '%s\n' "$*" >>"` + curlLog + `"
+for arg in "$@"; do
+  case "$arg" in
+    -sI) printf '%s' "` + probeStatus + `"; exit 0 ;;
+    */api/machines/claim) printf '{"token":"tok"}'; exit 0 ;;
+    ocwarden) printf '#!/bin/sh\nprintf "%%s" "$*" >"` + wardenLog + `"\n' >ocwarden; exit 0 ;;
+  esac
+done
+`,
+	}
+	for name, body := range stubs {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sedPath, err := exec.LookPath("sed")
+	if err != nil {
+		t.Fatalf("sed: %v", err)
+	}
+	if err := os.Symlink(sedPath, filepath.Join(bin, "sed")); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", "-c", script)
+	cmd.Dir = work
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + dir}
+	out, runErr := cmd.CombinedOutput()
+	run := installScriptRun{output: string(out), err: runErr}
+	if raw, err := os.ReadFile(curlLog); err == nil {
+		run.curl = strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+	}
+	if raw, err := os.ReadFile(wardenLog); err == nil {
+		run.warden = string(raw)
+	}
+	return run
 }

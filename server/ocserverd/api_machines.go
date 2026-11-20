@@ -170,10 +170,33 @@ for tool in tmux curl sed; do
   exit 1
 done
 
+# The binary endpoint names platforms the way Go does (GOOS/GOARCH).
+case "$(uname -s)" in
+  Darwin) OC_OS=darwin ;;
+  Linux) OC_OS=linux ;;
+  *) OC_OS="" ;;
+esac
+case "$(uname -m)" in
+  x86_64 | amd64) OC_ARCH=amd64 ;;
+  arm64 | aarch64) OC_ARCH=arm64 ;;
+  *) OC_ARCH="" ;;
+esac
+if [ -z "$OC_OS" ] || [ -z "$OC_ARCH" ]; then
+  echo "Error: OffiCraft does not run on this machine ($(uname -s) $(uname -m)). It runs on macOS and Linux, on x86_64 or arm64." >&2
+  exit 1
+fi
+WARDEN_URL="` + baseURL + `/api/warden/binary?os=$OC_OS&arch=$OC_ARCH"
+
 # Probe the warden binary availability BEFORE redeeming the one-time claim
-# code — a server that cannot serve the binary (503) must not burn the code.
-if ! curl -fsI "` + baseURL + `/api/warden/binary" >/dev/null 2>&1; then
-  echo "Error: the server cannot serve the warden binary (` + baseURL + `/api/warden/binary is unavailable)." >&2
+# code — a server that cannot serve the binary must not burn the code.
+PROBE_STATUS="$(curl -sI -o /dev/null -w '%{http_code}' "$WARDEN_URL" || true)"
+if [ "$PROBE_STATUS" = 404 ]; then
+  echo "Error: this server has no OffiCraft warden for $OC_OS/$OC_ARCH." >&2
+  echo "The install code was NOT consumed." >&2
+  exit 1
+fi
+if [ "$PROBE_STATUS" != 200 ]; then
+  echo "Error: the server cannot serve the warden binary ($WARDEN_URL is unavailable)." >&2
   echo "Fix: redeploy the server with the prebuilt binaries (bin/ocwarden) or an embed-carrying build, then re-run this one-liner — the install code was NOT consumed." >&2
   exit 1
 fi
@@ -197,7 +220,7 @@ fi
 
 # Pull the prebuilt ocwarden binary from the PUBLIC binary endpoint (no auth
 # header needed — the claimed token authorizes the install, not this fetch).
-curl -fsSL "` + baseURL + `/api/warden/binary" -o ocwarden
+curl -fsSL "$WARDEN_URL" -o ocwarden
 chmod +x ocwarden
 
 # Install the warden with the server-templated identity. --force makes a re-install
@@ -213,7 +236,7 @@ const (
 
 // A comparison verdict only — no per-machine version numbers (owner-approved).
 func (s *apiServer) machineBinStatus(machineID string) *string {
-	if len(s.binHashes) == 0 || s.telemetry == nil {
+	if s.telemetry == nil {
 		return nil
 	}
 	entry := s.telemetry.Get(machineID)
@@ -224,8 +247,16 @@ func (s *apiServer) machineBinStatus(machineID string) *string {
 	if len(reported) == 0 {
 		return nil
 	}
+	platform, reportedPlatform := entry["platform"].(string)
+	if !reportedPlatform {
+		platform = serverBinPlatform.wire()
+	}
+	embedded := s.binHashes[platform]
+	if len(embedded) == 0 {
+		return nil
+	}
 	matched := 0
-	for name, want := range s.binHashes {
+	for name, want := range embedded {
 		got, isStr := reported[name].(string)
 		if !isStr || got == "" {
 			continue
@@ -236,7 +267,7 @@ func (s *apiServer) machineBinStatus(machineID string) *string {
 		}
 		matched++
 	}
-	if matched == len(s.binHashes) {
+	if matched == len(embedded) {
 		verdict := binStatusCurrent
 		return &verdict
 	}
@@ -749,7 +780,7 @@ func execOcwarden(binPath string, args []string, env []string) (int, string, boo
 func (s *apiServer) resolveOcwardenBinary(w http.ResponseWriter) (string, bool) {
 	embedded := s.ocwardenFS
 	if embedded == nil {
-		embedded = bindistFS()
+		embedded = bindistPlatformFS(bindistFS(), serverBinPlatform)
 	}
 	path, err := s.resolveOcwardenBinaryFrom(embedded)
 	if err != nil {
@@ -1153,12 +1184,50 @@ func serveBinary(w http.ResponseWriter, r *http.Request, filename string, embedd
 	http.ServeContent(w, r, filename, time.Time{}, bytes.NewReader(data))
 }
 
-func (s *apiServer) HandleWardenBinaryApiWardenBinaryGet(w http.ResponseWriter, r *http.Request) {
-	serveBinary(w, r, "ocwarden", bindistFS())
+// Each omitted parameter falls back to the server's own value: a warden that
+// predates the parameters was downloaded as the server's own platform.
+func requestedBinPlatform(goos, goarch *string) binPlatform {
+	platform := serverBinPlatform
+	if goos != nil {
+		platform.os = *goos
+	}
+	if goarch != nil {
+		platform.arch = *goarch
+	}
+	return platform
 }
 
-func (s *apiServer) HandleAgentBinaryApiAgentBinaryGet(w http.ResponseWriter, r *http.Request) {
-	serveBinary(w, r, "ocagent", bindistFS())
+func (s *apiServer) bindistRoot() fs.FS {
+	if s.bindist != nil {
+		return s.bindist
+	}
+	return bindistFS()
+}
+
+func (s *apiServer) serveBinaryFor(w http.ResponseWriter, r *http.Request, filename string, platform binPlatform) {
+	if platform == serverBinPlatform {
+		serveBinary(w, r, filename, bindistPlatformFS(s.bindistRoot(), platform))
+		return
+	}
+	if !platform.valid() {
+		writeError(w, http.StatusNotFound, "this server carries no "+filename+" binary for that platform")
+		return
+	}
+	embedded := bindistPlatformFS(s.bindistRoot(), platform)
+	if _, err := fs.Stat(embedded, filename); err != nil {
+		writeError(w, http.StatusNotFound,
+			"this server carries no "+filename+" binary for "+platform.wire())
+		return
+	}
+	serveBinary(w, r, filename, embedded)
+}
+
+func (s *apiServer) HandleWardenBinaryApiWardenBinaryGet(w http.ResponseWriter, r *http.Request, params HandleWardenBinaryApiWardenBinaryGetParams) {
+	s.serveBinaryFor(w, r, "ocwarden", requestedBinPlatform(params.Os, params.Arch))
+}
+
+func (s *apiServer) HandleAgentBinaryApiAgentBinaryGet(w http.ResponseWriter, r *http.Request, params HandleAgentBinaryApiAgentBinaryGetParams) {
+	s.serveBinaryFor(w, r, "ocagent", requestedBinPlatform(params.Os, params.Arch))
 }
 
 // machineDirectory resolves what a member row names as its machine — a roster
