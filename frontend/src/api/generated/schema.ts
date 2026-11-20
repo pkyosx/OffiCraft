@@ -62,7 +62,8 @@ export interface paths {
          * Download the prebuilt ocagent binary (octet-stream) for an agent.
          * @description - Streams the prebuilt `ocagent` binary as application/octet-stream, filename `ocagent`.
          *     - PUBLIC: no Authorization header, so a warden can self-update with a bare curl.
-         *     - 503 when this server was started without a built binary.
+         *     - `os` / `arch` pick the platform; each one omitted means the server's own value, so a request without them gets the server's own platform.
+         *     - 404 when this server carries no binary for the requested platform; 503 when it was started without a built binary for its own platform.
          */
         get: operations["handle_agent_binary_api_agent_binary_get"];
         put?: never;
@@ -2601,7 +2602,7 @@ export interface paths {
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
          *     - `account`: Which billing account this session is drawing on. It is READ ONLY IN COMPANY WITH runtime, and the failure is worse than a dropped field: send a perfectly valid account WITHOUT runtime and the server does not merely ignore it, it CLEARS the account pairing already recorded for this entry and returns 200. A previously correct display therefore goes blank because of a report that carried the right value. A non-string value is dropped silently to empty by the same path. Always send runtime alongside account.
          *     - `account_label`: Human-readable label for the account. It rides the same path as account - read only in company with runtime, dropped silently when the value is not a string - and it is HARDER to notice going wrong than account is, because the ingest response does not echo it back at all. There is no field in the reply to compare against what you sent, so a dropped label is invisible from the call site; the only way to see it is to read the monitoring view afterwards.
-         *     - `binaries`: Warden heartbeats only — the content fingerprint of the binaries this host is ACTUALLY running: an object keyed by binary name (ocwarden, ocagent, officraft) whose values are that live file's sha256 12-hex prefix. The server diffs them against the build it has embedded to derive the machine's bin_status (current / stale / absent = honest unknown), so a heartbeat that omits this leaves the machine's upgrade state unknowable rather than current. Deliberately a content hash, not a version number.
+         *     - `binaries`: Warden heartbeats only — the content fingerprint of the binaries this host is ACTUALLY running: an object keyed by binary name (ocwarden, ocagent, officraft) whose values are that live file's sha256 12-hex prefix. The server diffs them against the build it has embedded for the platform the heartbeat reports to derive the machine's bin_status (current / stale / absent = honest unknown), so a heartbeat that omits this leaves the machine's upgrade state unknowable rather than current. Deliberately a content hash, not a version number.
          *     - `claude`: Warden heartbeats only — the host's local claude CLI probe. Presence-only, NEVER a secret value. All sub-fields optional: version (string — the resolved claude binary's --version first token; absent = unresolved or probe failed), cred_file (bool — ~/.claude/.credentials.json exists), sub_readable (bool — that file exists AND its claudeAiOauth.subscriptionType is non-blank, the exact readability the account-key derivation needs), keychain (bool — macOS login-keychain item present; ABSENT, not false, on non-darwin where the probe cannot answer). Send it so the roster can tell whether this host can actually run Claude.
          *     - `command_result`: Receipt for a command this reporter was asked to run. The only check is that the value is an object. Everything inside is best-effort: an unknown member id, an unknown worker, or a receipt that matches no outstanding command is written to the server's stderr and then swallowed, and the call answers 200 either way. A 200 here means the report was accepted, NOT that it was matched to anything - if you need to know the result was recorded, read the state it should have changed.
          *     - `cost`: Accumulated cost for this session. The ONLY check is that the value is a number - there is no sign check, no unit check and no upper or lower bound, so a negative figure, a value in the wrong currency, or one off by a factor of a thousand is stored verbatim and answers 200. It becomes what the monitoring view reports, so the number is trusted exactly as far as the caller computing it.
@@ -4403,7 +4404,8 @@ export interface paths {
          * Download the prebuilt ocwarden binary (octet-stream) for a machine.
          * @description - Streams the prebuilt `ocwarden` binary as application/octet-stream, filename `ocwarden`.
          *     - PUBLIC: no Authorization header, so a bare machine or `curl | bash` install can pull it before any token exists.
-         *     - 503 when this server was started without a built binary.
+         *     - `os` / `arch` pick the platform; each one omitted means the server's own value, so a request without them gets the server's own platform.
+         *     - 404 when this server carries no binary for the requested platform; 503 when it was started without a built binary for its own platform.
          */
         get: operations["handle_warden_binary_api_warden_binary_get"];
         put?: never;
@@ -5098,6 +5100,11 @@ export interface components {
              * @default null
              */
             model_call: components["schemas"]["ModelCallReportDTO"] | null;
+            /**
+             * Platform
+             * @description Warden heartbeats only — the platform this warden binary was built for, ``<GOOS>/<GOARCH>`` (e.g. ``linux/amd64``). The server compares ``binaries`` against its embedded prebuilts FOR THIS PLATFORM; a warden build that omits it is compared against the server's own platform, which is what every such build was downloaded as. A platform the server carries no prebuilts for leaves ``bin_status`` unknown (null). Permissive like the other scalars here: a value not shaped ``<os>/<arch>`` is a flat 400, never a 422.
+             */
+            platform?: unknown;
             /** Rate Limits */
             rate_limits?: unknown;
             /**
@@ -6830,9 +6837,10 @@ export interface components {
          *     projection for that warden. ``bin_status`` is the server-computed binary
          *     freshness verdict: ``current`` when every content fingerprint the warden's 30s
          *     heartbeat reported (ocwarden + ocagent) matches the server's own embedded
-         *     latest prebuilts, ``stale`` when any differs, null when unknowable (no
-         *     heartbeat fingerprint yet — e.g. an older warden build — or the server has no
-         *     embedded bindist to compare against). Comparison result only — deliberately
+         *     latest prebuilts for the platform that heartbeat reports, ``stale`` when any
+         *     differs, null when unknowable (no heartbeat fingerprint yet — e.g. an older
+         *     warden build — or the server has no embedded bindist for that platform to
+         *     compare against). Comparison result only — deliberately
          *     NOT a per-machine version number (content hashes, never embedded version
          *     stamps; see the ocwarden self-update swap oracle).
          */
@@ -13371,7 +13379,12 @@ export interface operations {
     };
     handle_agent_binary_api_agent_binary_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Target operating system, as Go's GOOS names it (`darwin`, `linux`). Omitted = the server's own. */
+                os?: string | null;
+                /** @description Target CPU architecture, as Go's GOARCH names it (`amd64`, `arm64`). Omitted = the server's own. */
+                arch?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -23252,7 +23265,12 @@ export interface operations {
     };
     handle_warden_binary_api_warden_binary_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Target operating system, as Go's GOOS names it (`darwin`, `linux`). Omitted = the server's own. */
+                os?: string | null;
+                /** @description Target CPU architecture, as Go's GOARCH names it (`amd64`, `arm64`). Omitted = the server's own. */
+                arch?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
