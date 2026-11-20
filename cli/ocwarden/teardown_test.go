@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -71,6 +72,7 @@ func TestResolveTeardownPaths(t *testing.T) {
 			goos:       "linux",
 			unitPath:   "/srv/eva-config/systemd/user/com.officraft.ocwarden.lab.service",
 			runtimeDir: "/run/user/eva-session",
+			namespace:  "lab",
 		}},
 	}
 	for _, c := range linuxCases {
@@ -450,6 +452,65 @@ func TestDoTeardown(t *testing.T) {
 			"[ocwarden teardown] DRYRUN complete — no machine state changed.\n"
 		if log != want {
 			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("under WSL2, the keep-alive script leaves the Startup folder and a running keep-alive is left to Windows sign-out", func(t *testing.T) {
+		sys := newSysRecorder()
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		newFakeWindowsSide(sys)
+		sys.files[keepAlivePath] = keepAliveScript
+		ok, log := doTeardown(sys.ops(), false, lp, false)
+		if !ok {
+			t.Error("ok = false, want true")
+		}
+		if _, left := sys.files[keepAlivePath]; left {
+			t.Error("the keep-alive script is still in the Startup folder")
+		}
+		want := "[ocwarden teardown] removed: " + lp.tokfile + "\n" +
+			"[ocwarden teardown] removed: " + lp.unitPath + "\n" +
+			"[ocwarden teardown] disabled + stopped com.officraft.ocwarden.service — CONFIRMED gone from the systemd user manager (exact unit; never pkill)\n" +
+			"[ocwarden teardown] removed: " + keepAlivePath + "\n" +
+			"[ocwarden teardown] a WSL keep-alive already running stays until Windows signs out or restarts\n" +
+			"[ocwarden teardown] teardown complete for com.officraft.ocwarden\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("under WSL2 with a namespace, only that namespace's keep-alive script is removed", func(t *testing.T) {
+		sys := newSysRecorder()
+		newFakeUserManager(sys)
+		newFakeWindowsSide(sys)
+		lab := "/mnt/c/Users/eva/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/OffiCraft keep WSL running (Ubuntu-24.04, lab).vbs"
+		sys.files[keepAlivePath] = keepAliveScript
+		sys.files[lab] = keepAliveScript
+		nsp := lp
+		nsp.namespace = "lab"
+		nsp.label = "com.officraft.ocwarden.lab"
+		nsp.tokfile = "/home/eva/.officraft-lab/warden/exec-warden.tok"
+		nsp.unitPath = "/home/eva/.config/systemd/user/com.officraft.ocwarden.lab.service"
+		doTeardown(sys.ops(), false, nsp, false)
+		want := map[string]string{"/proc/sys/kernel/osrelease": "5.15.167.4-microsoft-standard-WSL2\n", keepAlivePath: keepAliveScript}
+		if !reflect.DeepEqual(sys.files, want) {
+			t.Errorf("files left = %v, want only the canonical keep-alive script", sys.files)
+		}
+	})
+
+	t.Run("under WSL2 with Windows interop off, the teardown still completes and says where to delete the script", func(t *testing.T) {
+		sys := newSysRecorder()
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		newFakeWindowsSide(sys).interopOff = true
+		ok, log := doTeardown(sys.ops(), false, lp, false)
+		if !ok {
+			t.Error("ok = false, want true")
+		}
+		want := "[ocwarden teardown] warning: could not locate the WSL keep-alive script (cmd.exe could not be run: exec format error); if one is left, delete it from the Windows Startup folder (Win+R, shell:startup)\n" +
+			"[ocwarden teardown] teardown complete for com.officraft.ocwarden\n"
+		if !strings.HasSuffix(log, want) {
+			t.Errorf("log =\n%s\nwant it to end with\n%s", log, want)
 		}
 	})
 }

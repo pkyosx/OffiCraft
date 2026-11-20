@@ -151,9 +151,24 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 ### Windows（WSL2）關掉終端機後，成員會不會離線
 
-<!-- TODO(WSL2 實測) -->
-關掉 Windows 上的 Ubuntu 視窗之後，WSL2 裡的 warden 與成員是否繼續保持線上，目前還在實際驗證中。Windows 可能在 WSL2 一段時間沒有使用後把 WSL2 關掉，關掉時這台機器上的成員會離線。驗證結果確定後會更新這一段。
-<!-- /TODO(WSL2 實測) -->
+不會。Windows 只在還有從 Windows 這一側啟動的 Linux 程式時，讓 WSL2 的 Ubuntu 繼續執行；Ubuntu 視窗算在內，systemd 的使用者服務不算。所以在 WSL2 上安裝時，OffiCraft 會在 Windows 的「啟動」資料夾放一個保持執行檔，並立刻執行一次。保持執行檔在背景啟動一個不做任何事、也不會結束的 Linux 程式（`sleep infinity`），畫面上不會多出視窗；有了 `sleep infinity`，所有 Ubuntu 視窗都關掉後，Ubuntu 與裡面的 warden、成員仍繼續執行。每次登入 Windows 時，「啟動」資料夾裡的保持執行檔會再執行一次。
+
+- **保持執行檔的檔名是 `OffiCraft keep WSL running (<名稱>).vbs`。** `<名稱>` 是裝 OffiCraft 的那一套 Linux 的名稱，例如 `Ubuntu`；在 PowerShell 執行 `wsl -l -v` 可以列出名稱。第二個工作室的 warden（用 `OC_NAMESPACE` 安裝）另有一個檔名是 `OffiCraft keep WSL running (<名稱>, <工作室名稱>).vbs` 的保持執行檔。按 Windows 鍵加 R，輸入 `shell:startup` 後按 Enter，會打開「啟動」資料夾。保持執行檔的內容只有一行，名稱是 `Ubuntu` 時如下：
+
+  ```vb
+  CreateObject("WScript.Shell").Run "wsl.exe -d Ubuntu --exec sleep infinity", 0, False
+  ```
+
+- **安裝時印出 `WARN: WSL keep-alive not set up`，代表保持執行檔沒有設定好。** 常見原因是裝 OffiCraft 的 Linux 關掉了 Windows 互通功能（在 Linux 裡執行 Windows 程式的功能，由 `/etc/wsl.conf` 的 `[interop]` 設定）。這時所有 Ubuntu 視窗都關掉後，Windows 會把整套 Ubuntu 停掉，這台機器在「機器資訊」顯示離線；重新打開 Ubuntu 視窗後不需要其他操作，warden 隨 Ubuntu 自動啟動，原本在這台機器上的成員約半分鐘內重新上線。要在關掉視窗後讓成員繼續工作，在 Windows 的 PowerShell 執行 WARN 那一行印出的指令，名稱是 `Ubuntu` 時如下：
+
+  ```powershell
+  Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--exec','sleep','infinity' -WindowStyle Hidden
+  ```
+
+  PowerShell 指令啟動的 `sleep infinity` 只持續到 Windows 登出或重新開機。要每次登入 Windows 都自動啟動，用記事本建立內容是上面那一行 `CreateObject(…)` 的檔案，存成副檔名為 `.vbs` 的檔案放進「啟動」資料夾。
+
+- **停止的方式**：在 PowerShell 執行 `wsl --terminate <名稱>`，Ubuntu 會連同裡面的 OffiCraft 與成員一起停止。不要在登入 Windows 時自動執行，就把保持執行檔從「啟動」資料夾刪掉。用 `ocwarden teardown` 移除 warden 時，保持執行檔會一併刪除，已經在執行的 `sleep infinity` 持續到 Windows 登出或重新開機。
+- **電腦進入睡眠時，成員一樣會離線。** 要讓成員持續工作，這台電腦要保持喚醒。
 
 ## 回呼端點
 

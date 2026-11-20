@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -253,4 +254,148 @@ func systemdTeardown(sys sysOps, dryRun bool, p teardownPaths, insideUnit bool, 
 func stopUnitNoBlock(sys sysOps, p teardownPaths) error {
 	_, err := systemctlUser(sys, p.runtimeDir, "stop", "--no-block", unitNameFor(p.resolvedLabel()))
 	return err
+}
+
+// Under WSL2 a systemd user service does not keep the distro running: once the
+// last Windows-side client (an Ubuntu window) exits, Windows stops the whole
+// distro and the warden with it. A Linux process started from Windows through
+// wsl.exe counts as a client, so a hidden `sleep infinity` launched by a script
+// in the Windows Startup folder keeps the distro, and every member, online.
+const (
+	wslOSReleasePath = "/proc/sys/kernel/osrelease"
+	wslCmdExe        = "/mnt/c/Windows/System32/cmd.exe"
+	wslWscriptExe    = "/mnt/c/Windows/System32/wscript.exe"
+	wslPathBin       = "/usr/bin/wslpath"
+	// Windows programs started from a Linux cwd warn that UNC paths are unsupported.
+	wslWindowsCwd = "/mnt/c"
+)
+
+var wslDistroShape = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+func onWSL(sys sysOps) bool {
+	release, err := sys.readFile(wslOSReleasePath)
+	return err == nil && strings.Contains(strings.ToLower(string(release)), "microsoft")
+}
+
+func runWindows(sys sysOps, exe string, args ...string) (string, error) {
+	return sys.run("env", append([]string{"-C", wslWindowsCwd, exe}, args...)...)
+}
+
+// `wslpath -w /` names the distro this process runs in without relying on
+// WSL_DISTRO_NAME, which the server's child env does not carry.
+func wslDistroName(sys sysOps, envDistro string) (string, error) {
+	name := ""
+	if out, err := sys.run(wslPathBin, "-w", "/"); err == nil {
+		root := strings.TrimRight(strings.TrimSpace(out), `\`)
+		for _, prefix := range []string{`\\wsl.localhost\`, `\\wsl$\`} {
+			if strings.HasPrefix(root, prefix) {
+				name = strings.TrimPrefix(root, prefix)
+			}
+		}
+	}
+	if name == "" {
+		name = envDistro
+	}
+	if !wslDistroShape.MatchString(name) {
+		return "", errors.New("the WSL distro name could not be determined")
+	}
+	return name, nil
+}
+
+type wslKeepAlive struct {
+	distro  string
+	path    string
+	winPath string
+}
+
+func (k wslKeepAlive) script() string {
+	return `CreateObject("WScript.Shell").Run "wsl.exe -d ` + k.distro + ` --exec sleep infinity", 0, False` + "\r\n"
+}
+
+func wslKeepAliveName(distro, namespace string) string {
+	if namespace == "" {
+		return "OffiCraft keep WSL running (" + distro + ").vbs"
+	}
+	return "OffiCraft keep WSL running (" + distro + ", " + namespace + ").vbs"
+}
+
+// The returned distro is filled in whenever it is known, even with an error,
+// so the manual fallback can name it.
+func locateWSLKeepAlive(sys sysOps, envDistro, namespace string) (wslKeepAlive, error) {
+	distro, err := wslDistroName(sys, envDistro)
+	if err != nil {
+		return wslKeepAlive{}, err
+	}
+	k := wslKeepAlive{distro: distro}
+	out, err := runWindows(sys, wslCmdExe, "/c", "echo %APPDATA%")
+	if err != nil {
+		return k, fmt.Errorf("cmd.exe could not be run: %w", err)
+	}
+	appData := strings.TrimSpace(out)
+	if appData == "" || strings.Contains(appData, "%") {
+		return k, errors.New("cmd.exe did not report the Windows APPDATA folder")
+	}
+	linuxAppData, err := sys.run(wslPathBin, "-u", appData)
+	if err != nil {
+		return k, fmt.Errorf("wslpath could not convert the APPDATA folder: %w", err)
+	}
+	name := wslKeepAliveName(distro, namespace)
+	k.path = filepath.Join(strings.TrimSpace(linuxAppData), "Microsoft", "Windows", "Start Menu", "Programs", "Startup", name)
+	k.winPath = appData + `\Microsoft\Windows\Start Menu\Programs\Startup\` + name
+	return k, nil
+}
+
+// Never fails the install: without the keep-alive the warden still works while
+// an Ubuntu window is open.
+func (i *installer) ensureWSLKeepAlive(p wardenPaths) {
+	if !onWSL(i.sys) {
+		return
+	}
+	if i.dryRun {
+		i.logf("DRYRUN would: write the WSL keep-alive script into the Windows Startup folder and start it once")
+		return
+	}
+	k, err := locateWSLKeepAlive(i.sys, p.wslDistro, p.namespace)
+	if err == nil {
+		if current, rerr := i.sys.readFile(k.path); rerr != nil || string(current) != k.script() {
+			if werr := i.sys.writeFile(k.path, []byte(k.script()), 0o644); werr != nil {
+				err = fmt.Errorf("could not write %s: %w", k.winPath, werr)
+			}
+		}
+	}
+	if err == nil {
+		if _, rerr := runWindows(i.sys, wslWscriptExe, k.winPath); rerr != nil {
+			err = fmt.Errorf("wscript.exe could not start %s: %w", k.winPath, rerr)
+		}
+	}
+	if err != nil {
+		distro := k.distro
+		if distro == "" {
+			distro = "<name from wsl -l -v>"
+		}
+		i.logf("WARN: WSL keep-alive not set up (%v) — members on this machine go offline when every Ubuntu window is closed. "+
+			"Manual fallback, in Windows PowerShell: Start-Process wsl.exe -ArgumentList '-d','%s','--exec','sleep','infinity' -WindowStyle Hidden "+
+			"(docs/guide/troubleshooting.md explains the Startup-folder file that repeats this at every Windows sign-in)", err, distro)
+		return
+	}
+	i.logf("WSL keep-alive: wrote %s and started it; members stay online after every Ubuntu window is closed", k.winPath)
+}
+
+// Leaves the already-running keep-alive alone and never fails the teardown:
+// the file is not a warden artifact the server waits on.
+func removeWSLKeepAlive(sys sysOps, dryRun bool, p teardownPaths, logf func(string, ...any)) {
+	if !onWSL(sys) {
+		return
+	}
+	if dryRun {
+		logf("DRYRUN would remove: the WSL keep-alive script from the Windows Startup folder")
+		return
+	}
+	k, err := locateWSLKeepAlive(sys, p.wslDistro, p.namespace)
+	if err != nil {
+		logf("warning: could not locate the WSL keep-alive script (%v); if one is left, delete it from the Windows Startup folder (Win+R, shell:startup)", err)
+		return
+	}
+	removeFileTo(logf, sys, false, k.path)
+	logf("a WSL keep-alive already running stays until Windows signs out or restarts")
 }

@@ -663,3 +663,49 @@ func TestStopUnitNoBlock(t *testing.T) {
 		}
 	})
 }
+
+// fakeWindowsSide stands in for the Windows half of a WSL2 host behind
+// sysOps.run: the kernel release that marks WSL2, wslpath, cmd.exe and
+// wscript.exe, whose started scripts it records. Every other command goes on to
+// the run it wraps.
+type fakeWindowsSide struct {
+	distroRoot string
+	interopOff bool
+	started    []string
+}
+
+func newFakeWindowsSide(sys *sysRecorder) *fakeWindowsSide {
+	w := &fakeWindowsSide{distroRoot: `\\wsl.localhost\Ubuntu-24.04\`}
+	sys.files["/proc/sys/kernel/osrelease"] = "5.15.167.4-microsoft-standard-WSL2\n"
+	next := sys.run
+	sys.run = func(argv string, nth int) (string, error) {
+		windows := strings.HasPrefix(argv, "env -C /mnt/c /mnt/c/Windows/System32/")
+		if windows && w.interopOff {
+			return "", errors.New("exec format error")
+		}
+		switch {
+		case argv == "/usr/bin/wslpath -w /":
+			return w.distroRoot + "\n", nil
+		case argv == "env -C /mnt/c /mnt/c/Windows/System32/cmd.exe /c echo %APPDATA%":
+			return `C:\Users\eva\AppData\Roaming` + "\r\n", nil
+		case argv == `/usr/bin/wslpath -u C:\Users\eva\AppData\Roaming`:
+			return "/mnt/c/Users/eva/AppData/Roaming\n", nil
+		case strings.HasPrefix(argv, "env -C /mnt/c /mnt/c/Windows/System32/wscript.exe "):
+			w.started = append(w.started, strings.TrimPrefix(argv, "env -C /mnt/c /mnt/c/Windows/System32/wscript.exe "))
+			return "", nil
+		case windows:
+			return "", fmt.Errorf("fake Windows side: unexpected %q", argv)
+		}
+		if next == nil {
+			return "", nil
+		}
+		return next(argv, nth)
+	}
+	return w
+}
+
+const (
+	keepAlivePath    = "/mnt/c/Users/eva/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/OffiCraft keep WSL running (Ubuntu-24.04).vbs"
+	keepAliveWinPath = `C:\Users\eva\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\OffiCraft keep WSL running (Ubuntu-24.04).vbs`
+	keepAliveScript  = `CreateObject("WScript.Shell").Run "wsl.exe -d Ubuntu-24.04 --exec sleep infinity", 0, False` + "\r\n"
+)

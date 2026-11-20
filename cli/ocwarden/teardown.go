@@ -1,6 +1,7 @@
 // `ocwarden teardown` — inverse of `ocwarden install`. The process is stopped only
 // by the service manager (launchd bootout / systemctl disable), never pkill. It
-// removes ONLY the two files install wrote (tokfile + plist or unit), never
+// removes ONLY the files install wrote (tokfile + plist or unit, and on WSL2 the
+// keep-alive script in the Windows Startup folder), never
 // ~/.officraft wholesale: that dir also holds agents/ state.
 package main
 
@@ -24,6 +25,8 @@ type teardownPaths struct {
 	goos       string
 	unitPath   string
 	runtimeDir string
+	namespace  string
+	wslDistro  string
 }
 
 func (p teardownPaths) resolvedLabel() string {
@@ -50,6 +53,8 @@ func resolveTeardownPaths(env func(string) string, uid int, goos string) (teardo
 			goos:       goos,
 			unitPath:   filepath.Join(systemdUnitDir(env, home), unitNameFor(label)),
 			runtimeDir: userRuntimeDir(env, uid),
+			namespace:  ns,
+			wslDistro:  env("WSL_DISTRO_NAME"),
 		}, nil
 	}
 	return teardownPaths{
@@ -95,6 +100,7 @@ func doTeardown(sys sysOps, dryRun bool, p teardownPaths, insideUnit bool) (ok b
 	if p.goos == "linux" {
 		gone, okTok, okUnit := systemdTeardown(sys, dryRun, p, insideUnit, logf)
 		ok = gone && okTok && okUnit
+		removeWSLKeepAlive(sys, dryRun, p, logf)
 		if dryRun {
 			logf("DRYRUN complete — no machine state changed.")
 		} else if ok {

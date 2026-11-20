@@ -2191,7 +2191,7 @@ func TestRunInstall(t *testing.T) {
 		}
 	})
 
-	t.Run("under linux, the steps leave the unit enabled, running and lingering", func(t *testing.T) {
+	t.Run("under linux outside WSL2, the steps leave the unit enabled, running and lingering, and nothing else", func(t *testing.T) {
 		i, sys, out := newRecordingInstaller(false)
 		m := newFakeUserManager(sys)
 		sys.files["/tmp/clone/ocwarden"] = "OCWARDEN-BYTES"
@@ -2241,6 +2241,95 @@ func TestRunInstall(t *testing.T) {
 			"[ocwarden install] SUCCESS: com.officraft.ocwarden is running and STABLE (pid=4001 held >=6s). Logs: /home/eva/.officraft/warden/log/ocwarden.{out,err}.log\n"
 		if !strings.HasPrefix(out.String(), wantHead) || !strings.HasSuffix(out.String(), wantTail) {
 			t.Errorf("log =\n%s\nwant it to open with\n%s\nand end with\n%s", out.String(), wantHead, wantTail)
+		}
+	})
+
+	wslInstall := func() (*installer, *sysRecorder, *bytes.Buffer, *fakeWindowsSide) {
+		i, sys, out := newRecordingInstaller(false)
+		newFakeUserManager(sys)
+		w := newFakeWindowsSide(sys)
+		sys.files["/tmp/clone/ocwarden"] = "OCWARDEN-BYTES"
+		sys.files["/tmp/clone/officraft"] = "ANCHOR-BYTES"
+		i.agentGet = func(string) (int, []byte, error) { return 200, []byte("OCAGENT-BYTES"), nil }
+		i.agentProbe = func(string) error { return nil }
+		return i, sys, out, w
+	}
+	keepAliveLine := "[ocwarden install] WSL keep-alive: wrote " + keepAliveWinPath + " and started it; members stay online after every Ubuntu window is closed\n"
+
+	t.Run("under WSL2, the keep-alive script lands in the Startup folder, is started, and the install says where", func(t *testing.T) {
+		i, sys, out, w := wslInstall()
+		if err := i.runInstall(linuxInstallFixture()); err != nil {
+			t.Fatalf("runInstall: %v\n%s", err, out.String())
+		}
+		if got := sys.files[keepAlivePath]; got != keepAliveScript {
+			t.Errorf("keep-alive script = %q, want %q", got, keepAliveScript)
+		}
+		if want := []string{keepAliveWinPath}; !reflect.DeepEqual(w.started, want) {
+			t.Errorf("wscript.exe started %q, want %q", w.started, want)
+		}
+		if !strings.HasSuffix(out.String(), keepAliveLine) {
+			t.Errorf("log =\n%s\nwant it to end with\n%s", out.String(), keepAliveLine)
+		}
+	})
+
+	t.Run("under WSL2 with a namespace, the keep-alive script carries the namespace and the canonical one is left alone", func(t *testing.T) {
+		i, sys, out, w := wslInstall()
+		sys.files[keepAlivePath] = "CANONICAL-SCRIPT"
+		p := linuxInstallFixture()
+		p.namespace = "lab"
+		p.label = "com.officraft.ocwarden.lab"
+		p.unitPath = "/home/eva/.config/systemd/user/com.officraft.ocwarden.lab.service"
+		if err := i.runInstall(p); err != nil {
+			t.Fatalf("runInstall: %v\n%s", err, out.String())
+		}
+		labPath := "/mnt/c/Users/eva/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/OffiCraft keep WSL running (Ubuntu-24.04, lab).vbs"
+		labWinPath := `C:\Users\eva\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\OffiCraft keep WSL running (Ubuntu-24.04, lab).vbs`
+		if got := sys.files[labPath]; got != keepAliveScript {
+			t.Errorf("namespaced keep-alive script = %q, want %q", got, keepAliveScript)
+		}
+		if got := sys.files[keepAlivePath]; got != "CANONICAL-SCRIPT" {
+			t.Errorf("canonical keep-alive script = %q, want it untouched", got)
+		}
+		if want := []string{labWinPath}; !reflect.DeepEqual(w.started, want) {
+			t.Errorf("wscript.exe started %q, want %q", w.started, want)
+		}
+	})
+
+	t.Run("under WSL2 with a script for another distro in place, the script is rewritten for this one", func(t *testing.T) {
+		i, sys, out, _ := wslInstall()
+		sys.files[keepAlivePath] = `CreateObject("WScript.Shell").Run "wsl.exe -d Ubuntu --exec sleep infinity", 0, False` + "\r\n"
+		if err := i.runInstall(linuxInstallFixture()); err != nil {
+			t.Fatalf("runInstall: %v\n%s", err, out.String())
+		}
+		if got := sys.files[keepAlivePath]; got != keepAliveScript {
+			t.Errorf("keep-alive script = %q, want %q", got, keepAliveScript)
+		}
+	})
+
+	t.Run("under WSL2 where wslpath does not name the distro, WSL_DISTRO_NAME names it", func(t *testing.T) {
+		i, sys, out, w := wslInstall()
+		w.distroRoot = "/"
+		p := linuxInstallFixture()
+		p.wslDistro = "Ubuntu-24.04"
+		if err := i.runInstall(p); err != nil {
+			t.Fatalf("runInstall: %v\n%s", err, out.String())
+		}
+		if got := sys.files[keepAlivePath]; got != keepAliveScript {
+			t.Errorf("keep-alive script = %q, want %q", got, keepAliveScript)
+		}
+	})
+
+	t.Run("under WSL2 with Windows interop off, the install succeeds and warns with the manual fallback", func(t *testing.T) {
+		i, _, out, w := wslInstall()
+		w.interopOff = true
+		if err := i.runInstall(linuxInstallFixture()); err != nil {
+			t.Fatalf("runInstall: %v\n%s", err, out.String())
+		}
+		want := "[ocwarden install] WARN: WSL keep-alive not set up (cmd.exe could not be run: exec format error) — members on this machine go offline when every Ubuntu window is closed. " +
+			"Manual fallback, in Windows PowerShell: Start-Process wsl.exe -ArgumentList '-d','Ubuntu-24.04','--exec','sleep','infinity' -WindowStyle Hidden " +
+			"(docs/guide/troubleshooting.md explains the Startup-folder file that repeats this at every Windows sign-in)\n"
+		if !strings.HasSuffix(out.String(), want) {
+			t.Errorf("log =\n%s\nwant it to end with\n%s", out.String(), want)
 		}
 	})
 

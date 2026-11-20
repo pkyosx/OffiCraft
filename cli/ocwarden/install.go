@@ -185,6 +185,8 @@ type wardenPaths struct {
 	unitDir    string
 	unitPath   string
 	runtimeDir string
+	// Only a fallback: the installer can run from the server's stripped env.
+	wslDistro string
 }
 
 func (p wardenPaths) onSystemd() bool { return p.goos == "linux" }
@@ -269,6 +271,7 @@ func resolvePaths(env func(string) string, exe string, uid int, goos string) (wa
 		p.unitDir = systemdUnitDir(env, home)
 		p.unitPath = filepath.Join(p.unitDir, unitNameFor(label))
 		p.runtimeDir = userRuntimeDir(env, uid)
+		p.wslDistro = env("WSL_DISTRO_NAME")
 	} else {
 		p.laDir = filepath.Join(home, "Library", "LaunchAgents")
 		p.plistPath = filepath.Join(p.laDir, label+".plist")
@@ -940,6 +943,9 @@ func (i *installer) runInstall(p wardenPaths) error {
 	}
 	if err := i.verify(p); err != nil {
 		return err
+	}
+	if p.onSystemd() {
+		i.ensureWSLKeepAlive(p)
 	}
 	if i.dryRun {
 		i.logf("DRYRUN complete — no machine state changed.")
