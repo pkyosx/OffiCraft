@@ -344,18 +344,21 @@ func readMachineName(r CmdRunner) string {
 	return ""
 }
 
+const wardenPlatform = runtime.GOOS + "/" + runtime.GOARCH
+
 // agent_id is NOT a body key: the reporting identity is the verified JWT sub, and
 // AgentTelemetryIngestDTO (additionalProperties:false) does not declare it —
 // sending it 422s the ENTIRE heartbeat. Keys are sent only when non-empty: absent
-// and "unknown" are different claims on that wire.
-func buildTelemetryPayload(agentID, machine string, hardware map[string]any,
+// and "unknown" are different claims on that wire. platform is always sent: the
+// server compares binaries against its build for that platform.
+func buildTelemetryPayload(agentID, platform, machine string, hardware map[string]any,
 	binaries map[string]string, claude map[string]any, shape, effect string,
 	runtimes ...map[string]any) (map[string]any, error) {
 	aid := strings.TrimSpace(agentID)
 	if aid == "" {
 		return nil, fmt.Errorf("agent id is required (an unidentified warden has nothing to report)")
 	}
-	payload := map[string]any{}
+	payload := map[string]any{"platform": platform}
 	if machine != "" {
 		payload["machine"] = machine
 	}
@@ -471,7 +474,7 @@ func runOnce(cfg Config, collect func() map[string]any, machine func() string, p
 	if len(hardware) == 0 && len(bins) == 0 && len(cl) == 0 && shp == "" && eff == "" && len(runtimeCaps) == 0 && len(disk) == 0 {
 		return ReportResult{Reason: "no hardware probed (skip POST)"}
 	}
-	payload, err := buildTelemetryPayload(cfg.ID, machine(), hardware, bins, cl, shp, eff, runtimeCaps)
+	payload, err := buildTelemetryPayload(cfg.ID, wardenPlatform, machine(), hardware, bins, cl, shp, eff, runtimeCaps)
 	if err != nil {
 		return ReportResult{Reason: "build rejected: " + err.Error()}
 	}

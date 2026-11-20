@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -811,7 +812,11 @@ func TestCheckOnce(t *testing.T) {
 		if !swapped || err != nil {
 			t.Errorf("checkOnce = (%v, %v), want (true, nil)", swapped, err)
 		}
-		want := []string{versionPath, agentBinaryPath, wardenBinaryPath}
+		want := []string{
+			"/api/version",
+			"/api/agent/binary?os=" + runtime.GOOS + "&arch=" + runtime.GOARCH,
+			"/api/warden/binary?os=" + runtime.GOOS + "&arch=" + runtime.GOARCH,
+		}
 		if !reflect.DeepEqual(paths.gets, want) {
 			t.Errorf("fetched %v, want %v", paths.gets, want)
 		}
@@ -930,6 +935,12 @@ func TestCheckOnce(t *testing.T) {
 			t.Errorf("fetched %v, want %v", paths.gets, want)
 		}
 	})
+}
+
+func TestBinaryPlatformQuery(t *testing.T) {
+	if got, want := binaryPlatformQuery("linux", "amd64"), "?os=linux&arch=amd64"; got != want {
+		t.Errorf("binaryPlatformQuery(linux, amd64) = %q, want %q", got, want)
+	}
 }
 
 func TestServerSHA(t *testing.T) {

@@ -1,7 +1,8 @@
 // fingerprint.go — the 12-hex sha256 prefixes of the LIVE on-disk ocwarden, its sibling ocagent and
 // the TCC identity anchor officraft, sent in the telemetry `binaries` field. The server compares
-// them with its own embedded prebuilts (the bytes /api/{warden,agent}/binary serves) to render the
-// machine table's current/stale verdict; an absent entry reads as unknown, never a verdict.
+// them with its own embedded prebuilts for the heartbeat's `platform` (the bytes
+// /api/{warden,agent}/binary serves for it) to render the machine table's current/stale verdict;
+// an absent entry reads as unknown, never a verdict.
 // Deliberately CONTENT hashes, never an embedded version stamp (a stamped sha would loop — see
 // selfupdate.go). The (size, mtime) cache cannot go stale for more than one cycle: a self-update
 // swap rewrites the file, and an ocwarden swap exec-in-places this process.
