@@ -536,8 +536,9 @@ data: {"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m-1a2
     compatibility with older servers. Blank `effort`/`model`/`session_name` mean the
     selected runtime's defaults; `session_name` is always `""` today — the warden derives
     `member-<id>`.
-    - Claude execution writes the private `persona.md` + `.mcp.json` + `settings.json`
-      and a `system-prompt.md` (a short header plus the whole persona), passed with
+    - Claude execution removes a `.mcp.json` left in the workdir by an older warden (Claude Code
+      would hold that file name behind a project-server approval dialog), then writes the
+      private `persona.md` + `officraft-mcp.json` + `settings.json` and a `system-prompt.md` (a short header plus the whole persona), passed with
       `--append-system-prompt-file`; a claude that does not take that flag gets an
       inline pointer to `persona.md` instead.
     - Codex execution writes the same private `persona.md`, starts a warden-managed

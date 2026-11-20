@@ -1256,6 +1256,73 @@ func TestBuildCommandDeps(t *testing.T) {
 		}
 	})
 
+	t.Run("a spawn over a workdir holding an old .mcp.json leaves the MCP config only in officraft-mcp.json, which the launch line names", func(t *testing.T) {
+		box := t.TempDir()
+		claudeBin := stageBinary(t, filepath.Join(box, "bin", "claude"), "#!/bin/sh\nexit 1\n")
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatalf("executable: %v", err)
+		}
+		ocagent := filepath.Join(filepath.Dir(exe), "ocagent")
+		if err := os.WriteFile(ocagent, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Skipf("cannot publish an ocagent beside the test binary: %v", err)
+		}
+		t.Cleanup(func() { os.Remove(ocagent) })
+		wardenHome := filepath.Join(box, "home")
+		workdir := filepath.Join(box, "agents", "m1")
+		for _, dir := range []string{wardenHome, workdir} {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		stale := filepath.Join(workdir, ".mcp.json")
+		if err := os.WriteFile(stale, []byte(`{"mcpServers":{"officraft":{}}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		spawnEnv := envMap(map[string]string{
+			"HOME": wardenHome, "OC_AGENT_HOME": filepath.Join(box, "agents"),
+			"OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0", "OC_CLAUDE_BIN": claudeBin,
+		})
+		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
+			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
+		}}
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, pidGuardRunner{t, runner}, nil, nil)
+
+		d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt-m1", Role: "builder"})
+
+		if _, err := os.Stat(stale); !os.IsNotExist(err) {
+			t.Errorf("the old .mcp.json is still in the workdir (stat err = %v)", err)
+		}
+		config := filepath.Join(workdir, "officraft-mcp.json")
+		raw, err := os.ReadFile(config)
+		want := "{\n" +
+			"  \"mcpServers\": {\n" +
+			"    \"officraft\": {\n" +
+			"      \"type\": \"http\",\n" +
+			"      \"url\": \"https://station.example/api/mcp\",\n" +
+			"      \"headers\": {\n" +
+			"        \"Authorization\": \"Bearer jwt-m1\"\n" +
+			"      }\n" +
+			"    }\n" +
+			"  }\n" +
+			"}"
+		if err != nil || string(raw) != want {
+			t.Errorf("officraft-mcp.json = (%q, %v), want %q", raw, err, want)
+		}
+		if fi, err := os.Stat(config); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("officraft-mcp.json mode = %v (err %v), want 0600", fi.Mode().Perm(), err)
+		}
+		var launch string
+		for _, call := range runner.calls {
+			if strings.Contains(call, "new-session -d -s member-m1") {
+				launch = call
+			}
+		}
+		if !strings.Contains(launch, " --mcp-config "+config+" ") {
+			t.Errorf("launch line does not pass --mcp-config %s:\n%s", config, launch)
+		}
+	})
+
 	t.Run("a redirected pre-trust target is the one the launch line exports", func(t *testing.T) {
 		// Without this case the wiring could compute the write target from HOME
 		// directly: with no redirect that answer is identical to the stated one, so

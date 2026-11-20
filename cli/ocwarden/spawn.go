@@ -464,7 +464,7 @@ func nudgeClock(sleep func(time.Duration)) func(time.Duration) {
 	return sleep
 }
 
-// DURABLE, not mkdtemp: a reaped tmpdir would take the token-bearing .mcp.json.
+// DURABLE, not mkdtemp: a reaped tmpdir would take the token-bearing officraft-mcp.json.
 func agentWorkdir(home, id string) string {
 	return filepath.Join(home, strings.ToLower(id))
 }
@@ -787,7 +787,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 	personaFile := filepath.Join(workdir, "persona.md")
 	promptFile := filepath.Join(workdir, "system-prompt.md")
-	mcpConfigPath := filepath.Join(workdir, ".mcp.json")
+	mcpConfigPath := filepath.Join(workdir, "officraft-mcp.json")
 	settingsPath := filepath.Join(workdir, "settings.json")
 	settingsJSON, err := compactSettingsJSON(buildStatuslineSettings())
 	if err != nil {
@@ -799,11 +799,18 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"write_file_failed: persona.md: %v", err)}
 	}
+	// Never name the config .mcp.json: Claude Code also reads that name in the cwd
+	// as a project server and holds it behind an approval dialog the member cannot
+	// answer. A .mcp.json left by an older warden is removed for the same reason.
+	if err := d.Remove(filepath.Join(workdir, ".mcp.json")); err != nil && !os.IsNotExist(err) {
+		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
+			"remove_failed: stale .mcp.json: %v", err)}
+	}
 	// No --strict-mcp-config: the agent ALSO loads user-scope MCP (account
 	// connectors, e.g. Slack) on top of this server.
 	if err := d.WriteFile(mcpConfigPath, buildMCPConfig(base, p.MemberToken), 0o600); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
-			"write_file_failed: .mcp.json: %v", err)}
+			"write_file_failed: officraft-mcp.json: %v", err)}
 	}
 	// settings.json is kept for inspection only; the launch passes settingsJSON inline
 	// so a later file edit cannot redirect the child's config home.

@@ -239,7 +239,7 @@ var goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR
 	`HOME=/Users/wardenowner; ` +
 	`export PATH=/w/m1:"$PATH"; ` +
 	`exec /usr/local/bin/claude --dangerously-skip-permissions ` +
-	`--disallowedTools AskUserQuestion --mcp-config /w/m1/.mcp.json --effort medium ` +
+	`--disallowedTools AskUserQuestion --mcp-config /w/m1/officraft-mcp.json --effort medium ` +
 	`--append-system-prompt-file /w/m1/system-prompt.md --settings ` + shellQuote(goldenInlineSettings) +
 	` --plugin-dir /w/m1/.officraft-mod`
 
@@ -639,8 +639,8 @@ func TestBuildLaunchCommand(t *testing.T) {
 		`HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
-		`--mcp-config /w/m1/.mcp.json --effort medium --append-system-prompt APPEND`
-	got := buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
+		`--mcp-config /w/m1/officraft-mcp.json --effort medium --append-system-prompt APPEND`
+	got := buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "",
 		claudeHome{Home: "/Users/wardenowner"})
 	if got != want {
@@ -652,9 +652,9 @@ func TestBuildLaunchCommand(t *testing.T) {
 		`HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
-		`--mcp-config /w/m1/.mcp.json --effort high --append-system-prompt APPEND ` +
+		`--mcp-config /w/m1/officraft-mcp.json --effort high --append-system-prompt APPEND ` +
 		`--model opus --settings '{"hooks":{}}'`
-	got = buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
+	got = buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft",
 		"opus", "high", `{"hooks":{}}`, claudeHome{Home: "/Users/wardenowner"})
 	if got != wantFull {
@@ -670,23 +670,23 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		`OC_AGENT_HOME=/w HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
 		`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
-		`--mcp-config /w/m1/.mcp.json --effort medium --append-system-prompt APPEND ` +
+		`--mcp-config /w/m1/officraft-mcp.json --effort medium --append-system-prompt APPEND ` +
 		`--settings '{"hooks":{}}'`
-	got := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
+	got := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft-lab", "", "medium",
 		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}}, "/w/m1/.oc-env", home, "")
 	if got != want {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
 
-	plain := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
+	plain := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "", home, "")
-	if plain != buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
+	if plain != buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", home) {
 		t.Errorf("no extra env must be byte-identical to the plain line, got\n%s", plain)
 	}
 
-	spaced := buildLaunchCommandWithEnv("/opt/my claude/claude", "/w/a b", "/w/a b/.mcp.json", claudeSystemPromptInline("it's me"),
+	spaced := buildLaunchCommandWithEnv("/opt/my claude/claude", "/w/a b", "/w/a b/officraft-mcp.json", claudeSystemPromptInline("it's me"),
 		"/w/a b/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/a b/.oc-env",
 		claudeHome{Home: "/Users/warden owner"}, "")
 	wantSpaced := `cd '/w/a b'; [ -f '/w/a b/.oc-env' ] && . '/w/a b/.oc-env'; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
@@ -695,13 +695,13 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		`HOME='/Users/warden owner'; ` +
 		`export PATH='/w/a b':"$PATH"; ` +
 		`exec '/opt/my claude/claude' --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
-		`--mcp-config '/w/a b/.mcp.json' --effort medium --append-system-prompt 'it'"'"'s me'`
+		`--mcp-config '/w/a b/officraft-mcp.json' --effort medium --append-system-prompt 'it'"'"'s me'`
 	if spaced != wantSpaced {
 		t.Errorf("launch line =\n%s\nwant\n%s", spaced, wantSpaced)
 	}
 
 	t.Run("a redirected config home is exported instead of unset", func(t *testing.T) {
-		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
 			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "")
 		if !strings.Contains(line, "CLAUDE_CONFIG_DIR=/tmp/box") {
@@ -716,7 +716,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		// The whole guarantee is positional: these exports overrule the owner's
 		// file because they run later. Emitted before the source line they are
 		// silently erased by it, and every other assertion here still passes.
-		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
 			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "")
 		source := strings.Index(line, ". /w/m1/.oc-env")
@@ -728,7 +728,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		if source > pinHome || source > pinDir {
 			t.Errorf("source at %d must precede the pins (HOME=%d, CLAUDE_CONFIG_DIR=%d):\n%s", source, pinHome, pinDir, line)
 		}
-		unsetLine := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
+		unsetLine := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
 			claudeHome{Home: "/Users/wardenowner"}, "")
 		if src, un := strings.Index(unsetLine, ". /w/m1/.oc-env"), strings.Index(unsetLine, "unset CLAUDE_CONFIG_DIR"); src < 0 || un < 0 || src > un {
@@ -759,7 +759,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		if err := os.WriteFile(render, []byte("export CLAUDE_FROM_THE_ENV_FILE=1\n"), 0o600); err != nil {
 			t.Fatalf("seed render: %v", err)
 		}
-		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", workdir, "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", workdir, "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/dev/null", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, render,
 			claudeHome{Home: "/Users/wardenowner"}, "")
 		execAt := strings.Index(line, "; exec ")
@@ -777,7 +777,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	})
 
 	t.Run("a pin cannot be overridden by an extra env pair of the same name", func(t *testing.T) {
-		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
+		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "",
 			[][2]string{{"HOME", "/Volumes/scratch/home"}}, "", claudeHome{Home: "/Users/wardenowner"}, "")
 		early := strings.Index(line, "HOME=/Volumes/scratch/home")
@@ -1338,7 +1338,7 @@ func TestStart(t *testing.T) {
 		}
 		wantWrites := append([]writtenFile{
 			{"/w/m1/persona.md", "you are m1", 0o600},
-			{"/w/m1/.mcp.json", buildMCPConfig("http://127.0.0.1:7755", "jwt-m1"), 0o600},
+			{"/w/m1/officraft-mcp.json", buildMCPConfig("http://127.0.0.1:7755", "jwt-m1"), 0o600},
 			{"/w/m1/settings.json", buildStatuslineSettings(), 0o600},
 			{"/w/m1/.oc-token", "jwt-m1", 0o600},
 			{"/w/m1/system-prompt.md", goldenSystemPromptM1, 0o600},
@@ -1349,7 +1349,7 @@ func TestStart(t *testing.T) {
 		// Every marker goes before the launch: a stale loaded marker would pass the
 		// check for a mod that never loaded, a stale disabled one would mute it, a
 		// stale started one would date a not-loaded diagnosis to the previous session.
-		wantRemoves := []string{"/w/m1/ocagent", "/w/m1/.oc-env", "/w/m1/.officraft-mod-started", "/w/m1/.officraft-mod-loaded",
+		wantRemoves := []string{"/w/m1/.mcp.json", "/w/m1/ocagent", "/w/m1/.oc-env", "/w/m1/.officraft-mod-started", "/w/m1/.officraft-mod-loaded",
 			"/w/m1/.officraft-mod-disabled", "/w/m1/.officraft-mod-booted"}
 		if !reflect.DeepEqual(h.removes, wantRemoves) {
 			t.Errorf("removes = %v, want %v", h.removes, wantRemoves)
@@ -1421,7 +1421,7 @@ func TestStart(t *testing.T) {
 		baseWrites := func() []writtenFile {
 			return append([]writtenFile{
 				{"/w/m1/persona.md", "you are m1", 0o600},
-				{"/w/m1/.mcp.json", buildMCPConfig("http://127.0.0.1:7755", "jwt-m1"), 0o600},
+				{"/w/m1/officraft-mcp.json", buildMCPConfig("http://127.0.0.1:7755", "jwt-m1"), 0o600},
 				{"/w/m1/settings.json", buildStatuslineSettings(), 0o600},
 				{"/w/m1/.oc-token", "jwt-m1", 0o600},
 				{"/w/m1/system-prompt.md", goldenSystemPromptM1, 0o600},
@@ -1459,7 +1459,7 @@ func TestStart(t *testing.T) {
 			if !reflect.DeepEqual(h.writes, wantWrites) {
 				t.Errorf("writes =\n%+v\nwant\n%+v", h.writes, wantWrites)
 			}
-			wantRemoves := []string{"/w/m1/ocagent", "/w/m1/.oc-env",
+			wantRemoves := []string{"/w/m1/.mcp.json", "/w/m1/ocagent", "/w/m1/.oc-env",
 				"/w/m1/.officraft-mod-started", "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-disabled", "/w/m1/.officraft-mod-booted",
 				"/w/m1/.officraft-mod-started", "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-disabled", "/w/m1/.officraft-mod-booted"}
 			if !reflect.DeepEqual(h.removes, wantRemoves) {
@@ -2122,7 +2122,7 @@ func TestStart(t *testing.T) {
 			`HOME=/Users/wardenowner; ` +
 			`export PATH=/w/m1:"$PATH"; ` +
 			`exec /usr/local/bin/claude --dangerously-skip-permissions ` +
-			`--disallowedTools AskUserQuestion --mcp-config /w/m1/.mcp.json --effort medium ` +
+			`--disallowedTools AskUserQuestion --mcp-config /w/m1/officraft-mcp.json --effort medium ` +
 			`--append-system-prompt ` + shellQuote(goldenFallbackPromptM1) +
 			` --settings ` + shellQuote(goldenInlineSettings) + ` --plugin-dir /w/m1/.officraft-mod`
 		for _, tc := range []struct {
@@ -2235,7 +2235,7 @@ func TestStart(t *testing.T) {
 			`OC_AGENT_HOME=/w HOME=/Users/wardenowner; ` +
 			`export PATH=/w/m1:"$PATH"; ` +
 			`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
-			`--mcp-config /w/m1/.mcp.json --effort high ` +
+			`--mcp-config /w/m1/officraft-mcp.json --effort high ` +
 			`--append-system-prompt-file /w/m1/system-prompt.md --model opus --settings ` + shellQuote(goldenInlineSettings) +
 			` --plugin-dir /w/m1/.officraft-mod`
 		if h.runner.calls[3] != wantLaunch {
@@ -2475,9 +2475,9 @@ func TestStart(t *testing.T) {
 			{"a persona that cannot be written", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.writeErr["/w/m1/persona.md"] = errors.New("no space left on device")
 			}, "write_file_failed: persona.md: no space left on device"},
-			{"an .mcp.json that cannot be written", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
-				h.writeErr["/w/m1/.mcp.json"] = errors.New("no space left on device")
-			}, "write_file_failed: .mcp.json: no space left on device"},
+			{"an officraft-mcp.json that cannot be written", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
+				h.writeErr["/w/m1/officraft-mcp.json"] = errors.New("no space left on device")
+			}, "write_file_failed: officraft-mcp.json: no space left on device"},
 			{"a settings.json that cannot be written", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.writeErr["/w/m1/settings.json"] = errors.New("no space left on device")
 			}, "write_file_failed: settings.json: no space left on device"},
@@ -2487,6 +2487,9 @@ func TestStart(t *testing.T) {
 			{"a stale ocagent link that cannot be cleared", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.removeErr["/w/m1/ocagent"] = errors.New("permission denied")
 			}, "symlink_failed: clearing stale ocagent link: permission denied"},
+			{"a stale .mcp.json that cannot be removed", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
+				h.removeErr["/w/m1/.mcp.json"] = errors.New("permission denied")
+			}, "remove_failed: stale .mcp.json: permission denied"},
 			{"an ocagent binary that is not there", func(_ *spawnHarness, d *SpawnDeps, _ *StartParams) {
 				d.ResolveOcAgentBin = func() (string, bool) { return "/Users/eva/.officraft/warden/ocagent", false }
 			}, "ocagent_not_found: no ocagent binary at /Users/eva/.officraft/warden/ocagent. " +
