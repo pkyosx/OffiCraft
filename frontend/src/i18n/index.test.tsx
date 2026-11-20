@@ -1643,6 +1643,47 @@ describe("I18nProvider seasonal theme with day parts", () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
+  it("prefetches the first day part of a window that starts as this one ends, ten minutes ahead, and switches to it at the boundary with no further load, keeping the picture only in the shown part's record", async () => {
+    const FROST_NIGHT = {
+      id: "frost-night",
+      name: "霜降之夜",
+      colors: { "--color-bg": "#0b1020" },
+      backgrounds: { canvas: PNG },
+    };
+    const frostLoad = vi.fn((_file?: string) => Promise.resolve(FROST_NIGHT));
+    seasonalWindows.push({
+      id: "frost",
+      start: new Date(2030, 10, 1, 0, 0),
+      end: new Date(2030, 10, 2, 0, 0),
+      schedule: [
+        { start: "06:00", theme: "frost-day.theme.json" },
+        { start: "18:00", theme: "frost-night.theme.json" },
+      ],
+      load: frostLoad,
+    });
+    at(new Date(2030, 9, 31, 23, 45));
+    await mount();
+    await waitFor(() => expect(ctx.seasonalThemeName).toBe("豐收之夜"));
+    expect(frostLoad).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(5 * 60 * 1000);
+    });
+    await waitFor(() => expect(frostLoad.mock.calls).toEqual([["frost-night.theme.json"]]));
+    expect(ctx.seasonalThemeName).toBe("豐收之夜");
+    await waitFor(() => expect(withImage("oc.seasonalPaint")).toEqual({ "harvest-night": true }));
+
+    await act(async () => {
+      vi.advanceTimersByTime(10 * 60 * 1000);
+    });
+    expect(ctx.seasonalThemeName).toBe("霜降之夜");
+    expect(ctx.shownTheme).toBe("frost-night");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#0b1020");
+    expect(load.mock.calls).toEqual([["harvest-night.theme.json"]]);
+    expect(frostLoad).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(withImage("oc.seasonalPaint")).toEqual({ "frost-night": true }));
+  });
+
   it("prefetches the user's slot ten minutes before the window ends", async () => {
     await mockApi.putTheme({ id: "dusk", name: "Dusk", colors: { "--color-bg": "#0a0b0c" } });
     await mockApi.patchServerSettings({
