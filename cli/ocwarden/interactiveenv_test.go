@@ -284,3 +284,50 @@ func TestOverriddenKeyNames(t *testing.T) {
 		t.Errorf("names = %#v, want nil when there is no base layer", got)
 	}
 }
+
+func TestInteractiveEnvShellFor(t *testing.T) {
+	cases := []struct {
+		name       string
+		goos       string
+		loginShell string
+		want       string
+	}{
+		{"darwin keeps zsh whatever the account's shell is", "darwin", "/usr/bin/fish", "/bin/zsh"},
+		{"linux uses the account's login shell", "linux", "/usr/bin/fish", "/usr/bin/fish"},
+		{"linux with no login shell on record falls back to bash", "linux", "", "/bin/bash"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := interactiveEnvShellFor(c.goos, func() string { return c.loginShell })
+			if got != c.want {
+				t.Errorf("shell = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestLoginShellFromPasswd(t *testing.T) {
+	passwd := "root:x:0:1000:root:/root:/bin/bash\n" +
+		"eva:x:1000:100:Eva,,,:/home/eva:/usr/bin/zsh\r\n" +
+		"svc:x:1001:1001::/srv:\n" +
+		"odd:x:1002:1002::/srv:nologin\n" +
+		"# a comment:with:colons\n"
+	cases := []struct {
+		name string
+		uid  int
+		want string
+	}{
+		{"the matching account's shell", 1000, "/usr/bin/zsh"},
+		{"the uid column decides, not the gid column", 0, "/bin/bash"},
+		{"an empty shell field is no shell", 1001, ""},
+		{"a relative shell field is no shell", 1002, ""},
+		{"an account that is not listed has no shell", 4242, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := loginShellFromPasswd(passwd, c.uid); got != c.want {
+				t.Errorf("loginShellFromPasswd(uid %d) = %q, want %q", c.uid, got, c.want)
+			}
+		})
+	}
+}

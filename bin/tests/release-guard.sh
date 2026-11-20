@@ -246,6 +246,11 @@ release_cli() {
 export TAG="v9.9.9-guard"
 SHA="0123456789abcdef0123456789abcdef01234567"
 TARBALL="officraft-$TAG-darwin-arm64.tar.gz"
+TARBALL_LINUX_AMD64="officraft-$TAG-linux-amd64.tar.gz"
+TARBALL_LINUX_ARM64="officraft-$TAG-linux-arm64.tar.gz"
+# The two linux tarball entries, ready to splice into a hand-written asset array.
+LINUX_ASSETS='{"name":"'"$TARBALL_LINUX_AMD64"'","state":"uploaded","size":4096},
+  {"name":"'"$TARBALL_LINUX_ARM64"'","state":"uploaded","size":4096},'
 stored_json() { # stored_json [key=value ...]  (values are raw JSON)
   python3 - "$@" <<PY
 import json, sys
@@ -254,6 +259,8 @@ rel = {
   "targetCommitish": "$SHA",
   "assets": [
     {"name": "$TARBALL", "state": "uploaded", "size": 4096},
+    {"name": "$TARBALL_LINUX_AMD64", "state": "uploaded", "size": 4096},
+    {"name": "$TARBALL_LINUX_ARM64", "state": "uploaded", "size": 4096},
     {"name": "install.sh",   "state": "uploaded", "size": 2048},
     {"name": "checksums.txt","state": "uploaded", "size": 128},
   ],
@@ -285,10 +292,12 @@ check "S0 a correct prerelease reads back clean" "0" "$RC"
 check "S0 line 1 of the contract is the targetCommitish" "$SHA" "$(printf '%s\n' "$OUT" | grep -v '^\[release\]' | sed -n '1p')"
 check "S0 line 2 of the contract is isLatest (no GH_LATEST_JSON stubbed -> False)" "False" \
   "$(printf '%s\n' "$OUT" | grep -v '^\[release\]' | sed -n '2p')"
-check "S0 the fingerprint is name<TAB>size for all 3 assets, sorted" \
+check "S0 the fingerprint is name<TAB>size for all 5 assets, sorted" \
   "checksums.txt	128
 install.sh	2048
-$TARBALL	4096" \
+$TARBALL	4096
+$TARBALL_LINUX_AMD64	4096
+$TARBALL_LINUX_ARM64	4096" \
   "$(printf '%s\n' "$OUT" | grep -v '^\[release\]' | sed -n '3,$p')"
 
 # S0-latest: --latest read-back is an ENFORCED, not merely informational, check
@@ -375,12 +384,19 @@ named_failure "S8 the release is bound to the WRONG commit" release-target "$RC"
 # and the release existed anyway with a documented install one-liner that 404s.
 GH_VIEW_JSON="$(stored_json "assets=$(assets_json '[
   {"name":"'"$TARBALL"'","state":"uploaded","size":4096},
+  {"name":"'"$TARBALL_LINUX_AMD64"'","state":"uploaded","size":4096},
+  {"name":"install.sh","state":"uploaded","size":2048},
   {"name":"checksums.txt","state":"uploaded","size":128}]')")" \
   release_fn verify_stored_release "$TAG" "$SHA" prerelease
 named_failure "S9 an asset is MISSING (half-populated release)" asset-present "$RC" "$OUT"
+case "$OUT" in
+  *"missing asset '$TARBALL_LINUX_ARM64'"*) ok "S9 …and names the missing asset" ;;
+  *) bad "S9 …and names the missing asset (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;;
+esac
 
 GH_VIEW_JSON="$(stored_json "assets=$(assets_json '[
   {"name":"'"$TARBALL"'","state":"starter","size":4096},
+  '"$LINUX_ASSETS"'
   {"name":"install.sh","state":"uploaded","size":2048},
   {"name":"checksums.txt","state":"uploaded","size":128}]')")" \
   release_fn verify_stored_release "$TAG" "$SHA" prerelease
@@ -388,6 +404,7 @@ named_failure "S10 an asset is present but state!=uploaded (not downloadable)" a
 
 GH_VIEW_JSON="$(stored_json "assets=$(assets_json '[
   {"name":"'"$TARBALL"'","state":"uploaded","size":0},
+  '"$LINUX_ASSETS"'
   {"name":"install.sh","state":"uploaded","size":2048},
   {"name":"checksums.txt","state":"uploaded","size":128}]')")" \
   release_fn verify_stored_release "$TAG" "$SHA" prerelease
@@ -395,6 +412,7 @@ named_failure "S11 an asset is ZERO BYTES" asset-uploaded "$RC" "$OUT"
 
 GH_VIEW_JSON="$(stored_json "assets=$(assets_json '[
   {"name":"'"$TARBALL"'","state":"uploaded","size":4096},
+  '"$LINUX_ASSETS"'
   {"name":"install.sh","state":"uploaded","size":2048},
   {"name":"checksums.txt","state":"uploaded","size":128},
   {"name":"officraft-v9.9.9-guard-darwin-arm64.tar.gz.OLD","state":"uploaded","size":9}]')")" \
@@ -488,37 +506,79 @@ STAMPED="$WORK/ocserverd.stamped"
 build_fixture "$STAMPED" "-X main.appVersion=$TAG -X main.buildSHA=$SHORT"
 PLAIN="$WORK/ocserverd.plain"
 build_fixture "$PLAIN" ""
+STAMPED_LINUX_AMD64="$WORK/linux-amd64.stamped"
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+  build_fixture "$STAMPED_LINUX_AMD64" "-X main.appVersion=$TAG -X main.buildSHA=$SHORT"
+STAMPED_LINUX_ARM64="$WORK/linux-arm64.stamped"
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+  build_fixture "$STAMPED_LINUX_ARM64" "-X main.appVersion=$TAG -X main.buildSHA=$SHORT"
+PLAIN_LINUX_ARM64="$WORK/linux-arm64.plain"
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 build_fixture "$PLAIN_LINUX_ARM64" ""
+stamped_for() { # stamped_for <os-arch> — that platform's correctly stamped fixture
+  case "$1" in
+    darwin-arm64) echo "$STAMPED" ;;
+    linux-amd64)  echo "$STAMPED_LINUX_AMD64" ;;
+    linux-arm64)  echo "$STAMPED_LINUX_ARM64" ;;
+  esac
+}
 
-# make_out — assemble a well-formed OUT dir, then let the caller break one thing.
+# make_out — assemble a well-formed OUT dir (one tarball per platform), then let
+# the caller break one thing. The arguments apply to the MUT_PLATFORM tarball
+# (default darwin-arm64); every other platform's tarball stays correct.
 AOUT="$WORK/out"
 make_out() { # make_out <serverd-binary> [member-to-omit] [ocagent-binary]
-  rm -rf "$AOUT" "$WORK/pkg"; mkdir -p "$AOUT" "$WORK/pkg/officraft-$TAG-darwin-arm64"
-  local pkg="$WORK/pkg/officraft-$TAG-darwin-arm64" skip="${2:-}" agent="${3:-$STAMPED}"
-  cp "$1" "$pkg/ocserverd"
-  cp "$STAMPED" "$pkg/ocwarden"; cp "$agent" "$pkg/ocagent"; cp "$STAMPED" "$pkg/officraft"
-  printf '#!/bin/sh\n' > "$pkg/install.sh"; printf 'MIT\n' > "$pkg/LICENSE"
-  printf '# OffiCraft %s\n' "$TAG" > "$pkg/README.md"
-  [[ -n "$skip" ]] && rm -f "$pkg/$skip"
-  tar -C "$WORK/pkg" -czf "$AOUT/$TARBALL" "officraft-$TAG-darwin-arm64"
-  cp "$pkg/install.sh" "$AOUT/install.sh" 2>/dev/null || printf '#!/bin/sh\n' > "$AOUT/install.sh"
-  ( cd "$AOUT" && shasum -a 256 "$TARBALL" install.sh > checksums.txt )
+  rm -rf "$AOUT" "$WORK/pkg"; mkdir -p "$AOUT"
+  local mut="${MUT_PLATFORM:-darwin-arm64}" p pkg good
+  for p in darwin-arm64 linux-amd64 linux-arm64; do
+    pkg="$WORK/pkg/officraft-$TAG-$p"; mkdir -p "$pkg"
+    good="$(stamped_for "$p")"
+    if [[ "$p" == "$mut" ]]; then
+      cp "$1" "$pkg/ocserverd"; cp "${3:-$good}" "$pkg/ocagent"
+    else
+      cp "$good" "$pkg/ocserverd"; cp "$good" "$pkg/ocagent"
+    fi
+    cp "$good" "$pkg/ocwarden"; cp "$good" "$pkg/officraft"
+    printf '#!/bin/sh\n' > "$pkg/install.sh"; printf 'MIT\n' > "$pkg/LICENSE"
+    printf '# OffiCraft %s\n' "$TAG" > "$pkg/README.md"
+    if [[ "$p" == "$mut" && -n "${2:-}" ]]; then rm -f "$pkg/$2"; fi
+    COPYFILE_DISABLE=1 tar --no-xattrs -C "$WORK/pkg" -czf "$AOUT/officraft-$TAG-$p.tar.gz" "officraft-$TAG-$p"
+  done
+  printf '#!/bin/sh\n' > "$AOUT/install.sh"
+  write_checksums
+}
+write_checksums() {
+  ( cd "$AOUT" && shasum -a 256 "$TARBALL" "$TARBALL_LINUX_AMD64" "$TARBALL_LINUX_ARM64" install.sh > checksums.txt )
+}
+retar() { # retar <os-arch> — re-pack one tarball after a hand edit to its package dir
+  COPYFILE_DISABLE=1 tar --no-xattrs -C "$WORK/pkg" -czf "$AOUT/officraft-$TAG-$1.tar.gz" "officraft-$TAG-$1"
+  write_checksums
 }
 verify_out() { # verify_out — call the real verify_artifacts against $AOUT
   OUT="$(PATH="$SHIMDIR:$PATH" OC_RELEASE_OUT="$AOUT" bash -c '
     set -uo pipefail
     source "$1" || exit $?
-    verify_artifacts "$2" "$3" "$4" "$5"
-  ' _ "$RELEASE" "$TAG" "$SHA" "$SHORT" "officraft-$TAG-darwin-arm64" 2>&1)"
+    verify_artifacts "$2" "$3" "$4"
+  ' _ "$RELEASE" "$TAG" "$SHA" "$SHORT" 2>&1)"
   RC=$?
 }
 
 make_out "$STAMPED"
 verify_out
 check "A0 a correct artifact set verifies clean" "0" "$RC"
+check "A0 …and every platform's tarball was verified, each as its own platform" \
+  "[release]   officraft-$TAG-darwin-arm64: darwin-arm64 binaries, ocserverd stamp appVersion=$TAG buildSHA=$SHORT, ocagent stamp buildSHA=$SHORT
+[release]   officraft-$TAG-linux-amd64: linux-amd64 binaries, ocserverd stamp appVersion=$TAG buildSHA=$SHORT, ocagent stamp buildSHA=$SHORT
+[release]   officraft-$TAG-linux-arm64: linux-arm64 binaries, ocserverd stamp appVersion=$TAG buildSHA=$SHORT, ocagent stamp buildSHA=$SHORT
+[release]   checksums OK (4 entries, shasum -c clean)" \
+  "$(printf '%s\n' "$OUT" | grep -E '^\[release\]   (officraft-|checksums)')"
 
-make_out "$STAMPED"; rm -f "$AOUT/install.sh"
+make_out "$STAMPED"; rm -f "$AOUT/$TARBALL_LINUX_AMD64"
 verify_out
 named_failure "A1 an expected artifact is missing from the output dir" artifact-present "$RC" "$OUT"
+case "$OUT" in
+  *"expected artifact $TARBALL_LINUX_AMD64 is missing"*) ok "A1 …and names the missing artifact" ;;
+  *) bad "A1 …and names the missing artifact (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;;
+esac
 
 make_out "$STAMPED"; : > "$AOUT/checksums.txt"
 verify_out
@@ -534,19 +594,41 @@ named_failure "A3 the tarball is MISSING a member (ocwarden)" tarball-members "$
 # a wrong tarball. The member list is asserted EXACTLY, not as a subset.
 make_out "$STAMPED"
 printf 'oops\n' > "$WORK/pkg/officraft-$TAG-darwin-arm64/scratch.log"
-tar -C "$WORK/pkg" -czf "$AOUT/$TARBALL" "officraft-$TAG-darwin-arm64"
-( cd "$AOUT" && shasum -a 256 "$TARBALL" install.sh > checksums.txt )
+retar darwin-arm64
 verify_out
 named_failure "A3b the tarball grew a STRAY member" tarball-members "$RC" "$OUT"
 
 make_out "$STAMPED"
+printf 'meta\n' > "$WORK/pkg/officraft-$TAG-linux-arm64/._ocwarden"
+retar linux-arm64
+verify_out
+named_failure "A3c an AppleDouble ._ entry in the tarball is a stray member" tarball-members "$RC" "$OUT"
+
+make_out "$STAMPED"
 printf 'not a binary' > "$WORK/pkg/officraft-$TAG-darwin-arm64/ocagent"
-tar -C "$WORK/pkg" -czf "$AOUT/$TARBALL" "officraft-$TAG-darwin-arm64"
-( cd "$AOUT" && shasum -a 256 "$TARBALL" install.sh > checksums.txt )
+retar darwin-arm64
 verify_out
 named_failure "A4 a shipped binary is not a darwin/arm64 Mach-O" artifact-arch "$RC" "$OUT"
 
-make_out "$PLAIN"
+# Each tarball is held to ITS OWN platform: a perfectly good binary of another
+# platform is exactly what packaging from the wrong bindist/<os>-<arch>/ ships.
+make_out "$STAMPED"
+cp "$STAMPED" "$WORK/pkg/officraft-$TAG-linux-amd64/ocwarden"
+retar linux-amd64
+verify_out
+named_failure "A4b the linux-amd64 tarball carries a darwin Mach-O ocwarden" artifact-arch "$RC" "$OUT"
+
+make_out "$STAMPED"
+cp "$STAMPED_LINUX_AMD64" "$WORK/pkg/officraft-$TAG-linux-arm64/ocagent"
+retar linux-arm64
+verify_out
+named_failure "A4c the linux-arm64 tarball carries an x86-64 ELF ocagent" artifact-arch "$RC" "$OUT"
+case "$OUT" in
+  *"officraft-$TAG-linux-arm64: ocagent is not a linux-arm64 executable"*) ok "A4c …and names the tarball, the member and the platform" ;;
+  *) bad "A4c …and names the tarball, the member and the platform (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;;
+esac
+
+MUT_PLATFORM=linux-arm64 make_out "$PLAIN_LINUX_ARM64"
 verify_out
 named_failure "A5 ocserverd carries NO version stamp" version-stamp "$RC" "$OUT"
 
@@ -579,12 +661,18 @@ make_out "$STAMPED" "" "$WORK/wrongsha"
 verify_out
 named_failure "A7c the packaged ocagent is stamped with the WRONG buildSHA" agent-stamp "$RC" "$OUT"
 
-# A checksums file covering ONE file is how install.sh's sha256 step starts
-# silently verifying nothing.
+# A checksums file missing a tarball makes install.sh refuse that platform. The
+# shape here is the darwin-only one: it digests correctly, so only the entry
+# count can catch it.
 make_out "$STAMPED"
-( cd "$AOUT" && shasum -a 256 "$TARBALL" > checksums.txt )
+( cd "$AOUT" && shasum -a 256 "$TARBALL" install.sh > checksums.txt )
 verify_out
-named_failure "A8 checksums.txt covers only 1 of the 2 downloads" checksums-scope "$RC" "$OUT"
+named_failure "A8 checksums.txt covers the darwin tarball + install.sh but no linux tarball" checksums-scope "$RC" "$OUT"
+case "$OUT" in
+  *"checksums.txt has 2 entries; expected exactly 4 ($TARBALL $TARBALL_LINUX_AMD64 $TARBALL_LINUX_ARM64 install.sh)."*)
+    ok "A8 …and states the count it found, the count it wants and every file it wants" ;;
+  *) bad "A8 …and states the count it found, the count it wants and every file it wants (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;;
+esac
 
 make_out "$STAMPED"
 python3 - "$AOUT/checksums.txt" <<'PY'
@@ -647,20 +735,38 @@ set -euo pipefail
 R="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "builder=bin/build" > "$BUILD_WIRE"
 echo "OC_APP_VERSION=${OC_APP_VERSION:-unset}" >> "$BUILD_WIRE"
+echo "OC_BUILD_CROSS_PLATFORMS=${OC_BUILD_CROSS_PLATFORMS:-unset}" >> "$BUILD_WIRE"
 echo "build" >> "$ORDER_WIRE"
 SHORT="$(git -C "$R" rev-parse --short HEAD)"
-mkdir -p "$R/.deploy" "$R/server/ocserverd/bindist"
-( cd "$R/gosrc" && "$GO_BIN" build \
-    -ldflags "-X main.appVersion=${OC_APP_VERSION} -X main.buildSHA=${SHORT}" \
-    -o "$R/.deploy/ocserverd" . )
-( cd "$R/gosrc" && "$GO_BIN" build -o "$R/server/ocserverd/bindist/ocwarden" . )
-# ⚠️ ocagent is BUILT, not copied from ocwarden: the real bin/build-bindist
-# stamps it with -X main.buildSHA and verify_artifacts now reads that stamp off
-# the packaged copy (T-8f7d). A fixture that shipped an unstamped ocagent would
-# make every E case here fail for a reason none of them are about.
-( cd "$R/gosrc" && "$GO_BIN" build -ldflags "-X main.buildSHA=${SHORT}" \
-    -o "$R/server/ocserverd/bindist/ocagent" . )
-cp "$R/server/ocserverd/bindist/ocwarden" "$R/server/ocserverd/bindist/officraft"
+LDFLAGS="-X main.appVersion=${OC_APP_VERSION} -X main.buildSHA=${SHORT}"
+# One stamped binary per platform, linked once per guard run and reused by every
+# E case: go caches compiles but not links, and three platforms per publish
+# otherwise doubles this file's runtime.
+FX="$FIXTURE_CACHE/$OC_APP_VERSION-$SHORT"
+fx() { # fx <os/arch> — path to that platform's stamped fixture
+  local out="$FX/${1/\//-}"
+  if [[ ! -f "$out" ]]; then
+    mkdir -p "$FX"
+    ( cd "$R/gosrc" && GOOS="${1%/*}" GOARCH="${1#*/}" CGO_ENABLED=0 \
+        "$GO_BIN" build -ldflags "$LDFLAGS" -o "$out" . )
+  fi
+  echo "$out"
+}
+mkdir -p "$R/.deploy"
+cp "$(fx darwin/arm64)" "$R/.deploy/ocserverd"
+for platform in ${OC_BUILD_CROSS_PLATFORMS:-}; do
+  mkdir -p "$R/.deploy/${platform/\//-}"
+  cp "$(fx "$platform")" "$R/.deploy/${platform/\//-}/ocserverd"
+done
+# ⚠️ every member is the STAMPED build: the real bin/build-bindist stamps ocagent
+# with -X main.buildSHA and verify_artifacts reads that stamp off the packaged
+# copy. A fixture that shipped an unstamped ocagent would make every E case here
+# fail for a reason none of them are about.
+for platform in darwin/arm64 linux/amd64 linux/arm64; do
+  d="$R/server/ocserverd/bindist/${platform/\//-}"
+  mkdir -p "$d"
+  for m in ocagent ocwarden officraft; do cp "$(fx "$platform")" "$d/$m"; done
+done
 SH
 # The fixture CI — now a TRIPWIRE, not a driven lane (T-7e6c).
 #
@@ -727,7 +833,7 @@ jobs_reads() { grep -c '/jobs?per_page=100$' "$API_WIRE" || true; }
 # ⚠️ `?per_page=100` and NO `filter` parameter: the API defaults to
 # filter=latest, which is what excludes a re-run's superseded earlier attempt.
 GATE_JOBS=(go-checks frontend-checks frontend-ct drift-checks contract-guards
-           conformance hygiene bin-guards tcc-anchor e2e-isolation-guard macos-e2e)
+           conformance hygiene bin-guards tcc-anchor e2e-isolation-guard linux-go-checks macos-e2e)
 gh_run_json() { # gh_run_json [head_sha] [id]
   GH_RUN_JSON="$(python3 -c '
 import json, sys
@@ -781,6 +887,7 @@ e2e() { # e2e [extra publish args...] — env overrides come from the caller
     OC_RELEASE_SETTLE_TRIES=2 OC_RELEASE_SETTLE_SLEEP=0 \
     OC_RELEASE_CI_TRIES="$E_CI_TRIES" OC_RELEASE_CI_SLEEP=0 \
     BUILD_WIRE="$BUILD_WIRE" ORDER_WIRE="$ORDER_WIRE" API_WIRE="$API_WIRE" GO_BIN="$GO" \
+    FIXTURE_CACHE="$WORK/fixture-cache" \
     GITHUB_RUN_ID="${OC_GUARD_RUN_ID:-}" \
     GITHUB_TOKEN="${OC_GUARD_GH_TOKEN:-}" GH_TOKEN="${OC_GUARD_GH_TOKEN_ALT:-}" \
     bash "$RELEASE" publish --beta "$E_TAG" --target "$E_SHA" "$@" 2>&1)"
@@ -792,7 +899,9 @@ import json, sys
 tag, sha, tarball = sys.argv[1:4]
 rel = {"tagName": tag, "isDraft": False, "isPrerelease": True, "targetCommitish": sha,
        "assets": [{"name": n, "state": "uploaded", "size": 4096}
-                  for n in (tarball, "install.sh", "checksums.txt")]}
+                  for n in (tarball, "officraft-%s-linux-amd64.tar.gz" % tag,
+                            "officraft-%s-linux-arm64.tar.gz" % tag,
+                            "install.sh", "checksums.txt")]}
 for arg in sys.argv[4:]:
     k, _, v = arg.partition("=")
     rel[k] = json.loads(v)
@@ -816,13 +925,22 @@ STATION_VERSION_JSON="{\"git_sha\":\"$E_SHORT\"}" e2e --dry-run
 check "E0 --dry-run exits 0" "0" "$RC"
 check "E0 --dry-run invoked gh EXACTLY ZERO times" "" "$(cat "$GHWIRE")"
 check "E0 --dry-run still produced the real artifacts" "yes" \
-  "$([[ -s "$EOUT/$E_TARBALL" && -s "$EOUT/install.sh" && -s "$EOUT/checksums.txt" ]] && echo yes || echo no)"
+  "$([[ -s "$EOUT/$E_TARBALL" && -s "$EOUT/officraft-$E_TAG-linux-amd64.tar.gz" &&
+        -s "$EOUT/officraft-$E_TAG-linux-arm64.tar.gz" &&
+        -s "$EOUT/install.sh" && -s "$EOUT/checksums.txt" ]] && echo yes || echo no)"
+check "E0 checksums.txt digests every tarball + install.sh, nothing else" \
+  "officraft-$E_TAG-darwin-arm64.tar.gz
+officraft-$E_TAG-linux-amd64.tar.gz
+officraft-$E_TAG-linux-arm64.tar.gz
+install.sh" "$(awk '{print $2}' "$EOUT/checksums.txt")"
 case "$OUT" in *"artifacts verified"*) ok "E0 --dry-run ran the real pre-upload verification" ;;
   *) bad "E0 --dry-run ran the real pre-upload verification (out: $(printf '%s' "$OUT" | tail -c 400))" ;; esac
 check "E0 publish built through the staging worktree's own bin/build" \
   "builder=bin/build" "$(sed -n '1p' "$BUILD_WIRE")"
 check "E0 the tag reached the build as OC_APP_VERSION" \
   "OC_APP_VERSION=$E_TAG" "$(sed -n '2p' "$BUILD_WIRE")"
+check "E0 the non-host platforms reached the build as OC_BUILD_CROSS_PLATFORMS" \
+  "OC_BUILD_CROSS_PLATFORMS=linux/amd64 linux/arm64" "$(sed -n '3p' "$BUILD_WIRE")"
 
 # E1 — the happy full arc.
 STATION_VERSION_JSON="{\"git_sha\":\"$E_SHORT\"}" STATION_HEALTH_RC=0 e2e
@@ -1291,6 +1409,7 @@ check "P2 --dry-run promote NEVER flips anything" "0" \
 # the bytes anyone tested. That is a failure, not a warning.
 GH_VIEW_AFTER="$(stored_json 'isPrerelease=false' "assets=$(assets_json '[
   {"name":"'"$TARBALL"'","state":"uploaded","size":999999},
+  '"$LINUX_ASSETS"'
   {"name":"install.sh","state":"uploaded","size":2048},
   {"name":"checksums.txt","state":"uploaded","size":128}]')")" \
   promote "$TAG"

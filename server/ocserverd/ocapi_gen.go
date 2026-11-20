@@ -927,8 +927,11 @@ type AgentTelemetryIngestDTO struct {
 	Model interface{} `json:"model,omitempty"`
 
 	// ModelCall The session's newest model-call success and failure times. A Claude member sends a failure the moment a turn ends in an API error, and its success time on the context report it already sends; a Codex member sends both from its sidecar. Omitted leaves previously stored times untouched.
-	ModelCall  *ModelCallReportDTO `json:"model_call,omitempty"`
-	RateLimits interface{}         `json:"rate_limits,omitempty"`
+	ModelCall *ModelCallReportDTO `json:"model_call,omitempty"`
+
+	// Platform Warden heartbeats only — the platform this warden binary was built for, ``<GOOS>/<GOARCH>`` (e.g. ``linux/amd64``). The server compares ``binaries`` against its embedded prebuilts FOR THIS PLATFORM; a warden build that omits it is compared against the server's own platform, which is what every such build was downloaded as. A platform the server carries no prebuilts for leaves ``bin_status`` unknown (null). Permissive like the other scalars here: a value not shaped ``<os>/<arch>`` is a flat 400, never a 422.
+	Platform   interface{} `json:"platform,omitempty"`
+	RateLimits interface{} `json:"rate_limits,omitempty"`
 
 	// Runtime Optional session runtime: ``claude`` or ``codex``. Omitted leaves previously stored telemetry untouched.
 	Runtime interface{} `json:"runtime,omitempty"`
@@ -938,7 +941,7 @@ type AgentTelemetryIngestDTO struct {
 	SelfUpdate interface{}             `json:"self_update,omitempty"`
 	Tokens     interface{}             `json:"tokens,omitempty"`
 
-	// WardenShape Warden heartbeats only — which SHAPE this warden is actually running under, read from the PARENT process's executable path (the only signal that cannot lie: an anchor file existing on disk does NOT mean launchd is executing it). ``anchor`` = the parent exe is the deployed anchor binary; ``legacy`` = the parent is launchd itself, i.e. launchd execs the swappable ocwarden directly; ``unknown`` = the warden could not read its parent. OMITTED by every warden build older than the anchor-cutover release — absent is NOT a synonym for ``unknown`` and the server must never infer one from the other: absent means 'this machine has not received the new build yet', ``unknown`` means 'the new build ran and could not tell'. Permissive like the other scalars here: a value outside the three states is a flat 400, never a 422.
+	// WardenShape Warden heartbeats only — which SHAPE this warden is actually running under, read from the PARENT process's executable path (the only signal that cannot lie: an anchor file existing on disk does NOT mean launchd is executing it). ``anchor`` = the parent exe is the deployed anchor binary; ``legacy`` = the parent is launchd itself, i.e. launchd execs the swappable ocwarden directly; ``unknown`` = the warden could not read its parent, or it runs on Linux, where it always reports this value because the anchor shape exists only on macOS. OMITTED by every warden build older than the anchor-cutover release — absent is NOT a synonym for ``unknown`` and the server must never infer one from the other: absent means 'this machine has not received the new build yet', ``unknown`` means 'the new build ran and could not tell'. Permissive like the other scalars here: a value outside the three states is a flat 400, never a 422.
 	WardenShape interface{} `json:"warden_shape,omitempty"`
 }
 
@@ -2150,9 +2153,10 @@ type MachineCredentialPolicyDTO struct {
 // projection for that warden. “bin_status“ is the server-computed binary
 // freshness verdict: “current“ when every content fingerprint the warden's 30s
 // heartbeat reported (ocwarden + ocagent) matches the server's own embedded
-// latest prebuilts, “stale“ when any differs, null when unknowable (no
-// heartbeat fingerprint yet — e.g. an older warden build — or the server has no
-// embedded bindist to compare against). Comparison result only — deliberately
+// latest prebuilts for the platform that heartbeat reports, “stale“ when any
+// differs, null when unknowable (no heartbeat fingerprint yet — e.g. an older
+// warden build — or the server has no embedded bindist for that platform to
+// compare against). Comparison result only — deliberately
 // NOT a per-machine version number (content hashes, never embedded version
 // stamps; see the ocwarden self-update swap oracle).
 type MachineDTO struct {
@@ -2183,7 +2187,7 @@ type MachineDTO struct {
 	// TokenKeyId Which signing key the station last VERIFIED a credential of this machine's with; null = it has never verified one. This is the station's OWN observation, taken from the key whose HMAC actually matched — a machine cannot CHOOSE THE VALUE, and there is deliberately no wire field through which it could report one. What a machine CAN still influence is WHICH CREDENTIAL IT PRESENTS: `renew-credential` is zero-argument self-service, so a warden can mint a fresh credential and present it once without ever writing it to disk. That is why the observation is taken at SSE connect — the credential the process is actually RUNNING ON — and not on every gated route, where presenting one once would have been enough to read as converged. It exists to answer the one question standing before a key REMOVAL, which is immediate and has no grace period: has every machine come back on the new key yet. A machine that has not opened a stream since a rotation keeps its previous value, which reads correctly as "nothing has proved this one moved". Key ids are random and carry no key material (they are never derived from the key), so publishing one is safe by construction.
 	TokenKeyId *string `json:"token_key_id,omitempty"`
 
-	// WardenShape Which shape this machine's warden is actually running under, taken verbatim from its heartbeat (``anchor`` | ``legacy`` | ``unknown``; see ``AgentTelemetryIngestDTO.warden_shape``). null = this warden build does not report a shape at all, i.e. it has not received the anchor-cutover release yet — DISTINCT from ``unknown`` (new build ran, could not read its parent). The server never infers one from the other and never derives the verdict itself: unlike ``bin_status`` this is reported, not computed, because only the reporting process can see its own parent.
+	// WardenShape Which shape this machine's warden is actually running under, taken verbatim from its heartbeat (``anchor`` | ``legacy`` | ``unknown``; see ``AgentTelemetryIngestDTO.warden_shape``). null = this warden build does not report a shape at all, i.e. it has not received the anchor-cutover release yet — DISTINCT from ``unknown`` (new build ran and could not read its parent, or the warden runs on Linux). The server never infers one from the other and never derives the verdict itself: unlike ``bin_status`` this is reported, not computed, because only the reporting process can see its own parent.
 	WardenShape *string `json:"warden_shape,omitempty"`
 }
 
@@ -5542,6 +5546,15 @@ type WorkerBootContextDTO struct {
 	Context string `json:"context"`
 }
 
+// HandleAgentBinaryApiAgentBinaryGetParams defines parameters for HandleAgentBinaryApiAgentBinaryGet.
+type HandleAgentBinaryApiAgentBinaryGetParams struct {
+	// Os Target operating system, as Go's GOOS names it (`darwin`, `linux`). Omitted = the server's own.
+	Os *string `form:"os,omitempty" json:"os,omitempty"`
+
+	// Arch Target CPU architecture, as Go's GOARCH names it (`amd64`, `arm64`). Omitted = the server's own.
+	Arch *string `form:"arch,omitempty" json:"arch,omitempty"`
+}
+
 // HandleListChatApiChatGetParams defines parameters for HandleListChatApiChatGet.
 type HandleListChatApiChatGetParams struct {
 	With *string `form:"with,omitempty" json:"with,omitempty"`
@@ -5781,6 +5794,15 @@ type HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPostParams struct {
 
 	// Mime Ignored. The blob's media type comes from the ``filename`` extension; the parameter is still accepted so existing callers are not refused.
 	Mime *string `form:"mime,omitempty" json:"mime,omitempty"`
+}
+
+// HandleWardenBinaryApiWardenBinaryGetParams defines parameters for HandleWardenBinaryApiWardenBinaryGet.
+type HandleWardenBinaryApiWardenBinaryGetParams struct {
+	// Os Target operating system, as Go's GOOS names it (`darwin`, `linux`). Omitted = the server's own.
+	Os *string `form:"os,omitempty" json:"os,omitempty"`
+
+	// Arch Target CPU architecture, as Go's GOARCH names it (`amd64`, `arm64`). Omitted = the server's own.
+	Arch *string `form:"arch,omitempty" json:"arch,omitempty"`
 }
 
 // HandleReceiveWebhookInPostParams defines parameters for HandleReceiveWebhookInPost.
@@ -6262,7 +6284,7 @@ type ServerInterface interface {
 	HandleIngestAgentActivityApiAgentActivityPost(w http.ResponseWriter, r *http.Request)
 	// Download the prebuilt ocagent binary (octet-stream) for an agent.
 	// (GET /api/agent/binary)
-	HandleAgentBinaryApiAgentBinaryGet(w http.ResponseWriter, r *http.Request)
+	HandleAgentBinaryApiAgentBinaryGet(w http.ResponseWriter, r *http.Request, params HandleAgentBinaryApiAgentBinaryGetParams)
 	// Ingest an agent's context gauge (in-memory; bad body → 400). Answers with a bounded receipt (“agent_id“, “ts“), not the stored entry echoed back — call “get_monitoring“ when you need the rest.
 	// (POST /api/agent/context)
 	HandleIngestAgentContextApiAgentContextPost(w http.ResponseWriter, r *http.Request)
@@ -6684,7 +6706,7 @@ type ServerInterface interface {
 	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
 	// - `account`: Which billing account this session is drawing on. It is READ ONLY IN COMPANY WITH runtime, and the failure is worse than a dropped field: send a perfectly valid account WITHOUT runtime and the server does not merely ignore it, it CLEARS the account pairing already recorded for this entry and returns 200. A previously correct display therefore goes blank because of a report that carried the right value. A non-string value is dropped silently to empty by the same path. Always send runtime alongside account.
 	// - `account_label`: Human-readable label for the account. It rides the same path as account - read only in company with runtime, dropped silently when the value is not a string - and it is HARDER to notice going wrong than account is, because the ingest response does not echo it back at all. There is no field in the reply to compare against what you sent, so a dropped label is invisible from the call site; the only way to see it is to read the monitoring view afterwards.
-	// - `binaries`: Warden heartbeats only — the content fingerprint of the binaries this host is ACTUALLY running: an object keyed by binary name (ocwarden, ocagent, officraft) whose values are that live file's sha256 12-hex prefix. The server diffs them against the build it has embedded to derive the machine's bin_status (current / stale / absent = honest unknown), so a heartbeat that omits this leaves the machine's upgrade state unknowable rather than current. Deliberately a content hash, not a version number.
+	// - `binaries`: Warden heartbeats only — the content fingerprint of the binaries this host is ACTUALLY running: an object keyed by binary name (ocwarden, ocagent, officraft) whose values are that live file's sha256 12-hex prefix. The server diffs them against the build it has embedded for the platform the heartbeat reports to derive the machine's bin_status (current / stale / absent = honest unknown), so a heartbeat that omits this leaves the machine's upgrade state unknowable rather than current. Deliberately a content hash, not a version number.
 	// - `claude`: Warden heartbeats only — the host's local claude CLI probe. Presence-only, NEVER a secret value. All sub-fields optional: version (string — the resolved claude binary's --version first token; absent = unresolved or probe failed), cred_file (bool — ~/.claude/.credentials.json exists), sub_readable (bool — that file exists AND its claudeAiOauth.subscriptionType is non-blank, the exact readability the account-key derivation needs), keychain (bool — macOS login-keychain item present; ABSENT, not false, on non-darwin where the probe cannot answer). Send it so the roster can tell whether this host can actually run Claude.
 	// - `command_result`: Receipt for a command this reporter was asked to run. The only check is that the value is an object. Everything inside is best-effort: an unknown member id, an unknown worker, or a receipt that matches no outstanding command is written to the server's stderr and then swallowed, and the call answers 200 either way. A 200 here means the report was accepted, NOT that it was matched to anything - if you need to know the result was recorded, read the state it should have changed.
 	// - `cost`: Accumulated cost for this session. The ONLY check is that the value is a number - there is no sign check, no unit check and no upper or lower bound, so a negative figure, a value in the wrong currency, or one off by a factor of a thousand is stored verbatim and answers 200. It becomes what the monitoring view reports, so the number is trusted exactly as far as the caller computing it.
@@ -7019,7 +7041,7 @@ type ServerInterface interface {
 	HandleVersionApiVersionGet(w http.ResponseWriter, r *http.Request)
 	// Download the prebuilt ocwarden binary (octet-stream) for a machine.
 	// (GET /api/warden/binary)
-	HandleWardenBinaryApiWardenBinaryGet(w http.ResponseWriter, r *http.Request)
+	HandleWardenBinaryApiWardenBinaryGet(w http.ResponseWriter, r *http.Request, params HandleWardenBinaryApiWardenBinaryGetParams)
 	// Deploy probe: liveness — 200 {"status":"ok"}.
 	// (GET /health)
 	HandleHealthHealthGet(w http.ResponseWriter, r *http.Request)
@@ -7100,8 +7122,40 @@ func (siw *ServerInterfaceWrapper) HandleIngestAgentActivityApiAgentActivityPost
 // HandleAgentBinaryApiAgentBinaryGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleAgentBinaryApiAgentBinaryGet(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleAgentBinaryApiAgentBinaryGetParams
+
+	// ------------- Optional query parameter "os" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "os", r.URL.Query(), &params.Os, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "os"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "os", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "arch" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "arch", r.URL.Query(), &params.Arch, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "arch"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "arch", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleAgentBinaryApiAgentBinaryGet(w, r)
+		siw.Handler.HandleAgentBinaryApiAgentBinaryGet(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -12814,8 +12868,40 @@ func (siw *ServerInterfaceWrapper) HandleVersionApiVersionGet(w http.ResponseWri
 // HandleWardenBinaryApiWardenBinaryGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleWardenBinaryApiWardenBinaryGet(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleWardenBinaryApiWardenBinaryGetParams
+
+	// ------------- Optional query parameter "os" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "os", r.URL.Query(), &params.Os, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "os"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "os", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "arch" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "arch", r.URL.Query(), &params.Arch, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "arch"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "arch", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleWardenBinaryApiWardenBinaryGet(w, r)
+		siw.Handler.HandleWardenBinaryApiWardenBinaryGet(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

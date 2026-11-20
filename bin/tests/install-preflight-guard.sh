@@ -97,9 +97,8 @@ fi
 cat > "$SHIMDIR/uname" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  -s) echo Darwin ;;
-  -m) echo arm64 ;;
-  *)  echo Darwin ;;
+  -m) echo "${SHIM_UNAME_M:-arm64}" ;;
+  *)  echo "${SHIM_UNAME_S:-Darwin}" ;;
 esac
 SH
 
@@ -142,19 +141,6 @@ SH
 
 chmod +x "$SHIMDIR"/uname "$SHIMDIR"/launchctl "$SHIMDIR"/lsof "$SHIMDIR"/curl \
          "$TOOLDIR"/tmux "$TOOLDIR"/claude "$TOOLDIR"/codex
-
-# uname-alien: a non-darwin host, for the platform half of the preflight. Kept in
-# its own dir so it is opt-in per case.
-mkdir -p "$WORK/alien"
-cat > "$WORK/alien/uname" <<'SH'
-#!/usr/bin/env bash
-case "${1:-}" in
-  -s) echo Linux ;;
-  -m) echo x86_64 ;;
-  *)  echo Linux ;;
-esac
-SH
-chmod +x "$WORK/alien/uname"
 
 PLIST_REL="Library/LaunchAgents/com.officraft.serve.plist"
 
@@ -349,21 +335,60 @@ $OUT" ;;
   esac
 fi
 
-# ── 5c. the platform half of the preflight still fires ─────────────────────
-# The darwin/arm64 check MOVED INTO oc_preflight (it was two copy-pasted blocks).
-# Without this case that move could delete the check outright and every other case
-# here would stay green, since they all run under a darwin-pinned uname shim.
+# ── 5c. the platform half of the preflight ─────────────────────────────────
+# Every other case here runs as darwin/arm64. Linux on x86_64 is supported;
+# --foreground needs no service manager, so it installs even where systemd is
+# not PID 1, while the background-service install is refused there with the
+# WSL2 fix. Other pairs are refused before anything is written.
+# run_platform <uname -s> <uname -m> <tools…> -- <install.sh args…>
+run_platform() {
+  local s="$1" m="$2" rundir="$WORK/run"; shift 2
+  rm -rf "$rundir"; mkdir -p "$rundir"
+  while [[ $# -gt 0 && "$1" != "--" ]]; do ln -s "$TOOLDIR/$1" "$rundir/$1"; shift; done
+  [[ $# -gt 0 ]] && shift
+  OUT="$(cd "$WORK" && env -i PATH="$rundir:$SHIMDIR:/usr/bin:/bin:/usr/sbin:/sbin" \
+    HOME="$FAKEHOME" SHIM_STATE="$WORK" SHIM_UNAME_S="$s" SHIM_UNAME_M="$m" \
+    OC_SD_BOOTED_DIR="$WORK/no-systemd" \
+    bash "$PKG/install.sh" ${1+"$@"} </dev/null 2>&1)"; RC=$?
+}
 reset_fixture
-rundir="$WORK/run"; rm -rf "$rundir"; mkdir -p "$rundir"
-ln -s "$TOOLDIR/tmux" "$rundir/tmux"; ln -s "$TOOLDIR/claude" "$rundir/claude"
-OUT="$(cd "$WORK" && env -i PATH="$WORK/alien:$rundir:$SHIMDIR:/usr/bin:/bin:/usr/sbin:/sbin" \
-  HOME="$FAKEHOME" SHIM_STATE="$WORK" bash "$PKG/install.sh" </dev/null 2>&1)"; RC=$?
-check "non-darwin host: the install is refused" "1" "$RC"
+run_platform Linux x86_64 tmux claude -- --foreground
+check "linux/x86_64 --foreground without systemd: the install succeeds" "0" "$RC"
 case "$OUT" in
-  *"Apple Silicon"*) ok "non-darwin host: the refusal is the platform one, not the tool one" ;;
-  *) bad "non-darwin host: the platform gate did not fire:
+  *"✅ installed. Starting OffiCraft in the foreground (--foreground)"*) ok "linux/x86_64 --foreground: the install ran through to serve" ;;
+  *) bad "linux/x86_64 --foreground: did not reach serve:
 $OUT" ;;
 esac
+if wrote_anything; then ok "linux/x86_64 --foreground: installed into ~/.officraft"; else bad "linux/x86_64 --foreground: nothing was installed"; fi
+
+reset_fixture
+run_platform Linux x86_64 tmux claude --
+check "linux without systemd as PID 1: the service install is refused" "1" "$RC"
+case "$OUT" in
+  *"systemd is not running as PID 1"*"/etc/wsl.conf"*"[boot]"*"systemd=true"*) ok "linux without systemd: the refusal gives the WSL2 /etc/wsl.conf fix" ;;
+  *) bad "linux without systemd: no systemd refusal:
+$OUT" ;;
+esac
+if wrote_anything; then bad "linux without systemd: the machine was touched before refusing"; else ok "linux without systemd: NOTHING was written"; fi
+
+reset_fixture
+run_platform Linux x86_64 claude -- --foreground
+check "linux, no tmux: refused" "1" "$RC"
+case "$OUT" in
+  *"tmux — install it with your package manager, e.g. sudo apt install tmux"*) ok "linux, no tmux: the fix is a package-manager install, not brew" ;;
+  *) bad "linux, no tmux: wrong or missing install hint:
+$OUT" ;;
+esac
+
+reset_fixture
+run_platform Linux i686 tmux claude -- --foreground
+check "linux/i686: refused" "1" "$RC"
+case "$OUT" in
+  *"This machine reports: Linux/i686"*) ok "linux/i686: the refusal is the platform one, naming this machine" ;;
+  *) bad "linux/i686: the platform gate did not fire:
+$OUT" ;;
+esac
+if wrote_anything; then bad "linux/i686: the machine was touched before refusing"; else ok "linux/i686: NOTHING was written"; fi
 
 # ── 5d. an OC_*_BIN override that points at NOTHING must not satisfy the gate ─
 # Found by review, and it is the exact shape of the defect this ticket exists to

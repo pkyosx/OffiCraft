@@ -70,6 +70,18 @@ fi
 (cd "$ROOT/server/ocserverd" && go build \
   -ldflags="$LDFLAGS" \
   -o "$ROOT/.deploy/ocserverd" .)
+# OC_BUILD_CROSS_PLATFORMS is set by bin/release. Must run before webdist is
+# cleared below: the cross builds embed it too.
+for platform in ${OC_BUILD_CROSS_PLATFORMS:-}; do
+  goos="${platform%/*}"
+  goarch="${platform#*/}"
+  goenv=(GOOS="$goos" GOARCH="$goarch")
+  [[ "$goos" == linux ]] && goenv+=(CGO_ENABLED=0)
+  mkdir -p "$ROOT/.deploy/$goos-$goarch"
+  (cd "$ROOT/server/ocserverd" && env "${goenv[@]}" go build \
+    -ldflags="$LDFLAGS" \
+    -o "$ROOT/.deploy/$goos-$goarch/ocserverd" .)
+done
 # NO CODE SIGNING HAPPENS HERE, AND THERE IS NO WAY TO ASK FOR IT (T-0398, owner
 # 2026-07-31). This build produces whatever `go build` produces — an adhoc
 # signature whose cdhash changes every build — and that is the whole story. The
@@ -87,4 +99,4 @@ fi
 rm -rf "$WEBDIST"
 mkdir -p "$WEBDIST"
 touch "$WEBDIST/.gitkeep"
-echo "[build] deploy binary ready: .deploy/ocserverd (SPA + seeds + binaries embedded)"
+echo "[build] deploy binary ready: .deploy/ocserverd (SPA + seeds + binaries embedded)${OC_BUILD_CROSS_PLATFORMS:+, plus $OC_BUILD_CROSS_PLATFORMS}"

@@ -1,9 +1,9 @@
 // `ocwarden install` — the one-key warden installer (the sole installer).
 //
-// The ONLY process action is launchctl by the EXACT label — never pkill /
-// pattern-kill / killall. The binary is the committed prebuilt bin/ocwarden;
-// install does NOT rebuild (a fresh machine with no Go toolchain must still be
-// able to install).
+// The ONLY process action is the service manager (launchctl, or systemctl
+// --user on Linux) by the EXACT label — never pkill / pattern-kill / killall.
+// The binary is the committed prebuilt bin/ocwarden; install does NOT rebuild
+// (a fresh machine with no Go toolchain must still be able to install).
 package main
 
 import (
@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	// Imported by production code on purpose: testing.Testing() is how the real
 	// seam constructors know they are about to hand the LIVE machine to `go test`.
@@ -175,6 +176,26 @@ type wardenPaths struct {
 	claudeBin  string
 	codexBin   string
 	plistPATH  string
+	// Stamped when plistPATH is empty, and the PATH the claude/codex probe tries first.
+	minimalPATH string
+
+	// "linux" selects the systemd --user unit; anything else keeps the launchd job.
+	goos       string
+	uid        int
+	unitDir    string
+	unitPath   string
+	runtimeDir string
+	// Only a fallback: the installer can run from the server's stripped env.
+	wslDistro string
+}
+
+func (p wardenPaths) onSystemd() bool { return p.goos == "linux" }
+
+func (p wardenPaths) serviceDefNoun() string {
+	if p.onSystemd() {
+		return "unit"
+	}
+	return "plist"
 }
 
 func (p wardenPaths) labelOrDefault() string {
@@ -186,7 +207,7 @@ func (p wardenPaths) labelOrDefault() string {
 
 // The env contract (OC_BASE / OC_TOKEN / OC_ID) is defined to align with the
 // server's boot_command.
-func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, error) {
+func resolvePaths(env func(string) string, exe string, uid int, goos string) (wardenPaths, error) {
 	home := env("HOME")
 	if home == "" {
 		return wardenPaths{}, errors.New("HOME must be set")
@@ -205,7 +226,7 @@ func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, er
 	if !ocBaseConfigured {
 		return wardenPaths{}, errors.New("OC_BASE is not set — refusing to install a warden that does not know which station to talk to. " +
 			"Re-run with OC_BASE set to the station URL (e.g. OC_BASE=https://station.example ocwarden install). " +
-			"Guessing " + defaultBase + " here would be written into this machine's launchd job permanently, and members started from it would join whatever is listening there")
+			"Guessing " + defaultBase + " here would be written into this machine's warden service permanently, and members started from it would join whatever is listening there")
 	}
 	ocBase = strings.TrimRight(ocBase, "/") // mirror loadConfig
 	if !ocBaseShape.MatchString(ocBase) {
@@ -224,7 +245,7 @@ func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, er
 		}
 	}
 
-	return wardenPaths{
+	p := wardenPaths{
 		root:       root,
 		home:       home,
 		namespace:  ns,
@@ -234,20 +255,41 @@ func resolvePaths(env func(string) string, exe string, uid int) (wardenPaths, er
 		ocToken:    ocToken,
 		ocID:       env("OC_ID"),
 		tokfile:    tokfileFor(home, ns),
-		laDir:      filepath.Join(home, "Library", "LaunchAgents"),
-		plistPath:  filepath.Join(home, "Library", "LaunchAgents", label+".plist"),
 		logDir:     filepath.Join(root, "warden", "log"),
 		binPath:    filepath.Join(root, "warden", "ocwarden"),
 		anchorSrc:  filepath.Join(filepath.Dir(exe), "officraft"),
 		anchorPath: filepath.Join(root, "warden", "officraft"),
-		guiDomain:  fmt.Sprintf("gui/%d", uid),
 		ocAgentSrc: ocAgentSrc,
 		ocAgentBin: filepath.Join(root, "warden", "ocagent"),
 		credCheck:  relayedCredCheck(env),
-	}, nil
+
+		minimalPATH: wardenMinimalPATH(goos, home),
+		goos:        goos,
+		uid:         uid,
+	}
+	if p.onSystemd() {
+		p.unitDir = systemdUnitDir(env, home)
+		p.unitPath = filepath.Join(p.unitDir, unitNameFor(label))
+		p.runtimeDir = userRuntimeDir(env, uid)
+		p.wslDistro = env("WSL_DISTRO_NAME")
+	} else {
+		p.laDir = filepath.Join(home, "Library", "LaunchAgents")
+		p.plistPath = filepath.Join(p.laDir, label+".plist")
+		p.guiDomain = fmt.Sprintf("gui/%d", uid)
+	}
+	return p, nil
 }
 
-const wardenPlistPATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+const darwinWardenPATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+// The warden's PATH when the installer's own PATH is not needed. On Linux
+// ~/.local/bin is where the claude installer puts its binary.
+func wardenMinimalPATH(goos, home string) string {
+	if goos == "darwin" {
+		return darwinWardenPATH
+	}
+	return filepath.Join(home, ".local", "bin") + ":/usr/local/bin:/usr/bin:/bin"
+}
 
 // ProgramArguments names the TCC identity anchor (which forks the sibling
 // ocwarden), not ocwarden: launchd's job leader is the responsible process for
@@ -294,7 +336,7 @@ func renderPlist(p wardenPaths) string {
 	}
 	pathVal := p.plistPATH
 	if pathVal == "" {
-		pathVal = wardenPlistPATH
+		pathVal = p.minimalPATH
 	}
 	return fmt.Sprintf(plistTemplate, p.root, p.anchorPath, p.ocBase, p.home, p.tokfile, p.logDir, p.labelOrDefault(), extraEnv, xmlEscape(pathVal), xmlCommentSafe(p.root))
 }
@@ -340,7 +382,7 @@ func stampableClaude(p string) bool {
 // plist carries OC_CLAUDE_BIN from `bin/ocserver install`). The probe catches
 // the shim/shebang trap: an asdf shim or `#!/usr/bin/env node` launcher needs
 // its manager/interpreter on PATH, so the installer's PATH then rides along.
-func resolveClaudeForInstall(env func(string) string, lookup func() string,
+func resolveClaudeForInstall(env func(string) string, minimalPATH string, lookup func() string,
 	probe func(bin, pathEnv, home string) error, logf func(string, ...any)) (string, string) {
 	cand := lookup()
 	if cand == "" {
@@ -354,7 +396,7 @@ func resolveClaudeForInstall(env func(string) string, lookup func() string,
 		return cand, ""
 	}
 	home := env("HOME")
-	if probe(cand, wardenPlistPATH, home) == nil {
+	if probe(cand, minimalPATH, home) == nil {
 		return cand, ""
 	}
 	if userPATH := env("PATH"); userPATH != "" && probe(cand, userPATH, home) == nil {
@@ -768,11 +810,15 @@ func (i *installer) verify(p wardenPaths) error {
 	}
 	label := p.labelOrDefault()
 	target := p.guiDomain + "/" + label
+	pidOf := func() string { return i.wardenPID(target) }
+	if p.onSystemd() {
+		pidOf = func() string { return i.unitMainPID(p) }
+	}
 	i.logf("verifying %s is alive AND STABLE...", label)
 
 	var pid string
 	for k := 0; k < 30; k++ {
-		if pid = i.wardenPID(target); pid != "" {
+		if pid = pidOf(); pid != "" {
 			break
 		}
 		i.sys.sleep(time.Second)
@@ -782,7 +828,7 @@ func (i *installer) verify(p wardenPaths) error {
 	}
 	for k := 0; k < 6; k++ {
 		i.sys.sleep(time.Second)
-		now := i.wardenPID(target)
+		now := pidOf()
 		if now != pid {
 			return fmt.Errorf("%s is CRASH-LOOPING — pid did not hold across the settle window (first=%s, then=%s); likely bad token / server unreachable / auth reject", label, pid, orNone(now))
 		}
@@ -815,18 +861,23 @@ func (i *installer) runInstall(p wardenPaths) error {
 		idDisplay = "<derive-from-token-sub>"
 	}
 	i.logf("resolved: ROOT=%s HOME=%s OC_BASE=%s OC_ID=%s", p.root, p.home, p.ocBase, idDisplay)
-	i.logf("targets:  TOKFILE=%s PLIST=%s BIN=%s SRC=%s", p.tokfile, p.plistPath, p.binPath, p.srcExe)
-	if p.ocAgentSrc != "" {
-		i.logf("ocagent:  LOCAL OVERRIDE (OC_AGENT_BIN) SRC=%s -> BIN=%s (home sibling; runtime-discovered, not in plist)", p.ocAgentSrc, p.ocAgentBin)
+	if p.onSystemd() {
+		i.logf("targets:  TOKFILE=%s UNIT=%s BIN=%s SRC=%s", p.tokfile, p.unitPath, p.binPath, p.srcExe)
 	} else {
-		i.logf("ocagent:  DOWNLOAD %s%s -> BIN=%s (home sibling; runtime-discovered, not in plist)", p.ocBase, agentBinaryPath, p.ocAgentBin)
+		i.logf("targets:  TOKFILE=%s PLIST=%s BIN=%s SRC=%s", p.tokfile, p.plistPath, p.binPath, p.srcExe)
+	}
+	def := p.serviceDefNoun()
+	if p.ocAgentSrc != "" {
+		i.logf("ocagent:  LOCAL OVERRIDE (OC_AGENT_BIN) SRC=%s -> BIN=%s (home sibling; runtime-discovered, not in %s)", p.ocAgentSrc, p.ocAgentBin, def)
+	} else {
+		i.logf("ocagent:  DOWNLOAD %s%s -> BIN=%s (home sibling; runtime-discovered, not in %s)", p.ocBase, agentBinaryPath, p.ocAgentBin, def)
 	}
 	if i.resolveClaude != nil {
 		p.claudeBin, p.plistPATH = i.resolveClaude()
 		if p.claudeBin != "" && p.plistPATH != "" {
-			i.logf("claude:   %s (stamped OC_CLAUDE_BIN + installer PATH into the plist — shim needs it)", p.claudeBin)
+			i.logf("claude:   %s (stamped OC_CLAUDE_BIN + installer PATH into the %s — shim needs it)", p.claudeBin, def)
 		} else if p.claudeBin != "" {
-			i.logf("claude:   %s (stamped OC_CLAUDE_BIN into the plist)", p.claudeBin)
+			i.logf("claude:   %s (stamped OC_CLAUDE_BIN into the %s)", p.claudeBin, def)
 		}
 	}
 	if i.resolveCodex != nil {
@@ -836,7 +887,7 @@ func (i *installer) runInstall(p wardenPaths) error {
 			p.plistPATH = codexPATH
 		}
 		if p.codexBin != "" {
-			i.logf("codex:    %s (stamped OC_CODEX_BIN into the plist)", p.codexBin)
+			i.logf("codex:    %s (stamped OC_CODEX_BIN into the %s)", p.codexBin, def)
 		}
 	}
 	if i.resolveClaude != nil && p.claudeBin == "" &&
@@ -846,10 +897,19 @@ func (i *installer) runInstall(p wardenPaths) error {
 		return errors.New("runtime_bin_unresolved: install claude or codex, or set OC_CLAUDE_BIN/OC_CODEX_BIN")
 	}
 	if i.dryRun {
-		i.logf("DRY-RUN mode: no file writes / no launchctl / no verification.")
+		tool := "launchctl"
+		if p.onSystemd() {
+			tool = "systemctl"
+		}
+		i.logf("DRY-RUN mode: no file writes / no %s / no verification.", tool)
 	}
 	if err := i.guard(p); err != nil {
 		return err
+	}
+	if p.onSystemd() {
+		if err := i.systemdPreflight(p); err != nil {
+			return err
+		}
 	}
 	if err := i.copyBinary(p); err != nil {
 		return err
@@ -866,19 +926,53 @@ func (i *installer) runInstall(p wardenPaths) error {
 	if err := i.ensureLogDir(p); err != nil {
 		return err
 	}
-	if err := i.writePlist(p); err != nil {
-		return err
-	}
-	if err := i.launchctlReinstall(p); err != nil {
-		return err
+	if p.onSystemd() {
+		if err := i.writeUnit(p); err != nil {
+			return err
+		}
+		if err := i.systemdReinstall(p); err != nil {
+			return err
+		}
+	} else {
+		if err := i.writePlist(p); err != nil {
+			return err
+		}
+		if err := i.launchctlReinstall(p); err != nil {
+			return err
+		}
 	}
 	if err := i.verify(p); err != nil {
 		return err
+	}
+	if p.onSystemd() {
+		i.ensureWSLKeepAlive(p)
 	}
 	if i.dryRun {
 		i.logf("DRYRUN complete — no machine state changed.")
 	}
 	return nil
+}
+
+func (i *installer) bindRuntimeResolvers(env func(string) string, p wardenPaths,
+	probe func(bin, pathEnv, home string) error) {
+	minimalPATH := p.minimalPATH
+	i.resolveClaude = func() (string, string) {
+		return resolveClaudeForInstall(env, minimalPATH, func() string { return resolveClaudeBin(env) }, probe, i.logf)
+	}
+	i.resolveCodex = func() (string, string) {
+		candidate := resolveCodexBin(env)
+		if candidate == "" || !stampableClaude(candidate) {
+			return "", ""
+		}
+		if probe(candidate, minimalPATH, env("HOME")) == nil {
+			return candidate, ""
+		}
+		if path := env("PATH"); path != "" &&
+			probe(candidate, path, env("HOME")) == nil {
+			return candidate, path
+		}
+		return candidate, ""
+	}
 }
 
 func installCmd(env func(string) string, out io.Writer, force bool) int {
@@ -900,28 +994,12 @@ func installCmd(env func(string) string, out io.Writer, force bool) int {
 		agentGet:   host.agentGet(cfg.Base, cfg.Token),
 		agentProbe: host.agentProbe,
 	}
-	i.resolveClaude = func() (string, string) {
-		return resolveClaudeForInstall(env, func() string { return resolveClaudeBin(env) }, host.versionProbe, i.logf)
-	}
-	i.resolveCodex = func() (string, string) {
-		candidate := resolveCodexBin(env)
-		if candidate == "" || !stampableClaude(candidate) {
-			return "", ""
-		}
-		if host.versionProbe(candidate, wardenPlistPATH, env("HOME")) == nil {
-			return candidate, ""
-		}
-		if path := env("PATH"); path != "" &&
-			host.versionProbe(candidate, path, env("HOME")) == nil {
-			return candidate, path
-		}
-		return candidate, ""
-	}
-	p, err := resolvePaths(env, exe, os.Getuid())
+	p, err := resolvePaths(env, exe, os.Getuid(), runtime.GOOS)
 	if err != nil {
 		i.errf("%v", err)
 		return 1
 	}
+	i.bindRuntimeResolvers(env, p, host.versionProbe)
 	if err := i.runInstall(p); err != nil {
 		i.errf("%v (re-run is safe — idempotent)", err)
 		return 1

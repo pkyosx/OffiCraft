@@ -1438,11 +1438,14 @@ ONE-SHOT, never a standing order):
 `GET /install.sh?token=<jwt>` templates the request base URL + token into a `text/plain`
 bootstrap script (PUBLIC — the token authorizes the eventual install, not the fetch), and
 the script pulls the warden binary from the PUBLIC `GET /api/warden/binary`. The `?code=`
-variant probes that binary route (HEAD) BEFORE redeeming the one-time claim code — a
-server that cannot serve the binary (503) exits with a plain-language error and the
-single-use code survives for a retry. The binary routes (`/api/warden/binary`,
-`/api/agent/binary`) and the MCP catalog serve the release-built assets embedded in the
-server binary; CWD files never shadow those bytes. This keeps a repo-less single-file
+variant first maps `uname` to the `os`/`arch` the binary routes take (an unmapped machine
+stops there), then probes that platform's binary route (HEAD) BEFORE redeeming the one-time
+claim code — a server that carries no warden for that platform (404) or cannot serve the
+binary at all (503) exits with a plain-language error and the single-use code survives for
+a retry. The legacy `?token=` variant names no platform, so it gets the server's own. The
+binary routes (`/api/warden/binary`, `/api/agent/binary`) and the MCP catalog serve the
+release-built assets embedded in the server binary, one build per supported platform;
+CWD files never shadow those bytes. This keeps a repo-less single-file
 deploy self-contained. Shapes and status codes are in `spec/openapi.json`; no hidden
 behaviour beyond the string templating.
 

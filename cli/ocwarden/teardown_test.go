@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -41,13 +42,43 @@ func TestResolveTeardownPaths(t *testing.T) {
 		}, teardownFixture()},
 	}
 	for _, c := range cases {
-		got, err := resolveTeardownPaths(envMap(c.env), 501)
+		got, err := resolveTeardownPaths(envMap(c.env), 501, "darwin")
 		if err != nil {
 			t.Errorf("%s: err = %v, want nil", c.name, err)
 			continue
 		}
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: paths = %+v, want %+v", c.name, got, c.want)
+		}
+	}
+
+	linuxCases := []struct {
+		name string
+		env  map[string]string
+		want teardownPaths
+	}{
+		{"under linux, the unit in ~/.config and the uid's runtime dir are the target", map[string]string{"HOME": "/home/eva"}, teardownPaths{
+			tokfile:    "/home/eva/.officraft/warden/exec-warden.tok",
+			label:      "com.officraft.ocwarden",
+			goos:       "linux",
+			unitPath:   "/home/eva/.config/systemd/user/com.officraft.ocwarden.service",
+			runtimeDir: "/run/user/1000",
+		}},
+		{"under linux with a namespace and XDG dirs, the namespaced unit under XDG_CONFIG_HOME is the target", map[string]string{
+			"HOME": "/home/eva", "OC_NAMESPACE": "lab", "XDG_CONFIG_HOME": "/srv/eva-config", "XDG_RUNTIME_DIR": "/run/user/eva-session",
+		}, teardownPaths{
+			tokfile:    "/home/eva/.officraft-lab/warden/exec-warden.tok",
+			label:      "com.officraft.ocwarden.lab",
+			goos:       "linux",
+			unitPath:   "/srv/eva-config/systemd/user/com.officraft.ocwarden.lab.service",
+			runtimeDir: "/run/user/eva-session",
+			namespace:  "lab",
+		}},
+	}
+	for _, c := range linuxCases {
+		got, err := resolveTeardownPaths(envMap(c.env), 1000, "linux")
+		if err != nil || !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: (%+v, %v), want %+v", c.name, got, err, c.want)
 		}
 	}
 
@@ -61,7 +92,7 @@ func TestResolveTeardownPaths(t *testing.T) {
 			`OC_NAMESPACE must match [a-z0-9-]{1,16}, got: "Lab"`},
 	}
 	for _, c := range refused {
-		got, err := resolveTeardownPaths(envMap(c.env), 501)
+		got, err := resolveTeardownPaths(envMap(c.env), 501, "darwin")
 		if err == nil || err.Error() != c.want {
 			t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
 		}
@@ -139,7 +170,7 @@ func TestDoTeardown(t *testing.T) {
 			}
 			return "", nil
 		}
-		ok, log := doTeardown(sys.ops(), false, p)
+		ok, log := doTeardown(sys.ops(), false, p, false)
 		if !ok {
 			t.Error("ok = false, want true")
 		}
@@ -173,7 +204,7 @@ func TestDoTeardown(t *testing.T) {
 		}
 		sys := newSysRecorder()
 		sys.run = func(string, int) (string, error) { return "", notLoaded }
-		ok, log := doTeardown(sys.ops(), false, ns)
+		ok, log := doTeardown(sys.ops(), false, ns, false)
 		if !ok {
 			t.Error("ok = false, want true")
 		}
@@ -200,7 +231,7 @@ func TestDoTeardown(t *testing.T) {
 		zero.label = ""
 		sys := newSysRecorder()
 		sys.run = func(string, int) (string, error) { return "", notLoaded }
-		ok, log := doTeardown(sys.ops(), false, zero)
+		ok, log := doTeardown(sys.ops(), false, zero, false)
 		if !ok {
 			t.Error("ok = false, want true")
 		}
@@ -215,7 +246,7 @@ func TestDoTeardown(t *testing.T) {
 	t.Run("a label that lingers is not a confirmed teardown", func(t *testing.T) {
 		sys := newSysRecorder()
 		sys.run = func(string, int) (string, error) { return "state = running", nil }
-		ok, log := doTeardown(sys.ops(), false, p)
+		ok, log := doTeardown(sys.ops(), false, p, false)
 		if ok {
 			t.Error("ok = true, want false — the bootout was never confirmed")
 		}
@@ -245,7 +276,7 @@ func TestDoTeardown(t *testing.T) {
 			}
 			return "", nil
 		}
-		ok, log := doTeardown(sys.ops(), false, p)
+		ok, log := doTeardown(sys.ops(), false, p, false)
 		if ok {
 			t.Error("ok = true, want false — an artifact survived")
 		}
@@ -268,7 +299,7 @@ func TestDoTeardown(t *testing.T) {
 		sys := newSysRecorder()
 		sys.files[p.tokfile] = jwtWardenOne
 		sys.files[p.plistPath] = minimalPlist
-		ok, log := doTeardown(sys.ops(), true, p)
+		ok, log := doTeardown(sys.ops(), true, p, false)
 		if !ok {
 			t.Error("ok = false, want true")
 		}
@@ -285,6 +316,201 @@ func TestDoTeardown(t *testing.T) {
 			"[ocwarden teardown] DRYRUN complete — no machine state changed.\n"
 		if log != want {
 			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	lp := linuxTeardownFixture()
+	unit := "com.officraft.ocwarden.service"
+
+	t.Run("under linux from a shell, the unit is disabled, stopped and gone with its files", func(t *testing.T) {
+		sys := newSysRecorder()
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		ok, log := doTeardown(sys.ops(), false, lp, false)
+		if !ok {
+			t.Error("ok = false, want true")
+		}
+		if got := m.state(unit); got != "absent" {
+			t.Errorf("unit state = %s, want absent", got)
+		}
+		if len(sys.files) != 0 {
+			t.Errorf("teardown left %v behind", sys.files)
+		}
+		want := "[ocwarden teardown] removed: " + lp.tokfile + "\n" +
+			"[ocwarden teardown] removed: " + lp.unitPath + "\n" +
+			"[ocwarden teardown] disabled + stopped com.officraft.ocwarden.service — CONFIRMED gone from the systemd user manager (exact unit; never pkill)\n" +
+			"[ocwarden teardown] teardown complete for com.officraft.ocwarden\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("under linux from inside the unit, the unit is unloaded but the warden keeps running for its receipt", func(t *testing.T) {
+		sys := newSysRecorder()
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		ok, log := doTeardown(sys.ops(), false, lp, true)
+		if !ok {
+			t.Error("ok = false, want true")
+		}
+		if got, want := m.state(unit), "load=not-found enabled=false active=true pid=4001"; got != want {
+			t.Errorf("unit state = %s, want %s", got, want)
+		}
+		if len(sys.files) != 0 {
+			t.Errorf("teardown left %v behind", sys.files)
+		}
+		want := "[ocwarden teardown] removed: " + lp.tokfile + "\n" +
+			"[ocwarden teardown] removed: " + lp.unitPath + "\n" +
+			"[ocwarden teardown] disabled com.officraft.ocwarden.service — CONFIRMED unloaded from the systemd user manager; this warden stops itself after the receipt\n" +
+			"[ocwarden teardown] teardown complete for com.officraft.ocwarden\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("under linux with nothing installed, the teardown is an idempotent success", func(t *testing.T) {
+		sys := newSysRecorder()
+		newFakeUserManager(sys)
+		ok, log := doTeardown(sys.ops(), false, lp, false)
+		if !ok {
+			t.Error("ok = false, want true")
+		}
+		want := "[ocwarden teardown] systemctl --user disable --now com.officraft.ocwarden.service reported: " +
+			"exit status 1: Failed to disable unit: Unit file com.officraft.ocwarden.service does not exist. (continuing)\n" +
+			"[ocwarden teardown] already absent: " + lp.tokfile + "\n" +
+			"[ocwarden teardown] already absent: " + lp.unitPath + "\n" +
+			"[ocwarden teardown] disabled + stopped com.officraft.ocwarden.service — CONFIRMED gone from the systemd user manager (exact unit; never pkill)\n" +
+			"[ocwarden teardown] teardown complete for com.officraft.ocwarden\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("under linux with a unit that survives the stop, the teardown is not confirmed", func(t *testing.T) {
+		sys := newSysRecorder()
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		m.stopIgnored = true
+		ok, log := doTeardown(sys.ops(), false, lp, false)
+		if ok {
+			t.Error("ok = true, want false — the warden is still running")
+		}
+		if got, want := m.state(unit), "load=not-found enabled=false active=true pid=4001"; got != want {
+			t.Errorf("unit state = %s, want %s", got, want)
+		}
+		want := "[ocwarden teardown] removed: " + lp.tokfile + "\n" +
+			"[ocwarden teardown] removed: " + lp.unitPath + "\n" +
+			"[ocwarden teardown] removal of com.officraft.ocwarden.service NOT confirmed: the unit is unloaded but still active\n" +
+			"[ocwarden teardown] teardown INCOMPLETE for com.officraft.ocwarden — the systemd unit was not confirmed gone or a required artifact could not be removed\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("under linux with an unreachable user manager, the teardown is not confirmed", func(t *testing.T) {
+		sys := newSysRecorder()
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		m.runtimeDir = "/run/user/2000"
+		ok, log := doTeardown(sys.ops(), false, lp, false)
+		if ok {
+			t.Error("ok = true, want false — nobody confirmed the unit is gone")
+		}
+		if got, want := m.state(unit), "load=loaded enabled=true active=true pid=4001"; got != want {
+			t.Errorf("unit state = %s, want %s", got, want)
+		}
+		bus := "exit status 1: Failed to connect to bus: No such file or directory"
+		want := "[ocwarden teardown] systemctl --user disable --now com.officraft.ocwarden.service reported: " + bus + " (continuing)\n" +
+			"[ocwarden teardown] removed: " + lp.tokfile + "\n" +
+			"[ocwarden teardown] removed: " + lp.unitPath + "\n" +
+			"[ocwarden teardown] systemctl --user daemon-reload failed: " + bus + "\n" +
+			"[ocwarden teardown] removal of com.officraft.ocwarden.service NOT confirmed: the systemd user manager could not be asked\n" +
+			"[ocwarden teardown] teardown INCOMPLETE for com.officraft.ocwarden — the systemd unit was not confirmed gone or a required artifact could not be removed\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("under linux in a dry run, the unit keeps running and its files stay", func(t *testing.T) {
+		sys := newSysRecorder()
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		ok, log := doTeardown(sys.ops(), true, lp, false)
+		if !ok {
+			t.Error("ok = false, want true")
+		}
+		if got, want := m.state(unit), "load=loaded enabled=true active=true pid=4001"; got != want {
+			t.Errorf("unit state = %s, want %s", got, want)
+		}
+		if len(sys.files) != 2 {
+			t.Errorf("a dry run removed files: %v", sys.files)
+		}
+		want := "[ocwarden teardown] DRYRUN would run: systemctl --user disable --now com.officraft.ocwarden.service  (tolerate not-loaded; stops the process via systemd, never pkill)\n" +
+			"[ocwarden teardown] DRYRUN would remove: " + lp.tokfile + "\n" +
+			"[ocwarden teardown] DRYRUN would remove: " + lp.unitPath + "\n" +
+			"[ocwarden teardown] DRYRUN would run: systemctl --user daemon-reload, then require LoadState=not-found for com.officraft.ocwarden.service\n" +
+			"[ocwarden teardown] DRYRUN complete — no machine state changed.\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("under WSL2, the keep-alive script leaves the Startup folder and a running keep-alive is left to Windows sign-out", func(t *testing.T) {
+		sys := newSysRecorder()
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		newFakeWindowsSide(sys)
+		sys.files[keepAlivePath] = keepAliveScript
+		ok, log := doTeardown(sys.ops(), false, lp, false)
+		if !ok {
+			t.Error("ok = false, want true")
+		}
+		if _, left := sys.files[keepAlivePath]; left {
+			t.Error("the keep-alive script is still in the Startup folder")
+		}
+		want := "[ocwarden teardown] removed: " + lp.tokfile + "\n" +
+			"[ocwarden teardown] removed: " + lp.unitPath + "\n" +
+			"[ocwarden teardown] disabled + stopped com.officraft.ocwarden.service — CONFIRMED gone from the systemd user manager (exact unit; never pkill)\n" +
+			"[ocwarden teardown] removed: " + keepAlivePath + "\n" +
+			"[ocwarden teardown] a WSL keep-alive already running stays until Windows signs out or restarts\n" +
+			"[ocwarden teardown] teardown complete for com.officraft.ocwarden\n"
+		if log != want {
+			t.Errorf("log =\n%s\nwant\n%s", log, want)
+		}
+	})
+
+	t.Run("under WSL2 with a namespace, only that namespace's keep-alive script is removed", func(t *testing.T) {
+		sys := newSysRecorder()
+		newFakeUserManager(sys)
+		newFakeWindowsSide(sys)
+		lab := "/mnt/c/Users/eva/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/OffiCraft keep WSL running (Ubuntu-24.04, lab).vbs"
+		sys.files[keepAlivePath] = keepAliveScript
+		sys.files[lab] = keepAliveScript
+		nsp := lp
+		nsp.namespace = "lab"
+		nsp.label = "com.officraft.ocwarden.lab"
+		nsp.tokfile = "/home/eva/.officraft-lab/warden/exec-warden.tok"
+		nsp.unitPath = "/home/eva/.config/systemd/user/com.officraft.ocwarden.lab.service"
+		doTeardown(sys.ops(), false, nsp, false)
+		want := map[string]string{"/proc/sys/kernel/osrelease": "5.15.167.4-microsoft-standard-WSL2\n", keepAlivePath: keepAliveScript}
+		if !reflect.DeepEqual(sys.files, want) {
+			t.Errorf("files left = %v, want only the canonical keep-alive script", sys.files)
+		}
+	})
+
+	t.Run("under WSL2 with Windows interop off, the teardown still completes and says where to delete the script", func(t *testing.T) {
+		sys := newSysRecorder()
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		newFakeWindowsSide(sys).interopOff = true
+		ok, log := doTeardown(sys.ops(), false, lp, false)
+		if !ok {
+			t.Error("ok = false, want true")
+		}
+		want := "[ocwarden teardown] warning: could not locate the WSL keep-alive script (cmd.exe could not be run: exec format error); if one is left, delete it from the Windows Startup folder (Win+R, shell:startup)\n" +
+			"[ocwarden teardown] teardown complete for com.officraft.ocwarden\n"
+		if !strings.HasSuffix(log, want) {
+			t.Errorf("log =\n%s\nwant it to end with\n%s", log, want)
 		}
 	})
 }
@@ -327,11 +553,24 @@ func TestRunTeardown(t *testing.T) {
 	if ok := unconfirmed.runTeardown(p); ok {
 		t.Error("runTeardown = true, want false — an artifact survived")
 	}
+
+	lsys := newSysRecorder()
+	lm := newFakeUserManager(lsys)
+	lp := linuxTeardownFixture()
+	lm.installed(lp.unitPath, lp.tokfile, minimalUnit)
+	lout := &bytes.Buffer{}
+	onLinux := &installer{out: lout, tag: "teardown", sys: lsys.ops()}
+	if ok := onLinux.runTeardown(lp); !ok {
+		t.Errorf("runTeardown on linux = false, want true\n%s", lout.String())
+	}
+	if got := lm.state("com.officraft.ocwarden.service"); got != "absent" {
+		t.Errorf("unit state after the CLI teardown = %s, want absent — the CLI is outside the unit, so it stops it", got)
+	}
 }
 
 func TestValidateTeardownTarget(t *testing.T) {
 	canonicalRefusal := "refusing: this would tear down the CANONICAL warden on this host " +
-		"(launchd com.officraft.ocwarden, its exec token and plist) and stop every agent it " +
+		"(the com.officraft.ocwarden service, its exec token and service definition) and stop every agent it " +
 		"supervises. For an isolated instance set OC_NAMESPACE=<ns>; if destroying the " +
 		"canonical warden is genuinely intended, authorize it explicitly with --canonical"
 

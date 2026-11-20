@@ -344,18 +344,21 @@ func readMachineName(r CmdRunner) string {
 	return ""
 }
 
+const wardenPlatform = runtime.GOOS + "/" + runtime.GOARCH
+
 // agent_id is NOT a body key: the reporting identity is the verified JWT sub, and
 // AgentTelemetryIngestDTO (additionalProperties:false) does not declare it —
 // sending it 422s the ENTIRE heartbeat. Keys are sent only when non-empty: absent
-// and "unknown" are different claims on that wire.
-func buildTelemetryPayload(agentID, machine string, hardware map[string]any,
+// and "unknown" are different claims on that wire. platform is always sent: the
+// server compares binaries against its build for that platform.
+func buildTelemetryPayload(agentID, platform, machine string, hardware map[string]any,
 	binaries map[string]string, claude map[string]any, shape, effect string,
 	runtimes ...map[string]any) (map[string]any, error) {
 	aid := strings.TrimSpace(agentID)
 	if aid == "" {
 		return nil, fmt.Errorf("agent id is required (an unidentified warden has nothing to report)")
 	}
-	payload := map[string]any{}
+	payload := map[string]any{"platform": platform}
 	if machine != "" {
 		payload["machine"] = machine
 	}
@@ -471,7 +474,7 @@ func runOnce(cfg Config, collect func() map[string]any, machine func() string, p
 	if len(hardware) == 0 && len(bins) == 0 && len(cl) == 0 && shp == "" && eff == "" && len(runtimeCaps) == 0 && len(disk) == 0 {
 		return ReportResult{Reason: "no hardware probed (skip POST)"}
 	}
-	payload, err := buildTelemetryPayload(cfg.ID, machine(), hardware, bins, cl, shp, eff, runtimeCaps)
+	payload, err := buildTelemetryPayload(cfg.ID, wardenPlatform, machine(), hardware, bins, cl, shp, eff, runtimeCaps)
 	if err != nil {
 		return ReportResult{Reason: "build rejected: " + err.Error()}
 	}
@@ -636,7 +639,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		case cutoverSubcmd:
 			// Internal step of the legacy->anchor migration, spawned detached by a
 			// legacy-shape `run`; deliberately absent from the usage banner.
-			return cutoverCmd(env, out)
+			return cutoverCmd(env, out, runtime.GOOS)
 		case "codex-session":
 			return runCodexSession(argv[1:], env, out)
 		case "version", "--version", "-v":
@@ -651,7 +654,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	if len(argv) == 0 || argv[0] != "run" {
 		fmt.Fprintln(out, "usage: ocwarden {run [--once] | install | teardown [--canonical]}")
 		fmt.Fprintln(out, "  run       officraft per-machine hardware telemetry + command producer.")
-		fmt.Fprintln(out, "  install   install + start the launchd warden job on this machine.")
+		fmt.Fprintln(out, "  install   install + start the warden service on this machine (launchd on macOS, systemd --user on Linux).")
 		fmt.Fprintln(out, "  teardown  stop + remove a namespaced warden; canonical requires --canonical.")
 		return 0
 	}
@@ -692,14 +695,14 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	anchorPath := ""
 	agentSocket := ""
 	if exe, err := os.Executable(); err == nil {
-		if p, perr := resolvePaths(renv, exe, os.Getuid()); perr == nil {
+		if p, perr := resolvePaths(renv, exe, os.Getuid(), runtime.GOOS); perr == nil {
 			wardenPathsOrNil = &p
 			anchorPath = p.anchorPath
 			agentSocket = tmuxSocketFor(p.namespace)
 		}
 	}
 	fingerprints := newBinFingerprinter(os.Executable, anchorPath)
-	wardenShapeOf := newShapeReporter(anchorPath, os.Getppid())
+	wardenShapeOf := newShapeReporter(anchorPath, os.Getppid(), runtime.GOOS)
 	cutoverEffectOf := newCutoverEffectReporter(anchorPath, agentSocket, os.Getppid())
 	claudeProbe := newClaudeProber(env, runner, runtime.GOOS)
 
@@ -721,7 +724,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		fmt.Fprintf(out, "%s "+format+"\n", append([]any{time.Now().UTC().Format(time.RFC3339)}, args...)...)
 	}
 	if cfg.Token != "" && iters == 0 && wardenPathsOrNil != nil {
-		maybeStartAnchorCutover(*wardenPathsOrNil, os.Getppid(), logf)
+		maybeStartAnchorCutover(*wardenPathsOrNil, os.Getppid(), runtime.GOOS, logf)
 	}
 
 	commandDeps, login, setLoginIntervals := wireLoginCheck(cfg, env, runner, runtime.GOOS, logf,

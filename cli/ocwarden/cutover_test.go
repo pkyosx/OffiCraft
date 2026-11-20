@@ -369,7 +369,7 @@ func TestNewShapeReporter(t *testing.T) {
 	rec.ppidExe[4242] = "/sbin/launchd"
 	bindCutoverOps(t, rec)
 
-	report := newShapeReporter(anchor, 4242)
+	report := newShapeReporter(anchor, 4242, "darwin")
 	if got := report(); got != "legacy" {
 		t.Errorf("first sample = %q, want %q", got, "legacy")
 	}
@@ -379,7 +379,15 @@ func TestNewShapeReporter(t *testing.T) {
 		t.Errorf("sample after the conversion = %q, want %q — the shape is re-read every cycle", got, "anchor")
 	}
 
-	blind := newShapeReporter("", 4242)
+	rec.ppidExe[1] = "systemd"
+	if got := newShapeReporter(anchor, 1, "darwin")(); got != "legacy" {
+		t.Errorf("a pid-1 parent under darwin = %q, want %q", got, "legacy")
+	}
+	if got := newShapeReporter(anchor, 1, "linux")(); got != "unknown" {
+		t.Errorf("a pid-1 parent under linux = %q, want %q — both shapes describe a launchd job", got, "unknown")
+	}
+
+	blind := newShapeReporter("", 4242, "darwin")
 	if got := blind(); got != "unknown" {
 		t.Errorf("a reporter with no anchor path = %q, want %q", got, "unknown")
 	}
@@ -580,7 +588,7 @@ func TestAnchorPreflight(t *testing.T) {
 			t.Errorf("ran %v, want %v", rec.runExits, want)
 		}
 		if len(rec.runs) != 0 || len(rec.writes) != 0 || len(rec.spawns) != 0 {
-			t.Errorf("the preflight had side effects: runs=%v writes=%v spawns=%v", rec.runs, rec.writes, rec.spawns)
+			t.Errorf("the preflight had side effects: runs=%v writes=%v, %d spawns", rec.runs, rec.writes, len(rec.spawns))
 		}
 	})
 
@@ -759,10 +767,10 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var log []string
 
-		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+		maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 		if len(rec.spawns) != 1 {
-			t.Fatalf("spawns = %#v, want exactly one converter", rec.spawns)
+			t.Fatalf("%d spawns, want exactly one converter", len(rec.spawns))
 		}
 		got := rec.spawns[0]
 		if got.bin != p.binPath || !reflect.DeepEqual(got.args, []string{"cutover-anchor"}) || got.logPath != logPath {
@@ -802,10 +810,10 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		namespaced := p
 		namespaced.namespace = "beta"
 
-		maybeStartAnchorCutover(namespaced, ppid, func(string, ...any) {})
+		maybeStartAnchorCutover(namespaced, ppid, "darwin", func(string, ...any) {})
 
 		if len(rec.spawns) != 1 {
-			t.Fatalf("spawns = %#v, want one", rec.spawns)
+			t.Fatalf("%d spawns, want one", len(rec.spawns))
 		}
 		if !slicesContain(rec.spawns[0].env, "OC_NAMESPACE=beta") {
 			t.Error("the converter was started without OC_NAMESPACE=beta")
@@ -825,10 +833,10 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 			bindCutoverOps(t, rec)
 			var log []string
 
-			maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+			maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 			if len(rec.spawns) != 0 || len(rec.created) != 0 || len(log) != 0 {
-				t.Errorf("%s: spawns=%v locks=%v log=%#v, want nothing at all", c.name, rec.spawns, rec.created, log)
+				t.Errorf("%s: %d spawns, %d locks, %d log lines, want none", c.name, len(rec.spawns), len(rec.created), len(log))
 			}
 		}
 	})
@@ -839,10 +847,10 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var log []string
 
-		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+		maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 		if len(rec.spawns) != 0 || len(rec.created) != 0 {
-			t.Errorf("spawns=%v locks=%v, want nothing", rec.spawns, rec.created)
+			t.Errorf("%d spawns, locks=%v, want nothing", len(rec.spawns), rec.created)
 		}
 		wantLog := []string{fmt.Sprintf(
 			"[ocwarden] anchor cutover: skipped — a previous attempt rolled back (%s)", failedPath)}
@@ -860,10 +868,10 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var log []string
 
-		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+		maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 		if len(rec.spawns) != 0 || len(rec.created) != 0 {
-			t.Errorf("spawns=%v locks=%v, want nothing", rec.spawns, rec.created)
+			t.Errorf("%d spawns, locks=%v, want nothing", len(rec.spawns), rec.created)
 		}
 		wantLog := []string{fmt.Sprintf(
 			"[ocwarden] anchor cutover: skipped — no anchor at %s, no usable source at %s, and this ocwarden carries no embedded anchor",
@@ -879,10 +887,10 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var log []string
 
-		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+		maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 		if len(rec.spawns) != 0 || len(rec.created) != 0 {
-			t.Errorf("spawns=%v locks=%v, want nothing", rec.spawns, rec.created)
+			t.Errorf("%d spawns, locks=%v, want nothing", len(rec.spawns), rec.created)
 		}
 		wantLog := []string{fmt.Sprintf("[ocwarden] anchor cutover: skipped — anchor preflight: %s exited 0, "+
 			"want 2 (a build whose anchor does not reject arguments is not the anchor this expects)", p.anchorPath)}
@@ -898,10 +906,10 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var log []string
 
-		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+		maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 		if len(rec.spawns) != 0 {
-			t.Errorf("spawns = %v, want none", rec.spawns)
+			t.Errorf("%d spawns, want none", len(rec.spawns))
 		}
 		wantLog := []string{fmt.Sprintf("[ocwarden] anchor cutover: skipped — another conversion holds %s", lockPath)}
 		if !reflect.DeepEqual(log, wantLog) {
@@ -915,10 +923,10 @@ func TestMaybeStartAnchorCutover(t *testing.T) {
 		bindCutoverOps(t, rec)
 		var log []string
 
-		maybeStartAnchorCutover(p, ppid, func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
+		maybeStartAnchorCutover(p, ppid, "darwin", func(f string, a ...any) { log = append(log, fmt.Sprintf(f, a...)) })
 
 		if len(rec.spawns) != 0 {
-			t.Errorf("spawns = %v, want none", rec.spawns)
+			t.Errorf("%d spawns, want none", len(rec.spawns))
 		}
 		if want := []string{lockPath}; !reflect.DeepEqual(rec.removes, want) {
 			t.Errorf("removes = %v, want %v — a lock nobody holds must not block the next start", rec.removes, want)

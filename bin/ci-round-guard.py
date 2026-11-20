@@ -75,9 +75,12 @@ CI_YML = ROOT / ".github" / "workflows" / "ci.yml"
 EXEMPT_GATES = {
     "macos-e2e": (
         "It runs the macOS end-to-end suite directly and has never gone through "
-        "bin/run-checks.sh, so it owns no lane in the round list. Corroborated "
-        "outside the repo: main's branch protection requires 11 contexts, the "
-        "round list carries 10 lanes, and macos-e2e is the whole of the difference."
+        "bin/run-checks.sh, so it owns no lane in the round list."
+    ),
+    "linux-go-checks": (
+        "It re-runs go-checks' Go targets on a Linux runner. A target belongs to "
+        "exactly one lane and those already belong to go-checks, so this job names "
+        "them to bin/run-checks.sh, which still asserts each one's end marker."
     ),
 }
 
@@ -389,8 +392,8 @@ def check_every_lane_is_really_invoked(round_lanes: list[str], gates: list[str])
     # That property is what W17/W20 demonstrate, using INVENTED keys — it needs no
     # claim about what any particular real key does at runtime.
     #
-    # ⚠️ WHAT IS AND IS NOT MEASURED HERE. Measured in this repo: across all eleven
-    # gate jobs the keys in use are exactly the three in GATE_JOB_KEYS, so this
+    # ⚠️ WHAT IS AND IS NOT MEASURED HERE. Measured in this repo: across every
+    # gate job the keys in use are exactly the three in GATE_JOB_KEYS, so this
     # costs nothing today; and each of `if:`, `continue-on-error:`, `strategy:` and
     # an invented key is REFUSED by this allowlist (fixtures W18-W20, W22-W24).
     # NOT measured in this repo: what GitHub actually does at runtime with an empty

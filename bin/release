@@ -30,7 +30,7 @@
 #                   invoking worktree is never built in and never mutated.
 #   2b. CI GATE   — the verdict of the GitHub Actions round THIS COMMIT already
 #                   went through, read back from the Actions API: that round's
-#                   head_sha must be <sha> exactly, and all eleven gate jobs must
+#                   head_sha must be <sha> exactly, and every gate job must
 #                   be present with conclusion exactly "success". Evidence goes to
 #                   a per-run directory under the output dir. Not green ⇒ nothing
 #                   is built, packaged, uploaded or tagged. Publish no longer runs
@@ -42,21 +42,23 @@
 #                   frontend SPA (VITE_USE_MOCK=false) + seeds + fresh
 #                   ocwarden/ocagent (bindist) all EMBEDDED into .deploy/ocserverd,
 #                   with appVersion stamped to <tag> and buildSHA/buildTime to
-#                   <sha> (so /api/version self-identifies the release).
-#   4. package    — dist/release/officraft-<tag>-darwin-arm64.tar.gz (ocserverd,
+#                   <sha> (so /api/version self-identifies the release), plus one
+#                   cross-built ocserverd per other RELEASE_PLATFORMS entry.
+#   4. package    — dist/release/officraft-<tag>-<os>-<arch>.tar.gz, one per
+#                   RELEASE_PLATFORMS entry (ocserverd,
 #                   ocwarden, ocagent, officraft, install.sh, LICENSE, README.md)
 #                   — officraft is the TCC identity anchor launchd starts instead
 #                   of ocwarden; install.sh refuses without it. plus
 #                   install.sh as its OWN asset (the documented curl|bash
 #                   one-liner downloads that file: docs/guide/install.md) plus
-#                   checksums.txt (sha256 of the tarball + install.sh).
-#   5. VERIFY THE ARTIFACTS before anything is uploaded — member list, mach-o
-#                   arm64-ness, the version/sha actually linked into ocserverd
+#                   checksums.txt (sha256 of every tarball + install.sh).
+#   5. VERIFY THE ARTIFACTS before anything is uploaded — member list, each
+#                   tarball's binaries being its own platform's format, the version/sha actually linked into ocserverd
 #                   (`go version -m`, i.e. the linker flags, not a hopeful grep),
 #                   and `shasum -c` against the checksums file we are about to
 #                   publish.
 #   6. upload     — ONE `gh release create --prerelease --target <sha>` carrying
-#                   all three assets. One call, so there is no window where the
+#                   every asset. One call, so there is no window where the
 #                   release exists with a partial asset set.
 #   7. READ BACK  — ask GitHub what it stored and require: every expected asset
 #                   present AND state=uploaded, targetCommitish == <sha>,
@@ -219,8 +221,17 @@ require_tag_shape() {
 # publish builds these and promote re-verifies them, so the expected asset set
 # must have exactly one definition. Drift between "what we upload" and "what we
 # check for" is otherwise invisible.
+# darwin-arm64 is the host platform publish is gated to: its ocserverd is bin/build's
+# native .deploy/ocserverd, every other entry is cross-built.
+. "$ROOT/bin/lib/member-platforms.sh"
+RELEASE_PLATFORMS="${OC_MEMBER_PLATFORMS//\//-}"
+
 asset_names() { # asset_names <tag>
-  printf '%s\n' "officraft-$1-darwin-arm64.tar.gz" "install.sh" "checksums.txt"
+  local p
+  for p in $RELEASE_PLATFORMS; do
+    printf '%s\n' "officraft-$1-$p.tar.gz"
+  done
+  printf '%s\n' "install.sh" "checksums.txt"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -248,10 +259,9 @@ cmd_publish() {
     || die "--target '$TARGET' does not resolve to a commit in $SRC." 2
   SHORT="$(git -C "$SRC" rev-parse --short "$SHA")"
   if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
-    die "release builds run on darwin/arm64 (the asset is darwin-arm64)."
+    die "release builds run on darwin/arm64 (the darwin-arm64 asset is built natively)."
   fi
 
-  local NAME="officraft-$TAG-darwin-arm64"
   say "publish $TAG (prerelease) from $SHORT ($SHA)"
 
   # 2. staging worktree at exactly $SHA. Detached, throwaway, removed on exit.
@@ -283,33 +293,48 @@ cmd_publish() {
   #    that embeds all three). There is exactly ONE builder — no signed variant
   #    (T-0398).
   local BUILDER="bin/build"
-  say "build: OC_APP_VERSION=$TAG bash $BUILDER (in the staging worktree)"
-  ( cd "$STAGE" && OC_APP_VERSION="$TAG" bash "$STAGE/$BUILDER" ) \
+  local CROSS="" p
+  for p in $RELEASE_PLATFORMS; do
+    [[ "$p" == darwin-arm64 ]] || CROSS="${CROSS:+$CROSS }${p/-//}"
+  done
+  say "build: OC_APP_VERSION=$TAG OC_BUILD_CROSS_PLATFORMS=\"$CROSS\" bash $BUILDER (in the staging worktree)"
+  ( cd "$STAGE" && OC_APP_VERSION="$TAG" OC_BUILD_CROSS_PLATFORMS="$CROSS" bash "$STAGE/$BUILDER" ) \
     || die "the release build failed — nothing was uploaded."
 
   # 4. package. bindist still holds the exact ocwarden/ocagent builds that were
   #    embedded (bin/build leaves them staged on purpose) — ship those same bytes
   #    rather than rebuilding, so package == embedded.
   mkdir -p "$OUT"
-  local PKG="$STAGE/.release-pkg/$NAME"
-  mkdir -p "$PKG"
-  cp "$STAGE/.deploy/ocserverd"                     "$PKG/ocserverd"
-  cp "$STAGE/server/ocserverd/bindist/ocwarden"     "$PKG/ocwarden"
-  cp "$STAGE/server/ocserverd/bindist/ocagent"      "$PKG/ocagent"
-  cp "$STAGE/server/ocserverd/bindist/officraft"    "$PKG/officraft"
-  cp "$STAGE/bin/install.sh"                        "$PKG/install.sh"
-  cp "$STAGE/LICENSE"                               "$PKG/LICENSE"
-  chmod +x "$PKG/ocserverd" "$PKG/ocwarden" "$PKG/ocagent" "$PKG/officraft" "$PKG/install.sh"
-  write_package_readme "$PKG/README.md" "$TAG" "$SHORT"
-  tar -C "$STAGE/.release-pkg" -czf "$OUT/$NAME.tar.gz" "$NAME"
+  local -a TARBALLS=()
+  local NAME PKG SERVER BINDIST
+  for p in $RELEASE_PLATFORMS; do
+    NAME="officraft-$TAG-$p"
+    PKG="$STAGE/.release-pkg/$NAME"
+    BINDIST="$STAGE/server/ocserverd/bindist/$p"
+    SERVER="$STAGE/.deploy/$p/ocserverd"
+    [[ "$p" == darwin-arm64 ]] && SERVER="$STAGE/.deploy/ocserverd"
+    mkdir -p "$PKG"
+    cp "$SERVER"                    "$PKG/ocserverd"
+    cp "$BINDIST/ocwarden"          "$PKG/ocwarden"
+    cp "$BINDIST/ocagent"           "$PKG/ocagent"
+    cp "$BINDIST/officraft"         "$PKG/officraft"
+    cp "$STAGE/bin/install.sh"      "$PKG/install.sh"
+    cp "$STAGE/LICENSE"             "$PKG/LICENSE"
+    chmod +x "$PKG/ocserverd" "$PKG/ocwarden" "$PKG/ocagent" "$PKG/officraft" "$PKG/install.sh"
+    write_package_readme "$PKG/README.md" "$TAG" "$SHORT" "$p"
+    # macOS tar otherwise adds an AppleDouble ._<file> beside every member and
+    # xattr headers; GNU tar on Linux extracts those as stray files and warnings.
+    COPYFILE_DISABLE=1 tar --no-xattrs -C "$STAGE/.release-pkg" -czf "$OUT/$NAME.tar.gz" "$NAME"
+    TARBALLS+=("$NAME.tar.gz")
+  done
   # install.sh doubles as a standalone release asset (the documented curl|bash
-  # bootstrap downloads THIS file) — publish the SAME bytes that went in the tarball.
-  cp "$PKG/install.sh" "$OUT/install.sh"
+  # bootstrap downloads THIS file) — publish the SAME bytes that went in the tarballs.
+  cp "$STAGE/bin/install.sh" "$OUT/install.sh"
   chmod +x "$OUT/install.sh"
-  ( cd "$OUT" && shasum -a 256 "$NAME.tar.gz" install.sh > checksums.txt )
+  ( cd "$OUT" && shasum -a 256 "${TARBALLS[@]}" install.sh > checksums.txt )
 
   # 5. verify the artifacts BEFORE any upload.
-  verify_artifacts "$TAG" "$SHA" "$SHORT" "$NAME"
+  verify_artifacts "$TAG" "$SHA" "$SHORT"
 
   local -a ASSETS=()
   local a
@@ -331,7 +356,7 @@ cmd_publish() {
   say "upload: one gh release create with ${#ASSETS[@]} assets"
   gh release create "$TAG" --repo "$GH_REPO" --prerelease --target "$SHA" \
     --title "OffiCraft $TAG" \
-    --notes "OffiCraft $TAG (darwin-arm64) — built from $SHORT. Install: see install.sh." \
+    --notes "OffiCraft $TAG (${RELEASE_PLATFORMS// /, }) — built from $SHORT. Install: see install.sh." \
     "${ASSETS[@]}" \
     || die "gh release create failed — check GitHub for a partially created release before retrying."
 
@@ -419,7 +444,7 @@ cmd_promote() {
 # verification helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-# The eleven jobs that MUST be green for a commit to be shippable. This list is
+# The jobs that MUST be green for a commit to be shippable. This list is
 # `auto-beta`'s own `needs:` in .github/workflows/ci.yml, verbatim — the gate set
 # that workflow already declares, transcribed here because the release command
 # has to be able to state what it requires without trusting the very file whose
@@ -443,6 +468,7 @@ hygiene
 bin-guards
 tcc-anchor
 e2e-isolation-guard
+linux-go-checks
 macos-e2e"
 
 # run_release_ci <sha> <short> — THE release gate (T-b65e; rebuilt on GitHub's
@@ -731,10 +757,10 @@ print("[release]   %d/%d required gate jobs succeeded on run %s (head_sha %s)"
   say "  CI verdict accepted for $SHORT (GitHub run $run_id, head_sha bound to --target, all required jobs success)"
 }
 
-# verify_artifacts <tag> <sha> <short> <name> — everything checkable locally,
-# before a single byte is uploaded.
+# verify_artifacts <tag> <sha> <short> — everything checkable locally, for every
+# platform's tarball, before a single byte is uploaded.
 verify_artifacts() {
-  local TAG="$1" SHA="$2" SHORT="$3" NAME="$4"
+  local TAG="$1" SHA="$2" SHORT="$3"
   say "verify artifacts (pre-upload)"
 
   local f
@@ -743,43 +769,66 @@ verify_artifacts() {
     [[ -s "$OUT/$f" ]] || fail_item artifact-nonempty "artifact $f is empty."
   done < <(asset_names "$TAG")
 
+  local p
+  for p in $RELEASE_PLATFORMS; do
+    verify_tarball "$TAG" "$SHORT" "$p"
+  done
+
+  # checksums.txt must actually check out, and must cover exactly the files the
+  # install one-liner can verify: every tarball plus install.sh. A missing entry
+  # makes install.sh refuse that platform; an empty file is how its sha256 step
+  # would start silently passing on nothing.
+  local lines want_lines
+  want_lines="$(asset_names "$TAG" | grep -cvx checksums.txt)"
+  lines="$(awk 'NF' "$OUT/checksums.txt" | wc -l | tr -d '[:space:]')"
+  [[ "$lines" == "$want_lines" ]] \
+    || fail_item checksums-scope "checksums.txt has $lines entries; expected exactly $want_lines ($(asset_names "$TAG" | grep -vx checksums.txt | paste -sd' ' -))."
+  ( cd "$OUT" && shasum -a 256 -c checksums.txt >/dev/null 2>&1 ) \
+    || fail_item checksums-match "shasum -c checksums.txt FAILED — the published digests do not match the published files."
+  say "  checksums OK ($want_lines entries, shasum -c clean)"
+  say "artifacts verified for $TAG @ $SHORT"
+}
+
+# verify_tarball <tag> <short> <os-arch> — one platform's tarball.
+verify_tarball() {
+  local TAG="$1" SHORT="$2" PLATFORM="$3"
+  local NAME="officraft-$TAG-$PLATFORM"
+
   # The tarball's member list, EXACTLY. A tarball missing ocwarden — or one that
   # quietly grew a stray file — is a broken install, not a cosmetic issue.
   local want_members got_members
   want_members="$(printf '%s\n' LICENSE README.md install.sh ocagent ocserverd ocwarden officraft)"
-  got_members="$(tar -tzf "$OUT/$NAME.tar.gz" \
-    | sed -e "s|^$NAME/||" -e '/^$/d' | LC_ALL=C sort)"
+  # Read the raw entries: macOS tar -t folds AppleDouble ._<file> entries into
+  # their files and would list a tarball that unpacks junk on Linux as clean.
+  got_members="$(python3 -I -c 'import sys, tarfile
+for m in tarfile.open(sys.argv[1]).getmembers(): print(m.name)' "$OUT/$NAME.tar.gz" \
+    | sed -e "s|^$NAME/||" -e "s|^$NAME\$||" -e '/^$/d' | LC_ALL=C sort)"
   [[ "$got_members" == "$want_members" ]] || fail_item tarball-members \
-    "tarball member list is wrong. want: $(echo "$want_members" | tr '\n' ' ')| got: $(echo "$got_members" | tr '\n' ' ')"
+    "$NAME.tar.gz member list is wrong. want: $(echo "$want_members" | tr '\n' ' ')| got: $(echo "$got_members" | tr '\n' ' ')"
 
-  # The three binaries must be native arm64 mach-o, and ocserverd must carry the
-  # version + commit we asked for. `go version -m` reports the LINKER FLAGS the
-  # binary was built with, so this reads the stamp itself rather than hoping the
-  # tag string appears somewhere in the bytes (it appears in README.md too, so a
-  # grep over the tarball would "pass" on an unstamped binary).
+  # The binaries must be native executables of the tarball's own platform, and
+  # ocserverd must carry the version + commit we asked for. `go version -m`
+  # reports the LINKER FLAGS the binary was built with, so this reads the stamp
+  # itself rather than hoping the tag string appears somewhere in the bytes (it
+  # appears in README.md too, so a grep over the tarball would "pass" on an
+  # unstamped binary).
   local vdir
   vdir="$(mktemp -d -t oc-release-verify.XXXXXX)"
   tar -C "$vdir" -xzf "$OUT/$NAME.tar.gz"
-  # Match each token INDEPENDENTLY, not as an ordered glob. `file -b` on a Go
-  # arm64 binary says exactly "Mach-O 64-bit executable arm64" — architecture
-  # LAST — so the ordered pattern this replaced (Mach-O…arm64…executable) could
-  # never match any real artifact, and every publish died here. Ordering in
-  # file(1)'s prose is not a contract; the presence of the three tokens is what
-  # this check is actually about.
-  local b desc
+  local b mismatch
   for b in ocserverd ocwarden ocagent officraft; do
-    desc="$(file -b "$vdir/$NAME/$b")"
-    [[ "$desc" == *"Mach-O"* && "$desc" == *"arm64"* && "$desc" == *"executable"* ]] \
-      || fail_item artifact-arch "$b is not a darwin/arm64 Mach-O executable (file says: $desc)"
+    mismatch="$(binary_platform_mismatch "$vdir/$NAME/$b" "$PLATFORM")"
+    [[ -z "$mismatch" ]] \
+      || fail_item artifact-arch "$NAME: $b is not a $PLATFORM executable (file says: $mismatch)"
   done
   local ldflags
   ldflags="$(go version -m "$vdir/$NAME/ocserverd" 2>/dev/null | grep -F -- '-ldflags' || true)"
   [[ -n "$ldflags" ]] \
-    || fail_item version-stamp "could not read ocserverd's linker flags (go version -m returned no -ldflags line) — the embedded version identity is unverifiable."
+    || fail_item version-stamp "$NAME: could not read ocserverd's linker flags (go version -m returned no -ldflags line) — the embedded version identity is unverifiable."
   [[ "$ldflags" == *"-X main.appVersion=$TAG"* ]] \
-    || fail_item version-stamp "ocserverd was NOT stamped with appVersion=$TAG (its -ldflags: $ldflags) — /api/version would misreport the release."
+    || fail_item version-stamp "$NAME: ocserverd was NOT stamped with appVersion=$TAG (its -ldflags: $ldflags) — /api/version would misreport the release."
   [[ "$ldflags" == *"-X main.buildSHA=$SHORT"* ]] \
-    || fail_item version-stamp "ocserverd was NOT stamped with buildSHA=$SHORT (its -ldflags: $ldflags) — the artifact cannot prove which commit it came from."
+    || fail_item version-stamp "$NAME: ocserverd was NOT stamped with buildSHA=$SHORT (its -ldflags: $ldflags) — the artifact cannot prove which commit it came from."
 
   # 🔴 AND THE ocagent, WHICH IS THE BINARY THAT CANNOT BE ASKED LATER (T-8f7d).
   # A listener process holds the image it started with, so an unstamped ocagent
@@ -788,8 +837,8 @@ verify_artifacts() {
   # correctly. Nothing downstream can tell them apart, which is why it has to be
   # caught here, on the artifact, before it is published.
   # ⚠️ THIS IS THE SHIPPED COPY, NOT A REBUILD. It comes out of the tarball, which
-  # was copied from server/ocserverd/bindist/ocagent — the same file `go:embed
-  # all:bindist` baked into ocserverd, so this pins the output of that embed and
+  # was copied from server/ocserverd/bindist/<os>-<arch>/ocagent — the same file
+  # `go:embed all:bindist` baked into ocserverd, so this pins the output of that embed and
   # not merely the input to it. bin/tests/agent-build-sha-guard.sh case 7 asks a
   # FRESHLY BUILT ocagent for its version, which proves the build line stamps but
   # says nothing about what ended up inside the artifact.
@@ -814,25 +863,12 @@ verify_artifacts() {
   local agent_ldflags
   agent_ldflags="$(go version -m "$vdir/$NAME/ocagent" 2>/dev/null | grep -F -- '-ldflags' || true)"
   [[ -n "$agent_ldflags" ]] \
-    || fail_item agent-stamp "could not read the packaged ocagent's linker flags (go version -m returned no -ldflags line) — cannot prove the listeners this release installs will be able to name their own build."
+    || fail_item agent-stamp "$NAME: could not read the packaged ocagent's linker flags (go version -m returned no -ldflags line) — cannot prove the listeners this release installs will be able to name their own build."
   [[ "$agent_ldflags" == *"-X main.buildSHA=$SHORT"* ]] \
-    || fail_item agent-stamp "the packaged ocagent was NOT stamped with buildSHA=$SHORT (its -ldflags: $agent_ldflags). Every listener installed from this release prints a connection line with no [agent …] segment — indistinguishable from a dev build doing the right thing — so 'ship it and watch the fleet' returns a false negative for the whole life of every long-lived agent."
+    || fail_item agent-stamp "$NAME: the packaged ocagent was NOT stamped with buildSHA=$SHORT (its -ldflags: $agent_ldflags). Every listener installed from this release prints a connection line with no [agent …] segment — indistinguishable from a dev build doing the right thing — so 'ship it and watch the fleet' returns a false negative for the whole life of every long-lived agent."
 
   rm -rf "$vdir"
-  say "  ocserverd stamp OK: appVersion=$TAG buildSHA=$SHORT"
-  say "  packaged ocagent stamp OK: buildSHA=$SHORT"
-
-  # checksums.txt must actually check out, and must cover exactly the two files
-  # the install one-liner verifies. A checksums file that lists one entry — or
-  # none — is how install.sh's sha256 step starts silently passing on nothing.
-  local lines
-  lines="$(awk 'NF' "$OUT/checksums.txt" | wc -l | tr -d '[:space:]')"
-  [[ "$lines" == "2" ]] \
-    || fail_item checksums-scope "checksums.txt has $lines entries; expected exactly 2 ($NAME.tar.gz + install.sh)."
-  ( cd "$OUT" && shasum -a 256 -c checksums.txt >/dev/null 2>&1 ) \
-    || fail_item checksums-match "shasum -c checksums.txt FAILED — the published digests do not match the published files."
-  say "  checksums OK (2 entries, shasum -c clean)"
-  say "artifacts verified for $TAG @ $SHORT"
+  say "  $NAME: $PLATFORM binaries, ocserverd stamp appVersion=$TAG buildSHA=$SHORT, ocagent stamp buildSHA=$SHORT"
 }
 
 # verify_stored_release <tag> <expected-target-or-empty> <prerelease|final> <expected-latest-or-empty: true|false>
@@ -1038,12 +1074,13 @@ except Exception: print("")' 2>/dev/null || true)"
   fail_item station-settle "the station at $SITE did not upgrade to $SHORT within $((SETTLE_TRIES * SETTLE_SLEEP))s (its /api/version git_sha last read: '${seen:-<none>}'). THIS IS THE ONLY UNMET ITEM: the assets uploaded and the stored release read back correct, so the tag, the artifacts and the target commit are all fine — what did not happen is the station moving onto them. publish never pushes an upgrade; it waits for the station's own auto_update to pick the release up (measured at ~2-3 min). Check that auto_update is still enabled on the owner's account before suspecting the release."
 }
 
-write_package_readme() { # write_package_readme <path> <tag> <short-sha>
-  local path="$1" TAG="$2" HEAD_SHA="$3"
+write_package_readme() { # write_package_readme <path> <tag> <short-sha> <os-arch>
+  local path="$1" TAG="$2" HEAD_SHA="$3" PLATFORM="$4"
   cat > "$path" <<EOF
-# OffiCraft $TAG (darwin-arm64)
+# OffiCraft $TAG ($PLATFORM)
 
-Run your own AI staff office on a Mac. This package contains everything —
+Run your own AI staff office on macOS (Apple Silicon) or Linux (Windows: inside
+WSL2). This package contains everything —
 no Go/Node toolchain needed.
 
 ## Install (one command)
@@ -1054,8 +1091,9 @@ no Go/Node toolchain needed.
 
 Installs to \`~/.officraft/bin\`, creates/migrates the database at
 \`~/.officraft/server/data/officraft.db\`, then registers and starts the
-launchd job \`com.officraft.serve\` (starts at login, restarts on crash; logs
-to \`~/.officraft/server/log/serve.log\`). It does NOT hold your terminal —
+service \`com.officraft.serve\` — a launchd job on macOS, a \`systemd --user\`
+unit on Linux (starts at login, restarts on crash; logs to
+\`~/.officraft/server/log/serve.log\`). It does NOT hold your terminal —
 pass \`--foreground\` if you want that instead. The installer then prints a
 one-time setup link (\`http://127.0.0.1:7755/?code=…\`) — open it to set your
 owner password.
@@ -1077,13 +1115,14 @@ LIVE it refuses outright — restarting it drops every connected cockpit and
 agent — until you also pass \`--restart-live\`.
 
 Stop/start the service with
-\`launchctl bootout|bootstrap gui/\$(id -u) ~/Library/LaunchAgents/com.officraft.serve.plist\`.
+\`launchctl bootout|bootstrap gui/\$(id -u) ~/Library/LaunchAgents/com.officraft.serve.plist\`
+on macOS, or \`systemctl --user stop|start com.officraft.serve\` on Linux.
 
 ## Contents
 
 - \`ocserverd\` — the server (web app, seeds and agent binaries embedded)
 - \`ocwarden\`, \`ocagent\` — fleet CLI binaries (also served by ocserverd)
-- \`officraft\` — the warden's fixed launchd identity; \`install.sh\` needs it
+- \`officraft\` — the warden's fixed service identity; \`install.sh\` needs it
   beside itself and refuses without it
 - \`install.sh\` — the installer above
 - \`LICENSE\` — MIT

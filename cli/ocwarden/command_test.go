@@ -630,6 +630,59 @@ func TestDispatchCommand(t *testing.T) {
 			t.Errorf("err = %v, want %q", err, want)
 		}
 	})
+
+	t.Run("under a self-stop seam, a delivered uninstall ends with the unit stopped and no exit", func(t *testing.T) {
+		sys := newSysRecorder()
+		m := newFakeUserManager(sys)
+		p := linuxTeardownFixture()
+		m.installed(p.unitPath, p.tokfile, minimalUnit)
+		s := &dispatchSpy{stopOK: true}
+		deps := s.deps()
+		deps.Teardown = func() (bool, string) { return doTeardown(sys.ops(), false, p, true) }
+		deps.SelfStop = func() error { return stopUnitNoBlock(sys.ops(), p) }
+		if err := dispatchCommand(&Command{RPC: "uninstall", Args: map[string]any{"member_id": "m1"}}, deps); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		if got := s.receipt(t); !got.OK || got.RPC != "uninstall" {
+			t.Errorf("receipt = %+v, want a successful uninstall receipt", got)
+		}
+		if got := m.state("com.officraft.ocwarden.service"); got != "absent" {
+			t.Errorf("unit state = %s, want absent", got)
+		}
+		if len(s.exits) != 0 {
+			t.Errorf("exits = %v, want none — the queued stop ends the process", s.exits)
+		}
+	})
+
+	t.Run("under a self-stop seam, an undelivered receipt leaves the unit running for the retry", func(t *testing.T) {
+		sys := newSysRecorder()
+		m := newFakeUserManager(sys)
+		p := linuxTeardownFixture()
+		m.installed(p.unitPath, p.tokfile, minimalUnit)
+		s := &dispatchSpy{stopOK: true, reportErr: errors.New("post status 503")}
+		deps := s.deps()
+		deps.Teardown = func() (bool, string) { return doTeardown(sys.ops(), false, p, true) }
+		deps.SelfStop = func() error { return stopUnitNoBlock(sys.ops(), p) }
+		err := dispatchCommand(&Command{RPC: "uninstall", Args: map[string]any{"member_id": "m1"}}, deps)
+		if want := "command: uninstall receipt undelivered, NOT self-exiting: post status 503"; err == nil || err.Error() != want {
+			t.Errorf("err = %v, want %q", err, want)
+		}
+		if got, want := m.state("com.officraft.ocwarden.service"), "load=not-found enabled=false active=true pid=4001"; got != want {
+			t.Errorf("unit state = %s, want %s", got, want)
+		}
+	})
+
+	t.Run("under a self-stop the manager refuses, the warden falls back to exiting", func(t *testing.T) {
+		s := &dispatchSpy{stopOK: true}
+		deps := s.deps()
+		deps.SelfStop = func() error { return errors.New("Failed to connect to bus") }
+		if err := dispatchCommand(&Command{RPC: "uninstall", Args: map[string]any{"member_id": "m1"}}, deps); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		if !reflect.DeepEqual(s.exits, []int{0}) {
+			t.Errorf("exits = %v, want [0]", s.exits)
+		}
+	})
 }
 
 func TestArgString(t *testing.T) {

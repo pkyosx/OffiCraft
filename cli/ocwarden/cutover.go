@@ -208,10 +208,12 @@ func detectShape(ops cutoverOps, ppid int, anchorPath string) wardenShape {
 // conversion boots the job out, so the process that reports is never the one
 // that cached. An empty anchorPath answers `unknown`, never an omitted field
 // (omission means a build predating this) and never a guess (detectShape
-// against "" would call every launchd-parented warden `legacy`).
-func newShapeReporter(anchorPath string, ppid int) func() string {
+// against "" would call every launchd-parented warden `legacy`). Off darwin the
+// answer is always `unknown`: both shapes describe a launchd job, and a pid-1
+// parent elsewhere would otherwise read as `legacy` forever.
+func newShapeReporter(anchorPath string, ppid int, goos string) func() string {
 	return func() string {
-		if anchorPath == "" {
+		if anchorPath == "" || goos != "darwin" {
 			return string(shapeUnknown)
 		}
 		return string(detectShape(newCutoverOps(), ppid, anchorPath))
@@ -317,7 +319,13 @@ func realRunExit(name string, args ...string) (int, error) {
 
 // Best-effort and NEVER fails the warden: a warden that will not start is
 // strictly worse than one running the old shape.
-func maybeStartAnchorCutover(p wardenPaths, ppid int, logf func(string, ...any)) {
+//
+// darwin only: the anchor exists for macOS privacy grants, and shape detection
+// reads `ps -o comm=` as an executable path, which elsewhere is a short name.
+func maybeStartAnchorCutover(p wardenPaths, ppid int, goos string, logf func(string, ...any)) {
+	if goos != "darwin" {
+		return
+	}
 	ops := newCutoverOps()
 	wardenDir := filepath.Join(p.root, "warden")
 

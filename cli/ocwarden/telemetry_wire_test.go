@@ -198,6 +198,7 @@ func TestWardenTelemetryUplinkBodies(t *testing.T) {
 	}
 
 	wantHeartbeat := map[string]any{
+		"platform": mainTestPlatform,
 		"machine":  "Seth's MacBook Pro",
 		"binaries": map[string]any{"ocwarden": "abc123abc123"},
 		"hardware": map[string]any{"battery_pct": float64(87), "ac_power": true, "cpu_pct": float64(20), "ram_pct": 63.6},

@@ -9,11 +9,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
-	"slices"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -948,6 +951,36 @@ func TestBuildSpawnDeps(t *testing.T) {
 	if inherit.CaptureEnv == nil {
 		t.Error("the interactive-env capture must be on unless the owner turned it off")
 	}
+
+	t.Run("reaping a workdir ends its leftover ocagent with SIGTERM and counts it", func(t *testing.T) {
+		workdir := filepath.Join(home, "agents", "m2")
+		sweepRunner := &wardenRunner{}
+		reaped := startStandInListener(t, sweepRunner, workdir)
+
+		n, ok := buildSpawnDeps(Config{}, env, pidGuardRunner{t, sweepRunner}, "officraft", "").ReapWorkdirListeners(workdir)
+		if n != 1 || !ok {
+			t.Errorf("ReapWorkdirListeners = (%d, %v), want (1, true)", n, ok)
+		}
+		if sig := reaped(); sig != syscall.SIGTERM {
+			t.Errorf("the listener ended with %v, want %v", sig, syscall.SIGTERM)
+		}
+	})
+
+	t.Run("a stop attempt ends the workdir's leftover ocagent with SIGTERM", func(t *testing.T) {
+		workdir := filepath.Join(home, "agents", "m3")
+		sweepRunner := &wardenRunner{script: map[string]wardenRun{
+			"tmux -L officraft has-session -t member-m3": {err: errors.New("can't find session: member-m3")},
+		}}
+		attempted := startStandInListener(t, sweepRunner, workdir)
+
+		stopped := buildSpawnDeps(Config{}, env, pidGuardRunner{t, sweepRunner}, "officraft", "").StopAttempt("officraft", "member-m3", workdir)
+		if sig := attempted(); sig != syscall.SIGTERM {
+			t.Errorf("the listener ended with %v, want %v", sig, syscall.SIGTERM)
+		}
+		if !stopped {
+			t.Errorf("StopAttempt = false, want true once the session and its listener are gone")
+		}
+	})
 }
 
 // pidGuardRunner keeps a test that runs the production stop() (realKill,
@@ -964,11 +997,110 @@ func (g pidGuardRunner) Run(name string, args ...string) (string, error) {
 	call := strings.Join(append([]string{name}, args...), " ")
 	yieldsPIDs := name == "ps" || name == "lsof" || name == "pgrep" ||
 		strings.Contains(call, "#{pane_pid}") || strings.Contains(call, "list-panes")
-	if yieldsPIDs && strings.TrimSpace(out) != "" {
+	if yieldsPIDs && strings.TrimSpace(out) != "" && !onlyStandInPIDs(out) {
 		g.t.Errorf("the fake runner answered %q with %q: the real stop() would signal those pids", call, out)
 		return "", err
 	}
 	return out, err
+}
+
+// pid → the channel closed once that stand-in has been reaped.
+var standInPIDs sync.Map
+
+// settleStandIns gives a signalled stand-in time to be reaped: until its Wait
+// returns it is a zombie, and a zombie still answers kill(pid, 0), so a sweep
+// whose poll sleep is stubbed out would count it as a survivor.
+func settleStandIns(d time.Duration) {
+	if d != sweepPollInterval {
+		return
+	}
+	standInPIDs.Range(func(_, v any) bool {
+		select {
+		case <-v.(chan struct{}):
+		case <-time.After(50 * time.Millisecond):
+		}
+		return true
+	})
+}
+
+func onlyStandInPIDs(out string) bool {
+	for _, ln := range strings.Split(strings.TrimSpace(out), "\n") {
+		if !strings.HasPrefix(ln, "p") {
+			continue
+		}
+		pid, err := strconv.Atoi(ln[1:])
+		if err != nil {
+			return false
+		}
+		if _, ok := standInPIDs.Load(pid); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// startStandInListener runs a real process in workdir, standing in
+// for a leftover `ocagent listen`: the production sweep signals every pid it
+// finds, so the only pid it may find is one this test owns. Where the sweep asks
+// lsof, the fake runner answers with that pid.
+func startStandInListener(t *testing.T, r *wardenRunner, workdir string) func() syscall.Signal {
+	t.Helper()
+	bin := "/bin/sleep"
+	if runtime.GOOS == "linux" {
+		// The proc sweep matches the process name. macOS kills a copied system
+		// binary on exec, and its sweep reads the fake lsof, so only Linux copies.
+		raw, err := os.ReadFile(bin)
+		if err != nil {
+			t.Fatalf("read %s: %v", bin, err)
+		}
+		bin = filepath.Join(t.TempDir(), "ocagent")
+		if err := os.WriteFile(bin, raw, 0o755); err != nil {
+			t.Fatalf("stage the stand-in listener: %v", err)
+		}
+	}
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var cmd *exec.Cmd
+	for attempt := 0; ; attempt++ {
+		cmd = exec.Command(bin, "60")
+		cmd.Dir = workdir
+		err := cmd.Start()
+		if err == nil {
+			break
+		}
+		// A fork elsewhere in the package can still hold the just-written copy
+		// open for writing, and exec then fails with ETXTBSY until it closes.
+		if !errors.Is(err, syscall.ETXTBSY) || attempt == 50 {
+			t.Fatalf("start the stand-in listener: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	pid := cmd.Process.Pid
+	exited := make(chan struct{})
+	standInPIDs.Store(pid, exited)
+	go func() { _ = cmd.Wait(); close(exited) }()
+	t.Cleanup(func() { _ = cmd.Process.Kill(); <-exited; standInPIDs.Delete(pid) })
+	if runtime.GOOS != "linux" {
+		const lsofCmd = "lsof -a -c ocagent -d cwd -F pn"
+		if r.script == nil {
+			r.script = map[string]wardenRun{}
+		}
+		prev := r.script[lsofCmd]
+		prev.out += "p" + strconv.Itoa(pid) + "\nn" + workdir + "\n"
+		r.script[lsofCmd] = prev
+	}
+	return func() syscall.Signal {
+		select {
+		case <-exited:
+		case <-time.After(10 * time.Second):
+			return 0
+		}
+		if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			return ws.Signal()
+		}
+		return 0
+	}
 }
 
 func TestBuildCommandDeps(t *testing.T) {
@@ -976,7 +1108,7 @@ func TestBuildCommandDeps(t *testing.T) {
 	// recorded instead of slept, and summed below so the waits still happen.
 	var slept time.Duration
 	restoreSleep := spawnSleep
-	spawnSleep = func(d time.Duration) { slept += d }
+	spawnSleep = func(d time.Duration) { slept += d; settleStandIns(d) }
 	t.Cleanup(func() { spawnSleep = restoreSleep })
 
 	root := t.TempDir()
@@ -1058,6 +1190,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
 			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
 		}}
+		leftover := startStandInListener(t, runner, filepath.Join(box, "agents", "m1"))
 		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, pidGuardRunner{t, runner}, nil, nil)
 
 		slept = 0
@@ -1094,14 +1227,10 @@ func TestBuildCommandDeps(t *testing.T) {
 		if n := countCalls(runner.calls, "new-session -d -s member-m1"); n != 2 {
 			t.Errorf("the member was launched %d times, want twice", n)
 		}
-		// The teardown's snapshot includes the workdir's leftover ocagent (lsof
-		// by cwd), between the first launch and its kill: the mod's listener is
-		// not a descendant of the pane once Claude Code is gone.
-		firstLaunch := slices.IndexFunc(runner.calls, func(c string) bool { return strings.Contains(c, "new-session -d -s member-m1") })
-		kill := slices.Index(runner.calls, "tmux -L officraft kill-session -t member-m1")
-		if firstLaunch < 0 || kill < 0 ||
-			!slices.Contains(runner.calls[firstLaunch:kill], "lsof -a -c ocagent -d cwd -F pn") {
-			t.Errorf("the restart's teardown did not sweep the workdir's ocagent before the kill:\n%v", runner.calls)
+		// The mod's listener is not a descendant of the pane once Claude Code is
+		// gone, so only the workdir sweep reaches it.
+		if sig := leftover(); sig != syscall.SIGTERM {
+			t.Errorf("the restart's teardown left the workdir's ocagent to end with %v, want %v", sig, syscall.SIGTERM)
 		}
 		// Both 30 s waits ran (recorded, not slept).
 		if slept < 2*nudgeMaxAttempts*nudgeSettle {
@@ -1124,6 +1253,73 @@ func TestBuildCommandDeps(t *testing.T) {
 		}
 		if source > pin || source > unset {
 			t.Errorf("the pins must follow the sourced render (source=%d HOME=%d unset=%d):\n%s", source, pin, unset, launch)
+		}
+	})
+
+	t.Run("a spawn over a workdir holding an old .mcp.json leaves the MCP config only in officraft-mcp.json, which the launch line names", func(t *testing.T) {
+		box := t.TempDir()
+		claudeBin := stageBinary(t, filepath.Join(box, "bin", "claude"), "#!/bin/sh\nexit 1\n")
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatalf("executable: %v", err)
+		}
+		ocagent := filepath.Join(filepath.Dir(exe), "ocagent")
+		if err := os.WriteFile(ocagent, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Skipf("cannot publish an ocagent beside the test binary: %v", err)
+		}
+		t.Cleanup(func() { os.Remove(ocagent) })
+		wardenHome := filepath.Join(box, "home")
+		workdir := filepath.Join(box, "agents", "m1")
+		for _, dir := range []string{wardenHome, workdir} {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		stale := filepath.Join(workdir, ".mcp.json")
+		if err := os.WriteFile(stale, []byte(`{"mcpServers":{"officraft":{}}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		spawnEnv := envMap(map[string]string{
+			"HOME": wardenHome, "OC_AGENT_HOME": filepath.Join(box, "agents"),
+			"OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0", "OC_CLAUDE_BIN": claudeBin,
+		})
+		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
+			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
+		}}
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, pidGuardRunner{t, runner}, nil, nil)
+
+		d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt-m1", Role: "builder"})
+
+		if _, err := os.Stat(stale); !os.IsNotExist(err) {
+			t.Errorf("the old .mcp.json is still in the workdir (stat err = %v)", err)
+		}
+		config := filepath.Join(workdir, "officraft-mcp.json")
+		raw, err := os.ReadFile(config)
+		want := "{\n" +
+			"  \"mcpServers\": {\n" +
+			"    \"officraft\": {\n" +
+			"      \"type\": \"http\",\n" +
+			"      \"url\": \"https://station.example/api/mcp\",\n" +
+			"      \"headers\": {\n" +
+			"        \"Authorization\": \"Bearer jwt-m1\"\n" +
+			"      }\n" +
+			"    }\n" +
+			"  }\n" +
+			"}"
+		if err != nil || string(raw) != want {
+			t.Errorf("officraft-mcp.json = (%q, %v), want %q", raw, err, want)
+		}
+		if fi, err := os.Stat(config); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("officraft-mcp.json mode = %v (err %v), want 0600", fi.Mode().Perm(), err)
+		}
+		var launch string
+		for _, call := range runner.calls {
+			if strings.Contains(call, "new-session -d -s member-m1") {
+				launch = call
+			}
+		}
+		if !strings.Contains(launch, " --mcp-config "+config+" ") {
+			t.Errorf("launch line does not pass --mcp-config %s:\n%s", config, launch)
 		}
 	})
 
@@ -1176,6 +1372,19 @@ func TestBuildCommandDeps(t *testing.T) {
 		}
 		if !strings.Contains(launch, "CLAUDE_CONFIG_DIR="+configDir) {
 			t.Errorf("launch line must export the redirected config home:\n%s", launch)
+		}
+	})
+
+	t.Run("stop ends the member workdir's leftover ocagent with SIGTERM", func(t *testing.T) {
+		agents := t.TempDir()
+		sweepEnv := envMap(map[string]string{"HOME": root, "OC_AGENT_HOME": agents,
+			"OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0"})
+		runner := &wardenRunner{}
+		stopped := startStandInListener(t, runner, filepath.Join(agents, "m1"))
+
+		buildCommandDeps(Config{}, sweepEnv, pidGuardRunner{t, runner}, nil, nil).Stop("member-m1")
+		if sig := stopped(); sig != syscall.SIGTERM {
+			t.Errorf("the listener ended with %v, want %v", sig, syscall.SIGTERM)
 		}
 	})
 
@@ -1254,6 +1463,26 @@ func TestNewCommandReporter(t *testing.T) {
 		t.Errorf("a worker-addressed receipt was not attempted: %d posts", len(posted))
 	}
 	dialErr = nil
+}
+
+func TestSelfStopFor(t *testing.T) {
+	live := envMap(map[string]string{"HOME": "/home/eva"})
+	dry := envMap(map[string]string{"HOME": "/home/eva", "WARDEN_INSTALL_DRYRUN": "1"})
+	cases := []struct {
+		name  string
+		env   func(string) string
+		goos  string
+		wired bool
+	}{
+		{"under linux, the uninstall ends through the service manager", live, "linux", true},
+		{"under darwin, exit(0) stays the way out", live, "darwin", false},
+		{"under a linux dry run, the warden exits and Restart=always brings it back", dry, "linux", false},
+	}
+	for _, c := range cases {
+		if got := selfStopFor(c.env, c.goos) != nil; got != c.wired {
+			t.Errorf("%s: wired = %v, want %v", c.name, got, c.wired)
+		}
+	}
 }
 
 func TestNewCommandTransport(t *testing.T) {

@@ -741,14 +741,14 @@ else
   mkdir -p "$C16E_T/conformance/.venv/bin" \
            "$C16E_T/server/ocserverd/seedsdist" \
            "$C16E_T/server/ocserverd/docsdist" \
-           "$C16E_T/server/ocserverd/bindist"
+           "$C16E_T/server/ocserverd/bindist/darwin-arm64"
   cp "$C16_CONF" "$C16E_T/conformance/run.sh"
   # The prod-port refusal list is parsed out of config.go (the SSOT) — give the
   # throwaway tree the REAL one so the gate behaves as it does in a checkout.
   cp "$HERE/../../server/ocserverd/config.go" "$C16E_T/server/ocserverd/config.go"
   : > "$C16E_T/server/ocserverd/seedsdist/stub.md"
   : > "$C16E_T/server/ocserverd/docsdist/stub.md"
-  : > "$C16E_T/server/ocserverd/bindist/ocwarden"
+  : > "$C16E_T/server/ocserverd/bindist/darwin-arm64/ocwarden"
   # Fake suite venv: satisfies both the `-x` test and the `import pytest, httpx`
   # probe, so run.sh neither creates a venv nor installs anything.
   printf '#!/usr/bin/env bash\nexit 0\n' > "$C16E_T/conformance/.venv/bin/python"
@@ -762,9 +762,14 @@ grep -Eo '^[[:space:]]*port[[:space:]]*=[[:space:]]*[0-9]+' "${OC_CONFIG:-/dev/n
 exit 1
 SH
   chmod +x "$C16E_SHIM/ocserverd-stub"
-  # `go` shim: only `build -o <path> .` matters — emit the stub, never compile.
+  # `go` shim: `build -o <path> .` emits the stub, never compiles; `env GOOS` /
+  # `env GOARCH` name the platform whose bindist sentinel is staged above.
   cat > "$C16E_SHIM/go" <<'SH'
 #!/usr/bin/env bash
+if [[ "${1:-}" == "env" ]]; then
+  case "${2:-}" in GOOS) echo darwin ;; GOARCH) echo arm64 ;; esac
+  exit 0
+fi
 if [[ "${1:-}" == "build" ]]; then
   out=""
   while [[ $# -gt 0 ]]; do

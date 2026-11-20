@@ -373,7 +373,7 @@ func (p *loginProber) ensureLaunchEnv() {
 
 func (p *loginProber) shell() string {
 	if strings.HasPrefix(p.goos, "darwin") {
-		return interactiveEnvShell
+		return darwinInteractiveEnvShell
 	}
 	return "/bin/sh"
 }

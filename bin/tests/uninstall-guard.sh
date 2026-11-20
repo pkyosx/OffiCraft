@@ -33,6 +33,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$HERE/../install.sh"
 [[ -f "$SCRIPT" ]] || { echo "FATAL: install.sh not found at $SCRIPT" >&2; exit 2; }
+# shellcheck source=lib/linux-host.sh
+. "$HERE/lib/linux-host.sh"
 
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '  ok   — %s\n' "$1"; }
@@ -529,6 +531,46 @@ run_uninstall --dry-run
 check "symlinked agents/: exits 0" "0" "$RC"
 case "$OUT" in *"agents/ holds 3 agent workspace(s)"*) ok "symlinked agents/: counts through the symlink (not reported as 0)";; *) bad "symlinked agents/: miscounted through the symlink ('$OUT')";; esac
 check "symlinked agents/: the real workspaces are untouched" "3" "$(find "$FAKEHOME/agents-real" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+
+# ── 22. Linux: the systemd --user unit is stopped, disabled and kept ────────
+# Runs on a Linux-shaped PATH (bin/tests/lib/linux-host.sh); the unit is brought
+# up through the systemctl shim itself, so only resulting state is asserted.
+LNX="$WORK/linuxhost"
+linux_host_setup "$LNX"
+LSTATE="$WORK/lstate"
+LUNIT="$LABEL.service"
+LUNIT_DIR="$FAKEHOME/.config/systemd/user"
+lsysctl() { XDG_RUNTIME_DIR=/run/user/0 HOME="$FAKEHOME" SHIM_STATE="$LSTATE" PATH="$LINUX_PATH" systemctl --user "$@" >/dev/null 2>&1; }
+lstate() { HOME="$FAKEHOME" SHIM_STATE="$LSTATE" linux_unit_state "$LUNIT"; }
+reset_fixture clean-install
+rm -rf "$LSTATE"
+mkdir -p "$LUNIT_DIR"
+LUNIT_BODY="[Service]
+ExecStart=\"$FAKEHOME/.officraft/bin/ocserverd\" serve"
+printf '%s\n' "$LUNIT_BODY" > "$LUNIT_DIR/$LUNIT"
+lsysctl daemon-reload && lsysctl enable --now "$LUNIT"
+check "linux uninstall: precondition — the unit is enabled and running" "enabled active linger=no" "$(lstate)"
+OUT="$(cd "$WORK" && env -i PATH="$LINUX_PATH" HOME="$FAKEHOME" OC_LAUNCHD_LABEL="$LABEL" \
+  SHIM_STATE="$LSTATE" SHIM_UNAME_S=Linux bash "$SCRIPT" --uninstall </dev/null 2>&1)"
+RC=$?
+check "linux uninstall: exits 0" "0" "$RC"
+case "$OUT" in
+  *"[install] stopping systemd unit $LABEL (pid 4242)"*) ok "linux uninstall: says it stops the running unit" ;;
+  *) bad "linux uninstall: no stop announcement ('$OUT')" ;;
+esac
+check "linux uninstall: the unit is disabled and stopped" "disabled inactive linger=no" "$(lstate)"
+check "linux uninstall: the unit file left the systemd unit directory" "0" "$([[ -e "$LUNIT_DIR/$LUNIT" ]] && echo 1 || echo 0)"
+BAK="$(find "$FAKEHOME" -maxdepth 1 -name '.officraft.bak-*' 2>/dev/null | head -1)"
+check "linux uninstall: the unit file is kept in the backup, byte-identical" "$LUNIT_BODY" "$(cat "$BAK/systemd/$LUNIT" 2>/dev/null)"
+RESTORE_CMD="$(printf '%s\n' "$OUT" | sed -n 's/^\[install\][[:space:]]*restore: //p' | head -1)"
+check "linux uninstall: the restore line puts back the files and re-enables the unit" \
+  "cp -R \"$BAK/bin\" \"$FAKEHOME/.officraft/\" && mkdir -p \"$FAKEHOME/.officraft/server\" && cp -R \"$BAK/server/.\" \"$FAKEHOME/.officraft/server/\" && mkdir -p \"$LUNIT_DIR\" && cp \"$BAK/systemd/$LUNIT\" \"$LUNIT_DIR/$LUNIT\" && systemctl --user daemon-reload && systemctl --user enable --now $LUNIT" \
+  "$RESTORE_CMD"
+( export PATH="$LINUX_PATH" HOME="$FAKEHOME" SHIM_STATE="$LSTATE" XDG_RUNTIME_DIR=/run/user/0; eval "$RESTORE_CMD" ) >/dev/null 2>&1
+check "linux restore: the printed one-liner runs clean" "0" "$?"
+check "linux restore: the unit file is back" "$LUNIT_BODY" "$(cat "$LUNIT_DIR/$LUNIT" 2>/dev/null)"
+check "linux restore: the unit is enabled and running again" "enabled active linger=no" "$(lstate)"
+check "linux restore: the database is back" "FAKE-DB-CONTENT" "$(cat "$FAKEHOME/.officraft/server/data/officraft.db" 2>/dev/null)"
 
 # ── plist on disk, job NOT registered: an ANSWER, not an error (T-5047) ─────
 # THE BUG THIS PINS. `launchctl print` exits non-zero for the ordinary state

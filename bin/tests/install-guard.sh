@@ -42,6 +42,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$HERE/../install.sh"
 [[ -f "$SCRIPT" ]] || { echo "FATAL: install.sh not found at $SCRIPT" >&2; exit 2; }
+# shellcheck source=lib/linux-host.sh
+. "$HERE/lib/linux-host.sh"
 
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '  ok   — %s\n' "$1"; }
@@ -77,13 +79,12 @@ SH
 chmod +x "$PKG/ocserverd"
 
 # ── PATH shims ───────────────────────────────────────────────────────────────
-# uname: pin darwin/arm64 so the platform gate passes on any CI host.
+# uname: darwin/arm64 unless a case sets SHIM_UNAME_S / SHIM_UNAME_M.
 cat > "$SHIMDIR/uname" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  -s) echo Darwin ;;
-  -m) echo arm64 ;;
-  *)  echo Darwin ;;
+  -m) echo "${SHIM_UNAME_M:-arm64}" ;;
+  *)  echo "${SHIM_UNAME_S:-Darwin}" ;;
 esac
 SH
 
@@ -1034,6 +1035,149 @@ case "$OUT" in
 esac
 
 # ═══════════════════════════════════════════════════════════════════════════
+# LINUX: the service is a systemd --user unit
+# ═══════════════════════════════════════════════════════════════════════════
+# Runs on a Linux-shaped PATH (bin/tests/lib/linux-host.sh): no launchctl,
+# plutil, lsof or shasum, and stateful systemctl / loginctl / ss shims. Every
+# run has no XDG_RUNTIME_DIR, as under su or cron. Assertions read the resulting
+# unit file, the manager's enabled/active state, linger, rc and the output.
+echo
+echo "install.sh on Linux — systemd --user unit (hermetic)"
+
+LNX="$WORK/linuxhost"
+linux_host_setup "$LNX"
+LHOME="$WORK/lhome"
+LSTATE="$WORK/lstate"
+LUNIT="com.officraft.serve.service"
+LUNIT_FILE="$LHOME/.config/systemd/user/$LUNIT"
+mkdir -p "$WORK/lsd-booted"
+LCFG="$WORK/odd %1 \"q\" \\b/oc.toml"
+mkdir -p "$(dirname "$LCFG")"
+printf '[server]\n' > "$LCFG"
+
+reset_linux() {
+  rm -rf "$LHOME" "$LSTATE"
+  mkdir -p "$LHOME" "$LSTATE"
+}
+# run_linux [install.sh args…] — LINUX_OC_CONFIG / SHIM_CLAIM_URL /
+# SHIM_LINGER_DENIED / SHIM_SS_FOREIGN_PORT are passed through when set.
+run_linux() {
+  local extra=()
+  [[ -n "${LINUX_OC_CONFIG:-}" ]] && extra+=("OC_CONFIG=$LINUX_OC_CONFIG")
+  OUT="$(cd "$WORK" && env -i \
+    PATH="$LINUX_PATH" HOME="$LHOME" SHIM_STATE="$LSTATE" \
+    SHIM_UNAME_S=Linux SHIM_UNAME_M=x86_64 OC_SD_BOOTED_DIR="$WORK/lsd-booted" \
+    SHIM_CLAIM_URL="${SHIM_CLAIM_URL:-}" SHIM_LINGER_DENIED="${SHIM_LINGER_DENIED:-0}" \
+    SHIM_SS_FOREIGN_PORT="${SHIM_SS_FOREIGN_PORT:-}" \
+    ${extra[@]+"${extra[@]}"} \
+    bash "$PKG/install.sh" "$@" </dev/null 2>&1)"
+  RC=$?
+}
+lstate() { HOME="$LHOME" SHIM_STATE="$LSTATE" linux_unit_state "$LUNIT"; }
+lunit() { cat "$LUNIT_FILE" 2>/dev/null; }
+
+LUNIT_WANT="[Unit]
+Description=OffiCraft server (com.officraft.serve)
+
+[Service]
+Type=simple
+ExecStart=\"$LHOME/.officraft/bin/ocserverd\" serve
+WorkingDirectory=$LHOME/.officraft
+Environment=\"PATH=$LHOME/.local/bin:/usr/local/bin:/usr/bin:/bin\"
+Environment=\"HOME=$LHOME\"
+Environment=\"OC_CLAUDE_BIN=$LNX/shim/claude\"
+Environment=\"OC_CONFIG=$WORK/odd %%1 \\\"q\\\" \\\\b/oc.toml\"
+Environment=\"OC_NO_OPEN_BROWSER=1\"
+Restart=always
+RestartSec=10
+StandardOutput=append:$LHOME/.officraft/server/log/serve.log
+StandardError=append:$LHOME/.officraft/server/log/serve.log
+
+[Install]
+WantedBy=default.target"
+
+# ── 12a. fresh install: unit rendered, enabled, started, linger on ──────────
+reset_linux
+LINUX_OC_CONFIG="$LCFG" SHIM_CLAIM_URL="http://127.0.0.1:7755/?code=LINUXCLAIM1" run_linux
+check "linux fresh install: succeeds" "0" "$RC"
+check "linux fresh install: the unit file, escaping %, \" and \\ in values" "$LUNIT_WANT" "$(lunit)"
+check "linux fresh install: unit enabled and active, linger on" "enabled active linger=yes" "$(lstate)"
+check "linux fresh install: closing report names the unit, the claim link and the systemctl commands" \
+"[install] ✅ OffiCraft is installed and running in the background (systemd --user unit 'com.officraft.serve.service').
+
+  open:    http://127.0.0.1:7755/?code=LINUXCLAIM1
+  stop:    systemctl --user stop com.officraft.serve.service
+  remove:  systemctl --user disable --now com.officraft.serve.service && rm -f $LUNIT_FILE" \
+  "$(printf '%s\n' "$OUT" | tail -5)"
+
+# ── 12b. the unit is running: a piped re-install is refused, nothing changes ─
+run_linux --force
+check "linux live unit + non-interactive: refused" "1" "$RC"
+case "$OUT" in
+  *"[install]      systemd unit: com.officraft.serve.service (pid 4242)"*) ok "linux live unit: names the running unit and its pid" ;;
+  *) bad "linux live unit: the live-service gate did not name the unit:
+$OUT" ;;
+esac
+case "$OUT" in
+  *"[install]              systemctl --user stop com.officraft.serve.service"*) ok "linux live unit: offers the systemctl stop command" ;;
+  *) bad "linux live unit: no systemctl stop hint:
+$OUT" ;;
+esac
+check "linux live unit: still enabled and active" "enabled active linger=yes" "$(lstate)"
+check "linux live unit: unit file unchanged" "$LUNIT_WANT" "$(lunit)"
+
+# ── 12c. --restart-live: replaced in place, inheriting the unit's OC_CONFIG ──
+run_linux --force --restart-live
+check "linux --restart-live: succeeds" "0" "$RC"
+case "$OUT" in
+  *"carrying over the existing service's config: $LCFG (port 7755)"*) ok "linux --restart-live: reads OC_CONFIG back out of the unit file, unescaped" ;;
+  *) bad "linux --restart-live: the unit's OC_CONFIG was not carried over:
+$OUT" ;;
+esac
+check "linux --restart-live: the rewritten unit file is identical" "$LUNIT_WANT" "$(lunit)"
+check "linux --restart-live: enabled and active again" "enabled active linger=yes" "$(lstate)"
+check "linux --restart-live: no stale claim link — the previous boot's code is not reprinted" \
+  "  open:    http://127.0.0.1:7755/" "$(printf '%s\n' "$OUT" | grep '^  open:')"
+
+# ── 12d. a unit of the same name running a different program is refused ────
+reset_linux
+mkdir -p "$(dirname "$LUNIT_FILE")"
+FOREIGN_UNIT="[Service]
+ExecStart=/usr/bin/other-server --listen 7755"
+printf '%s\n' "$FOREIGN_UNIT" > "$LUNIT_FILE"
+run_linux
+check "linux foreign unit: refused" "1" "$RC"
+case "$OUT" in
+  *"systemd label 'com.officraft.serve' is already taken by a DIFFERENT service."*"unit file: $LUNIT_FILE"*"program: /usr/bin/other-server"*)
+    ok "linux foreign unit: names the unit file and the program it runs" ;;
+  *) bad "linux foreign unit: refusal does not identify the foreign unit:
+$OUT" ;;
+esac
+check "linux foreign unit: its unit file is left as it was" "$FOREIGN_UNIT" "$(lunit)"
+
+# ── 12e. linger refused: installed and running, with the fix spelled out ───
+reset_linux
+SHIM_LINGER_DENIED=1 run_linux
+check "linux linger refused: the install still succeeds" "0" "$RC"
+check "linux linger refused: enabled and active, linger still off" "enabled active linger=no" "$(lstate)"
+case "$OUT" in
+  *"could not turn on linger for user $(id -un)"*"sudo loginctl enable-linger $(id -un)"*) ok "linux linger refused: warns and gives the command that fixes it" ;;
+  *) bad "linux linger refused: no linger warning:
+$OUT" ;;
+esac
+
+# ── 12f. a foreign listener on the port, seen through ss ────────────────────
+reset_linux
+SHIM_SS_FOREIGN_PORT=7755 run_linux
+check "linux port held by another program: refused" "1" "$RC"
+case "$OUT" in
+  *"FATAL: port 7755 is already in use on this machine:"*"[install]   LISTEN 0      4096       127.0.0.1:7755"*) ok "linux port held: names the port and lists the listener" ;;
+  *) bad "linux port held: no port refusal:
+$OUT" ;;
+esac
+check "linux port held: no service was started" "disabled inactive linger=no" "$(lstate)"
+
+# ═══════════════════════════════════════════════════════════════════════════
 # THE sha256 GATE ON THE STANDALONE (curl | bash) PATH
 # ═══════════════════════════════════════════════════════════════════════════
 # WHAT WAS UNGUARDED. bin/install.sh's bootstrap half downloads a release tarball
@@ -1110,23 +1254,33 @@ chmod +x "$SHA_BIN/curl" "$SHA_BIN/tmux" "$SHA_BIN/claude"
 SHA_TAG="v9.9.9"
 SHA_ASSET="officraft-$SHA_TAG-darwin-arm64.tar.gz"
 
-# The tarball. Its packaged install.sh is the tripwire — reaching it means the
-# run got PAST verification and began installing.
-SHA_PKGSRC="$SHA_ROOT/pkgsrc/officraft-$SHA_TAG-darwin-arm64"
-mkdir -p "$SHA_PKGSRC"
-cat > "$SHA_PKGSRC/install.sh" <<'SH'
+# One tarball per published platform. Each packaged install.sh is the tripwire —
+# reaching it means the run got PAST verification and began installing — and it
+# records its OWN platform, so a case can tell which package it was handed.
+for plat in darwin-arm64 linux-amd64 linux-arm64; do
+  mkdir -p "$SHA_ROOT/pkgsrc/officraft-$SHA_TAG-$plat"
+  cat > "$SHA_ROOT/pkgsrc/officraft-$SHA_TAG-$plat/install.sh" <<SH
 #!/usr/bin/env bash
-echo "DELEGATED" >> "$SHA_DELEGATED"
+echo "$plat" >> "\$SHA_DELEGATED"
 echo "[packaged-installer-stub] reached"
 exit 0
 SH
-(cd "$SHA_ROOT/pkgsrc" && tar -czf "$SHA_SERVE/$SHA_ASSET" "officraft-$SHA_TAG-darwin-arm64")
+  (cd "$SHA_ROOT/pkgsrc" && tar -czf "$SHA_SERVE/officraft-$SHA_TAG-$plat.tar.gz" "officraft-$SHA_TAG-$plat")
+done
 SHA_GOOD="$(shasum -a 256 "$SHA_SERVE/$SHA_ASSET" | cut -d' ' -f1)"
 
-# sha_run <checksums.txt body> — drives the real bootstrap path end to end. The
-# literal ABSENT publishes no checksums.txt at all, so curl 404s on it.
-# Sets SHA_RC, SHA_OUT, SHA_DELEGATED_HITS, SHA_CURL_CALLS.
+# The Linux rows run on a Linux-shaped PATH (no shasum, no lsof, no launchctl)
+# with a booted systemd, so the platform is the only thing that differs.
+linux_host_setup "$SHA_ROOT/linux"
+mkdir -p "$SHA_ROOT/sd-booted"
+
+# sha_run <checksums.txt body> [uname -s] [uname -m] — drives the real bootstrap
+# path end to end. The literal ABSENT publishes no checksums.txt at all, so curl
+# 404s on it. Sets SHA_RC, SHA_OUT, SHA_DELEGATED (what the reached package
+# recorded), SHA_DELEGATED_HITS, SHA_CURL_CALLS.
 sha_run() {
+  local uname_s="${2:-Darwin}" uname_m="${3:-arm64}" path="$SHA_BIN:$SHIMDIR:/usr/bin:/bin:/usr/sbin:/sbin"
+  [[ "$uname_s" == "Linux" ]] && path="$SHA_BIN:$LINUX_PATH"
   if [[ "$1" == "ABSENT" ]]; then
     rm -f "$SHA_SERVE/checksums.txt"
   else
@@ -1135,7 +1289,8 @@ sha_run() {
   rm -rf "$SHA_HOME"; mkdir -p "$SHA_HOME/Library/LaunchAgents"
   : > "$SHA_ROOT/.curl.log"; : > "$SHA_ROOT/.delegated"
   SHA_OUT="$(cd "$SHA_ROOT" && env -i \
-    PATH="$SHA_BIN:$SHIMDIR:/usr/bin:/bin:/usr/sbin:/sbin" \
+    PATH="$path" SHIM_UNAME_S="$uname_s" SHIM_UNAME_M="$uname_m" \
+    OC_SD_BOOTED_DIR="$SHA_ROOT/sd-booted" \
     HOME="$SHA_HOME" SHIM_JOB=absent SHIM_TRIPWIRE="$SHA_ROOT/.tripwire" \
     SHIM_STATE="$SHA_ROOT" SHIM_EXPECT_TARGET="$EXPECT_TARGET" \
     SHA_SERVE="$SHA_SERVE" SHA_CURL_LOG="$SHA_ROOT/.curl.log" \
@@ -1143,6 +1298,7 @@ sha_run() {
     OC_INSTALL_TAG="$SHA_TAG" OC_INSTALL_BASE_URL="https://example.invalid/rel" \
     bash "$SHA_ALONE/install.sh" </dev/null 2>&1)"
   SHA_RC=$?
+  SHA_DELEGATED="$(cat "$SHA_ROOT/.delegated")"
   SHA_DELEGATED_HITS="$(grep -c . "$SHA_ROOT/.delegated" || true)"
   SHA_CURL_CALLS="$(grep -c . "$SHA_ROOT/.curl.log" || true)"
 }
@@ -1151,7 +1307,15 @@ sha_run() {
 # gate that refuses every download is not a gate, it is an outage. This is also
 # the control that proves the harness can actually get a run all the way through
 # verification: the two refusals below mean nothing if nothing ever passes.
-sha_run "$SHA_GOOD  $SHA_ASSET"
+# The list has the shape a real release publishes: every platform's tarball plus
+# install.sh, with the darwin-arm64 entry (the platform the uname shim reports)
+# LAST and the others carrying digests that match nothing, so only picking that
+# platform's own line can pass.
+SHA_ZERO="0000000000000000000000000000000000000000000000000000000000000000"
+sha_run "$SHA_ZERO  officraft-$SHA_TAG-linux-amd64.tar.gz
+$SHA_ZERO  officraft-$SHA_TAG-linux-arm64.tar.gz
+$SHA_ZERO  install.sh
+$SHA_GOOD  $SHA_ASSET"
 check "sha256 sentinel: a matching digest is accepted and the run proceeds" "0" "$SHA_RC"
 case "$SHA_OUT" in
   *"sha256 verified OK"*) ok "sha256 sentinel: verification reported OK" ;;
@@ -1159,7 +1323,7 @@ case "$SHA_OUT" in
 $SHA_OUT" ;;
 esac
 check "sha256 sentinel: the packaged installer WAS reached (the tripwire can fire at all)" \
-  "1" "$SHA_DELEGATED_HITS"
+  "darwin-arm64" "$SHA_DELEGATED"
 
 # ── BRANCH 1: checksums.txt carries no entry for this asset.
 # The digest of a DIFFERENT file, so the file is not empty and a `grep` that
@@ -1219,6 +1383,41 @@ sha_run "ABSENT"
 check "sha256 absent list: a checksums.txt that 404s ABORTS" "1" "$SHA_RC"
 check "sha256 absent list: NOTHING was installed — the packaged installer was never reached" \
   "0" "$SHA_DELEGATED_HITS"
+
+# ── PLATFORM TABLE: uname decides which package is installed, or that none is.
+# Each accepted row publishes the full list with only its own platform's digest
+# real, so the run must both pick its own tarball and verify it. Refusals must
+# happen before any download.
+sha_list_for() {
+  local plat line=""
+  for plat in darwin-arm64 linux-amd64 linux-arm64; do
+    if [[ "$plat" == "$1" ]]; then
+      line+="$(shasum -a 256 "$SHA_SERVE/officraft-$SHA_TAG-$plat.tar.gz" | cut -d' ' -f1)  officraft-$SHA_TAG-$plat.tar.gz"$'\n'
+    else
+      line+="$SHA_ZERO  officraft-$SHA_TAG-$plat.tar.gz"$'\n'
+    fi
+  done
+  printf '%s' "$line"
+}
+for row in "Linux x86_64 linux-amd64" "Linux aarch64 linux-arm64" "Darwin arm64 darwin-arm64"; do
+  set -- $row
+  sha_run "$(sha_list_for "$3")" "$1" "$2"
+  check "platform $1/$2: installs the $3 package" "0 $3" "$SHA_RC $SHA_DELEGATED"
+  check "platform $1/$2: downloaded the asset and checksums.txt" "2" "$SHA_CURL_CALLS"
+done
+for row in "Darwin x86_64" "Linux i686" "FreeBSD amd64"; do
+  set -- $row
+  sha_run "$(sha_list_for linux-amd64)" "$1" "$2"
+  check "platform $1/$2: refused" "1" "$SHA_RC"
+  case "$SHA_OUT" in
+    *"supports macOS on Apple Silicon (darwin/arm64) and Linux on x86_64 or arm64 (linux/amd64, linux/arm64) only."*"This machine reports: $1/$2"*)
+      ok "platform $1/$2: the refusal names the supported platforms and this machine's" ;;
+    *) bad "platform $1/$2: no platform refusal in the output:
+$SHA_OUT" ;;
+  esac
+  check "platform $1/$2: nothing was downloaded and no package was reached" "0 0" "$SHA_CURL_CALLS $SHA_DELEGATED_HITS"
+done
+set --
 
 echo "install-guard tests: $PASS ok, $FAIL failed"
 [[ "$FAIL" == "0" ]] || exit 1

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -95,6 +96,82 @@ func TestWardenLaunchdLabel(t *testing.T) {
 func TestLaunchdLabelLoaded(t *testing.T) {
 	if launchdLabelLoaded("com.officraft.test.definitely-not-installed") {
 		t.Fatal("an absent launchd label was reported as loaded")
+	}
+}
+
+func writeFakeServiceManager(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	scripts := map[string]string{
+		"systemctl": "#!/bin/sh\n" +
+			"[ -n \"$XDG_RUNTIME_DIR\" ] || { echo 'Failed to connect to bus' >&2; exit 1; }\n" +
+			"if [ \"$*\" = '--user show -p LoadState --value com.officraft.ocwarden.blue.service' ]; then echo loaded; else echo not-found; fi\n",
+		"launchctl": "#!/bin/sh\n" +
+			"case \"$1 $2\" in 'print gui/'*'/com.officraft.ocwarden.green') exit 0 ;; esac\n" +
+			"exit 113\n",
+	}
+	for name, body := range scripts {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestSystemdUnitLoaded(t *testing.T) {
+	t.Run("under a unit the user manager has loaded, the warden reads installed", func(t *testing.T) {
+		t.Setenv("PATH", writeFakeServiceManager(t))
+		t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+		if !systemdUnitLoaded("com.officraft.ocwarden.blue") {
+			t.Error("systemdUnitLoaded = false, want true")
+		}
+	})
+
+	t.Run("under a unit the user manager does not know, the warden reads absent", func(t *testing.T) {
+		t.Setenv("PATH", writeFakeServiceManager(t))
+		t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+		if systemdUnitLoaded("com.officraft.ocwarden") {
+			t.Error("systemdUnitLoaded = true, want false")
+		}
+	})
+
+	t.Run("under an unset XDG_RUNTIME_DIR, a loaded unit still reads installed", func(t *testing.T) {
+		t.Setenv("PATH", writeFakeServiceManager(t))
+		t.Setenv("XDG_RUNTIME_DIR", "")
+		if err := os.Unsetenv("XDG_RUNTIME_DIR"); err != nil {
+			t.Fatal(err)
+		}
+		if !systemdUnitLoaded("com.officraft.ocwarden.blue") {
+			t.Error("systemdUnitLoaded = false, want true")
+		}
+	})
+
+	t.Run("under a host with no systemctl, the warden reads absent", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		if systemdUnitLoaded("com.officraft.ocwarden.blue") {
+			t.Error("systemdUnitLoaded = true, want false")
+		}
+	})
+}
+
+func TestWardenLabelLoaded(t *testing.T) {
+	t.Setenv("PATH", writeFakeServiceManager(t))
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	cases := []struct {
+		name  string
+		goos  string
+		label string
+		want  bool
+	}{
+		{"under linux, a loaded systemd unit is an installed warden", "linux", "com.officraft.ocwarden.blue", true},
+		{"under linux, a launchd-only label is not", "linux", "com.officraft.ocwarden.green", false},
+		{"under darwin, a loaded launchd label is an installed warden", "darwin", "com.officraft.ocwarden.green", true},
+		{"under darwin, a systemd-only unit is not", "darwin", "com.officraft.ocwarden.blue", false},
+	}
+	for _, c := range cases {
+		if got := wardenLabelLoaded(c.goos, c.label); got != c.want {
+			t.Errorf("%s: wardenLabelLoaded = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 

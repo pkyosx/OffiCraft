@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -217,7 +218,7 @@ func TestBuildInstallScriptWithCode(t *testing.T) {
 func TestMachineBinStatus(t *testing.T) {
 	t.Run("a machine that has never heartbeated has no verdict, on the wire too", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		api.binHashes = map[string]string{"ocwarden": "aaaa1111", "ocagent": "bbbb2222"}
+		api.binHashes = apiTestServerPlatformHashes("aaaa1111", "bbbb2222")
 		machineID, _ := apiTestMachineCredential(t, h, owner, "Studio Mac")
 
 		apiWantValue(t, "bin_status", apiTestDeref(api.machineBinStatus(machineID)), nil)
@@ -227,7 +228,7 @@ func TestMachineBinStatus(t *testing.T) {
 
 	t.Run("a heartbeat matching every embedded fingerprint reads current, on the wire too", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		api.binHashes = map[string]string{"ocwarden": "aaaa1111", "ocagent": "bbbb2222"}
+		api.binHashes = apiTestServerPlatformHashes("aaaa1111", "bbbb2222")
 		machineID, credential := apiTestMachineCredential(t, h, owner, "Studio Mac")
 		apiTestIngest(t, h, credential, `{"binaries":{"ocwarden":"aaaa1111","ocagent":"bbbb2222"}}`)
 
@@ -240,7 +241,7 @@ func TestMachineBinStatus(t *testing.T) {
 
 	t.Run("one differing fingerprint reads stale even while the other still matches", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		api.binHashes = map[string]string{"ocwarden": "aaaa1111", "ocagent": "bbbb2222"}
+		api.binHashes = apiTestServerPlatformHashes("aaaa1111", "bbbb2222")
 		machineID, credential := apiTestMachineCredential(t, h, owner, "Studio Mac")
 		apiTestIngest(t, h, credential, `{"binaries":{"ocwarden":"aaaa1111","ocagent":"cccc3333"}}`)
 
@@ -249,7 +250,7 @@ func TestMachineBinStatus(t *testing.T) {
 
 	t.Run("a heartbeat that fingerprints only one of the embedded pair stays unknown rather than current", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		api.binHashes = map[string]string{"ocwarden": "aaaa1111", "ocagent": "bbbb2222"}
+		api.binHashes = apiTestServerPlatformHashes("aaaa1111", "bbbb2222")
 		machineID, credential := apiTestMachineCredential(t, h, owner, "Studio Mac")
 		apiTestIngest(t, h, credential, `{"binaries":{"ocwarden":"aaaa1111"}}`)
 
@@ -258,7 +259,7 @@ func TestMachineBinStatus(t *testing.T) {
 
 	t.Run("an empty binaries report and a build carrying no embedded pair are both unknown", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		api.binHashes = map[string]string{"ocwarden": "aaaa1111", "ocagent": "bbbb2222"}
+		api.binHashes = apiTestServerPlatformHashes("aaaa1111", "bbbb2222")
 		machineID, credential := apiTestMachineCredential(t, h, owner, "Studio Mac")
 		apiTestIngest(t, h, credential, `{"binaries":{}}`)
 
@@ -266,11 +267,62 @@ func TestMachineBinStatus(t *testing.T) {
 			apiTestDeref(api.machineBinStatus(machineID)), nil)
 
 		apiTestIngest(t, h, credential, `{"binaries":{"ocwarden":"aaaa1111","ocagent":"bbbb2222"}}`)
-		api.binHashes = map[string]string{}
+		api.binHashes = map[string]map[string]string{}
 
 		apiWantValue(t, "nothing to compare against",
 			apiTestDeref(api.machineBinStatus(machineID)), nil)
 	})
+
+	t.Run("a heartbeat reporting another platform is compared against that platform's build", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		other := apiTestOtherPlatform()
+		api.binHashes = apiTestServerPlatformHashes("aaaa1111", "bbbb2222")
+		api.binHashes[other.wire()] = map[string]string{"ocwarden": "cccc3333", "ocagent": "dddd4444"}
+		machineID, credential := apiTestMachineCredential(t, h, owner, "Linux Box")
+		apiTestIngest(t, h, credential,
+			`{"platform":"`+other.wire()+`","binaries":{"ocwarden":"cccc3333","ocagent":"dddd4444"}}`)
+
+		apiWantValue(t, "matching that platform's build", apiTestDeref(api.machineBinStatus(machineID)), "current")
+
+		apiTestIngest(t, h, credential, `{"binaries":{"ocwarden":"aaaa1111","ocagent":"bbbb2222"}}`)
+
+		apiWantValue(t, "the server's own build is not that platform's",
+			apiTestDeref(api.machineBinStatus(machineID)), "stale")
+	})
+
+	t.Run("a heartbeat reporting a platform this server carries no build for stays unknown", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		api.binHashes = apiTestServerPlatformHashes("aaaa1111", "bbbb2222")
+		machineID, credential := apiTestMachineCredential(t, h, owner, "Plan 9 Box")
+		apiTestIngest(t, h, credential,
+			`{"platform":"plan9/386","binaries":{"ocwarden":"aaaa1111","ocagent":"bbbb2222"}}`)
+
+		apiWantValue(t, "bin_status", apiTestDeref(api.machineBinStatus(machineID)), nil)
+	})
+}
+
+func apiTestServerPlatformHashes(warden, agent string) map[string]map[string]string {
+	return map[string]map[string]string{
+		serverBinPlatform.wire(): {"ocwarden": warden, "ocagent": agent},
+	}
+}
+
+// Some platform other than the one the test binary runs on, so the same test
+// means the same thing on a Mac and on a Linux CI runner.
+func apiTestOtherPlatform() binPlatform {
+	if serverBinPlatform == (binPlatform{os: "linux", arch: "amd64"}) {
+		return binPlatform{os: "linux", arch: "arm64"}
+	}
+	return binPlatform{os: "linux", arch: "amd64"}
+}
+
+func apiTestBindist(other binPlatform) fstest.MapFS {
+	return fstest.MapFS{
+		serverBinPlatform.dir() + "/ocwarden": {Data: []byte("server-platform warden")},
+		serverBinPlatform.dir() + "/ocagent":  {Data: []byte("server-platform agent")},
+		other.dir() + "/ocwarden":             {Data: []byte("other-platform warden")},
+		other.dir() + "/ocagent":              {Data: []byte("other-platform agent")},
+	}
 }
 
 // apiTestMachineCredential onboards a machine and keeps BOTH halves of the
@@ -2961,10 +3013,33 @@ for tool in tmux curl sed; do
   exit 1
 done
 
+# The binary endpoint names platforms the way Go does (GOOS/GOARCH).
+case "$(uname -s)" in
+  Darwin) OC_OS=darwin ;;
+  Linux) OC_OS=linux ;;
+  *) OC_OS="" ;;
+esac
+case "$(uname -m)" in
+  x86_64 | amd64) OC_ARCH=amd64 ;;
+  arm64 | aarch64) OC_ARCH=arm64 ;;
+  *) OC_ARCH="" ;;
+esac
+if [ -z "$OC_OS" ] || [ -z "$OC_ARCH" ]; then
+  echo "Error: OffiCraft does not run on this machine ($(uname -s) $(uname -m)). It runs on macOS and Linux, on x86_64 or arm64." >&2
+  exit 1
+fi
+WARDEN_URL="https://example.com/api/warden/binary?os=$OC_OS&arch=$OC_ARCH"
+
 # Probe the warden binary availability BEFORE redeeming the one-time claim
-# code — a server that cannot serve the binary (503) must not burn the code.
-if ! curl -fsI "https://example.com/api/warden/binary" >/dev/null 2>&1; then
-  echo "Error: the server cannot serve the warden binary (https://example.com/api/warden/binary is unavailable)." >&2
+# code — a server that cannot serve the binary must not burn the code.
+PROBE_STATUS="$(curl -sI -o /dev/null -w '%{http_code}' "$WARDEN_URL" || true)"
+if [ "$PROBE_STATUS" = 404 ]; then
+  echo "Error: this server has no OffiCraft warden for $OC_OS/$OC_ARCH." >&2
+  echo "The install code was NOT consumed." >&2
+  exit 1
+fi
+if [ "$PROBE_STATUS" != 200 ]; then
+  echo "Error: the server cannot serve the warden binary ($WARDEN_URL is unavailable)." >&2
   echo "Fix: redeploy the server with the prebuilt binaries (bin/ocwarden) or an embed-carrying build, then re-run this one-liner — the install code was NOT consumed." >&2
   exit 1
 fi
@@ -2988,7 +3063,7 @@ fi
 
 # Pull the prebuilt ocwarden binary from the PUBLIC binary endpoint (no auth
 # header needed — the claimed token authorizes the install, not this fetch).
-curl -fsSL "https://example.com/api/warden/binary" -o ocwarden
+curl -fsSL "$WARDEN_URL" -o ocwarden
 chmod +x ocwarden
 
 # Install the warden with the server-templated identity. --force makes a re-install
@@ -3085,6 +3160,63 @@ func TestHandleWardenBinaryApiWardenBinaryGet(t *testing.T) {
 
 		apiTestWantBinaryDownload(t, apiRequest(t, h, "GET", "/api/warden/binary", "", ""), "ocwarden")
 	})
+
+	t.Run("without os or arch the server's own platform is served, as an old warden expects", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		api.bindist = apiTestBindist(apiTestOtherPlatform())
+
+		rec := apiRequest(t, h, "GET", "/api/warden/binary", "", "")
+
+		apiTestWantBinaryDownload(t, rec, "ocwarden")
+		apiWantValue(t, "body", rec.Body.String(), "server-platform warden")
+	})
+
+	t.Run("os and arch naming a carried platform serve that platform's build without a token", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		other := apiTestOtherPlatform()
+		api.bindist = apiTestBindist(other)
+
+		rec := apiRequest(t, h, "GET", "/api/warden/binary?os="+other.os+"&arch="+other.arch, "", "")
+
+		apiTestWantBinaryDownload(t, rec, "ocwarden")
+		apiWantValue(t, "body", rec.Body.String(), "other-platform warden")
+	})
+
+	t.Run("an omitted arch falls back to the server's own, so a lone os names that pair", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		api.bindist = fstest.MapFS{
+			"windows-" + runtime.GOARCH + "/ocwarden": {Data: []byte("windows warden")},
+		}
+
+		rec := apiRequest(t, h, "GET", "/api/warden/binary?os=windows", "", "")
+
+		apiTestWantBinaryDownload(t, rec, "ocwarden")
+		apiWantValue(t, "body", rec.Body.String(), "windows warden")
+	})
+
+	t.Run("a platform this server carries no build for answers 404", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		api.bindist = apiTestBindist(apiTestOtherPlatform())
+
+		status, data := apiJSON(t, h, "GET", "/api/warden/binary?os=windows&arch=amd64", "", "")
+
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "this server carries no ocwarden binary for windows/amd64")
+	})
+
+	t.Run("a value that is not a platform name answers 404", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		api.bindist = fstest.MapFS{}
+
+		status, data := apiJSON(t, h, "GET", "/api/warden/binary?os=..&arch=x", "", "")
+
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "this server carries no ocwarden binary for that platform")
+	})
 }
 
 // apiTestWantBinaryDownload asserts the whole download envelope for a prebuilt
@@ -3118,6 +3250,39 @@ func TestHandleAgentBinaryApiAgentBinaryGet(t *testing.T) {
 		_, h, _, _ := newAPITestServer(t)
 
 		apiTestWantBinaryDownload(t, apiRequest(t, h, "GET", "/api/agent/binary", "", ""), "ocagent")
+	})
+
+	t.Run("without os or arch the server's own platform is served", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		api.bindist = apiTestBindist(apiTestOtherPlatform())
+
+		rec := apiRequest(t, h, "GET", "/api/agent/binary", "", "")
+
+		apiTestWantBinaryDownload(t, rec, "ocagent")
+		apiWantValue(t, "body", rec.Body.String(), "server-platform agent")
+	})
+
+	t.Run("os and arch naming a carried platform serve that platform's build", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		other := apiTestOtherPlatform()
+		api.bindist = apiTestBindist(other)
+
+		rec := apiRequest(t, h, "GET", "/api/agent/binary?os="+other.os+"&arch="+other.arch, "", "")
+
+		apiTestWantBinaryDownload(t, rec, "ocagent")
+		apiWantValue(t, "body", rec.Body.String(), "other-platform agent")
+	})
+
+	t.Run("a platform this server carries no build for answers 404", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		api.bindist = apiTestBindist(apiTestOtherPlatform())
+
+		status, data := apiJSON(t, h, "GET", "/api/agent/binary?os=windows&arch=amd64", "", "")
+
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "this server carries no ocagent binary for windows/amd64")
 	})
 }
 
@@ -3193,10 +3358,33 @@ for tool in tmux curl sed; do
   exit 1
 done
 
+# The binary endpoint names platforms the way Go does (GOOS/GOARCH).
+case "$(uname -s)" in
+  Darwin) OC_OS=darwin ;;
+  Linux) OC_OS=linux ;;
+  *) OC_OS="" ;;
+esac
+case "$(uname -m)" in
+  x86_64 | amd64) OC_ARCH=amd64 ;;
+  arm64 | aarch64) OC_ARCH=arm64 ;;
+  *) OC_ARCH="" ;;
+esac
+if [ -z "$OC_OS" ] || [ -z "$OC_ARCH" ]; then
+  echo "Error: OffiCraft does not run on this machine ($(uname -s) $(uname -m)). It runs on macOS and Linux, on x86_64 or arm64." >&2
+  exit 1
+fi
+WARDEN_URL="http://localhost:8848/api/warden/binary?os=$OC_OS&arch=$OC_ARCH"
+
 # Probe the warden binary availability BEFORE redeeming the one-time claim
-# code — a server that cannot serve the binary (503) must not burn the code.
-if ! curl -fsI "http://localhost:8848/api/warden/binary" >/dev/null 2>&1; then
-  echo "Error: the server cannot serve the warden binary (http://localhost:8848/api/warden/binary is unavailable)." >&2
+# code — a server that cannot serve the binary must not burn the code.
+PROBE_STATUS="$(curl -sI -o /dev/null -w '%{http_code}' "$WARDEN_URL" || true)"
+if [ "$PROBE_STATUS" = 404 ]; then
+  echo "Error: this server has no OffiCraft warden for $OC_OS/$OC_ARCH." >&2
+  echo "The install code was NOT consumed." >&2
+  exit 1
+fi
+if [ "$PROBE_STATUS" != 200 ]; then
+  echo "Error: the server cannot serve the warden binary ($WARDEN_URL is unavailable)." >&2
   echo "Fix: redeploy the server with the prebuilt binaries (bin/ocwarden) or an embed-carrying build, then re-run this one-liner — the install code was NOT consumed." >&2
   exit 1
 fi
@@ -3220,7 +3408,7 @@ fi
 
 # Pull the prebuilt ocwarden binary from the PUBLIC binary endpoint (no auth
 # header needed — the claimed token authorizes the install, not this fetch).
-curl -fsSL "http://localhost:8848/api/warden/binary" -o ocwarden
+curl -fsSL "$WARDEN_URL" -o ocwarden
 chmod +x ocwarden
 
 # Install the warden with the server-templated identity. --force makes a re-install

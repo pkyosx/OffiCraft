@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -111,6 +112,30 @@ func wardenLaunchdLabel(namespace string) string {
 	return "com.officraft.ocwarden." + namespace
 }
 
+// The systemd user manager is keyed on the uid like launchd's gui domain, so
+// asking it (not looking for the unit file under $HOME) keeps the interlock's
+// "not $HOME" property.
+func wardenLabelLoaded(goos, label string) bool {
+	if goos == "linux" {
+		return systemdUnitLoaded(label)
+	}
+	return launchdLabelLoaded(label)
+}
+
+// LoadState rather than is-enabled: a loaded, running but disabled warden must
+// still block an automatic reinstall.
+func systemdUnitLoaded(label string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "systemctl", "--user", "show", "-p", "LoadState", "--value", label+".service")
+	cmd.Env = os.Environ()
+	if os.Getenv("XDG_RUNTIME_DIR") == "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("XDG_RUNTIME_DIR=/run/user/%d", os.Getuid()))
+	}
+	out, err := cmd.Output()
+	return err == nil && strings.TrimSpace(string(out)) == "loaded"
+}
+
 func launchdLabelLoaded(label string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -201,7 +226,7 @@ func (s *apiServer) kickFirstRunOnboardingWith(run onboardingRunner) {
 func (s *apiServer) newOnboardingRunner() onboardingRunner {
 	return onboardingRunner{
 		installWarden: func(machine Member) (bootstrapResultDTO, error) {
-			binPath, err := s.resolveOcwardenBinaryFrom(bindistFS())
+			binPath, err := s.resolveOcwardenBinaryFrom(bindistPlatformFS(bindistFS(), serverBinPlatform))
 			if err != nil {
 				return bootstrapResultDTO{}, err
 			}
@@ -209,7 +234,9 @@ func (s *apiServer) newOnboardingRunner() onboardingRunner {
 		},
 		wardenOnline: func(id string) bool { return s.hub.IsOnline(id) },
 		wardenInstalled: func() bool {
-			return s.wardenAlreadyInstalledHere(os.Getenv, os.Stat, launchdLabelLoaded)
+			return s.wardenAlreadyInstalledHere(os.Getenv, os.Stat, func(label string) bool {
+				return wardenLabelLoaded(runtime.GOOS, label)
+			})
 		},
 		sleep:      time.Sleep,
 		now:        nowSecs,

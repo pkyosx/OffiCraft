@@ -18,6 +18,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -36,14 +38,49 @@ func seedsdistFS() fs.FS {
 	return sub
 }
 
-// Server-platform binaries only: the exec paths (bootstrap/teardown-here)
-// install on the server host itself.
+// Member binaries live one directory per platform (bindist/<os>-<arch>/);
+// shared files such as mcp-catalog.json sit at the root.
 //
 //go:embed all:bindist
 var bindistEmbed embed.FS
 
 func bindistFS() fs.FS {
 	sub, err := fs.Sub(bindistEmbed, "bindist")
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}
+
+// binPlatform names a platform the way Go's GOOS/GOARCH do. Its wire form
+// (os/arch) is what a warden heartbeat reports; its dir form (os-arch) is the
+// bindist directory and the release asset suffix.
+type binPlatform struct {
+	os, arch string
+}
+
+var serverBinPlatform = binPlatform{os: runtime.GOOS, arch: runtime.GOARCH}
+
+var binPlatformPartPattern = regexp.MustCompile(`^[a-z0-9]+$`)
+
+func (p binPlatform) wire() string { return p.os + "/" + p.arch }
+
+func (p binPlatform) dir() string { return p.os + "-" + p.arch }
+
+func (p binPlatform) valid() bool {
+	return binPlatformPartPattern.MatchString(p.os) && binPlatformPartPattern.MatchString(p.arch)
+}
+
+func parseWireBinPlatform(text string) (binPlatform, bool) {
+	goos, goarch, found := strings.Cut(text, "/")
+	p := binPlatform{os: goos, arch: goarch}
+	return p, found && p.valid()
+}
+
+// A platform with no directory still yields an FS; reads from it fail, which
+// callers turn into "not carried". p must be valid.
+func bindistPlatformFS(root fs.FS, p binPlatform) fs.FS {
+	sub, err := fs.Sub(root, p.dir())
 	if err != nil {
 		panic(err)
 	}
@@ -442,16 +479,35 @@ func binHashPrefix(data []byte) string {
 // Fingerprint equality IS "this machine already holds the latest build" (the
 // warden's reconcileBinary uses the same raw-content oracle). A missing embed
 // entry is omitted, so the comparison answers unknown, never a false verdict.
-func bindistBinaryHashesFrom(embedded fs.FS) map[string]string {
-	hashes := map[string]string{}
-	for _, name := range []string{"ocwarden", "ocagent"} {
-		data, err := fs.ReadFile(embedded, name)
-		if err != nil || len(data) == 0 {
+// Keyed by the platform's wire form, the value a heartbeat reports.
+func bindistBinaryHashesFrom(root fs.FS) map[string]map[string]string {
+	byPlatform := map[string]map[string]string{}
+	entries, err := fs.ReadDir(root, ".")
+	if err != nil {
+		return byPlatform
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
 			continue
 		}
-		hashes[name] = binHashPrefix(data)
+		goos, goarch, found := strings.Cut(entry.Name(), "-")
+		platform := binPlatform{os: goos, arch: goarch}
+		if !found || !platform.valid() {
+			continue
+		}
+		hashes := map[string]string{}
+		for _, name := range []string{"ocwarden", "ocagent"} {
+			data, err := fs.ReadFile(root, entry.Name()+"/"+name)
+			if err != nil || len(data) == 0 {
+				continue
+			}
+			hashes[name] = binHashPrefix(data)
+		}
+		if len(hashes) > 0 {
+			byPlatform[platform.wire()] = hashes
+		}
 	}
-	return hashes
+	return byPlatform
 }
 
 func (assetRoot) readMCPCatalogFrom(embedded fs.FS) ([]byte, error) {

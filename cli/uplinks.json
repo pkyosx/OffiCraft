@@ -970,7 +970,7 @@
     {
       "id": "warden-transport-2",
       "source": "cli/ocwarden/transport.go",
-      "callsite": "Report: newCommandReporter(cfg),",
+      "callsite": "Report:   newCommandReporter(cfg),",
       "kind": "seam",
       "seam_reason": "builds the command_result reporter closure; the POST inside it is declared by warden-command-result"
     },

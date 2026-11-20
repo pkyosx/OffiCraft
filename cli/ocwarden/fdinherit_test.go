@@ -19,10 +19,13 @@ func openInheritableDescriptor(t *testing.T) int {
 	}
 	defer syscall.Close(opened)
 	// A high number, so the child shell's own descriptors cannot answer for it.
-	const fd = 77
-	if err := syscall.Dup2(opened, fd); err != nil {
-		t.Fatalf("dup2: %v", err)
+	// F_DUPFD rather than Dup2: linux/arm64 has no dup2 syscall.
+	const lowestFD = 77
+	dup, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(opened), syscall.F_DUPFD, lowestFD)
+	if errno != 0 {
+		t.Fatalf("fcntl(F_DUPFD): %v", errno)
 	}
+	fd := int(dup)
 	t.Cleanup(func() { syscall.Close(fd) })
 	return fd
 }

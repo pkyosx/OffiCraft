@@ -1573,7 +1573,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", "rate_limits, tokens, hardware, binaries, claude, cost, effort, runtime, runtimes, "+
-			"self_update, command_result, warden_shape, cutover_effect, model_call or disk_usage is required")
+			"self_update, command_result, warden_shape, cutover_effect, model_call, disk_usage or platform is required")
 	})
 
 	t.Run("a block that is not an object answers 400 naming the block", func(t *testing.T) {
@@ -1688,6 +1688,9 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			{`{"runtime":1}`, "runtime must be 'claude' or 'codex'"},
 			{`{"warden_shape":"nope"}`, "warden_shape must be 'anchor', 'legacy' or 'unknown'"},
 			{`{"cutover_effect":"nope"}`, "cutover_effect must be 'effective', 'not_effective' or 'unproven'"},
+			{`{"platform":"linux"}`, "platform must be '<os>/<arch>', e.g. 'linux/amd64'"},
+			{`{"platform":"Linux/x86_64"}`, "platform must be '<os>/<arch>', e.g. 'linux/amd64'"},
+			{`{"platform":1}`, "platform must be '<os>/<arch>', e.g. 'linux/amd64'"},
 			{`{"cost":"free"}`, "cost must be a number"},
 			{`{"effort":1}`, "effort must be a string"},
 			{`{"tokens":{},"model":1}`, "model must be a string"},
@@ -3051,8 +3054,8 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			diskCat("backups", 20480, true),
 			diskCat("workspaces", 30000, true),
 			diskCat("logs", 1000, true),
-			diskCat("old_version_backups", 2000+diskTestOldCopiesBytes, true),
-			diskCat("other", 100000-16384-20480-30000-1000-2000-diskTestOldCopiesBytes, true),
+			diskCat("old_version_backups", 2000+diskTestOldCopiesBytes(t), true),
+			diskCat("other", 100000-16384-20480-30000-1000-2000-diskTestOldCopiesBytes(t), true),
 		}, []any{diskMember("mira", "Mira", "active", 30000)}, nil, nil))
 	})
 
@@ -3067,8 +3070,8 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			diskCat("database", 16384, true),
 			diskCat("backups", 20480, true),
 			diskCat("workspaces", 0, true),
-			diskCat("old_version_backups", diskTestOldCopiesBytes, true),
-			diskCat("other", 100000-16384-20480-diskTestOldCopiesBytes, true),
+			diskCat("old_version_backups", diskTestOldCopiesBytes(t), true),
+			diskCat("other", 100000-16384-20480-diskTestOldCopiesBytes(t), true),
 		}, []any{}, nil, nil))
 	})
 
@@ -3082,13 +3085,13 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"measured_at":1759500000,"root_bytes":100000,
 			"categories":[{"key":"logs","bytes":1000,"in_root":true},{"key":"old_version_backups","bytes":2000,"in_root":true}],
 			"members":[{"member_id":"mira","workspace_bytes":30000}]}`)
-		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000+16384+20480+diskTestOldCopiesBytes, 1759500100, []any{
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000+16384+20480+diskTestOldCopiesBytes(t), 1759500100, []any{
 			diskCat("database", 16384, false),
 			diskCat("backups", 20480, false),
 			diskCat("workspaces", 30000, true),
 			diskCat("logs", 1000, true),
 			diskCat("old_version_backups", 2000, true),
-			diskCat("old_database_copies", diskTestOldCopiesBytes, false),
+			diskCat("old_database_copies", diskTestOldCopiesBytes(t), false),
 			diskCat("other", 100000-30000-1000-2000, true),
 		}, []any{diskMember("mira", "Mira", "active", 30000)}, nil, nil))
 	})
@@ -3302,11 +3305,11 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			diskCat("database", 16384, true),
 			diskCat("backups", 20480, true),
 			diskCat("workspaces", 0, true),
-			diskCat("old_version_backups", 1500+diskTestOldCopiesBytes, true),
+			diskCat("old_version_backups", 1500+diskTestOldCopiesBytes(t), true),
 			part("binaries", 500),
-			part("old_database_copies", diskTestOldCopiesBytes),
+			part("old_database_copies", diskTestOldCopiesBytes(t)),
 			part("releases", 1000),
-			diskCat("other", 100000-16384-20480-1500-diskTestOldCopiesBytes, true),
+			diskCat("other", 100000-16384-20480-1500-diskTestOldCopiesBytes(t), true),
 		}, []any{}, nil, nil))
 	})
 

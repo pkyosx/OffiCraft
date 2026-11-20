@@ -337,7 +337,7 @@ if ! ls "$REPO_ROOT"/server/ocserverd/docsdist/*.md >/dev/null 2>&1; then
   echo "[conformance] staging docsdist (embed-only product guide)"
   bash "$REPO_ROOT/bin/build-docsdist"
 fi
-if [[ ! -f "$REPO_ROOT/server/ocserverd/bindist/ocwarden" ]]; then
+if [[ ! -f "$REPO_ROOT/server/ocserverd/bindist/$(go env GOOS)-$(go env GOARCH)/ocwarden" ]]; then
   echo "[conformance] staging bindist (embed-only binaries + frozen catalog)"
   bash "$REPO_ROOT/bin/build-bindist"
 fi

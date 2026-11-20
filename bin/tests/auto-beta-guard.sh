@@ -1230,7 +1230,7 @@ fi
 # command DOES with that list (refuse an absent job, refuse a non-"success"
 # conclusion, refuse a round bound to another commit) is asserted by driving the
 # real command in bin/tests/release-guard.sh section G. This case only pins that
-# the two declarations still name the same eleven jobs, in both directions.
+# the two declarations still name the same jobs, in both directions.
 #
 # Read out of bin/release as text on purpose: it is a shell here-string of names,
 # and sourcing bin/release to read the variable would drag the whole script's

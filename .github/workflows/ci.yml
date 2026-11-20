@@ -65,11 +65,12 @@
 # and the committed-binary integrity check are not part of the ordinary CI classes
 # and get their own cell each.
 #
-# EVERYTHING RUNS ON macOS (owner ruling, T-4d88). The ubuntu cell is gone. It
-# existed to catch macOS-only assumptions, which is a real thing to want and is
-# no longer bought here — that is a KNOWN, ACCEPTED cost of this ruling, not an
-# oversight, and it is written down so nobody "fixes" it by quietly adding a
-# Linux cell whose font stack and mktemp semantics have never been measured.
+# EVERY CELL RUNS ON macOS EXCEPT linux-go-checks. OffiCraft runs on Linux too,
+# so the Go round runs a second time on a Linux runner, where the Linux side of
+# the code actually executes. Nothing else moved: the bin/ guard suites,
+# Playwright CT and e2e_test are macOS-shaped (BSD mktemp, launchd fixtures, the
+# runner's font stack) and have never been measured on Linux, so a cell that
+# ran them there would report on differences nobody has looked at.
 #
 # Triggers are pull_request AND push-to-main. Pushes to a WORKING branch are the
 # local gate's job. main is different: without a post-merge round, a pair of
@@ -399,6 +400,46 @@ jobs:
       - run: bash bin/run-checks.sh --lane "${{ github.job }}"
 
   # ---------------------------------------------------------------------------
+  # linux-go-checks — go-checks' own Go targets again, on Linux. OffiCraft runs
+  # on Linux (and on Windows through WSL2), and only a Linux host executes the
+  # Linux side of the code: /proc instead of lsof, the account's login shell
+  # instead of /bin/zsh, the warden's Linux PATH.
+  #
+  # It names its targets instead of owning a lane because each target belongs to
+  # exactly one lane, and these already belong to go-checks; bin/ci-round-guard.py
+  # carries the matching EXEMPT_GATES entry. bin/run-checks.sh still asserts every
+  # named target's end marker.
+  #
+  # Only the Go round runs here. bin/ guard suites, Playwright CT and e2e_test
+  # stay on macOS: their fixtures, mktemp semantics and font stack are
+  # macOS-shaped and have never been measured on Linux.
+  linux-go-checks:
+    # oc-job-role: gate
+    # Pinned for the same reason as macos-15.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # TestMigrationLockGrowsOnlyAtItsTail reads origin/main; see go-checks.
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.10'
+          check-latest: false
+          cache-dependency-path: server/ocserverd/go.sum
+      # Without them two real-shell tests skip instead of running: ocwarden's
+      # launch-prologue test runs under every shell it finds, and ocagent's
+      # listen test needs tmux.
+      # Retries: a mirror answering 503 once failed this step before any check
+      # ran, and on main that skips auto-beta.
+      - name: install zsh and tmux
+        run: |
+          sudo apt-get update -o Acquire::Retries=5 || true
+          sudo apt-get install -y -o Acquire::Retries=5 zsh tmux
+      - run: bash bin/run-checks.sh lint-go-fmt lint-go-vet build-go test-go
+
+  # ---------------------------------------------------------------------------
   # macos-e2e — the real-browser end-to-end suite against an isolated station.
   # This one is NOT a Makefile target: it is not a check over the tree, it stands
   # a whole station up and drives it, and run_all.sh owns that lifecycle
@@ -500,6 +541,7 @@ jobs:
       - bin-guards
       - tcc-anchor
       - e2e-isolation-guard
+      - linux-go-checks
       - macos-e2e
       - auto-beta
     if: failure() && github.ref == 'refs/heads/main'
@@ -604,7 +646,8 @@ jobs:
   # approval environment and no confirmation gate here.
   #
   # WHY macos-15: bin/release publish refuses to run anywhere but darwin/arm64
-  # (the asset IS darwin-arm64), and it builds the real product there.
+  # (the darwin-arm64 asset is built natively; linux is cross-built), and it
+  # builds the real product there.
   # ⚠️ THIS USED TO SAY it runs the full bin/ci.sh in a staging worktree first.
   # That stopped being true at T-7e6c, which replaced the local round with a read
   # of THIS workflow's verdict on the same commit (owner card rc-56fecb4d5aa3);
@@ -630,6 +673,7 @@ jobs:
       - bin-guards
       - tcc-anchor
       - e2e-isolation-guard
+      - linux-go-checks
       - macos-e2e
     # Both halves are required, and they exclude different things. The ref test is
     # what holds the line TODAY: without it every push to a working branch would

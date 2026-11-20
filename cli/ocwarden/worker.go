@@ -11,7 +11,7 @@
 //   - the legacy `worker_stop` verb stays accepted as an alias (an old server
 //     reclaiming through a new warden);
 //   - workerWorkdirForSession / defaultWorkerHome keep resolving the legacy
-//     workers/ workdir so the sweep's lsof leg still reaps a detached
+//     workers/ workdir so the sweep's workdir leg still reaps a detached
 //     `ocagent listen` anchored there.
 package main
 

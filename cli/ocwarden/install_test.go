@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -164,6 +165,8 @@ func installFixture() wardenPaths {
 		anchorPath: "/Users/eva/.officraft/warden/officraft",
 		guiDomain:  "gui/501",
 		ocAgentBin: "/Users/eva/.officraft/warden/ocagent",
+
+		minimalPATH: "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 	}
 }
 
@@ -367,7 +370,45 @@ func TestResolvePaths(t *testing.T) {
 		anchorPath: "/Users/eva/.officraft/warden/officraft",
 		guiDomain:  "gui/501",
 		ocAgentBin: "/Users/eva/.officraft/warden/ocagent",
+
+		minimalPATH: "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+		goos:        "darwin",
+		uid:         501,
 	}
+	onLinux := wardenPaths{
+		root:       "/home/eva/.officraft",
+		home:       "/home/eva",
+		label:      "com.officraft.ocwarden",
+		srcExe:     "/tmp/clone/bin/ocwarden",
+		ocBase:     "https://oc.example.com",
+		ocToken:    jwtWardenOne,
+		ocID:       "machine-7",
+		tokfile:    "/home/eva/.officraft/warden/exec-warden.tok",
+		logDir:     "/home/eva/.officraft/warden/log",
+		binPath:    "/home/eva/.officraft/warden/ocwarden",
+		anchorSrc:  "/tmp/clone/bin/officraft",
+		anchorPath: "/home/eva/.officraft/warden/officraft",
+		ocAgentBin: "/home/eva/.officraft/warden/ocagent",
+
+		minimalPATH: "/home/eva/.local/bin:/usr/local/bin:/usr/bin:/bin",
+		goos:        "linux",
+		uid:         501,
+		unitDir:     "/home/eva/.config/systemd/user",
+		unitPath:    "/home/eva/.config/systemd/user/com.officraft.ocwarden.service",
+		runtimeDir:  "/run/user/501",
+	}
+	onLinuxXDG := onLinux
+	onLinuxXDG.namespace = "lab"
+	onLinuxXDG.label = "com.officraft.ocwarden.lab"
+	onLinuxXDG.root = "/home/eva/.officraft-lab"
+	onLinuxXDG.tokfile = "/home/eva/.officraft-lab/warden/exec-warden.tok"
+	onLinuxXDG.logDir = "/home/eva/.officraft-lab/warden/log"
+	onLinuxXDG.binPath = "/home/eva/.officraft-lab/warden/ocwarden"
+	onLinuxXDG.anchorPath = "/home/eva/.officraft-lab/warden/officraft"
+	onLinuxXDG.ocAgentBin = "/home/eva/.officraft-lab/warden/ocagent"
+	onLinuxXDG.unitDir = "/srv/eva-config/systemd/user"
+	onLinuxXDG.unitPath = "/srv/eva-config/systemd/user/com.officraft.ocwarden.lab.service"
+	onLinuxXDG.runtimeDir = "/run/user/eva-session"
 	namespaced := wardenPaths{
 		root:       "/Users/eva/.officraft-lab",
 		home:       "/Users/eva",
@@ -387,23 +428,39 @@ func TestResolvePaths(t *testing.T) {
 		ocAgentSrc: "/opt/ocagent",
 		ocAgentBin: "/Users/eva/.officraft-lab/warden/ocagent",
 		credCheck:  "0",
+
+		minimalPATH: "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+		goos:        "darwin",
+		uid:         501,
 	}
 
 	cases := []struct {
 		name string
+		goos string
 		env  map[string]string
 		want wardenPaths
 	}{
-		{"main instance", map[string]string{
+		{"main instance", "darwin", map[string]string{
 			"HOME": "/Users/eva", "OC_BASE": "http://oc.example.com/", "OC_TOKEN": jwtWardenOne, "OC_ID": "machine-7",
 		}, main},
-		{"namespaced instance with a local ocagent and the cred gate opted out", map[string]string{
+		{"namespaced instance with a local ocagent and the cred gate opted out", "darwin", map[string]string{
 			"HOME": "/Users/eva", "OC_BASE": "https://127.0.0.1:7755", "OC_TOKEN": jwtWardenOne,
 			"OC_NAMESPACE": "lab", "OC_AGENT_BIN": "/opt/ocagent", "OC_CLAUDE_CRED_CHECK": "0",
 		}, namespaced},
+		{"under linux, a systemd user unit in ~/.config replaces the LaunchAgent and the runtime dir is derived from the uid", "linux", map[string]string{
+			"HOME": "/home/eva", "OC_BASE": "http://oc.example.com/", "OC_TOKEN": jwtWardenOne, "OC_ID": "machine-7",
+		}, onLinux},
+		{"under linux with a relative XDG_CONFIG_HOME and XDG_RUNTIME_DIR, both are ignored", "linux", map[string]string{
+			"HOME": "/home/eva", "OC_BASE": "http://oc.example.com/", "OC_TOKEN": jwtWardenOne, "OC_ID": "machine-7",
+			"XDG_CONFIG_HOME": "cfg", "XDG_RUNTIME_DIR": "run",
+		}, onLinux},
+		{"under linux with absolute XDG dirs, the unit lands in XDG_CONFIG_HOME and systemctl uses the given runtime dir", "linux", map[string]string{
+			"HOME": "/home/eva", "OC_BASE": "http://oc.example.com/", "OC_TOKEN": jwtWardenOne, "OC_ID": "machine-7",
+			"OC_NAMESPACE": "lab", "XDG_CONFIG_HOME": "/srv/eva-config", "XDG_RUNTIME_DIR": "/run/user/eva-session",
+		}, onLinuxXDG},
 	}
 	for _, c := range cases {
-		got, err := resolvePaths(envMap(c.env), "/tmp/clone/bin/ocwarden", 501)
+		got, err := resolvePaths(envMap(c.env), "/tmp/clone/bin/ocwarden", 501, c.goos)
 		if err != nil {
 			t.Errorf("%s: err = %v, want nil", c.name, err)
 			continue
@@ -426,12 +483,12 @@ func TestResolvePaths(t *testing.T) {
 		{"OC_BASE unset", map[string]string{"HOME": "/Users/eva", "OC_TOKEN": jwtWardenOne},
 			"OC_BASE is not set — refusing to install a warden that does not know which station to talk to. " +
 				"Re-run with OC_BASE set to the station URL (e.g. OC_BASE=https://station.example ocwarden install). " +
-				"Guessing http://127.0.0.1:7755 here would be written into this machine's launchd job permanently, " +
+				"Guessing http://127.0.0.1:7755 here would be written into this machine's warden service permanently, " +
 				"and members started from it would join whatever is listening there"},
 		{"OC_BASE is blank", map[string]string{"HOME": "/Users/eva", "OC_BASE": "   ", "OC_TOKEN": jwtWardenOne},
 			"OC_BASE is not set — refusing to install a warden that does not know which station to talk to. " +
 				"Re-run with OC_BASE set to the station URL (e.g. OC_BASE=https://station.example ocwarden install). " +
-				"Guessing http://127.0.0.1:7755 here would be written into this machine's launchd job permanently, " +
+				"Guessing http://127.0.0.1:7755 here would be written into this machine's warden service permanently, " +
 				"and members started from it would join whatever is listening there"},
 		{"OC_BASE carries a foreign scheme", map[string]string{"HOME": "/Users/eva", "OC_BASE": "ftp://x", "OC_TOKEN": jwtWardenOne},
 			"OC_BASE must be http(s)://host[:port] with no whitespace/XML-special chars, got: ftp://x"},
@@ -448,7 +505,7 @@ func TestResolvePaths(t *testing.T) {
 			"OC_AGENT_BIN must be an absolute path with no whitespace, got: /opt/oc agent"},
 	}
 	for _, c := range refused {
-		got, err := resolvePaths(envMap(c.env), "/tmp/clone/bin/ocwarden", 501)
+		got, err := resolvePaths(envMap(c.env), "/tmp/clone/bin/ocwarden", 501, "darwin")
 		if err == nil || err.Error() != c.want {
 			t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
 		}
@@ -467,6 +524,18 @@ func TestRenderPlist(t *testing.T) {
 	zeroLabel.label = ""
 	if got := renderPlist(zeroLabel); got != minimalPlist {
 		t.Errorf("a zero-value label must render the canonical label; got\n%s", got)
+	}
+
+	linux := installFixture()
+	linux.minimalPATH = "/home/eva/.local/bin:/usr/local/bin:/usr/bin:/bin"
+	wantLinux := strings.Replace(minimalPlist,
+		"<key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>",
+		"<key>PATH</key><string>/home/eva/.local/bin:/usr/local/bin:/usr/bin:/bin</string>", 1)
+	if wantLinux == minimalPlist {
+		t.Fatal("the PATH line was not found in minimalPlist")
+	}
+	if got := renderPlist(linux); got != wantLinux {
+		t.Errorf("with no installer PATH the minimal PATH is stamped; render =\n%s\nwant\n%s", got, wantLinux)
 	}
 
 	full := installFixture()
@@ -578,6 +647,7 @@ func TestXmlWellFormed(t *testing.T) {
 }
 
 func TestResolveClaudeForInstall(t *testing.T) {
+	const probeMinimalPATH = "/minimal/bin:/usr/bin"
 	env := envMap(map[string]string{"HOME": "/Users/eva", "PATH": "/Users/eva/.asdf/shims:/usr/bin"})
 
 	cases := []struct {
@@ -618,13 +688,13 @@ func TestResolveClaudeForInstall(t *testing.T) {
 			lookup:    func() string { return "/opt/homebrew/bin/claude" },
 			probe:     func(string, string, string) error { return nil },
 			wantBin:   "/opt/homebrew/bin/claude",
-			wantProbe: []string{"/opt/homebrew/bin/claude|" + wardenPlistPATH + "|/Users/eva"},
+			wantProbe: []string{"/opt/homebrew/bin/claude|" + probeMinimalPATH + "|/Users/eva"},
 		},
 		{
 			name: "a shim needs the installer PATH carried into the plist", env: env,
 			lookup: func() string { return "/Users/eva/.asdf/shims/claude" },
 			probe: func(_, pathEnv, _ string) error {
-				if pathEnv == wardenPlistPATH {
+				if pathEnv == probeMinimalPATH {
 					return errors.New("env: node: No such file or directory")
 				}
 				return nil
@@ -634,7 +704,7 @@ func TestResolveClaudeForInstall(t *testing.T) {
 			wantLog: "claude at /Users/eva/.asdf/shims/claude needs the installer's PATH to run " +
 				"(version-manager shim / env-shebang) — stamping the full installer PATH into the warden plist alongside OC_CLAUDE_BIN\n",
 			wantProbe: []string{
-				"/Users/eva/.asdf/shims/claude|" + wardenPlistPATH + "|/Users/eva",
+				"/Users/eva/.asdf/shims/claude|" + probeMinimalPATH + "|/Users/eva",
 				"/Users/eva/.asdf/shims/claude|/Users/eva/.asdf/shims:/usr/bin|/Users/eva",
 			},
 		},
@@ -646,7 +716,7 @@ func TestResolveClaudeForInstall(t *testing.T) {
 			wantLog: "WARN: claude at /opt/homebrew/bin/claude failed `--version` under both the minimal launchd PATH " +
 				"and the installer PATH — stamping OC_CLAUDE_BIN best-effort; spawns may still fail (check that claude runs headless)\n",
 			wantProbe: []string{
-				"/opt/homebrew/bin/claude|" + wardenPlistPATH + "|/Users/eva",
+				"/opt/homebrew/bin/claude|" + probeMinimalPATH + "|/Users/eva",
 				"/opt/homebrew/bin/claude|/Users/eva/.asdf/shims:/usr/bin|/Users/eva",
 			},
 		},
@@ -658,7 +728,7 @@ func TestResolveClaudeForInstall(t *testing.T) {
 			wantBin: "/opt/homebrew/bin/claude",
 			wantLog: "WARN: claude at /opt/homebrew/bin/claude failed `--version` under both the minimal launchd PATH " +
 				"and the installer PATH — stamping OC_CLAUDE_BIN best-effort; spawns may still fail (check that claude runs headless)\n",
-			wantProbe: []string{"/opt/homebrew/bin/claude|" + wardenPlistPATH + "|/Users/eva"},
+			wantProbe: []string{"/opt/homebrew/bin/claude|" + probeMinimalPATH + "|/Users/eva"},
 		},
 	}
 
@@ -674,7 +744,7 @@ func TestResolveClaudeForInstall(t *testing.T) {
 		}
 		logf := func(format string, a ...any) { fmt.Fprintf(&log, format+"\n", a...) }
 
-		bin, plistPATH := resolveClaudeForInstall(c.env, c.lookup, probe, logf)
+		bin, plistPATH := resolveClaudeForInstall(c.env, probeMinimalPATH, c.lookup, probe, logf)
 		if bin != c.wantBin || plistPATH != c.wantPATH {
 			t.Errorf("%s: resolveClaudeForInstall = (%q, %q), want (%q, %q)", c.name, bin, plistPATH, c.wantBin, c.wantPATH)
 		}
@@ -684,6 +754,29 @@ func TestResolveClaudeForInstall(t *testing.T) {
 		if !reflect.DeepEqual(probed, c.wantProbe) {
 			t.Errorf("%s: probes = %v, want %v", c.name, probed, c.wantProbe)
 		}
+	}
+}
+
+func TestBindRuntimeResolvers(t *testing.T) {
+	const minimalPATH, installerPATH = "/home/eva/.local/bin:/usr/bin", "/installer/bin"
+	runsUnderEitherPATH := "#!/bin/sh\ncase \"$PATH\" in " + minimalPATH + "|" + installerPATH + ") exit 0;; esac\nexit 1\n"
+	box := t.TempDir()
+	claude := stageBinary(t, filepath.Join(box, "bin", "claude"), runsUnderEitherPATH)
+	codex := stageBinary(t, filepath.Join(box, "bin", "codex"), runsUnderEitherPATH)
+	env := envMap(map[string]string{"HOME": "/home/eva", "OC_CLAUDE_BIN": claude, "OC_CODEX_BIN": codex,
+		"PATH": installerPATH})
+	var out bytes.Buffer
+	i := &installer{out: &out}
+	i.bindRuntimeResolvers(env, wardenPaths{minimalPATH: minimalPATH}, realVersionProbe)
+
+	if bin, path := i.resolveClaude(); bin != claude || path != "" {
+		t.Errorf("resolveClaude = (%q, %q), want (%q, \"\")", bin, path, claude)
+	}
+	if bin, path := i.resolveCodex(); bin != codex || path != "" {
+		t.Errorf("resolveCodex = (%q, %q), want (%q, \"\")", bin, path, codex)
+	}
+	if out.String() != "" {
+		t.Errorf("install output = %q, want none", out.String())
 	}
 }
 
@@ -1031,8 +1124,8 @@ func TestInstallOcAgent(t *testing.T) {
 		if err := i.installOcAgent(download); err != nil {
 			t.Fatalf("installOcAgent: %v", err)
 		}
-		if !reflect.DeepEqual(asked, []string{"/api/agent/binary"}) {
-			t.Errorf("requested %v, want [/api/agent/binary]", asked)
+		if !reflect.DeepEqual(asked, []string{installTestAgentBinaryPath}) {
+			t.Errorf("requested %v, want ["+installTestAgentBinaryPath+"]", asked)
 		}
 		wantCalls := []string{
 			"mkdir /Users/eva/.officraft/warden 755",
@@ -1049,7 +1142,7 @@ func TestInstallOcAgent(t *testing.T) {
 		if sys.files["/Users/eva/.officraft/warden/ocagent"] != "DOWNLOADED-OCAGENT" {
 			t.Errorf("installed bytes = %q", sys.files["/Users/eva/.officraft/warden/ocagent"])
 		}
-		want := "[ocwarden install] downloading ocagent from https://oc.example.com/api/agent/binary ...\n" +
+		want := "[ocwarden install] downloading ocagent from https://oc.example.com" + installTestAgentBinaryPath + " ...\n" +
 			"[ocwarden install] installed ocagent (0755): /Users/eva/.officraft/warden/ocagent\n"
 		if out.String() != want {
 			t.Errorf("log =\n%s\nwant\n%s", out.String(), want)
@@ -1113,7 +1206,7 @@ func TestInstallOcAgent(t *testing.T) {
 			t.Errorf("calls = %v, want none", sys.calls)
 		}
 		want := "[ocwarden install] DRYRUN would: mkdir -p /Users/eva/.officraft/warden; download ocagent from " +
-			"https://oc.example.com/api/agent/binary -> verify-exec -> atomic rename -> /Users/eva/.officraft/warden/ocagent\n"
+			"https://oc.example.com" + installTestAgentBinaryPath + " -> verify-exec -> atomic rename -> /Users/eva/.officraft/warden/ocagent\n"
 		if out.String() != want {
 			t.Errorf("log = %q, want %q", out.String(), want)
 		}
@@ -1144,13 +1237,13 @@ func TestDownloadOcAgent(t *testing.T) {
 	}{
 		{"a served binary", 200, []byte("OCAGENT-BYTES"), nil, "OCAGENT-BYTES", ""},
 		{"transport failure", 0, nil, errors.New("dial tcp: connection refused"), "",
-			"download ocagent from https://oc.example.com/api/agent/binary: dial tcp: connection refused"},
+			"download ocagent from https://oc.example.com" + installTestAgentBinaryPath + ": dial tcp: connection refused"},
 		{"not found", 404, []byte("no such route"), nil, "",
-			"download ocagent from https://oc.example.com/api/agent/binary: status 404"},
+			"download ocagent from https://oc.example.com" + installTestAgentBinaryPath + ": status 404"},
 		{"server error", 500, []byte("boom"), nil, "",
-			"download ocagent from https://oc.example.com/api/agent/binary: status 500"},
+			"download ocagent from https://oc.example.com" + installTestAgentBinaryPath + ": status 500"},
 		{"an empty 200 is not a binary", 200, nil, nil, "",
-			"download ocagent from https://oc.example.com/api/agent/binary: empty body"},
+			"download ocagent from https://oc.example.com" + installTestAgentBinaryPath + ": empty body"},
 	}
 	for _, c := range cases {
 		i, _, out := newRecordingInstaller(false)
@@ -1169,10 +1262,10 @@ func TestDownloadOcAgent(t *testing.T) {
 		if string(body) != c.wantBody {
 			t.Errorf("%s: body = %q, want %q", c.name, body, c.wantBody)
 		}
-		if !reflect.DeepEqual(asked, []string{"/api/agent/binary"}) {
-			t.Errorf("%s: requested %v, want [/api/agent/binary]", c.name, asked)
+		if !reflect.DeepEqual(asked, []string{installTestAgentBinaryPath}) {
+			t.Errorf("%s: requested %v, want ["+installTestAgentBinaryPath+"]", c.name, asked)
 		}
-		if want := "[ocwarden install] downloading ocagent from https://oc.example.com/api/agent/binary ...\n"; out.String() != want {
+		if want := "[ocwarden install] downloading ocagent from https://oc.example.com" + installTestAgentBinaryPath + " ...\n"; out.String() != want {
 			t.Errorf("%s: log = %q, want %q", c.name, out.String(), want)
 		}
 	}
@@ -1849,6 +1942,45 @@ func TestVerify(t *testing.T) {
 			t.Errorf("log = %q, want %q", out.String(), want)
 		}
 	})
+
+	t.Run("under linux, a main pid that holds is a stable warden", func(t *testing.T) {
+		lp := linuxInstallFixture()
+		i, sys, out := newRecordingInstaller(false)
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		if err := i.verify(lp); err != nil {
+			t.Fatalf("verify: %v", err)
+		}
+		want := header + "[ocwarden install] SUCCESS: com.officraft.ocwarden is running and STABLE (pid=4001 held >=6s). " +
+			"Logs: /home/eva/.officraft/warden/log/ocwarden.{out,err}.log\n"
+		if out.String() != want {
+			t.Errorf("log =\n%s\nwant\n%s", out.String(), want)
+		}
+	})
+
+	t.Run("under linux, a unit restarted under a new main pid is crash-looping", func(t *testing.T) {
+		lp := linuxInstallFixture()
+		i, sys, _ := newRecordingInstaller(false)
+		m := newFakeUserManager(sys)
+		m.installed(lp.unitPath, lp.tokfile, minimalUnit)
+		m.crashLoop = true
+		err := i.verify(lp)
+		wantErr := "com.officraft.ocwarden is CRASH-LOOPING — pid did not hold across the settle window " +
+			"(first=4002, then=4003); likely bad token / server unreachable / auth reject"
+		if err == nil || err.Error() != wantErr {
+			t.Errorf("err = %v, want %q", err, wantErr)
+		}
+	})
+
+	t.Run("under linux, a unit that never runs reports no pid", func(t *testing.T) {
+		lp := linuxInstallFixture()
+		i, sys, _ := newRecordingInstaller(false)
+		newFakeUserManager(sys)
+		err := i.verify(lp)
+		if err == nil || err.Error() != "com.officraft.ocwarden did not report a live PID within 30s" {
+			t.Errorf("err = %v, want the no-pid refusal", err)
+		}
+	})
 }
 
 func TestWardenPID(t *testing.T) {
@@ -1900,11 +2032,11 @@ func TestRunInstall(t *testing.T) {
 		}
 		wantLog := "[ocwarden install] resolved: ROOT=/Users/eva/.officraft HOME=/Users/eva OC_BASE=https://oc.example.com OC_ID=<derive-from-token-sub>\n" +
 			"[ocwarden install] targets:  TOKFILE=/Users/eva/.officraft/warden/exec-warden.tok PLIST=/Users/eva/Library/LaunchAgents/com.officraft.ocwarden.plist BIN=/Users/eva/.officraft/warden/ocwarden SRC=/tmp/clone/ocwarden\n" +
-			"[ocwarden install] ocagent:  DOWNLOAD https://oc.example.com/api/agent/binary -> BIN=/Users/eva/.officraft/warden/ocagent (home sibling; runtime-discovered, not in plist)\n" +
+			"[ocwarden install] ocagent:  DOWNLOAD https://oc.example.com" + installTestAgentBinaryPath + " -> BIN=/Users/eva/.officraft/warden/ocagent (home sibling; runtime-discovered, not in plist)\n" +
 			"[ocwarden install] DRY-RUN mode: no file writes / no launchctl / no verification.\n" +
 			"[ocwarden install] DRYRUN would: mkdir -p /Users/eva/.officraft/warden; copy /tmp/clone/ocwarden -> a 0755 temp then atomic rename -> /Users/eva/.officraft/warden/ocwarden\n" +
 			"[ocwarden install] DRYRUN would: copy fixed identity anchor /tmp/clone/officraft -> /Users/eva/.officraft/warden/officraft only if absent\n" +
-			"[ocwarden install] DRYRUN would: mkdir -p /Users/eva/.officraft/warden; download ocagent from https://oc.example.com/api/agent/binary -> verify-exec -> atomic rename -> /Users/eva/.officraft/warden/ocagent\n" +
+			"[ocwarden install] DRYRUN would: mkdir -p /Users/eva/.officraft/warden; download ocagent from https://oc.example.com" + installTestAgentBinaryPath + " -> verify-exec -> atomic rename -> /Users/eva/.officraft/warden/ocagent\n" +
 			"[ocwarden install] DRYRUN would: mkdir -p /Users/eva/.officraft/warden; write <token> to a 0600 temp then atomic rename -> /Users/eva/.officraft/warden/exec-warden.tok\n" +
 			"[ocwarden install] DRYRUN would: mkdir -p /Users/eva/.officraft/warden/log\n" +
 			"[ocwarden install] DRYRUN would: mkdir -p /Users/eva/Library/LaunchAgents; render plist -> /Users/eva/Library/LaunchAgents/com.officraft.ocwarden.plist (XML-lint clean)\n" +
@@ -1988,7 +2120,7 @@ func TestRunInstall(t *testing.T) {
 		}
 		wantHead := "[ocwarden install] resolved: ROOT=/Users/eva/.officraft HOME=/Users/eva OC_BASE=https://oc.example.com OC_ID=<derive-from-token-sub>\n" +
 			"[ocwarden install] targets:  TOKFILE=/Users/eva/.officraft/warden/exec-warden.tok PLIST=/Users/eva/Library/LaunchAgents/com.officraft.ocwarden.plist BIN=/Users/eva/.officraft/warden/ocwarden SRC=/tmp/clone/ocwarden\n" +
-			"[ocwarden install] ocagent:  DOWNLOAD https://oc.example.com/api/agent/binary -> BIN=/Users/eva/.officraft/warden/ocagent (home sibling; runtime-discovered, not in plist)\n" +
+			"[ocwarden install] ocagent:  DOWNLOAD https://oc.example.com" + installTestAgentBinaryPath + " -> BIN=/Users/eva/.officraft/warden/ocagent (home sibling; runtime-discovered, not in plist)\n" +
 			"[ocwarden install] claude:   /opt/claude (stamped OC_CLAUDE_BIN into the plist)\n" +
 			"[ocwarden install] codex:    /opt/codex (stamped OC_CODEX_BIN into the plist)\n"
 		if !strings.HasPrefix(out.String(), wantHead) {
@@ -2058,8 +2190,204 @@ func TestRunInstall(t *testing.T) {
 			t.Error("a failed install still wrote the plist")
 		}
 	})
+
+	t.Run("under linux outside WSL2, the steps leave the unit enabled, running and lingering, and nothing else", func(t *testing.T) {
+		i, sys, out := newRecordingInstaller(false)
+		m := newFakeUserManager(sys)
+		sys.files["/tmp/clone/ocwarden"] = "OCWARDEN-BYTES"
+		sys.files["/tmp/clone/officraft"] = "ANCHOR-BYTES"
+		i.agentGet = func(string) (int, []byte, error) { return 200, []byte("OCAGENT-BYTES"), nil }
+		i.agentProbe = func(string) error { return nil }
+		i.resolveClaude = func() (string, string) { return "/opt/claude", "" }
+		i.resolveCodex = func() (string, string) { return "/opt/codex", "/opt/x&y:/bin" }
+
+		if err := i.runInstall(linuxInstallFixture()); err != nil {
+			t.Fatalf("runInstall: %v\n%s", err, out.String())
+		}
+
+		wantFiles := map[string]string{
+			"/tmp/clone/ocwarden":                                           "OCWARDEN-BYTES",
+			"/tmp/clone/officraft":                                          "ANCHOR-BYTES",
+			"/home/eva/.officraft/warden/ocwarden":                          "OCWARDEN-BYTES",
+			"/home/eva/.officraft/warden/officraft":                         "ANCHOR-BYTES",
+			"/home/eva/.officraft/warden/ocagent":                           "OCAGENT-BYTES",
+			"/home/eva/.officraft/warden/exec-warden.tok":                   jwtWardenOne,
+			"/home/eva/.config/systemd/user/com.officraft.ocwarden.service": stampedUnit,
+		}
+		if !reflect.DeepEqual(sys.files, wantFiles) {
+			for path, body := range sys.files {
+				if wantFiles[path] != body {
+					t.Errorf("%s holds\n%s\nwant\n%s", path, body, wantFiles[path])
+				}
+			}
+			if len(sys.files) != len(wantFiles) {
+				t.Errorf("installed paths = %d, want %d", len(sys.files), len(wantFiles))
+			}
+		}
+		if got, want := m.state("com.officraft.ocwarden.service"), "load=loaded enabled=true active=true pid=4001"; got != want {
+			t.Errorf("unit state = %s, want %s", got, want)
+		}
+		if !m.linger {
+			t.Error("linger = off, want on")
+		}
+		wantHead := "[ocwarden install] resolved: ROOT=/home/eva/.officraft HOME=/home/eva OC_BASE=https://oc.example.com OC_ID=<derive-from-token-sub>\n" +
+			"[ocwarden install] targets:  TOKFILE=/home/eva/.officraft/warden/exec-warden.tok UNIT=/home/eva/.config/systemd/user/com.officraft.ocwarden.service BIN=/home/eva/.officraft/warden/ocwarden SRC=/tmp/clone/ocwarden\n" +
+			"[ocwarden install] ocagent:  DOWNLOAD https://oc.example.com" + installTestAgentBinaryPath + " -> BIN=/home/eva/.officraft/warden/ocagent (home sibling; runtime-discovered, not in unit)\n" +
+			"[ocwarden install] claude:   /opt/claude (stamped OC_CLAUDE_BIN into the unit)\n" +
+			"[ocwarden install] codex:    /opt/codex (stamped OC_CODEX_BIN into the unit)\n" +
+			"[ocwarden install] enabled linger for uid 1000\n"
+		wantTail := "[ocwarden install] enabled + restarted com.officraft.ocwarden.service (exact unit)\n" +
+			"[ocwarden install] verifying com.officraft.ocwarden is alive AND STABLE...\n" +
+			"[ocwarden install] SUCCESS: com.officraft.ocwarden is running and STABLE (pid=4001 held >=6s). Logs: /home/eva/.officraft/warden/log/ocwarden.{out,err}.log\n"
+		if !strings.HasPrefix(out.String(), wantHead) || !strings.HasSuffix(out.String(), wantTail) {
+			t.Errorf("log =\n%s\nwant it to open with\n%s\nand end with\n%s", out.String(), wantHead, wantTail)
+		}
+	})
+
+	wslInstall := func() (*installer, *sysRecorder, *bytes.Buffer, *fakeWindowsSide) {
+		i, sys, out := newRecordingInstaller(false)
+		newFakeUserManager(sys)
+		w := newFakeWindowsSide(sys)
+		sys.files["/tmp/clone/ocwarden"] = "OCWARDEN-BYTES"
+		sys.files["/tmp/clone/officraft"] = "ANCHOR-BYTES"
+		i.agentGet = func(string) (int, []byte, error) { return 200, []byte("OCAGENT-BYTES"), nil }
+		i.agentProbe = func(string) error { return nil }
+		return i, sys, out, w
+	}
+	keepAliveLine := "[ocwarden install] WSL keep-alive: wrote " + keepAliveWinPath + " and started it; members stay online after every Ubuntu window is closed\n"
+
+	t.Run("under WSL2, the keep-alive script lands in the Startup folder, is started, and the install says where", func(t *testing.T) {
+		i, sys, out, w := wslInstall()
+		if err := i.runInstall(linuxInstallFixture()); err != nil {
+			t.Fatalf("runInstall: %v\n%s", err, out.String())
+		}
+		if got := sys.files[keepAlivePath]; got != keepAliveScript {
+			t.Errorf("keep-alive script = %q, want %q", got, keepAliveScript)
+		}
+		if want := []string{keepAliveWinPath}; !reflect.DeepEqual(w.started, want) {
+			t.Errorf("wscript.exe started %q, want %q", w.started, want)
+		}
+		if !strings.HasSuffix(out.String(), keepAliveLine) {
+			t.Errorf("log =\n%s\nwant it to end with\n%s", out.String(), keepAliveLine)
+		}
+	})
+
+	t.Run("under WSL2 with a namespace, the keep-alive script carries the namespace and the canonical one is left alone", func(t *testing.T) {
+		i, sys, out, w := wslInstall()
+		sys.files[keepAlivePath] = "CANONICAL-SCRIPT"
+		p := linuxInstallFixture()
+		p.namespace = "lab"
+		p.label = "com.officraft.ocwarden.lab"
+		p.unitPath = "/home/eva/.config/systemd/user/com.officraft.ocwarden.lab.service"
+		if err := i.runInstall(p); err != nil {
+			t.Fatalf("runInstall: %v\n%s", err, out.String())
+		}
+		labPath := "/mnt/c/Users/eva/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/OffiCraft keep WSL running (Ubuntu-24.04, lab).vbs"
+		labWinPath := `C:\Users\eva\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\OffiCraft keep WSL running (Ubuntu-24.04, lab).vbs`
+		if got := sys.files[labPath]; got != keepAliveScript {
+			t.Errorf("namespaced keep-alive script = %q, want %q", got, keepAliveScript)
+		}
+		if got := sys.files[keepAlivePath]; got != "CANONICAL-SCRIPT" {
+			t.Errorf("canonical keep-alive script = %q, want it untouched", got)
+		}
+		if want := []string{labWinPath}; !reflect.DeepEqual(w.started, want) {
+			t.Errorf("wscript.exe started %q, want %q", w.started, want)
+		}
+	})
+
+	t.Run("under WSL2 with a script for another distro in place, the script is rewritten for this one", func(t *testing.T) {
+		i, sys, out, _ := wslInstall()
+		sys.files[keepAlivePath] = `CreateObject("WScript.Shell").Run "wsl.exe -d Ubuntu --exec sleep infinity", 0, False` + "\r\n"
+		if err := i.runInstall(linuxInstallFixture()); err != nil {
+			t.Fatalf("runInstall: %v\n%s", err, out.String())
+		}
+		if got := sys.files[keepAlivePath]; got != keepAliveScript {
+			t.Errorf("keep-alive script = %q, want %q", got, keepAliveScript)
+		}
+	})
+
+	t.Run("under WSL2 where wslpath does not name the distro, WSL_DISTRO_NAME names it", func(t *testing.T) {
+		i, sys, out, w := wslInstall()
+		w.distroRoot = "/"
+		p := linuxInstallFixture()
+		p.wslDistro = "Ubuntu-24.04"
+		if err := i.runInstall(p); err != nil {
+			t.Fatalf("runInstall: %v\n%s", err, out.String())
+		}
+		if got := sys.files[keepAlivePath]; got != keepAliveScript {
+			t.Errorf("keep-alive script = %q, want %q", got, keepAliveScript)
+		}
+	})
+
+	t.Run("under WSL2 with Windows interop off, the install succeeds and warns with the manual fallback", func(t *testing.T) {
+		i, _, out, w := wslInstall()
+		w.interopOff = true
+		if err := i.runInstall(linuxInstallFixture()); err != nil {
+			t.Fatalf("runInstall: %v\n%s", err, out.String())
+		}
+		want := "[ocwarden install] WARN: WSL keep-alive not set up (cmd.exe could not be run: exec format error) — members on this machine go offline when every Ubuntu window is closed. " +
+			"Manual fallback, in Windows PowerShell: Start-Process wsl.exe -ArgumentList '-d','Ubuntu-24.04','--exec','sleep','infinity' -WindowStyle Hidden " +
+			"(docs/guide/troubleshooting.md explains the Startup-folder file that repeats this at every Windows sign-in)\n"
+		if !strings.HasSuffix(out.String(), want) {
+			t.Errorf("log =\n%s\nwant it to end with\n%s", out.String(), want)
+		}
+	})
+
+	t.Run("under linux without systemd as PID 1, nothing is installed", func(t *testing.T) {
+		i, sys, _ := newRecordingInstaller(false)
+		m := newFakeUserManager(sys)
+		delete(sys.perms, systemdBootedMarker)
+		sys.files["/tmp/clone/ocwarden"] = "OCWARDEN-BYTES"
+		sys.files["/tmp/clone/officraft"] = "ANCHOR-BYTES"
+		i.agentGet = func(string) (int, []byte, error) { return 200, []byte("OCAGENT-BYTES"), nil }
+		i.agentProbe = func(string) error { return nil }
+
+		err := i.runInstall(linuxInstallFixture())
+		if err == nil || !strings.HasPrefix(err.Error(), "systemd is not running as PID 1 on this host") {
+			t.Errorf("err = %v, want the not-booted refusal", err)
+		}
+		want := map[string]string{"/tmp/clone/ocwarden": "OCWARDEN-BYTES", "/tmp/clone/officraft": "ANCHOR-BYTES"}
+		if !reflect.DeepEqual(sys.files, want) {
+			t.Errorf("files = %v, want only the sources %v", sys.files, want)
+		}
+		if len(m.units) != 0 || m.linger {
+			t.Errorf("units = %d, linger = %v, want none and off", len(m.units), m.linger)
+		}
+	})
+
+	t.Run("under linux in a dry run, the systemd steps are narrated and nothing changes", func(t *testing.T) {
+		i, sys, out := newRecordingInstaller(true)
+		m := newFakeUserManager(sys)
+		if err := i.runInstall(linuxInstallFixture()); err != nil {
+			t.Fatalf("runInstall: %v", err)
+		}
+		if len(sys.files) != 0 || len(m.units) != 0 || m.linger {
+			t.Errorf("files = %v, units = %d, linger = %v, want an untouched machine", sys.files, len(m.units), m.linger)
+		}
+		wantLog := "[ocwarden install] resolved: ROOT=/home/eva/.officraft HOME=/home/eva OC_BASE=https://oc.example.com OC_ID=<derive-from-token-sub>\n" +
+			"[ocwarden install] targets:  TOKFILE=/home/eva/.officraft/warden/exec-warden.tok UNIT=/home/eva/.config/systemd/user/com.officraft.ocwarden.service BIN=/home/eva/.officraft/warden/ocwarden SRC=/tmp/clone/ocwarden\n" +
+			"[ocwarden install] ocagent:  DOWNLOAD https://oc.example.com" + installTestAgentBinaryPath + " -> BIN=/home/eva/.officraft/warden/ocagent (home sibling; runtime-discovered, not in unit)\n" +
+			"[ocwarden install] DRY-RUN mode: no file writes / no systemctl / no verification.\n" +
+			"[ocwarden install] DRYRUN would: require /run/systemd/system (systemd as PID 1), then `loginctl enable-linger 1000` unless Linger=yes\n" +
+			"[ocwarden install] DRYRUN would: mkdir -p /home/eva/.officraft/warden; copy /tmp/clone/ocwarden -> a 0755 temp then atomic rename -> /home/eva/.officraft/warden/ocwarden\n" +
+			"[ocwarden install] DRYRUN would: copy fixed identity anchor /tmp/clone/officraft -> /home/eva/.officraft/warden/officraft only if absent\n" +
+			"[ocwarden install] DRYRUN would: mkdir -p /home/eva/.officraft/warden; download ocagent from https://oc.example.com" + installTestAgentBinaryPath + " -> verify-exec -> atomic rename -> /home/eva/.officraft/warden/ocagent\n" +
+			"[ocwarden install] DRYRUN would: mkdir -p /home/eva/.officraft/warden; write <token> to a 0600 temp then atomic rename -> /home/eva/.officraft/warden/exec-warden.tok\n" +
+			"[ocwarden install] DRYRUN would: mkdir -p /home/eva/.officraft/warden/log\n" +
+			"[ocwarden install] DRYRUN would: mkdir -p /home/eva/.config/systemd/user; render unit -> /home/eva/.config/systemd/user/com.officraft.ocwarden.service\n" +
+			"[ocwarden install] DRYRUN would run: systemctl --user daemon-reload, then require LoadState=loaded for com.officraft.ocwarden.service\n" +
+			"[ocwarden install] DRYRUN would run: systemctl --user enable com.officraft.ocwarden.service\n" +
+			"[ocwarden install] DRYRUN would run: systemctl --user restart com.officraft.ocwarden.service\n" +
+			"[ocwarden install] DRYRUN: skipping live verification (no machine state changed)\n" +
+			"[ocwarden install] DRYRUN complete — no machine state changed.\n"
+		if out.String() != wantLog {
+			t.Errorf("log =\n%s\nwant\n%s", out.String(), wantLog)
+		}
+	})
 }
 
 func TestInstallCmd(t *testing.T) {
 	t.Skip("the entry point builds its effects from newHostSeam(), which this package binds to realHostSeam — calling it from a test binary is a deliberate os.Exit(1) (TestRealHostSeam) that would take the whole test process with it")
 }
+
+const installTestAgentBinaryPath = "/api/agent/binary?os=" + runtime.GOOS + "&arch=" + runtime.GOARCH

@@ -119,7 +119,7 @@ func stationAddressGate(env func(string) string, out io.Writer, once bool,
 	// --once is a test hook, never a launchd job: it refuses without parking.
 	if once {
 		fmt.Fprint(out, noBaseMessage(noBaseSentinelName))
-		fmt.Fprintln(out, "[ocwarden] --once: refusing and exiting non-zero (no sentinel written; the launchd path halts instead)")
+		fmt.Fprintln(out, "[ocwarden] --once: refusing and exiting non-zero (no sentinel written; the installed service halts instead)")
 		return 1, true
 	}
 	return haltNoBase(env, out, now, block), true

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -356,7 +357,7 @@ func TestReadMachineName(t *testing.T) {
 }
 
 func TestBuildTelemetryPayload(t *testing.T) {
-	got, err := buildTelemetryPayload("warden-1", "Seth's MacBook Pro",
+	got, err := buildTelemetryPayload("warden-1", "linux/amd64", "Seth's MacBook Pro",
 		map[string]any{"cpu_pct": 20.0},
 		map[string]string{"ocwarden": "sha-w"},
 		map[string]any{"present": true},
@@ -366,6 +367,7 @@ func TestBuildTelemetryPayload(t *testing.T) {
 		t.Fatalf("err = %v, want nil", err)
 	}
 	want := map[string]any{
+		"platform":       "linux/amd64",
 		"machine":        "Seth's MacBook Pro",
 		"hardware":       map[string]any{"cpu_pct": 20.0},
 		"binaries":       map[string]string{"ocwarden": "sha-w"},
@@ -378,16 +380,16 @@ func TestBuildTelemetryPayload(t *testing.T) {
 		t.Errorf("payload = %v, want %v", got, want)
 	}
 
-	got, err = buildTelemetryPayload("warden-1", "", nil, nil, nil, "", "", nil)
+	got, err = buildTelemetryPayload("warden-1", "linux/arm64", "", nil, nil, nil, "", "", nil)
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
 	}
-	if !reflect.DeepEqual(got, map[string]any{}) {
-		t.Errorf("payload = %v, want an empty body (the id is never a body key)", got)
+	if want := map[string]any{"platform": "linux/arm64"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("payload = %v, want only the platform (the id is never a body key)", got)
 	}
 
 	for _, id := range []string{"", "   "} {
-		got, err := buildTelemetryPayload(id, "Seth's MacBook Pro", map[string]any{"cpu_pct": 20.0},
+		got, err := buildTelemetryPayload(id, "linux/amd64", "Seth's MacBook Pro", map[string]any{"cpu_pct": 20.0},
 			nil, nil, "", "")
 		if got != nil {
 			t.Errorf("payload = %v, want nil", got)
@@ -533,6 +535,7 @@ func TestRunOnce(t *testing.T) {
 			t.Errorf("paths = %v, want %v", paths, want)
 		}
 		want := []map[string]any{{
+			"platform":       mainTestPlatform,
 			"machine":        "Seth's MacBook Pro",
 			"hardware":       map[string]any{"cpu_pct": 20.0},
 			"binaries":       map[string]string{"ocwarden": "sha-w"},
@@ -614,7 +617,7 @@ func TestRunOnce(t *testing.T) {
 		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second, DiskUsageInterval: time.Hour}); got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
 		}
-		want := []map[string]any{{"disk_usage": map[string]any{"disk_free_bytes": int64(5)}}}
+		want := []map[string]any{{"platform": mainTestPlatform, "disk_usage": map[string]any{"disk_free_bytes": int64(5)}}}
 		if !reflect.DeepEqual(payloads, want) {
 			t.Errorf("payload = %v, want %v", payloads, want)
 		}
@@ -663,7 +666,7 @@ func TestRunOnce(t *testing.T) {
 		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second, DiskUsageInterval: time.Hour}); got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
 		}
-		want := []map[string]any{{"binaries": map[string]string{"ocagent": "sha-a"}}}
+		want := []map[string]any{{"platform": mainTestPlatform, "binaries": map[string]string{"ocagent": "sha-a"}}}
 		if !reflect.DeepEqual(payloads, want) {
 			t.Errorf("payload = %v, want %v", payloads, want)
 		}
@@ -787,9 +790,9 @@ func TestRun(t *testing.T) {
 			func(context.Context, time.Duration) bool { return true }, 2, &out, nil, disk)
 
 		want := []map[string]any{
-			{"machine": "Seth's MacBook Pro", "hardware": map[string]any{"cpu_pct": 20.0}},
-			{"machine": "Seth's MacBook Pro", "hardware": map[string]any{"cpu_pct": 20.0}, "disk_usage": map[string]any{"root_bytes": int64(1024)}},
-			{"machine": "Seth's MacBook Pro", "hardware": map[string]any{"cpu_pct": 20.0}, "disk_usage": map[string]any{"root_bytes": int64(1024)}},
+			{"platform": mainTestPlatform, "machine": "Seth's MacBook Pro", "hardware": map[string]any{"cpu_pct": 20.0}},
+			{"platform": mainTestPlatform, "machine": "Seth's MacBook Pro", "hardware": map[string]any{"cpu_pct": 20.0}, "disk_usage": map[string]any{"root_bytes": int64(1024)}},
+			{"platform": mainTestPlatform, "machine": "Seth's MacBook Pro", "hardware": map[string]any{"cpu_pct": 20.0}, "disk_usage": map[string]any{"root_bytes": int64(1024)}},
 		}
 		if !reflect.DeepEqual(bodies, want) {
 			t.Errorf("bodies =\n  %v\nwant\n  %v", bodies, want)
@@ -1224,7 +1227,7 @@ func TestRealMain(t *testing.T) {
 	t.Run("no verb prints the usage banner", func(t *testing.T) {
 		want := "usage: ocwarden {run [--once] | install | teardown [--canonical]}\n" +
 			"  run       officraft per-machine hardware telemetry + command producer.\n" +
-			"  install   install + start the launchd warden job on this machine.\n" +
+			"  install   install + start the warden service on this machine (launchd on macOS, systemd --user on Linux).\n" +
 			"  teardown  stop + remove a namespaced warden; canonical requires --canonical.\n"
 		for _, argv := range [][]string{{}, {"serve"}, {"--help"}} {
 			var out bytes.Buffer
@@ -1316,7 +1319,7 @@ func TestRealMain(t *testing.T) {
 			t.Errorf("rc = %d, want 1", rc)
 		}
 		first := "[ocwarden] FATAL: OC_BASE is not set — this warden was never told which station to talk to.\n"
-		last := "[ocwarden] --once: refusing and exiting non-zero (no sentinel written; the launchd path halts instead)\n"
+		last := "[ocwarden] --once: refusing and exiting non-zero (no sentinel written; the installed service halts instead)\n"
 		if !strings.HasPrefix(out.String(), first) || !strings.HasSuffix(out.String(), last) {
 			t.Errorf("out = %q, want the station-address refusal", out.String())
 		}
@@ -1484,3 +1487,5 @@ func TestExecRunnerFailureOutput(t *testing.T) {
 		}
 	})
 }
+
+const mainTestPlatform = runtime.GOOS + "/" + runtime.GOARCH

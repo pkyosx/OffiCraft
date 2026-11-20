@@ -155,6 +155,30 @@ build-go:
 	done; \
 	$(DONE)
 
+# A host's own build, vet and test see only its own GOOS/GOARCH, so a file that
+# does not compile for another supported platform fails nowhere else (linux/arm64
+# has no syscall.Dup2, for one). This compiles every module, tests included, for
+# each platform and keeps nothing. Its lane runs it after test-go: its ~2 min
+# placed before test-go would come out of the time test-go needs to reach its
+# own timeout inside the cell ceiling (see GO_TEST_TOTAL_WARN).
+GO_CROSS_PLATFORMS = linux/amd64 linux/arm64 darwin/arm64
+
+build-go-cross:
+	@$(P) \
+	GO="$$(oc_go)"; \
+	out="$$(mktemp -d "$${TMPDIR:-/tmp}/oc-go-cross.XXXXXX")"; \
+	trap 'rm -rf "$$out"' EXIT; \
+	for gomod in cli/*/go.mod server/*/go.mod; do \
+	  [[ -f "$$gomod" ]] || continue; \
+	  dir="$$(dirname "$$gomod")"; \
+	  for platform in $(GO_CROSS_PLATFORMS); do \
+	    echo "[build-go-cross] $$dir $$platform"; \
+	    (cd "$$dir" && export GOOS="$${platform%/*}" GOARCH="$${platform#*/}" && \
+	      "$$GO" build ./... && "$$GO" vet ./... && "$$GO" test -count=1 -c -o "$$out/" ./...); \
+	  done; \
+	done; \
+	$(DONE)
+
 # npm ci is its own target because five other targets need node_modules and none
 # of them should be the one that happens to install it.
 build-frontend-deps:
@@ -593,6 +617,8 @@ test-bin-guards:
 # the run needs its 15m INSIDE the ceiling:
 #
 #   rest of the cell (≈4m) + green module time + GO_TEST_TIMEOUT (15m) ≤ 25m
+#   (the rest of the cell that counts is what runs BEFORE test-go; keep slow
+#   targets such as build-go-cross after it in the lane)
 #   ⇒ green module time must stay under ≈6m
 #
 # At 10m the first warning would arrive when 4 + 10 + 15 = 29m > 25m, i.e. after

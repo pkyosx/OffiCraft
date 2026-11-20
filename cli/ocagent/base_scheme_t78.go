@@ -11,7 +11,7 @@ import (
 //
 //	server/ocserverd/base_scheme_t78.go   — what the server HANDS OUT
 //	cli/ocwarden/base_scheme_t78.go       — what the warden CALLS and what it
-//	                                        writes into each agent's .mcp.json
+//	                                        writes into each agent's officraft-mcp.json
 //	cli/ocagent/base_scheme_t78.go        — what the agent CALLS
 //
 // It is copied rather than shared because these are four separate Go modules

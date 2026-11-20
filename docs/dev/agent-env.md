@@ -11,12 +11,12 @@ agent 的環境是**兩層疊起來的**:
 
 ## 為什麼需要第 1 層(自動繼承)
 
-agent 不是你手動開的 shell。它由 launchd 啟動 → `tmux new-session` → **非互動、非 login 的 `zsh -c`**。
+agent 不是你手動開的 shell。它由背景服務管理者啟動(macOS 是 launchd,Linux 與 WSL2 是 systemd 的使用者服務)→ `tmux new-session` → **非互動、非 login 的 shell**。
 
 三層原因疊在一起:
-1. warden 的 launchd plist 只給一組寫死的最小 `EnvironmentVariables`;
-2. **launchd 從不 source `~/.zshrc`**;
-3. 啟動鏈路走的是**非互動** shell,而 zsh **只有互動 shell 才讀 `~/.zshrc`**。
+1. warden 的服務定義(launchd plist 或 systemd unit)只給一組寫死的最小環境變數;
+2. **launchd 與 systemd 都不會 source `~/.zshrc`、`~/.bashrc`**;
+3. 啟動鏈路走的是**非互動** shell,而 zsh、bash **只有互動 shell 才讀各自的 rc 檔**。
 
 2026-07-20 實測:互動 shell 有、agent 沒有的變數共 **20 個**(其中 11 個是憑證),
 外加 `PATH` 少三條(`~/.local/bin`、`~/.asdf/shims`、`/opt/homebrew/sbin`)。這不是 bug,是 zsh 的設計。
@@ -26,6 +26,8 @@ agent 不是你手動開的 shell。它由 launchd 啟動 → `tmux new-session`
 ```
 /bin/zsh -i -c '/usr/bin/env -0'
 ```
+
+macOS 固定用 `/bin/zsh`。Linux 與 WSL2 上使用者的 shell 不固定,改用帳號資料(`getent passwd`,讀不到再讀 `/etc/passwd`)登記的登入 shell,查不到時用 `/bin/bash`;不看 `$SHELL`,因為服務管理者不一定會設定它。
 
 拿到的變數當作 agent 的環境基底。實測成本約 **0.12 秒**,每次 spawn 付一次。
 

@@ -19,17 +19,21 @@ import (
 
 // A SUCCESSFUL rollback returns 0 (the contracted outcome); non-zero means the
 // rollback itself did not restore a live warden.
-func cutoverCmd(env func(string) string, out io.Writer) int {
+func cutoverCmd(env func(string) string, out io.Writer, goos string) int {
 	logf := func(format string, a ...any) {
 		fmt.Fprintf(out, "%s [cutover] "+format+"\n",
 			append([]any{time.Now().UTC().Format(time.RFC3339)}, a...)...)
+	}
+	if goos != "darwin" {
+		logf("REFUSED: the anchor cutover converts a launchd job and exists on macOS only; on %s re-run `ocwarden install --force` instead", goos)
+		return 1
 	}
 	exe, err := os.Executable()
 	if err != nil {
 		logf("FATAL: cannot resolve own binary: %v", err)
 		return 1
 	}
-	p, err := resolvePaths(env, exe, os.Getuid())
+	p, err := resolvePaths(env, exe, os.Getuid(), goos)
 	if err != nil {
 		logf("FATAL: %v", err)
 		return 1

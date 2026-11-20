@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"syscall"
 	"testing"
 	"time"
@@ -502,6 +503,112 @@ func TestOcagentPIDsByCwd(t *testing.T) {
 	if got := ocagentPIDsByCwd(sym, link); !reflect.DeepEqual(got, []int{104}) {
 		t.Errorf("the kernel-resolved cwd must match the symlinked workdir, got %v", got)
 	}
+}
+
+func stageProcEntry(t *testing.T, procRoot string, pid, comm, cwd string) {
+	t.Helper()
+	dir := filepath.Join(procRoot, pid)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	if comm != "" {
+		if err := os.WriteFile(filepath.Join(dir, "comm"), []byte(comm+"\n"), 0o644); err != nil {
+			t.Fatalf("write comm: %v", err)
+		}
+	}
+	if cwd != "" {
+		if err := os.Symlink(cwd, filepath.Join(dir, "cwd")); err != nil {
+			t.Fatalf("symlink cwd: %v", err)
+		}
+	}
+}
+
+func TestOcagentPIDsByCwdFromProc(t *testing.T) {
+	const m1 = "/home/eva/.officraft/agents/m1"
+	procRoot := t.TempDir()
+	stageProcEntry(t, procRoot, "101", "ocagent", m1)
+	stageProcEntry(t, procRoot, "102", "ocagent", "/home/eva/.officraft/agents/m2")
+	stageProcEntry(t, procRoot, "103", "ocagent", m1+"/")
+	stageProcEntry(t, procRoot, "104", "claude", m1)
+	stageProcEntry(t, procRoot, "105", "ocagent", "")
+	stageProcEntry(t, procRoot, "106", "", m1)
+	stageProcEntry(t, procRoot, "self", "ocagent", m1)
+	stageProcEntry(t, procRoot, "0", "ocagent", m1)
+	stageProcEntry(t, procRoot, "108", "ocagent.prev", m1)
+	stageProcEntry(t, procRoot, "109", "ocagent", m1+"0")
+	stageProcEntry(t, procRoot, "110", "ocagent", m1+"/sub")
+
+	t.Run("ocagent processes whose cwd is exactly the workdir match", func(t *testing.T) {
+		got := ocagentPIDsByCwdFromProc(procRoot, m1)
+		sort.Ints(got)
+		if want := []int{101, 103, 108}; !reflect.DeepEqual(got, want) {
+			t.Errorf("pids = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a workdir with a trailing slash matches the same processes", func(t *testing.T) {
+		got := ocagentPIDsByCwdFromProc(procRoot, m1+"/")
+		sort.Ints(got)
+		if want := []int{101, 103, 108}; !reflect.DeepEqual(got, want) {
+			t.Errorf("pids = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a workdir no process sits in matches nothing", func(t *testing.T) {
+		if got := ocagentPIDsByCwdFromProc(procRoot, "/home/eva/.officraft/agents/m9"); got != nil {
+			t.Errorf("pids = %v, want nil", got)
+		}
+	})
+
+	t.Run("an unreadable proc root reads as no processes", func(t *testing.T) {
+		if got := ocagentPIDsByCwdFromProc(filepath.Join(procRoot, "missing"), m1); got != nil {
+			t.Errorf("pids = %v, want nil", got)
+		}
+	})
+
+	t.Run("a symlinked workdir matches the kernel-resolved cwd", func(t *testing.T) {
+		real := t.TempDir()
+		link := filepath.Join(t.TempDir(), "link")
+		if err := os.Symlink(real, link); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		resolved, err := filepath.EvalSymlinks(real)
+		if err != nil {
+			t.Fatalf("evalsymlinks: %v", err)
+		}
+		symRoot := t.TempDir()
+		stageProcEntry(t, symRoot, "107", "ocagent", resolved)
+		if got := ocagentPIDsByCwdFromProc(symRoot, link); !reflect.DeepEqual(got, []int{107}) {
+			t.Errorf("pids = %v, want [107]", got)
+		}
+	})
+}
+
+func TestOcagentPIDsByCwdFor(t *testing.T) {
+	const m1 = "/home/eva/.officraft/agents/m1"
+	const lsofCmd = "lsof -a -c ocagent -d cwd -F pn"
+	procRoot := t.TempDir()
+	stageProcEntry(t, procRoot, "201", "ocagent", m1)
+
+	t.Run("linux answers from the proc root", func(t *testing.T) {
+		r := &wardenRunner{script: map[string]wardenRun{lsofCmd: {out: "p999\nn" + m1 + "\n"}}}
+
+		got := ocagentPIDsByCwdFor("linux", r, procRoot)(m1)
+
+		if !reflect.DeepEqual(got, []int{201}) {
+			t.Errorf("pids = %v, want [201]", got)
+		}
+	})
+
+	t.Run("darwin answers from lsof", func(t *testing.T) {
+		r := &wardenRunner{script: map[string]wardenRun{lsofCmd: {out: "p999\nn" + m1 + "\n"}}}
+
+		got := ocagentPIDsByCwdFor("darwin", r, procRoot)(m1)
+
+		if !reflect.DeepEqual(got, []int{999}) {
+			t.Errorf("pids = %v, want [999]", got)
+		}
+	})
 }
 
 func TestMemberWorkdirForSession(t *testing.T) {
