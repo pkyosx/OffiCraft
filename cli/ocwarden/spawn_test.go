@@ -129,7 +129,7 @@ func (h *spawnHarness) deps() SpawnDeps {
 		// tell a launch line that exported the wrong one.
 		ClaudeHome: claudeHome{Home: "/Users/wardenowner"},
 		ClaudeBin:  "/usr/local/bin/claude",
-		ClaudeTakesPromptFile: func(promptFile string) (bool, string) {
+		ClaudeTakesPromptFile: func(_, promptFile string) (bool, string) {
 			h.promptProbes = append(h.promptProbes, promptFile)
 			return true, ""
 		},
@@ -1288,7 +1288,8 @@ func TestWithPerSpawn(t *testing.T) {
 	basePurge := 0
 	base := SpawnDeps{
 		Home:      "/w",
-		ClaudeBin: "/usr/local/bin/claude",
+		ClaudeBin: "/boot/claude",
+		CodexBin:  "/boot/codex",
 		Sleep:     func(time.Duration) { baseClock++ },
 		Pretrust:  func() error { basePretrust++; return nil },
 		PurgeTrash: func() {
@@ -1297,7 +1298,7 @@ func TestWithPerSpawn(t *testing.T) {
 	}
 
 	perPretrust, perPurge := 0, 0
-	got := base.withPerSpawn(
+	got := base.withPerSpawn("/usr/local/bin/claude", "/usr/local/bin/codex",
 		func() error { perPretrust++; return errors.New("boom") },
 		func() { perPurge++ })
 
@@ -1313,7 +1314,10 @@ func TestWithPerSpawn(t *testing.T) {
 	if basePretrust != 0 || basePurge != 0 {
 		t.Errorf("the base seams were called: pretrust=%d purge=%d", basePretrust, basePurge)
 	}
-	if got.Home != "/w" || got.ClaudeBin != "/usr/local/bin/claude" {
+	if got.ClaudeBin != "/usr/local/bin/claude" || got.CodexBin != "/usr/local/bin/codex" {
+		t.Errorf("bins = (%q, %q), want the per-spawn pair", got.ClaudeBin, got.CodexBin)
+	}
+	if got.Home != "/w" {
 		t.Errorf("the rest of the deps changed: %+v", got)
 	}
 
@@ -2127,10 +2131,10 @@ func TestStart(t *testing.T) {
 			` --settings ` + shellQuote(goldenInlineSettings) + ` --plugin-dir /w/m1/.officraft-mod`
 		for _, tc := range []struct {
 			name    string
-			probe   func(string) (bool, string)
+			probe   func(string, string) (bool, string)
 			wantLog string
 		}{
-			{"the probe says no", func(string) (bool, string) { return false, "the probe timed out" },
+			{"the probe says no", func(string, string) (bool, string) { return false, "the probe timed out" },
 				"m1 boots by reading persona.md itself, not via --append-system-prompt-file (/usr/local/bin/claude): the probe timed out"},
 			{"no probe is wired", nil,
 				"m1 boots by reading persona.md itself, not via --append-system-prompt-file (/usr/local/bin/claude): no prompt-file probe is wired"},
