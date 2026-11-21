@@ -999,16 +999,6 @@
 .mon-install__cmd-line {
   margin-top: 6px;
 }
-.mon-install__cmd-head {
-  display: flex;
-  gap: 8px;
-  margin: 6px 0 3px;
-  font-size: 11.5px;
-  color: var(--color-text-muted);
-}
-.mon-install__cmd-line .mon-install__cmd-head {
-  margin-top: 0;
-}
 .mon-install__cmd-body {
   display: flex;
   align-items: flex-start;

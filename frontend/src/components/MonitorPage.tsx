@@ -2097,7 +2097,7 @@ const INSTALL_OSES: InstallOs[] = ["mac", "linux", "windows"];
 
 /** One command line the user is meant to paste: where to run it, the command,
  * and its own copy button. */
-function CopyableCommand({ command, head }: { command: string; head?: string }) {
+function CopyableCommand({ command }: { command: string }) {
   const { t } = useI18n();
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   async function copy() {
@@ -2111,7 +2111,6 @@ function CopyableCommand({ command, head }: { command: string; head?: string }) 
   }
   return (
     <div className="mon-install__cmd-line">
-      {head && <div className="mon-install__cmd-head">{head}</div>}
       <div className="mon-install__cmd-body">
         <code className="mon-install__cmd-text">{command}</code>
         <button
@@ -2125,7 +2124,7 @@ function CopyableCommand({ command, head }: { command: string; head?: string }) 
               ? t.monitor.machine.copied
               : state === "failed"
                 ? t.monitor.machine.copyCmdError
-                : t.monitor.machine.copyCmd}
+                : t.monitor.machine.copy}
           </span>
         </button>
       </div>

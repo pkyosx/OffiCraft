@@ -266,7 +266,7 @@ else
 fi
 
 # ── install instructions mirrored between README.md and docs/guide/install.md ─
-# The same install steps live in both files (owner ruling, PR #721); nothing
+# The same install steps live in both files (owner ruling); nothing
 # else reads both, so an edit to one copy would leave the other giving
 # different steps with every suite green.
 INSTALLDOCMIRROR="$HERE/install-doc-mirror-guard.sh"

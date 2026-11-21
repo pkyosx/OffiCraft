@@ -420,7 +420,6 @@ var messageKeys = map[string]bool{
 	"monitor.machine.copyBootCmd":                      true,
 	"monitor.machine.copyBootCmdCopyError":             true,
 	"monitor.machine.copyBootCmdError":                 true,
-	"monitor.machine.copyCmd":                          true,
 	"monitor.machine.copyCmdError":                     true,
 	"monitor.machine.cutoverNotInEffectHint":           true,
 	"monitor.machine.deleteBusy":                       true,

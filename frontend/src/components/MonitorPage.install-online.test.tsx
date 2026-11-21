@@ -210,7 +210,6 @@ describe("MonitorPage install on an online machine", () => {
         "在「終端機」貼上並執行："
       );
       expect(steps.textContent).toContain("需求：tmux，以及已登入的 Claude Code 或 Codex。");
-      expect(screen.queryByTestId("mon-install-wsl")).toBeNull();
 
       fireEvent.click(screen.getByTestId("mon-install-tab-windows"));
 

@@ -419,7 +419,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "monitor.machine.copyBootCmd",
   "monitor.machine.copyBootCmdCopyError",
   "monitor.machine.copyBootCmdError",
-  "monitor.machine.copyCmd",
   "monitor.machine.copyCmdError",
   "monitor.machine.cutoverNotInEffectHint",
   "monitor.machine.deleteBusy",
