@@ -227,25 +227,7 @@ describe("MonitorPage install on an online machine", () => {
       expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
     });
 
-    it("replaces the shown command with a fresh one on 重新產生指令", async () => {
-      getMachineBootCommand
-        .mockResolvedValueOnce({ command: "curl first | bash", expiresInSecs: 600 })
-        .mockResolvedValueOnce({ command: "curl second | bash", expiresInSecs: 600 });
-      renderMonitor();
-      fireEvent.click(await machineAction("mon-install-btn"));
-      await waitFor(() =>
-        expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl first | bash")
-      );
-
-      fireEvent.click(screen.getByTestId("mon-boot-cmd-regenerate-btn"));
-
-      await waitFor(() =>
-        expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl second | bash")
-      );
-      expect(getMachineBootCommand).toHaveBeenCalledTimes(2);
-    });
-
-    it("marks the command expired once its lifetime passes, and a regenerated command can be copied again", async () => {
+    it("turns the copy button into 重新產生指令 once the command expires, and shows the regenerated command ready to copy", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       try {
         const writeText = vi.fn(async (_text: string) => {});
@@ -261,6 +243,7 @@ describe("MonitorPage install on an online machine", () => {
         await waitFor(() =>
           expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl old | bash")
         );
+        expect(screen.getByTestId("mon-copy-boot-cmd-btn").textContent).toBe("複製安裝指令");
 
         await act(async () => {
           vi.advanceTimersByTime(600_000);
@@ -270,14 +253,17 @@ describe("MonitorPage install on an online machine", () => {
           "指令已失效，請按「重新產生指令」。"
         );
         expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl old | bash");
-        expect((screen.getByTestId("mon-copy-boot-cmd-btn") as HTMLButtonElement).disabled).toBe(true);
+        const button = screen.getByTestId("mon-copy-boot-cmd-btn");
+        expect(button.textContent).toBe("重新產生指令");
 
-        fireEvent.click(screen.getByTestId("mon-boot-cmd-regenerate-btn"));
+        fireEvent.click(button);
+
         await waitFor(() =>
           expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl new | bash")
         );
-        const copy = screen.getByTestId("mon-copy-boot-cmd-btn") as HTMLButtonElement;
-        expect(copy.disabled).toBe(false);
+        expect(getMachineBootCommand).toHaveBeenCalledTimes(2);
+        const copy = screen.getByTestId("mon-copy-boot-cmd-btn");
+        expect(copy.textContent).toBe("複製安裝指令");
         fireEvent.click(copy);
         await waitFor(() => expect(writeText).toHaveBeenCalledWith("curl new | bash"));
       } finally {
@@ -289,7 +275,9 @@ describe("MonitorPage install on an online machine", () => {
       getMachineBootCommand.mockRejectedValueOnce(new Error("offline"));
       renderMonitor();
       fireEvent.click(await machineAction("mon-install-btn"));
-      fireEvent.click(await screen.findByTestId("mon-boot-cmd-retry-btn"));
+      const retry = await screen.findByText("重新產生指令");
+      expect(retry.closest("button")?.getAttribute("data-testid")).toBe("mon-copy-boot-cmd-btn");
+      fireEvent.click(retry);
 
       await waitFor(() =>
         expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl … | sh")

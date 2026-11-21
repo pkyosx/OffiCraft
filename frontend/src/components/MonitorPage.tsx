@@ -2274,57 +2274,45 @@ export function MachineInstallDialog({
             <div className="mon-install__step-title" data-testid="mon-install-paste-hint">
               {pasteHint[os]}
             </div>
-            {fetchFailed ? (
-              <div className="mon-cmd__row mon-install__cmd-row">
+            <div className="mon-cmd__row mon-install__cmd-row">
+              {fetchFailed ? (
                 <div className="mon-error">{m.copyBootCmdError}</div>
+              ) : (
+                <code
+                  className={`mon-cmd__code mon-install__cmd${
+                    expired ? " mon-install__cmd--expired" : ""
+                  }`}
+                  data-testid="mon-boot-cmd"
+                >
+                  {command ?? m.installCmdLoading}
+                </code>
+              )}
+              {fetchFailed || expired ? (
                 <button
                   type="button"
-                  className="btn btn--ghost"
-                  data-testid="mon-boot-cmd-retry-btn"
+                  className="btn btn--accent-ghost"
+                  data-testid="mon-copy-boot-cmd-btn"
                   onClick={regenerate}
                 >
-                  {m.installCmdRegenerate}
+                  <span>{m.installCmdRegenerate}</span>
                 </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn--accent-ghost"
+                  data-testid="mon-copy-boot-cmd-btn"
+                  disabled={command == null}
+                  onClick={() => void copyBoot()}
+                >
+                  {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+                  <span>{copyLabel}</span>
+                </button>
+              )}
+            </div>
+            {expired && (
+              <div className="mon-error" data-testid="mon-boot-cmd-expired">
+                {m.installCmdExpired}
               </div>
-            ) : (
-              <>
-                <div className="mon-cmd__row mon-install__cmd-row">
-                  <code
-                    className={`mon-cmd__code mon-install__cmd${
-                      expired ? " mon-install__cmd--expired" : ""
-                    }`}
-                    data-testid="mon-boot-cmd"
-                  >
-                    {command ?? m.installCmdLoading}
-                  </code>
-                  <div className="mon-install__cmd-actions">
-                    <button
-                      type="button"
-                      className="btn btn--accent-ghost"
-                      data-testid="mon-copy-boot-cmd-btn"
-                      disabled={command == null || expired}
-                      onClick={() => void copyBoot()}
-                    >
-                      {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-                      <span>{copyLabel}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--ghost"
-                      data-testid="mon-boot-cmd-regenerate-btn"
-                      disabled={command == null}
-                      onClick={regenerate}
-                    >
-                      {m.installCmdRegenerate}
-                    </button>
-                  </div>
-                </div>
-                {expired && (
-                  <div className="mon-error" data-testid="mon-boot-cmd-expired">
-                    {m.installCmdExpired}
-                  </div>
-                )}
-              </>
             )}
           </div>
         </div>
