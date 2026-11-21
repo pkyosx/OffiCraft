@@ -6,6 +6,162 @@
 
 ---
 
+## 安裝
+
+依你的作業系統，選下面其中一節照著做。每一節都從頭寫到尾，只看那一節就能裝好。支援 Apple Silicon（M 系列晶片）的 Mac、x86_64 與 arm64 的 Linux，以及 Windows 上透過 WSL2 執行的 Ubuntu；不支援直接在 Windows 上執行。
+
+每位成員底下就是一個跑在 `tmux` 裡的 Claude Code 或 Codex session，所以每種系統都要先準備兩樣東西：`tmux` 3.0 以上，以及已經登入的 Claude Code（2.1.287 以上）或 Codex，至少一種。下面以 Claude Code 為例。
+
+### macOS（Apple Silicon）
+
+1. **打開「終端機」App。** 可以用 Spotlight（⌘ + 空白鍵）搜尋「終端機」。下面每一步的指令都貼在這個視窗裡，按 Enter 執行。
+2. **裝 `tmux`。** 需要先有 Homebrew（macOS 上常用的軟體安裝工具）：
+
+   ```bash
+   brew install tmux
+   ```
+
+3. **裝 Claude Code。** 需要先有 Node.js（`npm` 隨 Node.js 一起安裝）：
+
+   ```bash
+   npm install -g @anthropic-ai/claude-code
+   ```
+
+4. **登入 Claude Code。** 執行 `claude`，依畫面指示登入。成員要用這個登入才能工作。
+
+   ```bash
+   claude
+   ```
+
+5. **安裝 OffiCraft：**
+
+   ```bash
+   curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
+   ```
+
+   這一行會下載最新版、確認檔案完整無誤後才安裝；這台電腦缺東西時會停下來，並印出要補裝什麼。
+
+6. **打開設定連結。** 安裝成功時，終端機最後會印出一行開頭是 `http://127.0.0.1:7755/?code=` 的設定連結。在瀏覽器打開這條連結，設定 owner 密碼。
+7. **密碼設好後，系統會自動把這台電腦準備好，並喚醒助理 Mira。** OffiCraft 在背景一直執行，關掉終端機也不會停，電腦重開後也會自動啟動。
+
+### Linux
+
+1. **打開終端機。** 用桌面環境的終端機，或用 SSH 連進那台機器。下面每一步的指令都貼在終端機裡，按 Enter 執行。
+2. **確認 systemd 正在執行。** OffiCraft 在 Linux 上以 systemd 的使用者服務在背景執行；systemd 沒有在執行時，安裝腳本會停下。大多數 Linux 發行版預設就有。
+3. **裝 `tmux`。** Ubuntu 與 Debian 用 `apt-get`，`sudo` 會要求輸入這台電腦的登入密碼；其他發行版用各自的軟體安裝工具：
+
+   ```bash
+   sudo apt-get install -y tmux
+   ```
+
+4. **裝 Claude Code。** 需要先有 Node.js（`npm` 隨 Node.js 一起安裝）：
+
+   ```bash
+   npm install -g @anthropic-ai/claude-code
+   ```
+
+   Linux 上的 `claude` 通常裝在 `~/.local/bin`，安裝腳本會到這個資料夾尋找。
+
+5. **登入 Claude Code。** 執行 `claude`，依畫面指示登入：
+
+   ```bash
+   claude
+   ```
+
+6. **安裝 OffiCraft：**
+
+   ```bash
+   curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
+   ```
+
+   這一行會下載最新版、確認檔案完整無誤後才安裝；這台電腦缺東西時會停下來，並印出要補裝什麼。
+
+7. **打開設定連結。** 安裝成功時，終端機最後會印出一行開頭是 `http://127.0.0.1:7755/?code=` 的設定連結。在這台電腦的瀏覽器打開這條連結，設定 owner 密碼。
+8. **密碼設好後，系統會自動把這台電腦準備好，並喚醒助理 Mira。** 安裝時會打開 linger（讓使用者的背景服務在登出後繼續執行、開機時自動啟動），所以關掉終端機、登出或重開機之後，OffiCraft 仍在背景執行。
+
+### Windows（WSL2）
+
+OffiCraft 裝在 WSL2 的 Ubuntu 裡。WSL2 是 Windows 內建的功能，在 Windows 裡執行一套完整的 Linux。
+
+1. **安裝 WSL2 與 Ubuntu。** 在開始選單搜尋 PowerShell，按右鍵選「以系統管理員身分執行」，輸入：
+
+   ```powershell
+   wsl --install -d Ubuntu
+   ```
+
+   裝好後重新開機，再從開始選單打開「Ubuntu」，依提示建立 Ubuntu 的使用者名稱與密碼。
+
+2. **確認 WSL 的版本是 0.67.6 以上。** 舊版不支援下一步的 systemd。在 PowerShell 查看版本：
+
+   ```powershell
+   wsl --version
+   ```
+
+   版本太舊時更新：
+
+   ```powershell
+   wsl --update
+   ```
+
+3. **在 WSL2 裡打開 systemd。** OffiCraft 在 Ubuntu 裡以 systemd 的使用者服務在背景執行，而 WSL2 預設不啟動 systemd；systemd 沒有在執行時，安裝腳本會停下。在 Ubuntu 視窗裡用系統管理員權限打開 `/etc/wsl.conf`：
+
+   ```bash
+   sudo nano /etc/wsl.conf
+   ```
+
+   加上這兩行後存檔（nano 裡按 Ctrl+O、Enter 存檔，再按 Ctrl+X 離開）：
+
+   ```ini
+   [boot]
+   systemd=true
+   ```
+
+   接著在 PowerShell 執行以下指令關閉 WSL2，再重新打開 Ubuntu 視窗，設定才會生效：
+
+   ```powershell
+   wsl.exe --shutdown
+   ```
+
+   **注意：**`wsl.exe --shutdown` 會關閉這台 Windows 上所有正在執行的 WSL2 Linux，裡面已經在執行的 OffiCraft 與成員也會一起停止。
+
+4. **之後的指令都貼在 Ubuntu 視窗裡，不要貼在 PowerShell 或命令提示字元。** 這台 Windows 裝了不只一套 Linux 時，開始選單的「Ubuntu」不一定是你要的那一套：在 PowerShell 執行 `wsl -l -v` 列出每一套的名稱，再用 `wsl -d <名稱>` 打開要裝 OffiCraft 的那一套，例如 `wsl -d Ubuntu`。
+5. **在 Ubuntu 裡裝 `tmux`。** `sudo` 會要求輸入剛才建立的 Ubuntu 密碼：
+
+   ```bash
+   sudo apt-get install -y tmux
+   ```
+
+6. **在 Ubuntu 裡裝 Claude Code。** 需要先在 Ubuntu 裡有 Node.js（`npm` 隨 Node.js 一起安裝）：
+
+   ```bash
+   npm install -g @anthropic-ai/claude-code
+   ```
+
+   裝在 Windows 那一邊的 Claude Code 或 Codex，OffiCraft 找不到、也用不到；一定要裝在 Ubuntu 裡。
+
+7. **在 Ubuntu 裡登入 Claude Code。** 執行 `claude`，依畫面指示登入：
+
+   ```bash
+   claude
+   ```
+
+8. **安裝 OffiCraft：**
+
+   ```bash
+   curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
+   ```
+
+   這一行會下載最新版、確認檔案完整無誤後才安裝；Ubuntu 裡缺東西時會停下來，並印出要補裝什麼。
+
+9. **在 Windows 的瀏覽器打開設定連結。** 安裝成功時，Ubuntu 視窗最後會印出一行開頭是 `http://127.0.0.1:7755/?code=` 的設定連結。WSL2 預設會把 Windows 上的 `127.0.0.1` 連線轉進 WSL2，所以直接在 Windows 的瀏覽器打開這條連結，設定 owner 密碼。
+10. **密碼設好後，系統會自動把這台電腦準備好，並喚醒助理 Mira。** 安裝時，OffiCraft 在 Windows 的「啟動」資料夾放一個保持 WSL2 執行的檔案，所以關掉所有 Ubuntu 視窗後，成員仍繼續在線；每次登入 Windows 時，這個檔案會再執行一次。安裝時印出 `WARN: WSL keep-alive not set up` 時，這個檔案沒有設定好，關掉所有 Ubuntu 視窗後成員會離線。
+
+### 安裝沒有成功時
+
+終端機會印出原因。最常見的原因是 7755 埠已經被其他程式占用。
+
+---
+
 ## 跟直接開 Claude Code 有什麼不一樣
 
 - **常駐的成員，不是一次性 session** — 成員有穩定身分與記憶，關掉再開還是同一個人，記得你的偏好、專案、上次做到哪。你不必每次重講你是誰。
@@ -17,18 +173,6 @@
 - **成果拿來就能看、能改** — 你可以直接把檔案丟給成員；成員交回的報告、圖表、可互動的 HTML 頁面附在聊天、請示卡或任務上，一點就開。在文件上選一段寫註解，一鍵送回給成員修改；改了哪裡，用差異畫面看前後對照。
 - **控制台與密鑰都有保護** — 控制台要登入，支援兩步驟驗證與通行密鑰（Touch ID 這類）。給成員用的 API token 存成「密鑰」，存進去之後畫面上不再顯示，成員用工具取用，不必貼進聊天。
 - **一個控制台俯視整間工作室** — 辦公室、請示、任務、傳承、監控各一頁，誰在忙什麼、卡在哪、花了多少額度，全在一處。
-
----
-
-## 安裝（macOS Apple Silicon、Linux、Windows WSL2）
-
-```bash
-curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
-```
-
-裝完會印出一行一次性設定連結（`http://127.0.0.1:7755/?code=…`），打開它設個 owner 密碼就進控制台了。支援 Apple Silicon 的 Mac、x86_64 與 arm64 的 Linux；Windows 要裝在 WSL2 的 Ubuntu 裡，並先在 WSL2 打開 systemd，不支援直接在 Windows 上執行。完整前置需求、Linux 與 WSL2 的步驟、升級與移除見 [安裝、升級與移除](docs/guide/install.md)。
-
-> 需要 `tmux`，以及已登入的 `claude`（Claude Code CLI）或 `codex`（Codex CLI）至少一種——每位成員底下就是一個跑在 tmux 裡的 Claude Code 或 Codex session。
 
 ---
 

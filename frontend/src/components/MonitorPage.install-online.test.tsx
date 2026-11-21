@@ -4,7 +4,7 @@
 // which collapsed two actions of wildly different danger into one gate:
 //   • server-self → a real in-place reinstall that overwrites the LIVE warden
 //     (every member on that box drops; irreversible)
-//   • any other machine → renders a command to copy; sends nothing
+//   • any other machine → shows a command to copy; installs nothing
 // so a perfectly healthy remote machine could not even show its install command.
 //
 // The gate is gone. The dangerous half is now guarded by a confirm dialog whose
@@ -12,7 +12,7 @@
 // that CANCELLING that dialog fires NO request at all.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView, MonMachineView } from "../types";
@@ -169,12 +169,57 @@ describe("MonitorPage install on an online machine", () => {
 
       const dialog = await screen.findByTestId("mon-install-dialog");
       expect(dialog.textContent).toContain("Alpha");
-      expect(screen.getByTestId("mon-copy-boot-cmd-btn")).toBeTruthy();
-      // The copy-command screen is not the destructive one: no confirm in front
-      // of it, and opening it neither installs nor mints a token.
+      await waitFor(() =>
+        expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl … | sh")
+      );
       expect(screen.queryByTestId("mon-bootstrap-confirm")).toBeNull();
       expect(bootstrapOnServer).not.toHaveBeenCalled();
-      expect(getMachineBootCommand).not.toHaveBeenCalled();
+      expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
+      expect(getMachineBootCommand).toHaveBeenCalledWith("m-alpha");
+    });
+
+    it("copies exactly the command shown in the dialog, without fetching another one", async () => {
+      const writeText = vi.fn(async (_text: string) => {});
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText },
+        configurable: true,
+      });
+      renderMonitor();
+      fireEvent.click(await machineAction("mon-install-btn"));
+      await waitFor(() =>
+        expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl … | sh")
+      );
+
+      fireEvent.click(screen.getByTestId("mon-copy-boot-cmd-btn"));
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("curl … | sh"));
+      expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
+      await screen.findByText("已複製");
+    });
+
+    it("shows the steps for the chosen operating system", async () => {
+      renderMonitor();
+      fireEvent.click(await machineAction("mon-install-btn"));
+      const steps = await screen.findByTestId("mon-install-steps");
+      expect(steps.textContent).toContain("Spotlight");
+
+      fireEvent.click(screen.getByTestId("mon-install-tab-windows"));
+
+      expect(steps.textContent).toContain("wsl --install -d Ubuntu");
+      expect(steps.textContent).toContain("不要貼在 PowerShell 或命令提示字元");
+      expect(screen.getByTestId("mon-install-tab-windows").getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("offers to generate the command again when fetching it fails", async () => {
+      getMachineBootCommand.mockRejectedValueOnce(new Error("offline"));
+      renderMonitor();
+      fireEvent.click(await machineAction("mon-install-btn"));
+      fireEvent.click(await screen.findByTestId("mon-boot-cmd-retry-btn"));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl … | sh")
+      );
+      expect(getMachineBootCommand).toHaveBeenCalledTimes(2);
     });
   });
 });
