@@ -27,7 +27,7 @@ vi.mock("../api", () => ({
     getServerSettings: () => Promise.resolve({ outsourceMaxParallel: 0 }),
     patchMachine: (id: string, body: { displayName: string }) => patchMachine(id, body),
     bootstrapOnServer: () => Promise.resolve({ ok: true, exitCode: 0, log: "" }),
-    getMachineBootCommand: () => Promise.resolve("curl … | sh"),
+    getMachineBootCommand: () => Promise.resolve({ command: "curl … | sh", expiresInSecs: 600 }),
     getBackupHealth: () =>
       Promise.resolve({
         status: "healthy",

@@ -2243,15 +2243,29 @@ export const zh = {
       deleteMachine: "刪除",
       // 離線機器沒有可解除安裝的 warden(按鈕停用時的提示)
       uninstallOfflineHint: "機器離線，無法解除安裝",
+      installUninstallingHint: "解除安裝中，完成後才能安裝",
       // 解除安裝意圖已下、warden 尚未斷線 —— 與「安裝中…」同一套過渡態
       uninstallInProgress: "解除安裝中…",
-      // install 對話框(非伺服器機器):單一畫面 —— 複製指令到該機器執行
+      // install 對話框(非伺服器機器):依作業系統的步驟 + 畫在畫面上的安裝指令
       installTitle: "安裝機器",
-      installRemoteHint:
-        "複製下方指令，到那台機器上執行就能完成安裝。",
-      // 複製安裝指令 (GET /boot-command,會重新產生 token)
+      installOsLabel: "作業系統",
+      installOsMac: "macOS",
+      installOsLinux: "Linux",
+      installOsWindows: "Windows（WSL2）",
+      installRequirements: "需求：tmux，以及已登入的 Claude Code 或 Codex。",
+      installWslTitle: "準備 WSL2",
+      installWslInstall: "以系統管理員身分開啟 PowerShell，執行：",
+      installWslReboot: "首次安裝 WSL 需重新開機。之後從開始選單開啟「Ubuntu」，依提示設定 Ubuntu 的使用者名稱與密碼。",
+      installPasteMac: "在「終端機」貼上並執行：",
+      installPasteLinux: "在終端機貼上並執行：",
+      installPasteWindows: "在「Ubuntu」視窗貼上並執行（不是 PowerShell）：",
+      installCmdLoading: "正在產生安裝指令…",
+      installCmdRegenerate: "重新產生指令",
+      installCmdOneTime: "指令僅能使用一次，10 分鐘內有效。",
+      copyCmdError: "複製失敗",
       copyBootCmd: "複製安裝指令",
       copyBootCmdError: "取得指令失敗",
+      copyBootCmdCopyError: "複製失敗，請直接選取上方的安裝指令",
       // 於伺服器安裝的結果 (POST /bootstrap-here):僅失敗顯示(成功即消失)
       bootstrapBusy: "安裝中…",
       bootstrapError: "安裝請求失敗",

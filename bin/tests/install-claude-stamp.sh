@@ -203,8 +203,8 @@ else
     ok "no runtime: NO serve plist was written (the refusal precedes the renderer)"
   fi
   case "$OUT" in
-    *"npm install -g @anthropic-ai/claude-code"*)
-      ok "no runtime: the refusal names claude AND how to install it" ;;
+    *"curl -fsSL https://claude.ai/install.sh | bash"*)
+      ok "no runtime: the refusal names Claude Code AND how to install it" ;;
     *) bad "no runtime: the refusal does not say how to fix it:
 $OUT" ;;
   esac

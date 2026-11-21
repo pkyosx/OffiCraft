@@ -6,29 +6,169 @@
 
 ---
 
-## 跟直接開 Claude Code 有什麼不一樣
+## 安裝
 
-- **常駐的成員，不是一次性 session** — 成員有穩定身分與記憶，關掉再開還是同一個人，記得你的偏好、專案、上次做到哪。你不必每次重講你是誰。
-- **教過一次的事不用再教** — 成員做事學到的判斷、你糾正過的地方、你的偏好，會寫成「傳承」留在工作室裡。下一位接手的成員、換了模型的成員，開工就讀得到，同樣的錯不會再犯一次。
-- **每天只要回答準備好的問題** — 需要你拍板的事，成員整理成一張「請示卡」：背景、選項與它的建議都寫好，手機上點一下就決定（要你一次圈好幾項的多選卡才需要勾完按送出），其餘它自己扛。你不用盯著螢幕。
-- **有固定做法的事照 SOP 走** — 重複出現的工作寫成「任務手冊」。交代一件事，成員會自己找到對應的手冊，照手冊的步驟做、交給手冊指定的人。每件事拆成有完成準則的步驟，現在第幾步、卡在哪、還剩哪些，一眼看到；換人接手也從正確的下一步繼續。
-- **成員之間自己協作** — 每位成員知道同事負責什麼、在哪台電腦上，需要幫忙時直接找對方，不用你轉達。成員可以分佈在你的多台電腦上，一間工作室橫跨好幾台機器。
-- **定時的事、外面的事自己進來** — 「每天早上整理昨天的進度」這類工作設成定期訊息，排程記在工作室裡、不在某台電腦上，成員換模型、換電腦照樣準時。CI、GitHub、Slack 的事件透過 webhook 直接送給負責的成員；每個 webhook 有一句用途說明，外部內容要成員做用途以外的事，成員會停下來問你。
-- **成果拿來就能看、能改** — 你可以直接把檔案丟給成員；成員交回的報告、圖表、可互動的 HTML 頁面附在聊天、請示卡或任務上，一點就開。在文件上選一段寫註解，一鍵送回給成員修改；改了哪裡，用差異畫面看前後對照。
-- **控制台與密鑰都有保護** — 控制台要登入，支援兩步驟驗證與通行密鑰（Touch ID 這類）。給成員用的 API token 存成「密鑰」，存進去之後畫面上不再顯示，成員用工具取用，不必貼進聊天。
-- **一個控制台俯視整間工作室** — 辦公室、請示、任務、傳承、監控各一頁，誰在忙什麼、卡在哪、花了多少額度，全在一處。
+### 系統需求
 
----
+- macOS（Apple Silicon）、Linux（x86_64、arm64），或 Windows 10（版本 2004 以上）／11（透過 WSL2）
+- tmux 3.0 以上
+- Claude Code 或 Codex，至少一種，並已登入
 
-## 安裝（macOS Apple Silicon、Linux、Windows WSL2）
+### Windows：準備 WSL2
+
+OffiCraft 在 Windows 上透過 WSL2 中的 Ubuntu 執行。macOS 與 Linux 使用者略過此節。
+
+1. 以系統管理員身分開啟 PowerShell，執行：
+
+   ```powershell
+   wsl --install -d Ubuntu
+   ```
+
+2. 首次安裝 WSL 需重新開機。之後從開始選單開啟「Ubuntu」，依提示設定 Ubuntu 的使用者名稱與密碼。
+
+之後的所有指令都在 Ubuntu 視窗中執行，從開始選單點「Ubuntu」開啟。
+
+### 步驟 1：安裝 tmux
+
+macOS（需先安裝 [Homebrew](https://brew.sh)）：
+
+```bash
+brew install tmux
+```
+
+Linux、WSL：
+
+```bash
+sudo apt-get update && sudo apt-get install -y tmux curl
+```
+
+確認：執行下列指令，顯示版本號即表示安裝成功。
+
+```bash
+tmux -V
+```
+
+### 步驟 2：安裝並登入 Claude Code 或 Codex
+
+依使用的工具擇一安裝，也可兩者都安裝。
+
+Claude Code：
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+安裝完成後開啟新的終端機視窗，執行 `claude`，依提示於瀏覽器完成登入。
+
+Codex：
+
+```bash
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+```
+
+安裝完成後開啟新的終端機視窗，執行 `codex`，選擇「Sign in with ChatGPT」完成登入。
+
+確認：執行對應的指令，顯示版本號與登入資訊即表示安裝並登入成功。
+
+```bash
+claude --version && claude auth status --text
+```
+
+```bash
+codex --version && codex login status
+```
+
+### 步驟 3：安裝 OffiCraft
 
 ```bash
 curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
 ```
 
-裝完會印出一行一次性設定連結（`http://127.0.0.1:7755/?code=…`），打開它設個 owner 密碼就進控制台了。支援 Apple Silicon 的 Mac、x86_64 與 arm64 的 Linux；Windows 要裝在 WSL2 的 Ubuntu 裡，並先在 WSL2 打開 systemd，不支援直接在 Windows 上執行。完整前置需求、Linux 與 WSL2 的步驟、升級與移除見 [安裝、升級與移除](docs/guide/install.md)。
+安裝程式會先檢查系統需求，缺少項目時停止並列出需要補裝的工具。
 
-> 需要 `tmux`，以及已登入的 `claude`（Claude Code CLI）或 `codex`（Codex CLI）至少一種——每位成員底下就是一個跑在 tmux 裡的 Claude Code 或 Codex session。
+### 步驟 4：開啟設定連結
+
+安裝完成時，終端機會輸出下列訊息與設定連結：
+
+```
+[install] ✅ OffiCraft is installed and running in the background (…)
+
+  open:    http://127.0.0.1:7755/?code=…
+```
+
+以瀏覽器開啟該連結並設定登入密碼，即進入控制台。Windows 使用者以 Windows 的瀏覽器開啟。
+
+### 確認安裝成功
+
+以設定的密碼登入控制台後，「辦公室」頁面顯示助理 Mira 在線上，並能回覆聊天訊息，即表示 OffiCraft 安裝完成。
+
+### 更新
+
+- tmux、Claude Code、Codex 已安裝者，略過步驟 1、2。
+- OffiCraft 的更新在控制台「設定 › 系統更新與備份」進行，不需重新執行安裝指令。
+
+### 移除
+
+```bash
+curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash -s -- --uninstall
+```
+
+移除時，程式、資料庫與背景服務設定會搬到 `~/.officraft.bak-<時間>`，不會刪除資料。
+
+### 疑難排解
+
+**出現 `command not found: claude` 或 `command not found: codex`**
+
+1. 開啟新的終端機視窗後重新執行。
+2. 仍出現時，執行下列指令（macOS），Linux、WSL 將 `~/.zshrc` 改為 `~/.bashrc`，再開啟新的終端機視窗：
+
+   ```bash
+   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+   ```
+
+**WSL 中安裝程式提示 systemd 未啟用**
+
+1. 在 Ubuntu 視窗執行：
+
+   ```bash
+   printf '[boot]\nsystemd=true\n' | sudo tee -a /etc/wsl.conf
+   ```
+
+2. 在 PowerShell 執行：
+
+   ```powershell
+   wsl --shutdown
+   ```
+
+3. 重新開啟 Ubuntu 視窗，再執行一次步驟 3 的安裝指令。
+
+**開始選單有多個 Ubuntu**
+
+1. 在 PowerShell 執行下列指令，查看每一套 Ubuntu 的名稱：
+
+   ```powershell
+   wsl -l -v
+   ```
+
+2. 逐一以名稱執行下列指令，顯示 `.officraft` 的那一套就是安裝 OffiCraft 的 Ubuntu：
+
+   ```powershell
+   wsl -d <名稱> --cd ~ -- ls -d .officraft
+   ```
+
+3. 之後都以下列指令開啟那一套 Ubuntu：
+
+   ```powershell
+   wsl -d <名稱>
+   ```
+
+**安裝程式提示 7755 埠已被占用**
+
+關閉占用 7755 埠的程式後，執行下列指令重新安裝（程式此時已安裝，需加上 `--force`）：
+
+```bash
+curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash -s -- --force
+```
 
 ---
 

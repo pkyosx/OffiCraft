@@ -4,7 +4,7 @@
 // which collapsed two actions of wildly different danger into one gate:
 //   • server-self → a real in-place reinstall that overwrites the LIVE warden
 //     (every member on that box drops; irreversible)
-//   • any other machine → renders a command to copy; sends nothing
+//   • any other machine → shows a command to copy; installs nothing
 // so a perfectly healthy remote machine could not even show its install command.
 //
 // The gate is gone. The dangerous half is now guarded by a confirm dialog whose
@@ -12,7 +12,7 @@
 // that CANCELLING that dialog fires NO request at all.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView, MonMachineView } from "../types";
@@ -28,7 +28,10 @@ const getMonitoring = vi.fn(async () => ({
 const bootstrapOnServer = vi.fn(
   async (_id: string) => ({ ok: true, exitCode: 0, log: "" })
 );
-const getMachineBootCommand = vi.fn(async (_id: string) => "curl … | sh");
+const getMachineBootCommand = vi.fn(async (_id: string) => ({
+  command: "curl … | sh",
+  expiresInSecs: 600,
+}));
 
 vi.mock("../api", () => ({
   api: {
@@ -95,7 +98,7 @@ describe("MonitorPage install on an online machine", () => {
     listMembers.mockResolvedValue([]);
     getMonitoring.mockResolvedValue({ accounts: [], sessions: [], machines: [] });
     bootstrapOnServer.mockResolvedValue({ ok: true, exitCode: 0, log: "" });
-    getMachineBootCommand.mockResolvedValue("curl … | sh");
+    getMachineBootCommand.mockResolvedValue({ command: "curl … | sh", expiresInSecs: 600 });
   });
 
   describe("server-self row, machine online (the destructive half)", () => {
@@ -169,12 +172,137 @@ describe("MonitorPage install on an online machine", () => {
 
       const dialog = await screen.findByTestId("mon-install-dialog");
       expect(dialog.textContent).toContain("Alpha");
-      expect(screen.getByTestId("mon-copy-boot-cmd-btn")).toBeTruthy();
-      // The copy-command screen is not the destructive one: no confirm in front
-      // of it, and opening it neither installs nor mints a token.
+      await waitFor(() =>
+        expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl … | sh")
+      );
       expect(screen.queryByTestId("mon-bootstrap-confirm")).toBeNull();
       expect(bootstrapOnServer).not.toHaveBeenCalled();
-      expect(getMachineBootCommand).not.toHaveBeenCalled();
+      expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
+      expect(getMachineBootCommand).toHaveBeenCalledWith("m-alpha");
+    });
+
+    it("copies exactly the command shown in the dialog, without fetching another one", async () => {
+      const writeText = vi.fn(async (_text: string) => {});
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText },
+        configurable: true,
+      });
+      renderMonitor();
+      fireEvent.click(await machineAction("mon-install-btn"));
+      await waitFor(() =>
+        expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl … | sh")
+      );
+
+      fireEvent.click(screen.getByTestId("mon-copy-boot-cmd-btn"));
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("curl … | sh"));
+      expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
+      await screen.findByText("已複製");
+    });
+
+    it("tells where to paste the install command for the chosen operating system", async () => {
+      const writeText = vi.fn(async (_text: string) => {});
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText },
+        configurable: true,
+      });
+      renderMonitor();
+      fireEvent.click(await machineAction("mon-install-btn"));
+      const steps = await screen.findByTestId("mon-install-steps");
+      expect(screen.getByTestId("mon-install-paste-hint").textContent).toBe(
+        "在「終端機」貼上並執行："
+      );
+      expect(steps.textContent).toContain("需求：tmux，以及已登入的 Claude Code 或 Codex。");
+
+      fireEvent.click(screen.getByTestId("mon-install-tab-windows"));
+
+      expect(screen.getByTestId("mon-install-tab-windows").getAttribute("aria-selected")).toBe("true");
+      expect(screen.getByTestId("mon-install-paste-hint").textContent).toBe(
+        "在「Ubuntu」視窗貼上並執行（不是 PowerShell）："
+      );
+      const wsl = screen.getByTestId("mon-install-wsl");
+      expect(wsl.textContent).toContain("以系統管理員身分開啟 PowerShell");
+      fireEvent.click(wsl.querySelector(".mon-install__cmd-line button") as HTMLButtonElement);
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("wsl --install -d Ubuntu"));
+      expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it("dims the command and turns the copy button into 重新產生指令 once the command expires — by its timer, or on a copy after the deadline when the timer has not fired — and shows the regenerated command ready to copy", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout"] });
+      const start = Date.now();
+      const now = vi.spyOn(Date, "now").mockReturnValue(start);
+      try {
+        const writeText = vi.fn(async (_text: string) => {});
+        Object.defineProperty(navigator, "clipboard", {
+          value: { writeText },
+          configurable: true,
+        });
+        getMachineBootCommand
+          .mockResolvedValueOnce({ command: "curl first | bash", expiresInSecs: 600 })
+          .mockResolvedValueOnce({ command: "curl second | bash", expiresInSecs: 600 })
+          .mockResolvedValueOnce({ command: "curl third | bash", expiresInSecs: 600 });
+        renderMonitor();
+        fireEvent.click(await machineAction("mon-install-btn"));
+        await waitFor(() =>
+          expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl first | bash")
+        );
+        expect(screen.getByTestId("mon-copy-boot-cmd-btn").textContent).toBe("複製安裝指令");
+
+        // The deadline passes while the timer is held back (background tab, sleep).
+        now.mockReturnValue(start + 600_000);
+        fireEvent.click(screen.getByTestId("mon-copy-boot-cmd-btn"));
+
+        await waitFor(() =>
+          expect(screen.getByTestId("mon-copy-boot-cmd-btn").textContent).toBe("重新產生指令")
+        );
+        expect(
+          screen.getByTestId("mon-boot-cmd").classList.contains("mon-install__cmd--expired")
+        ).toBe(true);
+        expect(writeText.mock.calls).toEqual([]);
+
+        fireEvent.click(screen.getByTestId("mon-copy-boot-cmd-btn"));
+        await waitFor(() =>
+          expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl second | bash")
+        );
+
+        await act(async () => {
+          vi.advanceTimersByTime(600_000);
+        });
+
+        const shown = screen.getByTestId("mon-boot-cmd");
+        expect(shown.textContent).toBe("curl second | bash");
+        expect(shown.classList.contains("mon-install__cmd--expired")).toBe(true);
+        const button = screen.getByTestId("mon-copy-boot-cmd-btn");
+        expect(button.textContent).toBe("重新產生指令");
+
+        fireEvent.click(button);
+
+        await waitFor(() =>
+          expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl third | bash")
+        );
+        expect(getMachineBootCommand).toHaveBeenCalledTimes(3);
+        const copy = screen.getByTestId("mon-copy-boot-cmd-btn");
+        expect(copy.textContent).toBe("複製安裝指令");
+        fireEvent.click(copy);
+        await waitFor(() => expect(writeText).toHaveBeenCalledWith("curl third | bash"));
+      } finally {
+        now.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("offers to generate the command again when fetching it fails", async () => {
+      getMachineBootCommand.mockRejectedValueOnce(new Error("offline"));
+      renderMonitor();
+      fireEvent.click(await machineAction("mon-install-btn"));
+      const retry = await screen.findByText("重新產生指令");
+      expect(retry.closest("button")?.getAttribute("data-testid")).toBe("mon-copy-boot-cmd-btn");
+      fireEvent.click(retry);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl … | sh")
+      );
+      expect(getMachineBootCommand).toHaveBeenCalledTimes(2);
     });
   });
 });

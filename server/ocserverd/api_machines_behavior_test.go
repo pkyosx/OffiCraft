@@ -333,7 +333,7 @@ func TestBuildInstallScriptWithCode_Mainline(t *testing.T) {
 		}
 		for _, line := range []string{
 			"Error: this install link has expired or was already used.",
-			"Fix: open the cockpit -> Machines -> boot command, and run the fresh one-liner.",
+			"Fix: in the control panel, open Monitor › Machines (監控 › 機器資訊), choose Install from this machine's menu, press 「重新產生指令」 (Regenerate command), and run the new command.",
 			`echo "tmux not found — installing via Homebrew..."`,
 			"brew install tmux || true",
 			`echo "  macOS:  brew install $tool" >&2`,
