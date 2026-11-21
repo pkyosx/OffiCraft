@@ -172,6 +172,12 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:    w.HandleMfaStateApiAuthMfaGet,
 			MCPExclude: true,
 		}),
+		Gated(principalAdminAgent, routeDef{
+			Method:  "GET",
+			Path:    "/api/auth/login-protection",
+			Handler: w.HandleLoginProtectionApiAuthLoginProtectionGet,
+			MCPTool: "get_login_protection",
+		}),
 		Gated(principalOwner, routeDef{
 			Method:     "POST",
 			Path:       "/api/auth/mfa/offer",

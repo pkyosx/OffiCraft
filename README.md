@@ -32,9 +32,9 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 ---
 
-## 從手機或外面用
+## 從這台電腦以外的地方連線
 
-server 只綁 `127.0.0.1`，這一點不能改。要從手機或外面連，把本機的 7755 埠轉出去：開一條你自己的 tunnel（如 cloudflared，會給你一個公開 HTTPS 網址），或用 Tailscale 這類私有網路的轉發功能（如 `tailscale serve`）；只加入私有網路、不做轉發是連不到的。開放前先設好夠強的密碼與兩步驟驗證或通行密鑰。完整步驟（含加到手機主畫面）見 [在手機上用](docs/guide/mobile.md)；對外開放前該設好的保護見 [保護你的工作室](docs/guide/security.md)。
+server 只綁 `127.0.0.1`，這一點不能改。要從手機或其他電腦連線，對 Mira 說「我想從這台電腦以外的地方連到控制台」。說明見 [在手機上用](docs/guide/mobile.md)。
 
 ---
 

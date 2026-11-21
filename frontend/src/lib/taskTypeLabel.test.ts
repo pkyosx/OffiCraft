@@ -23,6 +23,9 @@ describe("taskTypeLabel", () => {
     );
     expect(taskTypeLabel(en, "builtin-role-design", "建立／修改角色")).toBe("Create / edit role");
     expect(taskTypeLabel(zh, "builtin-role-design", "建立／修改角色")).toBe("建立／修改角色");
+    expect(taskTypeLabel(en, "builtin-remote-access", "開放遠端連線")).toBe(
+      "Allow remote connections",
+    );
   });
 
   it("translates every built-in type under the exact name the server ships, read out of assets.go", () => {
@@ -34,10 +37,12 @@ describe("taskTypeLabel", () => {
       shipped.map(([key]) => key),
       "server/ocserverd/assets.go no longer lists the built-in manuals as TypeKey/DisplayName " +
         "pairs this guard can read — point it at their new home.",
-    ).toEqual(["builtin-role-design", "builtin-task-manual-design"]);
-    expect(
-      shipped.map(([key, name]) => taskTypeLabel(en, key, name)),
-    ).toEqual([en.tasks.builtinTypeName.roleDesign, en.tasks.builtinTypeName.taskManualDesign]);
+    ).toEqual(["builtin-role-design", "builtin-task-manual-design", "builtin-remote-access"]);
+    expect(shipped.map(([key, name]) => taskTypeLabel(en, key, name))).toEqual([
+      "Create / edit role",
+      "Create / edit task manual",
+      "Allow remote connections",
+    ]);
   });
 
   it("shows a renamed built-in type as stored", () => {

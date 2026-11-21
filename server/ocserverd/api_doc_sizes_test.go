@@ -40,6 +40,10 @@ func apiBuiltinManualSizeRows(capChars int) []any {
 			"type_key": "builtin-role-design",
 			"sop":      map[string]any{"size_chars": 2803, "cap_chars": capChars},
 		},
+		map[string]any{
+			"type_key": "builtin-remote-access",
+			"sop":      map[string]any{"size_chars": 2953, "cap_chars": capChars},
+		},
 	}
 }
 
@@ -77,12 +81,24 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 					"insight":  map[string]any{"size_chars": 0, "cap_chars": 15000},
 				},
 			},
-			"task_manuals": append(apiBuiltinManualSizeRows(15000),
+			"task_manuals": []any{
+				map[string]any{
+					"type_key": "builtin-task-manual-design",
+					"sop":      map[string]any{"size_chars": 3872, "cap_chars": 15000},
+				},
+				map[string]any{
+					"type_key": "builtin-role-design",
+					"sop":      map[string]any{"size_chars": 2803, "cap_chars": 15000},
+				},
 				map[string]any{
 					"type_key": "crate",
 					"sop":      map[string]any{"size_chars": 0, "cap_chars": 15000},
 				},
-			),
+				map[string]any{
+					"type_key": "builtin-remote-access",
+					"sop":      map[string]any{"size_chars": 2953, "cap_chars": 15000},
+				},
+			},
 		})
 		dashboard.wantFrames()
 	})
@@ -123,10 +139,24 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 				"duty":     map[string]any{"size_chars": 169, "cap_chars": 1000},
 				"insight":  map[string]any{"size_chars": 1089, "cap_chars": 20000},
 			}},
-			"task_manuals": append(apiBuiltinManualSizeRows(30000), map[string]any{
-				"type_key": "crate",
-				"sop":      map[string]any{"size_chars": 0, "cap_chars": 30000},
-			}),
+			"task_manuals": []any{
+				map[string]any{
+					"type_key": "builtin-task-manual-design",
+					"sop":      map[string]any{"size_chars": 3872, "cap_chars": 30000},
+				},
+				map[string]any{
+					"type_key": "builtin-role-design",
+					"sop":      map[string]any{"size_chars": 2803, "cap_chars": 30000},
+				},
+				map[string]any{
+					"type_key": "crate",
+					"sop":      map[string]any{"size_chars": 0, "cap_chars": 30000},
+				},
+				map[string]any{
+					"type_key": "builtin-remote-access",
+					"sop":      map[string]any{"size_chars": 2953, "cap_chars": 30000},
+				},
+			},
 		})
 	})
 

@@ -4873,6 +4873,14 @@
         "type": "object"
       },
       "name": "delete_shared_doc"
+    },
+    {
+      "description": "Read whether the owner's login is protected beyond the password (owner/admin agent). Carries no key material.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_login_protection"
     }
   ]
 }
