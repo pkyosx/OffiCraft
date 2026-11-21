@@ -12,7 +12,7 @@
 // that CANCELLING that dialog fires NO request at all.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView, MonMachineView } from "../types";
@@ -28,7 +28,10 @@ const getMonitoring = vi.fn(async () => ({
 const bootstrapOnServer = vi.fn(
   async (_id: string) => ({ ok: true, exitCode: 0, log: "" })
 );
-const getMachineBootCommand = vi.fn(async (_id: string) => "curl … | sh");
+const getMachineBootCommand = vi.fn(async (_id: string) => ({
+  command: "curl … | sh",
+  expiresInSecs: 600,
+}));
 
 vi.mock("../api", () => ({
   api: {
@@ -95,7 +98,7 @@ describe("MonitorPage install on an online machine", () => {
     listMembers.mockResolvedValue([]);
     getMonitoring.mockResolvedValue({ accounts: [], sessions: [], machines: [] });
     bootstrapOnServer.mockResolvedValue({ ok: true, exitCode: 0, log: "" });
-    getMachineBootCommand.mockResolvedValue("curl … | sh");
+    getMachineBootCommand.mockResolvedValue({ command: "curl … | sh", expiresInSecs: 600 });
   });
 
   describe("server-self row, machine online (the destructive half)", () => {
@@ -222,6 +225,64 @@ describe("MonitorPage install on an online machine", () => {
       fireEvent.click(wsl.querySelector(".mon-install__cmd-line button") as HTMLButtonElement);
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("wsl --install -d Ubuntu"));
       expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it("replaces the shown command with a fresh one on 重新產生指令", async () => {
+      getMachineBootCommand
+        .mockResolvedValueOnce({ command: "curl first | bash", expiresInSecs: 600 })
+        .mockResolvedValueOnce({ command: "curl second | bash", expiresInSecs: 600 });
+      renderMonitor();
+      fireEvent.click(await machineAction("mon-install-btn"));
+      await waitFor(() =>
+        expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl first | bash")
+      );
+
+      fireEvent.click(screen.getByTestId("mon-boot-cmd-regenerate-btn"));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl second | bash")
+      );
+      expect(getMachineBootCommand).toHaveBeenCalledTimes(2);
+    });
+
+    it("marks the command expired once its lifetime passes, and a regenerated command can be copied again", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const writeText = vi.fn(async (_text: string) => {});
+        Object.defineProperty(navigator, "clipboard", {
+          value: { writeText },
+          configurable: true,
+        });
+        getMachineBootCommand
+          .mockResolvedValueOnce({ command: "curl old | bash", expiresInSecs: 600 })
+          .mockResolvedValueOnce({ command: "curl new | bash", expiresInSecs: 600 });
+        renderMonitor();
+        fireEvent.click(await machineAction("mon-install-btn"));
+        await waitFor(() =>
+          expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl old | bash")
+        );
+
+        await act(async () => {
+          vi.advanceTimersByTime(600_000);
+        });
+
+        expect(screen.getByTestId("mon-boot-cmd-expired").textContent).toBe(
+          "指令已失效，請按「重新產生指令」。"
+        );
+        expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl old | bash");
+        expect((screen.getByTestId("mon-copy-boot-cmd-btn") as HTMLButtonElement).disabled).toBe(true);
+
+        fireEvent.click(screen.getByTestId("mon-boot-cmd-regenerate-btn"));
+        await waitFor(() =>
+          expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl new | bash")
+        );
+        const copy = screen.getByTestId("mon-copy-boot-cmd-btn") as HTMLButtonElement;
+        expect(copy.disabled).toBe(false);
+        fireEvent.click(copy);
+        await waitFor(() => expect(writeText).toHaveBeenCalledWith("curl new | bash"));
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("offers to generate the command again when fetching it fails", async () => {

@@ -3028,7 +3028,7 @@ export interface Api {
    * control ONLY and never logs it. Unlike onboard, this creates no machine — it
    * just re-issues the command for an EXISTING machine the owner already has.
    */
-  getMachineBootCommand(machineId: string): Promise<string>;
+  getMachineBootCommand(machineId: string): Promise<BootCommandView>;
   /**
    * Install THIS machine's warden on the SERVER host in one click (`POST
    * /api/machines/{machineId}/bootstrap-here`, owner/admin-agent). A HOST-mutating action
@@ -3668,4 +3668,10 @@ export interface LoreEntryWrite {
   body: string;
   taskId?: string;
   loreType: LoreType;
+}
+
+/** A machine's boot command and how long its one-time claim code stays valid. */
+export interface BootCommandView {
+  command: string;
+  expiresInSecs: number;
 }

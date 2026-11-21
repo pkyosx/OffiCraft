@@ -129,6 +129,7 @@ import type {
   LoreScopeKind,
   ChatGroupView,
   ChatGroupWrite,
+  BootCommandView,
 } from "./adapter";
 import type {
   WireMember,
@@ -6764,14 +6765,17 @@ const mockApiImpl = {
     return toRuntimeUpgrade(upgrade);
   },
 
-  async getMachineBootCommand(_machineId: string): Promise<string> {
+  async getMachineBootCommand(_machineId: string): Promise<BootCommandView> {
     // Fake re-fetch of a machine's boot command: mint a FRESH one-time claim
     // code and return the same operator string format the onboard mock produces
     // (mirrors the real GET /api/machines/{id}/boot-command re-minting a claim
     // code). No machine is created — this re-issues the command for an existing
     // machine. The one-liner carries only the short-lived code, never a token.
     const claimCode = `mock-claim-code-${Math.random().toString(36).slice(2, 14)}`;
-    return `curl -fsSL 'https://officraft.local/install.sh?code=${claimCode}' | bash`;
+    return {
+      command: `curl -fsSL 'https://officraft.local/install.sh?code=${claimCode}' | bash`,
+      expiresInSecs: 600,
+    };
   },
 
   async bootstrapOnServer(_machineId: string): Promise<BootstrapResultView> {

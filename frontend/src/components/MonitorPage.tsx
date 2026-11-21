@@ -2154,16 +2154,21 @@ export function MachineInstallDialog({
   const [command, setCommand] = useState<string | null>(null);
   const [fetchFailed, setFetchFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [expired, setExpired] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
 
   useEffect(() => {
     let live = true;
+    let expiryTimer: number | undefined;
     setCommand(null);
+    setExpired(false);
     setFetchFailed(false);
     api.getMachineBootCommand(machineId).then(
       (c) => {
-        if (live) setCommand(c);
+        if (!live) return;
+        setCommand(c.command);
+        expiryTimer = window.setTimeout(() => setExpired(true), c.expiresInSecs * 1000);
       },
       () => {
         if (live) setFetchFailed(true);
@@ -2171,11 +2176,13 @@ export function MachineInstallDialog({
     );
     return () => {
       live = false;
+      window.clearTimeout(expiryTimer);
     };
   }, [machineId, attempt]);
+  const regenerate = () => setAttempt((n) => n + 1);
 
   async function copyBoot() {
-    if (command == null) return;
+    if (command == null || expired) return;
     setCopyFailed(false);
     try {
       await navigator.clipboard.writeText(command);
@@ -2274,30 +2281,50 @@ export function MachineInstallDialog({
                   type="button"
                   className="btn btn--ghost"
                   data-testid="mon-boot-cmd-retry-btn"
-                  onClick={() => setAttempt((n) => n + 1)}
+                  onClick={regenerate}
                 >
-                  {m.installCmdRetry}
+                  {m.installCmdRegenerate}
                 </button>
               </div>
             ) : (
-              <div className="mon-cmd__row mon-install__cmd-row">
-                <code
-                  className="mon-cmd__code mon-install__cmd"
-                  data-testid="mon-boot-cmd"
-                >
-                  {command ?? m.installCmdLoading}
-                </code>
-                <button
-                  type="button"
-                  className="btn btn--accent-ghost"
-                  data-testid="mon-copy-boot-cmd-btn"
-                  disabled={command == null}
-                  onClick={() => void copyBoot()}
-                >
-                  {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-                  <span>{copyLabel}</span>
-                </button>
-              </div>
+              <>
+                <div className="mon-cmd__row mon-install__cmd-row">
+                  <code
+                    className={`mon-cmd__code mon-install__cmd${
+                      expired ? " mon-install__cmd--expired" : ""
+                    }`}
+                    data-testid="mon-boot-cmd"
+                  >
+                    {command ?? m.installCmdLoading}
+                  </code>
+                  <div className="mon-install__cmd-actions">
+                    <button
+                      type="button"
+                      className="btn btn--accent-ghost"
+                      data-testid="mon-copy-boot-cmd-btn"
+                      disabled={command == null || expired}
+                      onClick={() => void copyBoot()}
+                    >
+                      {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+                      <span>{copyLabel}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      data-testid="mon-boot-cmd-regenerate-btn"
+                      disabled={command == null}
+                      onClick={regenerate}
+                    >
+                      {m.installCmdRegenerate}
+                    </button>
+                  </div>
+                </div>
+                {expired && (
+                  <div className="mon-error" data-testid="mon-boot-cmd-expired">
+                    {m.installCmdExpired}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
