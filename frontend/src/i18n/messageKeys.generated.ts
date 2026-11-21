@@ -435,7 +435,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "monitor.machine.hardwareStale",
   "monitor.machine.hardwareStaleHint",
   "monitor.machine.install",
-  "monitor.machine.installCmdExpired",
   "monitor.machine.installCmdLoading",
   "monitor.machine.installCmdOneTime",
   "monitor.machine.installCmdRegenerate",

@@ -227,7 +227,7 @@ describe("MonitorPage install on an online machine", () => {
       expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
     });
 
-    it("turns the copy button into 重新產生指令 once the command expires, and shows the regenerated command ready to copy", async () => {
+    it("dims the command and turns the copy button into 重新產生指令 once the command expires, and shows the regenerated command ready to copy", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       try {
         const writeText = vi.fn(async (_text: string) => {});
@@ -249,10 +249,9 @@ describe("MonitorPage install on an online machine", () => {
           vi.advanceTimersByTime(600_000);
         });
 
-        expect(screen.getByTestId("mon-boot-cmd-expired").textContent).toBe(
-          "指令已失效，請按「重新產生指令」。"
-        );
-        expect(screen.getByTestId("mon-boot-cmd").textContent).toBe("curl old | bash");
+        const shown = screen.getByTestId("mon-boot-cmd");
+        expect(shown.textContent).toBe("curl old | bash");
+        expect(shown.classList.contains("mon-install__cmd--expired")).toBe(true);
         const button = screen.getByTestId("mon-copy-boot-cmd-btn");
         expect(button.textContent).toBe("重新產生指令");
 
