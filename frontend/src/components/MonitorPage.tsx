@@ -2309,11 +2309,6 @@ export function MachineInstallDialog({
                 </button>
               )}
             </div>
-            {expired && (
-              <div className="mon-error" data-testid="mon-boot-cmd-expired">
-                {m.installCmdExpired}
-              </div>
-            )}
           </div>
         </div>
         <p className="mon-install__note">{m.installCmdOneTime}</p>

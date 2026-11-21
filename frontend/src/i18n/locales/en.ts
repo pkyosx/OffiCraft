@@ -2217,7 +2217,6 @@ export const en: Dict = {
       installPasteWindows: "Paste and run in the \"Ubuntu\" window (not PowerShell):",
       installCmdLoading: "Generating the install command…",
       installCmdRegenerate: "Regenerate command",
-      installCmdExpired: "The command has expired; press \"Regenerate command\".",
       installCmdOneTime: "The command works once and is valid for 10 minutes.",
       copyCmdError: "Copy failed",
       copyBootCmd: "Copy install command",

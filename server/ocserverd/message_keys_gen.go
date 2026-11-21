@@ -436,7 +436,6 @@ var messageKeys = map[string]bool{
 	"monitor.machine.hardwareStale":                    true,
 	"monitor.machine.hardwareStaleHint":                true,
 	"monitor.machine.install":                          true,
-	"monitor.machine.installCmdExpired":                true,
 	"monitor.machine.installCmdLoading":                true,
 	"monitor.machine.installCmdOneTime":                true,
 	"monitor.machine.installCmdRegenerate":             true,
