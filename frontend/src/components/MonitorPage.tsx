@@ -2249,7 +2249,7 @@ export function MachineInstallDialog({
   const openTerminal = (sub: string): InstallStep => ({
     title: m.installStepOpenTerminal,
     sub,
-    cmds: [{ where: "terminal", cmd: done(m.installStepOpenTerminal) }],
+    cmds: [],
   });
   const aptStep = (where: InstallWhere, sub: string): InstallStep => ({
     title: m.installStepTmuxCurl,
