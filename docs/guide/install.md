@@ -100,13 +100,12 @@ wsl --version
 
 ### 2. 在 WSL2 裡打開 systemd
 
-OffiCraft 在 WSL2 裡同樣以 systemd 的使用者服務執行，而 WSL2 預設不啟動 systemd。**systemd 沒有在執行時，安裝腳本會停下並提示做這一步。**
+OffiCraft 在 WSL2 裡同樣以 systemd 的使用者服務執行。以 `wsl --install` 安裝的目前版 Ubuntu 預設已啟用 systemd；其他發行版或舊版 Ubuntu 預設不啟動 systemd。**systemd 沒有在執行時，安裝腳本會停下並提示做這一步。**
 
-在 Ubuntu 視窗裡，把以下兩行加進 `/etc/wsl.conf`（這個檔案要用系統管理員權限編輯，例如 `sudo nano /etc/wsl.conf`）：
+在 Ubuntu 視窗裡執行以下指令，把 `[boot]` 與 `systemd=true` 兩行加進 `/etc/wsl.conf`：
 
-```ini
-[boot]
-systemd=true
+```bash
+printf '[boot]\nsystemd=true\n' | sudo tee -a /etc/wsl.conf
 ```
 
 接著在 Windows 的 PowerShell 執行以下指令關閉 WSL2，再重新打開 Ubuntu 視窗，設定才會生效：
@@ -170,7 +169,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 加入機器用到的畫面與指令：
 
 - **新增機器 / 上線**：在「監控」分頁的「機器資訊」，輸入機器名稱建立一筆機器紀錄。剛建立的機器還沒有裝任何東西。
-- **安裝**：機器名稱選單裡的「安裝」會打開「安裝機器」視窗。視窗依作業系統（macOS、Linux、Windows（WSL2））列出在那台電腦上依序執行的步驟，每個指令標示執行位置與用途（安裝、設定、登入、確認），旁邊有複製鈕；最後一步直接顯示給這台機器專用的安裝指令，「複製安裝指令」複製的就是畫面上這一段。這段指令只能用一次，過一段時間也會失效；失效時關掉視窗再打開，會產生新的指令。
+- **安裝**：機器名稱選單裡的「安裝」會打開「安裝機器」視窗。視窗依作業系統（macOS、Linux、Windows（WSL2））列出系統需求、Windows 的 WSL2 準備、安裝 tmux、安裝並登入 Claude Code 或 Codex 的指令與確認指令，每個指令旁都有複製鈕；最後一步直接顯示給這台機器專用的安裝指令，「複製安裝指令」複製的就是畫面上這一段。這段指令只能用一次，過一段時間也會失效；失效時關掉視窗再打開，會產生新的指令。
 - **安裝指令**：在另一台電腦的終端機執行，那台電腦可以是 Mac、Linux 或 Windows 的 WSL2。指令會先檢查 `tmux` 與 `curl`（下載檔案的工具，macOS 內建）；缺 `tmux` 時，如果那台電腦有 Homebrew，會自動安裝。其他缺少的情形會停下並印出補裝的指令，Linux 上是 `sudo apt-get install -y <工具名稱>`。不支援的電腦會在這一步被拒絕。裝好之後，那台機器出現在「機器資訊」的清單上，狀態是「線上」。
 
 那台電腦同樣要符合「安裝前要準備的東西」表格裡的需求（`tmux` 3.0 以上；Claude Code 2.1.287 以上，或改用 Codex），並且已經在那台電腦上登入。Linux 與 WSL2 上的 warden 以 systemd 的使用者服務執行，說明見「Linux」。機器上線後，成員詳情裡就能把成員派到那台電腦上工作，成員之間也能跨機器互相幫忙。
