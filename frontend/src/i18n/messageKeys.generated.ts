@@ -1670,6 +1670,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "tasks.assigneeLabel",
   "tasks.blockedByLabel",
   "tasks.blockedByMissingSuffix",
+  "tasks.builtinTypeName.remoteAccess",
   "tasks.builtinTypeName.roleDesign",
   "tasks.builtinTypeName.taskManualDesign",
   "tasks.clearFilters",

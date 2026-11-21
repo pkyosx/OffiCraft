@@ -70,6 +70,21 @@ func (s *apiServer) HandleMfaStateApiAuthMfaGet(w http.ResponseWriter, r *http.R
 	})
 }
 
+// The admin_agent-readable twin of the two routes above, carrying only facts:
+// an agent opening the cockpit to outside connections must be able to see
+// whether the owner's login is guarded, never the secrets that guard it.
+func (s *apiServer) HandleLoginProtectionApiAuthLoginProtectionGet(w http.ResponseWriter, r *http.Request) {
+	passkeys, err := countPasskeysOn(s.dal.rdb)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	s.settingsMu.RLock()
+	enrolled := s.totpSecret != ""
+	s.settingsMu.RUnlock()
+	writeJSON(w, http.StatusOK, LoginProtectionDTO{MfaEnrolled: enrolled, PasskeyCount: passkeys})
+}
+
 // 🔴 A ROLLOUT SWITCH, NOT A SECURITY SWITCH. Turning it off while a factor is
 // armed changes nothing about login or disable; otherwise a stolen owner token
 // could withdraw the feature and walk past the factor.
