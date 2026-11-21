@@ -2095,22 +2095,19 @@ function powerText(
 type InstallOs = "mac" | "linux" | "windows";
 const INSTALL_OSES: InstallOs[] = ["mac", "linux", "windows"];
 
-// Every command is safe to re-run on a machine that already has the tool (each
-// skips work that is already done), and prints "<done prefix><step title>" only
-// when every part of it succeeded — that line is how the user tells success.
-// Installers that leave ~/.local/bin off PATH are checked by file, and the
-// agent commands put it on PATH before starting the tool.
-const shQuote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
-const psQuote = (s: string) => "'" + s.replace(/'/g, "''") + "'";
-const LOCAL_BIN_PATH = 'PATH="$HOME/.local/bin:$PATH"';
+// The Claude Code and Codex installers put the binary in ~/.local/bin without
+// adding it to the current shell's PATH; the export lets the next commands in the
+// same window find it (OffiCraft itself also looks in ~/.local/bin).
+const EXPORT_LOCAL_BIN = 'export PATH="$HOME/.local/bin:$PATH"';
 
 type InstallWhere = "terminal" | "powershell" | "ubuntu";
-type InstallCmd = { cmd: string; where: InstallWhere; label?: string };
+type InstallKind = "install" | "configure" | "login" | "verify";
+type InstallCmd = { cmd: string; where: InstallWhere; kind: InstallKind; tool?: string };
 type InstallStep = { title: string; sub?: string; cmds: InstallCmd[] };
 
 /** One command line the user is meant to paste: where to run it, the command,
  * and its own copy button. */
-function CopyableCommand({ command, where, label }: { command: string; where: string; label?: string }) {
+function CopyableCommand({ command, head }: { command: string; head: string }) {
   const { t } = useI18n();
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   async function copy() {
@@ -2124,10 +2121,7 @@ function CopyableCommand({ command, where, label }: { command: string; where: st
   }
   return (
     <div className="mon-install__cmd-line">
-      <div className="mon-install__cmd-head">
-        <span className="mon-install__cmd-where">{where}</span>
-        {label && <span className="mon-install__cmd-label">{label}</span>}
-      </div>
+      <div className="mon-install__cmd-head">{head}</div>
       <div className="mon-install__cmd-body">
         <code className="mon-install__cmd-text">{command}</code>
         <button
@@ -2208,129 +2202,84 @@ export function MachineInstallDialog({
     linux: m.installOsLinux,
     windows: m.installOsWindows,
   };
-  const done = (title: string) => "echo " + shQuote(m.installDonePrefix + title);
-  const agentCmd = (
-    bin: "claude" | "codex",
-    installer: string,
-    statusArgs: string,
-    installTitle: string,
-    loginTitle: string
-  ) =>
-    `(command -v ${bin} >/dev/null 2>&1 || [ -x "$HOME/.local/bin/${bin}" ] || ${installer}) && ${done(installTitle)} && ${LOCAL_BIN_PATH} ${bin}; ` +
-    `${LOCAL_BIN_PATH} ${bin} ${statusArgs} >/dev/null 2>&1 && ${done(loginTitle)}`;
+  const agentCmds = (where: InstallWhere): InstallCmd[] => [
+    { where, tool: m.installAgentClaude, kind: "install", cmd: `curl -fsSL https://claude.ai/install.sh | bash && ${EXPORT_LOCAL_BIN}` },
+    { where, tool: m.installAgentClaude, kind: "login", cmd: "claude" },
+    { where, tool: m.installAgentClaude, kind: "verify", cmd: "claude --version && claude auth status --text" },
+    { where, tool: m.installAgentCodex, kind: "install", cmd: `curl -fsSL https://chatgpt.com/codex/install.sh | sh && ${EXPORT_LOCAL_BIN}` },
+    { where, tool: m.installAgentCodex, kind: "login", cmd: "codex" },
+    { where, tool: m.installAgentCodex, kind: "verify", cmd: "codex --version && codex login status" },
+  ];
   const agentStep = (where: InstallWhere): InstallStep => ({
     title: m.installStepAgent,
     sub: m.installSubAgent,
-    cmds: [
-      {
-        where,
-        label: m.installAgentClaude,
-        cmd: agentCmd(
-          "claude",
-          "curl -fsSL https://claude.ai/install.sh | bash",
-          "auth status",
-          m.installDoneClaudeInstall,
-          m.installDoneClaudeLogin
-        ),
-      },
-      {
-        where,
-        label: m.installAgentCodex,
-        cmd: agentCmd(
-          "codex",
-          "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-          "login status",
-          m.installDoneCodexInstall,
-          m.installDoneCodexLogin
-        ),
-      },
-    ],
-  });
-  const openTerminal = (sub: string): InstallStep => ({
-    title: m.installStepOpenTerminal,
-    sub,
-    cmds: [],
+    cmds: agentCmds(where),
   });
   const aptStep = (where: InstallWhere, sub: string): InstallStep => ({
     title: m.installStepTmuxCurl,
     sub,
     cmds: [
-      {
-        where,
-        cmd: `sudo apt-get update && sudo apt-get install -y tmux curl && ${done(m.installStepTmuxCurl)}`,
-      },
+      { where, kind: "install", cmd: "sudo apt-get update && sudo apt-get install -y tmux curl" },
+      { where, kind: "verify", cmd: "tmux -V && curl --version | head -n 1" },
     ],
   });
   const steps: Record<InstallOs, InstallStep[]> = {
     mac: [
-      openTerminal(m.installSubOpenMac),
+      { title: m.installStepOpenTerminal, sub: m.installSubOpenMac, cmds: [] },
       {
         title: m.installStepBrew,
-        sub: m.installSubPasswordLocal,
+        sub: m.installSubBrew,
         cmds: [
           {
             where: "terminal",
-            cmd: `(command -v brew >/dev/null 2>&1 || [ -x /opt/homebrew/bin/brew ] || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)") && ${done(m.installStepBrew)}`,
+            kind: "install",
+            cmd: '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
           },
         ],
       },
       {
         title: m.installStepBrewEnv,
+        sub: m.installSubBrewEnv,
         cmds: [
           {
             where: "terminal",
-            cmd: `{ grep -qs 'brew shellenv' ~/.zprofile || echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile; } && eval "$(/opt/homebrew/bin/brew shellenv)" && brew --version >/dev/null && ${done(m.installStepBrewEnv)}`,
+            kind: "configure",
+            cmd: `echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile && eval "$(/opt/homebrew/bin/brew shellenv)"`,
           },
+          { where: "terminal", kind: "verify", cmd: "brew --version" },
         ],
       },
       {
         title: m.installStepTmux,
+        sub: m.installSubTmux,
         cmds: [
-          {
-            where: "terminal",
-            cmd: `(command -v tmux >/dev/null 2>&1 || brew install tmux) && tmux -V && ${done(m.installStepTmux)}`,
-          },
+          { where: "terminal", kind: "install", cmd: "brew install tmux" },
+          { where: "terminal", kind: "verify", cmd: "tmux -V" },
         ],
       },
       agentStep("terminal"),
     ],
     linux: [
-      openTerminal(m.installSubOpenLinux),
-      aptStep("terminal", m.installSubPasswordLocal),
+      { title: m.installStepOpenTerminal, sub: m.installSubOpenLinux, cmds: [] },
+      aptStep("terminal", m.installSubAptLocal),
       agentStep("terminal"),
     ],
     windows: [
-      {
-        title: m.installStepOpenPowerShell,
-        sub: m.installSubOpenPowerShell,
-        cmds: [
-          {
-            where: "powershell",
-            cmd: `if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { echo ${psQuote(m.installDonePrefix + m.installStepOpenPowerShell)} }`,
-          },
-        ],
-      },
+      { title: m.installStepOpenPowerShell, sub: m.installSubOpenPowerShell, cmds: [] },
       {
         title: m.installStepWsl,
         sub: m.installSubWsl,
         cmds: [
-          {
-            where: "powershell",
-            cmd: `wsl --install -d Ubuntu; if ($?) { echo ${psQuote(m.installDonePrefix + m.installStepWsl)} }`,
-          },
+          { where: "powershell", kind: "install", cmd: "wsl --install -d Ubuntu" },
+          { where: "powershell", kind: "verify", cmd: "wsl -l -v" },
         ],
       },
       {
         title: m.installStepUbuntuUser,
         sub: m.installSubUbuntuUser,
-        cmds: [
-          {
-            where: "ubuntu",
-            cmd: `[ "$(id -u)" != 0 ] && whoami && ${done(m.installStepUbuntuUser)}`,
-          },
-        ],
+        cmds: [{ where: "ubuntu", kind: "verify", cmd: "whoami" }],
       },
-      aptStep("ubuntu", m.installSubPasswordUbuntu),
+      aptStep("ubuntu", m.installSubAptUbuntu),
       agentStep("ubuntu"),
     ],
   };
@@ -2339,6 +2288,14 @@ export function MachineInstallDialog({
     powershell: m.installWherePowerShell,
     ubuntu: m.installWhereUbuntu,
   };
+  const kindLabel: Record<InstallKind, string> = {
+    install: m.installKindInstall,
+    configure: m.installKindConfigure,
+    login: m.installKindLogin,
+    verify: m.installKindVerify,
+  };
+  const cmdHead = (c: InstallCmd) =>
+    [whereLabel[c.where], c.tool, kindLabel[c.kind]].filter(Boolean).join(" · ");
   const bootWhere = whereLabel[os === "windows" ? "ubuntu" : "terminal"];
   const copyLabel = copyFailed
     ? m.copyBootCmdCopyError
@@ -2403,12 +2360,7 @@ export function MachineInstallDialog({
               <div className="mon-install__step-title">{step.title}</div>
               {step.sub && <div className="mon-install__step-sub">{step.sub}</div>}
               {step.cmds.map((c) => (
-                <CopyableCommand
-                  key={c.cmd}
-                  command={c.cmd}
-                  where={whereLabel[c.where]}
-                  label={c.label}
-                />
+                <CopyableCommand key={c.cmd} command={c.cmd} head={cmdHead(c)} />
               ))}
             </li>
           ))}
@@ -2416,7 +2368,7 @@ export function MachineInstallDialog({
             <div className="mon-install__step-title">{m.installStepOffiCraft}</div>
             <div className="mon-install__step-sub">{m.installSubOffiCraft}</div>
             <div className="mon-install__cmd-head">
-              <span className="mon-install__cmd-where">{bootWhere}</span>
+              {bootWhere} · {m.installKindInstall}
             </div>
             {fetchFailed ? (
               <div className="mon-cmd__row mon-install__cmd-row">
