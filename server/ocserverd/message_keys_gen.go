@@ -520,6 +520,7 @@ var messageKeys = map[string]bool{
 	"monitor.runtimeLogin.failedLead":                  true,
 	"monitor.runtimeLogin.login":                       true,
 	"monitor.runtimeLogin.menuLabel":                   true,
+	"monitor.runtimeLogin.noLoginUrl":                  true,
 	"monitor.runtimeLogin.noResponseCauses":            true,
 	"monitor.runtimeLogin.noResponseTail":              true,
 	"monitor.runtimeLogin.openUrl":                     true,

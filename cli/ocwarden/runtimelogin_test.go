@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	fakeLoginURL  = "https://claude.ai/oauth/authorize?code=true&state=fake-state-77"
-	fakeLoginCode = "fake-code-31#fake-state-77"
+	fakeLoginURL         = "https://claude.com/cai/oauth/authorize?code=true&client_id=fake-client-77&state=fake-state-77"
+	fakeNextLineLoginURL = "https://claude.ai/oauth/authorize?fake-opaque-state-77"
+	fakeLoginCode        = "fake-code-31#fake-state-77"
 )
 
 // shellKeep runs the `<shell> -c <script>` the prober hands it, under /bin/sh,
@@ -33,17 +34,19 @@ func (shellKeep) RunKeepStdout(name string, args ...string) (string, error) {
 	return out.String(), err
 }
 
-// fakeClaude is a stand-in for the claude CLI, shaped on claude 2.1.286:
+// fakeClaude is a stand-in for the claude CLI, shaped on claude 2.1.286–2.1.330:
 // `auth login` records its pid and the FROM_FILE it was started with, prints the
-// sign-in URL line (dimmed, as an OSC 8 hyperlink whose label is shortened,
-// when the osc file exists), then reads
+// sign-in URL after the prompt on the same line (2.1.329), dimmed as an OSC 8
+// hyperlink whose label is shortened when the osc file exists, on the line
+// after the prompt when the next-line file exists (2.1.330), or no sign-in URL
+// at all when the no-url file exists, then reads
 // stdin line by line, touching the read-line file for each. A line that is not two non-empty halves joined by `#` is
 // refused on stderr and the next is read; an accepted one is recorded, echoed
 // back on stderr when the echo file exists, followed by the stderr file, and
 // the process exits with the code in the rc file. `auth status` prints the
 // status reply.
 type fakeClaude struct {
-	root, bin, pid, gotCode, rc, stderr, status, osc, echo, sawEnv, readLine, escape, escapee string
+	root, bin, pid, gotCode, rc, stderr, status, osc, nextLine, noURL, echo, sawEnv, readLine, escape, escapee string
 }
 
 func newFakeClaude(t *testing.T) *fakeClaude {
@@ -57,6 +60,8 @@ func newFakeClaude(t *testing.T) *fakeClaude {
 		stderr:   filepath.Join(root, "stderr"),
 		status:   filepath.Join(root, "status"),
 		osc:      filepath.Join(root, "osc"),
+		nextLine: filepath.Join(root, "next-line"),
+		noURL:    filepath.Join(root, "no-url"),
 		echo:     filepath.Join(root, "echo"),
 		sawEnv:   filepath.Join(root, "saw-env"),
 		readLine: filepath.Join(root, "read-line"),
@@ -69,7 +74,9 @@ func newFakeClaude(t *testing.T) *fakeClaude {
 		`[ -f '`+f.escape+`' ] && `+escapeeLine(f.escapee)+"\n"+
 		`printf '%s' "${FROM_FILE-unset}" > '`+f.sawEnv+`'`+"\n"+
 		`echo 'Opening browser to sign in…'`+"\n"+
-		`if [ -f '`+f.osc+`' ]; then printf "\\033[2mIf the browser didn't open, visit: \\033]8;;%s\\007claude.ai/oauth/authorize\\033]8;;\\007\\033[0m\\n" '`+fakeLoginURL+`'; `+
+		`if [ -f '`+f.noURL+`' ]; then echo "If the browser didn't open, visit:"; echo 'Status: https://status.example.test/incident?token=fake-secret-77'; echo 'Help: https://help.notanthropic.com/login'; `+
+		`elif [ -f '`+f.nextLine+`' ]; then echo "If the browser didn't open, visit:"; echo '`+fakeNextLineLoginURL+`'; `+
+		`elif [ -f '`+f.osc+`' ]; then printf "\\033[2mIf the browser didn't open, visit: \\033]8;;%s\\007claude.ai/oauth/authorize\\033]8;;\\007\\033[0m\\n" '`+fakeLoginURL+`'; `+
 		`else echo "If the browser didn't open, visit: `+fakeLoginURL+`"; fi`+"\n"+
 		`while IFS= read -r code; do`+"\n"+
 		`  : > '`+f.readLine+`'`+"\n"+
@@ -264,6 +271,39 @@ func TestLoginRelay(t *testing.T) {
 		if got, want := h.next(t), (loginReport{LoginID: "rl-osc", State: "awaiting_code", AuthURL: fakeLoginURL}); got != want {
 			t.Fatalf("first report = %+v, want %+v", got, want)
 		}
+	})
+
+	t.Run("under a sign-in URL printed on the line after the prompt, the relay reports awaiting_code with that URL", func(t *testing.T) {
+		h := newRelayHarness(t)
+		h.claude.write(t, h.claude.nextLine, "")
+		h.relay.Start("rl-next", "claude")
+		if got, want := h.next(t), (loginReport{LoginID: "rl-next", State: "awaiting_code", AuthURL: fakeNextLineLoginURL}); got != want {
+			t.Fatalf("first report = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("under output with no Anthropic sign-in URL within the wait, the process is killed and the relay reports failed with the last output lines, URL queries masked", func(t *testing.T) {
+		h := newRelayHarness(t)
+		h.claude.write(t, h.claude.noURL, "")
+		h.relay.urlWait = 2 * time.Second
+		if err := os.MkdirAll(h.prober.agentHome, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		h.relay.Start("rl-nourl", "claude")
+		want := loginReport{LoginID: "rl-nourl", State: "failed", Reason: "Claude Code printed no sign-in URL within 2s\n" +
+			"Opening browser to sign in…\n" +
+			"If the browser didn't open, visit:\n" +
+			"Status: https://status.example.test/incident?…\n" +
+			"Help: https://help.notanthropic.com/login"}
+		if got := h.next(t); got != want {
+			t.Fatalf("report = %+v, want %+v", got, want)
+		}
+		h.waitEnded(t, "rl-nourl")
+		if h.claude.alive(t) {
+			t.Error("the login process survived the missing sign-in URL")
+		}
+		h.wantNoReport(t)
+		h.wantLogsFree(t, "fake-secret-77")
 	})
 
 	t.Run("under a partial code, the CLI's refusal returns the login to awaiting_code and a full code then succeeds", func(t *testing.T) {

@@ -291,6 +291,14 @@ describe("RuntimeLoginDialog", () => {
     expect(text("runtime-login-failed-cli")).toBe("Claude 回應：Login failed: Request failed with status code 500");
   });
 
+  it("under a warden reporting that Claude Code printed no sign-in URL, it heads with that and shows the CLI's last lines below", async () => {
+    mount();
+    await flush();
+    await emit(login({ state: "failed", reason: "Claude Code printed no sign-in URL within 20s\nOpening browser to sign in…\nIf the browser didn't open, visit:" }));
+    expect(text("runtime-login-failed-summary")).toBe("Claude Code 沒有印出登入網址");
+    expect(text("runtime-login-failed-cli")).toBe("Claude 回應：Opening browser to sign in…\nIf the browser didn't open, visit:");
+  });
+
   it("under the incomplete-code message, it sits outside the code row so the submit button keeps its place", async () => {
     mount();
     await flush();

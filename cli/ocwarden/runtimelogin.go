@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,7 +30,6 @@ const (
 
 	runtimeLoginPath = "/api/monitoring/runtime-login"
 
-	claudeLoginURLPrefix = "If the browser didn't open, visit: "
 	// claude prints this on stderr and keeps waiting for another line.
 	claudeInvalidCodePrefix = "Invalid code"
 	claudeLoginFailedPrefix = "Login failed:"
@@ -41,6 +41,13 @@ const (
 	// codex prints a one-time code that lasts 15 minutes and times itself out
 	// then; this backstop only has to outlast it.
 	codexLoginProcessCap = 16 * time.Minute
+	// The cockpit gives up on a login still starting after 30 seconds and blames
+	// the machine (RuntimeLoginDialog.tsx); the warden must speak first.
+	claudeLoginURLWait = 20 * time.Second
+	// The cockpit matches this opening to show its own summary of the failure.
+	claudeNoLoginURLReason = "Claude Code printed no sign-in URL"
+	claudeOutputTailLines  = 5
+	claudeOutputLineMax    = 200
 
 	loginRenderPrefix = ".oc-login-env-"
 )
@@ -120,19 +127,54 @@ func stripTerminalEscapes(line string) string {
 	return lone2charEsc.ReplaceAllString(line, "")
 }
 
-// loginURLFromLine answers the URL on claude's sign-in line: the OSC 8 target
-// when there is one, else the visible text.
-func loginURLFromLine(raw string) (string, bool) {
-	visible := strings.TrimSpace(stripTerminalEscapes(raw))
-	if !strings.HasPrefix(visible, claudeLoginURLPrefix) {
-		return "", false
+var (
+	httpsURL = regexp.MustCompile(`https://[^\s\x07\x1b"'<>]+`)
+	urlQuery = regexp.MustCompile(`(https?://[^\s?#]*)[?#]\S*`)
+)
+
+// claude's wording and line layout around the sign-in URL change between
+// releases; the URL's host is what stays.
+var claudeSignInDomains = []string{"claude.ai", "claude.com", "anthropic.com"}
+
+func isClaudeSignInURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" {
+		return false
 	}
-	for _, m := range osc8Link.FindAllStringSubmatch(raw, -1) {
-		if target := strings.TrimSpace(m[1]); target != "" {
-			return target, true
+	host := strings.ToLower(u.Hostname())
+	for _, domain := range claudeSignInDomains {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
 		}
 	}
-	return strings.TrimSpace(strings.TrimPrefix(visible, claudeLoginURLPrefix)), true
+	return false
+}
+
+// loginURLFromLine answers the first claude sign-in URL on a line of claude's
+// output: an OSC 8 target before the visible text, whose label may be a
+// shortened, scheme-less copy.
+func loginURLFromLine(raw string) (string, bool) {
+	var candidates []string
+	for _, m := range osc8Link.FindAllStringSubmatch(raw, -1) {
+		candidates = append(candidates, strings.TrimSpace(m[1]))
+	}
+	candidates = append(candidates, httpsURL.FindAllString(stripTerminalEscapes(raw), -1)...)
+	for _, candidate := range candidates {
+		if isClaudeSignInURL(candidate) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+// redactOutputLine readies a line of login output to leave the machine: URL
+// queries can carry OAuth state.
+func redactOutputLine(line string) string {
+	line = urlQuery.ReplaceAllString(line, "$1?…")
+	if runes := []rune(line); len(runes) > claudeOutputLineMax {
+		line = string(runes[:claudeOutputLineMax]) + "…"
+	}
+	return line
 }
 
 // The browser claude would open is on the warden's machine, where nobody is
@@ -303,6 +345,7 @@ type loginRelay struct {
 	cap         time.Duration
 	codexCap    time.Duration
 	codeWait    time.Duration
+	urlWait     time.Duration
 	installAuth func(home string, auth []byte) error
 	// Held across an install, so Abandon can wait one out before the warden
 	// execs over it.
@@ -370,6 +413,7 @@ func newLoginRelay(prober *loginProber, progress loginReporter, logf func(string
 		cap:      loginProcessCap,
 		codexCap: codexLoginProcessCap,
 		codeWait: codexCodeWait,
+		urlWait:  claudeLoginURLWait,
 		logf:     logf,
 		sessions: map[string]*loginSession{},
 	}
@@ -427,10 +471,13 @@ func (r *loginRelay) startClaude(loginID string) {
 	r.prober.prepareLaunchEnv()
 	script, rendered := r.prober.claudeCommand(bin, loginRenderPrefix+loginID, "auth login --claudeai",
 		claudeCommandOpts{selfDeleteRender: true, extra: [][2]string{loginBrowserOverride}})
-	r.launch(loginID, "claude", bin, script, rendered, &claudeLoginFlow{relay: r}, r.cap)
+	flow := &claudeLoginFlow{relay: r}
+	if s := r.launch(loginID, "claude", bin, script, rendered, flow, r.cap); s != nil {
+		time.AfterFunc(r.urlWait, func() { flow.noURL(s) })
+	}
 }
 
-func (r *loginRelay) launch(loginID, runtime, bin, script, rendered string, flow loginFlow, limit time.Duration) {
+func (r *loginRelay) launch(loginID, runtime, bin, script, rendered string, flow loginFlow, limit time.Duration) *loginSession {
 	proc, err := r.start(r.prober.shell(), script, bin)
 	if err != nil {
 		if rendered != "" {
@@ -438,7 +485,7 @@ func (r *loginRelay) launch(loginID, runtime, bin, script, rendered string, flow
 		}
 		flow.finish()
 		r.fail(loginID, "the login process could not start: "+err.Error())
-		return
+		return nil
 	}
 	s := &loginSession{id: loginID, proc: proc, done: make(chan struct{}), flow: flow, limit: limit}
 	r.mu.Lock()
@@ -446,6 +493,7 @@ func (r *loginRelay) launch(loginID, runtime, bin, script, rendered string, flow
 	r.mu.Unlock()
 	r.log("%s: %s login process started", loginID, runtime)
 	go r.watch(s, rendered)
+	return s
 }
 
 func (r *loginRelay) watch(s *loginSession, rendered string) {
@@ -506,22 +554,22 @@ type claudeLoginFlow struct {
 
 	mu          sync.Mutex
 	sawURL      bool
+	gaveUpURL   bool
 	lastOut     string
 	lastErr     string
 	loginFailed string
+	tail        []string
 }
 
 func (f *claudeLoginFlow) line(s *loginSession, stderr bool, raw string) {
 	r := f.relay
 	if !stderr {
-		f.mu.Lock()
-		seen := f.sawURL
-		f.mu.Unlock()
-		if !seen {
-			if url, ok := loginURLFromLine(raw); ok {
-				f.mu.Lock()
-				f.sawURL = true
-				f.mu.Unlock()
+		if url, ok := loginURLFromLine(raw); ok {
+			f.mu.Lock()
+			first := !f.sawURL && !f.gaveUpURL
+			f.sawURL = true
+			f.mu.Unlock()
+			if first {
 				r.log("%s: awaiting the code", s.id)
 				r.relay(s, loginReport{LoginID: s.id, State: "awaiting_code", AuthURL: url})
 				return
@@ -533,6 +581,10 @@ func (f *claudeLoginFlow) line(s *loginSession, stderr bool, raw string) {
 		return
 	}
 	f.mu.Lock()
+	f.tail = append(f.tail, line)
+	if len(f.tail) > claudeOutputTailLines {
+		f.tail = f.tail[len(f.tail)-claudeOutputTailLines:]
+	}
 	if stderr {
 		f.lastErr = line
 		if strings.HasPrefix(line, claudeLoginFailedPrefix) {
@@ -552,6 +604,25 @@ func (f *claudeLoginFlow) line(s *loginSession, stderr bool, raw string) {
 			r.relay(s, loginReport{LoginID: s.id, State: "awaiting_code", Reason: s.mask(line)})
 		}
 	}
+}
+
+func (f *claudeLoginFlow) noURL(s *loginSession) {
+	if f.relay.session(s.id) != s {
+		return
+	}
+	f.mu.Lock()
+	if f.sawURL {
+		f.mu.Unlock()
+		return
+	}
+	f.gaveUpURL = true
+	lines := []string{fmt.Sprintf("%s within %s", claudeNoLoginURLReason, f.relay.urlWait)}
+	for _, line := range f.tail {
+		lines = append(lines, redactOutputLine(line))
+	}
+	f.mu.Unlock()
+	f.relay.log("%s: claude printed no sign-in URL within %s", s.id, f.relay.urlWait)
+	f.relay.relay(s, loginReport{LoginID: s.id, State: "failed", Reason: s.mask(strings.Join(lines, "\n"))})
 }
 
 func (f *claudeLoginFlow) failureReason(error) string {

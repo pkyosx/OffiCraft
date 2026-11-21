@@ -435,6 +435,7 @@
 }
 .runtime-login__cli {
   margin: 6px 0 0;
+  white-space: pre-line;
   color: var(--color-text-muted);
   font-size: 12px;
   overflow-wrap: anywhere;

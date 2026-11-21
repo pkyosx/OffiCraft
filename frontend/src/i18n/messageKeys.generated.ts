@@ -519,6 +519,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "monitor.runtimeLogin.failedLead",
   "monitor.runtimeLogin.login",
   "monitor.runtimeLogin.menuLabel",
+  "monitor.runtimeLogin.noLoginUrl",
   "monitor.runtimeLogin.noResponseCauses",
   "monitor.runtimeLogin.noResponseTail",
   "monitor.runtimeLogin.openUrl",

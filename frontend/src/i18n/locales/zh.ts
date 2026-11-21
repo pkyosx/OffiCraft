@@ -2157,6 +2157,7 @@ export const zh = {
       failedHeading: "登入失敗",
       codeRejected: "授權碼錯誤或已過期，請按「重新開始」取得新的授權網址",
       cliSaidLead: "Claude 回應：",
+      noLoginUrl: "Claude Code 沒有印出登入網址",
       titleCodex: "登入 Codex",
       codexSubtitleLead: "用你的 ChatGPT 帳號授權 ",
       codexSubtitleTail: " 上的 Codex",
