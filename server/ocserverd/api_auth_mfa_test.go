@@ -236,8 +236,13 @@ func TestHandleLoginProtectionApiAuthLoginProtectionGet(t *testing.T) {
 
 	t.Run("an activated TOTP factor answers 200 with mfa_enrolled true", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
-		_, enrolled := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`); status != 200 {
+			t.Fatalf("offer: want 200, got %d (%v)", status, data)
+		}
+		status, enrolled := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("enroll: want 200, got %d (%v)", status, enrolled)
+		}
 		secret, _ := enrolled["secret"].(string)
 		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
 			`{"password":"`+apiTestOwnerPassword+`","code":"`+apiTestTOTPCode(t, secret)+`"}`); status != 200 {
@@ -257,8 +262,12 @@ func TestHandleLoginProtectionApiAuthLoginProtectionGet(t *testing.T) {
 
 	t.Run("offering the factor without activating it answers 200 with mfa_enrolled false", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
-		apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`); status != 200 {
+			t.Fatalf("offer: want 200, got %d (%v)", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`); status != 200 {
+			t.Fatalf("enroll: want 200, got %d (%v)", status, data)
+		}
 		admin := apiTestAgentToken(t, api, "mira", "")
 
 		status, data := apiJSON(t, h, "GET", "/api/auth/login-protection", admin, "")
@@ -273,8 +282,13 @@ func TestHandleLoginProtectionApiAuthLoginProtectionGet(t *testing.T) {
 
 	t.Run("an activated factor stays mfa_enrolled true after the offer is withdrawn", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
-		_, enrolled := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`); status != 200 {
+			t.Fatalf("offer: want 200, got %d (%v)", status, data)
+		}
+		status, enrolled := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("enroll: want 200, got %d (%v)", status, enrolled)
+		}
 		secret, _ := enrolled["secret"].(string)
 		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
 			`{"password":"`+apiTestOwnerPassword+`","code":"`+apiTestTOTPCode(t, secret)+`"}`); status != 200 {
