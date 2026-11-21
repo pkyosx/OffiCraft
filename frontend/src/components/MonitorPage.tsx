@@ -2093,40 +2093,26 @@ function powerText(
 }
 
 type InstallOs = "mac" | "linux" | "windows";
+type InstallRuntime = "claude" | "codex";
 const INSTALL_OSES: InstallOs[] = ["mac", "linux", "windows"];
+const INSTALL_RUNTIMES: InstallRuntime[] = ["claude", "codex"];
 
 const CMD_BREW_INSTALL =
   '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
-const CMD_BREW_PATH =
+const CMD_BREW_ENV =
   "echo 'eval \"$(/opt/homebrew/bin/brew shellenv)\"' >> ~/.zprofile && eval \"$(/opt/homebrew/bin/brew shellenv)\"";
 const CMD_BREW_TMUX = "brew install tmux";
 const CMD_APT_TMUX = "sudo apt-get update && sudo apt-get install -y tmux curl";
-const CMD_CLAUDE_INSTALL = "curl -fsSL https://claude.ai/install.sh | bash";
-const CMD_CLAUDE = "claude";
-const CMD_PATH_ZSH =
-  "echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> ~/.zshrc && source ~/.zshrc";
-const CMD_PATH_BASH =
-  "echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> ~/.bashrc && source ~/.bashrc";
 const CMD_WSL_INSTALL = "wsl --install -d Ubuntu";
-// Same test bin/install.sh's preflight uses (sd_booted: /run/systemd/system).
-const CMD_SYSTEMD_CHECK = "[ -d /run/systemd/system ] && echo OK || echo OFF";
-// Idempotent and safe on an existing /etc/wsl.conf: drops any systemd= line,
-// puts systemd=true under an existing [boot] or appends a new [boot] section.
-const CMD_SYSTEMD_FIX =
-  'sudo sh -c \'f=/etc/wsl.conf; touch "$f"; awk "/^\\[boot\\]/{print; print \\"systemd=true\\"; b=1; next} /^systemd *=/{next} {print} END{if(!b) printf \\"\\n[boot]\\nsystemd=true\\n\\"}" "$f" > /tmp/oc-wsl.conf.new && cat /tmp/oc-wsl.conf.new > "$f"\'';
-const CMD_WSL_SHUTDOWN = "wsl.exe --shutdown";
-const CMD_WSL_UPDATE = "wsl --update";
+const RUNTIME_CMDS: Record<InstallRuntime, { install: string; login: string }> = {
+  claude: { install: "curl -fsSL https://claude.ai/install.sh | bash", login: "claude" },
+  codex: { install: "curl -fsSL https://chatgpt.com/codex/install.sh | sh", login: "codex" },
+};
 
-type InstallStep = { text: string; cmds?: string[]; note?: string; noteCmds?: string[] };
+type InstallStep = { title: string; sub?: string; cmd?: string };
 
 /** One command line the user is meant to paste, with its own copy button. */
-function CopyableCommand({
-  command,
-  testId,
-}: {
-  command: string;
-  testId?: string;
-}) {
+function CopyableCommand({ command }: { command: string }) {
   const { t } = useI18n();
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   async function copy() {
@@ -2139,7 +2125,7 @@ function CopyableCommand({
     window.setTimeout(() => setState("idle"), 1600);
   }
   return (
-    <div className="mon-install__cmd-line" data-testid={testId}>
+    <div className="mon-install__cmd-line">
       <code className="mon-install__cmd-text">{command}</code>
       <button
         type="button"
@@ -2159,12 +2145,12 @@ function CopyableCommand({
   );
 }
 
-/** The 安裝機器 dialog for a remote machine: per-OS terminal hints and
- * copy-pasteable steps, ending with the machine's own boot command. The boot
- * command is fetched ONCE when the dialog mounts and its copy button copies
- * exactly that displayed string — re-fetching on copy would mint a second claim
- * code and hand the user a command different from the one on screen. It carries
- * only the one-time claim code (never the warden token) and is never logged. */
+/** The 安裝機器 dialog for a remote machine: per-OS, per-runtime numbered steps
+ * ending with the machine's own boot command. The boot command is fetched ONCE
+ * when the dialog mounts and its copy button copies exactly that displayed
+ * string — re-fetching on copy would mint a second claim code and hand the user
+ * a command different from the one on screen. It carries only the one-time
+ * claim code (never the warden token) and is never logged. */
 export function MachineInstallDialog({
   machineId,
   displayName,
@@ -2177,6 +2163,7 @@ export function MachineInstallDialog({
   const { t } = useI18n();
   const m = t.monitor.machine;
   const [os, setOs] = useState<InstallOs>("mac");
+  const [runtime, setRuntime] = useState<InstallRuntime>("claude");
   const [command, setCommand] = useState<string | null>(null);
   const [fetchFailed, setFetchFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -2218,43 +2205,52 @@ export function MachineInstallDialog({
     linux: m.installOsLinux,
     windows: m.installOsWindows,
   };
-  const hints: Record<InstallOs, string[]> = {
-    mac: [m.installTermOpenMac, m.installTermPasteMac],
-    linux: [m.installTermOpenLinux, m.installTermPasteLinux],
-    windows: [m.installTermOpenWindows, m.installTermPasteWindows],
+  const runtimeLabel: Record<InstallRuntime, string> = {
+    claude: m.installRuntimeClaude,
+    codex: m.installRuntimeCodex,
   };
-  const claudeSteps = (login: string, pathFix: string): InstallStep[] => [
-    { text: m.installClaude, cmds: [CMD_CLAUDE_INSTALL] },
-    {
-      text: login,
-      cmds: [CMD_CLAUDE],
-      note: m.installClaudeNotFound,
-      noteCmds: [pathFix],
-    },
-  ];
+  const loginLead: Record<InstallOs, string> = {
+    mac: m.installSubLoginMac,
+    linux: m.installSubLoginLinux,
+    windows: m.installSubLoginWindows,
+  };
+  const runtimeSteps: InstallStep[] =
+    runtime === "claude"
+      ? [
+          { title: m.installStepClaude, cmd: RUNTIME_CMDS.claude.install },
+          {
+            title: m.installStepClaudeLogin,
+            sub: loginLead[os] + m.installSubLoginClaude,
+            cmd: RUNTIME_CMDS.claude.login,
+          },
+        ]
+      : [
+          { title: m.installStepCodex, cmd: RUNTIME_CMDS.codex.install },
+          {
+            title: m.installStepCodexLogin,
+            sub: loginLead[os] + m.installSubLoginCodex,
+            cmd: RUNTIME_CMDS.codex.login,
+          },
+        ];
   const steps: Record<InstallOs, InstallStep[]> = {
     mac: [
-      { text: m.installMacBrew, cmds: [CMD_BREW_INSTALL] },
-      { text: m.installMacBrewPath, cmds: [CMD_BREW_PATH] },
-      { text: m.installMacTmux, cmds: [CMD_BREW_TMUX] },
-      ...claudeSteps(m.installClaudeLoginMac, CMD_PATH_ZSH),
+      { title: m.installStepOpenTerminal, sub: m.installSubOpenMac },
+      { title: m.installStepBrew, sub: m.installSubPasswordLocal, cmd: CMD_BREW_INSTALL },
+      { title: m.installStepBrewEnv, cmd: CMD_BREW_ENV },
+      { title: m.installStepTmux, cmd: CMD_BREW_TMUX },
+      ...runtimeSteps,
     ],
     linux: [
-      { text: m.installAptTmux, cmds: [CMD_APT_TMUX] },
-      ...claudeSteps(m.installClaudeLoginLinux, CMD_PATH_BASH),
+      { title: m.installStepOpenTerminal, sub: m.installSubOpenLinux },
+      { title: m.installStepTmuxCurl, sub: m.installSubPasswordLocal, cmd: CMD_APT_TMUX },
+      ...runtimeSteps,
     ],
     windows: [
-      { text: m.installWinWsl, cmds: [CMD_WSL_INSTALL] },
-      { text: m.installWinUser, note: m.installWinDistro },
-      { text: m.installWinSystemdCheck, cmds: [CMD_SYSTEMD_CHECK] },
-      {
-        text: m.installWinSystemdFix,
-        cmds: [CMD_SYSTEMD_FIX, CMD_WSL_SHUTDOWN],
-        note: m.installWinOldWsl,
-        noteCmds: [CMD_WSL_UPDATE],
-      },
-      { text: m.installAptTmux, cmds: [CMD_APT_TMUX] },
-      ...claudeSteps(m.installClaudeLoginWindows, CMD_PATH_BASH),
+      { title: m.installStepOpenPowerShell, sub: m.installSubOpenPowerShell },
+      { title: m.installStepWsl, sub: m.installSubWsl, cmd: CMD_WSL_INSTALL },
+      { title: m.installStepUbuntuUser, sub: m.installSubUbuntuUser },
+      { title: m.installStepTmuxCurl, sub: m.installSubPasswordUbuntu, cmd: CMD_APT_TMUX },
+      ...runtimeSteps,
     ],
   };
   const copyLabel = copyFailed
@@ -2309,67 +2305,77 @@ export function MachineInstallDialog({
           ))}
         </div>
         <div
-          className="mon-install__panel"
+          className="mon-install__tabs mon-install__tabs--runtime"
+          role="radiogroup"
+          aria-label={m.installRuntimeLabel}
+        >
+          {INSTALL_RUNTIMES.map((r) => (
+            <button
+              key={r}
+              type="button"
+              role="radio"
+              aria-checked={runtime === r}
+              data-testid={`mon-install-runtime-${r}`}
+              className={`mon-install__tab${
+                runtime === r ? " mon-install__tab--active" : ""
+              }`}
+              onClick={() => setRuntime(r)}
+            >
+              {runtimeLabel[r]}
+            </button>
+          ))}
+        </div>
+        <ol
+          className="mon-install__steps"
           id="mon-install-steps"
           role="tabpanel"
           aria-labelledby={`mon-install-tab-${os}`}
           data-testid="mon-install-steps"
         >
-          <ul className="mon-install__hints" data-testid="mon-install-hints">
-            {hints[os].map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-            <li>{m.installTermPassword}</li>
-          </ul>
-          <ol className="mon-install__steps">
-            {steps[os].map((step) => (
-              <li key={step.text}>
-                {step.text}
-                {step.cmds?.map((c) => <CopyableCommand key={c} command={c} />)}
-                {step.note && <div className="mon-install__note">{step.note}</div>}
-                {step.noteCmds?.map((c) => (
-                  <CopyableCommand key={c} command={c} />
-                ))}
-              </li>
-            ))}
-            <li>
-              {m.installRunBootCmd}
-              {fetchFailed ? (
-                <div className="mon-cmd__row">
-                  <div className="mon-error">{m.copyBootCmdError}</div>
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
-                    data-testid="mon-boot-cmd-retry-btn"
-                    onClick={() => setAttempt((n) => n + 1)}
-                  >
-                    {m.installCmdRetry}
-                  </button>
-                </div>
-              ) : (
-                <div className="mon-cmd__row mon-install__cmd-row">
-                  <code
-                    className="mon-cmd__code mon-install__cmd"
-                    data-testid="mon-boot-cmd"
-                  >
-                    {command ?? m.installCmdLoading}
-                  </code>
-                  <button
-                    type="button"
-                    className="btn btn--accent-ghost"
-                    data-testid="mon-copy-boot-cmd-btn"
-                    disabled={command == null}
-                    onClick={() => void copyBoot()}
-                  >
-                    {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-                    <span>{copyLabel}</span>
-                  </button>
-                </div>
-              )}
-              <div className="mon-install__note">{m.installCmdOneTime}</div>
+          {steps[os].map((step) => (
+            <li key={step.title}>
+              <div className="mon-install__step-title">{step.title}</div>
+              {step.sub && <div className="mon-install__step-sub">{step.sub}</div>}
+              {step.cmd && <CopyableCommand command={step.cmd} />}
             </li>
-          </ol>
-        </div>
+          ))}
+          <li>
+            <div className="mon-install__step-title">{m.installStepOffiCraft}</div>
+            {fetchFailed ? (
+              <div className="mon-cmd__row mon-install__cmd-row">
+                <div className="mon-error">{m.copyBootCmdError}</div>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  data-testid="mon-boot-cmd-retry-btn"
+                  onClick={() => setAttempt((n) => n + 1)}
+                >
+                  {m.installCmdRetry}
+                </button>
+              </div>
+            ) : (
+              <div className="mon-cmd__row mon-install__cmd-row">
+                <code
+                  className="mon-cmd__code mon-install__cmd"
+                  data-testid="mon-boot-cmd"
+                >
+                  {command ?? m.installCmdLoading}
+                </code>
+                <button
+                  type="button"
+                  className="btn btn--accent-ghost"
+                  data-testid="mon-copy-boot-cmd-btn"
+                  disabled={command == null}
+                  onClick={() => void copyBoot()}
+                >
+                  {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+                  <span>{copyLabel}</span>
+                </button>
+              </div>
+            )}
+          </li>
+        </ol>
+        <p className="mon-install__note">{m.installCmdOneTime}</p>
       </div>
     </div>
   );
