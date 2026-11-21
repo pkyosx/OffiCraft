@@ -1357,26 +1357,38 @@ func TestBuildCommandDeps(t *testing.T) {
 					t.Fatalf("before the install: outcome = %+v, want %+v", got, want)
 				}
 
-				installed := stageBinary(t, filepath.Join(wardenHome, ".local", "bin", tc.runtime), "#!/bin/sh\nexit 1\n")
-				launchHas := []string{tc.binFlag + installed + " "}
-				if tc.runtime == "claude" {
-					promptFile := filepath.Join(box, "agents", "m1", "system-prompt.md")
-					runner.script[installed+" --append-system-prompt-file "+promptFile+" "+claudePromptFileProbeFlag] = wardenRun{
-						err: errors.New("exit status 1: error: unknown option '" + claudePromptFileProbeFlag + "'"),
+				// The second install moves the runtime to PATH, so a resolution
+				// cached from the first one would still launch the removed binary.
+				homeInstall := filepath.Join(wardenHome, ".local", "bin", tc.runtime)
+				pathInstall := filepath.Join(box, "path", tc.runtime)
+				for i, installed := range []string{homeInstall, pathInstall} {
+					if i > 0 {
+						if err := os.Remove(homeInstall); err != nil {
+							t.Fatal(err)
+						}
+						t.Setenv("PATH", filepath.Dir(pathInstall))
 					}
-					launchHas = append(launchHas, " --append-system-prompt-file "+promptFile)
-				}
-				d.Spawn(params)
+					stageBinary(t, installed, "#!/bin/sh\nexit 1\n")
+					launchHas := []string{tc.binFlag + installed + " "}
+					if tc.runtime == "claude" {
+						promptFile := filepath.Join(box, "agents", "m1", "system-prompt.md")
+						runner.script[installed+" --append-system-prompt-file "+promptFile+" "+claudePromptFileProbeFlag] = wardenRun{
+							err: errors.New("exit status 1: error: unknown option '" + claudePromptFileProbeFlag + "'"),
+						}
+						launchHas = append(launchHas, " --append-system-prompt-file "+promptFile)
+					}
+					d.Spawn(params)
 
-				launch := ""
-				for _, call := range runner.calls {
-					if strings.Contains(call, "new-session -d -s member-m1") {
-						launch = call
+					launch := ""
+					for _, call := range runner.calls {
+						if strings.Contains(call, "new-session -d -s member-m1") {
+							launch = call
+						}
 					}
-				}
-				for _, part := range launchHas {
-					if !strings.Contains(launch, part) {
-						t.Errorf("launch line lacks %q:\n%s", part, launch)
+					for _, part := range launchHas {
+						if !strings.Contains(launch, part) {
+							t.Errorf("install %d: launch line lacks %q:\n%s", i+1, part, launch)
+						}
 					}
 				}
 			})
