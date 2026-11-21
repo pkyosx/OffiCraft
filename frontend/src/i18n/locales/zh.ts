@@ -2243,6 +2243,7 @@ export const zh = {
       deleteMachine: "刪除",
       // 離線機器沒有可解除安裝的 warden(按鈕停用時的提示)
       uninstallOfflineHint: "機器離線，無法解除安裝",
+      installUninstallingHint: "解除安裝中，完成後才能安裝",
       // 解除安裝意圖已下、warden 尚未斷線 —— 與「安裝中…」同一套過渡態
       uninstallInProgress: "解除安裝中…",
       // install 對話框(非伺服器機器):依作業系統的步驟 + 畫在畫面上的安裝指令

@@ -180,6 +180,9 @@ describe("MonitorPage uninstall members guard", () => {
       expect(first.getAttribute("aria-disabled")).toBe("true");
       expect(first.textContent).toContain("解除安裝中");
     });
+    const install = await machineAction("mon-install-btn", 0);
+    expect(install.getAttribute("aria-disabled")).toBe("true");
+    expect(install.getAttribute("title")).toBe("解除安裝中，完成後才能安裝");
     // The sibling machine's verb stays the plain enabled label.
     const second = await machineAction("mon-uninstall-btn", 1);
     expect(second.getAttribute("aria-disabled")).toBeNull();

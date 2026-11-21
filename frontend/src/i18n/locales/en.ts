@@ -2198,6 +2198,7 @@ export const en: Dict = {
       deleteMachine: "Delete",
       // offline machine has no warden to uninstall (disabled-button tooltip)
       uninstallOfflineHint: "Machine is offline — cannot uninstall",
+      installUninstallingHint: "Uninstalling — install becomes available when it finishes",
       // uninstall intent armed, warden not yet disconnected — the same
       // in-progress treatment as "Installing…"
       uninstallInProgress: "Uninstalling…",
