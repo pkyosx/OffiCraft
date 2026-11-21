@@ -142,6 +142,26 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 3. 重新開啟 Ubuntu 視窗，再執行一次步驟 3 的安裝指令。
 
+**開始選單有多個 Ubuntu**
+
+1. 在 PowerShell 執行下列指令，查看每一套 Ubuntu 的名稱：
+
+   ```powershell
+   wsl -l -v
+   ```
+
+2. 逐一以名稱執行下列指令，顯示 `.officraft` 的那一套就是安裝 OffiCraft 的 Ubuntu：
+
+   ```powershell
+   wsl -d <名稱> --cd ~ -- ls -d .officraft
+   ```
+
+3. 之後都以下列指令開啟那一套 Ubuntu：
+
+   ```powershell
+   wsl -d <名稱>
+   ```
+
 **安裝程式提示 7755 埠已被占用**
 
 關閉占用 7755 埠的程式後，執行下列指令重新安裝（程式此時已安裝，需加上 `--force`）：
