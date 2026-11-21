@@ -165,8 +165,28 @@ wsl.exe --shutdown
 
 - **Claude Code 或 Codex 要裝在 Ubuntu 裡，並在 Ubuntu 裡登入。** 裝在 Windows 那一邊的 Claude Code 或 Codex，OffiCraft 找不到、也用不到。
 - **設定連結在 Windows 的瀏覽器打開。** WSL2 預設會把 Windows 上的 `127.0.0.1` 連線轉進 WSL2，所以安裝完成時印出的 `http://127.0.0.1:7755/?code=…` 連結，直接在 Windows 的瀏覽器打開即可。
-- **這台 Windows 裝了不只一套 Linux 時，用名稱打開裝 OffiCraft 的那一套。** 開始選單的「Ubuntu」不一定是裝 OffiCraft 的那一套，而且不同套的命令列提示可能長得一樣。在 PowerShell 執行 `wsl -l -v` 列出名稱，再用 `wsl -d <名稱>` 打開，例如 `wsl -d Ubuntu`。
+- **這台 Windows 裝了不只一套 Linux 時，用名稱打開裝 OffiCraft 的那一套。** 開始選單的「Ubuntu」不一定是裝 OffiCraft 的那一套，而且不同套的命令列提示可能長得一樣。找出是哪一套的步驟見下方「開始選單有多個 Ubuntu」。
 - **關掉所有 Ubuntu 視窗後，成員繼續在線。** 安裝時，OffiCraft 在 Windows 的「啟動」資料夾放一個保持 WSL2 執行的檔案並立刻執行一次，Windows 因此在視窗都關掉後仍讓 Ubuntu 繼續執行；每次登入 Windows 時，「啟動」資料夾裡的檔案會再執行一次。安裝時印出 `WARN: WSL keep-alive not set up` 時，檔案沒有設定好，關掉所有 Ubuntu 視窗後成員會離線。檔案的內容、手動替代做法與停止方式，見 [常見問題與排解](troubleshooting.md) 的「Windows（WSL2）關掉終端機後，成員會不會離線」。
+
+### 開始選單有多個 Ubuntu
+
+1. 在 PowerShell 執行下列指令，查看每一套 Ubuntu 的名稱：
+
+   ```powershell
+   wsl -l -v
+   ```
+
+2. 逐一以名稱執行下列指令，顯示 `.officraft` 的那一套就是安裝 OffiCraft 的 Ubuntu：
+
+   ```powershell
+   wsl -d <名稱> --cd ~ -- ls -d .officraft
+   ```
+
+3. 之後都以下列指令開啟那一套 Ubuntu：
+
+   ```powershell
+   wsl -d <名稱>
+   ```
 
 ---
 
