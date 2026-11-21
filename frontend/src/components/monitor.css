@@ -1004,10 +1004,6 @@
 .mon-install__cmd-line .mon-install__cmd-head {
   margin-top: 0;
 }
-.mon-install__cmd-label {
-  font-weight: 600;
-  color: var(--color-text);
-}
 .mon-install__cmd-body {
   display: flex;
   align-items: flex-start;

@@ -8,7 +8,7 @@
 
 ## 安裝
 
-支援 Apple Silicon 的 macOS、x86_64 與 arm64 的 Linux，以及 Windows（WSL2）；每個指令成功時會顯示「完成：步驟名稱」。
+支援 Apple Silicon 的 macOS、x86_64 與 arm64 的 Linux，以及 Windows（WSL2）。
 
 ### macOS（Apple Silicon）
 
@@ -18,51 +18,91 @@
 
 2. **安裝 Homebrew**
 
-   需輸入本機登入密碼，輸入時不顯示字元。
+   需輸入本機登入密碼，輸入時不顯示字元；已安裝 Homebrew 者略過本步驟。
 
-   **執行位置：終端機**
+   **執行位置：終端機 · 安裝**
 
    ```bash
-   (command -v brew >/dev/null 2>&1 || [ -x /opt/homebrew/bin/brew ] || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)") && echo '完成：安裝 Homebrew'
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
    ```
 
 3. **設定 Homebrew 環境變數**
 
-   **執行位置：終端機**
+   確認指令顯示 Homebrew 版本號即表示完成，已設定者可先執行確認指令判斷是否略過本步驟。
+
+   **執行位置：終端機 · 設定**
 
    ```bash
-   { grep -qs 'brew shellenv' ~/.zprofile || echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile; } && eval "$(/opt/homebrew/bin/brew shellenv)" && brew --version >/dev/null && echo '完成：設定 Homebrew 環境變數'
+   echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile && eval "$(/opt/homebrew/bin/brew shellenv)"
+   ```
+
+   **執行位置：終端機 · 確認**
+
+   ```bash
+   brew --version
    ```
 
 4. **安裝 tmux**
 
-   **執行位置：終端機**
+   確認指令顯示 tmux 版本號即表示完成，已安裝者可先執行確認指令判斷是否略過本步驟。
+
+   **執行位置：終端機 · 安裝**
 
    ```bash
-   (command -v tmux >/dev/null 2>&1 || brew install tmux) && tmux -V && echo '完成：安裝 tmux'
+   brew install tmux
+   ```
+
+   **執行位置：終端機 · 確認**
+
+   ```bash
+   tmux -V
    ```
 
 5. **安裝並登入 Claude Code 或 Codex**
 
-   依使用的工具執行對應指令，兩者皆使用時兩個指令皆執行；於瀏覽器完成登入後輸入 /exit 結束。
+   依使用的工具執行對應的一組指令（兩者皆使用時兩組皆執行），登入時於瀏覽器完成後輸入 /exit，確認指令顯示版本號與「Login method」（Claude Code）或「Logged in using」（Codex）即表示完成，已完成者可先執行確認指令判斷是否略過。
 
-   **執行位置：終端機｜Claude Code**
+   **執行位置：終端機 · Claude Code · 安裝**
 
    ```bash
-   (command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ] || curl -fsSL https://claude.ai/install.sh | bash) && echo '完成：安裝 Claude Code' && PATH="$HOME/.local/bin:$PATH" claude; PATH="$HOME/.local/bin:$PATH" claude auth status >/dev/null 2>&1 && echo '完成：登入 Claude Code'
+   curl -fsSL https://claude.ai/install.sh | bash && export PATH="$HOME/.local/bin:$PATH"
    ```
 
-   **執行位置：終端機｜Codex**
+   **執行位置：終端機 · Claude Code · 登入**
 
    ```bash
-   (command -v codex >/dev/null 2>&1 || [ -x "$HOME/.local/bin/codex" ] || curl -fsSL https://chatgpt.com/codex/install.sh | sh) && echo '完成：安裝 Codex' && PATH="$HOME/.local/bin:$PATH" codex; PATH="$HOME/.local/bin:$PATH" codex login status >/dev/null 2>&1 && echo '完成：登入 Codex'
+   claude
+   ```
+
+   **執行位置：終端機 · Claude Code · 確認**
+
+   ```bash
+   claude --version && claude auth status --text
+   ```
+
+   **執行位置：終端機 · Codex · 安裝**
+
+   ```bash
+   curl -fsSL https://chatgpt.com/codex/install.sh | sh && export PATH="$HOME/.local/bin:$PATH"
+   ```
+
+   **執行位置：終端機 · Codex · 登入**
+
+   ```bash
+   codex
+   ```
+
+   **執行位置：終端機 · Codex · 確認**
+
+   ```bash
+   codex --version && codex login status
    ```
 
 6. **安裝 OffiCraft**
 
    最後出現「✅ OffiCraft is installed and running in the background」即表示完成，以瀏覽器開啟其下「open:」後的設定連結並設定密碼；已安裝時略過此步驟，改由「設定 › 系統更新與備份」升級。
 
-   **執行位置：終端機**
+   **執行位置：終端機 · 安裝**
 
    ```bash
    curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
@@ -76,35 +116,65 @@
 
 2. **安裝 tmux 與 curl**
 
-   需輸入本機登入密碼，輸入時不顯示字元。
+   需輸入本機登入密碼（輸入時不顯示字元），確認指令顯示 tmux 與 curl 版本號即表示完成。
 
-   **執行位置：終端機**
+   **執行位置：終端機 · 安裝**
 
    ```bash
-   sudo apt-get update && sudo apt-get install -y tmux curl && echo '完成：安裝 tmux 與 curl'
+   sudo apt-get update && sudo apt-get install -y tmux curl
+   ```
+
+   **執行位置：終端機 · 確認**
+
+   ```bash
+   tmux -V && curl --version | head -n 1
    ```
 
 3. **安裝並登入 Claude Code 或 Codex**
 
-   依使用的工具執行對應指令，兩者皆使用時兩個指令皆執行；於瀏覽器完成登入後輸入 /exit 結束。
+   依使用的工具執行對應的一組指令（兩者皆使用時兩組皆執行），登入時於瀏覽器完成後輸入 /exit，確認指令顯示版本號與「Login method」（Claude Code）或「Logged in using」（Codex）即表示完成，已完成者可先執行確認指令判斷是否略過。
 
-   **執行位置：終端機｜Claude Code**
+   **執行位置：終端機 · Claude Code · 安裝**
 
    ```bash
-   (command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ] || curl -fsSL https://claude.ai/install.sh | bash) && echo '完成：安裝 Claude Code' && PATH="$HOME/.local/bin:$PATH" claude; PATH="$HOME/.local/bin:$PATH" claude auth status >/dev/null 2>&1 && echo '完成：登入 Claude Code'
+   curl -fsSL https://claude.ai/install.sh | bash && export PATH="$HOME/.local/bin:$PATH"
    ```
 
-   **執行位置：終端機｜Codex**
+   **執行位置：終端機 · Claude Code · 登入**
 
    ```bash
-   (command -v codex >/dev/null 2>&1 || [ -x "$HOME/.local/bin/codex" ] || curl -fsSL https://chatgpt.com/codex/install.sh | sh) && echo '完成：安裝 Codex' && PATH="$HOME/.local/bin:$PATH" codex; PATH="$HOME/.local/bin:$PATH" codex login status >/dev/null 2>&1 && echo '完成：登入 Codex'
+   claude
+   ```
+
+   **執行位置：終端機 · Claude Code · 確認**
+
+   ```bash
+   claude --version && claude auth status --text
+   ```
+
+   **執行位置：終端機 · Codex · 安裝**
+
+   ```bash
+   curl -fsSL https://chatgpt.com/codex/install.sh | sh && export PATH="$HOME/.local/bin:$PATH"
+   ```
+
+   **執行位置：終端機 · Codex · 登入**
+
+   ```bash
+   codex
+   ```
+
+   **執行位置：終端機 · Codex · 確認**
+
+   ```bash
+   codex --version && codex login status
    ```
 
 4. **安裝 OffiCraft**
 
    最後出現「✅ OffiCraft is installed and running in the background」即表示完成，以瀏覽器開啟其下「open:」後的設定連結並設定密碼；已安裝時略過此步驟，改由「設定 › 系統更新與備份」升級。
 
-   **執行位置：終端機**
+   **執行位置：終端機 · 安裝**
 
    ```bash
    curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
@@ -114,65 +184,95 @@
 
 1. **以系統管理員身分開啟 PowerShell**
 
-   於開始選單搜尋「PowerShell」並按右鍵選擇「以系統管理員身分執行」，指令以右鍵貼上後按 Enter。
-
-   **執行位置：PowerShell（系統管理員）**
-
-   ```powershell
-   if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { echo '完成：以系統管理員身分開啟 PowerShell' }
-   ```
+   於開始選單搜尋「PowerShell」並按右鍵選擇「以系統管理員身分執行」，視窗標題列顯示「系統管理員」即表示完成，指令以右鍵貼上後按 Enter。
 
 2. **安裝 WSL2 與 Ubuntu**
 
-   完成後重新開機；已安裝 Ubuntu 時略過此步驟。
+   安裝完成後重新開機，確認指令列出 Ubuntu 且 VERSION 為 2 即表示完成，已列出者略過本步驟。
 
-   **執行位置：PowerShell（系統管理員）**
+   **執行位置：PowerShell（系統管理員） · 安裝**
 
    ```powershell
-   wsl --install -d Ubuntu; if ($?) { echo '完成：安裝 WSL2 與 Ubuntu' }
+   wsl --install -d Ubuntu
+   ```
+
+   **執行位置：PowerShell（系統管理員） · 確認**
+
+   ```powershell
+   wsl -l -v
    ```
 
 3. **建立 Ubuntu 使用者帳號**
 
-   於開始選單開啟「Ubuntu」並依提示設定使用者名稱與密碼，出現「使用者名稱@電腦名稱:~$」即表示已進入 Ubuntu。
+   於開始選單開啟「Ubuntu」並依提示設定使用者名稱與密碼，確認指令顯示所設定的使用者名稱（非 root）即表示完成。
 
-   **執行位置：Ubuntu**
+   **執行位置：Ubuntu · 確認**
 
    ```bash
-   [ "$(id -u)" != 0 ] && whoami && echo '完成：建立 Ubuntu 使用者帳號'
+   whoami
    ```
 
 4. **安裝 tmux 與 curl**
 
-   需輸入 Ubuntu 使用者密碼，輸入時不顯示字元。
+   需輸入 Ubuntu 使用者密碼（輸入時不顯示字元），確認指令顯示 tmux 與 curl 版本號即表示完成。
 
-   **執行位置：Ubuntu**
+   **執行位置：Ubuntu · 安裝**
 
    ```bash
-   sudo apt-get update && sudo apt-get install -y tmux curl && echo '完成：安裝 tmux 與 curl'
+   sudo apt-get update && sudo apt-get install -y tmux curl
+   ```
+
+   **執行位置：Ubuntu · 確認**
+
+   ```bash
+   tmux -V && curl --version | head -n 1
    ```
 
 5. **安裝並登入 Claude Code 或 Codex**
 
-   依使用的工具執行對應指令，兩者皆使用時兩個指令皆執行；於瀏覽器完成登入後輸入 /exit 結束。
+   依使用的工具執行對應的一組指令（兩者皆使用時兩組皆執行），登入時於瀏覽器完成後輸入 /exit，確認指令顯示版本號與「Login method」（Claude Code）或「Logged in using」（Codex）即表示完成，已完成者可先執行確認指令判斷是否略過。
 
-   **執行位置：Ubuntu｜Claude Code**
+   **執行位置：Ubuntu · Claude Code · 安裝**
 
    ```bash
-   (command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ] || curl -fsSL https://claude.ai/install.sh | bash) && echo '完成：安裝 Claude Code' && PATH="$HOME/.local/bin:$PATH" claude; PATH="$HOME/.local/bin:$PATH" claude auth status >/dev/null 2>&1 && echo '完成：登入 Claude Code'
+   curl -fsSL https://claude.ai/install.sh | bash && export PATH="$HOME/.local/bin:$PATH"
    ```
 
-   **執行位置：Ubuntu｜Codex**
+   **執行位置：Ubuntu · Claude Code · 登入**
 
    ```bash
-   (command -v codex >/dev/null 2>&1 || [ -x "$HOME/.local/bin/codex" ] || curl -fsSL https://chatgpt.com/codex/install.sh | sh) && echo '完成：安裝 Codex' && PATH="$HOME/.local/bin:$PATH" codex; PATH="$HOME/.local/bin:$PATH" codex login status >/dev/null 2>&1 && echo '完成：登入 Codex'
+   claude
+   ```
+
+   **執行位置：Ubuntu · Claude Code · 確認**
+
+   ```bash
+   claude --version && claude auth status --text
+   ```
+
+   **執行位置：Ubuntu · Codex · 安裝**
+
+   ```bash
+   curl -fsSL https://chatgpt.com/codex/install.sh | sh && export PATH="$HOME/.local/bin:$PATH"
+   ```
+
+   **執行位置：Ubuntu · Codex · 登入**
+
+   ```bash
+   codex
+   ```
+
+   **執行位置：Ubuntu · Codex · 確認**
+
+   ```bash
+   codex --version && codex login status
    ```
 
 6. **安裝 OffiCraft**
 
    最後出現「✅ OffiCraft is installed and running in the background」即表示完成，以 Windows 瀏覽器開啟其下「open:」後的設定連結並設定密碼；已安裝時略過此步驟，改由「設定 › 系統更新與備份」升級。
 
-   **執行位置：Ubuntu**
+   **執行位置：Ubuntu · 安裝**
 
    ```bash
    curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash

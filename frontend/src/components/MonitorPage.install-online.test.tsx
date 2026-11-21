@@ -221,17 +221,12 @@ describe("MonitorPage install on an online machine", () => {
           el.querySelector("code")?.textContent?.includes(cmd)
         ) as HTMLElement;
       const wslLine = lineWith("wsl --install -d Ubuntu");
-      expect(wslLine.textContent).toContain("PowerShell（系統管理員）");
+      expect(wslLine.textContent).toContain("PowerShell（系統管理員） · 安裝");
       fireEvent.click(wslLine.querySelector("button") as HTMLButtonElement);
-      await waitFor(() =>
-        expect(writeText).toHaveBeenCalledWith(
-          "wsl --install -d Ubuntu; if ($?) { echo '完成：安裝 WSL2 與 Ubuntu' }"
-        )
-      );
-      expect(lineWith("sudo apt-get").textContent).toContain("Ubuntu");
-      expect(lineWith("sudo apt-get").querySelector("code")?.textContent).toBe(
-        "sudo apt-get update && sudo apt-get install -y tmux curl && echo '完成：安裝 tmux 與 curl'"
-      );
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("wsl --install -d Ubuntu"));
+      expect(lineWith("wsl -l -v").textContent).toContain("確認");
+      expect(lineWith("whoami").textContent).toContain("Ubuntu · 確認");
+      expect(lineWith("codex login status").textContent).toContain("Ubuntu · Codex · 確認");
       const codexLine = lineWith("chatgpt.com/codex/install.sh");
       expect(codexLine.textContent).toContain("Codex");
       fireEvent.click(codexLine.querySelector("button") as HTMLButtonElement);
