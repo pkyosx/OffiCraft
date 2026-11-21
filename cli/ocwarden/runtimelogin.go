@@ -113,7 +113,7 @@ func resolveExisting(path string) string {
 
 var loginIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// claude prints the sign-in URL as an OSC 8 hyperlink even without a TTY.
+// Some claude releases print the sign-in URL as an OSC 8 hyperlink even without a TTY.
 var (
 	osc8Link     = regexp.MustCompile(`\x1b\]8;[^;\x07\x1b]*;([^\x07\x1b]*)(?:\x07|\x1b\\)`)
 	oscSequence  = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
