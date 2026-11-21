@@ -2224,7 +2224,6 @@ export function MachineInstallDialog({
             {m.close}
           </button>
         </div>
-        <p className="mon-cmd__hint">{m.installRemoteHint}</p>
         <div
           className="mon-install__tabs"
           role="tablist"
@@ -2260,7 +2259,7 @@ export function MachineInstallDialog({
             <div className="mon-install__step" data-testid="mon-install-wsl">
               <div className="mon-install__step-title">{m.installWslTitle}</div>
               <div className="mon-install__step-sub">{m.installWslInstall}</div>
-              <CopyableCommand command="wsl --install -d Ubuntu" head={m.installWherePowerShell} />
+              <CopyableCommand command="wsl --install -d Ubuntu" />
               <div className="mon-install__step-sub">{m.installWslReboot}</div>
             </div>
           )}
@@ -2300,9 +2299,7 @@ export function MachineInstallDialog({
                 </button>
               </div>
             )}
-            <div className="mon-install__step-sub">{m.installSubOffiCraft}</div>
           </div>
-          <p className="mon-install__step-sub">{m.installAfterJoin}</p>
         </div>
         <p className="mon-install__note">{m.installCmdOneTime}</p>
       </div>

@@ -207,19 +207,19 @@ describe("MonitorPage install on an online machine", () => {
       fireEvent.click(await machineAction("mon-install-btn"));
       const steps = await screen.findByTestId("mon-install-steps");
       expect(screen.getByTestId("mon-install-paste-hint").textContent).toBe(
-        "按 ⌘+空白鍵搜尋「終端機」開啟後，貼上下方指令並按 Enter。"
+        "在「終端機」貼上並執行："
       );
-      expect(steps.textContent).toContain("監控 › 機器資訊");
+      expect(steps.textContent).toContain("需求：tmux，以及已登入的 Claude Code 或 Codex。");
       expect(screen.queryByTestId("mon-install-wsl")).toBeNull();
 
       fireEvent.click(screen.getByTestId("mon-install-tab-windows"));
 
       expect(screen.getByTestId("mon-install-tab-windows").getAttribute("aria-selected")).toBe("true");
       expect(screen.getByTestId("mon-install-paste-hint").textContent).toBe(
-        "於開始選單開啟「Ubuntu」，在 Ubuntu 視窗按右鍵貼上下方指令並按 Enter；不要貼在 PowerShell。"
+        "在「Ubuntu」視窗貼上並執行（不是 PowerShell）："
       );
       const wsl = screen.getByTestId("mon-install-wsl");
-      expect(wsl.textContent).toContain("PowerShell（系統管理員）");
+      expect(wsl.textContent).toContain("以系統管理員身分開啟 PowerShell");
       fireEvent.click(wsl.querySelector(".mon-install__cmd-line button") as HTMLButtonElement);
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("wsl --install -d Ubuntu"));
       expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
