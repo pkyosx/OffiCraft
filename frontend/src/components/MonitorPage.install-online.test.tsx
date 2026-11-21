@@ -197,17 +197,30 @@ describe("MonitorPage install on an online machine", () => {
       await screen.findByText("已複製");
     });
 
-    it("shows the steps for the chosen operating system", async () => {
+    it("shows the chosen operating system's steps, each command with a copy button that copies that command", async () => {
+      const writeText = vi.fn(async (_text: string) => {});
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText },
+        configurable: true,
+      });
       renderMonitor();
       fireEvent.click(await machineAction("mon-install-btn"));
       const steps = await screen.findByTestId("mon-install-steps");
-      expect(steps.textContent).toContain("Spotlight");
+      expect(steps.textContent).toContain("⌘＋空白鍵");
+      expect(steps.textContent).toContain("brew install tmux");
+      expect(steps.textContent).toContain("curl -fsSL https://claude.ai/install.sh | bash");
 
       fireEvent.click(screen.getByTestId("mon-install-tab-windows"));
 
-      expect(steps.textContent).toContain("wsl --install -d Ubuntu");
-      expect(steps.textContent).toContain("不要貼在 PowerShell 或命令提示字元");
       expect(screen.getByTestId("mon-install-tab-windows").getAttribute("aria-selected")).toBe("true");
+      expect(steps.textContent).toContain("以系統管理員身分執行");
+      expect(steps.textContent).toContain("[ -d /run/systemd/system ] && echo OK || echo OFF");
+      const wslLine = Array.from(steps.querySelectorAll(".mon-install__cmd-line")).find(
+        (el) => el.querySelector("code")?.textContent === "wsl --install -d Ubuntu"
+      ) as HTMLElement;
+      fireEvent.click(wslLine.querySelector("button") as HTMLButtonElement);
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("wsl --install -d Ubuntu"));
+      expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
     });
 
     it("offers to generate the command again when fetching it fails", async () => {
