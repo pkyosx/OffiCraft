@@ -42,7 +42,7 @@ vi.mock("../api", () => ({
     listTaskTypes: () => Promise.resolve([]),
     getServerSettings: () => Promise.resolve({ outsourceMaxParallel: 0 }),
     bootstrapOnServer: () => Promise.resolve({ ok: true, exitCode: 0, log: "" }),
-    getMachineBootCommand: () => Promise.resolve("curl … | sh"),
+    getMachineBootCommand: () => Promise.resolve({ command: "curl … | sh", expiresInSecs: 600 }),
     getBackupHealth: () =>
       Promise.resolve({
         status: "healthy",

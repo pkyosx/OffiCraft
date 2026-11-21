@@ -207,14 +207,14 @@ fi
 if ! CLAIM_RESPONSE="$(curl -fsS -X POST "` + baseURL + `/api/machines/claim" \
   -H 'Content-Type: application/json' --data '{"code":"` + code + `"}')"; then
   echo "Error: this install link has expired or was already used." >&2
-  echo "Fix: open the cockpit -> Machines -> boot command, and run the fresh one-liner." >&2
+  echo "Fix: in the control panel, open Monitor › Machines (監控 › 機器資訊), choose Install from this machine's menu, press 「重新產生指令」 (Regenerate command), and run the new command." >&2
   exit 1
 fi
 # The token is a base64url JWT — no quote/backslash can appear inside it.
 OC_TOKEN="$(printf '%s' "$CLAIM_RESPONSE" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
 if [ -z "$OC_TOKEN" ]; then
   echo "Error: this install link has expired or was already used." >&2
-  echo "Fix: open the cockpit -> Machines -> boot command, and run the fresh one-liner." >&2
+  echo "Fix: in the control panel, open Monitor › Machines (監控 › 機器資訊), choose Install from this machine's menu, press 「重新產生指令」 (Regenerate command), and run the new command." >&2
   exit 1
 fi
 

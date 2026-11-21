@@ -1032,15 +1032,25 @@
 .mon-install__cmd-row {
   margin-top: 0;
 }
-.mon-install__box .mon-install__cmd-row .btn {
+.mon-install__cmd-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.mon-install__cmd--expired {
+  opacity: 0.5;
+}
+.mon-install__box .mon-install__cmd-row .mon-install__cmd-actions {
   align-self: center;
 }
 @media (max-width: 720px) {
   .mon-install__cmd-row {
     flex-direction: column;
   }
-  .mon-install__box .mon-install__cmd-row .btn {
+  .mon-install__box .mon-install__cmd-row .mon-install__cmd-actions {
     align-self: flex-start;
+    flex-direction: row;
   }
 }
 
