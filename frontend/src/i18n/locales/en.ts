@@ -2217,7 +2217,6 @@ export const en: Dict = {
       installCmdLoading: "Generating the install command…",
       installCmdRetry: "Generate again",
       installCmdOneTime: "The command works once and is valid for 10 minutes.",
-      copyCmd: "Copy",
       copyCmdError: "Copy failed",
       copyBootCmd: "Copy install command",
       copyBootCmdError: "Failed to fetch command",

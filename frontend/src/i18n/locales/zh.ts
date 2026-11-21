@@ -2261,7 +2261,6 @@ export const zh = {
       installCmdLoading: "正在產生安裝指令…",
       installCmdRetry: "重新產生",
       installCmdOneTime: "指令僅能使用一次，10 分鐘內有效。",
-      copyCmd: "複製",
       copyCmdError: "複製失敗",
       copyBootCmd: "複製安裝指令",
       copyBootCmdError: "取得指令失敗",

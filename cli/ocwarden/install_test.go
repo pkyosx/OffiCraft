@@ -2154,7 +2154,7 @@ func TestRunInstall(t *testing.T) {
 			t.Errorf("a refused install still did %v", sys.calls)
 		}
 		want := "[ocwarden install] FATAL: neither Claude Code nor Codex is installed on this machine — NOTHING was installed\n" +
-			"[ocwarden install] FATAL: runtime_bin_unresolved: install one of them, run it once to sign in, then re-run this install command:\n" +
+			"[ocwarden install] FATAL: runtime_bin_unresolved: install one of them and run it once to sign in, then get a fresh install command from the control panel's 「安裝機器」 dialog and run it (a station install via install.sh can simply be re-run):\n" +
 			"[ocwarden install] FATAL:   Claude Code: curl -fsSL https://claude.ai/install.sh | bash   (then sign in: claude)\n" +
 			"[ocwarden install] FATAL:   Codex:       curl -fsSL https://chatgpt.com/codex/install.sh | sh   (then sign in: codex)\n" +
 			"[ocwarden install] FATAL:   already installed elsewhere? set OC_CLAUDE_BIN or OC_CODEX_BIN to its absolute path\n"

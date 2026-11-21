@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bin/tests/install-doc-mirror-guard.sh — README.md and docs/guide/install.md
-# carry the SAME install instructions word for word (owner ruling, PR #721): the
+# carry the SAME install instructions word for word (owner ruling): the
 # README for GitHub readers, the guide for the cockpit's 使用說明 and for Mira
 # (get_doc). Edit one copy and forget the other, and a reader of one gets steps
 # the other no longer gives. Nothing else compares the two files.
