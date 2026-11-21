@@ -34,6 +34,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -395,8 +396,12 @@ func TestListViewOmitsTheTextButNotItsSize(t *testing.T) {
 	}
 
 	list := listManuals(t, s)
-	if len(list) != 3 || list[0].TypeKey != "tm-sized" {
-		t.Fatalf("want tm-sized listed ahead of the two built-in manuals, got %+v", list)
+	gotKeys := make([]string, len(list))
+	for i, m := range list {
+		gotKeys[i] = m.TypeKey
+	}
+	if want := []string{"tm-sized", "builtin-task-manual-design", "builtin-role-design", "builtin-remote-access"}; !reflect.DeepEqual(gotKeys, want) {
+		t.Fatalf("listed type keys = %v, want %v", gotKeys, want)
 	}
 	got := list[0]
 	// The narrowing still happened — otherwise this test would pass on the

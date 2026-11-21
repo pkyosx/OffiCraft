@@ -172,12 +172,6 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:    w.HandleMfaStateApiAuthMfaGet,
 			MCPExclude: true,
 		}),
-		Gated(principalAdminAgent, routeDef{
-			Method:  "GET",
-			Path:    "/api/auth/login-protection",
-			Handler: w.HandleLoginProtectionApiAuthLoginProtectionGet,
-			MCPTool: "get_login_protection",
-		}),
 		Gated(principalOwner, routeDef{
 			Method:     "POST",
 			Path:       "/api/auth/mfa/offer",
@@ -1533,6 +1527,12 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Path:    "/api/shared-docs/{doc_id}",
 			Handler: w.HandleDeleteSharedDocApiSharedDocsDocIdDelete,
 			MCPTool: "delete_shared_doc",
+		}),
+		Gated(principalAdminAgent, routeDef{
+			Method:  "GET",
+			Path:    "/api/auth/login-protection",
+			Handler: w.HandleLoginProtectionApiAuthLoginProtectionGet,
+			MCPTool: "get_login_protection",
 		}),
 	}
 	out := make([]RouteSpec, len(rows))
