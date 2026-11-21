@@ -42,7 +42,7 @@ func apiBuiltinManualSizeRows(capChars int) []any {
 		},
 		map[string]any{
 			"type_key": "builtin-remote-access",
-			"sop":      map[string]any{"size_chars": 3405, "cap_chars": capChars},
+			"sop":      map[string]any{"size_chars": 3605, "cap_chars": capChars},
 		},
 	}
 }
@@ -96,7 +96,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 				},
 				map[string]any{
 					"type_key": "builtin-remote-access",
-					"sop":      map[string]any{"size_chars": 3405, "cap_chars": 15000},
+					"sop":      map[string]any{"size_chars": 3605, "cap_chars": 15000},
 				},
 			},
 		})
@@ -154,7 +154,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 				},
 				map[string]any{
 					"type_key": "builtin-remote-access",
-					"sop":      map[string]any{"size_chars": 3405, "cap_chars": 30000},
+					"sop":      map[string]any{"size_chars": 3605, "cap_chars": 30000},
 				},
 			},
 		})
