@@ -197,7 +197,7 @@ describe("MonitorPage install on an online machine", () => {
       await screen.findByText("已複製");
     });
 
-    it("shows the steps for the chosen operating system and AI tool, each command with a copy button that copies that command", async () => {
+    it("shows the steps for the chosen operating system, each command with a copy button that copies that command", async () => {
       const writeText = vi.fn(async (_text: string) => {});
       Object.defineProperty(navigator, "clipboard", {
         value: { writeText },
@@ -208,23 +208,36 @@ describe("MonitorPage install on an online machine", () => {
       const steps = await screen.findByTestId("mon-install-steps");
       expect(steps.textContent).toContain("⌘+空白鍵");
       expect(steps.textContent).toContain("brew install tmux");
+      expect(steps.textContent).toContain("安裝並登入 Claude Code 或 Codex");
       expect(steps.textContent).toContain("curl -fsSL https://claude.ai/install.sh | bash");
-
-      fireEvent.click(screen.getByTestId("mon-install-runtime-codex"));
-
       expect(steps.textContent).toContain("curl -fsSL https://chatgpt.com/codex/install.sh | sh");
-      expect(steps.textContent).toContain("Sign in with ChatGPT");
 
       fireEvent.click(screen.getByTestId("mon-install-tab-windows"));
 
       expect(screen.getByTestId("mon-install-tab-windows").getAttribute("aria-selected")).toBe("true");
       expect(steps.textContent).toContain("以系統管理員身分開啟 PowerShell");
-      expect(steps.textContent).toContain("登入 Codex");
-      const wslLine = Array.from(steps.querySelectorAll(".mon-install__cmd-line")).find(
-        (el) => el.querySelector("code")?.textContent === "wsl --install -d Ubuntu"
-      ) as HTMLElement;
+      const lineWith = (cmd: string) =>
+        Array.from(steps.querySelectorAll(".mon-install__cmd-line")).find((el) =>
+          el.querySelector("code")?.textContent?.includes(cmd)
+        ) as HTMLElement;
+      const wslLine = lineWith("wsl --install -d Ubuntu");
+      expect(wslLine.textContent).toContain("PowerShell（系統管理員）");
       fireEvent.click(wslLine.querySelector("button") as HTMLButtonElement);
-      await waitFor(() => expect(writeText).toHaveBeenCalledWith("wsl --install -d Ubuntu"));
+      await waitFor(() =>
+        expect(writeText).toHaveBeenCalledWith(
+          "wsl --install -d Ubuntu; if ($?) { echo '完成：安裝 WSL2 與 Ubuntu' }"
+        )
+      );
+      expect(lineWith("sudo apt-get").textContent).toContain("Ubuntu");
+      expect(lineWith("sudo apt-get").querySelector("code")?.textContent).toBe(
+        "sudo apt-get update && sudo apt-get install -y tmux curl && echo '完成：安裝 tmux 與 curl'"
+      );
+      const codexLine = lineWith("chatgpt.com/codex/install.sh");
+      expect(codexLine.textContent).toContain("Codex");
+      fireEvent.click(codexLine.querySelector("button") as HTMLButtonElement);
+      await waitFor(() =>
+        expect(writeText).toHaveBeenLastCalledWith(codexLine.querySelector("code")?.textContent)
+      );
       expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
     });
 
