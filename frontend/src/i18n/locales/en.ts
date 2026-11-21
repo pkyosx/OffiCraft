@@ -2203,31 +2203,49 @@ export const en: Dict = {
       uninstallInProgress: "Uninstalling…",
       // install dialog (non-server machines): per-OS steps + the command shown on screen
       installTitle: "Install machine",
-      installRemoteHint:
-        "On the machine you are adding, follow the steps below to run the install command.",
-      installPrereq:
-        "That machine needs tmux and at least one of Claude Code or Codex installed and logged in.",
+      installRemoteHint: "On the machine you are adding, paste the commands below step by step.",
       installOsLabel: "Operating system",
       installOsMac: "macOS",
       installOsLinux: "Linux",
       installOsWindows: "Windows (WSL2)",
-      installMacStep:
-        "Open the Terminal app (search for \"Terminal\" in Spotlight), paste the install command below and press Enter.",
-      installLinuxStep:
-        "Open a terminal, or SSH into the machine, paste the install command below and press Enter.",
+      installTermOpenMac: "Press ⌘+Space, type \"Terminal\" and press Enter to open Terminal.",
+      installTermOpenLinux:
+        "Press Ctrl+Alt+T (or open \"Terminal\" from your apps) to open a terminal, or SSH into the machine.",
+      installTermOpenWindows: "Click \"Ubuntu\" in the Start menu to open the Ubuntu window.",
+      installTermPasteMac: "For each command: click Copy next to it, press ⌘V in Terminal, then press Enter.",
+      installTermPasteLinux:
+        "For each command: click Copy next to it, press Ctrl+Shift+V in the terminal, then press Enter.",
+      installTermPasteWindows:
+        "For each command: click Copy next to it, right-click inside the window to paste, then press Enter.",
+      installTermPassword: "Nothing shows while you type a password; type it and press Enter.",
+      installMacBrew: "Install Homebrew (if asked to install the \"command line developer tools\", click Install):",
+      installMacBrewPath: "Then paste:",
+      installMacTmux: "Install tmux:",
+      installAptTmux: "Install tmux and curl:",
+      installClaude: "Install Claude Code:",
+      installClaudeLoginMac:
+        "Press ⌘N for a new Terminal window, paste claude and log in in the browser as shown; then type /exit and press Enter:",
+      installClaudeLoginLinux:
+        "Open a new terminal window, paste claude and log in in the browser as shown; then type /exit and press Enter:",
+      installClaudeLoginWindows:
+        "Close the Ubuntu window, open \"Ubuntu\" again from the Start menu, paste claude and log in in the browser as shown; then type /exit and press Enter:",
+      installClaudeNotFound: "If you see \"command not found: claude\", paste this line, then paste claude again:",
+      installRunBootCmd: "Paste this machine's install command:",
       installWinWsl:
-        "First install Ubuntu on WSL2: open PowerShell as administrator, run the command below, restart the computer, then open \"Ubuntu\" from the Start menu and create a user name and password when asked.",
-      installWinSystemd:
-        "Turn on systemd in WSL2 (OffiCraft runs in the background of Ubuntu through systemd, which WSL2 leaves off by default): add the two lines [boot] and systemd=true to /etc/wsl.conf, then run wsl.exe --shutdown in PowerShell and reopen the Ubuntu window. wsl.exe --shutdown stops every running WSL2 Linux on this Windows computer.",
-      installWinOpen:
-        "Open the \"Ubuntu\" window from the Start menu. Once you see the Linux command line, paste the install command below and press Enter. Do not paste it into PowerShell or Command Prompt. tmux and Claude Code (or Codex) must be installed and logged in inside Ubuntu.",
+        "Start menu → search \"PowerShell\" → right-click → \"Run as administrator\", paste this line; restart the computer when it finishes:",
+      installWinUser:
+        "Open \"Ubuntu\" from the Start menu and set a user name and password. Paste every command from here on into the Ubuntu window, not PowerShell.",
+      installWinSystemdCheck: "Paste this line: if it shows OK, skip the next step; if it shows OFF, do the next step.",
+      installWinSystemdFix:
+        "Paste these two lines in order, open \"Ubuntu\" again from the Start menu, and repeat the previous step to see OK. The second line stops every running Linux on this Windows computer.",
+      installWinOldWsl: "If it keeps showing OFF, paste this line into PowerShell, then redo this step:",
       installWinDistro:
-        "If Windows has more than one Linux installed, run wsl -l -v in PowerShell to list their names, then open the one you are installing OffiCraft on with wsl -d <name>.",
+        "More than one Linux installed? In PowerShell, list the names with wsl -l -v, then open the right one with wsl -d followed by its name.",
       installCmdLoading: "Generating the install command…",
       installCmdRetry: "Generate again",
-      installCmdOneTime:
-        "The install command works only once and also expires after a while. When the install command has expired, close this window and open it again to get a new install command.",
-      // fetched once when the install dialog opens (GET /boot-command; mints a one-time code)
+      installCmdOneTime: "The install command works once and expires after a while; if it has expired, close this window and open it again.",
+      copyCmd: "Copy",
+      copyCmdError: "Copy failed",
       copyBootCmd: "Copy install command",
       copyBootCmdError: "Failed to fetch command",
       copyBootCmdCopyError: "Copy failed — select the install command above instead",

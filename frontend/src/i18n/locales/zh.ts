@@ -2247,31 +2247,49 @@ export const zh = {
       uninstallInProgress: "解除安裝中…",
       // install 對話框(非伺服器機器):依作業系統的步驟 + 畫在畫面上的安裝指令
       installTitle: "安裝機器",
-      installRemoteHint:
-        "到要加入的那台機器上，照下面的步驟執行安裝指令，就能完成安裝。",
-      installPrereq:
-        "那台機器要先裝好 tmux，以及 Claude Code 或 Codex（至少一種），並且已經登入。",
+      installRemoteHint: "在要加入的那台機器上，照下面的步驟貼上指令。",
       installOsLabel: "作業系統",
       installOsMac: "macOS",
       installOsLinux: "Linux",
       installOsWindows: "Windows（WSL2）",
-      installMacStep:
-        "打開「終端機」App（可用 Spotlight 搜尋「終端機」），貼上下方的安裝指令後按 Enter。",
-      installLinuxStep:
-        "打開終端機，或用 SSH 連進那台機器，貼上下方的安裝指令後按 Enter。",
+      installTermOpenMac: "按 ⌘＋空白鍵，輸入「終端機」後按 Enter，打開終端機。",
+      installTermOpenLinux:
+        "按 Ctrl＋Alt＋T（或從應用程式打開「終端機」），打開終端機；也可以用 SSH 連進那台機器。",
+      installTermOpenWindows: "從開始選單點「Ubuntu」，打開 Ubuntu 視窗。",
+      installTermPasteMac: "每個指令：按旁邊的「複製」，在終端機按 ⌘V 貼上，再按 Enter。",
+      installTermPasteLinux:
+        "每個指令：按旁邊的「複製」，在終端機按 Ctrl＋Shift＋V 貼上，再按 Enter。",
+      installTermPasteWindows:
+        "每個指令：按旁邊的「複製」，在視窗裡按滑鼠右鍵貼上，再按 Enter。",
+      installTermPassword: "輸入密碼時畫面不會顯示，打完按 Enter。",
+      installMacBrew: "安裝 Homebrew（跳出安裝「指令列開發者工具」時，按「安裝」）：",
+      installMacBrewPath: "接著貼上：",
+      installMacTmux: "安裝 tmux：",
+      installAptTmux: "安裝 tmux 與 curl：",
+      installClaude: "安裝 Claude Code：",
+      installClaudeLoginMac:
+        "按 ⌘N 開新的終端機視窗，貼上 claude，照畫面在瀏覽器登入；登入後輸入 /exit 按 Enter：",
+      installClaudeLoginLinux:
+        "開新的終端機視窗，貼上 claude，照畫面在瀏覽器登入；登入後輸入 /exit 按 Enter：",
+      installClaudeLoginWindows:
+        "關掉 Ubuntu 視窗，從開始選單重新打開「Ubuntu」，貼上 claude，照畫面在瀏覽器登入；登入後輸入 /exit 按 Enter：",
+      installClaudeNotFound: "出現「command not found: claude」時，貼上這行，再重新貼 claude：",
+      installRunBootCmd: "貼上這台機器的安裝指令：",
       installWinWsl:
-        "先裝好 WSL2 的 Ubuntu：以系統管理員身分打開 PowerShell，執行下面這行指令，完成後重新開機，再從開始選單打開「Ubuntu」，依提示建立使用者名稱與密碼。",
-      installWinSystemd:
-        "在 WSL2 打開 systemd（OffiCraft 靠 systemd 在 Ubuntu 背景執行，WSL2 預設沒有打開）：在 /etc/wsl.conf 加上 [boot] 與 systemd=true 兩行，再在 PowerShell 執行 wsl.exe --shutdown，重新打開「Ubuntu」視窗後生效。wsl.exe --shutdown 會關掉這台 Windows 上所有執行中的 WSL2 Linux。",
-      installWinOpen:
-        "從開始選單打開「Ubuntu」視窗，看到 Linux 命令列後，貼上下方的安裝指令並按 Enter。不要貼在 PowerShell 或命令提示字元。tmux 與 Claude Code（或 Codex）要裝在 Ubuntu 裡，並在 Ubuntu 裡登入。",
+        "開始選單搜尋「PowerShell」→ 按右鍵 →「以系統管理員身分執行」，貼上這行；完成後重新開機：",
+      installWinUser:
+        "從開始選單打開「Ubuntu」，設定使用者名稱與密碼。之後的指令都貼在 Ubuntu 視窗，不要貼在 PowerShell。",
+      installWinSystemdCheck: "貼上這行：顯示 OK 就跳過下一步；顯示 OFF 就做下一步。",
+      installWinSystemdFix:
+        "依序貼上這兩行，再從開始選單重新打開「Ubuntu」，重做上一步，確認顯示 OK。第二行會停掉這台 Windows 上所有正在執行的 Linux。",
+      installWinOldWsl: "一直顯示 OFF 時，在 PowerShell 貼上這行，再重做這一步：",
       installWinDistro:
-        "Windows 上裝了不只一套 Linux 時，在 PowerShell 執行 wsl -l -v 列出每一套 Linux 的名稱，再用 wsl -d <名稱> 打開要安裝 OffiCraft 的那一套。",
+        "裝了不只一套 Linux 時：在 PowerShell 用 wsl -l -v 查名稱，再用 wsl -d 名稱 打開要裝的那一套。",
       installCmdLoading: "正在產生安裝指令…",
       installCmdRetry: "重新產生",
-      installCmdOneTime:
-        "安裝指令只能使用一次，過一段時間也會失效。安裝指令失效時，關掉這個視窗再重新打開，會產生新的安裝指令。",
-      // 打開安裝對話框時取一次 (GET /boot-command,會重新產生一次性安裝碼)
+      installCmdOneTime: "安裝指令只能用一次，過一陣子會失效；失效時關掉這個視窗再打開。",
+      copyCmd: "複製",
+      copyCmdError: "複製失敗",
       copyBootCmd: "複製安裝指令",
       copyBootCmdError: "取得指令失敗",
       copyBootCmdCopyError: "複製失敗，請直接選取上方的安裝指令",

@@ -8,157 +8,169 @@
 
 ## 安裝
 
-依你的作業系統，選下面其中一節照著做。每一節都從頭寫到尾，只看那一節就能裝好。支援 Apple Silicon（M 系列晶片）的 Mac、x86_64 與 arm64 的 Linux，以及 Windows 上透過 WSL2 執行的 Ubuntu；不支援直接在 Windows 上執行。
-
-每位成員底下就是一個跑在 `tmux` 裡的 Claude Code 或 Codex session，所以每種系統都要先準備兩樣東西：`tmux` 3.0 以上，以及已經登入的 Claude Code（2.1.287 以上）或 Codex，至少一種。下面以 Claude Code 為例。
+支援 Apple Silicon 的 Mac、x86_64 與 arm64 的 Linux、Windows（WSL2 裡的 Ubuntu）。選你的電腦，照步驟做。
 
 ### macOS（Apple Silicon）
 
-1. **打開「終端機」App。** 可以用 Spotlight（⌘ + 空白鍵）搜尋「終端機」。下面每一步的指令都貼在這個視窗裡，按 Enter 執行。
-2. **裝 `tmux`。** 需要先有 Homebrew（macOS 上常用的軟體安裝工具）：
+- 按 ⌘＋空白鍵，輸入「終端機」後按 Enter，打開終端機。
+- 每個指令：複製（滑鼠移到指令框上，右上角有複製按鈕），在終端機按 ⌘V 貼上，再按 Enter。
+- 輸入密碼時畫面不會顯示，打完按 Enter。
+
+1. 安裝 Homebrew（跳出安裝「指令列開發者工具」時，按「安裝」）：
+
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+2. 接著貼上：
+
+   ```bash
+   echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile && eval "$(/opt/homebrew/bin/brew shellenv)"
+   ```
+
+3. 安裝 tmux：
 
    ```bash
    brew install tmux
    ```
 
-3. **裝 Claude Code。** 需要先有 Node.js（`npm` 隨 Node.js 一起安裝）：
+4. 安裝 Claude Code：
 
    ```bash
-   npm install -g @anthropic-ai/claude-code
+   curl -fsSL https://claude.ai/install.sh | bash
    ```
 
-4. **登入 Claude Code。** 執行 `claude`，依畫面指示登入。成員要用這個登入才能工作。
+5. 按 ⌘N 開新的終端機視窗，貼上 `claude`，照畫面在瀏覽器登入；登入後輸入 `/exit` 按 Enter：
 
    ```bash
    claude
    ```
 
-5. **安裝 OffiCraft：**
+   出現「command not found: claude」時，貼上這行，再重新貼 `claude`：
+
+   ```bash
+   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+   ```
+
+6. 安裝 OffiCraft：
 
    ```bash
    curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
    ```
 
-   這一行會下載最新版、確認檔案完整無誤後才安裝；這台電腦缺東西時會停下來，並印出要補裝什麼。
-
-6. **打開設定連結。** 安裝成功時，終端機最後會印出一行開頭是 `http://127.0.0.1:7755/?code=` 的設定連結。在瀏覽器打開這條連結，設定 owner 密碼。
-7. **密碼設好後，系統會自動把這台電腦準備好，並喚醒助理 Mira。** OffiCraft 在背景一直執行，關掉終端機也不會停，電腦重開後也會自動啟動。
+7. 按住 ⌘ 點終端機最後印出的 `http://127.0.0.1:7755/?code=…` 連結，在瀏覽器設定 owner 密碼。設好後助理 Mira 會自動醒來。
 
 ### Linux
 
-1. **打開終端機。** 用桌面環境的終端機，或用 SSH 連進那台機器。下面每一步的指令都貼在終端機裡，按 Enter 執行。
-2. **確認 systemd 正在執行。** OffiCraft 在 Linux 上以 systemd 的使用者服務在背景執行；systemd 沒有在執行時，安裝腳本會停下。大多數 Linux 發行版預設就有。
-3. **裝 `tmux`。** Ubuntu 與 Debian 用 `apt-get`，`sudo` 會要求輸入這台電腦的登入密碼；其他發行版用各自的軟體安裝工具：
+- 按 Ctrl＋Alt＋T（或從應用程式打開「終端機」），打開終端機；也可以用 SSH 連進那台機器。
+- 每個指令：複製（滑鼠移到指令框上，右上角有複製按鈕），在終端機按 Ctrl＋Shift＋V 貼上，再按 Enter。
+- 輸入密碼時畫面不會顯示，打完按 Enter。
+
+1. 安裝 tmux 與 curl（Ubuntu／Debian；其他 Linux 用各自的安裝工具裝 `tmux` 與 `curl`）：
 
    ```bash
-   sudo apt-get install -y tmux
+   sudo apt-get update && sudo apt-get install -y tmux curl
    ```
 
-4. **裝 Claude Code。** 需要先有 Node.js（`npm` 隨 Node.js 一起安裝）：
+2. 安裝 Claude Code：
 
    ```bash
-   npm install -g @anthropic-ai/claude-code
+   curl -fsSL https://claude.ai/install.sh | bash
    ```
 
-   Linux 上的 `claude` 通常裝在 `~/.local/bin`，安裝腳本會到這個資料夾尋找。
-
-5. **登入 Claude Code。** 執行 `claude`，依畫面指示登入：
+3. 開新的終端機視窗，貼上 `claude`，照畫面在瀏覽器登入；登入後輸入 `/exit` 按 Enter：
 
    ```bash
    claude
    ```
 
-6. **安裝 OffiCraft：**
+   出現「command not found: claude」時，貼上這行，再重新貼 `claude`：
+
+   ```bash
+   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+   ```
+
+4. 安裝 OffiCraft：
 
    ```bash
    curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
    ```
 
-   這一行會下載最新版、確認檔案完整無誤後才安裝；這台電腦缺東西時會停下來，並印出要補裝什麼。
-
-7. **打開設定連結。** 安裝成功時，終端機最後會印出一行開頭是 `http://127.0.0.1:7755/?code=` 的設定連結。在這台電腦的瀏覽器打開這條連結，設定 owner 密碼。
-8. **密碼設好後，系統會自動把這台電腦準備好，並喚醒助理 Mira。** 安裝時會打開 linger（讓使用者的背景服務在登出後繼續執行、開機時自動啟動），所以關掉終端機、登出或重開機之後，OffiCraft 仍在背景執行。
+5. 在這台電腦的瀏覽器打開終端機最後印出的 `http://127.0.0.1:7755/?code=…` 連結，設定 owner 密碼。設好後助理 Mira 會自動醒來。
 
 ### Windows（WSL2）
 
-OffiCraft 裝在 WSL2 的 Ubuntu 裡。WSL2 是 Windows 內建的功能，在 Windows 裡執行一套完整的 Linux。
+- 第 1 步在 PowerShell，其他步驟都在 Ubuntu 視窗（從開始選單點「Ubuntu」打開）；不要貼在 PowerShell。
+- 每個指令：複製（滑鼠移到指令框上，右上角有複製按鈕），在視窗裡按滑鼠右鍵貼上，再按 Enter。
+- 輸入密碼時畫面不會顯示，打完按 Enter。
 
-1. **安裝 WSL2 與 Ubuntu。** 在開始選單搜尋 PowerShell，按右鍵選「以系統管理員身分執行」，輸入：
+1. 開始選單搜尋「PowerShell」→ 按右鍵 →「以系統管理員身分執行」，貼上這行；完成後重新開機：
 
    ```powershell
    wsl --install -d Ubuntu
    ```
 
-   裝好後重新開機，再從開始選單打開「Ubuntu」，依提示建立 Ubuntu 的使用者名稱與密碼。
+2. 從開始選單打開「Ubuntu」，設定使用者名稱與密碼。
+3. 貼上這行：顯示 `OK` 就跳到第 5 步；顯示 `OFF` 就做第 4 步。
 
-2. **確認 WSL 的版本是 0.67.6 以上。** 舊版不支援下一步的 systemd。在 PowerShell 查看版本：
-
-   ```powershell
-   wsl --version
+   ```bash
+   [ -d /run/systemd/system ] && echo OK || echo OFF
    ```
 
-   版本太舊時更新：
+4. 依序貼上這兩行，再從開始選單重新打開「Ubuntu」，重做第 3 步，確認顯示 `OK`。第二行會停掉這台 Windows 上所有正在執行的 Linux。
+
+   ```bash
+   sudo sh -c 'f=/etc/wsl.conf; touch "$f"; awk "/^\[boot\]/{print; print \"systemd=true\"; b=1; next} /^systemd *=/{next} {print} END{if(!b) printf \"\n[boot]\nsystemd=true\n\"}" "$f" > /tmp/oc-wsl.conf.new && cat /tmp/oc-wsl.conf.new > "$f"'
+   ```
+
+   ```bash
+   wsl.exe --shutdown
+   ```
+
+   一直顯示 `OFF` 時，在 PowerShell 貼上這行，再重做第 4 步：
 
    ```powershell
    wsl --update
    ```
 
-3. **在 WSL2 裡打開 systemd。** OffiCraft 在 Ubuntu 裡以 systemd 的使用者服務在背景執行，而 WSL2 預設不啟動 systemd；systemd 沒有在執行時，安裝腳本會停下。在 Ubuntu 視窗裡用系統管理員權限打開 `/etc/wsl.conf`：
+5. 安裝 tmux 與 curl：
 
    ```bash
-   sudo nano /etc/wsl.conf
+   sudo apt-get update && sudo apt-get install -y tmux curl
    ```
 
-   加上這兩行後存檔（nano 裡按 Ctrl+O、Enter 存檔，再按 Ctrl+X 離開）：
-
-   ```ini
-   [boot]
-   systemd=true
-   ```
-
-   接著在 PowerShell 執行以下指令關閉 WSL2，再重新打開 Ubuntu 視窗，設定才會生效：
-
-   ```powershell
-   wsl.exe --shutdown
-   ```
-
-   **注意：**`wsl.exe --shutdown` 會關閉這台 Windows 上所有正在執行的 WSL2 Linux，裡面已經在執行的 OffiCraft 與成員也會一起停止。
-
-4. **之後的指令都貼在 Ubuntu 視窗裡，不要貼在 PowerShell 或命令提示字元。** 這台 Windows 裝了不只一套 Linux 時，開始選單的「Ubuntu」不一定是你要的那一套：在 PowerShell 執行 `wsl -l -v` 列出每一套的名稱，再用 `wsl -d <名稱>` 打開要裝 OffiCraft 的那一套，例如 `wsl -d Ubuntu`。
-5. **在 Ubuntu 裡裝 `tmux`。** `sudo` 會要求輸入剛才建立的 Ubuntu 密碼：
+6. 安裝 Claude Code：
 
    ```bash
-   sudo apt-get install -y tmux
+   curl -fsSL https://claude.ai/install.sh | bash
    ```
 
-6. **在 Ubuntu 裡裝 Claude Code。** 需要先在 Ubuntu 裡有 Node.js（`npm` 隨 Node.js 一起安裝）：
-
-   ```bash
-   npm install -g @anthropic-ai/claude-code
-   ```
-
-   裝在 Windows 那一邊的 Claude Code 或 Codex，OffiCraft 找不到、也用不到；一定要裝在 Ubuntu 裡。
-
-7. **在 Ubuntu 裡登入 Claude Code。** 執行 `claude`，依畫面指示登入：
+7. 關掉 Ubuntu 視窗，從開始選單重新打開「Ubuntu」，貼上 `claude`，照畫面在瀏覽器登入；登入後輸入 `/exit` 按 Enter：
 
    ```bash
    claude
    ```
 
-8. **安裝 OffiCraft：**
+   出現「command not found: claude」時，貼上這行，再重新貼 `claude`：
+
+   ```bash
+   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+   ```
+
+8. 安裝 OffiCraft：
 
    ```bash
    curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
    ```
 
-   這一行會下載最新版、確認檔案完整無誤後才安裝；Ubuntu 裡缺東西時會停下來，並印出要補裝什麼。
+9. 把 Ubuntu 視窗最後印出的 `http://127.0.0.1:7755/?code=…` 連結複製到 Windows 的瀏覽器打開，設定 owner 密碼。設好後助理 Mira 會自動醒來。
+10. 安裝時印出 `WARN: WSL keep-alive not set up` 時，關掉所有 Ubuntu 視窗後成員會離線；請保留一個 Ubuntu 視窗開著。
 
-9. **在 Windows 的瀏覽器打開設定連結。** 安裝成功時，Ubuntu 視窗最後會印出一行開頭是 `http://127.0.0.1:7755/?code=` 的設定連結。WSL2 預設會把 Windows 上的 `127.0.0.1` 連線轉進 WSL2，所以直接在 Windows 的瀏覽器打開這條連結，設定 owner 密碼。
-10. **密碼設好後，系統會自動把這台電腦準備好，並喚醒助理 Mira。** 安裝時，OffiCraft 在 Windows 的「啟動」資料夾放一個保持 WSL2 執行的檔案，所以關掉所有 Ubuntu 視窗後，成員仍繼續在線；每次登入 Windows 時，這個檔案會再執行一次。安裝時印出 `WARN: WSL keep-alive not set up` 時，這個檔案沒有設定好，關掉所有 Ubuntu 視窗後成員會離線。
+裝了不只一套 Linux 時：在 PowerShell 用 `wsl -l -v` 查名稱，再用 `wsl -d 名稱` 打開要裝的那一套。
 
-### 安裝沒有成功時
+### 安裝失敗時
 
-終端機會印出原因。最常見的原因是 7755 埠已經被其他程式占用。
+看終端機最後印出的原因。最常見的是 7755 埠已經被其他程式占用。
 
 ---
 
