@@ -409,8 +409,6 @@ var spawnSleep = time.Sleep
 // setting ResolveOcAgentBin to nil once reinstated the dangling-ocagent defect
 // with the package green.
 func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socket, ns string) SpawnDeps {
-	claudeBin := resolveClaudeBin(env)
-	codexBin := resolveCodexBin(env)
 	wardenBin, _ := os.Executable()
 	listenPIDs := ocagentPIDsByCwdFor(runtime.GOOS, runner, "/proc")
 	return SpawnDeps{
@@ -426,11 +424,9 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		Logf: func(format string, a ...any) {
 			fmt.Fprintf(os.Stderr, "[ocwarden spawn] "+format+"\n", a...)
 		},
-		ClaudeBin: claudeBin,
-		ClaudeTakesPromptFile: func(promptFile string) (bool, string) {
+		ClaudeTakesPromptFile: func(claudeBin, promptFile string) (bool, string) {
 			return claudeAcceptsPromptFile(withRunTimeout(runner, claudePromptFileProbeBudget), claudeBin, promptFile)
 		},
-		CodexBin:    codexBin,
 		ClaudeHome:  resolvedClaudeHome(env, stderrLogf),
 		WardenBin:   wardenBin,
 		CodexModels: listCodexModels,
@@ -481,7 +477,11 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 	return CommandDeps{
 		Spawn: func(p StartParams) SpawnOutcome {
 			workdir := agentWorkdir(spawnDeps.Home, p.MemberID)
+			// 🔴 Resolved per spawn, by the same functions the heartbeat and the
+			// runtime login use: a runtime installed after warden boot must be
+			// usable without restarting the warden.
 			return spawnDeps.withPerSpawn(
+				resolveClaudeBin(env), resolveCodexBin(env),
 				func() error { return pretrustWorkdir(claudeJSONPath, workdir) },
 				func() { purgeTrash(spawnDeps.Home, workdir, stderrLogf) },
 			).start(p)

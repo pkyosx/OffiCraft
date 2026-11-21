@@ -876,13 +876,12 @@ func TestBuildLoginGate(t *testing.T) {
 func TestBuildSpawnDeps(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
-	claudeBin := stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\n")
-	codexBin := stageBinary(t, filepath.Join(root, "bin", "codex"), "#!/bin/sh\n")
+	claudeBin := filepath.Join(root, "bin", "claude")
 	t.Setenv("PATH", filepath.Join(root, "nothing-here"))
 	t.Setenv("HOME", home)
 
 	env := envMap(map[string]string{
-		"HOME": home, "OC_CLAUDE_BIN": claudeBin, "OC_CODEX_BIN": codexBin,
+		"HOME":          home,
 		"OC_AGENT_HOME": filepath.Join(home, "agents"), "OC_AGENT_ENV_FILE": filepath.Join(home, "env"),
 		"OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0",
 	})
@@ -895,9 +894,6 @@ func TestBuildSpawnDeps(t *testing.T) {
 	}
 	if deps.Home != filepath.Join(home, "agents") || deps.EnvFile != filepath.Join(home, "env") {
 		t.Errorf("paths = (%q, %q), want the owner's agents root and env file", deps.Home, deps.EnvFile)
-	}
-	if deps.ClaudeBin != claudeBin || deps.CodexBin != codexBin {
-		t.Errorf("bins = (%q, %q), want (%q, %q)", deps.ClaudeBin, deps.CodexBin, claudeBin, codexBin)
 	}
 	if deps.Runner != CmdRunner(runner) {
 		t.Error("the shell seam was not the one passed in")
@@ -918,13 +914,13 @@ func TestBuildSpawnDeps(t *testing.T) {
 	runner.script = map[string]wardenRun{probeKey: {
 		err: errors.New("exit status 1: error: unknown option '--oc-probe-unsupported-flag'"),
 	}}
-	if ok, _ := deps.ClaudeTakesPromptFile("/a/system-prompt.md"); !ok {
+	if ok, _ := deps.ClaudeTakesPromptFile(claudeBin, "/a/system-prompt.md"); !ok {
 		t.Errorf("the prompt-file probe did not ask the resolved claude; calls = %v", runner.calls)
 	}
 	runner.script = map[string]wardenRun{probeKey: {
 		err: errors.New("exit status 1: error: unknown option '--append-system-prompt-file'"),
 	}}
-	if ok, _ := deps.ClaudeTakesPromptFile("/a/system-prompt.md"); ok {
+	if ok, _ := deps.ClaudeTakesPromptFile(claudeBin, "/a/system-prompt.md"); ok {
 		t.Error("a claude that rejects --append-system-prompt-file was reported as taking it")
 	}
 	// 2s is a line of the startReceiptDeadlineSecs budget (server/ocserverd/receipt_watch.go).
@@ -1320,6 +1316,82 @@ func TestBuildCommandDeps(t *testing.T) {
 		}
 		if !strings.Contains(launch, " --mcp-config "+config+" ") {
 			t.Errorf("launch line does not pass --mcp-config %s:\n%s", config, launch)
+		}
+	})
+
+	t.Run("a runtime installed after the warden started is launched by the next spawn", func(t *testing.T) {
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatalf("executable: %v", err)
+		}
+		ocagent := filepath.Join(filepath.Dir(exe), "ocagent")
+		if err := os.WriteFile(ocagent, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Skipf("cannot publish an ocagent beside the test binary: %v", err)
+		}
+		t.Cleanup(func() { os.Remove(ocagent) })
+		for _, tc := range []struct {
+			runtime    string
+			wantBefore string
+			binFlag    string
+		}{
+			{"claude", claudeBinUnresolvedReason, "exec "},
+			{"codex", "codex_bin_unresolved: set OC_CODEX_BIN or put codex on the daemon PATH", "--codex-bin "},
+		} {
+			t.Run(tc.runtime, func(t *testing.T) {
+				box := t.TempDir()
+				wardenHome := filepath.Join(box, "home")
+				if err := os.MkdirAll(wardenHome, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				spawnEnv := envMap(map[string]string{
+					"HOME": wardenHome, "OC_AGENT_HOME": filepath.Join(box, "agents"),
+					"OC_AGENT_ENV_INHERIT": "0", "OC_CLAUDE_CRED_CHECK": "0",
+				})
+				runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
+					"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
+				}}
+				d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, pidGuardRunner{t, runner}, nil, nil)
+				params := StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt-m1", Role: "builder", Runtime: tc.runtime}
+
+				if got, want := d.Spawn(params), (SpawnOutcome{OK: false, Reason: tc.wantBefore}); got != want {
+					t.Fatalf("before the install: outcome = %+v, want %+v", got, want)
+				}
+
+				// The second install moves the runtime to PATH, so a resolution
+				// cached from the first one would still launch the removed binary.
+				homeInstall := filepath.Join(wardenHome, ".local", "bin", tc.runtime)
+				pathInstall := filepath.Join(box, "path", tc.runtime)
+				for i, installed := range []string{homeInstall, pathInstall} {
+					if i > 0 {
+						if err := os.Remove(homeInstall); err != nil {
+							t.Fatal(err)
+						}
+						t.Setenv("PATH", filepath.Dir(pathInstall))
+					}
+					stageBinary(t, installed, "#!/bin/sh\nexit 1\n")
+					launchHas := []string{tc.binFlag + installed + " "}
+					if tc.runtime == "claude" {
+						promptFile := filepath.Join(box, "agents", "m1", "system-prompt.md")
+						runner.script[installed+" --append-system-prompt-file "+promptFile+" "+claudePromptFileProbeFlag] = wardenRun{
+							err: errors.New("exit status 1: error: unknown option '" + claudePromptFileProbeFlag + "'"),
+						}
+						launchHas = append(launchHas, " --append-system-prompt-file "+promptFile)
+					}
+					d.Spawn(params)
+
+					launch := ""
+					for _, call := range runner.calls {
+						if strings.Contains(call, "new-session -d -s member-m1") {
+							launch = call
+						}
+					}
+					for _, part := range launchHas {
+						if !strings.Contains(launch, part) {
+							t.Errorf("install %d: launch line lacks %q:\n%s", i+1, part, launch)
+						}
+					}
+				}
+			})
 		}
 	})
 

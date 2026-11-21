@@ -648,7 +648,7 @@ type SpawnDeps struct {
 	ClaudeBin string
 	// nil, or false, launches with the inline boot pointer that has the member
 	// read the boot file itself; the string says why not.
-	ClaudeTakesPromptFile func(promptFile string) (bool, string)
+	ClaudeTakesPromptFile func(claudeBin, promptFile string) (bool, string)
 	CodexBin              string
 	// ClaudeHome feeds both the launch line and Pretrust's file, which keeps the
 	// write and the read on the same claude.json.
@@ -696,7 +696,9 @@ type SpawnDeps struct {
 // A named method, not `sd := base; sd.X = …` in the transport closure: widening
 // what varies per spawn must change THIS signature. It does NOT make SpawnDeps
 // immutable: a caller can still assign to the returned value.
-func (d SpawnDeps) withPerSpawn(pretrust func() error, purgeTrash func()) SpawnDeps {
+func (d SpawnDeps) withPerSpawn(claudeBin, codexBin string, pretrust func() error, purgeTrash func()) SpawnDeps {
+	d.ClaudeBin = claudeBin
+	d.CodexBin = codexBin
 	d.Pretrust = pretrust
 	d.PurgeTrash = purgeTrash
 	return d
@@ -850,7 +852,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	if runtimeName == "claude" {
 		whyNot := "no prompt-file probe is wired"
 		if d.ClaudeTakesPromptFile != nil {
-			takesPromptFile, whyNot = d.ClaudeTakesPromptFile(promptFile)
+			takesPromptFile, whyNot = d.ClaudeTakesPromptFile(d.ClaudeBin, promptFile)
 		}
 		if !takesPromptFile {
 			d.logf("%s boots by reading persona.md itself, not via --append-system-prompt-file (%s): %s",
