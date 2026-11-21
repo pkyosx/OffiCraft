@@ -197,7 +197,7 @@ describe("MonitorPage install on an online machine", () => {
       await screen.findByText("已複製");
     });
 
-    it("shows the chosen operating system's steps, each command with a copy button that copies that command", async () => {
+    it("shows the steps for the chosen operating system and AI tool, each command with a copy button that copies that command", async () => {
       const writeText = vi.fn(async (_text: string) => {});
       Object.defineProperty(navigator, "clipboard", {
         value: { writeText },
@@ -206,15 +206,20 @@ describe("MonitorPage install on an online machine", () => {
       renderMonitor();
       fireEvent.click(await machineAction("mon-install-btn"));
       const steps = await screen.findByTestId("mon-install-steps");
-      expect(steps.textContent).toContain("⌘＋空白鍵");
+      expect(steps.textContent).toContain("⌘+空白鍵");
       expect(steps.textContent).toContain("brew install tmux");
       expect(steps.textContent).toContain("curl -fsSL https://claude.ai/install.sh | bash");
+
+      fireEvent.click(screen.getByTestId("mon-install-runtime-codex"));
+
+      expect(steps.textContent).toContain("curl -fsSL https://chatgpt.com/codex/install.sh | sh");
+      expect(steps.textContent).toContain("Sign in with ChatGPT");
 
       fireEvent.click(screen.getByTestId("mon-install-tab-windows"));
 
       expect(screen.getByTestId("mon-install-tab-windows").getAttribute("aria-selected")).toBe("true");
-      expect(steps.textContent).toContain("以系統管理員身分執行");
-      expect(steps.textContent).toContain("[ -d /run/systemd/system ] && echo OK || echo OFF");
+      expect(steps.textContent).toContain("以系統管理員身分開啟 PowerShell");
+      expect(steps.textContent).toContain("登入 Codex");
       const wslLine = Array.from(steps.querySelectorAll(".mon-install__cmd-line")).find(
         (el) => el.querySelector("code")?.textContent === "wsl --install -d Ubuntu"
       ) as HTMLElement;
