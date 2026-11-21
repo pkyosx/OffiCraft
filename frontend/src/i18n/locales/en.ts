@@ -325,6 +325,7 @@ export const en: Dict = {
     builtinTypeName: {
       roleDesign: "Create / edit role",
       taskManualDesign: "Create / edit task manual",
+      remoteAccess: "Allow remote connections",
     },
     // Card-head label column (T-705e): equal-width labels, chip values. The
     // ☑ #<task id> badge sits on the badge row (v2) — no field label.

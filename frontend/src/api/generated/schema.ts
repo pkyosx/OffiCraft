@@ -169,6 +169,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/login-protection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read whether the owner's login has a second factor and passkeys.
+         * @description - Owner or admin agent: the two facts an agent needs before opening the cockpit to outside connections, without the credentials themselves.
+         *     - A passkey does not stand in for the second factor: while `mfa_enrolled` is false, the password alone still signs in, whatever `passkey_count` says.
+         */
+        get: operations["handle_login_protection_api_auth_login_protection_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/mfa": {
         parameters: {
             query?: never;
@@ -7598,6 +7619,22 @@ export interface components {
             runtime?: components["schemas"]["AgentRuntime"] | null;
         };
         /**
+         * LoginProtectionDTO
+         * @description Whether the owner's login is protected beyond the password. Counts and flags only; no secret, URI or key material.
+         */
+        LoginProtectionDTO: {
+            /**
+             * Mfa Enrolled
+             * @description True once an authenticator app is armed; password login then also asks for its code.
+             */
+            mfa_enrolled: boolean;
+            /**
+             * Passkey Count
+             * @description Passkeys registered, across every address; each one signs in only at the address it was added on.
+             */
+            passkey_count: number;
+        };
+        /**
          * MfaActivateDTO
          * @description Prove a pending TOTP enrolment and ARM the second factor (`POST /api/auth/mfa/activate`, owner-gated). The code must verify against the secret `…/mfa/enroll` handed out; on success that secret becomes the ACTIVE one and the second factor is armed from the next login onward. A wrong code or password leaves the pending secret in place so the owner can simply try again.
          *
@@ -13609,6 +13646,53 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TokenDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_login_protection_api_auth_login_protection_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginProtectionDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

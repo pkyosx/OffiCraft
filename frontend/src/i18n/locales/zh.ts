@@ -324,11 +324,12 @@ export const zh = {
     outsource: "外包",
     unassigned: "未指派",
     adhoc: "自由代辦",
-    // 這兩個值必須逐字等於 server 出貨的內建任務類型名稱（assets.go）：
+    // 這些值必須逐字等於 server 出貨的內建任務類型名稱（assets.go）：
     // taskTypeLabel 只在存的名稱仍是出貨原名時才換成目前語系的這一格。
     builtinTypeName: {
       roleDesign: "建立／修改角色",
       taskManualDesign: "建立／修改任務手冊",
+      remoteAccess: "開放遠端連線",
     },
     // 卡頭 label column(T-705e):欄名等寬對齊,值以 chip 呈現。☑ #任務編號
     // 徽章移居徽章列(v2),不再帶欄名。

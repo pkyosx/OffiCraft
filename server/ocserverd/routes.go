@@ -1528,6 +1528,12 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleDeleteSharedDocApiSharedDocsDocIdDelete,
 			MCPTool: "delete_shared_doc",
 		}),
+		Gated(principalAdminAgent, routeDef{
+			Method:  "GET",
+			Path:    "/api/auth/login-protection",
+			Handler: w.HandleLoginProtectionApiAuthLoginProtectionGet,
+			MCPTool: "get_login_protection",
+		}),
 	}
 	out := make([]RouteSpec, len(rows))
 	for i, r := range rows {

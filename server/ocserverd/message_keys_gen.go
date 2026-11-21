@@ -1655,6 +1655,7 @@ var messageKeys = map[string]bool{
 	"tasks.assigneeLabel":                              true,
 	"tasks.blockedByLabel":                             true,
 	"tasks.blockedByMissingSuffix":                     true,
+	"tasks.builtinTypeName.remoteAccess":               true,
 	"tasks.builtinTypeName.roleDesign":                 true,
 	"tasks.builtinTypeName.taskManualDesign":           true,
 	"tasks.clearFilters":                               true,

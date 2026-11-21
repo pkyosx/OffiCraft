@@ -1524,5 +1524,12 @@
     "method": "DELETE",
     "path": "/api/shared-docs/{doc_id}",
     "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "get_login_protection",
+    "method": "GET",
+    "path": "/api/auth/login-protection",
+    "requires": "admin_agent"
   }
 ]

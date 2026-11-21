@@ -217,6 +217,136 @@ func TestHandleMfaStateApiAuthMfaGet(t *testing.T) {
 	})
 }
 
+func TestHandleLoginProtectionApiAuthLoginProtectionGet(t *testing.T) {
+	t.Run("a fresh server answers 200 to the owner and to an admin_agent with no factor and no passkey", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+
+		for _, token := range []string{owner, admin} {
+			status, data := apiJSON(t, h, "GET", "/api/auth/login-protection", token, "")
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"mfa_enrolled":  false,
+				"passkey_count": 0,
+			})
+		}
+	})
+
+	t.Run("an activated TOTP factor answers 200 with mfa_enrolled true", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`); status != 200 {
+			t.Fatalf("offer: want 200, got %d (%v)", status, data)
+		}
+		status, enrolled := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("enroll: want 200, got %d (%v)", status, enrolled)
+		}
+		secret, _ := enrolled["secret"].(string)
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
+			`{"password":"`+apiTestOwnerPassword+`","code":"`+apiTestTOTPCode(t, secret)+`"}`); status != 200 {
+			t.Fatalf("activate: want 200, got %d (%v)", status, data)
+		}
+		admin := apiTestAgentToken(t, api, "mira", "")
+
+		status, data := apiJSON(t, h, "GET", "/api/auth/login-protection", admin, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"mfa_enrolled":  true,
+			"passkey_count": 0,
+		})
+	})
+
+	t.Run("offering the factor without activating it answers 200 with mfa_enrolled false", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`); status != 200 {
+			t.Fatalf("offer: want 200, got %d (%v)", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`); status != 200 {
+			t.Fatalf("enroll: want 200, got %d (%v)", status, data)
+		}
+		admin := apiTestAgentToken(t, api, "mira", "")
+
+		status, data := apiJSON(t, h, "GET", "/api/auth/login-protection", admin, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"mfa_enrolled":  false,
+			"passkey_count": 0,
+		})
+	})
+
+	t.Run("an activated factor stays mfa_enrolled true after the offer is withdrawn", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`); status != 200 {
+			t.Fatalf("offer: want 200, got %d (%v)", status, data)
+		}
+		status, enrolled := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("enroll: want 200, got %d (%v)", status, enrolled)
+		}
+		secret, _ := enrolled["secret"].(string)
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
+			`{"password":"`+apiTestOwnerPassword+`","code":"`+apiTestTOTPCode(t, secret)+`"}`); status != 200 {
+			t.Fatalf("activate: want 200, got %d (%v)", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":false}`); status != 200 {
+			t.Fatalf("withdraw offer: want 200, got %d (%v)", status, data)
+		}
+		admin := apiTestAgentToken(t, api, "mira", "")
+
+		status, data := apiJSON(t, h, "GET", "/api/auth/login-protection", admin, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"mfa_enrolled":  true,
+			"passkey_count": 0,
+		})
+	})
+
+	t.Run("each registered passkey is counted", func(t *testing.T) {
+		env := newPasskeyTestEnv(t)
+		passkeyTestRegister(t, env, passkeyTestHost, passkeyTestOrigin, newSoftPasskey(t, "first"))
+		passkeyTestRegister(t, env, passkeyTestHost, passkeyTestOrigin, newSoftPasskey(t, "second"))
+		admin := apiTestAgentToken(t, env.api, "mira", "")
+
+		status, data := apiJSON(t, env.h, "GET", "/api/auth/login-protection", admin, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"mfa_enrolled":  false,
+			"passkey_count": 2,
+		})
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/auth/login-protection", "", "")
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+
+	t.Run("a plain agent answers 403 because this row requires admin_agent", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/auth/login-protection", agent, "")
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+	})
+}
+
 func TestHandleMfaOfferApiAuthMfaOfferPost(t *testing.T) {
 	t.Run("offering the feature answers 200 with offered true", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
