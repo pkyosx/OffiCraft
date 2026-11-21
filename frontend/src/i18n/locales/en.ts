@@ -2209,7 +2209,7 @@ export const en: Dict = {
       installRequirements: "Requires tmux and a signed-in Claude Code or Codex.",
       installWslTitle: "Prepare WSL2",
       installWslInstall: "Open PowerShell as administrator and run:",
-      installWslReboot: "After restarting, open \"Ubuntu\" from the Start menu and create an account.",
+      installWslReboot: "A restart is required the first time WSL is installed. Then open \"Ubuntu\" from the Start menu and set the Ubuntu user name and password when prompted.",
       installPasteMac: "Paste and run in Terminal:",
       installPasteLinux: "Paste and run in a terminal:",
       installPasteWindows: "Paste and run in the \"Ubuntu\" window (not PowerShell):",

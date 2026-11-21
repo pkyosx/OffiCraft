@@ -24,7 +24,7 @@ OffiCraft 在 Windows 上透過 WSL2 中的 Ubuntu 執行。macOS 與 Linux 使�
    wsl --install -d Ubuntu
    ```
 
-2. 重新開機，從開始選單開啟「Ubuntu」，依提示建立使用者名稱與密碼。
+2. 首次安裝 WSL 需重新開機。之後從開始選單開啟「Ubuntu」，依提示設定 Ubuntu 的使用者名稱與密碼。
 
 之後的所有指令都在 Ubuntu 視窗中執行，不在 PowerShell 或命令提示字元中執行。提示字元顯示 `使用者名稱@電腦名稱:~$` 為 Ubuntu 視窗；顯示 `PS C:\>` 為 PowerShell。
 
