@@ -2254,7 +2254,7 @@ export const zh = {
       installRequirements: "需求：tmux，以及已登入的 Claude Code 或 Codex。",
       installWslTitle: "準備 WSL2",
       installWslInstall: "以系統管理員身分開啟 PowerShell，執行：",
-      installWslReboot: "重新開機後，從開始選單開啟「Ubuntu」並建立帳號。",
+      installWslReboot: "首次安裝 WSL 需重新開機。之後從開始選單開啟「Ubuntu」，依提示設定 Ubuntu 的使用者名稱與密碼。",
       installPasteMac: "在「終端機」貼上並執行：",
       installPasteLinux: "在終端機貼上並執行：",
       installPasteWindows: "在「Ubuntu」視窗貼上並執行（不是 PowerShell）：",
