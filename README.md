@@ -26,11 +26,7 @@ OffiCraft 在 Windows 上透過 WSL2 中的 Ubuntu 執行。macOS 與 Linux 使�
 
 2. 首次安裝 WSL 需重新開機。之後從開始選單開啟「Ubuntu」，依提示設定 Ubuntu 的使用者名稱與密碼。
 
-之後的所有指令都在 Ubuntu 視窗中執行：
-
-- 開啟：從開始選單點「Ubuntu」。
-- 貼上：在 Ubuntu 視窗按滑鼠右鍵貼上指令，再按 Enter。
-- 確認位置：提示字元顯示 `使用者名稱@電腦名稱:~$` 即為 Ubuntu 視窗；顯示 `PS C:\>` 則是 PowerShell，請改開 Ubuntu。
+之後的所有指令都在 Ubuntu 視窗中執行，從開始選單點「Ubuntu」開啟。
 
 ### 步驟 1：安裝 tmux
 
