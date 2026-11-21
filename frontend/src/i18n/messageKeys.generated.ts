@@ -447,6 +447,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "monitor.machine.installPasteWindows",
   "monitor.machine.installRequirements",
   "monitor.machine.installTitle",
+  "monitor.machine.installUninstallingHint",
   "monitor.machine.installWslInstall",
   "monitor.machine.installWslReboot",
   "monitor.machine.installWslTitle",

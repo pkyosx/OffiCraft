@@ -448,6 +448,7 @@ var messageKeys = map[string]bool{
 	"monitor.machine.installPasteWindows":              true,
 	"monitor.machine.installRequirements":              true,
 	"monitor.machine.installTitle":                     true,
+	"monitor.machine.installUninstallingHint":          true,
 	"monitor.machine.installWslInstall":                true,
 	"monitor.machine.installWslReboot":                 true,
 	"monitor.machine.installWslTitle":                  true,

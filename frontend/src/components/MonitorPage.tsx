@@ -1648,7 +1648,8 @@ function MachineNameMenu({
                     ? t.monitor.machine.reinstall
                     : t.monitor.machine.install,
               icon: <DownloadIcon size={14} />,
-              disabled: m.isSelf && bootstrapBusy,
+              disabled: (m.isSelf && bootstrapBusy) || uninstalling,
+              title: uninstalling ? t.monitor.machine.installUninstallingHint : undefined,
               onSelect: onInstall,
             },
             {
