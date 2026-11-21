@@ -2116,6 +2116,7 @@ export const en: Dict = {
       failedHeading: "Sign-in failed",
       codeRejected: "The code is wrong or has expired; press “Start again” to get a new sign-in URL",
       cliSaidLead: "Claude said: ",
+      noLoginUrl: "Claude Code printed no sign-in URL",
       titleCodex: "Sign in to Codex",
       codexSubtitleLead: "Authorize Codex on ",
       codexSubtitleTail: " with your ChatGPT account",

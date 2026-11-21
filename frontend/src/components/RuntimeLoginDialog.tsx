@@ -27,6 +27,7 @@ const CODE_REJECTED = /^Login failed: Request failed with status code 40[01]\b/;
 // What a warden that can only log in claude answers a codex login_start with.
 const RUNTIME_UNSUPPORTED = /cannot log in runtime "codex"/;
 const CODE_UNREADABLE = /^could not read the one-time code/;
+const NO_LOGIN_URL = /^Claude Code printed no sign-in URL\b[^\n]*\n?/;
 
 // Only called before the deadline: at or past it the dialog shows the expired view.
 function remaining(deadlineMs: number, nowMs: number): string {
@@ -446,6 +447,8 @@ export function RuntimeLoginDialog({
   } else if (login.state === "failed") {
     ended = true;
     const reason = login.reason ?? "";
+    const noLoginUrl = !codex && NO_LOGIN_URL.test(reason);
+    const cliOutput = noLoginUrl ? reason.replace(NO_LOGIN_URL, "") : reason;
     body = (
       <Status tone="bad">
         <div data-testid="runtime-login-failed">
@@ -456,12 +459,14 @@ export function RuntimeLoginDialog({
                 ? m.codexCodeUnreadable
               : !codex && CODE_REJECTED.test(reason)
                 ? m.codeRejected
+              : noLoginUrl
+                ? m.noLoginUrl
                 : m.failedHeading}
           </p>
-          {reason !== "" && (
+          {cliOutput !== "" && (
             <p className="runtime-login__cli" data-testid="runtime-login-failed-cli">
               {codex ? m.codexSaidLead : m.cliSaidLead}
-              {reason}
+              {cliOutput}
             </p>
           )}
         </div>
