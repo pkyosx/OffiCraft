@@ -2146,15 +2146,18 @@ func TestRunInstall(t *testing.T) {
 		i.resolveClaude = func() (string, string) { return "", "" }
 		i.resolveCodex = func() (string, string) { return "", "" }
 		err := i.runInstall(installFixture())
-		wantErr := "runtime_bin_unresolved: install claude or codex, or set OC_CLAUDE_BIN/OC_CODEX_BIN"
+		wantErr := "runtime_bin_unresolved: install Claude Code or Codex, or set OC_CLAUDE_BIN/OC_CODEX_BIN"
 		if err == nil || err.Error() != wantErr {
 			t.Errorf("err = %v, want %q", err, wantErr)
 		}
 		if len(sys.calls) != 0 {
 			t.Errorf("a refused install still did %v", sys.calls)
 		}
-		want := "[ocwarden install] FATAL: neither Claude Code nor Codex CLI is available — NOTHING was installed\n" +
-			"[ocwarden install] FATAL: runtime_bin_unresolved: install a provider or set OC_CLAUDE_BIN/OC_CODEX_BIN, then re-run safely\n"
+		want := "[ocwarden install] FATAL: neither Claude Code nor Codex is installed on this machine — NOTHING was installed\n" +
+			"[ocwarden install] FATAL: runtime_bin_unresolved: install one of them, run it once to sign in, then re-run this install command:\n" +
+			"[ocwarden install] FATAL:   Claude Code: curl -fsSL https://claude.ai/install.sh | bash   (then sign in: claude)\n" +
+			"[ocwarden install] FATAL:   Codex:       curl -fsSL https://chatgpt.com/codex/install.sh | sh   (then sign in: codex)\n" +
+			"[ocwarden install] FATAL:   already installed elsewhere? set OC_CLAUDE_BIN or OC_CODEX_BIN to its absolute path\n"
 		if !strings.HasSuffix(out.String(), want) {
 			t.Errorf("log =\n%s\nwant it to end with\n%s", out.String(), want)
 		}

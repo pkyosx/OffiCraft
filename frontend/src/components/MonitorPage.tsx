@@ -2095,9 +2095,6 @@ function powerText(
 type InstallOs = "mac" | "linux" | "windows";
 const INSTALL_OSES: InstallOs[] = ["mac", "linux", "windows"];
 
-type InstallPart = { text: string } | { cmd: string; head?: string };
-type InstallStep = { title: string; parts: InstallPart[] };
-
 /** One command line the user is meant to paste: where to run it, the command,
  * and its own copy button. */
 function CopyableCommand({ command, head }: { command: string; head?: string }) {
@@ -2136,8 +2133,7 @@ function CopyableCommand({ command, head }: { command: string; head?: string }) 
   );
 }
 
-/** The 安裝機器 dialog for a remote machine: per-OS steps (the README's
- * install section, condensed)
+/** The 安裝機器 dialog for a remote machine: per-OS where-to-paste guidance
  * ending with the machine's own boot command. The boot command is fetched ONCE
  * when the dialog mounts and its copy button copies exactly that displayed
  * string — re-fetching on copy would mint a second claim code and hand the user
@@ -2196,32 +2192,11 @@ export function MachineInstallDialog({
     linux: m.installOsLinux,
     windows: m.installOsWindows,
   };
-  const tmuxCmd =
-    os === "mac" ? "brew install tmux" : "sudo apt-get update && sudo apt-get install -y tmux curl";
-  const steps: InstallStep[] = [
-    {
-      title: m.installStepTmux,
-      parts: [
-        ...(os === "mac" ? [{ text: m.installTmuxMacNote }] : []),
-        { cmd: tmuxCmd },
-        { text: m.installVerifyTmux },
-        { cmd: "tmux -V" },
-      ],
-    },
-    {
-      title: m.installStepAgent,
-      parts: [
-        { text: m.installAgentIntro },
-        { cmd: "curl -fsSL https://claude.ai/install.sh | bash", head: m.installAgentClaude },
-        { text: m.installClaudeLogin },
-        { cmd: "curl -fsSL https://chatgpt.com/codex/install.sh | sh", head: m.installAgentCodex },
-        { text: m.installCodexLogin },
-        { text: m.installVerifyAgent },
-        { cmd: "claude --version && claude auth status --text", head: m.installAgentClaude },
-        { cmd: "codex --version && codex login status", head: m.installAgentCodex },
-      ],
-    },
-  ];
+  const pasteHint: Record<InstallOs, string> = {
+    mac: m.installPasteMac,
+    linux: m.installPasteLinux,
+    windows: m.installPasteWindows,
+  };
   const copyLabel = copyFailed
     ? m.copyBootCmdCopyError
     : copied
@@ -2287,25 +2262,12 @@ export function MachineInstallDialog({
               <div className="mon-install__step-sub">{m.installWslInstall}</div>
               <CopyableCommand command="wsl --install -d Ubuntu" head={m.installWherePowerShell} />
               <div className="mon-install__step-sub">{m.installWslReboot}</div>
-              <div className="mon-install__step-sub">{m.installWslWhere}</div>
             </div>
           )}
-          {steps.map((step) => (
-            <div className="mon-install__step" key={step.title}>
-              <div className="mon-install__step-title">{step.title}</div>
-              {step.parts.map((part) =>
-                "text" in part ? (
-                  <div className="mon-install__step-sub" key={part.text}>
-                    {part.text}
-                  </div>
-                ) : (
-                  <CopyableCommand key={part.cmd} command={part.cmd} head={part.head} />
-                )
-              )}
-            </div>
-          ))}
           <div className="mon-install__step">
-            <div className="mon-install__step-title">{m.installStepOffiCraft}</div>
+            <div className="mon-install__step-title" data-testid="mon-install-paste-hint">
+              {pasteHint[os]}
+            </div>
             {fetchFailed ? (
               <div className="mon-cmd__row mon-install__cmd-row">
                 <div className="mon-error">{m.copyBootCmdError}</div>
@@ -2340,6 +2302,7 @@ export function MachineInstallDialog({
             )}
             <div className="mon-install__step-sub">{m.installSubOffiCraft}</div>
           </div>
+          <p className="mon-install__step-sub">{m.installAfterJoin}</p>
         </div>
         <p className="mon-install__note">{m.installCmdOneTime}</p>
       </div>

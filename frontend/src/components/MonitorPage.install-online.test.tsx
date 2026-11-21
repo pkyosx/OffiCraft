@@ -197,7 +197,7 @@ describe("MonitorPage install on an online machine", () => {
       await screen.findByText("已複製");
     });
 
-    it("shows the steps for the chosen operating system, each command with a copy button that copies that command", async () => {
+    it("tells where to paste the install command for the chosen operating system", async () => {
       const writeText = vi.fn(async (_text: string) => {});
       Object.defineProperty(navigator, "clipboard", {
         value: { writeText },
@@ -206,27 +206,22 @@ describe("MonitorPage install on an online machine", () => {
       renderMonitor();
       fireEvent.click(await machineAction("mon-install-btn"));
       const steps = await screen.findByTestId("mon-install-steps");
-      expect(steps.textContent).toContain("brew install tmux");
-      expect(steps.textContent).toContain("curl -fsSL https://claude.ai/install.sh | bash");
-      expect(steps.textContent).toContain("curl -fsSL https://chatgpt.com/codex/install.sh | sh");
-      expect(steps.textContent).toContain("claude --version && claude auth status --text");
+      expect(screen.getByTestId("mon-install-paste-hint").textContent).toBe(
+        "按 ⌘+空白鍵搜尋「終端機」開啟後，貼上下方指令並按 Enter。"
+      );
+      expect(steps.textContent).toContain("監控 › 機器資訊");
       expect(screen.queryByTestId("mon-install-wsl")).toBeNull();
 
       fireEvent.click(screen.getByTestId("mon-install-tab-windows"));
 
       expect(screen.getByTestId("mon-install-tab-windows").getAttribute("aria-selected")).toBe("true");
-      expect(steps.textContent).toContain("sudo apt-get update && sudo apt-get install -y tmux curl");
+      expect(screen.getByTestId("mon-install-paste-hint").textContent).toBe(
+        "於開始選單開啟「Ubuntu」，在 Ubuntu 視窗按右鍵貼上下方指令並按 Enter；不要貼在 PowerShell。"
+      );
       const wsl = screen.getByTestId("mon-install-wsl");
       expect(wsl.textContent).toContain("PowerShell（系統管理員）");
-      expect(wsl.textContent).toContain("使用者名稱@電腦名稱:~$");
-      const lineWith = (cmd: string) =>
-        Array.from(steps.querySelectorAll(".mon-install__cmd-line")).find(
-          (el) => el.querySelector("code")?.textContent === cmd
-        ) as HTMLElement;
-      fireEvent.click(lineWith("wsl --install -d Ubuntu").querySelector("button") as HTMLButtonElement);
+      fireEvent.click(wsl.querySelector(".mon-install__cmd-line button") as HTMLButtonElement);
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("wsl --install -d Ubuntu"));
-      fireEvent.click(lineWith("codex --version && codex login status").querySelector("button") as HTMLButtonElement);
-      await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("codex --version && codex login status"));
       expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
     });
 
