@@ -129,7 +129,7 @@ func stripTerminalEscapes(line string) string {
 
 var (
 	httpsURL = regexp.MustCompile(`https://[^\s\x07\x1b"'<>]+`)
-	urlQuery = regexp.MustCompile(`(https?://[^\s?#]*)[?#]\S*`)
+	urlQuery = regexp.MustCompile(`([^\s?#]*/[^\s?#]*)[?#]\S*`)
 )
 
 // claude's wording and line layout around the sign-in URL change between
@@ -170,7 +170,7 @@ func loginURLFromLine(raw string) (string, bool) {
 // redactOutputLine readies a line of login output to leave the machine: URL
 // queries can carry OAuth state.
 func redactOutputLine(line string) string {
-	line = urlQuery.ReplaceAllString(line, "$1?…")
+	line = urlQuery.ReplaceAllString(line, "${1}?…")
 	if runes := []rune(line); len(runes) > claudeOutputLineMax {
 		line = string(runes[:claudeOutputLineMax]) + "…"
 	}
@@ -459,6 +459,9 @@ func (r *loginRelay) Start(loginID, runtime string) {
 }
 
 func (r *loginRelay) startClaude(loginID string) {
+	// Counted from the request, not the launch: capturing the launch env can
+	// itself take seconds of the cockpit's 30.
+	urlDeadline := time.Now().Add(r.urlWait)
 	bin := r.resolveBin("claude")
 	if bin == "" {
 		r.fail(loginID, "Claude Code is not installed on this machine")
@@ -473,7 +476,7 @@ func (r *loginRelay) startClaude(loginID string) {
 		claudeCommandOpts{selfDeleteRender: true, extra: [][2]string{loginBrowserOverride}})
 	flow := &claudeLoginFlow{relay: r}
 	if s := r.launch(loginID, "claude", bin, script, rendered, flow, r.cap); s != nil {
-		time.AfterFunc(r.urlWait, func() { flow.noURL(s) })
+		time.AfterFunc(time.Until(urlDeadline), func() { flow.noURL(s) })
 	}
 }
 
@@ -622,7 +625,8 @@ func (f *claudeLoginFlow) noURL(s *loginSession) {
 	}
 	f.mu.Unlock()
 	f.relay.log("%s: claude printed no sign-in URL within %s", s.id, f.relay.urlWait)
-	f.relay.relay(s, loginReport{LoginID: s.id, State: "failed", Reason: s.mask(strings.Join(lines, "\n"))})
+	f.relay.progress(loginReport{LoginID: s.id, State: "failed", Reason: s.mask(strings.Join(lines, "\n"))})
+	f.relay.Cancel(s.id)
 }
 
 func (f *claudeLoginFlow) failureReason(error) string {

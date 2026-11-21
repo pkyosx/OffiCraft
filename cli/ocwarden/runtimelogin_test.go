@@ -20,6 +20,7 @@ const (
 	fakeLoginURL         = "https://claude.com/cai/oauth/authorize?code=true&client_id=fake-client-77&state=fake-state-77"
 	fakeNextLineLoginURL = "https://claude.ai/oauth/authorize?fake-opaque-state-77"
 	fakeLoginCode        = "fake-code-31#fake-state-77"
+	fakeLongOutputLine   = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 )
 
 // shellKeep runs the `<shell> -c <script>` the prober hands it, under /bin/sh,
@@ -39,14 +40,15 @@ func (shellKeep) RunKeepStdout(name string, args ...string) (string, error) {
 // sign-in URL after the prompt on the same line (2.1.329), dimmed as an OSC 8
 // hyperlink whose label is shortened when the osc file exists, on the line
 // after the prompt when the next-line file exists (2.1.330), or no sign-in URL
-// at all when the no-url file exists, then reads
+// at all when the no-url file exists (nothing whatsoever when the silent file
+// exists), then reads
 // stdin line by line, touching the read-line file for each. A line that is not two non-empty halves joined by `#` is
 // refused on stderr and the next is read; an accepted one is recorded, echoed
 // back on stderr when the echo file exists, followed by the stderr file, and
 // the process exits with the code in the rc file. `auth status` prints the
 // status reply.
 type fakeClaude struct {
-	root, bin, pid, gotCode, rc, stderr, status, osc, nextLine, noURL, echo, sawEnv, readLine, escape, escapee string
+	root, bin, pid, gotCode, rc, stderr, status, osc, nextLine, noURL, silent, echo, sawEnv, readLine, escape, escapee string
 }
 
 func newFakeClaude(t *testing.T) *fakeClaude {
@@ -62,6 +64,7 @@ func newFakeClaude(t *testing.T) *fakeClaude {
 		osc:      filepath.Join(root, "osc"),
 		nextLine: filepath.Join(root, "next-line"),
 		noURL:    filepath.Join(root, "no-url"),
+		silent:   filepath.Join(root, "silent"),
 		echo:     filepath.Join(root, "echo"),
 		sawEnv:   filepath.Join(root, "saw-env"),
 		readLine: filepath.Join(root, "read-line"),
@@ -73,10 +76,12 @@ func newFakeClaude(t *testing.T) *fakeClaude {
 		`echo $$ > '`+f.pid+`'`+"\n"+
 		`[ -f '`+f.escape+`' ] && `+escapeeLine(f.escapee)+"\n"+
 		`printf '%s' "${FROM_FILE-unset}" > '`+f.sawEnv+`'`+"\n"+
-		`echo 'Opening browser to sign in…'`+"\n"+
-		`if [ -f '`+f.noURL+`' ]; then echo "If the browser didn't open, visit:"; echo 'Status: https://status.example.test/incident?token=fake-secret-77'; echo 'Help: https://help.notanthropic.com/login'; `+
+		`if [ -f '`+f.silent+`' ]; then :; else echo 'Opening browser to sign in…'; fi`+"\n"+
+		`if [ -f '`+f.silent+`' ]; then :; `+
+		`elif [ -f '`+f.noURL+`' ]; then echo 'Welcome to Claude Code'; echo '`+fakeLongOutputLine+`'; echo "If the browser didn't open, visit:"; `+
+		`echo 'Status: https://status.example.test/incident?token=fake-secret-77'; echo 'Help: https://help.notanthropic.com/login'; echo 'Copy claude.ai/oauth/authorize?state=fake-secret-78'; `+
 		`elif [ -f '`+f.nextLine+`' ]; then echo "If the browser didn't open, visit:"; echo '`+fakeNextLineLoginURL+`'; `+
-		`elif [ -f '`+f.osc+`' ]; then printf "\\033[2mIf the browser didn't open, visit: \\033]8;;%s\\007claude.ai/oauth/authorize\\033]8;;\\007\\033[0m\\n" '`+fakeLoginURL+`'; `+
+		`elif [ -f '`+f.osc+`' ]; then printf "\\033[2mIf the browser didn't open, visit: \\033]8;;%s\\007https://claude.com/cai/oauth/authorize?code=true…\\033]8;;\\007\\033[0m\\n" '`+fakeLoginURL+`'; `+
 		`else echo "If the browser didn't open, visit: `+fakeLoginURL+`"; fi`+"\n"+
 		`while IFS= read -r code; do`+"\n"+
 		`  : > '`+f.readLine+`'`+"\n"+
@@ -264,7 +269,7 @@ func TestLoginRelay(t *testing.T) {
 		h.wantLogsFree(t, fakeLoginCode, fakeLoginURL)
 	})
 
-	t.Run("under a sign-in URL printed dimmed as an OSC 8 hyperlink with a shorter label, the reported URL is the link target", func(t *testing.T) {
+	t.Run("under a sign-in URL printed dimmed as an OSC 8 hyperlink with a truncated label, the reported URL is the link target", func(t *testing.T) {
 		h := newRelayHarness(t)
 		h.claude.write(t, h.claude.osc, "")
 		h.relay.Start("rl-osc", "claude")
@@ -286,15 +291,17 @@ func TestLoginRelay(t *testing.T) {
 		h := newRelayHarness(t)
 		h.claude.write(t, h.claude.noURL, "")
 		h.relay.urlWait = 2 * time.Second
+		h.answer = func(loginReport) string { return "" }
 		if err := os.MkdirAll(h.prober.agentHome, 0o700); err != nil {
 			t.Fatal(err)
 		}
 		h.relay.Start("rl-nourl", "claude")
 		want := loginReport{LoginID: "rl-nourl", State: "failed", Reason: "Claude Code printed no sign-in URL within 2s\n" +
-			"Opening browser to sign in…\n" +
+			strings.Repeat("x", 200) + "…\n" +
 			"If the browser didn't open, visit:\n" +
 			"Status: https://status.example.test/incident?…\n" +
-			"Help: https://help.notanthropic.com/login"}
+			"Help: https://help.notanthropic.com/login\n" +
+			"Copy claude.ai/oauth/authorize?…"}
 		if got := h.next(t); got != want {
 			t.Fatalf("report = %+v, want %+v", got, want)
 		}
@@ -303,7 +310,30 @@ func TestLoginRelay(t *testing.T) {
 			t.Error("the login process survived the missing sign-in URL")
 		}
 		h.wantNoReport(t)
-		h.wantLogsFree(t, "fake-secret-77")
+		h.wantLogsFree(t, "fake-secret-77", "fake-secret-78")
+	})
+
+	t.Run("under a CLI that prints nothing while the launch env capture takes 1.5s, the relay reports failed the URL wait after the request, with no output lines", func(t *testing.T) {
+		h := newRelayHarness(t)
+		h.claude.write(t, h.claude.silent, "")
+		h.relay.urlWait = 2 * time.Second
+		h.prober.captureEnv = func() (string, error) {
+			time.Sleep(1500 * time.Millisecond)
+			return "", nil
+		}
+		if err := os.MkdirAll(h.prober.agentHome, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		requested := time.Now()
+		h.relay.Start("rl-silent", "claude")
+		if got, want := h.next(t), (loginReport{LoginID: "rl-silent", State: "failed",
+			Reason: "Claude Code printed no sign-in URL within 2s"}); got != want {
+			t.Fatalf("report = %+v, want %+v", got, want)
+		}
+		if elapsed := time.Since(requested); elapsed > 3*time.Second {
+			t.Errorf("the failure arrived %s after the request, want within 3s", elapsed)
+		}
+		h.waitEnded(t, "rl-silent")
 	})
 
 	t.Run("under a partial code, the CLI's refusal returns the login to awaiting_code and a full code then succeeds", func(t *testing.T) {

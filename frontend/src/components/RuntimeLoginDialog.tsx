@@ -27,8 +27,6 @@ const CODE_REJECTED = /^Login failed: Request failed with status code 40[01]\b/;
 // What a warden that can only log in claude answers a codex login_start with.
 const RUNTIME_UNSUPPORTED = /cannot log in runtime "codex"/;
 const CODE_UNREADABLE = /^could not read the one-time code/;
-// The warden's reason when claude printed no sign-in URL: this opening line,
-// then claude's last lines of output.
 const NO_LOGIN_URL = /^Claude Code printed no sign-in URL\b[^\n]*\n?/;
 
 // Only called before the deadline: at or past it the dialog shows the expired view.
