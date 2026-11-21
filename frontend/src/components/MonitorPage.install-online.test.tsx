@@ -206,33 +206,27 @@ describe("MonitorPage install on an online machine", () => {
       renderMonitor();
       fireEvent.click(await machineAction("mon-install-btn"));
       const steps = await screen.findByTestId("mon-install-steps");
-      expect(steps.textContent).toContain("⌘+空白鍵");
       expect(steps.textContent).toContain("brew install tmux");
-      expect(steps.textContent).toContain("安裝並登入 Claude Code 或 Codex");
       expect(steps.textContent).toContain("curl -fsSL https://claude.ai/install.sh | bash");
       expect(steps.textContent).toContain("curl -fsSL https://chatgpt.com/codex/install.sh | sh");
+      expect(steps.textContent).toContain("claude --version && claude auth status --text");
+      expect(screen.queryByTestId("mon-install-wsl")).toBeNull();
 
       fireEvent.click(screen.getByTestId("mon-install-tab-windows"));
 
       expect(screen.getByTestId("mon-install-tab-windows").getAttribute("aria-selected")).toBe("true");
-      expect(steps.textContent).toContain("以系統管理員身分開啟 PowerShell");
+      expect(steps.textContent).toContain("sudo apt-get update && sudo apt-get install -y tmux curl");
+      const wsl = screen.getByTestId("mon-install-wsl");
+      expect(wsl.textContent).toContain("PowerShell（系統管理員）");
+      expect(wsl.textContent).toContain("使用者名稱@電腦名稱:~$");
       const lineWith = (cmd: string) =>
-        Array.from(steps.querySelectorAll(".mon-install__cmd-line")).find((el) =>
-          el.querySelector("code")?.textContent?.includes(cmd)
+        Array.from(steps.querySelectorAll(".mon-install__cmd-line")).find(
+          (el) => el.querySelector("code")?.textContent === cmd
         ) as HTMLElement;
-      const wslLine = lineWith("wsl --install -d Ubuntu");
-      expect(wslLine.textContent).toContain("PowerShell（系統管理員） · 安裝");
-      fireEvent.click(wslLine.querySelector("button") as HTMLButtonElement);
+      fireEvent.click(lineWith("wsl --install -d Ubuntu").querySelector("button") as HTMLButtonElement);
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("wsl --install -d Ubuntu"));
-      expect(lineWith("wsl -l -v").textContent).toContain("確認");
-      expect(lineWith("whoami").textContent).toContain("Ubuntu · 確認");
-      expect(lineWith("codex login status").textContent).toContain("Ubuntu · Codex · 確認");
-      const codexLine = lineWith("chatgpt.com/codex/install.sh");
-      expect(codexLine.textContent).toContain("Codex");
-      fireEvent.click(codexLine.querySelector("button") as HTMLButtonElement);
-      await waitFor(() =>
-        expect(writeText).toHaveBeenLastCalledWith(codexLine.querySelector("code")?.textContent)
-      );
+      fireEvent.click(lineWith("codex --version && codex login status").querySelector("button") as HTMLButtonElement);
+      await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("codex --version && codex login status"));
       expect(getMachineBootCommand).toHaveBeenCalledTimes(1);
     });
 
