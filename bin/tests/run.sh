@@ -265,6 +265,22 @@ else
   bad "bin/tests/base-scheme-mirror-guard.sh is missing"
 fi
 
+# ── install instructions mirrored between README.md and docs/guide/install.md ─
+# The same install steps live in both files (owner ruling, PR #721); nothing
+# else reads both, so an edit to one copy would leave the other giving
+# different steps with every suite green.
+INSTALLDOCMIRROR="$HERE/install-doc-mirror-guard.sh"
+echo
+if [[ -f "$INSTALLDOCMIRROR" ]]; then
+  if run_guard "$INSTALLDOCMIRROR"; then
+    ok "install block identical in README.md and docs/guide/install.md"
+  else
+    bad "install block MIRROR DRIFT between README.md and docs/guide/install.md (see output above)"
+  fi
+else
+  bad "bin/tests/install-doc-mirror-guard.sh is missing"
+fi
+
 # ── install.sh EXIT-time stdin drain (T-fa39) ──────────────────────────────
 # Own file, own temp HOME + fake label + launchctl shim. Guards the cosmetic
 # half of the same defect the --uninstall rewrite fixed: `curl … | bash` exits

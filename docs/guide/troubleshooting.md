@@ -20,7 +20,7 @@ Linux 上的 OffiCraft 以 systemd 的使用者服務在背景執行（systemd �
 
 ### 安裝腳本說缺少 tmux 或 agent runtime
 
-安裝腳本在動到機器之前會先檢查 `tmux`，以及 `claude`（Claude Code）或 `codex`（Codex）至少一種；缺任何一樣就停下，什麼都不安裝。補裝的指令在 [安裝、升級與移除](install.md) 的「安裝前要準備的東西」，補上後重新執行安裝指令即可。只裝其中一種也可以，但裝的那一種必須已經登入，成員才能啟動。Windows（WSL2）上，Claude Code 或 Codex 要裝在 WSL2 的 Ubuntu 裡；裝在 Windows 那一邊的不算。
+安裝腳本在動到機器之前會先檢查 `tmux`，以及 `claude`（Claude Code）或 `codex`（Codex）至少一種；缺任何一樣就停下，什麼都不安裝。補裝的指令在 [安裝、升級與移除](install.md) 的「步驟 1：安裝 tmux」與「步驟 2：安裝並登入 Claude Code 或 Codex」，補上後重新執行安裝指令即可。只裝其中一種也可以，但裝的那一種必須已經登入，成員才能啟動。Windows（WSL2）上，Claude Code 或 Codex 要裝在 WSL2 的 Ubuntu 裡；裝在 Windows 那一邊的不算。
 
 ### 7755 埠被占用
 
