@@ -17,9 +17,9 @@
 
 不在那台電腦上時，停止執行，開 Reply Card 告訴使用者這件事要由那台電腦上的成員處理，請使用者決定改派給誰。
 
-同時確認這台電腦是否已經有轉發在執行（`tailscale serve status`、cloudflared 是否在執行）。已經有轉發、而且網址打得開時，跳到第 6 步交付。
+同時確認這台電腦是否已經有轉發在執行（`tailscale serve status`、cloudflared 是否在執行）。已經有轉發時，仍然先做第 2 步；第 2 步通過後跳到第 5 步讀回網址。
 
-**完成條件**：已確認在跑控制台的電腦上、控制台的埠號，以及目前有沒有轉發。
+**完成條件**：步驟備註寫下控制台的埠號、所在機器就是跑控制台的機器，以及目前有沒有轉發（有的話附網址）。
 
 ## 2. 安全檢查
 
@@ -28,7 +28,7 @@
 用 `get_login_protection` 讀登入保護狀態：
 
 - **兩步驟驗證已開啟**：繼續。
-- **兩步驟驗證沒開**：開 action Reply Card，請使用者到控制台右上角頭像 › 帳號安全 › 兩步驟驗證開啟。使用者回覆後再讀一次，仍然沒開就不繼續。
+- **兩步驟驗證沒開**：開 action Reply Card，請使用者到控制台右上角頭像 › 帳號安全 › 兩步驟驗證開啟。使用者回覆後再讀一次；仍然沒開，再開卡說明讀到的結果並請使用者開啟。使用者表示不開啟時，不設定轉發，在任務上寫明原因後結束任務。
 
 同一張卡請使用者確認兩件系統檢查不到的事：登入密碼不容易被猜到（系統只存密碼的雜湊值，看不出強度），以及是否要把設定 › 參數調整 › 登入有效期調短。
 
@@ -47,7 +47,7 @@
 ### Tailscale
 
 1. **安裝**：macOS 請使用者從 Tailscale 官網下載並安裝 Tailscale App；Linux 與 Windows WSL2 執行 Tailscale 官網的安裝指令（需要管理員密碼時開卡請使用者執行）。
-2. **登入**：請使用者在這台電腦上登入 Tailscale 帳號。macOS 同時請使用者在 Tailscale App 的設定中開啟「登入時啟動」。
+2. **登入**：請使用者在這台電腦上登入 Tailscale 帳號。macOS 同時請使用者在 Tailscale App 的設定中開啟「登入時啟動」。Linux 與 Windows WSL2 開卡請使用者執行 `sudo tailscale up --operator=<執行成員的系統帳號>`，之後成員不需要管理員權限就能設定轉發。
 3. **開啟轉發**：執行 `tailscale serve --bg <控制台埠號>`。macOS 的 Tailscale App 不會把 `tailscale` 指令放進 PATH，指令在 `/Applications/Tailscale.app/Contents/MacOS/Tailscale`，而且 App 要先開著，否則指令會一直等不結束。第一次使用時，指令會印出一個網址，請使用者用這個網址在 Tailscale 管理頁開啟 HTTPS 功能，完成後再執行一次。
 4. **讀回網址**：`tailscale serve status` 顯示的 `https://<電腦名稱>.<帳號網域>.ts.net` 就是轉發後的網址。
 
@@ -60,7 +60,7 @@
 3. **建立通道與網址**：建立一條 tunnel，把使用者提供網域下的一個子網域指到這條 tunnel，設定檔把這個網址轉到 `http://127.0.0.1:<控制台埠號>`。
 4. **開機自動執行**：把 cloudflared 設成系統服務（`cloudflared service install`，需要管理員密碼時開卡請使用者執行）。
 
-**完成條件**：轉發已設定成開機後自動執行，且已讀出轉發後的 HTTPS 網址。
+**完成條件**：`tailscale serve status` 或 cloudflared 的服務狀態顯示轉發指向控制台的埠號、轉發工具已設成開機後自動執行，且步驟備註寫下轉發後的 HTTPS 網址。
 
 ## 5. 讀回網址
 

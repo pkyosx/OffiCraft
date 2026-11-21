@@ -255,6 +255,46 @@ func TestHandleLoginProtectionApiAuthLoginProtectionGet(t *testing.T) {
 		})
 	})
 
+	t.Run("offering the factor without activating it answers 200 with mfa_enrolled false", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
+		apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+		admin := apiTestAgentToken(t, api, "mira", "")
+
+		status, data := apiJSON(t, h, "GET", "/api/auth/login-protection", admin, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"mfa_enrolled":  false,
+			"passkey_count": 0,
+		})
+	})
+
+	t.Run("an activated factor stays mfa_enrolled true after the offer is withdrawn", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":true}`)
+		_, enrolled := apiJSON(t, h, "POST", "/api/auth/mfa/enroll", owner, `{}`)
+		secret, _ := enrolled["secret"].(string)
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/activate", owner,
+			`{"password":"`+apiTestOwnerPassword+`","code":"`+apiTestTOTPCode(t, secret)+`"}`); status != 200 {
+			t.Fatalf("activate: want 200, got %d (%v)", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/auth/mfa/offer", owner, `{"offered":false}`); status != 200 {
+			t.Fatalf("withdraw offer: want 200, got %d (%v)", status, data)
+		}
+		admin := apiTestAgentToken(t, api, "mira", "")
+
+		status, data := apiJSON(t, h, "GET", "/api/auth/login-protection", admin, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"mfa_enrolled":  true,
+			"passkey_count": 0,
+		})
+	})
+
 	t.Run("each registered passkey is counted", func(t *testing.T) {
 		env := newPasskeyTestEnv(t)
 		passkeyTestRegister(t, env, passkeyTestHost, passkeyTestOrigin, newSoftPasskey(t, "first"))
