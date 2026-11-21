@@ -2201,13 +2201,36 @@ export const en: Dict = {
       // uninstall intent armed, warden not yet disconnected — the same
       // in-progress treatment as "Installing…"
       uninstallInProgress: "Uninstalling…",
-      // install dialog (non-server machines): a single screen — copy & run on it
+      // install dialog (non-server machines): per-OS steps + the command shown on screen
       installTitle: "Install machine",
       installRemoteHint:
-        "Copy the command below and run it on that machine to install.",
-      // copy the install command (GET /boot-command; re-mints a token)
+        "On the machine you are adding, follow the steps below to run the install command.",
+      installPrereq:
+        "That machine needs tmux and at least one of Claude Code or Codex installed and logged in.",
+      installOsLabel: "Operating system",
+      installOsMac: "macOS",
+      installOsLinux: "Linux",
+      installOsWindows: "Windows (WSL2)",
+      installMacStep:
+        "Open the Terminal app (search for \"Terminal\" in Spotlight), paste the install command below and press Enter.",
+      installLinuxStep:
+        "Open a terminal, or SSH into the machine, paste the install command below and press Enter.",
+      installWinWsl:
+        "First install Ubuntu on WSL2: open PowerShell as administrator, run the command below, restart the computer, then open \"Ubuntu\" from the Start menu and create a user name and password when asked.",
+      installWinSystemd:
+        "Turn on systemd in WSL2 (OffiCraft runs in the background of Ubuntu through systemd, which WSL2 leaves off by default): add the two lines [boot] and systemd=true to /etc/wsl.conf, then run wsl.exe --shutdown in PowerShell and reopen the Ubuntu window. wsl.exe --shutdown stops every running WSL2 Linux on this Windows computer.",
+      installWinOpen:
+        "Open the \"Ubuntu\" window from the Start menu. Once you see the Linux command line, paste the install command below and press Enter. Do not paste it into PowerShell or Command Prompt. tmux and Claude Code (or Codex) must be installed and logged in inside Ubuntu.",
+      installWinDistro:
+        "If Windows has more than one Linux installed, run wsl -l -v in PowerShell to list their names, then open the one you are installing OffiCraft on with wsl -d <name>.",
+      installCmdLoading: "Generating the install command…",
+      installCmdRetry: "Generate again",
+      installCmdOneTime:
+        "The install command works only once and also expires after a while. When the install command has expired, close this window and open it again to get a new install command.",
+      // fetched once when the install dialog opens (GET /boot-command; mints a one-time code)
       copyBootCmd: "Copy install command",
       copyBootCmdError: "Failed to fetch command",
+      copyBootCmdCopyError: "Copy failed — select the install command above instead",
       // install-on-server result (POST /bootstrap-here): failure-only (success
       // shows nothing — the row flips online)
       bootstrapBusy: "Installing…",

@@ -2245,13 +2245,36 @@ export const zh = {
       uninstallOfflineHint: "機器離線，無法解除安裝",
       // 解除安裝意圖已下、warden 尚未斷線 —— 與「安裝中…」同一套過渡態
       uninstallInProgress: "解除安裝中…",
-      // install 對話框(非伺服器機器):單一畫面 —— 複製指令到該機器執行
+      // install 對話框(非伺服器機器):依作業系統的步驟 + 畫在畫面上的安裝指令
       installTitle: "安裝機器",
       installRemoteHint:
-        "複製下方指令，到那台機器上執行就能完成安裝。",
-      // 複製安裝指令 (GET /boot-command,會重新產生 token)
+        "到要加入的那台機器上，照下面的步驟執行安裝指令，就能完成安裝。",
+      installPrereq:
+        "那台機器要先裝好 tmux，以及 Claude Code 或 Codex（至少一種），並且已經登入。",
+      installOsLabel: "作業系統",
+      installOsMac: "macOS",
+      installOsLinux: "Linux",
+      installOsWindows: "Windows（WSL2）",
+      installMacStep:
+        "打開「終端機」App（可用 Spotlight 搜尋「終端機」），貼上下方的安裝指令後按 Enter。",
+      installLinuxStep:
+        "打開終端機，或用 SSH 連進那台機器，貼上下方的安裝指令後按 Enter。",
+      installWinWsl:
+        "先裝好 WSL2 的 Ubuntu：以系統管理員身分打開 PowerShell，執行下面這行指令，完成後重新開機，再從開始選單打開「Ubuntu」，依提示建立使用者名稱與密碼。",
+      installWinSystemd:
+        "在 WSL2 打開 systemd（OffiCraft 靠 systemd 在 Ubuntu 背景執行，WSL2 預設沒有打開）：在 /etc/wsl.conf 加上 [boot] 與 systemd=true 兩行，再在 PowerShell 執行 wsl.exe --shutdown，重新打開「Ubuntu」視窗後生效。wsl.exe --shutdown 會關掉這台 Windows 上所有執行中的 WSL2 Linux。",
+      installWinOpen:
+        "從開始選單打開「Ubuntu」視窗，看到 Linux 命令列後，貼上下方的安裝指令並按 Enter。不要貼在 PowerShell 或命令提示字元。tmux 與 Claude Code（或 Codex）要裝在 Ubuntu 裡，並在 Ubuntu 裡登入。",
+      installWinDistro:
+        "Windows 上裝了不只一套 Linux 時，在 PowerShell 執行 wsl -l -v 列出每一套 Linux 的名稱，再用 wsl -d <名稱> 打開要安裝 OffiCraft 的那一套。",
+      installCmdLoading: "正在產生安裝指令…",
+      installCmdRetry: "重新產生",
+      installCmdOneTime:
+        "安裝指令只能使用一次，過一段時間也會失效。安裝指令失效時，關掉這個視窗再重新打開，會產生新的安裝指令。",
+      // 打開安裝對話框時取一次 (GET /boot-command,會重新產生一次性安裝碼)
       copyBootCmd: "複製安裝指令",
       copyBootCmdError: "取得指令失敗",
+      copyBootCmdCopyError: "複製失敗，請直接選取上方的安裝指令",
       // 於伺服器安裝的結果 (POST /bootstrap-here):僅失敗顯示(成功即消失)
       bootstrapBusy: "安裝中…",
       bootstrapError: "安裝請求失敗",
