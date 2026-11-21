@@ -2229,16 +2229,16 @@ export const en: Dict = {
         "Press Ctrl+Alt+T or connect over SSH; paste each command with Ctrl+Shift+V and press Enter.",
       installSubOpenPowerShell:
         "Search the Start menu for \"PowerShell\", right-click it and select \"Run as administrator\"; paste with a right-click and press Enter.",
-      installSubWsl: "Restart the computer when the installation completes.",
+      installSubWsl: "Restart the computer when the installation completes; skip this step if Ubuntu is already installed.",
       installSubUbuntuUser:
         "Open \"Ubuntu\" from the Start menu and set a user name and password; run all following commands in this window, pasting with a right-click and pressing Enter.",
       installSubPasswordLocal: "Enter the local login password when prompted; no characters are displayed.",
       installSubPasswordUbuntu: "Enter the Ubuntu user password when prompted; no characters are displayed.",
-      installSubLoginMac: "Run in a new window opened with ⌘N; ",
-      installSubLoginLinux: "Run in a new terminal window; ",
-      installSubLoginWindows: "Run in a reopened Ubuntu window; ",
-      installSubLoginClaude: "complete sign-in in the browser as prompted, then enter /exit.",
-      installSubLoginCodex: "select Sign in with ChatGPT, complete sign-in in the browser, then enter /exit.",
+      installSubLoginClaude:
+        "Complete sign-in in the browser as prompted, then enter /exit; skip this step if already signed in.",
+      installSubLoginCodex:
+        "Select Sign in with ChatGPT, complete sign-in in the browser, then enter /exit; skip this step if already signed in.",
+      installSubOffiCraft: "On a machine that already has OffiCraft, this command overwrites and reinstalls it.",
       installCmdLoading: "Generating the install command…",
       installCmdRetry: "Generate again",
       installCmdOneTime: "The install command is single-use and expires after a short period; reopen this dialog to generate a new one.",

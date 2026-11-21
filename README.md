@@ -21,48 +21,48 @@
    需輸入本機登入密碼，輸入時不顯示字元。
 
    ```bash
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   command -v brew >/dev/null 2>&1 || [ -x /opt/homebrew/bin/brew ] || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
    ```
 
 3. **設定 Homebrew 環境變數**
 
    ```bash
-   echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile && eval "$(/opt/homebrew/bin/brew shellenv)"
+   grep -qs 'brew shellenv' ~/.zprofile || echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile; eval "$(/opt/homebrew/bin/brew shellenv)"
    ```
 
 4. **安裝 tmux**
 
    ```bash
-   brew install tmux
+   command -v tmux >/dev/null 2>&1 || brew install tmux
    ```
 
 5. **安裝 Claude Code**
 
    ```bash
-   curl -fsSL https://claude.ai/install.sh | bash
+   command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ] || curl -fsSL https://claude.ai/install.sh | bash
    ```
 
 6. **登入 Claude Code**
 
-   以 ⌘N 開啟新視窗後執行，依提示於瀏覽器完成登入後輸入 /exit 結束。
+   依提示於瀏覽器完成登入後輸入 /exit 結束；已登入時略過此步驟。
 
    ```bash
-   claude
+   PATH="$HOME/.local/bin:$PATH" claude
    ```
 
-   使用 Codex 時，第 5、6 步改為下列指令；登入時選擇 Sign in with ChatGPT。
+   使用 Codex 時，第 5、6 步改為下列指令；登入時選擇 Sign in with ChatGPT，已登入時略過登入。
 
    ```bash
-   curl -fsSL https://chatgpt.com/codex/install.sh | sh
+   command -v codex >/dev/null 2>&1 || [ -x "$HOME/.local/bin/codex" ] || curl -fsSL https://chatgpt.com/codex/install.sh | sh
    ```
 
    ```bash
-   codex
+   PATH="$HOME/.local/bin:$PATH" codex
    ```
 
 7. **安裝 OffiCraft**
 
-   執行後以瀏覽器開啟終端機最後輸出的設定連結，並設定密碼。
+   執行後以瀏覽器開啟終端機最後輸出的設定連結並設定密碼；已安裝時略過此步驟，改由「設定 › 系統更新與備份」升級。
 
    ```bash
    curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
@@ -85,30 +85,30 @@
 3. **安裝 Claude Code**
 
    ```bash
-   curl -fsSL https://claude.ai/install.sh | bash
+   command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ] || curl -fsSL https://claude.ai/install.sh | bash
    ```
 
 4. **登入 Claude Code**
 
-   於新的終端機視窗執行，依提示於瀏覽器完成登入後輸入 /exit 結束。
+   依提示於瀏覽器完成登入後輸入 /exit 結束；已登入時略過此步驟。
 
    ```bash
-   claude
+   PATH="$HOME/.local/bin:$PATH" claude
    ```
 
-   使用 Codex 時，第 3、4 步改為下列指令；登入時選擇 Sign in with ChatGPT。
+   使用 Codex 時，第 3、4 步改為下列指令；登入時選擇 Sign in with ChatGPT，已登入時略過登入。
 
    ```bash
-   curl -fsSL https://chatgpt.com/codex/install.sh | sh
+   command -v codex >/dev/null 2>&1 || [ -x "$HOME/.local/bin/codex" ] || curl -fsSL https://chatgpt.com/codex/install.sh | sh
    ```
 
    ```bash
-   codex
+   PATH="$HOME/.local/bin:$PATH" codex
    ```
 
 5. **安裝 OffiCraft**
 
-   執行後以瀏覽器開啟終端機最後輸出的設定連結，並設定密碼。
+   執行後以瀏覽器開啟終端機最後輸出的設定連結並設定密碼；已安裝時略過此步驟，改由「設定 › 系統更新與備份」升級。
 
    ```bash
    curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
@@ -122,7 +122,7 @@
 
 2. **安裝 WSL2 與 Ubuntu**
 
-   完成後重新開機。
+   完成後重新開機；已安裝 Ubuntu 時略過此步驟。
 
    ```powershell
    wsl --install -d Ubuntu
@@ -143,30 +143,30 @@
 5. **安裝 Claude Code**
 
    ```bash
-   curl -fsSL https://claude.ai/install.sh | bash
+   command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ] || curl -fsSL https://claude.ai/install.sh | bash
    ```
 
 6. **登入 Claude Code**
 
-   重新開啟 Ubuntu 視窗後執行，依提示於瀏覽器完成登入後輸入 /exit 結束。
+   依提示於瀏覽器完成登入後輸入 /exit 結束；已登入時略過此步驟。
 
    ```bash
-   claude
+   PATH="$HOME/.local/bin:$PATH" claude
    ```
 
-   使用 Codex 時，第 5、6 步改為下列指令；登入時選擇 Sign in with ChatGPT。
+   使用 Codex 時，第 5、6 步改為下列指令；登入時選擇 Sign in with ChatGPT，已登入時略過登入。
 
    ```bash
-   curl -fsSL https://chatgpt.com/codex/install.sh | sh
+   command -v codex >/dev/null 2>&1 || [ -x "$HOME/.local/bin/codex" ] || curl -fsSL https://chatgpt.com/codex/install.sh | sh
    ```
 
    ```bash
-   codex
+   PATH="$HOME/.local/bin:$PATH" codex
    ```
 
 7. **安裝 OffiCraft**
 
-   執行後以 Windows 瀏覽器開啟終端機最後輸出的設定連結，並設定密碼。
+   執行後以 Windows 瀏覽器開啟終端機最後輸出的設定連結並設定密碼；已安裝時略過此步驟，改由「設定 › 系統更新與備份」升級。
 
    ```bash
    curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash

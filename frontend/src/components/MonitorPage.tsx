@@ -2097,16 +2097,27 @@ type InstallRuntime = "claude" | "codex";
 const INSTALL_OSES: InstallOs[] = ["mac", "linux", "windows"];
 const INSTALL_RUNTIMES: InstallRuntime[] = ["claude", "codex"];
 
+// Every command is safe to re-run on a machine that already has the tool: each
+// skips its work when the tool is present (installers that leave ~/.local/bin off
+// PATH are checked by file, and the login commands put it on PATH themselves).
 const CMD_BREW_INSTALL =
-  '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
+  'command -v brew >/dev/null 2>&1 || [ -x /opt/homebrew/bin/brew ] || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
 const CMD_BREW_ENV =
-  "echo 'eval \"$(/opt/homebrew/bin/brew shellenv)\"' >> ~/.zprofile && eval \"$(/opt/homebrew/bin/brew shellenv)\"";
-const CMD_BREW_TMUX = "brew install tmux";
+  "grep -qs 'brew shellenv' ~/.zprofile || echo 'eval \"$(/opt/homebrew/bin/brew shellenv)\"' >> ~/.zprofile; eval \"$(/opt/homebrew/bin/brew shellenv)\"";
+const CMD_BREW_TMUX = "command -v tmux >/dev/null 2>&1 || brew install tmux";
 const CMD_APT_TMUX = "sudo apt-get update && sudo apt-get install -y tmux curl";
 const CMD_WSL_INSTALL = "wsl --install -d Ubuntu";
 const RUNTIME_CMDS: Record<InstallRuntime, { install: string; login: string }> = {
-  claude: { install: "curl -fsSL https://claude.ai/install.sh | bash", login: "claude" },
-  codex: { install: "curl -fsSL https://chatgpt.com/codex/install.sh | sh", login: "codex" },
+  claude: {
+    install:
+      'command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ] || curl -fsSL https://claude.ai/install.sh | bash',
+    login: 'PATH="$HOME/.local/bin:$PATH" claude',
+  },
+  codex: {
+    install:
+      'command -v codex >/dev/null 2>&1 || [ -x "$HOME/.local/bin/codex" ] || curl -fsSL https://chatgpt.com/codex/install.sh | sh',
+    login: 'PATH="$HOME/.local/bin:$PATH" codex',
+  },
 };
 
 type InstallStep = { title: string; sub?: string; cmd?: string };
@@ -2209,18 +2220,13 @@ export function MachineInstallDialog({
     claude: m.installRuntimeClaude,
     codex: m.installRuntimeCodex,
   };
-  const loginLead: Record<InstallOs, string> = {
-    mac: m.installSubLoginMac,
-    linux: m.installSubLoginLinux,
-    windows: m.installSubLoginWindows,
-  };
   const runtimeSteps: InstallStep[] =
     runtime === "claude"
       ? [
           { title: m.installStepClaude, cmd: RUNTIME_CMDS.claude.install },
           {
             title: m.installStepClaudeLogin,
-            sub: loginLead[os] + m.installSubLoginClaude,
+            sub: m.installSubLoginClaude,
             cmd: RUNTIME_CMDS.claude.login,
           },
         ]
@@ -2228,7 +2234,7 @@ export function MachineInstallDialog({
           { title: m.installStepCodex, cmd: RUNTIME_CMDS.codex.install },
           {
             title: m.installStepCodexLogin,
-            sub: loginLead[os] + m.installSubLoginCodex,
+            sub: m.installSubLoginCodex,
             cmd: RUNTIME_CMDS.codex.login,
           },
         ];
@@ -2341,6 +2347,7 @@ export function MachineInstallDialog({
           ))}
           <li>
             <div className="mon-install__step-title">{m.installStepOffiCraft}</div>
+            <div className="mon-install__step-sub">{m.installSubOffiCraft}</div>
             {fetchFailed ? (
               <div className="mon-cmd__row mon-install__cmd-row">
                 <div className="mon-error">{m.copyBootCmdError}</div>
