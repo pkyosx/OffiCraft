@@ -2272,16 +2272,15 @@ export const zh = {
         "以 Ctrl+Alt+T 開啟終端機或以 SSH 連線，指令以 Ctrl+Shift+V 貼上後按 Enter。",
       installSubOpenPowerShell:
         "於開始選單搜尋「PowerShell」並按右鍵選擇「以系統管理員身分執行」，指令以右鍵貼上後按 Enter。",
-      installSubWsl: "完成後重新開機。",
+      installSubWsl: "完成後重新開機；已安裝 Ubuntu 時略過此步驟。",
       installSubUbuntuUser:
         "於開始選單開啟「Ubuntu」並依提示設定使用者名稱與密碼，後續指令皆於此視窗以右鍵貼上後按 Enter。",
       installSubPasswordLocal: "需輸入本機登入密碼，輸入時不顯示字元。",
       installSubPasswordUbuntu: "需輸入 Ubuntu 使用者密碼，輸入時不顯示字元。",
-      installSubLoginMac: "以 ⌘N 開啟新視窗後執行，",
-      installSubLoginLinux: "於新的終端機視窗執行，",
-      installSubLoginWindows: "重新開啟 Ubuntu 視窗後執行，",
-      installSubLoginClaude: "依提示於瀏覽器完成登入後輸入 /exit 結束。",
-      installSubLoginCodex: "選擇 Sign in with ChatGPT 並於瀏覽器完成登入後輸入 /exit 結束。",
+      installSubLoginClaude: "依提示於瀏覽器完成登入後輸入 /exit 結束；已登入時略過此步驟。",
+      installSubLoginCodex:
+        "選擇 Sign in with ChatGPT 並於瀏覽器完成登入後輸入 /exit 結束；已登入時略過此步驟。",
+      installSubOffiCraft: "機器已安裝 OffiCraft 時，執行此指令會覆蓋並重新安裝。",
       installCmdLoading: "正在產生安裝指令…",
       installCmdRetry: "重新產生",
       installCmdOneTime: "安裝指令僅能使用一次，並於一段時間後失效；失效時請重新開啟此視窗。",
