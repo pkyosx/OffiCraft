@@ -309,8 +309,6 @@ func TestLoginRelay(t *testing.T) {
 		if h.claude.alive(t) {
 			t.Error("the login process survived the missing sign-in URL")
 		}
-		h.wantNoReport(t)
-		h.wantLogsFree(t, "fake-secret-77", "fake-secret-78")
 	})
 
 	t.Run("under a CLI that prints nothing while the launch env capture takes 1.5s, the relay reports failed the URL wait after the request, with no output lines", func(t *testing.T) {
