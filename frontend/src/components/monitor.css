@@ -928,6 +928,8 @@
 /* install dialog — a single copy-command screen (remote machines) */
 .mon-install__box {
   max-width: 520px;
+  max-height: 100%;
+  overflow-y: auto;
   gap: 12px;
 }
 .mon-install__box .btn {
@@ -937,6 +939,112 @@
 .mon-install__box .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.mon-install__tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border-radius: 11px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 3%, transparent);
+}
+.mon-install__tab {
+  min-height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.mon-install__tab:hover {
+  color: var(--color-text);
+}
+.mon-install__tab--active {
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  color: var(--color-text-strong);
+}
+.mon-install__steps {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-text);
+}
+.mon-install__step {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mon-install__step-title {
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.mon-install__step-sub {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.mon-install__note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.mon-install__cmd-line {
+  margin-top: 6px;
+}
+.mon-install__cmd-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.mon-install__cmd-text {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-strong);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mon-install__box .mon-install__cmd-copy {
+  flex-shrink: 0;
+  align-self: flex-start;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.mon-install__cmd {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mon-install__cmd-row {
+  margin-top: 0;
+}
+.mon-install__cmd--expired {
+  opacity: 0.5;
+}
+.mon-install__box .mon-install__cmd-row .btn {
+  align-self: center;
+}
+@media (max-width: 720px) {
+  .mon-install__cmd-row {
+    flex-direction: column;
+  }
+  .mon-install__box .mon-install__cmd-row .btn {
+    align-self: flex-start;
+  }
 }
 
 /* ── 帳號詳情 modal (T-a9a7) — same dim-overlay + card language as

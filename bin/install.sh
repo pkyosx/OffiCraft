@@ -805,7 +805,9 @@ oc_preflight() {
     [[ -z "$c" && -x "$p/claude" ]] && c="$p/claude"
     [[ -z "$x" && -x "$p/codex" ]] && x="$p/codex"
   done
-  [[ -n "$c$x" ]] || miss+=("an agent runtime: claude (npm install -g @anthropic-ai/claude-code) or codex")
+  [[ -n "$c$x" ]] || miss+=("an agent runtime — Claude Code or Codex; install one, then run it once to sign in:"
+    "  Claude Code: curl -fsSL https://claude.ai/install.sh | bash   (then sign in: claude)"
+    "  Codex:       curl -fsSL https://chatgpt.com/codex/install.sh | sh   (then sign in: codex)")
   # BOTH resolutions are carried out (T-ff48). Exporting only the claude one made
   # the plist stamp below structurally claude-only: a host whose codex lives under
   # a version manager passed this preflight, installed, went online, and then

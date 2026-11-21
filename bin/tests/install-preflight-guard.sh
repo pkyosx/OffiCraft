@@ -256,13 +256,13 @@ else
   # BOTH ways out have to be on offer. Naming only claude would send a codex user
   # to install a runtime they deliberately did not choose.
   case "$OUT" in
-    *"npm install -g @anthropic-ai/claude-code"*) ok "no runtime: the refusal gives the claude install command" ;;
-    *) bad "no runtime: the refusal does not say how to install claude:
+    *"curl -fsSL https://claude.ai/install.sh | bash"*) ok "no runtime: the refusal gives the Claude Code install command" ;;
+    *) bad "no runtime: the refusal does not say how to install Claude Code:
 $OUT" ;;
   esac
   case "$OUT" in
-    *"codex"*) ok "no runtime: the refusal names codex as the other way out" ;;
-    *) bad "no runtime: the refusal never mentions codex — a codex user is told to install the wrong thing:
+    *"curl -fsSL https://chatgpt.com/codex/install.sh | sh"*) ok "no runtime: the refusal gives the Codex install command as the other way out" ;;
+    *) bad "no runtime: the refusal does not say how to install Codex — a codex user is told to install the wrong thing:
 $OUT" ;;
   esac
 fi

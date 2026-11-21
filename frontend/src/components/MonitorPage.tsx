@@ -132,8 +132,9 @@ export function MonitorPage() {
   //     the warden currently in service and every member on that box drops —
   //     irreversible, so it goes through `bootstrapConfirmTarget` first.
   //   • every other (remote) machine → a SINGLE uniform copy-command dialog
-  //     (`installTarget`): copy the command, run it on that machine. This sends
-  //     NO request and changes NOTHING — it renders a string. No confirm: a
+  //     (`installTarget`): show the command, run it on that machine. Opening it
+  //     fetches the boot command once (a fresh one-time claim code; earlier codes
+  //     stay valid until they expire) and installs nothing. No confirm: a
   //     second click that guards nothing only trains the owner to click through
   //     the one above, which does guard something.
   const [installTarget, setInstallTarget] = useState<MachineView | null>(null);
@@ -914,38 +915,12 @@ export function MonitorPage() {
           </div>
         )}
 
-        {/* install dialog (remote machines only) — a SINGLE uniform screen: copy
-         * the command, run it on that machine to install the warden (the command
-         * re-mints a fresh token — SECURITY: rendered into a copy control only,
-         * never logged). The server-self row does NOT open this dialog (its Install
-         * is an in-place bootstrap-on-server run directly). */}
         {installTarget && (
-          <div
-            className="mon-confirm"
-            data-testid="mon-install-dialog"
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="mon-confirm__box mon-confirm__box--accent mon-install__box">
-              <div className="mon-cmd__head">
-                <span className="mon-confirm__title">
-                  {t.monitor.machine.installTitle} · {installTarget.displayName}
-                </span>
-                <button
-                  type="button"
-                  className="btn btn--ghost mon-cmd__close"
-                  aria-label={t.monitor.machine.close}
-                  onClick={closeInstall}
-                >
-                  {t.monitor.machine.close}
-                </button>
-              </div>
-              <p className="mon-cmd__hint">
-                {t.monitor.machine.installRemoteHint}
-              </p>
-              <CopyBootCommandButton machineId={installTarget.machineId} />
-            </div>
-          </div>
+          <MachineInstallDialog
+            machineId={installTarget.machineId}
+            displayName={installTarget.displayName}
+            onClose={closeInstall}
+          />
         )}
 
         {/* uninstall guard — members are still bound to this machine. Warn (advise
@@ -1673,7 +1648,8 @@ function MachineNameMenu({
                     ? t.monitor.machine.reinstall
                     : t.monitor.machine.install,
               icon: <DownloadIcon size={14} />,
-              disabled: m.isSelf && bootstrapBusy,
+              disabled: (m.isSelf && bootstrapBusy) || uninstalling,
+              title: uninstalling ? t.monitor.machine.installUninstallingHint : undefined,
               onSelect: onInstall,
             },
             {
@@ -2117,53 +2093,227 @@ function powerText(
   return batteryPct != null ? `${icon} ${batteryPct}%` : icon;
 }
 
-/** A per-machine "copy install command" button — scenario 2 of the install
- * dialog (run it on ANOTHER machine). On click it RE-FETCHES the machine's boot
- * command (api.getMachineBootCommand re-mints a fresh token) and copies the
- * returned string to the clipboard. SECURITY: the command is a secret; it is
- * written straight to the clipboard and NEVER held in state, logged, or rendered.
- * A fetch/clipboard failure surfaces an honest error label (no fake "copied"). */
-function CopyBootCommandButton({ machineId }: { machineId: string }) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+type InstallOs = "mac" | "linux" | "windows";
+const INSTALL_OSES: InstallOs[] = ["mac", "linux", "windows"];
 
-  async function run() {
-    if (busy) return;
-    setBusy(true);
-    setFailed(false);
+/** One command line the user is meant to paste: where to run it, the command,
+ * and its own copy button. */
+function CopyableCommand({ command }: { command: string }) {
+  const { t } = useI18n();
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  async function copy() {
     try {
-      const command = await api.getMachineBootCommand(machineId);
+      await navigator.clipboard.writeText(command);
+      setState("copied");
+    } catch {
+      setState("failed");
+    }
+    window.setTimeout(() => setState("idle"), 1600);
+  }
+  return (
+    <div className="mon-install__cmd-line">
+      <div className="mon-install__cmd-body">
+        <code className="mon-install__cmd-text">{command}</code>
+        <button
+          type="button"
+          className="btn btn--ghost mon-install__cmd-copy"
+          onClick={() => void copy()}
+        >
+          {state === "copied" ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+          <span>
+            {state === "copied"
+              ? t.monitor.machine.copied
+              : state === "failed"
+                ? t.monitor.machine.copyCmdError
+                : t.monitor.machine.copy}
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The 安裝機器 dialog for a remote machine: per-OS where-to-paste guidance
+ * ending with the machine's own boot command. The boot command is fetched ONCE
+ * when the dialog mounts and its copy button copies exactly that displayed
+ * string — re-fetching on copy would mint a second claim code and hand the user
+ * a command different from the one on screen. It carries only the one-time
+ * claim code (never the warden token) and is never logged. */
+export function MachineInstallDialog({
+  machineId,
+  displayName,
+  onClose,
+}: {
+  machineId: string;
+  displayName: string;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const m = t.monitor.machine;
+  const [os, setOs] = useState<InstallOs>("mac");
+  const [command, setCommand] = useState<string | null>(null);
+  const [fetchFailed, setFetchFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [expired, setExpired] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    let expiryTimer: number | undefined;
+    setCommand(null);
+    setExpired(false);
+    setFetchFailed(false);
+    api.getMachineBootCommand(machineId).then(
+      (c) => {
+        if (!live) return;
+        setCommand(c.command);
+        expiryTimer = window.setTimeout(() => setExpired(true), c.expiresInSecs * 1000);
+      },
+      () => {
+        if (live) setFetchFailed(true);
+      }
+    );
+    return () => {
+      live = false;
+      window.clearTimeout(expiryTimer);
+    };
+  }, [machineId, attempt]);
+  const regenerate = () => setAttempt((n) => n + 1);
+
+  async function copyBoot() {
+    if (command == null || expired) return;
+    setCopyFailed(false);
+    try {
       await navigator.clipboard.writeText(command);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
-      // fetch or clipboard unavailable — honest error label, no fake success
-      setFailed(true);
-      window.setTimeout(() => setFailed(false), 2400);
-    } finally {
-      setBusy(false);
+      setCopyFailed(true);
+      window.setTimeout(() => setCopyFailed(false), 2400);
     }
   }
 
-  const label = failed
-    ? t.monitor.machine.copyBootCmdError
+  const osLabel: Record<InstallOs, string> = {
+    mac: m.installOsMac,
+    linux: m.installOsLinux,
+    windows: m.installOsWindows,
+  };
+  const pasteHint: Record<InstallOs, string> = {
+    mac: m.installPasteMac,
+    linux: m.installPasteLinux,
+    windows: m.installPasteWindows,
+  };
+  const copyLabel = copyFailed
+    ? m.copyBootCmdCopyError
     : copied
-      ? t.monitor.machine.copied
-      : t.monitor.machine.copyBootCmd;
+      ? m.copied
+      : m.copyBootCmd;
 
   return (
-    <button
-      type="button"
-      className="btn btn--accent-ghost"
-      data-testid="mon-copy-boot-cmd-btn"
-      disabled={busy}
-      onClick={() => void run()}
+    <div
+      className="mon-confirm"
+      data-testid="mon-install-dialog"
+      role="dialog"
+      aria-modal="true"
     >
-      {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-      <span>{label}</span>
-    </button>
+      <div className="mon-confirm__box mon-confirm__box--accent mon-install__box">
+        <div className="mon-cmd__head">
+          <span className="mon-confirm__title">
+            {m.installTitle} · {displayName}
+          </span>
+          <button
+            type="button"
+            className="btn btn--ghost mon-cmd__close"
+            aria-label={m.close}
+            onClick={onClose}
+          >
+            {m.close}
+          </button>
+        </div>
+        <div
+          className="mon-install__tabs"
+          role="tablist"
+          aria-label={m.installOsLabel}
+        >
+          {INSTALL_OSES.map((o) => (
+            <button
+              key={o}
+              type="button"
+              role="tab"
+              id={`mon-install-tab-${o}`}
+              aria-selected={os === o}
+              aria-controls="mon-install-steps"
+              data-testid={`mon-install-tab-${o}`}
+              className={`mon-install__tab${
+                os === o ? " mon-install__tab--active" : ""
+              }`}
+              onClick={() => setOs(o)}
+            >
+              {osLabel[o]}
+            </button>
+          ))}
+        </div>
+        <div
+          className="mon-install__steps"
+          id="mon-install-steps"
+          role="tabpanel"
+          aria-labelledby={`mon-install-tab-${os}`}
+          data-testid="mon-install-steps"
+        >
+          <p className="mon-install__step-sub">{m.installRequirements}</p>
+          {os === "windows" && (
+            <div className="mon-install__step" data-testid="mon-install-wsl">
+              <div className="mon-install__step-title">{m.installWslTitle}</div>
+              <div className="mon-install__step-sub">{m.installWslInstall}</div>
+              <CopyableCommand command="wsl --install -d Ubuntu" />
+              <div className="mon-install__step-sub">{m.installWslReboot}</div>
+            </div>
+          )}
+          <div className="mon-install__step">
+            <div className="mon-install__step-title" data-testid="mon-install-paste-hint">
+              {pasteHint[os]}
+            </div>
+            <div className="mon-cmd__row mon-install__cmd-row">
+              {fetchFailed ? (
+                <div className="mon-error">{m.copyBootCmdError}</div>
+              ) : (
+                <code
+                  className={`mon-cmd__code mon-install__cmd${
+                    expired ? " mon-install__cmd--expired" : ""
+                  }`}
+                  data-testid="mon-boot-cmd"
+                >
+                  {command ?? m.installCmdLoading}
+                </code>
+              )}
+              {fetchFailed || expired ? (
+                <button
+                  type="button"
+                  className="btn btn--accent-ghost"
+                  data-testid="mon-copy-boot-cmd-btn"
+                  onClick={regenerate}
+                >
+                  <span>{m.installCmdRegenerate}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn--accent-ghost"
+                  data-testid="mon-copy-boot-cmd-btn"
+                  disabled={command == null}
+                  onClick={() => void copyBoot()}
+                >
+                  {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+                  <span>{copyLabel}</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+        <p className="mon-install__note">{m.installCmdOneTime}</p>
+      </div>
+    </div>
   );
 }
 

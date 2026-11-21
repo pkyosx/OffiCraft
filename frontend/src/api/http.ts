@@ -134,6 +134,7 @@ import type {
   TaskArtifactVersionView,
   ChatGroupView,
   ChatGroupWrite,
+  BootCommandView,
 } from "./adapter";
 import { CHAT_SEARCH_PAGE_SIZE } from "./adapter";
 import {
@@ -2591,20 +2592,20 @@ export const httpApi: Api = {
     return toRuntimeUpgrade(wire);
   },
 
-  async getMachineBootCommand(machineId: string): Promise<string> {
+  async getMachineBootCommand(machineId: string): Promise<BootCommandView> {
     // GET /api/machines/{machine_id}/boot-command -> BootCommandDTO {machine_id,
     // boot_command, token, expires_in, claim_code, claim_expires_in}. Re-mints a
     // fresh token + one-time claim code and returns the ready-to-run boot_command
     // (which embeds the CODE — install.sh?code= — never the token). Owner-gated
     // (the client middleware attaches the owner JWT; 401 bounces to login).
-    // SECURITY: we return ONLY the boot_command string for the UI's copy
-    // control — token/expires_in stay on the wire and are never logged.
+    // SECURITY: we return ONLY the boot_command string (and the claim code's
+    // lifetime) for the UI — token/expires_in stay on the wire and are never logged.
     const wire = unwrap(
       await client.GET("/api/machines/{machine_id}/boot-command", {
         params: { path: { machine_id: machineId } },
       }),
     );
-    return wire.boot_command;
+    return { command: wire.boot_command, expiresInSecs: wire.claim_expires_in };
   },
 
   async bootstrapOnServer(machineId: string): Promise<BootstrapResultView> {

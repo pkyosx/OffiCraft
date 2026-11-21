@@ -2198,16 +2198,30 @@ export const en: Dict = {
       deleteMachine: "Delete",
       // offline machine has no warden to uninstall (disabled-button tooltip)
       uninstallOfflineHint: "Machine is offline — cannot uninstall",
+      installUninstallingHint: "Uninstalling — install becomes available when it finishes",
       // uninstall intent armed, warden not yet disconnected — the same
       // in-progress treatment as "Installing…"
       uninstallInProgress: "Uninstalling…",
-      // install dialog (non-server machines): a single screen — copy & run on it
+      // install dialog (non-server machines): per-OS steps + the command shown on screen
       installTitle: "Install machine",
-      installRemoteHint:
-        "Copy the command below and run it on that machine to install.",
-      // copy the install command (GET /boot-command; re-mints a token)
+      installOsLabel: "Operating system",
+      installOsMac: "macOS",
+      installOsLinux: "Linux",
+      installOsWindows: "Windows (WSL2)",
+      installRequirements: "Requires tmux and a signed-in Claude Code or Codex.",
+      installWslTitle: "Prepare WSL2",
+      installWslInstall: "Open PowerShell as administrator and run:",
+      installWslReboot: "A restart is required the first time WSL is installed. Then open \"Ubuntu\" from the Start menu and set the Ubuntu user name and password when prompted.",
+      installPasteMac: "Paste and run in Terminal:",
+      installPasteLinux: "Paste and run in a terminal:",
+      installPasteWindows: "Paste and run in the \"Ubuntu\" window (not PowerShell):",
+      installCmdLoading: "Generating the install command…",
+      installCmdRegenerate: "Regenerate command",
+      installCmdOneTime: "The command works once and is valid for 10 minutes.",
+      copyCmdError: "Copy failed",
       copyBootCmd: "Copy install command",
       copyBootCmdError: "Failed to fetch command",
+      copyBootCmdCopyError: "Copy failed — select the install command above instead",
       // install-on-server result (POST /bootstrap-here): failure-only (success
       // shows nothing — the row flips online)
       bootstrapBusy: "Installing…",

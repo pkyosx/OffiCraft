@@ -2,61 +2,115 @@
 
 這頁說明在 macOS、Linux 與 Windows（透過 WSL2）上安裝、升級、移除 OffiCraft 的指令，以及把第二台電腦加進同一間工作室、從工作室移除一台機器時，各個操作的意思和結果。
 
-本頁的指令都在終端機裡執行：macOS 用內建的「終端機」App，Linux 用系統的終端機，Windows 用 WSL2 裡的 Ubuntu 視窗（見「Windows（WSL2）」）。「進階」開頭的幾節說明非預設的安裝方式與選項。
-
----
-
-## 安裝前要準備的東西
-
-| 需要 | 說明 |
-| --- | --- |
-| **支援的電腦** | Apple Silicon（M 系列晶片）的 Mac、x86_64 或 arm64 的 Linux、透過 WSL2 執行 Ubuntu 的 Windows。其他電腦在安裝一開始、下載任何東西之前就會被拒絕。 |
-| **`tmux` 3.0 以上** | 讓成員在背景持續工作的終端機工具。 |
-| **Claude Code 或 Codex，至少一種** | 每位成員背後就是一個 Claude Code 或 Codex。Claude Code 需要 **2.1.287** 以上。 |
-
-補裝 `tmux` 的指令依系統而不同。macOS 上需要先有 Homebrew（macOS 上常用的軟體安裝工具）：
-
-```bash
-brew install tmux
-```
-
-Linux 與 WSL2 的 Ubuntu 上用 `apt-get`（Ubuntu 與 Debian 內建的軟體安裝工具）；`sudo` 代表用系統管理員權限執行，會要求輸入這台電腦的登入密碼。其他 Linux 發行版用各自的軟體安裝工具：
-
-```bash
-sudo apt-get install -y tmux
-```
-
-裝 Claude Code 的指令各系統相同，需要先有 Node.js（`npm` 隨 Node.js 一起安裝）：
-
-```bash
-npm install -g @anthropic-ai/claude-code
-```
-
-Linux 與 WSL2 上的 `claude` 通常裝在 `~/.local/bin`，安裝腳本會到這個資料夾尋找。
-
-**Claude Code 或 Codex 要先登入，成員才能工作。** 登入可以在終端機完成，也可以在裝好 OffiCraft 之後從控制台完成：控制台「監控」分頁的「機器資訊」裡，每台機器的 Claude 欄與 Codex 欄的版本號選單裡有「登入」。
-
-只裝 Codex 也可以：Codex 登入後，助理 Mira 和新成員第一次啟動時會自動改用 Codex。兩種都裝時用 Claude Code。Mira 起不來時，見 [常見問題與排解](troubleshooting.md) 的「機器只裝了 Codex，Mira 或新成員起不來」。
+本頁的指令都在終端機裡執行：macOS 用內建的「終端機」App，Linux 用系統的終端機，Windows 用 WSL2 裡的 Ubuntu 視窗（見「Windows：準備 WSL2」）。「進階」開頭的幾節說明非預設的安裝方式與選項。
 
 ---
 
 ## 安裝
 
-安裝指令：
+### 系統需求
+
+- macOS（Apple Silicon）、Linux（x86_64、arm64），或 Windows 10（版本 2004 以上）／11（透過 WSL2）
+- tmux 3.0 以上
+- Claude Code 或 Codex，至少一種，並已登入
+
+### Windows：準備 WSL2
+
+OffiCraft 在 Windows 上透過 WSL2 中的 Ubuntu 執行。macOS 與 Linux 使用者略過此節。
+
+1. 以系統管理員身分開啟 PowerShell，執行：
+
+   ```powershell
+   wsl --install -d Ubuntu
+   ```
+
+2. 首次安裝 WSL 需重新開機。之後從開始選單開啟「Ubuntu」，依提示設定 Ubuntu 的使用者名稱與密碼。
+
+之後的所有指令都在 Ubuntu 視窗中執行，從開始選單點「Ubuntu」開啟。
+
+### 步驟 1：安裝 tmux
+
+macOS（需先安裝 [Homebrew](https://brew.sh)）：
+
+```bash
+brew install tmux
+```
+
+Linux、WSL：
+
+```bash
+sudo apt-get update && sudo apt-get install -y tmux curl
+```
+
+確認：執行下列指令，顯示版本號即表示安裝成功。
+
+```bash
+tmux -V
+```
+
+### 步驟 2：安裝並登入 Claude Code 或 Codex
+
+依使用的工具擇一安裝，也可兩者都安裝。
+
+Claude Code：
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+安裝完成後開啟新的終端機視窗，執行 `claude`，依提示於瀏覽器完成登入。
+
+Codex：
+
+```bash
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+```
+
+安裝完成後開啟新的終端機視窗，執行 `codex`，選擇「Sign in with ChatGPT」完成登入。
+
+確認：執行對應的指令，顯示版本號與登入資訊即表示安裝並登入成功。
+
+```bash
+claude --version && claude auth status --text
+```
+
+```bash
+codex --version && codex login status
+```
+
+### 步驟 3：安裝 OffiCraft
 
 ```bash
 curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
 ```
 
-這一行會下載最新版的 OffiCraft，確認檔案完整無誤後才安裝；檔案有問題就中止，不會裝任何東西。安裝時會先檢查這台電腦符不符合需求，缺東西就停下來，並印出要補裝什麼。
+安裝程式會先檢查系統需求，缺少項目時停止並列出需要補裝的工具。
 
-安裝成功時，終端機最後會印出一行設定連結，開頭是 `http://127.0.0.1:7755/?code=`（`127.0.0.1` 指這台電腦本身，`7755` 是控制台使用的連線埠號）。在瀏覽器打開這條連結的頁面，是用來設定登入密碼的。
+### 步驟 4：開啟設定連結
 
-密碼設好後，系統會自動把這台電腦準備好，並喚醒助理 Mira。在 macOS 與 Linux 上，OffiCraft 會在背景一直執行，關掉終端機也不會停，電腦重開後也會自動啟動。Windows（WSL2）上關掉終端機之後的情形，見 [常見問題與排解](troubleshooting.md) 的「Windows（WSL2）關掉終端機後，成員會不會離線」。
+安裝完成時，終端機會輸出下列訊息與設定連結：
 
-安裝完成之後的第一次使用，見 [你的第一個辦公室](quickstart.md)。
+```
+[install] ✅ OffiCraft is installed and running in the background (…)
 
-安裝失敗時，終端機會印出原因，各種原因的說明見 [常見問題與排解](troubleshooting.md) 的「安裝」。最常見的原因是 7755 埠已經被其他程式占用。
+  open:    http://127.0.0.1:7755/?code=…
+```
+
+以瀏覽器開啟該連結並設定登入密碼，即進入控制台。Windows 使用者以 Windows 的瀏覽器開啟。
+
+### 確認安裝成功
+
+以設定的密碼登入控制台後，「辦公室」頁面顯示助理 Mira 在線上，並能回覆聊天訊息，即表示 OffiCraft 安裝完成。
+
+### 安裝補充說明
+
+- **Claude Code 版本**：Claude Code 需要 **2.1.287** 以上。安裝腳本只檢查有沒有裝、不檢查版本；版本太舊時安裝照樣成功，但 Claude 成員喚醒會失敗，「監控 › 機器資訊」的 Claude 欄會標示「版本太舊」。
+- **登入也可以在控制台完成**：裝好 OffiCraft 之後，控制台「監控」分頁的「機器資訊」裡，每台機器的 Claude 欄與 Codex 欄的版本號選單裡有「登入」。
+- **只裝 Codex 也可以**：Codex 登入後，助理 Mira 和新成員第一次啟動時會自動改用 Codex。兩種都裝時用 Claude Code。Mira 起不來時，見 [常見問題與排解](troubleshooting.md) 的「機器只裝了 Codex，Mira 或新成員起不來」。
+- **安裝指令做了什麼**：下載最新版的 OffiCraft，確認檔案完整無誤後才安裝；檔案有問題就中止，不會裝任何東西。完整步驟見「安裝腳本實際做了什麼」。
+- **背景執行**：在 macOS 與 Linux 上，OffiCraft 會在背景一直執行，關掉終端機也不會停，電腦重開後也會自動啟動。Windows（WSL2）上的情形見下方「Windows（WSL2）」。
+- **安裝失敗**：終端機會印出原因，各種原因的說明見 [常見問題與排解](troubleshooting.md) 的「安裝」。
+- **第一次使用**：見 [你的第一個辦公室](quickstart.md)。
 
 ---
 
@@ -80,33 +134,22 @@ Linux 上的安裝、升級與移除指令和 macOS 相同，差別在於背景�
 
 ## Windows（WSL2）
 
-OffiCraft 不支援直接在 Windows 上執行。Windows 上要裝在 WSL2 裡。WSL2 是 Windows 內建的功能，在 Windows 裡執行一套完整的 Linux；OffiCraft 裝在 WSL2 的 Ubuntu（一種 Linux 發行版）裡，用法和 Linux 相同。
+OffiCraft 不支援直接在 Windows 上執行。Windows 上要裝在 WSL2 裡。WSL2 是 Windows 內建的功能，在 Windows 裡執行一套完整的 Linux；OffiCraft 裝在 WSL2 的 Ubuntu（一種 Linux 發行版）裡，用法和 Linux 相同。安裝步驟見上方「Windows：準備 WSL2」與步驟 1–4。
 
-### 1. 安裝 WSL2 與 Ubuntu
+### 啟用 systemd
 
-在 Windows 的 PowerShell（以系統管理員身分執行）輸入：
+OffiCraft 在 WSL2 裡同樣以 systemd 的使用者服務執行。以 `wsl --install` 安裝的目前版 Ubuntu 預設已啟用 systemd；其他發行版或舊版 Ubuntu 預設不啟動 systemd。**systemd 沒有在執行時，安裝腳本會停下並提示做這一步。**
 
-```powershell
-wsl --install -d Ubuntu
+在 Ubuntu 視窗裡執行以下指令，把 `[boot]` 與 `systemd=true` 兩行加進 `/etc/wsl.conf`：
+
+```bash
+printf '[boot]\nsystemd=true\n' | sudo tee -a /etc/wsl.conf
 ```
 
-裝好後重新開機，再從開始選單打開「Ubuntu」，依提示建立 Ubuntu 的使用者名稱與密碼。
-
-WSL 的版本要是 0.67.6 以上，舊版不支援下一步的 systemd。版本用以下指令查看，太舊時用 `wsl --update` 更新：
+WSL 的版本要是 0.67.6 以上，舊版不支援 systemd。版本用以下指令查看，太舊時用 `wsl --update` 更新：
 
 ```powershell
 wsl --version
-```
-
-### 2. 在 WSL2 裡打開 systemd
-
-OffiCraft 在 WSL2 裡同樣以 systemd 的使用者服務執行，而 WSL2 預設不啟動 systemd。**systemd 沒有在執行時，安裝腳本會停下並提示做這一步。**
-
-在 Ubuntu 視窗裡，把以下兩行加進 `/etc/wsl.conf`（這個檔案要用系統管理員權限編輯，例如 `sudo nano /etc/wsl.conf`）：
-
-```ini
-[boot]
-systemd=true
 ```
 
 接著在 Windows 的 PowerShell 執行以下指令關閉 WSL2，再重新打開 Ubuntu 視窗，設定才會生效：
@@ -118,14 +161,31 @@ wsl.exe --shutdown
 > [!WARNING]
 > `wsl.exe --shutdown` 會關閉這台 Windows 上所有正在執行的 WSL2 Linux，裡面已經在執行的 OffiCraft 與成員也會一起停止。
 
-### 3. 在 WSL2 裡安裝 OffiCraft
-
-在 Ubuntu 視窗裡，照「安裝前要準備的東西」與「安裝」的 Linux 指令安裝。
+### 使用注意
 
 - **Claude Code 或 Codex 要裝在 Ubuntu 裡，並在 Ubuntu 裡登入。** 裝在 Windows 那一邊的 Claude Code 或 Codex，OffiCraft 找不到、也用不到。
 - **設定連結在 Windows 的瀏覽器打開。** WSL2 預設會把 Windows 上的 `127.0.0.1` 連線轉進 WSL2，所以安裝完成時印出的 `http://127.0.0.1:7755/?code=…` 連結，直接在 Windows 的瀏覽器打開即可。
-- **這台 Windows 裝了不只一套 Linux 時，用名稱打開裝 OffiCraft 的那一套。** 開始選單的「Ubuntu」不一定是裝 OffiCraft 的那一套，而且不同套的命令列提示可能長得一樣。在 PowerShell 執行 `wsl -l -v` 列出名稱，再用 `wsl -d <名稱>` 打開，例如 `wsl -d Ubuntu`。
 - **關掉所有 Ubuntu 視窗後，成員繼續在線。** 安裝時，OffiCraft 在 Windows 的「啟動」資料夾放一個保持 WSL2 執行的檔案並立刻執行一次，Windows 因此在視窗都關掉後仍讓 Ubuntu 繼續執行；每次登入 Windows 時，「啟動」資料夾裡的檔案會再執行一次。安裝時印出 `WARN: WSL keep-alive not set up` 時，檔案沒有設定好，關掉所有 Ubuntu 視窗後成員會離線。檔案的內容、手動替代做法與停止方式，見 [常見問題與排解](troubleshooting.md) 的「Windows（WSL2）關掉終端機後，成員會不會離線」。
+
+### 開始選單有多個 Ubuntu
+
+1. 在 PowerShell 執行下列指令，查看每一套 Ubuntu 的名稱：
+
+   ```powershell
+   wsl -l -v
+   ```
+
+2. 逐一以名稱執行下列指令，顯示 `.officraft` 的那一套就是安裝 OffiCraft 的 Ubuntu：
+
+   ```powershell
+   wsl -d <名稱> --cd ~ -- ls -d .officraft
+   ```
+
+3. 之後都以下列指令開啟那一套 Ubuntu：
+
+   ```powershell
+   wsl -d <名稱>
+   ```
 
 ---
 
@@ -170,10 +230,10 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 加入機器用到的畫面與指令：
 
 - **新增機器 / 上線**：在「監控」分頁的「機器資訊」，輸入機器名稱建立一筆機器紀錄。剛建立的機器還沒有裝任何東西。
-- **安裝**：機器名稱選單裡的「安裝」會打開「安裝機器」視窗，視窗裡的「複製安裝指令」複製的是給這台機器專用的安裝指令。
+- **安裝**：機器名稱選單裡的「安裝」會打開「安裝機器」視窗。視窗依作業系統（macOS、Linux、Windows（WSL2））列出系統需求、Windows 的 WSL2 準備、指令要貼在哪裡，以及給這台機器專用的安裝指令（「複製安裝指令」複製的就是畫面上這一段）。這段指令只能用一次，過一段時間也會失效；失效時關掉視窗再打開，會產生新的指令。
 - **安裝指令**：在另一台電腦的終端機執行，那台電腦可以是 Mac、Linux 或 Windows 的 WSL2。指令會先檢查 `tmux` 與 `curl`（下載檔案的工具，macOS 內建）；缺 `tmux` 時，如果那台電腦有 Homebrew，會自動安裝。其他缺少的情形會停下並印出補裝的指令，Linux 上是 `sudo apt-get install -y <工具名稱>`。不支援的電腦會在這一步被拒絕。裝好之後，那台機器出現在「機器資訊」的清單上，狀態是「線上」。
 
-那台電腦同樣要符合「安裝前要準備的東西」表格裡的需求（`tmux` 3.0 以上；Claude Code 2.1.287 以上，或改用 Codex），並且已經在那台電腦上登入。Linux 與 WSL2 上的 warden 以 systemd 的使用者服務執行，說明見「Linux」。機器上線後，成員詳情裡就能把成員派到那台電腦上工作，成員之間也能跨機器互相幫忙。
+那台電腦同樣要符合「系統需求」（`tmux` 3.0 以上；Claude Code 2.1.287 以上，或改用 Codex），並且已經在那台電腦上登入。Linux 與 WSL2 上的 warden 以 systemd 的使用者服務執行，說明見「Linux」。機器上線後，成員詳情裡就能把成員派到那台電腦上工作，成員之間也能跨機器互相幫忙。
 
 ### 從控制台移除一台機器
 
