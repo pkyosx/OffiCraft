@@ -718,8 +718,6 @@ export function MonitorPage() {
           onUpgrade={setUpgradeTarget}
           onInstall={(m) => {
             if (!m.isSelf) {
-              // Remote machine: shows a command to copy. No
-              // request, online or not.
               openInstall(m);
               return;
             }
@@ -2157,16 +2155,26 @@ export function MachineInstallDialog({
   const [expired, setExpired] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  // Background tabs and a sleeping laptop delay timers, so the deadline itself
+  // is what decides expiry; the timer only makes it show up on time.
+  const expiresAt = useRef<number | null>(null);
+  const checkExpired = () => {
+    const past = expiresAt.current != null && Date.now() >= expiresAt.current;
+    if (past) setExpired(true);
+    return past;
+  };
 
   useEffect(() => {
     let live = true;
     let expiryTimer: number | undefined;
+    expiresAt.current = null;
     setCommand(null);
     setExpired(false);
     setFetchFailed(false);
     api.getMachineBootCommand(machineId).then(
       (c) => {
         if (!live) return;
+        expiresAt.current = Date.now() + c.expiresInSecs * 1000;
         setCommand(c.command);
         expiryTimer = window.setTimeout(() => setExpired(true), c.expiresInSecs * 1000);
       },
@@ -2179,10 +2187,17 @@ export function MachineInstallDialog({
       window.clearTimeout(expiryTimer);
     };
   }, [machineId, attempt]);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") checkExpired();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
   const regenerate = () => setAttempt((n) => n + 1);
 
   async function copyBoot() {
-    if (command == null || expired) return;
+    if (command == null || expired || checkExpired()) return;
     setCopyFailed(false);
     try {
       await navigator.clipboard.writeText(command);
