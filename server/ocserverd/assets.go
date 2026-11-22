@@ -224,7 +224,7 @@ var builtinTaskManuals = []builtinTaskManual{
 	{
 		TypeKey:     "builtin-remote-access",
 		DisplayName: "開放遠端連線",
-		Purpose:     "使用者想從這台電腦以外的地方（手機或其他電腦）連到控制台時使用：在跑控制台的電腦上設定轉發工具，產生一個 HTTPS 網址。只處理轉發，不改控制台設定、路由器或防火牆。",
+		Purpose:     "幫 Owner 開啟或調整遠端連線，讓手機或其他電腦能用 HTTPS 網址連到控制台，包括第一次開啟，以及之後更換轉發方式或網址。",
 		Fields:      []ManualField{},
 		Assignee:    map[string]any{"kind": TaskExecutorStaff, "member_id": seedMiraID},
 	},
