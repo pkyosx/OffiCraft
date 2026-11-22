@@ -1932,6 +1932,15 @@ type LoginLinkDTO struct {
 	Code string `json:"code"`
 }
 
+// LoginProtectionDTO Whether the owner's login is protected beyond the password. Counts and flags only; no secret, URI or key material.
+type LoginProtectionDTO struct {
+	// MfaEnrolled True once an authenticator app is armed; password login then also asks for its code.
+	MfaEnrolled bool `json:"mfa_enrolled"`
+
+	// PasskeyCount Passkeys registered, across every address; each one signs in only at the address it was added on.
+	PasskeyCount int `json:"passkey_count"`
+}
+
 // LoreEntryDTO One 傳承 entry (T-33). Its text is written once and NEVER edited: no route changes “title“ or “body“, so what you read here is what was written. The mutable surface is “state“ (active / pinned / retired), “retire_reason“, “effective_ts“ and — admin-only, through “set_lore_entry_scope“ (T-236) — the “scope_kind“ / “scope_key“ pair.
 //
 // “effective_ts“ vs “created_ts“: “created_ts“ is when the entry was written and never moves; “effective_ts“ starts equal to it and is what “bump_lore_entry“ sets to now. The fold's selection order reads “effective_ts“, so bumping is how an old entry is brought back to the front — and because “created_ts“ survives, the bump is reversible and explicable afterwards.
@@ -6294,6 +6303,9 @@ type ServerInterface interface {
 	// Owner login through a one-time link minted on the station host.
 	// (POST /api/auth/login-link)
 	HandleRedeemLoginLinkApiAuthLoginLinkPost(w http.ResponseWriter, r *http.Request)
+	// Read whether the owner's login has a second factor and passkeys.
+	// (GET /api/auth/login-protection)
+	HandleLoginProtectionApiAuthLoginProtectionGet(w http.ResponseWriter, r *http.Request)
 	// Read the owner's second-factor state (offered + enrolled).
 	// (GET /api/auth/mfa)
 	HandleMfaStateApiAuthMfaGet(w http.ResponseWriter, r *http.Request)
@@ -7198,6 +7210,20 @@ func (siw *ServerInterfaceWrapper) HandleRedeemLoginLinkApiAuthLoginLinkPost(w h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleRedeemLoginLinkApiAuthLoginLinkPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleLoginProtectionApiAuthLoginProtectionGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleLoginProtectionApiAuthLoginProtectionGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleLoginProtectionApiAuthLoginProtectionGet(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -13145,6 +13171,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agent/context", wrapper.HandleIngestAgentContextApiAgentContextPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/change-password", wrapper.HandleChangePasswordApiAuthChangePasswordPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/login-link", wrapper.HandleRedeemLoginLinkApiAuthLoginLinkPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/login-protection", wrapper.HandleLoginProtectionApiAuthLoginProtectionGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/mfa", wrapper.HandleMfaStateApiAuthMfaGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/mfa/activate", wrapper.HandleMfaActivateApiAuthMfaActivatePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/mfa/disable", wrapper.HandleMfaDisableApiAuthMfaDisablePost)

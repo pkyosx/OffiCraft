@@ -454,6 +454,13 @@ def _check_mfa_state(_ctx: HCtx, r: httpx.Response) -> None:
     assert data["secret"] is None and data["otpauth_uri"] is None, data
 
 
+def _check_login_protection(_ctx: HCtx, r: httpx.Response) -> None:
+    data = r.json()
+    assert set(data) == {"mfa_enrolled", "passkey_count"}, data
+    assert isinstance(data["mfa_enrolled"], bool), data
+    assert isinstance(data["passkey_count"], int) and data["passkey_count"] >= 0, data
+
+
 def _check_mfa_offer(_ctx: HCtx, r: httpx.Response) -> None:
     data = r.json()
     assert data["offered"] is True, data
@@ -2236,6 +2243,7 @@ HAPPY: dict[str, Happy] = {
     # test_mfa_full_ceremony below, which arms AND disarms inside one test so
     # the install is left exactly as it was found.
     "GET /api/auth/mfa": Happy(check=_check_mfa_state),
+    "GET /api/auth/login-protection": Happy(check=_check_login_protection),
     # Turning the flag ON is the precondition for the enrol row below, and is
     # inert on its own — offering the factor arms nothing.
     "POST /api/auth/mfa/offer": Happy(

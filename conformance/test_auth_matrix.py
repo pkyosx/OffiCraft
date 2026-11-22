@@ -699,6 +699,7 @@ MATRIX: dict[str, Route] = {
     # same "no active factor" state no matter which ran first.
     # The read is a plain owner-gated GET: no body, no state change.
     "GET /api/auth/mfa": Route(requires="owner"),
+    "GET /api/auth/login-protection": Route(requires="admin_agent"),
     # The ship-dark rollout flag. The owner face turns it ON, which is also the
     # precondition the enroll row below needs — and leaving it on is harmless:
     # offering the feature arms nothing, and every later login fixture in the run

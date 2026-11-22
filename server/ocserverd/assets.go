@@ -221,6 +221,13 @@ var builtinTaskManuals = []builtinTaskManual{
 		Fields:      []ManualField{{Name: "manual_name", Required: true, IsKey: true}},
 		Assignee:    map[string]any{},
 	},
+	{
+		TypeKey:     "builtin-remote-access",
+		DisplayName: "開放遠端連線",
+		Purpose:     "幫 Owner 開啟或調整遠端連線，讓手機或其他電腦能用 HTTPS 網址連到控制台，包括第一次開啟，以及之後更換轉發方式或網址。",
+		Fields:      []ManualField{},
+		Assignee:    map[string]any{"kind": TaskExecutorStaff, "member_id": seedMiraID},
+	},
 }
 
 func builtinTaskManualFor(typeKey string) (builtinTaskManual, bool) {

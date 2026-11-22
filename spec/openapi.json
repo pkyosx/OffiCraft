@@ -3938,6 +3938,28 @@
         "title": "MemberUpdateDTO",
         "type": "object"
       },
+      "LoginProtectionDTO": {
+        "additionalProperties": false,
+        "description": "Whether the owner's login is protected beyond the password. Counts and flags only; no secret, URI or key material.",
+        "properties": {
+          "mfa_enrolled": {
+            "description": "True once an authenticator app is armed; password login then also asks for its code.",
+            "title": "Mfa Enrolled",
+            "type": "boolean"
+          },
+          "passkey_count": {
+            "description": "Passkeys registered, across every address; each one signs in only at the address it was added on.",
+            "title": "Passkey Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mfa_enrolled",
+          "passkey_count"
+        ],
+        "title": "LoginProtectionDTO",
+        "type": "object"
+      },
       "MfaActivateDTO": {
         "additionalProperties": false,
         "description": "Prove a pending TOTP enrolment and ARM the second factor (`POST /api/auth/mfa/activate`, owner-gated). The code must verify against the secret `…/mfa/enroll` handed out; on success that secret becomes the ACTIVE one and the second factor is armed from the next login onward. A wrong code or password leaves the pending secret in place so the owner can simply try again.\n\n🔴 `password` IS REQUIRED, and the owner token alone is deliberately not enough. Arming a factor is as destructive as removing one: an attacker holding only a stolen owner token could otherwise enrol a secret THEY control and activate it, after which the real owner's password yields 401 and they cannot disable it (that needs a live code from the attacker's authenticator) — a transient token theft turned into a durable lockout recoverable only from a host shell. The same reasoning that makes `…/mfa/disable` demand both factors applies symmetrically to arming.",
@@ -13681,6 +13703,64 @@
         "summary": "Owner login through a one-time link minted on the station host.",
         "x-mcp": {
           "include": false
+        }
+      }
+    },
+    "/api/auth/login-protection": {
+      "get": {
+        "description": "- Owner or admin agent: the two facts an agent needs before opening the cockpit to outside connections, without the credentials themselves.\n- A passkey does not stand in for the second factor: while `mfa_enrolled` is false, the password alone still signs in, whatever `passkey_count` says.",
+        "operationId": "handle_login_protection_api_auth_login_protection_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginProtectionDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Read whether the owner's login has a second factor and passkeys.",
+        "x-mcp": {
+          "description": "Read whether the owner's login is protected beyond the password (owner/admin agent). Carries no key material.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"Read whether the owner's login is protected beyond the password (owner/admin agent). Carries no key material.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"get_login_protection\"\n    }"
+          },
+          "name": "get_login_protection",
+          "order": 134
         }
       }
     },

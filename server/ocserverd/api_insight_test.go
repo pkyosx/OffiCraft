@@ -29,6 +29,8 @@ func TestFoldInsightDTO(t *testing.T) {
 
 待 Owner 裁定的項目直接標明，交由 Owner 確認。
 
+需要開放遠端連線時（使用者想從這台電腦以外的地方連到控制台），照內建任務手冊「開放遠端連線」建立任務，並依手冊的步驟執行。
+
 # 操作導覽窗口
 
 ## 取得並回答使用說明
@@ -54,7 +56,7 @@ func TestFoldInsightDTO(t *testing.T) {
 			t.Fatal("foldInsightDTO(seed) = nil")
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
-			"size_chars":     1089,
+			"size_chars":     1152,
 			"cap_chars":      15000,
 			"role_key":       "assistant",
 			"text":           assistantInsightSeed,
@@ -98,7 +100,7 @@ func TestFoldInsightDTO(t *testing.T) {
 			t.Fatalf("foldInsightDTO(tombstoned): %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
-			"size_chars":     1089,
+			"size_chars":     1152,
 			"cap_chars":      15000,
 			"role_key":       "assistant",
 			"text":           assistantInsightSeed,
@@ -348,9 +350,9 @@ func TestHandleResetInsightApiInsightRoleKeyResetPost(t *testing.T) {
 			"role_key":   "assistant",
 			"is_default": true,
 			"has_seed":   true,
-			"size_chars": 1089,
+			"size_chars": 1152,
 			"cap_chars":  15000,
-			"sha256":     "bfce6af1fc381233ae8755a4b8c9a7a58aacb417705b0e70b03736e955c7063f",
+			"sha256":     "58fbd900edc3c460be1e588efebcd0fa52a889157b3bfe3d01ca1038897f31ac",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -381,9 +383,9 @@ func TestHandleResetInsightApiInsightRoleKeyResetPost(t *testing.T) {
 			"role_key":   "assistant",
 			"is_default": true,
 			"has_seed":   true,
-			"size_chars": 1089,
+			"size_chars": 1152,
 			"cap_chars":  15000,
-			"sha256":     "bfce6af1fc381233ae8755a4b8c9a7a58aacb417705b0e70b03736e955c7063f",
+			"sha256":     "58fbd900edc3c460be1e588efebcd0fa52a889157b3bfe3d01ca1038897f31ac",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   1,
@@ -476,9 +478,9 @@ func TestInsightReceiptOf(t *testing.T) {
 			"role_key":   "assistant",
 			"is_default": true,
 			"has_seed":   true,
-			"size_chars": 1089,
+			"size_chars": 1152,
 			"cap_chars":  15000,
-			"sha256":     "bfce6af1fc381233ae8755a4b8c9a7a58aacb417705b0e70b03736e955c7063f",
+			"sha256":     "58fbd900edc3c460be1e588efebcd0fa52a889157b3bfe3d01ca1038897f31ac",
 		})
 	})
 

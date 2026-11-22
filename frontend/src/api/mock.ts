@@ -1159,6 +1159,18 @@ const MOCK_TASK_MANUAL_SEEDS: readonly StoredTaskManual[] = [
     isSeed: true,
     isDefault: true,
   },
+  {
+    typeKey: "builtin-remote-access",
+    displayName: "開放遠端連線",
+    purpose:
+      "幫 Owner 開啟或調整遠端連線，讓手機或其他電腦能用 HTTPS 網址連到控制台，包括第一次開啟，以及之後更換轉發方式或網址。",
+    fields: [],
+    sopMd: "# 開放遠端連線\n\n（mock 內建手冊）\n",
+    assignee: { kind: "staff", memberId: "mira" },
+    updatedTs: 0,
+    isSeed: true,
+    isDefault: true,
+  },
 ];
 
 function taskManualSeed(typeKey: string): StoredTaskManual | undefined {

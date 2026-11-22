@@ -5,6 +5,7 @@ type BuiltinTypeNameLeaf = keyof Dict["tasks"]["builtinTypeName"];
 const BUILTIN_TYPE_NAME_LEAF = new Map<string, BuiltinTypeNameLeaf>([
   ["builtin-role-design", "roleDesign"],
   ["builtin-task-manual-design", "taskManualDesign"],
+  ["builtin-remote-access", "remoteAccess"],
 ]);
 
 /** A task type's display label. The server stores the built-in types' names in

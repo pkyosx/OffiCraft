@@ -70,6 +70,18 @@ func (s *apiServer) HandleMfaStateApiAuthMfaGet(w http.ResponseWriter, r *http.R
 	})
 }
 
+// admin_agent-readable, unlike the owner-only factor and passkey routes: an
+// agent opening the cockpit to outside connections must see whether the
+// owner's login is guarded, never the secrets that guard it.
+func (s *apiServer) HandleLoginProtectionApiAuthLoginProtectionGet(w http.ResponseWriter, r *http.Request) {
+	passkeys, err := countPasskeysOn(s.dal.rdb)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, LoginProtectionDTO{MfaEnrolled: s.authMFAEnrolled(), PasskeyCount: passkeys})
+}
+
 // 🔴 A ROLLOUT SWITCH, NOT A SECURITY SWITCH. Turning it off while a factor is
 // armed changes nothing about login or disable; otherwise a stolen owner token
 // could withdraw the feature and walk past the factor.
