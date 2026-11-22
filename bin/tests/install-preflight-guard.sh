@@ -139,15 +139,41 @@ echo "curl $*" >> "$SHIM_STATE/.netwire"
 exit 6
 SH
 
+# Package managers: the preflight installs a missing tmux through brew or
+# apt-get. apt-get and sudo are ALWAYS shimmed — a Linux CI runner has a real
+# apt-get and passwordless sudo, and the refusal cases would otherwise install
+# tmux on the runner and stop refusing. An install succeeds only under
+# SHIM_PKG=ok, by linking the tmux stub into the run's PATH dir. brew lives in
+# TOOLDIR, so only a case that names it has one.
+cat > "$SHIMDIR/apt-get" <<'SH'
+#!/usr/bin/env bash
+echo "apt-get $*" >> "$SHIM_STATE/.pkglog"
+[[ "${SHIM_PKG:-}" == ok ]] || exit 100
+[[ "$*" == *install*tmux* ]] && ln -sf "$SHIM_TOOLS/tmux" "$SHIM_RUN/tmux"
+exit 0
+SH
+cat > "$SHIMDIR/sudo" <<'SH'
+#!/usr/bin/env bash
+echo "sudo $*" >> "$SHIM_STATE/.pkglog"
+exec "$@"
+SH
+cat > "$TOOLDIR/brew" <<'SH'
+#!/usr/bin/env bash
+echo "brew $*" >> "$SHIM_STATE/.pkglog"
+[[ "$*" == "install tmux" ]] && ln -sf "$SHIM_TOOLS/tmux" "$SHIM_RUN/tmux"
+exit 0
+SH
+
 chmod +x "$SHIMDIR"/uname "$SHIMDIR"/launchctl "$SHIMDIR"/lsof "$SHIMDIR"/curl \
-         "$TOOLDIR"/tmux "$TOOLDIR"/claude "$TOOLDIR"/codex
+         "$SHIMDIR"/apt-get "$SHIMDIR"/sudo \
+         "$TOOLDIR"/tmux "$TOOLDIR"/claude "$TOOLDIR"/codex "$TOOLDIR"/brew
 
 PLIST_REL="Library/LaunchAgents/com.officraft.serve.plist"
 
 reset_fixture() {
   rm -rf "$FAKEHOME"
   mkdir -p "$FAKEHOME/Library/LaunchAgents"
-  rm -f "$WORK/.bootstrapped"
+  rm -f "$WORK/.bootstrapped" "$WORK/.pkglog"
 }
 
 # run_install <pkgdir> <tools…> — a fresh non-interactive install (the
@@ -161,8 +187,8 @@ run_install() {
   for t in "$@"; do ln -s "$TOOLDIR/$t" "$rundir/$t"; done
   OUT="$(cd "$WORK" && env -i \
     PATH="$rundir:$SHIMDIR:/usr/bin:/bin:/usr/sbin:/sbin" \
-    HOME="$FAKEHOME" SHIM_STATE="$WORK" \
-    bash "$pkgdir/install.sh" </dev/null 2>&1)"
+    HOME="$FAKEHOME" SHIM_STATE="$WORK" SHIM_RUN="$rundir" SHIM_TOOLS="$TOOLDIR" \
+    SHIM_PKG="${SHIM_PKG:-}" bash "$pkgdir/install.sh" </dev/null 2>&1)"
   RC=$?
 }
 
@@ -284,6 +310,26 @@ $OUT"
   fi
 fi
 
+# ── 4b. no runtime, but Homebrew present → tmux is installed anyway ─────────
+# The re-run after installing Claude Code or Codex then has nothing left to fix.
+if [[ "$HAS_ABS_RUNTIME" == 1 ]]; then
+  echo "  skip — cannot construct 'no runtime' on this host (see above)"
+else
+  reset_fixture
+  run_install "$PKG" brew
+  check "no runtime, no tmux, Homebrew present: the install is refused" "1" "$RC"
+  case "$(cat "$WORK/.pkglog" 2>/dev/null)" in
+    *"brew install tmux"*) ok "no runtime: tmux is still installed with Homebrew" ;;
+    *) bad "no runtime: tmux was not installed:
+$OUT" ;;
+  esac
+  want_missing="[install]          an agent runtime — Claude Code or Codex; install one, then run it once to sign in:
+[install]            Claude Code: curl -fsSL https://claude.ai/install.sh | bash   (then sign in: claude)
+[install]            Codex:       curl -fsSL https://chatgpt.com/codex/install.sh | sh   (then sign in: codex)"
+  got_missing="$(printf '%s\n' "$OUT" | sed -n '/install and re-run:$/,$p' | sed 1d)"
+  check "no runtime, tmux installed: the refusal lists exactly the runtime" "$want_missing" "$got_missing"
+fi
+
 # ── 5. THE SENTINEL: a machine that is fine must NOT be blocked ────────────
 # The whole point of a fail-closed gate is that it is invisible when the machine
 # is fine. This repo has already shipped a tightening that reddened nothing in CI
@@ -348,6 +394,7 @@ run_platform() {
   [[ $# -gt 0 ]] && shift
   OUT="$(cd "$WORK" && env -i PATH="$rundir:$SHIMDIR:/usr/bin:/bin:/usr/sbin:/sbin" \
     HOME="$FAKEHOME" SHIM_STATE="$WORK" SHIM_UNAME_S="$s" SHIM_UNAME_M="$m" \
+    SHIM_RUN="$rundir" SHIM_TOOLS="$TOOLDIR" SHIM_PKG="${SHIM_PKG:-}" \
     OC_SD_BOOTED_DIR="$WORK/no-systemd" \
     bash "$PKG/install.sh" ${1+"$@"} </dev/null 2>&1)"; RC=$?
 }
@@ -378,6 +425,33 @@ case "$OUT" in
   *"tmux — install it with your package manager, e.g. sudo apt install tmux"*) ok "linux, no tmux: the fix is a package-manager install, not brew" ;;
   *) bad "linux, no tmux: wrong or missing install hint:
 $OUT" ;;
+esac
+
+# A missing tmux is installed through the package manager the machine has, and
+# the install then carries on.
+reset_fixture
+run_install "$PKG" claude brew
+check "macOS, no tmux, Homebrew present: the install succeeds" "0" "$RC"
+case "$OUT" in
+  *"tmux not found — installing it with Homebrew..."*) ok "macOS, no tmux: tmux is installed with Homebrew" ;;
+  *) bad "macOS, no tmux: Homebrew was not used:
+$OUT" ;;
+esac
+if [[ -f "$FAKEHOME/$PLIST_REL" ]]; then ok "macOS, Homebrew-installed tmux: the serve plist was rendered"; else bad "macOS, Homebrew-installed tmux: the install did not complete:
+$OUT"; fi
+
+reset_fixture
+SHIM_PKG=ok run_platform Linux x86_64 claude -- --foreground
+check "linux, no tmux, apt-get present: the install succeeds" "0" "$RC"
+case "$OUT" in
+  *"tmux not found — installing it with apt-get (sudo may ask for your Linux user password)..."*) ok "linux, no tmux: the run says it installs tmux with apt-get and may ask for the password" ;;
+  *) bad "linux, no tmux: no apt-get notice:
+$OUT" ;;
+esac
+case "$(cat "$WORK/.pkglog" 2>/dev/null)" in
+  *"apt-get install -y -qq tmux"*) ok "linux, no tmux: apt-get installed tmux" ;;
+  *) bad "linux, no tmux: apt-get was not asked to install tmux:
+$(cat "$WORK/.pkglog" 2>/dev/null)" ;;
 esac
 
 reset_fixture

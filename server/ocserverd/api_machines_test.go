@@ -2990,21 +2990,28 @@ const apiTestClaimCodeInstaller = `#!/usr/bin/env bash
 set -euo pipefail
 
 # Precheck: only the KEY tools the install truly needs (not an exhaustive audit).
-#   tmux — the warden spawns each member's session through it (auto-installed
-#          via Homebrew when available).
+#   tmux — the warden spawns each member's session through it (installed just
+#          below through Homebrew or apt-get when one is available).
 #   curl — claims the machine token just below, then pulls the ocwarden binary.
 #   sed  — extracts the token from the claim response JSON.
+# Each installer reads </dev/null: under curl | bash stdin is the rest of this
+# script, and an installer that reads it would swallow every line after it.
+if ! command -v tmux >/dev/null 2>&1; then
+  if command -v brew >/dev/null 2>&1; then
+    echo "tmux not found — installing it with Homebrew..."
+    brew install tmux </dev/null || true
+  elif command -v apt-get >/dev/null 2>&1; then
+    oc_sudo=sudo
+    if [ "$(id -u)" = 0 ]; then
+      oc_sudo=
+    fi
+    echo "tmux not found — installing it with apt-get (sudo may ask for your Linux user password)..."
+    $oc_sudo sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux' </dev/null >/dev/null || true
+  fi
+fi
 for tool in tmux curl sed; do
   if command -v "$tool" >/dev/null 2>&1; then
     continue
-  fi
-  # tmux is the one tool worth auto-installing: Homebrew boxes get it hands-free.
-  if [ "$tool" = tmux ] && command -v brew >/dev/null 2>&1; then
-    echo "tmux not found — installing via Homebrew..."
-    brew install tmux || true
-    if command -v tmux >/dev/null 2>&1; then
-      continue
-    fi
   fi
   echo "Error: $tool is required, please install it first" >&2
   echo "Fix: install it, then re-run this one-liner:" >&2
@@ -3077,20 +3084,27 @@ const apiTestLegacyInstaller = `#!/usr/bin/env bash
 set -euo pipefail
 
 # Precheck: only the KEY tools the install truly needs (not an exhaustive audit).
-#   tmux — the warden spawns each member's session through it (auto-installed
-#          via Homebrew when available).
+#   tmux — the warden spawns each member's session through it (installed just
+#          below through Homebrew or apt-get when one is available).
 #   curl — used just below to pull the ocwarden binary.
+# Each installer reads </dev/null: under curl | bash stdin is the rest of this
+# script, and an installer that reads it would swallow every line after it.
+if ! command -v tmux >/dev/null 2>&1; then
+  if command -v brew >/dev/null 2>&1; then
+    echo "tmux not found — installing it with Homebrew..."
+    brew install tmux </dev/null || true
+  elif command -v apt-get >/dev/null 2>&1; then
+    oc_sudo=sudo
+    if [ "$(id -u)" = 0 ]; then
+      oc_sudo=
+    fi
+    echo "tmux not found — installing it with apt-get (sudo may ask for your Linux user password)..."
+    $oc_sudo sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux' </dev/null >/dev/null || true
+  fi
+fi
 for tool in tmux curl; do
   if command -v "$tool" >/dev/null 2>&1; then
     continue
-  fi
-  # tmux is the one tool worth auto-installing: Homebrew boxes get it hands-free.
-  if [ "$tool" = tmux ] && command -v brew >/dev/null 2>&1; then
-    echo "tmux not found — installing via Homebrew..."
-    brew install tmux || true
-    if command -v tmux >/dev/null 2>&1; then
-      continue
-    fi
   fi
   echo "Error: $tool is required, please install it first" >&2
   echo "Fix: install it, then re-run this one-liner:" >&2
@@ -3294,20 +3308,27 @@ const apiTestNamespacedLegacyInstaller = `#!/usr/bin/env bash
 set -euo pipefail
 
 # Precheck: only the KEY tools the install truly needs (not an exhaustive audit).
-#   tmux — the warden spawns each member's session through it (auto-installed
-#          via Homebrew when available).
+#   tmux — the warden spawns each member's session through it (installed just
+#          below through Homebrew or apt-get when one is available).
 #   curl — used just below to pull the ocwarden binary.
+# Each installer reads </dev/null: under curl | bash stdin is the rest of this
+# script, and an installer that reads it would swallow every line after it.
+if ! command -v tmux >/dev/null 2>&1; then
+  if command -v brew >/dev/null 2>&1; then
+    echo "tmux not found — installing it with Homebrew..."
+    brew install tmux </dev/null || true
+  elif command -v apt-get >/dev/null 2>&1; then
+    oc_sudo=sudo
+    if [ "$(id -u)" = 0 ]; then
+      oc_sudo=
+    fi
+    echo "tmux not found — installing it with apt-get (sudo may ask for your Linux user password)..."
+    $oc_sudo sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux' </dev/null >/dev/null || true
+  fi
+fi
 for tool in tmux curl; do
   if command -v "$tool" >/dev/null 2>&1; then
     continue
-  fi
-  # tmux is the one tool worth auto-installing: Homebrew boxes get it hands-free.
-  if [ "$tool" = tmux ] && command -v brew >/dev/null 2>&1; then
-    echo "tmux not found — installing via Homebrew..."
-    brew install tmux || true
-    if command -v tmux >/dev/null 2>&1; then
-      continue
-    fi
   fi
   echo "Error: $tool is required, please install it first" >&2
   echo "Fix: install it, then re-run this one-liner:" >&2
@@ -3335,21 +3356,28 @@ const apiTestNamespacedClaimCodeInstaller = `#!/usr/bin/env bash
 set -euo pipefail
 
 # Precheck: only the KEY tools the install truly needs (not an exhaustive audit).
-#   tmux — the warden spawns each member's session through it (auto-installed
-#          via Homebrew when available).
+#   tmux — the warden spawns each member's session through it (installed just
+#          below through Homebrew or apt-get when one is available).
 #   curl — claims the machine token just below, then pulls the ocwarden binary.
 #   sed  — extracts the token from the claim response JSON.
+# Each installer reads </dev/null: under curl | bash stdin is the rest of this
+# script, and an installer that reads it would swallow every line after it.
+if ! command -v tmux >/dev/null 2>&1; then
+  if command -v brew >/dev/null 2>&1; then
+    echo "tmux not found — installing it with Homebrew..."
+    brew install tmux </dev/null || true
+  elif command -v apt-get >/dev/null 2>&1; then
+    oc_sudo=sudo
+    if [ "$(id -u)" = 0 ]; then
+      oc_sudo=
+    fi
+    echo "tmux not found — installing it with apt-get (sudo may ask for your Linux user password)..."
+    $oc_sudo sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux' </dev/null >/dev/null || true
+  fi
+fi
 for tool in tmux curl sed; do
   if command -v "$tool" >/dev/null 2>&1; then
     continue
-  fi
-  # tmux is the one tool worth auto-installing: Homebrew boxes get it hands-free.
-  if [ "$tool" = tmux ] && command -v brew >/dev/null 2>&1; then
-    echo "tmux not found — installing via Homebrew..."
-    brew install tmux || true
-    if command -v tmux >/dev/null 2>&1; then
-      continue
-    fi
   fi
   echo "Error: $tool is required, please install it first" >&2
   echo "Fix: install it, then re-run this one-liner:" >&2
