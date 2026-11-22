@@ -759,7 +759,7 @@ func TestDocumentSeedContent(t *testing.T) {
 		}{
 			{"builtin-role-design", 2803, "0142aa3cd2d0ea730455350b006a10b35b542eed70b1fd0bd8705e90eb9177de"},
 			{"builtin-task-manual-design", 3872, "bb27fb16377af2f6dc457a06315faff8d12332142dff16a9545d73b1331fc004"},
-			{"builtin-remote-access", 6511, "8f304fee06cc65c7f58a0b0a0b64af88a9988546e91ed1c2baa5c95beadf34c5"},
+			{"builtin-remote-access", 6619, "9b671790354bae5c6410519f15b133cd016ebd024b4553fb5bc045f8897c1c86"},
 		} {
 			got, hasSeed, err := api.documentSeedContent(docKindTaskManualSop, tc.typeKey)
 			if err != nil || !hasSeed {

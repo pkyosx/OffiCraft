@@ -41,7 +41,7 @@
 
 ## 3. 決定轉發方式
 
-開 decision Reply Card，問使用者是否已經有 Cloudflare 帳號，而且有網域交給 Cloudflare 管理；這台電腦有 `~/.cloudflared/cert.pem` 時，代表曾經登入過 Cloudflare，在卡上一併寫出。
+開 decision Reply Card，問使用者是否已經有 Cloudflare 帳號，而且有網域交給 Cloudflare 管理；這台電腦有 `~/.cloudflared/cert.pem` 時，代表曾經登入過 Cloudflare，在卡上一併寫出。卡上的選項寫成使用者的情況（有 Cloudflare 帳號與網域／沒有，手機要免裝 App／沒有，手機可以裝 App），轉發方式依使用者選的情況決定；不要把三種方式列成選項讓使用者挑，也不要建議跟下面規則不同的方式。
 
 - **有**：用 cloudflared，同一張卡請使用者提供要用的網域。
 - **沒有**：用 Tailscale，同一張卡再問手機與其他裝置要不要免裝 App 就能連：要的話用 Funnel（公開），不要的話用只限自己裝置的 Tailscale。用只限自己裝置的 Tailscale 且有其他機器時，卡上寫明那些機器也要裝 Tailscale 並登入同一個帳號。
