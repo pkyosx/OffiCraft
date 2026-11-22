@@ -357,7 +357,7 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 			"purpose":          "使用者想從這台電腦以外的地方（手機或其他電腦）連到控制台時使用：在跑控制台的電腦上設定轉發工具，產生一個 HTTPS 網址。只處理轉發，不改控制台設定、路由器或防火牆。",
 			"fields":           []any{},
 			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
-			"sop_md_chars":     6356,
+			"sop_md_chars":     6511,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
 			"is_seed":          true,

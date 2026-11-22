@@ -63,6 +63,8 @@
 3. **開啟轉發**：只限自己的裝置執行 `tailscale serve --bg <控制台埠號>`；Funnel 執行 `tailscale funnel --bg <控制台埠號>`，第一次使用時如果印出網址，請使用者用這個網址在 Tailscale 管理頁允許使用 Funnel，完成後再執行一次。macOS 的 Funnel 需要從 App Store 或 Tailscale 官網下載的 App。macOS 的 Tailscale App 不會把 `tailscale` 指令放進 PATH，指令在 `/Applications/Tailscale.app/Contents/MacOS/Tailscale`，而且 App 要先開著，否則指令會一直等不結束。第一次使用時，指令會印出一個網址，請使用者用這個網址在 Tailscale 管理頁開啟 HTTPS 功能，完成後再執行一次。
 4. **讀回網址**：`tailscale serve status` 顯示的 `https://<電腦名稱>.<帳號網域>.ts.net` 就是轉發後的網址；Funnel 要顯示 `Funnel on`。
 
+只要關掉 Funnel、保留只限自己裝置的轉發時，執行 `tailscale serve --bg <控制台埠號>`，會改回只限自己的裝置；`tailscale funnel --https=443 off` 與 `tailscale funnel --bg off` 都會連同只限自己裝置的轉發一起清掉。
+
 `--bg` 的設定由 Tailscale 自己保存，Tailscale 重新啟動後會自動恢復，不需要另外設定開機執行。macOS 上 Tailscale App 與控制台都在使用者登入桌面後才啟動，所以電腦重新開機後要登入桌面，手機才連得到。
 
 ### cloudflared
