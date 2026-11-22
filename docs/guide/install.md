@@ -231,7 +231,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 - **新增機器 / 上線**：在「監控」分頁的「機器資訊」，輸入機器名稱建立一筆機器紀錄。剛建立的機器還沒有裝任何東西。
 - **安裝**：機器名稱選單裡的「安裝」會打開「安裝機器」視窗。視窗依作業系統（macOS、Linux、Windows（WSL2））列出系統需求、Windows 的 WSL2 準備、指令要貼在哪裡，以及給這台機器專用的安裝指令（「複製安裝指令」複製的就是畫面上這一段）。這段指令只能用一次，過一段時間也會失效；失效時關掉視窗再打開，會產生新的指令。
-- **安裝指令**：在另一台電腦的終端機執行，那台電腦可以是 Mac、Linux 或 Windows 的 WSL2。指令會先檢查 `tmux` 與 `curl`（下載檔案的工具，macOS 內建）；缺 `tmux` 時，如果那台電腦有 Homebrew，會自動安裝。其他缺少的情形會停下並印出補裝的指令，Linux 上是 `sudo apt-get install -y <工具名稱>`。不支援的電腦會在這一步被拒絕。裝好之後，那台機器出現在「機器資訊」的清單上，狀態是「線上」。
+- **安裝指令**：在另一台電腦的終端機執行，那台電腦可以是 Mac、Linux 或 Windows 的 WSL2。指令會先檢查 `tmux` 與 `curl`（下載檔案的工具，macOS 內建）；缺 `tmux` 時，有 Homebrew 的電腦用 Homebrew 安裝，Linux 與 WSL2 用 `apt-get` 安裝，安裝前會提示可能需要輸入 Linux 使用者的密碼。`tmux` 裝不起來或缺其他工具時，會停下並印出補裝的指令，Linux 上是 `sudo apt-get install -y <工具名稱>`。不支援的電腦會在這一步被拒絕。裝好之後，那台機器出現在「機器資訊」的清單上，狀態是「線上」。
 
 那台電腦同樣要符合「系統需求」（`tmux` 3.0 以上；Claude Code 2.1.287 以上，或改用 Codex），並且已經在那台電腦上登入。Linux 與 WSL2 上的 warden 以 systemd 的使用者服務執行，說明見「Linux」。機器上線後，成員詳情裡就能把成員派到那台電腦上工作，成員之間也能跨機器互相幫忙。
 
@@ -274,7 +274,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 ### 安裝腳本實際做了什麼
 
 1. 確認是支援的電腦：macOS Apple Silicon（darwin/arm64）、Linux x86_64（amd64）或 Linux arm64；不是就在下載任何東西之前停下。Linux 上同時確認 systemd 正在執行。
-2. 確認這台電腦有 `tmux`，以及 `claude` 或 `codex` 至少一種。即使這台只放 server、成員都跑在別台，也會檢查這兩項；缺少時會在動到任何檔案之前停下，並印出補裝的指令。安裝腳本只檢查有沒有裝，不檢查版本：Claude Code 低於 2.1.287 時安裝照樣會成功，但 Claude 成員喚醒會失敗，「監控 › 機器資訊」的 Claude 欄會標示「版本太舊」。Claude Code 的升級方式有兩種：同一個版本號選單裡的「升級 Claude Code」，或在那台電腦上執行 `npm install -g @anthropic-ai/claude-code`。
+2. 確認這台電腦有 `tmux`，以及 `claude` 或 `codex` 至少一種。即使這台只放 server、成員都跑在別台，也會檢查這兩項。缺 `tmux` 時，會先用 Homebrew 或 `apt-get` 安裝 `tmux`，`apt-get` 安裝前會提示可能需要輸入 Linux 使用者的密碼；仍然缺少時會在動到任何檔案之前停下，並印出補裝的指令。安裝腳本只檢查有沒有裝，不檢查版本：Claude Code 低於 2.1.287 時安裝照樣會成功，但 Claude 成員喚醒會失敗，「監控 › 機器資訊」的 Claude 欄會標示「版本太舊」。Claude Code 的升級方式有兩種：同一個版本號選單裡的「升級 Claude Code」，或在那台電腦上執行 `npm install -g @anthropic-ai/claude-code`。
 3. 下載最新 release 中符合這台電腦的 `officraft-<tag>-<系統>-<架構>.tar.gz` 與 `checksums.txt`，用 sha256 檢查碼確認下載的檔案和發佈時完全一樣，通過才繼續；驗證失敗就中止、不安裝任何東西。
 4. 這台已經裝過 OffiCraft 時，先警告並要求確認。
 5. 把 `ocserverd`、`ocwarden`、`ocagent`、`officraft` 裝到 `~/.officraft/bin`，並升級資料庫結構，既有資料保留。這幾支程式各自的用途見 [架構與運作原理](architecture.md)。

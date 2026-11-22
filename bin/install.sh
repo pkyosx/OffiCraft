@@ -38,7 +38,8 @@
 #
 # What it does, in order:
 #   1. preflight          — darwin/arm64 or linux/amd64|arm64 (Linux: systemd
-#                           as PID 1), tmux, claude OR codex — or STOP untouched.
+#                           as PID 1), claude OR codex, tmux (installed through
+#                           Homebrew or apt-get when missing) — or STOP untouched.
 #   2. live-service gate  — if the launchd label this run would claim is
 #                           ALREADY REGISTERED AND RUNNING, installing means
 #                           bootout+bootstrap: a REAL restart that DISCONNECTS
@@ -783,6 +784,21 @@ oc_platform() {
   fi
 }
 
+# Under curl | bash stdin is the download pipe, not the keyboard, so the
+# installers read </dev/null; sudo still asks for the password on the terminal.
+oc_install_tmux() {
+  local sudo=sudo
+  command -v tmux >/dev/null 2>&1 && return 0
+  if command -v brew >/dev/null 2>&1; then
+    echo "[install] tmux not found — installing it with Homebrew..."
+    brew install tmux </dev/null || true
+  elif command -v apt-get >/dev/null 2>&1; then
+    [[ "$(id -u)" == 0 ]] && sudo=
+    echo "[install] tmux not found — installing it with apt-get (sudo may ask for your Linux user password)..."
+    $sudo sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux' </dev/null >/dev/null || true
+  fi
+}
+
 # ── preflight: tools ─────────────────────────────────────────────────────────
 # Everything that must hold BEFORE the machine is touched, both modes. tmux is
 # unconditional (both runtimes go through one tmuxNewSession, spawn.go:950); the
@@ -791,12 +807,12 @@ oc_platform() {
 # (transport.go), else a stale export buys a green install nothing honours. Why it
 # is fail-closed at all: bin/tests/install-preflight-guard.sh.
 oc_preflight() {
-  local miss=() c x p dirs
+  local miss=() c x p dirs tmux_fix
   if [[ "$OC_OS" == "darwin" ]]; then
-    command -v tmux >/dev/null 2>&1 || miss+=("tmux — brew install tmux")
+    tmux_fix="tmux — brew install tmux"
     dirs=("$HOME/.local/bin" "$HOME/.npm-global/bin" /opt/homebrew/bin /usr/local/bin)
   else
-    command -v tmux >/dev/null 2>&1 || miss+=("tmux — install it with your package manager, e.g. sudo apt install tmux")
+    tmux_fix="tmux — install it with your package manager, e.g. sudo apt install tmux"
     dirs=("$HOME/.local/bin" "$HOME/.npm-global/bin" /usr/local/bin)
   fi
   c="${OC_CLAUDE_BIN:-}"; [[ -f "$c" && -x "$c" ]] || c="$(command -v claude 2>/dev/null || true)"
@@ -805,6 +821,8 @@ oc_preflight() {
     [[ -z "$c" && -x "$p/claude" ]] && c="$p/claude"
     [[ -z "$x" && -x "$p/codex" ]] && x="$p/codex"
   done
+  oc_install_tmux
+  command -v tmux >/dev/null 2>&1 || miss+=("$tmux_fix")
   [[ -n "$c$x" ]] || miss+=("an agent runtime — Claude Code or Codex; install one, then run it once to sign in:"
     "  Claude Code: curl -fsSL https://claude.ai/install.sh | bash   (then sign in: claude)"
     "  Codex:       curl -fsSL https://chatgpt.com/codex/install.sh | sh   (then sign in: codex)")

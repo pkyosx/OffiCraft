@@ -264,20 +264,27 @@ func TestBuildInstallScript_Mainline(t *testing.T) {
 set -euo pipefail
 
 # Precheck: only the KEY tools the install truly needs (not an exhaustive audit).
-#   tmux — the warden spawns each member's session through it (auto-installed
-#          via Homebrew when available).
+#   tmux — the warden spawns each member's session through it (installed just
+#          below through Homebrew or apt-get when one is available).
 #   curl — used just below to pull the ocwarden binary.
+# Each installer reads </dev/null: under curl | bash stdin is the rest of this
+# script, and an installer that reads it would swallow every line after it.
+if ! command -v tmux >/dev/null 2>&1; then
+  if command -v brew >/dev/null 2>&1; then
+    echo "tmux not found — installing it with Homebrew..."
+    brew install tmux </dev/null || true
+  elif command -v apt-get >/dev/null 2>&1; then
+    oc_sudo=sudo
+    if [ "$(id -u)" = 0 ]; then
+      oc_sudo=
+    fi
+    echo "tmux not found — installing it with apt-get (sudo may ask for your Linux user password)..."
+    $oc_sudo sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux' </dev/null >/dev/null || true
+  fi
+fi
 for tool in tmux curl; do
   if command -v "$tool" >/dev/null 2>&1; then
     continue
-  fi
-  # tmux is the one tool worth auto-installing: Homebrew boxes get it hands-free.
-  if [ "$tool" = tmux ] && command -v brew >/dev/null 2>&1; then
-    echo "tmux not found — installing via Homebrew..."
-    brew install tmux || true
-    if command -v tmux >/dev/null 2>&1; then
-      continue
-    fi
   fi
   echo "Error: $tool is required, please install it first" >&2
   echo "Fix: install it, then re-run this one-liner:" >&2
@@ -334,8 +341,8 @@ func TestBuildInstallScriptWithCode_Mainline(t *testing.T) {
 		for _, line := range []string{
 			"Error: this install link has expired or was already used.",
 			"Fix: in the control panel, open Monitor › Machines (監控 › 機器資訊), choose Install from this machine's menu, press 「重新產生指令」 (Regenerate command), and run the new command.",
-			`echo "tmux not found — installing via Homebrew..."`,
-			"brew install tmux || true",
+			"brew install tmux </dev/null || true",
+			`$oc_sudo sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux' </dev/null >/dev/null || true`,
 			`echo "  macOS:  brew install $tool" >&2`,
 			`echo "  Linux:  sudo apt-get install -y $tool (or your distro's package manager)" >&2`,
 		} {
@@ -366,6 +373,40 @@ func TestBuildInstallScriptWithCode_Mainline(t *testing.T) {
 				t.Fatalf("%s %s: err=%v\ncurl=%q\nwant %q\nwarden=%q\noutput:\n%s",
 					c.kernel, c.machine, run.err, run.curl, wantCurl, run.warden, run.output)
 			}
+		}
+	})
+
+	t.Run("on a machine without tmux, the script installs tmux through the package manager it finds", func(t *testing.T) {
+		installsTmux := `#!/bin/sh
+echo "$(basename "$0") $*" >>"$BIN/installer.log"
+case "$*" in *install*tmux*) printf '#!/bin/sh\n' >"$BIN/tmux"; chmod +x "$BIN/tmux" ;; esac
+`
+		passThroughSudo := "#!/bin/sh\necho \"sudo $*\" >>\"$BIN/installer.log\"\nexec \"$@\"\n"
+		for _, c := range []struct {
+			name, kernel string
+			stubs        map[string]string
+			wantSay      string
+		}{
+			{"Homebrew", "Darwin", map[string]string{"tmux": "", "brew": installsTmux, "apt-get": "#!/bin/sh\nexit 1\n"},
+				"tmux not found — installing it with Homebrew..."},
+			{"apt-get", "Linux", map[string]string{"tmux": "", "apt-get": installsTmux, "sudo": passThroughSudo},
+				"tmux not found — installing it with apt-get (sudo may ask for your Linux user password)..."},
+		} {
+			run := runInstallScriptWithStubs(t, buildInstallScriptWithCode(base, code, ""), c.kernel, "arm64", "200", c.stubs)
+			if run.err != nil || run.warden != "install --force" || !strings.Contains(run.output, c.wantSay) {
+				t.Fatalf("%s: err=%v warden=%q, want the install to finish after %q:\n%s", c.name, run.err, run.warden, c.wantSay, run.output)
+			}
+		}
+	})
+
+	t.Run("when tmux cannot be installed, the script stops with the install commands before claiming the code", func(t *testing.T) {
+		run := runInstallScriptWithStubs(t, buildInstallScriptWithCode(base, code, ""), "Linux", "arm64", "200",
+			map[string]string{"tmux": "", "apt-get": "#!/bin/sh\nexit 100\n", "sudo": "#!/bin/sh\nexec \"$@\"\n"})
+		if run.err == nil || len(run.curl) != 0 || run.warden != "" ||
+			!strings.Contains(run.output, "Error: tmux is required, please install it first") ||
+			!strings.Contains(run.output, "sudo apt-get install -y tmux") {
+			t.Fatalf("err=%v curl=%q warden=%q, want a stop with the tmux install commands and no curl:\n%s",
+				run.err, run.curl, run.warden, run.output)
 		}
 	})
 
@@ -1246,7 +1287,8 @@ type installScriptRun struct {
 // runInstallScriptWithStubs executes a rendered install script under bash with
 // uname, curl, tmux and sed answered by stubs, so what it would fetch on a given
 // machine is observed without a network or a real install.
-func runInstallScriptWithStubs(t *testing.T, script, kernel, machine, probeStatus string) installScriptRun {
+// overrides replaces stub bodies by name; an empty body removes that stub.
+func runInstallScriptWithStubs(t *testing.T, script, kernel, machine, probeStatus string, overrides ...map[string]string) installScriptRun {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "bin")
@@ -1274,21 +1316,35 @@ for arg in "$@"; do
 done
 `,
 	}
+	path := bin + ":/usr/bin:/bin"
+	for _, o := range overrides {
+		for name, body := range o {
+			if body == "" {
+				// A removed stub must not resolve from the host either: CI runners ship tmux in /usr/bin.
+				delete(stubs, name)
+				path = bin
+			} else {
+				stubs[name] = strings.ReplaceAll(body, "$BIN", bin)
+			}
+		}
+	}
 	for name, body := range stubs {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	sedPath, err := exec.LookPath("sed")
-	if err != nil {
-		t.Fatalf("sed: %v", err)
-	}
-	if err := os.Symlink(sedPath, filepath.Join(bin, "sed")); err != nil {
-		t.Fatal(err)
+	for _, tool := range []string{"sed", "sh", "id", "chmod", "basename"} {
+		toolPath, err := exec.LookPath(tool)
+		if err != nil {
+			t.Fatalf("%s: %v", tool, err)
+		}
+		if err := os.Symlink(toolPath, filepath.Join(bin, tool)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	cmd := exec.Command("bash", "-c", script)
 	cmd.Dir = work
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + dir}
+	cmd.Env = []string{"PATH=" + path, "HOME=" + dir}
 	out, runErr := cmd.CombinedOutput()
 	run := installScriptRun{output: string(out), err: runErr}
 	if raw, err := os.ReadFile(curlLog); err == nil {
