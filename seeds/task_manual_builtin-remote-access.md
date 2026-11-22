@@ -6,7 +6,7 @@
 
 需要管理員權限（`sudo`、輸入電腦密碼）或使用者本人登入帳號的動作，一律開 action Reply Card，寫明要執行什麼、做完會看到什麼，請使用者執行；使用者回覆後讀回結果再繼續。不要求使用者把密碼或帳號憑證交給成員。
 
-轉發方式有兩種，依使用者有沒有 Cloudflare 帳號決定（見第 3 步）：
+轉發方式有兩種，依使用者有沒有 Cloudflare 帳號與網域、以及這台電腦的 cloudflared 是否已經給其他網址用決定（見第 3 步）：
 
 - **cloudflared**：固定的公開 HTTPS 網址，手機不用另外裝 App，任何知道網址的人都打得開登入頁。需要使用者在 Cloudflare 上已經有帳號與自己管理的網域。
 - **Tailscale**：只有登入同一個 Tailscale 帳號的裝置連得到，不需要網域。使用者要在電腦和手機上各登入一次 Tailscale。
@@ -19,7 +19,7 @@
 
 不在那台電腦上時，停止執行，開 Reply Card 告訴使用者這件事要由那台電腦上的成員處理，請使用者決定改派給誰。
 
-同時確認這台電腦是否已經有轉發在執行（`tailscale serve status`、cloudflared 是否在執行）。cloudflared 是否開機自動執行，看它實際的啟動設定（macOS 的 `~/Library/LaunchAgents`、Linux 的 systemd 服務），不只看有沒有用 `cloudflared service install` 裝過。已經有轉發時，仍然先做第 2 步；第 2 步通過後，確認轉發已設成開機後自動執行（沒有的話照第 4 步補上），再到第 5 步讀回網址。
+同時確認這台電腦目前的轉發狀態：`tailscale serve status`；cloudflared 是否在執行、預設設定檔（`~/.cloudflared/config.yml`）存不存在與裡面有哪些網址；cloudflared 是否開機自動執行，看實際的啟動設定（macOS 的 `~/Library/LaunchAgents` 與 `/Library/LaunchDaemons`、Linux 的 systemd 服務），不只看有沒有用 `cloudflared service install` 裝過。已經有指向控制台的轉發時，仍然先做第 2 步；第 2 步通過後，確認轉發已設成開機後自動執行（沒有的話照第 4 步補上），再到第 5 步讀回網址。已經有的轉發是 Cloudflare 的臨時網址（`trycloudflare.com`）時不沿用，照第 3 步重新決定。
 
 **完成條件**：步驟備註寫下控制台的埠號、所在機器就是跑控制台的機器，以及目前有沒有轉發（有的話附網址）。
 
@@ -30,7 +30,7 @@
 用 `get_login_protection` 讀登入保護狀態：
 
 - **兩步驟驗證已開啟**：繼續。
-- **兩步驟驗證沒開**：開 action Reply Card，請使用者到控制台右上角頭像 › 帳號安全 › 兩步驟驗證開啟。使用者回覆後再讀一次；仍然沒開，再開卡說明讀到的結果並請使用者開啟。使用者表示不開啟時，不設定轉發，在任務上寫明原因後結束任務。第 1 步發現已經有轉發時，在卡上寫明控制台目前已經對外開放、只靠密碼保護，並提供關掉轉發的選項。使用者選擇關掉時：Tailscale 執行 `tailscale serve --https=443 off`，只關掉控制台這一條轉發；cloudflared 只在開機自動執行的服務就是控制台這條 tunnel 時執行 `cloudflared service uninstall`；服務帶著其他網址，或控制台的 tunnel 是用其他方式啟動時，開卡說明情況，請使用者決定。關掉後讀回 `tailscale serve status` 已沒有指向控制台埠號的轉發，或 cloudflared 已不在執行，並寫進任務。
+- **兩步驟驗證沒開**：開 action Reply Card，請使用者到控制台右上角頭像 › 帳號安全 › 兩步驟驗證開啟。使用者回覆後再讀一次；仍然沒開，再開卡說明讀到的結果並請使用者開啟。使用者表示不開啟時，不設定轉發，在任務上寫明原因後結束任務。第 1 步發現已經有轉發時，在卡上寫明控制台目前已經對外開放、只靠密碼保護，並提供關掉轉發的選項。使用者選擇關掉時：Tailscale 依 `tailscale serve status` 顯示的設定，只關掉指向控制台埠號的那一條（例如 `tailscale serve --https=443 off`）；cloudflared 只在開機自動執行的服務就是控制台這條 tunnel 時執行 `cloudflared service uninstall`；服務帶著其他網址，或控制台的 tunnel 是用其他方式啟動時，開卡說明情況，請使用者決定。關掉後讀回 `tailscale serve status` 已沒有指向控制台埠號的轉發，或 cloudflared 已不在執行，並寫進任務。
 
 請使用者確認兩件系統檢查不到的事：登入密碼不容易被猜到（系統只存密碼的雜湊值，看不出強度），以及是否要把設定 › 參數調整 › 登入有效期調短。兩步驟驗證沒開時放在上面那張卡；已開啟時另開一張卡。使用者表示密碼不夠強時，請使用者到右上角頭像 › 帳號安全 › 修改密碼改好，再繼續。
 
@@ -43,13 +43,15 @@
 - **有**：用 cloudflared，同一張卡請使用者提供要用的網域。
 - **沒有**：用 Tailscale。
 
+第 1 步發現這台電腦的 cloudflared 預設設定檔或開機自動執行的服務已經給其他網址用時，即使使用者有 Cloudflare 帳號也用 Tailscale，並在卡上說明原因：cloudflared 的開機自動執行服務一台電腦只有一個、固定讀預設設定檔，加入控制台會改動使用者原本的設定。
+
 不使用 Cloudflare 不需要帳號的臨時網址（`cloudflared tunnel --url`，網址是 `trycloudflare.com`）：臨時網址不支援 Server-Sent Events，控制台的聊天與請示卡無法即時更新，網址每次重新啟動也會換。
 
 **完成條件**：已確定轉發方式；用 cloudflared 時使用者已提供網域。
 
 ## 4. 設定轉發
 
-依使用者選的方式設定。需要使用者本人的動作（輸入電腦的管理員密碼、在瀏覽器登入帳號、在管理頁開啟功能）時，照背景的規則開卡請使用者執行。
+依第 3 步決定的方式設定。需要使用者本人的動作（輸入電腦的管理員密碼、在瀏覽器登入帳號、在管理頁開啟功能）時，照背景的規則開卡請使用者執行。
 
 ### Tailscale
 
@@ -64,16 +66,16 @@
 
 1. **安裝**：安裝 cloudflared（macOS 用 Homebrew，Linux 用 Cloudflare 官網的套件）。
 2. **登入**：執行 `cloudflared tunnel login`，請使用者用印出的網址登入 Cloudflare，並選擇要用的網域。
-3. **建立通道與網址**：建立一條 tunnel，把使用者提供網域下的一個子網域指到這條 tunnel，設定檔把這個網址轉到 `http://127.0.0.1:<控制台埠號>`。
-4. **開機自動執行**：把 cloudflared 設成系統服務（`cloudflared service install`，需要管理員密碼時開卡請使用者執行）。這個服務使用 cloudflared 的預設設定檔（macOS 的 `~/.cloudflared/config.yml`、Linux 的 `/etc/cloudflared/config.yml`），一台電腦只有一個。這台電腦已經有預設設定檔或 cloudflared 服務、而且是給其他網址用時，不要執行，開卡說明情況，建議使用者改用 Tailscale。
+3. **建立通道與網址**：建立一條 tunnel，把使用者提供網域下的一個子網域指到這條 tunnel，在預設設定檔 `~/.cloudflared/config.yml` 寫入這條 tunnel，並把這個網址轉到 `http://127.0.0.1:<控制台埠號>`。
+4. **開機自動執行**：執行前再確認一次這台電腦沒有其他 cloudflared 服務；有的話停下，照第 3 步改用 Tailscale。macOS 不加 `sudo` 執行 `cloudflared service install`，裝成登入後自動執行的服務；加 `sudo` 會裝成系統層級的服務，讀不到 `~/.cloudflared` 的設定。Linux 與 Windows WSL2 開卡請使用者執行 `sudo cloudflared --config <設定檔的完整路徑> service install`。
 
-**完成條件**：`tailscale serve status` 或 cloudflared 的服務狀態顯示轉發指向控制台的埠號、轉發工具已設成開機後自動執行，且步驟備註寫下轉發後的 HTTPS 網址。
+**完成條件**：`tailscale serve status` 顯示轉發指向控制台的埠號，或 cloudflared 設定檔把網址指向控制台的埠號且服務在執行；轉發工具已設成開機後自動執行；步驟備註寫下轉發後的 HTTPS 網址。
 
 ## 5. 讀回網址
 
 從這台電腦用轉發後的網址打開控制台，確認回應是控制台的登入頁，不是錯誤頁或其他服務。Tailscale 的網址只有加入同一個帳號的裝置打得開，在這台電腦上讀回即可。
 
-讀不回登入頁時，依錯誤訊息修正第 4 步的設定；修不好時，開 Reply Card 說明目前狀態與錯誤訊息，請使用者決定要改用另一種方式或停止。
+讀不回登入頁時，依錯誤訊息修正第 4 步的設定；修不好時，開 Reply Card 說明目前狀態與錯誤訊息，請使用者決定停止，或在第 3 步的條件允許時改用另一種方式。
 
 **完成條件**：用轉發後的網址讀回控制台的登入頁。
 
@@ -83,7 +85,7 @@
 
 **一定要做**：
 
-1. 選 Tailscale 時，在手機安裝 Tailscale App，並登入同一個 Tailscale 帳號。
+1. 用 Tailscale 時，在手機安裝 Tailscale App，並登入同一個 Tailscale 帳號。
 2. 用網址打開控制台，以密碼與兩步驟驗證登入。
 
 **可以順便開啟**（不做也能用）：
@@ -92,6 +94,6 @@
 - **加到主畫面**：像獨立 App 一樣全螢幕打開。iPhone 用 Safari 的「分享 › 加入主畫面」，Android 用 Chrome 選單的「加到主畫面」。
 - **推播通知**：有新訊息或請示卡時收到通知。從主畫面打開控制台，在頭像選單填好「通知信箱」，再點頂端的鈴鐺圖示；iPhone 要先加到主畫面。
 
-同一張卡提醒：電腦關機或睡眠時，手機連不到控制台；選 cloudflared 時，回呼端點的網址也會跟著對外。
+同一張卡提醒：電腦關機或睡眠時，手機連不到控制台；用 cloudflared 時，回呼端點的網址也會跟著對外。
 
 **完成條件**：使用者在卡上回覆手機已能用轉發後的網址登入。
