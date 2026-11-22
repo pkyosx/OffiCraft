@@ -354,7 +354,7 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 		map[string]any{
 			"type_key":         "builtin-remote-access",
 			"display_name":     "開放遠端連線",
-			"purpose":          "讓手機或其他電腦可以連到控制台：在跑控制台的電腦上設定轉發工具，產生一個 HTTPS 網址。只處理轉發，不改控制台設定、路由器或防火牆。",
+			"purpose":          "使用者想從這台電腦以外的地方（手機或其他電腦）連到控制台時使用：在跑控制台的電腦上設定轉發工具，產生一個 HTTPS 網址。只處理轉發，不改控制台設定、路由器或防火牆。",
 			"fields":           []any{},
 			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
 			"sop_md_chars":     3712,
