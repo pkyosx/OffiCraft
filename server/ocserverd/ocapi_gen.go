@@ -5039,6 +5039,24 @@ type TaskManualReceiptDTO struct {
 	UpdatedTs *float64 `json:"updated_ts,omitempty"`
 }
 
+// TaskManualSuggestedRepliesDTO The owner's 建議回覆 per task type, one list per type.
+type TaskManualSuggestedRepliesDTO struct {
+	Lists []TaskManualTypeSuggestedRepliesDTO `json:"lists"`
+}
+
+// TaskManualSuggestedRepliesUpdateDTO The complete desired list for one task type; it replaces the stored list wholesale.
+type TaskManualSuggestedRepliesUpdateDTO struct {
+	// Replies The sentences in display order.
+	Replies []string `json:"replies"`
+}
+
+// TaskManualTypeSuggestedRepliesDTO One task type's 建議回覆.
+type TaskManualTypeSuggestedRepliesDTO struct {
+	// Replies The sentences in display order.
+	Replies []string `json:"replies"`
+	TypeKey string   `json:"type_key"`
+}
+
 // TaskManualUpdateDTO Partial manual edit — only supplied fields change. “assignee“ is {"kind":"staff","member_id":…} or {"kind":"outsource","runtime":"claude|codex","model":…,"effort":…,"copies":N,"machine":…}; {} unsets it. Outsource runtime absent means claude; “copies“ MUST be a number >= 0 (0 = 無限 — unlimited per-type parallel copies; absent = 1); “machine“ MUST be a non-blank machine id when present, and must resolve to a real machine ("auto" is rejected — it names no machine); absent leaves the type without a placement.
 type TaskManualUpdateDTO struct {
 	Assignee    *map[string]interface{} `json:"assignee,omitempty"`
@@ -6017,6 +6035,9 @@ type HandleReplaceSharedDocApiSharedDocsDocIdReplacePostJSONRequestBody = Shared
 // HandleReplaceSystemInteractionApiSystemInteractionPostJSONRequestBody defines body for HandleReplaceSystemInteractionApiSystemInteractionPost for application/json ContentType.
 type HandleReplaceSystemInteractionApiSystemInteractionPostJSONRequestBody = BootDocumentReplaceDTO
 
+// HandleUpdateTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesTypeKeyPutJSONRequestBody defines body for HandleUpdateTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesTypeKeyPut for application/json ContentType.
+type HandleUpdateTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesTypeKeyPutJSONRequestBody = TaskManualSuggestedRepliesUpdateDTO
+
 // HandleCreateTaskManualApiTaskManualsPostJSONRequestBody defines body for HandleCreateTaskManualApiTaskManualsPost for application/json ContentType.
 type HandleCreateTaskManualApiTaskManualsPostJSONRequestBody = TaskManualCreateDTO
 
@@ -6907,6 +6928,12 @@ type ServerInterface interface {
 	// Restore the 系統互動 block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only. Answers with a bounded receipt (“kind“, “key“, “is_default“, “size_chars“, “cap_chars“, “sha256“), not the document — call “get_system_interaction“ when you need the rest.
 	// (POST /api/system-interaction/reset)
 	HandleResetSystemInteractionApiSystemInteractionResetPost(w http.ResponseWriter, r *http.Request)
+	// Get the owner's suggested replies for every task type.
+	// (GET /api/task-manual-suggested-replies)
+	HandleGetTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesGet(w http.ResponseWriter, r *http.Request)
+	// Replace the owner's suggested replies for one task type.
+	// (PUT /api/task-manual-suggested-replies/{type_key})
+	HandleUpdateTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesTypeKeyPut(w http.ResponseWriter, r *http.Request, typeKey string)
 	// List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZE of sop_md and the cap it is judged against. The SOP text is not on this answer at all — read the one type you picked with get_task_manual.
 	// (GET /api/task-manuals)
 	HandleListTaskManualsApiTaskManualsGet(w http.ResponseWriter, r *http.Request)
@@ -11300,6 +11327,46 @@ func (siw *ServerInterfaceWrapper) HandleResetSystemInteractionApiSystemInteract
 	handler.ServeHTTP(w, r)
 }
 
+// HandleGetTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleUpdateTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesTypeKeyPut operation middleware
+func (siw *ServerInterfaceWrapper) HandleUpdateTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesTypeKeyPut(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "type_key" -------------
+	var typeKey string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "type_key", r.PathValue("type_key"), &typeKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "type_key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleUpdateTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesTypeKeyPut(w, r, typeKey)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleListTaskManualsApiTaskManualsGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleListTaskManualsApiTaskManualsGet(w http.ResponseWriter, r *http.Request) {
 
@@ -13331,6 +13398,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/system-interaction", wrapper.HandleGetSystemInteractionApiSystemInteractionGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/system-interaction", wrapper.HandleReplaceSystemInteractionApiSystemInteractionPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/system-interaction/reset", wrapper.HandleResetSystemInteractionApiSystemInteractionResetPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/task-manual-suggested-replies", wrapper.HandleGetTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesGet)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/task-manual-suggested-replies/{type_key}", wrapper.HandleUpdateTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesTypeKeyPut)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/task-manuals", wrapper.HandleListTaskManualsApiTaskManualsGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/task-manuals", wrapper.HandleCreateTaskManualApiTaskManualsPost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/task-manuals/{type_key}", wrapper.HandleDeleteTaskManualApiTaskManualsTypeKeyDelete)

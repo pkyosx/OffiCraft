@@ -18,6 +18,7 @@
     "settings",
     "shared_doc",
     "task",
-    "task_manual"
+    "task_manual",
+    "task_manual_suggested_reply"
   ]
 }

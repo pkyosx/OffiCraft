@@ -3647,6 +3647,15 @@ HAPPY: dict[str, Happy] = {
         ),
     ),
     # ── task manuals (M3) ────────────────────────────────────────────────────
+    "GET /api/task-manual-suggested-replies": Happy(
+        check=lambda _c, r: _expect(r, lambda d: isinstance(d["lists"], list)),
+    ),
+    "PUT /api/task-manual-suggested-replies/{type_key}": Happy(
+        path="/api/task-manual-suggested-replies/builtin-role-design",
+        body={"replies": ["  conf happy  "]},
+        check=lambda _c, r: _expect(
+            r, lambda d: d == {"type_key": "builtin-role-design", "replies": ["conf happy"]}),
+    ),
     "GET /api/task-manuals": Happy(),
     "POST /api/task-manuals": Happy(
         # agent floor (owner ruling 2026-07-13): agents author task types.

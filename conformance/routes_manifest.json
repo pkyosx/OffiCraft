@@ -1142,6 +1142,20 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/task-manual-suggested-replies",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "PUT",
+    "path": "/api/task-manual-suggested-replies/{type_key}",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "list_task_manuals",
     "method": "GET",
     "path": "/api/task-manuals",

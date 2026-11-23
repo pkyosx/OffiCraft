@@ -440,6 +440,9 @@ def test_every_closed_topic_emits(
         ("task_manual", lambda: client.post(
             "/api/task-manuals", json={"type_key": f"conf-topic-{tag}"},
             headers=_auth(owner_token))),
+        ("task_manual_suggested_reply", lambda: client.put(
+            "/api/task-manual-suggested-replies/builtin-role-design", json={"replies": []},
+            headers=_auth(owner_token))),
         ("global_context", lambda: client.post(
             "/api/global-context", json={"text": f"topic probe {tag}"},
             headers=_auth(owner_token))),
@@ -469,7 +472,7 @@ def test_every_closed_topic_emits(
         "chat_suggested_reply": "patch",
         "settings": "patch",
         "reply_card": "patch",
-        "task": "patch", "task_manual": "patch",
+        "task": "patch", "task_manual": "patch", "task_manual_suggested_reply": "patch",
         "global_context": "patch", "role_def": "patch",
         "insight": "patch",
         "context": "signal", "monitoring": "signal",

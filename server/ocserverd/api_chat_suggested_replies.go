@@ -20,7 +20,7 @@ func (s *apiServer) HandleUpdateChatSuggestedRepliesApiChatSuggestedRepliesMembe
 	if !decodeJSONBodyRequired(w, r, &body, "replies") {
 		return
 	}
-	replies, msg := chatSuggestedRepliesWriteRefusal(body.Replies)
+	replies, msg := suggestedRepliesWriteRefusal(body.Replies, "member")
 	if msg != "" {
 		writeError(w, http.StatusUnprocessableEntity, msg)
 		return
@@ -52,9 +52,9 @@ func (s *apiServer) publishChatSuggestedReplies(trigger string) {
 
 // A blank entry is a 422 here, though the settings lists drop one silently: this
 // wire's spec promises the refusal, and the cockpit editor never sends one.
-func chatSuggestedRepliesWriteRefusal(replies []string) ([]string, string) {
+func suggestedRepliesWriteRefusal(replies []string, listOwner string) ([]string, string) {
 	if replies == nil {
-		return nil, "replies must be a list; an empty list removes the member's suggested replies"
+		return nil, "replies must be a list; an empty list removes the " + listOwner + "'s suggested replies"
 	}
 	for i, v := range replies {
 		if strings.TrimSpace(v) == "" {

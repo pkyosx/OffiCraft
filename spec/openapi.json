@@ -23996,7 +23996,7 @@
     },
     "/api/task-manuals/{type_key}": {
       "delete": {
-        "description": "- Refused with 409 while any NON-terminal task of this type exists; closed tasks never block.\n- Owner or admin agent only; a plain agent is 403.\n- A built-in (seed) manual cannot be deleted: 403; reset it instead.\n- Also deletes the type's owner suggested replies and emits `task_manual_suggested_reply`.",
+        "description": "- Refused with 409 while any NON-terminal task of this type exists; closed tasks never block.\n- Owner or admin agent only; a plain agent is 403.\n- A built-in (seed) manual cannot be deleted: 403; reset it instead.\n- Also deletes the type's owner suggested replies; when it had any, emits `task_manual_suggested_reply` to the owner.",
         "operationId": "handle_delete_task_manual_api_task_manuals__type_key__delete",
         "parameters": [
           {

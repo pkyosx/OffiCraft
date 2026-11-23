@@ -1967,19 +1967,21 @@ func TestPutTaskManualOn(t *testing.T) {
 }
 
 func TestDeleteTaskManual(t *testing.T) {
-	t.Run("the manual goes, its retained document history goes with it, and its neighbour stays", func(t *testing.T) {
+	t.Run("the manual goes, its retained document history and suggested replies go with it, and its neighbour stays", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		dalPutManual(t, d, dalTestManual("sync-jira"))
 		bystander := dalPutManual(t, d, dalTestManual("ship-order"))
 		dalSeedManualHistory(t, d, "sync-jira", docKindTaskManualSop)
 		dalSeedManualHistory(t, d, "ship-order", docKindTaskManualSop)
+		dalSeedTaskManualSuggestedReplies(t, d, "sync-jira", "已同步")
+		dalSeedTaskManualSuggestedReplies(t, d, "ship-order", "已出貨")
 
-		deleted, err := d.DeleteTaskManual("sync-jira")
+		deleted, repliesDeleted, err := d.DeleteTaskManual("sync-jira")
 		if err != nil {
 			t.Fatalf("DeleteTaskManual: %v", err)
 		}
-		if !deleted {
-			t.Fatalf("DeleteTaskManual: want true, got false")
+		if !deleted || !repliesDeleted {
+			t.Fatalf("DeleteTaskManual: want true, true, got %v, %v", deleted, repliesDeleted)
 		}
 		got, err := d.GetTaskManual("sync-jira")
 		if err != nil || got != nil {
@@ -1992,6 +1994,20 @@ func TestDeleteTaskManual(t *testing.T) {
 		if n := dalManualHistoryCount(t, d, "ship-order"); n != 1 {
 			t.Fatalf("the neighbour's retained revisions: want 1, got %d", n)
 		}
+		apiWantValue(t, "suggested reply rows", any(dalTaskManualSuggestedReplyRows(t, d)), any([]string{"ship-order:0:已出貨"}))
+	})
+
+	t.Run("a manual without suggested replies reports that none were removed", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		dalPutManual(t, d, dalTestManual("sync-jira"))
+
+		deleted, repliesDeleted, err := d.DeleteTaskManual("sync-jira")
+		if err != nil {
+			t.Fatalf("DeleteTaskManual: %v", err)
+		}
+		if !deleted || repliesDeleted {
+			t.Fatalf("DeleteTaskManual: want true, false, got %v, %v", deleted, repliesDeleted)
+		}
 	})
 
 	t.Run("a type key naming no manual reports false and removes nothing", func(t *testing.T) {
@@ -1999,18 +2015,31 @@ func TestDeleteTaskManual(t *testing.T) {
 		stored := dalPutManual(t, d, dalTestManual("sync-jira"))
 		dalSeedManualHistory(t, d, "sync-jira", docKindTaskManualSop)
 
-		deleted, err := d.DeleteTaskManual("never-a-type")
+		deleted, repliesDeleted, err := d.DeleteTaskManual("never-a-type")
 		if err != nil {
 			t.Fatalf("DeleteTaskManual(never-a-type): %v", err)
 		}
-		if deleted {
-			t.Fatalf("DeleteTaskManual(never-a-type): want false, got true")
+		if deleted || repliesDeleted {
+			t.Fatalf("DeleteTaskManual(never-a-type): want false, false, got %v, %v", deleted, repliesDeleted)
 		}
 		dalWantManual(t, d, stored)
 		if n := dalManualHistoryCount(t, d, "sync-jira"); n != 1 {
 			t.Fatalf("the surviving manual's retained revisions: want 1, got %d", n)
 		}
 	})
+}
+
+func dalSeedTaskManualSuggestedReplies(t *testing.T, d *DAL, typeKey string, replies ...string) {
+	t.Helper()
+	if err := d.inTx(func(tx *writeTx) error { return replaceTaskManualSuggestedRepliesOn(tx, typeKey, replies) }); err != nil {
+		t.Fatalf("replaceTaskManualSuggestedRepliesOn: %v", err)
+	}
+}
+
+func dalTaskManualSuggestedReplyRows(t *testing.T, d *DAL) []string {
+	t.Helper()
+	return chatGroupColumn(t, d, `SELECT type_key || ':' || position || ':' || text FROM task_manual_suggested_reply
+		ORDER BY type_key, position`)
 }
 
 // dalTestTask is a task row with every column carrying a distinct non-zero

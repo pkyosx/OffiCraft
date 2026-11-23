@@ -440,12 +440,15 @@ func (s *apiServer) HandleDeleteTaskManualApiTaskManualsTypeKeyDelete(w http.Res
 			"task manual '"+typeKey+"' still has open tasks — close them first")
 		return
 	}
-	deleted, err := s.dal.DeleteTaskManual(typeKey)
+	deleted, repliesDeleted, err := s.dal.DeleteTaskManual(typeKey)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
 	s.publishTaskManual(typeKey, requestTrigger(r))
+	if repliesDeleted {
+		s.publishTaskManualSuggestedReplies(requestTrigger(r))
+	}
 	writeJSON(w, http.StatusOK, taskManualDeleteResultDTO{
 		TypeKey: typeKey, Deleted: deleted,
 	})
