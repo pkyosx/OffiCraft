@@ -548,7 +548,7 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 四份建議回覆也不在那張表裡，而且是**一個訊息框一格、不是共用一格**（owner 裁定：任務跟請示卡要是不同的參數設定；T-33 依同一條裁定加上傳承那一格，聊天室那一格是所有成員共用）：
 DB 四個 key（`suggested_replies.reply_card` / `suggested_replies.task_message` / `suggested_replies.lore_message` / `suggested_replies.chat`）、wire 四個平的頂層欄位，
 所以「只改其中一份」是一次寫入，不是對一個共用 blob 的 read-modify-write。清單為空是合法值。
-存是一格一份，顯示不一定只讀一格：請示卡回覆框（聊天內嵌、請示頁、任務卡內嵌三處相同）依序列卡片所屬任務類型（`card.task.type_key`）的任務手冊建議回覆（`GET /api/task-manual-suggested-replies`，owner 專屬，在任務手冊頁編輯）、開卡成員（`card.from`）的成員專屬建議回覆（`GET /api/chat/suggested-replies`）、`suggestedRepliesReplyCard`，相同文字只顯示在第一次出現的位置；卡片沒有任務、任務是自由代辦（`type_key` 為空）、開卡的是 owner 或名冊上沒有的 id，或某一份沒有句子時，那一份就不列。刪除任務手冊時它的建議回覆在同一交易刪除；內建手冊同步預設內容不動它。
+存是一格一份，顯示不一定只讀一格：請示卡回覆框（聊天內嵌、請示頁、任務卡內嵌三處相同）依序列卡片所屬任務類型（`card.task.type_key`）的任務手冊建議回覆（`GET /api/task-manual-suggested-replies`，owner 專屬，在任務手冊頁編輯）、開卡成員（`card.from`）的成員專屬建議回覆（`GET /api/chat/suggested-replies`）、`suggestedRepliesReplyCard`，相同文字只顯示在第一次出現的位置；卡片沒有任務、任務是自由代辦（`type_key` 為空）、開卡的是 owner 或名冊上沒有的 id，或某一份沒有句子時，那一份就不列。任務卡訊息框依序列任務類型（`task.type_key`）的任務手冊建議回覆、`suggestedRepliesTaskMessage`；外包成員的聊天室依序列它綁定任務的類型（worker DTO 的 `task_type_key`）的任務手冊建議回覆、成員專屬建議回覆、`suggestedRepliesChat`。正職聊天室不列任務手冊那份（同時可能負責多種類型的任務），已釋出外包的聊天室輸入框鎖住、不列任何句子；自由代辦一樣不列。刪除任務手冊時它的建議回覆在同一交易刪除；內建手冊同步預設內容不動它。
 每個參數的意義與範圍見 [docs/guide/settings.md](../guide/settings.md)。
 
 ### 6.6 主題

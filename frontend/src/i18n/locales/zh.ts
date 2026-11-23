@@ -2956,7 +2956,7 @@ export const zh = {
     manualPlanningSection: "任務規劃",
     manualDefEntrySub: "這是什麼任務、需要哪些資訊、該怎麼做",
     manualSuggestedRepliesSection: "建議回覆",
-    manualSuggestedRepliesSub: "回覆這類任務的請示卡時可一鍵帶入的句子。",
+    manualSuggestedRepliesSub: "回覆這類任務的請示卡、在這類任務上傳訊息，或跟負責這類任務的外包聊天時，可一鍵帶入的句子。",
     manualSuggestedRepliesEmpty: "這類任務還沒有專屬的句子。",
     manualSuggestedRepliesLoadError: "建議回覆載入失敗。",
     manualSuggestedRepliesRetry: "重新載入",
