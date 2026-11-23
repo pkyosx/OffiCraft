@@ -3431,6 +3431,7 @@ export interface paths {
          * Get the owner's suggested replies for every task type.
          * @description - The owner's 建議回覆 for every task type that has any; a type with none is not listed.
          *     - The reply-card composer of a card that names a task of that type (bound to one of its steps, or through `about_task_id`) lists these first, then the card author's chat 建議回覆, then the reply-card list (`suggested_replies.reply_card`), the same text shown once. A card that names no task, or names an ad-hoc task (`type_key` ""), is unaffected.
+         *     - The task card's message box of a task of that type lists these first, then the task-message list (`suggested_replies.task_message`). The chat room with an outsource worker bound to a task of that type lists these first, then that worker's chat 建議回覆, then the chat list (`suggested_replies.chat`). Staff chat rooms never list them; each box shows the same text once.
          *     - Owner only; no agent reads these lists.
          */
         get: operations["handle_get_task_manual_suggested_replies_api_task_manual_suggested_replies_get"];

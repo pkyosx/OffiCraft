@@ -2890,7 +2890,7 @@ export const en: Dict = {
     manualPlanningSection: "Task planning",
     manualDefEntrySub: "What it is, what info it needs, how to do it",
     manualSuggestedRepliesSection: "Suggested replies",
-    manualSuggestedRepliesSub: "Sentences you can drop in with one tap when answering a reply card about this kind of task.",
+    manualSuggestedRepliesSub: "Sentences you can drop in with one tap when answering a reply card about this kind of task, messaging on one, or chatting with the outsource worker on one.",
     manualSuggestedRepliesEmpty: "This task type has no sentences of its own yet.",
     manualSuggestedRepliesLoadError: "The suggested replies failed to load.",
     manualSuggestedRepliesRetry: "Reload",

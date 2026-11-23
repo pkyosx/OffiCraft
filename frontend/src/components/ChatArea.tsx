@@ -33,6 +33,7 @@ import {
 import { useWindowActive } from "../hooks/useWindowActive";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { mergeSuggestedReplies } from "../lib/suggestedReplies";
+import { useTaskManualSuggestedRepliesContext } from "../hooks/useTaskManualSuggestedReplies";
 import { enterShouldSend } from "../lib/composerKeys";
 import { linkMentions, unlinkMentions } from "../lib/mentionLinks";
 import { MentionOpenerContext, type MentionOpener } from "../hooks/useMentionOpener";
@@ -315,6 +316,7 @@ export function ChatArea({
   onOpenReplies,
   suggestedReplies,
   allMemberSuggestedReplies,
+  taskTypeKey,
   suggestedRepliesError,
   onDismissSuggestedRepliesError,
   onSaveSuggestedReplies,
@@ -366,6 +368,9 @@ export function ChatArea({
   suggestedReplies?: readonly string[];
   /** The 建議回覆 set for every member, offered after the member's own. */
   allMemberSuggestedReplies?: readonly string[];
+  /** The type of the peer's task: that type's 建議回覆 come first. Absent or
+   * "" adds none. */
+  taskTypeKey?: string;
   /** "save": THIS member's latest save failed. "load": no list could be read. */
   suggestedRepliesError?: "load" | "save" | null;
   onDismissSuggestedRepliesError?: () => void;
@@ -831,6 +836,7 @@ export function ChatArea({
   // Phone viewport → Enter inserts a newline instead of sending (no physical
   // keyboard, so Shift+Enter is impossible); sending is via the send button.
   const isMobile = useIsMobile();
+  const taskTypeSuggestedReplies = useTaskManualSuggestedRepliesContext().lists;
   const mentionRoster = useMentionRoster(members, workers, { chatId: member.id });
   const openMention = mentionRoster.opener;
   const mention = useMentionComposer({
@@ -3035,7 +3041,11 @@ export function ChatArea({
               </button>
             </div>
             <SuggestedReplies
-              replies={mergeSuggestedReplies(suggestedReplies ?? [], allMemberSuggestedReplies ?? [])}
+              replies={mergeSuggestedReplies(
+                (taskTypeKey && taskTypeSuggestedReplies[taskTypeKey]) || [],
+                suggestedReplies ?? [],
+                allMemberSuggestedReplies ?? [],
+              )}
               testId="chat-suggested-replies"
               onPick={(suggestion) => {
                 setDraft((cur) => appendSuggestion(cur, suggestion));

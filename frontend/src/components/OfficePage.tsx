@@ -44,6 +44,7 @@ type ChatSlotName =
   | "onOpenReplies"
   | "suggestedReplies"
   | "allMemberSuggestedReplies"
+  | "taskTypeKey"
   | "suggestedRepliesError"
   | "onDismissSuggestedRepliesError"
   | "onSaveSuggestedReplies"
@@ -776,6 +777,7 @@ export function OfficePage({
           ...repliesSlots(releasedPeer.id),
           suggestedReplies: undefined,
           allMemberSuggestedReplies: undefined,
+          taskTypeKey: undefined,
           suggestedRepliesError: undefined,
           onDismissSuggestedRepliesError: undefined,
           onSaveSuggestedReplies: undefined,
@@ -805,6 +807,7 @@ export function OfficePage({
             onOpenRoleSettings: undefined,
             ...repliesSlots(workerPeer.id),
             ...suggestedRepliesSlots(workerPeer.id),
+            taskTypeKey: workerPeer.taskTypeKey,
             onWake: () => api.activateMember(workerPeer.id),
             jumpToMsgId: route.msgId,
             draftSeed: seedFor(workerPeer.id),
@@ -841,6 +844,8 @@ export function OfficePage({
                 : undefined,
               ...repliesSlots(selected.id),
               ...suggestedRepliesSlots(selected.id),
+              // A staff member can hold several tasks of different types at once.
+              taskTypeKey: undefined,
               onWake: async () => {
                 const result = await api.activateMember(selected.id);
                 try {

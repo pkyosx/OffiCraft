@@ -18,7 +18,9 @@ import {
   __injectMockTask,
   __setMockSuggestedRepliesReplyCard,
   __setMockSuggestedRepliesTaskMessage,
+  mockApi,
 } from "../api/mock";
+import { WithSuggestedReplies } from "../test/suggestedReplies";
 import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 import { api } from "../api";
 import type { TaskView } from "../api/adapter";
@@ -52,7 +54,9 @@ function mkTask(over: Partial<TaskView> = {}): TaskView {
 function renderPage() {
   return render(
     <I18nProvider>
-      <TasksPage />
+      <WithSuggestedReplies>
+        <TasksPage />
+      </WithSuggestedReplies>
     </I18nProvider>
   );
 }
@@ -78,13 +82,31 @@ describe("task card message box — 建議回覆", () => {
     resetAllSharedSnapshots();
   });
 
-  it("shows the owner's configured sentences under the message input", async () => {
+  it("on an ad-hoc task, shows the owner's task-message sentences under the message input", async () => {
+    await mockApi.putTaskManualSuggestedReplies("builtin-role-design", ["照角色手冊"]);
     __setMockSuggestedRepliesTaskMessage(["收到，照這樣做", "先擱著，這週不碰"]);
     __injectMockTask(mkTask());
     const { findByTestId } = renderPage();
     const row = await findByTestId("task-suggested-replies");
     expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
       ["收到，照這樣做", "先擱著，這週不碰"]
+    );
+    await settleRealTime();
+    expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
+      ["收到，照這樣做", "先擱著，這週不碰"]
+    );
+  });
+
+  it("on a typed task, shows that type's sentences first, then the task-message ones, each sentence once", async () => {
+    await mockApi.putTaskManualSuggestedReplies("builtin-role-design", ["照角色手冊", "收到，照這樣做"]);
+    __setMockSuggestedRepliesTaskMessage(["收到，照這樣做", "先擱著，這週不碰"]);
+    __injectMockTask(mkTask({ typeKey: "builtin-role-design" }));
+    const { findByTestId } = renderPage();
+    const row = await findByTestId("task-suggested-replies");
+    await waitFor(() =>
+      expect([...row.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
+        ["照角色手冊", "收到，照這樣做", "先擱著，這週不碰"]
+      )
     );
   });
 

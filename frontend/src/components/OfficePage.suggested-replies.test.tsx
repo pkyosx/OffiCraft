@@ -6,8 +6,8 @@ import { ReplyCardsProvider } from "../hooks/useReplyCards";
 import { __resetWorkerCodenameCache } from "../hooks/useWorkerCodenames";
 import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 import { api } from "../api";
-import { __injectMockChat, __injectMockOutsourceWorker, __resetMock, mockApi } from "../api/mock";
-import type { OutsourceWorkerView } from "../api/adapter";
+import { __injectMockChat, __injectMockOutsourceWorker, __injectMockTask, __resetMock, mockApi } from "../api/mock";
+import type { OutsourceWorkerView, TaskView } from "../api/adapter";
 import { WithSuggestedReplies } from "../test/suggestedReplies";
 
 const worker = {
@@ -32,6 +32,29 @@ function openRoom(id: string) {
     </I18nProvider>,
   );
 }
+
+const TYPED_TASK = {
+  taskNo: "T-9001",
+  title: "有類型的",
+  typeKey: "builtin-role-design",
+  description: "",
+  status: "in_progress",
+  priority: "mid",
+  executorKind: "outsource",
+  executorId: "",
+  creatorId: "",
+  dedupeKey: "",
+  deps: [],
+  waitingReason: "",
+  duplicateOf: "",
+  createdTs: Date.now() / 1000 - 3600,
+  updatedTs: Date.now() / 1000 - 60,
+  closedTs: null,
+  progressDone: 0,
+  progressTotal: 0,
+  steps: [],
+} satisfies Omit<TaskView, "id">;
+
 const chips = () =>
   Array.from(screen.getByTestId("chat-suggested-replies").querySelectorAll("button")).map((b) => b.textContent);
 
@@ -55,14 +78,38 @@ beforeEach(() => {
 });
 
 describe("OfficePage chat 建議回覆", () => {
-  for (const id of ["mira", "ow-a"]) {
-    it(`the ${id} room shows its own sentences, then the all-member ones`, async () => {
+  it("a room with an outsource worker on a typed task shows that type's sentences, then the worker's, then the all-member ones, each sentence once; the dialog holds the worker's own only", async () => {
+    __injectMockTask({ ...TYPED_TASK, id: "T-typed", executorId: "ow-typed" });
+    __injectMockOutsourceWorker({ ...worker, id: "ow-typed", codename: "O-2", taskId: "T-typed" });
+    await mockApi.putTaskManualSuggestedReplies("builtin-role-design", ["照角色手冊", "繼續"]);
+    await mockApi.putChatSuggestedReplies("ow-typed", ["專屬", "照角色手冊"]);
+    await mockApi.patchServerSettings({ suggestedRepliesChat: ["繼續", "共用"] });
+    openRoom("ow-typed");
+    await waitFor(() => expect(chips()).toEqual(["照角色手冊", "繼續", "專屬", "共用"]));
+
+    fireEvent.click(screen.getByTestId("chat-header-suggested-replies"));
+    const inputs = screen.getByTestId("chat-suggested-replies-dialog").querySelectorAll("input");
+    expect([...inputs].map((i) => (i as HTMLInputElement).value)).toEqual(["專屬", "照角色手冊"]);
+  });
+
+  for (const [label, id] of [
+    ["staff member mira, though she holds a typed task", "mira"],
+    ["outsource worker on an ad-hoc task", "ow-a"],
+  ] as const) {
+    it(`the room with ${label} shows its own sentences, then the all-member ones`, async () => {
+      __injectMockTask({ ...TYPED_TASK, id: "T-mira", executorKind: "staff", executorId: "mira" });
+      __injectMockTask({ ...TYPED_TASK, id: "T-1", typeKey: "", executorId: "ow-a" });
+      await mockApi.putTaskManualSuggestedReplies("builtin-role-design", ["照角色手冊"]);
       await mockApi.putChatSuggestedReplies(id, ["專屬", "繼續"]);
       await mockApi.patchServerSettings({ suggestedRepliesChat: ["繼續", "共用"] });
       openRoom(id);
       await waitFor(() => expect(chips()).toEqual(["專屬", "繼續", "共用"]));
+      await act(async () => {});
+      expect(chips()).toEqual(["專屬", "繼續", "共用"]);
     });
+  }
 
+  for (const id of ["mira", "ow-a"]) {
     it(`the dialog in the ${id} room saves to that member, and another window's edit shows without a reload`, async () => {
       openRoom(id);
       fireEvent.click(await screen.findByTestId("chat-header-suggested-replies"));
