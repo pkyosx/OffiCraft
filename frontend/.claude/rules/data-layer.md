@@ -59,9 +59,9 @@ owner unread 只由共享的 lib/ownerUnread.ts 判定：chat.to 或 chat_read.r
 
 舊 GET 不得覆寫已採用的 patch。onboarding: null 是正常終態；running 在 set-password 前要先持久化，輪詢直到 failed/success，讀取錯誤也要繼續輪詢。
 
-## 成員專屬的聊天室建議回覆
+## 成員與任務類型的建議回覆
 
-`useChatSuggestedReplies`（`GET /api/chat/suggested-replies`，全體成員一份）只在 App 掛一次，經 `ChatSuggestedRepliesProvider` 給整棵樹；聊天室（OfficePage）與請示卡回覆框（`ReplyComposer`，依 `card.from`）都讀 `useChatSuggestedRepliesContext`，不要在頁面或卡片裡再掛一次 hook（會多一支讀取，且 ChatArea 畫面時不准碰 api）。沒有 provider 時等同「還沒讀到」：沒有句子、也沒有編輯入口。元件測試要句子時包 `src/test/chatSuggestedReplies.tsx` 的 `WithChatSuggestedReplies`；它也會訂閱事件，所以 mock `subscribeEvents` 抓「最後一個訂閱者」的測試不要包它。
+`useChatSuggestedReplies`（`GET /api/chat/suggested-replies`，全體成員一份）與 `useTaskManualSuggestedReplies`（`GET /api/task-manual-suggested-replies`，每種任務類型一份）都只在 App 掛一次，各經自己的 provider 給整棵樹；兩者共用 `useKeyedSuggestedReplies` 的讀寫邏輯。聊天室（OfficePage）與請示卡回覆框（`ReplyComposer`，依 `card.from`）讀 `useChatSuggestedRepliesContext`，請示卡回覆框（依 `card.task?.typeKey`）與任務手冊頁讀 `useTaskManualSuggestedRepliesContext`，不要在頁面或卡片裡再掛一次 hook（會多一支讀取，且 ChatArea 畫面時不准碰 api）。沒有 provider 時等同「還沒讀到」：沒有句子、也沒有編輯入口。元件測試要句子時包 `src/test/suggestedReplies.tsx` 的 `WithSuggestedReplies`（兩份 provider 都包）；它也會訂閱事件，所以 mock `subscribeEvents` 抓「最後一個訂閱者」的測試不要包它。
 
 ## owner 的顯示名字
 

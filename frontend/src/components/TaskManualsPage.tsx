@@ -51,6 +51,8 @@ import type {
 import { isHttpStatus } from "../api/errors";
 import { useMachines } from "../hooks/useMachines";
 import { useMonitoring } from "../hooks/useMonitoring";
+import { useTaskManualSuggestedRepliesContext } from "../hooks/useTaskManualSuggestedReplies";
+import { SuggestedRepliesEditor } from "./SuggestedRepliesEditor";
 import { ContentView } from "./ContentView";
 import { InlineEdit } from "./InlineEdit";
 import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
@@ -416,6 +418,48 @@ export function TaskManualHub({
           <ChevronRightIcon size={18} className="set-entry__chev" />
         </button>
       </div>
+
+      <div className="manual-section-label">
+        {t.settings.manualSuggestedRepliesSection}
+      </div>
+      <TaskManualSuggestedRepliesCard typeKey={manual.typeKey} />
+    </div>
+  );
+}
+
+function TaskManualSuggestedRepliesCard({ typeKey }: { typeKey: string }) {
+  const { t } = useI18n();
+  const { lists, loaded, loadFailed, saveFailedFor, dismissSaveFailed, save, reload } =
+    useTaskManualSuggestedRepliesContext();
+  return (
+    <div className="manual-reply-suggestions-card" data-testid="manual-reply-suggestions">
+      <div className="manual-reply-suggestions-card__sub">{t.settings.manualSuggestedRepliesSub}</div>
+      {loaded ? (
+        <SuggestedRepliesEditor
+          label={t.settings.manualSuggestedRepliesSection}
+          idPrefix="manual-suggested-reply"
+          value={lists[typeKey] ?? []}
+          onCommit={(next) => save(typeKey, next)}
+          emptyNote={t.settings.manualSuggestedRepliesEmpty}
+        />
+      ) : (
+        loadFailed && (
+          <div className="sugg-edit__error" role="alert">
+            {t.settings.manualSuggestedRepliesLoadError}{" "}
+            <button type="button" className="doc-btn" onClick={reload}>
+              {t.settings.manualSuggestedRepliesRetry}
+            </button>
+          </div>
+        )
+      )}
+      {saveFailedFor.has(typeKey) && (
+        <div className="sugg-edit__error" role="alert">
+          {t.settings.manualSuggestedRepliesSaveError}{" "}
+          <button type="button" className="doc-btn" onClick={() => dismissSaveFailed(typeKey)}>
+            {t.settings.manualSuggestedRepliesDismiss}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

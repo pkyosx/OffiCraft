@@ -2955,6 +2955,13 @@ export const zh = {
     // 任務規劃段（hub 的兩張子頁入口卡）
     manualPlanningSection: "任務規劃",
     manualDefEntrySub: "這是什麼任務、需要哪些資訊、該怎麼做",
+    manualSuggestedRepliesSection: "建議回覆",
+    manualSuggestedRepliesSub: "回覆這類任務的請示卡時可一鍵帶入的句子。",
+    manualSuggestedRepliesEmpty: "這類任務還沒有專屬的句子。",
+    manualSuggestedRepliesLoadError: "建議回覆載入失敗。",
+    manualSuggestedRepliesRetry: "重新載入",
+    manualSuggestedRepliesSaveError: "建議回覆沒有存成功，畫面已換回伺服器上的內容。",
+    manualSuggestedRepliesDismiss: "知道了",
   },
 };
 

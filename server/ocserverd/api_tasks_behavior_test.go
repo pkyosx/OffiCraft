@@ -2188,7 +2188,7 @@ func TestTaskCloseNudgeFallsBackToTheRawKeyWhenTheManualIsGone(t *testing.T) {
 	}
 	// The manual is deleted AFTER the task exists — the shape a task outlives its
 	// type in. The task keeps its type_key, so the nudge is still owed.
-	if _, err := api.dal.DeleteTaskManual("review-pr"); err != nil {
+	if _, _, err := api.dal.DeleteTaskManual("review-pr"); err != nil {
 		t.Fatal(err)
 	}
 	driveTaskDone(t, api, created.TaskID, "m-exec")

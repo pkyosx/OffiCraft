@@ -31,12 +31,14 @@ import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
 import { useSuggestedRepliesReplyCard } from "../hooks/useSuggestedReplies";
 import { useChatSuggestedRepliesContext } from "../hooks/useChatSuggestedReplies";
-import { mergeChatSuggestedReplies } from "../lib/chatSuggestedReplies";
+import { useTaskManualSuggestedRepliesContext } from "../hooks/useTaskManualSuggestedReplies";
+import { mergeSuggestedReplies } from "../lib/suggestedReplies";
 import { CloseIcon, PaperclipIcon, SendIcon } from "./icons";
 
 export function ReplyComposer({
   draftKey,
   authorId,
+  taskTypeKey,
   placeholder,
   hasSelection = false,
   sendNowRef,
@@ -51,6 +53,9 @@ export function ReplyComposer({
   /** The card's author (`card.from`): that member's own chat 建議回覆 come
    * before the reply-card list. */
   authorId?: string;
+  /** The type of the task the card names (`card.task.typeKey`): that type's
+   * 建議回覆 come first. Absent or "" (no task, an ad-hoc task) adds none. */
+  taskTypeKey?: string;
   placeholder: string;
   /** The passage of the card's question this answer quotes (回覆這段), shown
    * above the box; "" shows nothing. It never makes an answer sendable on its
@@ -103,7 +108,9 @@ export function ReplyComposer({
   // setting, or a failed read) renders nothing at all.
   const replyCardSuggestedReplies = useSuggestedRepliesReplyCard();
   const memberSuggestedReplies = useChatSuggestedRepliesContext().lists;
-  const suggestedReplies = mergeChatSuggestedReplies(
+  const taskTypeSuggestedReplies = useTaskManualSuggestedRepliesContext().lists;
+  const suggestedReplies = mergeSuggestedReplies(
+    (taskTypeKey && taskTypeSuggestedReplies[taskTypeKey]) || [],
     (authorId && memberSuggestedReplies[authorId]) || [],
     replyCardSuggestedReplies,
   );

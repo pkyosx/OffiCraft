@@ -3420,6 +3420,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/task-manual-suggested-replies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the owner's suggested replies for every task type.
+         * @description - The owner's 建議回覆 for every task type that has any; a type with none is not listed.
+         *     - The reply-card composer of a card that names a task of that type (bound to one of its steps, or through `about_task_id`) lists these first, then the card author's chat 建議回覆, then the reply-card list (`suggested_replies.reply_card`), the same text shown once. A card that names no task, or names an ad-hoc task (`type_key` ""), is unaffected.
+         *     - Owner only; no agent reads these lists.
+         */
+        get: operations["handle_get_task_manual_suggested_replies_api_task_manual_suggested_replies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/task-manual-suggested-replies/{type_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace the owner's suggested replies for one task type.
+         * @description - Replaces this task type's whole list; add, edit, delete and reorder are all this one write. An empty list removes the type's chips. Other types' lists are untouched.
+         *     - Text is stored trimmed; a click in the cockpit only fills the reply box, so an answer still goes through the ordinary reply-card answer.
+         *     - 404 when no task manual has this `type_key` (a built-in manual always has one, edited or not).
+         *     - 422 when an entry is blank or longer than 120 characters, or the list has more than 20 entries. Nothing is written; an over-long entry is refused, never shortened.
+         *     - Deleting the task manual deletes its list in the same write.
+         *     - Emits a `task_manual_suggested_reply` event to the owner, so another open browser refetches without reloading.
+         *     - No overwrite protection: concurrent writes are last-writer-wins.
+         */
+        put: operations["handle_update_task_manual_suggested_replies_api_task_manual_suggested_replies__type_key__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/task-manuals": {
         parameters: {
             query?: never;
@@ -3478,6 +3526,7 @@ export interface paths {
          * @description - Refused with 409 while any NON-terminal task of this type exists; closed tasks never block.
          *     - Owner or admin agent only; a plain agent is 403.
          *     - A built-in (seed) manual cannot be deleted: 403; reset it instead.
+         *     - Also deletes the type's owner suggested replies; when it had any, emits `task_manual_suggested_reply` to the owner.
          */
         delete: operations["handle_delete_task_manual_api_task_manuals__type_key__delete"];
         options?: never;
@@ -11610,6 +11659,38 @@ export interface components {
              * @default 0
              */
             updated_ts: number;
+        };
+        /**
+         * TaskManualSuggestedRepliesDTO
+         * @description The owner's 建議回覆 per task type, one list per type.
+         */
+        TaskManualSuggestedRepliesDTO: {
+            /** Lists */
+            lists: components["schemas"]["TaskManualTypeSuggestedRepliesDTO"][];
+        };
+        /**
+         * TaskManualSuggestedRepliesUpdateDTO
+         * @description The complete desired list for one task type; it replaces the stored list wholesale.
+         */
+        TaskManualSuggestedRepliesUpdateDTO: {
+            /**
+             * Replies
+             * @description The sentences in display order.
+             */
+            replies: string[];
+        };
+        /**
+         * TaskManualTypeSuggestedRepliesDTO
+         * @description One task type's 建議回覆.
+         */
+        TaskManualTypeSuggestedRepliesDTO: {
+            /**
+             * Replies
+             * @description The sentences in display order.
+             */
+            replies: string[];
+            /** Type Key */
+            type_key: string;
         };
         /**
          * TaskManualUpdateDTO
@@ -20882,6 +20963,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_task_manual_suggested_replies_api_task_manual_suggested_replies_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskManualSuggestedRepliesDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_update_task_manual_suggested_replies_api_task_manual_suggested_replies__type_key__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskManualSuggestedRepliesUpdateDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskManualTypeSuggestedRepliesDTO"];
                 };
             };
             /** @description Client error (unified error envelope). */

@@ -1025,9 +1025,8 @@ func putTaskManualOn(ex sqlExecer, m TaskManual) error {
 	return err
 }
 
-func (d *DAL) DeleteTaskManual(typeKey string) (bool, error) {
-	var deleted bool
-	err := d.inTx(func(tx *writeTx) error {
+func (d *DAL) DeleteTaskManual(typeKey string) (deleted, repliesDeleted bool, err error) {
+	err = d.inTx(func(tx *writeTx) error {
 		res, err := tx.Exec(`DELETE FROM task_manual WHERE type_key = ?`, typeKey)
 		if err != nil {
 			return err
@@ -1039,13 +1038,17 @@ func (d *DAL) DeleteTaskManual(typeKey string) (bool, error) {
 		deleted = n > 0
 		// Only the SOP stream: migration 00045 removed the retired four-field
 		// bundle's history rows, and nothing can write them any more.
-		_, err = tx.Exec(`DELETE FROM document_history
+		if _, err = tx.Exec(`DELETE FROM document_history
 			WHERE document_key = ? AND document_kind = ?`,
-			typeKey, docKindTaskManualSop)
+			typeKey, docKindTaskManualSop); err != nil {
+			return err
+		}
+		replies, err := deleteTaskManualSuggestedRepliesOn(tx, typeKey)
+		repliesDeleted = replies > 0
 		return err
 	})
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	return deleted, nil
+	return deleted, repliesDeleted, nil
 }

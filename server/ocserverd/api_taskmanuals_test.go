@@ -1163,6 +1163,30 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
 	})
 
+	t.Run("a type with owner suggested replies loses them with the manual, the owner gets both deltas, and another type keeps its list", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		admin := apiTestAgentToken(t, api, "mira", "")
+		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
+		taskManualSuggestedRepliesPut(t, h, owner, "tm-quote", "報價單已附")
+		taskManualSuggestedRepliesPut(t, h, owner, "builtin-role-design", "照手冊")
+		dashboard := apiTestListen(t, api, "")
+		asker := apiTestListen(t, api, apiTestPlainAgentID)
+
+		status, data := apiJSON(t, h, "DELETE", "/api/task-manuals/tm-quote", admin, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"type_key": "tm-quote", "deleted": true})
+		dashboard.wantFrames(apiTestTaskManualFrame(4, "tm-quote", "mira"), taskManualSuggestedReplyFrame(5, "mira"))
+		asker.wantFrames()
+		taskManualSuggestedRepliesWantLists(t, h, owner,
+			map[string]any{"type_key": "builtin-role-design", "replies": []any{"照手冊"}})
+		apiTestCreateTaskManual(t, h, agent, `{"type_key":"tm-quote","display_name":"報價"}`)
+		taskManualSuggestedRepliesWantLists(t, h, owner,
+			map[string]any{"type_key": "builtin-role-design", "replies": []any{"照手冊"}})
+	})
+
 	t.Run("a type that still has an open task answers 409 and keeps the manual", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
@@ -1292,6 +1316,19 @@ func TestHandleResetTaskManualApiTaskManualsTypeKeyResetPost(t *testing.T) {
 			"id": 1, "created_ts": apiAnyNumber, "actor_id": "owner",
 			"tombstoned": false, "field_chars": map[string]any{"sop_md": 2},
 		}}))
+	})
+
+	t.Run("resetting a built-in keeps the owner's suggested replies for it", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		taskManualSuggestedRepliesPut(t, h, owner, "builtin-role-design", "照手冊")
+
+		status, data := apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design/reset", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, shippedReceipt)
+		taskManualSuggestedRepliesWantLists(t, h, owner,
+			map[string]any{"type_key": "builtin-role-design", "replies": []any{"照手冊"}})
 	})
 
 	t.Run("resetting a built-in nobody edited answers the same shipped receipt and retains no version", func(t *testing.T) {

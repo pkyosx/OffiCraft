@@ -7,7 +7,8 @@
 // task in progress and asking a 傳承 entry's writer about it are different
 // conversations — so a box reads ITS list and never another box's. Whichever
 // ones are empty, the others still render. The 請示卡 composer additionally puts
-// the card author's own chat sentences first (useChatSuggestedRepliesContext).
+// the card's task-type sentences first (useTaskManualSuggestedRepliesContext),
+// then the card author's own chat sentences (useChatSuggestedRepliesContext).
 //
 // Same seam as useOrgName / useOwnerName: the values live on `/api/settings` and
 // are read through `loadServerSettings`, never through a direct settings call of

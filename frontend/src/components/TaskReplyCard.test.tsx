@@ -19,7 +19,7 @@ import {
   __setMockSuggestedRepliesReplyCard,
   mockApi,
 } from "../api/mock";
-import { WithChatSuggestedReplies } from "../test/chatSuggestedReplies";
+import { WithSuggestedReplies } from "../test/suggestedReplies";
 import { ReplyCardsProvider } from "../hooks/useReplyCards";
 
 function mkCard(over: Partial<ReplyCard>): ReplyCard {
@@ -91,20 +91,21 @@ describe("TaskReplyCard", () => {
     expect(window.location.hash).toBe("#office/chat/mira/msg/msg-1");
   });
 
-  it("a waiting card's answer box offers its author's sentences first, then the reply-card ones, each once", async () => {
+  it("a waiting card's answer box offers its task type's sentences, then its author's, then the reply-card ones, each once", async () => {
+    await mockApi.putTaskManualSuggestedReplies("builtin-role-design", ["照角色手冊", "收到，照這樣做"]);
     await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬", "收到，照這樣做"]);
     __setMockSuggestedRepliesReplyCard(["收到，照這樣做", "先擱著，這週不碰"]);
-    __injectMockReplyCard(mkCard({}));
+    __injectMockReplyCard(mkCard({ task: { id: "t-1", typeKey: "builtin-role-design", title: "設計角色", priority: "", dueTs: null, dueSoonLeadMinutes: null } }));
     const { findByTestId } = render(
       <I18nProvider>
-        <WithChatSuggestedReplies>
+        <WithSuggestedReplies>
           <TaskReplyCard replyCardId="rc-1" />
-        </WithChatSuggestedReplies>
+        </WithSuggestedReplies>
       </I18nProvider>
     );
     const card = await findByTestId("task-reply-card");
     await waitFor(() =>
-      expect(replyChips(card)).toEqual(["Mira 專屬", "收到，照這樣做", "先擱著，這週不碰"])
+      expect(replyChips(card)).toEqual(["照角色手冊", "收到，照這樣做", "Mira 專屬", "先擱著，這週不碰"])
     );
   });
 

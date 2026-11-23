@@ -32,7 +32,7 @@ import {
 } from "../hooks/useAttachmentStaging";
 import { useWindowActive } from "../hooks/useWindowActive";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { mergeChatSuggestedReplies } from "../lib/chatSuggestedReplies";
+import { mergeSuggestedReplies } from "../lib/suggestedReplies";
 import { enterShouldSend } from "../lib/composerKeys";
 import { linkMentions, unlinkMentions } from "../lib/mentionLinks";
 import { MentionOpenerContext, type MentionOpener } from "../hooks/useMentionOpener";
@@ -3035,7 +3035,7 @@ export function ChatArea({
               </button>
             </div>
             <SuggestedReplies
-              replies={mergeChatSuggestedReplies(suggestedReplies ?? [], allMemberSuggestedReplies ?? [])}
+              replies={mergeSuggestedReplies(suggestedReplies ?? [], allMemberSuggestedReplies ?? [])}
               testId="chat-suggested-replies"
               onPick={(suggestion) => {
                 setDraft((cur) => appendSuggestion(cur, suggestion));

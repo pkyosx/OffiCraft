@@ -1307,6 +1307,18 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost,
 			MCPTool: "patch_task_sop",
 		}),
+		Gated(principalOwner, routeDef{
+			Method:     "GET",
+			Path:       "/api/task-manual-suggested-replies",
+			Handler:    w.HandleGetTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesGet,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "PUT",
+			Path:       "/api/task-manual-suggested-replies/{type_key}",
+			Handler:    w.HandleUpdateTaskManualSuggestedRepliesApiTaskManualSuggestedRepliesTypeKeyPut,
+			MCPExclude: true,
+		}),
 		// Document history: READING is an MCP tool, restoring is not (owner
 		// rulings rc-b5fd1135e2dd, rc-b7d29de0eb9c).
 		Gated(principalMachine, routeDef{

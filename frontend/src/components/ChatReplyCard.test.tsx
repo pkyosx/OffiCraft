@@ -34,7 +34,7 @@ import {
   __setMockSuggestedRepliesReplyCard,
   mockApi,
 } from "../api/mock";
-import { WithChatSuggestedReplies } from "../test/chatSuggestedReplies";
+import { WithSuggestedReplies } from "../test/suggestedReplies";
 import { ReplyCardsProvider, useReplyCards } from "../hooks/useReplyCards";
 
 // The ChatArea integration test drives the thread through a mocked useChat
@@ -140,10 +140,11 @@ function captureSseCallback(): () => void {
 }
 
 describe("ChatReplyCard", () => {
-  it("in the chat thread, an open waiting card's answer box offers its author's sentences first, then the reply-card ones, each once", async () => {
+  it("in the chat thread, an open waiting card's answer box offers its task type's sentences, then its author's, then the reply-card ones, each once", async () => {
+    await mockApi.putTaskManualSuggestedReplies("builtin-role-design", ["照角色手冊", "收到，照這樣做"]);
     await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬", "收到，照這樣做"]);
     __setMockSuggestedRepliesReplyCard(["收到，照這樣做", "先擱著，這週不碰"]);
-    __injectMockReplyCard(mkCard({}));
+    __injectMockReplyCard(mkCard({ task: { id: "t-1", typeKey: "builtin-role-design", title: "設計角色", priority: "", dueTs: null, dueSoonLeadMinutes: null } }));
     messages = [
       {
         id: "msg-1",
@@ -157,9 +158,9 @@ describe("ChatReplyCard", () => {
     ];
     const { container, findByTestId } = render(
       <I18nProvider>
-        <WithChatSuggestedReplies>
+        <WithSuggestedReplies>
           <ChatArea member={mkMember()} members={[mkMember()]} />
-        </WithChatSuggestedReplies>
+        </WithSuggestedReplies>
       </I18nProvider>
     );
     fireEvent.click(await findByTestId("chat-reply-card-expand"));
@@ -167,7 +168,7 @@ describe("ChatReplyCard", () => {
     await waitFor(() =>
       expect(
         [...card.querySelectorAll('[data-testid="reply-suggested-replies"] button')].map((b) => b.textContent)
-      ).toEqual(["Mira 專屬", "收到，照這樣做", "先擱著，這週不碰"])
+      ).toEqual(["照角色手冊", "收到，照這樣做", "Mira 專屬", "先擱著，這週不碰"])
     );
   });
 

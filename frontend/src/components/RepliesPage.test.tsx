@@ -45,7 +45,7 @@ import {
   __setMockSuggestedRepliesReplyCard,
   mockApi,
 } from "../api/mock";
-import { WithChatSuggestedReplies } from "../test/chatSuggestedReplies";
+import { WithSuggestedReplies } from "../test/suggestedReplies";
 import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
 import { ApiError } from "../api/errors";
@@ -104,12 +104,12 @@ function Badge() {
 function renderPage() {
   return render(
     <I18nProvider>
-      <WithChatSuggestedReplies>
+      <WithSuggestedReplies>
         <ReplyCardsProvider>
           <Badge />
           <RepliesPage />
         </ReplyCardsProvider>
-      </WithChatSuggestedReplies>
+      </WithSuggestedReplies>
     </I18nProvider>
   );
 }
@@ -427,23 +427,26 @@ describe("RepliesPage", () => {
     expect(final?.textContent).toBe("你選的AI 建議先不要");
   });
 
-  it("a waiting card's answer box offers its author's sentences first, then the reply-card ones, each once", async () => {
+  it("a waiting card's answer box offers its task type's sentences, then its author's, then the reply-card ones, each once", async () => {
+    await mockApi.putTaskManualSuggestedReplies("builtin-role-design", ["照角色手冊", "收到，照這樣做"]);
     await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬", "收到，照這樣做"]);
     __setMockSuggestedRepliesReplyCard(["收到，照這樣做", "先擱著，這週不碰"]);
-    __injectMockReplyCard(mkCard({}));
+    __injectMockReplyCard(mkCard({ task: { id: "t-1", typeKey: "builtin-role-design", title: "設計角色", priority: "", dueTs: null, dueSoonLeadMinutes: null } }));
     const { findByTestId } = renderPage();
     const card = await findByTestId("waiting-card");
     await openCards();
     await waitFor(() =>
-      expect(replyChips(card)).toEqual(["Mira 專屬", "收到，照這樣做", "先擱著，這週不碰"])
+      expect(replyChips(card)).toEqual(["照角色手冊", "收到，照這樣做", "Mira 專屬", "先擱著，這週不碰"])
     );
   });
 
-  it("重新決定's answer box offers the card author's sentences first, then the reply-card ones", async () => {
+  it("重新決定's answer box offers the task type's sentences, then the card author's, then the reply-card ones", async () => {
+    await mockApi.putTaskManualSuggestedReplies("builtin-role-design", ["照角色手冊"]);
     await mockApi.putChatSuggestedReplies("mira", ["Mira 專屬"]);
     __setMockSuggestedRepliesReplyCard(["先擱著，這週不碰"]);
     __injectMockReplyCard(
       mkCard({
+        task: { id: "t-1", typeKey: "builtin-role-design", title: "設計角色", priority: "", dueTs: null, dueSoonLeadMinutes: null },
         status: "answered",
         answeredTs: Date.now() / 1000 - 60,
         answer: { optionIdxs: [0], text: "", attachments: [] },
@@ -455,7 +458,7 @@ describe("RepliesPage", () => {
     await openCards();
     fireEvent.click(getByText("查看當初選項"));
     fireEvent.click(getByText("重新決定"));
-    await waitFor(() => expect(replyChips(card)).toEqual(["Mira 專屬", "先擱著，這週不碰"]));
+    await waitFor(() => expect(replyChips(card)).toEqual(["照角色手冊", "Mira 專屬", "先擱著，這週不碰"]));
   });
 
   // T-4166: a 409 on answer is TERMINAL for that card — its task closed

@@ -10586,6 +10586,67 @@
         "title": "TaskManualReceiptDTO",
         "type": "object"
       },
+      "TaskManualSuggestedRepliesDTO": {
+        "additionalProperties": false,
+        "description": "The owner's 建議回覆 per task type, one list per type.",
+        "properties": {
+          "lists": {
+            "items": {
+              "$ref": "#/components/schemas/TaskManualTypeSuggestedRepliesDTO"
+            },
+            "title": "Lists",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lists"
+        ],
+        "title": "TaskManualSuggestedRepliesDTO",
+        "type": "object"
+      },
+      "TaskManualSuggestedRepliesUpdateDTO": {
+        "additionalProperties": false,
+        "description": "The complete desired list for one task type; it replaces the stored list wholesale.",
+        "properties": {
+          "replies": {
+            "description": "The sentences in display order.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Replies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "replies"
+        ],
+        "title": "TaskManualSuggestedRepliesUpdateDTO",
+        "type": "object"
+      },
+      "TaskManualTypeSuggestedRepliesDTO": {
+        "additionalProperties": false,
+        "description": "One task type's 建議回覆.",
+        "properties": {
+          "replies": {
+            "description": "The sentences in display order.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Replies",
+            "type": "array"
+          },
+          "type_key": {
+            "title": "Type Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "replies",
+          "type_key"
+        ],
+        "title": "TaskManualTypeSuggestedRepliesDTO",
+        "type": "object"
+      },
       "TaskManualUpdateDTO": {
         "additionalProperties": false,
         "description": "Partial manual edit — only supplied fields change. ``assignee`` is {\"kind\":\"staff\",\"member_id\":…} or {\"kind\":\"outsource\",\"runtime\":\"claude|codex\",\"model\":…,\"effort\":…,\"copies\":N,\"machine\":…}; {} unsets it. Outsource runtime absent means claude; ``copies`` MUST be a number >= 0 (0 = 無限 — unlimited per-type parallel copies; absent = 1); ``machine`` MUST be a non-blank machine id when present, and must resolve to a real machine (\"auto\" is rejected — it names no machine); absent leaves the type without a placement.",
@@ -23700,6 +23761,111 @@
         }
       }
     },
+    "/api/task-manual-suggested-replies": {
+      "get": {
+        "description": "- The owner's 建議回覆 for every task type that has any; a type with none is not listed.\n- The reply-card composer of a card that names a task of that type (bound to one of its steps, or through `about_task_id`) lists these first, then the card author's chat 建議回覆, then the reply-card list (`suggested_replies.reply_card`), the same text shown once. A card that names no task, or names an ad-hoc task (`type_key` \"\"), is unaffected.\n- Owner only; no agent reads these lists.",
+        "operationId": "handle_get_task_manual_suggested_replies_api_task_manual_suggested_replies_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskManualSuggestedRepliesDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Get the owner's suggested replies for every task type.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/task-manual-suggested-replies/{type_key}": {
+      "put": {
+        "description": "- Replaces this task type's whole list; add, edit, delete and reorder are all this one write. An empty list removes the type's chips. Other types' lists are untouched.\n- Text is stored trimmed; a click in the cockpit only fills the reply box, so an answer still goes through the ordinary reply-card answer.\n- 404 when no task manual has this `type_key` (a built-in manual always has one, edited or not).\n- 422 when an entry is blank or longer than 120 characters, or the list has more than 20 entries. Nothing is written; an over-long entry is refused, never shortened.\n- Deleting the task manual deletes its list in the same write.\n- Emits a `task_manual_suggested_reply` event to the owner, so another open browser refetches without reloading.\n- No overwrite protection: concurrent writes are last-writer-wins.",
+        "operationId": "handle_update_task_manual_suggested_replies_api_task_manual_suggested_replies__type_key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_key",
+            "required": true,
+            "schema": {
+              "title": "Type Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskManualSuggestedRepliesUpdateDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskManualTypeSuggestedRepliesDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Replace the owner's suggested replies for one task type.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
     "/api/task-manuals": {
       "get": {
         "description": "- Identity rows only: `sop_md` is ABSENT, not empty - serving it once made this answer six figures of characters.\n- Every row still carries `sop_md_chars` and the cap it is judged against, so which manual is nearly full is answerable here.\n- Fetch one manual's text with get_task_manual.\n- Built-in manuals are listed even when nothing was ever written for them; `is_seed` / `is_default` say which rows are built-in and unedited.",
@@ -23830,7 +23996,7 @@
     },
     "/api/task-manuals/{type_key}": {
       "delete": {
-        "description": "- Refused with 409 while any NON-terminal task of this type exists; closed tasks never block.\n- Owner or admin agent only; a plain agent is 403.\n- A built-in (seed) manual cannot be deleted: 403; reset it instead.",
+        "description": "- Refused with 409 while any NON-terminal task of this type exists; closed tasks never block.\n- Owner or admin agent only; a plain agent is 403.\n- A built-in (seed) manual cannot be deleted: 403; reset it instead.\n- Also deletes the type's owner suggested replies; when it had any, emits `task_manual_suggested_reply` to the owner.",
         "operationId": "handle_delete_task_manual_api_task_manuals__type_key__delete",
         "parameters": [
           {

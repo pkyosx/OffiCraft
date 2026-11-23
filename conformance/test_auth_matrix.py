@@ -1975,6 +1975,10 @@ MATRIX: dict[str, Route] = {
         overrides={"owner": 404, "admin_agent": 404},
     ),
     # ── task manuals (M3) ───────────────────────────────────────────────────
+    "GET /api/task-manual-suggested-replies": Route(requires="owner"),
+    "PUT /api/task-manual-suggested-replies/{type_key}": Route(
+        requires="owner", path="/api/task-manual-suggested-replies/builtin-role-design",
+        body={"replies": []}),
     "GET /api/task-manuals": Route(requires="machine"),
     "POST /api/task-manuals": Route(
         # agent floor (owner ruling 2026-07-13): any agent may author a new
