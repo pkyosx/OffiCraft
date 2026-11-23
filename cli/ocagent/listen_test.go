@@ -1240,6 +1240,58 @@ func TestPrintChatLine(t *testing.T) {
 			m:    map[string]any{"from": "boss", "id": "c-1", "ts": 0.0, "body": "hi"},
 			want: "[ocagent] chat from boss (#c-1): hi\n",
 		},
+		{
+			name: "a webhook row shows its purpose right after the sender",
+			m: map[string]any{"from": "hook:github-pr-review", "id": "c-1", "ts": 1120.0, "body": `{"action":"submitted"}`,
+				"meta": map[string]any{"webhook": map[string]any{"endpoint_id": "github-pr-review", "purpose": "處理 GitHub PR 的 review 留言"}}},
+			want: "[ocagent] chat from hook:github-pr-review [webhook 用途：處理 GitHub PR 的 review 留言] (#c-1, 0s ago): {\"action\":\"submitted\"}\n",
+		},
+		{
+			name: "a webhook row with a blank purpose says no purpose is set",
+			m: map[string]any{"from": "hook:github-pr-review", "id": "c-1", "body": "x",
+				"meta": map[string]any{"webhook": map[string]any{"endpoint_id": "github-pr-review", "purpose": " \n\t "}}},
+			want: "[ocagent] chat from hook:github-pr-review [webhook 未設定用途] (#c-1): x\n",
+		},
+		{
+			name: "a webhook row without a purpose key says no purpose is set",
+			m: map[string]any{"from": "hook:github-pr-review", "id": "c-1", "body": "x",
+				"meta": map[string]any{"webhook": map[string]any{"endpoint_id": "github-pr-review"}}},
+			want: "[ocagent] chat from hook:github-pr-review [webhook 未設定用途] (#c-1): x\n",
+		},
+		{
+			name: "a multi-line purpose with runs of spaces is flattened to one line",
+			m: map[string]any{"from": "hook:ci", "id": "c-1", "body": "x",
+				"meta": map[string]any{"webhook": map[string]any{"purpose": "  第一行\n\n第二行   有\t空白  "}}},
+			want: "[ocagent] chat from hook:ci [webhook 用途：第一行 第二行 有 空白] (#c-1): x\n",
+		},
+		{
+			name: "a purpose over 200 runes is cut at 200 and points to get_chat",
+			m: map[string]any{"from": "hook:ci", "id": "c-1", "body": "x",
+				"meta": map[string]any{"webhook": map[string]any{"purpose": strings.Repeat("用", 199) + "甲乙"}}},
+			want: "[ocagent] chat from hook:ci [webhook 用途：" + strings.Repeat("用", 199) + "甲…（用途全文請用 get_chat 讀回）] (#c-1): x\n",
+		},
+		{
+			name: "a purpose of exactly 200 runes is shown whole",
+			m: map[string]any{"from": "hook:ci", "id": "c-1", "body": "x",
+				"meta": map[string]any{"webhook": map[string]any{"purpose": strings.Repeat("用", 199) + "甲"}}},
+			want: "[ocagent] chat from hook:ci [webhook 用途：" + strings.Repeat("用", 199) + "甲] (#c-1): x\n",
+		},
+		{
+			name: "a webhook row with no tags carries its purpose in the untagged form",
+			m: map[string]any{"from": "hook:ci", "body": "x",
+				"meta": map[string]any{"webhook": map[string]any{"purpose": "CI 結果"}}},
+			want: "[ocagent] chat from hook:ci [webhook 用途：CI 結果]: x\n",
+		},
+		{
+			name: "a row whose meta.webhook is not an object prints as an ordinary line",
+			m:    map[string]any{"from": "boss", "id": "c-1", "body": "hi", "meta": map[string]any{"webhook": "x"}},
+			want: "[ocagent] chat from boss (#c-1): hi\n",
+		},
+		{
+			name: "an ordinary row with an empty meta prints no purpose segment",
+			m:    map[string]any{"from": "boss", "id": "c-1", "body": "hi", "meta": map[string]any{}},
+			want: "[ocagent] chat from boss (#c-1): hi\n",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

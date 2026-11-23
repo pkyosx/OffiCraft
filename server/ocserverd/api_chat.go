@@ -368,11 +368,13 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 	// Drop any caller-supplied reply link or excerpt: one arriving pre-made in meta
 	// would bypass the checks below. Likewise a deletion mark under either the
 	// current or the legacy name: deletion lives in its own column, and a key in
-	// meta would read as one.
+	// meta would read as one. And a webhook stamp: the recipient's notification
+	// shows its purpose as the Owner's.
 	delete(meta, chatReplyToMetaKey)
 	delete(meta, chatReplyExcerptMetaKey)
 	delete(meta, chatDeletedTSKey)
 	delete(meta, "recalled_ts")
+	delete(meta, chatWebhookMetaKey)
 	replyTo := trimString(strOrEmpty(body.ReplyTo))
 	// ⚠️ Not checked against the quoted body: a selection of the rendered message
 	// need not appear verbatim in its raw markdown.
@@ -565,6 +567,8 @@ const (
 		"which is what a real empty window returns"
 
 	chatReplyToMetaKey = "reply_to"
+
+	chatWebhookMetaKey = "webhook"
 
 	chatReplyToUnknownMsg = "reply_to names no message (%s) — you can only reply to a message " +
 		"that exists; re-read the conversation and use the id it carries"

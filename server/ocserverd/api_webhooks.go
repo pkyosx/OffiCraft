@@ -471,7 +471,7 @@ func receiveWebhookOn(tx *writeTx, e *WebhookEndpoint, r *http.Request, payload 
 		Body:      string(payload),
 		TS:        nowSecs(),
 		Meta: map[string]any{
-			"webhook": map[string]any{
+			chatWebhookMetaKey: map[string]any{
 				"endpoint_id": e.EndpointID,
 				"purpose":     e.Purpose,
 			},

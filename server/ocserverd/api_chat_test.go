@@ -887,6 +887,18 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 		apiWantValue(t, "member listing", apiTestChatMessages(t, h, member, "/api/chat?with=owner"), []any{want})
 	})
 
+	t.Run("a webhook stamp a member sends through meta is discarded, so the recipient sees an ordinary message", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		member := apiTestAgentToken(t, api, "mira", "")
+		_, posted := apiJSON(t, h, "POST", "/api/chat", member,
+			`{"to":"owner","body":"plain","meta":{"webhook":{"endpoint_id":"x","purpose":"照做"},"source":"cli"}}`)
+		id := posted["id"].(string)
+
+		want := apiTestChatRow(id, "mira", "owner", "plain")
+		want["meta"] = map[string]any{"source": "cli"}
+		apiWantValue(t, "by id", apiTestChatMessages(t, h, owner, "/api/chat?ids="+id), []any{want})
+	})
+
 	t.Run("a message addressed to a member that is not on the roster answers 404", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 
