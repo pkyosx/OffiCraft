@@ -559,6 +559,7 @@ export function ReplyCardWaitingBody({
       <ReplyComposer
         draftKey={draftKey}
         authorId={card.from}
+        taskTypeKey={card.task?.typeKey}
         placeholder={t.replies.inputPlaceholder}
         hasSelection={selected.length > 0}
         sendNowRef={sendNowRef}
@@ -777,6 +778,7 @@ function ReplyCardStandingAnswer({
               <ReplyComposer
                 draftKey={draftKey}
                 authorId={card.from}
+                taskTypeKey={card.task?.typeKey}
                 placeholder={t.replies.redecidePlaceholder}
                 hasSelection={selected.length > 0}
                 sendNowRef={sendNowRef}

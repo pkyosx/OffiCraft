@@ -23,15 +23,17 @@
 //      honest 先讓它們結束 message; a closed-task type deletes.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { SettingsPage } from "./SettingsPage";
 import {
   __resetMock,
   __injectMockTask,
   __injectMockTaskManual,
+  mockApi,
 } from "../api/mock";
 import { mockApiError } from "../api/errorCodes";
+import { WithSuggestedReplies } from "../test/suggestedReplies";
 import { api } from "../api";
 import {
   EFFORT_LABELS_EN,
@@ -940,6 +942,93 @@ describe("設定 › 任務手冊 — detail", () => {
       expect((await api.getTaskManual("review-pr")).assignee).toBeNull();
     });
     expect((await findByTestId("manual-assignee")).textContent).toBe("未設定");
+  });
+});
+
+describe("設定 › 任務手冊 — 建議回覆", () => {
+  async function openHub(typeKey: string) {
+    const utils = render(
+      <I18nProvider>
+        <WithSuggestedReplies>
+          <SettingsPage />
+        </WithSuggestedReplies>
+      </I18nProvider>
+    );
+    fireEvent.click(await utils.findByTestId("settings-manuals-entry"));
+    fireEvent.click(await utils.findByTestId(`manual-open-${typeKey}`));
+    return utils;
+  }
+
+  it("the hub shows this type's own sentences, and an edit saves this type's list alone", async () => {
+    __injectMockTaskManual(mkManual({ typeKey: "review-pr", displayName: "審查 PR" }));
+    await mockApi.putTaskManualSuggestedReplies("review-pr", ["照 SOP 審", "先別合併"]);
+    await mockApi.putTaskManualSuggestedReplies("builtin-role-design", ["照角色手冊"]);
+    const { findByLabelText, getByTestId } = await openHub("review-pr");
+
+    const first = (await findByLabelText("建議回覆 1")) as HTMLInputElement;
+    expect(first.value).toBe("照 SOP 審");
+    expect(((await findByLabelText("建議回覆 2")) as HTMLInputElement).value).toBe("先別合併");
+    expect(getByTestId("manual-reply-suggestions").textContent).toContain("回覆這類任務的請示卡時可一鍵帶入的句子。");
+
+    fireEvent.change(first, { target: { value: "照 SOP 審完再回" } });
+    fireEvent.blur(first);
+    await waitFor(async () =>
+      expect(await api.getTaskManualSuggestedReplies()).toEqual({
+        "builtin-role-design": ["照角色手冊"],
+        "review-pr": ["照 SOP 審完再回", "先別合併"],
+      })
+    );
+  });
+
+  it("until the first read answers the hub offers no editor, then the editor holds what the server has", async () => {
+    __injectMockTaskManual(mkManual({ typeKey: "review-pr", displayName: "審查 PR" }));
+    await mockApi.putTaskManualSuggestedReplies("review-pr", ["照 SOP 審"]);
+    const held = await mockApi.getTaskManualSuggestedReplies();
+    let answer!: (v: Record<string, string[]>) => void;
+    vi.spyOn(api, "getTaskManualSuggestedReplies").mockReturnValueOnce(new Promise((res) => (answer = res)));
+    const { findByTestId, queryByLabelText, findByLabelText } = await openHub("review-pr");
+    const card = await findByTestId("manual-reply-suggestions");
+    expect(card.textContent).toBe("回覆這類任務的請示卡時可一鍵帶入的句子。");
+    expect(queryByLabelText("建議回覆 1")).toBeNull();
+
+    await act(async () => answer(held));
+    expect(((await findByLabelText("建議回覆 1")) as HTMLInputElement).value).toBe("照 SOP 審");
+  });
+
+  it("a failed first read is told on the hub, and 重新載入 reads again and then edits", async () => {
+    __injectMockTaskManual(mkManual({ typeKey: "review-pr", displayName: "審查 PR" }));
+    await mockApi.putTaskManualSuggestedReplies("review-pr", ["照 SOP 審"]);
+    vi.spyOn(api, "getTaskManualSuggestedReplies").mockRejectedValueOnce(new Error("down"));
+    const { findByRole, getByRole, findByLabelText, queryAllByRole } = await openHub("review-pr");
+    expect((await findByRole("alert")).textContent).toBe("建議回覆載入失敗。 重新載入");
+
+    fireEvent.click(getByRole("button", { name: "重新載入" }));
+    expect(((await findByLabelText("建議回覆 1")) as HTMLInputElement).value).toBe("照 SOP 審");
+    expect(queryAllByRole("alert")).toEqual([]);
+  });
+
+  it("a failed save is told on the hub, the editor goes back to what the server holds, and 知道了 clears it", async () => {
+    __injectMockTaskManual(mkManual({ typeKey: "review-pr", displayName: "審查 PR" }));
+    await mockApi.putTaskManualSuggestedReplies("review-pr", ["照 SOP 審"]);
+    vi.spyOn(api, "putTaskManualSuggestedReplies").mockRejectedValueOnce(new Error("no"));
+    const { findByLabelText, findByRole, getByRole, queryAllByRole } = await openHub("review-pr");
+    const input = (await findByLabelText("建議回覆 1")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "沒存到" } });
+    fireEvent.blur(input);
+
+    expect((await findByRole("alert")).textContent).toBe("建議回覆沒有存成功，畫面已換回伺服器上的內容。 知道了");
+    await waitFor(async () =>
+      expect(((await findByLabelText("建議回覆 1")) as HTMLInputElement).value).toBe("照 SOP 審")
+    );
+    fireEvent.click(getByRole("button", { name: "知道了" }));
+    expect(queryAllByRole("alert")).toEqual([]);
+    expect(await mockApi.getTaskManualSuggestedReplies()).toEqual({ "review-pr": ["照 SOP 審"] });
+  });
+
+  it("a type without sentences says so", async () => {
+    __injectMockTaskManual(mkManual({ typeKey: "review-pr", displayName: "審查 PR" }));
+    const { findByText } = await openHub("review-pr");
+    expect(await findByText("這類任務還沒有專屬的句子。")).toBeTruthy();
   });
 });
 

@@ -2487,6 +2487,13 @@ export interface Api {
    * removes them. 422 on a blank or over-long entry, too many entries, or a
    * member who is not on the roster; nothing is written then. */
   putChatSuggestedReplies(memberId: string, replies: string[]): Promise<string[]>;
+  /** The owner's 建議回覆 per task type: type key → sentences in display order.
+   * A type with none is absent. */
+  getTaskManualSuggestedReplies(): Promise<Record<string, string[]>>;
+  /** Replace one task type's sentences and answer what was stored (trimmed).
+   * `[]` removes them. 422 on a blank or over-long entry or too many entries,
+   * 404 when no manual has the key; nothing is written then. */
+  putTaskManualSuggestedReplies(typeKey: string, replies: string[]): Promise<string[]>;
   /**
    * List reply cards (`GET /api/reply-cards?status=`). `waiting` returns every
    * card still waiting for the owner, LONGEST-WAITING FIRST (created_ts

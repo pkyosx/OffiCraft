@@ -2889,5 +2889,12 @@ export const en: Dict = {
     assigneeNoMembers: "No members available",
     manualPlanningSection: "Task planning",
     manualDefEntrySub: "What it is, what info it needs, how to do it",
+    manualSuggestedRepliesSection: "Suggested replies",
+    manualSuggestedRepliesSub: "Sentences you can drop in with one tap when answering a reply card about this kind of task.",
+    manualSuggestedRepliesEmpty: "This task type has no sentences of its own yet.",
+    manualSuggestedRepliesLoadError: "The suggested replies failed to load.",
+    manualSuggestedRepliesRetry: "Reload",
+    manualSuggestedRepliesSaveError: "The suggested replies were not saved; the screen shows the server's content again.",
+    manualSuggestedRepliesDismiss: "Dismiss",
   },
 };

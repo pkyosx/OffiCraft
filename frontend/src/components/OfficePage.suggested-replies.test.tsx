@@ -8,7 +8,7 @@ import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 import { api } from "../api";
 import { __injectMockChat, __injectMockOutsourceWorker, __resetMock, mockApi } from "../api/mock";
 import type { OutsourceWorkerView } from "../api/adapter";
-import { WithChatSuggestedReplies } from "../test/chatSuggestedReplies";
+import { WithSuggestedReplies } from "../test/suggestedReplies";
 
 const worker = {
   id: "ow-a",
@@ -26,9 +26,9 @@ function openRoom(id: string) {
   window.location.hash = `#office/chat/${id}`;
   return render(
     <I18nProvider>
-      <WithChatSuggestedReplies>
+      <WithSuggestedReplies>
         <ReplyCardsProvider><OfficePage /></ReplyCardsProvider>
-      </WithChatSuggestedReplies>
+      </WithSuggestedReplies>
     </I18nProvider>,
   );
 }

@@ -1554,6 +1554,12 @@ export function toChatSuggestedReplies(
   return Object.fromEntries(w.lists.map((l) => [l.member_id, [...l.replies]]));
 }
 
+export function toTaskManualSuggestedReplies(
+  w: components["schemas"]["TaskManualSuggestedRepliesDTO"],
+): Record<string, string[]> {
+  return Object.fromEntries(w.lists.map((l) => [l.type_key, [...l.replies]]));
+}
+
 export function toChatGroupWrite(g: ChatGroupWrite): WireChatGroupWrite {
   return {
     id: g.id,

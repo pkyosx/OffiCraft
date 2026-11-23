@@ -1104,6 +1104,7 @@ let outsourceWorkers: OutsourceWorkerView[] = [];
 let chatGroups: ChatGroupView[] = [];
 let chatGroupSeq = 0;
 let chatSuggestedReplies = new Map<string, string[]>();
+let taskManualSuggestedReplies = new Map<string, string[]>();
 /** Server parity (hasChatSuggestedReplies): anyone on the roster but a warden. */
 function hasChatSuggestedReplies(id: string): boolean {
   if (outsourceWorkers.some((w) => w.id === id && w.status !== "released")) return true;
@@ -4581,6 +4582,40 @@ const mockApiImpl = {
     );
   },
 
+  async getTaskManualSuggestedReplies(): Promise<Record<string, string[]>> {
+    return Object.fromEntries(
+      [...taskManualSuggestedReplies].map(([typeKey, replies]) => [typeKey, [...replies]]),
+    );
+  },
+
+  async putTaskManualSuggestedReplies(typeKey: string, replies: string[]): Promise<string[]> {
+    const refuse = (message: string): never => {
+      throw mockApiError(`http 422 for PUT /api/task-manual-suggested-replies/${typeKey}`, 422, message);
+    };
+    const stored = replies.map((v, i) => {
+      const text = v.trim();
+      if (text === "") refuse(`replies[${i}] is blank`);
+      if ([...text].length > SUGGESTED_REPLY_MAX_LEN) {
+        refuse(`replies must be at most ${SUGGESTED_REPLY_MAX_LEN} characters per entry`);
+      }
+      return text;
+    });
+    if (stored.length > SUGGESTED_REPLIES_MAX_ENTRIES) {
+      refuse(`replies must be at most ${SUGGESTED_REPLIES_MAX_ENTRIES} entries`);
+    }
+    if (!taskManuals.some((m) => m.typeKey === typeKey)) {
+      throw mockApiError(
+        `http 404 for PUT /api/task-manual-suggested-replies/${typeKey}`,
+        404,
+        `task manual '${typeKey}' not found`,
+      );
+    }
+    if (stored.length > 0) taskManualSuggestedReplies.set(typeKey, stored);
+    else taskManualSuggestedReplies.delete(typeKey);
+    emitTopic("task_manual_suggested_reply");
+    return [...stored];
+  },
+
   async putChatSuggestedReplies(memberId: string, replies: string[]): Promise<string[]> {
     // Server parity: the request-only checks in order, then the member.
     const refuse = (message: string): never => {
@@ -6185,6 +6220,7 @@ const mockApiImpl = {
     // readable revision of a deleted document makes 「永久移除」 false.
     for (const kind of MANUAL_KINDS) dropDocumentHistory(kind, typeKey);
     emitTopic("task_manual");
+    if (taskManualSuggestedReplies.delete(typeKey)) emitTopic("task_manual_suggested_reply");
   },
 
   async resetTaskManual(typeKey: string): Promise<void> {
@@ -8749,6 +8785,7 @@ export function __resetMock(): void {
   chatGroups = [];
   chatGroupSeq = 0;
   chatSuggestedReplies = new Map();
+  taskManualSuggestedReplies = new Map();
   taskManuals = structuredClone([...MOCK_TASK_MANUAL_SEEDS]);
   mockPasswordSet = true;
   mockPassword = "mock-password";

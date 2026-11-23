@@ -145,6 +145,7 @@ import {
   toChatGroups,
   toChatGroupWrite,
   toChatSuggestedReplies,
+  toTaskManualSuggestedReplies,
   toGalleryAttachment,
   toReplyCard,
   toReplyCardRow,
@@ -494,6 +495,7 @@ export const SSE_RESYNC_TOPICS = [
   "reply_card",
   "task",
   "task_manual",
+  "task_manual_suggested_reply",
   "shared_doc",
   "global_context",
   "role_def",
@@ -1770,6 +1772,20 @@ export const httpApi: Api = {
 
   async getChatSuggestedReplies(): Promise<Record<string, string[]>> {
     return toChatSuggestedReplies(unwrap(await client.GET("/api/chat/suggested-replies")));
+  },
+
+  async getTaskManualSuggestedReplies(): Promise<Record<string, string[]>> {
+    return toTaskManualSuggestedReplies(unwrap(await client.GET("/api/task-manual-suggested-replies")));
+  },
+
+  async putTaskManualSuggestedReplies(typeKey: string, replies: string[]): Promise<string[]> {
+    const stored = unwrap(
+      await client.PUT("/api/task-manual-suggested-replies/{type_key}", {
+        params: { path: { type_key: typeKey } },
+        body: { replies },
+      }),
+    );
+    return [...stored.replies];
   },
 
   async putChatSuggestedReplies(memberId: string, replies: string[]): Promise<string[]> {
