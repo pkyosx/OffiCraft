@@ -124,6 +124,8 @@ import { useDraftText } from "../hooks/useDraftText";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
 import { useSuggestedRepliesTaskMessage } from "../hooks/useSuggestedReplies";
+import { useTaskManualSuggestedRepliesContext } from "../hooks/useTaskManualSuggestedReplies";
+import { mergeSuggestedReplies } from "../lib/suggestedReplies";
 import { ConfirmModal } from "./ConfirmModal";
 import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
@@ -1226,7 +1228,12 @@ export function TaskCard({
   const isMobile = useIsMobile();
   // T-122 建議回覆: the owner's one-click sentences, shown UNDER this box. The
   // empty list (no setting, or a failed read) renders nothing at all.
-  const suggestedReplies = useSuggestedRepliesTaskMessage();
+  const taskMessageSuggestedReplies = useSuggestedRepliesTaskMessage();
+  const taskTypeSuggestedReplies = useTaskManualSuggestedRepliesContext().lists;
+  const suggestedReplies = mergeSuggestedReplies(
+    (task.typeKey && taskTypeSuggestedReplies[task.typeKey]) || [],
+    taskMessageSuggestedReplies,
+  );
   const draftRef = useRef<HTMLTextAreaElement>(null);
   const mentionRoster = useMentionRoster(members, workers, {
     backTo: "tasks",
