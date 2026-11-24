@@ -1208,6 +1208,13 @@ test.describe("touch screen", () => {
         expect(await page.evaluate(() => window.getSelection()!.toString())).toBe(selected);
         await expect(page.getByTestId("chat-select-copy")).toBeEnabled();
         await expect(page.getByTestId("chat-select-reply")).toBeEnabled();
+        const looks = await bar.locator("button").evaluateAll((bs) =>
+          bs.map((b) => {
+            const c = getComputedStyle(b);
+            return [c.color, c.backgroundColor, c.borderColor, c.fontWeight].join(" ");
+          }),
+        );
+        expect(new Set(looks).size, "取消、複製、回覆 look the same").toBe(1);
         if (SHOTS && width === 390 && id === "m-mine")
           await page.screenshot({ path: `${SHOTS}/${width}x${height}-select-mode-selected.png` });
 

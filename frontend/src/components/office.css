@@ -1413,12 +1413,6 @@
 .chat__select-bar__btn > svg {
   flex: none;
 }
-.chat__select-bar__btn--primary {
-  border-color: color-mix(in srgb, var(--color-accent) 18%, transparent);
-  background: var(--color-accent-cta-bg);
-  color: var(--color-accent);
-  font-weight: 600;
-}
 .chat__select-bar__btn:disabled {
   color: var(--color-text-muted);
   background: transparent;

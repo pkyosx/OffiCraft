@@ -504,7 +504,7 @@ export function ChatSelectionModeBar({
       </button>
       <button
         type="button"
-        className="chat__select-bar__btn chat__select-bar__btn--primary"
+        className="chat__select-bar__btn"
         data-testid="chat-select-reply"
         disabled={!reply || tooLong}
         {...keepSelection}
