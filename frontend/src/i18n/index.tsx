@@ -430,6 +430,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const seasonalShown = seasonalId !== null;
   const seasonalShownRef = useRef(seasonalShown);
   seasonalShownRef.current = seasonalShown;
+  const openSeasonalWindowRef = useRef(openSeasonalWindow);
+  openSeasonalWindowRef.current = openSeasonalWindow;
 
   const t = useMemo(() => {
     const base = DICTS[locale];
@@ -588,7 +590,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
             delete rest[b.id];
             return rest;
           });
-          writeSeasonalRecords(w);
+          // A prefetch of the next window's first part must not drop the open window's records.
+          writeSeasonalRecords(openSeasonalWindowRef.current ?? w);
         })
         .catch((e) => {
           console.warn("seasonal theme: load failed", e);
@@ -607,16 +610,23 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, [seasonalId]);
 
   // The next day part, prefetched like the next schedule slot; before a window
-  // opens, its first day part.
+  // opens, or when the open one ends straight into another, that window's first
+  // day part.
   const upcomingSeasonal = useMemo(() => {
     if (!seasonalTheme) return null;
     let w: LoadableSeasonalWindow | null;
     let next: { at: Date; row: { start: string; theme: string } } | null;
     if (openSeasonalWindow) {
       w = openSeasonalWindow;
-      if (!seasonalId || !w.schedule?.length) return null;
-      next = nextDayPart(new Date(clock), w.schedule);
-      if (!next || next.at.getTime() >= w.end.getTime()) return null;
+      if (!seasonalId) return null;
+      next = w.schedule?.length ? nextDayPart(new Date(clock), w.schedule) : null;
+      if (!next || next.at.getTime() >= w.end.getTime()) {
+        const at = w.end;
+        w = activeSeasonalWindow(at, SEASONAL_WINDOWS);
+        const first = w ? seasonalPickAt(at, w) : null;
+        if (!w || !first?.file) return null;
+        next = { at, row: { start: "", theme: first.file } };
+      }
     } else {
       const at = nextSeasonalBoundary(new Date(clock), SEASONAL_WINDOWS);
       w = at ? activeSeasonalWindow(at, SEASONAL_WINDOWS) : null;
