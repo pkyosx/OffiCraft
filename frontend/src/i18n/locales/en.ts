@@ -926,6 +926,7 @@ export const en: Dict = {
     recurring: "repeats",
     waitKind: {
       background_command: "background command",
+      monitor: "monitor",
       schedule: "schedule",
     },
   },

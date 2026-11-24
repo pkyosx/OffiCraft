@@ -53,6 +53,7 @@ const sub = (name: string, description: string, startedTs: number) => ({
 });
 const SUBS_4 = [sub("a", "", T), sub("b", "", T), sub("c", "", T), sub("d", "", T)];
 const WAIT_BG = { kind: "background_command" as const, description: "npm test", nextTs: null, recurring: false };
+const WAIT_MON = { kind: "monitor" as const, description: "watch the deploy log", nextTs: null, recurring: false };
 const WAIT_CRON = { kind: "schedule" as const, description: "每小時看 CI", nextTs: null, recurring: false };
 const NEXT = at(2026, 10, 4, 12, 15);
 const cron = (nextTs: number | null, recurring: boolean) => ({ ...WAIT_CRON, nextTs, recurring });
@@ -86,8 +87,8 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 1) })], "1 個子代理工作中"],
     ["zh", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2), waits: [WAIT_CRON] })], "2 個子代理工作中，正在等 1 個背景檢查或排程"],
     ["en", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2), waits: [WAIT_CRON] })], "2 sub-agents working, waiting on 1 background check or schedule"],
-    ["zh", "memberActivitySummary", [act({ state: "waiting", waits: [WAIT_BG, WAIT_CRON, WAIT_BG] })], "正在等 3 個背景檢查或排程"],
-    ["en", "memberActivitySummary", [act({ state: "waiting", waits: [WAIT_BG, WAIT_CRON, WAIT_BG] })], "Waiting on 3 background checks or schedules"],
+    ["zh", "memberActivitySummary", [act({ state: "waiting", waits: [WAIT_BG, WAIT_CRON, WAIT_MON] })], "正在等 3 個背景檢查或排程"],
+    ["en", "memberActivitySummary", [act({ state: "waiting", waits: [WAIT_BG, WAIT_CRON, WAIT_MON] })], "Waiting on 3 background checks or schedules"],
     ["zh", "memberActivitySummary", [act({ state: "idle" })], "閒置"],
     ["zh", "memberActivitySince", [T - 180, T], "已 3 分鐘"],
     ["zh", "memberActivitySince", [T - 40, T], "已 40 秒"],
@@ -97,6 +98,8 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "memberActivityDuration", [T - 40, T], "40 sec"],
     ["zh", "memberActivityWaitTag", [WAIT_BG, NOW], "背景指令"],
     ["en", "memberActivityWaitTag", [WAIT_BG, NOW], "background command"],
+    ["zh", "memberActivityWaitTag", [WAIT_MON, NOW], "監看"],
+    ["en", "memberActivityWaitTag", [WAIT_MON, NOW], "monitor"],
     ["zh", "memberActivityWaitTag", [cron(NEXT, false), NOW], "排程 · 下次 12:15"],
     ["zh", "memberActivityWaitTag", [cron(NEXT, true), NOW], "排程 · 下次 12:15 · 重複"],
     ["zh", "memberActivityWaitTag", [cron(at(2026, 10, 4, 23, 59), false), NOW], "排程 · 下次 23:59"],

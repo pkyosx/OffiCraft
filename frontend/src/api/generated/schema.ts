@@ -4923,7 +4923,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "background_command" | "schedule";
+            kind: "background_command" | "monitor" | "schedule";
             /**
              * Next Ts
              * @description For ``schedule``: epoch seconds of its next run, by the reporting machine's clock; null when unknown or for other kinds.

@@ -45,7 +45,7 @@ export interface ActivitySubagent {
 }
 
 export interface ActivityWait {
-  kind: "background_command" | "schedule";
+  kind: "background_command" | "monitor" | "schedule";
   description: string;
   /** A schedule's next run, epoch seconds by the member machine's clock. */
   nextTs: number | null;

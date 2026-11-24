@@ -17,6 +17,7 @@ import (
 // Defines values for AgentActivityWaitDTOKind.
 const (
 	BackgroundCommand AgentActivityWaitDTOKind = "background_command"
+	Monitor           AgentActivityWaitDTOKind = "monitor"
 	Schedule          AgentActivityWaitDTOKind = "schedule"
 )
 
@@ -24,6 +25,8 @@ const (
 func (e AgentActivityWaitDTOKind) Valid() bool {
 	switch e {
 	case BackgroundCommand:
+		return true
+	case Monitor:
 		return true
 	case Schedule:
 		return true

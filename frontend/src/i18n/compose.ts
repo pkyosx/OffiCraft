@@ -140,7 +140,7 @@ export interface Messages {
   memberActivitySince: (since: number, now: number) => string;
   /** 「40 秒」/「3 分鐘」: how long a sub-agent has run. */
   memberActivityDuration: (since: number, now: number) => string;
-  /** 「背景指令」, or 「排程 · 下次 12:15 · 重複」 in the viewer's local time; a
+  /** 「背景指令」, 「監看」, or 「排程 · 下次 12:15 · 重複」 in the viewer's local time; a
    * next run that is not today carries its date (「下次 10/5 09:05」). */
   memberActivityWaitTag: (wait: ActivityWait, now: number) => string;
   /** 「Mira · 運行狀況」: the activity dialog's title. */
@@ -540,13 +540,15 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     memberActivitySince: (since, now) => activityElapsed(act.elapsedLead, since, now),
     memberActivityDuration: (since, now) => activityElapsed("", since, now),
     memberActivityWaitTag: (w, now) =>
-      w.kind === "background_command"
-        ? act.waitKind.background_command
-        : [
+      w.kind === "schedule"
+        ? [
             act.waitKind.schedule,
             ...(w.nextTs !== null ? [`${act.nextLead} ${nextRunAt(w.nextTs, now)}`] : []),
             ...(w.recurring ? [act.recurring] : []),
-          ].join(" · "),
+          ].join(" · ")
+        : w.kind === "monitor"
+          ? act.waitKind.monitor
+          : act.waitKind.background_command,
     memberActivityDialogTitle: (name) => `${name}${act.dialogTitleSep}${t.mp.runtime}`,
     memberActivityOpenLabel: (state) => `${act.state[state]}${act.openLabelSep}${act.openLabel}`,
     // 「正在收尾以套用你的改動 · 最晚 14:32 生效」 — the deadline is a CEILING
