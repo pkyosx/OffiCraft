@@ -1,5 +1,5 @@
 // ChatArea 「刪除」 — the owner deletes one of their own ordinary messages sent
-// less than 24 hours ago. The entry sits in the bubble's corner, asks first,
+// less than 24 hours ago. The entry sits in the bubble's toolbar, asks first,
 // and the row then reads 「此訊息已刪除」, which opens the original in the
 // 看原訊息 overlay.
 // A quote of a deleted message says 「已刪除的訊息」 and carries no text.
@@ -116,13 +116,11 @@ describe("ChatArea 刪除", () => {
       .filter((m) => deleteButtonIn(rowOf(container, m.id)) !== null)
       .map((m) => m.id);
     expect(offered).toEqual(["own-fresh", "own-23h"]);
-    // The corner reserves room for both controls on a bubble that carries it.
     expect(
-      rowOf(container, "own-fresh").querySelector(".chat__msg-bubble")!.className,
-    ).toBe("chat__msg-bubble chat__msg-bubble--acts2");
-    expect(
-      rowOf(container, "own-25h").querySelector(".chat__msg-bubble")!.className,
-    ).toBe("chat__msg-bubble chat__msg-bubble--acts1");
+      Array.from(
+        rowOf(container, "own-fresh").querySelector(".chat__msg-actions")!.children,
+      ).map((b) => b.getAttribute("aria-label")),
+    ).toEqual(["回覆這則", "複製訊息", "刪除"]);
   });
 
   it("asks first, deletes by id on confirm, and the row turns into 「此訊息已刪除」", async () => {

@@ -18,6 +18,10 @@ paths:
 
 固定高度、可收縮 flex item、CJK 標籤同時出現時，用 `white-space: nowrap` 保住單行；中文的 min-content 可能只有一個字，固定高就會被折行溢出，而同一段 CSS 對拉丁字的幾何不等價。不要用 `flex:none` 代替，也不要只看 computed property：要用真瀏覽器量 line box 與實際 overflow。角色誌的 Insight 卡（`.mp-lessons__head`）與 DocCard（`.doc-card__head`）在 ≤720px 讓 header 換行：編輯模式的三顆按鈕在任何手機寬度都跟標題放不進同一列，閱讀模式的「編輯」鈕在窄螢幕也會掉到下一列，多出的列是預期形狀，換來的是標題與字數不折行。不要為了省那一列把斷點縮回去；也不要讓標題群 `min-width: 0` 卻不讓它跟 header 一起換行，那會把標題壓成零寬、一字一行，徽章與字數直接疊到按鈕上，而且沒有任何東西溢出卡片，只看 overflow 的守衛抓不到。
 
+## 輸入欄位 16px（iOS 聚焦放大）
+
+iOS Safari 在字小於 16px 的 input／textarea／select 聚焦時會放大整頁，放大後頁面可以左右拖；owner 在聊天回覆請示卡、請示頁「稍後再看」的自訂數字都踩過。`styles/global.css` 有一條 `@media (hover: none)` 全域規則：欄位 `font-size: max(16px, 1em)`（1em 是繼承來的大小，大欄位不縮），選擇器刻意是 (0,1,1)：蓋過元件單一 class 的 `font: inherit`／小字，讓給兩個 class 以上、刻意指定字級的規則。新元件不用再各自補 16px；但若用兩個 class 以上把欄位設成小於 16px，就會繞過它。舊的逐元件 16px 規則（chat-search、chat-groups 等）仍在，沒有刪。守衛：`chat-reply-to`（回覆後聚焦的輸入框）與 `reply-desk`（稍後再看的數字與單位）在觸控 390 量聚焦欄位的字級 ≥16，桌面維持原字級。Chromium 不會模擬這個放大，量的是字級本身。
+
 ## 浮層與 CSS ownership
 
 絕對定位浮層不可用以視窗左緣為座標的 vw 夾寬度。讓父容器提供 `left:0; right:0; width:auto`，再以 max-width 收上限；量浮層自己與中間 scroll container，不要只量被壓回視窗寬的 flex parent。`documentElement` 沒橫溢出不代表沒 bug，祖先的 `overflow-y:auto` 可能把溢出吸進自己的 scroll container；CT 也要重現真實祖先鏈，裸掛會多出餘裕而假綠。

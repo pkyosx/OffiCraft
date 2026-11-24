@@ -1574,6 +1574,15 @@ export const en: Dict = {
     // quote line of a reply to a deleted message. deleteFailed is used only
     // when the server gave no reason.
     deleteAction: "Delete",
+    copyMessage: "Copy message",
+    messageCopied: "Copied",
+    messageCopyFailed: "Copy failed",
+    selectText: "Select text",
+    messageActions: "Message actions",
+    selectionMode: "Selection mode",
+    copySelection: "Copy",
+    selectionReply: "Reply",
+    selectionCancel: "Cancel",
     deleteConfirmBody:
       "Delete this message? The recipient will be told it was deleted; you can still open the original. This can't be undone.",
     deleteConfirm: "Delete",

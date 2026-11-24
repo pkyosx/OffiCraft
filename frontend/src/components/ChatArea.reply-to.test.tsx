@@ -6,7 +6,7 @@
 // Locked here, one test per promise the AC makes:
 //   • EVERY row carries the entry — own messages, incoming, attachment-only,
 //     server-authored (sender="system") and card rows alike. Card rows are the
-//     one shape where it does NOT sit in a bubble corner (they have no bubble).
+//     one shape where the toolbar does NOT sit in a bubble (they have none).
 //     Their QUOTE is still the ordinary quote row — <ChatReplyCard> renders no
 //     quote of any kind; the row simply hangs it on its own content column
 //     ABOVE the card instead of inside a bubble (ChatArea.reply-card-quote.test.tsx
@@ -219,7 +219,7 @@ describe("ChatArea 回覆這則", () => {
       mkMsg({ id: "c-2", from: "owner", to: "m1", body: "我的回應", ts: 2 }),
       // A card row and an attachment-only row: both are messages, and the AC
       // says EVERY message gets the entry — these are the two shapes a
-      // bubble-corner button could not have covered.
+      // text-bubble-only entry would have missed.
       mkMsg({ id: "c-3", body: "請示", ts: 3, replyCardId: "rc-1" }),
       mkMsg({
         id: "c-4",
@@ -265,28 +265,32 @@ describe("ChatArea 回覆這則", () => {
     }
   });
 
-  it("the entry sits in the bubble's own corner slot, beside 放大閱讀", () => {
+  it("the entry sits in the message's one toolbar, beside 放大閱讀", () => {
     const { container } = renderChat();
     // Owner 2026-08-20: out on the row it read as belonging to the thread
     // rather than to this message. Bubble-shaped messages carry it in the same
-    // corner slot as 放大閱讀 — and the slot is INSIDE the bubble, which is
+    // toolbar as 放大閱讀 — and the toolbar is INSIDE the bubble, which is
     // what makes it look like part of the message.
     for (const id of ["c-1", "c-2", "c-4"]) {
       const entry = rowOf(container, id).querySelector(".chat__msg-reply")!;
       expect(entry.closest(".chat__msg-actions")).toBeTruthy();
       expect(entry.closest(".chat__msg-bubble")).toBeTruthy();
     }
-    // An INCOMING text bubble carries BOTH controls, in ONE slot — two corners
-    // would be two places to look.
-    const slot = rowOf(container, "c-1").querySelector(".chat__msg-actions")!;
-    expect(slot.querySelector(".chat__msg-reply")).toBeTruthy();
-    expect(slot.querySelector(".chat__msg-expand")).toBeTruthy();
+    // Every control sits in ONE toolbar — two would be two places to look.
+    const slotOrder = (id: string) =>
+      Array.from(
+        rowOf(container, id).querySelector(".chat__msg-actions")!.children,
+      ).map((b) => b.getAttribute("aria-label"));
+    expect(slotOrder("c-1")).toEqual(["回覆這則", "複製訊息", "放大閱讀"]);
+    expect(slotOrder("c-2")).toEqual(["回覆這則", "複製訊息"]);
+    expect(slotOrder("c-4")).toEqual(["回覆這則"]);
 
-    // The declared exception: a reply-card row has no bubble to put a corner
-    // on, so its entry stays on the row. Stated as a test so the exception is
-    // a decision on record rather than something that quietly happened.
-    const cardEntry = rowOf(container, "c-3").querySelector(".chat__msg-reply")!;
-    expect(cardEntry.closest(".chat__msg-bubble")).toBeNull();
+    // A reply-card row has no bubble; the same toolbar hangs off the card's
+    // row instead, with 回覆 and 複製 only.
+    expect(slotOrder("c-3")).toEqual(["回覆這則", "複製訊息"]);
+    expect(
+      rowOf(container, "c-3").querySelector(".chat__msg-actions")!.closest(".chat__msg-content"),
+    ).toBeTruthy();
   });
 
   // ── the accessibility surface ──────────────────────────────────────────────
@@ -329,6 +333,10 @@ describe("ChatArea 回覆這則", () => {
     const entry = rowOf(container, "c-1").querySelector(".chat__msg-reply")!;
     expect(entry.getAttribute("aria-label")).toBe(zh.chat.replyAction);
     expect(entry.getAttribute("title")).toBe(zh.chat.replyAction);
+
+    const copy = rowOf(container, "c-1").querySelector(".chat__msg-copy")!;
+    expect(copy.getAttribute("aria-label")).toBe("複製訊息");
+    expect(copy.getAttribute("title")).toBe("複製訊息");
 
     // The jump is an empty overlay over the quote, so its name must be explicit.
     const jump = rowOf(container, "c-2").querySelector(

@@ -8,6 +8,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { flushSync } from "react-dom";
 import { useI18n } from "../i18n";
 import type { Member, MemberActivateResult } from "../types";
 import type {
@@ -59,8 +60,10 @@ import { ChatThreadLoading } from "./ChatThreadLoading";
 import { ChatNewMsgPreview } from "./ChatNewMsgPreview";
 import { ChatReplyCard } from "./ChatReplyCard";
 import {
+  ChatSelectionModeBar,
   ChatSelectionReply,
   ReplyCardQuoteProvider,
+  revealRowAbove,
 } from "./ChatSelectionReply";
 import { ChatSuggestedRepliesDialog } from "./ChatSuggestedRepliesDialog";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
@@ -81,6 +84,7 @@ import {
   BoltIcon,
   ChevronRightIcon,
   CloseIcon,
+  CopyIcon,
   ExpandIcon,
   ImageIcon,
   MoonIcon,
@@ -91,12 +95,22 @@ import {
   SendIcon,
   SuggestedRepliesIcon,
   TasksIcon,
+  TextCursorIcon,
   TrashIcon,
   UserGearIcon,
 } from "./icons";
 import { chatDeletable } from "../lib/chatDelete";
 import { useChatDelete } from "../hooks/useChatDelete";
 import { ChatDeletedRow } from "./ChatDeletedRow";
+import {
+  ChatMessageCopyButton,
+  ChatMessageCopyStatus,
+  useMessageCopy,
+  type CopySource,
+} from "./ChatMessageCopyButton";
+import { ChatMessagePressMenu, type PressMenuItem } from "./ChatMessagePressMenu";
+import { useLongPress } from "../hooks/useLongPress";
+import { api } from "../api";
 import { DispatchAlert } from "./DispatchAlert";
 
 // The owner's sender id. The real backend stamps a message's `from` from the
@@ -105,6 +119,19 @@ import { DispatchAlert } from "./DispatchAlert";
 // (NOT "ceo"). The mock stamps the same (MOCK_OWNER_ID) so a message reads as
 // "me" (right-aligned, from=你) in BOTH mock and real mode.
 const OWNER_ID = "owner";
+const SELECTION_MODE_INERT_ACTIONS =
+  "button, a, input, textarea, select, [role='button'], [role='link']";
+const CHAT_CARD_ROOT = "[data-testid='chat-reply-card']";
+
+/** A reply card's question as copied: the summary, a blank line, the body. */
+function replyCardQuestionText(cardId: string, fallbackSummary: string) {
+  return api.getReplyCard(cardId).then((card) =>
+    [card.summary || fallbackSummary, card.body]
+      .filter((part) => part)
+      .map((part) => unlinkMentions(part))
+      .join("\n\n"),
+  );
+}
 
 // ⚠️ `oneLine()` USED TO LIVE HERE AND WAS DELETED 2026-08-21. It collapsed
 // newlines and runs of spaces in the 「正在回覆」 banner's excerpt, and its own
@@ -642,6 +669,93 @@ export function ChatArea({
       : () => jumpToMessageRef.current(original.id, peerId);
   });
   const chatDelete = useChatDelete();
+  const messageCopy = useMessageCopy();
+  // The long-press sheet of one message, and the message in selection mode
+  // (its 選取文字): the rest of the thread blurred and inert, the bar below.
+  const [pressMenu, setPressMenu] = useState<string | null>(null);
+  const [selectingId, setSelectingId] = useState<string | null>(null);
+  const [repliedFromSelectingId, setRepliedFromSelectingId] = useState<string | null>(null);
+  const longPress = useLongPress(pressTargetOf, setPressMenu);
+  const focusRowOnExit = useRef(false);
+  useEffect(() => {
+    if (!selectingId) return;
+    const row = messagesRef.current?.querySelector(`[data-msg-id="${selectingId}"]`);
+    const text = row?.querySelector(".chat__msg-text");
+    const selection = window.getSelection();
+    if (text && selection) {
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    // The mode only selects, copies and replies: a link, mention, attachment
+    // or quote in the message does nothing. Stopped at the document, before
+    // React's own listeners; the card itself keeps its click, which it ignores
+    // while selecting.
+    const actionInRow = (e: Event) => {
+      const action = (e.target as Element).closest?.(SELECTION_MODE_INERT_ACTIONS);
+      return !!action && !!row?.contains(action) && !action.matches(CHAT_CARD_ROOT);
+    };
+    const swallow = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    // A tap outside the message and its bar leaves the mode; a click, not a
+    // pointerdown, so that scrolling the blurred thread does not.
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Element;
+      if (actionInRow(e)) return swallow(e);
+      if (row?.contains(target) || target.closest?.(".chat__select-bar")) return;
+      exitSelection();
+    };
+    const onAuxClick = (e: MouseEvent) => {
+      if (actionInRow(e)) swallow(e);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === "Enter" || e.key === " ") && actionInRow(e)) swallow(e);
+    };
+    document.addEventListener("click", onClick, true);
+    document.addEventListener("auxclick", onAuxClick, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      document.removeEventListener("auxclick", onAuxClick, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+      if (focusRowOnExit.current) {
+        focusRowOnExit.current = false;
+        row
+          ?.querySelector<HTMLElement>(".chat__msg-actions button")
+          ?.focus({ preventScroll: true });
+      }
+    };
+  }, [selectingId]);
+  // The composer comes back on leaving the mode and takes the bottom of the
+  // thread with it; the message the mode was on stays in view.
+  const lastSelectingId = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const left = lastSelectingId.current;
+    lastSelectingId.current = selectingId;
+    const thread = messagesRef.current;
+    if (!left || selectingId || !thread) return;
+    const row = thread.querySelector<HTMLElement>(`[data-msg-id="${left}"]`);
+    if (row) revealRowAbove(row, thread, thread.getBoundingClientRect().bottom);
+  }, [selectingId]);
+  function exitSelection(replied = false) {
+    window.getSelection()?.removeAllRanges();
+    setRepliedFromSelectingId(replied ? selectingId : null);
+    setSelectingId(null);
+    messageCopy.clear();
+  }
+  function replyToSelection(id: string, excerpt: string) {
+    // Committed before the focus: the composer is hidden during the mode, and
+    // a hidden input cannot take focus. Still inside the tap, so iOS raises
+    // the keyboard.
+    flushSync(() => {
+      setReplyTarget({ id, excerpt });
+      exitSelection();
+    });
+    inputRef.current?.focus();
+  }
   // Is the owner ACTUALLY looking (window focused + tab visible)? Read side
   // effects (mark-read below) are gated on this: a backgrounded window must
   // never consume unread state (the roster badge has to survive until the
@@ -720,7 +834,7 @@ export function ChatArea({
     clearAttachments,
   } = useAttachmentStaging(member.id);
   // What the in-cockpit full-view overlay is showing (null = closed). TWO ways
-  // in, one surface: an incoming MESSAGE body (the corner 放大閱讀 button — the
+  // in, one surface: an incoming MESSAGE body (the 放大閱讀 action — the
   // text is already in hand, so there is nothing to fetch, download or share),
   // or a STAGED image still sitting in the composer (T-f014 — the bytes are in
   // hand as a data: URI, so 下載 is honest but no blob id exists to share). The
@@ -1806,6 +1920,21 @@ export function ChatArea({
     hasNewMsgPreview: newMsgPreview !== null,
     windowHasNewer: hasNewer,
   });
+  // The blurred rest of the thread is out of reach for the keyboard and for
+  // assistive technology too, not only for a finger.
+  useEffect(() => {
+    if (!selectingId) return;
+    const chat = messagesRef.current?.closest(".chat");
+    const out = Array.from(
+      chat?.querySelectorAll<HTMLElement>(
+        ".chat__header, .chat__msg, .chat__day-divider, .chat__unread-divider, .chat__inter-toggle, .chat__history-start, .chat__gap-notice, .chat__jump-latest, .chat__new-msg",
+      ) ?? [],
+    ).filter((el) => el.getAttribute("data-msg-id") !== selectingId);
+    for (const el of out) el.inert = true;
+    return () => {
+      for (const el of out) el.inert = false;
+    };
+  }, [selectingId, messages, bottomAffordance]);
 
   // OWNER read receipt: entering the conversation at its tail (or a new message
   // landing while the owner is at the bottom) means the owner has SEEN up to the
@@ -1952,6 +2081,110 @@ export function ChatArea({
       e.preventDefault();
       void submit();
     }
+  }
+
+  interface MessageAction {
+    key: "reply" | "copy" | "delete" | "expand";
+    label: string;
+    icon: React.ReactNode;
+    onSelect: () => void;
+  }
+
+  /** What one message offers, in toolbar order. Incoming: 回覆・複製・放大閱讀;
+   * your own: 回覆・複製・刪除. 複製 only where there is text; a reply card's
+   * text is its question, read when asked for (the row only carries the
+   * summary). 放大閱讀 only on incoming text: the owner's own line is what they
+   * just typed, and a file chip carries its own 預覽. */
+  function messageActions(
+    m: ChatMessage,
+    mine: boolean,
+    deletable: boolean,
+    senderLabel: string,
+  ): MessageAction[] {
+    const actions: MessageAction[] = [
+      {
+        key: "reply",
+        label: t.chat.replyAction,
+        icon: <ReplyIcon size={13} />,
+        onSelect: () => {
+          setReplyTarget({ id: m.id });
+          inputRef.current?.focus();
+        },
+      },
+    ];
+    const copySource: CopySource | null = m.replyCardId
+      ? () => replyCardQuestionText(m.replyCardId as string, m.body)
+      : m.body
+        ? unlinkMentions(m.body)
+        : null;
+    if (copySource !== null)
+      actions.push({
+        key: "copy",
+        label: t.chat.copyMessage,
+        icon: <CopyIcon size={13} />,
+        onSelect: () => void messageCopy.copy(m.id, copySource),
+      });
+    if (m.replyCardId) return actions;
+    if (deletable)
+      actions.push({
+        key: "delete",
+        label: t.chat.deleteAction,
+        icon: <TrashIcon size={13} />,
+        onSelect: () => chatDelete.ask(m.id),
+      });
+    if (!mine && m.body)
+      actions.push({
+        key: "expand",
+        label: t.chat.expandMessage,
+        icon: <ExpandIcon size={12} />,
+        onSelect: () =>
+          setMdPreview({ kind: "message", title: senderLabel, source: m.body }),
+      });
+    return actions;
+  }
+
+  /** The press target under a touch: the bubble or reply card of a message row,
+   * except inside the card's own controls and the row whose text is being
+   * selected. */
+  function pressTargetOf(target: Element): string | null {
+    const row = target.closest<HTMLElement>("[data-msg-id]");
+    const id = row?.dataset.msgId;
+    if (!row || !id || id === selectingId) return null;
+    if (target.closest("textarea, input, select")) return null;
+    const bubble = target.closest(".chat__msg-bubble");
+    if (bubble && row.contains(bubble)) return id;
+    const card = target.closest(".reply-card");
+    if (
+      card &&
+      row.contains(card) &&
+      !target.closest(
+        ".reply-composer, a, [role='listbox'], button:not(.reply-card__collapsed-row)",
+      )
+    )
+      return id;
+    return null;
+  }
+
+  function pressMenuItems(id: string): PressMenuItem[] {
+    const m = messages.find((x) => x.id === id);
+    if (!m || chatDelete.deletedTsOf(m) > 0) return [];
+    const mine = m.from === OWNER_ID;
+    const senderLabel =
+      m.to !== OWNER_ID ? directionLabel(m.from, m.to) : nameOf(m.from);
+    return [
+      ...messageActions(
+        m,
+        mine,
+        chatDeletable(m, Date.now() / 1000),
+        senderLabel,
+      ).map((a) => ({ ...a, danger: a.key === "delete" })),
+      {
+        key: "select",
+        label: t.chat.selectText,
+        icon: <TextCursorIcon size={13} />,
+        onSelect: () => setSelectingId(id),
+      },
+    ];
   }
 
   // Render ONE message row (the LINE-style outgoing/incoming bubble). Extracted so
@@ -2112,20 +2345,10 @@ export function ChatArea({
       </div>
     );
 
-    // T-4e95 ② the REPLY ENTRY. Owner 2026-08-20 moved it INTO the bubble's
-    // corner, beside 放大閱讀: out on the row it read as something belonging to
-    // the thread rather than to this message.
-    //
-    // The reason it started on the row is still true and had to be solved
-    // rather than argued with — 放大閱讀's corner exists ONLY on incoming text
-    // bubbles, and the AC is 每一則. So the corner is now a SHARED ACTION SLOT
-    // that every bubble reserves (own messages and attachment-only bubbles
-    // included), holding one or two controls.
-    //
-    // 🔴 THE ONE SHAPE THAT KEEPS THE ROW ENTRY is a reply-card message: its
-    // bubble is replaced by <ChatReplyCard>, a full-width surface with its own
-    // header controls, and hanging a floating action over it would collide with
-    // them. Stated here rather than silently: card rows are the exception.
+    // T-4e95 ② the REPLY ENTRY, with the message's other actions. They live in
+    // ONE toolbar per message (desktop: revealed over the bubble's top edge on
+    // hover or keyboard focus) and in the long-press menu (touch screens), built
+    // from the same list so the two cannot offer different things.
     //
     // 🔴 OFFERED ON EVERY ROW IN THE WINDOW, INCLUDING THE ONES THE OWNER IS
     // NOT A PARTY TO. This used to be gated behind a `replyable` flag —
@@ -2136,19 +2359,39 @@ export function ChatArea({
     // the entry works there — the reply is addressed to this thread's peer as
     // always, and it quotes the line the owner pointed at. Keeping the flag
     // would have left the owner's ruling unreachable from the product.
-    const replyEntry = (
-      <button
-        type="button"
-        className="chat__msg-reply"
-        aria-label={t.chat.replyAction}
-        title={t.chat.replyAction}
-        onClick={() => {
-          setReplyTarget({ id: m.id });
-          inputRef.current?.focus();
-        }}
+    const actions = deleted ? [] : messageActions(m, mine, deleteEntry, senderLabel);
+    const copyState = messageCopy.stateOf(m.id);
+    const toolbar = actions.length > 0 && (
+      <div
+        className="chat__msg-actions-slot"
+        data-sender={mine ? undefined : senderLabel}
       >
-        <ReplyIcon size={13} />
-      </button>
+        <div className="chat__msg-toolbar">
+          <div className="chat__msg-actions">
+            {actions.map((a) =>
+              a.key === "copy" ? (
+                <ChatMessageCopyButton
+                  key={a.key}
+                  state={copyState}
+                  onCopy={a.onSelect}
+                />
+              ) : (
+                <button
+                  key={a.key}
+                  type="button"
+                  className={`chat__msg-${a.key}`}
+                  aria-label={a.label}
+                  title={a.label}
+                  onClick={a.onSelect}
+                >
+                  {a.icon}
+                </button>
+              ),
+            )}
+          </div>
+          <ChatMessageCopyStatus state={copyState} />
+        </div>
+      </div>
     );
 
     const content = deleted ? (
@@ -2164,66 +2407,13 @@ export function ChatArea({
           initialStatus={m.replyCardStatus}
           commentRecipientFor={docCommentRecipientFor}
           expandWhen={m.id === searchCurrentId}
+          selecting={m.id === selectingId}
+          keepOpenAfterSelecting={m.id === repliedFromSelectingId}
         />
       </MentionRosterContext.Provider>
     ) : (
-      <div
-        className={
-          "chat__msg-bubble" +
-          // The corner ACTION SLOT reserves its own width so a hover can never
-          // reflow the text under it. Two controls need more room than one, and
-          // 放大閱讀 is the one that comes and goes.
-          (!mine && m.body
-            ? " chat__msg-bubble--expandable chat__msg-bubble--acts2"
-            : deleteEntry
-              ? " chat__msg-bubble--acts2"
-              : " chat__msg-bubble--acts1")
-        }
-      >
-        {/* The bubble's corner actions (T-4e95). ONE slot, so the two controls
-         * cannot drift apart into two corners:
-         *   • 回覆這則 — on EVERY bubble in the window, both directions, and
-         *     including the inter-agent rows the owner is not a party to. That
-         *     last part is new (2026-08-21): the server used to refuse a
-         *     reply_to that crossed conversations so the entry was withheld
-         *     there, and the owner removed that refusal precisely so the owner
-         *     could quote a line out of two other people's thread and step in.
-         *   • 放大閱讀 — reopens THIS message body in the shared full-view
-         *     overlay. Only on INCOMING messages with text: an agent answer is
-         *     the long-form side of the thread (the owner's own line is what
-         *     they just typed), and an attachment-only bubble has no body to lay
-         *     out — the file chip already carries its own 預覽 action. */}
-        <div className="chat__msg-actions">
-          {replyEntry}
-          {deleteEntry && (
-            <button
-              type="button"
-              className="chat__msg-delete"
-              aria-label={t.chat.deleteAction}
-              title={t.chat.deleteAction}
-              onClick={() => chatDelete.ask(m.id)}
-            >
-              <TrashIcon size={13} />
-            </button>
-          )}
-          {!mine && m.body && (
-            <button
-              type="button"
-              className="chat__msg-expand"
-              aria-label={t.chat.expandMessage}
-              title={t.chat.expandMessage}
-              onClick={() =>
-                setMdPreview({
-                  kind: "message",
-                  title: senderLabel,
-                  source: m.body,
-                })
-              }
-            >
-              <ExpandIcon size={12} />
-            </button>
-          )}
-        </div>
+      <div className="chat__msg-bubble">
+        {toolbar}
         {quoteLine}
         {/* T-84c8: the message body is the purest owner/agent free text in the
          * app (and, via webhooks, can carry text from an EXTERNAL system), so
@@ -2271,7 +2461,9 @@ export function ChatArea({
             `chat__msg${mine ? " chat__msg--me" : ""}` +
             (m.replyCardId ? " chat__msg--card" : "") +
             (m.id === highlightMsgId ? " chat__msg--located" : "") +
-            (m.id === searchCurrentId ? " chat__msg--search-current" : "")
+            (m.id === searchCurrentId ? " chat__msg--search-current" : "") +
+            (m.id === selectingId ? " chat__msg--selecting" : "") +
+            (m.id === pressMenu ? " chat__msg--pressed" : "")
           }
           data-msg-id={m.id}
         >
@@ -2284,10 +2476,10 @@ export function ChatArea({
               <span className="chat__msg-time">{formatTime(m.ts)}</span>
             </div>
             <div className="chat__msg-content">
+              {m.replyCardId && toolbar}
               {m.replyCardId && quoteLine}
               {content}
             </div>
-            {m.replyCardId && replyEntry}
           </div>
         ) : (
           // LINE-style incoming: mirror of the outgoing row. The name label above
@@ -2300,13 +2492,13 @@ export function ChatArea({
             </div>
             <div className="chat__msg-line">
               <div className="chat__msg-content">
+                {m.replyCardId && toolbar}
                 {m.replyCardId && quoteLine}
                 {content}
               </div>
               <div className="chat__msg-sidemeta">
                 <span className="chat__msg-time">{formatTime(m.ts)}</span>
               </div>
-              {m.replyCardId && replyEntry}
             </div>
           </>
           )}
@@ -2616,15 +2808,25 @@ export function ChatArea({
           <ChatThreadLoading />
         ) : messages.length > 0 ? (
           <ReplyCardQuoteProvider>
-            <ChatSelectionReply
-              root={messagesRef}
-              onReply={(id, excerpt) => {
-                setReplyTarget({ id, excerpt });
-                inputRef.current?.focus();
-              }}
-            />
+            {selectingId ? (
+              <ChatSelectionModeBar
+                root={messagesRef}
+                onReply={replyToSelection}
+                onCopy={(text) => void messageCopy.copy(selectingId, text)}
+                copyState={messageCopy.stateOf(selectingId)}
+                onCancel={() => {
+                  focusRowOnExit.current = true;
+                  exitSelection();
+                }}
+                onReplied={() => exitSelection(true)}
+              />
+            ) : (
+              <ChatSelectionReply root={messagesRef} onReply={replyToSelection} />
+            )}
             <div
-              className="chat__messages"
+              className={
+                "chat__messages" + (selectingId ? " chat__messages--selecting" : "")
+              }
               ref={messagesRef}
               onScroll={onMessagesScroll}
               onWheel={onMessagesWheel}
@@ -2632,6 +2834,7 @@ export function ChatArea({
               onTouchMove={onMessagesTouchMove}
               onTouchEnd={onMessagesTouchEnd}
               onTouchCancel={onMessagesTouchEnd}
+              {...longPress}
             >
               {/* 🔴 T-b0bb: THE GAP NOTICE COMES FIRST, AND IT SUPPRESSES
                * "已到最早訊息".
@@ -2725,7 +2928,7 @@ export function ChatArea({
         )}
       </div>
 
-      <footer className="chat__composer">
+      <footer className="chat__composer" hidden={selectingId !== null}>
         {/* 🔴 T-48: the jump could not find its target. Pinned above the
          * composer rather than dropped into the stream, because the fallback
          * has just scrolled the thread to the BOTTOM — a notice placed in the
@@ -3066,6 +3269,13 @@ export function ChatArea({
             suggestedRepliesButtonRef.current?.focus();
             setSuggestedRepliesOpen(false);
           }}
+        />
+      )}
+
+      {pressMenu && (
+        <ChatMessagePressMenu
+          items={pressMenuItems(pressMenu)}
+          onClose={() => setPressMenu(null)}
         />
       )}
 

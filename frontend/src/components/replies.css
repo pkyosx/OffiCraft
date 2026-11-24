@@ -661,6 +661,11 @@
   padding: 13px 15px;
   border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
+/* The options and the answer of a chat card: a grouping for the selection
+ * mode to hide, with no box of its own. */
+.reply-card__answer-side {
+  display: contents;
+}
 .reply-card__chat-head {
   display: flex;
   align-items: flex-start;

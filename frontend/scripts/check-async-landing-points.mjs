@@ -208,6 +208,27 @@ const REGISTRY = [
     verdict: "the 已複製 flash; keyed row, cleared on unmount",
   },
   {
+    file: "components/ChatMessageCopyButton.tsx",
+    kind: "await",
+    count: 1,
+    verdict:
+      "the copy under the click; a string source was captured at render from the row's own body, a function source reads the card the row names, so what reaches the clipboard is the message the reader pressed. The only write after it is useMessageCopy's copied/failed result for that message id, state of this room's ChatArea mount, so a room switch discards it",
+  },
+  {
+    file: "components/ChatMessageCopyButton.tsx",
+    kind: "setTimeout/setInterval",
+    count: 1,
+    verdict:
+      "the 1.6s result flash resetting that same state. Armed AFTER the await, so an unmount inside the await leaves it running unguarded — harmless only because it sets one value on a discarded mount and carries no room's data",
+  },
+  {
+    file: "components/ChatMessagePressMenu.tsx",
+    kind: "addEventListener",
+    count: 1,
+    verdict:
+      "a scroll closes the sheet; it calls the host's onClose and nothing else, and is removed when the sheet unmounts",
+  },
+  {
     file: "components/ChatReplyCard.tsx",
     kind: "await",
     count: 8,
@@ -254,9 +275,16 @@ const REGISTRY = [
   {
     file: "components/ChatArea.tsx",
     kind: ".then/.catch/.finally",
+    count: 4,
+    verdict:
+      "loadAround + the wake button's two arms; all three write only this room's state, and this room is this mount. (4) replyCardQuestionText's read of the card a 複製 was pressed on: it commits nothing, it only shapes the text handed to useMessageCopy",
+  },
+  {
+    file: "components/ChatArea.tsx",
+    kind: "addEventListener",
     count: 3,
     verdict:
-      "loadAround + the wake button's two arms; all three write only this room's state, and this room is this mount",
+      "the selection mode's click, auxclick and keydown capture listeners: an outside tap clears the selection and this mount's selection state, and an action inside the selected message is swallowed (no state written); all three are removed in the effect cleanup, which runs when the message changes or the room unmounts",
   },
   {
     file: "components/ChatArea.tsx",
@@ -271,6 +299,13 @@ const REGISTRY = [
     count: 1,
     verdict:
       "the delete POST. Its writes are this hook's own deleted-id map, dialog target and error, all keyed by message id; the hook lives in ChatArea, mounted under `key={peerId}`, so a response that lands after a room switch writes into a discarded component",
+  },
+  {
+    file: "hooks/useLongPress.ts",
+    kind: "setTimeout/setInterval",
+    count: 1,
+    verdict:
+      "the 500ms press timer; cancelled by a lift, a move, a pointercancel, the next press and unmount, and what it fires with is the element pressed when it was armed",
   },
   {
     file: "hooks/useChatSearch.ts",
@@ -415,9 +450,23 @@ const REGISTRY = [
   {
     file: "components/ChatSelectionReply.tsx",
     kind: "addEventListener",
-    count: 3,
+    count: 5,
     verdict:
-      "selectionchange / scroll / resize re-read the live selection into the button's own state; removed on unmount, and the reply target it hands back is read from this room's DOM at click time",
+      "selectionchange / scroll / resize re-read the live selection into the button's own state; removed on unmount, and the reply target it hands back is read from this room's DOM at click time. (4) pointerdown only notes which kind of pointer made the selection (a ref, no state). (5) the selection-mode bar's selectionchange only (re)arms its settle timer, see that row",
+  },
+  {
+    file: "components/ChatSelectionReply.tsx",
+    kind: "setTimeout/setInterval",
+    count: 1,
+    verdict:
+      "the selection-mode bar's settle timer after a selectionchange. It writes no React state: only the thread's scrollTop, and only when the selection, re-read from the DOM when it fires, still ends inside the selected row near the bar. Cleared on every selectionchange and in the cleanup, so it never fires after the mode or the room has gone",
+  },
+  {
+    file: "components/ChatSelectionReply.tsx",
+    kind: "Observer",
+    count: 1,
+    verdict:
+      "the selection-mode bar's ResizeObserver on itself and the selected row. It writes no React state: the room the bar covers (a CSS variable on the thread's parent pane) and, only while that row is under the bar and its top is still below the thread's top (never upwards), the thread's scrollTop (the thread handed in as `root`), both re-measured from the DOM as it is now. The bar is mounted only while that one message is in selection mode, so leaving the mode or the room disconnects it and removes the variable in the same cleanup",
   },
   {
     file: "components/ChatGalleryPanel.tsx",
@@ -715,6 +764,19 @@ const REGISTRY = [
     kind: "subscribe",
     count: 1,
     verdict: "route subscribers; same",
+  },
+  {
+    file: "lib/clipboard.ts",
+    kind: "await",
+    count: 4,
+    verdict:
+      "`copyText` / `copyPendingText` resolve a boolean to their caller and commit nothing themselves; the caller is registered here (ChatMessageCopyButton)",
+  },
+  {
+    file: "lib/clipboard.ts",
+    kind: ".then/.catch/.finally",
+    count: 1,
+    verdict: "turns the pending text into the Blob the ClipboardItem waits for; commits nothing",
   },
   {
     file: "lib/shareLink.ts",
