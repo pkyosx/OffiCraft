@@ -127,7 +127,20 @@ The Codex member boot sequence changes only execution ownership:
    only its usage and compaction items drive the context percentage and the compaction
    count. A sub-agent's completed `agentMessage` still counts as a model-call success.
    Sub-agent turns also feed the member's activity report (`POST /api/agent/activity`),
-   named from the parent's `subAgentActivity` item. Their token usage is counted into
+   named from the parent's `subAgentActivity` item. The report's waits are the session's
+   background terminals: a `commandExecution` item with a `processId` (unified exec, whose
+   process can outlive its turn) is open from its `item/started` until its
+   `item/completed`, which Codex sends when the process exits, even after the turn ended,
+   or until its thread's `thread/closed` (closing terminates the thread's processes, and
+   their `item/completed` is not guaranteed to arrive afterwards).
+   Commands of every thread in the session count, sub-agents included, as Claude Code
+   lists the whole session's background tasks. Like Claude Code's, the waits reflect the
+   moment a turn last completed: a command started mid-turn is listed once a turn
+   completes while it is still running, and drops out as soon as it exits. Each is a
+   `background_command` wait described by its command line (cut to 200 characters), at
+   most 50 of them.
+   The sidecar never resumes a thread, so these items alone give the full set.
+   Sub-agent token usage is counted into
    the account's `tokens` (`POST /api/monitoring/telemetry`): the sidecar keeps the latest
    cumulative `total` of every thread seen this session, main and sub-agents, kept after
    a thread ends, and reports the per-key sum (owner ruling).

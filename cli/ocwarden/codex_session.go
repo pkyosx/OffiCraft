@@ -152,8 +152,7 @@ type codexSession struct {
 	// error never says when the limit lifts, only the snapshot does.
 	rateLimitWindows map[string]map[string]any
 
-	// What the owner sees as this member's activity; waits stay empty because
-	// Codex does not expose background commands.
+	// What the owner sees as this member's activity.
 	busySince        float64
 	runningSubagents map[string]float64
 	// Sub-agent threads that have started a turn, kept across their turns
@@ -165,8 +164,12 @@ type codexSession struct {
 	subagentParent map[string]string
 	// The agentPath of every multi-agent v2 sub-agent, from its spawn item.
 	// Codex refuses direct input to these, so they cannot be woken like v1 ones.
-	v2SubagentPaths    map[string]string
-	lastActivity       string
+	v2SubagentPaths map[string]string
+	lastActivity    string
+	// Commands of any thread whose process is still alive, by item id. Only
+	// those open when a turn last completed are listed as waits.
+	backgroundCommands map[string]*codexBackgroundCommand
+	backgroundSeq      int
 	threadTokenTotals  map[string]map[string]any
 	lastReportedTokens string
 
@@ -184,6 +187,12 @@ type codexSession struct {
 	// Notice text → the idle v2 parent it reports, so a refused delivery
 	// releases that parent for the next notice.
 	v2ParentNotices map[string]string
+}
+
+type codexBackgroundCommand struct {
+	thread, command string
+	seq             int
+	listed          bool
 }
 
 type codexDelivery struct {
@@ -627,6 +636,7 @@ func (s *codexSession) reannounce() {
 
 const codexActivityNameMax = 80
 const codexActivityListMax = 50
+const codexActivityDescriptionMax = 200
 
 var codexNow = time.Now
 
@@ -662,6 +672,9 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 		} else {
 			delete(s.runningSubagents, threadID)
 		}
+		for _, command := range s.backgroundCommands {
+			command.listed = true
+		}
 	// In case a sub-agent thread stops without sending turn/completed.
 	case "thread/status/changed":
 		if statusType := nestedString(params, "status", "type"); statusType == "active" || statusType == "" {
@@ -669,6 +682,14 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 		}
 		delete(s.runningSubagents, threadID)
 		delete(s.wakingSubagents, threadID)
+	// Closing a thread terminates its processes, and nothing guarantees their
+	// item/completed still reaches this connection afterwards.
+	case "thread/closed":
+		for itemID, command := range s.backgroundCommands {
+			if command.thread == threadID {
+				delete(s.backgroundCommands, itemID)
+			}
+		}
 	case "item/started", "item/completed":
 		item, _ := params["item"].(map[string]any)
 		switch {
@@ -683,6 +704,29 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 					s.recordSubagentParent(child, sender)
 				}
 			}
+		// Only a unified-exec command has a process id, and its process can
+		// outlive the turn that started it; item/completed comes when it exits.
+		case item["type"] == "commandExecution":
+			itemID, _ := item["id"].(string)
+			if itemID == "" {
+				return
+			}
+			if method == "item/completed" {
+				delete(s.backgroundCommands, itemID)
+				break
+			}
+			if processID, _ := item["processId"].(string); processID == "" {
+				return
+			}
+			if _, known := s.backgroundCommands[itemID]; known {
+				return
+			}
+			if s.backgroundCommands == nil {
+				s.backgroundCommands = map[string]*codexBackgroundCommand{}
+			}
+			command, _ := item["command"].(string)
+			s.backgroundSeq++
+			s.backgroundCommands[itemID] = &codexBackgroundCommand{thread: threadID, command: command, seq: s.backgroundSeq}
 		case item["type"] == "subAgentActivity":
 			agentThreadID, _ := item["agentThreadId"].(string)
 			agentPath, _ := item["agentPath"].(string)
@@ -750,6 +794,30 @@ func (s *codexSession) forgetFinishedSubagents() {
 	}
 }
 
+func (s *codexSession) activityWaits() []any {
+	listed := make([]*codexBackgroundCommand, 0, len(s.backgroundCommands))
+	for _, command := range s.backgroundCommands {
+		if command.listed {
+			listed = append(listed, command)
+		}
+	}
+	sort.Slice(listed, func(i, j int) bool { return listed[i].seq < listed[j].seq })
+	waits := []any{}
+	for _, command := range listed {
+		if len(waits) == codexActivityListMax {
+			break
+		}
+		description := command.command
+		if runes := []rune(description); len(runes) > codexActivityDescriptionMax {
+			description = string(runes[:codexActivityDescriptionMax])
+		}
+		waits = append(waits, map[string]any{
+			"kind": "background_command", "description": description, "next_ts": nil, "recurring": false,
+		})
+	}
+	return waits
+}
+
 func (s *codexSession) activityBody() map[string]any {
 	ids := make([]string, 0, len(s.runningSubagents))
 	for id := range s.runningSubagents {
@@ -786,7 +854,7 @@ func (s *codexSession) activityBody() map[string]any {
 		busySince = s.busySince
 	}
 	return map[string]any{
-		"busy": s.busySince > 0, "busy_since": busySince, "subagents": subagents, "waits": []any{},
+		"busy": s.busySince > 0, "busy_since": busySince, "subagents": subagents, "waits": s.activityWaits(),
 	}
 }
 
