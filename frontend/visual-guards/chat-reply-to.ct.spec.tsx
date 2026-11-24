@@ -4,8 +4,8 @@
 // x 不清字、送出帶對象、引用列點得回去）。這裡補的是 jsdom **量不到**的三件，
 // 每一件都對應一個真的會壞掉的方式：
 //
-//  ① 成員訊息上的回覆入口是 hover 才顯形的（owner 自己的訊息上常駐，2026-11-09），但**永遠占著版面**。用 display:none 做隱藏會讓
-//     氣泡在滑過去的當下橫向跳一格 —— 那是使用者感覺得到、jsdom 完全看不到的。
+//  ① 每則訊息的工具列（回覆・複製・放大閱讀／刪除）hover 才顯形，浮在氣泡上緣、不占文字寬度，
+//     顯形時文字一格都不能動，也不能蓋到第一行字。觸控裝置沒有工具列，改成長按選單（檔尾）。
 //  ② 引用列與「正在回覆」橫幅的**每一行**都必須裁掉溢出。它們攜帶的是別人訊息的
 //     原文，長度不受這一則控制；一旦允許折行，一句長訊息就會把版面撐開，或把輸入
 //     框往下推。🔴 2026-08-22 起兩者都是**固定兩行**（第一行「寄件者 → 收件者」，
@@ -15,11 +15,12 @@
 //  ③ 引用列必須留在氣泡那一欄裡，不得溢出訊息串的可視寬度（窄視窗尤其）。
 //
 // 四個寬度都量：手機寬、小平板寬與桌面寬在這個元件上是不同的失敗面。375 是實機
-// 最窄的那一格；720 在 1280 的餘裕之下，第一行的名字最先擠向角落的按鈕。
-import { test, expect } from "@playwright/experimental-ct-react";
+// 最窄的那一格；720 在 1280 的餘裕之下，第一行的名字最先撐到氣泡的邊。
+import { test, expect, type MountResult } from "@playwright/experimental-ct-react";
 import { ChatReplyToStory } from "./stories/ChatReplyToStory";
 import { ChatSelectionReplyStory } from "./stories/ChatSelectionReplyStory";
 import { ChatCardTimestampStory } from "./stories/ChatCardTimestampStory";
+import { ChatMessageActionsStory } from "./stories/ChatMessageActionsStory";
 import { BUILTIN_THEME_IDS, expectBuiltinApplied, selectBuiltinTheme } from "./builtinThemes";
 
 /** Parse what getComputedStyle hands back for a colour — `rgb()`, `rgba()` or
@@ -67,14 +68,16 @@ function intersects(a: Box, b: Box): boolean {
 }
 
 /** The whole quote row is the 看原訊息 target (owner rc-4f3663c42554): the
- * overlay button's box is the row's, it never reaches the corner controls, and
- * a click at each corner button's centre still lands on that corner button. */
+ * overlay button's box is the row's, it never reaches the toolbar, and a click
+ * at each toolbar button's centre still lands on that button. */
 async function expectWholeRowTarget(
   row: import("@playwright/test").Locator,
   label: string,
 ): Promise<void> {
-  // elementFromPoint only sees the viewport.
+  // elementFromPoint only sees the viewport; the toolbar takes clicks only
+  // while it is shown.
   await row.scrollIntoViewIfNeeded();
+  await row.hover({ position: { x: 1, y: 1 } });
   const quote = (await row.locator(".chat__msg-quote").boundingBox())!;
   const jump = (await row.locator(".chat__msg-quote__jump").boundingBox())!;
   for (const k of ["x", "y", "width", "height"] as const) {
@@ -88,18 +91,18 @@ async function expectWholeRowTarget(
   expect(jump.x + jump.width, `${label}: jump escapes the bubble`).toBeLessThanOrEqual(
     bubble.x + bubble.width + 0.5,
   );
-  const corners = row.locator(".chat__msg-actions > button");
-  const n = await corners.count();
-  expect(n, `${label}: the row has corner controls to check against`).toBeGreaterThan(0);
+  const buttons = row.locator(".chat__msg-actions > button");
+  const n = await buttons.count();
+  expect(n, `${label}: the row has toolbar buttons to check against`).toBeGreaterThan(0);
   for (let i = 0; i < n; i++) {
-    const corner = corners.nth(i);
-    const c = (await corner.boundingBox())!;
-    expect(intersects(jump, c), `${label}: jump overlaps corner button ${i}`).toBe(false);
-    const hit = await corner.evaluate((el, [x, y]) => {
+    const button = buttons.nth(i);
+    const c = (await button.boundingBox())!;
+    expect(intersects(jump, c), `${label}: jump overlaps toolbar button ${i}`).toBe(false);
+    const hit = await button.evaluate((el, [x, y]) => {
       const at = document.elementFromPoint(x, y);
       return !!at && el.contains(at);
     }, [c.x + c.width / 2, c.y + c.height / 2] as const);
-    expect(hit, `${label}: corner button ${i} is not what its own centre hits`).toBe(true);
+    expect(hit, `${label}: toolbar button ${i} is not what its own centre hits`).toBe(true);
   }
   const head = await row
     .locator(".chat__msg-quote__head")
@@ -110,66 +113,56 @@ async function expectWholeRowTarget(
 }
 
 for (const width of [375, 390, 720, 1280]) {
-  test(`width ${width}: the reply entry is hover-revealed but never re-flows the row`, async ({
+  test(`width ${width}: the toolbar is hidden at rest, revealed on hover over the bubble's top edge, and moves no text`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
     const cmp = await mount(<ChatReplyToStory />);
 
-    const entry = cmp.getByTestId("reply-entry-incoming");
-    // The bubble's TEXT is what a reflow would move now that the controls live
-    // inside the bubble: measuring the bubble itself would miss a slot that
-    // grew and pushed the words sideways.
-    const bubble = cmp.getByTestId("row-incoming").locator(".chat__msg-text");
+    for (const row of ["row-incoming", "row-mine-deletable"]) {
+      const r = cmp.getByTestId(row);
+      const toolbar = r.locator(".chat__msg-toolbar");
+      const text = r.locator(".chat__msg-text");
+      await r.scrollIntoViewIfNeeded();
+      await page.mouse.move(0, 0);
+      // Hidden by OPACITY, not by display/visibility: it keeps its box, so the
+      // reveal cannot move anything.
+      await expect(toolbar, `${row} at rest`).toHaveCSS("opacity", "0");
+      await expect(toolbar, `${row} at rest`).toHaveCSS("pointer-events", "none");
+      const before = (await text.boundingBox())!;
 
-    // Hidden by OPACITY, not by display/visibility: it must still occupy space.
-    await expect(entry).toHaveCSS("opacity", "0");
-    const box = await entry.boundingBox();
-    expect(box, "an opacity-hidden control still has a box").not.toBeNull();
-    expect(box!.width).toBeGreaterThan(0);
-    expect(box!.height).toBeGreaterThan(0);
-
-    // The decisive measurement: hovering reveals it WITHOUT moving the bubble.
-    const before = await bubble.boundingBox();
-    await cmp.getByTestId("row-incoming").hover();
-    await expect(entry).toHaveCSS("opacity", "1");
-    const after = await bubble.boundingBox();
-    expect(Math.abs(after!.x - before!.x)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(after!.width - before!.width)).toBeLessThanOrEqual(0.5);
+      await r.hover();
+      await expect(toolbar, `${row} hovered`).toHaveCSS("opacity", "1");
+      const after = (await text.boundingBox())!;
+      for (const k of ["x", "y", "width", "height"] as const) {
+        expect(Math.abs(after[k] - before[k]), `${row}: text ${k} moved`).toBeLessThanOrEqual(0.5);
+      }
+      const bar = (await toolbar.boundingBox())!;
+      const bubble = (await r.locator(".chat__msg-bubble").boundingBox())!;
+      expect(bar.y, `${row}: the toolbar starts above the bubble`).toBeLessThan(bubble.y);
+      expect(bar.y + bar.height, `${row}: the toolbar reaches into the bubble's edge`).toBeGreaterThan(bubble.y);
+      expect(bar.y + bar.height, `${row}: the toolbar covers the first line`).toBeLessThanOrEqual(after.y + 0.5);
+    }
   });
 
-  test(`width ${width}: on the owner's own bubble 回覆這則 and 刪除 rest visible without hover`, async ({
+  test(`width ${width}: the text runs the bubble's full content width`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
     const cmp = await mount(<ChatReplyToStory />);
 
-    // owner 2026-11-09: the corner width is reserved on his own bubbles anyway,
-    // and a reserved corner with no icon in it read as a stray gap. The pointer
-    // is parked on an INCOMING row so nothing here is being hovered.
-    await cmp.getByTestId("row-incoming").hover();
-    for (const id of ["reply-entry-mine", "reply-entry-mine-deletable", "delete-entry-mine"]) {
-      await expect(cmp.getByTestId(id), id).toHaveCSS("opacity", "1");
-    }
-    // Readable at rest, not merely present: the resting state is now the one
-    // the owner sees, so the 3:1 non-text floor applies to it.
-    for (const id of ["reply-entry-mine-deletable", "delete-entry-mine"]) {
-      const { ink, ground } = await cmp.getByTestId(id).evaluate((e) => ({
-        ink: getComputedStyle(e).color,
-        ground: getComputedStyle(e.closest(".chat__msg-bubble")!).backgroundColor,
-      }));
-      expect(contrast(ink, ground), `${id}: resting ink vs its bubble`).toBeGreaterThanOrEqual(3);
-    }
-    // Both controls sit inside the bubble's reserved corner, never over the text.
-    const text = await cmp
-      .getByTestId("row-mine-deletable")
-      .locator(".chat__msg-text")
-      .boundingBox();
-    for (const id of ["reply-entry-mine-deletable", "delete-entry-mine"]) {
-      const b = await cmp.getByTestId(id).boundingBox();
-      expect(b!.x, `${id} starts right of the text`).toBeGreaterThanOrEqual(text!.x + text!.width - 0.5);
+    for (const row of ["row-incoming", "row-mine", "row-mine-deletable", "row-incoming-quote"]) {
+      const { text, content } = await cmp
+        .getByTestId(row)
+        .locator(".chat__msg-text")
+        .evaluate((e) => ({
+          text: e.getBoundingClientRect().width,
+          // 13px of bubble padding on each side and nothing else.
+          content: e.closest(".chat__msg-bubble")!.clientWidth - 26,
+        }));
+      expect(Math.abs(text - content), `${row}: text ${text} vs bubble content ${content}`).toBeLessThanOrEqual(0.5);
     }
   });
 
@@ -301,7 +294,7 @@ for (const width of [375, 390, 720, 1280]) {
   });
 
   for (const theme of BUILTIN_THEME_IDS) {
-  test(`width ${width} ${theme}: the corner buttons take their ink from the bubble they sit on`, async ({
+  test(`width ${width} ${theme}: the toolbar's icons read at 3:1 on the toolbar, which stands off both bubbles`, async ({
     mount,
     page,
   }) => {
@@ -310,78 +303,31 @@ for (const width of [375, 390, 720, 1280]) {
     const cmp = await mount(<ChatReplyToStory />);
     await expectBuiltinApplied(page, theme);
 
-    // owner 2026-08-20 (rc-8056a06aa2b8): the entry used to be a chip in
-    // --color-card, which is the same surface as an incoming bubble and a
-    // foreign grey box on your own — that one is painted accent green. He asked
-    // why the two buttons looked like different colours; they were not
-    // different from each other, they were different from what they sat on.
-    const incoming = cmp.getByTestId("reply-entry-incoming");
-    const mine = cmp.getByTestId("reply-entry-mine");
-
-    // 🔴 THE RULE, stated as something that can fail: the same button on two
-    // differently-coloured bubbles must not come out the same colour. A
-    // hardcoded muted ink passes any "is it readable" check and fails this one.
-    const inkIncoming = await incoming.evaluate((e) => getComputedStyle(e).color);
-    const inkMine = await mine.evaluate((e) => getComputedStyle(e).color);
-    expect(inkMine).not.toBe(inkIncoming);
-
-    // And no box of its own: the chip is what made it read as a foreign object.
-    for (const btn of [incoming, mine]) {
-      const box = await btn.evaluate((e) => {
-        const c = getComputedStyle(e);
-        return { bg: c.backgroundColor, bw: c.borderTopWidth };
-      });
-      expect(box.bg).toBe("rgba(0, 0, 0, 0)");
-      expect(box.bw).toBe("0px");
-    }
-
-    // 🔴 AND THE INK MUST BE READABLE. "Follows the bubble" is satisfied just as
-    // well by ink at 5% — the two would still differ from each other, and this
-    // test would still pass, while the control had effectively vanished. So the
-    // rule is stated as contrast: WCAG's 3:1 floor for a non-text control,
-    // measured against the bubble each button actually sits on.
-    //
-    // Precisely: this measures the INK, not the resting appearance. On a fine
-    // pointer the incoming one sits at `opacity: 0` until hover, so what is
-    // pinned here is the colour it is revealed IN; the reveal itself is pinned
-    // by the opacity assertion at the top of this file, and the state a touch
-    // user actually gets — where there is no reveal — is pinned by its own test
-    // under `hasTouch`, which does fold opacity into the contrast.
-    for (const [btn, row] of [
-      [incoming, "row-incoming"],
-      [mine, "row-mine"],
+    for (const [row, ids] of [
+      ["row-incoming", ["reply-entry-incoming", "copy-entry-incoming", "expand-entry-incoming"]],
+      ["row-mine-deletable", ["reply-entry-mine-deletable", "copy-entry-mine-deletable", "delete-entry-mine"]],
     ] as const) {
-      const { ink, ground } = await btn.evaluate((e) => ({
-        ink: getComputedStyle(e).color,
-        ground: getComputedStyle(e.closest(".chat__msg-bubble")!).backgroundColor,
+      await cmp.getByTestId(row).hover();
+      await page.waitForTimeout(250);
+      for (const id of ids) {
+        const { ink, ground } = await cmp.getByTestId(id).evaluate((e) => ({
+          ink: getComputedStyle(e).color,
+          ground: getComputedStyle(e.closest(".chat__msg-toolbar")!).backgroundColor,
+        }));
+        expect(parseColour(ground)[3], `${id}: the toolbar has its own ground`).toBe(1);
+        expect(contrast(ink, ground), `${id}: icon vs toolbar`).toBeGreaterThanOrEqual(3);
+      }
+      // Its ground is not the bubble's own colour, or the half that overlaps
+      // the bubble would melt into it (the incoming bubble is card-coloured).
+      const edge = await cmp.getByTestId(row).locator(".chat__msg-toolbar").evaluate((e) => ({
+        ground: getComputedStyle(e).backgroundColor,
+        bubble: getComputedStyle(e.closest(".chat__msg-bubble")!).backgroundColor,
       }));
-      expect(contrast(ink, ground), `${row}: resting ink vs its bubble`).toBeGreaterThanOrEqual(3);
+      expect(
+        contrast(edge.ground, edge.bubble),
+        `${row}: the toolbar's ground is its bubble's`,
+      ).toBeGreaterThan(1.05);
     }
-
-    // Hover: back to the bubble's full-strength colour, plus a wash of the same
-    // colour so the target still reads as a target. owner asked for the box to
-    // go; he did not ask for the hover state to stop existing.
-    await mine.hover();
-    // ⚠️ WAIT OUT THE TRANSITION. These buttons animate `color` and
-    // `background-color` over 0.15s, and a computed value read mid-flight comes
-    // back as an interpolated `oklab(...)` that matches nothing — it reads as
-    // "the rule did not apply" when in fact it had not finished applying.
-    await page.waitForTimeout(400);
-    const hovered = await mine.evaluate((e) => {
-      const c = getComputedStyle(e);
-      return {
-        ink: c.color,
-        wash: c.backgroundColor,
-        bubbleInk: getComputedStyle(e.closest(".chat__msg-bubble")!).color,
-      };
-    });
-    const ink = parseColour(hovered.ink);
-    const bubbleInk = parseColour(hovered.bubbleInk);
-    for (let i = 0; i < 3; i++) {
-      expect(Math.abs(ink[i] - bubbleInk[i])).toBeLessThanOrEqual(1.5);
-    }
-    expect(ink[3]).toBeGreaterThan(0.95);
-    expect(parseColour(hovered.wash)[3]).toBeGreaterThan(0);
   });
   }
 
@@ -536,12 +482,10 @@ for (const width of [390, 1200, 1250, 1280]) {
   });
 }
 
-// The whole-row target against the corner controls, on every quote row
-// including the incoming one with a body (`--acts2`, the widest corner).
-// Narrow widths are where a name pair that failed to give way would push line
-// 1 under them.
+// The whole-row target against the toolbar, on every quote row including the
+// incoming one with a body (three buttons).
 for (const width of [300, 320, 336, 360, 390, 600, 640, 760]) {
-  test(`width ${width}: the whole quote row is the jump target and never reaches the corner controls`, async ({
+  test(`width ${width}: the whole quote row is the jump target and never reaches the toolbar`, async ({
     mount,
     page,
   }) => {
@@ -672,7 +616,7 @@ test("narrow 390: the reply entry and the banner x are focusable native buttons"
   await page.setViewportSize({ width: 390, height: 800 });
   const cmp = await mount(<ChatReplyToStory />);
 
-  for (const id of ["reply-entry-incoming", "reply-banner-x", "quote-jump"]) {
+  for (const id of ["reply-entry-incoming", "copy-entry-incoming", "reply-banner-x", "quote-jump"]) {
     const control = cmp.getByTestId(id);
     await expect(control).toHaveJSProperty("tagName", "BUTTON");
     await control.focus();
@@ -686,68 +630,1132 @@ test("narrow 390: the reply entry and the banner x are focusable native buttons"
   await expect(jump).not.toHaveCSS("outline-style", "none");
 });
 
-// A coarse pointer has no hover to reveal these buttons with, so the
-// `@media (hover: none)` branch IS the state they live in — and on a phone that
-// entry is the only way to reply at all. `hasTouch` is what puts the browser in
-// that branch; it is a context option, so this half of the file runs under its
-// own describe.
-test.describe("coarse pointer", () => {
-  // `hasTouch` alone is what flips the media branch — verified by inverting each:
-  // hasTouch on / isMobile off keeps this green, hasTouch off / isMobile on turns
-  // it red. isMobile additionally rewrites the viewport meta, so it is left out.
-  test.use({ hasTouch: true });
+// A failed copy shows its words in the toolbar over the bubble's top edge.
+// `.chat__messages` clips sideways (overflow-x: hidden), so a label that grew
+// past the thread's edge would not scroll the page — it would just be cut off
+// mid-word. (It can still be scrolled programmatically, which is why nothing
+// here calls scrollIntoView: that would slide the thread sideways and hide the
+// cut.) Seasonal labels sit within a few px of the 96px cap, so whether they
+// wrap is up to the runner's fonts; wrapping is the intended fallback, so only
+// the plain wordings are held to one line. A copy that worked shows nothing
+// there: its check is the copy button's own icon.
+const COPY_STATUS_ROWS = [
+  ["copy-status-incoming", "row-incoming-copy-result"],
+  ["copy-status-incoming-short", "row-incoming-short-copy-result"],
+  ["copy-status-mine", "row-mine-copy-result"],
+] as const;
+for (const width of [320, 390, 1440]) {
+  for (const [wording, label, oneLine] of [
+    ["zh", "複製失敗", true],
+    ["en", "Copy failed", true],
+    ["thanksgiving zh", "複製失敗 🍂", false],
+    ["thanksgiving en", "Copy failed 🍂", false],
+    ["christmas zh", "複製失敗 🎄", false],
+    ["christmas en", "Copy failed 🎄", false],
+    ["long theme wording", "Couldn't copy — it slipped out of the basket", false],
+  ] as const) {
+    test(`width ${width} ${wording} failed: the copy result stays whole inside the thread and moves no text`, async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 800 });
+      const textInBubble = (row: import("@playwright/test").Locator) =>
+        row.locator(".chat__msg-text").evaluate((e) => {
+          const t = e.getBoundingClientRect();
+          const b = e.closest(".chat__msg-bubble")!.getBoundingClientRect();
+          return { dx: t.x - b.x, dy: t.y - b.y, right: b.right - t.right };
+        });
+      const plain = await mount(<ChatReplyToStory copyResult="failed" copyLabel="x" />);
+      const before = {
+        incoming: await textInBubble(plain.getByTestId("row-incoming-copy-result")),
+        mine: await textInBubble(plain.getByTestId("row-mine-copy-result")),
+      };
+      await plain.unmount();
 
-  for (const width of [390, 1280]) {
-  for (const theme of BUILTIN_THEME_IDS) {
-  test(`width ${width} ${theme}: on a touch device the entry is readable without hover`, async ({
+      const cmp = await mount(<ChatReplyToStory copyResult="failed" copyLabel={label} />);
+      const geom = await cmp.getByTestId("chat-messages").evaluate((t) => {
+        const r = t.getBoundingClientRect();
+        const left = r.x + t.clientLeft;
+        const labels = ["copy-status-incoming", "copy-status-incoming-short", "copy-status-mine"].map((id) => {
+          const e = t.querySelector(`[data-testid="${id}"]`)!;
+          const b = e.getBoundingClientRect();
+          return { id, x: b.x, right: b.right, lines: Math.round(b.height / parseFloat(getComputedStyle(e).lineHeight)) };
+        });
+        return {
+          scrollLeft: t.scrollLeft,
+          left,
+          right: left + t.clientWidth,
+          overflow: t.scrollWidth - t.clientWidth,
+          labels,
+        };
+      });
+      expect(geom.scrollLeft).toBe(0);
+      for (const l of geom.labels) {
+        expect(l.x, `${l.id} cut at the thread's left edge`).toBeGreaterThanOrEqual(geom.left - 0.5);
+        expect(l.right, `${l.id} cut at the thread's right edge`).toBeLessThanOrEqual(geom.right + 0.5);
+        if (oneLine) expect(l.lines, `${l.id} wraps`).toBe(1);
+      }
+      expect(geom.overflow, "the thread grew sideways").toBeLessThanOrEqual(0);
+      for (const [status, row] of COPY_STATUS_ROWS) {
+        const l = (await cmp.getByTestId(status).boundingBox())!;
+        const text = (await cmp.getByTestId(row).locator(".chat__msg-text").boundingBox())!;
+        expect(l.y + l.height, `${status} covers the message`).toBeLessThanOrEqual(text.y + 0.5);
+        await expect(cmp.getByTestId(status)).toHaveText(label);
+        // Shown while the toolbar's buttons are not: nothing between it and
+        // the bubble fades.
+        const shown = await cmp.getByTestId(status).evaluate((e) => {
+          let alpha = 1;
+          for (let n: Element | null = e; n && !n.matches(".chat__msg"); n = n.parentElement)
+            alpha *= Number(getComputedStyle(n).opacity);
+          return alpha;
+        });
+        expect(shown, status).toBe(1);
+      }
+      expect(await textInBubble(cmp.getByTestId("row-incoming-copy-result"))).toEqual(before.incoming);
+      expect(await textInBubble(cmp.getByTestId("row-mine-copy-result"))).toEqual(before.mine);
+    });
+  }
+
+  test(`width ${width} copied: nothing is shown beside the toolbar, and it stays hidden at rest`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
-    await selectBuiltinTheme(page, theme);
-    const cmp = await mount(<ChatReplyToStory />);
-    await expectBuiltinApplied(page, theme);
-
-    // Sanity FIRST: if the coarse branch is not actually active, the buttons sit
-    // at the fine-pointer resting opacity of 0 and every contrast below comes
-    // out 1:1 — which would read as "the colour rule is broken" rather than
-    // "this test never entered the branch it is named after".
-    const coarseApplied = await page.evaluate(
-      () => window.matchMedia("(hover: none)").matches,
-    );
-    expect(coarseApplied, "the coarse-pointer branch is not active").toBe(true);
-
-    // 🔴 OPACITY MULTIPLIES THE INK'S OWN ALPHA. That is the whole reason this
-    // test exists: the branch said `opacity: 0.55`, calibrated when the ink was
-    // opaque, and the ink later became 55% of the bubble's colour — 0.55 × 0.55
-    // is 30%, measured at 2.02:1 on your own bubble. Nothing was red; the two
-    // rules are forty lines apart and each is defensible alone.
-    for (const row of ["row-incoming", "row-mine"]) {
-      const { ink, alpha, ground } = await cmp
-        .getByTestId(row)
-        .locator(".chat__msg-reply")
-        .evaluate((e) => {
-          const c = getComputedStyle(e);
-          return {
-            ink: c.color,
-            alpha: Number(c.opacity),
-            ground: getComputedStyle(e.closest(".chat__msg-bubble")!)
-              .backgroundColor,
-          };
-        });
-      const parsed = parseColour(ink);
-      const effective = `color(srgb ${parsed[0] / 255} ${parsed[1] / 255} ${
-        parsed[2] / 255
-      } / ${parsed[3] * alpha})`;
-      expect(
-        contrast(effective, ground),
-        `${row}: coarse-pointer resting ink vs its bubble`,
-      ).toBeGreaterThanOrEqual(3);
+    const cmp = await mount(<ChatReplyToStory copyResult="copied" copyLabel="已複製" />);
+    for (const [status, row] of COPY_STATUS_ROWS) {
+      await expectScreenReaderOnly(cmp.getByTestId(status), "已複製");
+      await expect(cmp.getByTestId(row).locator(".chat__msg-toolbar"), row).toHaveCSS("opacity", "0");
     }
   });
+}
+
+// The live <ChatArea>: the toolbar on real rows, the reply-card row, and the
+// long-press menu.
+const SHOTS = process.env.CHAT_ACTIONS_SHOTS;
+
+async function mountThread(
+  mount: (component: React.JSX.Element) => Promise<MountResult>,
+  page: import("@playwright/test").Page,
+  width: number,
+  height: number,
+  props: { cardReadFails?: boolean; cardsWithoutTask?: boolean; tallMessage?: boolean } = {},
+) {
+  await page.setViewportSize({ width, height });
+  const cmp = await mount(<ChatMessageActionsStory withRoster={width > 720} {...props} />);
+  await expect(page.locator('[data-msg-id="m-card"]')).toBeVisible();
+  return cmp;
+}
+
+const rowAt = (page: import("@playwright/test").Page, id: string) =>
+  page.locator(`[data-msg-id="${id}"]`);
+
+/** A copy that worked shows only a check; its words are there for a screen
+ * reader, in a 1px box. */
+async function expectCheckOnly(result: import("@playwright/test").Locator, words: string) {
+  await expect(result.locator("svg")).toBeVisible();
+  await expect(result.locator(".chat__sr-text")).toHaveText(words);
+  expect((await result.locator(".chat__sr-text").boundingBox())!.width).toBeLessThanOrEqual(1);
+  expect(
+    await result.evaluate((e) => {
+      const shown = e.cloneNode(true) as Element;
+      shown.querySelectorAll(".chat__sr-text").forEach((n) => n.remove());
+      return shown.textContent!.trim();
+    }),
+    "words shown beside the check",
+  ).toBe("");
+}
+
+/** A copy result only a screen reader gets: its words in a 1px box, nothing
+ * else drawn. */
+async function expectScreenReaderOnly(status: import("@playwright/test").Locator, words: string) {
+  await expect(status).toHaveText(words);
+  await expect(status.locator(".chat__sr-text")).toHaveText(words);
+  expect(await status.locator("svg").count(), "an icon beside the toolbar").toBe(0);
+  expect((await status.boundingBox())!.width, "a box beside the toolbar").toBeLessThanOrEqual(1);
+  expect((await status.locator(".chat__sr-text").boundingBox())!.width).toBeLessThanOrEqual(1);
+}
+
+/** A toolbar copy that worked: the copy button itself is the check, and the
+ * result beside it is for a screen reader only. */
+async function expectCopiedOnTheButtonOnly(row: import("@playwright/test").Locator) {
+  await expect(row.locator(".chat__msg-copy")).toHaveAttribute("aria-label", "已複製");
+  await expect(row.locator('.chat__msg-copy svg path[d="M20 6 9 17l-5-5"]')).toHaveCount(1);
+  await expectScreenReaderOnly(row.getByRole("status"), "已複製");
+}
+
+/** The focused box would make iOS zoom the page in, after which it pans
+ * sideways. */
+async function expectNoZoomOnFocus(page: import("@playwright/test").Page) {
+  const size = await page.evaluate(() => parseFloat(getComputedStyle(document.activeElement!).fontSize));
+  expect(size, "the focused box's font size").toBeGreaterThanOrEqual(16);
+  expect(
+    await page.evaluate(() => document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth),
+    "the page is wider than the screen",
+  ).toBeLessThanOrEqual(0);
+}
+
+/** The messages whose toolbar shows its buttons right now. */
+function toolbarsShown(page: import("@playwright/test").Page) {
+  return page.locator(".chat__msg").evaluateAll((rows) =>
+    rows
+      .filter((r) => {
+        const bar = r.querySelector(".chat__msg-toolbar");
+        const actions = r.querySelector(".chat__msg-actions");
+        return (
+          !!bar &&
+          !!actions &&
+          getComputedStyle(bar).opacity === "1" &&
+          getComputedStyle(actions).display !== "none"
+        );
+      })
+      .map((r) => r.getAttribute("data-msg-id")),
+  );
+}
+
+for (const [width, height] of [
+  [320, 700],
+  [390, 844],
+  [1440, 790],
+] as const) {
+  test(`live thread ${width}: hovering a message shows its toolbar on the bubble's edge, incoming and own alike, and nothing moves`, async ({
+    mount,
+    page,
+  }) => {
+    await mountThread(mount, page, width, height);
+    const textBox = async (id: string) =>
+      (await rowAt(page, id).locator(".chat__msg-text").boundingBox())!;
+    const scroller = (await page.locator(".chat__messages").boundingBox())!;
+
+    for (const id of ["m-long", "m-short", "m-mine", "m-mine-short", "m-mention", "m-card"]) {
+      const row = rowAt(page, id);
+      const toolbar = row.locator(".chat__msg-toolbar");
+      await row.scrollIntoViewIfNeeded();
+      await page.mouse.move(0, 0);
+      await expect(toolbar, `${id} at rest`).toHaveCSS("opacity", "0");
+      const before = id === "m-card" ? null : await textBox(id);
+
+      await row.hover({ position: { x: 2, y: 2 } });
+      await expect(toolbar, `${id} hovered`).toHaveCSS("opacity", "1");
+      expect(await toolbarsShown(page), "one toolbar at a time").toEqual([id]);
+      const bar = (await toolbar.boundingBox())!;
+      expect(bar.x, `${id}: toolbar cut at the thread's left`).toBeGreaterThanOrEqual(scroller.x - 0.5);
+      expect(bar.x + bar.width, `${id}: toolbar cut at the thread's right`).toBeLessThanOrEqual(
+        scroller.x + scroller.width + 0.5,
+      );
+      const name = row.locator(".chat__msg-name");
+      if (await name.count()) {
+        const n = (await name.boundingBox())!;
+        expect(intersects(bar, n), `${id}: the toolbar covers the sender's name`).toBe(false);
+      }
+      if (before) {
+        const after = await textBox(id);
+        for (const k of ["x", "y", "width", "height"] as const) {
+          expect(Math.abs(after[k] - before[k]), `${id}: text ${k} moved`).toBeLessThanOrEqual(0.5);
+        }
+        const first = (await row
+          .locator(".chat__msg-quote, .chat__msg-text")
+          .first()
+          .boundingBox())!;
+        expect(bar.y + bar.height, `${id}: the toolbar covers the first line`).toBeLessThanOrEqual(
+          first.y + 0.5,
+        );
+      } else {
+        const stub = (await row.locator(".reply-card__collapsed-row").boundingBox())!;
+        expect(bar.y + bar.height, "m-card: the toolbar covers the card's row").toBeLessThanOrEqual(
+          stub.y + 0.5,
+        );
+      }
+    }
+    expect(
+      await rowAt(page, "m-mine").locator(".chat__msg-actions button").evaluateAll((b) =>
+        b.map((e) => e.getAttribute("aria-label")),
+      ),
+    ).toEqual(["回覆這則", "複製訊息", "刪除"]);
+    expect(
+      await rowAt(page, "m-card").locator(".chat__msg-actions button").evaluateAll((b) =>
+        b.map((e) => e.getAttribute("aria-label")),
+      ),
+    ).toEqual(["回覆這則", "複製訊息"]);
+
+    // The incoming multi-line message uses the bubble's whole content width.
+    const text = await rowAt(page, "m-long").locator(".chat__msg-text").evaluate((e) => ({
+      text: e.getBoundingClientRect().width,
+      content: e.closest(".chat__msg-bubble")!.clientWidth - 26,
+    }));
+    expect(Math.abs(text.text - text.content)).toBeLessThanOrEqual(0.5);
+    test.info().annotations.push({ type: "m-long text width", description: String(text.text) });
+
+    if (SHOTS) {
+      await rowAt(page, "m-long").scrollIntoViewIfNeeded();
+      await rowAt(page, "m-long").hover({ position: { x: 2, y: 2 } });
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: `${SHOTS}/${width}x${height}-hover-incoming.png` });
+      await rowAt(page, "m-short").locator(".chat__msg-bubble").hover();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: `${SHOTS}/${width}x${height}-hover-incoming-short.png` });
+      await rowAt(page, "m-mine").locator(".chat__msg-bubble").hover();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: `${SHOTS}/${width}x${height}-hover-own.png` });
+    }
+  });
+
+  test(`live thread ${width}: a click leaves no toolbar behind; keyboard focus shows one`, async ({
+    mount,
+    page,
+  }) => {
+    await mountThread(mount, page, width, height);
+    const short = rowAt(page, "m-short");
+    await short.scrollIntoViewIfNeeded();
+    await short.locator(".chat__msg-bubble").hover();
+    await short.getByRole("button", { name: "複製訊息" }).click();
+    await expectCopiedOnTheButtonOnly(short);
+    if (SHOTS && width !== 390)
+      await page.screenshot({ path: `${SHOTS}/${width}x${height}-copied-short.png` });
+
+    await rowAt(page, "m-mine").locator(".chat__msg-bubble").hover();
+    await page.waitForTimeout(200);
+    expect(await toolbarsShown(page)).toEqual(["m-mine"]);
+    await page.mouse.move(0, 0);
+    // Within the result's 1.6s: a success holds nothing up after the pointer leaves.
+    await expect(short.locator(".chat__msg-toolbar")).toHaveCSS("opacity", "0", { timeout: 500 });
+    await expect(short.getByRole("status")).toHaveText("已複製", { timeout: 0 });
+
+    // A dialog handing focus back to the button that opened it is no reveal.
+    const long = rowAt(page, "m-long");
+    await long.scrollIntoViewIfNeeded();
+    await long.locator(".chat__msg-bubble").hover();
+    await long.getByRole("button", { name: "放大閱讀" }).click();
+    await page.getByRole("button", { name: "關閉預覽" }).click();
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(200);
+    await expect(long.locator(".chat__msg-toolbar")).toHaveCSS("opacity", "0");
+
+    await page.keyboard.press("Tab");
+    await long.getByRole("button", { name: "回覆這則" }).focus();
+    await expect(long.locator(".chat__msg-toolbar")).toHaveCSS("opacity", "1");
+  });
+}
+
+test("live thread 1440: a selection running through a mention and a link offers 回覆這段", async ({
+  mount,
+  page,
+}) => {
+  await mountThread(mount, page, 1440, 790);
+  const text = rowAt(page, "m-mention").locator(".chat__msg-text");
+  await expect(text.locator(".md-mention")).toHaveText("@Mira");
+  const t = (await text.boundingBox())!;
+  await page.mouse.move(t.x + 1, t.y + t.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(t.x + t.width - 1, t.y + t.height / 2, { steps: 8 });
+  await page.mouse.up();
+  const reply = page.getByTestId("chat-selection-reply");
+  await expect(reply).toBeVisible();
+  await reply.click();
+  await expect(page.locator(".chat__reply-banner__body")).toHaveText("請 @Mira 先看 這份計畫 再回我");
+});
+
+test("live thread 1440: 複製 on a reply card writes its question, and a failed read writes nothing", async ({
+  mount,
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+  const copyCard = async () => {
+    const card = rowAt(page, "m-card");
+    await card.scrollIntoViewIfNeeded();
+    await card.locator(".reply-card").hover();
+    await card.getByRole("button", { name: "複製訊息" }).click();
+    return card.getByRole("status");
+  };
+  expect(await page.evaluate(() => typeof ClipboardItem)).toBe("function");
+
+  const first = await mountThread(mount, page, 1440, 790);
+  await page.evaluate(() => navigator.clipboard.writeText("PRE"));
+  await copyCard();
+  await expectCopiedOnTheButtonOnly(rowAt(page, "m-card"));
+  expect(await clipboard()).toBe("要不要先在試用站備份？\n\nmigration 0142 會改索引。");
+  await first.unmount();
+
+  await page.evaluate(() => navigator.clipboard.writeText("PRE"));
+  await mountThread(mount, page, 1440, 790, { cardReadFails: true });
+  const failed = await copyCard();
+  await expect(failed).toHaveText("複製失敗");
+  expect(await clipboard()).toBe("PRE");
+  await page.mouse.move(0, 0);
+  await expect(failed, "the failure left with the pointer").toBeVisible();
+  await expect(rowAt(page, "m-card").locator(".chat__msg-toolbar")).toHaveCSS("opacity", "1");
+});
+
+/** A finger, through the browser's own touch input (CDP), so the press goes
+ * through the same gesture handling a phone's does. */
+async function touch(
+  page: import("@playwright/test").Page,
+  at: { x: number; y: number },
+  { holdMs, moveY = 0 }: { holdMs: number; moveY?: number },
+) {
+  const cdp = await page.context().newCDPSession(page);
+  const point = (y: number) => [{ x: at.x, y, id: 1 }];
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: point(at.y) });
+  for (let i = 1; i <= 6 && moveY; i++) {
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: point(at.y + (moveY * i) / 6),
+    });
+  }
+  await page.waitForTimeout(holdMs);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await cdp.detach();
+}
+
+/** Pin prefers-reduced-motion and prefers-reduced-transparency: a runner's
+ * own accessibility settings would otherwise pick the selection mode's blur
+ * or its plain fade for us. The session stays open, or the emulation ends. */
+async function preferReduced(page: import("@playwright/test").Page, reduced: boolean) {
+  const cdp = await page.context().newCDPSession(page);
+  const value = reduced ? "reduce" : "no-preference";
+  await cdp.send("Emulation.setEmulatedMedia", {
+    features: [
+      { name: "prefers-reduced-motion", value },
+      { name: "prefers-reduced-transparency", value },
+    ],
+  });
+  expect(
+    await page.evaluate(
+      (q) => matchMedia(q).matches,
+      `(prefers-reduced-motion: ${value}) and (prefers-reduced-transparency: ${value})`,
+    ),
+    "the media emulation did not take",
+  ).toBe(true);
+}
+
+async function centreOf(locator: import("@playwright/test").Locator) {
+  await locator.scrollIntoViewIfNeeded();
+  // A scroll closes the sheet; let this one settle before the press.
+  await locator.page().waitForTimeout(150);
+  const b = (await locator.boundingBox())!;
+  return { x: b.x + Math.min(b.width / 2, 40), y: b.y + b.height / 2 };
+}
+
+test("live thread 1440, mouse and touch screen: a finger's long press opens the menu, the mouse keeps the toolbar", async ({
+  mount,
+  page,
+}) => {
+  await mountThread(mount, page, 1440, 790);
+  expect(await page.evaluate(() => matchMedia("(hover: hover)").matches)).toBe(true);
+  const menu = page.getByTestId("chat-msg-menu");
+  const bubble = rowAt(page, "m-long").locator(".chat__msg-bubble");
+
+  await bubble.hover();
+  await expect(rowAt(page, "m-long").locator(".chat__msg-toolbar")).toHaveCSS("opacity", "1");
+  await page.mouse.move(0, 0);
+
+  await touch(page, await centreOf(bubble), { holdMs: 80 });
+  await page.waitForTimeout(600);
+  await expect(menu, "a tap opened the menu").toHaveCount(0);
+
+  // The mouse may select text in a bubble; a finger held on it may not.
+  await expect(bubble).toHaveCSS("user-select", "auto");
+  const at = await centreOf(bubble);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x: at.x, y: at.y, id: 1 }],
+  });
+  await expect(bubble).toHaveCSS("user-select", "none");
+  await page.waitForTimeout(700);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await cdp.detach();
+  await expect(menu.getByRole("menuitem")).toHaveText(["回覆這則", "複製訊息", "放大閱讀", "選取文字"]);
+  expect(
+    await page.evaluate(() => window.getSelection()!.toString()),
+    "the press also selected text",
+  ).toBe("");
+  await expect(bubble).toHaveCSS("user-select", "auto");
+});
+
+test.describe("touch screen", () => {
+  // `hasTouch` alone is what flips `(hover: none)` in this Chromium.
+  test.use({ hasTouch: true });
+
+  for (const [width, height] of [
+    [320, 700],
+    [390, 844],
+  ] as const) {
+    test(`live thread ${width}: no toolbar; a long press opens the message's sheet at the bottom of the screen, a tap or a scroll does not`, async ({
+      mount,
+      page,
+    }) => {
+      await mountThread(mount, page, width, height);
+      expect(await page.evaluate(() => matchMedia("(hover: none)").matches)).toBe(true);
+      const menu = page.getByTestId("chat-msg-menu");
+      const row = rowAt(page, "m-long");
+      const bubble = row.locator(".chat__msg-bubble");
+
+      // The browser's own long press is off on the bubble. Nothing shows, but
+      // a screen reader still finds every action.
+      await expect(bubble).toHaveCSS("user-select", "none");
+      await expect(row.locator(".chat__msg-toolbar")).toHaveCSS("opacity", "0");
+      await expect(row.getByRole("button")).toHaveText(["", "", ""]);
+      expect(
+        await row.locator(".chat__msg-actions button").evaluateAll((b) =>
+          b.map((e) => e.getAttribute("aria-label")),
+        ),
+      ).toEqual(["回覆這則", "複製訊息", "放大閱讀"]);
+
+      if (SHOTS && width === 390)
+        await page.screenshot({ path: `${SHOTS}/${width}x${height}-rest.png` });
+
+      await touch(page, await centreOf(bubble), { holdMs: 80 });
+      await page.waitForTimeout(600);
+      await expect(menu, "a tap opened the sheet").toHaveCount(0);
+
+      await touch(page, await centreOf(bubble), { holdMs: 700, moveY: -60 });
+      await expect(menu, "a scroll opened the sheet").toHaveCount(0);
+
+      // Pressed near the top of the thread…
+      await touch(page, await centreOf(bubble), { holdMs: 700 });
+      await expect(menu).toBeVisible();
+      await expect(menu.getByRole("menuitem")).toHaveText(["回覆這則", "複製訊息", "放大閱讀", "選取文字"]);
+      const items = menu.getByRole("menuitem");
+      await expect(items.first()).toBeFocused();
+      await expect(items.first(), "a finger's press drew a focus ring").toHaveCSS("outline-style", "none");
+      const tint = await items.nth(1).evaluate((e) => getComputedStyle(e).backgroundColor);
+      await expect(items.first(), "a finger's press tinted the focused item").toHaveCSS("background-color", tint);
+      await page.keyboard.press("ArrowDown");
+      await expect(items.nth(1)).toBeFocused();
+      const accent = await page.evaluate(() => {
+        const probe = document.createElement("i");
+        probe.style.color = "var(--color-accent)";
+        document.body.append(probe);
+        const c = getComputedStyle(probe).color;
+        probe.remove();
+        return c;
+      });
+      await expect(items.nth(1)).toHaveCSS("outline-style", "solid");
+      await expect(items.nth(1)).toHaveCSS("outline-color", accent);
+      await page.keyboard.press("ArrowUp");
+      await page.keyboard.press("ArrowUp");
+      await expect(items.last()).toBeFocused();
+      await expect(row).toHaveClass(/chat__msg--pressed/);
+      await expect(bubble).toHaveCSS("outline-style", "solid");
+      await page.waitForTimeout(300);
+      const top = (await menu.boundingBox())!;
+      expect(Math.abs(top.x)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(top.width - width)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(top.y + top.height - height), "the sheet sits on the screen's bottom edge").toBeLessThanOrEqual(0.5);
+      expect(
+        await page.evaluate(() => window.getSelection()!.toString()),
+        "the press also selected text",
+      ).toBe("");
+      if (SHOTS && width === 390)
+        await page.screenshot({ path: `${SHOTS}/${width}x${height}-long-press-top.png` });
+
+      // A tap on the dimmed backdrop closes it.
+      await touch(page, { x: 4, y: 4 }, { holdMs: 50 });
+      await expect(menu).toHaveCount(0);
+      await expect(row).not.toHaveClass(/chat__msg--pressed/);
+
+      const own = rowAt(page, "m-mine").locator(".chat__msg-text");
+      await touch(page, await centreOf(own), { holdMs: 700 });
+      await expect(menu).toHaveCount(1);
+      await expect(menu.getByRole("menuitem")).toHaveText(["回覆這則", "複製訊息", "刪除", "選取文字"]);
+
+      // …and near the bottom: the same sheet, in the same place.
+      await touch(page, { x: 4, y: 4 }, { holdMs: 50 });
+      const card = rowAt(page, "m-card").locator(".reply-card");
+      await touch(page, await centreOf(card), { holdMs: 700 });
+      await expect(menu).toHaveCount(1);
+      await expect(menu.getByRole("menuitem")).toHaveText(["回覆這則", "複製訊息", "選取文字"]);
+      await expect(card, "the press also opened the card").toHaveClass(/reply-card--collapsed/);
+      await page.waitForTimeout(300);
+      const bottom = (await menu.boundingBox())!;
+      expect(bottom.y).toBeCloseTo(top.y + (top.height - bottom.height), 0);
+      expect(Math.abs(bottom.y + bottom.height - height)).toBeLessThanOrEqual(0.5);
+      if (SHOTS && width === 390)
+        await page.screenshot({ path: `${SHOTS}/${width}x${height}-long-press-bottom.png` });
+
+      await touch(page, { x: 4, y: 4 }, { holdMs: 50 });
+      await expect(menu).toHaveCount(0);
+    });
+
+    test(`live thread ${width}: 複製 from the menu shows nothing once the menu closes when it worked, and 複製失敗 on the message when it did not`, async ({
+      mount,
+      page,
+    }) => {
+      const first = await mountThread(mount, page, width, height);
+      const row = rowAt(page, "m-short");
+      await touch(page, await centreOf(row.locator(".chat__msg-bubble")), { holdMs: 700 });
+      await page.getByTestId("chat-msg-menu-copy").tap();
+      await expect(page.getByTestId("chat-msg-menu")).toHaveCount(0);
+      await expectScreenReaderOnly(row.getByRole("status"), "已複製");
+      await expect(row.locator(".chat__msg-toolbar")).toHaveCSS("opacity", "0");
+      if (SHOTS && width === 390)
+        await page.screenshot({ path: `${SHOTS}/${width}x${height}-after-copy.png` });
+      await first.unmount();
+
+      await mountThread(mount, page, width, height, { cardReadFails: true });
+      const card = rowAt(page, "m-card");
+      await touch(page, await centreOf(card.locator(".reply-card")), { holdMs: 700 });
+      await page.getByTestId("chat-msg-menu-copy").tap();
+      await expect(page.getByTestId("chat-msg-menu")).toHaveCount(0);
+      const status = card.getByRole("status");
+      await expect(status).toHaveText("複製失敗");
+      await expect(status).toBeVisible();
+      await expect(card.locator(".chat__msg-toolbar")).toHaveCSS("opacity", "1");
+      const s = (await status.boundingBox())!;
+      const scroller = (await page.locator(".chat__messages").boundingBox())!;
+      expect(s.x).toBeGreaterThanOrEqual(scroller.x - 0.5);
+      expect(s.x + s.width).toBeLessThanOrEqual(scroller.x + scroller.width + 0.5);
+      const stub = (await card.locator(".reply-card__collapsed-row").boundingBox())!;
+      expect(s.y + s.height, "the result covers the card's row").toBeLessThanOrEqual(stub.y + 0.5);
+      if (SHOTS && width === 390)
+        await page.screenshot({ path: `${SHOTS}/${width}x${height}-copy-failed.png` });
+    });
+
+    for (const [id, selected, part] of [
+      ["m-mine", "第二點的 migration 先等我確認備份再跑。", [0, 3, "第二點"]],
+      ["m-mention", "請 @Mira 先看 這份計畫 再回我", null],
+    ] as const) {
+      test(`live thread ${width}: 選取文字 on ${id} enters its selection mode — the rest blurred and inert, a bar of 取消・複製・回覆 in the composer's place, and its links and quote do nothing there`, async ({
+        mount,
+        page,
+        context,
+      }) => {
+        await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+        await mountThread(mount, page, width, height);
+        await preferReduced(page, false);
+        const row = rowAt(page, id);
+        const bubble = row.locator(".chat__msg-bubble");
+        const bar = page.getByTestId("chat-select-bar");
+        await page.locator(".chat__input").fill("還沒送出的草稿");
+        await touch(page, await centreOf(row.locator(".chat__msg-text")), { holdMs: 700 });
+        const thread = page.locator(".chat__messages");
+        const scrolledFrom = await thread.evaluate((e) => e.scrollTop);
+        await page.getByTestId("chat-msg-menu-select").tap();
+
+        await expect(bar).toBeVisible();
+        await expect(bar).toBeFocused();
+        const [scrollTop, scrollMax] = await thread.evaluate((e) => [e.scrollTop, e.scrollHeight - e.clientHeight]);
+        expect(scrollTop, "the thread moved under a message in view").toBe(Math.min(scrolledFrom, scrollMax));
+        await expect(bubble).toHaveCSS("user-select", "auto");
+        await expect(bubble).toHaveCSS("filter", "none");
+        await expect(row).toHaveJSProperty("inert", false);
+        for (const other of ["m-long", "m-card"]) {
+          await expect(rowAt(page, other)).toHaveCSS("filter", /blur/);
+          await expect(rowAt(page, other)).toHaveCSS("pointer-events", "none");
+          await expect(rowAt(page, other)).toHaveJSProperty("inert", true);
+        }
+        await expect(page.locator(".chat__header")).toHaveCSS("filter", /blur/);
+        await expect(page.locator(".chat__header")).toHaveJSProperty("inert", true);
+        await rowAt(page, "m-long").locator(".chat__msg-actions button").first().focus();
+        await expect(bar).toBeFocused();
+        await expect(page.locator(".chat__composer")).toBeHidden();
+        const b = (await bar.boundingBox())!;
+        const chat = (await page.locator(".chat").boundingBox())!;
+        expect(Math.abs(b.y + b.height - (chat.y + chat.height)), "the bar is the bottom of the chat").toBeLessThanOrEqual(0.5);
+        expect(await page.evaluate(() => window.getSelection()!.toString())).toBe(selected);
+        await expect(page.getByTestId("chat-select-copy")).toBeEnabled();
+        await expect(page.getByTestId("chat-select-reply")).toBeEnabled();
+        if (SHOTS && width === 390 && id === "m-mine")
+          await page.screenshot({ path: `${SHOTS}/${width}x${height}-select-mode-selected.png` });
+
+        let popups = 0;
+        page.context().on("page", () => popups++);
+        const urlBefore = page.url();
+        for (const action of await row.locator("a, button:not(.chat__msg-actions button)").all())
+          await action.tap();
+        await page.waitForTimeout(300);
+        expect(popups, "a link in the message opened").toBe(0);
+        expect(page.url(), "a link in the message navigated").toBe(urlBefore);
+        await expect(page.locator("[role='dialog']")).toHaveCount(0);
+        await expect(row.getByTestId("msg-quote-error")).toHaveCount(0);
+        await expect(bar).toBeVisible();
+        await expect(row).toHaveClass(/chat__msg--selecting/);
+        await row.evaluate((r) => {
+          const range = document.createRange();
+          range.selectNodeContents(r.querySelector(".chat__msg-text")!);
+          window.getSelection()!.removeAllRanges();
+          window.getSelection()!.addRange(range);
+        });
+        await expect(page.getByTestId("chat-select-reply")).toBeEnabled();
+
+        if (part) {
+          // 複製 takes exactly what is selected, and the mode stays.
+          await page.evaluate(([msg, from, to]) => {
+            const t = document.querySelector(`[data-msg-id="${msg}"] .chat__msg-text p`)!.firstChild!;
+            const r = document.createRange();
+            r.setStart(t, from as number);
+            r.setEnd(t, to as number);
+            window.getSelection()!.removeAllRanges();
+            window.getSelection()!.addRange(r);
+          }, [id, part[0], part[1]] as const);
+          await page.getByTestId("chat-select-copy").tap();
+          await expectCheckOnly(page.getByTestId("chat-select-copy"), "已複製");
+          await expect(bar.getByRole("status")).toHaveText("已複製");
+          expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(part[2]);
+          await expect(bar).toBeVisible();
+          if (SHOTS && width === 390)
+            await page.screenshot({ path: `${SHOTS}/${width}x${height}-select-mode-copied.png` });
+          await page.getByTestId("chat-select-reply").tap();
+          await expect(page.locator(".chat__reply-banner__body")).toHaveText(part[2]);
+          // The 已複製 of the mode is gone with it, not left to run out its
+          // 1.6s over the message (read once: a retrying check would wait it out).
+          expect(await row.locator(".chat__msg-copy-status").textContent()).toBe("");
+        } else {
+          await page.getByTestId("chat-select-reply").tap();
+          await expect(page.locator(".chat__reply-banner__body")).toHaveText(selected);
+        }
+        await expect(bar).toHaveCount(0);
+        await expect(page.locator(".chat__input")).toBeVisible();
+        await expect(page.locator(".chat__input")).toHaveValue("還沒送出的草稿");
+        await expect(page.locator(".chat__input")).toBeFocused();
+        await expectNoZoomOnFocus(page);
+        await expect(bubble).toHaveCSS("user-select", "none");
+        await expect(rowAt(page, "m-long")).toHaveCSS("filter", "none");
+        await expect(rowAt(page, "m-long")).toHaveJSProperty("inert", false);
+      });
+    }
+
+    test(`live thread ${width}: with reduced motion or transparency the selection mode fades the rest instead of blurring it, and it is just as out of reach`, async ({
+      mount,
+      page,
+    }) => {
+      await mountThread(mount, page, width, height);
+      await preferReduced(page, true);
+      await touch(page, await centreOf(rowAt(page, "m-mine").locator(".chat__msg-text")), { holdMs: 700 });
+      await page.getByTestId("chat-msg-menu-select").tap();
+      await expect(page.getByTestId("chat-select-bar")).toBeVisible();
+      for (const other of ["m-long", "m-card"]) {
+        await expect(rowAt(page, other)).toHaveCSS("filter", "none");
+        await expect(rowAt(page, other)).toHaveCSS("opacity", "0.2");
+        await expect(rowAt(page, other)).toHaveCSS("pointer-events", "none");
+        await expect(rowAt(page, other)).toHaveJSProperty("inert", true);
+      }
+      await expect(rowAt(page, "m-mine")).toHaveCSS("opacity", "1");
+      await page.locator(".chat__messages").evaluate((e) => e.scrollTo({ top: 0 }));
+      const jump = page.getByTestId("chat-jump-latest");
+      await expect(jump).toBeVisible();
+      await expect(jump).toHaveCSS("opacity", "0.2");
+      await expect(jump).toHaveJSProperty("inert", true);
+    });
+
+    test(`live thread ${width}: in selection mode an empty selection, or one running into the quoted message, turns 複製 and 回覆 off, a tap on the blurred thread only ends the mode, and 取消 leaves the message in view`, async ({
+      mount,
+      page,
+    }) => {
+      await mountThread(mount, page, width, height);
+      const bar = page.getByTestId("chat-select-bar");
+      await touch(page, await centreOf(rowAt(page, "m-mine").locator(".chat__msg-text")), { holdMs: 700 });
+      await page.getByTestId("chat-msg-menu-select").tap();
+      await page.evaluate(() => window.getSelection()!.removeAllRanges());
+      await expect(page.getByTestId("chat-select-copy")).toBeDisabled();
+      await expect(page.getByTestId("chat-select-reply")).toBeDisabled();
+      await expect(page.getByTestId("chat-select-copy")).toHaveText("複製");
+      if (SHOTS && width === 390)
+        await page.screenshot({ path: `${SHOTS}/${width}x${height}-select-mode-rest.png` });
+      await rowAt(page, "m-mine").evaluate((row) => {
+        const r = document.createRange();
+        r.selectNodeContents(row.querySelector(".chat__msg-text")!);
+        window.getSelection()!.addRange(r);
+      });
+      await expect(page.getByTestId("chat-select-copy")).toBeEnabled();
+      await rowAt(page, "m-mine").evaluate((row) => {
+        const r = document.createRange();
+        r.setStartBefore(row.querySelector(".chat__msg-quote")!);
+        r.setEndAfter(row.querySelector(".chat__msg-text")!);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(r);
+      });
+      expect(await page.evaluate(() => window.getSelection()!.toString())).toContain("第二點的 migration");
+      await expect(page.getByTestId("chat-select-copy")).toBeDisabled();
+      await expect(page.getByTestId("chat-select-reply")).toBeDisabled();
+
+      // The link in the blurred message under the finger is not followed and
+      // its own sheet does not open.
+      let popups = 0;
+      page.context().on("page", () => popups++);
+      const link = rowAt(page, "m-long").locator("a").first();
+      const l = await centreOf(link);
+      await touch(page, l, { holdMs: 60 });
+      await expect(bar).toHaveCount(0);
+      await expect(page.getByTestId("chat-msg-menu")).toHaveCount(0);
+      await page.waitForTimeout(300);
+      expect(popups, "the blurred link opened").toBe(0);
+      expect(page.url()).not.toContain("example.com");
+
+      const thread = page.locator(".chat__messages");
+      await thread.evaluate((e) => {
+        const row = e.querySelector('[data-msg-id="m-mine"]')!.getBoundingClientRect();
+        e.scrollTop += row.bottom - e.getBoundingClientRect().bottom;
+      });
+      await touch(page, await centreOf(rowAt(page, "m-mine").locator(".chat__msg-text")), { holdMs: 700 });
+      await page.getByTestId("chat-msg-menu-select").tap();
+      await page.getByTestId("chat-select-cancel").tap();
+      await expect(bar).toHaveCount(0);
+      const shown = (await rowAt(page, "m-mine").boundingBox())!;
+      const threadBox = (await thread.boundingBox())!;
+      expect(shown.y + shown.height, "the message went under the composer").toBeLessThanOrEqual(threadBox.y + threadBox.height);
+      await expect(rowAt(page, "m-mine").getByRole("button", { name: "回覆這則" })).toBeFocused();
+    });
+
+    test(`live thread ${width}: on an answered card the selection mode drops the head that holds only its task row and any error line, still copies, and 回覆 is off; after 取消 the card is folded or open as it was before`, async ({
+      mount,
+      page,
+      context,
+    }) => {
+      await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      const first = await mountThread(mount, page, width, height);
+      const card = rowAt(page, "m-card-answered");
+      const bar = page.getByTestId("chat-select-bar");
+      const head = card.locator(".reply-card__chat-head");
+      await touch(page, await centreOf(card.locator(".reply-card")), { holdMs: 700 });
+      await page.getByTestId("chat-msg-menu-select").tap();
+      const body = card.locator(".reply-card__body");
+      await expect(body).toBeVisible();
+      await expect(card.locator(".reply-card__summary")).toBeVisible();
+      await expect(head).toHaveCSS("display", "none");
+      const thread = page.locator(".chat__messages");
+      const clearOfBar = async (state: string) => {
+        const rowBottom = (await card.boundingBox())!;
+        const barTop = (await bar.boundingBox())!.y;
+        expect(rowBottom.y + rowBottom.height, `${state}: the bar covers the newest message`).toBeLessThanOrEqual(barTop);
+      };
+      await expect(async () => clearOfBar("entered")).toPass();
+      await thread.evaluate((e) => e.scrollTo({ top: e.scrollHeight }));
+      await clearOfBar("scrolled to the end");
+      await body.evaluate((e) => {
+        const r = document.createRange();
+        r.selectNodeContents(e);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(r);
+      });
+      await expect(page.getByTestId("chat-select-copy")).toBeEnabled();
+      await expect(page.getByTestId("chat-select-reply")).toBeDisabled();
+      await expect(bar.getByRole("status")).toHaveText("");
+      await page.getByTestId("chat-select-copy").tap();
+      await expect(bar.getByRole("status")).toHaveText("已複製");
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("上線前要先跑完回歸測試。");
+      await page.evaluate(() => window.getSelection()!.removeAllRanges());
+      await expect(page.getByTestId("chat-select-copy")).toBeDisabled();
+      await page.getByTestId("chat-select-cancel").tap();
+      await expect(bar).toHaveCount(0);
+      await expect(card.locator(".reply-card")).toHaveClass(/reply-card--collapsed/);
+      await card.getByTestId("chat-reply-card-expand").tap();
+      await expect(head).toBeVisible();
+      await expect(card.getByTestId("reply-task-ref")).toBeVisible();
+      await first.unmount();
+
+      await mountThread(mount, page, width, height, { cardReadFails: true });
+      await card.getByTestId("chat-reply-card-expand").tap();
+      await touch(page, await centreOf(card.locator(".reply-card")), { holdMs: 700 });
+      await page.getByTestId("chat-msg-menu-select").tap();
+      const error = card.locator(".reply-card__error");
+      await expect(error).toHaveCount(1);
+      await expect(error).toBeHidden();
+      await expect(card.locator(".reply-card__summary")).toBeVisible();
+      await page.getByTestId("chat-select-cancel").tap();
+      await expect(bar).toHaveCount(0);
+      await expect(error).toBeVisible();
+    });
+
+    for (const season of ["thanksgiving", "christmas"] as const) {
+      for (const language of ["zh", "en"] as const) {
+        test(`live thread ${width} ${season} ${language}: the selection bar holds 取消・複製・回覆 whole and unthemed, and 複製 shows a check in place`, async ({
+          mount,
+          page,
+          context,
+        }) => {
+          await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+          await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
+          await page.setViewportSize({ width, height });
+          await mount(<ChatMessageActionsStory withRoster={false} season={season} />);
+          await expect(page.locator('[data-msg-id="m-card"]')).toBeVisible();
+          await touch(page, await centreOf(rowAt(page, "m-mine").locator(".chat__msg-text")), { holdMs: 700 });
+          await page.getByTestId("chat-msg-menu-select").tap();
+          const bar = page.getByTestId("chat-select-bar");
+          let barHeight: number | undefined;
+          const fits = async (state: string) => {
+            const geom = await bar.evaluate((b) => {
+              const box = b.getBoundingClientRect();
+              return {
+                bar: { x: box.x, right: box.right, top: box.top, height: box.height },
+                widths: Array.from(b.querySelectorAll("button")).map((e) => e.getBoundingClientRect().width),
+                buttonsTop: Math.min(...Array.from(b.querySelectorAll("button")).map((e) => e.getBoundingClientRect().top)),
+                parts: Array.from(b.querySelectorAll<HTMLElement>("button")).map((e) => {
+                  const r = e.getBoundingClientRect();
+                  return {
+                    text: e.textContent ?? "",
+                    x: r.x,
+                    right: r.right,
+                    cut: e.scrollWidth > e.clientWidth + 0.5,
+                  };
+                }),
+              };
+            });
+            expect(geom.bar.x, `${state}: bar cut on the left`).toBeGreaterThanOrEqual(-0.5);
+            expect(geom.bar.right, `${state}: bar cut on the right`).toBeLessThanOrEqual(width + 0.5);
+            for (const p of geom.parts) {
+              expect(p.x, `${state} 「${p.text}」 leaves the bar`).toBeGreaterThanOrEqual(geom.bar.x - 0.5);
+              expect(p.right, `${state} 「${p.text}」 leaves the bar`).toBeLessThanOrEqual(geom.bar.right + 0.5);
+              expect(p.cut, `${state} 「${p.text}」 is cut inside itself`).toBe(false);
+            }
+            expect(geom.widths, `${state}: the buttons share the width`).toHaveLength(3);
+            for (const w of geom.widths)
+              expect(Math.abs(w - geom.widths[0]), `${state}: the buttons share the width ${geom.widths}`).toBeLessThanOrEqual(1);
+            expect(geom.buttonsTop - geom.bar.top, `${state}: a row above the buttons`).toBeLessThanOrEqual(8.5);
+            barHeight ??= geom.bar.height;
+            expect(geom.bar.height, `${state}: the bar changed height`).toBeCloseTo(barHeight, 1);
+            return geom.parts.map((p) => p.text);
+          };
+          await expect(page.getByTestId("chat-select-copy")).toBeEnabled();
+          await expect(bar.getByRole("status")).toHaveText("");
+          const labels = await fits("selected");
+          if (SHOTS && width === 390 && language === "zh")
+            await page.screenshot({ path: `${SHOTS}/${width}x${height}-select-bar-${season}.png` });
+          expect(labels).toEqual(language === "zh" ? ["取消", "複製", "回覆"] : ["Cancel", "Copy", "Reply"]);
+          await page.evaluate(() => window.getSelection()!.removeAllRanges());
+          await expect(page.getByTestId("chat-select-copy")).toBeDisabled();
+          await fits("nothing selected");
+          await page.evaluate(() => {
+            const t = document.querySelector('[data-msg-id="m-mine"] .chat__msg-text p')!.firstChild!;
+            const r = document.createRange();
+            r.setStart(t, 0);
+            r.setEnd(t, 3);
+            window.getSelection()!.addRange(r);
+          });
+          await page.getByTestId("chat-select-copy").tap();
+          await expectCheckOnly(
+            page.getByTestId("chat-select-copy"),
+            `${language === "zh" ? "已複製" : "Copied"} ${season === "thanksgiving" ? "🍂" : "🎄"}`,
+          );
+          await fits("copied");
+        });
+      }
+    }
+
+    test(`live thread ${width}: 選取文字 on a folded waiting card, then 回覆, shows the card's title and question only, a tap on it folds nothing, copies and quotes what is selected a line each — also when dragged across where its task row and attachments were — into THAT card's answer box, the card left open with the rest back`, async ({
+      mount,
+      page,
+      context,
+    }) => {
+      await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      await mountThread(mount, page, width, height);
+      const card = rowAt(page, "m-card");
+      await expect(card.locator(".reply-card")).toHaveClass(/reply-card--collapsed/);
+      await touch(page, await centreOf(card.locator(".reply-card")), { holdMs: 700 });
+      await page.getByTestId("chat-msg-menu-select").tap();
+      const body = card.locator(".reply-card__body");
+      await expect(body).toBeVisible();
+      await expect(card.locator(".reply-card__summary")).toBeVisible();
+      await expect(card.locator(".reply-card__options")).toBeHidden();
+      await expect(card.locator(".reply-composer")).toBeHidden();
+      await expect(card.getByTestId("reply-task-ref")).toBeHidden();
+      await expect(card.locator(".reply-card__question-atts")).toBeHidden();
+      const expire = card.getByTestId("chat-reply-card-expire");
+      await expect(expire).toHaveCount(1);
+      await expect(expire).toBeHidden();
+      await expect(card.locator(".reply-card__chat-head")).toHaveCSS("display", "none");
+      for (const spot of [body, card.locator(".reply-card__summary")]) await spot.tap();
+      const box = (await card.locator(".reply-card").boundingBox())!;
+      await page.touchscreen.tap(box.x + box.width - 4, box.y + box.height - 4);
+      await expect(card.locator(".reply-card")).not.toHaveClass(/reply-card--collapsed/);
+      await expect(page.getByTestId("chat-select-bar")).toBeVisible();
+      const selected = "要不要先在試用站備份？\nmigration 0142 會改索引。";
+      await card.evaluate((row) => {
+        const text = row.querySelector(".reply-card__body p")!.firstChild!;
+        window.getSelection()!.setBaseAndExtent(text, 4, row.querySelector(".reply-card")!, 0);
+      });
+      await expect(page.getByTestId("chat-select-copy")).toBeEnabled();
+      await expect(page.getByTestId("chat-select-reply")).toBeEnabled();
+      await page.getByTestId("chat-select-copy").tap();
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+        "要不要先在試用站備份？\nmigr",
+      );
+      await card.evaluate((row) => {
+        const r = document.createRange();
+        r.selectNodeContents(row.querySelector(".reply-card")!);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(r);
+      });
+      await expect(page.getByTestId("chat-select-copy")).toBeEnabled();
+      await expect(page.getByTestId("chat-select-reply")).toBeEnabled();
+      await page.getByTestId("chat-select-copy").tap();
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(selected);
+      await card.evaluate((row) => {
+        const r = document.createRange();
+        r.setStartBefore(row.querySelector(".reply-card__summary")!);
+        r.setEndAfter(row.querySelector(".reply-card__body")!);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(r);
+      });
+      await page.getByTestId("chat-select-copy").tap();
+      await expectCheckOnly(page.getByTestId("chat-select-copy"), "已複製");
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(selected);
+      await expect(page.getByTestId("chat-select-reply")).toBeEnabled();
+      await page.getByTestId("chat-select-reply").tap();
+      const quote = card.getByTestId("reply-composer-quote").locator(".reply-card__quote-text");
+      await expect(quote).toBeVisible();
+      expect(await quote.evaluate((e) => e.textContent)).toBe(selected);
+      await expect(page.locator(".chat__reply-banner")).toHaveCount(0);
+      await expect(page.getByTestId("chat-select-bar")).toHaveCount(0);
+      await expect(card.locator(".reply-card__options")).toBeVisible();
+      await expect(card.getByTestId("reply-task-ref")).toBeVisible();
+      await expect(card.locator(".reply-card__question-atts")).toBeVisible();
+      await expect(expire).toBeVisible();
+      await expect(card.locator(".reply-card")).not.toHaveClass(/reply-card--collapsed/);
+      await expect(card.locator(".chat__input")).toBeFocused();
+      await expectNoZoomOnFocus(page);
+    });
+
+    test(`live thread ${width}: a waiting card on no task keeps its title in the head in the selection mode, 標為過期 not displayed, and it is back after`, async ({
+      mount,
+      page,
+    }) => {
+      await mountThread(mount, page, width, height, { cardsWithoutTask: true });
+      const card = rowAt(page, "m-card");
+      await touch(page, await centreOf(card.locator(".reply-card")), { holdMs: 700 });
+      await page.getByTestId("chat-msg-menu-select").tap();
+      const expire = card.getByTestId("chat-reply-card-expire");
+      await expect(expire).toHaveCount(1);
+      await expect(expire).toBeHidden();
+      await expect(card.locator(".reply-card__chat-head .reply-card__summary")).toBeVisible();
+      await page.getByTestId("chat-select-cancel").tap();
+      await expect(card.locator(".reply-card")).toHaveClass(/reply-card--collapsed/);
+      await card.getByTestId("chat-reply-card-expand").tap();
+      await expect(expire).toBeVisible();
+    });
   }
 
+  for (const [width, height] of [
+    [320, 700],
+    [390, 844],
+    [390, 640],
+  ] as const) {
+    test(`live thread ${width}x${height}: in selection mode on a message taller than the room above the bar, the thread ends at the bar's top, the message's last line scrolls fully above it, a selection ending near the bar is scrolled clear of it, and 複製 takes that selection`, async ({
+      mount,
+      page,
+      context,
+    }) => {
+      await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      await mountThread(mount, page, width, height, { tallMessage: true });
+      const row = rowAt(page, "m-long");
+      const opening = row.locator(".chat__msg-text p").first();
+      await opening.scrollIntoViewIfNeeded();
+      await touch(page, await centreOf(opening), { holdMs: 700 });
+      await page.getByTestId("chat-msg-menu-select").tap();
+      const bar = page.getByTestId("chat-select-bar");
+      await expect(bar).toBeFocused();
+      const barTop = (await bar.boundingBox())!.y;
+      const thread = page.locator(".chat__messages");
+      const threadBox = (await thread.boundingBox())!;
+      expect(threadBox.y + threadBox.height, "the thread runs on under the bar").toBeLessThanOrEqual(barTop + 0.5);
+      await page.waitForTimeout(300);
+      const pressed = (await opening.boundingBox())!;
+      expect(pressed.y, "the pressed paragraph went above the thread").toBeGreaterThanOrEqual(threadBox.y - 0.5);
+      expect(pressed.y + pressed.height, "the pressed paragraph went under the bar").toBeLessThanOrEqual(barTop + 0.5);
+      expect((await row.boundingBox())!.height, "the message fits above the bar").toBeGreaterThan(barTop - threadBox.y);
+
+      const closing = row.locator(".chat__msg-text p").last();
+      await thread.evaluate((t, p) => {
+        t.scrollTop += p!.getBoundingClientRect().bottom - t.getBoundingClientRect().bottom;
+      }, await closing.elementHandle());
+      const line = (await closing.boundingBox())!;
+      expect(line.y + line.height, "the last line, scrolled to the thread's end, is under the bar").toBeLessThanOrEqual(barTop + 0.5);
+      expect(line.y, "the last line is above the thread").toBeGreaterThanOrEqual(threadBox.y - 0.5);
+      expect(
+        await page.evaluate(
+          ([x, y]) => !!document.elementFromPoint(x, y)?.closest('[data-msg-id="m-long"]'),
+          [line.x + line.width / 2, line.y + line.height / 2],
+        ),
+        "a tap on the last line lands on the message",
+      ).toBe(true);
+
+      const endBottom = () =>
+        page.evaluate(() => {
+          const rects = window.getSelection()!.getRangeAt(0).getClientRects();
+          return rects[rects.length - 1].bottom;
+        });
+      await thread.evaluate((t, p) => {
+        t.scrollTop += p!.getBoundingClientRect().bottom - (t.getBoundingClientRect().bottom - 10);
+      }, await closing.elementHandle());
+      await closing.evaluate((p) => {
+        const text = p.firstChild!;
+        const r = document.createRange();
+        r.setStart(text, 0);
+        r.setEnd(text, text.textContent!.length);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(r);
+      });
+      expect(await endBottom(), "the selection does not start near the bar").toBeGreaterThan(barTop - 40);
+      await expect.poll(endBottom, { message: "the selection's end stays by the bar" }).toBeLessThanOrEqual(barTop - 40);
+      await page.waitForTimeout(300);
+      expect(await endBottom(), "the thread moved again").toBeLessThanOrEqual(barTop - 40);
+
+      await page.getByTestId("chat-select-copy").tap();
+      await expectCheckOnly(page.getByTestId("chat-select-copy"), "已複製");
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("有問題再跟我說。");
+      await expect(bar).toBeVisible();
+    });
+
+    test(`live thread ${width}x${height}: in selection mode a tall message pressed partway down stays where it was, and once the reader is inside it a resize of the screen or the message does not scroll back to its top`, async ({
+      mount,
+      page,
+    }) => {
+      await mountThread(mount, page, width, height, { tallMessage: true });
+      const thread = page.locator(".chat__messages");
+      const row = rowAt(page, "m-long");
+      const item = row.locator(".chat__msg-text li").nth(10);
+      await item.scrollIntoViewIfNeeded();
+      await thread.evaluate((t, li) => {
+        const box = t.getBoundingClientRect();
+        t.scrollTop += li!.getBoundingClientRect().top - (box.top + box.height / 2);
+      }, await item.elementHandle());
+      const threadTop = (await thread.boundingBox())!.y;
+      expect((await row.boundingBox())!.y, "the message's top is still on screen").toBeLessThan(threadTop);
+      const before = (await item.boundingBox())!.y;
+      await touch(page, await centreOf(item), { holdMs: 700 });
+      await page.getByTestId("chat-msg-menu-select").tap();
+      const bar = page.getByTestId("chat-select-bar");
+      await expect(bar).toBeFocused();
+      await page.waitForTimeout(300);
+      const after = (await item.boundingBox())!;
+      expect(Math.abs(after.y - before), "the pressed line moved").toBeLessThanOrEqual(1);
+      expect(after.y + after.height, "the pressed line went under the bar").toBeLessThanOrEqual((await bar.boundingBox())!.y);
+
+      const frames = () =>
+        page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      const scrolled = await thread.evaluate((t) => {
+        t.scrollTop += 150;
+        return t.scrollTop;
+      });
+      expect((await row.boundingBox())!.y, "the message's top is still on screen").toBeLessThan(threadTop);
+      await page.setViewportSize({ width, height: height - 40 });
+      await frames();
+      expect(Math.abs((await thread.evaluate((t) => t.scrollTop)) - scrolled), "a shorter screen scrolled the thread").toBeLessThanOrEqual(1);
+      await row.locator(".chat__msg-text").evaluate((e) => {
+        (e as HTMLElement).style.paddingBottom = "30px";
+      });
+      await frames();
+      expect(Math.abs((await thread.evaluate((t) => t.scrollTop)) - scrolled), "a taller message scrolled the thread").toBeLessThanOrEqual(1);
+    });
   }
+
+  test("390: a finger's selection outside the thread's selection mode gets 回覆這段 docked at the bottom, clear of the system's selection bar", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 800 });
+    await mount(<ChatSelectionReplyStory selecting />);
+    const text = page.locator('[data-msg-id="c-2"] .chat__msg-text');
+    await page.touchscreen.tap(...(Object.values(await centreOf(text)) as [number, number]));
+    await selectInBodies(page, { row: "c-2", start: 0 }, { row: "c-2", end: 2 });
+    const reply = page.getByTestId("chat-selection-reply");
+    await expect(reply).toBeVisible();
+    const r = (await reply.boundingBox())!;
+    expect(Math.abs(r.y + r.height - (800 - 12)), "the button is not docked").toBeLessThanOrEqual(0.5);
+    expect(r.y - (await selectionBottom(page)), "the button sits by the selection").toBeGreaterThanOrEqual(60);
+  });
 });
 
 // 「回覆這段」: the floating button is portaled to <body> with fixed
@@ -874,7 +1882,7 @@ for (const width of [390, 1280]) {
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
-      await mount(<ChatSelectionReplyStory />);
+      await mount(<ChatSelectionReplyStory selecting={width === 390} />);
       const button = page.getByTestId("chat-selection-reply");
       const banner = page.getByTestId("chat-reply-banner");
       for (const [row, selector, quoted] of [

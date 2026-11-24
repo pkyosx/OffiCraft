@@ -86,33 +86,45 @@ for (const width of [390, 1440]) {
     await noPageOverflow(page);
   });
 
-  test(`width ${width}: the 稍後再看 menu is on screen with every preset and the custom row inside it${
-    width <= 720 ? " (a bottom sheet)" : ""
-  }`, async ({ mount, page }) => {
-    await page.setViewportSize({ width, height: 900 });
-    const cmp = await mount(<ReplyDeskStory />);
-    const card = cmp.getByTestId("waiting-card").first();
-    await card.getByTestId("snooze-card").click();
-    const menu = page.locator('[data-testid^="snooze-menu-"]');
-    await expect(menu).toBeVisible();
-    const menuBox = await box(menu);
-    const view = { left: 0, top: 0, right: width, bottom: 900 };
-    expect(inside(menuBox, view), "the menu is on screen").toBe(true);
-    if (width <= 720) {
-      expect(Math.round(menuBox.bottom)).toBe(900);
-      expect(Math.round(menuBox.right - menuBox.left)).toBe(width);
-    }
-    for (const part of await menu.locator(".reply-snooze__preset, .reply-snooze__custom-row > *").all()) {
-      expect(inside(await box(part), menuBox), `${await part.textContent()} inside the menu`).toBe(true);
-    }
-    const tops = await menu
-      .locator(".reply-snooze__custom-row > *")
-      .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2)));
-    expect(Math.max(...tops) - Math.min(...tops), "the custom row is one line").toBeLessThanOrEqual(2);
-    await menu.getByTestId("snooze-amount").fill("90");
-    await menu.getByTestId("snooze-unit").selectOption("day");
-    expect(await textLines(menu.getByTestId("snooze-preview"))).toBe(1);
-    await noPageOverflow(page);
+  test.describe(() => {
+    test.use({ hasTouch: width <= 720 });
+    test(`width ${width}: the 稍後再看 menu is on screen with every preset and the custom row inside it${
+      width <= 720 ? " (a bottom sheet, its fields at least 16px so iOS does not zoom in on them)" : ""
+    }`, async ({ mount, page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      const cmp = await mount(<ReplyDeskStory />);
+      const card = cmp.getByTestId("waiting-card").first();
+      await card.getByTestId("snooze-card").click();
+      const menu = page.locator('[data-testid^="snooze-menu-"]');
+      await expect(menu).toBeVisible();
+      const menuBox = await box(menu);
+      const view = { left: 0, top: 0, right: width, bottom: 900 };
+      expect(inside(menuBox, view), "the menu is on screen").toBe(true);
+      if (width <= 720) {
+        expect(Math.round(menuBox.bottom)).toBe(900);
+        expect(Math.round(menuBox.right - menuBox.left)).toBe(width);
+      }
+      for (const part of await menu.locator(".reply-snooze__preset, .reply-snooze__custom-row > *").all()) {
+        expect(inside(await box(part), menuBox), `${await part.textContent()} inside the menu`).toBe(true);
+      }
+      const tops = await menu
+        .locator(".reply-snooze__custom-row > *")
+        .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2)));
+      expect(Math.max(...tops) - Math.min(...tops), "the custom row is one line").toBeLessThanOrEqual(2);
+      await menu.getByTestId("snooze-amount").fill("90");
+      await menu.getByTestId("snooze-unit").selectOption("day");
+      expect(await textLines(menu.getByTestId("snooze-preview"))).toBe(1);
+      const menuSize = await menu.evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+      for (const id of ["snooze-amount", "snooze-unit"]) {
+        const field = menu.getByTestId(id);
+        await field.focus();
+        await expect(field).toBeFocused();
+        const size = await field.evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+        if (width <= 720) expect(size, `${id} font size on a touch screen`).toBeGreaterThanOrEqual(16);
+        else expect(size, `${id} keeps the menu's size`).toBe(menuSize);
+      }
+      await noPageOverflow(page);
+    });
   });
 }
 

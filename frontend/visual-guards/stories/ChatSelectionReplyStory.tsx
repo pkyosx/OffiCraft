@@ -10,16 +10,20 @@ import { ChatSelectionReply } from "../../src/components/ChatSelectionReply";
 const LONG_BODY =
   "這是一段很長的原文，長到在手機寬度下會折成好幾行，用來確認選取不會把版面撐開";
 
-function MineRow({ id, body }: { id: string; body: string }) {
+// On a touch screen a message selects only after its 選取文字; `selecting`
+// renders every row in that state.
+const rowClass = (base: string, selecting?: boolean) =>
+  base + (selecting ? " chat__msg--selecting" : "");
+
+function MineRow({ id, body, selecting }: { id: string; body: string; selecting?: boolean }) {
   return (
-    <div className="chat__msg chat__msg--me" data-msg-id={id}>
+    <div className={rowClass("chat__msg chat__msg--me", selecting)} data-msg-id={id}>
       <div className="chat__msg-line">
         <div className="chat__msg-sidemeta">
           <span className="chat__msg-time">10:03</span>
         </div>
         <div className="chat__msg-content">
-          <div className="chat__msg-bubble chat__msg-bubble--acts1">
-            <div className="chat__msg-actions" />
+          <div className="chat__msg-bubble">
             <div className="chat__msg-text doc-md">
               <p>{body}</p>
             </div>
@@ -33,21 +37,22 @@ function MineRow({ id, body }: { id: string; body: string }) {
 function Row({
   id,
   body,
+  selecting,
   children,
 }: {
   id: string;
   body?: string;
+  selecting?: boolean;
   children?: ReactNode;
 }) {
   return (
-    <div className="chat__msg" data-msg-id={id}>
+    <div className={rowClass("chat__msg", selecting)} data-msg-id={id}>
       <div className="chat__msg-meta">
         <span className="chat__msg-name">Mira</span>
       </div>
       <div className="chat__msg-line">
         <div className="chat__msg-content">
-          <div className="chat__msg-bubble chat__msg-bubble--expandable chat__msg-bubble--acts2">
-            <div className="chat__msg-actions" />
+          <div className="chat__msg-bubble">
             <div className="chat__msg-text doc-md">
               {children ?? <p>{body}</p>}
             </div>
@@ -61,7 +66,7 @@ function Row({
   );
 }
 
-export function ChatSelectionReplyStory() {
+export function ChatSelectionReplyStory({ selecting = false }: { selecting?: boolean } = {}) {
   const messagesRef = useRef<HTMLDivElement>(null);
   const [picked, setPicked] = useState<{ id: string; excerpt: string } | null>(
     null,
@@ -75,15 +80,15 @@ export function ChatSelectionReplyStory() {
         />
         <div className="chat__body">
           <div className="chat__messages" ref={messagesRef}>
-            <Row id="c-1" body={LONG_BODY} />
-            <Row id="c-2" body="第二則訊息" />
-            <MineRow id="c-3" body="好的我確認這兩個字" />
-            <Row id="c-4">
+            <Row id="c-1" selecting={selecting} body={LONG_BODY} />
+            <Row id="c-2" selecting={selecting} body="第二則訊息" />
+            <MineRow id="c-3" selecting={selecting} body="好的我確認這兩個字" />
+            <Row id="c-4" selecting={selecting}>
               <p>第一段開場白</p>
               <p>中間這一段是重點</p>
               <p>最後一段收尾</p>
             </Row>
-            <Row id="c-5">
+            <Row id="c-5" selecting={selecting}>
               <ul>
                 <li>第一項待辦</li>
                 <li>第二項待辦</li>
