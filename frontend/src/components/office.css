@@ -1258,13 +1258,15 @@
  * iOS callout) is off on messages so it does not fight the sheet: always on a
  * touch-only screen, and elsewhere while a finger is down on the thread
  * (`data-touch-press`, set by useLongPress). 選取文字 turns selection back on
- * for one message. */
+ * for one message. The 請示 page's cards (`.replies .reply-card`) take the
+ * same press, sheet and selection mode. */
 @media (hover: none) {
   .chat__msg-toolbar:has(.chat__msg-copy-status--failed):not(:has(:focus-visible))
     .chat__msg-actions {
     display: none;
   }
-  .chat__msg:not(.chat__msg--selecting) :is(.chat__msg-bubble, .reply-card) {
+  .chat__msg:not(.chat__msg--selecting) :is(.chat__msg-bubble, .reply-card),
+  .replies .reply-card:not(.reply-card--selecting) {
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
@@ -1272,19 +1274,22 @@
 }
 .chat__messages[data-touch-press]
   .chat__msg:not(.chat__msg--selecting)
-  :is(.chat__msg-bubble, .reply-card) {
+  :is(.chat__msg-bubble, .reply-card),
+.replies[data-touch-press] .reply-card:not(.reply-card--selecting) {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
 }
-.chat__msg--card .reply-card :is(textarea, input) {
+.chat__msg--card .reply-card :is(textarea, input),
+.replies .reply-card :is(textarea, input) {
   -webkit-touch-callout: default;
   -webkit-user-select: text;
   user-select: text;
 }
 /* Selection mode (選取文字): like LINE's, everything but the chosen message is
  * blurred and inert, and that message stays sharp where it was. A tap on the
- * blurred part reaches the thread itself, which ends the mode. */
+ * blurred part reaches the thread itself, which ends the mode. On the 請示
+ * page what is blurred is what RepliesPage made inert around the card. */
 .chat__messages--selecting
   :is(
     .chat__msg:not(.chat__msg--selecting),
@@ -1294,7 +1299,8 @@
     .chat__history-start,
     .chat__gap-notice
   ),
-.chat:has(.chat__messages--selecting) :is(.chat__header, .chat__jump-latest, .chat__new-msg) {
+.chat:has(.chat__messages--selecting) :is(.chat__header, .chat__jump-latest, .chat__new-msg),
+.replies--selecting [inert] {
   filter: blur(6px);
   opacity: 0.6;
   pointer-events: none;
@@ -1311,7 +1317,8 @@
       .chat__history-start,
       .chat__gap-notice
     ),
-  .chat:has(.chat__messages--selecting) :is(.chat__header, .chat__jump-latest, .chat__new-msg) {
+  .chat:has(.chat__messages--selecting) :is(.chat__header, .chat__jump-latest, .chat__new-msg),
+  .replies--selecting [inert] {
     filter: none;
     opacity: 0.2;
   }
@@ -1327,20 +1334,23 @@
 }
 /* iOS's long-press preview of a link or image offers to open it; the mode
  * only selects, copies and replies. */
-.chat__msg--selecting :is(a, img) {
+:is(.chat__msg--selecting, .reply-card--selecting) :is(a, img) {
   -webkit-touch-callout: none;
 }
 /* A card in the mode is its title and question only: its task row, question
  * attachments, errors and options cannot be quoted, and 標為過期 is not done
- * here. Hidden, not unmounted, so a half-written answer is there again after
- * the mode. A head left with nothing but those goes too: empty, it would
- * still add the card's 12px gap above the title (a card with no task keeps
- * its title in the head). */
-.chat__msg--selecting
+ * here (nor, on the 請示 page, the head with its asker, stamp and buttons, or a
+ * read still loading). Hidden, not unmounted, so a half-written answer is
+ * there again after the mode. A chat card's head left with nothing but those
+ * goes too: empty, it would still add the card's 12px gap above the title (a
+ * card with no task keeps its title in the head). */
+:is(.chat__msg--selecting, .reply-card--selecting)
   :is(
     .reply-card__answer-side,
     .reply-card__task,
     .reply-card__jump,
+    .reply-card__head,
+    .reply-card__hint,
     .reply-card__question-atts,
     .reply-card__error
   ),
@@ -1363,6 +1373,10 @@
   background: var(--color-card);
   box-shadow: 0 -4px 18px var(--color-shadow);
   color: var(--color-text);
+}
+.chat__select-bar--screen {
+  position: fixed;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
 }
 .chat__select-bar:focus {
   outline: none;
@@ -1414,7 +1428,8 @@
 .chat__msg--selecting .chat__msg-bubble,
 .chat__msg--selecting .reply-card,
 .chat__msg--pressed .chat__msg-bubble,
-.chat__msg--pressed .reply-card {
+.chat__msg--pressed .reply-card,
+.replies .reply-card:is(.reply-card--selecting, .reply-card--pressed) {
   outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
   outline-offset: 1px;
 }

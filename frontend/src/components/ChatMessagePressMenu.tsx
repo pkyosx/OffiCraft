@@ -8,6 +8,18 @@ import "./office.css";
 const itemsOf = (menu: HTMLElement | null) =>
   Array.from(menu?.querySelectorAll<HTMLButtonElement>("[role='menuitem']") ?? []);
 
+/** The reply card a finger on `target` presses, unless it lands on one of the
+ * card's own controls or its answer box. */
+export function pressedReplyCard(target: Element): Element | null {
+  if (
+    target.closest(
+      "textarea, input, select, .reply-composer, a, [role='listbox'], button:not(.reply-card__collapsed-row)",
+    )
+  )
+    return null;
+  return target.closest(".reply-card");
+}
+
 export interface PressMenuItem {
   key: string;
   label: string;

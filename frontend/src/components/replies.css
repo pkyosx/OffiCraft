@@ -12,6 +12,12 @@
   padding-bottom: 12px;
 }
 
+/* The selection mode's bar covers the bottom of the screen; the page's list
+ * ends at its top edge (ChatSelectionModeBar writes the height it covers). */
+.app__main:has(> .replies--selecting) {
+  padding-bottom: var(--chat-select-bar-reserve, 24px);
+}
+
 /* Honest failure banner (load reject / answer reject) — same recipe as
  * .mon-error. */
 .replies__error {
@@ -170,6 +176,22 @@
   display: flex;
   align-items: center;
   gap: 10px;
+}
+/* 複製 and its failure, which shows beside it for a moment. */
+.reply-card__copy {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-muted);
+}
+.reply-card__copy .chat__msg-copy-status--failed {
+  margin-left: 4px;
+}
+/* On a touch screen the button is as tall as the head's other buttons. */
+@media (hover: none) {
+  .reply-card__copy .chat__msg-copy {
+    width: 30px;
+    height: 30px;
+  }
 }
 .reply-card__jump:hover {
   color: var(--color-text);

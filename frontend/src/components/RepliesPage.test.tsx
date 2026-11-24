@@ -159,6 +159,7 @@ async function openCards() {
 }
 
 const originalRangeRect = Range.prototype.getBoundingClientRect;
+const originalRangeRects = Range.prototype.getClientRects;
 
 /** Select the first `length` characters of `el`, the way a drag leaves it, and
  * press the 回覆這段 that floats over the selection. */
@@ -184,14 +185,55 @@ function quoteStartOf(el: Element, length: number) {
   fireEvent.click(button!);
 }
 
+/** A press by a finger (or a mouse) held for `ms`. jsdom has no
+ * PointerEvent, so it is a MouseEvent carrying the pointerType. */
+async function hold(el: Element, ms: number, pointerType = "touch") {
+  const press = (type: string) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: 10, clientY: 10 });
+    Object.defineProperty(e, "pointerType", { value: pointerType });
+    act(() => {
+      el.dispatchEvent(e);
+    });
+  };
+  press("pointerdown");
+  await act(() => new Promise((r) => setTimeout(r, ms)));
+  press("pointerup");
+}
+
+const menuLabels = () =>
+  [...document.querySelectorAll("[role='menuitem']")].map((b) => b.textContent);
+
+/** An item of the long-press sheet, chosen by a finger. */
+function choose(label: string) {
+  const item = [...document.querySelectorAll("[role='menuitem']")].find((b) => b.textContent === label)!;
+  const down = new MouseEvent("pointerdown", { bubbles: true });
+  act(() => {
+    item.dispatchEvent(down);
+  });
+  fireEvent.click(item, { detail: 1 });
+}
+
+let clipboard: string[] = [];
+
 beforeEach(() => {
   __resetMock();
   window.location.hash = "";
+  clipboard = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: (text: string) => {
+        clipboard.push(text);
+        return Promise.resolve();
+      },
+    },
+  });
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
   Range.prototype.getBoundingClientRect = originalRangeRect;
+  Range.prototype.getClientRects = originalRangeRects;
 });
 
 describe("RepliesPage", () => {
@@ -1425,11 +1467,11 @@ describe("RepliesPage", () => {
 
     const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-2"]')!;
     const heads = [...document.querySelectorAll(".reply-card__head")].map((h) =>
-      [...h.querySelectorAll("button")].map((b) => b.textContent)
+      [...h.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"))
     );
     expect(heads.map((h) => h.slice(1))).toEqual([
-      ["跳到原訊息", "稍後再看", "標為過期"],
-      ["跳到原訊息", "稍後再看", "標為過期"],
+      ["複製訊息", "跳到原訊息", "稍後再看", "標為過期"],
+      ["複製訊息", "跳到原訊息", "稍後再看", "標為過期"],
     ]);
     fireEvent.click(card.querySelector('[data-testid="snooze-card"]')!);
     expect(card.getAttribute("aria-expanded")).toBe("false");
@@ -1457,8 +1499,10 @@ describe("RepliesPage", () => {
     const snoozedCard = document.querySelector('[data-testid="snoozed-card"]')!;
     expect(snoozedCard.querySelector('[data-testid="snoozed-until"]')!.textContent).toBe("2026/11/5（四） 13:00 回來");
     expect(
-      [...snoozedCard.querySelectorAll(".reply-card__head button")].slice(1).map((b) => b.textContent)
-    ).toEqual(["跳到原訊息", "取消延後", "標為過期"]);
+      [...snoozedCard.querySelectorAll(".reply-card__head button")]
+        .slice(1)
+        .map((b) => b.textContent || b.getAttribute("aria-label"))
+    ).toEqual(["複製訊息", "跳到原訊息", "取消延後", "標為過期"]);
   });
 
   it("稍後再看 custom row → live preview of the return time, 延後 sends it; past 90 days or not a whole number the button is off and says why", async () => {
@@ -1612,6 +1656,190 @@ describe("RepliesPage", () => {
     } finally {
       window.matchMedia = matchMedia;
     }
+  });
+
+  it("複製 in a card's head copies its question — summary, a blank line, the body with mentions as @名字 — turns into a check without folding the card, and says 複製失敗 when the card cannot be read", async () => {
+    __injectMockReplyCard(
+      mkCard({ id: "rc-1", summary: "要先備份嗎？", body: "請 [@Mira](/#office/member/mira) 看一下" })
+    );
+    renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+    const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-1"]')!;
+    const copy = card.querySelector<HTMLButtonElement>(".reply-card__actions .chat__msg-copy")!;
+    expect(copy.getAttribute("aria-label")).toBe("複製訊息");
+
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+    await waitFor(() => expect(clipboard).toEqual(["要先備份嗎？\n\n請 @Mira 看一下"]));
+    expect(copy.getAttribute("aria-label")).toBe("已複製");
+    expect(card.querySelector(".reply-card__copy [role='status']")!.innerHTML).toBe(
+      '<span class="chat__sr-text">已複製</span>'
+    );
+    expect(card.getAttribute("aria-expanded")).toBe("false");
+
+    vi.spyOn(api, "getReplyCard").mockRejectedValue(new Error("down"));
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+    await waitFor(() =>
+      expect(card.querySelector(".chat__msg-copy-status--failed")?.textContent).toBe("複製失敗")
+    );
+    expect(clipboard).toHaveLength(1);
+    expect(card.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("a finger held 500ms on a card opens the chat's sheet with 複製訊息・選取文字 only — no 回覆這則 on a waiting, secret or handled card — without folding it; a mouse held as long opens nothing", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1" }));
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-secret",
+        kind: "secret",
+        options: [],
+        createdTs: Date.now() / 1000 - 7200,
+        secret: { state: "waiting", providedTs: null, retrievedTs: null, expiresTs: null },
+      })
+    );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-done",
+        status: "answered",
+        answeredTs: Date.now() / 1000 - 60,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+      })
+    );
+    const { getByTestId } = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1", "rc-secret"]));
+    const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-1"]')!;
+    const summary = card.querySelector(".reply-card__summary")!;
+
+    await hold(summary, 600, "mouse");
+    expect(menuLabels()).toEqual([]);
+    await hold(summary, 300);
+    expect(menuLabels()).toEqual([]);
+
+    await hold(summary, 520);
+    expect(menuLabels()).toEqual(["複製訊息", "選取文字"]);
+    expect(card.classList.contains("reply-card--pressed")).toBe(true);
+    fireEvent.click(summary);
+    expect(card.getAttribute("aria-expanded"), "the press's own click folded the card").toBe("false");
+    act(() => {
+      fireEvent.pointerDown(getByTestId("chat-msg-sheet-backdrop"));
+    });
+    fireEvent.click(getByTestId("chat-msg-sheet-backdrop"));
+    expect(menuLabels()).toEqual([]);
+
+    fireEvent.click(getByTestId("answered-toggle"));
+    await waitFor(() => expect(paneIds("answered-card")).toEqual(["rc-done"]));
+    await hold(document.querySelector('[data-reply-card-id="rc-done"] .reply-card__summary')!, 520);
+    expect(menuLabels()).toEqual(["複製訊息", "選取文字"]);
+    act(() => {
+      fireEvent.pointerDown(getByTestId("chat-msg-sheet-backdrop"));
+    });
+    fireEvent.click(getByTestId("chat-msg-sheet-backdrop"));
+
+    await hold(document.querySelector('[data-reply-card-id="rc-secret"] .reply-card__summary')!, 520);
+    expect(menuLabels()).toEqual(["複製訊息", "選取文字"]);
+  });
+
+  it("選取文字 opens the card in the selection mode with the rest of the page inert; 取消 ends it with the card folded again, and 回覆 quotes the selection into the card's answer box and leaves it open", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1", body: "收件人寫在附件裡" }));
+    __injectMockReplyCard(mkCard({ id: "rc-2", createdTs: Date.now() / 1000 - 3600 }));
+    const { getByTestId, queryByTestId } = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1", "rc-2"]));
+    const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-1"]')!;
+    const other = document.querySelector<HTMLElement>('[data-reply-card-id="rc-2"]')!;
+    const summary = card.querySelector(".reply-card__summary")!;
+
+    await hold(summary, 520);
+    choose("選取文字");
+    expect(getByTestId("chat-select-bar")).toBeTruthy();
+    expect(card.classList.contains("reply-card--selecting")).toBe(true);
+    expect(card.getAttribute("role"), "a fold toggle that does nothing in the mode").toBeNull();
+    expect(card.getAttribute("aria-expanded")).toBeNull();
+    expect(card.inert).toBeFalsy();
+    expect(other.inert).toBe(true);
+    expect(getByTestId("replies-filter").inert).toBe(true);
+    expect(document.querySelector(".replies")!.classList.contains("replies--selecting")).toBe(true);
+    await waitFor(() => expect(card.querySelector(".reply-card__body")).not.toBeNull());
+    const tapped = card.querySelector(".reply-card__body")!;
+    fireEvent.pointerDown(tapped);
+    fireEvent.click(tapped);
+    expect(card.querySelector(".reply-card__body"), "a tap folded the card").not.toBeNull();
+    expect(getByTestId("chat-select-bar")).toBeTruthy();
+
+    fireEvent.click(getByTestId("chat-select-cancel"));
+    expect(queryByTestId("chat-select-bar")).toBeNull();
+    expect(card.getAttribute("aria-expanded")).toBe("false");
+    expect(other.inert).toBeFalsy();
+    expect(document.activeElement).toBe(card.querySelector(".chat__msg-copy"));
+
+    await hold(summary, 520);
+    choose("選取文字");
+    const body = await waitFor(() => {
+      const el = card.querySelector(".reply-card__body");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 10, 10);
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+    const text = document.createTreeWalker(body, NodeFilter.SHOW_TEXT).nextNode()!;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 3);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    act(() => {
+      document.dispatchEvent(new Event("selectionchange"));
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("chat-select-copy"));
+    });
+    expect(clipboard).toEqual(["收件人"]);
+    fireEvent.click(getByTestId("chat-select-reply"));
+    expect(queryByTestId("chat-select-bar")).toBeNull();
+    expect(card.getAttribute("aria-expanded")).toBe("true");
+    expect(card.querySelector('[data-testid="reply-composer-quote"]')?.textContent).toBe("引用原文收件人");
+    expect(document.activeElement).toBe(card.querySelector(".reply-composer textarea"));
+  });
+
+
+  it("in the selection mode a card that comes back from 已延後 into 請示 stays in the mode; a card answered elsewhere, which leaves its pane, ends the mode with the rest of the page back in reach", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1", body: "收件人寫在附件裡", snoozedUntilTs: Date.now() / 1000 + 1.5 }));
+    __injectMockReplyCard(mkCard({ id: "rc-2", createdTs: Date.now() / 1000 - 3600 }));
+    const { getByTestId, queryByTestId } = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-2"]));
+    fireEvent.click(getByTestId("snoozed-toggle"));
+    await waitFor(() => expect(paneIds("snoozed-card")).toEqual(["rc-1"]));
+    const cardEl = () => document.querySelector<HTMLElement>('[data-reply-card-id="rc-1"]');
+    const bodyOf = () =>
+      waitFor(() => {
+        const el = cardEl()?.querySelector(".reply-card__body");
+        expect(el).toBeTruthy();
+        return el!;
+      });
+    await hold(cardEl()!.querySelector(".reply-card__summary")!, 520);
+    choose("選取文字");
+    await bodyOf();
+    const before = cardEl();
+
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1", "rc-2"]), { timeout: 3000 });
+    expect(cardEl(), "the card was not remounted in the other pane").not.toBe(before);
+    expect(cardEl()!.classList.contains("reply-card--selecting")).toBe(true);
+    const body = await bodyOf();
+    fireEvent.pointerDown(body);
+    fireEvent.click(body);
+    expect(getByTestId("chat-select-bar"), "a tap inside the moved card ended the mode").toBeTruthy();
+    expect(document.querySelector<HTMLElement>('[data-reply-card-id="rc-2"]')!.inert).toBe(true);
+    expect(getByTestId("replies-filter").inert).toBe(true);
+
+    await act(async () => {
+      await api.answerReplyCard("rc-1", { optionIdxs: [0], text: "", attachments: [] });
+    });
+    await waitFor(() => expect(queryByTestId("chat-select-bar")).toBeNull());
+    expect(document.querySelector(".replies")!.classList.contains("replies--selecting")).toBe(false);
+    expect(document.querySelector<HTMLElement>('[data-reply-card-id="rc-2"]')!.inert).toBeFalsy();
+    expect(getByTestId("replies-filter").inert).toBeFalsy();
   });
 });
 

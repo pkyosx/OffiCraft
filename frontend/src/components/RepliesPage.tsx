@@ -44,7 +44,14 @@
 // question still matters). The nav badge (waiting count) and the chat unread
 // red dot are independent signals: answering here never touches the red dot.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import { secretCardMayStillChange } from "../lib/replyCardReceipt";
@@ -90,7 +97,12 @@ import { avatarKindForMember } from "../lib/avatarKind";
 import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { OutsourceTaskLine } from "./OutsourcePanel";
-import { ChevronRightIcon, CloseIcon } from "./icons";
+import {
+  ChevronRightIcon,
+  CloseIcon,
+  CopyIcon,
+  TextCursorIcon,
+} from "./icons";
 import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
@@ -99,9 +111,23 @@ import { DisplayOptions } from "./DisplayOptions";
 import { TaskDueChip, TaskNoBadge, TaskPriorityBadge } from "./TaskChips";
 import { ReplySnoozeMenu, type SnoozeOutcome } from "./ReplySnoozeMenu";
 import {
+  ChatSelectionModeBar,
   ChatSelectionReply,
   ReplyCardQuoteProvider,
+  guardSelectionMode,
 } from "./ChatSelectionReply";
+import {
+  ChatMessageCopyButton,
+  ChatMessageCopyStatus,
+  replyCardQuestionText,
+  useMessageCopy,
+} from "./ChatMessageCopyButton";
+import {
+  ChatMessagePressMenu,
+  pressedReplyCard,
+  type PressMenuItem,
+} from "./ChatMessagePressMenu";
+import { useLongPress } from "../hooks/useLongPress";
 import { Markdown } from "./Markdown";
 import {
   ReplyCardAnsweredBody,
@@ -120,6 +146,22 @@ import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
 import "./replies.css";
 
 const HANDLED_WINDOW_SECONDS = 24 * 3600;
+const SELECTING_CARD = ".reply-card--selecting";
+
+/** Makes everything in `root` but `row` and the elements holding it inert: at
+ * each level from the row up, its siblings. Returns the undo. */
+function inertAround(row: Element, root: Element): () => void {
+  const out: HTMLElement[] = [];
+  for (let at: Element = row; at !== root && at.parentElement; at = at.parentElement) {
+    for (const sibling of Array.from(at.parentElement.children)) {
+      if (sibling !== at && sibling instanceof HTMLElement && !sibling.inert) out.push(sibling);
+    }
+  }
+  for (const el of out) el.inert = true;
+  return () => {
+    for (const el of out) el.inert = false;
+  };
+}
 
 const NO_TASK = "notask";
 const PRIORITY_FILTER_KEYS = [...PRIORITIES, NO_TASK] as const;
@@ -764,6 +806,98 @@ export function RepliesPage({
     }
   });
 
+  // ── 複製・長按選單・選取模式 (the chat room's, on this page's cards) ──────
+  const messageCopy = useMessageCopy();
+  const [pressMenu, setPressMenu] = useState<string | null>(null);
+  const [selectingId, setSelectingId] = useState<string | null>(null);
+  const openBeforeSelectingRef = useRef(false);
+  const focusCardOnExitRef = useRef(false);
+  const longPress = useLongPress((target) => {
+    const card = pressedReplyCard(target);
+    const id = card?.getAttribute("data-reply-card-id");
+    return id && id !== selectingId && pageRef.current?.contains(card!) ? id : null;
+  }, setPressMenu);
+
+  function copyCard(row: ReplyCardRow) {
+    void messageCopy.copy(row.id, () => replyCardQuestionText(row.id, row.summary));
+  }
+
+  const cardElementOf = (id: string) => document.getElementById(`reply-card-${id}`);
+
+  function enterSelection(id: string) {
+    openBeforeSelectingRef.current = expandedIds.has(id);
+    setExpandedIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+    setSelectingId(id);
+  }
+  /** Leaves the mode; the card goes back to how it was before it, unless the
+   * mode ended with 回覆 into its answer box. */
+  function exitSelection(replied = false) {
+    window.getSelection()?.removeAllRanges();
+    const id = selectingId;
+    if (id && !replied && !openBeforeSelectingRef.current) {
+      setExpandedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+    setSelectingId(null);
+    messageCopy.clear();
+  }
+  const exitSelectionRef = useRef(exitSelection);
+  exitSelectionRef.current = exitSelection;
+  useEffect(() => {
+    if (!selectingId) return;
+    // Looked up by id on every event: a list refresh can remount the card in
+    // another pane during the mode.
+    const detach = guardSelectionMode(() => cardElementOf(selectingId), {
+      onOutside: () => exitSelectionRef.current(),
+    });
+    return () => {
+      detach();
+      if (focusCardOnExitRef.current) {
+        focusCardOnExitRef.current = false;
+        cardElementOf(selectingId)
+          ?.querySelector<HTMLElement>(".chat__msg-copy")
+          ?.focus({ preventScroll: true });
+      }
+    };
+  }, [selectingId]);
+  // Re-run on every render: a list refreshing during the mode brings new rows,
+  // or takes the card off the page (a pane that is folded), which ends the mode.
+  useLayoutEffect(() => {
+    const page = pageRef.current;
+    if (!page || !selectingId) return;
+    const row = cardElementOf(selectingId);
+    if (!row) {
+      exitSelectionRef.current();
+      return;
+    }
+    return inertAround(row, page);
+  });
+
+  /** No 回覆這則, unlike the chat room's sheet: the owner's ruling, since the
+   * card's own answer box is right there on this page. Do not add it back to
+   * match the chat. */
+  function pressMenuItems(id: string): PressMenuItem[] {
+    const row = rowsById.get(id);
+    if (!row) return [];
+    return [
+      {
+        key: "copy",
+        label: t.chat.copyMessage,
+        icon: <CopyIcon size={13} />,
+        onSelect: () => copyCard(row),
+      },
+      {
+        key: "select",
+        label: t.chat.selectText,
+        icon: <TextCursorIcon size={13} />,
+        onSelect: () => enterSelection(id),
+      },
+    ];
+  }
+
   // ── 開卡人 options + counts ────────────────────────────────────────────────
   // 🔴 COUNTED OVER THE PANES BEFORE THE OPENER AXIS NARROWS THEM. That is the
   // whole reason this axis stays usable: count the ALREADY-narrowed rows and a
@@ -1276,6 +1410,13 @@ export function RepliesPage({
           {renderAskerCurrentTask(row)}
         </div>
         <div className="reply-card__actions">
+          <span className="reply-card__copy">
+            <ChatMessageCopyButton
+              state={messageCopy.stateOf(row.id)}
+              onCopy={() => copyCard(row)}
+            />
+            <ChatMessageCopyStatus state={messageCopy.stateOf(row.id)} />
+          </span>
           <button
             type="button"
             className="reply-card__jump"
@@ -1341,15 +1482,23 @@ export function RepliesPage({
         // 🔴 NOT `reply-card--collapsed`: that modifier zeroes the card's
         // padding for ChatReplyCard's bare one-line stub, and this page's
         // collapsed card is a REAL card (task row + head) that keeps its box.
-        className={opts.className}
+        className={
+          opts.className +
+          (row.id === selectingId ? " reply-card--selecting" : "") +
+          (row.id === pressMenu ? " reply-card--pressed" : "")
+        }
         data-testid={opts.testId}
         data-reply-card-id={row.id}
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        aria-label={open ? t.replies.collapseCard : t.replies.expandCard}
-        onClick={(e) => onCardToggleClick(e, row.id)}
-        onKeyDown={(e) => onCardToggleKeyDown(e, row.id)}
+        {...(row.id === selectingId
+          ? { tabIndex: -1 }
+          : {
+              role: "button",
+              tabIndex: 0,
+              "aria-expanded": open,
+              "aria-label": open ? t.replies.collapseCard : t.replies.expandCard,
+              onClick: (e: React.MouseEvent<HTMLElement>) => onCardToggleClick(e, row.id),
+              onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => onCardToggleKeyDown(e, row.id),
+            })}
       >
         {renderTaskRef(row)}
         {renderHead(row, opts.stamp, opts.expirable, opts.actions)}
@@ -1437,13 +1586,15 @@ export function RepliesPage({
           <ReplyCardQuestionAttachments card={card} />
 
           {card.status === "waiting" && (
-            <ReplyCardWaitingBody
-              card={card}
-              onAnswer={(input) => doAnswer(card.id, input)}
-              onProvideSecret={(value) => doProvideSecret(card.id, value)}
-              autoFocusSecret={secretFocusPendingRef.current.has(card.id)}
-              onSecretAutoFocused={() => secretFocusPendingRef.current.delete(card.id)}
-            />
+            <div className="reply-card__answer-side">
+              <ReplyCardWaitingBody
+                card={card}
+                onAnswer={(input) => doAnswer(card.id, input)}
+                onProvideSecret={(value) => doProvideSecret(card.id, value)}
+                autoFocusSecret={secretFocusPendingRef.current.has(card.id)}
+                onSecretAutoFocused={() => secretFocusPendingRef.current.delete(card.id)}
+              />
+            </div>
           )}
         </>
       ),
@@ -1483,21 +1634,27 @@ export function RepliesPage({
            * handled card (answered/expired). */}
           <ReplyCardQuestionAttachments card={card} />
 
-          {card.status === "expired" ? (
-            <ReplyCardExpiredBody card={card} />
-          ) : card.status === "answered" ? (
-            <ReplyCardAnsweredBody
-              card={card}
-              onReanswer={(input) => doReanswer(card.id, input)}
-            />
-          ) : null}
+          <div className="reply-card__answer-side">
+            {card.status === "expired" ? (
+              <ReplyCardExpiredBody card={card} />
+            ) : card.status === "answered" ? (
+              <ReplyCardAnsweredBody
+                card={card}
+                onReanswer={(input) => doReanswer(card.id, input)}
+              />
+            ) : null}
+          </div>
         </>
       ),
     });
   }
 
   const page = (
-    <div className="replies" ref={pageRef}>
+    <div
+      className={"replies" + (selectingId ? " replies--selecting" : "")}
+      ref={pageRef}
+      {...longPress}
+    >
       {error && <div className="replies__error">{t.replies.loadError}</div>}
       {actionError && (
         <div className="replies__error" data-testid="replies-action-error">
@@ -1752,8 +1909,29 @@ export function RepliesPage({
 
   return (
     <ReplyCardQuoteProvider>
-      <ChatSelectionReply root={pageRef} />
+      {selectingId ? (
+        <ChatSelectionModeBar
+          root={pageRef}
+          rowSelector={SELECTING_CARD}
+          placement="screen"
+          onCopy={(text) => void messageCopy.copy(selectingId, text)}
+          copyState={messageCopy.stateOf(selectingId)}
+          onCancel={() => {
+            focusCardOnExitRef.current = true;
+            exitSelection();
+          }}
+          onReplied={() => exitSelection(true)}
+        />
+      ) : (
+        <ChatSelectionReply root={pageRef} />
+      )}
       {page}
+      {pressMenu && (
+        <ChatMessagePressMenu
+          items={pressMenuItems(pressMenu)}
+          onClose={() => setPressMenu(null)}
+        />
+      )}
     </ReplyCardQuoteProvider>
   );
 }
