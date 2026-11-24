@@ -216,6 +216,13 @@ const REGISTRY = [
   },
   {
     file: "components/ChatMessageCopyButton.tsx",
+    kind: ".then/.catch/.finally",
+    count: 1,
+    verdict:
+      "replyCardQuestionText's read of the card a 複製 was pressed on: it commits nothing, it only shapes the text handed to useMessageCopy",
+  },
+  {
+    file: "components/ChatMessageCopyButton.tsx",
     kind: "setTimeout/setInterval",
     count: 1,
     verdict:
@@ -275,16 +282,9 @@ const REGISTRY = [
   {
     file: "components/ChatArea.tsx",
     kind: ".then/.catch/.finally",
-    count: 4,
-    verdict:
-      "loadAround + the wake button's two arms; all three write only this room's state, and this room is this mount. (4) replyCardQuestionText's read of the card a 複製 was pressed on: it commits nothing, it only shapes the text handed to useMessageCopy",
-  },
-  {
-    file: "components/ChatArea.tsx",
-    kind: "addEventListener",
     count: 3,
     verdict:
-      "the selection mode's click, auxclick and keydown capture listeners: an outside tap clears the selection and this mount's selection state, and an action inside the selected message is swallowed (no state written); all three are removed in the effect cleanup, which runs when the message changes or the room unmounts",
+      "loadAround + the wake button's two arms; all three write only this room's state, and this room is this mount",
   },
   {
     file: "components/ChatArea.tsx",
@@ -450,9 +450,9 @@ const REGISTRY = [
   {
     file: "components/ChatSelectionReply.tsx",
     kind: "addEventListener",
-    count: 5,
+    count: 8,
     verdict:
-      "selectionchange / scroll / resize re-read the live selection into the button's own state; removed on unmount, and the reply target it hands back is read from this room's DOM at click time. (4) pointerdown only notes which kind of pointer made the selection (a ref, no state). (5) the selection-mode bar's selectionchange only (re)arms its settle timer, see that row",
+      "selectionchange / scroll / resize re-read the live selection into the button's own state; removed on unmount, and the reply target it hands back is read from this room's DOM at click time. (4) pointerdown only notes which kind of pointer made the selection (a ref, no state). (5) the selection-mode bar's selectionchange only (re)arms its settle timer, see that row. (6-8) guardSelectionMode's click, auxclick and keydown capture listeners: an outside tap calls the host's onOutside, which clears the selection and the mount's selection state, and an action inside the selected row is swallowed (no state written); the host's effect removes all three in its cleanup, which runs when the row changes or the host unmounts",
   },
   {
     file: "components/ChatSelectionReply.tsx",

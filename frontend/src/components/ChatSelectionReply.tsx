@@ -22,6 +22,8 @@ import { CopyIcon, ReplyIcon } from "./icons";
 import "./office.css";
 
 const BAR_RESERVE_VAR = "--chat-select-bar-reserve";
+const CHAT_SELECTING_ROW = ".chat__msg--selecting";
+const CARD_ID_ATTR = "[data-reply-card-id]";
 const ROW_CLEARANCE_PX = 8;
 // iOS's selection end handle reaches this far below the line, and its touch
 // area further; a tap on the bar that lands on it moves the handle instead.
@@ -161,17 +163,19 @@ function reachesPastContent(range: Range, row: HTMLElement): boolean {
   return false;
 }
 
-/** The selection-mode message (`.chat__msg--selecting`): whatever is selected
- * in its content (a card's title and question) is what 複製 copies and 回覆
- * quotes. A selection that runs into anything else offers neither. */
+/** The selection-mode row (`rowSelector`: a chat message, or a card of the
+ * 請示 page): whatever is selected in its content (a card's title and
+ * question) is what 複製 copies and 回覆 quotes. A selection that runs into
+ * anything else offers neither. */
 function pickInSelectedRow(
+  rowSelector: string,
   root: HTMLElement | null,
   cardTargets: Map<string, QuoteIntoCard> | null,
   onReply: ((msgId: string, excerpt: string) => void) | undefined,
 ): Picked | null {
   const sel = window.getSelection();
   if (!root || !sel || sel.isCollapsed || sel.rangeCount === 0) return null;
-  const row = root.querySelector<HTMLElement>(".chat__msg--selecting");
+  const row = root.querySelector<HTMLElement>(rowSelector);
   const range = sel.getRangeAt(0);
   if (!row || !row.contains(range.startContainer) || !row.contains(range.endContainer)) {
     return null;
@@ -180,8 +184,7 @@ function pickInSelectedRow(
   if (!excerpt || reachesPastContent(range, row)) return null;
   const text = excerpt;
   const rect = range.getBoundingClientRect();
-  const cardId = row
-    .querySelector("[data-reply-card-id]")
+  const cardId = (row.matches(CARD_ID_ATTR) ? row : row.querySelector(CARD_ID_ATTR))
     ?.getAttribute("data-reply-card-id");
   if (cardId) {
     const quote = cardTargets?.get(cardId);
@@ -354,8 +357,12 @@ function endRectOf(range: Range): DOMRect | null {
 
 /** The bar of a message's selection mode (選取文字 in the long-press sheet):
  * 取消・複製・回覆 at the bottom of the chat, in the composer's place (the
- * composer is hidden for the mode). The thread ends at the bar's top edge,
- * the message is brought up clear of the bar if it would sit under it, and a
+ * composer is hidden for the mode), or at the bottom of the screen
+ * (`placement="screen"`, the 請示 page). The scrolling `root` ends at the bar's
+ * top edge: the bar writes the height it covers of root's parent into
+ * `--chat-select-bar-reserve` there, for the host's CSS to pad it by. The
+ * row in the mode (`rowSelector`) is brought up clear of the bar if it would
+ * sit under it, and a
  * selection ending near the bar is scrolled clear of it. 複製 takes any
  * selection in the message and shows its result on itself for a moment (a
  * check, when it worked); 回覆 the same selection where the message can be
@@ -363,6 +370,8 @@ function endRectOf(range: Range): DOMRect | null {
  * starts on the bar; Esc cancels. */
 export function ChatSelectionModeBar({
   root,
+  rowSelector = CHAT_SELECTING_ROW,
+  placement = "pane",
   onReply,
   onCopy,
   copyState,
@@ -370,7 +379,10 @@ export function ChatSelectionModeBar({
   onReplied,
 }: {
   root: RefObject<HTMLElement | null>;
-  onReply: (msgId: string, excerpt: string) => void;
+  rowSelector?: string;
+  placement?: "pane" | "screen";
+  /** A chat reply to a message row; a card row quotes into its own answer box. */
+  onReply?: (msgId: string, excerpt: string) => void;
   onCopy: (text: string) => void;
   /** The last 複製's result. */
   copyState: CopyState;
@@ -380,7 +392,11 @@ export function ChatSelectionModeBar({
 }) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
-  const [picked] = useSelectionPick(root, onReply, undefined, pickInSelectedRow);
+  const pickInRow = useCallback<typeof pickSelection>(
+    (...args) => pickInSelectedRow(rowSelector, ...args),
+    [rowSelector],
+  );
+  const [picked] = useSelectionPick(root, onReply, undefined, pickInRow);
   const copyResult = useCopyLabel(copyState);
   // Read while rendering, before the commit hides the composer: by the first
   // layout effect the thread has grown and the browser has already clamped
@@ -393,8 +409,8 @@ export function ChatSelectionModeBar({
   useLayoutEffect(() => {
     const bar = ref.current;
     const thread = root.current;
-    const row = thread?.querySelector<HTMLElement>(".chat__msg--selecting");
-    const pane = thread?.closest<HTMLElement>(".chat__body");
+    const row = thread?.querySelector<HTMLElement>(rowSelector);
+    const pane = thread?.parentElement;
     if (!bar || !thread || !row || !pane) return;
     const reserve = () => {
       const barTop = bar.getBoundingClientRect().top;
@@ -402,7 +418,8 @@ export function ChatSelectionModeBar({
       pane.style.setProperty(BAR_RESERVE_VAR, `${covered}px`);
       return barTop;
     };
-    const fit = () => revealRowAbove(row, thread, reserve());
+    const fit = () =>
+      revealRowAbove(thread.querySelector<HTMLElement>(rowSelector) ?? row, thread, reserve());
     reserve();
     thread.scrollTop = scrollTopBefore;
     fit();
@@ -416,14 +433,14 @@ export function ChatSelectionModeBar({
       ro?.disconnect();
       pane.style.removeProperty(BAR_RESERVE_VAR);
     };
-  }, [root]);
+  }, [root, rowSelector]);
   useEffect(() => {
     const bar = ref.current;
     const thread = root.current;
     if (!bar || !thread) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const keepEndClear = () => {
-      const row = thread.querySelector<HTMLElement>(".chat__msg--selecting");
+      const row = thread.querySelector<HTMLElement>(rowSelector);
       const selection = window.getSelection();
       if (!row || !selection || selection.rangeCount === 0 || selection.isCollapsed) return;
       const range = selection.getRangeAt(0);
@@ -444,13 +461,13 @@ export function ChatSelectionModeBar({
       clearTimeout(timer);
       document.removeEventListener("selectionchange", onSelectionChange);
     };
-  }, [root]);
+  }, [root, rowSelector]);
   const reply = picked?.reply ?? null;
   const tooLong = picked !== null && replyExcerptTooLong(picked.excerpt);
   return (
     <div
       ref={ref}
-      className="chat__select-bar"
+      className={"chat__select-bar" + (placement === "screen" ? " chat__select-bar--screen" : "")}
       role="group"
       aria-label={t.chat.selectionMode}
       tabIndex={-1}
@@ -487,7 +504,7 @@ export function ChatSelectionModeBar({
       </button>
       <button
         type="button"
-        className="chat__select-bar__btn chat__select-bar__btn--primary"
+        className="chat__select-bar__btn"
         data-testid="chat-select-reply"
         disabled={!reply || tooLong}
         {...keepSelection}
@@ -508,4 +525,48 @@ export function ChatSelectionModeBar({
       </button>
     </div>
   );
+}
+
+const SELECTION_MODE_ACTIONS =
+  "button, a, input, textarea, select, [role='button'], [role='link']";
+
+/** What a selection mode's row does not do: a link, mention, attachment,
+ * quote or button in it does nothing (`except` keeps the click of one, which
+ * then ignores it itself), and a tap outside the row and its bar ends the mode.
+ * Stopped at the document, before React's own listeners; a click, not a
+ * pointerdown, so that scrolling the blurred rest does not end the mode.
+ * The row may be given as a lookup, read at each event. Returns the detach. */
+export function guardSelectionMode(
+  rowOrLookup: Element | null | (() => Element | null),
+  { except, onOutside }: { except?: string; onOutside: () => void },
+): () => void {
+  const rowNow = () => (typeof rowOrLookup === "function" ? rowOrLookup() : rowOrLookup);
+  const actionInRow = (e: Event) => {
+    const action = (e.target as Element).closest?.(SELECTION_MODE_ACTIONS);
+    return !!action && !!rowNow()?.contains(action) && !(except && action.matches(except));
+  };
+  const swallow = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const onClick = (e: MouseEvent) => {
+    const target = e.target as Element;
+    if (actionInRow(e)) return swallow(e);
+    if (rowNow()?.contains(target) || target.closest?.(".chat__select-bar")) return;
+    onOutside();
+  };
+  const onAuxClick = (e: MouseEvent) => {
+    if (actionInRow(e)) swallow(e);
+  };
+  const onKeyDown = (e: KeyboardEvent) => {
+    if ((e.key === "Enter" || e.key === " ") && actionInRow(e)) swallow(e);
+  };
+  document.addEventListener("click", onClick, true);
+  document.addEventListener("auxclick", onAuxClick, true);
+  document.addEventListener("keydown", onKeyDown, true);
+  return () => {
+    document.removeEventListener("click", onClick, true);
+    document.removeEventListener("auxclick", onAuxClick, true);
+    document.removeEventListener("keydown", onKeyDown, true);
+  };
 }

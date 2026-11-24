@@ -63,6 +63,7 @@ import {
   ChatSelectionModeBar,
   ChatSelectionReply,
   ReplyCardQuoteProvider,
+  guardSelectionMode,
   revealRowAbove,
 } from "./ChatSelectionReply";
 import { ChatSuggestedRepliesDialog } from "./ChatSuggestedRepliesDialog";
@@ -105,12 +106,16 @@ import { ChatDeletedRow } from "./ChatDeletedRow";
 import {
   ChatMessageCopyButton,
   ChatMessageCopyStatus,
+  replyCardQuestionText,
   useMessageCopy,
   type CopySource,
 } from "./ChatMessageCopyButton";
-import { ChatMessagePressMenu, type PressMenuItem } from "./ChatMessagePressMenu";
+import {
+  ChatMessagePressMenu,
+  pressedReplyCard,
+  type PressMenuItem,
+} from "./ChatMessagePressMenu";
 import { useLongPress } from "../hooks/useLongPress";
-import { api } from "../api";
 import { DispatchAlert } from "./DispatchAlert";
 
 // The owner's sender id. The real backend stamps a message's `from` from the
@@ -119,19 +124,7 @@ import { DispatchAlert } from "./DispatchAlert";
 // (NOT "ceo"). The mock stamps the same (MOCK_OWNER_ID) so a message reads as
 // "me" (right-aligned, from=你) in BOTH mock and real mode.
 const OWNER_ID = "owner";
-const SELECTION_MODE_INERT_ACTIONS =
-  "button, a, input, textarea, select, [role='button'], [role='link']";
 const CHAT_CARD_ROOT = "[data-testid='chat-reply-card']";
-
-/** A reply card's question as copied: the summary, a blank line, the body. */
-function replyCardQuestionText(cardId: string, fallbackSummary: string) {
-  return api.getReplyCard(cardId).then((card) =>
-    [card.summary || fallbackSummary, card.body]
-      .filter((part) => part)
-      .map((part) => unlinkMentions(part))
-      .join("\n\n"),
-  );
-}
 
 // ⚠️ `oneLine()` USED TO LIVE HERE AND WAS DELETED 2026-08-21. It collapsed
 // newlines and runs of spaces in the 「正在回覆」 banner's excerpt, and its own
@@ -688,39 +681,13 @@ export function ChatArea({
       selection.removeAllRanges();
       selection.addRange(range);
     }
-    // The mode only selects, copies and replies: a link, mention, attachment
-    // or quote in the message does nothing. Stopped at the document, before
-    // React's own listeners; the card itself keeps its click, which it ignores
-    // while selecting.
-    const actionInRow = (e: Event) => {
-      const action = (e.target as Element).closest?.(SELECTION_MODE_INERT_ACTIONS);
-      return !!action && !!row?.contains(action) && !action.matches(CHAT_CARD_ROOT);
-    };
-    const swallow = (e: Event) => {
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    // A tap outside the message and its bar leaves the mode; a click, not a
-    // pointerdown, so that scrolling the blurred thread does not.
-    const onClick = (e: MouseEvent) => {
-      const target = e.target as Element;
-      if (actionInRow(e)) return swallow(e);
-      if (row?.contains(target) || target.closest?.(".chat__select-bar")) return;
-      exitSelection();
-    };
-    const onAuxClick = (e: MouseEvent) => {
-      if (actionInRow(e)) swallow(e);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === "Enter" || e.key === " ") && actionInRow(e)) swallow(e);
-    };
-    document.addEventListener("click", onClick, true);
-    document.addEventListener("auxclick", onAuxClick, true);
-    document.addEventListener("keydown", onKeyDown, true);
+    // The card itself keeps its click, which it ignores while selecting.
+    const detach = guardSelectionMode(row ?? null, {
+      except: CHAT_CARD_ROOT,
+      onOutside: () => exitSelection(),
+    });
     return () => {
-      document.removeEventListener("click", onClick, true);
-      document.removeEventListener("auxclick", onAuxClick, true);
-      document.removeEventListener("keydown", onKeyDown, true);
+      detach();
       if (focusRowOnExit.current) {
         focusRowOnExit.current = false;
         row
@@ -2153,16 +2120,8 @@ export function ChatArea({
     if (target.closest("textarea, input, select")) return null;
     const bubble = target.closest(".chat__msg-bubble");
     if (bubble && row.contains(bubble)) return id;
-    const card = target.closest(".reply-card");
-    if (
-      card &&
-      row.contains(card) &&
-      !target.closest(
-        ".reply-composer, a, [role='listbox'], button:not(.reply-card__collapsed-row)",
-      )
-    )
-      return id;
-    return null;
+    const card = pressedReplyCard(target);
+    return card && row.contains(card) ? id : null;
   }
 
   function pressMenuItems(id: string): PressMenuItem[] {

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
+import { api } from "../api";
 import { copyPendingText, copyText } from "../lib/clipboard";
+import { unlinkMentions } from "../lib/mentionLinks";
 import { AlertTriangleIcon, CheckIcon, CopyIcon } from "./icons";
 import "./office.css";
 
@@ -10,6 +12,17 @@ export type CopyState = "idle" | "copied" | "failed";
 
 /** What lands on the clipboard: the text itself, or a read that yields it. */
 export type CopySource = string | (() => Promise<string>);
+
+/** A reply card's question as copied: the summary, a blank line, the body,
+ * read when asked for (a row only carries the summary). */
+export function replyCardQuestionText(cardId: string, fallbackSummary: string) {
+  return api.getReplyCard(cardId).then((card) =>
+    [card.summary || fallbackSummary, card.body]
+      .filter((part) => part)
+      .map((part) => unlinkMentions(part))
+      .join("\n\n"),
+  );
+}
 
 /** The thread's copy result. One at a time: a second copy replaces the first
  * message's result. */
