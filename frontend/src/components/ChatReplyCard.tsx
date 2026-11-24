@@ -54,6 +54,8 @@ export function ChatReplyCard({
   initialStatus,
   commentRecipientFor,
   expandWhen = false,
+  selecting = false,
+  keepOpenAfterSelecting = false,
 }: {
   replyCardId: string;
   /** The carrying message's body (the server posts the card's summary as the
@@ -72,6 +74,12 @@ export function ChatReplyCard({
   /** Opens the card each time this turns true (the current search match), the
    * same as a click on the collapsed row. It never collapses it again. */
   expandWhen?: boolean;
+  /** The carrying message is in selection mode: the card is open and a click
+   * on it does not fold it. When this turns false the card goes back to how
+   * it was before, unless `keepOpenAfterSelecting`. */
+  selecting?: boolean;
+  /** The mode ended with 回覆 into this card's answer box, which needs it open. */
+  keepOpenAfterSelecting?: boolean;
 }) {
   const { t, msg } = useI18n();
   const [, setRoute] = useHashRoute();
@@ -93,6 +101,17 @@ export function ChatReplyCard({
   useEffect(() => {
     if (expandWhen) setExpanded(true);
   }, [expandWhen]);
+  const [wasSelecting, setWasSelecting] = useState(false);
+  const [expandedBeforeSelecting, setExpandedBeforeSelecting] = useState(false);
+  if (selecting !== wasSelecting) {
+    setWasSelecting(selecting);
+    if (selecting) {
+      setExpandedBeforeSelecting(expanded);
+      setExpanded(true);
+    } else if (!keepOpenAfterSelecting) {
+      setExpanded(expandedBeforeSelecting);
+    }
+  }
   // Latest known status, read inside the SSE callback WITHOUT re-subscribing.
   // SEEDED from the message hint so a collapsed, never-fetched TERMINAL card
   // satisfies the T-cdf4 guard below — an unrelated reply_card fan-out must NOT
@@ -390,6 +409,7 @@ export function ChatReplyCard({
           aria-expanded={true}
           aria-label={t.tasks.collapseReply}
           onClick={(e) => {
+            if (selecting) return;
             const target = e.target as HTMLElement;
             const hit = target.closest(
               "button, a, textarea, input, select, [role='button'], [role='menu'], [role='dialog'], .reply-composer",
@@ -404,7 +424,7 @@ export function ChatReplyCard({
             if (e.target !== e.currentTarget) return;
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              setExpanded(false);
+              if (!selecting) setExpanded(false);
             }
           }}
         >
@@ -453,23 +473,26 @@ export function ChatReplyCard({
             <div className="reply-card__error">{actionError}</div>
           )}
 
-          {card &&
-            (card.status === "waiting" ? (
-              <ReplyCardWaitingBody
-                card={card}
-                onAnswer={doAnswer}
-                onProvideSecret={doProvideSecret}
-                // This body only exists after the owner pressed the row open.
-                autoFocusSecret
-              />
-            ) : card.status === "expired" ? (
-              <ReplyCardExpiredBody card={card} />
-            ) : (
-              <ReplyCardAnsweredBody
-                card={card}
-                onReanswer={doReanswer}
-              />
-            ))}
+          {card && (
+            <div className="reply-card__answer-side">
+              {card.status === "waiting" ? (
+                <ReplyCardWaitingBody
+                  card={card}
+                  onAnswer={doAnswer}
+                  onProvideSecret={doProvideSecret}
+                  // This body only exists after the owner pressed the row open.
+                  autoFocusSecret
+                />
+              ) : card.status === "expired" ? (
+                <ReplyCardExpiredBody card={card} />
+              ) : (
+                <ReplyCardAnsweredBody
+                  card={card}
+                  onReanswer={doReanswer}
+                />
+              )}
+            </div>
+          )}
         </div>
         {expireConfirmOpen && card?.status === "waiting" && (
           <ConfirmModal

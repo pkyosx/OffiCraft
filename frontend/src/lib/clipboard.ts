@@ -36,3 +36,27 @@ export async function copyText(text: string): Promise<boolean> {
     return false;
   }
 }
+
+/** Copies text that is still being fetched. Safari only lets a click write to
+ * the clipboard while the click's activation lasts, which an awaited request
+ * outlives; a ClipboardItem built around the pending text is written inside
+ * the activation and filled in when the text arrives. */
+export async function copyPendingText(text: Promise<string>): Promise<boolean> {
+  if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/plain": text.then((t) => new Blob([t], { type: "text/plain" })),
+        }),
+      ]);
+      return true;
+    } catch {
+      // fall through to the plain path
+    }
+  }
+  try {
+    return await copyText(await text);
+  } catch {
+    return false;
+  }
+}

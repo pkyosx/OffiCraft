@@ -237,6 +237,21 @@ describe("ChatReplyCard", () => {
     get.mockRestore();
   });
 
+  it("a card mounted while its message is in selection mode is open, and Space on it neither folds it nor scrolls", async () => {
+    vi.spyOn(api, "getReplyCard").mockResolvedValue(mkCard({}));
+    const { findByTestId, findByText } = render(
+      <I18nProvider>
+        <ChatReplyCard replyCardId="rc-1" fallbackSummary="(summary)" selecting />
+      </I18nProvider>
+    );
+    const card = await findByTestId("chat-reply-card");
+    await findByText("要幫你寄出這封信嗎？");
+
+    expect(fireEvent.keyDown(card, { key: " " })).toBe(false);
+    expect(card.isConnected).toBe(true);
+    expect(card.getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("expires a waiting card only after the existing confirmation flow", async () => {
     __injectMockReplyCard(mkCard({}));
     const expire = vi.spyOn(api, "expireReplyCard");

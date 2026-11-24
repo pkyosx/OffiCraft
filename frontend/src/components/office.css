@@ -1027,7 +1027,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* Anchors the incoming bubble's corner 放大閱讀 button (.chat__msg-expand). */
+  /* Anchors the actions toolbar (.chat__msg-actions-slot). */
   position: relative;
   /* T-84c8: see .chat__msg — clamp to the capped row so an unbreakable
    * markdown <pre> scrolls inside the bubble instead of widening it. */
@@ -1104,133 +1104,112 @@
 .chat__msg--me .chat__msg-text.doc-md code {
   color: inherit;
 }
-/* 放大閱讀 — the corner button on an INCOMING bubble that reopens the message
- * body in the shared full-view overlay (.md-preview). A long agent answer is a
- * document; the thread column is not where you read one.
+/* ===== T-4e95 ① A message's actions: 回覆這則・複製訊息・放大閱讀／刪除 =====
  *
- * Reveal follows the attachment 分享 button's established contract: hidden until
- * the row is hovered or the button itself takes keyboard focus, so a quiet
- * thread stays quiet.
+ * Desktop: one small toolbar per message, revealed on hover or keyboard focus
+ * and floated over the bubble's TOP EDGE (owner 2026-11-24, Slack-style). The
+ * bubble keeps no room for it, so the text runs the bubble's full width.
  *
- * The bubble RESERVES the corner (--expandable below) rather than letting the
- * button float over the text. Floating is what a full-width surface (Slack) can
- * afford; a chat bubble shrink-wraps its content, so on a one-line message the
- * button lands squarely on the last characters — a hovered 「短訊息也有按鈕嗎？」
- * lost its 「？」. Reserved space costs 43px of right padding on an incoming text
- * bubble (56 reserved − the bubble's own 13) and never hides a glyph.
+ * The slot spans the bubble; its bottom sits 6px into the bubble's 9px top
+ * padding, so the toolbar (bottom-aligned, growing upwards when a long copy
+ * result wraps) stays clear of the first line and of the quote row, whose
+ * hover wash borrows 2px of that padding.
  *
- * Coarse pointers have no hover to reveal it with, so there it is always
- * visible — at FULL strength since T-4e95, not the reduced one this line used to
- * describe: the ink became a fraction of the bubble's colour, and a reduced
- * opacity on top of that multiplied down to 2:1. */
-/* The corner ACTION SLOT reserves its width on EVERY bubble (T-4e95). Reserved
- * rather than floating for the reason the original 放大閱讀 comment gives: a
- * bubble shrink-wraps its content, so a floating control lands on the last
- * characters of a short message. Two controls need more room than one. */
-.chat__msg-bubble--acts1 {
-  padding-right: 32px;
+ * Which way the toolbar goes when it is wider than the bubble (a one-word
+ * message): an incoming bubble starts at the thread's left edge, where
+ * `.chat__messages` clips, so its toolbar keeps right-aligned only while it
+ * fits (`margin-left: auto` gives way to 0) and otherwise grows rightwards;
+ * your own bubble ends at the right edge, so its toolbar grows leftwards.
+ *
+ * An incoming row's sender name sits on the band the toolbar floats in. The
+ * slot starts with an invisible copy of the name (`data-sender`, set in the
+ * name's font), so a toolbar pushed left by a narrow bubble stops after the
+ * name instead of covering it. */
+.chat__msg-actions-slot {
+  position: absolute;
+  bottom: calc(100% - 6px);
+  left: 0;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+  white-space: normal;
 }
-.chat__msg-bubble--acts2,
-.chat__msg-bubble--expandable {
-  padding-right: 56px;
+.chat__msg-actions-slot[data-sender]::before {
+  content: attr(data-sender);
+  flex: none;
+  visibility: hidden;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.chat__msg:not(.chat__msg--me) .chat__msg-toolbar {
+  margin-left: auto;
+}
+.chat__msg--me .chat__msg-actions-slot {
+  justify-content: flex-end;
+}
+/* A reply card has no bubble; the row's content box anchors the slot. */
+.chat__msg--card .chat__msg-content {
+  position: relative;
+}
+/* Hidden by opacity, not display, so revealing it moves nothing;
+ * `pointer-events` keeps the hidden buttons from catching a click meant for
+ * the bubble's edge. Revealed by the pointer resting on the row or by
+ * KEYBOARD focus — not :focus-within: a mouse click focuses the button too
+ * (and a closing dialog hands focus back to it), which would leave the toolbar
+ * up after the pointer moved on. */
+.chat__msg-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  box-sizing: border-box;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  /* The page ground, not the card's: an incoming bubble IS card-coloured, and
+   * the toolbar has to stand off it. */
+  background: var(--color-bg);
+  box-shadow: 0 2px 8px var(--color-shadow);
+  color: var(--color-text-muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
 }
 .chat__msg-actions {
-  position: absolute;
-  top: 4px;
-  right: 4px;
   display: flex;
   align-items: center;
   gap: 2px;
 }
-/* 🔴 THE TWO CORNER BUTTONS FOLLOW THE BUBBLE (owner 2026-08-20, rc-8056a06aa2b8).
- * They used to be little chips: `background: var(--color-card)` with a hairline
- * border, which is invisible on an incoming bubble (same surface) and a foreign
- * grey box on your own, because that one is painted in the accent green. The
- * owner saw it and asked why the two buttons looked like different colours —
- * measured, they were not: identical colour, background and border, on a bubble
- * whose background they did not match.
- *
- * So no box: transparent ground, no border, and the ink is the BUBBLE's own
- * colour at reduced strength (`currentColor` in the `color` property resolves
- * to the inherited value, so this is the green on your messages and the plain
- * text colour on theirs — one rule, no per-bubble override). Hover restores it
- * to full strength and lays down a faint wash of the same colour, so the hover
- * target still reads as a target without reintroducing a permanent box.
- *
- * ⚠️ THIS MOVES A THEME DEPENDENCY. The chip's legibility rested on
- * `--color-text-muted` against `--color-card`; it now rests on each bubble's own
- * ink against its own ground — on your messages that is the accent against the
- * accent-tinted bubble, a pair nothing in check-token-roles.mjs pins. An
- * imported theme pack can drive those two together and fade these buttons out
- * without any check firing. The CT guard measures the built-in theme only, at
- * WCAG 3:1, resting, on both bubbles and on a coarse pointer. */
-.chat__msg-expand {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: color-mix(in srgb, currentColor 55%, transparent);
-  cursor: pointer;
-  opacity: 0;
-  transition:
-    color 0.15s,
-    background-color 0.15s,
-    opacity 0.15s;
-}
-.chat__msg:hover .chat__msg-expand,
-.chat__msg-expand:focus-visible {
-  opacity: 1;
-}
-.chat__msg-expand:hover {
-  color: inherit;
-  background: color-mix(in srgb, currentColor 12%, transparent);
-}
-/* 🔴 COARSE POINTERS GET THE FULL RESTING STATE, not a dimmed one. This block
- * used to say `opacity: 0.55`, calibrated when the ink was opaque. The ink is
- * now 55% of the bubble's colour, and opacity MULTIPLIES: touch devices were
- * getting 30% ink, measured at 2.42:1 on an incoming bubble and 2.02:1 on your
- * own — under the 3:1 floor for a non-text control, and worse than the chip it
- * replaced. On a touch device there is no hover to reveal these with, so this
- * IS the state they live in. (The twin of this block on .chat__msg-reply adds
- * that the entry it governs is a touch user's only way to reply; that clause
- * belongs there, not here — this one governs 放大閱讀.) */
-@media (hover: none) {
-  .chat__msg-expand {
+@media (hover: hover) {
+  .chat__msg:hover .chat__msg-toolbar {
     opacity: 1;
+    pointer-events: auto;
   }
 }
-/* ===== T-4e95 「回覆這則」 =====
- *
- * Three surfaces, one visual language: a left-turning arrow plus low-emphasis
- * text, quiet enough that a thread full of replies reads like one without them.
- * The quote line and the composer banner take that quiet from
- * --color-text-muted; the corner entry does NOT, and has not since the owner
- * asked for it to follow its bubble (rc-8056a06aa2b8) — see the ink rule below.
- * This paragraph used to claim all three were the same token.
- *
- * ① THE CORNER ENTRY. It sits in .chat__msg-actions, inside the bubble, beside
- * 放大閱讀 — owner 2026-08-20, after seeing it out on .chat__msg-line and saying
- * it read as belonging to the thread rather than to that message. The corner did
- * not exist on every bubble at the time (放大閱讀 is only on incoming text), so
- * the slot was added to the ones that lacked it and its width is now reserved on
- * EVERY bubble; the AC is 每一則 and it still holds. ONE shape keeps the old row
- * placement: an inline reply card, which replaces the bubble entirely and has no
- * corner to sit in. (This paragraph described the pre-owner-feedback layout for
- * five further commits to this file after it stopped being true.)
- *
- * It is ALWAYS in the layout (opacity, never display) so revealing it on hover
- * cannot shift the bubble sideways mid-hover. Coarse pointers have no hover to
- * reveal with, so there it sits at FULL strength — the same contract
- * .chat__msg-expand keeps. It used to be reduced there, and that was correct
- * while the ink was opaque; once the ink became a fraction of the bubble's
- * colour the two fractions multiplied and the control fell under 3:1. */
+.chat__msg-toolbar:has(:focus-visible) {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* A failed copy outlasts the reveal (the pointer has usually left the row, or
+ * the long-press menu has closed, before the reader looks for it): the
+ * toolbar stays up holding only the failure. A success shows nothing here. */
+.chat__msg-toolbar:has(.chat__msg-copy-status--failed) {
+  opacity: 1;
+}
+.chat__msg:not(:hover)
+  .chat__msg-toolbar:has(.chat__msg-copy-status--failed):not(:has(:focus-visible))
+  .chat__msg-actions {
+  display: none;
+}
 .chat__msg-reply,
-.chat__msg-delete {
+.chat__msg-copy,
+.chat__msg-delete,
+.chat__msg-expand {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1241,42 +1220,265 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: color-mix(in srgb, currentColor 55%, transparent);
+  color: inherit;
   cursor: pointer;
-  opacity: 0;
   transition:
     color 0.15s,
-    background-color 0.15s,
-    opacity 0.15s;
-}
-.chat__msg:hover .chat__msg-reply,
-.chat__msg-reply:focus-visible,
-.chat__msg:hover .chat__msg-delete,
-.chat__msg-delete:focus-visible {
-  opacity: 1;
+    background-color 0.15s;
 }
 .chat__msg-reply:hover,
-.chat__msg-delete:hover {
-  color: inherit;
+.chat__msg-copy:hover,
+.chat__msg-delete:hover,
+.chat__msg-expand:hover {
+  color: var(--color-text);
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
-/* On the owner's OWN bubbles the corner slot rests visible (owner 2026-11-09):
- * the width is reserved there anyway, and an empty reserved corner read as a
- * stray gap. Incoming bubbles keep the hover reveal. */
-.chat__msg--me .chat__msg-actions > .chat__msg-reply,
-.chat__msg--me .chat__msg-actions > .chat__msg-delete {
-  opacity: 1;
-}
-/* Same correction as .chat__msg-expand above: opacity multiplies the ink's own
- * alpha, and 0.55 × 55% left the only reply entry a touch user has at 2.02:1. */
-@media (hover: none) {
-  .chat__msg-reply,
-  .chat__msg-delete {
-    opacity: 1;
-  }
+/* Capped so a long theme wording wraps instead of running past the thread's
+ * clipped edge. */
+.chat__msg-copy-status--failed {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--color-text-strong);
+  color: var(--color-bg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  width: max-content;
+  max-width: 96px;
 }
 
-/* 「刪除」 (the corner entry above shares the reply entry's rules). A deleted
+/* ===== Long press with a finger: the message's action sheet =====
+ * A finger held on a bubble or card opens .chat__msg-sheet — on any device,
+ * including one with a mouse and a touch screen. It rises from the bottom of
+ * the screen, the same place whichever message was pressed (owner: a menu
+ * that opened beside the message jumped around); the pressed message keeps a
+ * ring while it is open. A touch-only screen (hover: none) shows no toolbar;
+ * its buttons stay in the accessibility tree, out of sight, and appear when
+ * the keyboard reaches them. The browser's own long press (text selection,
+ * iOS callout) is off on messages so it does not fight the sheet: always on a
+ * touch-only screen, and elsewhere while a finger is down on the thread
+ * (`data-touch-press`, set by useLongPress). 選取文字 turns selection back on
+ * for one message. */
+@media (hover: none) {
+  .chat__msg-toolbar:has(.chat__msg-copy-status--failed):not(:has(:focus-visible))
+    .chat__msg-actions {
+    display: none;
+  }
+  .chat__msg:not(.chat__msg--selecting) :is(.chat__msg-bubble, .reply-card) {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+.chat__messages[data-touch-press]
+  .chat__msg:not(.chat__msg--selecting)
+  :is(.chat__msg-bubble, .reply-card) {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.chat__msg--card .reply-card :is(textarea, input) {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* Selection mode (選取文字): like LINE's, everything but the chosen message is
+ * blurred and inert, and that message stays sharp where it was. A tap on the
+ * blurred part reaches the thread itself, which ends the mode. */
+.chat__messages--selecting
+  :is(
+    .chat__msg:not(.chat__msg--selecting),
+    .chat__day-divider,
+    .chat__unread-divider,
+    .chat__inter-toggle,
+    .chat__history-start,
+    .chat__gap-notice
+  ),
+.chat:has(.chat__messages--selecting) :is(.chat__header, .chat__jump-latest, .chat__new-msg) {
+  filter: blur(6px);
+  opacity: 0.6;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+@media (prefers-reduced-transparency: reduce), (prefers-reduced-motion: reduce) {
+  .chat__messages--selecting
+    :is(
+      .chat__msg:not(.chat__msg--selecting),
+      .chat__day-divider,
+      .chat__unread-divider,
+      .chat__inter-toggle,
+      .chat__history-start,
+      .chat__gap-notice
+    ),
+  .chat:has(.chat__messages--selecting) :is(.chat__header, .chat__jump-latest, .chat__new-msg) {
+    filter: none;
+    opacity: 0.2;
+  }
+}
+/* The bar is laid over the bottom of the pane; the thread ends at its top
+ * edge, so nothing in it, nor iOS's selection handles over it, runs under the
+ * bar's buttons. */
+.chat__body:has(> .chat__messages--selecting) {
+  padding-bottom: var(--chat-select-bar-reserve, 24px);
+}
+.chat__msg--selecting .chat__msg-toolbar {
+  visibility: hidden;
+}
+/* iOS's long-press preview of a link or image offers to open it; the mode
+ * only selects, copies and replies. */
+.chat__msg--selecting :is(a, img) {
+  -webkit-touch-callout: none;
+}
+/* A card in the mode is its title and question only: its task row, question
+ * attachments, errors and options cannot be quoted, and 標為過期 is not done
+ * here. Hidden, not unmounted, so a half-written answer is there again after
+ * the mode. A head left with nothing but those goes too: empty, it would
+ * still add the card's 12px gap above the title (a card with no task keeps
+ * its title in the head). */
+.chat__msg--selecting
+  :is(
+    .reply-card__answer-side,
+    .reply-card__task,
+    .reply-card__jump,
+    .reply-card__question-atts,
+    .reply-card__error
+  ),
+.chat__msg--selecting
+  .reply-card__chat-head:not(:has(> :not(.reply-card__task, .reply-card__jump))) {
+  display: none;
+}
+.chat__select-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 14px 14px 0 0;
+  background: var(--color-card);
+  box-shadow: 0 -4px 18px var(--color-shadow);
+  color: var(--color-text);
+}
+.chat__select-bar:focus {
+  outline: none;
+}
+/* Words only a screen reader gets: a copy's result, which shows only as a check. */
+.chat__sr-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.chat__select-bar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.chat__select-bar__btn > svg {
+  flex: none;
+}
+.chat__select-bar__btn--primary {
+  border-color: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  background: var(--color-accent-cta-bg);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.chat__select-bar__btn:disabled {
+  color: var(--color-text-muted);
+  background: transparent;
+  border-color: var(--color-border);
+  cursor: default;
+}
+.chat__msg--selecting .chat__msg-bubble,
+.chat__msg--selecting .reply-card,
+.chat__msg--pressed .chat__msg-bubble,
+.chat__msg--pressed .reply-card {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.chat__msg-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  background: color-mix(in srgb, var(--color-backdrop) 45%, transparent);
+}
+.chat__msg-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  border-radius: 14px 14px 0 0;
+  background: var(--color-card);
+  box-shadow: 0 -4px 18px var(--color-shadow);
+  color: var(--color-text);
+  animation: chat-msg-sheet-rise 0.18s ease-out;
+}
+@keyframes chat-msg-sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat__msg-sheet {
+    animation: none;
+  }
+}
+.chat__msg-sheet__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+/* The first item takes focus when a finger opens the sheet, and iOS Safari
+ * may count that as :focus-visible and draw its blue ring; so focus shows
+ * only once a key has been used in the sheet. */
+.chat__msg-sheet__item:active,
+.chat__msg-sheet--keyed .chat__msg-sheet__item:focus {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.chat__msg-sheet--keyed .chat__msg-sheet__item:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.chat__msg-sheet__item--danger {
+  color: var(--color-danger);
+}
+
+/* 「刪除」 (the toolbar entry above shares the reply entry's rules). A deleted
  * row replaces its bubble with one muted italic button that opens the original
  * in the 看原訊息 overlay; the row itself carries none of the original. */
 .chat__msg-deleted {
@@ -1307,10 +1509,9 @@
  * message this one answers (owner 2026-08-20: it used to float outside the
  * bubble and read as a separate strip rather than part of this message).
  *
- * Same exception as ①: an inline reply card has no bubble, so its quote row
- * still renders outside the card. The two exceptions are the same shape and the
- * same open question — whether the card should grow a corner and a quote slot of
- * its own is a separate ticket, not this one.
+ * An inline reply card has no bubble, so its quote row still renders outside
+ * the card; whether the card should grow a quote slot of its own is a separate
+ * ticket, not this one.
  *
  * Modelled on the 精簡任務資訊 row a task-derived ask wears (.reply-card__task):
  * a truncating identity + text. A hairline under it separates the quote from
@@ -1351,7 +1552,7 @@
   position: relative;
   /* The hover wash needs a little room around the text. Negative margin plus
    * equal padding gives it that without moving a single glyph, and stays
-   * inside the 6px between the row and the corner buttons. A `max-width: 100%`
+   * inside the bubble's padding. A `max-width: 100%`
    * here would cancel the right-hand margin and narrow the text by 6px.
    * No `overflow: hidden` either: it would clip the overlay's focus ring. */
   margin: -2px -3px 6px;
@@ -1419,8 +1620,7 @@
  * (the excerpt) for one line's width, arbitrated by shrink factors. It is now
  * the ONLY shrinkable item on line 1, competing with nothing — the icon and the
  * failure sentence are both `flex: none`. What it still buys is ①: a free-text
- * name that cannot shrink overflows the bubble and runs under the corner
- * buttons. What it no longer costs is ②, because the excerpt
+ * name that cannot shrink overflows the bubble. What it no longer costs is ②, because the excerpt
  * is not there to be dragged down with it.
  *
  * ⚠️ AND WHAT IT DEGRADES TO IS AN ELLIPSIS, NOT A THIRD DRAWING. On a pane too
@@ -1594,6 +1794,18 @@
   white-space: nowrap;
   cursor: pointer;
   box-shadow: 0 4px 14px color-mix(in srgb, var(--color-shadow) 35%, transparent);
+}
+/* A finger's selection: a full-width bar over the bottom of the screen (the
+ * long-press sheet's place), clear of the system's own selection bar beside
+ * the selection. */
+.chat__selection-reply--docked {
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  justify-content: center;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 14px;
 }
 .chat__selection-reply:hover,
 .chat__selection-reply:focus-visible {
@@ -2221,6 +2433,9 @@ button.chat__msg-file {
   border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 
+.chat__composer[hidden] {
+  display: none;
+}
 .chat__composer {
   display: flex;
   flex-direction: column;

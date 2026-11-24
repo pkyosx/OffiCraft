@@ -183,9 +183,19 @@ export function CopyIcon({ size = 16, className }: IconProps) {
   );
 }
 
-export function CheckIcon({ size = 16, className }: IconProps) {
+export function TextCursorIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>
+      <path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1" />
+      <path d="M7 22h1a4 4 0 0 0 4-4v-1" />
+      <path d="M7 2h1a4 4 0 0 1 4 4v1" />
+    </svg>
+  );
+}
+
+export function CheckIcon({ size = 16, className, "aria-hidden": ariaHidden }: IconProps) {
+  return (
+    <svg {...base(size)} className={className} aria-hidden={ariaHidden}>
       <path d="M20 6 9 17l-5-5" />
     </svg>
   );

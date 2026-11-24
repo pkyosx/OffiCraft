@@ -1,4 +1,4 @@
-// 放大閱讀 — the corner button on an INCOMING chat bubble that reopens that
+// 放大閱讀 — the toolbar button on an INCOMING chat bubble that reopens that
 // message's body in the shared markdown full-view overlay (the same surface a
 // .md attachment opens into). Owner ask 2026-07-28: a long agent answer is a
 // document, and the thread column is not where you read one.
@@ -8,9 +8,8 @@
 //     incoming attachment-only no (the file chip owns its own 預覽 action).
 //   · that the click opens the overlay on the MESSAGE BODY, rendered as
 //     markdown, with NO download link (the text was never a file).
-// What it cannot pin: that the reserved corner (.chat__msg-bubble--expandable
-// padding) actually keeps the glyph off the last characters — that is CSS, and
-// was verified in a real browser instead.
+// What it cannot pin: that the toolbar stays off the text — that is CSS, and
+// visual-guards/chat-reply-to.ct.spec.tsx measures it.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";

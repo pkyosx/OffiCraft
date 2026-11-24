@@ -312,7 +312,7 @@ overlay 與再撈，而它本身已經是一張有邊框的卡。
 server 的聊天列表預設不列已刪除訊息（任何呼叫者都一樣）；聊天視窗的讀取（`listChat`／`listChatWindow`）在 http seam 一律帶 `include_deleted=true` 才拿得到這些列，未讀探針（`unread=true`）不能帶，server 會 422。
 刪除時 server 寄給原收件人的 system 通知（meta 帶 `delete_notice`）在 owner 的聊天視窗不顯示：`listChat`／`listChatWindow` 在 http seam 一律帶 `hide_delete_notices=true`（Owner rc-432acb8e2706），未讀探針同樣不能帶（422）。聊天列表不帶參數時照樣列出通知，因為成員要靠它；resume summary 預設就不列（要看帶 `include_delete_notices=true`），所以 `ResumeSummaryCard` 不帶參數。mock 的對應讀取一律不列通知，測試用 `__mockDeleteNotices()` 看它有沒有寄出。
 
-**owner 自己訊息角落的「回覆這則」與「刪除」平常就顯示，不等 hover**（owner 2026-11-09：那格寬度本來就預留，空著看起來像多一塊空白）；成員訊息的角落維持 hover 才顯示，觸控裝置兩邊都常駐。「刪除」出不出現仍只看 `chatDeletable`。規則在 `office.css` 的 `.chat__msg--me .chat__msg-actions > …`，CT `chat-reply-to` 量兩邊的靜止 opacity 與對比。
+**每則訊息的動作（回覆這則・複製訊息・放大閱讀／刪除）桌面是一條浮在氣泡上緣的工具列，觸控是長按選單**（owner 2026-11-24：「不然試試看hover好了，slack好像就是這樣做的」；手機「都用長按好了，我看line也是這樣」）。氣泡**不預留**任何寬度，文字用滿整個氣泡；工具列 hover 或**鍵盤**聚焦（`:has(:focus-visible)`，不是 `:focus-within`：滑鼠點按鈕、關掉彈窗都會把焦點留在按鈕上）才出現（opacity，不改版面），自己的訊息也一樣，不再常駐；複製成功時只有複製鈕本身變成 ✓，旁邊不另畫任何東西，「已複製」只放在 `ChatMessageCopyStatus`（一直掛著的 role=status）裡的 `.chat__sr-text` 給螢幕閱讀器，滑鼠離開後工具列照常收起；複製失敗時 `ChatMessageCopyStatus` 顯示 `messageCopyFailed`（`.chat__msg-copy-status--failed`），只有它會讓工具列在滑鼠離開後留著、只剩那個標籤。對方訊息的工具列用一份隱形的名字（`data-sender`）墊在前面，不蓋寄件者名字。手指長按 500ms（任何裝置都算，`pointerType === "touch"`；移動超過 10px 就當成捲動）開 `ChatMessagePressMenu`：從畫面下方升起的選單（owner：開在訊息旁邊的選單位置會跳），按著的訊息加外框；焦點一打開就落在第一項，但項目本身 `outline: none`，在選單裡按過鍵（`.chat__msg-sheet--keyed`）才畫 accent 外框與底色（owner：「手機長按出現的選單 有時候有藍匡」——手指打開後的程式聚焦，瀏覽器有時當成 `:focus-visible` 畫出預設藍框）；手指放開時瀏覽器補送的 click 會落在背景或選項上，所以只有在背景／選單裡按下去的那一下才算。項目跟工具列同一份清單（`ChatArea` 的 `messageActions`）再加「選取文字」；選單裡按「複製」，選單收起就是回饋，成功時畫面上不出現任何東西（跟 iOS 原生長按選單一樣），失敗才在那則訊息上顯示 `messageCopyFailed`；只能觸控（`hover: none`）的裝置看不到工具列，但按鈕留在無障礙樹裡、鍵盤聚焦時出現。「選取文字」進入那一則的**選取模式**（owner「我想像中是進入選取模式，像line一樣」）：其餘畫面模糊、`pointer-events: none`，點模糊處（一次 click，不是 pointerdown，捲動不算）離開；模式只做選字・複製・回覆（owner：「收合 標為過期這些都不是在這個介面做的事情」）：那一列裡的連結、提及、附件、圖片、引用列的「看原訊息」等動作，`ChatArea` 在 document 的 capture 階段把 click／auxclick／Enter・空白鍵吞掉（preventDefault＋stopPropagation，先於 React 的 listener），字照樣選得到；那一列的 `a`、`img` 另設 `-webkit-touch-callout: none`（iOS 長按連結／圖片的預覽會提供開啟；Chromium 與 Playwright WebKit 都不認這個屬性，CT 量不到；選字的拷貝選單是否照常出現也要實機看）；離開模式後這些 listener 都拔掉，連結、圖片、看原訊息照常動作；請示卡本身不在這份清單裡，由 `ChatReplyCard` 的 `selecting` 讓點擊與 Enter／空白鍵不收合／展開（空白鍵仍 preventDefault，不捲動聊天串）；在模式裡才掛上的卡也一樣展開。請示卡進模式時記下原本的收合／展開並展開，離開（取消・Esc・點模糊處）時回到原狀，只有列上的「回覆」引用進卡的回答框時（`keepOpenAfterSelecting`）保持展開；其餘畫面同時設 `inert`（含 `.chat__jump-latest`／`.chat__new-msg`，effect 依 `bottomAffordance` 重跑）；模式期間 `.chat__composer` 設 `hidden`（不卸載，草稿照舊；列上的回覆在同一次點按裡先 `flushSync` 讓輸入區回來、再把焦點放進輸入框，iOS 才會叫出鍵盤；取消／Esc 把焦點還給那則訊息的第一個動作；owner：「下面的部分，應該只需要我們新增的部分」），`ChatSelectionModeBar`（同一個 `useSelectionPick`）在聊天室最底給取消・複製（選取的那段原文）・回覆，沒有選取時兩顆停用；三顆按鈕用 `chat.selectionCancel`／`copySelection`／`selectionReply`（取消／複製／回覆），節慶主題不覆寫這三個（owner rc-2f10b36c69a7）；選取用 `pickInSelectedRow`：那一列內容裡選到的字都算 excerpt（一般訊息的正文；請示卡的標題與內文），選到寄件者、被引用的訊息等內容以外的字時複製與回覆都停用（看不到或 `user-select: none` 的字不算）；複製的字與 excerpt 同一份，都經 `excerptFromSelection` 把換行連同前後空白收成一個換行（瀏覽器在區塊間塞空行，引用框只顯示三行；伺服器那半 `normalizeReplyExcerpt` 仍只 trim），請示卡在模式裡只列標題與內文（owner：選項不能回覆就不要列出來）：選項與回答區（包在 `.reply-card__answer-side`，`display: contents`）、任務列 `.reply-card__task`、標為過期 `.reply-card__jump`、問題附件 `.reply-card__question-atts`、錯誤訊息 `.reply-card__error` 都 `display: none`（不卸載，回答草稿與引用目標都在；`.reply-card__chat-head` 只剩任務列與標為過期時整列一起隱藏；沒有任務的卡標題在卡頭裡，卡頭留著），所以從標題／內文拖進任務列的位置或整張卡全選，複製與回覆照樣可用、excerpt 只有標題與內文；列上的回覆先 `flushSync` 結束模式再引用，請示卡的回答框才拿得到焦點；沒有提示行，複製成功時複製鈕只畫 ✓（`CopiedMark`，字放在 `.chat__sr-text` 給螢幕閱讀器），失敗顯示 `messageCopyFailed`，另有一個看不見、不佔位的 role=status；手機上輸入欄位至少 16px 由 `styles/global.css` 一條全域規則負責（見 css-layout-traps.md「輸入欄位 16px」），聊天輸入框不再各自宣告；列是疊在 `.chat__body` 底部的 absolute，它把自己蓋住的高度寫進 `.chat__body` 的 `--chat-select-bar-reserve`（模式期間當 `.chat__body` 的 padding-bottom），聊天串這個捲動容器因此**在列的上緣就結束**，內容與 iOS 的選取把手都不會跑到列底下（以前是在聊天串裡墊 padding／scroll-padding、列疊在捲動區上：owner 實機在長訊息的末段選字後按不到「複製」——「好像因為跟訊息顯示重疊了 往上拉就可以了」，iOS 選取把手的觸控範圍蓋到列上的按鈕；不要改回疊在捲動區上）；選取範圍的結尾（`endRectOf`）落在列上緣 48px（`SELECTION_END_CLEARANCE_PX`）以內或底下時，selectionchange 停 120ms 後把聊天串往上捲到離列 48px（不在拖動把手的每一步跟著捲，否則會在手指下一路捲走；進模式時整則選起的那個選取不算，進入的捲動位置照舊；把手的實際範圍只能實機看），進入時先還原進入前的 scrollTop（輸入區收起時瀏覽器會先夾住它，所以在 render 時就讀），再在那一列長大時（請示卡進模式後才展開）把那一列捲到列的上方，已經看得到就不動；那一列的頂端已經在聊天串上緣之上（長訊息從中間長按進來、或讀者已捲進那則裡）時也不動，只往下捲、不往上捲（以前會在任何 resize——轉向、圖片載入、請示卡重讀——時把聊天串拉回那則的頂端，從中間長按進來時按著的那行還會跑到列底下）；離開時輸入區回來、聊天串變矮，`ChatArea` 再把那一列捲回看得到的地方；已回覆／已過期的卡選得到、複製得了，但 `reply` 是 null，回覆停用。CI 的 runner 可能開著減少動態效果，CT 用 CDP 把 `prefers-reduced-motion`／`prefers-reduced-transparency` 釘住再量模糊與淡化。選取模式以外用手指選字時（請示頁），浮動的「回覆這段」固定在畫面最下方（iOS／Android 的選字工具列在選取範圍旁邊，會蓋住它）。氣泡與卡片在 `hover: none` 上、以及手指按著訊息串（`data-touch-press`）時關掉瀏覽器自己的長按選字／iOS callout，選取模式只對那一則打開選字；回覆、取消、Esc 或點模糊處就結束。請示卡那一列也是同一條工具列／同一個選單（回覆・複製），複製的是問題：summary、空一行、body 原文（提及轉 `@名字`），按下去才讀那張卡（收合列不帶 body，掛載時一律不讀）。「刪除」出不出現仍只看 `chatDeletable`。CT `chat-reply-to` 量文字寬、hover 不擠動、工具列不蓋字、對比、觸控長按與選取。
 
 **橫幅有自己的文案，不准借用訊息列那一句。** composer 上方的「正在回覆」橫幅沒有
 `reply_to_chat` 可讀（那是回覆**送出後**才存在的東西），它只認**已載入視窗**裡的
@@ -349,7 +349,7 @@ effect 裡發請求。** 引用列畫的是 server 這次隨訊息一起送來�
 這一段是刻意合成的：以前它問「那則在不在視窗」來決定給不給鈕，owner 把它改成一律
 給、按了才撈，所以**不要再把窗口成員資格的判斷加回去**。
 引用列上的「看原訊息」**沒有看得見的圖示或字，整列引用就是點擊目標**（owner `rc-4f3663c42554`；
-圖示版本會被看成氣泡角落回覆／刪除那組的一部分）：`.chat__msg-quote__jump` 仍是一顆真的
+圖示版本會被看成訊息工具列的一部分）：`.chat__msg-quote__jump` 仍是一顆真的
 `<button>`（`data-testid="msg-quote-jump"` 不變），內容是空的、透明、`position: absolute; inset: 0`
 蓋滿整個 `.chat__msg-quote`。「看原訊息」這句只留在 `aria-label` 與 `title`。hover 時的淡底
 （`--chat-bubble-ink` 的 12%）由引用列自己透過 `:has()` 畫在字的**下面**，不是畫在覆蓋鈕上；
@@ -357,7 +357,7 @@ focus-visible 的外框畫在覆蓋鈕上，正好框住整列。淡底需要的
 靜止時字的位置不動；分隔線改成 `::after` 畫，寬度仍跟字一樣。`quotedMessage.failureNotice`
 的「拿不到這則訊息」留在第一行，`position: relative; z-index: 1` 疊在覆蓋鈕上面。原訊息已不存在
 （`quoted` 為空）時沒有這顆鈕，整列不可點。CT `chat-reply-to` 量著：覆蓋鈕的框＝引用列的框、
-不碰角落按鈕（角落按鈕中心點到的仍是角落按鈕）、靜止透明 hover 有底、失敗訊息不被蓋住。
+不碰工具列（工具列按鈕中心點到的仍是那顆按鈕）、靜止透明 hover 有底、失敗訊息不被蓋住。
 
 **覆蓋層上的「跳到原訊息」（T-684，owner `rc-9194339a2f84`、`rc-38583da201d3`）。** 一律先開覆蓋層顯示原文，
 跨聊天室也一樣；覆蓋層 header（✕ 左邊）才有跳到原訊息，按下關掉覆蓋層、寫上面那條 hash route。它是文字鈕，跟請示卡的跳到原訊息同一個 class（`.reply-card__jump`）與同一個用語（`replies.jumpToChat`），不跟旁邊的圖示鈕一樣只放圖示（owner `rc-94eeef1b229c`）。
@@ -399,7 +399,7 @@ disabled 而 blur，所以那條測試裡真正有牙的是那句 `jump.disabled
 `messageById` 還活著，但它只回答**一個**問題：composer 上方的橫幅認不認得回覆
 對象。它**不**回答「能不能看原訊息」。
 
-**「回覆這段」＝回覆對象＋一段選取原文（`reply_excerpt`）。** 選取完全落在同一個可回覆文字區塊時才浮出按鈕：一般聊天訊息的氣泡正文（`.chat__msg-text`），或等待中請示卡的摘要／內文（`.reply-card__summary`／`.reply-card__body`，見下一段，那條路不送聊天訊息）。跨兩個文字區塊（包含跨訊息、跨卡片或請示卡摘要與內文），或選到按鈕、選項、回答框等互動區域時，不浮出按鈕（`ChatSelectionReply`，portal 到 body、fixed 座標夾在視窗內）。超過 1000 字時按鈕停用並顯示上限（`lib/replyExcerpt.ts`，與 server 的 `chatReplyExcerptMaxChars` 同一個數，`mock.reply-to.test.ts` 會讀 Go 原始碼對帳）：server 是**拒絕不截斷**，所以前端也不截。excerpt 跟回覆對象**同生共死**：存在草稿、x 一起清、整則回覆會把它清掉、送出失敗一起還原。有 excerpt 時，橫幅與每一個引用面（訊息列、`ResumeSummaryCard`）畫 `replyToChat.replyExcerpt`，否則照舊畫 `content`；「已不存在」那一態不變。⚠️ server **不檢查**它是不是原文的子字串（畫面上選到的字不等於原始 markdown），不要在前端或 mock 補這個檢查。
+**「回覆這段」＝回覆對象＋一段選取原文（`reply_excerpt`）。** 選取完全落在同一個可回覆文字區塊時才浮出按鈕：一般聊天訊息的氣泡正文（`.chat__msg-text`），或等待中請示卡的摘要／內文（`.reply-card__summary`／`.reply-card__body`，見下一段，那條路不送聊天訊息）。跨兩個文字區塊（包含跨訊息、跨卡片或請示卡摘要與內文），或選到按鈕、選項、回答框等互動區域時，不浮出按鈕（正文裡的提及與連結雖然畫成按鈕／連結，算正文，可以選過去）（`ChatSelectionReply`，portal 到 body、fixed 座標夾在視窗內）。超過 1000 字時按鈕停用並顯示上限（`lib/replyExcerpt.ts`，與 server 的 `chatReplyExcerptMaxChars` 同一個數，`mock.reply-to.test.ts` 會讀 Go 原始碼對帳）：server 是**拒絕不截斷**，所以前端也不截。excerpt 跟回覆對象**同生共死**：存在草稿、x 一起清、整則回覆會把它清掉、送出失敗一起還原。有 excerpt 時，橫幅與每一個引用面（訊息列、`ResumeSummaryCard`）畫 `replyToChat.replyExcerpt`，否則照舊畫 `content`；「已不存在」那一態不變。⚠️ server **不檢查**它是不是原文的子字串（畫面上選到的字不等於原始 markdown），不要在前端或 mock 補這個檢查。
 
 **請示卡的「回覆這段」是回答那張卡，不是送聊天訊息**（owner `rc-cf02eac19977` 圈 A：請示頁與聊天視窗都改，同一張卡兩處行為一致）。選段落在等待中卡片的摘要／內文時，按鈕把那段放進**這張卡自己的回答框上方**（`ReplyComposer` 的 `quote`，有 x），游標移進回答框；送出回答帶 `ReplyCardAnswerPostDTO.reply_excerpt`，跟聊天 excerpt 同一套 trim 與 1000 rune 上限、超過就拒絕（server 共用 `chatReplyExcerptMaxChars`）。引用不是回答：單有引用仍是「空答覆」400。路由靠 `ReplyCardQuoteProvider`：等待中卡的 `ReplyCardWaitingBody` 用 `useReplyCardQuoteTarget(card.id, …)` 登記自己，`ChatSelectionReply` 只在 `[data-reply-card-id]` 有登記時才浮出按鈕——所以已回覆／已過期的卡（沒有回答框）不浮出，宿主沒包 provider 的面（任務卡內嵌的回覆卡）也不浮出。provider 要同時包住 `ChatSelectionReply` 與選取根（ChatArea 的訊息串、RepliesPage 整頁）；`ChatSelectionReply` 要放在卡片 article **外面**，portal 的 click 會沿 React 樹冒泡，放在卡裡會翻卡。⚠️ 重新決定（PUT）是**整份換掉**答案，沒帶 `reply_excerpt` 就等於拿掉引用；所以編輯模式預設帶著原本的引用（`ReplyCardAnsweredBody` 的 `startEditing`），按 x 才拿掉。顯示引用的面從資料欄位找：`grep -rn "replyExcerpt\|answerReplyExcerpt" frontend/src`（最終答案列由 `ReplyCardBody` 給三個 wrapper 共用，另有 `ResumeSummaryCard`）；`TaskReplyCard` 收合的那一行只印選項或文字摘要，不印引用。agent 端讀得到的地方是 `get_reply_card` 的 `answer.reply_excerpt`、請示卡清單的 `answer.reply_excerpt` 預覽、喚醒快照的 `card.answer_reply_excerpt`，以及 `ocagent` 的 `reply-card … answered:` 那一行的 `quoting "…"`。
 
@@ -415,9 +415,8 @@ disabled 而 blur，所以那條測試裡真正有牙的是那句 `jump.disabled
 介入詢問」。所以 `replyable` 這個 gate 已刪：入口出現在視窗裡的每一則上，回覆
 仍然寄給這條線的 peer，只是引用的是 owner 指到的那一句。
 
-**唯一的例外是位置，不是有無：請示卡那種訊息**的氣泡被 `<ChatReplyCard>` 換掉
-（那是一整片有自己 header 控制項的表面，浮一顆按鈕上去會撞在一起），所以入口留
-在列上。回得動，只是不在角落。
+請示卡那種訊息的氣泡被 `<ChatReplyCard>` 換掉，工具列改掛在那一列的內容框上緣
+（卡片自己的 13px 上內距，碰不到卡頭右上的「標為過期」）。
 
 以上都有測試釘住（`ChatArea.reply-to.test.tsx`、`ChatArea.quote-no-fetch.test.tsx`、
 `ChatArea.reply-card-quote.test.tsx`、`mock.reply-to.test.ts`、`mappers.reply-to.test.ts`）。

@@ -7,9 +7,13 @@
 // PRESENTATIONAL (hover reveal, one-line clipping, the quote row staying inside
 // the bubble column), and jsdom can measure none of them. The behavioural half
 // is already pinned in ChatArea.reply-to.test.tsx.
+
+
 export function ChatReplyToStory({
   bannerWho = "正在回覆 Mira → 韓立",
   quoteError = false,
+  copyResult = "copied",
+  copyLabel = "已複製",
 }: {
   /** The banner's WHO half. A prop because its WIDTH is the thing under test,
    * and display names are free text. The default
@@ -20,6 +24,11 @@ export function ChatReplyToStory({
   /** Show the one-off 「拿不到這則訊息」 on the incoming quote row, the way
    * useQuotedMessageOverlay's failureNotice renders it after a failed read. */
   quoteError?: boolean;
+  /** The copy result the copy-result rows show. A prop because the label's
+   * WIDTH is what can escape the thread, and every language and theme words it
+   * differently. */
+  copyResult?: "copied" | "failed";
+  copyLabel?: string;
 } = {}) {
   // 🔴 A LONG SENDER, not "Mira". What makes a long one real is that display
   // names are OWNER-SET FREE TEXT — there is no cap on what he types. (An
@@ -29,7 +38,7 @@ export function ChatReplyToStory({
   // The story used a four-character name and therefore walked past the overflow
   // it exists to guard — measured: with the guard reverted, the story still
   // passed. This length is the one that actually reproduces the failure (line
-  // 1 reaching the corner controls) at 390px.
+  // 1 reaching the toolbar) at 390px.
   //
   // It is NOT the only row that matters: a short name is the everyday case and
   // it broke in the opposite direction, so row 3 below pins that half.
@@ -60,7 +69,7 @@ export function ChatReplyToStory({
   // is only measuring clipping, not collapsing.
   const bannerBody = "第一行\n\n第二行   有很多空白的第二行\n" + longQuote;
   // What nameOf() renders when the roster cannot resolve the sender: 15
-  // characters. Too short to trip the corner-collision guard (measured: that
+  // characters. Too short to trip the toolbar-collision guard (measured: that
   // one needs 33), and exactly the length a percentage cap silently trimmed.
   const rawIdSender = "ow-8808ccf51794";
   // 🔴 THE E2E SPEC'S OWN FIXTURE, so the CT row below measures the arrangement
@@ -71,6 +80,20 @@ export function ChatReplyToStory({
   const ownerDefaultName = "CEO (You)";
   const shellQuote =
     "a sentence long enough that the quote row has to give something up";
+  const copyStatusClass =
+    copyResult === "failed" ? "chat__msg-copy-status chat__msg-copy-status--failed" : "chat__msg-copy-status";
+  const copyIcon =
+    copyResult === "copied" ? (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 6 9 17l-5-5" />
+      </svg>
+    ) : (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+        <path d="M12 9v4" />
+        <path d="M12 17h.01" />
+      </svg>
+    );
   return (
     <div className="chat">
       <div className="chat__body">
@@ -81,32 +104,47 @@ export function ChatReplyToStory({
             </div>
             <div className="chat__msg-line">
               <div className="chat__msg-content">
-                <div className="chat__msg-bubble chat__msg-bubble--expandable chat__msg-bubble--acts2">
-                  <div className="chat__msg-actions">
-                    <button
-                      type="button"
-                      className="chat__msg-reply"
-                      aria-label="回覆這則"
-                      data-testid="reply-entry-incoming"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="9 17 4 12 9 7" />
-                        <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      className="chat__msg-expand"
-                      aria-label="放大閱讀"
-                      data-testid="expand-entry-incoming"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="14 4 20 4 20 10" />
-                        <polyline points="10 20 4 20 4 14" />
-                        <line x1="20" y1="4" x2="13" y2="11" />
-                        <line x1="4" y1="20" x2="11" y2="13" />
-                      </svg>
-                    </button>
+                <div className="chat__msg-bubble">
+                  <div className="chat__msg-actions-slot" data-sender="Mira">
+                    <div className="chat__msg-toolbar">
+                      <div className="chat__msg-actions">
+                        <button
+                          type="button"
+                          className="chat__msg-reply"
+                          aria-label="回覆這則"
+                          data-testid="reply-entry-incoming"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 17 4 12 9 7" />
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-copy"
+                          aria-label="複製訊息"
+                          data-testid="copy-entry-incoming"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-expand"
+                          aria-label="放大閱讀"
+                          data-testid="expand-entry-incoming"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="14 4 20 4 20 10" />
+                            <polyline points="10 20 4 20 4 14" />
+                            <line x1="20" y1="4" x2="13" y2="11" />
+                            <line x1="4" y1="20" x2="11" y2="13" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <div className="chat__msg-text doc-md">{longQuote}</div>
                 </div>
@@ -123,19 +161,34 @@ export function ChatReplyToStory({
                 <span className="chat__msg-time">10:03</span>
               </div>
               <div className="chat__msg-content">
-                <div className="chat__msg-bubble chat__msg-bubble--acts1">
-                  <div className="chat__msg-actions">
-                    <button
-                      type="button"
-                      className="chat__msg-reply"
-                      aria-label="回覆這則"
-                      data-testid="reply-entry-mine"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="9 17 4 12 9 7" />
-                        <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-                      </svg>
-                    </button>
+                <div className="chat__msg-bubble">
+                  <div className="chat__msg-actions-slot">
+                    <div className="chat__msg-toolbar">
+                      <div className="chat__msg-actions">
+                        <button
+                          type="button"
+                          className="chat__msg-reply"
+                          aria-label="回覆這則"
+                          data-testid="reply-entry-mine"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 17 4 12 9 7" />
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-copy"
+                          aria-label="複製訊息"
+                          data-testid="copy-entry-mine"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <div className="chat__msg-quote" data-testid="quote-row">
                     <div className="chat__msg-quote__head">
@@ -185,19 +238,34 @@ export function ChatReplyToStory({
                 <span className="chat__msg-time">10:04</span>
               </div>
               <div className="chat__msg-content">
-                <div className="chat__msg-bubble chat__msg-bubble--acts1">
-                  <div className="chat__msg-actions">
-                    <button
-                      type="button"
-                      className="chat__msg-reply"
-                      aria-label="回覆這則"
-                      data-testid="reply-entry-mine-short"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="9 17 4 12 9 7" />
-                        <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-                      </svg>
-                    </button>
+                <div className="chat__msg-bubble">
+                  <div className="chat__msg-actions-slot">
+                    <div className="chat__msg-toolbar">
+                      <div className="chat__msg-actions">
+                        <button
+                          type="button"
+                          className="chat__msg-reply"
+                          aria-label="回覆這則"
+                          data-testid="reply-entry-mine-short"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 17 4 12 9 7" />
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-copy"
+                          aria-label="複製訊息"
+                          data-testid="copy-entry-mine-short"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <div className="chat__msg-quote" data-testid="quote-row-short">
                     <div className="chat__msg-quote__head">
@@ -251,19 +319,34 @@ export function ChatReplyToStory({
                 <span className="chat__msg-time">10:05</span>
               </div>
               <div className="chat__msg-content">
-                <div className="chat__msg-bubble chat__msg-bubble--acts1">
-                  <div className="chat__msg-actions">
-                    <button
-                      type="button"
-                      className="chat__msg-reply"
-                      aria-label="回覆這則"
-                      data-testid="reply-entry-mine-tight"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="9 17 4 12 9 7" />
-                        <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-                      </svg>
-                    </button>
+                <div className="chat__msg-bubble">
+                  <div className="chat__msg-actions-slot">
+                    <div className="chat__msg-toolbar">
+                      <div className="chat__msg-actions">
+                        <button
+                          type="button"
+                          className="chat__msg-reply"
+                          aria-label="回覆這則"
+                          data-testid="reply-entry-mine-tight"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 17 4 12 9 7" />
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-copy"
+                          aria-label="複製訊息"
+                          data-testid="copy-entry-mine-tight"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <div className="chat__msg-quote" data-testid="quote-row-tight">
                     <div className="chat__msg-quote__head">
@@ -304,43 +387,54 @@ export function ChatReplyToStory({
           {/* 🔴 THE COMMONEST SHAPE OF ALL, and the one this story did not have:
             * an INCOMING message that is itself a reply — an agent answering
             * something you said. Every other quote row here sits on one of your
-            * own bubbles, which reserve 32px for a single corner button; an
-            * incoming one with a body reserves 56px for two (`--acts2`, see
-            * ChatArea's `!mine && m.body`). That extra 24px is exactly the
-            * margin a jump control eats when it cannot shrink, so the widest
-            * failure lived in the one arrangement nothing rendered. */}
+            * own bubbles; this one carries the three-button toolbar. */}
           <div className="chat__msg" data-msg-id="c-5" data-testid="row-incoming-quote">
             <div className="chat__msg-meta">
               <span className="chat__msg-name">Mira</span>
             </div>
             <div className="chat__msg-line">
               <div className="chat__msg-content">
-                <div className="chat__msg-bubble chat__msg-bubble--expandable chat__msg-bubble--acts2">
-                  <div className="chat__msg-actions">
-                    <button
-                      type="button"
-                      className="chat__msg-reply"
-                      aria-label="回覆這則"
-                      data-testid="reply-entry-incoming-quote"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="9 17 4 12 9 7" />
-                        <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      className="chat__msg-expand"
-                      aria-label="放大閱讀"
-                      data-testid="expand-entry-incoming-quote"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="14 4 20 4 20 10" />
-                        <polyline points="10 20 4 20 4 14" />
-                        <line x1="20" y1="4" x2="13" y2="11" />
-                        <line x1="4" y1="20" x2="11" y2="13" />
-                      </svg>
-                    </button>
+                <div className="chat__msg-bubble">
+                  <div className="chat__msg-actions-slot" data-sender="Mira">
+                    <div className="chat__msg-toolbar">
+                      <div className="chat__msg-actions">
+                        <button
+                          type="button"
+                          className="chat__msg-reply"
+                          aria-label="回覆這則"
+                          data-testid="reply-entry-incoming-quote"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 17 4 12 9 7" />
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-copy"
+                          aria-label="複製訊息"
+                          data-testid="copy-entry-incoming-quote"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-expand"
+                          aria-label="放大閱讀"
+                          data-testid="expand-entry-incoming-quote"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="14 4 20 4 20 10" />
+                            <polyline points="10 20 4 20 4 14" />
+                            <line x1="20" y1="4" x2="13" y2="11" />
+                            <line x1="4" y1="20" x2="11" y2="13" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <div className="chat__msg-quote" data-testid="quote-row-incoming">
                     <div className="chat__msg-quote__head">
@@ -410,19 +504,34 @@ export function ChatReplyToStory({
                 <span className="chat__msg-time">10:07</span>
               </div>
               <div className="chat__msg-content">
-                <div className="chat__msg-bubble chat__msg-bubble--acts1">
-                  <div className="chat__msg-actions">
-                    <button
-                      type="button"
-                      className="chat__msg-reply"
-                      aria-label="回覆這則"
-                      data-testid="reply-entry-mine-pane347"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="9 17 4 12 9 7" />
-                        <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-                      </svg>
-                    </button>
+                <div className="chat__msg-bubble">
+                  <div className="chat__msg-actions-slot">
+                    <div className="chat__msg-toolbar">
+                      <div className="chat__msg-actions">
+                        <button
+                          type="button"
+                          className="chat__msg-reply"
+                          aria-label="回覆這則"
+                          data-testid="reply-entry-mine-pane347"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 17 4 12 9 7" />
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-copy"
+                          aria-label="複製訊息"
+                          data-testid="copy-entry-mine-pane347"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <div className="chat__msg-quote" data-testid="quote-row-pane347">
                     <div className="chat__msg-quote__head">
@@ -459,41 +568,189 @@ export function ChatReplyToStory({
               </div>
             </div>
           </div>
-          {/* An own message still inside the delete window: the slot carries
-           * 回覆這則 and 刪除, as ChatArea renders it (acts2). */}
+          {/* An own message still inside the delete window: the toolbar carries
+           * 回覆這則, 複製 and 刪除, as ChatArea renders it. */}
           <div className="chat__msg chat__msg--me" data-msg-id="c-7" data-testid="row-mine-deletable">
             <div className="chat__msg-line">
               <div className="chat__msg-sidemeta">
                 <span className="chat__msg-time">10:09</span>
               </div>
               <div className="chat__msg-content">
-                <div className="chat__msg-bubble chat__msg-bubble--acts2">
-                  <div className="chat__msg-actions">
-                    <button
-                      type="button"
-                      className="chat__msg-reply"
-                      aria-label="回覆這則"
-                      data-testid="reply-entry-mine-deletable"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="9 17 4 12 9 7" />
-                        <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      className="chat__msg-delete"
-                      aria-label="刪除"
-                      data-testid="delete-entry-mine"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M3 6h18" />
-                        <path d="M8 6V4h8v2" />
-                        <path d="M19 6l-1 14H6L5 6" />
-                      </svg>
-                    </button>
+                <div className="chat__msg-bubble">
+                  <div className="chat__msg-actions-slot">
+                    <div className="chat__msg-toolbar">
+                      <div className="chat__msg-actions">
+                        <button
+                          type="button"
+                          className="chat__msg-reply"
+                          aria-label="回覆這則"
+                          data-testid="reply-entry-mine-deletable"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 17 4 12 9 7" />
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-copy"
+                          aria-label="複製訊息"
+                          data-testid="copy-entry-mine-deletable"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-delete"
+                          aria-label="刪除"
+                          data-testid="delete-entry-mine"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 6h18" />
+                            <path d="M8 6V4h8v2" />
+                            <path d="M19 6l-1 14H6L5 6" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <div className="chat__msg-text doc-md">剛送出的</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Copy results at both extremes of bubble width, on each side: the
+           * label grows towards the row's open side, and which extreme is
+           * tight depends on which way it grows. */}
+          <div className="chat__msg" data-msg-id="c-8" data-testid="row-incoming-copy-result">
+            <div className="chat__msg-meta">
+              <span className="chat__msg-name">Mira</span>
+            </div>
+            <div className="chat__msg-line">
+              <div className="chat__msg-content">
+                <div className="chat__msg-bubble">
+                  <div className="chat__msg-actions-slot" data-sender="Mira">
+                    <div className="chat__msg-toolbar">
+                      <div className="chat__msg-actions">
+                        <button type="button" className="chat__msg-reply" aria-label="回覆這則">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 17 4 12 9 7" />
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-copy"
+                          aria-label={copyLabel}
+                          data-testid="copy-entry-incoming-result"
+                        >
+                          {copyIcon}
+                        </button>
+                        <button type="button" className="chat__msg-expand" aria-label="放大閱讀">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="14 4 20 4 20 10" />
+                            <polyline points="10 20 4 20 4 14" />
+                            <line x1="20" y1="4" x2="13" y2="11" />
+                            <line x1="4" y1="20" x2="11" y2="13" />
+                          </svg>
+                        </button>
+                      </div>
+                      <span className={copyStatusClass} role="status" data-testid="copy-status-incoming">
+                        {copyResult === "copied" ? <span className="chat__sr-text">{copyLabel}</span> : copyLabel}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="chat__msg-text doc-md">{longQuote}</div>
+                </div>
+              </div>
+              <div className="chat__msg-sidemeta">
+                <span className="chat__msg-time">10:10</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="chat__msg" data-msg-id="c-10" data-testid="row-incoming-short-copy-result">
+            <div className="chat__msg-meta">
+              <span className="chat__msg-name">Mira</span>
+            </div>
+            <div className="chat__msg-line">
+              <div className="chat__msg-content">
+                <div className="chat__msg-bubble">
+                  <div className="chat__msg-actions-slot" data-sender="Mira">
+                    <div className="chat__msg-toolbar">
+                      <div className="chat__msg-actions">
+                        <button type="button" className="chat__msg-reply" aria-label="回覆這則">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 17 4 12 9 7" />
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-copy"
+                          aria-label={copyLabel}
+                          data-testid="copy-entry-incoming-short-result"
+                        >
+                          {copyIcon}
+                        </button>
+                        <button type="button" className="chat__msg-expand" aria-label="放大閱讀">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="14 4 20 4 20 10" />
+                            <polyline points="10 20 4 20 4 14" />
+                            <line x1="20" y1="4" x2="13" y2="11" />
+                            <line x1="4" y1="20" x2="11" y2="13" />
+                          </svg>
+                        </button>
+                      </div>
+                      <span className={copyStatusClass} role="status" data-testid="copy-status-incoming-short">
+                        {copyResult === "copied" ? <span className="chat__sr-text">{copyLabel}</span> : copyLabel}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="chat__msg-text doc-md">好</div>
+                </div>
+              </div>
+              <div className="chat__msg-sidemeta">
+                <span className="chat__msg-time">10:12</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="chat__msg chat__msg--me" data-msg-id="c-9" data-testid="row-mine-copy-result">
+            <div className="chat__msg-line">
+              <div className="chat__msg-sidemeta">
+                <span className="chat__msg-time">10:11</span>
+              </div>
+              <div className="chat__msg-content">
+                <div className="chat__msg-bubble">
+                  <div className="chat__msg-actions-slot">
+                    <div className="chat__msg-toolbar">
+                      <div className="chat__msg-actions">
+                        <button type="button" className="chat__msg-reply" aria-label="回覆這則">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 17 4 12 9 7" />
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat__msg-copy"
+                          aria-label={copyLabel}
+                          data-testid="copy-entry-mine-result"
+                        >
+                          {copyIcon}
+                        </button>
+                      </div>
+                      <span className={copyStatusClass} role="status" data-testid="copy-status-mine">
+                        {copyResult === "copied" ? <span className="chat__sr-text">{copyLabel}</span> : copyLabel}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="chat__msg-text doc-md">好</div>
                 </div>
               </div>
             </div>
