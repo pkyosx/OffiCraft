@@ -2,7 +2,15 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { seasonalWindowsFrom } from "./seasonalTheme";
-import { parseLocalDateTime, seasonalEntryProblem, themeIdOfFile } from "./seasonalSchedule";
+import {
+  activeSeasonalWindow,
+  nextSeasonalBoundary,
+  parseLocalDateTime,
+  scheduleFrom,
+  seasonalEntryProblem,
+  seasonalPickAt,
+  themeIdOfFile,
+} from "./seasonalSchedule";
 import { validateThemeBundleWith, type ThemeBundle } from "./themeBundleCore";
 import { validateWording } from "./themeWording";
 import { paintRecordFor } from "./themePaint";
@@ -94,6 +102,33 @@ describe("the shipped themes/ seasonal data", () => {
       expect(start.getTime(), `${e.id} start must be before end`).toBeLessThan(end.getTime());
     }
     expect(new Set(raw.map((e) => e.id)).size).toBe(raw.length);
+  });
+
+  it("shows New Year's Eve from Dec 31 06:00 and New Year on Jan 1, switching day parts by time and flipping from Eve night to New Year night at midnight", () => {
+    const windows = scheduleFrom(raw);
+    const shown = (at: Date) => {
+      const w = activeSeasonalWindow(at, windows);
+      return w ? seasonalPickAt(at, w).id : null;
+    };
+    const boundaries: Date[] = [];
+    for (let b = nextSeasonalBoundary(new Date(2026, 11, 30, 12, 0), windows); b; b = nextSeasonalBoundary(b, windows)) {
+      if (b.getTime() > new Date(2027, 0, 2, 0, 0).getTime()) break;
+      boundaries.push(b);
+    }
+    expect(boundaries.map((b) => [b, shown(b)])).toEqual([
+      [new Date(2026, 11, 31, 6, 0), "new-years-eve-2026-day"],
+      [new Date(2026, 11, 31, 16, 0), "new-years-eve-2026-dusk"],
+      [new Date(2026, 11, 31, 18, 30), "new-years-eve-2026-night"],
+      [new Date(2027, 0, 1, 0, 0), "new-year-2027-night"],
+      [new Date(2027, 0, 1, 6, 0), "new-year-2027-day"],
+      [new Date(2027, 0, 1, 16, 0), "new-year-2027-dusk"],
+      [new Date(2027, 0, 1, 18, 30), "new-year-2027-night"],
+      [new Date(2027, 0, 2, 0, 0), null],
+    ]);
+    expect(shown(new Date(2026, 11, 31, 5, 59))).toBeNull();
+    expect(shown(new Date(2026, 11, 31, 23, 59))).toBe("new-years-eve-2026-night");
+    expect(shown(new Date(2027, 0, 1, 5, 59))).toBe("new-year-2027-night");
+    expect(shown(new Date(2027, 0, 1, 23, 59))).toBe("new-year-2027-night");
   });
 
   // A day part's bundle carries its file's stem; a one-file window's, the entry's id.
