@@ -20,5 +20,15 @@
       { "start": "16:00", "theme": "thanksgiving-2026-dusk.theme.json" },
       { "start": "18:30", "theme": "thanksgiving-2026-night.theme.json" }
     ]
+  },
+  {
+    "id": "christmas-2026",
+    "start": "2026-12-14T00:00",
+    "end": "2026-12-26T00:00",
+    "schedule": [
+      { "start": "06:00", "theme": "christmas-2026-day.theme.json" },
+      { "start": "16:00", "theme": "christmas-2026-dusk.theme.json" },
+      { "start": "18:30", "theme": "christmas-2026-night.theme.json" }
+    ]
   }
 ]
