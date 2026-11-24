@@ -4,7 +4,7 @@ package main
 // chat channel: an accepted /in POST synthesises ONE ordinary chat_message from
 // `hook:<endpoint_id>` and fans the same "chat" delta, so it inherits chat's
 // offline queue, SSE push and on-wake catch-up, and never auto-wakes the member
-// (SPEC §2). meta.webhook.purpose is what the member's 用途守衛 (seed §3)
+// (SPEC §2). meta.webhook.purpose is what the member's 用途守衛 (seed §2.5)
 // judges the untrusted payload against.
 
 import (
@@ -471,7 +471,7 @@ func receiveWebhookOn(tx *writeTx, e *WebhookEndpoint, r *http.Request, payload 
 		Body:      string(payload),
 		TS:        nowSecs(),
 		Meta: map[string]any{
-			"webhook": map[string]any{
+			chatWebhookMetaKey: map[string]any{
 				"endpoint_id": e.EndpointID,
 				"purpose":     e.Purpose,
 			},

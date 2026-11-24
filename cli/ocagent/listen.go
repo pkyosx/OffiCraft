@@ -864,12 +864,33 @@ func printChatLine(out io.Writer, m map[string]any, now float64) {
 			content += " " + badge
 		}
 	}
+	sender := pyStr(m["from"]) + webhookPurposeSegment(m)
 	if len(tag) == 0 {
-		fmt.Fprintf(out, "[ocagent] chat from %s: %s\n", pyStr(m["from"]), content)
+		fmt.Fprintf(out, "[ocagent] chat from %s: %s\n", sender, content)
 		return
 	}
 	fmt.Fprintf(out, "[ocagent] chat from %s (%s): %s\n",
-		pyStr(m["from"]), strings.Join(tag, ", "), content)
+		sender, strings.Join(tag, ", "), content)
+}
+
+const webhookPurposeMaxRunes = 200
+
+// One line: delivery splits events on column-0 lines, so a newline in the
+// purpose would turn the rest of it into a separate event.
+func webhookPurposeSegment(m map[string]any) string {
+	meta, _ := m["meta"].(map[string]any)
+	hook, isWebhook := meta["webhook"].(map[string]any)
+	if !isWebhook {
+		return ""
+	}
+	purpose := []rune(strings.Join(strings.Fields(strOrEmpty(hook["purpose"])), " "))
+	if len(purpose) == 0 {
+		return " [webhook 未設定用途]"
+	}
+	if len(purpose) > webhookPurposeMaxRunes {
+		return " [webhook 用途：" + string(purpose[:webhookPurposeMaxRunes]) + "…（用途全文請用 get_chat 讀回）]"
+	}
+	return " [webhook 用途：" + string(purpose) + "]"
 }
 
 // handleReplyCard: an answer is for the card's initiator and for the executor

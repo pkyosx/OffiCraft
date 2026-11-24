@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -109,11 +110,22 @@ func splitEvents(lines []string) []string {
 	return events
 }
 
+// The id must have the server's exact shape: the Owner-written webhook purpose
+// before the tag list and the body after it may both contain " (#…".
+var chatHeaderMessageID = regexp.MustCompile(`^\[ocagent\] chat from \S+.*? \((#c-[0-9a-f]{12})[,)]`)
+
+// A long sender or webhook purpose can push the message id past the preview cut,
+// and without it the member cannot read the full text.
 func oversizedEventNotice(event string) string {
 	header, _, _ := strings.Cut(event, "\n")
-	return previewLine(header, oversizedNoticeHeaderRunes) + fmt.Sprintf(
-		" [這則通知約 %d 行／%d 字，超過送進畫面的上限 %d KiB，正文沒有送進來 — 請用 %s 讀全文]",
-		strings.Count(event, "\n")+1, utf8.RuneCountInString(event), deliveryMaxBytes>>10, fullReadToolFor(header))
+	preview := previewLine(header, oversizedNoticeHeaderRunes)
+	what := "全文"
+	if m := chatHeaderMessageID.FindStringSubmatch(header); m != nil && !strings.Contains(preview, m[1]) {
+		what = " " + m[1] + " 的全文"
+	}
+	return preview + fmt.Sprintf(
+		" [這則通知約 %d 行／%d 字，超過送進畫面的上限 %d KiB，正文沒有送進來 — 請用 %s 讀%s]",
+		strings.Count(event, "\n")+1, utf8.RuneCountInString(event), deliveryMaxBytes>>10, fullReadToolFor(header), what)
 }
 
 func fullReadToolFor(header string) string {
