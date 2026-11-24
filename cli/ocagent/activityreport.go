@@ -384,7 +384,6 @@ func sameParent(a, b *string) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
-// Monitor tasks are listed as type "shell" too.
 func refreshActivityFromTasks(s *activityState, in activityHookInput, now float64) {
 	s.Waits = nil
 	for _, task := range in.BackgroundTasks {
@@ -395,8 +394,10 @@ func refreshActivityFromTasks(s *activityState, in activityHookInput, now float6
 					s.Subagents[i].Description = task.Description
 				}
 			}
-		case task.Type == "shell" && task.Status == "running":
+		case task.Status == "running" && task.Type == "shell":
 			s.Waits = append(s.Waits, activityWait{Kind: "background_command", Description: task.Description})
+		case task.Status == "running" && task.Type == "monitor":
+			s.Waits = append(s.Waits, activityWait{Kind: "monitor", Description: task.Description})
 		}
 	}
 	for _, cron := range in.SessionCrons {

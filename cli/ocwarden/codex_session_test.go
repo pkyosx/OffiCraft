@@ -2383,6 +2383,20 @@ func activitySnapshot(busySince any, subagents ...any) map[string]any {
 	return map[string]any{"busy": busySince != nil, "busy_since": busySince, "subagents": subagents, "waits": []any{}}
 }
 
+func activityWithWaits(snapshot map[string]any, commands ...string) map[string]any {
+	waits := []any{}
+	for _, command := range commands {
+		waits = append(waits, map[string]any{"kind": "background_command", "description": command, "next_ts": nil, "recurring": false})
+	}
+	snapshot["waits"] = waits
+	return snapshot
+}
+
+func commandItem(threadID, itemID string, processID any, command string) map[string]any {
+	return map[string]any{"threadId": threadID, "item": map[string]any{
+		"type": "commandExecution", "id": itemID, "command": command, "cwd": "/w", "processId": processID, "status": "inProgress"}}
+}
+
 func activitySubagentItem(id, name string, started float64) map[string]any {
 	return activityChildItem(id, nil, name, started)
 }
@@ -2717,6 +2731,34 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		}
 	})
 
+	t.Run("commands still running when any thread's turn completes are listed as background commands until each exits or its thread closes", func(t *testing.T) {
+		s, fake, _ := newSession(t)
+		long := strings.Repeat("長", 201)
+
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_1"})
+		s.trackActivity("item/started", commandItem("th_1", "c_dev", "p1", "npm run dev"))
+		s.trackActivity("item/started", commandItem("th_1", "c_test", "p2", "go test ./..."))
+		s.trackActivity("item/started", commandItem("th_1", "c_ls", nil, "ls"))
+		s.trackActivity("item/started", commandItem("th_sub", "c_watch", "p3", "tail -f build.log"))
+		s.trackActivity("item/started", commandItem("th_1", "c_long", "p4", long))
+		s.trackActivity("item/completed", commandItem("th_1", "c_test", "p2", "go test ./..."))
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_sub", "turn": map[string]any{"status": "completed"}})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_1", "turn": map[string]any{"status": "completed"}})
+		s.trackActivity("item/completed", commandItem("th_1", "c_dev", "p1", "npm run dev"))
+		s.trackActivity("thread/closed", map[string]any{"threadId": "th_sub"})
+
+		want := []codexPost{
+			activityPost(activitySnapshot(float64(1720000000))),
+			activityPost(activityWithWaits(activitySnapshot(float64(1720000000)), "npm run dev", "tail -f build.log", strings.Repeat("長", 200))),
+			activityPost(activityWithWaits(activitySnapshot(nil), "npm run dev", "tail -f build.log", strings.Repeat("長", 200))),
+			activityPost(activityWithWaits(activitySnapshot(nil), "tail -f build.log", strings.Repeat("長", 200))),
+			activityPost(activityWithWaits(activitySnapshot(nil), strings.Repeat("長", 200))),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
 	t.Run("a snapshot the station did not accept is sent again on the next event", func(t *testing.T) {
 		s, fake, _ := newSession(t)
 		fake.status = http.StatusServiceUnavailable
@@ -2734,8 +2776,14 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 }
 
 func TestCodexSessionActivityBody(t *testing.T) {
-	t.Run("sub-agents go earliest first, at most 50, names cut to 80 runes", func(t *testing.T) {
+	t.Run("sub-agents go earliest first and background commands in start order, at most 50 each, names cut to 80 runes and commands to 200", func(t *testing.T) {
+		interceptCodexPosts(t, http.StatusOK, nil)
 		s := newCodexTestSession()
+		s.base, s.token = "https://x.test", "tok"
+		for i := 0; i < 52; i++ {
+			s.trackActivity("item/started", commandItem("th_1", fmt.Sprintf("c_%02d", i), "p", fmt.Sprintf("%02d", i)+strings.Repeat("令", 199)))
+		}
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_1"})
 		s.runningSubagents = map[string]float64{}
 		s.subagentNames = map[string]string{}
 		for i := 0; i < 52; i++ {
@@ -2747,10 +2795,12 @@ func TestCodexSessionActivityBody(t *testing.T) {
 		got := s.activityBody()
 
 		var subs []any
+		var commands []string
 		for i := 0; i < 50; i++ {
 			subs = append(subs, activitySubagentItem(fmt.Sprintf("th_%02d", 51-i), strings.Repeat("名", 80), float64(1949+i)))
+			commands = append(commands, fmt.Sprintf("%02d", i)+strings.Repeat("令", 198))
 		}
-		if want := activitySnapshot(nil, subs...); !reflect.DeepEqual(got, want) {
+		if want := activityWithWaits(activitySnapshot(nil, subs...), commands...); !reflect.DeepEqual(got, want) {
 			t.Errorf("activityBody = %v, want %v", got, want)
 		}
 	})

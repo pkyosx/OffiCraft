@@ -176,7 +176,8 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			],
 			"waits": [
 				{"kind": "schedule", "description": "check CI", "next_ts": 1900, "recurring": true},
-				{"kind": "background_command"}
+				{"kind": "background_command"},
+				{"kind": "monitor", "description": "watch the deploy log"}
 			]}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -199,6 +200,7 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 				"waits": []any{
 					map[string]any{"kind": "schedule", "description": "check CI", "next_ts": 1900, "recurring": true},
 					map[string]any{"kind": "background_command", "description": "", "next_ts": nil, "recurring": false},
+					map[string]any{"kind": "monitor", "description": "watch the deploy log", "next_ts": nil, "recurring": false},
 				},
 				"ts": receiptTS,
 			},
@@ -448,8 +450,8 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			422, "validation_error", "field required: waits[0].kind"},
 		{"an undeclared key answers 422", `{"busy": false, "subagents": [], "agent_id": "mira"}`,
 			422, "validation_error", `invalid request body: json: unknown field "agent_id"`},
-		{"a wait kind outside the enum answers 400", `{"busy": false, "subagents": [], "waits": [{"kind": "monitor"}]}`,
-			400, "validation_error", `waits[0].kind must be background_command or schedule, got "monitor"`},
+		{"a wait kind outside the enum answers 400", `{"busy": false, "subagents": [], "waits": [{"kind": "workflow"}]}`,
+			400, "validation_error", `waits[0].kind must be background_command, monitor or schedule, got "workflow"`},
 		{"fifty-one waits answer 400", `{"busy": false, "subagents": [], "waits": [` + strings.Join(tooMany, ",") + `]}`,
 			400, "validation_error", "waits carries 51 items, over the 50-item limit"},
 		{"fifty-one sub-agents answer 400", `{"busy": false, "subagents": [` +

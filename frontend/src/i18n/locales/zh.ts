@@ -980,6 +980,7 @@ export const zh = {
     recurring: "重複",
     waitKind: {
       background_command: "背景指令",
+      monitor: "監看",
       schedule: "排程",
     },
   },

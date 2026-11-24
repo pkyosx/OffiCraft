@@ -389,7 +389,7 @@ func TestCmdActivityReport(t *testing.T) {
 		}
 	})
 
-	t.Run("Stop drops sub-agents no longer running, never adds one, and lists running shells and crons as waits", func(t *testing.T) {
+	t.Run("Stop drops sub-agents no longer running, never adds one, and lists running shells, monitors and crons as waits", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 		writeActivityState(statePath(cfg), activityState{
@@ -409,13 +409,19 @@ func TestCmdActivityReport(t *testing.T) {
 			`{"id":"never-started","type":"subagent","status":"running","description":"unseen"},`+
 			`{"id":"s1","type":"shell","status":"running","description":"npm test"},`+
 			`{"id":"s2","type":"shell","status":"completed","description":"go vet"},`+
-			`{"id":"m1","type":"shell","status":"running","description":"watch the deploy log"}],`+
+			`{"id":"m1","type":"monitor","status":"running","description":"watch the deploy log","command":"tail -f deploy.log"},`+
+			`{"id":"m2","type":"monitor","status":"completed","description":"wait for the build","command":"make build"},`+
+			`{"id":"m3","type":"monitor","status":"running","description":"watch the queue","server":"queue","tool":"subscribe"},`+
+			`{"id":"m4","type":"monitor","status":"running","description":"artifact watch"},`+
+			`{"id":"w1","type":"workflow","status":"running","description":"release workflow"}],`+
 			`"session_crons":[{"id":"c1","schedule":"*/5 * * * *","recurring":true,"prompt":"check CI"}]`)})
 
 		want := []capturedPost{sent(`{"busy":false,"busy_since":null,` +
 			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001}],` +
 			`"waits":[{"kind":"background_command","description":"npm test","next_ts":null,"recurring":false},` +
-			`{"kind":"background_command","description":"watch the deploy log","next_ts":null,"recurring":false},` +
+			`{"kind":"monitor","description":"watch the deploy log","next_ts":null,"recurring":false},` +
+			`{"kind":"monitor","description":"watch the queue","next_ts":null,"recurring":false},` +
+			`{"kind":"monitor","description":"artifact watch","next_ts":null,"recurring":false},` +
 			`{"kind":"schedule","description":"check CI","next_ts":1200,"recurring":true}]}`)}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
@@ -423,7 +429,9 @@ func TestCmdActivityReport(t *testing.T) {
 		if got, want := readFileString(t, statePath(cfg)), `{"busy":false,"busy_since":null,`+
 			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001}],`+
 			`"waits":[{"kind":"background_command","description":"npm test","next_ts":null,"recurring":false},`+
-			`{"kind":"background_command","description":"watch the deploy log","next_ts":null,"recurring":false},`+
+			`{"kind":"monitor","description":"watch the deploy log","next_ts":null,"recurring":false},`+
+			`{"kind":"monitor","description":"watch the queue","next_ts":null,"recurring":false},`+
+			`{"kind":"monitor","description":"artifact watch","next_ts":null,"recurring":false},`+
 			`{"kind":"schedule","description":"check CI","next_ts":1200,"recurring":true}],"stopped":{"a1-child":true,"gone":true}}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
 		}

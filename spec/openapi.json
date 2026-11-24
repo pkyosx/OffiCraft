@@ -181,6 +181,7 @@
           "kind": {
             "enum": [
               "background_command",
+              "monitor",
               "schedule"
             ],
             "title": "Kind",
