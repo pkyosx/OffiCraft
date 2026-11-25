@@ -483,6 +483,7 @@ type claudeAccount struct {
 	ID         string `json:"account"`
 	Label      string `json:"account_label"`
 	RateLimits string `json:"rate_limits"`
+	Login      string `json:"login"`
 }
 
 func claudeAccountPath(cfg Config) string {
@@ -492,19 +493,21 @@ func claudeAccountPath(cfg Config) string {
 // statusLine rate_limits are the headers of this session's LAST API response,
 // kept in memory, while the login file is machine-wide. A session keeps calling
 // on the credentials it already holds for a while after a re-login and moves to
-// the new ones at a time nothing tells us. So the login file decides only when
-// the new windows share no reset time with the recorded ones: a window that
-// still resets when the recorded account's does was measured on that account.
+// the new ones at a time nothing tells us. So while the windows still share a
+// reset time with the record, they stay on the recorded account.
+//
+// ⚠️ Only a report that agrees with the login file may write the record. Two
+// accounts can open a window in the same 10-minute slot and report an
+// identical resets_at; writing the new account's windows under the old one
+// would make every later report share a reset time with the record, and the
+// session would stay on the old account (usage and spend) indefinitely.
 func measuredClaudeAccount(path, rateLimits string, env func(string) string) claudeAccount {
-	recorded, haveRecord := recordedClaudeAccount(path)
-	if haveRecord && rateLimits != "" && recorded.RateLimits == rateLimits {
-		return recorded
-	}
 	current := claudeAccount{ID: readClaudeAccount(env), Label: readClaudeAccountLabel(env), RateLimits: rateLimits}
-	if haveRecord && current.ID != recorded.ID && shareResetTime(recorded.RateLimits, rateLimits) {
-		current = claudeAccount{ID: recorded.ID, Label: recorded.Label, RateLimits: rateLimits}
+	if recorded, ok := recordedClaudeAccount(path); ok && current.ID != recorded.ID && shareResetTime(recorded.RateLimits, rateLimits) {
+		return claudeAccount{ID: recorded.ID, Label: recorded.Label, RateLimits: rateLimits}
 	}
 	if current.ID != "" {
+		current.Login = current.ID
 		if raw, err := json.Marshal(current); err == nil && os.MkdirAll(filepath.Dir(path), 0o755) == nil {
 			_ = os.WriteFile(path, raw, 0o644)
 		}
@@ -512,13 +515,16 @@ func measuredClaudeAccount(path, rateLimits string, env func(string) string) cla
 	return current
 }
 
+// A record whose account is not the login it was written under (or that
+// predates the login field) may hold another account's windows, so it is not
+// evidence of anything.
 func recordedClaudeAccount(path string) (claudeAccount, bool) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return claudeAccount{}, false
 	}
 	var recorded claudeAccount
-	if json.Unmarshal(raw, &recorded) != nil || recorded.ID == "" {
+	if json.Unmarshal(raw, &recorded) != nil || recorded.ID == "" || recorded.Login != recorded.ID {
 		return claudeAccount{}, false
 	}
 	return recorded, true

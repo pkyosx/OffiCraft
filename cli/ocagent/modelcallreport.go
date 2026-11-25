@@ -148,8 +148,8 @@ func reportStopSuccess(client httpClient, cfg Config, env func(string) string, s
 	}
 }
 
-// The account is the one context-report paired with this session's latest
-// windows, not the login file: right after a re-login the session may still be
+// The account is the one context-report last attributed this session's windows
+// to, not the login file: right after a re-login the session may still be
 // calling on the previous account, and the station re-tags the member's windows
 // with whatever account this report names.
 func newModelCallBody(cfg Config, env func(string) string, report modelCallReport) modelCallBody {
