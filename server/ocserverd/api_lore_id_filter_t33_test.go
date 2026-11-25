@@ -273,6 +273,7 @@ func TestLoreToolsAdvertiseTheirParameters(t *testing.T) {
 		{"list_lore_entries", "entry_ids", "an agent cannot ask for one 傳承 by its number, and there is no get_lore_entry tool to fall back to"},
 		{"list_lore_entries", "entry_id", "an agent cannot ask for one 傳承 by its number, and there is no get_lore_entry tool to fall back to"},
 		{"list_lore_entries", "lore_types", "an agent cannot filter 傳承 by type"},
+		{"list_lore_entries", "q", "an agent cannot find 傳承 by a word in its title"},
 		{"write_lore_entry", "lore_type", "the boot document tells agents to put the type in lore_type and not in the title, so an agent writing from the tool schema loses the type entirely"},
 		{"edit_lore_entry", "entry_id", "an agent cannot name the entry it means to correct"},
 		{"edit_lore_entry", "title", "an agent cannot correct an entry's title"},

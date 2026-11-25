@@ -157,7 +157,10 @@ type loreListFilter struct {
 	AuthorIDs  []string
 	EntryIDs   []string
 	LoreTypes  []string
+	TitleQ     string
 }
+
+var loreLikeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 func loreInClause(column string, vals []string) (string, []any) {
 	if len(vals) == 0 {
@@ -188,6 +191,10 @@ func (d *DAL) ListLoreEntriesPage(f loreListFilter, limit, offset int) ([]LoreEn
 		clause, clauseArgs := loreInClause(axis.column, axis.vals)
 		query += clause
 		args = append(args, clauseArgs...)
+	}
+	if f.TitleQ != "" {
+		query += ` AND title LIKE ? ESCAPE '\'`
+		args = append(args, "%"+loreLikeEscaper.Replace(f.TitleQ)+"%")
 	}
 	query += ` ORDER BY CASE state WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END,
 		effective_ts DESC, seq DESC LIMIT ? OFFSET ?`

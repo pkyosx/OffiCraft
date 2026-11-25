@@ -37,6 +37,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -629,4 +631,66 @@ func TestLoreTypesFilter(t *testing.T) {
 					"owner_decision, owner_preference or other — got "+strconv.Quote(tc.bad))
 		})
 	}
+}
+
+func TestLoreTitleQFilter(t *testing.T) {
+	st := newLoreScopeStack(t)
+	const me = "m-scope-user"
+	for i, w := range []struct{ title, body string }{
+		{"a_b 標題", "內容"},
+		{"ab 標題", "內容"},
+		{"100% 完成", "內容"},
+		{"100 完成", "內容"},
+		{`C:\tmp 路徑`, "內容"},
+		{"C:tmp 路徑", "內容"},
+		{"關於傳承編號的規則", "內容"},
+		{"MixedCase Title", "內容"},
+		{"沒有關鍵字", "只有內文提到秘密字"},
+	} {
+		if _, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
+			ScopeKind: LoreScopeAgent, ScopeKey: me, Title: w.title, Body: w.body,
+			AuthorID: me, State: LoreStateActive, LoreType: LoreTypeOther,
+			EffectiveTS: float64(100 + i), CreatedTS: float64(100 + i), UpdatedTS: float64(100 + i),
+		}); err != nil {
+			t.Fatalf("seed %s: %v", w.title, err)
+		}
+	}
+	titles := func(t *testing.T, q, extra string) []string {
+		t.Helper()
+		status, data := apiJSON(t, st.h, "GET", "/api/lore?q="+url.QueryEscape(q)+extra, st.user, "")
+		if status != http.StatusOK {
+			t.Fatalf("q=%q: %d %v", q, status, data)
+		}
+		out := []string{}
+		for _, e := range data["entries"].([]any) {
+			out = append(out, e.(map[string]any)["title"].(string))
+		}
+		return out
+	}
+
+	for _, tc := range []struct {
+		name, q, extra string
+		want           []string
+	}{
+		{"an underscore matches only itself", "_", "", []string{"a_b 標題"}},
+		{"a percent sign matches only itself", "%", "", []string{"100% 完成"}},
+		{"a backslash matches only itself", `\`, "", []string{`C:\tmp 路徑`}},
+		{"a Chinese substring finds its entry", "傳承編號", "", []string{"關於傳承編號的規則"}},
+		{"ASCII letter case is ignored", "mixedcase", "", []string{"MixedCase Title"}},
+		{"the body is not searched", "秘密字", "", []string{}},
+		{"several matches keep the list order", "標題", "", []string{"ab 標題", "a_b 標題"}},
+		{"ANDed with another axis", "標題", "&lore_types=owner_decision", []string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := titles(t, tc.q, tc.extra); !slices.Equal(got, tc.want) {
+				t.Fatalf("q=%q%s served %q, want %q", tc.q, tc.extra, got, tc.want)
+			}
+		})
+	}
+
+	t.Run("a blank q is no constraint", func(t *testing.T) {
+		if got := titles(t, "  ", ""); len(got) != 9 {
+			t.Fatalf("q=blank served %d entries, want all 9: %v", len(got), got)
+		}
+	})
 }

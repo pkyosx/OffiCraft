@@ -921,13 +921,13 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 				"tombstoned": false, "field_chars": map[string]any{"title": 4, "body": 2}},
 		})
 
-		st.api.loreCapCharsTitle = 3
-		status, data = apiJSON(t, st.h, "POST", restore, mine, "")
+		st.api.loreCapCharsBody = 3
+		status, data = apiJSON(t, st.h, "POST", "/api/document-history/lore_entry/"+e.ID+"/2/restore", mine, "")
 		if status != 400 {
-			t.Fatalf("restoring a title over a lowered cap: want 400, got %d (%v)", status, data)
+			t.Fatalf("restoring a body that grows past a lowered cap: want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", "restoring this version would violate the existing document size limit")
-		st.api.loreCapCharsTitle = 80
+		st.api.loreCapCharsBody = 500
 
 		if ok, err := st.api.dal.SetLoreEntryState(e.ID, LoreStatePinned, "", 200); err != nil || !ok {
 			t.Fatalf("pin: %v / %v", ok, err)
@@ -942,6 +942,30 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 			t.Fatalf("admin on a pinned entry: want 200, got %d (%v)", status, data)
 		}
 		apiWantValue(t, "restored content", data["content"], map[string]any{"title": "後來標題", "body": "後來內容"})
+	})
+
+	t.Run("a lore version over a lowered cap restores when it is shorter than the stored text and an unchanged field is not judged", func(t *testing.T) {
+		st := newLoreScopeStack(t)
+		e := seedScopedLore(t, st.api, "m-scope-user", "", "一二三四五六七八")
+		for _, title := range []string{"一二三四五六", "一二三四五六七八九十"} {
+			if status, data := apiJSON(t, st.h, "PATCH", "/api/lore/"+e.ID, st.user, `{"title":"`+title+`"}`); status != 200 {
+				t.Fatalf("edit to %s: %d %v", title, status, data)
+			}
+		}
+		st.api.loreCapCharsTitle = 4
+		st.api.loreCapCharsBody = 1
+
+		status, data := apiJSON(t, st.h, "POST", "/api/document-history/lore_entry/"+e.ID+"/1/restore", st.user, "")
+		if status != 200 {
+			t.Fatalf("restoring an over-cap title shorter than the stored one: want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "restored content", data["content"], map[string]any{"title": "一二三四五六七八", "body": "內容"})
+
+		status, data = apiJSON(t, st.h, "POST", "/api/document-history/lore_entry/"+e.ID+"/3/restore", st.user, "")
+		if status != 400 {
+			t.Fatalf("restoring an over-cap title longer than the stored one: want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "restoring this version would violate the existing document size limit")
 	})
 
 	t.Run("a lore entry's versions are unreadable below the agent floor, and an unknown entry's restore is 404", func(t *testing.T) {

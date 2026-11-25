@@ -274,10 +274,6 @@ func (s *apiServer) HandleEditLoreEntryApiLoreEntryIdPatch(w http.ResponseWriter
 		}
 		text = &v
 	}
-	if msg := s.loreTextOverCap(strOrEmpty(title), strOrEmpty(text)); msg != "" {
-		writeError(w, http.StatusBadRequest, msg)
-		return
-	}
 	if body.LoreType != nil {
 		v := strings.TrimSpace(*body.LoreType)
 		if !ValidLoreType(v) {
@@ -287,12 +283,46 @@ func (s *apiServer) HandleEditLoreEntryApiLoreEntryIdPatch(w http.ResponseWriter
 		loreType = &v
 	}
 
-	e, ok := s.decideLoreEntryWrite(w, entryID, s.loreEditRefusal(r, entryID),
+	reach := s.loreEditRefusal(r, entryID)
+	titleCap, bodyCap := s.loreTitleCap(), s.loreBodyCap()
+	refusal := func(current *LoreEntry) error {
+		if err := reach(current); err != nil {
+			return err
+		}
+		if msg := loreEditOverCap(titleCap, bodyCap, current, title, text); msg != "" {
+			return refuseInTx(http.StatusBadRequest, msg)
+		}
+		return nil
+	}
+	e, ok := s.decideLoreEntryWrite(w, entryID, refusal,
 		s.editLoreEntryText(currentActor(r), entryID, title, text, loreType))
 	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, LoreEntryEditReceiptDTO{Id: e.ID, UpdatedTs: e.UpdatedTS})
+}
+
+// loreEditOverCap holds an edited title or body to the shrink-only rule the
+// capped documents follow (DocCapBlocked): a cap lowered under an entry that is
+// already stored must not make that entry uneditable. A field left out or sent
+// unchanged is not judged.
+func loreEditOverCap(titleCap, bodyCap int, current *LoreEntry, title, body *string) string {
+	for _, f := range []struct {
+		name, before string
+		after        *string
+		capChars     int
+	}{
+		{"title", current.Title, title, titleCap},
+		{"body", current.Body, body, bodyCap},
+	} {
+		if f.after == nil || *f.after == f.before {
+			continue
+		}
+		if DocCapBlocked(f.capChars, f.before, *f.after) {
+			return docCapRefusal(f.capChars, "lore entry "+f.name, f.before, *f.after)
+		}
+	}
+	return ""
 }
 
 func (s *apiServer) loreEditRefusal(r *http.Request, entryID string) func(*LoreEntry) error {
@@ -339,10 +369,18 @@ func (s *apiServer) restoreLoreEntryText(r *http.Request, entryID string, conten
 	if title == "" || body == "" {
 		return errNotFound
 	}
-	if s.loreTextOverCap(title, body) != "" {
-		return errDocumentHistoryCap
+	reach := s.loreEditRefusal(r, entryID)
+	titleCap, bodyCap := s.loreTitleCap(), s.loreBodyCap()
+	refusal := func(current *LoreEntry) error {
+		if err := reach(current); err != nil {
+			return err
+		}
+		if loreEditOverCap(titleCap, bodyCap, current, &title, &body) != "" {
+			return errDocumentHistoryCap
+		}
+		return nil
 	}
-	_, err := s.writeLoreEntryInTx(entryID, s.loreEditRefusal(r, entryID),
+	_, err := s.writeLoreEntryInTx(entryID, refusal,
 		s.editLoreEntryText(currentActor(r), entryID, &title, &body, nil))
 	return err
 }
@@ -447,7 +485,7 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	loreTypes, _ := loreFilterValues(params.LoreTypes, nil)
 	f := loreListFilter{
 		ScopeKinds: kinds, ScopeKeys: keys, States: states, AuthorIDs: authors,
-		EntryIDs: entryIDs, LoreTypes: loreTypes,
+		EntryIDs: entryIDs, LoreTypes: loreTypes, TitleQ: trimmedOrEmpty(params.Q),
 	}
 	// 'role' was collapsed into agent (rc-a43100fd0486) and is refused; the orphan
 	// rows migrations/00100 left at scope_kind='role' still come back on any page

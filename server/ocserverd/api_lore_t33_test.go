@@ -1772,9 +1772,9 @@ func TestEditLoreEntry(t *testing.T) {
 			{"a blank body", st.user, `{"body":""}`, http.StatusBadRequest, "validation_error",
 				"body must not be blank — leave it out to keep the current body; nothing was changed"},
 			{"a title over the cap", st.user, `{"title":"一二三四五"}`, http.StatusBadRequest, "validation_error",
-				"title is 5 characters, over the 4-character limit — nothing was written. It is refused whole rather than truncated."},
+				docCapRefusal(4, "lore entry title", "不動", "一二三四五")},
 			{"a body over the cap", st.user, `{"body":"一二三四五六七"}`, http.StatusBadRequest, "validation_error",
-				"body is 7 characters, over the 6-character limit — nothing was written. It is refused whole rather than truncated."},
+				docCapRefusal(6, "lore entry body", "內容", "一二三四五六七")},
 			{"a lore_type outside the vocabulary", st.user, `{"lore_type":"Owner 決策"}`, http.StatusBadRequest, "validation_error",
 				`lore_type must be one of instruction_conflict, instruction_supplement, owner_decision, ` +
 					`owner_preference or other — got "Owner 決策"; nothing was written`},
@@ -1793,6 +1793,50 @@ func TestEditLoreEntry(t *testing.T) {
 			apiWantError(t, data, tc.code, tc.msg)
 		}
 		wantRow(t, row(e, "不動", "內容", "other", "active", 100))
+	})
+
+	t.Run("a field already over a lowered cap may be edited shorter, never longer, and an untouched one is not judged", func(t *testing.T) {
+		e, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
+			ScopeKind: LoreScopeAgent, ScopeKey: author, Title: "一二三四五六七八", Body: "一二三四五六七八九",
+			AuthorID: author, State: LoreStateActive, LoreType: LoreTypeOther,
+			EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100,
+		})
+		if err != nil {
+			t.Fatalf("seed over-cap: %v", err)
+		}
+		for _, tc := range []struct {
+			name, body string
+			msg        string
+		}{
+			{"a shorter title beside the untouched over-cap body", `{"title":"一二三四五六"}`, ""},
+			{"a title that grows again", `{"title":"一二三四五六七"}`,
+				docCapRefusal(4, "lore entry title", "一二三四五六", "一二三四五六七")},
+			{"a title as long as the stored one", `{"title":"六五四三二一"}`,
+				docCapRefusal(4, "lore entry title", "一二三四五六", "六五四三二一")},
+			{"a body that grows", `{"body":"一二三四五六七八九十"}`,
+				docCapRefusal(6, "lore entry body", "一二三四五六七八九", "一二三四五六七八九十")},
+			{"the over-cap body sent back unchanged beside a new title", `{"title":"短","body":"一二三四五六七八九"}`, ""},
+		} {
+			status, data := edit(t, st.user, e.ID, tc.body)
+			if tc.msg == "" {
+				if status != http.StatusOK {
+					t.Fatalf("%s: want 200, got %d %v", tc.name, status, data)
+				}
+				continue
+			}
+			if status != http.StatusBadRequest {
+				t.Fatalf("%s: want 400, got %d %v", tc.name, status, data)
+			}
+			apiWantError(t, data, "validation_error", tc.msg)
+		}
+		status, data := apiJSON(t, st.h, "GET", "/api/lore?entry_id="+e.ID, st.user, "")
+		if status != http.StatusOK {
+			t.Fatalf("read back: %d %v", status, data)
+		}
+		got := data["entries"].([]any)[0].(map[string]any)
+		if got["title"] != "短" || got["body"] != "一二三四五六七八九" {
+			t.Fatalf("stored title/body = %q/%q, want 短/一二三四五六七八九", got["title"], got["body"])
+		}
 	})
 
 	t.Run("a text edit retains the pre-edit title and body, named by the editor, and only the newest three are kept", func(t *testing.T) {
