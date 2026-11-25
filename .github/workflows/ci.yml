@@ -640,7 +640,9 @@ jobs:
   #
   # WHO ACTUALLY MOVES WHEN THIS FIRES — do not read it wider than this. What is
   # published is a PRERELEASE, and a station only picks one up when BOTH
-  # updater.receive_beta and updater.auto_update are on, and both default to off.
+  # updater.receive_beta and updater.auto_update are on; a new release-build
+  # install turns auto_update on, but receive_beta stays off until its owner
+  # opts in.
   # The owner's own machine has both on and accepted that consequence explicitly
   # (ruling 2, 2026-08-05), which is why there is deliberately NO throttle, no
   # approval environment and no confirmation gate here.

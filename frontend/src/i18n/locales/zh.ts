@@ -2528,11 +2528,11 @@ export const zh = {
     checkFailed: "檢查更新失敗,請重試",
     viewRelease: "查看 release",
     updateSettings: "更新設定",
-    // ── 系統更新與備份 toggle(receive_beta / auto_update,皆預設關閉)──
+    // ── 系統更新與備份 toggle(receive_beta / auto_update)──
     receiveBeta: "接收 Beta 版本",
     receiveBetaSub: "更新檢查也納入 GitHub 預發佈(prerelease)· 關閉 = 只看正式 release",
     autoUpdate: "自動更新",
-    autoUpdateSub: "偵測到新版本時於背景自動升級並重啟 · 預設關閉",
+    autoUpdateSub: "偵測到新版本時於背景自動升級並重啟 · 新安裝的站台預設開啟；已在使用的站台維持原本設定",
     updateCheckInterval: "更新檢查間隔",
     updateCheckIntervalSub:
       "背景多久向 GitHub 確認一次有沒有新版本；按「檢查更新」與升級一律即時查詢，不受這個間隔影響（1–60 分鐘）",

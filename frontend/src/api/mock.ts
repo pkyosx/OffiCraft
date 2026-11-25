@@ -2631,9 +2631,10 @@ const DEFAULT_MOCK_SETTINGS = {
   // settings DTO missing a field the server always sends is a mock the page can
   // go green against while the real one breaks.
   backup_retain: BACKUP_RETAIN_DEFAULT,
-  // The two software-update toggles — both OFF out of the box, mirroring the
-  // server (updates come from GitHub Releases; there is no updater server to
-  // configure any more).
+  // The two software-update toggles — both OFF out of the box, like a
+  // never-set server (a release build's first claim turns auto-update on;
+  // the mock does not model that). Updates come from GitHub Releases; there is
+  // no updater server to configure any more.
   updater_receive_beta: false,
   updater_auto_update: false,
   updater_check_interval_secs: 300,

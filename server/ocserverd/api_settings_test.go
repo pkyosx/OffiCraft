@@ -41,7 +41,7 @@ func TestValidatePushContactEmail(t *testing.T) {
 }
 
 // apiTestShippedSettings is the WHOLE settings body a freshly claimed server
-// serves — every field written out, so a scenario table only has to name what
+// of an unstamped test build serves — every field written out, so a scenario table only has to name what
 // its patch moved and nothing can change unnoticed.
 func apiTestShippedSettings() map[string]any {
 	return map[string]any{
@@ -233,6 +233,15 @@ func TestHandleAuthStatusApiAuthStatusGet(t *testing.T) {
 	})
 }
 
+// apiTestStampBuild runs the rest of the test as a build stamped with version,
+// the way bin/release links appVersion.
+func apiTestStampBuild(t *testing.T, version string) {
+	t.Helper()
+	unstamped := appVersion
+	appVersion = version
+	t.Cleanup(func() { appVersion = unstamped })
+}
+
 func TestHandleSetPasswordApiAuthSetPasswordPost(t *testing.T) {
 	t.Run("the claim token plus a long enough password answers 200 and a bearer owner token", func(t *testing.T) {
 		_, h, _, claim := newAPITestStack(t)
@@ -249,6 +258,38 @@ func TestHandleSetPasswordApiAuthSetPasswordPost(t *testing.T) {
 			"owner_id":   "owner",
 		})
 	})
+
+	for _, tc := range []struct {
+		name       string
+		version    string
+		autoUpdate bool
+	}{
+		{"a release build's first claim turns auto-update on, and it stays on after a restart", "v1.4.0", true},
+		{"a self-build's first claim leaves auto-update off, and it stays off after a restart", "0.0.0", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			apiTestStampBuild(t, tc.version)
+			_, h, d, claim := newAPITestStack(t)
+			_, data := apiJSON(t, h, "POST", "/api/auth/set-password", "",
+				`{"password":"first-run-pass","claim_token":"`+claim+`"}`)
+			owner, _ := data["token"].(string)
+			want := apiTestShippedSettings()
+			want["updater_auto_update"] = tc.autoUpdate
+
+			status, data := apiJSON(t, h, "GET", "/api/settings", owner, "")
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, want)
+
+			_, restarted, _, _ := apiTestStackOn(t, d, true)
+			status, data = apiJSON(t, restarted, "GET", "/api/settings", owner, "")
+			if status != 200 {
+				t.Fatalf("after the restart: want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, want)
+		})
+	}
 
 	t.Run("the new password answers 200 at the login door", func(t *testing.T) {
 		_, h, _, claim := newAPITestStack(t)
@@ -289,8 +330,12 @@ func TestHandleSetPasswordApiAuthSetPasswordPost(t *testing.T) {
 		apiWantError(t, data, "validation_error", "password must be at least 8 characters")
 	})
 
-	t.Run("setting a password on a claimed server answers 409", func(t *testing.T) {
-		_, h, _, _ := newAPITestServer(t)
+	t.Run("setting a password on a claimed server answers 409, and auto-update the owner turned off stays off, also after a restart", func(t *testing.T) {
+		apiTestStampBuild(t, "v1.4.0")
+		_, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"updater_auto_update":false}`); status != 200 {
+			t.Fatalf("turn auto-update off: want 200, got %d (%v)", status, data)
+		}
 
 		status, data := apiJSON(t, h, "POST", "/api/auth/set-password", "",
 			`{"password":"second-attempt","claim_token":"whatever"}`)
@@ -298,6 +343,19 @@ func TestHandleSetPasswordApiAuthSetPasswordPost(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict", "a password is already set")
+
+		status, data = apiJSON(t, h, "GET", "/api/settings", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestShippedSettings())
+
+		_, restarted, _, _ := apiTestStackOn(t, d, true)
+		status, data = apiJSON(t, restarted, "GET", "/api/settings", owner, "")
+		if status != 200 {
+			t.Fatalf("after the restart: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestShippedSettings())
 	})
 
 	t.Run("a claim token that does not match answers 401", func(t *testing.T) {
@@ -361,27 +419,40 @@ func TestHandleSetPasswordApiAuthSetPasswordPost(t *testing.T) {
 	})
 
 	for _, shape := range windowDALShapes {
-		t.Run(shape+": a claim token that fails to be spent leaves no password behind, and the retry lands", func(t *testing.T) {
-			d, _, _ := windowDAL(t, shape)
-			_, h, _, claim := apiTestStackOn(t, d, true)
-			lift := windowRefuseSetting(t, d, "auth.claim_token")
-			body := `{"password":"first-run-pass","claim_token":"` + claim + `"}`
+		for _, refused := range []string{"auth.claim_token", "updater.auto_update"} {
+			t.Run(shape+": a release build's claim whose "+refused+" write fails leaves no password behind, and the retry lands with auto-update on", func(t *testing.T) {
+				apiTestStampBuild(t, "v1.4.0")
+				d, _, _ := windowDAL(t, shape)
+				_, h, _, claim := apiTestStackOn(t, d, true)
+				lift := windowRefuseSetting(t, d, refused)
+				body := `{"password":"first-run-pass","claim_token":"` + claim + `"}`
 
-			status, data := windowJSON(t, h, "POST", "/api/auth/set-password", "", body)
+				status, data := windowJSON(t, h, "POST", "/api/auth/set-password", "", body)
 
-			if status != http.StatusInternalServerError {
-				t.Fatalf("want 500, got %d (%v)", status, data)
-			}
-			apiWantError(t, data, "internal_error", windowSettingWriteFails)
-			windowWantSetting(t, d, "auth.password_hash", nil)
-			windowWantSetting(t, d, "auth.claim_token", &claim)
+				if status != http.StatusInternalServerError {
+					t.Fatalf("want 500, got %d (%v)", status, data)
+				}
+				apiWantError(t, data, "internal_error", windowSettingWriteFails)
+				windowWantSetting(t, d, "auth.password_hash", nil)
+				windowWantSetting(t, d, "auth.claim_token", &claim)
+				windowWantSetting(t, d, "updater.auto_update", nil)
 
-			lift()
-			if status, data := windowJSON(t, h, "POST", "/api/auth/set-password", "", body); status != http.StatusOK {
-				t.Fatalf("retry: want 200, got %d (%v)", status, data)
-			}
-			windowWantSetting(t, d, "auth.claim_token", nil)
-		})
+				lift()
+				status, data = windowJSON(t, h, "POST", "/api/auth/set-password", "", body)
+				if status != http.StatusOK {
+					t.Fatalf("retry: want 200, got %d (%v)", status, data)
+				}
+				windowWantSetting(t, d, "auth.claim_token", nil)
+				owner, _ := data["token"].(string)
+				status, data = windowJSON(t, h, "GET", "/api/settings", owner, "")
+				if status != http.StatusOK {
+					t.Fatalf("settings: want 200, got %d (%v)", status, data)
+				}
+				want := apiTestShippedSettings()
+				want["updater_auto_update"] = true
+				apiWantBody(t, data, want)
+			})
+		}
 
 		t.Run(shape+": a claim token replaced after the handler compared it sets no password", func(t *testing.T) {
 			d, hook, path := windowDAL(t, shape)
@@ -577,6 +648,44 @@ func TestHandleGetSettingsApiSettingsGet(t *testing.T) {
 		apiWantBody(t, data, apiTestShippedSettings())
 	})
 
+	for _, tc := range []struct {
+		name   string
+		stored *string
+		want   bool
+	}{
+		{"never set", nil, false},
+		{"stored false", apiTestStrPtr("false"), false},
+		{"stored true", apiTestStrPtr("true"), true},
+	} {
+		t.Run("a station claimed before upgrading to a release build, with auto-update "+tc.name+", reports it after the upgrade", func(t *testing.T) {
+			apiTestStampBuild(t, "v1.4.0")
+			d := newAPITestDAL(t)
+			phc, err := hashPassword(apiTestOwnerPassword)
+			if err != nil {
+				t.Fatalf("hashPassword: %v", err)
+			}
+			if err := d.PutSetting("auth.password_hash", phc); err != nil {
+				t.Fatalf("PutSetting: %v", err)
+			}
+			if tc.stored != nil {
+				if err := d.PutSetting("updater.auto_update", *tc.stored); err != nil {
+					t.Fatalf("PutSetting: %v", err)
+				}
+			}
+
+			_, h, _, _ := apiTestStackOn(t, d, true)
+			_, login := apiJSON(t, h, "POST", "/api/login", "", `{"password":"`+apiTestOwnerPassword+`"}`)
+			owner, _ := login["token"].(string)
+			status, data := apiJSON(t, h, "GET", "/api/settings", owner, "")
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			want := apiTestShippedSettings()
+			want["updater_auto_update"] = tc.want
+			apiWantBody(t, data, want)
+		})
+	}
+
 	t.Run("a request without a token answers 401", func(t *testing.T) {
 		_, h, _, _ := newAPITestServer(t)
 
@@ -690,11 +799,11 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		apiWantBody(t, data, want)
 	})
 
-	t.Run("under a restart on the same database, the patched login, disk-usage and update-check intervals, the due-soon lead, the seasonal-theme opt-out and the theme schedule sorted by start are still reported", func(t *testing.T) {
+	t.Run("under a restart on the same database, the patched login, disk-usage and update-check intervals, auto-update turned on, the due-soon lead, the seasonal-theme opt-out and the theme schedule sorted by start are still reported", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
-			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60,"task_due_soon_lead_minutes":43200,"display_seasonal_theme":false,
+			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60,"updater_auto_update":true,"task_due_soon_lead_minutes":43200,"display_seasonal_theme":false,
 			"display_theme_schedule":[{"start":"18:30","theme":"dusk"},{"start":"00:00","theme":"office"},{"start":"07:05","theme":"office-light"}]}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -704,6 +813,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		patched["runtime_login_recheck_interval_secs"] = 45
 		patched["disk_usage_interval_secs"] = 600
 		patched["updater_check_interval_secs"] = 60
+		patched["updater_auto_update"] = true
 		patched["task_due_soon_lead_minutes"] = 43200
 		patched["display_seasonal_theme"] = false
 		patched["display_theme_schedule"] = []any{
@@ -723,6 +833,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["runtime_login_recheck_interval_secs"] = 45
 		want["disk_usage_interval_secs"] = 600
 		want["updater_check_interval_secs"] = 60
+		want["updater_auto_update"] = true
 		want["task_due_soon_lead_minutes"] = 43200
 		want["display_seasonal_theme"] = false
 		want["display_theme_schedule"] = []any{

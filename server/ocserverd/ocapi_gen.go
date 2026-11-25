@@ -4239,8 +4239,9 @@ type SettingsDTO struct {
 // Anything else is a 422. `outsource_max_parallel` MUST be -1..20 (-1 = 無限/unlimited — no global cap; 0 pauses outsource assignment).
 // `updater_receive_beta` toggles whether the GitHub-release update check also
 // admits prereleases; `updater_auto_update` toggles unattended background
-// self-upgrade to the newest admissible release (both booleans, default false;
-// the manual upgrade endpoint is unaffected). `updater_check_interval_secs`
+// self-upgrade to the newest admissible release (both booleans; a never-set value
+// reads false, and on a release build the first password set with the claim code
+// turns `updater_auto_update` on; the manual upgrade endpoint is unaffected). `updater_check_interval_secs`
 // MUST be 60..3600. `task_due_soon_lead_minutes` MUST be 1..43200. The five document caps (T-ae38;
 // the manual's one became two in T-30f1) are independent knobs. Each one MUST be
 // between THAT segment's shipped default (the `default` on the matching
@@ -5459,7 +5460,7 @@ type TokenDTO struct {
 // outcome ("restarting" — the new binary is already verified and swapped
 // in place; the process re-execs right after this response) and
 // `target_version` the GitHub release tag being installed. The endpoint
-// fires only on an explicit owner/admin-agent trigger; the OPT-IN `updater_auto_update`
+// fires only on an explicit owner/admin-agent trigger; the `updater_auto_update`
 // setting runs the same verified body unattended in the background.
 type UpgradeResultDTO struct {
 	Status        string `json:"status"`

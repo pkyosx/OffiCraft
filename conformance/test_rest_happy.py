@@ -4712,9 +4712,10 @@ def test_settings_updater_server_fields_retired(hctx: HCtx) -> None:
 
 def test_settings_updater_channel_toggles_roundtrip(hctx: HCtx) -> None:
     """The two software-update toggles (updater_receive_beta + updater_auto_update):
-    both default false, PATCH flips each independently (partial semantics),
-    reads reflect the live value. The test restores both OFF so the shared
-    instance never runs with auto-update armed."""
+    both false on this harness (its password is seeded with the CLI, not the
+    first-run claim that turns auto-update on), PATCH flips each independently
+    (partial semantics), reads reflect the live value. The test restores both
+    OFF so the shared instance never runs with auto-update armed."""
     h = _auth(hctx.owner_token)
     r = hctx.client.get("/api/settings", headers=h)
     assert r.status_code == 200, f"{r.status_code} {r.text}"

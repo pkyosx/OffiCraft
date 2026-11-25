@@ -5,7 +5,7 @@ package main
 // and fetches synchronously. The comparison is semver (version_compare.go): a
 // self-build's "0.0.0" still prompts, and an unorderable label never triggers a
 // download. The upgrade body lives in upgrade.go (never exposed to agents);
-// auto_update.go runs it on the opt-in background cadence.
+// auto_update.go runs it on the background cadence while auto-update is on.
 //
 // The source is GitHub's public release WEB pages, never api.github.com: the
 // anonymous API budget is per egress IP and other programs on the same network

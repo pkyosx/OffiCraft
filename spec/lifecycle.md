@@ -276,7 +276,10 @@ ceiling of the warden lifetime setting (§1.6).
   `POST /api/auth/set-password` MUST require it (401 mismatch, served no earlier than the
   refusal floor; 409 once a password exists; 429 when the concurrency cap is full) and MUST
   consume it on success. Possession proves host shell access — the gate
-  against a public-tunnel visitor claiming a fresh server.
+  against a public-tunnel visitor claiming a fresh server. On a release build (a stamped
+  version, not a self-build's "0.0.0") the same transaction stores
+  `updater.auto_update = true`, so a new install starts with auto-update on; a self-build
+  stays off, since the updater would replace it with the official release.
 - Machine claim codes: the onboard / boot-command responses mint a **one-time claim code**
   (32 random bytes, base64url) alongside the exec-token, and the `boot_command` one-liner
   carries the CODE (`install.sh?code=`), never the token. The code lives **600 s**, is

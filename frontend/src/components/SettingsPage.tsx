@@ -2181,8 +2181,8 @@ function SecretDurationRow({
  * shows the restart notice and polls /api/version until git_sha advances,
  * then reloads the page.
  *
- * Below the card sit the two software-update toggles (/api/settings knobs,
- * both default OFF): 接收 Beta (follow GitHub prereleases too) and 自動更新
+ * Below the card sit the two software-update toggles (/api/settings knobs):
+ * 接收 Beta (follow GitHub prereleases too) and 自動更新
  * (unattended background self-upgrade running the same verified body).
  */
 function SoftwareUpdate({
@@ -2542,7 +2542,7 @@ function SoftwareUpdate({
        * the card's single status line above — no second result element is
        * ever created. */}
 
-      {/* ── the two software-update toggles (/api/settings; both default OFF) ── */}
+      {/* ── the two software-update toggles (/api/settings) ── */}
       <h2 className="settings__title settings__title--doc">
         {t.settings.updateSettings}
       </h2>
@@ -2551,7 +2551,7 @@ function SoftwareUpdate({
       )}
       {settings && (
         <div className="param-card">
-          {/* ── the two dual-channel toggles (both default OFF) ── */}
+          {/* ── the two dual-channel toggles ── */}
           <div className="param-row">
             <div className="param-row__body">
               <span className="param-row__name">{t.settings.receiveBeta}</span>
