@@ -1631,6 +1631,42 @@ func TestListLoreBudgets(t *testing.T) {
 		}
 	})
 
+	t.Run("a member's budget counts exactly the entries its boot document carries", func(t *testing.T) {
+		st.api.loreCapCharsRole = 17
+		me := hireLoreStaff(t, st.api, "m-budget-boot", defaultBootRole)
+		everyone, err := st.api.dal.ListLoreEntriesLive(LoreScopeEveryone, "")
+		if err != nil {
+			t.Fatalf("ListLoreEntriesLive: %v", err)
+		}
+		live := append([]LoreEntry{}, everyone...)
+		for i, title := range []string{"甲一一", "乙二二", "丙三三"} {
+			live = append(live, seedLoreAt(t, st.api, LoreScopeAgent, me, me, title, LoreStateActive, float64(100+i)))
+		}
+
+		status, data := apiJSON(t, st.h, "GET", "/api/members/"+me+"/boot-context", st.owner, "")
+		if status != http.StatusOK {
+			t.Fatalf("boot-context: %d %v", status, data)
+		}
+		doc, _ := data["context"].(string)
+		carried := 0
+		for _, e := range live {
+			if strings.Contains(doc, "\n## "+e.ID+" ") {
+				carried++
+			}
+		}
+		if carried != 3 {
+			t.Fatalf("fixture: want the two 所有人 entries and one own entry carried, got %d:\n%s", carried, doc)
+		}
+
+		var got map[string]any
+		for _, target := range budgets(t)["targets"].([]any) {
+			if m := target.(map[string]any); m["scope_key"] == me {
+				got = m
+			}
+		}
+		apiWantBody(t, got, budgetTarget("agent", me, 17, 5*carried, 3, len(live)-carried))
+	})
+
 	t.Run("a warden is below the floor and no credential is 401", func(t *testing.T) {
 		for _, tc := range []struct {
 			name, token string

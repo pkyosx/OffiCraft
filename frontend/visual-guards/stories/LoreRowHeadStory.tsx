@@ -1,5 +1,6 @@
 // CT story: the REAL LorePage against the REAL mock adapter, inside
-// `.app__main` so the row gets production's side gutters.
+// `.app > .app__main` as in App.tsx, so the row gets production's side gutters
+// and `.lore` is height-bound and is the real scroll container.
 //
 // Every manual-scoped mock entry is keyed to the same manual (tm-mock), so a
 // normal name and a too-long name cannot both be on screen at once; `longManual`
@@ -36,8 +37,10 @@ export function LoreRowHeadStory({ longManual = false }: { longManual?: boolean 
   if (!ready) return null;
   return (
     <I18nProvider>
-      <div className="app__main">
-        <LorePage />
+      <div className="app">
+        <main className="app__main">
+          <LorePage />
+        </main>
       </div>
     </I18nProvider>
   );

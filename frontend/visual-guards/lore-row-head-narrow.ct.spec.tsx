@@ -2,7 +2,9 @@
 // wrap as whole pills, the 屬於 chip never gets squeezed to its glyph with the
 // caret spilling out, only a name longer than a whole line ellipsizes, and the
 // checkbox and the actions (提到最新／編輯, or 「⋯」 on a phone) stay inside the
-// head without overlapping the badges.
+// head without overlapping the badges. The section header's CJK labels stay on
+// one line, the batch bar and the inline editor fit, and a state change leaves
+// the scroll position and the card where they were.
 //
 // Soft assertions on purpose: a page-level overflow failing first would
 // otherwise hide which per-badge check a mutant also broke.
@@ -226,5 +228,185 @@ for (const width of [390, 1440]) {
     expect
       .soft(l4!.name!.scrollW, `[${width}px] L-4 long name should ellipsize`)
       .toBeGreaterThan(l4!.name!.clientW + 1);
+  });
+}
+
+async function pageAndLoreOver(page: any): Promise<{ pageOver: number; loreOver: number }> {
+  return page.evaluate(() => {
+    const se = document.scrollingElement!;
+    const lore = document.querySelector(".lore") as HTMLElement | null;
+    return {
+      pageOver: se.scrollWidth - se.clientWidth,
+      loreOver: lore ? lore.scrollWidth - lore.clientWidth : -2,
+    };
+  });
+}
+
+async function boxOf(page: any, selector: string): Promise<Box | null> {
+  return page.evaluate((sel: string) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    const b = el.getBoundingClientRect();
+    return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+  }, selector);
+}
+
+for (const width of [390, 1440]) {
+  test(`.lore is the height-bound scroll container under .app > .app__main @${width}px`, async ({ mount, page }) => {
+    await mountAt(mount, page, width, false);
+    const g = await page.evaluate(() => {
+      const lore = document.querySelector(".lore") as HTMLElement;
+      return {
+        chain: [lore.parentElement?.className, lore.parentElement?.parentElement?.className],
+        overflowY: getComputedStyle(lore).overflowY,
+        clientH: lore.clientHeight,
+        scrollH: lore.scrollHeight,
+        bottom: lore.getBoundingClientRect().bottom,
+        vh: window.innerHeight,
+        docOverY: document.scrollingElement!.scrollHeight - document.scrollingElement!.clientHeight,
+      };
+    });
+    console.log(`[lore ${width}] scroll container`, JSON.stringify(g));
+    expect(g.chain).toEqual(["app__main", "app"]);
+    expect(g.overflowY).toBe("auto");
+    expect.soft(g.scrollH, "the mock's open sections should be taller than the scrollport").toBeGreaterThan(g.clientH);
+    expect.soft(g.bottom).toBeLessThanOrEqual(g.vh + 1);
+    expect.soft(g.docOverY, "the document itself scrolls instead of .lore").toBeLessThanOrEqual(1);
+    assertNoHScroll(width, await pageAndLoreOver(page));
+  });
+
+  test(`section header labels stay on one line @${width}px`, async ({ mount, page }) => {
+    await mountAt(mount, page, width, false);
+    const labels = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="lore-section-toggle"]')].flatMap((head) =>
+        [...head.querySelectorAll(
+          ".lore-section__name, .lore-section__kind, .lore-section__count, .lore-section__chars, .lore-section__dropped, .lore-section__fit",
+        )].map((el) => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const tops = new Set([...range.getClientRects()].map((r) => Math.round(r.top)));
+          const b = el.getBoundingClientRect();
+          return { cls: el.className, text: el.textContent ?? "", lines: tops.size, width: b.width, height: b.height };
+        }),
+      ),
+    );
+    console.log(`[lore ${width}] section labels`, JSON.stringify(labels));
+    expect(labels.length, `[${width}px] section labels`).toBeGreaterThanOrEqual(16);
+    for (const l of labels) {
+      expect.soft(l.lines, `[${width}px] "${l.text}" (${l.cls}) wraps`).toBe(1);
+    }
+  });
+
+  test(`the batch bar stays inside the viewport and the scroll container @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false);
+    const selects = cmp.locator('[data-testid="lore-select"]');
+    await selects.nth(0).click();
+    await selects.nth(1).click();
+    const bar = cmp.locator('[data-testid="lore-batch-bar"]');
+    await expect(bar).toBeVisible();
+
+    const check = async (stage: string) => {
+      const g = await page.evaluate(() => {
+        const r = (el: Element) => {
+          const b = el.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        };
+        const bar = document.querySelector('[data-testid="lore-batch-bar"]')!;
+        return {
+          bar: r(bar),
+          lore: r(document.querySelector(".lore")!),
+          children: [...bar.querySelectorAll("button, input, span")].map((c) => ({
+            text: (c.textContent ?? "").trim() || c.getAttribute("data-testid") || c.tagName,
+            box: r(c),
+          })),
+          vw: document.documentElement.clientWidth,
+          vh: window.innerHeight,
+        };
+      });
+      console.log(`[lore ${width}] batch bar ${stage}`, JSON.stringify({ bar: g.bar, lore: g.lore, vw: g.vw, vh: g.vh }));
+      expect.soft(g.bar.left, `[${width}px] ${stage} bar left`).toBeGreaterThanOrEqual(g.lore.left - 1);
+      expect.soft(g.bar.right, `[${width}px] ${stage} bar right`).toBeLessThanOrEqual(Math.min(g.lore.right, g.vw) + 1);
+      expect.soft(g.bar.bottom, `[${width}px] ${stage} bar bottom`).toBeLessThanOrEqual(g.vh + 1);
+      expect.soft(g.bar.top, `[${width}px] ${stage} bar top`).toBeGreaterThanOrEqual(0);
+      for (const c of g.children) {
+        expect.soft(inside(c.box, g.bar), `[${width}px] ${stage} "${c.text}" outside the bar`).toBe(true);
+      }
+      assertNoHScroll(width, await pageAndLoreOver(page));
+    };
+    await check("buttons");
+    await cmp.locator('[data-testid="lore-batch-retire"]').click();
+    await expect(cmp.locator('[data-testid="lore-batch-reason"]')).toBeVisible();
+    await check("reason");
+  });
+
+  test(`the inline editor fits its card @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false);
+    const row = cmp.locator('[data-entry-id="L-4"]');
+    if (width <= 720) await row.locator('[data-testid="lore-more-actions"]').click();
+    await row.locator('[data-testid="lore-edit"]').click();
+    await expect(row.locator('[data-testid="lore-editor"]')).toBeVisible();
+    const g = await page.evaluate(() => {
+      const r = (el: Element) => {
+        const b = el.getBoundingClientRect();
+        return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+      };
+      const row = document.querySelector('[data-entry-id="L-4"]')!;
+      const editor = row.querySelector('[data-testid="lore-editor"]')!;
+      return {
+        row: r(row),
+        editor: r(editor),
+        parts: [...editor.querySelectorAll("input, textarea, button, .lore-row__editor-label, .lore-row__segmented")].map((c) => ({
+          text: (c.textContent ?? "").trim().slice(0, 12) || c.getAttribute("data-testid") || c.tagName,
+          box: r(c),
+        })),
+        vw: document.documentElement.clientWidth,
+      };
+    });
+    console.log(`[lore ${width}] editor`, JSON.stringify({ row: g.row, editor: g.editor, vw: g.vw }));
+    expect.soft(inside(g.editor, g.row), `[${width}px] editor outside its card`).toBe(true);
+    expect.soft(g.editor.right, `[${width}px] editor past the viewport`).toBeLessThanOrEqual(g.vw + 1);
+    expect(g.parts.length, `[${width}px] editor parts`).toBeGreaterThanOrEqual(6);
+    for (const p of g.parts) {
+      expect.soft(inside(p.box, g.editor), `[${width}px] "${p.text}" outside the editor`).toBe(true);
+    }
+    assertNoHScroll(width, await pageAndLoreOver(page));
+  });
+
+  test(`a state change leaves the scroll position and the card where they were @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false);
+    const ids = await cmp.locator('[data-testid="lore-row"]').evaluateAll((els: Element[]) =>
+      els.map((e) => e.getAttribute("data-entry-id")),
+    );
+    const target = ids[Math.floor(ids.length / 2)]!;
+    const sel = `[data-testid="lore-row"][data-entry-id="${target}"]`;
+    await page.evaluate((s: string) => {
+      const lore = document.querySelector(".lore") as HTMLElement;
+      const row = document.querySelector(s) as HTMLElement;
+      lore.scrollTop += row.getBoundingClientRect().top - lore.getBoundingClientRect().top - 120;
+    }, sel);
+    const before = {
+      scrollTop: await page.evaluate(() => (document.querySelector(".lore") as HTMLElement).scrollTop),
+      box: await boxOf(page, sel),
+    };
+    await page.evaluate((s: string) => {
+      (window as any).__loreRowBefore = document.querySelector(s);
+    }, sel);
+    expect(before.scrollTop, `[${width}px] .lore did not scroll`).toBeGreaterThan(0);
+
+    const row = cmp.locator(sel);
+    const next = (await row.locator('[data-testid="lore-state"]').textContent())?.trim() === "置頂" ? "active" : "pinned";
+    await row.locator('[data-testid="lore-state"]').click();
+    await row.locator(`[data-testid="lore-state-${next}"]`).click();
+    await expect(row.locator('[data-testid="lore-state"]')).toHaveText(next === "pinned" ? "置頂" : "生效中");
+
+    const after = {
+      scrollTop: await page.evaluate(() => (document.querySelector(".lore") as HTMLElement).scrollTop),
+      box: await boxOf(page, sel),
+      sameNode: await page.evaluate((s: string) => document.querySelector(s) === (window as any).__loreRowBefore, sel),
+    };
+    console.log(`[lore ${width}] state change`, JSON.stringify({ target, next, before, after }));
+    expect.soft(Math.abs(after.scrollTop - before.scrollTop), `[${width}px] scrollTop moved`).toBeLessThanOrEqual(1);
+    expect.soft(Math.abs(after.box!.top - before.box!.top), `[${width}px] ${target} moved on screen`).toBeLessThanOrEqual(1);
+    expect.soft(after.sameNode, `[${width}px] ${target}'s card was torn down and rebuilt`).toBe(true);
   });
 }
