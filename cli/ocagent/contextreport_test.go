@@ -283,6 +283,9 @@ func TestCmdContextReport(t *testing.T) {
 		if got, want := report("family-game", 1000, maxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
 			t.Fatalf("before the re-login sent\n  %q\nwant\n  %q", got, want)
 		}
+		if got, want := report("direct-switch", 1000, maxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("another member before the re-login sent\n  %q\nwant\n  %q", got, want)
+		}
 		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"), []byte(enterpriseLogin), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -291,18 +294,48 @@ func TestCmdContextReport(t *testing.T) {
 		if got, want := report("family-game", 1100, idleMaxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
 			t.Errorf("an idle session after the re-login sent\n  %q\nwant\n  %q", got, want)
 		}
-		const maxCallAfterRelogin = `{"rate_limits":{"five_hour":{"used_percentage":7,"resets_at":1792000000},` +
+		const maxCallAfterRelogin = `{"cost":{"total_cost_usd":1.5},` +
+			`"rate_limits":{"five_hour":{"used_percentage":7,"resets_at":1792000000},` +
 			`"seven_day":{"used_percentage":99,"resets_at":1792648800}}}`
 		maxAfterReloginRL := `"rate_limits":{"five_hour":{"used_percentage":7,"resets_at":1792000000},` +
-			`"seven_day":{"used_percentage":99,"resets_at":1792648800}}`
+			`"seven_day":{"used_percentage":99,"resets_at":1792648800}},"cost":1.5`
 		if got, want := report("family-game", 1150, maxCallAfterRelogin), telemetry(maxAfterReloginRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
 			t.Errorf("a call still on the previous credentials sent\n  %q\nwant\n  %q", got, want)
 		}
-		if got, want := report("family-game", 1200, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
-			t.Errorf("the same session after its next call sent\n  %q\nwant\n  %q", got, want)
+		const enterpriseSameSlotWindow = `{"cost":{"total_cost_usd":2.5},` +
+			`"rate_limits":{"five_hour":{"used_percentage":3,"resets_at":1792000000},` +
+			`"seven_day":{"used_percentage":1,"resets_at":1792015200}}}`
+		entSameSlotRL := `"rate_limits":{"five_hour":{"used_percentage":3,"resets_at":1792000000},` +
+			`"seven_day":{"used_percentage":1,"resets_at":1792015200}},"cost":2.5`
+		if got, want := report("family-game", 1200, enterpriseSameSlotWindow), telemetry(entSameSlotRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
+			t.Errorf("the same session after its next call, its new 5h window opened in the same slot as the previous account's, sent\n  %q\nwant\n  %q", got, want)
+		}
+		const enterpriseLaterWindow = `{"cost":{"total_cost_usd":3},` +
+			`"rate_limits":{"five_hour":{"used_percentage":2,"resets_at":1792018000},` +
+			`"seven_day":{"used_percentage":2,"resets_at":1792015200}}}`
+		entLaterRL := `"rate_limits":{"five_hour":{"used_percentage":2,"resets_at":1792018000},` +
+			`"seven_day":{"used_percentage":2,"resets_at":1792015200}},"cost":3`
+		if got, want := report("family-game", 1300, enterpriseLaterWindow), telemetry(entLaterRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
+			t.Errorf("the same session after its 5h window rolled over sent\n  %q\nwant\n  %q", got, want)
+		}
+		if got, want := report("direct-switch", 1200, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
+			t.Errorf("a session whose next call shares no reset time with its record sent\n  %q\nwant\n  %q", got, want)
 		}
 		if got, want := report("new-member", 1300, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
 			t.Errorf("a member started after the re-login sent\n  %q\nwant\n  %q", got, want)
+		}
+
+		upgraded := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "upgraded", AgentsRoot: agentsRoot}
+		recordWithoutLogin := `{"account":"au-max/org-max","account_label":"seth@x.io(Max)",` +
+			`"rate_limits":"{\"seven_day\":{\"resets_at\":1793000000,\"used_percentage\":3}}"}`
+		if err := os.MkdirAll(filepath.Dir(claudeAccountPath(upgraded)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(claudeAccountPath(upgraded), []byte(recordWithoutLogin), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := report("upgraded", 1300, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
+			t.Errorf("a member whose record predates the login field sent\n  %q\nwant\n  %q", got, want)
 		}
 	})
 

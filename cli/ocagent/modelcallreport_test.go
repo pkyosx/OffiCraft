@@ -372,6 +372,20 @@ func TestCmdModelCallReport(t *testing.T) {
 		if len(*posts) != 1 || (*posts)[0].body != want {
 			t.Errorf("sent %+v, want one body %s", *posts, want)
 		}
+
+		recordWithoutLogin := `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
+			`"rate_limits":"{\"seven_day\":{\"resets_at\":1794769200,\"used_percentage\":99}}"}`
+		if err := os.WriteFile(claudeAccountPath(cfg), []byte(recordWithoutLogin), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmdModelCallReport(srv.Client(), cfg, reloggedEnv, 1200,
+			strings.NewReader(stopFailureInput("server_error", fixturePath(t, "sample-other-errors.jsonl"))), &errOut)
+
+		wantFromLogin := `{"runtime":"claude","account":"au-2/org-2","machine":"lab-1",` +
+			`"model_call":{"last_failure":{"ts":1200,"kind":"server","code":"server_error","resets_at":null}}}`
+		if len(*posts) != 2 || (*posts)[1].body != wantFromLogin {
+			t.Errorf("with a record that predates the login field sent %+v, want second body %s", *posts, wantFromLogin)
+		}
 	})
 
 	t.Run("an unreadable account is omitted, never sent blank", func(t *testing.T) {
