@@ -28,11 +28,11 @@ export type ContentViewProps = {
   text?: string | null;
   /** Reading the bytes failed. */
   failed?: boolean;
-  /** The image's or video's address (already authorised by the host). */
+  /** The image's address (already authorised by the host). */
   src?: string;
   /** What the image or page is called, for its alt text / frame title. */
   label?: string;
-  /** The file's minted share link: an HTML page's or a PDF's frame address,
+  /** The file's minted share link: an HTML page's, a PDF's or a video's address,
    * and the 「在新頁面顯示」 target for a file that cannot be drawn here.
    * `null` while it is being minted or after the mint failed; undefined when
    * no link will be made. */
@@ -128,9 +128,9 @@ export function ContentView({
   }
 
   if (kind === "video") {
-    if (src === undefined) return status(unavailable ?? p.unavailable);
+    if (typeof shareHref !== "string") return linkPending();
     return (
-      <VideoView src={src} label={label} unavailable={unavailable ?? p.unavailable} testId={testId} />
+      <VideoView src={shareHref} label={label} unavailable={unavailable ?? p.unavailable} testId={testId} />
     );
   }
 
@@ -281,7 +281,7 @@ export function ContentView({
   );
 }
 
-export const PLAYBACK_RATES = [0.5, 1, 1.25, 1.5, 2] as const;
+const PLAYBACK_RATES = [0.5, 1, 1.25, 1.5, 2] as const;
 
 function VideoView({
   src,
@@ -305,10 +305,12 @@ function VideoView({
     setUnplayable(false);
   }, [src]);
 
-  // A browser resets playbackRate whenever it loads a new source, so the rate
-  // is re-applied on every metadata load, not only when it is picked.
+  // Loading a source resets playbackRate to defaultPlaybackRate, so both are set.
   useEffect(() => {
-    if (videoRef.current) videoRef.current.playbackRate = rate;
+    const video = videoRef.current;
+    if (!video) return;
+    video.defaultPlaybackRate = rate;
+    video.playbackRate = rate;
   }, [rate]);
 
   if (unplayable) {
@@ -329,9 +331,7 @@ function VideoView({
         playsInline
         preload="metadata"
         aria-label={label}
-        onLoadedMetadata={(e) => {
-          e.currentTarget.playbackRate = rate;
-        }}
+        onRateChange={(e) => setRate(e.currentTarget.playbackRate)}
         onError={() => setUnplayable(true)}
       />
       <div className="md-preview__speed" role="group" aria-label={p.playbackSpeed}>

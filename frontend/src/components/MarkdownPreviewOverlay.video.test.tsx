@@ -15,7 +15,7 @@ describe("MarkdownPreviewOverlay — a video attachment", () => {
     vi.restoreAllMocks();
   });
 
-  it("plays the attachment in the body with five speeds, keeps download and 在新頁面顯示 in the header, and never reads the bytes as text", async () => {
+  it("plays the attachment at its share link with five speeds, keeps download and 在新頁面顯示 in the header, and never reads the bytes as text", async () => {
     vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue("/api/chat/attachment/att-735?sig=test-sig");
     const fetchSpy = vi.fn(async () => ({ ok: true, text: async () => "" }));
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
@@ -37,7 +37,7 @@ describe("MarkdownPreviewOverlay — a video attachment", () => {
       expect(v).not.toBeNull();
       return v!;
     });
-    expect(video.getAttribute("src")).toBe("/api/chat/attachment/att-735?token=tok-aaaaaaaaaaaa");
+    expect(video.getAttribute("src")).toBe(`${window.location.origin}/api/chat/attachment/att-735?sig=test-sig`);
     expect(video.getAttribute("aria-label")).toBe("demo.mp4");
     expect(
       Array.from(document.body.querySelectorAll(".md-preview__speed-option")).map((b) => b.textContent),

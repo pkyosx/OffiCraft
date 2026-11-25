@@ -737,7 +737,6 @@ export function MarkdownPreviewOverlay({
           kind={kind}
           text={source}
           failed={failed}
-          src={video ? downloadHref : undefined}
           label={title}
           shareHref={shareHref}
           shareFailed={shareFailed}

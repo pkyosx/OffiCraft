@@ -2544,6 +2544,8 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 				"Content-Range":           tc.wantContentRange,
 				"Content-Length":          strconv.Itoa(len(tc.wantBody)),
 				"Accept-Ranges":           "bytes",
+				"Last-Modified":           "",
+				"ETag":                    "",
 				"Content-Security-Policy": "sandbox",
 				"X-Content-Type-Options":  "nosniff",
 			})
@@ -2567,6 +2569,36 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 		})
 		if rec.Body.String() != "0123456789" {
 			t.Fatalf("no Range: body: got %q", rec.Body.String())
+		}
+
+		rec = apiRequest(t, h, "HEAD", path, owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("HEAD: want 200, got %d", rec.Code)
+		}
+		apiWantHeaders(t, rec, map[string]string{
+			"Content-Type":            "video/mp4",
+			"Content-Disposition":     inlineMP4,
+			"Content-Length":          "10",
+			"Accept-Ranges":           "bytes",
+			"Last-Modified":           "",
+			"ETag":                    "",
+			"Content-Security-Policy": "sandbox",
+			"X-Content-Type-Options":  "nosniff",
+		})
+		if rec.Body.Len() != 0 {
+			t.Fatalf("HEAD: body: got %q", rec.Body.String())
+		}
+
+		// The blob has no validator, so an If-Range can never match and the
+		// whole blob is the only safe answer.
+		ifRange := httptest.NewRequest("GET", path, nil)
+		ifRange.Header.Set("Authorization", "Bearer "+owner)
+		ifRange.Header.Set("Range", "bytes=2-5")
+		ifRange.Header.Set("If-Range", "Wed, 25 Nov 2026 10:00:00 GMT")
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, ifRange)
+		if rec.Code != 200 || rec.Body.String() != "0123456789" {
+			t.Fatalf("If-Range: want 200 with the whole blob, got %d %q", rec.Code, rec.Body.String())
 		}
 
 		req := httptest.NewRequest("GET", path, nil)
@@ -4259,15 +4291,18 @@ func apiChatDecoded(t *testing.T, h http.Handler, method, target, token string) 
 // apiWantHeaders asserts the response carries exactly these header values.
 func apiWantHeaders(t *testing.T, rec *httptest.ResponseRecorder, want map[string]string) {
 	t.Helper()
+	// Result() is what went on the wire; rec.Header() still takes writes made
+	// after the response was sent.
+	sent := rec.Result().Header
 	for name, value := range want {
-		if got := rec.Header().Get(name); got != value {
+		if got := sent.Get(name); got != value {
 			t.Fatalf("%s: want %q, got %q", name, value, got)
 		}
 	}
 	for _, name := range []string{"Content-Disposition", "Content-Security-Policy", "X-Content-Type-Options"} {
-		if _, named := want[name]; !named && rec.Header().Get(name) != "" {
+		if _, named := want[name]; !named && sent.Get(name) != "" {
 			t.Fatalf("%s: the response carries a header the expectation does not name (%q)",
-				name, rec.Header().Get(name))
+				name, sent.Get(name))
 		}
 	}
 }
