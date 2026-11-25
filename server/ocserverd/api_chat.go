@@ -1032,6 +1032,7 @@ func trimChatPageNewer(msgs []ChatMessage, limit int) ([]ChatMessage, string) {
 func isPreviewableAttachment(mime string) bool {
 	base := attachmentMimeBase(mime)
 	return strings.HasPrefix(base, "image/") || strings.HasPrefix(base, "text/") ||
+		strings.HasPrefix(base, "video/") ||
 		base == "application/pdf" || base == "application/json"
 }
 
@@ -1103,8 +1104,9 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", mediaType)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(att.Data)
+	// Safari will not play a <video> whose source refuses byte ranges, and no
+	// browser can seek one; ServeContent answers Range with 206.
+	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(att.Data))
 }
 
 // The URL is server-relative; the client prefixes its own origin.

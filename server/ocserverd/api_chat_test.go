@@ -306,6 +306,7 @@ func TestAttachmentMimeForName(t *testing.T) {
 			"a.png": "image/png", "a.jpg": "image/jpeg", "a.jpeg": "image/jpeg",
 			"a.gif": "image/gif", "a.webp": "image/webp", "a.svg": "image/svg+xml",
 			"a.pdf": "application/pdf", "a.json": "application/json",
+			"a.mp4": "video/mp4", "a.webm": "video/webm", "a.mov": "video/quicktime",
 			"a.md": "text/markdown", "a.markdown": "text/markdown",
 			"a.txt": "text/plain", "a.log": "text/plain",
 			"a.csv": "text/csv", "a.tsv": "text/tab-separated-values",
@@ -321,14 +322,14 @@ func TestAttachmentMimeForName(t *testing.T) {
 				t.Fatalf("attachmentMimeForName(%q) = %q, want %q", name, got, want)
 			}
 		}
-		if len(attachmentMimeByExtension) != 30 {
-			t.Fatalf("table has %d extensions, want 30", len(attachmentMimeByExtension))
+		if len(attachmentMimeByExtension) != 33 {
+			t.Fatalf("table has %d extensions, want 33", len(attachmentMimeByExtension))
 		}
 	})
 
 	t.Run("no extension or one outside the table is application/octet-stream", func(t *testing.T) {
 		for _, name := range []string{
-			"", "README", "att-0123456789ab", "a.zip", "a.bin", "a.mp4",
+			"", "README", "att-0123456789ab", "a.zip", "a.bin", "a.mkv",
 			"report.pdf.zip", "trailing.", "dir.d/file",
 		} {
 			if got := attachmentMimeForName(name); got != "application/octet-stream" {
@@ -2483,6 +2484,12 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 				`inline; filename="page.html"; filename*=UTF-8''page.html`},
 			{"?filename=data.json", `{"ok":true}`, "application/json",
 				`inline; filename="data.json"; filename*=UTF-8''data.json`},
+			{"?filename=clip.mp4", "\x00\x00\x00\x18ftypmp42", "video/mp4",
+				`inline; filename="clip.mp4"; filename*=UTF-8''clip.mp4`},
+			{"?filename=clip.webm", "\x1aE\xdf\xa3", "video/webm",
+				`inline; filename="clip.webm"; filename*=UTF-8''clip.webm`},
+			{"?filename=Screen.MOV", "\x00\x00\x00\x14ftypqt  ", "video/quicktime",
+				`inline; filename="Screen.MOV"; filename*=UTF-8''Screen.MOV`},
 			{"?filename=bundle.zip", "PK", "application/octet-stream",
 				`attachment; filename="bundle.zip"; filename*=UTF-8''bundle.zip`},
 			{"?filename=blob.bin", "zzz", "application/octet-stream",
@@ -2507,6 +2514,79 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 			}
 		}
 		dashboard.wantFrames()
+	})
+
+	t.Run("a Range request is answered 206 with exactly the asked bytes; no Range is the whole blob at 200; a range past the end is 416", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename=clip.mp4", owner, "0123456789")
+		path := "/api/chat/attachment/" + uploaded["id"].(string)
+		inlineMP4 := `inline; filename="clip.mp4"; filename*=UTF-8''clip.mp4`
+
+		for _, tc := range []struct {
+			rangeHeader, wantBody, wantContentRange string
+		}{
+			{"bytes=2-5", "2345", "bytes 2-5/10"},
+			{"bytes=7-", "789", "bytes 7-9/10"},
+			{"bytes=-3", "789", "bytes 7-9/10"},
+			{"bytes=0-0", "0", "bytes 0-0/10"},
+		} {
+			req := httptest.NewRequest("GET", path, nil)
+			req.Header.Set("Authorization", "Bearer "+owner)
+			req.Header.Set("Range", tc.rangeHeader)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusPartialContent {
+				t.Fatalf("%s: want 206, got %d (%s)", tc.rangeHeader, rec.Code, rec.Body.String())
+			}
+			apiWantHeaders(t, rec, map[string]string{
+				"Content-Type":            "video/mp4",
+				"Content-Disposition":     inlineMP4,
+				"Content-Range":           tc.wantContentRange,
+				"Content-Length":          strconv.Itoa(len(tc.wantBody)),
+				"Accept-Ranges":           "bytes",
+				"Content-Security-Policy": "sandbox",
+				"X-Content-Type-Options":  "nosniff",
+			})
+			if rec.Body.String() != tc.wantBody {
+				t.Fatalf("%s: body: want %q, got %q", tc.rangeHeader, tc.wantBody, rec.Body.String())
+			}
+		}
+
+		rec := apiRequest(t, h, "GET", path, owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("no Range: want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantHeaders(t, rec, map[string]string{
+			"Content-Type":            "video/mp4",
+			"Content-Disposition":     inlineMP4,
+			"Content-Length":          "10",
+			"Accept-Ranges":           "bytes",
+			"Content-Range":           "",
+			"Content-Security-Policy": "sandbox",
+			"X-Content-Type-Options":  "nosniff",
+		})
+		if rec.Body.String() != "0123456789" {
+			t.Fatalf("no Range: body: got %q", rec.Body.String())
+		}
+
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("Authorization", "Bearer "+owner)
+		req.Header.Set("Range", "bytes=10-20")
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusRequestedRangeNotSatisfiable {
+			t.Fatalf("past the end: want 416, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantHeaders(t, rec, map[string]string{
+			"Content-Type":            "text/plain; charset=utf-8",
+			"Content-Disposition":     inlineMP4,
+			"Content-Range":           "bytes */10",
+			"Content-Security-Policy": "sandbox",
+			"X-Content-Type-Options":  "nosniff",
+		})
+		if rec.Body.String() != "invalid range: failed to overlap\n" {
+			t.Fatalf("past the end: body: got %q", rec.Body.String())
+		}
 	})
 
 	t.Run("an HTML blob opened with the login in its address is moved to a sig-only address that may script", func(t *testing.T) {

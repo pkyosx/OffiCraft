@@ -822,11 +822,16 @@ export interface paths {
          *     ``application/octet-stream``. A blob stored with any other mime keeps it.
          *
          *     DISPOSITION SPLIT (M2-3 gallery「開新分頁預覽」 vs 「下載」): a PREVIEWABLE
-         *     type (image/*, text/*, application/pdf, application/json) is served
+         *     type (image/*, text/*, video/*, application/pdf, application/json) is served
          *     ``inline; filename="<name>"`` so a new tab RENDERS it instead of
          *     force-downloading, while a downloader such as ``ocagent download`` still
          *     saves it under its name and extension (``<img src>`` ignores the header); everything else keeps ``attachment; filename="<name>"``
          *     and downloads under its original name (the attachment id when it has none).
+         *
+         *     BYTE RANGES: every answer carries ``Accept-Ranges: bytes``. A ``Range`` request
+         *     is answered ``206`` with exactly the requested bytes and ``Content-Range``; a
+         *     range that starts past the end is ``416`` with ``Content-Range: bytes *\/<size>``.
+         *     A ``<video>`` seeks through ranges, and Safari will not play one without them.
          *
          *     SECURITY: every response carries ``Content-Security-Policy: sandbox`` and
          *     ``X-Content-Type-Options: nosniff``. An inline ``text/html`` blob, or an
@@ -15157,6 +15162,13 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                 };
+            };
+            /** @description Partial Content: the bytes a Range request asked for. */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation error (unified error envelope). */
             422: {
