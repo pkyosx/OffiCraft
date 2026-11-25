@@ -274,6 +274,19 @@ describe("SharedDocDetail", () => {
     expect(failed.container.querySelector("iframe")).toBeNull();
   });
 
+  it("a video plays at its share link with the speed row, and 下載 below it", async () => {
+    const { getByTestId, container } = showDoc(fileDoc("demo.mp4", "video/mp4", null));
+    await title(getByTestId);
+    const video = await waitFor(() => {
+      const el = container.querySelector("video");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(video.getAttribute("src")).toBe(`${window.location.origin}/api/chat/attachment/att-aaaaaaaaaaaa?sig=s1`);
+    expect(container.querySelectorAll(".md-preview__speed-option")).toHaveLength(5);
+    expect(getByTestId("shared-doc-download").textContent).toBe("下載");
+  });
+
   it("every text file, HTML included, offers 編輯 as plain text; an image or a PDF does not", async () => {
     for (const doc of [
       fileDoc("ci.yaml", "text/plain", "k: v\n"),

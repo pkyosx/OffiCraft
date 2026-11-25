@@ -132,8 +132,10 @@ func TestIsPreviewableAttachment(t *testing.T) {
 		{"application/json; charset=utf-8", true},
 		{attachmentOctetStream, false},
 		{"", false},
+		{"video/mp4", true},
+		{"video/quicktime", true},
 		{"application/zip", false},
-		{"video/mp4", false},
+		{"audio/mpeg", false},
 	} {
 		if got := isPreviewableAttachment(tc.mime); got != tc.want {
 			t.Fatalf("isPreviewableAttachment(%q) = %v, want %v", tc.mime, got, tc.want)

@@ -822,11 +822,20 @@ export interface paths {
          *     ``application/octet-stream``. A blob stored with any other mime keeps it.
          *
          *     DISPOSITION SPLIT (M2-3 gallery「開新分頁預覽」 vs 「下載」): a PREVIEWABLE
-         *     type (image/*, text/*, application/pdf, application/json) is served
+         *     type (image/*, text/*, video/*, application/pdf, application/json) is served
          *     ``inline; filename="<name>"`` so a new tab RENDERS it instead of
          *     force-downloading, while a downloader such as ``ocagent download`` still
          *     saves it under its name and extension (``<img src>`` ignores the header); everything else keeps ``attachment; filename="<name>"``
          *     and downloads under its original name (the attachment id when it has none).
+         *
+         *     BYTE RANGES: a ``200`` or ``206`` answer carries ``Accept-Ranges: bytes``. One
+         *     ``Range`` is answered ``206`` with exactly those bytes and ``Content-Range``;
+         *     several ranges are one ``206`` ``multipart/byteranges`` body, or the whole blob
+         *     at ``200`` when together they cover more than the blob; a range past the
+         *     end, or one that does not parse, is ``416`` with ``Content-Range: bytes *\/<size>``.
+         *     A blob carries no ``ETag`` or ``Last-Modified``, so ``If-Range`` never matches
+         *     and is answered with the whole blob. A ``<video>`` seeks through ranges, and
+         *     Safari will not play one without them.
          *
          *     SECURITY: every response carries ``Content-Security-Policy: sandbox`` and
          *     ``X-Content-Type-Options: nosniff``. An inline ``text/html`` blob, or an
@@ -15157,6 +15166,20 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                 };
+            };
+            /** @description Partial Content: the bytes a Range request asked for. */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Range Not Satisfiable: the Range starts past the end of the blob or does not parse. */
+            416: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation error (unified error envelope). */
             422: {

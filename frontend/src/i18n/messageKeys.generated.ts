@@ -135,6 +135,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "chat.mdPreview.next",
   "chat.mdPreview.openInNewTab",
   "chat.mdPreview.pan",
+  "chat.mdPreview.playbackSpeed",
   "chat.mdPreview.previous",
   "chat.mdPreview.unavailable",
   "chat.mdPreview.unavailableHere",

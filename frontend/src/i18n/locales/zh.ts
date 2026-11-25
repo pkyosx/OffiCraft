@@ -1542,6 +1542,7 @@ export const zh = {
       csvUnparseable: "CSV 格式錯誤，排不成表格，以下照檔案原文顯示。",
       csvTooLarge: "CSV 太大，不排成表格，以下照檔案原文顯示。",
       unavailableHere: "此檔案無法在這裡預覽。",
+      playbackSpeed: "播放速度",
       download: "下載",
       edit: "編輯",
       close: "關閉預覽",

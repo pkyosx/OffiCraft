@@ -99,7 +99,7 @@ function SharedDocContent({ doc }: { doc: SharedDocDetailView }) {
   const kind = contentKindOf(doc.mime, doc.filename);
   const needsShareLink =
     doc.kind !== "link" &&
-    (kind === "html" || kind === "pdf" || kind === "binary") &&
+    (kind === "html" || kind === "pdf" || kind === "video" || kind === "binary") &&
     isInlineDisplayableMime(doc.mime);
   const share = useShareHref(doc.attachmentId, needsShareLink, "SharedDocContent");
   if (doc.kind === "link") {
@@ -145,7 +145,7 @@ function SharedDocContent({ doc }: { doc: SharedDocDetailView }) {
       testId={`shared-doc-${kind}`}
     />
   );
-  if (kind === "pdf" || kind === "binary" || (kind === "html" && share.failed)) {
+  if (kind === "pdf" || kind === "video" || kind === "binary" || (kind === "html" && share.failed)) {
     return (
       <div className="shared-docs__opaque">
         {view}

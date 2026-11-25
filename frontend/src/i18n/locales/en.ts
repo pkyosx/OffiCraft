@@ -1489,6 +1489,7 @@ export const en: Dict = {
       csvUnparseable: "This CSV is malformed and cannot be laid out as a table. The file is shown as stored.",
       csvTooLarge: "This CSV is too large to lay out as a table. The file is shown as stored.",
       unavailableHere: "This file cannot be previewed here.",
+      playbackSpeed: "Playback speed",
       download: "Download",
       edit: "Edit",
       close: "Close preview",

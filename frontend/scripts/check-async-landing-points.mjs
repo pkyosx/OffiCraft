@@ -517,6 +517,13 @@ const REGISTRY = [
       "YAML syntax check; writes only this view's own verdict state, guarded by a `live` flag reset whenever the text changes, and the verdict is read back only for the exact text it was computed on",
   },
   {
+    file: "components/ContentView.tsx",
+    kind: "JSX onLoad/onError",
+    count: 1,
+    verdict:
+      "<video onError>; writes only this view's own unplayable flag, which the effect keyed on the video's address clears, and the view unmounts with whatever opened it",
+  },
+  {
     file: "lib/formatContent.ts",
     kind: "await",
     count: 1,

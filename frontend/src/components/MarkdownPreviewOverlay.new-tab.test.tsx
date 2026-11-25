@@ -38,9 +38,11 @@ function mountOverlay(mime: string, title = "mock.html") {
 }
 
 describe("isInlineDisplayableMime (mirror of the server's isPreviewableAttachment)", () => {
-  it("accepts image/*, text/*, application/pdf and application/json", () => {
+  it("accepts image/*, text/*, video/*, application/pdf and application/json", () => {
     for (const m of [
       "image/png",
+      "video/mp4",
+      "video/quicktime",
       "image/svg+xml",
       "text/html",
       "text/plain",
@@ -57,7 +59,7 @@ describe("isInlineDisplayableMime (mirror of the server's isPreviewableAttachmen
       "application/zip",
       "application/octet-stream",
       "application/octet-stream; name=report.pdf",
-      "video/mp4",
+      "audio/mpeg",
       "",
     ]) {
       expect(`${m}=${isInlineDisplayableMime(m)}`).toBe(`${m}=false`);

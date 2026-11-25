@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { ContentView, type ContentViewProps } from "./ContentView";
@@ -198,6 +198,76 @@ describe("ContentView", () => {
     expect(a.textContent).toBe(p.openInNewTab);
     inline.unmount();
     const none = mount({ kind: "binary", shareHref: null, unavailable: "only download" });
+    expect(statusText(none.container)).toEqual(["only download"]);
+  });
+  it("plays a video at its share link with the browser's own controls, five speeds starting at 1×, and the host's line when the browser cannot play it", () => {
+    const { container } = mount({ kind: "video", shareHref: "https://s/v?sig=1", label: "demo.mp4", testId: "body" });
+    const video = container.querySelector("video")!;
+    expect(video.getAttribute("src")).toBe("https://s/v?sig=1");
+    expect(video.getAttribute("aria-label")).toBe("demo.mp4");
+    expect(video.hasAttribute("controls")).toBe(true);
+    expect(video.hasAttribute("playsinline")).toBe(true);
+    expect(video.getAttribute("preload")).toBe("metadata");
+
+    const group = container.querySelector(".md-preview__speed")!;
+    expect(group.getAttribute("role")).toBe("group");
+    expect(group.getAttribute("aria-label")).toBe(p.playbackSpeed);
+    const options = () =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>(".md-preview__speed-option")).map(
+        (b) => `${b.textContent}:${b.getAttribute("aria-pressed")}`,
+      );
+    expect(options()).toEqual(["0.5×:false", "1×:true", "1.25×:false", "1.5×:false", "2×:false"]);
+    expect([video.playbackRate, video.defaultPlaybackRate]).toEqual([1, 1]);
+
+    fireEvent.click(container.querySelectorAll(".md-preview__speed-option")[2]!);
+    expect(options()).toEqual(["0.5×:false", "1×:false", "1.25×:true", "1.5×:false", "2×:false"]);
+    expect([video.playbackRate, video.defaultPlaybackRate]).toEqual([1.25, 1.25]);
+
+    fireEvent.error(video);
+    expect(container.querySelector("video")).toBeNull();
+    expect(statusText(container)).toEqual([p.unavailable]);
+  });
+
+  it("follows a speed picked in the browser's own controls", () => {
+    const { container } = mount({ kind: "video", shareHref: "https://s/v?sig=1" });
+    const video = container.querySelector("video")!;
+    video.playbackRate = 1.5;
+    fireEvent(video, new Event("ratechange"));
+    expect(container.querySelector(".md-preview__speed-option--on")!.textContent).toBe("1.5×");
+    video.playbackRate = 1.75;
+    fireEvent(video, new Event("ratechange"));
+    expect(container.querySelector(".md-preview__speed-option--on")).toBeNull();
+  });
+
+  it("starts a new video at 1× and playable again", () => {
+    const view = mount({ kind: "video", shareHref: "/a.mp4?sig=1", unavailable: "only download" });
+    fireEvent.click(view.container.querySelectorAll(".md-preview__speed-option")[4]!);
+    expect(view.container.querySelector("video")!.playbackRate).toBe(2);
+    fireEvent.error(view.container.querySelector("video")!);
+    expect(statusText(view.container)).toEqual(["only download"]);
+    view.rerender(
+      <I18nProvider>
+        <div data-testid="host">
+          <ContentView kind="video" shareHref="/b.mp4?sig=2" unavailable="only download" />
+        </div>
+      </I18nProvider>,
+    );
+    const video = view.container.querySelector("video")!;
+    expect(video.getAttribute("src")).toBe("/b.mp4?sig=2");
+    expect([video.playbackRate, video.defaultPlaybackRate]).toEqual([1, 1]);
+    expect(view.container.querySelector(".md-preview__speed-option--on")!.textContent).toBe("1×");
+  });
+
+  it("says loading while the video's link is being made, and the host's line when no link is coming", () => {
+    const minting = mount({ kind: "video", shareHref: null, src: "/v?token=t" });
+    expect(minting.container.querySelector("video")).toBeNull();
+    expect(statusText(minting.container)).toEqual([p.loading]);
+    minting.unmount();
+    const failed = mount({ kind: "video", shareHref: null, shareFailed: true, src: "/v?token=t", unavailable: "only download" });
+    expect(failed.container.querySelector("video")).toBeNull();
+    expect(statusText(failed.container)).toEqual(["only download"]);
+    failed.unmount();
+    const none = mount({ kind: "video", unavailable: "only download" });
     expect(statusText(none.container)).toEqual(["only download"]);
   });
 });

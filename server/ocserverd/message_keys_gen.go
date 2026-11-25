@@ -136,6 +136,7 @@ var messageKeys = map[string]bool{
 	"chat.mdPreview.next":                              true,
 	"chat.mdPreview.openInNewTab":                      true,
 	"chat.mdPreview.pan":                               true,
+	"chat.mdPreview.playbackSpeed":                     true,
 	"chat.mdPreview.previous":                          true,
 	"chat.mdPreview.unavailable":                       true,
 	"chat.mdPreview.unavailableHere":                   true,
