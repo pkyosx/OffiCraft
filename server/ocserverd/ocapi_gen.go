@@ -1944,6 +1944,50 @@ type LoginProtectionDTO struct {
 	PasskeyCount int `json:"passkey_count"`
 }
 
+// LoreBudgetListDTO Every boot-document target's budget.
+type LoreBudgetListDTO struct {
+	Targets []LoreBudgetTargetDTO `json:"targets"`
+}
+
+// LoreBudgetSegmentDTO One scope's share of a boot-document budget, in the order the selection walks it.
+type LoreBudgetSegmentDTO struct {
+	// Chars Their title + body characters, the unit the cap is measured in.
+	Chars int `json:"chars"`
+
+	// EntryCount Live (pinned + active) entries of this scope.
+	EntryCount int `json:"entry_count"`
+
+	// FittedChars The characters those fitted entries spend.
+	FittedChars int `json:"fitted_chars"`
+
+	// FittedCount How many of them fit inside the cap.
+	FittedCount int `json:"fitted_count"`
+
+	// ScopeKind ``everyone`` | ``agent`` | ``manual``.
+	ScopeKind string `json:"scope_kind"`
+}
+
+// LoreBudgetTargetDTO One target's budget: what “GET /api/lore“ reports when its filter converges on this target.
+type LoreBudgetTargetDTO struct {
+	// CapChars The cap in force for this target.
+	CapChars int `json:"cap_chars"`
+
+	// DroppedCount Live entries the selection walks that do not fit — for an ``agent`` target this can include ``everyone`` entries, since those are walked first.
+	DroppedCount int `json:"dropped_count"`
+
+	// EntryCount Live (pinned + active) entries filed under this target itself; an ``agent`` target does not count the ``everyone`` entries here.
+	EntryCount int `json:"entry_count"`
+
+	// ScopeKey The member id, the task type_key, or "" for ``everyone``.
+	ScopeKey string `json:"scope_key"`
+
+	// ScopeKind ``everyone`` | ``agent`` | ``manual``.
+	ScopeKind string `json:"scope_kind"`
+
+	// UsedChars Characters the fitted entries spend.
+	UsedChars int `json:"used_chars"`
+}
+
 // LoreEntryDTO One 傳承 entry (T-33). Its text is written once and NEVER edited: no route changes “title“ or “body“, so what you read here is what was written. The mutable surface is “state“ (active / pinned / retired), “retire_reason“, “effective_ts“ and — admin-only, through “set_lore_entry_scope“ (T-236) — the “scope_kind“ / “scope_key“ pair.
 //
 // “effective_ts“ vs “created_ts“: “created_ts“ is when the entry was written and never moves; “effective_ts“ starts equal to it and is what “bump_lore_entry“ sets to now. The fold's selection order reads “effective_ts“, so bumping is how an old entry is brought back to the front — and because “created_ts“ survives, the bump is reversible and explicable afterwards.
@@ -1994,13 +2038,40 @@ type LoreEntryDTO struct {
 	UpdatedTs   float64 `json:"updated_ts"`
 }
 
+// LoreEntryEditDTO The fields to change. An omitted or null field is left as it is; a body with none of the three is a 400.
+type LoreEntryEditDTO struct {
+	// Body The new body.
+	Body *string `json:"body,omitempty"`
+
+	// LoreType The new 傳承 type, from the same vocabulary as ``write_lore_entry``.
+	LoreType *string `json:"lore_type,omitempty"`
+
+	// Title The new title. Blank is a 400.
+	Title *string `json:"title,omitempty"`
+}
+
+// LoreEntryEditReceiptDTO Bounded receipt for “PATCH /api/lore/{entry_id}“: the id and the server's stamp, not the text the caller sent.
+type LoreEntryEditReceiptDTO struct {
+	// Id The entry that was edited, echoed from the path.
+	Id string `json:"id"`
+
+	// UpdatedTs The server's stamp for this write, epoch seconds.
+	UpdatedTs float64 `json:"updated_ts"`
+}
+
 // LoreEntryListDTO One page of 傳承 entries (T-33), in the fixed display order: pinned, then active, then retired, newest “effective_ts“ first inside each group. THE ORDER IS NOT CONFIGURABLE — the filter is.
 //
 // The filter is applied in the QUERY, before the page is cut. A client that pages first and filters afterwards cannot tell "this page happens to hold none of them" from "there are none", and any count it draws from the visible rows is wrong.
 type LoreEntryListDTO struct {
+	// BudgetSegments The same selection broken down by scope, in the order it is walked: ``everyone`` then ``agent`` for an ``agent`` scope, otherwise the one scope. Like ``first_dropped_id`` it covers the WHOLE scope, whatever the other filters and the page. Empty when ``cap_chars`` is 0.
+	BudgetSegments []LoreBudgetSegmentDTO `json:"budget_segments"`
+
 	// CapChars The fold budget in force for the ONE scope this request's filter converged on — ``lore_cap_chars_role`` for ``agent`` and ``everyone``, ``lore_cap_chars_manual`` for ``manual``. It is 0 unless ``scope_kind`` and ``scope_key`` BOTH name a single scope — or ``scope_kind`` is ``everyone`` alone with no ``scope_key``, since that scope's key is "" — because a budget belongs to a scope and a page spanning several has no single one to report.
 	CapChars int            `json:"cap_chars"`
 	Entries  []LoreEntryDTO `json:"entries"`
+
+	// FirstDroppedChars The size of the entry ``first_dropped_id`` names, counted as the cap is. 0 when that id is "".
+	FirstDroppedChars int `json:"first_dropped_chars"`
 
 	// FirstDroppedId The id of the first entry that does NOT fit inside ``cap_chars`` — the entry the 上限線 is drawn above. It is "" when the whole scope fits, and "" when ``cap_chars`` is 0.
 	//
@@ -2012,6 +2083,9 @@ type LoreEntryListDTO struct {
 
 	// Offset The offset actually applied.
 	Offset int `json:"offset"`
+
+	// UsedChars Characters the selection behind ``first_dropped_id`` carries, counted as the cap is. 0 when ``cap_chars`` is 0.
+	UsedChars int `json:"used_chars"`
 }
 
 // LoreEntryScopeDTO The set_lore_entry_scope request body (T-236): the TARGET scope kind and nothing else. The scope_key is derived by the server — the author's member id for “agent“, the entry's derivable task type_key for “manual“, "" for “everyone“ — so a caller cannot point an entry at another member's boot document or at an unrelated manual.
@@ -5930,6 +6004,9 @@ type HandleLoginApiLoginPostJSONRequestBody = LoginDTO
 // HandleWriteLoreEntryApiLorePostJSONRequestBody defines body for HandleWriteLoreEntryApiLorePost for application/json ContentType.
 type HandleWriteLoreEntryApiLorePostJSONRequestBody = LoreEntryWriteDTO
 
+// HandleEditLoreEntryApiLoreEntryIdPatchJSONRequestBody defines body for HandleEditLoreEntryApiLoreEntryIdPatch for application/json ContentType.
+type HandleEditLoreEntryApiLoreEntryIdPatchJSONRequestBody = LoreEntryEditDTO
+
 // HandleSetLoreEntryScopeApiLoreEntryIdScopePostJSONRequestBody defines body for HandleSetLoreEntryScopeApiLoreEntryIdScopePost for application/json ContentType.
 type HandleSetLoreEntryScopeApiLoreEntryIdScopePostJSONRequestBody = LoreEntryScopeDTO
 
@@ -6574,9 +6651,15 @@ type ServerInterface interface {
 	// - `entry_ids`: REPEATABLE 傳承編號 set (“?entry_ids=L-12&entry_ids=L-30“) — the multi-select twin of “entry_id“, and the axis behind the 傳承編號 search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 「跟 task 一樣」, and 任務頁 resolves a committed id by asking for THAT ONE id (“useTasks.ts:201“ “api.getTask(anchorId)“) and pairs it to a row by equality (“TasksPage.tsx:458“ “x.id === appliedId“); nothing there ever compares part of an id. A substring axis would also interact badly with paging: “L-1“ would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 「捲到底沒有了」 and 「真的沒有了」 the same picture and would draw the 上限線 in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call “scope_keys“/“author_ids“ make. An id no entry carries answers 200 with no rows, which is the true answer, and no “L-“ + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for “L-99999“, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 「do not narrow」, never 「match nothing」). NOTE the 上限線 is unaffected: “cap_chars“ / “first_dropped_id“ still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional.
 	// (GET /api/lore)
 	HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *http.Request, params HandleListLoreEntriesApiLoreGetParams)
-	// Write ONE 傳承 entry (its title and body are never editable afterwards). “task_id“ picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an “agent“ scope keyed to you, staff and outsource alike. A write never files to “everyone“ (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a “scope_note“ saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin agent can change (“lore_cap_chars_title“ and “lore_cap_chars_body“ in “update_settings“); an over-cap title or body is a 400 that writes nothing and states the cap in force.
+	// Write ONE 傳承 entry (no tool edits its title and body afterwards). “task_id“ picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an “agent“ scope keyed to you, staff and outsource alike. A write never files to “everyone“ (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a “scope_note“ saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin agent can change (“lore_cap_chars_title“ and “lore_cap_chars_body“ in “update_settings“); an over-cap title or body is a 400 that writes nothing and states the cap in force.
 	// (POST /api/lore)
 	HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *http.Request)
+	// Every boot-document target's 傳承 budget in one read: “everyone“, each member on the roster (staff and outsource; an “agent“ target counts “everyone“ first, as the boot document does) and each task manual. Computed by the same selection as “first_dropped_id“, so it never disagrees with the 上限線.
+	// (GET /api/lore/budgets)
+	HandleListLoreBudgetsApiLoreBudgetsGet(w http.ResponseWriter, r *http.Request)
+	// Edit one 傳承 entry's “title“, “body“ or “lore_type“ in place. Who: the entry's AUTHOR or an admin; a PINNED entry is admin-only, the same reach as the state door. “title“ and “body“ are held to the same caps as a new entry. The id, scope, state and “effective_ts“ do not change, so the entry keeps its place in the order — but a longer text spends more of the shared budget and can move the 上限線.
+	// (PATCH /api/lore/{entry_id})
+	HandleEditLoreEntryApiLoreEntryIdPatch(w http.ResponseWriter, r *http.Request, entryId string)
 	// 提到最新: set one 傳承 entry's “effective_ts“ to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. “created_ts“ is NOT touched, which is what makes this reversible.
 	// (POST /api/lore/{entry_id}/bump)
 	HandleBumpLoreEntryApiLoreEntryIdBumpPost(w http.ResponseWriter, r *http.Request, entryId string)
@@ -9023,6 +9106,46 @@ func (siw *ServerInterfaceWrapper) HandleWriteLoreEntryApiLorePost(w http.Respon
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleWriteLoreEntryApiLorePost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleListLoreBudgetsApiLoreBudgetsGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListLoreBudgetsApiLoreBudgetsGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListLoreBudgetsApiLoreBudgetsGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleEditLoreEntryApiLoreEntryIdPatch operation middleware
+func (siw *ServerInterfaceWrapper) HandleEditLoreEntryApiLoreEntryIdPatch(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entry_id" -------------
+	var entryId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entry_id", r.PathValue("entry_id"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entry_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleEditLoreEntryApiLoreEntryIdPatch(w, r, entryId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -13311,6 +13434,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/login", wrapper.HandleLoginApiLoginPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore", wrapper.HandleListLoreEntriesApiLoreGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore", wrapper.HandleWriteLoreEntryApiLorePost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lore/budgets", wrapper.HandleListLoreBudgetsApiLoreBudgetsGet)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/lore/{entry_id}", wrapper.HandleEditLoreEntryApiLoreEntryIdPatch)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/{entry_id}/bump", wrapper.HandleBumpLoreEntryApiLoreEntryIdBumpPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/{entry_id}/scope", wrapper.HandleSetLoreEntryScopeApiLoreEntryIdScopePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/lore/{entry_id}/state", wrapper.HandleSetLoreEntryStateApiLoreEntryIdStatePost)

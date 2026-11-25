@@ -4613,8 +4613,8 @@ export interface paths {
         get: operations["handle_list_lore_entries_api_lore_get"];
         put?: never;
         /**
-         * Write ONE 傳承 entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin agent can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.
-         * @description Write ONE 傳承 entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin agent can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.
+         * Write ONE 傳承 entry (no tool edits its title and body afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin agent can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.
+         * @description Write ONE 傳承 entry (no tool edits its title and body afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin agent can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.
          */
         post: operations["handle_write_lore_entry_api_lore_post"];
         delete?: never;
@@ -4683,6 +4683,46 @@ export interface paths {
          * @description 提到最新: set one 傳承 entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.
          */
         post: operations["handle_bump_lore_entry_api_lore__entry_id__bump_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edit one 傳承 entry's ``title``, ``body`` or ``lore_type`` in place. Who: the entry's AUTHOR or an admin; a PINNED entry is admin-only, the same reach as the state door. ``title`` and ``body`` are held to the same caps as a new entry. The id, scope, state and ``effective_ts`` do not change, so the entry keeps its place in the order — but a longer text spends more of the shared budget and can move the 上限線.
+         * @description Edit one 傳承 entry's ``title``, ``body`` or ``lore_type`` in place. Who: the entry's AUTHOR or an admin; a PINNED entry is admin-only, the same reach as the state door. ``title`` and ``body`` are held to the same caps as a new entry. The id, scope, state and ``effective_ts`` do not change, so the entry keeps its place in the order — but a longer text spends more of the shared budget and can move the 上限線.
+         */
+        patch: operations["handle_edit_lore_entry_api_lore__entry_id__patch"];
+        trace?: never;
+    };
+    "/api/lore/budgets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every boot-document target's 傳承 budget in one read: ``everyone``, each member on the roster (staff and outsource; an ``agent`` target counts ``everyone`` first, as the boot document does) and each task manual. Computed by the same selection as ``first_dropped_id``, so it never disagrees with the 上限線.
+         * @description Every boot-document target's 傳承 budget in one read: ``everyone``, each member on the roster (staff and outsource; an ``agent`` target counts ``everyone`` first, as the boot document does) and each task manual. Computed by the same selection as ``first_dropped_id``, so it never disagrees with the 上限線.
+         */
+        get: operations["handle_list_lore_budgets_api_lore_budgets_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -13025,6 +13065,21 @@ export interface components {
              *     🔴 IT IS COMPUTED BY THE SAME SELECTION THE FOLDS RUN, over the WHOLE scope and not over this page: for an ``agent`` scope that is the member's boot selection (``everyone`` entries first, under the shared budget — so ``everyone`` entries can move this line), for ``everyone`` alone and for ``manual`` the scope by itself (T-236). A client cannot derive it: paging cuts the list before the budget is spent, and re-adding the title/body lengths in the client would be a SECOND copy of the picking rule that drifts from the real one without anything turning red. Read this field; do not recompute it.
              */
             first_dropped_id: string;
+            /**
+             * Used Chars
+             * @description Characters the selection behind ``first_dropped_id`` carries, counted as the cap is. 0 when ``cap_chars`` is 0.
+             */
+            used_chars: number;
+            /**
+             * First Dropped Chars
+             * @description The size of the entry ``first_dropped_id`` names, counted as the cap is. 0 when that id is "".
+             */
+            first_dropped_chars: number;
+            /**
+             * Budget Segments
+             * @description The same selection broken down by scope, in the order it is walked: ``everyone`` then ``agent`` for an ``agent`` scope, otherwise the one scope. Like ``first_dropped_id`` it covers the WHOLE scope, whatever the other filters and the page. Empty when ``cap_chars`` is 0.
+             */
+            budget_segments: components["schemas"]["LoreBudgetSegmentDTO"][];
         };
         /**
          * LoreEntryWriteReceiptDTO
@@ -13100,6 +13155,119 @@ export interface components {
              * @description The SERVER's stamp for THIS write, epoch seconds. It moves on both doors and on every call, so it — not ``effective_ts`` — is what says the write happened at all.
              */
             updated_ts: number;
+        };
+        /**
+         * LoreBudgetSegmentDTO
+         * @description One scope's share of a boot-document budget, in the order the selection walks it.
+         */
+        LoreBudgetSegmentDTO: {
+            /**
+             * Scope Kind
+             * @description ``everyone`` | ``agent`` | ``manual``.
+             */
+            scope_kind: string;
+            /**
+             * Entry Count
+             * @description Live (pinned + active) entries of this scope.
+             */
+            entry_count: number;
+            /**
+             * Chars
+             * @description Their title + body characters, the unit the cap is measured in.
+             */
+            chars: number;
+            /**
+             * Fitted Count
+             * @description How many of them fit inside the cap.
+             */
+            fitted_count: number;
+            /**
+             * Fitted Chars
+             * @description The characters those fitted entries spend.
+             */
+            fitted_chars: number;
+        };
+        /**
+         * LoreEntryEditDTO
+         * @description The fields to change. An omitted or null field is left as it is; a body with none of the three is a 400.
+         */
+        LoreEntryEditDTO: {
+            /**
+             * Title
+             * @description The new title. Blank is a 400.
+             */
+            title?: string | null;
+            /**
+             * Body
+             * @description The new body.
+             */
+            body?: string | null;
+            /**
+             * Lore Type
+             * @description The new 傳承 type, from the same vocabulary as ``write_lore_entry``.
+             */
+            lore_type?: string | null;
+        };
+        /**
+         * LoreEntryEditReceiptDTO
+         * @description Bounded receipt for ``PATCH /api/lore/{entry_id}``: the id and the server's stamp, not the text the caller sent.
+         */
+        LoreEntryEditReceiptDTO: {
+            /**
+             * Id
+             * @description The entry that was edited, echoed from the path.
+             */
+            id: string;
+            /**
+             * Updated Ts
+             * Format: double
+             * @description The server's stamp for this write, epoch seconds.
+             */
+            updated_ts: number;
+        };
+        /**
+         * LoreBudgetListDTO
+         * @description Every boot-document target's budget.
+         */
+        LoreBudgetListDTO: {
+            /** Targets */
+            targets: components["schemas"]["LoreBudgetTargetDTO"][];
+        };
+        /**
+         * LoreBudgetTargetDTO
+         * @description One target's budget: what ``GET /api/lore`` reports when its filter converges on this target.
+         */
+        LoreBudgetTargetDTO: {
+            /**
+             * Scope Kind
+             * @description ``everyone`` | ``agent`` | ``manual``.
+             */
+            scope_kind: string;
+            /**
+             * Scope Key
+             * @description The member id, the task type_key, or "" for ``everyone``.
+             */
+            scope_key: string;
+            /**
+             * Cap Chars
+             * @description The cap in force for this target.
+             */
+            cap_chars: number;
+            /**
+             * Used Chars
+             * @description Characters the fitted entries spend.
+             */
+            used_chars: number;
+            /**
+             * Entry Count
+             * @description Live (pinned + active) entries filed under this target itself; an ``agent`` target does not count the ``everyone`` entries here.
+             */
+            entry_count: number;
+            /**
+             * Dropped Count
+             * @description Live entries the selection walks that do not fit — for an ``agent`` target this can include ``everyone`` entries, since those are walked first.
+             */
+            dropped_count: number;
         };
         /**
          * SharedDocCreateDTO
@@ -24048,6 +24216,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoreEntryStateReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_edit_lore_entry_api_lore__entry_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreEntryEditDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryEditReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_lore_budgets_api_lore_budgets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreBudgetListDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
