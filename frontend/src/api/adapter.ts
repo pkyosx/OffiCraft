@@ -1541,7 +1541,7 @@ export interface ServerSettingsPatch {
   backupRetain?: number;
   /** Also admit GitHub prereleases in update checks (default false). */
   updaterReceiveBeta?: boolean;
-  /** Arm unattended background self-upgrade (default false = manual-only). */
+  /** Arm unattended background self-upgrade (never set = false; a release build's first claim turns it on). */
   updaterAutoUpdate?: boolean;
   /** Background update-check interval, 60..3600 seconds (server 422s outside). */
   updaterCheckIntervalSecs?: number;
@@ -3492,7 +3492,7 @@ export interface Api {
   removePushSubscription(endpoint: string): Promise<void>;
   /**
    * Owner's EXPLICIT upgrade trigger (`POST /api/update/upgrade`) — the
-   * software-update card's button (the OPT-IN auto-update setting runs the
+   * software-update card's button (the auto-update setting runs the
    * same verified body unattended). A resolved call means the verified
    * binary swap already LANDED and the server is restarting into the new
    * build (watch /api/version for the new git_sha). Rejects honestly: 409

@@ -1,7 +1,8 @@
 package main
 
-// auto_update.go — the OPT-IN background self-upgrade (owner decision D2; the
-// `updater.auto_update` setting, default OFF). An armed tick runs upgrade.go's
+// auto_update.go — the background self-upgrade (owner decision D2; the
+// `updater.auto_update` setting: a never-set row reads off, and a release
+// build's first-run claim turns it on). An armed tick runs upgrade.go's
 // runUpgrade — the same verified body as the owner's POST /api/update/upgrade.
 // Agents cannot reach its effect: the manual route stays MCPExclude and this
 // loop reads only the owner-written setting.

@@ -288,7 +288,7 @@ isDraft False | isPrerelease True | targetCommitish fb89a69aad8c
 
 也就是 asset 子欄位 `name`/`state`/`size` 確實存在、`state` 就是字串 `"uploaded"`、`size` 是非零整數——正好是回讀真正依賴的三件事。**為什麼要特別量**:同一張票裡,`verify_artifacts` 的架構檢查就是因為「猜 `file -b` 的輸出順序」而寫成永不可能命中的 pattern(`file` 實際輸出 `Mach-O 64-bit executable arm64`,架構在最後),導致每次 publish 都死在 `[artifact-arch]`。假設外部工具的輸出格式是同一類 bug,所以這裡改成量。要改形狀前**先重量一次**。
 
-**第 8 步的語意:publish 不觸發升級,它只「觀察」升級發生**(⚠️ 這一步可以用 `--no-settle` 明示地不做——見上面那條;第 7 步不行、沒有旗標關得掉)。站台是靠 owner 帳號上的 **auto_update** 自己去撿新 release 的,而 **prerelease 也算**:2026-07-26 實測,`v0.5.38`(`isPrerelease=true`)建立後約 **2–3 分鐘**站台自動升上去、`/api/version` 的 git_sha 回讀查證。預設等待預算 60 × 5s = 5 分鐘,約為實測延遲的兩倍。所以「發完等站台升上來」是**正確的流程期待,不是設計缺陷**;但若哪天 auto_update 被關掉,這一步就會**合理地**失敗,而失敗訊息會明講「只有這一項沒達成、asset 與 release 本身都對」,以免下一個人跑去查 artifact。⚠️ **這一步能成立的前提是那台站把兩個開關都打開了,不是 auto_update 的普遍行為**:`updater.receive_beta`(關著就只收正式 release)與 `updater.auto_update` **預設皆為 OFF**(見下方〈主幹綠自動發 beta〉與 `server/AGENTS.md`)。所以上面那個「若哪天 auto_update 被關掉」不是假想:對一個預設狀態的站來說,那才是常態。
+**第 8 步的語意:publish 不觸發升級,它只「觀察」升級發生**(⚠️ 這一步可以用 `--no-settle` 明示地不做——見上面那條;第 7 步不行、沒有旗標關得掉)。站台是靠 owner 帳號上的 **auto_update** 自己去撿新 release 的,而 **prerelease 也算**:2026-07-26 實測,`v0.5.38`(`isPrerelease=true`)建立後約 **2–3 分鐘**站台自動升上去、`/api/version` 的 git_sha 回讀查證。預設等待預算 60 × 5s = 5 分鐘,約為實測延遲的兩倍。所以「發完等站台升上來」是**正確的流程期待,不是設計缺陷**;但若哪天 auto_update 被關掉,這一步就會**合理地**失敗,而失敗訊息會明講「只有這一項沒達成、asset 與 release 本身都對」,以免下一個人跑去查 artifact。⚠️ **這一步能成立的前提是那台站把兩個開關都打開了,不是 auto_update 的普遍行為**:`updater.receive_beta`(關著就只收正式 release)預設 OFF,沒有人替它寫;`updater.auto_update` 只有正式版的新站在首次認領時被寫成開(見下方〈主幹綠自動發 beta〉)。所以上面那個「若哪天 auto_update 被關掉」不是假想:預設狀態的站不收 prerelease,對它來說這一步不會發生才是常態。
 
 ## 主幹綠自動發 beta(T-9fe3)
 
@@ -298,7 +298,7 @@ isDraft False | isPrerelease True | targetCommitish fb89a69aad8c
 2. **GA 不自動**:*自動*路徑(push 到 main 那一輪)**不碰** beta→final 的翻版子命令、不動 Latest 指向。owner 已知情接受「**他那台**會自動吃進每個 beta、而且沒有退版按鈕」⇒ **刻意不加任何保護、節流或確認閘**,要加就是在推翻一個已經做過的決定。
    - 🔴 **2026-08-28(rc-f9d284c0aef7)owner 改了這條的後半**:原本是「`.github/` 底下連那個子命令的名字都不准出現」,現在 GA **可以**有一顆 GitHub UI 上的手動按鈕,但**只有這個 repo 的 collaborator(write／admin)可以按**——workflow 第一個 step 去問 GitHub 這個 actor 的權限,不在檔案裡寫名字。仍然沒變的是「**選哪一顆 tag 是人的決定**」——workflow 只吃輸入,不自己挑。見〈GA 手動按鈕〉。
 
-⚠️ **不要把這件事讀成「合併就等於上線」。** 自動發出來的是 **prerelease**,而一個站要真的換過去,`updater.receive_beta`(**開**了才連 GitHub prerelease 一起吃;關著就只收正式 release)與 `updater.auto_update` **兩個都得開**。兩者的常數、struct 欄位與 `getBool` 讀取全在 `server/ocserverd/settings.go`,DB 沒有那一列時不寫 dst ⇒ 維持 bool 零值 **`false`**(`auto_update.go` 是跑迴圈的地方,不是預設值所在)。預設狀態的站兩個都是關的 ⇒ 對它來說「land ≠ 上站」完全沒變。owner 那台兩個都開著,所以會;別人的站要不要跟,是那個站主自己的設定。
+⚠️ **不要把這件事讀成「合併就等於上線」。** 自動發出來的是 **prerelease**,而一個站要真的換過去,`updater.receive_beta`(**開**了才連 GitHub prerelease 一起吃;關著就只收正式 release)與 `updater.auto_update` **兩個都得開**。兩者的常數、struct 欄位與 `getBool` 讀取全在 `server/ocserverd/settings.go`,DB 沒有那一列時不寫 dst ⇒ 維持 bool 零值 **`false`**(`auto_update.go` 是跑迴圈的地方,不是預設值所在)。唯一另外寫 `updater.auto_update` 的是首次認領 `POST /api/auth/set-password`:正式版(`appVersion` 不是 self-build 的 `"0.0.0"`)的新站在那個 transaction 裡存成 `true`;`receive_beta` 沒有人替它寫 ⇒ 預設狀態的站(新安裝或沒設過的舊站)都不收 prerelease ⇒ 對它來說「land ≠ 上站」完全沒變。owner 那台兩個都開著,所以會;別人的站要不要跟,是那個站主自己的設定。
 
 實作分三塊,`.github/workflows/ci.yml` 裡只有呼叫、沒有邏輯(照該檔檔頭「WHAT runs 一律住在 repo 的腳本裡」):
 

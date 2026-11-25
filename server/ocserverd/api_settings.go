@@ -212,6 +212,7 @@ func (s *apiServer) HandleSetPasswordApiAuthSetPasswordPost(w http.ResponseWrite
 		internalError(w, err)
 		return
 	}
+	armAutoUpdate := appVersion != unstampedAppVersion
 	// The claim is judged again on the row the transaction consumes: the hash is
 	// computed outside it (argon2id must not hold the write connection).
 	err = s.dal.inTx(func(tx *writeTx) error {
@@ -226,6 +227,15 @@ func (s *apiServer) HandleSetPasswordApiAuthSetPasswordPost(w http.ResponseWrite
 		if err := putSettingOn(tx, settingPasswordHash, phc); err != nil {
 			return err
 		}
+		// A new install starts with auto-update on. It is written here, not as
+		// the in-code default or a migration, so existing stations (409 above)
+		// and the CLI set-password path keep what they had. A self-build stays
+		// off: the updater would swap it for the official release.
+		if armAutoUpdate {
+			if err := putSettingOn(tx, settingUpdaterAutoUpdate, strconv.FormatBool(true)); err != nil {
+				return err
+			}
+		}
 		return deleteSettingOn(tx, settingClaimToken)
 	})
 	var refusal *txRefusal
@@ -239,7 +249,12 @@ func (s *apiServer) HandleSetPasswordApiAuthSetPasswordPost(w http.ResponseWrite
 		internalError(w, err)
 		return
 	}
-	s.applySettings(func() { s.passwordHash = phc })
+	s.applySettings(func() {
+		s.passwordHash = phc
+		if armAutoUpdate {
+			s.updaterAutoUpdate = true
+		}
+	})
 	s.writeOwnerToken(w, s.ownerTokenTTL, time.Now().Unix())
 	// Kicked in the BACKGROUND: the run installs a launchd job and then waits
 	// for the warden's SSE connect, which must not sit inside settingsWriteMu. Its

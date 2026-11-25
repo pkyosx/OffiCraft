@@ -21,7 +21,11 @@ import (
 // A var so bin/build can stamp it at link time (-X main.appVersion=…); an
 // official package (bin/release) stamps the GitHub Release tag, which
 // release_check.go compares against the newest release.
-var appVersion = "0.0.0"
+var appVersion = unstampedAppVersion
+
+// unstampedAppVersion is what a self-build (bin/build without $OC_APP_VERSION,
+// e.g. a from-source install) reports.
+const unstampedAppVersion = "0.0.0"
 
 // Stamped at link time by bin/build (-ldflags -X); when set they win over the
 // CWD git probe — the running code's identity is the binary's own build.

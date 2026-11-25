@@ -1,5 +1,5 @@
 // Mock adapter parity for the dual-channel updater toggles (settings):
-// both OFF out of the box (mirroring the server default), a PATCH flips them
+// both OFF out of the box (like a never-set server), a PATCH flips them
 // durably within the session, and each toggle patches independently (PATCH
 // semantics — an omitted field never changes).
 

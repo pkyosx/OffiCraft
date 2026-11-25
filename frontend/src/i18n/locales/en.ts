@@ -2507,11 +2507,11 @@ export const en: Dict = {
     checkFailed: "The update check failed — try again",
     viewRelease: "View release",
     updateSettings: "Update settings",
-    // ── software-update toggles (receive_beta / auto_update, both default OFF) ──
+    // ── software-update toggles (receive_beta / auto_update) ──
     receiveBeta: "Receive beta versions",
     receiveBetaSub: "Update checks also follow GitHub prereleases · off = official releases only",
     autoUpdate: "Automatic updates",
-    autoUpdateSub: "Upgrade and restart in the background when a newer version appears · off by default",
+    autoUpdateSub: "Upgrade and restart in the background when a newer version appears · on by default for new installs; stations already in use keep their setting",
     updateCheckInterval: "Update check interval",
     updateCheckIntervalSub:
       "How often the server asks GitHub in the background whether a newer version exists; Check for updates and upgrading always ask right away (1–60 minutes)",
