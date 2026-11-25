@@ -2130,6 +2130,22 @@ MATRIX: dict[str, Route] = {
         overrides={"agent_other": 403},
         path=lambda ctx, _i: f"/api/lore/{_matrix_lore_entry(ctx)}/bump",
     ),
+    "GET /api/lore/budgets": Route(
+        # Same audience as GET /api/lore and, like it, no per-caller
+        # distinction: every at-floor identity reads every target's budget.
+        requires="agent",
+    ),
+    "PATCH /api/lore/{entry_id}": Route(
+        # The state door's reach (loreAuthorReachRefusal): admin capability
+        # anywhere, otherwise the author only, so agent B editing agent A's
+        # fixture is the one hand-written cell. The fixture is active, so the
+        # pinned-is-admin-only floor is not reached here; it is pinned in the
+        # server unit tests (TestEditLoreEntry).
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: f"/api/lore/{_matrix_lore_entry(ctx)}",
+        body={"title": "conf matrix lore edited"},
+    ),
     "POST /api/lore/{entry_id}/scope": Route(
         # T-236. Every transition is admin-only and the whole floor is on the
         # route, so the entry's own author (agent_self — the fixture is agent

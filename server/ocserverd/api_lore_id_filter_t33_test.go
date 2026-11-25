@@ -274,6 +274,10 @@ func TestLoreToolsAdvertiseTheirParameters(t *testing.T) {
 		{"list_lore_entries", "entry_id", "an agent cannot ask for one 傳承 by its number, and there is no get_lore_entry tool to fall back to"},
 		{"list_lore_entries", "lore_types", "an agent cannot filter 傳承 by type"},
 		{"write_lore_entry", "lore_type", "the boot document tells agents to put the type in lore_type and not in the title, so an agent writing from the tool schema loses the type entirely"},
+		{"edit_lore_entry", "entry_id", "an agent cannot name the entry it means to correct"},
+		{"edit_lore_entry", "title", "an agent cannot correct an entry's title"},
+		{"edit_lore_entry", "body", "an agent cannot correct an entry's body"},
+		{"edit_lore_entry", "lore_type", "an agent cannot correct an entry's type"},
 	} {
 		t.Run(tc.tool+" has "+tc.param, func(t *testing.T) {
 			for _, tool := range catalog.Tools {

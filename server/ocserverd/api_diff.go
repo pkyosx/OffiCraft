@@ -229,6 +229,12 @@ func (s *apiServer) currentDocumentContent(kind, key string) (map[string]string,
 			return one("title", t.Title, nil)
 		}
 		return one("description", t.Description, nil)
+	case docKindLoreEntry:
+		e, err := s.dal.GetLoreEntry(key)
+		if err != nil || e == nil {
+			return nil, false, err
+		}
+		return map[string]string{"title": e.Title, "body": e.Body}, true, nil
 	}
 	return nil, false, nil
 }

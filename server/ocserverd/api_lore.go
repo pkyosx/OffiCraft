@@ -2,9 +2,9 @@ package main
 
 // 傳承（lore）write/read faces, which are also the MCP tools (the tool surface IS
 // the route table; see mcp.go). Writing is MCP-only by design: an entry is
-// written by the agent that just learned the thing, and the cockpit gets only
-// the list plus the governance verbs. Selection lives in lore_select.go; a read
-// face here must call it, never its own ORDER BY.
+// written by the agent that just learned the thing, and the cockpit gets the
+// list, the budgets, the governance verbs and the in-place edit. Selection lives
+// in lore_select.go; a read face here must call it, never its own ORDER BY.
 
 import (
 	"net/http"
@@ -39,13 +39,8 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 			"title and body must both be non-empty — an entry with no text is not a shorter entry")
 		return
 	}
-
-	if n, capChars := utf8.RuneCountInString(title), s.loreTitleCap(); n > capChars {
-		writeError(w, http.StatusBadRequest, loreOverCapMsg("title", n, capChars))
-		return
-	}
-	if n, capChars := utf8.RuneCountInString(text), s.loreBodyCap(); n > capChars {
-		writeError(w, http.StatusBadRequest, loreOverCapMsg("body", n, capChars))
+	if msg := s.loreTextOverCap(title, text); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
 
@@ -57,9 +52,7 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		return
 	}
 	if !ValidLoreType(loreType) {
-		writeError(w, http.StatusBadRequest,
-			"lore_type must be one of "+loreTypeList+" — got "+
-				strconv.Quote(loreType)+"; nothing was written")
+		writeError(w, http.StatusBadRequest, loreTypeInvalidMsg(loreType))
 		return
 	}
 
@@ -157,8 +150,23 @@ const loreTypeMissingMsg = "lore_type is required — nothing was written. Set i
 
 func loreOverCapMsg(field string, got, capChars int) string {
 	return field + " is " + strconv.Itoa(got) + " characters, over the " + strconv.Itoa(capChars) +
-		"-character limit — nothing was written. A 傳承 entry cannot be edited " +
-		"after it is written, so it is refused whole rather than truncated."
+		"-character limit — nothing was written. It is refused whole rather than truncated."
+}
+
+func loreTypeInvalidMsg(loreType string) string {
+	return "lore_type must be one of " + loreTypeList + " — got " +
+		strconv.Quote(loreType) + "; nothing was written"
+}
+
+// loreTextOverCap checks whichever of title and text is non-empty; "" means both fit.
+func (s *apiServer) loreTextOverCap(title, text string) string {
+	if n, capChars := utf8.RuneCountInString(title), s.loreTitleCap(); title != "" && n > capChars {
+		return loreOverCapMsg("title", n, capChars)
+	}
+	if n, capChars := utf8.RuneCountInString(text), s.loreBodyCap(); text != "" && n > capChars {
+		return loreOverCapMsg("body", n, capChars)
+	}
+	return ""
 }
 
 const (
@@ -166,7 +174,11 @@ const (
 		"sorts ahead of every other entry in its scope and therefore survives the " +
 		"cap at the expense of everyone else's, so who pins is not the writer's " +
 		"call. Ask the owner or an admin agent."
-	loreGovernanceRefusalOwn = "you may only 失效, 生效 or 提到最新 an entry you WROTE — " +
+	loreEditRefusalPinned = "a pinned entry is edited only by an admin — it sorts ahead of " +
+		"every other entry in its scope and survives the cap at the expense of everyone " +
+		"else's, so while it is pinned its text is not the writer's call. Ask the owner " +
+		"or an admin agent."
+	loreGovernanceRefusalOwn = "you may only 失效, 生效, 提到最新 or 編輯 an entry you WROTE — " +
 		"this one has a different author, and an entry is governed by the member " +
 		"who wrote it. An admin agent or the owner can act on any entry."
 )
@@ -204,24 +216,148 @@ func (s *apiServer) HandleSetLoreEntryStateApiLoreEntryIdStatePost(w http.Respon
 	}
 
 	refusal := func(current *LoreEntry) error {
-		if current == nil {
-			return refuseInTx(http.StatusNotFound, "no such lore entry: "+entryID)
-		}
-		if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
-			return nil
-		}
 		// Both directions: otherwise an author could un-pin an owner-pinned entry.
-		if state == LoreStatePinned || current.State == LoreStatePinned {
-			return refuseInTx(http.StatusForbidden, loreGovernanceRefusalPin)
-		}
-		if !s.callerMayGovernLore(r, *current) {
-			return refuseInTx(http.StatusForbidden, loreGovernanceRefusalOwn)
-		}
-		return nil
+		return s.loreAuthorReachRefusal(r, entryID, current,
+			state == LoreStatePinned, loreGovernanceRefusalPin)
 	}
 	s.writeLoreEntryDecided(w, entryID, refusal, func() (bool, error) {
 		return s.dal.SetLoreEntryState(entryID, state, reason, nowSecs())
 	})
+}
+
+// loreAuthorReachRefusal is the reach the state and edit doors share: admin
+// capability anywhere; otherwise the author only, and never on a pinned entry
+// (nor into one, when pinning is what is asked).
+func (s *apiServer) loreAuthorReachRefusal(r *http.Request, entryID string, current *LoreEntry,
+	pinning bool, pinnedRefusal string) error {
+	if current == nil {
+		return refuseInTx(http.StatusNotFound, "no such lore entry: "+entryID)
+	}
+	if principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
+		return nil
+	}
+	if pinning || current.State == LoreStatePinned {
+		return refuseInTx(http.StatusForbidden, pinnedRefusal)
+	}
+	if !s.callerMayGovernLore(r, *current) {
+		return refuseInTx(http.StatusForbidden, loreGovernanceRefusalOwn)
+	}
+	return nil
+}
+
+func (s *apiServer) HandleEditLoreEntryApiLoreEntryIdPatch(w http.ResponseWriter, r *http.Request, entryID string) {
+	var body LoreEntryEditDTO
+	if !decodeJSONBodyStrict(w, r, &body) {
+		return
+	}
+	if body.Title == nil && body.Body == nil && body.LoreType == nil {
+		writeError(w, http.StatusBadRequest,
+			"send at least one of title, body or lore_type — nothing was changed")
+		return
+	}
+	var title, text, loreType *string
+	if body.Title != nil {
+		v := strings.TrimSpace(*body.Title)
+		if v == "" {
+			writeError(w, http.StatusBadRequest,
+				"title must not be blank — leave it out to keep the current title; nothing was changed")
+			return
+		}
+		title = &v
+	}
+	if body.Body != nil {
+		v := strings.TrimSpace(*body.Body)
+		if v == "" {
+			writeError(w, http.StatusBadRequest,
+				"body must not be blank — leave it out to keep the current body; nothing was changed")
+			return
+		}
+		text = &v
+	}
+	if msg := s.loreTextOverCap(strOrEmpty(title), strOrEmpty(text)); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if body.LoreType != nil {
+		v := strings.TrimSpace(*body.LoreType)
+		if !ValidLoreType(v) {
+			writeError(w, http.StatusBadRequest, loreTypeInvalidMsg(v))
+			return
+		}
+		loreType = &v
+	}
+
+	e, ok := s.decideLoreEntryWrite(w, entryID, s.loreEditRefusal(r, entryID),
+		s.editLoreEntryText(currentActor(r), entryID, title, text, loreType))
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, LoreEntryEditReceiptDTO{Id: e.ID, UpdatedTs: e.UpdatedTS})
+}
+
+func (s *apiServer) loreEditRefusal(r *http.Request, entryID string) func(*LoreEntry) error {
+	return func(current *LoreEntry) error {
+		return s.loreAuthorReachRefusal(r, entryID, current, false, loreEditRefusalPinned)
+	}
+}
+
+const docKindLoreEntry = "lore_entry"
+
+// loreEntrySnapshotIn retains the pre-edit title and body only when the edit
+// changes one of them, so a type-only or same-text edit spends no slot.
+func loreEntrySnapshotIn(entryID string, title, body *string) func(sqlRowQuerier) (string, error) {
+	return func(q sqlRowQuerier) (string, error) {
+		current, err := getLoreEntryOn(q, entryID)
+		if err != nil || current == nil {
+			return "{}", err
+		}
+		if (title == nil || *title == current.Title) && (body == nil || *body == current.Body) {
+			return "{}", nil
+		}
+		return historyJSON(map[string]string{"title": current.Title, "body": current.Body})
+	}
+}
+
+func (s *apiServer) editLoreEntryText(actor, entryID string, title, body, loreType *string) func() (bool, error) {
+	return func() (bool, error) {
+		wrote := false
+		err := s.dal.SaveWithDocumentHistories([]documentHistoryStream{{
+			Kind: docKindLoreEntry, Key: entryID, ActorID: actor,
+			Snapshot: loreEntrySnapshotIn(entryID, title, body),
+		}}, func(ex sqlExecer) error {
+			var err error
+			wrote, err = editLoreEntryTextOn(ex, entryID, title, body, loreType, nowSecs())
+			return err
+		})
+		return wrote, err
+	}
+}
+
+// restoreLoreEntryText is the edit's own write, held to the edit's caps.
+func (s *apiServer) restoreLoreEntryText(r *http.Request, entryID string, content map[string]string) error {
+	title, body := strings.TrimSpace(content["title"]), strings.TrimSpace(content["body"])
+	if title == "" || body == "" {
+		return errNotFound
+	}
+	if s.loreTextOverCap(title, body) != "" {
+		return errDocumentHistoryCap
+	}
+	_, err := s.writeLoreEntryInTx(entryID, s.loreEditRefusal(r, entryID),
+		s.editLoreEntryText(currentActor(r), entryID, &title, &body, nil))
+	return err
+}
+
+func (s *apiServer) loreEntryRestoreAuthz(w http.ResponseWriter, r *http.Request, entryID string) bool {
+	current, err := s.dal.GetLoreEntry(entryID)
+	if err != nil {
+		internalError(w, err)
+		return false
+	}
+	if err := s.loreEditRefusal(r, entryID)(current); err != nil {
+		writeTxError(w, err)
+		return false
+	}
+	return true
 }
 
 func (s *apiServer) HandleBumpLoreEntryApiLoreEntryIdBumpPost(w http.ResponseWriter, r *http.Request, entryID string) {
@@ -239,22 +375,47 @@ func (s *apiServer) HandleBumpLoreEntryApiLoreEntryIdBumpPost(w http.ResponseWri
 	})
 }
 
-// writeLoreEntryDecided judges the entry on the read pool first, so a refusal
-// never waits for the write connection, then judges it again on the row the
-// transaction writes and answers the receipt read in that transaction.
 func (s *apiServer) writeLoreEntryDecided(w http.ResponseWriter, entryID string,
 	refusal func(current *LoreEntry) error, write func() (bool, error)) {
+	e, ok := s.decideLoreEntryWrite(w, entryID, refusal, write)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, LoreEntryStateReceiptDTO{
+		Id:          e.ID,
+		State:       e.State,
+		EffectiveTs: e.EffectiveTS,
+		UpdatedTs:   e.UpdatedTS,
+	})
+}
+
+// decideLoreEntryWrite judges the entry on the read pool first, so a refusal
+// never waits for the write connection, then judges it again on the row the
+// transaction writes and answers the row read in that transaction. On false
+// the error has been written.
+func (s *apiServer) decideLoreEntryWrite(w http.ResponseWriter, entryID string,
+	refusal func(current *LoreEntry) error, write func() (bool, error)) (*LoreEntry, bool) {
 	current, err := s.dal.GetLoreEntry(entryID)
 	if err != nil {
 		internalError(w, err)
-		return
+		return nil, false
 	}
 	if err := refusal(current); err != nil {
 		writeTxError(w, err)
-		return
+		return nil, false
 	}
+	e, err := s.writeLoreEntryInTx(entryID, refusal, write)
+	if err != nil {
+		writeTxError(w, err)
+		return nil, false
+	}
+	return e, true
+}
+
+func (s *apiServer) writeLoreEntryInTx(entryID string,
+	refusal func(current *LoreEntry) error, write func() (bool, error)) (*LoreEntry, error) {
 	var e *LoreEntry
-	err = s.dal.inTx(func(*writeTx) error {
+	err := s.dal.inTx(func(*writeTx) error {
 		current, err := s.dal.GetLoreEntry(entryID)
 		if err != nil {
 			return err
@@ -271,16 +432,7 @@ func (s *apiServer) writeLoreEntryDecided(w http.ResponseWriter, entryID string,
 		}
 		return err
 	})
-	if err != nil {
-		writeTxError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, LoreEntryStateReceiptDTO{
-		Id:          e.ID,
-		State:       e.State,
-		EffectiveTs: e.EffectiveTS,
-		UpdatedTs:   e.UpdatedTS,
-	})
+	return e, err
 }
 
 func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *http.Request, params HandleListLoreEntriesApiLoreGetParams) {
@@ -360,7 +512,7 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 		return
 	}
 	out := LoreEntryListDTO{Entries: make([]LoreEntryDTO, 0, len(entries)),
-		Limit: limit, Offset: offset}
+		Limit: limit, Offset: offset, BudgetSegments: []LoreBudgetSegmentDTO{}}
 	for _, e := range entries {
 		out.Entries = append(out.Entries, newLoreEntryDTO(e, facts[e.ID]))
 	}
@@ -388,8 +540,82 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 		return
 	}
 	if answered {
+		own := sel.segment(f.ScopeKinds[0])
 		out.CapChars = sel.CapChars
-		out.FirstDroppedId = sel.FirstDroppedByKind[f.ScopeKinds[0]]
+		out.UsedChars = sel.UsedChars
+		out.FirstDroppedId = own.FirstDroppedID
+		out.FirstDroppedChars = own.FirstDroppedChars
+		out.BudgetSegments = loreBudgetSegmentDTOs(sel)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func loreBudgetSegmentDTOs(sel loreSelection) []LoreBudgetSegmentDTO {
+	out := make([]LoreBudgetSegmentDTO, 0, len(sel.Segments))
+	for _, seg := range sel.Segments {
+		out = append(out, LoreBudgetSegmentDTO{
+			ScopeKind:   seg.ScopeKind,
+			EntryCount:  seg.EntryCount,
+			Chars:       seg.Chars,
+			FittedCount: seg.FittedCount,
+			FittedChars: seg.FittedChars,
+		})
+	}
+	return out
+}
+
+func newLoreBudgetTargetDTO(scopeKind, scopeKey string, sel loreSelection) LoreBudgetTargetDTO {
+	return LoreBudgetTargetDTO{
+		ScopeKind:    scopeKind,
+		ScopeKey:     scopeKey,
+		CapChars:     sel.CapChars,
+		UsedChars:    sel.UsedChars,
+		EntryCount:   sel.segment(scopeKind).EntryCount,
+		DroppedCount: sel.droppedCount(),
+	}
+}
+
+// Targets are every boot document a 傳承 entry can ride: everyone, each member
+// on the roster but wardens (which boot no document), and each task manual the
+// cockpit lists.
+func (s *apiServer) HandleListLoreBudgetsApiLoreBudgetsGet(w http.ResponseWriter, r *http.Request) {
+	members, err := s.dal.ListMembers()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	manuals, err := s.foldTaskManuals()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	roleCap, manualCap := s.loreRoleCap(), s.loreManualCap()
+
+	out := LoreBudgetListDTO{Targets: []LoreBudgetTargetDTO{}}
+	sel, err := selectLoreForScope(s.dal, LoreScopeEveryone, "", roleCap)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	out.Targets = append(out.Targets, newLoreBudgetTargetDTO(LoreScopeEveryone, "", sel))
+	for _, m := range members {
+		if m.RosterStatus == RosterStatusRemoved || m.Kind == KindWarden {
+			continue
+		}
+		sel, err := selectMemberLore(s.dal, m.ID, roleCap)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		out.Targets = append(out.Targets, newLoreBudgetTargetDTO(LoreScopeAgent, m.ID, sel))
+	}
+	for _, tm := range manuals {
+		sel, err := selectLoreForScope(s.dal, LoreScopeManual, tm.TypeKey, manualCap)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		out.Targets = append(out.Targets, newLoreBudgetTargetDTO(LoreScopeManual, tm.TypeKey, sel))
 	}
 	writeJSON(w, http.StatusOK, out)
 }

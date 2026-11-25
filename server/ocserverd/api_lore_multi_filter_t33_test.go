@@ -364,6 +364,9 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	apiWantBody(t, data, map[string]any{
 		"entries": everyoneRows, "limit": 30, "offset": 0,
 		"cap_chars": 20, "first_dropped_id": oldest,
+		"used_chars": 20, "first_dropped_chars": 5,
+		"budget_segments": []any{map[string]any{"scope_kind": "everyone",
+			"entry_count": 5, "chars": 25, "fitted_count": 4, "fitted_chars": 20}},
 	})
 
 	status, data = apiJSON(t, h, "GET",
@@ -377,6 +380,17 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 			"newest entry",
 			data["cap_chars"], data["first_dropped_id"], one.Entries[0].Id)
 	}
+	delete(data, "entries")
+	apiWantBody(t, data, map[string]any{
+		"limit": 30, "offset": 0, "cap_chars": 20, "first_dropped_id": one.Entries[0].Id,
+		"used_chars": 20, "first_dropped_chars": 5,
+		"budget_segments": []any{
+			map[string]any{"scope_kind": "everyone",
+				"entry_count": 5, "chars": 25, "fitted_count": 4, "fitted_chars": 20},
+			map[string]any{"scope_kind": "agent",
+				"entry_count": 6, "chars": 30, "fitted_count": 0, "fitted_chars": 0},
+		},
+	})
 }
 
 // TestEachAxisFiltersOnItsOwnColumn — the fifth property, and the one the four
@@ -567,7 +581,8 @@ func TestLoreTypesFilter(t *testing.T) {
 			entries = append(entries, row(r))
 		}
 		return map[string]any{"entries": entries, "limit": 30, "offset": 0,
-			"cap_chars": 0, "first_dropped_id": ""}
+			"cap_chars": 0, "first_dropped_id": "",
+			"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{}}
 	}
 
 	for _, tc := range []struct {

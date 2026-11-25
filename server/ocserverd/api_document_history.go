@@ -207,6 +207,16 @@ func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Reques
 		if write && !s.taskTitleRestoreAuthz(w, r, primary) {
 			return false
 		}
+	case docKindLoreEntry:
+		// The history routes sit on the machine floor; lore is read at GET
+		// /api/lore's agent floor, and its text must not leak below it.
+		if !principalAtLeast(s.principalOfRequest(r), principalAgent) {
+			writeError(w, http.StatusForbidden, "principal not permitted")
+			return false
+		}
+		if write && !s.loreEntryRestoreAuthz(w, r, primary) {
+			return false
+		}
 	case "lessons", "task_manual_learnings":
 		writeError(w, http.StatusBadRequest, legacyMemoryKindsMsg)
 		return false
@@ -365,7 +375,7 @@ func (s *apiServer) HandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdResto
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		internalError(w, err)
+		writeTxError(w, err)
 		return
 	}
 	s.publishDocumentHistoryRestore(r, kind, key)
@@ -481,6 +491,8 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 			return errNotFound
 		}
 		return nil
+	case docKindLoreEntry:
+		return s.restoreLoreEntryText(r, key, content)
 	case "insight":
 		// The key is the BARE role_key.
 		current, err := s.foldInsightDTO(key)

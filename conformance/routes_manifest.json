@@ -1408,6 +1408,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/lore/budgets",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "insert_step",
     "method": "POST",
     "path": "/api/tasks/{task_id}/steps",
@@ -1545,5 +1552,12 @@
     "method": "GET",
     "path": "/api/auth/login-protection",
     "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": "edit_lore_entry",
+    "method": "PATCH",
+    "path": "/api/lore/{entry_id}",
+    "requires": "agent"
   }
 ]

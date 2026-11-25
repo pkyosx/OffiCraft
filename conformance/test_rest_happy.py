@@ -2121,6 +2121,46 @@ def _check_lore_list(_ctx: HCtx, r: httpx.Response) -> None:
     # wrong place looks exactly like a line in the right place.
     assert d["cap_chars"] == 0, d
     assert d["first_dropped_id"] == "", d
+    assert d["used_chars"] == 0, d
+    assert d["first_dropped_chars"] == 0, d
+    # [] and never null: a client iterates it without a guard.
+    assert d["budget_segments"] == [], d
+
+
+_HAPPY_LORE_EDITED_TITLE = "conf happy lore edited"
+
+
+def _check_lore_edited(ctx: HCtx, r: httpx.Response) -> None:
+    # LoreEntryEditReceiptDTO: the id and the server's stamp, not the text sent.
+    d = r.json()
+    assert set(d) == {"id", "updated_ts"}, d
+    assert d["id"].startswith("L-"), d
+    g = ctx.client.get(
+        "/api/lore",
+        params={"entry_id": d["id"]},
+        headers=_auth(ctx.owner_token),
+    )
+    assert g.status_code == 200, (g.status_code, g.text)
+    (row,) = g.json()["entries"]
+    assert row["title"] == _HAPPY_LORE_EDITED_TITLE, row
+    assert row["body"] == _HAPPY_LORE_BODY, row
+    assert row["lore_type"] == "owner_decision", row
+    # An edit keeps the entry's place: effective_ts stays at the write.
+    assert row["effective_ts"] == row["created_ts"], row
+    assert row["state"] == "active", row
+    assert row["scope_kind"] == "agent" and row["scope_key"] == ctx.agent.member_id, row
+    assert row["updated_ts"] == d["updated_ts"] >= row["created_ts"], row
+
+
+def _check_lore_budgets(ctx: HCtx, r: httpx.Response) -> None:
+    targets = r.json()["targets"]
+    keys = {"scope_kind", "scope_key", "cap_chars", "used_chars", "entry_count", "dropped_count"}
+    assert all(set(t) == keys for t in targets), targets
+    assert targets[0]["scope_kind"] == "everyone" and targets[0]["scope_key"] == "", targets
+    assert any(
+        t["scope_kind"] == "agent" and t["scope_key"] == ctx.agent.member_id for t in targets
+    ), targets
+    assert any(t["scope_kind"] == "manual" for t in targets), targets
 
 
 def _check_lore_scope_moved(ctx: HCtx, r: httpx.Response) -> None:
@@ -3756,6 +3796,13 @@ HAPPY: dict[str, Happy] = {
         identity="agent",
         path=lambda ctx: f"/api/lore/{_happy_lore_entry(ctx)}/bump",
         check=_check_lore_bumped,
+    ),
+    "GET /api/lore/budgets": Happy(identity="agent", check=_check_lore_budgets),
+    "PATCH /api/lore/{entry_id}": Happy(
+        identity="agent",
+        path=lambda ctx: f"/api/lore/{_happy_lore_entry(ctx)}",
+        body={"title": _HAPPY_LORE_EDITED_TITLE},
+        check=_check_lore_edited,
     ),
     "POST /api/lore/{entry_id}/scope": Happy(
         path=lambda ctx: f"/api/lore/{_happy_lore_entry(ctx)}/scope",

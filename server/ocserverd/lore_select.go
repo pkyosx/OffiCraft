@@ -5,6 +5,7 @@ package main
 //   1. the STAFF boot document        — selectMemberLore,   assets.go buildBootContext
 //   2. the OUTSOURCE boot document    — selectMemberLore,   worker_spawn.go buildWorkerBootContext
 //   3. GET /api/task-manuals/{key}    — selectLoreForScope, api_taskmanuals.go writeTaskManual
+//   4. the cockpit's numbers, GET /api/lore and GET /api/lore/budgets — both, api_lore.go
 //
 // Exit 1 is conditional: /api/bootstrap with only a role calls buildBootContext
 // with no member, and then it emits no 傳承 block.
@@ -26,13 +27,41 @@ type loreSelection struct {
 	Entries []LoreEntry
 	// The cockpit draws its 上限線 immediately above this entry.
 	FirstDroppedID string
-	// Per scope_kind, so a member's own list can draw its line above its own
+	// In walk order, so a member's own list can draw its line above its own
 	// first dropped entry even when the overall first drop is an everyone entry.
-	FirstDroppedByKind map[string]string
+	Segments []loreSegment
 
 	UsedChars int
 
 	CapChars int
+}
+
+type loreSegment struct {
+	ScopeKind   string
+	EntryCount  int
+	Chars       int
+	FittedCount int
+	FittedChars int
+
+	FirstDroppedID    string
+	FirstDroppedChars int
+}
+
+func (sel loreSelection) segment(scopeKind string) loreSegment {
+	for _, seg := range sel.Segments {
+		if seg.ScopeKind == scopeKind {
+			return seg
+		}
+	}
+	return loreSegment{ScopeKind: scopeKind}
+}
+
+func (sel loreSelection) droppedCount() int {
+	n := 0
+	for _, seg := range sel.Segments {
+		n += seg.EntryCount - seg.FittedCount
+	}
+	return n
 }
 
 // 🔴 CHARACTERS, NOT BYTES: entries are Chinese, so a byte-measured cap would
@@ -58,7 +87,7 @@ func selectLoreForScope(lister loreLister, scopeKind, scopeKey string, capChars 
 	if err != nil {
 		return loreSelection{Entries: []LoreEntry{}, CapChars: capChars}, err
 	}
-	return selectLoreEntries(entries, capChars), nil
+	return selectLoreEntries(entries, capChars, scopeKind), nil
 }
 
 // everyone scope first, then the member's own agent scope, under one budget —
@@ -75,26 +104,44 @@ func selectMemberLore(lister loreLister, memberID string, capChars int) (loreSel
 	if err != nil {
 		return loreSelection{Entries: []LoreEntry{}, CapChars: capChars}, err
 	}
-	return selectLoreEntries(append(everyone, own...), capChars), nil
+	return selectLoreEntries(append(everyone, own...), capChars, LoreScopeEveryone, LoreScopeAgent), nil
 }
 
-func selectLoreEntries(entries []LoreEntry, capChars int) loreSelection {
-	sel := loreSelection{Entries: []LoreEntry{}, CapChars: capChars,
-		FirstDroppedByKind: map[string]string{}}
+// walk names the scope kinds in the order entries arrive, so a scope with no
+// live entries still answers its (zero) segment.
+func selectLoreEntries(entries []LoreEntry, capChars int, walk ...string) loreSelection {
+	sel := loreSelection{Entries: []LoreEntry{}, CapChars: capChars, Segments: []loreSegment{}}
+	segOf := map[string]int{}
+	for _, kind := range walk {
+		segOf[kind] = len(sel.Segments)
+		sel.Segments = append(sel.Segments, loreSegment{ScopeKind: kind})
+	}
 	stopped := false
 	for _, e := range entries {
+		i, ok := segOf[e.ScopeKind]
+		if !ok {
+			i = len(sel.Segments)
+			segOf[e.ScopeKind] = i
+			sel.Segments = append(sel.Segments, loreSegment{ScopeKind: e.ScopeKind})
+		}
+		seg := &sel.Segments[i]
+		cost := loreEntryChars(e)
+		seg.EntryCount++
+		seg.Chars += cost
 		if !stopped {
-			cost := loreEntryChars(e)
 			if capChars > 0 && sel.UsedChars+cost <= capChars {
 				sel.UsedChars += cost
 				sel.Entries = append(sel.Entries, e)
+				seg.FittedCount++
+				seg.FittedChars += cost
 				continue
 			}
 			stopped = true
 			sel.FirstDroppedID = e.ID
 		}
-		if _, seen := sel.FirstDroppedByKind[e.ScopeKind]; !seen {
-			sel.FirstDroppedByKind[e.ScopeKind] = e.ID
+		if seg.FirstDroppedID == "" {
+			seg.FirstDroppedID = e.ID
+			seg.FirstDroppedChars = cost
 		}
 	}
 	return sel

@@ -1,10 +1,6 @@
 package main
 
 // dal_lore.go — T-33 傳承 (lore) over `lore_entry` + `lore_entry_seq`.
-//
-// 🔴 There is deliberately NO method that writes `title` or `body` on an existing
-// row (no UpdateLoreEntry): an entry is written once. A generic updater would
-// turn the no-edit rule into a convention instead of an absence.
 
 import (
 	"database/sql"
@@ -120,8 +116,10 @@ func mintLoreNumber(tx *writeTx) (int, error) {
 			"lore_entry_seq reported 0 rows", loreMintRetryLimit)
 }
 
-func (d *DAL) GetLoreEntry(id string) (*LoreEntry, error) {
-	e, err := scanLoreEntry(d.rdb.QueryRow(
+func (d *DAL) GetLoreEntry(id string) (*LoreEntry, error) { return getLoreEntryOn(d.rdb, id) }
+
+func getLoreEntryOn(q sqlRowQuerier, id string) (*LoreEntry, error) {
+	e, err := scanLoreEntry(q.QueryRow(
 		`SELECT `+loreEntryColumns+` FROM lore_entry WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -235,6 +233,20 @@ func (d *DAL) BumpLoreEntryEffective(id string, ts float64) (bool, error) {
 	res, err := d.wdb.Exec(
 		`UPDATE lore_entry SET effective_ts = ?, updated_ts = ? WHERE id = ?`,
 		ts, ts, id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// editLoreEntryTextOn leaves a nil field as it is. 🔴 effective_ts is not in
+// this statement: an edit must not move the entry's place in the selection order.
+func editLoreEntryTextOn(ex sqlExecer, id string, title, body, loreType *string, updatedTS float64) (bool, error) {
+	res, err := ex.Exec(
+		`UPDATE lore_entry SET title = COALESCE(?, title), body = COALESCE(?, body),
+		 lore_type = COALESCE(?, lore_type), updated_ts = ? WHERE id = ?`,
+		title, body, loreType, updatedTS, id)
 	if err != nil {
 		return false, err
 	}
