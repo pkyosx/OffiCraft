@@ -11,7 +11,8 @@
 ### 系統需求
 
 - macOS（Apple Silicon）、Linux（x86_64、arm64），或 Windows 10（版本 2004 以上）／11（透過 WSL2）
-- tmux 3.0 以上
+- tmux 3.0 以上（讓程式在背景持續執行的終端機工具）。沒裝時，安裝指令會自動安裝：有 [Homebrew](https://brew.sh) 的 macOS 用 Homebrew，有 `apt-get`（Ubuntu 等 Linux 的套件安裝工具）的 Linux 與 WSL2 用 `apt-get`，安裝前會提示可能需要輸入 Linux 使用者的密碼。macOS 沒有 Homebrew、Linux 沒有 `apt-get`，或自動安裝失敗時，安裝指令會在動到任何 OffiCraft 檔案之前停下，並印出補裝的指令。安裝指令只檢查有沒有裝、不檢查版本。
+- curl（下載檔案的工具）：macOS 內建，多數 Linux 發行版也內建
 - Claude Code 或 Codex，至少一種，並已登入
 
 ### Windows：準備 WSL2
@@ -28,27 +29,7 @@ OffiCraft 在 Windows 上透過 WSL2 中的 Ubuntu 執行。macOS 與 Linux 使�
 
 之後的所有指令都在 Ubuntu 視窗中執行，從開始選單點「Ubuntu」開啟。
 
-### 步驟 1：安裝 tmux
-
-macOS（需先安裝 [Homebrew](https://brew.sh)）：
-
-```bash
-brew install tmux
-```
-
-Linux、WSL：
-
-```bash
-sudo apt-get update && sudo apt-get install -y tmux curl
-```
-
-確認：執行下列指令，顯示版本號即表示安裝成功。
-
-```bash
-tmux -V
-```
-
-### 步驟 2：安裝並登入 Claude Code 或 Codex
+### 步驟 1：安裝並登入 Claude Code 或 Codex
 
 依使用的工具擇一安裝，也可兩者都安裝。
 
@@ -78,15 +59,15 @@ claude --version && claude auth status --text
 codex --version && codex login status
 ```
 
-### 步驟 3：安裝 OffiCraft
+### 步驟 2：安裝 OffiCraft
 
 ```bash
 curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
 ```
 
-安裝程式會先檢查系統需求，缺少項目時停止並列出需要補裝的工具。
+安裝程式會先檢查系統需求並自動安裝缺少的 tmux；仍有缺少的項目時停止，並列出需要補裝的工具。
 
-### 步驟 4：開啟設定連結
+### 步驟 3：開啟設定連結
 
 安裝完成時，終端機會輸出下列訊息與設定連結：
 
@@ -104,7 +85,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 ### 更新
 
-- tmux、Claude Code、Codex 已安裝者，略過步驟 1、2。
+- Claude Code 或 Codex 已安裝並登入者，略過步驟 1。
 - OffiCraft 的更新在控制台「設定 › 系統更新與備份」進行，不需重新執行安裝指令。
 
 ### 移除
@@ -140,7 +121,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
    wsl --shutdown
    ```
 
-3. 重新開啟 Ubuntu 視窗，再執行一次步驟 3 的安裝指令。
+3. 重新開啟 Ubuntu 視窗，再執行一次步驟 2 的安裝指令。
 
 **開始選單有多個 Ubuntu**
 
