@@ -263,7 +263,7 @@ describe("ContentView", () => {
     expect(minting.container.querySelector("video")).toBeNull();
     expect(statusText(minting.container)).toEqual([p.loading]);
     minting.unmount();
-    const failed = mount({ kind: "video", shareHref: null, shareFailed: true, unavailable: "only download" });
+    const failed = mount({ kind: "video", shareHref: null, shareFailed: true, src: "/v?token=t", unavailable: "only download" });
     expect(failed.container.querySelector("video")).toBeNull();
     expect(statusText(failed.container)).toEqual(["only download"]);
     failed.unmount();

@@ -830,7 +830,8 @@ export interface paths {
          *
          *     BYTE RANGES: a ``200`` or ``206`` answer carries ``Accept-Ranges: bytes``. One
          *     ``Range`` is answered ``206`` with exactly those bytes and ``Content-Range``;
-         *     several ranges are one ``206`` ``multipart/byteranges`` body; a range past the
+         *     several ranges are one ``206`` ``multipart/byteranges`` body, or the whole blob
+         *     at ``200`` when together they cover more than the blob; a range past the
          *     end, or one that does not parse, is ``416`` with ``Content-Range: bytes *\/<size>``.
          *     A blob carries no ``ETag`` or ``Last-Modified``, so ``If-Range`` never matches
          *     and is answered with the whole blob. A ``<video>`` seeks through ranges, and
