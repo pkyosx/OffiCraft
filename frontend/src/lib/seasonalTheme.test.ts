@@ -24,6 +24,20 @@ function readThemesFile(name: string): unknown {
   return JSON.parse(readFileSync(resolve(THEMES_DIR, name), "utf8"));
 }
 
+const WORD_CHAR = /[A-Za-z0-9]/;
+
+function containsAsWholeWords(text: string, original: string): boolean {
+  for (let at = text.indexOf(original); at >= 0; at = text.indexOf(original, at + 1)) {
+    const before = text.charAt(at - 1);
+    const after = text.charAt(at + original.length);
+    const glued =
+      (WORD_CHAR.test(before) && WORD_CHAR.test(original.charAt(0))) ||
+      (WORD_CHAR.test(after) && WORD_CHAR.test(original.charAt(original.length - 1)));
+    if (!glued) return true;
+  }
+  return false;
+}
+
 describe("seasonalWindowsFrom", () => {
   const harvest: ThemeBundle = { id: "harvest", name: "Harvest", colors: { "--color-bg": "#15101f" } };
   const schedule = [
@@ -134,6 +148,15 @@ describe("the shipped themes/ seasonal data", () => {
     expect(shown(new Date(2027, 0, 1, 23, 59))).toBe("new-year-2027-night");
   });
 
+  it("gives every day part of one window the same wording", () => {
+    for (const e of raw.filter((entry) => entry.schedule)) {
+      const [first, ...rest] = e.schedule!.map((r) => (readThemesFile(r.theme) as ThemeBundle).wording);
+      for (const [i, wording] of rest.entries()) {
+        expect(wording, `${e.id} ${e.schedule![i + 1].theme}`).toEqual(first);
+      }
+    }
+  });
+
   // A day part's bundle carries its file's stem; a one-file window's, the entry's id.
   const files = raw.flatMap((e) =>
     e.schedule
@@ -171,7 +194,7 @@ describe("the shipped themes/ seasonal data", () => {
       for (const locale of ["zh", "en"] as const) {
         for (const [code, text] of Object.entries(wording?.[locale] ?? {})) {
           const original = readDictMessage(plain[locale], code);
-          if (original === null || !text.includes(original)) {
+          if (original === null || !containsAsWholeWords(text, original)) {
             rewritten.push(`${locale} ${code}: "${original}" → "${text}"`);
           }
         }

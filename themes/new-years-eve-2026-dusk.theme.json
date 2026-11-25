@@ -79,7 +79,6 @@
   },
   "wording": {
     "zh": {
-      "buildUpdate.title": "控制台有新版本 🎆",
       "chat.emptyRange": "這個範圍還沒有訊息 ✨",
       "chat.galleryEmptyFiles": "還沒有檔案 ✨",
       "chat.galleryEmptyImages": "還沒有圖片，留個位置給煙火照 🎆",
@@ -89,7 +88,6 @@
       "mp.resumeSummary.tasksEmpty": "尚無進行中任務，2026 收尾得乾乾淨淨 ✨",
       "mp.schedmsg.empty": "尚未設定定期訊息 ✨",
       "mp.webhook.empty": "尚未設定回呼端點 ✨",
-      "nav.monitor": "監控 🎆",
       "replies.empty": "✓ 目前沒有待處理的請示，可以安心倒數 2027 🎆",
       "settings.historyEmpty": "還沒有保留任何版本 ✨",
       "settings.manualSuggestedRepliesEmpty": "這類任務還沒有專屬的句子。✨",
@@ -98,7 +96,6 @@
       "tasks.emptyNone": "目前沒有任務，2026 清清爽爽收尾 ✨"
     },
     "en": {
-      "buildUpdate.title": "A new version of the console is available 🎆",
       "chat.emptyRange": "No messages in this range yet ✨",
       "chat.galleryEmptyFiles": "No files yet ✨",
       "chat.galleryEmptyImages": "No images yet — room for a fireworks shot 🎆",
@@ -108,7 +105,6 @@
       "mp.resumeSummary.tasksEmpty": "No open tasks — 2026 closes out clean ✨",
       "mp.schedmsg.empty": "No scheduled messages yet ✨",
       "mp.webhook.empty": "No webhook endpoints yet ✨",
-      "nav.monitor": "Monitor 🎆",
       "replies.empty": "✓ No pending asks — count down to 2027 with a clear desk 🎆",
       "settings.historyEmpty": "No revisions retained yet ✨",
       "settings.manualSuggestedRepliesEmpty": "This task type has no sentences of its own yet. ✨",

@@ -79,7 +79,6 @@
   },
   "wording": {
     "zh": {
-      "office.membersTitle": "辦公室成員 🎆",
       "replies.empty": "✓ 目前沒有待處理的請示，連假愉快 🎉",
       "tasks.emptyNone": "目前沒有任務，抬頭看看煙火吧 🎆",
       "lore.empty": "還沒有任何傳承 ✨",
@@ -92,7 +91,6 @@
       "tasks.artifacts.empty": "還沒有產物 ✨"
     },
     "en": {
-      "office.membersTitle": "Office members 🎆",
       "replies.empty": "✓ No pending asks — enjoy the long weekend 🎉",
       "tasks.emptyNone": "No tasks yet — look up at the fireworks 🎆",
       "lore.empty": "No lore yet ✨",
