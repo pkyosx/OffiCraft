@@ -103,6 +103,11 @@ import {
   CopyIcon,
   TextCursorIcon,
 } from "./icons";
+import {
+  ExpireActionIcon,
+  JumpToMessageIcon,
+  UnsnoozeActionIcon,
+} from "./replyCardActionIcons";
 import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
@@ -1405,8 +1410,14 @@ export function RepliesPage({
           )}
         />
         <div className="reply-card__who">
-          <span className="reply-card__name">{who.name}</span>
-          {who.role && <span className="reply-card__role">{who.role}</span>}
+          <span className="reply-card__name" title={who.name}>
+            {who.name}
+          </span>
+          {who.role && (
+            <span className="reply-card__role" title={who.role}>
+              {who.role}
+            </span>
+          )}
           {renderAskerCurrentTask(row)}
         </div>
         <div className="reply-card__actions">
@@ -1419,22 +1430,24 @@ export function RepliesPage({
           </span>
           <button
             type="button"
-            className="reply-card__jump"
+            className="reply-card__icon-btn"
+            aria-label={t.replies.jumpToChat}
+            title={t.replies.jumpToChat}
             onClick={() => void jumpToChat(row)}
           >
-            {t.replies.jumpToChat}
+            <JumpToMessageIcon size={13} />
           </button>
           {actions}
-          {/* 標為過期 shares .reply-card__jump with 跳到原訊息 — one
-              outlined style for both header actions, so they can never drift. */}
           {expirable && (
             <button
               type="button"
-              className="reply-card__jump"
+              className="reply-card__icon-btn"
               data-testid="expire-card"
+              aria-label={t.replies.expire}
+              title={t.replies.expire}
               onClick={() => setExpireTarget(row)}
             >
-              {t.replies.expire}
+              <ExpireActionIcon size={13} />
             </button>
           )}
         </div>
@@ -1562,11 +1575,13 @@ export function RepliesPage({
       actions: asSnoozed ? (
         <button
           type="button"
-          className="reply-card__jump"
+          className="reply-card__icon-btn"
           data-testid="unsnooze-card"
+          aria-label={t.replies.unsnooze}
+          title={t.replies.unsnooze}
           onClick={() => void doUnsnooze(row.id)}
         >
-          {t.replies.unsnooze}
+          <UnsnoozeActionIcon size={13} />
         </button>
       ) : (
         <ReplySnoozeMenu cardId={row.id} onSnooze={(ts) => doSnooze(row.id, ts)} />

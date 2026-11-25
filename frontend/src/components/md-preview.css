@@ -176,7 +176,8 @@
   flex: none;
 }
 .md-preview__download,
-.md-preview__new-tab {
+.md-preview__new-tab,
+.md-preview__jump {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -194,7 +195,8 @@
     border-color 0.15s;
 }
 .md-preview__download:hover,
-.md-preview__new-tab:hover {
+.md-preview__new-tab:hover,
+.md-preview__jump:hover {
   color: var(--color-accent);
   border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
@@ -212,7 +214,8 @@
     gap: 4px;
   }
 }
-.md-preview__share {
+.md-preview__share,
+.md-preview__jump {
   cursor: pointer;
   font-family: inherit;
 }

@@ -1348,14 +1348,14 @@
   :is(
     .reply-card__answer-side,
     .reply-card__task,
-    .reply-card__jump,
+    .reply-card__icon-btn,
     .reply-card__head,
     .reply-card__hint,
     .reply-card__question-atts,
     .reply-card__error
   ),
 .chat__msg--selecting
-  .reply-card__chat-head:not(:has(> :not(.reply-card__task, .reply-card__jump))) {
+  .reply-card__chat-head:not(:has(> :not(.reply-card__task, .reply-card__icon-btn))) {
   display: none;
 }
 .chat__select-bar {

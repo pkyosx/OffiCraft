@@ -490,6 +490,26 @@ export function ClockIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function UnsnoozeIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <polyline points="12 7 12 12 15 14" />
+    </svg>
+  );
+}
+
+export function ExpireIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <rect width="20" height="5" x="2" y="3" rx="1" />
+      <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+      <path d="M10 12h4" />
+    </svg>
+  );
+}
+
 export function BoltIcon({ size = 16, className }: IconProps) {
   return (
     <svg

@@ -22,7 +22,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { render, fireEvent, act } from "@testing-library/react";
+import { render, fireEvent, act, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { api } from "../api";
@@ -165,8 +165,8 @@ describe("useQuotedMessageOverlay", () => {
       fireEvent.click(getByText("看原訊息"));
     });
     expect(asked).toEqual([original]);
-    const jump = document.querySelector("[data-testid='md-preview-jump']")!;
-    expect(jump.textContent).toBe(zh.replies.jumpToChat);
+    const jump = screen.getByRole("button", { name: zh.replies.jumpToChat });
+    expect(jump.getAttribute("title")).toBe(zh.replies.jumpToChat);
 
     await act(async () => {
       fireEvent.click(jump);

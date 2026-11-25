@@ -30,7 +30,7 @@
 // 若日後有人在聊天面單獨加條件（例如聊天面不顯示標題），不會有任何東西變紅。
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { RepliesPage } from "./RepliesPage";
@@ -876,11 +876,11 @@ describe("RepliesPage", () => {
   // the OLD behaviour coming back on purpose — do not "fix" it here.
   it("跳到原訊息 routes to the member's chat with the ask message id (B3 locate target)", async () => {
     __injectMockReplyCard(mkCard({}));
-    const { findAllByTestId, getByText } = renderPage();
+    const { findAllByTestId, getByRole } = renderPage();
     await findAllByTestId("waiting-card");
     await openCards();
 
-    fireEvent.click(getByText("跳到原訊息"));
+    fireEvent.click(getByRole("button", { name: "跳到原訊息" }));
     expect(window.location.hash).toBe("#office/chat/mira/msg/msg-1");
   });
 
@@ -934,16 +934,8 @@ describe("RepliesPage", () => {
     const [card] = await findAllByTestId("waiting-card");
     await openCards();
 
-    // T-1aa4: 標為過期 wears the SAME outlined class as 跳到原訊息 — one
-    // shared button style for the two header actions.
-    expect(
-      card
-        .querySelector('[data-testid="expire-card"]')!
-        .classList.contains("reply-card__jump")
-    ).toBe(true);
-
     // The head's 標為過期 opens the confirm modal; cancel keeps the card.
-    fireEvent.click(card.querySelector('[data-testid="expire-card"]')!);
+    fireEvent.click(within(card).getByRole("button", { name: "標為過期" }));
     const modal = await findByTestId("expire-confirm");
     expect(modal.textContent).toContain("要幫你寄出這封信嗎？");
     fireEvent.click(modal.querySelector(".confirm-modal__btn")!); // cancel (first button)
@@ -1140,8 +1132,8 @@ describe("RepliesPage", () => {
     const head = cards[0].querySelector(".reply-card__head")!;
     expect(head.querySelector(".reply-card__name")?.textContent).toBe("Mira");
     expect(head.querySelector(".reply-card__role")?.textContent).toBe("特助");
-    expect(head.textContent).toContain("跳到原訊息");
-    expect(head.querySelector('[data-testid="expire-card"]')).toBeTruthy();
+    expect(within(head as HTMLElement).getByRole("button", { name: "跳到原訊息" })).toBeTruthy();
+    expect(within(head as HTMLElement).getByRole("button", { name: "標為過期" })).toBeTruthy();
     expect(head.querySelector('[data-testid="waited"]')).toBeTruthy();
     expect(cards[0].querySelector(".reply-card__task-title")?.textContent).toBe(
       "同步設定"
