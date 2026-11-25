@@ -14,7 +14,7 @@
 // sandbox for sig-only HTML applies on top, so a flag added here does nothing
 // unless api_chat.go carries it too.
 
-import { useEffect, useState, type ReactNode, type Ref } from "react";
+import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { useI18n } from "../i18n";
 import type { ContentKind } from "../lib/contentKind";
 import { formatJson, formatXml, parseCsv, yamlParses } from "../lib/formatContent";
@@ -28,7 +28,7 @@ export type ContentViewProps = {
   text?: string | null;
   /** Reading the bytes failed. */
   failed?: boolean;
-  /** The image's address (already authorised by the host). */
+  /** The image's or video's address (already authorised by the host). */
   src?: string;
   /** What the image or page is called, for its alt text / frame title. */
   label?: string;
@@ -124,6 +124,13 @@ export function ContentView({
         src={src}
         alt={label || t.chat.imageAlt}
       />
+    );
+  }
+
+  if (kind === "video") {
+    if (src === undefined) return status(unavailable ?? p.unavailable);
+    return (
+      <VideoView src={src} label={label} unavailable={unavailable ?? p.unavailable} testId={testId} />
     );
   }
 
@@ -271,5 +278,80 @@ export function ContentView({
     <pre className="md-preview__text" data-testid={testId}>
       {text}
     </pre>
+  );
+}
+
+export const PLAYBACK_RATES = [0.5, 1, 1.25, 1.5, 2] as const;
+
+function VideoView({
+  src,
+  label,
+  unavailable,
+  testId,
+}: {
+  src: string;
+  label?: string;
+  unavailable: ReactNode;
+  testId?: string;
+}) {
+  const { t } = useI18n();
+  const p = t.chat.mdPreview;
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [rate, setRate] = useState<number>(1);
+  const [unplayable, setUnplayable] = useState(false);
+
+  useEffect(() => {
+    setRate(1);
+    setUnplayable(false);
+  }, [src]);
+
+  // A browser resets playbackRate whenever it loads a new source, so the rate
+  // is re-applied on every metadata load, not only when it is picked.
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = rate;
+  }, [rate]);
+
+  if (unplayable) {
+    return (
+      <div className="md-preview__status" data-testid={testId}>
+        {unavailable}
+      </div>
+    );
+  }
+
+  return (
+    <div className="md-preview__video" data-testid={testId}>
+      <video
+        ref={videoRef}
+        className="md-preview__video-player"
+        src={src}
+        controls
+        playsInline
+        preload="metadata"
+        aria-label={label}
+        onLoadedMetadata={(e) => {
+          e.currentTarget.playbackRate = rate;
+        }}
+        onError={() => setUnplayable(true)}
+      />
+      <div className="md-preview__speed" role="group" aria-label={p.playbackSpeed}>
+        <span className="md-preview__speed-label" aria-hidden="true">
+          {p.playbackSpeed}
+        </span>
+        <div className="md-preview__speed-options">
+          {PLAYBACK_RATES.map((r) => (
+            <button
+              key={r}
+              type="button"
+              className={"md-preview__speed-option" + (r === rate ? " md-preview__speed-option--on" : "")}
+              aria-pressed={r === rate}
+              onClick={() => setRate(r)}
+            >
+              {`${r}×`}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

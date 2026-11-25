@@ -23,7 +23,7 @@ function sameTarget(a: DocCommentTarget | undefined, b: DocCommentTarget | undef
 
 function previewable(mime: string, name: string): boolean {
   const kind = contentKindOf(mime, name);
-  return kind === "image" || kind === "html" || isTextKind(kind);
+  return kind === "image" || kind === "video" || kind === "html" || isTextKind(kind);
 }
 
 /** The serve route's Content-Type for the blob, without its bytes. */

@@ -271,7 +271,8 @@ export function MarkdownPreviewOverlay({
   const diff = diffParams !== undefined;
   const html = url !== undefined && kind === "html";
   const pdf = url !== undefined && kind === "pdf";
-  const unread = pdf || (url !== undefined && kind === "binary");
+  const video = url !== undefined && kind === "video";
+  const unread = pdf || video || (url !== undefined && kind === "binary");
   // WHOSE CALL IS "opens in a tab"? THE SERVER'S. This mirrors api_chat.go's
   // isPreviewableAttachment, which is what decides between
   // `Content-Disposition: inline` and `attachment` on the serve route. Offering
@@ -736,6 +737,7 @@ export function MarkdownPreviewOverlay({
           kind={kind}
           text={source}
           failed={failed}
+          src={video ? downloadHref : undefined}
           label={title}
           shareHref={shareHref}
           shareFailed={shareFailed}
@@ -1127,6 +1129,7 @@ export function isInlineDisplayableMime(mime: string): boolean {
   return (
     baseMime.startsWith("image/") ||
     baseMime.startsWith("text/") ||
+    baseMime.startsWith("video/") ||
     baseMime === "application/pdf" ||
     baseMime === "application/json"
   );

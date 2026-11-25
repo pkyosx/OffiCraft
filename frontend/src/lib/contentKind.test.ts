@@ -28,6 +28,9 @@ describe("contentKindOf", () => {
     ["application/octet-stream", "page.html", "text"],
     ["image/png", "shot.md", "image"],
     ["image/svg+xml", "logo.svg", "image"],
+    ["video/mp4", "demo.mp4", "video"],
+    ["video/quicktime", "Screen.MOV", "video"],
+    ["video/webm", "clip.md", "video"],
     ["application/pdf", "report.pdf", "pdf"],
     ["application/pdf", "report.md", "pdf"],
     ["application/zip", "report.json", "binary"],
@@ -42,7 +45,7 @@ describe("contentKindOf", () => {
 describe("isTextKind", () => {
   it("is true for the kinds drawn from text and false for the rest", () => {
     expect(
-      (["markdown", "json", "xml", "yaml", "csv", "text", "html", "image", "pdf", "binary"] as const).map(
+      (["markdown", "json", "xml", "yaml", "csv", "text", "html", "image", "video", "pdf", "binary"] as const).map(
         (k) => `${k}=${isTextKind(k)}`,
       ),
     ).toEqual([
@@ -54,6 +57,7 @@ describe("isTextKind", () => {
       "text=true",
       "html=false",
       "image=false",
+      "video=false",
       "pdf=false",
       "binary=false",
     ]);

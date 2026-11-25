@@ -16,6 +16,7 @@ export type ContentKind =
   | "text"
   | "html"
   | "image"
+  | "video"
   | "pdf"
   | "binary";
 
@@ -88,6 +89,7 @@ export function textKindForName(filename: string): ContentKind | null {
 export function contentKindOf(mime: string, filename: string): ContentKind {
   const base = baseMime(mime);
   if (base.startsWith("image/")) return "image";
+  if (base.startsWith("video/")) return "video";
   if (base === "text/html") return "html";
   if (base === "application/pdf") return "pdf";
   if (base === "text/markdown" || base === "text/x-markdown") return "markdown";

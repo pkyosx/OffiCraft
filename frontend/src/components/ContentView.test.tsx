@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { ContentView, type ContentViewProps } from "./ContentView";
@@ -199,5 +199,61 @@ describe("ContentView", () => {
     inline.unmount();
     const none = mount({ kind: "binary", shareHref: null, unavailable: "only download" });
     expect(statusText(none.container)).toEqual(["only download"]);
+  });
+  it("plays a video at the address the host gives with the browser's own controls, five speeds starting at 1×, and the host's line when the browser cannot play it", () => {
+    const { container } = mount({ kind: "video", src: "/v?token=t", label: "demo.mp4", testId: "body" });
+    const video = container.querySelector("video")!;
+    expect(video.getAttribute("src")).toBe("/v?token=t");
+    expect(video.getAttribute("aria-label")).toBe("demo.mp4");
+    expect(video.hasAttribute("controls")).toBe(true);
+    expect(video.hasAttribute("playsinline")).toBe(true);
+    expect(video.getAttribute("preload")).toBe("metadata");
+
+    const group = container.querySelector(".md-preview__speed")!;
+    expect(group.getAttribute("role")).toBe("group");
+    expect(group.getAttribute("aria-label")).toBe(p.playbackSpeed);
+    const options = () =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>(".md-preview__speed-option")).map(
+        (b) => `${b.textContent}:${b.getAttribute("aria-pressed")}`,
+      );
+    expect(options()).toEqual(["0.5×:false", "1×:true", "1.25×:false", "1.5×:false", "2×:false"]);
+    expect(video.playbackRate).toBe(1);
+
+    fireEvent.click(container.querySelectorAll(".md-preview__speed-option")[2]!);
+    expect(options()).toEqual(["0.5×:false", "1×:false", "1.25×:true", "1.5×:false", "2×:false"]);
+    expect(video.playbackRate).toBe(1.25);
+
+    video.playbackRate = 1;
+    fireEvent.loadedMetadata(video);
+    expect(video.playbackRate).toBe(1.25);
+
+    fireEvent.error(video);
+    expect(container.querySelector("video")).toBeNull();
+    expect(statusText(container)).toEqual([p.unavailable]);
+  });
+
+  it("starts a new video at 1× and playable again", () => {
+    const view = mount({ kind: "video", src: "/a.mp4", unavailable: "only download" });
+    fireEvent.click(view.container.querySelectorAll(".md-preview__speed-option")[4]!);
+    expect(view.container.querySelector("video")!.playbackRate).toBe(2);
+    fireEvent.error(view.container.querySelector("video")!);
+    expect(statusText(view.container)).toEqual(["only download"]);
+    view.rerender(
+      <I18nProvider>
+        <div data-testid="host">
+          <ContentView kind="video" src="/b.mp4" unavailable="only download" />
+        </div>
+      </I18nProvider>,
+    );
+    const video = view.container.querySelector("video")!;
+    expect(video.getAttribute("src")).toBe("/b.mp4");
+    expect(video.playbackRate).toBe(1);
+    expect(view.container.querySelector(".md-preview__speed-option--on")!.textContent).toBe("1×");
+  });
+
+  it("says the host's line for a video with no address to play from", () => {
+    const { container } = mount({ kind: "video", unavailable: "only download" });
+    expect(container.querySelector("video")).toBeNull();
+    expect(statusText(container)).toEqual(["only download"]);
   });
 });
