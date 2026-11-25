@@ -1483,10 +1483,7 @@ test.describe("touch screen", () => {
             window.getSelection()!.addRange(r);
           });
           await page.getByTestId("chat-select-copy").tap();
-          await expectCheckOnly(
-            page.getByTestId("chat-select-copy"),
-            `${language === "zh" ? "已複製" : "Copied"} ${season === "thanksgiving" ? "🍂" : "🎄"}`,
-          );
+          await expectCheckOnly(page.getByTestId("chat-select-copy"), language === "zh" ? "已複製" : "Copied");
           await fits("copied");
         });
       }

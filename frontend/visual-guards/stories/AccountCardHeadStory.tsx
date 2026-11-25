@@ -5,7 +5,9 @@
 // The CT runner swaps the seasonal schedule for an empty one, so the halloween
 // copy is applied the way a custom theme's 用詞 reaches the screen in
 // production: the bundle is stored through the theme resource and named as the
-// display theme.
+// display theme. The built-in halloween wording no longer renames these labels,
+// so the long ones from the owner's phone report ride on top as a custom
+// theme's 用詞 would.
 import { useEffect, useState } from "react";
 import { I18nProvider } from "../../src/i18n";
 import { setToken } from "../../src/api/auth";
@@ -15,6 +17,12 @@ import type { ThemeBundle } from "../../src/lib/themeBundle";
 import halloween from "../../../themes/halloween-2026.theme.json";
 
 export type AccountCardHeadWording = "default" | "halloween";
+
+const LONG_HEAD_LABELS = { "monitor.detail.open": "魔力帳號詳情 🔮", "monitor.costReset": "歸零 🧹" };
+const longHalloween: ThemeBundle = {
+  ...(halloween as ThemeBundle),
+  wording: { ...halloween.wording, zh: { ...halloween.wording.zh, ...LONG_HEAD_LABELS } },
+};
 
 export function AccountCardHeadStory({
   displayName,
@@ -33,7 +41,7 @@ export function AccountCardHeadStory({
       const { mockApi, __resetMock } = await import("../../src/api/mock");
       __resetMock();
       if (wording === "halloween") {
-        await mockApi.putTheme(halloween as ThemeBundle);
+        await mockApi.putTheme(longHalloween);
         await mockApi.patchServerSettings({ displayTheme: halloween.id, displayThemeSchedule: [] });
         setToken("ct-owner-token");
       }

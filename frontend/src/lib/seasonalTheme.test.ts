@@ -13,12 +13,33 @@ import {
 } from "./seasonalSchedule";
 import { validateThemeBundleWith, type ThemeBundle } from "./themeBundleCore";
 import { validateWording } from "./themeWording";
+import { readDictMessage } from "../i18n/wording";
+import { zh } from "../i18n/locales/zh";
+import { en } from "../i18n/locales/en";
 import { paintRecordFor } from "./themePaint";
 
 const THEMES_DIR = resolve(__dirname, "../../../themes");
 
 function readThemesFile(name: string): unknown {
   return JSON.parse(readFileSync(resolve(THEMES_DIR, name), "utf8"));
+}
+
+// Owner ruling (rc-f12bf649fd3d): a seasonal theme may rename the office and its two roster tabs
+// outright; every other code must keep the plain wording whole.
+const RENAMEABLE_CODES = new Set(["nav.office", "office.staffTitle", "office.outsource.title"]);
+
+const WORD_CHAR = /[A-Za-z0-9]/;
+
+function containsAsWholeWords(text: string, original: string): boolean {
+  for (let at = text.indexOf(original); at >= 0; at = text.indexOf(original, at + 1)) {
+    const before = text.charAt(at - 1);
+    const after = text.charAt(at + original.length);
+    const glued =
+      (WORD_CHAR.test(before) && WORD_CHAR.test(original.charAt(0))) ||
+      (WORD_CHAR.test(after) && WORD_CHAR.test(original.charAt(original.length - 1)));
+    if (!glued) return true;
+  }
+  return false;
 }
 
 describe("seasonalWindowsFrom", () => {
@@ -131,6 +152,15 @@ describe("the shipped themes/ seasonal data", () => {
     expect(shown(new Date(2027, 0, 1, 23, 59))).toBe("new-year-2027-night");
   });
 
+  it("gives every day part of one window the same wording", () => {
+    for (const e of raw.filter((entry) => entry.schedule)) {
+      const [first, ...rest] = e.schedule!.map((r) => (readThemesFile(r.theme) as ThemeBundle).wording);
+      for (const [i, wording] of rest.entries()) {
+        expect(wording, `${e.id} ${e.schedule![i + 1].theme}`).toEqual(first);
+      }
+    }
+  });
+
   // A day part's bundle carries its file's stem; a one-file window's, the entry's id.
   const files = raw.flatMap((e) =>
     e.schedule
@@ -159,6 +189,22 @@ describe("the shipped themes/ seasonal data", () => {
           expect(words[code], `${locale} ${code}`).toBeUndefined();
         }
       }
+    });
+
+    it(`${file} keeps every plain sentence whole, adding wording only before or after it`, () => {
+      const { wording } = readThemesFile(file) as ThemeBundle;
+      const plain = { zh, en };
+      const rewritten: string[] = [];
+      for (const locale of ["zh", "en"] as const) {
+        for (const [code, text] of Object.entries(wording?.[locale] ?? {})) {
+          if (RENAMEABLE_CODES.has(code)) continue;
+          const original = readDictMessage(plain[locale], code);
+          if (original === null || !containsAsWholeWords(text, original)) {
+            rewritten.push(`${locale} ${code}: "${original}" → "${text}"`);
+          }
+        }
+      }
+      expect(rewritten).toEqual([]);
     });
 
     it(`${file} still validates once pruned to the pre-paint record`, () => {
