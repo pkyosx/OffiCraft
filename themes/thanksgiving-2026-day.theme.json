@@ -101,9 +101,10 @@
       "mp.webhook.empty": "尚未設定回呼端點，穀倉門還沒開 🏡",
       "mp.webhook.requestsEmpty": "尚無請求紀錄，穀倉門前還沒人來 🍂",
       "nav.lore": "傳承 🥧",
-      "nav.office": "辦公室 🍁",
       "nav.replies": "請示 🍂",
       "nav.tasks": "任務 🌾",
+      "office.outsource.title": "外包短工",
+      "office.staffTitle": "正職長工",
       "profile.passkeysEmpty": "還沒有註冊任何通行密鑰，鑰匙圈還空著",
       "replies.empty": "✓ 目前沒有待處理的請示，去喝杯熱蘋果汁吧 🍎",
       "replies.emptyFiltered": "沒有符合篩選條件的請示，這個籃子是空的",
@@ -117,7 +118,8 @@
       "tasks.artifacts.versionsEmpty": "沒有更早的版本，這是第一季收成 🌾",
       "tasks.descEmpty": "尚未填寫敘述，這塊田還沒播種 🌾",
       "tasks.emptyFiltered": "沒有符合篩選條件的任務，換個籃子篩篩看",
-      "tasks.emptyNone": "目前沒有任務，先去吃塊南瓜派吧 🥧"
+      "tasks.emptyNone": "目前沒有任務，先去吃塊南瓜派吧 🥧",
+      "nav.office": "農舍大廳"
     },
     "en": {
       "chat.emptyRange": "No messages in this range yet — just fall leaves drifting by 🍂",
@@ -142,7 +144,6 @@
       "mp.webhook.empty": "No webhook endpoints yet — the barn door isn't open yet 🏡",
       "mp.webhook.requestsEmpty": "No requests recorded yet — no one at the barn door 🍂",
       "nav.lore": "Lore 🥧",
-      "nav.office": "Office 🍁",
       "nav.replies": "Ask 🍂",
       "nav.tasks": "Task 🌾",
       "profile.passkeysEmpty": "No passkeys registered yet — the key ring is still bare",
@@ -159,7 +160,10 @@
       "tasks.artifacts.versionsEmpty": "No earlier versions 🌾",
       "tasks.descEmpty": "No description yet — nothing sown here 🌾",
       "tasks.emptyFiltered": "No tasks match the current filters — try sifting another basket",
-      "tasks.emptyNone": "No tasks yet — time for a slice of pumpkin pie 🥧"
+      "tasks.emptyNone": "No tasks yet — time for a slice of pumpkin pie 🥧",
+      "nav.office": "Farmhouse",
+      "office.staffTitle": "Farm staff",
+      "office.outsource.title": "Hired hands"
     }
   },
   "avatars": {

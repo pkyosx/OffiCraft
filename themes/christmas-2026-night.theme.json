@@ -102,9 +102,10 @@
       "mp.webhook.empty": "尚未設定回呼端點，煙囪還沒人爬下來 🎅",
       "mp.webhook.requestsEmpty": "尚無請求紀錄，門前雪地還沒有腳印 ❄️",
       "nav.lore": "傳承 🕯️",
-      "nav.office": "辦公室 🎄",
       "nav.replies": "請示 💌",
       "nav.tasks": "任務 🎁",
+      "office.outsource.title": "外包幫手",
+      "office.staffTitle": "正職鎮民",
       "profile.passkeysEmpty": "還沒有註冊任何通行密鑰，鑰匙圈還空著",
       "replies.empty": "✓ 目前沒有待處理的請示，去壁爐邊喝杯熱可可吧 ☕",
       "replies.emptyFiltered": "沒有符合篩選條件的請示，這只襪子是空的",
@@ -119,7 +120,8 @@
       "tasks.artifacts.versionsEmpty": "沒有更早的版本，這是第一份禮物 🎁",
       "tasks.descEmpty": "尚未填寫敘述，壁爐邊的筆還沒動 🕯️",
       "tasks.emptyFiltered": "沒有符合篩選條件的任務，到樹下別處再找找",
-      "tasks.emptyNone": "目前沒有任務，先去喝杯熱可可吧 ☕"
+      "tasks.emptyNone": "目前沒有任務，先去喝杯熱可可吧 ☕",
+      "nav.office": "小鎮廣場"
     },
     "en": {
       "chat.emptyRange": "No messages in this range yet — just snowflakes drifting by ❄️",
@@ -148,9 +150,9 @@
       "mp.webhook.empty": "No webhook endpoints yet — no one has come down the chimney 🎅",
       "mp.webhook.requestsEmpty": "No requests recorded yet — no footprints in the snow ❄️",
       "nav.lore": "Lore 🕯️",
-      "nav.office": "Office 🎄",
       "nav.replies": "Ask 💌",
       "nav.tasks": "Task 🎁",
+      "office.outsource.title": "Outsource helpers",
       "profile.passkeysEmpty": "No passkeys registered yet — the key ring is still empty",
       "replies.empty": "✓ No pending asks — grab a cocoa by the fireplace ☕",
       "replies.emptyFiltered": "No asks match the current filter — this stocking is empty",
@@ -166,7 +168,9 @@
       "tasks.artifacts.versionsEmpty": "No earlier versions — this is the very first gift 🎁",
       "tasks.descEmpty": "No description yet — the quill by the fire hasn't moved 🕯️",
       "tasks.emptyFiltered": "No tasks match the current filters — try looking elsewhere under the tree",
-      "tasks.emptyNone": "No tasks yet — go grab a mug of cocoa ☕"
+      "tasks.emptyNone": "No tasks yet — go grab a mug of cocoa ☕",
+      "nav.office": "Square",
+      "office.staffTitle": "Village staff"
     }
   },
   "avatars": {

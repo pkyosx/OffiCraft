@@ -24,6 +24,10 @@ function readThemesFile(name: string): unknown {
   return JSON.parse(readFileSync(resolve(THEMES_DIR, name), "utf8"));
 }
 
+// Owner ruling (rc-f12bf649fd3d): a seasonal theme may rename the office and its two roster tabs
+// outright; every other code must keep the plain wording whole.
+const RENAMEABLE_CODES = new Set(["nav.office", "office.staffTitle", "office.outsource.title"]);
+
 const WORD_CHAR = /[A-Za-z0-9]/;
 
 function containsAsWholeWords(text: string, original: string): boolean {
@@ -193,6 +197,7 @@ describe("the shipped themes/ seasonal data", () => {
       const rewritten: string[] = [];
       for (const locale of ["zh", "en"] as const) {
         for (const [code, text] of Object.entries(wording?.[locale] ?? {})) {
+          if (RENAMEABLE_CODES.has(code)) continue;
           const original = readDictMessage(plain[locale], code);
           if (original === null || !containsAsWholeWords(text, original)) {
             rewritten.push(`${locale} ${code}: "${original}" → "${text}"`);

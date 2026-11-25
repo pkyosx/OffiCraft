@@ -98,7 +98,6 @@
       "mp.webhook.empty": "尚未設定回呼端點 🕸️",
       "mp.webhook.requestsEmpty": "尚無請求紀錄，連隻蝙蝠都沒來 🕸️",
       "nav.lore": "傳承 🔮",
-      "nav.office": "辦公室 🎃",
       "nav.replies": "請示 👻",
       "nav.tasks": "任務 🕯️",
       "profile.passkeysEmpty": "還沒有註冊任何通行密鑰，鑰匙圈空蕩蕩的 🕸️",
@@ -113,7 +112,10 @@
       "tasks.artifacts.versionsEmpty": "沒有更早的版本，這是最古老的一頁 📜",
       "tasks.descEmpty": "尚未填寫敘述，羊皮紙還是空白的",
       "tasks.emptyFiltered": "沒有符合篩選條件的任務，只剩迷霧 🌫️",
-      "tasks.emptyNone": "目前沒有任務，鬼屋靜悄悄 🦇"
+      "tasks.emptyNone": "目前沒有任務，鬼屋靜悄悄 🦇",
+      "nav.office": "鬼屋大廳",
+      "office.staffTitle": "常駐幽靈",
+      "office.outsource.title": "遊魂"
     },
     "en": {
       "chat.emptyRange": "No messages in this range yet — only silence 🕸️",
@@ -135,7 +137,6 @@
       "mp.webhook.empty": "No webhook endpoints yet 🕸️",
       "mp.webhook.requestsEmpty": "No requests recorded yet — not even a bat 🕸️",
       "nav.lore": "Lore 🔮",
-      "nav.office": "Office 🎃",
       "nav.replies": "Ask 👻",
       "nav.tasks": "Task 🕯️",
       "profile.passkeysEmpty": "No passkeys registered yet — the key ring is empty 🕸️",
@@ -150,7 +151,10 @@
       "tasks.artifacts.versionsEmpty": "No earlier versions — this is the oldest page 📜",
       "tasks.descEmpty": "No description yet — the parchment is still blank",
       "tasks.emptyFiltered": "No tasks match the current filters — only mist here 🌫️",
-      "tasks.emptyNone": "No tasks yet — the haunt is silent 🦇"
+      "tasks.emptyNone": "No tasks yet — the haunt is silent 🦇",
+      "nav.office": "Haunted Hall",
+      "office.staffTitle": "Resident spirits",
+      "office.outsource.title": "Wanderer"
     }
   },
   "avatars": {
