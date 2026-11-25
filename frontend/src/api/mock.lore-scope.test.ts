@@ -173,6 +173,11 @@ describe("mock setLoreEntryScope", () => {
       offset: 0,
       capChars: 10000,
       firstDroppedId: "",
+      usedChars: 53,
+      firstDroppedChars: 0,
+      budgetSegments: [
+        { scopeKind: "everyone", entryCount: 1, chars: 53, fittedCount: 1, fittedChars: 53 },
+      ],
     });
 
     const mixed = await api.listLoreEntries({ scopeKinds: ["everyone", "agent"] });
@@ -182,6 +187,9 @@ describe("mock setLoreEntryScope", () => {
       offset: 0,
       capChars: 0,
       firstDroppedId: "",
+      usedChars: 0,
+      firstDroppedChars: 0,
+      budgetSegments: [],
     });
   });
 
@@ -195,6 +203,12 @@ describe("mock setLoreEntryScope", () => {
       offset: 0,
       capChars: 195,
       firstDroppedId: "L-1",
+      usedChars: 53,
+      firstDroppedChars: 195,
+      budgetSegments: [
+        { scopeKind: "everyone", entryCount: 1, chars: 53, fittedCount: 1, fittedChars: 53 },
+        { scopeKind: "agent", entryCount: 2, chars: 244, fittedCount: 0, fittedChars: 0 },
+      ],
     });
 
     const alone = await api.listLoreEntries({ scopeKinds: ["everyone"] });
@@ -204,6 +218,11 @@ describe("mock setLoreEntryScope", () => {
       offset: 0,
       capChars: 195,
       firstDroppedId: "",
+      usedChars: 53,
+      firstDroppedChars: 0,
+      budgetSegments: [
+        { scopeKind: "everyone", entryCount: 1, chars: 53, fittedCount: 1, fittedChars: 53 },
+      ],
     });
   });
 });
@@ -302,5 +321,142 @@ describe("mock lore_type", () => {
     );
     const written = (await api.listLoreEntries()).entries.filter((e) => e.seq > 7);
     expect(written.map((e) => [e.id, e.title, e.loreType])).toEqual([["L-8", "有標籤", "owner_decision"]]);
+  });
+});
+
+describe("mock listLoreBudgets", () => {
+  let api: Awaited<ReturnType<typeof freshMock>>;
+  beforeEach(async () => {
+    api = await freshMock();
+  });
+
+  const target = (scopeKind: string, scopeKey: string, usedChars: number, entryCount: number, droppedCount = 0, capChars = 10000) => ({
+    scopeKind,
+    scopeKey,
+    capChars,
+    usedChars,
+    entryCount,
+    droppedCount,
+  });
+
+  it("answers 所有人, every staff and outsource member and every manual, a member counting 所有人 first", async () => {
+    expect(await api.listLoreBudgets()).toEqual([
+      target("everyone", "", 53, 1),
+      target("agent", "mira", 297, 2),
+      target("agent", "ow-7d8ad859dd9b", 112, 1),
+      target("manual", "builtin-role-design", 0, 0),
+      target("manual", "builtin-task-manual-design", 0, 0),
+      target("manual", "builtin-remote-access", 0, 0),
+    ]);
+  });
+
+  it("agrees with the list's 上限線 when the member cap leaves Mira's own entries out", async () => {
+    await api.patchServerSettings({ loreCapCharsRole: 195 });
+    const mira = (await api.listLoreBudgets()).find((t) => t.scopeKey === "mira");
+    expect(mira).toEqual(target("agent", "mira", 53, 2, 2, 195));
+  });
+});
+
+describe("mock editLoreEntry", () => {
+  let api: Awaited<ReturnType<typeof freshMock>>;
+  beforeEach(async () => {
+    api = await freshMock();
+  });
+
+  it("changes only the fields sent and leaves id, scope, state and order alone", async () => {
+    await api.editLoreEntry("L-2", { body: "先跑陽性對照。", loreType: "owner_decision" });
+
+    const page = await api.listLoreEntries({ scopeKind: "agent", scopeKey: "mira" });
+    expect(page.entries.map((e) => e.id)).toEqual(["L-1", "L-2", "L-3"]);
+    const { updatedTs, ...rest } = page.entries[1];
+    const { updatedTs: wasTs, ...l2 } = L2;
+    expect(rest).toEqual({ ...l2, body: "先跑陽性對照。", loreType: "owner_decision" });
+    expect(updatedTs).toBeGreaterThan(wasTs);
+  });
+
+  it("a shorter 所有人 body moves the member's 上限線: the entry it dropped becomes readable", async () => {
+    await api.patchServerSettings({ loreCapCharsRole: 270 });
+    const read = async () => {
+      const page = await api.listLoreEntries({ scopeKind: "agent", scopeKey: "mira" });
+      return [page.firstDroppedId, page.usedChars, page.firstDroppedChars];
+    };
+    expect(await read()).toEqual(["L-2", 248, 49]);
+
+    await api.editLoreEntry("L-7", { body: "送出前讀一遍。" });
+
+    expect(await read()).toEqual(["", 264, 0]);
+  });
+
+  it("refuses an empty change, a blank title, an over-cap body, an unknown type and an unknown id, and stores nothing", async () => {
+    const before = await entry(api, "L-2");
+    expect(await refusal(api.editLoreEntry("L-2", {}))).toMatchObject({ status: 400 });
+    expect(await refusal(api.editLoreEntry("L-2", { title: "  " }))).toMatchObject({
+      status: 400,
+      serverMessage: "title must not be blank",
+    });
+    expect(await refusal(api.editLoreEntry("L-2", { body: "長".repeat(501) }))).toMatchObject({
+      status: 400,
+      serverMessage: "body is over the 500-character cap",
+    });
+    expect(
+      await refusal(api.editLoreEntry("L-2", { loreType: "nope" as never })),
+    ).toMatchObject({ status: 400 });
+    expect(await refusal(api.editLoreEntry("L-999", { title: "x" }))).toMatchObject({
+      status: 404,
+    });
+    expect(await entry(api, "L-2")).toEqual(before);
+  });
+});
+
+describe("mock lore_entry version history", () => {
+  let api: Awaited<ReturnType<typeof freshMock>>;
+  beforeEach(async () => {
+    api = await freshMock();
+  });
+
+  async function retained() {
+    const rows = await api.listDocumentHistory("lore_entry", "L-2");
+    return Promise.all(
+      rows.map(async (r) => (await api.getDocumentRevision("lore_entry", "L-2", r.id)).content),
+    );
+  }
+
+  it("an edit that changes the text retains the title and body it replaced; a type-only edit retains nothing", async () => {
+    await api.editLoreEntry("L-2", { loreType: "other" });
+    expect(await retained()).toEqual([]);
+
+    await api.editLoreEntry("L-2", { title: "新標題" });
+
+    expect(await retained()).toEqual([{ title: L2.title, body: L2.body }]);
+  });
+
+  it("keeps the newest three", async () => {
+    for (const n of [1, 2, 3, 4]) await api.editLoreEntry("L-2", { body: `第 ${n} 版` });
+
+    expect(await retained()).toEqual([
+      { title: L2.title, body: "第 3 版" },
+      { title: L2.title, body: "第 2 版" },
+      { title: L2.title, body: "第 1 版" },
+    ]);
+  });
+
+  it("a restore puts title and body back, leaves type and state alone, and retains what it overwrote", async () => {
+    await api.editLoreEntry("L-2", { title: "新標題", body: "新內容", loreType: "owner_decision" });
+    const [version] = await api.listDocumentHistory("lore_entry", "L-2");
+
+    await api.restoreDocumentHistory("lore_entry", "L-2", version.id);
+
+    const e = await entry(api, "L-2");
+    expect([e.title, e.body, e.loreType, e.state]).toEqual([L2.title, L2.body, "owner_decision", "active"]);
+    expect(await retained()).toEqual([
+      { title: "新標題", body: "新內容" },
+      { title: L2.title, body: L2.body },
+    ]);
+  });
+
+  it("the list filters on whole entry ids", async () => {
+    const page = await api.listLoreEntries({ entryIds: ["L-2", "L-7"] });
+    expect(page.entries.map((x) => x.id)).toEqual(["L-7", "L-2"]);
+    expect((await api.listLoreEntries({ entryIds: ["L-"] })).entries).toEqual([]);
   });
 });

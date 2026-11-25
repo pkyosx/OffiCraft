@@ -1,4 +1,4 @@
-/* 傳承 page + 傳承 row (T-33, spec §6).
+/* 傳承 page: target sections, the 傳承 row, the inline editor, the batch bar.
  *
  * 🔴 THESE ARE COPIES OF tasks.css RULES, NOT A SHARED SHEET, AND THAT IS
  * DELIBERATE. The 傳承 row wears the 任務卡's design language — same badge pill,
@@ -47,31 +47,7 @@
   font-size: 13px;
 }
 
-/* ── 篩選欄位 ──
- * FilterPanel owns the ROW (filter-panel.css); these are the fields inside it.
- * The pill look mirrors .tasks__filter. */
-.lore__filter-field {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.lore__filter-label {
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-  opacity: 0.75;
-}
-.lore__filter {
-  padding: 7px 10px;
-  border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
-  background: var(--color-card);
-  color: var(--color-text);
-  font-size: 13px;
-  cursor: pointer;
-  max-width: 220px;
-}
-
-/* ── the three groups ── */
+/* ── 所有人／成員／任務手冊 headings over the target sections ── */
 .lore__group {
   display: flex;
   flex-direction: column;
@@ -86,15 +62,12 @@
   opacity: 0.75;
 }
 
-/* ── 具名上限線 ──
- * A rule with a sentence on it, drawn immediately ABOVE the first entry that
- * does not fit the scope's budget.
- *
- * 🔴 NO PERCENTAGE, NO 已用 x/y, NO BAR (spec §6 rules all three out). It says
- * WHICH budget and HOW BIG, and nothing about how full it is — the rows below
- * it already say what does not make it in. The colour is the danger token
- * because crossing it has a consequence (that content is not loaded), not
- * because anything is broken. */
+/* ── 上限線 ──
+ * Drawn immediately ABOVE the first entry that does not fit, carrying the
+ * section's used / cap and what that entry needs. Danger colour because
+ * crossing it has a consequence (those entries are not read), not because
+ * anything is broken. The text wraps rather than ellipsizes: the numbers on it
+ * are the point. */
 .lore__cap-line {
   display: flex;
   align-items: center;
@@ -112,10 +85,10 @@
   background: color-mix(in srgb, var(--color-danger) 45%, transparent);
 }
 .lore__cap-line-text {
-  flex: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 0 1 auto;
+  min-width: 0;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .lore__more {
@@ -124,6 +97,219 @@
   color: var(--color-text-muted);
   font-size: 12.5px;
   text-align: center;
+}
+
+.lore__search-summary {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+button.lore__collapse-all {
+  margin: 0;
+  padding: 4px 2px;
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ── one target section: a header row that opens to its cards ── */
+.lore-section {
+  border-radius: var(--radius-card);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  background: color-mix(in srgb, var(--color-card) 60%, transparent);
+  min-width: 0;
+}
+button.lore-section__head {
+  width: 100%;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 12px 14px;
+  border: none;
+  border-radius: var(--radius-card);
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.lore-section__head:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.lore-section__mark {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+.lore-section__name {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.lore-section__kind {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.lore-section__count {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.lore-section__usage {
+  margin-left: auto;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.lore-section__dropped {
+  color: var(--color-danger);
+  white-space: nowrap;
+}
+.lore-section__fit {
+  white-space: nowrap;
+}
+.lore-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+  min-width: 0;
+}
+.lore-section__item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.lore-section__summary {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.lore-section__cap-away {
+  margin-top: 4px;
+  color: var(--color-danger);
+}
+.lore-section__everyone-ref {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px dashed color-mix(in srgb, var(--color-overlay) 22%, transparent);
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.lore-section__everyone-ref-chars {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* ── the floating batch bar, pinned to the bottom of the scrollport ── */
+.lore-batch {
+  position: sticky;
+  bottom: 0;
+  z-index: 30;
+  align-self: center;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: var(--color-card);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+}
+.lore-batch__count {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+button.lore-batch__btn {
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button.lore-batch__btn--danger {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+}
+button.lore-batch__btn:disabled,
+button.lore-batch__link:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button.lore-batch__link {
+  margin: 0;
+  padding: 6px 4px;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lore-batch__working {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.lore-batch__reason {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+}
+.lore-batch__result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.lore-batch__result--failed {
+  color: var(--color-danger);
 }
 
 /* ── one 傳承 row ──
@@ -596,21 +782,46 @@ button.lore-row__chip--link {
   white-space: nowrap;
 }
 
-/* ── 生效期 left, 提到最新 right, one row ── */
-.lore-row__effective {
-  display: flex;
+/* ── 選取、字數、提到最新／編輯 (or 「⋯」 on a phone) on the head ── */
+.lore-row__select {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+.lore-row__actions {
+  flex: none;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
+  gap: 6px;
+}
+.lore-row__size {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.lore-row__more {
+  position: relative;
+  display: inline-flex;
+}
+.lore-row__more-pop {
+  right: 0;
+  left: auto;
+  min-width: 120px;
 }
 .lore-row__effective-ts {
   font-size: 12.5px;
   color: var(--color-text);
   white-space: nowrap;
 }
-.lore-row__bump {
+button.lore-row__action {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
   margin: 0;
   padding: 3px 10px;
   border-radius: var(--radius-pill);
@@ -622,7 +833,11 @@ button.lore-row__chip--link {
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.lore-row__bump:hover {
+button.lore-row__action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button.lore-row__action:hover:not(:disabled) {
   color: var(--color-accent);
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
@@ -632,6 +847,111 @@ button.lore-row__chip--link {
   line-height: 1.5;
   color: var(--color-text);
   min-width: 0;
+}
+
+/* ── 編輯: the card's title and body become this, in place ── */
+.lore-row__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  cursor: auto;
+}
+.lore-row__editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.lore-row__editor-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.lore-row__editor-count {
+  font-variant-numeric: tabular-nums;
+}
+.lore-row__editor-count--over {
+  color: var(--color-danger);
+}
+.lore-row__editor-input {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  outline: none;
+}
+.lore-row__editor-input:focus {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.lore-row__editor-body {
+  resize: none;
+  min-height: 72px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.lore-row__segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+button.lore-row__segment {
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button.lore-row__segment--on {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  font-weight: 700;
+}
+.lore-row__editor-effect {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.lore-row__editor-error {
+  font-size: 12px;
+  color: var(--color-danger);
+}
+.lore-row__editor-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+button.lore-row__editor-save {
+  margin: 0;
+  padding: 5px 14px;
+  border-radius: 10px;
+  border: none;
+  background: var(--color-indigo);
+  color: var(--color-text-strong);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button.lore-row__editor-save:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* ── 傳訊息給撰寫人 ──

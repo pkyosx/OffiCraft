@@ -73,26 +73,19 @@ export const en: Dict = {
     loadError: "Failed to load the user guide. Please try again.",
     empty: "No guide pages yet",
   },
-  // ── 傳承 / Lore (T-33, spec §6) ──
-  // Its own tab, wearing the task-card design language. Only the words live
-  // here; why the groups are ordered the way they are, and where the cap line
-  // is drawn, is documented in components/LorePage.tsx.
-  //
-  // 🔴 The cap line is NAMED — it has to say which scope's budget it is. It is
-  // therefore assembled from four fragments (prefix · name + mid + number +
-  // tail) rather than one interpolation function: a function leaf is excluded
-  // from the message-key whitelist, so a theme pack could not re-word a single
-  // word inside it (see i18n/compose.ts).
+  // ── 傳承 / Lore ──
+  // Sentences with numbers are assembled in i18n/compose.ts from the fragments
+  // here; a function leaf is out of a theme pack's reach.
   lore: {
     title: "Lore",
     loadError: "Failed to load lore. Please try again.",
+    // Another open theme pack overrides these four keys; do not delete or
+    // rename them even when unused.
     empty: "No lore yet",
-    emptyFiltered: "No lore matches these filters",
-    // The three groups. The order is FIXED: pinned → active → retired.
     groupPinned: "Pinned",
-    groupActive: "Active",
-    groupRetired: "Retired",
-    // One status badge + the little menu it drops.
+    entryIdCopied: "Copied",
+    messageSent: "Sent",
+    emptyFiltered: "No lore matches these filters",
     stateMenuLabel: "Change state",
     statePinned: "Pinned",
     stateActive: "Active",
@@ -103,84 +96,27 @@ export const en: Dict = {
     scopeUnknown: "Unknown scope",
     openManualLabel: "Open task manual",
     copyEntryIdLabel: "Copy entry id",
-    entryIdCopied: "Copied",
     authorLabel: "Author",
     authorUnknown: "—",
     messageAuthor: "Message the author",
-    // The inline composer: write from the author row itself, without first
-    // jumping to the office.
     messagePlaceholder: (name: string) => `Message ${name}…`,
     messageSend: "Send",
-    // 🔴 The ONLY place on screen that says the id is prepended for you.
-    // Without it what gets sent differs from what the writer typed and nothing
-    // tells them.
     messagePrefixNote: (entryId: string) => `Sent starting with ${entryId}`,
-    // A failed send must be visible AND must keep the draft — retyping is the
-    // one punishment this box must never hand out.
     messageFailed: "That message did not go out. Your text is kept — send again.",
-    messageSent: "Sent",
-    // Effective-from and 提到最新 share one row.
     effectiveLabel: "Effective",
     bump: "Bump to latest",
-    // Retire reason — the whole row is hidden when it is empty.
     retireReasonLabel: "Retire reason",
-    // The scope-kind names. ONE source per word: they name the 屬於 chip on
-    // every row, the 屬於 filter's option labels, AND the named cap line. They
-    // used to be called capLineRolePrefix / capLineManualPrefix, a name that
-    // pinned them to the cap line and invited the next caller to write a second
-    // copy.
-    //
-    // 🔴 THERE WERE THREE AND NOW THERE ARE TWO. `scopeKindRole` ("Role lore")
-    // was removed when the owner collapsed the scopes on 2026-09-07 (card
-    // rc-a43100fd0486 [0]). It is NOT kept "for the legacy rows": an entry the
-    // migration could not place renders through the unknown arm, which shows the
-    // raw key and no kind word at all — because the honest thing to say about
-    // such a row is that nobody has decided what it belongs to, and calling it
-    // 角色傳承 would name a scope this product no longer has.
-    //
-    // Every member's lore hangs off its own member id — staff and outsource
-    // alike.
-    scopeKindAgent: "Member lore",
-    scopeKindManual: "Task lore",
     scopeMenuLabel: "Scope",
     scopeManualLead: "Task: ",
     scopeAgentLead: "Author: ",
     scopeEveryone: "Everyone",
     scopeTagDefault: "Default",
     scopeTagCurrent: "Current",
-    // The remaining fragments of the named cap line.
-    capLineSep: " · ",
-    capLineMid: " cap ",
-    capLineTail: " characters — members cannot see the lore below this line",
-    // The filter row: author → member lore → task lore → type → state → clear
-    // (type placed before state by the owner). Otherwise the
-    // order and the names the owner dictated on 2026-09-08 (所有撰寫人 / 所有
-    // 成員傳承 / 所有任務傳承 / 所有狀態). It is the 任務頁's shape minus its id
-    // search box — a 傳承 id is not something anybody goes looking for by typing
-    // it.
-    //
-    // 🔴 THE MEMBER FIELD IS A ROUTE THAT WAS MISSING, NOT A COPY OF 撰寫人.
-    // 撰寫人 sends `authorIds`, which produces NO scope; the server only answers
-    // `capChars` when the request carries exactly one scope kind and exactly one
-    // scope key. While members appeared only under 撰寫人, nothing on this page
-    // could ask for a member's 上限線 at all. This field sends
-    // scope_kinds=[agent] + scope_keys=[<member id>], which is that route; its
-    // 所有人 option (T-236) sends scope_kinds=[everyone] with no key, which the
-    // server also answers with a line.
-    // It shares those two wire axes with the task field, so ticking one of each
-    // sends two kinds and two keys and the server answers 0 — no line. That is
-    // the honest answer, not a defect.
     clearFilters: "Clear filters",
+    idSearchLabel: "Lore ID",
+    collapseAll: "Collapse all",
     filterAuthorNoun: "Author",
     filterAuthorAll: "All authors",
-    // The member field's options ARE the live roster — the same source 撰寫人
-    // draws from — and its words come from the scopeKind* pair above, so a name
-    // in the filter reads the same as the same name on a row's badge.
-    filterMemberNoun: "Member lore",
-    filterMemberAll: "All member lore",
-    filterTaskNoun: "Task lore",
-    filterTaskAll: "All task lore",
-    // Type tag: the capsule at the front of a row and the 類型 filter share these words.
     loreTypeInstructionConflict: "Instruction conflict",
     loreTypeInstructionSupplement: "Instruction supplement",
     loreTypeOwnerDecision: "Owner decision",
@@ -190,11 +126,101 @@ export const en: Dict = {
     filterTypeAll: "All types",
     filterStateNoun: "State",
     filterStateAll: "All states",
-    // The whole row is the expand/collapse surface.
+    searchSummaryLead: "Matches in ",
+    searchSummaryTail: " sections, opened for you",
+    kindEveryone: "Everyone",
+    kindMember: "Member",
+    kindManual: "Task manual",
+    entryCountTailOne: " entry",
+    entryCountTailMany: " entries",
+    charsTail: " chars",
+    everyoneReadFirst: " · read first by every member",
+    droppedTail: " not read",
+    allFit: "All read",
+    sectionLoadError: "This section failed to load. Collapse and reopen it to retry.",
+    sectionEmpty: "Nothing to show in this section",
+    sumCapLead: "Cap ",
+    sumCapMid: " chars, ",
+    sumCapTail: " used",
+    sumEveryoneLead: ": everyone's lore, ",
+    sumEveryoneMid: " entries (",
+    sumEveryoneTail: " chars), comes first",
+    sumEveryoneOverLead: ": everyone's lore alone is over the cap — of ",
+    sumEveryoneOverMid: " entries only ",
+    sumEveryoneOverUnit: " fit (",
+    sumEveryoneOverTail: " chars)",
+    sumOwnLead: ", then ",
+    sumOwnMid: "'s own ",
+    sumOwnUnit: " entries (",
+    sumOwnTail: " chars)",
+    sumFitLead: ": ",
+    sumFitMid: " entries (",
+    sumFitTail: " chars) fit",
+    sumDropLead: "; from ",
+    sumDropMid: " on, ",
+    sumDropCount: " are not read (",
+    sumDropNeed: " needs ",
+    sumDropRemain: " chars, only ",
+    sumDropTail: " left).",
+    sumOwnAllDroppedLead: "; none of ",
+    sumOwnAllDroppedMid: "'s own ",
+    sumOwnAllDroppedTail: " entries are read.",
+    sumAllFit: "; everything is read.",
+    sumEnd: ".",
+    capLineAwayLead: "The cap line is at ",
+    capLineAwayTail: ", which is not in the current results",
+    everyoneRefLead: "Everyone's lore, ",
+    everyoneRefTail: " entries, comes first (change it in the Everyone section)",
+    capLineLead: "Cap line · used ",
+    capLineOf: " / ",
+    capLineNeedLead: " chars · ",
+    capLineNeedMid: " needs ",
+    capLineNeedTail: " chars; nothing from here down is read",
+    actionEdit: "Edit",
+    moreActions: "More actions",
+    selectEntry: "Select this entry",
+    editTitleLabel: "Title",
+    editBodyLabel: "Body",
+    editTypeLabel: "Type",
+    editCancel: "Cancel",
+    editSave: "Save",
+    editSaving: "Saving…",
+    editTitleBlank: "The title cannot be blank",
+    editOverCap: "Over the character limit",
+    editSizeLead: "This entry goes from ",
+    editSizeMid: " to ",
+    editSizeTail: " chars",
+    editRemainLead: "; after saving ",
+    editRemainTail: " chars are left",
+    editFirstDroppedLead: ", and ",
+    editFirstDroppedOpen: " (",
+    editFirstDroppedClose: " chars) ",
+    editBecomesReadable: "becomes readable",
+    editStillDropped: "is still not read",
+    editOverLead: "; after saving it is ",
+    editOverTail: " chars over the cap, and entries further down will not be read",
+    editSelfLead: "; only ",
+    editSelfReadable: " chars are left, so after saving this entry becomes readable",
+    editSelfStill: " chars are left, so this entry is still not read",
+    batchSelectedLead: "",
+    batchSelectedTail: " selected",
+    batchPin: "Pin",
+    batchActivate: "Set active",
+    batchRetire: "Retire…",
+    batchRetireConfirm: "Retire",
+    batchRetireReason: "Retire reason (used for every selected entry)",
+    batchBack: "Back",
+    batchClear: "Clear selection",
+    batchWorking: "Working…",
+    batchDoneLead: "Done: ",
+    batchFailedLead: "Did not go through: ",
+    batchReasonOpen: " (",
+    batchReasonClose: ")",
+    batchSep: "; ",
+    batchDismiss: "Got it",
     expandCard: "Expand this lore entry",
     collapseCard: "Collapse this lore entry",
     loadingMore: "Loading…",
-    // A failed action (403 included) must be visible — never a silent no-op.
     actionFailed: "That action did not go through. Please try again.",
     forbidden: "You do not have permission to do that.",
   },
@@ -2684,6 +2710,8 @@ export const en: Dict = {
       purpose: "Purpose",
       fields: "Fields",
       sop_md: "SOP",
+      title: "Title",
+      body: "Body",
     },
     loadError: "Failed to load role definitions. Please try again.",
     addRole: "Add role definition",

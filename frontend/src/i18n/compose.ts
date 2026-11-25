@@ -83,6 +83,18 @@ export interface Messages {
   loreOpenManual: (manualName: string) => string;
   loreScopeManual: (manualName: string) => string;
   loreScopeAgent: (authorName: string) => string;
+  loreEntryCount: (n: number) => string;
+  loreChars: (n: number) => string;
+  loreDropped: (n: number) => string;
+  loreEveryoneUsed: (chars: number) => string;
+  loreSearchSummary: (sections: number) => string;
+  loreBudgetSentence: (p: LoreBudgetSentence) => string;
+  loreCapLine: (used: number, cap: number, firstDroppedId: string, need: number) => string;
+  loreCapLineAway: (firstDroppedId: string) => string;
+  loreEveryoneRef: (count: number) => string;
+  loreEditEffect: (oldChars: number, newChars: number, effect: LoreEditEffect) => string;
+  loreBatchSelected: (n: number) => string;
+  loreBatchResult: (done: string[], failed: { id: string; reason: string }[]) => string;
   // ── secrets ──
   secretCopyId: (secretId: string) => string;
   secretDeleteConfirmBody: (name: string) => string;
@@ -234,6 +246,30 @@ export function evenMinuteStep(minutes: number[]): number | null {
 }
 
 /** Build the composed messages for one (already wording-overlaid) dict. */
+/** The numbers behind the sentence at the top of an open 傳承 section. `own` is
+ * the target's own segment; `everyone` is present only for a member target,
+ * whose boot document reads the 所有人 entries first. */
+export interface LoreBudgetSentence {
+  capChars: number;
+  usedChars: number;
+  ownName: string;
+  everyone: { count: number; chars: number; fitted: number; fittedChars: number } | null;
+  own: { count: number; fitted: number; fittedChars: number };
+  firstDroppedId: string;
+  firstDroppedChars: number;
+}
+
+/** What saving an inline edit does to the section's cap line. */
+export type LoreEditEffect =
+  | { mode: "size" }
+  | {
+      mode: "remain";
+      remain: number;
+      firstDropped: { id: string; chars: number; readable: boolean } | null;
+    }
+  | { mode: "over"; over: number }
+  | { mode: "self"; remain: number; readable: boolean };
+
 export function makeMessages(t: Dict, language: Lang): Messages {
   // The separator between a parameter and an adjacent fragment where the two
   // languages disagree: en writes a space, zh runs the characters together.
@@ -252,6 +288,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
   const diff = t.diff;
   // The list separator between two codes: a join, not vocabulary.
   const listSep = language === "zh" ? "、" : ", ";
+  const num = (n: number) => n.toLocaleString("en-US");
   /** How many numbers a scattered `custom` set prints before the rest is
    * carried by a count (owner ruling, T-49e7 round 2: 「最多列 4 個」). */
   const LIST_CAP = 4;
@@ -457,6 +494,91 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${t.lore.openManualLabel} ${manualName}`,
     loreScopeManual: (manualName) => `${t.lore.scopeManualLead}${manualName}`,
     loreScopeAgent: (authorName) => `${t.lore.scopeAgentLead}${authorName}`,
+    loreEntryCount: (n) =>
+      `${num(n)}${n === 1 ? t.lore.entryCountTailOne : t.lore.entryCountTailMany}`,
+    loreChars: (n) => `${num(n)}${t.lore.charsTail}`,
+    loreDropped: (n) => `${num(n)}${t.lore.droppedTail}`,
+    loreEveryoneUsed: (chars) => `${num(chars)}${t.lore.charsTail}${t.lore.everyoneReadFirst}`,
+    loreSearchSummary: (sections) =>
+      `${t.lore.searchSummaryLead}${num(sections)}${t.lore.searchSummaryTail}`,
+    loreBudgetSentence: (p) => {
+      const l = t.lore;
+      let out = `${l.sumCapLead}${num(p.capChars)}${l.sumCapMid}${num(p.usedChars)}${l.sumCapTail}`;
+      if (p.everyone && p.everyone.fitted < p.everyone.count) {
+        out +=
+          `${l.sumEveryoneOverLead}${num(p.everyone.count)}${l.sumEveryoneOverMid}` +
+          `${num(p.everyone.fitted)}${l.sumEveryoneOverUnit}${num(p.everyone.fittedChars)}` +
+          l.sumEveryoneOverTail;
+        return p.own.count > 0
+          ? out +
+              `${l.sumOwnAllDroppedLead}${p.ownName}${l.sumOwnAllDroppedMid}` +
+              `${num(p.own.count)}${l.sumOwnAllDroppedTail}`
+          : out + l.sumEnd;
+      }
+      if (p.everyone) {
+        out +=
+          `${l.sumEveryoneLead}${num(p.everyone.count)}${l.sumEveryoneMid}` +
+          `${num(p.everyone.chars)}${l.sumEveryoneTail}` +
+          `${l.sumOwnLead}${p.ownName}${l.sumOwnMid}${num(p.own.fitted)}` +
+          `${l.sumOwnUnit}${num(p.own.fittedChars)}${l.sumOwnTail}`;
+      } else {
+        out += `${l.sumFitLead}${num(p.own.fitted)}${l.sumFitMid}${num(p.own.fittedChars)}${l.sumFitTail}`;
+      }
+      if (p.firstDroppedId === "") return out + l.sumAllFit;
+      return (
+        out +
+        `${l.sumDropLead}${p.firstDroppedId}${l.sumDropMid}${num(p.own.count - p.own.fitted)}` +
+        `${l.sumDropCount}${p.firstDroppedId}${l.sumDropNeed}${num(p.firstDroppedChars)}` +
+        `${l.sumDropRemain}${num(p.capChars - p.usedChars)}${l.sumDropTail}`
+      );
+    },
+    loreCapLine: (used, cap, firstDroppedId, need) =>
+      `${t.lore.capLineLead}${num(used)}${t.lore.capLineOf}${num(cap)}` +
+      `${t.lore.capLineNeedLead}${firstDroppedId}${t.lore.capLineNeedMid}${num(need)}` +
+      t.lore.capLineNeedTail,
+    loreCapLineAway: (firstDroppedId) =>
+      `${t.lore.capLineAwayLead}${firstDroppedId}${t.lore.capLineAwayTail}`,
+    loreEveryoneRef: (count) => `${t.lore.everyoneRefLead}${num(count)}${t.lore.everyoneRefTail}`,
+    loreEditEffect: (oldChars, newChars, effect) => {
+      const l = t.lore;
+      const size = `${l.editSizeLead}${num(oldChars)}${l.editSizeMid}${num(newChars)}${l.editSizeTail}`;
+      switch (effect.mode) {
+        case "size":
+          return size;
+        case "over":
+          return `${size}${l.editOverLead}${num(effect.over)}${l.editOverTail}`;
+        case "self":
+          return (
+            `${size}${l.editSelfLead}${num(effect.remain)}` +
+            (effect.readable ? l.editSelfReadable : l.editSelfStill)
+          );
+        case "remain": {
+          const fd = effect.firstDropped;
+          return (
+            `${size}${l.editRemainLead}${num(effect.remain)}${l.editRemainTail}` +
+            (fd
+              ? `${l.editFirstDroppedLead}${fd.id}${l.editFirstDroppedOpen}${num(fd.chars)}` +
+                `${l.editFirstDroppedClose}${fd.readable ? l.editBecomesReadable : l.editStillDropped}`
+              : "")
+          );
+        }
+      }
+    },
+    loreBatchSelected: (n) => `${t.lore.batchSelectedLead}${num(n)}${t.lore.batchSelectedTail}`,
+    loreBatchResult: (done, failed) => {
+      const l = t.lore;
+      const parts: string[] = [];
+      if (done.length > 0) parts.push(`${l.batchDoneLead}${done.join(listSep)}`);
+      if (failed.length > 0) {
+        parts.push(
+          l.batchFailedLead +
+            failed
+              .map((f) => (f.reason ? `${f.id}${l.batchReasonOpen}${f.reason}${l.batchReasonClose}` : f.id))
+              .join(listSep)
+        );
+      }
+      return parts.join(l.batchSep);
+    },
     secretCopyId: (secretId) => `${t.secrets.copyIdLabel} ${secretId}`,
     secretDeleteConfirmBody: (name) =>
       `${t.secrets.deleteConfirmLead}${name}${t.secrets.deleteConfirmTail}`,

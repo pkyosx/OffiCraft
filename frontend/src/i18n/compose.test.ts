@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { zh, type Dict } from "./locales/zh";
 import { en } from "./locales/en";
-import { makeMessages, effortText } from "./compose";
+import { makeMessages, effortText, type LoreBudgetSentence, type LoreEditEffect } from "./compose";
 import { applyWording } from "./wording";
 import { MESSAGE_KEYS } from "./messageKeys.generated";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
@@ -66,7 +66,37 @@ type Arg =
   | null
   | MemberActivity
   | ActivityWait
-  | DueRemaining;
+  | DueRemaining
+  | LoreBudgetSentence
+  | LoreEditEffect
+  | { id: string; reason: string }[];
+const MEMBER_DROPPING: LoreBudgetSentence = {
+  capChars: 10000,
+  usedChars: 9640,
+  ownName: "小安",
+  everyone: { count: 14, chars: 6240, fitted: 14, fittedChars: 6240 },
+  own: { count: 11, fitted: 7, fittedChars: 3400 },
+  firstDroppedId: "L-212",
+  firstDroppedChars: 520,
+};
+const MEMBER_EVERYONE_OVER: LoreBudgetSentence = {
+  capChars: 10000,
+  usedChars: 9800,
+  ownName: "小安",
+  everyone: { count: 20, chars: 12000, fitted: 14, fittedChars: 9800 },
+  own: { count: 7, fitted: 0, fittedChars: 0 },
+  firstDroppedId: "L-212",
+  firstDroppedChars: 520,
+};
+const MANUAL_FITS: LoreBudgetSentence = {
+  capChars: 10000,
+  usedChars: 3210,
+  ownName: "review-pr",
+  everyone: null,
+  own: { count: 8, fitted: 8, fittedChars: 3210 },
+  firstDroppedId: "",
+  firstDroppedChars: 0,
+};
 /** [language, message, arguments, the text that must appear on screen]. */
 const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "memberActivitySummary", [act({ busySince: T - 180 })], "主代理工作中"],
@@ -177,6 +207,23 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "loreOpenManual", ["PR 審查"], "開啟任務手冊 PR 審查"],
     ["zh", "loreScopeManual", ["PR 審查"], "任務：PR 審查"],
     ["zh", "loreScopeAgent", ["Mira"], "建立者：Mira"],
+    ["zh", "loreEntryCount", [14], "14 筆"],
+    ["zh", "loreChars", [6240], "6,240 字"],
+    ["zh", "loreDropped", [4], "4 筆讀不到"],
+    ["zh", "loreEveryoneUsed", [6240], "6,240 字・每位成員先讀"],
+    ["zh", "loreSearchSummary", [2], "有符合的在 2 段裡，已自動展開"],
+    ["zh", "loreBudgetSentence", [MEMBER_DROPPING], "上限 10,000 字，已用 9,640 字：所有人的傳承 14 筆（6,240 字）排在最前面，小安自己 7 筆（3,400 字）；從 L-212 開始 4 筆讀不到（L-212 需要 520 字，只剩 360 字）。"],
+    ["zh", "loreBudgetSentence", [MEMBER_EVERYONE_OVER], "上限 10,000 字，已用 9,800 字：所有人的傳承就超過上限，20 筆裡只放得下 14 筆（9,800 字）；小安自己的 7 筆都讀不到。"],
+    ["zh", "loreBudgetSentence", [MANUAL_FITS], "上限 10,000 字，已用 3,210 字：8 筆（3,210 字）放得下；全部讀得到。"],
+    ["zh", "loreCapLine", [9640, 10000, "L-212", 520], "上限線　已用 9,640 / 10,000 字・L-212 需要 520 字，從這裡以下讀不到"],
+    ["zh", "loreCapLineAway", ["L-212"], "上限線在 L-212，不在目前的結果裡"],
+    ["zh", "loreEveryoneRef", [14], "所有人的傳承 14 筆排在最前面（在「所有人」那一段調整）"],
+    ["zh", "loreEditEffect", [480, 102, { mode: "remain", remain: 738, firstDropped: { id: "L-212", chars: 520, readable: true } }], "這筆從 480 字變成 102 字；儲存後剩 738 字，L-212（520 字）會變成讀得到"],
+    ["zh", "loreEditEffect", [480, 900, { mode: "over", over: 60 }], "這筆從 480 字變成 900 字；儲存後會超出上限 60 字，排在後面的會讀不到"],
+    ["zh", "loreEditEffect", [520, 300, { mode: "self", remain: 360, readable: true }], "這筆從 520 字變成 300 字；只剩 360 字，儲存後這筆會變成讀得到"],
+    ["zh", "loreEditEffect", [410, 300, { mode: "size" }], "這筆從 410 字變成 300 字"],
+    ["zh", "loreBatchSelected", [2], "已選 2 筆"],
+    ["zh", "loreBatchResult", [["L-1", "L-3"], [{ id: "L-2", reason: "你沒有權限做這個動作" }]], "已完成 L-1、L-3；沒有成功：L-2（你沒有權限做這個動作）"],
     ["zh", "secretCopyId", ["sec-00000000000a"], "複製密鑰 ID sec-00000000000a"],
     ["zh", "secretDeleteConfirmBody", ["部署權杖"], "要刪除「部署權杖」嗎？刪除後無法復原。"],
     ["zh", "sharedDocCopyId", ["sd-0c41e97a2b58"], "複製檔案 ID sd-0c41e97a2b58"],
@@ -372,6 +419,22 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "loreOpenManual", ["PR review"], "Open task manual PR review"],
     ["en", "loreScopeManual", ["PR review"], "Task: PR review"],
     ["en", "loreScopeAgent", ["Mira"], "Author: Mira"],
+    ["en", "loreEntryCount", [1], "1 entry"],
+    ["en", "loreEntryCount", [14], "14 entries"],
+    ["en", "loreChars", [6240], "6,240 chars"],
+    ["en", "loreDropped", [4], "4 not read"],
+    ["en", "loreEveryoneUsed", [6240], "6,240 chars · read first by every member"],
+    ["en", "loreSearchSummary", [2], "Matches in 2 sections, opened for you"],
+    ["en", "loreBudgetSentence", [MEMBER_DROPPING], "Cap 10,000 chars, 9,640 used: everyone's lore, 14 entries (6,240 chars), comes first, then 小安's own 7 entries (3,400 chars); from L-212 on, 4 are not read (L-212 needs 520 chars, only 360 left)."],
+    ["en", "loreBudgetSentence", [MEMBER_EVERYONE_OVER], "Cap 10,000 chars, 9,800 used: everyone's lore alone is over the cap — of 20 entries only 14 fit (9,800 chars); none of 小安's own 7 entries are read."],
+    ["en", "loreBudgetSentence", [MANUAL_FITS], "Cap 10,000 chars, 3,210 used: 8 entries (3,210 chars) fit; everything is read."],
+    ["en", "loreCapLine", [9640, 10000, "L-212", 520], "Cap line · used 9,640 / 10,000 chars · L-212 needs 520 chars; nothing from here down is read"],
+    ["en", "loreCapLineAway", ["L-212"], "The cap line is at L-212, which is not in the current results"],
+    ["en", "loreEveryoneRef", [14], "Everyone's lore, 14 entries, comes first (change it in the Everyone section)"],
+    ["en", "loreEditEffect", [480, 102, { mode: "remain", remain: 738, firstDropped: { id: "L-212", chars: 520, readable: false } }], "This entry goes from 480 to 102 chars; after saving 738 chars are left, and L-212 (520 chars) is still not read"],
+    ["en", "loreEditEffect", [520, 300, { mode: "self", remain: 200, readable: false }], "This entry goes from 520 to 300 chars; only 200 chars are left, so this entry is still not read"],
+    ["en", "loreBatchSelected", [2], "2 selected"],
+    ["en", "loreBatchResult", [["L-1"], [{ id: "L-2", reason: "admin only" }, { id: "L-4", reason: "" }]], "Done: L-1; Did not go through: L-2 (admin only), L-4"],
     ["en", "secretCopyId", ["sec-00000000000a"], "Copy secret ID sec-00000000000a"],
     ["en", "secretDeleteConfirmBody", ["Deploy token"], "Delete \u201cDeploy token\u201d? This cannot be undone."],
     ["en", "sharedDocCopyId", ["sd-0c41e97a2b58"], "Copy file ID sd-0c41e97a2b58"],

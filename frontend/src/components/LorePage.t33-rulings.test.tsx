@@ -62,19 +62,47 @@ function mkEntry(over: Partial<LoreEntryView> & { id: string }): LoreEntryView {
 }
 
 function page(entries: LoreEntryView[]): LoreEntryPageView {
-  return { entries, limit: 30, offset: 0, capChars: 0, firstDroppedId: "" };
+  return {
+    entries,
+    limit: 30,
+    offset: 0,
+    capChars: 0,
+    firstDroppedId: "",
+    usedChars: 0,
+    firstDroppedChars: 0,
+    budgetSegments: [],
+  };
 }
 
 function stubList(entries: LoreEntryView[]) {
   return vi.spyOn(api, "listLoreEntries").mockResolvedValue(page(entries));
 }
 
-function renderPage() {
-  return render(
+/** Render with Mira's section as the only target and open it. */
+async function renderPage(props: { canSetScope?: boolean } = {}) {
+  vi.spyOn(api, "listLoreBudgets").mockResolvedValue([
+    {
+      scopeKind: "agent",
+      scopeKey: "mira",
+      capChars: 10000,
+      usedChars: 0,
+      entryCount: 0,
+      droppedCount: 0,
+    },
+  ]);
+  const r = render(
     <I18nProvider>
-      <LorePage />
+      <LorePage {...props} />
     </I18nProvider>,
   );
+  fireEvent.click(
+    await waitFor(() => {
+      const el = r.container.querySelector<HTMLElement>('[data-testid="lore-section-toggle"]');
+      if (!el) throw new Error("no section header");
+      return el;
+    }, { timeout: 3000 }),
+  );
+  return r;
 }
 
 function rowById(container: HTMLElement, id: string): HTMLElement {
@@ -104,7 +132,7 @@ describe("LorePage — 傳承訊息的前綴與 meta (rc-01a07b1b2a12 / rc-37963
       posted.push(m);
     });
     stubList([mkEntry({ id: entryId, authorId: "mira" })]);
-    const { container } = renderPage();
+    const { container } = await renderPage();
     await waitFor(() =>
       expect(
         container.querySelector('[data-testid="lore-msg-input"]'),
@@ -176,7 +204,7 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
   it("keeps the codename on the row and drops the composer under it", async () => {
     stubRoster([]); // nobody is on the live roster any more
     stubList([mkEntry({ id: "L-9", authorId: RELEASED })]);
-    const { container } = renderPage();
+    const { container } = await renderPage();
 
     const row = await waitFor(() => rowById(container, "L-9"));
 
@@ -211,7 +239,7 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
   it("under a departed staff writer the row keeps the plain name the per-id read serves and drops the composer", async () => {
     stubRoster([]);
     stubList([mkEntry({ id: "L-11", authorId: DEPARTED_STAFF })]);
-    const { container } = renderPage();
+    const { container } = await renderPage();
 
     const row = await waitFor(() => rowById(container, "L-11"));
     await waitFor(() =>
@@ -236,7 +264,7 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
       mkEntry({ id: "L-12", authorId: "mira" }),
       mkEntry({ id: "L-13", authorId: DEPARTED_STAFF }),
     ]);
-    const { container } = renderPage();
+    const { container } = await renderPage();
     await waitFor(() => rowById(container, "L-13"));
     expect(perId.mock.calls.map(([id]) => id)).toEqual([]);
 
@@ -254,7 +282,7 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
     stubRoster([]);
     vi.spyOn(api, "listMembers").mockRejectedValue(new Error("roster unavailable"));
     stubList([mkEntry({ id: "L-13", authorId: DEPARTED_STAFF })]);
-    const { container } = renderPage();
+    const { container } = await renderPage();
     await waitFor(() =>
       expect(
         rowById(container, "L-13").querySelector('[data-testid="lore-author-row"]')
@@ -269,7 +297,7 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
     // it — the two together are what say "departed", not "outsource".
     stubRoster([worker(LIVE, "O-1")]);
     stubList([mkEntry({ id: "L-10", authorId: LIVE })]);
-    const { container } = renderPage();
+    const { container } = await renderPage();
 
     const row = await waitFor(() => rowById(container, "L-10"));
     await waitFor(() =>
@@ -333,11 +361,7 @@ describe("LorePage — 外包條目的適用範圍選單", () => {
       return boundWorker(LIVE, "O-1");
     });
     stubList([outsourceEntry("L-1", LIVE), outsourceEntry("L-2", RELEASED)]);
-    const { container } = render(
-      <I18nProvider>
-        <LorePage canSetScope />
-      </I18nProvider>,
-    );
+    const { container } = await renderPage({ canSetScope: true });
     await waitFor(() => {
       expect(
         rowById(container, "L-1").querySelector('[data-testid="lore-scope-name"]')!

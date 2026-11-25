@@ -124,6 +124,9 @@ import type {
   LoreEntryPageView,
   LoreEntryState,
   LoreEntryWrite,
+  LoreEntryEdit,
+  LoreBudgetSegmentView,
+  LoreBudgetTargetView,
   LoreType,
   LoreListOptions,
   LoreScopeKind,
@@ -1233,7 +1236,7 @@ function withManualSizes(m: StoredTaskManual): TaskManualView {
  *
  * L-7 is an `everyone` (所有人) row (T-236). L-4 / L-5 / L-2 are the three
  * scope-menu cases: task-bound, outsource without a task, staff without one. */
-const mockLoreEntries: LoreEntryView[] = [
+const MOCK_LORE_SEEDS: readonly LoreEntryView[] = [
   {
     id: "L-1",
     seq: 1,
@@ -1389,6 +1392,8 @@ const mockLoreEntries: LoreEntryView[] = [
   },
 ];
 
+let mockLoreEntries: LoreEntryView[] = structuredClone([...MOCK_LORE_SEEDS]);
+
 const LORE_TYPE_LIST =
   "instruction_conflict, instruction_supplement, owner_decision, owner_preference or other";
 const LORE_TYPE_MISSING =
@@ -1406,6 +1411,82 @@ function mockLoreOrder(a: LoreEntryView, b: LoreEntryView): number {
   if (rank(a.state) !== rank(b.state)) return rank(a.state) - rank(b.state);
   if (a.effectiveTs !== b.effectiveTs) return b.effectiveTs - a.effectiveTs;
   return b.seq - a.seq;
+}
+
+function mockLoreChars(e: LoreEntryView): number {
+  return [...e.title].length + [...e.body].length;
+}
+
+interface MockLoreWalk {
+  capChars: number;
+  usedChars: number;
+  firstDroppedId: string;
+  firstDroppedChars: number;
+  droppedCount: number;
+  segments: LoreBudgetSegmentView[];
+  fitted: LoreEntryView[];
+}
+
+/** The mock's one copy of the server's selection (lore_select.go): a member
+ * walks `everyone` then its own entries under one budget, every other target
+ * walks itself, and the walk STOPS at the first entry that does not fit. The
+ * list's 上限線, the budgets and the boot document all read this. It always
+ * covers the whole scope, never the filtered rows. */
+function mockLoreWalk(scopeKind: LoreScopeKind, scopeKey: string): MockLoreWalk {
+  const capChars =
+    scopeKind === "manual"
+      ? mockServerSettings.lore_cap_chars_manual
+      : mockServerSettings.lore_cap_chars_role;
+  const live = (kind: LoreScopeKind, key: string) =>
+    mockLoreEntries
+      .filter((e) => e.scopeKind === kind && e.scopeKey === key && e.state !== "retired")
+      .sort(mockLoreOrder);
+  const parts: [LoreScopeKind, LoreEntryView[]][] =
+    scopeKind === "agent"
+      ? [
+          ["everyone", live("everyone", "")],
+          ["agent", live("agent", scopeKey)],
+        ]
+      : [[scopeKind, live(scopeKind, scopeKind === "everyone" ? "" : scopeKey)]];
+  const walk: MockLoreWalk = {
+    capChars,
+    usedChars: 0,
+    firstDroppedId: "",
+    firstDroppedChars: 0,
+    droppedCount: 0,
+    segments: [],
+    fitted: [],
+  };
+  if (capChars <= 0) return walk;
+  let stopped = false;
+  for (const [kind, list] of parts) {
+    const seg: LoreBudgetSegmentView = {
+      scopeKind: kind,
+      entryCount: list.length,
+      chars: 0,
+      fittedCount: 0,
+      fittedChars: 0,
+    };
+    for (const e of list) {
+      const cost = mockLoreChars(e);
+      seg.chars += cost;
+      if (!stopped && walk.usedChars + cost <= capChars) {
+        walk.usedChars += cost;
+        walk.fitted.push(e);
+        seg.fittedCount += 1;
+        seg.fittedChars += cost;
+        continue;
+      }
+      stopped = true;
+      walk.droppedCount += 1;
+      if (kind === scopeKind && walk.firstDroppedId === "") {
+        walk.firstDroppedId = e.id;
+        walk.firstDroppedChars = cost;
+      }
+    }
+    walk.segments.push(seg);
+  }
+  return walk;
 }
 
 const mockDocs: DocView[] = [
@@ -2194,6 +2275,7 @@ function hasDocumentRow(kind: DocumentKind, key: string): boolean {
   if (kind === "task_description" || kind === "task_title") {
     return tasks.some((t) => t.id === key);
   }
+  if (kind === "lore_entry") return mockLoreEntries.some((e) => e.id === key);
   return documentRows.has(historySlot(kind, key));
 }
 
@@ -2287,6 +2369,11 @@ function snapshotDocument(
       const task = tasks.find((t) => t.id === key);
       if (!task) return null;
       return { title: task.title };
+    }
+    case "lore_entry": {
+      const e = mockLoreEntries.find((x) => x.id === key);
+      if (!e) return null;
+      return { title: e.title, body: e.body };
     }
     case "system_interaction":
     case "boot_sequence":
@@ -2428,6 +2515,16 @@ function applyDocumentHistory(
       task.title = content.title ?? "";
       task.updatedTs = Date.now() / 1000;
       emitTopic("task");
+      return;
+    }
+    // Title and body go back together; type, state, scope and effective date
+    // stay as they are. 傳承 has no SSE topic to fan.
+    case "lore_entry": {
+      const e = mockLoreEntries.find((x) => x.id === key);
+      if (!e) return;
+      e.title = content.title ?? e.title;
+      e.body = content.body ?? e.body;
+      e.updatedTs = Date.now() / 1000;
       return;
     }
     case "system_interaction":
@@ -6266,6 +6363,7 @@ const mockApiImpl = {
     const states = axis(opts?.states, opts?.state);
     const authors = axis(opts?.authorIds, opts?.authorId);
     const loreTypes = opts?.loreTypes ?? [];
+    const entryIds = (opts?.entryIds ?? []).filter((id) => id.trim() !== "");
     for (const lt of loreTypes) {
       if (!isLoreType(lt)) {
         throw mockApiError(
@@ -6281,61 +6379,18 @@ const mockApiImpl = {
         (keys.length === 0 || keys.includes(e.scopeKey)) &&
         (states.length === 0 || states.includes(e.state)) &&
         (authors.length === 0 || authors.includes(e.authorId)) &&
-        (loreTypes.length === 0 || loreTypes.includes(e.loreType))
+        (loreTypes.length === 0 || loreTypes.includes(e.loreType)) &&
+        (entryIds.length === 0 || entryIds.includes(e.id))
     );
     const ordered = [...matches].sort(mockLoreOrder);
 
-    // The 上限線, over the WHOLE converged scope and before the page is cut —
-    // never over the rows this call happens to return.
-    //
-    // 🔴 CONVERGED MEANS EXACTLY ONE OF EACH, which is a LENGTH test and not a
-    // non-empty one. Two ticked 範圍 span two scopes with two different budgets
-    // behind them, so there is no single cap to report and no single entry that
-    // is 「the first one dropped」 — 0 / "" is the honest answer, the same one an
-    // unfiltered page gets.
-    let capChars = 0;
-    let firstDroppedId = "";
+    // CONVERGED MEANS EXACTLY ONE kind and ONE key (or `everyone` alone):
+    // two scopes have two budgets and no single line between them.
     const everyoneOnly = kinds.length === 1 && kinds[0] === "everyone" && keys.length === 0;
-    if ((kinds.length === 1 && keys.length === 1) || everyoneOnly) {
-      const scopeKind = kinds[0];
-      // 🔴 TWO KINDS, TWO KNOBS, AND THE MEMBER KNOB STILL CARRIES THE OLD
-      // NAME. `lore.cap_chars.role` is the budget every member-scoped fold
-      // spends (owner rc-3c24fdc61ed3 [0] put the agent scope on it rather than
-      // opening a fifth knob; the 2026-09-07 collapse then put staff on the same
-      // scope). The key was NOT renamed — that would change a live setting the
-      // owner has already turned. Spelled out per kind rather than left as
-      // "anything that is not manual", so that a scope arriving later has to be
-      // assigned a knob on purpose instead of inheriting this one by falling off
-      // the end — which is also why an "unknown" kind gets 0 rather than a
-      // plausible number: there is no honest budget to report for a scope this
-      // client cannot name.
-      capChars =
-        scopeKind === "manual"
-          ? mockServerSettings.lore_cap_chars_manual
-          : scopeKind === "agent" || scopeKind === "everyone"
-            ? mockServerSettings.lore_cap_chars_role
-            : 0;
-      // A member's boot spends one budget on everyone entries first, then its
-      // own (server selectMemberLore), so an agent line starts after them.
-      const everyoneFirst =
-        scopeKind === "agent"
-          ? mockLoreEntries.filter((x) => x.scopeKind === "everyone").sort(mockLoreOrder)
-          : [];
-      let used = 0;
-      let stopped = false;
-      for (const e of [...everyoneFirst, ...ordered].filter((x) => x.state !== "retired")) {
-        const cost = [...e.title].length + [...e.body].length;
-        if (!stopped && used + cost <= capChars) {
-          used += cost;
-          continue;
-        }
-        stopped = true;
-        if (e.scopeKind === scopeKind) {
-          firstDroppedId = e.id;
-          break;
-        }
-      }
-    }
+    const walk =
+      (kinds.length === 1 && keys.length === 1 && kinds[0] !== "everyone") || everyoneOnly
+        ? mockLoreWalk(kinds[0], keys[0] ?? "")
+        : null;
 
     const limit = opts?.limit ?? 30;
     const offset = opts?.offset ?? 0;
@@ -6343,9 +6398,72 @@ const mockApiImpl = {
       entries: structuredClone(ordered.slice(offset, offset + limit)),
       limit,
       offset,
-      capChars,
-      firstDroppedId,
+      capChars: walk?.capChars ?? 0,
+      firstDroppedId: walk?.firstDroppedId ?? "",
+      usedChars: walk?.usedChars ?? 0,
+      firstDroppedChars: walk?.firstDroppedChars ?? 0,
+      budgetSegments: walk ? structuredClone(walk.segments) : [],
     };
+  },
+
+  async listLoreBudgets(): Promise<LoreBudgetTargetView[]> {
+    const target = (scopeKind: LoreScopeKind, scopeKey: string): LoreBudgetTargetView => {
+      const walk = mockLoreWalk(scopeKind, scopeKey);
+      return {
+        scopeKind,
+        scopeKey,
+        capChars: walk.capChars,
+        usedChars: walk.usedChars,
+        entryCount: mockLoreEntries.filter(
+          (e) => e.scopeKind === scopeKind && e.scopeKey === scopeKey && e.state !== "retired"
+        ).length,
+        droppedCount: walk.droppedCount,
+      };
+    };
+    return [
+      target("everyone", ""),
+      ...wireMembers
+        .filter(
+          (m) => m.roster_status !== "removed" && (m.kind === "staff" || m.kind === "outsource")
+        )
+        .map((m) => target("agent", m.id)),
+      ...taskManuals.map((m) => target("manual", m.typeKey)),
+    ];
+  },
+
+  async editLoreEntry(entryId: string, patch: LoreEntryEdit): Promise<void> {
+    const path = `PATCH /api/lore/${entryId}`;
+    const e = mockLoreEntries.find((x) => x.id === entryId);
+    if (!e) throw mockApiError(`http 404 for ${path}`, 404, "no such 傳承 entry");
+    if (patch.title === undefined && patch.body === undefined && patch.loreType === undefined) {
+      throw mockApiError(`http 400 for ${path}`, 400, "nothing to change: send title, body or lore_type");
+    }
+    if (patch.title !== undefined && patch.title.trim() === "") {
+      throw mockApiError(`http 400 for ${path}`, 400, "title must not be blank");
+    }
+    const titleCap = mockServerSettings.lore_cap_chars_title;
+    if (patch.title !== undefined && [...patch.title].length > titleCap) {
+      throw mockApiError(`http 400 for ${path}`, 400, `title is over the ${titleCap}-character cap`);
+    }
+    const bodyCap = mockServerSettings.lore_cap_chars_body;
+    if (patch.body !== undefined && [...patch.body].length > bodyCap) {
+      throw mockApiError(`http 400 for ${path}`, 400, `body is over the ${bodyCap}-character cap`);
+    }
+    if (patch.loreType !== undefined && !isLoreType(patch.loreType)) {
+      throw mockApiError(
+        `http 400 for ${path}`,
+        400,
+        `lore_type must be one of ${LORE_TYPE_LIST} — got ${JSON.stringify(patch.loreType)}`
+      );
+    }
+    const textChanges =
+      (patch.title !== undefined && patch.title !== e.title) ||
+      (patch.body !== undefined && patch.body !== e.body);
+    if (textChanges) recordDocumentHistory("lore_entry", entryId);
+    if (patch.title !== undefined) e.title = patch.title;
+    if (patch.body !== undefined) e.body = patch.body;
+    if (patch.loreType !== undefined) e.loreType = patch.loreType;
+    e.updatedTs = Date.now() / 1000;
   },
 
   // 🔴 THE THREE WRITES RESOLVE TO NOTHING, matching the http seam: the routes
@@ -8426,27 +8544,7 @@ const mockApiImpl = {
     if (insightText.trim()) {
       parts.push(`# Insight (${role})\n\n${insightText.trim()}`);
     }
-    // One budget over everyone entries then the member's own, stopping at the
-    // first entry that does not fit (server selectMemberLore).
-    const lore = [
-      ...mockLoreEntries
-        .filter((entry) => entry.scopeKind === "everyone")
-        .sort(mockLoreOrder),
-      ...mockLoreEntries
-        .filter(
-          (entry) => entry.scopeKind === "agent" && entry.scopeKey === member.id,
-        )
-        .sort(mockLoreOrder),
-    ].filter((entry) => entry.state !== "retired");
-    const selected: LoreEntryView[] = [];
-    let usedChars = 0;
-    const loreCap = mockServerSettings.lore_cap_chars_role;
-    for (const entry of lore) {
-      const cost = [...entry.title].length + [...entry.body].length;
-      if (loreCap <= 0 || usedChars + cost > loreCap) break;
-      usedChars += cost;
-      selected.push(entry);
-    }
+    const selected = mockLoreWalk("agent", member.id).fitted;
     if (selected.length > 0) {
       const lines = selected.map((entry) => {
         const pinned = entry.state === "pinned" ? "（置頂）" : "";
@@ -8768,6 +8866,7 @@ export function __resetMock(): void {
   mockSharedDocVersionSeq = 100;
   mockSharedDocContentStamps = {};
   wireMembers = structuredClone(MOCK_WIRE_MEMBERS);
+  mockLoreEntries = structuredClone([...MOCK_LORE_SEEDS]);
   wireMonitoring = structuredClone(MOCK_WIRE_MONITORING);
   mockBinStatus.clear();
   mockBinStatus.set("warden-mbp5", "stale");

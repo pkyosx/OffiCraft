@@ -2931,7 +2931,7 @@ export interface Api {
    * showing the explanation for a retirement that was undone.
    *
    * Resolves to nothing, for the reason above: the route answers
-   * `LoreEntryStateReceiptDTO` and `LorePage` refetches. */
+   * `LoreEntryStateReceiptDTO` and `LorePage` re-reads the changed row by id. */
   setLoreEntryState(
     entryId: string,
     state: LoreEntryState,
@@ -2939,13 +2939,17 @@ export interface Api {
   ): Promise<void>;
   /** 提到最新 (`POST /api/lore/{entry_id}/bump`): set `effectiveTs` to now so the
    * entry sorts to the front of its group. `createdTs` is NOT touched, which is
-   * what makes this reversible. Resolves to nothing — same receipt, same
-   * refetch. */
+   * what makes this reversible. Resolves to nothing, for the same reason. */
   bumpLoreEntry(entryId: string): Promise<void>;
   /** Move one entry to another scope (`POST /api/lore/{entry_id}/scope`,
    * admin only). The server derives the scope key. Resolves to nothing —
-   * `LorePage` refetches. */
+   * `LorePage` re-reads the changed row by id. */
   setLoreEntryScope(entryId: string, scopeKind: LoreScopeKind): Promise<void>;
+  /** Change an entry's title, body or type in place (`PATCH /api/lore/{entry_id}`).
+   * Resolves to nothing; the page re-reads the row. */
+  editLoreEntry(entryId: string, patch: LoreEntryEdit): Promise<void>;
+  /** Every boot-document target's budget in one read (`GET /api/lore/budgets`). */
+  listLoreBudgets(): Promise<LoreBudgetTargetView[]>;
   // ── Product guide (設定 › 使用說明) ──────────────────────────────────
   /** List the product-guide docs (`GET /api/docs`) — the 使用說明 landing
    * (slug + title cards). The same embed Mira reads via get_doc. */
@@ -3554,11 +3558,9 @@ export type LoreType =
 
 /** ONE 傳承 entry.
  *
- * 🔴 `title` and `body` ARE NEVER EDITABLE. No route changes them, so what is
- * read here is what was written. The mutable surface is `state`,
- * `retireReason`, `effectiveTs` and — admin-only, T-236 — `scopeKind` /
- * `scopeKey`, which is why the cockpit offers 失效 / 生效 / 置頂 / 提到最新
- * and the owner's 適用範圍 menu, and no edit affordance at all.
+ * `title`, `body` and `loreType` change only through `editLoreEntry`; the id,
+ * scope, state and `effectiveTs` stay put on an edit, so the entry keeps its
+ * place in the order.
  *
  * `effectiveTs` vs `createdTs`: `createdTs` is when it was written and never
  * moves; `effectiveTs` starts equal to it and is what 提到最新 sets to now. The
@@ -3648,6 +3650,8 @@ export interface LoreListOptions {
   authorIds?: string[];
   /** Sent as `lore_types`. */
   loreTypes?: LoreType[];
+  /** Sent as `entry_ids`; the server matches whole ids exactly. */
+  entryIds?: string[];
   limit?: number;
   offset?: number;
 }
@@ -3670,6 +3674,41 @@ export interface LoreEntryPageView {
   offset: number;
   capChars: number;
   firstDroppedId: string;
+  /** What the selection behind `firstDroppedId` spends; 0 with no single scope. */
+  usedChars: number;
+  /** The size of the entry `firstDroppedId` names; 0 when nothing is dropped. */
+  firstDroppedChars: number;
+  /** The same selection per scope, in walk order (`everyone` first for a member). */
+  budgetSegments: LoreBudgetSegmentView[];
+}
+
+export interface LoreBudgetSegmentView {
+  scopeKind: LoreScopeKind | "unknown";
+  /** Live (pinned + active) entries of this scope. */
+  entryCount: number;
+  chars: number;
+  fittedCount: number;
+  fittedChars: number;
+}
+
+/** One boot-document target's budget (`GET /api/lore/budgets`). */
+export interface LoreBudgetTargetView {
+  scopeKind: LoreScopeKind | "unknown";
+  /** Member id, manual type_key, or "" for `everyone`. */
+  scopeKey: string;
+  capChars: number;
+  usedChars: number;
+  /** Live entries filed under this target itself (not the `everyone` ones). */
+  entryCount: number;
+  /** Live entries the selection walks that do not fit. */
+  droppedCount: number;
+}
+
+/** `PATCH /api/lore/{entry_id}`: an omitted field is left as it is. */
+export interface LoreEntryEdit {
+  title?: string;
+  body?: string;
+  loreType?: LoreType;
 }
 
 /** What a write carries. `taskId` decides the scope and decides it alone:

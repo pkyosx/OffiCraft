@@ -189,6 +189,8 @@ import type {
   LoreEntryView,
   LoreEntryState,
   LoreEntryPageView,
+  LoreBudgetSegmentView,
+  LoreBudgetTargetView,
   LoreScopeKind,
   ChatGroupView,
   ChatGroupWrite,
@@ -2468,5 +2470,33 @@ export function toLoreEntryPage(
     offset: w.offset,
     capChars: w.cap_chars,
     firstDroppedId: w.first_dropped_id,
+    usedChars: w.used_chars ?? 0,
+    firstDroppedChars: w.first_dropped_chars ?? 0,
+    budgetSegments: (w.budget_segments ?? []).map(toLoreBudgetSegment),
   };
+}
+
+function toLoreBudgetSegment(
+  w: components["schemas"]["LoreBudgetSegmentDTO"],
+): LoreBudgetSegmentView {
+  return {
+    scopeKind: isLoreScopeKind(w.scope_kind) ? w.scope_kind : "unknown",
+    entryCount: w.entry_count,
+    chars: w.chars,
+    fittedCount: w.fitted_count,
+    fittedChars: w.fitted_chars,
+  };
+}
+
+export function toLoreBudgetTargets(
+  w: components["schemas"]["LoreBudgetListDTO"],
+): LoreBudgetTargetView[] {
+  return (w.targets ?? []).map((t) => ({
+    scopeKind: isLoreScopeKind(t.scope_kind) ? t.scope_kind : "unknown",
+    scopeKey: t.scope_key,
+    capChars: t.cap_chars,
+    usedChars: t.used_chars,
+    entryCount: t.entry_count,
+    droppedCount: t.dropped_count,
+  }));
 }

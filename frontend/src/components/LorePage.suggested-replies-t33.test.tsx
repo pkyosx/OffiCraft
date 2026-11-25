@@ -42,19 +42,47 @@ function mkEntry(over: Partial<LoreEntryView> & { id: string }): LoreEntryView {
 }
 
 function page(entries: LoreEntryView[]): LoreEntryPageView {
-  return { entries, limit: 30, offset: 0, capChars: 0, firstDroppedId: "" };
+  return {
+    entries,
+    limit: 30,
+    offset: 0,
+    capChars: 0,
+    firstDroppedId: "",
+    usedChars: 0,
+    firstDroppedChars: 0,
+    budgetSegments: [],
+  };
 }
 
 function stubList(entries: LoreEntryView[]) {
   return vi.spyOn(api, "listLoreEntries").mockResolvedValue(page(entries));
 }
 
-function renderPage() {
-  return render(
+/** Render with Mira's section as the only target and open it. */
+async function renderPage() {
+  vi.spyOn(api, "listLoreBudgets").mockResolvedValue([
+    {
+      scopeKind: "agent",
+      scopeKey: "mira",
+      capChars: 10000,
+      usedChars: 0,
+      entryCount: 0,
+      droppedCount: 0,
+    },
+  ]);
+  const r = render(
     <I18nProvider>
       <LorePage />
     </I18nProvider>,
   );
+  fireEvent.click(
+    await waitFor(() => {
+      const el = r.container.querySelector<HTMLElement>('[data-testid="lore-section-toggle"]');
+      if (!el) throw new Error("no section header");
+      return el;
+    }, { timeout: 3000 }),
+  );
+  return r;
 }
 
 beforeEach(() => {
@@ -75,7 +103,7 @@ describe("LorePage — 傳承訊息建議回覆接的是自己那一份清單", 
       suggestedRepliesLoreMessage: ["這條還適用嗎", "這條可以退場了"],
     });
     stubList([mkEntry({ id: "L-11", authorId: "mira" })]);
-    const { container } = renderPage();
+    const { container } = await renderPage();
 
     const chips = await waitFor(() => {
       const el = container.querySelector<HTMLElement>(
@@ -113,7 +141,7 @@ describe("LorePage — 傳承訊息建議回覆接的是自己那一份清單", 
       suggestedRepliesLoreMessage: [],
     });
     stubList([mkEntry({ id: "L-12", authorId: "mira" })]);
-    const { container } = renderPage();
+    const { container } = await renderPage();
     await waitFor(() =>
       expect(
         container.querySelector('[data-testid="lore-msg-input"]'),
