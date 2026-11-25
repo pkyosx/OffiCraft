@@ -13,6 +13,9 @@ import {
 } from "./seasonalSchedule";
 import { validateThemeBundleWith, type ThemeBundle } from "./themeBundleCore";
 import { validateWording } from "./themeWording";
+import { readDictMessage } from "../i18n/wording";
+import { zh } from "../i18n/locales/zh";
+import { en } from "../i18n/locales/en";
 import { paintRecordFor } from "./themePaint";
 
 const THEMES_DIR = resolve(__dirname, "../../../themes");
@@ -159,6 +162,21 @@ describe("the shipped themes/ seasonal data", () => {
           expect(words[code], `${locale} ${code}`).toBeUndefined();
         }
       }
+    });
+
+    it(`${file} keeps every plain sentence whole, adding wording only before or after it`, () => {
+      const { wording } = readThemesFile(file) as ThemeBundle;
+      const plain = { zh, en };
+      const rewritten: string[] = [];
+      for (const locale of ["zh", "en"] as const) {
+        for (const [code, text] of Object.entries(wording?.[locale] ?? {})) {
+          const original = readDictMessage(plain[locale], code);
+          if (original === null || !text.includes(original)) {
+            rewritten.push(`${locale} ${code}: "${original}" → "${text}"`);
+          }
+        }
+      }
+      expect(rewritten).toEqual([]);
     });
 
     it(`${file} still validates once pruned to the pre-paint record`, () => {

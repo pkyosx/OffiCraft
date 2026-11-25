@@ -80,7 +80,6 @@
   "wording": {
     "zh": {
       "office.membersTitle": "辦公室成員 🎆",
-      "office.noCurrentTask": "無當前任務，正在看煙火 🎆",
       "replies.empty": "✓ 目前沒有待處理的請示，連假愉快 🎉",
       "tasks.emptyNone": "目前沒有任務，抬頭看看煙火吧 🎆",
       "lore.empty": "還沒有任何傳承 ✨",
@@ -90,25 +89,10 @@
       "chat.emptyRange": "這個範圍還沒有訊息，夜空很安靜 ✨",
       "chat.galleryEmptyFiles": "還沒有檔案 ✨",
       "chat.galleryEmptyImages": "還沒有圖片 ✨",
-      "tasks.artifacts.empty": "還沒有產物 ✨",
-      "settings.configSaved": "已儲存 🎉",
-      "profile.passkeyAdded": "通行密鑰已新增 🎉",
-      "lore.messageSent": "已送出 🎉",
-      "machine.relocateSent": "已送出更換 🎉",
-      "chat.shareLinkCopied": "已複製連結 ✨",
-      "diff.shareLinkCopied": "已複製對外連結 ✨",
-      "lore.entryIdCopied": "已複製 ✨",
-      "secrets.idCopied": "已複製 ✨",
-      "mp.copied": "已複製 ✨",
-      "monitor.machine.copied": "已複製 ✨",
-      "monitor.runtimeLogin.copied": "已複製 ✨",
-      "mp.webhook.copied": "已複製 ✨",
-      "tasks.taskNoCopied": "已複製 ✨",
-      "workerDetail.copied": "已複製 ✨"
+      "tasks.artifacts.empty": "還沒有產物 ✨"
     },
     "en": {
       "office.membersTitle": "Office members 🎆",
-      "office.noCurrentTask": "No active task — watching the fireworks 🎆",
       "replies.empty": "✓ No pending asks — enjoy the long weekend 🎉",
       "tasks.emptyNone": "No tasks yet — look up at the fireworks 🎆",
       "lore.empty": "No lore yet ✨",
@@ -118,21 +102,7 @@
       "chat.emptyRange": "No messages in this range yet — a quiet night sky ✨",
       "chat.galleryEmptyFiles": "No files yet ✨",
       "chat.galleryEmptyImages": "No images yet ✨",
-      "tasks.artifacts.empty": "No artifacts yet ✨",
-      "settings.configSaved": "Saved 🎉",
-      "profile.passkeyAdded": "Passkey added 🎉",
-      "lore.messageSent": "Sent 🎉",
-      "machine.relocateSent": "Move request sent 🎉",
-      "chat.shareLinkCopied": "Link copied ✨",
-      "diff.shareLinkCopied": "External link copied ✨",
-      "lore.entryIdCopied": "Copied ✨",
-      "secrets.idCopied": "Copied ✨",
-      "mp.copied": "Copied ✨",
-      "monitor.machine.copied": "Copied ✨",
-      "monitor.runtimeLogin.copied": "Copied ✨",
-      "mp.webhook.copied": "Copied ✨",
-      "tasks.taskNoCopied": "Copied ✨",
-      "workerDetail.copied": "Copied ✨"
+      "tasks.artifacts.empty": "No artifacts yet ✨"
     }
   },
   "backgrounds": {
