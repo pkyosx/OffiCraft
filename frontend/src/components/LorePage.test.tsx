@@ -2102,6 +2102,28 @@ describe("LorePage — 依對象分段", () => {
     ]);
   });
 
+  it("the search box sends an id as entryIds and any other text as a title search q", async () => {
+    stubTargets();
+    const list = stubList(page([]));
+    const { container } = renderPage();
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
+    const box = container.querySelector<HTMLInputElement>('[data-testid="lore-filter-id"]')!;
+    const sentFor = async (typed: string) => {
+      list.mockClear();
+      fireEvent.change(box, { target: { value: typed } });
+      fireEvent.keyDown(box, { key: "Enter" });
+      await waitFor(() => expect(list).toHaveBeenCalled());
+      const { entryIds, q } = list.mock.calls[0][0]!;
+      return { entryIds, q };
+    };
+
+    expect(await sentFor("L-212")).toEqual({ entryIds: ["L-212"], q: undefined });
+    expect(await sentFor(" l-213 ")).toEqual({ entryIds: ["L-213"], q: undefined });
+    expect(await sentFor("214")).toEqual({ entryIds: ["L-214"], q: undefined });
+    expect(await sentFor(" 審查 PR ")).toEqual({ entryIds: undefined, q: "審查 PR" });
+    expect(await sentFor("L-2a")).toEqual({ entryIds: undefined, q: "L-2a" });
+  });
+
   it("a search nothing matches says so and shows no section", async () => {
     stubTargets();
     stubList(page([]));
@@ -2199,6 +2221,31 @@ describe("LorePage — 就地編輯", () => {
     expect(editor.querySelector('[data-testid="lore-edit-effect"]')!.textContent).toBe(
       "這筆從 4 字變成 23 字；只剩 10 字，這筆還是讀不到",
     );
+  });
+
+  it("an entry already over a lowered cap saves a shorter or untouched field and refuses one that grows", async () => {
+    const edit = vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
+    const longBody = "長".repeat(600);
+    stubList(page([mkEntry({ id: "L-2", title: "AAAA", body: longBody })], cap));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toEqual(["L-2"]));
+
+    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-edit"]')!);
+    const editor = rowById(container, "L-2").querySelector<HTMLElement>('[data-testid="lore-editor"]')!;
+    const save = editor.querySelector<HTMLButtonElement>('[data-testid="lore-edit-save"]')!;
+    fireEvent.change(editor.querySelector('[data-testid="lore-edit-title"]')!, { target: { value: " BBBB " } });
+    expect(save.disabled).toBe(false);
+    expect(editor.querySelector('[data-testid="lore-edit-error"]')).toBeNull();
+
+    fireEvent.change(editor.querySelector('[data-testid="lore-edit-body"]')!, { target: { value: longBody + "長" } });
+    expect(save.disabled).toBe(true);
+    expect(editor.querySelector('[data-testid="lore-edit-error"]')!.textContent).toBe("超過字數上限");
+
+    fireEvent.change(editor.querySelector('[data-testid="lore-edit-body"]')!, { target: { value: "長".repeat(550) } });
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    await waitFor(() => expect(edit).toHaveBeenCalled());
+    expect(edit.mock.calls).toEqual([["L-2", { title: "BBBB", body: "長".repeat(550) }]]);
   });
 
   it("a refused save keeps the editor and the draft and says why", async () => {

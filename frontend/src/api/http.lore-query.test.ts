@@ -57,6 +57,7 @@ describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)
       states: ["active", "pinned"],
       authorIds: ["mira", "nova"],
       entryIds: ["L-12", "L-30"],
+      q: "審查 100%",
     });
     const u = lastUrl();
     expect(u.pathname).toBe("/api/lore");
@@ -67,6 +68,7 @@ describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)
     expect(u.searchParams.getAll("states")).toEqual(["active", "pinned"]);
     expect(u.searchParams.getAll("author_ids")).toEqual(["mira", "nova"]);
     expect(u.searchParams.getAll("entry_ids")).toEqual(["L-12", "L-30"]);
+    expect(u.searchParams.getAll("q")).toEqual(["審查 100%"]);
     // Repeated, NOT comma-joined into one value — the server binds these as an
     // array and a single "agent,manual" would be one unknown kind, a 400.
     expect(u.search).toContain("scope_kinds=agent&scope_kinds=manual");
@@ -81,8 +83,10 @@ describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)
       scopeKeys: [],
       states: [],
       authorIds: [],
+      q: "  ",
     });
     const u = lastUrl();
+    expect(u.searchParams.has("q")).toBe(false);
     expect(u.searchParams.has("scope_kinds")).toBe(false);
     expect(u.searchParams.has("scope_keys")).toBe(false);
     expect(u.searchParams.has("states")).toBe(false);

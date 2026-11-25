@@ -102,7 +102,6 @@ export const zh = {
     messageAuthor: "傳訊息給撰寫人",
     messagePlaceholder: (name: string) => `傳訊息給 ${name}…`,
     messageSend: "送出",
-    messagePrefixNote: (entryId: string) => `會以 ${entryId} 開頭送出`,
     messageFailed: "訊息沒有送出去，你打的字還留著，可以再送一次",
     effectiveLabel: "生效期",
     bump: "提到最新",
@@ -116,7 +115,7 @@ export const zh = {
     scopeTagCurrent: "目前",
     // 篩選列
     clearFilters: "清除篩選",
-    idSearchLabel: "傳承編號",
+    idSearchLabel: "編號或標題",
     collapseAll: "全部收合",
     filterAuthorNoun: "撰寫人",
     filterAuthorAll: "所有撰寫人",

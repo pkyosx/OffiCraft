@@ -2351,6 +2351,7 @@ export const httpApi: Api = {
       author_ids?: string[];
       lore_types?: string[];
       entry_ids?: string[];
+      q?: string;
       limit?: number;
       offset?: number;
     } = {};
@@ -2374,6 +2375,7 @@ export const httpApi: Api = {
     if (opts?.entryIds && opts.entryIds.length > 0) {
       query.entry_ids = opts.entryIds;
     }
+    if (opts?.q && opts.q.trim() !== "") query.q = opts.q;
     if (opts?.limit !== undefined) query.limit = opts.limit;
     if (opts?.offset !== undefined) query.offset = opts.offset;
     const wire = unwrap(await client.GET("/api/lore", { params: { query } }));

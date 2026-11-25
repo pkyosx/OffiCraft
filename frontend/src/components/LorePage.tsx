@@ -181,12 +181,19 @@ function entryChars(title: string, body: string): number {
   return [...title].length + [...body].length;
 }
 
-/** `212` and `l-212` both mean L-212; anything else is sent as typed. */
-function normalizeEntryId(raw: string): string {
+/** `212`, `L-212` and `l-212` all mean L-212; null when the text is not an id. */
+function normalizeEntryId(raw: string): string | null {
   const v = raw.trim();
   if (/^\d+$/.test(v)) return `L-${v}`;
-  if (/^l-/i.test(v)) return `L-${v.slice(2)}`;
-  return v;
+  const m = /^l-(\d+)$/i.exec(v);
+  return m ? `L-${m[1]}` : null;
+}
+
+/** Mirrors the server's shrink-only cap: a field over its cap may be saved
+ * only when it comes out shorter than what is stored. */
+function editFieldBlocked(next: string, stored: string, capChars: number): boolean {
+  const n = [...next].length;
+  return next !== stored && n > capChars && n >= [...stored].length;
 }
 
 /** A changed card keeps its place until the section reloads, even when its
@@ -235,8 +242,8 @@ export function LorePage({
   }, []);
 
   // ── 篩選 ────────────────────────────────────────────────────────────────
-  const [idDraft, setIdDraft] = useState("");
-  const [appliedId, setAppliedId] = useState("");
+  const [searchDraft, setSearchDraft] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
   const [states, setStates] = useState<Set<LoreEntryState>>(new Set(DEFAULT_STATES));
   const [authors, setAuthors] = useState<Set<string>>(new Set());
   const [loreTypes, setLoreTypes] = useState<Set<LoreType>>(new Set());
@@ -246,9 +253,13 @@ export function LorePage({
     if (states.size > 0) next.states = [...states];
     if (authors.size > 0) next.authorIds = [...authors];
     if (loreTypes.size > 0) next.loreTypes = [...loreTypes];
-    if (appliedId !== "") next.entryIds = [appliedId];
+    if (appliedSearch !== "") {
+      const id = normalizeEntryId(appliedSearch);
+      if (id !== null) next.entryIds = [id];
+      else next.q = appliedSearch;
+    }
     return next;
-  }, [states, authors, loreTypes, appliedId]);
+  }, [states, authors, loreTypes, appliedSearch]);
   const filterKey = JSON.stringify(baseOpts);
 
   // Ticking 已失效 only ADDS rows to a section, so it does not count as a
@@ -256,13 +267,13 @@ export function LorePage({
   const statesNarrow =
     states.size > 0 && DEFAULT_STATES.some((s) => !states.has(s));
   const narrowing =
-    appliedId !== "" || authors.size > 0 || loreTypes.size > 0 || statesNarrow;
+    appliedSearch !== "" || authors.size > 0 || loreTypes.size > 0 || statesNarrow;
   const statesAtDefault =
     states.size === DEFAULT_STATES.length && DEFAULT_STATES.every((s) => states.has(s));
 
   function clearFilters() {
-    setIdDraft("");
-    setAppliedId("");
+    setSearchDraft("");
+    setAppliedSearch("");
     setStates(new Set(DEFAULT_STATES));
     setAuthors(new Set());
     setLoreTypes(new Set());
@@ -1094,9 +1105,9 @@ export function LorePage({
         }
       >
         <IdFilterInput
-          value={idDraft}
-          onChange={setIdDraft}
-          onCommit={(v) => setAppliedId(normalizeEntryId(v))}
+          value={searchDraft}
+          onChange={setSearchDraft}
+          onCommit={(v) => setAppliedSearch(v.trim())}
           label={t.lore.idSearchLabel}
           testId="lore-filter-id"
           widthCh={7}
@@ -1966,15 +1977,20 @@ function LoreEntryEditor({
   const titleLen = [...title].length;
   const bodyLen = [...body].length;
   const titleBlank = title.trim() === "";
-  const over = titleLen > caps.title || bodyLen > caps.body;
-  const changed = title !== entry.title || body !== entry.body || loreType !== entry.loreType;
+  const nextTitle = title.trim();
+  const nextBody = body.trim();
+  const over =
+    editFieldBlocked(nextTitle, entry.title, caps.title) ||
+    editFieldBlocked(nextBody, entry.body, caps.body);
+  const changed =
+    nextTitle !== entry.title || nextBody !== entry.body || loreType !== entry.loreType;
   const canSave = !saving && changed && !titleBlank && !over;
 
   async function save() {
     if (!canSave) return;
     const patch: LoreEntryEdit = {};
-    if (title !== entry.title) patch.title = title;
-    if (body !== entry.body) patch.body = body;
+    if (nextTitle !== entry.title) patch.title = nextTitle;
+    if (nextBody !== entry.body) patch.body = nextBody;
     if (loreType !== entry.loreType) patch.loreType = loreType;
     setSaving(true);
     setError(null);

@@ -119,9 +119,9 @@ const DOC_CAP_ORDER: DocCapField[] = [
  * table carries one shared floor of `DOC_CAP_CHARS_MIN` and a ceiling of 100000;
  * these four sit in two ranges of their own, neither of them that one. Both
  * tables go DOWN as well as up: a doc cap binds the next write against a STORED
- * document (owner 2026-09-07), and a 傳承 entry has NO EDIT PATH AT ALL, so a
- * smaller cap cannot strand one that is already stored either. The owner lowered
- * two of these himself the day they shipped (title 140 → 80, body 1000 → 500).
+ * document (owner 2026-09-07), and an over-cap 傳承 field stays as stored and
+ * can still be edited as long as the edit shortens it. The owner lowered two of
+ * these himself the day they shipped (title 140 → 80, body 1000 → 500).
  *
  * They are a TABLE rather than four hand-written rows because, unlike the chat
  * budget and the step-note cap, these four are the same shape as each other —

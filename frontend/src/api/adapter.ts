@@ -1373,11 +1373,11 @@ export interface ServerSettingsView {
    * own, T-236), and how much `get_task_manual`
    * appends after a type's SOP. They are never summed: different readers
    * pay them at different moments. The last two bound ONE entry's title and
-   * body at write time.
-   * NOT document caps — a 傳承 entry has no edit path, so a lowered cap cannot
-   * strand anything already stored and all four may be turned DOWN as well as
-   * up. Defaults and the two ranges in `loreCap.ts` (mirroring
-   * server/ocserverd/domain.go). */
+   * body at write and edit time.
+   * NOT document caps — all four may be turned DOWN as well as up; an entry
+   * already over a lowered title/body cap stays as stored and an edit of that
+   * field is accepted only when it shortens the field. Defaults and the two ranges
+   * in `loreCap.ts` (mirroring server/ocserverd/domain.go). */
   loreCapCharsRole: number;
   loreCapCharsManual: number;
   loreCapCharsTitle: number;
@@ -3652,6 +3652,8 @@ export interface LoreListOptions {
   loreTypes?: LoreType[];
   /** Sent as `entry_ids`; the server matches whole ids exactly. */
   entryIds?: string[];
+  /** Sent as `q`: a substring of the title; the body is not searched. */
+  q?: string;
   limit?: number;
   offset?: number;
 }

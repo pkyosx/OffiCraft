@@ -6364,6 +6364,7 @@ const mockApiImpl = {
     const authors = axis(opts?.authorIds, opts?.authorId);
     const loreTypes = opts?.loreTypes ?? [];
     const entryIds = (opts?.entryIds ?? []).filter((id) => id.trim() !== "");
+    const titleQ = (opts?.q ?? "").trim().toLowerCase();
     for (const lt of loreTypes) {
       if (!isLoreType(lt)) {
         throw mockApiError(
@@ -6380,7 +6381,8 @@ const mockApiImpl = {
         (states.length === 0 || states.includes(e.state)) &&
         (authors.length === 0 || authors.includes(e.authorId)) &&
         (loreTypes.length === 0 || loreTypes.includes(e.loreType)) &&
-        (entryIds.length === 0 || entryIds.includes(e.id))
+        (entryIds.length === 0 || entryIds.includes(e.id)) &&
+        (titleQ === "" || e.title.toLowerCase().includes(titleQ))
     );
     const ordered = [...matches].sort(mockLoreOrder);
 
@@ -7796,8 +7798,7 @@ const mockApiImpl = {
     // T-33 傳承 knobs. TWO ranges, not one: the fold budgets are
     // document-sized and the entry bounds are sentence-sized, so a shared range
     // would either let a title grow into a document or stop a fold from holding
-    // more than a paragraph. None of the four floors is its shipped default —
-    // an entry cannot be edited, so a lower cap strands nothing already stored.
+    // more than a paragraph. None of the four floors is its shipped default.
     for (const [field, value, min, max] of [
       [
         "lore_cap_chars_role",
