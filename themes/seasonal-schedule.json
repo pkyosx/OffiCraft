@@ -30,5 +30,25 @@
       { "start": "16:00", "theme": "christmas-2026-dusk.theme.json" },
       { "start": "18:30", "theme": "christmas-2026-night.theme.json" }
     ]
+  },
+  {
+    "id": "new-years-eve-2026",
+    "start": "2026-12-31T06:00",
+    "end": "2027-01-01T00:00",
+    "schedule": [
+      { "start": "06:00", "theme": "new-years-eve-2026-day.theme.json" },
+      { "start": "16:00", "theme": "new-years-eve-2026-dusk.theme.json" },
+      { "start": "18:30", "theme": "new-years-eve-2026-night.theme.json" }
+    ]
+  },
+  {
+    "id": "new-year-2027",
+    "start": "2027-01-01T00:00",
+    "end": "2027-01-02T00:00",
+    "schedule": [
+      { "start": "06:00", "theme": "new-year-2027-day.theme.json" },
+      { "start": "16:00", "theme": "new-year-2027-dusk.theme.json" },
+      { "start": "18:30", "theme": "new-year-2027-night.theme.json" }
+    ]
   }
 ]
