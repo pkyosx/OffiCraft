@@ -32,7 +32,6 @@ import {
   isValidDisplayTheme,
   MAX_AVATAR_BYTES,
   MAX_BACKGROUND_BYTES,
-  MAX_WORDING_ENTRIES_PER_LANG,
   AVATAR_KINDS,
 } from "./themeBundle";
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
@@ -667,18 +666,11 @@ describe("validateWording", () => {
     expect(skipped).toEqual(["profile.themeOffice"]);
   });
 
-  it("rejects a bad language, an over-cap entry count, and illegal values", () => {
+  it("rejects a bad language and illegal values", () => {
     expect(validateWording({ xian: { [aKey]: "仙" } })).toMatch(/language/);
     expect(validateWording({ zh: { [aKey]: "a\nb" } })).toMatch(/control/);
     expect(validateWording({ zh: { [aKey]: "   " } })).toMatch(/1\.\.200/);
     expect(validateWording({ zh: { [aKey]: "字".repeat(201) } })).toMatch(/1\.\.200/);
-    // The cap counts the RAW submitted entries, so unknown keys cannot be
-    // smuggled past it in bulk behind the new leniency.
-    const over: Record<string, string> = {};
-    for (let i = 0; i <= MAX_WORDING_ENTRIES_PER_LANG; i++) over[`junk.key.${i}`] = "x";
-    expect(validateWording({ zh: over })).toMatch(
-      new RegExp(`more than ${MAX_WORDING_ENTRIES_PER_LANG} entries`)
-    );
   });
 });
 

@@ -189,10 +189,9 @@ function normalizeEntryId(raw: string): string {
   return v;
 }
 
-/** Where a changed card goes once its fresh row arrives. 🔴 Owner has not
- * decided yet whether a bumped or re-stated card should move; until then it
- * stays where it stands. Moving it (with the viewport anchored and a 前往/復原
- * toast) is a change to this function and its one caller, nothing else. */
+/** A changed card keeps its place until the section reloads, even when its
+ * new state or a bump would sort it elsewhere: the owner changes several
+ * cards in one pass and must not lose the spot they were working at. */
 function placeChangedRows(
   entries: LoreEntryView[],
   fresh: Map<string, LoreEntryView>

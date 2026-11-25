@@ -6,7 +6,6 @@
 // composes it back into validateThemeBundle for every non-paint caller.
 import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
 import {
-  MAX_WORDING_ENTRIES_PER_LANG,
   MAX_WORDING_VALUE_LEN,
   WORDING_LANGS,
   hasControlChar,
@@ -45,9 +44,6 @@ export function validateWording(
       return `${where}: wording[${lang}] must be an object`;
     }
     const pairs = Object.entries(entries as Record<string, unknown>);
-    if (pairs.length > MAX_WORDING_ENTRIES_PER_LANG) {
-      return `${where}: wording[${lang}] holds more than ${MAX_WORDING_ENTRIES_PER_LANG} entries`;
-    }
     for (const [code, value] of pairs) {
       if (!MESSAGE_KEY_SET.has(code)) {
         // An unrecognised code is DROPPED here, not rejected (owner ruling

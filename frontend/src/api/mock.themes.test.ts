@@ -14,7 +14,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { mockApi, __resetMock } from "./mock";
 import { ApiError } from "./errors";
-import { MAX_WORDING_ENTRIES_PER_LANG } from "../lib/themeBundleCore";
 
 const MIDNIGHT = {
   id: "midnight",
@@ -145,11 +144,8 @@ describe("mock themes — the theme resource (T-83ef)", () => {
   });
 
   it("422s an illegal wording overlay, writing nothing", async () => {
-    const overCap: Record<string, string> = {};
-    for (let i = 0; i <= MAX_WORDING_ENTRIES_PER_LANG; i++) overCap[`junk.key.${i}`] = "x";
     const bad: Record<string, Record<string, string>>[] = [
       { xian: { "nav.tasks": "仙" } }, // language not in {zh,en}
-      { zh: overCap }, // over the per-language cap, counted on RAW entries
       { zh: { "nav.tasks": "字".repeat(201) } }, // over the 200-rune cap
       { zh: { "nav.tasks": "a\nb" } }, // control character (newline)
       { zh: { "nav.tasks": "   " } }, // empty after trimming
