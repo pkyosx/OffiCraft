@@ -182,11 +182,10 @@ for (const theme of ["dark", "light", "halloween"] as const) {
       return { headings, sections };
     });
 
-    const ungrouped = theme === "halloween" ? "遊蕩中" : "未分組";
     expect(m.headings).toEqual([
       { text: "核心 · 23", expanded: "false", labelWeight: "700" },
       { text: "工程 · 2", expanded: "true", labelWeight: "700" },
-      { text: `${ungrouped} · 2`, expanded: "true", labelWeight: "700" },
+      { text: "未分組 · 2", expanded: "true", labelWeight: "700" },
     ]);
     expect(m.sections.map(({ contrast: _c, ...rest }) => rest)).toEqual([
       {
