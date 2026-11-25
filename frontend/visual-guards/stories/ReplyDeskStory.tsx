@@ -6,14 +6,20 @@
 // stamp is a full return date. `questions` adds the newest waiting card, whose
 // question has a body with a mention and a link and runs taller than a phone's
 // room above the selection bar, a waiting secret card, and an answered card in
-// 近期已處理.
+// 近期已處理. `longAskers` adds waiting cards from askers whose name, role or
+// (an outsource worker's) current task is longer than a phone's head line.
 import { I18nProvider } from "../../src/i18n";
 import { RepliesPage } from "../../src/components/RepliesPage";
 import { ReplyCardsProvider } from "../../src/hooks/useReplyCards";
-import { __injectMockReplyCard, __injectMockMember } from "../../src/api/mock";
+import {
+  __injectMockReplyCard,
+  __injectMockMember,
+  __injectMockOutsourceWorker,
+  __injectMockTask,
+} from "../../src/api/mock";
 import { api } from "../../src/api";
 import { QUESTION_BODY, QUESTION_SUMMARY } from "./replyDeskQuestion";
-import type { ReplyCard } from "../../src/api/adapter";
+import type { ReplyCard, TaskView } from "../../src/api/adapter";
 import "../../src/components/chrome.css";
 
 const NOW = Date.now() / 1000;
@@ -38,9 +44,45 @@ function card(over: Partial<ReplyCard>): ReplyCard {
 }
 
 let seeded = false;
-function seed(questions: boolean) {
+function seed(questions: boolean, longAskers: boolean) {
   if (seeded) return;
   seeded = true;
+  if (longAskers) {
+    __injectMockMember({ id: "gf-eva", kind: "staff", name: "GF Eva Rhapsody Inbox" });
+    __injectMockMember({
+      id: "long-role",
+      kind: "staff",
+      name: "Iris",
+      role_key: "custom",
+      role_name: "OffiCraft 入門介紹影片（繁中，4 章＋完整版）",
+    });
+    __injectMockReplyCard(
+      card({ id: "rc-desk-long-name", from: "gf-eva", createdTs: NOW - 40 * 60, task: null })
+    );
+    __injectMockTask({
+      id: "t-long",
+      taskNo: "T-90210",
+      title: "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面",
+      status: "in_progress",
+      steps: [],
+      deps: [],
+    } as unknown as TaskView);
+    __injectMockOutsourceWorker({
+      id: "ow-long-task",
+      codename: "O-162",
+      model: "opus",
+      effort: "medium",
+      status: "active",
+      taskId: "t-long",
+      taskTitle: "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面",
+    });
+    __injectMockReplyCard(
+      card({ id: "rc-desk-long-role", from: "long-role", createdTs: NOW - 50 * 60, task: null })
+    );
+    __injectMockReplyCard(
+      card({ id: "rc-desk-long-task", from: "ow-long-task", createdTs: NOW - 55 * 60, task: null })
+    );
+  }
   if (questions) {
     __injectMockReplyCard(
       card({
@@ -125,14 +167,16 @@ export function ReplyDeskStory({
   questions = false,
   cardReadFails = false,
   cardReadHangs = false,
+  longAskers = false,
 }: {
   questions?: boolean;
+  longAskers?: boolean;
   /** Every one-card read fails: opening a card and 複製 alike. */
   cardReadFails?: boolean;
   /** Every one-card read stays in flight. */
   cardReadHangs?: boolean;
 }) {
-  seed(questions);
+  seed(questions, longAskers);
   if (cardReadFails) api.getReplyCard = failRead;
   if (cardReadHangs) api.getReplyCard = hangRead;
   // Another window's 稍後再看, for a guard that needs a card to change panes

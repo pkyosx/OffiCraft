@@ -255,12 +255,14 @@ describe("ChatReplyCard", () => {
   it("expires a waiting card only after the existing confirmation flow", async () => {
     __injectMockReplyCard(mkCard({}));
     const expire = vi.spyOn(api, "expireReplyCard");
-    const { container, findByTestId, queryByTestId } = await renderOpenCard();
+    const { container, findByRole, findByTestId, queryByTestId } = await renderOpenCard();
     const card = container.querySelector<HTMLElement>(
       '[data-testid="chat-reply-card"]',
     )!;
 
-    fireEvent.click(await findByTestId("chat-reply-card-expire"));
+    const button = await findByRole("button", { name: "標為過期" });
+    expect(button.getAttribute("title")).toBe("標為過期");
+    fireEvent.click(button);
     expect((await findByTestId("expire-confirm")).textContent).toContain(
       "要把「要幫你寄出這封信嗎？」標為過期嗎?",
     );

@@ -2,34 +2,37 @@
 // surface of `CurrentTaskTitle` (after the office rail row and the worker chat
 // header) and the first one that sits inside a flex ROW next to other controls.
 //
-// jsdom resolves no -webkit-line-clamp box and no layout, so every property
-// below is invisible to the unit tests that pin the line's CONTENT:
-//   · the clamp is real HERE too — the rail's rule reaches this surface only
-//     because RepliesPage imports office.css. Someone removing that import as
-//     an unused-looking tidy-up reddens nothing in vitest.
+// jsdom resolves no -webkit-line-clamp box, no ellipsis and no layout, so every
+// property below is invisible to the unit tests that pin the line's CONTENT:
+//   · wider than a phone the title clamps to two lines HERE too — the rail's
+//     rule reaches this surface only because RepliesPage imports office.css.
+//     Someone removing that import as an unused-looking tidy-up reddens
+//     nothing in vitest.
+//   · on a phone (≤720px) the reply head cuts it to one line ending in 「…」
+//     (replies.css), so the head keeps the buttons beside the name.
 //   · a long title must not push the card into horizontal scroll, and must not
-//     squeeze the head's own controls (跳到原訊息 / 已等你) out of the card.
+//     push the head's own controls (跳到原訊息 / 已等你) out of the card.
 //
-// Mutants actually run against this guard when it was written:
-//   1. `clamp` → `clamp={false}` in the story → clientHeight reaches
-//      scrollHeight → the "content is clipped" bound reddens (2 of 3 red).
+// Mutants run against this guard on the current code:
+//   1. `clamp` → `clamp={false}` in the story → the 1280 "clipped (clamped)"
+//      bound reddens (a phone head cuts the title to one line either way).
 //   2. drop the `title={title}` attr in CurrentTaskTitle → the hover-full
-//      assertion reddens (2 of 3 red).
-// 🔴 AND ONE THAT DID **NOT** REDDEN, recorded because a guard nobody could
+//      assertion reddens at 390 and 1280.
+//   3. drop `text-overflow: ellipsis` from the phone rule in replies.css → "the
+//      cut end is drawn as 「…」" reddens at 390.
+// 🔴 AND TWO THAT DID **NOT** REDDEN, recorded because a guard nobody could
 // make fail is worth exactly what it can be shown to catch: removing
-// `min-width: 0` from `.reply-card__worker-task` left all three green, and so
-// did removing `overflow-wrap: anywhere` from `.current-task-title`. The title
-// shrinks regardless here (CJK wraps between characters), so assertions (3) and
-// (4) below — no horizontal overflow, head controls stay inside the card — are
-// NOT known to bite. They are kept as a floor against a future fixed width or
-// `nowrap` on this line, not claimed as proven guards. Do not cite them as
-// coverage for the two CSS properties above: those two have none.
+// `min-width: 0` from `.reply-card__worker-task`, and removing
+// `overflow-wrap: anywhere` from `.current-task-title`, left this file green.
+// Assertions (3) and (4) below — no horizontal overflow, head controls stay
+// inside the card — are NOT known to bite; they are kept as a floor, not
+// claimed as coverage for those two properties.
 import { test, expect } from "@playwright/experimental-ct-react";
 import { ReplyCardWorkerTaskStory } from "./stories/ReplyCardWorkerTaskStory";
 import { VERY_LONG_TITLE } from "./stories/currentTaskFixtures";
 
 for (const width of [390, 1280]) {
-  test(`width ${width}: the asker's task title clamps, keeps full text on hover, and never widens the card`, async ({
+  test(`width ${width}: the asker's task title ${width <= 720 ? "keeps to one line cut with an ellipsis" : "clamps"}, keeps full text on hover, and never widens the card`, async ({
     mount,
     page,
   }) => {
@@ -42,24 +45,37 @@ for (const width of [390, 1280]) {
     // (1) the ENTIRE title rides the native tooltip, as it does in the rail.
     await expect(title).toHaveAttribute("title", VERY_LONG_TITLE);
 
-    // (2) the clamp is REAL: the visible box is strictly shorter than the full
-    // content, i.e. the text is being clipped rather than merely being short.
+    // (2) the text is really cut, not merely short: on a phone one line whose
+    // end is drawn as 「…」 (the same box with the ellipsis turned off paints
+    // differently), wider than that two clamped lines.
     const m = await title.evaluate((el) => {
-      const cs = getComputedStyle(el);
+      const e = el as HTMLElement;
       return {
-        clientHeight: (el as HTMLElement).clientHeight,
-        scrollHeight: (el as HTMLElement).scrollHeight,
-        lineHeight: parseFloat(cs.lineHeight),
+        clientHeight: e.clientHeight,
+        scrollHeight: e.scrollHeight,
+        clientWidth: e.clientWidth,
+        scrollWidth: e.scrollWidth,
+        lineHeight: parseFloat(getComputedStyle(el).lineHeight),
       };
     });
-    expect(
-      m.clientHeight,
-      "title is clipped (clamped), not merely short",
-    ).toBeLessThan(m.scrollHeight);
-    expect(
-      m.clientHeight,
-      "clamped to about two lines",
-    ).toBeLessThanOrEqual(Math.ceil(m.lineHeight * 2) + 2);
+    if (width <= 720) {
+      expect(m.clientWidth, "title is cut, not merely short").toBeLessThan(m.scrollWidth);
+      expect(m.clientHeight, "one line").toBeLessThanOrEqual(Math.ceil(m.lineHeight) + 1);
+      const drawn = await title.screenshot();
+      await title.evaluate((el) => ((el as HTMLElement).style.textOverflow = "clip"));
+      const clipped = await title.screenshot();
+      await title.evaluate((el) => ((el as HTMLElement).style.textOverflow = ""));
+      expect(drawn.equals(clipped), "the cut end is drawn as 「…」").toBe(false);
+    } else {
+      expect(
+        m.clientHeight,
+        "title is clipped (clamped), not merely short",
+      ).toBeLessThan(m.scrollHeight);
+      expect(
+        m.clientHeight,
+        "clamped to about two lines",
+      ).toBeLessThanOrEqual(Math.ceil(m.lineHeight * 2) + 2);
+    }
 
     // (3) the card does not scroll sideways because of it, at either width.
     const card = cmp.getByTestId("card");
@@ -70,13 +86,16 @@ for (const width of [390, 1280]) {
     expect(overflow, "card has no horizontal overflow").toBeLessThanOrEqual(1);
 
     // (4) the head's own controls are still inside the card — a long task title
-    // must take height, never the space the actions live in.
+    // never takes the space the actions live in.
     const cardBox = (await card.boundingBox())!;
-    for (const sel of [".reply-card__jump", ".reply-card__waited"]) {
-      const box = (await cmp.locator(sel).boundingBox())!;
+    for (const [what, control] of [
+      ["跳到原訊息", cmp.getByRole("button", { name: "跳到原訊息", exact: true })],
+      ["the waited stamp", cmp.locator(".reply-card__waited")],
+    ] as const) {
+      const box = (await control.boundingBox())!;
       expect(
         box.x + box.width,
-        `${sel} stays within the card`,
+        `${what} stays within the card`,
       ).toBeLessThanOrEqual(cardBox.x + cardBox.width + 1);
     }
   });

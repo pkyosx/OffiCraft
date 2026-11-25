@@ -42,6 +42,81 @@ const inside = (inner: Box, outer: Box, slack = 0.5) =>
   inner.top >= outer.top - slack &&
   inner.bottom <= outer.bottom + slack;
 
+const overlaps = (a: Box, b: Box) =>
+  a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+/** What the element draws stays within its own box (a label in a box sized for
+ * an icon spills out of it). */
+async function contentFits(l: Locator): Promise<boolean> {
+  return l.evaluate((el) => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight);
+}
+
+const HEAD_BUTTONS = {
+  zh: { jump: "跳到原訊息", snooze: "稍後再看", expire: "標為過期", unsnooze: "取消延後" },
+  en: { jump: "View in chat", snooze: "Later", expire: "Mark expired", unsnooze: "Bring back now" },
+};
+
+/** Whether anything in the name column paints into the strip between it and
+ * the buttons: the strip is captured with the column shown and with it hidden,
+ * and the two only match when every line of it is cut at the column's edge. */
+async function nameColumnDrawsPastItsEdge(page: Page, w: Box, a: Box): Promise<boolean> {
+  const clip = { x: w.right + 1, y: w.top, width: Math.max(1, a.left - w.right - 2), height: w.bottom - w.top };
+  const shown = await page.screenshot({ clip });
+  const hidden = await page.screenshot({ clip, style: ".reply-card__who { visibility: hidden !important; }" });
+  return !shown.equals(hidden);
+}
+
+/** On a phone the head's first line is the avatar, the name column beside it
+ * (name, role and an outsource asker's task lines, each one line, cut at the
+ * column's edge, the title line with 「…」) and the buttons at its right end;
+ * the stamp is alone on the line under them, at the right. Returns the texts
+ * that had to be cut. */
+async function expectPhoneHeadLines(card: Locator, what: string): Promise<string[]> {
+  const head = card.locator(".reply-card__head");
+  await head.scrollIntoViewIfNeeded();
+  const h = await box(head);
+  const a = await box(head.locator(".reply-card__actions"));
+  const avatar = await box(head.locator(".reply-card__avatar"));
+  const w = await box(head.locator(".reply-card__who"));
+  const stamp = head.locator(":scope > .reply-card__waited, :scope > .reply-card__answered-at");
+  expect(await contentFits(stamp), `${what}: the stamp shows its whole text`).toBe(true);
+  const s = await box(stamp);
+  expect(w.top, `${what}: the name beside the avatar, not under it`).toBeLessThan(avatar.bottom);
+  expect(w.left, `${what}: the name right of the avatar`).toBeGreaterThanOrEqual(avatar.right);
+  expect(w.right, `${what}: the name column ends before the buttons`).toBeLessThanOrEqual(a.left + 0.5);
+  expect(await nameColumnDrawsPastItsEdge(card.page(), w, a), `${what}: the name column's lines stop at its edge`).toBe(false);
+  const cutTexts: string[] = [];
+  for (const line of await head.locator(".reply-card__name, .reply-card__role, .current-task-title").all()) {
+    const text = (await line.textContent()) ?? "";
+    expect(await textLines(line), `${what}: 「${text}」 on one line`).toBe(1);
+    const over = await line.evaluate((el) => el.scrollWidth > el.clientWidth);
+    if (!over) continue;
+    cutTexts.push(text);
+    expect(await line.getAttribute("title"), `${what}: 「${text}」 whole on hover`).toBe(text);
+    const drawn = await line.screenshot();
+    await line.evaluate((el) => ((el as HTMLElement).style.textOverflow = "clip"));
+    const clipped = await line.screenshot();
+    await line.evaluate((el) => ((el as HTMLElement).style.textOverflow = ""));
+    expect(drawn.equals(clipped), `${what}: 「${text}」 ends in 「…」`).toBe(false);
+  }
+  expect(inside(a, h), `${what}: the buttons inside the head`).toBe(true);
+  expect(Math.abs(a.right - h.right), `${what}: the buttons at the head's right end`).toBeLessThanOrEqual(0.5);
+  expect(a.top < avatar.bottom && avatar.top < a.bottom, `${what}: the buttons on the avatar's line`).toBe(true);
+  expect(s.top, `${what}: the stamp under the buttons`).toBeGreaterThanOrEqual(a.bottom - 0.5);
+  expect(s.top, `${what}: the stamp under the name column`).toBeGreaterThanOrEqual(w.bottom - 0.5);
+  expect(Math.abs(s.right - h.right), `${what}: the stamp at the head's right end`).toBeLessThanOrEqual(0.5);
+  expect(inside(s, h), `${what}: the stamp inside the head`).toBe(true);
+  return cutTexts;
+}
+
+/** The line each `longAskers` card has too long for a phone's name column, and
+ * the widths it is too long at. */
+const LONG_ASKER_LINES: Record<string, { text: string; widths: number[] }> = {
+  "rc-desk-long-name": { text: "GF Eva Rhapsody Inbox", widths: [320, 390] },
+  "rc-desk-long-role": { text: "OffiCraft 入門介紹影片（繁中，4 章＋完整版）", widths: [320, 390] },
+  "rc-desk-long-task": { text: "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面", widths: [320, 390] },
+};
+
 async function noPageOverflow(page: Page) {
   const m = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth,
@@ -50,42 +125,75 @@ async function noPageOverflow(page: Page) {
   expect(m.scroll, "the page does not scroll sideways").toBeLessThanOrEqual(m.client);
 }
 
-for (const width of [390, 1440]) {
-  test(`width ${width}: the head buttons sit together on one line, each label on one line, and the task row with its chips stays inside its card`, async ({
-    mount,
-    page,
-  }) => {
-    await page.setViewportSize({ width, height: 900 });
-    const cmp = await mount(<ReplyDeskStory />);
-    await expect(cmp.getByTestId("waiting-card")).toHaveCount(3);
+for (const width of [320, 390, 1440]) {
+  test.describe(() => {
+    test.use({ hasTouch: width <= 720 });
+    test(`width ${width}${width <= 720 ? ", touch" : ""}: 複製, 跳到原訊息, 稍後再看 and 標為過期 sit together on one line in the head, ${width <= 720 ? "32px apart centre to centre (26px buttons, 6px apart)" : "26px apart centre to centre (22px buttons, 4px apart)"}, each icon inside its own button, clear of each other and of the waited stamp${width <= 720 ? ", the buttons at the right end of the name's line beside the avatar and the name column, whose name, role and task lines stay one line each, cut with an ellipsis however long, and the stamp under them at the right on waiting and snoozed cards" : ""}, and the task row with its chips stays inside its card`, async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      const cmp = await mount(<ReplyDeskStory longAskers />);
+      expect(await page.evaluate(() => matchMedia("(hover: none)").matches), "control: the touch-sized buttons").toBe(width <= 720);
+      await expect(cmp.getByTestId("waiting-card")).toHaveCount(6);
 
-    for (const card of await cmp.getByTestId("waiting-card").all()) {
-      const cardBox = await box(card);
-      const buttons = await card.locator(".reply-card__head .reply-card__jump").all();
-      expect(buttons.length).toBe(3);
-      const tops: number[] = [];
-      for (const button of buttons) {
-        expect(await textLines(button), `${await button.textContent()} stays on one line`).toBe(1);
-        const b = await box(button);
-        expect(inside(b, cardBox)).toBe(true);
-        tops.push(b.top);
+      for (const card of await cmp.getByTestId("waiting-card").all()) {
+        await card.scrollIntoViewIfNeeded();
+        const cardBox = await box(card);
+        const names = ["複製訊息", ...Object.values(HEAD_BUTTONS.zh).filter((n) => n !== "取消延後")];
+        const waited = await box(card.getByTestId("waited"));
+        expect(inside(waited, cardBox), "the waited stamp inside the card").toBe(true);
+        const boxes: Box[] = [];
+        for (const name of names) {
+          const button = card.getByRole("button", { name, exact: true });
+          await expect(button).toHaveAttribute("title", name);
+          expect(await contentFits(button), `${name}'s icon inside its button`).toBe(true);
+          const b = await box(button);
+          expect(inside(b, cardBox), `${name} inside the card`).toBe(true);
+          expect(overlaps(b, waited), `${name} clear of the waited stamp`).toBe(false);
+          for (const other of boxes) expect(overlaps(b, other), `${name} clear of the button before it`).toBe(false);
+          boxes.push(b);
+        }
+        const mids = boxes.map((b) => (b.top + b.bottom) / 2);
+        expect(Math.max(...mids) - Math.min(...mids), `${names.join(", ")} share one line`).toBeLessThanOrEqual(1);
+        const side = width <= 720 ? 26 : 22;
+        for (const [i, b] of boxes.entries()) {
+          expect(b.right - b.left, `${names[i]} ${side}px wide`).toBeCloseTo(side, 0);
+          expect(b.bottom - b.top, `${names[i]} ${side}px tall`).toBeCloseTo(side, 0);
+          if (i === 0) continue;
+          const prev = boxes[i - 1];
+          const pitch = width <= 720 ? 32 : 26;
+          expect((b.left + b.right) / 2 - (prev.left + prev.right) / 2, `${names[i]} ${pitch}px from the button before it, centre to centre`).toBeCloseTo(pitch, 0);
+        }
+        if (width <= 720) {
+          const what = `waiting, ${await card.locator(".reply-card__name").textContent()}, ${await card.getByTestId("waited").textContent()}`;
+          const cut = await expectPhoneHeadLines(card, what);
+          const mustCut = LONG_ASKER_LINES[(await card.getAttribute("data-reply-card-id")) ?? ""];
+          if (mustCut?.widths.includes(width)) expect(cut, `${what}: control, the long line is cut`).toContain(mustCut.text);
+        }
+        const row = card.getByTestId("reply-task-ref");
+        if ((await row.count()) === 0) continue;
+        const rowBox = await box(row);
+        expect(inside(rowBox, cardBox), "task row inside the card").toBe(true);
+        expect(rowBox.bottom, "task row above the head").toBeLessThanOrEqual((await box(card.locator(".reply-card__head"))).top);
+        for (const part of await row.locator(".reply-card__task-chips > *, .reply-card__task-title, .reply-card__task-jump").all()) {
+          expect(inside(await box(part), rowBox), `${await part.textContent()} inside the task row`).toBe(true);
+        }
+        for (const chip of await row.locator(".reply-card__task-chips > *").all()) {
+          expect(await textLines(chip), `${await chip.textContent()} on one line`).toBe(1);
+        }
+        expect(await textLines(row.getByTestId("reply-task-jump"))).toBe(1);
       }
-      expect(inside(await box(card.getByTestId("waited")), cardBox), "the waited stamp inside the card").toBe(true);
-      expect(Math.max(...tops) - Math.min(...tops), "跳到原訊息, 稍後再看 and 標為過期 share one line").toBeLessThanOrEqual(1);
-      const row = card.getByTestId("reply-task-ref");
-      if ((await row.count()) === 0) continue;
-      const rowBox = await box(row);
-      expect(inside(rowBox, cardBox), "task row inside the card").toBe(true);
-      expect(rowBox.bottom, "task row above the head").toBeLessThanOrEqual((await box(card.locator(".reply-card__head"))).top);
-      for (const part of await row.locator(".reply-card__task-chips > *, .reply-card__task-title, .reply-card__task-jump").all()) {
-        expect(inside(await box(part), rowBox), `${await part.textContent()} inside the task row`).toBe(true);
-      }
-      for (const chip of await row.locator(".reply-card__task-chips > *").all()) {
-        expect(await textLines(chip), `${await chip.textContent()} on one line`).toBe(1);
-      }
-      expect(await textLines(row.getByTestId("reply-task-jump"))).toBe(1);
-    }
-    await noPageOverflow(page);
+      await noPageOverflow(page);
+      if (width > 720) return;
+
+      await cmp.getByTestId("snoozed-toggle").click();
+      await expectPhoneHeadLines(cmp.getByTestId("snoozed-card"), "snoozed");
+      const unsnooze = await box(cmp.getByTestId("snoozed-card").getByRole("button", { name: "取消延後", exact: true }));
+      expect(unsnooze.right - unsnooze.left, "取消延後 26px wide").toBeCloseTo(26, 0);
+      expect(unsnooze.bottom - unsnooze.top, "取消延後 26px tall").toBeCloseTo(26, 0);
+      await noPageOverflow(page);
+    });
   });
 
   test.describe(() => {
@@ -144,11 +252,12 @@ for (const width of [1440, 1728]) {
       const lead = language === "zh" ? "已等你" : "Waiting";
       expect(await cmp.getByTestId("waited").allTextContents()).toEqual([`${lead} 5m`, `${lead} 2h 57m`, `${lead} 12d 23h`]);
 
+      const label = HEAD_BUTTONS[language as "zh" | "en"];
       const jumpLefts: number[] = [];
       const expireLefts: number[] = [];
       for (const card of await cards.all()) {
-        jumpLefts.push((await box(card.locator(".reply-card__actions > .reply-card__jump").first())).left);
-        expireLefts.push((await box(card.getByTestId("expire-card"))).left);
+        jumpLefts.push((await box(card.getByRole("button", { name: label.jump, exact: true }))).left);
+        expireLefts.push((await box(card.getByRole("button", { name: label.expire, exact: true }))).left);
       }
       expect(Math.max(...jumpLefts) - Math.min(...jumpLefts), `跳到原訊息 lefts ${jumpLefts}`).toBeLessThanOrEqual(0.5);
       expect(Math.max(...expireLefts) - Math.min(...expireLefts), `標為過期 lefts ${expireLefts}`).toBeLessThanOrEqual(0.5);
@@ -157,9 +266,13 @@ for (const width of [1440, 1728]) {
       const snoozed = cmp.getByTestId("snoozed-card");
       await expect(snoozed).toHaveCount(1);
       const snoozedBox = await box(snoozed);
-      for (const part of await snoozed.locator(".reply-card__head .reply-card__jump, [data-testid='snoozed-until']").all()) {
-        expect(inside(await box(part), snoozedBox), `${await part.textContent()} inside the snoozed card`).toBe(true);
-        expect(await textLines(part), `${await part.textContent()} on one line`).toBe(1);
+      const until = snoozed.getByTestId("snoozed-until");
+      expect(inside(await box(until), snoozedBox), "the return date inside the snoozed card").toBe(true);
+      expect(await textLines(until), "the return date on one line").toBe(1);
+      for (const name of [label.jump, label.unsnooze, label.expire]) {
+        const button = snoozed.getByRole("button", { name, exact: true });
+        expect(inside(await box(button), snoozedBox), `${name} inside the snoozed card`).toBe(true);
+        expect(await contentFits(button), `${name}'s icon inside its button`).toBe(true);
       }
       await noPageOverflow(page);
     });
@@ -228,7 +341,7 @@ test("width 1440, mouse: 複製 in each card's head writes the whole question an
   for (const other of await page.getByTestId("waiting-card").all()) {
     const head = await box(other.locator(".reply-card__head"));
     const c = await box(other.locator(".chat__msg-copy"));
-    const jump = await box(other.locator(".reply-card__actions > .reply-card__jump").first());
+    const jump = await box(other.getByRole("button", { name: "跳到原訊息", exact: true }));
     expect(inside(c, head), "複製 inside the head").toBe(true);
     expect(Math.abs((c.top + c.bottom) / 2 - (jump.top + jump.bottom) / 2), "複製 on the buttons' line").toBeLessThanOrEqual(1);
   }
@@ -296,7 +409,7 @@ for (const [width, height] of [
   test.describe(() => {
     test.use({ hasTouch: true });
 
-    test(`width ${width}, touch: a long press on a card opens the chat's sheet with 複製訊息・選取文字 only (no 回覆這則, waiting or answered: the answer box is on the card), and neither folds the card nor selects its words`, async ({
+    test(`width ${width}, touch: a long press on a card opens the chat's sheet with 複製訊息・選取文字 only (no 回覆這則, waiting or answered: the answer box is on the card), and neither folds the card nor selects its words; an answered card's buttons sit at the right end of the name's line with its time under them at the right`, async ({
       mount,
       page,
     }) => {
@@ -333,7 +446,7 @@ for (const [width, height] of [
       await expect(card).toHaveAttribute("aria-expanded", "false");
 
       const copy = await box(card.locator(".chat__msg-copy"));
-      const jump = await box(card.locator(".reply-card__actions > .reply-card__jump").first());
+      const jump = await box(card.getByRole("button", { name: "跳到原訊息", exact: true }));
       expect(copy.bottom - copy.top, "複製 is shorter than the head's other buttons").toBeGreaterThanOrEqual(jump.bottom - jump.top - 0.5);
       expect(copy.right - copy.left, "複製 is narrower than the head's buttons are tall").toBeGreaterThanOrEqual(jump.bottom - jump.top - 0.5);
       await touch(page, await centreOf(card.locator(".chat__msg-copy")), { holdMs: 700 });
@@ -343,6 +456,7 @@ for (const [width, height] of [
       await page.getByTestId("answered-toggle").tap();
       const answered = cardOf(page, "rc-desk-done");
       await expect(answered).toBeVisible();
+      await expectPhoneHeadLines(answered, "answered");
       await touch(page, await centreOf(answered.locator(".reply-card__summary")), { holdMs: 700 });
       await expect(menu.getByRole("menuitem")).toHaveText(["複製訊息", "選取文字"]);
       await touch(page, { x: 4, y: 4 }, { holdMs: 50 });
@@ -355,7 +469,7 @@ for (const [width, height] of [
       await expect(answer, "the answer box cannot be selected in by a finger").toHaveCSS("user-select", "text");
     });
 
-    test(`width ${width}, touch: 複製訊息 from the sheet writes the question and shows nothing once the sheet closes; a failed read shows 複製失敗 on the card`, async ({
+    test(`width ${width}, touch: 複製訊息 from the sheet writes the question and shows nothing once the sheet closes; a failed read shows 複製失敗 on the card, over the name beside the buttons, which stay where they were`, async ({
       mount,
       page,
       context,
@@ -375,12 +489,21 @@ for (const [width, height] of [
       await first.unmount();
 
       await mountDesk(mount, page, width, height, { cardReadFails: true });
+      const whoBefore = await box(card.locator(".reply-card__who"));
       await touch(page, await centreOf(card.locator(".reply-card__summary")), { holdMs: 700 });
       await page.getByTestId("chat-msg-menu-copy").tap();
       const failed = card.locator(".chat__msg-copy-status--failed");
       await expect(failed).toHaveText("複製失敗");
       await expect(failed).toBeVisible();
-      expect(inside(await box(failed), await box(card)), "複製失敗 inside the card").toBe(true);
+      await expectPhoneHeadLines(card, "a failed copy");
+      const whoDuring = await box(card.locator(".reply-card__who"));
+      expect(whoDuring.right - whoDuring.left, "the name column keeps its width while 複製失敗 shows").toBeCloseTo(whoBefore.right - whoBefore.left, 0);
+      const failedBox = await box(failed);
+      expect(inside(failedBox, await box(card)), "複製失敗 inside the card").toBe(true);
+      for (const button of await card.locator(".reply-card__actions button").all()) {
+        expect(overlaps(failedBox, await box(button)), `複製失敗 clear of ${await button.getAttribute("aria-label")}`).toBe(false);
+      }
+      expect(await failed.isVisible(), "control: 複製失敗 still showing when measured").toBe(true);
     });
 
     test(`width ${width}, touch: 選取文字 opens the card to its title and question with the rest of the page blurred and out of reach, its link and mention do nothing, 複製 and 回覆 take the selection from a bar at the screen's bottom that the page ends above, and 回覆 leaves the card open with the quote in its answer box`, async ({

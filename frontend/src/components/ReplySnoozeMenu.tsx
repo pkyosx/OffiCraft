@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
+import { SnoozeActionIcon } from "./replyCardActionIcons";
 import {
   SNOOZE_PRESETS,
   type SnoozeUnit,
@@ -187,13 +188,15 @@ export function ReplySnoozeMenu({
       <button
         ref={triggerRef}
         type="button"
-        className="reply-card__jump"
+        className="reply-card__icon-btn"
         data-testid="snooze-card"
+        aria-label={t.replies.snooze}
+        title={t.replies.snooze}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => (open ? close(false) : setOpen(true))}
       >
-        {t.replies.snooze}
+        <SnoozeActionIcon size={13} />
       </button>
       {open &&
         createPortal(

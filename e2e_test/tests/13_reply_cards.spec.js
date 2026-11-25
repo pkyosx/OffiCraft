@@ -417,7 +417,7 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     ).toBe(baseWaiting + 1);
 
     // ── 跳到原訊息: land in M1's room, located + highlighted ──
-    await answeredA.locator('.reply-card__jump').click();
+    await answeredA.getByRole('button', { name: /^跳到原訊息/ }).click();
     await expect(page).toHaveURL(
       new RegExp(`#office/chat/${M1.id}/msg/${cardA.chat_message_id}$`),
     );

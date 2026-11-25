@@ -150,15 +150,16 @@
  * `.current-task-title`, drawn by the rail's components and styled by the rail's
  * rules in office.css — including the `+` rule that spaces them. This block only
  * stacks them; it must never restate their appearance, or the two surfaces drift
- * on the next change to either. */
+ * on the next change to either. The one exception is the phone head, which cuts
+ * each line to one (the ≤720px block below). */
 .reply-card__worker-task {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
-/* Jump-to-origin — a quiet text button (secondary action). */
-/* nowrap: a CJK label's min-content is one character, so a squeezed head
- * would otherwise fold 標為過期 onto two lines inside its button. */
+/* A quiet text button (secondary action). */
+/* nowrap: a CJK label's min-content is one character, so a squeezed row
+ * would otherwise fold the label onto two lines inside its button. */
 .reply-card__jump {
   flex: none;
   white-space: nowrap;
@@ -175,7 +176,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
 }
 /* 複製 and its failure, which shows beside it for a moment. */
 .reply-card__copy {
@@ -186,11 +187,33 @@
 .reply-card__copy .chat__msg-copy-status--failed {
   margin-left: 4px;
 }
-/* On a touch screen the button is as tall as the head's other buttons. */
+/* Drawn like 複製 beside them (.chat__msg-copy). */
+.reply-card__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background-color 0.15s;
+}
+.reply-card__icon-btn:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
 @media (hover: none) {
-  .reply-card__copy .chat__msg-copy {
-    width: 30px;
-    height: 30px;
+  .reply-card__copy .chat__msg-copy,
+  .reply-card__icon-btn {
+    width: 26px;
+    height: 26px;
   }
 }
 .reply-card__jump:hover {
@@ -208,7 +231,7 @@
 }
 /* Fixed width so the buttons beside it line up from card to card; sized for
  * the longest waited stamp, en 「Waiting 23h 59m」 (~99–100px at 12.5px).
- * Phones put the stamp on the name line instead. */
+ * Phones put the stamp on its own line under the buttons instead. */
 @media (min-width: 721px) {
   .reply-card__waited {
     min-width: 8.25em;
@@ -453,8 +476,6 @@
 }
 
 /* ── expired card: greyed terminal shell ── */
-/* The waiting card's 標為過期 button reuses .reply-card__jump (T-1aa4) so the
- * two header actions share one outlined style and can never drift. */
 .reply-card--expired {
   opacity: 0.72;
 }
@@ -702,23 +723,50 @@
   .reply-card {
     padding: 14px;
   }
-  /* Identity + meta wrap on a phone; the waited stamp keeps its own line. */
+  /* Avatar, name and the buttons on the first line, buttons at its right end
+   * as on a desktop; the stamp alone on the line under them, at the right.
+   * The name column's zero flex basis (the base rule) is what keeps the
+   * buttons and the column beside the avatar; a content-sized basis
+   * (`flex: 1 1 auto`) lets a long name or task title push the buttons, or
+   * the whole column, onto the next line. */
   .reply-card__head {
     flex-wrap: wrap;
+    row-gap: 0;
   }
-  /* Desktop `flex: 1` expands to 1 1 0% — a zero hypothetical size means the
-   * head never actually wraps and the who column gets squeezed to a few px.
-   * Basing it on content width lets flex-wrap above kick in for real. */
-  .reply-card__who {
-    flex: 1 1 auto;
+  /* Name, role and an outsource asker's task title: one line each, ending in
+   * 「…」 when cut. The task line above the title is the rail's and already
+   * keeps to one line, its chip cut at the column's edge. */
+  .reply-card__head :is(.reply-card__name, .reply-card__role, .current-task-title) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  /* The buttons take a line of their own under the name and stamp, so none of
-   * them drops alone onto a second line beside the stamp. */
-  .reply-card__actions {
-    order: 3;
-    flex: 1 0 100%;
-    flex-wrap: wrap;
-    gap: 8px;
+  /* 複製失敗 lies over the name beside the buttons instead of widening their
+   * row, which would narrow the name column (or at 320px push the buttons onto
+   * the next line) while it shows. */
+  .reply-card__head .reply-card__copy {
+    position: relative;
+  }
+  .reply-card__head .reply-card__copy .chat__msg-copy-status--failed {
+    position: absolute;
+    top: 50%;
+    right: 100%;
+    margin: 0 4px 0 0;
+    transform: translateY(-50%);
+  }
+  .reply-card__head > .reply-card__actions {
+    gap: 6px;
+  }
+  /* The zero-height full-width item that puts the stamp on a line of its own. */
+  .reply-card__head::after {
+    content: "";
+    order: 1;
+    flex-basis: 100%;
+  }
+  .reply-card__head > :is(.reply-card__waited, .reply-card__answered-at) {
+    order: 2;
+    margin-top: 6px;
+    margin-left: auto;
   }
 }
 

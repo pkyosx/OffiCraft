@@ -78,7 +78,7 @@ import { useFrameMessages } from "../lib/docCommentFrame";
 import { ContentView } from "./ContentView";
 import { contentKindOf, isTextKind } from "../lib/contentKind";
 import "./md-preview.css";
-import "./replies.css"; // .reply-card__jump
+import "./replies.css";
 import {
   AlertTriangleIcon,
   ChatBubbleIcon,
@@ -92,6 +92,7 @@ import {
   FileTextIcon,
   PencilIcon,
 } from "./icons";
+import { JumpToMessageIcon } from "./replyCardActionIcons";
 
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 4;
@@ -795,17 +796,16 @@ export function MarkdownPreviewOverlay({
               className="md-preview__download md-preview__share"
             />
           )}
-          {/* ⚠️ Text, unlike the icon-only controls beside it: owner
-            * rc-94eeef1b229c wants it to read and look exactly like the 請示卡's
-            * 跳到原訊息, so it borrows that button's class and wording. */}
           {onJumpToMessage !== undefined && (
             <button
               type="button"
-              className="reply-card__jump"
+              className="md-preview__jump"
               data-testid="md-preview-jump"
+              aria-label={t.replies.jumpToChat}
+              title={t.replies.jumpToChat}
               onClick={onJumpToMessage}
             >
-              {t.replies.jumpToChat}
+              <JumpToMessageIcon size={14} />
             </button>
           )}
           {onEdit !== undefined && (

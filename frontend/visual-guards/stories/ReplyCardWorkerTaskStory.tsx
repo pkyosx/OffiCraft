@@ -17,6 +17,7 @@
 import { I18nProvider } from "../../src/i18n";
 import { CurrentTaskTitle } from "../../src/components/CurrentTaskTitle";
 import { OutsourceTaskLine } from "../../src/components/OutsourcePanel";
+import { JumpToMessageIcon } from "../../src/components/replyCardActionIcons";
 import { mkWorker, VERY_LONG_TITLE } from "./currentTaskFixtures";
 import "../../src/components/replies.css";
 import "../../src/components/office.css";
@@ -44,9 +45,16 @@ export function ReplyCardWorkerTaskStory() {
                 />
               </span>
             </div>
-            <button type="button" className="reply-card__jump">
-              跳到原訊息
-            </button>
+            <div className="reply-card__actions">
+              <button
+                type="button"
+                className="reply-card__icon-btn"
+                aria-label="跳到原訊息"
+                title="跳到原訊息"
+              >
+                <JumpToMessageIcon size={13} />
+              </button>
+            </div>
             <span className="reply-card__waited">已等你 25m</span>
           </header>
           <div className="reply-card__summary">要照這個方向做嗎？</div>

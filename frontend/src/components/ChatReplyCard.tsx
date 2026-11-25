@@ -46,6 +46,7 @@ import {
 import type { DocCommentRecipient } from "../lib/docComments";
 import { ConfirmModal } from "./ConfirmModal";
 import { ChevronRightIcon } from "./icons";
+import { ExpireActionIcon } from "./replyCardActionIcons";
 import "./replies.css";
 
 export function ChatReplyCard({
@@ -450,11 +451,13 @@ export function ChatReplyCard({
             {card?.status === "waiting" && (
               <button
                 type="button"
-                className="reply-card__jump"
+                className="reply-card__icon-btn"
                 data-testid="chat-reply-card-expire"
+                aria-label={t.replies.expire}
+                title={t.replies.expire}
                 onClick={() => setExpireConfirmOpen(true)}
               >
-                {t.replies.expire}
+                <ExpireActionIcon size={13} />
               </button>
             )}
           </div>
