@@ -1424,8 +1424,8 @@ const LORE_TYPE_LIST =
   "instruction_conflict, instruction_supplement, owner_decision, owner_preference or other";
 const LORE_TYPE_MISSING =
   "lore_type is required — nothing was written. Set it to the entry's type: " +
-  "instruction_conflict (指示衝突), instruction_supplement (指示補充), owner_decision (Owner 決策), " +
-  "owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title.";
+  "instruction_conflict (instruction conflict), instruction_supplement (instruction supplement), owner_decision (owner decision), " +
+  "owner_preference (owner preference) or other. Put the type in lore_type, not as a prefix in the title.";
 
 /** The FIXED display order (spec §6): 置頂 → 生效中 → 已失效, newest effective
  * first inside each group, `seq` as the tie-break so two entries sharing an
@@ -3633,7 +3633,7 @@ const mockApiImpl = {
       throw mockApiError(
         "http 409 for POST /api/members/{id}/accelerated-stop",
         409,
-        "加速停止 escalates a wind-down that is already open — this member has not been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first",
+        MOCK_ACCELERATED_STOP_NEEDS_OPEN_WIND_DOWN,
       );
     }
     w.refocus_op = "accelerated_stop";
@@ -5992,14 +5992,14 @@ const mockApiImpl = {
       throw mockApiError(
         `http 409 for POST /api/members/${id}/accelerated-stop`,
         409,
-        "加速停止 requires a live session — there is nothing to accelerate on a member that is not connected"
+        MOCK_ACCELERATED_STOP_NEEDS_LIVE_SESSION
       );
     }
     if (!windingDown) {
       throw mockApiError(
         `http 409 for POST /api/members/${id}/accelerated-stop`,
         409,
-        "加速停止 escalates a wind-down that is already open — this member has not been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first"
+        MOCK_ACCELERATED_STOP_NEEDS_OPEN_WIND_DOWN
       );
     }
     w.refocusOp = "accelerated_stop";
@@ -8802,9 +8802,15 @@ function afterMockForcedDisconnect(stillDown: () => boolean, land: () => void): 
   }, MOCK_FORCED_STOP_DISCONNECT_MS);
 }
 
-/** Verbatim the server's acceleratedStopAlreadyForcedMsg. */
+/** Verbatim the server's acceleratedStopAlreadyForcedMsg (member_stop.go). */
 const MOCK_ACCELERATED_STOP_ALREADY_FORCED =
-  "加速停止 has nothing to escalate — this member was already force-stopped (強制停止): its session was cut off and no wind-down is open";
+  "Accelerated stop has nothing to escalate — this member was already force-stopped (Force stop): its session was cut off and no wind-down is open";
+/** Verbatim the server's acceleratedStopNeedsAnOpenWindDownMsg (member_stop.go). */
+const MOCK_ACCELERATED_STOP_NEEDS_OPEN_WIND_DOWN =
+  "Accelerated stop escalates a wind-down that is already open — this member has not been asked to stop. Press Stop (deactivate) or Refocus first";
+/** Verbatim the server's acceleratedStopNeedsALiveSessionMsg (member_stop.go). */
+const MOCK_ACCELERATED_STOP_NEEDS_LIVE_SESSION =
+  "Accelerated stop requires a live session — there is nothing to accelerate on a member that is not connected";
 
 /** Test seam: a server whose owner never chose a theme and has no schedule —
  * what a station looked like before the desk default. */
