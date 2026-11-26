@@ -18,9 +18,12 @@ const LONG_MANUAL_NAME =
 export function LoreRowHeadStory({
   longManual = false,
   hash = "",
+  roleCap,
 }: {
   longManual?: boolean;
   hash?: string;
+  /** Lower the member cap so the directory has a target with entries it cannot read. */
+  roleCap?: number;
 }) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -49,10 +52,11 @@ export function LoreRowHeadStory({
           loreType: "other",
         });
       }
+      if (roleCap !== undefined) await mockApi.patchServerSettings({ loreCapCharsRole: roleCap });
       history.replaceState(null, "", window.location.pathname + hash);
       setReady(true);
     })();
-  }, [longManual, hash]);
+  }, [longManual, hash, roleCap]);
   if (!ready) return null;
   return (
     <I18nProvider>

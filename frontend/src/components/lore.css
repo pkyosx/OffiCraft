@@ -15,6 +15,10 @@
  *   .lore-row__menu-item     ← .task-card__menu-item (+ --active = accent/700)
  *   .lore-row__expand-mark   ← .task-card__expand-mark
  *   .lore-row__meta / __chip ← .task-card__meta / __chip
+ *   .lore-dir-card           ← .task-card
+ *   .lore-dir-card__usage / __bar / __bar-fill / __usage-text
+ *                            ← .task-card__progress / -bar / -fill / -text
+ *   .lore__group-title       ← replies.css .replies__section-title
  *
  * Colours are theme tokens only — no literals.
  *
@@ -113,7 +117,7 @@ a.lore-dir-card:focus-visible {
 }
 .lore-dir-card__head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   min-width: 0;
 }
@@ -126,6 +130,7 @@ a.lore-dir-card:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 10px;
+  min-height: 28px;
 }
 .lore-dir-card__glyph {
   flex: none;
@@ -155,18 +160,22 @@ a.lore-dir-card:focus-visible {
 }
 .lore-dir-card__mark {
   flex: none;
-  align-self: flex-start;
-  margin-top: 4px;
+  margin-top: 7px;
   display: inline-flex;
   color: var(--color-text-muted);
 }
-.lore-badge--dropped {
+/* Doubled class: .lore-badge is declared further down this file and would win
+ * the tie, leaving 讀不到 in the muted colour. */
+.lore-badge.lore-badge--dropped {
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
 }
-.lore-badge--fit::before {
+/* 任務卡's dot marks a state; a count is not one. */
+.lore-dir-card__badges .lore-badge::before {
   display: none;
 }
+/* Unlike 任務卡 (tasks.css stacks bar and text at ≤720px), the bar stays beside
+ * the numbers on a phone: the text is short and the bar keeps >80px at 390. */
 .lore-dir-card__usage {
   display: flex;
   align-items: center;

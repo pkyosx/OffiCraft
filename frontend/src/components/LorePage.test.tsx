@@ -2203,6 +2203,22 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(list).not.toHaveBeenCalled();
   });
 
+  it("a directory card's bar stops at full when a lowered cap leaves the target over it, and a zero cap shows only the size", async () => {
+    stubTargets();
+    vi.spyOn(api, "listLoreBudgets").mockResolvedValue([
+      { scopeKind: "agent", scopeKey: "mira", capChars: 1000, usedChars: 1300, entryCount: 3, droppedCount: 1 },
+      { scopeKind: "manual", scopeKey: "review-pr", capChars: 0, usedChars: 320, entryCount: 2, droppedCount: 0 },
+    ]);
+    stubList(page([]));
+    const { container } = renderPage();
+
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(2));
+    const cards = Array.from(container.querySelectorAll('[data-testid="lore-target"]'));
+    expect((cards[0].querySelector(".lore-dir-card__bar-fill") as HTMLElement).style.width).toBe("100%");
+    expect(cards[1].querySelector(".lore-dir-card__bar-fill")).toBeNull();
+    expect(cards[1].querySelector('[data-testid="lore-section-usage"]')!.textContent).toBe("320 字");
+  });
+
   it("opening a member's section shows the sentence, the 所有人 reference row, the cards and the line above the first entry that cannot be read", async () => {
     stubTargets();
     const list = stubList(

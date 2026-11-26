@@ -1448,7 +1448,9 @@ function LoreView({
     if (def.kind === "everyone" || b.capChars <= 0) {
       return (
         <div className="lore-dir-card__usage" data-testid="lore-section-usage">
-          <span className="lore-dir-card__usage-text">{msg.loreEveryoneUsed(b.usedChars)}</span>
+          <span className="lore-dir-card__usage-text">
+            {def.kind === "everyone" ? msg.loreEveryoneUsed(b.usedChars) : msg.loreChars(b.usedChars)}
+          </span>
         </div>
       );
     }

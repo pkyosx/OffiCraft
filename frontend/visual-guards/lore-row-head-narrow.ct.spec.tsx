@@ -415,6 +415,23 @@ for (const width of [390, 1440]) {
     expect(bars, `[${width}px] cards with a bar`).toBeGreaterThanOrEqual(3);
   });
 
+  test(`讀不到 is in the danger colour on the directory @${width}px`, async ({ mount, page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const cmp = await mount(<LoreRowHeadStory roleCap={100} />);
+    await expect(cmp.locator('[data-testid="lore-section-dropped"]').first()).toBeVisible();
+    const colours = await page.evaluate(() => {
+      const dropped = document.querySelector('[data-testid="lore-target"] [data-testid="lore-section-dropped"]');
+      // Probe inside the card: the theme's tokens may be scoped below <body>.
+      const probe = document.createElement("span");
+      probe.style.color = "var(--color-danger)";
+      (dropped?.parentElement ?? document.body).appendChild(probe);
+      const danger = getComputedStyle(probe).color;
+      probe.remove();
+      return { danger, dropped: dropped ? getComputedStyle(dropped).color : null };
+    });
+    expect(colours.dropped, `[${width}px] 讀不到 badge is in the danger colour`).toBe(colours.danger);
+  });
+
   test(`the batch bar stays inside the viewport and the scroll container @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, MIRA);
     const selects = cmp.locator('[data-testid="lore-select"]');
