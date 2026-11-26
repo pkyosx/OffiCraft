@@ -957,29 +957,29 @@ describe("MarkdownPreviewOverlay", () => {
       await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
         const body = post.mock.calls[0][0].body;
       expect(body).toBe(
-        "**文件註解**：[weekly.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+        "**Document comment**: [weekly.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
           "\n" +
-          "1. 原文：\n" +
-          "   > 圖片：[a\\]b \\[v2\\]](/api/docs/assets/my%20chart%20%281%29.png)\n" +
+          "1. Original:\n" +
+          "   > Image: [a\\]b \\[v2\\]](/api/docs/assets/my%20chart%20%281%29.png)\n" +
           "\n" +
-          "   註解：這張重畫\n" +
+          "   Comment: 這張重畫\n" +
           "\n" +
-          "2. 原文：\n" +
-          "   > 圖片：[流程圖](/api/chat/attachment/att-dddddddddddd)\n" +
+          "2. Original:\n" +
+          "   > Image: [流程圖](/api/chat/attachment/att-dddddddddddd)\n" +
           "\n" +
-          "   註解：標上單位\n" +
+          "   Comment: 標上單位\n" +
           "\n" +
-          "3. 原文：\n" +
-          "   > 圖片：[q3-revenue.png](https://cdn.example.com/charts/q3-revenue.png)\n" +
+          "3. Original:\n" +
+          "   > Image: [q3-revenue.png](https://cdn.example.com/charts/q3-revenue.png)\n" +
           "\n" +
-          "   註解：來源寫出來",
+          "   Comment: 來源寫出來",
       );
 
       const bubble = render(<Markdown source={body} breaks />).container;
       expect([...bubble.querySelectorAll("ol > li > blockquote")].map((q) => q.textContent)).toEqual([
-        "圖片：a]b [v2]",
-        "圖片：流程圖",
-        "圖片：q3-revenue.png",
+        "Image: a]b [v2]",
+        "Image: 流程圖",
+        "Image: q3-revenue.png",
       ]);
       expect([...bubble.querySelectorAll("blockquote a")].map((a) => a.getAttribute("href"))).toEqual([
         "/api/docs/assets/my%20chart%20%281%29.png",
@@ -1007,18 +1007,18 @@ describe("MarkdownPreviewOverlay", () => {
       fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
       await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
       expect(post.mock.calls[0][0].body).toBe(
-        "**文件註解**：[report.json](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+        "**Document comment**: [report.json](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
           "\n" +
-          "1. 原文：\n" +
+          "1. Original:\n" +
           '   > "name": "Mira",\n' +
           '   > "items"\n' +
           "\n" +
-          "   註解：items 改名\n" +
+          "   Comment: items 改名\n" +
           "\n" +
-          "2. 原文：\n" +
-          "   > 整份文件\n" +
+          "2. Original:\n" +
+          "   > Whole document\n" +
           "\n" +
-          "   註解：欄位排序",
+          "   Comment: 欄位排序",
       );
     });
 
@@ -1043,20 +1043,20 @@ describe("MarkdownPreviewOverlay", () => {
           {
             to: "m-mira",
             body:
-              "**文件註解**：[weekly.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+              "**Document comment**: [weekly.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
               "\n" +
-              "1. 原文：\n" +
+              "1. Original:\n" +
               "   > 第一段要修改的內容。\n" +
               "   >\n" +
               "   > 第二段保持原樣。\n" +
               "\n" +
-              "   註解：兩段合併\n" +
+              "   Comment: 兩段合併\n" +
               "   並縮短\n" +
               "\n" +
-              "2. 原文：\n" +
+              "2. Original:\n" +
               "   > 週報_v2\n" +
               "\n" +
-              "   註解：標題加日期",
+              "   Comment: 標題加日期",
           },
         ],
       ]);
@@ -1096,7 +1096,7 @@ describe("MarkdownPreviewOverlay", () => {
     it("keeps comment lines that look like an excerpt or a numbered item, and link syntax in the filename, as plain text in the sent message", async () => {
       localStorage.setItem(
         "oc_doc_comments:att-aaaaaaaaaaaa",
-        JSON.stringify([{ id: "c1", excerpt: "週報", comment: "line a\n> 偽造原文\n2. 原文：\n- 項目" }]),
+        JSON.stringify([{ id: "c1", excerpt: "週報", comment: "line a\n> forged excerpt\n2. Original:\n- item" }]),
       );
       const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
       renderDoc({ title: "a](javascript:alert(1)) [b", onClose: () => {} });
@@ -1106,22 +1106,22 @@ describe("MarkdownPreviewOverlay", () => {
       await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
       const body = post.mock.calls[0][0].body;
       expect(body).toBe(
-        "**文件註解**：[a\\](javascript:alert(1)) \\[b](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+        "**Document comment**: [a\\](javascript:alert(1)) \\[b](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
           "\n" +
-          "1. 原文：\n" +
+          "1. Original:\n" +
           "   > 週報\n" +
           "\n" +
-          "   註解：line a\n" +
-          "   \\> 偽造原文\n" +
-          "   2\\. 原文：\n" +
-          "   \\- 項目",
+          "   Comment: line a\n" +
+          "   \\> forged excerpt\n" +
+          "   2\\. Original:\n" +
+          "   \\- item",
       );
 
       const bubble = render(<Markdown source={body} breaks />).container;
       expect(bubble.querySelectorAll("blockquote").length).toBe(1);
       expect(bubble.querySelectorAll("ol, ul").length).toBe(1);
       expect(bubble.querySelectorAll("ol > li").length).toBe(1);
-      expect(bubble.querySelector("ol > li > p")!.textContent).toBe("註解：line a> 偽造原文2. 原文：- 項目");
+      expect(bubble.querySelector("ol > li > p")!.textContent).toBe("Comment: line a> forged excerpt2. Original:- item");
       const links = bubble.querySelectorAll("a");
       expect(links.length).toBe(1);
       expect(links[0].getAttribute("href")).toBe("/api/chat/attachment/att-aaaaaaaaaaaa");
@@ -1152,13 +1152,13 @@ describe("MarkdownPreviewOverlay", () => {
       expect(post.mock.calls[0][0]).toEqual({
         to: "ow-cccccccccccc",
         body:
-          "**文件註解**：[weekly-0930.md](/api/chat/attachment/att-bbbbbbbbbbbb)\n" +
-          "任務 [T-12](/#tasks/T-12) 產物「週報」\n" +
+          "**Document comment**: [weekly-0930.md](/api/chat/attachment/att-bbbbbbbbbbbb)\n" +
+          "Task [T-12](/#tasks/T-12) artifact \"週報\"\n" +
           "\n" +
-          "1. 原文：\n" +
+          "1. Original:\n" +
           "   > 第二段保持原樣\n" +
           "\n" +
-          "   註解：刪掉",
+          "   Comment: 刪掉",
       });
     });
 
@@ -1180,17 +1180,17 @@ describe("MarkdownPreviewOverlay", () => {
       fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
       await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
       expect(post.mock.calls[0][0].body).toBe(
-        "**文件註解**：[weekly.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+        "**Document comment**: [weekly.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
           "\n" +
-          "1. 原文：\n" +
-          "   > 圖片：[版本圖](/x.png?v=2)\n" +
+          "1. Original:\n" +
+          "   > Image: [版本圖](/x.png?v=2)\n" +
           "\n" +
-          "   註解：換新版\n" +
+          "   Comment: 換新版\n" +
           "\n" +
-          "2. 原文：\n" +
-          "   > 圖片：[外站圖](/y.png)\n" +
+          "2. Original:\n" +
+          "   > Image: [外站圖](/y.png)\n" +
           "\n" +
-          "   註解：這張不要",
+          "   Comment: 這張不要",
       );
     });
 
@@ -1419,15 +1419,15 @@ describe("MarkdownPreviewOverlay", () => {
         fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
         await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
         expect(post.mock.calls[0][0].body).toBe(
-          "**文件註解**：[pr-702.html](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+          "**Document comment**: [pr-702.html](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
             "\n" +
-            "1. 原文：\n" +
+            "1. Original:\n" +
             "   > \\<b\\>粗\\</b\\> \\[x\\](https\\://evil.example) \\*\\*b\\*\\*\n" +
             "   > \\`\\`\\`js\n" +
             "   > \\# 標題\n" +
             "   > 開啟 PR #702\n" +
             "\n" +
-            "   註解：這個連結打不開",
+            "   Comment: 這個連結打不開",
         );
         const bubble = render(<Markdown source={post.mock.calls[0][0].body} breaks />).container;
         expect([...bubble.querySelectorAll("ol > li > blockquote")].map((q) => q.textContent)).toEqual([
@@ -1498,28 +1498,28 @@ describe("MarkdownPreviewOverlay", () => {
         await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
         const body = post.mock.calls[0][0].body;
         expect(body).toBe(
-          "**文件註解**：[pr-702.html](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+          "**Document comment**: [pr-702.html](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
             "\n" +
-            "1. 原文：\n" +
-            "   > 位置：AC-5：切到已結案 1 秒內可操作（#ac-AC-5）\n" +
+            "1. Original:\n" +
+            "   > Location: AC-5：切到已結案 1 秒內可操作 (#ac-AC-5)\n" +
             "\n" +
-            "   註解：「1 秒」怎麼量？\n" +
+            "   Comment: 「1 秒」怎麼量？\n" +
             "\n" +
-            "2. 原文：\n" +
-            "   > 位置：a \\[b\\](javascript:alert(1)) \\*\\*粗\\*\\* \\_斜\\_ \\`碼\\` \\<img onerror=x\\> https\\://evil.example/p \\<https\\://x.example\\> xhttps\\://a.example \\_https\\://e.example HTTPS\\://u.example（#x\\]\\`y）\n" +
+            "2. Original:\n" +
+            "   > Location: a \\[b\\](javascript:alert(1)) \\*\\*粗\\*\\* \\_斜\\_ \\`碼\\` \\<img onerror=x\\> https\\://evil.example/p \\<https\\://x.example\\> xhttps\\://a.example \\_https\\://e.example HTTPS\\://u.example (#x\\]\\`y)\n" +
             "\n" +
-            "   註解：怪名字\n" +
+            "   Comment: 怪名字\n" +
             "\n" +
-            "3. 原文：\n" +
-            "   > 整份文件\n" +
+            "3. Original:\n" +
+            "   > Whole document\n" +
             "\n" +
-            "   註解：流程圖字太小",
+            "   Comment: 流程圖字太小",
         );
         const bubble = render(<Markdown source={body} breaks />).container;
         expect([...bubble.querySelectorAll("ol > li > blockquote")].map((q) => q.textContent)).toEqual([
-          "位置：AC-5：切到已結案 1 秒內可操作（#ac-AC-5）",
-          "位置：a [b](javascript:alert(1)) **粗** _斜_ `碼` <img onerror=x> https://evil.example/p <https://x.example> xhttps://a.example _https://e.example HTTPS://u.example（#x]`y）",
-          "整份文件",
+          "Location: AC-5：切到已結案 1 秒內可操作 (#ac-AC-5)",
+          "Location: a [b](javascript:alert(1)) **粗** _斜_ `碼` <img onerror=x> https://evil.example/p <https://x.example> xhttps://a.example _https://e.example HTTPS://u.example (#x]`y)",
+          "Whole document",
         ]);
         expect([...bubble.querySelectorAll("blockquote p *")].map((el) => el.outerHTML)).toEqual([]);
       });

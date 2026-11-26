@@ -275,12 +275,12 @@ describe("chat .md attachment comments", () => {
 describe("chat message links to a stored attachment", () => {
   const DOC = "/api/chat/attachment/att-aaaaaaaaaaaa";
   const body = [
-    `**文件註解**：[設計.md](${DOC})`,
+    `**Document comment**: [設計.md](${DOC})`,
     "",
-    "1. 原文：",
-    "   > 圖片：[架構圖.png](/api/chat/attachment/att-bbbbbbbbbbbb)",
+    "1. Original:",
+    "   > Image: [架構圖.png](/api/chat/attachment/att-bbbbbbbbbbbb)",
     "",
-    "   註解：看 [規格](https://example.com/spec)，以及 [架構圖](/api/chat/attachment/att-cccccccccccc)、[流程圖](/api/chat/attachment/att-dddddddddddd)、[導覽.html](/api/chat/attachment/att-eeeeeeeeeeee)",
+    "   Comment: 看 [規格](https://example.com/spec)，以及 [架構圖](/api/chat/attachment/att-cccccccccccc)、[流程圖](/api/chat/attachment/att-dddddddddddd)、[導覽.html](/api/chat/attachment/att-eeeeeeeeeeee)",
   ].join("\n");
 
   function readingTheCommentMessage(text = body) {
@@ -347,7 +347,7 @@ describe("chat message links to a stored attachment", () => {
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(post.mock.calls[0][0]).toEqual({
       to: "m1",
-      body: "**文件註解**：[設計.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n\n1. 原文：\n   > 設計稿\n\n   註解：補日期",
+      body: "**Document comment**: [設計.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n\n1. Original:\n   > 設計稿\n\n   Comment: 補日期",
     });
     await waitFor(() => expect(overlay()).toBeNull());
 

@@ -12,7 +12,7 @@ vi.mock("./hooks/useOrgName", () => ({
 vi.mock("./components/OfficePage", async () => {
   const { Markdown } = await import("./components/Markdown");
   return {
-    OfficePage: () => <Markdown source="**文件註解**：[設計.md](/api/chat/attachment/att-aaaaaaaaaaaa)" />,
+    OfficePage: () => <Markdown source="**Document comment**: [設計.md](/api/chat/attachment/att-aaaaaaaaaaaa)" />,
   };
 });
 vi.mock("./components/RepliesPage", () => ({ RepliesPage: () => null }));

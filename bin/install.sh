@@ -833,7 +833,7 @@ oc_preflight() {
   # on the SAME machine was rescued by the stamp.
   [[ ${#miss[@]} -eq 0 ]] && { OC_PF_CLAUDE="$c"; OC_PF_CODEX="$x"; return 0; }
   echo "[install] FATAL: a member is claude or codex inside tmux — without these one" >&2
-  echo "[install]        never leaves 「waking」. NOTHING was installed; install and re-run:" >&2
+  echo "[install]        never leaves \"waking\". NOTHING was installed; install and re-run:" >&2
   printf '[install]          %s\n' "${miss[@]}" >&2
   exit 1
 }
