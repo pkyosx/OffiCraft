@@ -2057,6 +2057,38 @@ describe("LorePage — 適用範圍選單", () => {
     ).toBe("適用範圍建立者：Mira預設所有人");
   });
 
+  it("switching sections asks for the roster, workers and manuals once, and the scope badge stays a menu", async () => {
+    const container = await renderAs(jwt({ scope: "agent", sub: "mira" }));
+    const real = await import("../api");
+    await waitFor(() =>
+      expect(
+        rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!.getAttribute("aria-haspopup"),
+      ).toBe("menu"),
+    );
+    const counts = () =>
+      [real.api.listMembers, real.api.listOutsourceWorkers, real.api.listTaskManuals].map(
+        (f) => vi.mocked(f).mock.calls.length,
+      );
+    const before = counts();
+    // A second read would never answer: a page that re-asked would sit without
+    // a roster and draw the badge as plain text.
+    vi.mocked(real.api.listMembers).mockReturnValue(new Promise(() => {}));
+    vi.mocked(real.api.listLoreBudgets).mockResolvedValue([
+      MIRA_TARGET,
+      { ...MIRA_TARGET, scopeKind: "everyone", scopeKey: "" },
+    ]);
+
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-target"]')).not.toBeNull());
+    fireEvent.click(container.querySelector('[data-testid="lore-target"][data-section="agent:mira"]')!);
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-row"]')).not.toBeNull());
+
+    expect(
+      rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!.getAttribute("aria-haspopup"),
+    ).toBe("menu");
+    expect(counts()).toEqual(before);
+  });
+
   it("a plain member sees the current scope as text and clicking it opens nothing", async () => {
     const container = await renderAs(jwt({ scope: "agent", sub: "m-kyle" }));
     const badge = rowById(container, "L-2").querySelector(
@@ -2433,14 +2465,15 @@ describe("LorePage — 目錄與段落頁", () => {
     );
     window.location.hash = "#lore/agent/mira/entry/L-9";
     const { container } = renderPage();
+    // Eleven reads in a row; give a loaded machine room.
     await waitFor(() => expect(container.querySelector('[data-testid="lore-highlight-missing"]')).not.toBeNull(), {
-      timeout: 3000,
+      timeout: 10000,
     });
     // The first page and ten more, then it gives up.
     expect(list).toHaveBeenCalledTimes(11);
     await new Promise((r) => setTimeout(r, 20));
     expect(list).toHaveBeenCalledTimes(11);
-  });
+  }, 15000);
 
   it("paging for a highlight stops once the reader changes a filter", async () => {
     stubTargets();

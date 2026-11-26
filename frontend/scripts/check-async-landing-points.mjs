@@ -762,9 +762,16 @@ const REGISTRY = [
   {
     file: "lib/hashRoute.ts",
     kind: "addEventListener",
+    count: 2,
+    verdict:
+      "hashchange and popstate; they are the thing that CHANGES the conversation, not something that outlives one (popstate only unpins the route)",
+  },
+  {
+    file: "lib/hashRoute.ts",
+    kind: "setTimeout/setInterval",
     count: 1,
     verdict:
-      "hashchange; it is the thing that CHANGES the conversation, not something that outlives one",
+      "the fallback that unpins the route if a refused walk-back never lands; it touches only the URL bookkeeping, never a room's state",
   },
   {
     file: "lib/hashRoute.ts",
@@ -850,6 +857,12 @@ const MODULE_STATE = [
     name: "acceptedIdx",
     verdict:
       "the history-entry index of the URL the navigation guard last let through, used to step a refused Back/Forward back with history.go(); it describes the browser history, not any room",
+  },
+  {
+    file: "lib/hashRoute.ts",
+    name: "restoreTimer",
+    verdict:
+      "the fallback timer that unpins the route if a walk-back never lands; one app-wide timer about the URL, no room's value",
   },
   {
     file: "lib/hashRoute.ts",

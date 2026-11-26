@@ -408,8 +408,27 @@ let acceptedIdx = 0;
 // stamp and a longer history is a new one (a typed hash); with the same length
 // it is an older entry reached by Back that predates the stamps.
 let acceptedLength = 0;
-// A refused change is being walked back with history.go()/back().
+// A refused change is being walked back with history.go()/back(). Cleared by
+// the hashchange that lands, or — should none come (a traversal that lands on
+// the same hash, or a go() with nowhere to go) — by the next popstate or a
+// short timeout, so the route never stays pinned.
 let restoring = false;
+let restoreTimer: ReturnType<typeof setTimeout> | null = null;
+const RESTORE_FALLBACK_MS = 1000;
+
+function endRestoring(): void {
+  restoring = false;
+  if (restoreTimer !== null) {
+    clearTimeout(restoreTimer);
+    restoreTimer = null;
+  }
+}
+
+function startRestoring(): void {
+  restoring = true;
+  if (restoreTimer !== null) clearTimeout(restoreTimer);
+  restoreTimer = setTimeout(endRestoring, RESTORE_FALLBACK_MS);
+}
 
 function entryIdx(): number | undefined {
   const st: unknown = history.state;
@@ -472,7 +491,7 @@ function onHashChange(): void {
   const prev = acceptedHash ?? "";
   if (cur !== prev && navigationGuard) {
     // Pinned before asking: the guard itself may re-render the page.
-    restoring = true;
+    startRestoring();
     if (!navigationGuard(parseHash(cur))) {
       const idx = entryIdx();
       if (idx !== undefined && idx !== acceptedIdx) {
@@ -487,15 +506,15 @@ function onHashChange(): void {
         // walk the reader out of the app, so put the accepted page on top of it.
         history.pushState({ [HIST_IDX]: acceptedIdx }, "", window.location.pathname + window.location.search + prev);
         acceptedLength = history.length;
-        restoring = false;
+        endRestoring();
       } else {
         history.replaceState(history.state, "", window.location.pathname + window.location.search + prev);
-        restoring = false;
+        endRestoring();
       }
       return;
     }
   }
-  restoring = false;
+  endRestoring();
   acceptEntry();
   acceptedHash = cur;
   for (const cb of listeners) cb();
@@ -506,11 +525,16 @@ function subscribe(cb: () => void): () => void {
     acceptedHash = window.location.hash;
     acceptEntry();
     window.addEventListener("hashchange", onHashChange);
+    // By popstate the traversal has landed, so the URL is right to read again.
+    window.addEventListener("popstate", endRestoring);
   }
   listeners.add(cb);
   return () => {
     listeners.delete(cb);
-    if (listeners.size === 0) window.removeEventListener("hashchange", onHashChange);
+    if (listeners.size === 0) {
+      window.removeEventListener("hashchange", onHashChange);
+      window.removeEventListener("popstate", endRestoring);
+    }
   };
 }
 

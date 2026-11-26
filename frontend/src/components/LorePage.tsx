@@ -278,7 +278,42 @@ function cutIndexOf(data: SectionData): number {
 
 type EntrySeed = { key: string; entryId: string; state: LoreEntryState };
 
+/** What every section visit reads and nothing in a visit changes. Held by the
+ * outer LorePage so a section change does not re-fetch the roster (expensive)
+ * and the cards do not flicker to raw ids and plain-text badges meanwhile. */
+interface LoreShared {
+  members: ReturnType<typeof useMembers>["members"];
+  membersLoading: boolean;
+  workers: ReturnType<typeof useOutsourceWorkers>["workers"];
+  manuals: ReturnType<typeof useTaskManuals>["manuals"];
+  isMobile: boolean;
+  entryCaps: { title: number; body: number };
+}
+
 export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
+  const { members, loading: membersLoading } = useMembers();
+  const { workers } = useOutsourceWorkers();
+  const { manuals } = useTaskManuals();
+  const isMobile = useIsMobile();
+  const [entryCaps, setEntryCaps] = useState({
+    title: LORE_CAP_CHARS_DEFAULTS.title,
+    body: LORE_CAP_CHARS_DEFAULTS.body,
+  });
+  useEffect(() => {
+    let alive = true;
+    loadServerSettings()
+      .then((s) => {
+        if (alive) setEntryCaps({ title: s.loreCapCharsTitle, body: s.loreCapCharsBody });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const shared = useMemo<LoreShared>(
+    () => ({ members, membersLoading, workers, manuals, isMobile, entryCaps }),
+    [members, membersLoading, workers, manuals, isMobile, entryCaps]
+  );
   const [route] = useHashRoute();
   const sec = route.page === "lore" ? route.loreSection : undefined;
   // The directory's id search knows the entry's state; the section page it
@@ -313,6 +348,7 @@ export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
     <LoreView
       key={sec ? sectionKeyOf(sec.kind, sec.key) : ""}
       canSetScope={canSetScope}
+      shared={shared}
       seedRef={seedRef}
       budgets={budgets}
       budgetsError={budgetsError}
@@ -323,43 +359,26 @@ export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
 
 function LoreView({
   canSetScope: canSetScopeProp,
+  shared,
   seedRef,
   budgets,
   budgetsError,
   refreshBudgets,
 }: {
   canSetScope?: boolean;
+  shared: LoreShared;
   seedRef: { current: EntrySeed | null };
   budgets: LoreBudgetTargetView[] | null;
   budgetsError: boolean;
   refreshBudgets: () => Promise<void>;
 }) {
   const { t, msg } = useI18n();
-  const { members, loading: membersLoading } = useMembers();
+  const { members, membersLoading, workers, manuals, isMobile, entryCaps } = shared;
   const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
-  const { workers } = useOutsourceWorkers();
-  const { manuals } = useTaskManuals();
-  const isMobile = useIsMobile();
   const [route] = useHashRoute();
   const loreSection = route.page === "lore" ? route.loreSection : undefined;
   const sectionKey = loreSection ? sectionKeyOf(loreSection.kind, loreSection.key) : null;
   const highlightId = (route.page === "lore" && route.loreEntryId) || "";
-
-  const [entryCaps, setEntryCaps] = useState({
-    title: LORE_CAP_CHARS_DEFAULTS.title,
-    body: LORE_CAP_CHARS_DEFAULTS.body,
-  });
-  useEffect(() => {
-    let alive = true;
-    loadServerSettings()
-      .then((s) => {
-        if (alive) setEntryCaps({ title: s.loreCapCharsTitle, body: s.loreCapCharsBody });
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   // ── 篩選 ────────────────────────────────────────────────────────────────
   const [searchDraft, setSearchDraft] = useState("");

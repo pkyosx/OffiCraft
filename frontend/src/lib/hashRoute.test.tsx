@@ -1,7 +1,7 @@
 // URL-hash routing: hash → route restore (refresh / deep link) and
 // route → hash update, plus the navigateHash home-strip behaviour.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { act, render, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { parseHash, formatHash, navigateHash, setNavigationGuard, useHashRoute } from "./hashRoute";
@@ -626,6 +626,64 @@ describe("the route while a refusal is walked back", () => {
       release();
     } finally {
       unmount();
+    }
+  });
+});
+
+describe("a walk-back that never lands", () => {
+  async function refusedBackWithStuckGo() {
+    history.replaceState(null, "", window.location.pathname + "#tasks");
+    const seen: string[] = [];
+    let bump: () => void = () => {};
+    function Probe() {
+      const [route] = useHashRoute();
+      const [, setN] = useState(0);
+      bump = () => setN((n) => n + 1);
+      seen.push(formatHash(route));
+      return null;
+    }
+    const r = render(<Probe />);
+    navigateHash({ page: "lore", loreSection: { kind: "agent", key: "mira" } });
+    await waitFor(() => expect(seen[seen.length - 1]).toBe("#lore/agent/mira"));
+    const go = vi.spyOn(history, "go").mockImplementation(() => {});
+    let asked = 0;
+    const release = setNavigationGuard(() => {
+      asked += 1;
+      return false;
+    });
+    history.back();
+    await waitFor(() => expect(asked).toBe(1));
+    expect(go).toHaveBeenCalled();
+    expect(window.location.hash).toBe("#tasks");
+    act(() => bump());
+    // Still pinned to the accepted page while the walk-back is pending.
+    expect(seen[seen.length - 1]).toBe("#lore/agent/mira");
+    return { ...r, seen, bump: () => act(() => bump()), release, go };
+  }
+
+  it("the next popstate unpins the route", async () => {
+    const t = await refusedBackWithStuckGo();
+    try {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      t.bump();
+      expect(t.seen[t.seen.length - 1]).toBe("#tasks");
+    } finally {
+      t.release();
+      t.go.mockRestore();
+      t.unmount();
+    }
+  });
+
+  it("without a popstate it unpins after a short timeout", async () => {
+    const t = await refusedBackWithStuckGo();
+    try {
+      await new Promise((r) => setTimeout(r, 1100));
+      t.bump();
+      expect(t.seen[t.seen.length - 1]).toBe("#tasks");
+    } finally {
+      t.release();
+      t.go.mockRestore();
+      t.unmount();
     }
   });
 });
