@@ -2175,15 +2175,21 @@ describe("LorePage — 目錄與段落頁", () => {
     await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
     await waitFor(() =>
       expect(headerTexts(container)).toEqual([
-        "所有人所有人14 筆6,240 字・每位成員先讀全部讀得到",
-        "Mira成員11 筆9,640 / 10,0004 筆讀不到",
-        "O-179成員6 筆7,120 / 10,000全部讀得到",
-        "PR 審查任務手冊8 筆3,210 / 10,000全部讀得到",
+        "所有人14 筆全部讀得到6,240 字・每位成員先讀",
+        "Mira11 筆4 筆讀不到9,640 / 10,000 字",
+        "O-1796 筆全部讀得到7,120 / 10,000 字",
+        "PR 審查8 筆全部讀得到3,210 / 10,000 字",
       ]),
     );
     expect(
       Array.from(container.querySelectorAll(".lore__group-title")).map((el) => el.textContent),
-    ).toEqual(["所有人", "成員", "任務手冊"]);
+    ).toEqual(["所有人 · 1", "成員 · 2", "任務手冊 · 1"]);
+    // The bar is used / cap of the target's own cap; 所有人 has no cap of its own, so no bar.
+    expect(
+      Array.from(container.querySelectorAll('[data-testid="lore-target"]')).map(
+        (el) => (el.querySelector(".lore-dir-card__bar-fill") as HTMLElement | null)?.style.width ?? null,
+      ),
+    ).toEqual([null, "96%", "71%", "32%"]);
     // Each row is a link to its own section page.
     expect(
       Array.from(container.querySelectorAll('[data-testid="lore-target"]')).map((el) => el.getAttribute("href")),

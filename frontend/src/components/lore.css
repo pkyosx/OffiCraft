@@ -77,9 +77,6 @@ a.lore-target {
 a.lore-target:hover {
   border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
 }
-a.lore-target .lore-section__mark {
-  margin-left: 2px;
-}
 
 .lore__error {
   padding: 10px 14px;
@@ -96,19 +93,119 @@ a.lore-target .lore-section__mark {
   font-size: 13px;
 }
 
+/* ── a directory card: one per target, one per row, in 任務卡's shape
+ * (owner rc-d60312d882fb: 像卡片、跟請示卡或任務的風格不要差太多、一列一個).
+ * Copies of .task-card / .task-card__progress values, same reason as above. */
+a.lore-dir-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  background: var(--color-card);
+  color: var(--color-text);
+  min-width: 0;
+}
+a.lore-dir-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+.lore-dir-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+/* Name + badges wrap inside their own box, so on a phone the badges drop under
+ * the name while the chevron stays on the first line at the right edge. */
+.lore-dir-card__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.lore-dir-card__glyph {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-task-type) 12%, transparent);
+  color: var(--color-task-type);
+}
+.lore-dir-card__name {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--color-text-strong);
+  overflow-wrap: anywhere;
+}
+.lore-dir-card__badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.lore-dir-card__mark {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 4px;
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+.lore-badge--dropped {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+}
+.lore-badge--fit::before {
+  display: none;
+}
+.lore-dir-card__usage {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.lore-dir-card__bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
+  overflow: hidden;
+}
+.lore-dir-card__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--color-accent);
+}
+.lore-dir-card__usage-text {
+  flex: none;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── 所有人／成員／任務手冊 headings over the target sections ── */
 .lore__group {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
+/* Copy of replies.css .replies__section-title (「請示 · 0」). */
 .lore__group-title {
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  padding: 0 2px 2px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--color-text-muted);
-  opacity: 0.75;
 }
 
 /* ── 上限線 ──

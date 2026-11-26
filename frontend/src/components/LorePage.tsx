@@ -1429,6 +1429,42 @@ function LoreView({
     loreSection: { kind: def.kind as LoreSectionKind, key: def.kind === "everyone" ? "" : def.scopeKey },
   });
 
+  function dirLead(def: SectionDef) {
+    if (def.kind === "agent") {
+      const a = authorAvatar(def.scopeKey);
+      return <Avatar size={28} kind={a?.kind ?? "staff"} src={a?.src} />;
+    }
+    return (
+      <span className="lore-dir-card__glyph" aria-hidden="true">
+        {def.kind === "everyone" ? <UsersIcon size={16} /> : <BookIcon size={16} />}
+      </span>
+    );
+  }
+
+  // 所有人 has no cap of its own (it is read inside every member's), so it shows
+  // only its size; a bar there would compare against nothing.
+  function dirUsage(def: SectionDef) {
+    const b = def.target;
+    if (def.kind === "everyone" || b.capChars <= 0) {
+      return (
+        <div className="lore-dir-card__usage" data-testid="lore-section-usage">
+          <span className="lore-dir-card__usage-text">{msg.loreEveryoneUsed(b.usedChars)}</span>
+        </div>
+      );
+    }
+    const pct = Math.min(100, Math.round((b.usedChars / b.capChars) * 100));
+    return (
+      <div className="lore-dir-card__usage" data-testid="lore-section-usage">
+        <span className="lore-dir-card__bar">
+          <span className="lore-dir-card__bar-fill" style={{ width: `${pct}%` }} />
+        </span>
+        <span className="lore-dir-card__usage-text">
+          {msg.loreDirUsage(b.usedChars, b.capChars)}
+        </span>
+      </div>
+    );
+  }
+
   const errors = (
     <>
       {budgetsError && (
@@ -1472,11 +1508,14 @@ function LoreView({
         {groups.map((g) =>
           g.defs.length === 0 ? null : (
             <div className="lore__group" key={g.kind} data-testid={`lore-group-${g.kind}`}>
-              <div className="lore__group-title">{g.label}</div>
+              <div className="lore__group-title">
+                {g.label}
+                <span className="lore__group-count"> · {g.defs.length}</span>
+              </div>
               {g.defs.map((def) => (
                 <a
                   key={def.key}
-                  className="lore-section lore-section__head lore-target"
+                  className="lore-dir-card lore-target"
                   data-testid="lore-target"
                   data-section={def.key}
                   href={formatHash(sectionRoute(def))}
@@ -1485,17 +1524,33 @@ function LoreView({
                     navigateHash(sectionRoute(def));
                   }}
                 >
-                  <span className="lore-section__name" data-testid="lore-section-name">
-                    {sectionName(def)}
-                  </span>
-                  <span className="lore-section__kind">{kindChip(def.kind)}</span>
-                  <span className="lore-section__count" data-testid="lore-section-count">
-                    {msg.loreEntryCount(def.target.entryCount)}
-                  </span>
-                  {renderHeaderUsage(def)}
-                  <span className="lore-section__mark" aria-hidden="true">
-                    <ChevronRightIcon size={14} />
-                  </span>
+                  <div className="lore-dir-card__head">
+                    {dirLead(def)}
+                    <span className="lore-dir-card__main">
+                      <span className="lore-dir-card__name" data-testid="lore-section-name">
+                        {sectionName(def)}
+                      </span>
+                      <span className="lore-dir-card__badges">
+                        <span className="lore-badge" data-testid="lore-section-count">
+                          {msg.loreEntryCount(def.target.entryCount)}
+                        </span>
+                        {def.target.droppedCount > 0 ? (
+                          <span
+                            className="lore-badge lore-badge--dropped"
+                            data-testid="lore-section-dropped"
+                          >
+                            {msg.loreDropped(def.target.droppedCount)}
+                          </span>
+                        ) : (
+                          <span className="lore-badge lore-badge--fit">{t.lore.allFit}</span>
+                        )}
+                      </span>
+                    </span>
+                    <span className="lore-dir-card__mark" aria-hidden="true">
+                      <ChevronRightIcon size={14} />
+                    </span>
+                  </div>
+                  {dirUsage(def)}
                 </a>
               ))}
             </div>

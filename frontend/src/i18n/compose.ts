@@ -87,6 +87,7 @@ export interface Messages {
   loreChars: (n: number) => string;
   loreDropped: (n: number) => string;
   loreEveryoneUsed: (chars: number) => string;
+  loreDirUsage: (used: number, cap: number) => string;
   loreDirectoryNotFound: (id: string) => string;
   loreDirectorySectionGone: (id: string) => string;
   loreHighlightMissing: (id: string) => string;
@@ -491,6 +492,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     loreChars: (n) => `${num(n)}${t.lore.charsTail}`,
     loreDropped: (n) => `${num(n)}${t.lore.droppedTail}`,
     loreEveryoneUsed: (chars) => `${num(chars)}${t.lore.charsTail}${t.lore.everyoneReadFirst}`,
+    loreDirUsage: (used, cap) => `${num(used)} / ${num(cap)}${t.lore.charsTail}`,
     loreDirectoryNotFound: (id) => `${t.lore.dirNotFoundLead}${id}${t.lore.dirNotFoundTail}`,
     loreDirectorySectionGone: (id) => `${t.lore.dirSectionGoneLead}${id}${t.lore.dirSectionGoneTail}`,
     loreHighlightMissing: (id) => `${t.lore.highlightMissingLead}${id}${t.lore.highlightMissingTail}`,

@@ -141,7 +141,11 @@ async function measure(page: any): Promise<{
       return {
         key: head.getAttribute("data-section") ?? "page",
         head: r(head)!,
-        children: [...head.querySelectorAll(":scope > *, .lore-section__usage > *")].map((c) => ({
+        children: [
+          ...head.querySelectorAll(
+            ":scope > *, .lore-section__usage > *, .lore-dir-card__head > *, .lore-dir-card__badges > *, .lore-dir-card__usage > *",
+          ),
+        ].map((c) => ({
           cls: (c.className || c.tagName).toString(),
           box: r(c)!,
         })),
@@ -352,7 +356,7 @@ for (const width of [390, 1440]) {
     const labels = await page.evaluate(() =>
       [...document.querySelectorAll('[data-testid="lore-target"]')].flatMap((head) =>
         [...head.querySelectorAll(
-          ".lore-section__name, .lore-section__kind, .lore-section__count, .lore-section__chars, .lore-section__dropped, .lore-section__fit",
+          ".lore-dir-card__name, .lore-badge, .lore-dir-card__usage-text",
         )].map((el) => {
           const range = document.createRange();
           range.selectNodeContents(el);
@@ -367,6 +371,48 @@ for (const width of [390, 1440]) {
     for (const l of labels) {
       expect.soft(l.lines, `[${width}px] "${l.text}" (${l.cls}) wraps`).toBe(1);
     }
+  });
+
+  test(`each directory card keeps its chevron top-right and its bar beside the numbers @${width}px`, async ({ mount, page }) => {
+    await mountAt(mount, page, width, false, "");
+    const cards = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="lore-target"]')].map((card) => {
+        const box = (sel: string) => {
+          const el = card.querySelector(sel);
+          if (!el) return null;
+          const b = el.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        };
+        const c = card.getBoundingClientRect();
+        return {
+          key: card.getAttribute("data-section") ?? "",
+          card: { left: c.left, right: c.right, top: c.top, bottom: c.bottom },
+          name: box(".lore-dir-card__name"),
+          mark: box(".lore-dir-card__mark"),
+          bar: box(".lore-dir-card__bar"),
+          text: box(".lore-dir-card__usage-text"),
+        };
+      }),
+    );
+    expect(cards.length, `[${width}px] directory cards`).toBeGreaterThanOrEqual(4);
+    // One card per row: every card spans the same width.
+    const widths = new Set(cards.map((c) => Math.round(c.card.right - c.card.left)));
+    expect.soft(widths.size, `[${width}px] cards share one width`).toBe(1);
+    let bars = 0;
+    for (const c of cards) {
+      expect.soft(c.mark, `[${width}px] ${c.key} chevron`).not.toBeNull();
+      if (c.mark && c.name) {
+        expect.soft(c.card.right - c.mark.right, `[${width}px] ${c.key} chevron at the right edge`).toBeLessThan(24);
+        expect.soft(Math.abs(c.mark.top - c.name.top), `[${width}px] ${c.key} chevron on the name's line`).toBeLessThan(12);
+      }
+      if (c.bar && c.text) {
+        bars++;
+        expect.soft(c.bar.right, `[${width}px] ${c.key} bar ends before the numbers`).toBeLessThanOrEqual(c.text.left);
+        expect.soft(Math.abs((c.bar.top + c.bar.bottom) / 2 - (c.text.top + c.text.bottom) / 2), `[${width}px] ${c.key} bar beside the numbers`).toBeLessThan(6);
+        expect.soft(c.bar.right - c.bar.left, `[${width}px] ${c.key} bar has room`).toBeGreaterThan(80);
+      }
+    }
+    expect(bars, `[${width}px] cards with a bar`).toBeGreaterThanOrEqual(3);
   });
 
   test(`the batch bar stays inside the viewport and the scroll container @${width}px`, async ({ mount, page }) => {
