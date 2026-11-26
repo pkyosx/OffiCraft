@@ -159,11 +159,14 @@ func releaseAnnouncePress(t *testing.T, h http.Handler, owner string) {
 	}
 }
 
-func releaseAnnounceReceiveBeta(t *testing.T, h http.Handler, owner string) {
+// releaseAnnounceReceiveBeta switches to the beta channel and waits out the
+// check that switch starts, so a later apiTestStampBuild does not race it.
+func releaseAnnounceReceiveBeta(t *testing.T, api *apiServer, h http.Handler, owner string) {
 	t.Helper()
 	if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"updater_receive_beta":true}`); status != 200 {
 		t.Fatalf("PATCH: %d %v", status, data)
 	}
+	waitForUpdateCheckDone(t, api)
 }
 
 func releaseAnnounceWantRequests(t *testing.T, gh *releaseAnnounceFakeGitHub, want int) {
@@ -686,7 +689,7 @@ func TestReleaseAnnounceRound(t *testing.T) {
 }
 
 func TestReleaseAnnounceOnVersionCheck(t *testing.T) {
-	t.Run("stable channel: a running prerelease above Latest reads nothing; once it is promoted the next check announces it, and later checks read nothing", func(t *testing.T) {
+	t.Run("stable channel: a running prerelease above Latest reads the list once for the official release below it, then nothing; once it is promoted the next check announces it, and later checks read nothing", func(t *testing.T) {
 		gh := newReleaseAnnounceFakeGitHub(t,
 			releaseAnnouncePre("v0.5.590", releaseAnnounceNotes("v0.5.590")),
 			releaseAnnounceGA("v0.5.589", releaseAnnounceNotesWithoutSection("v0.5.589")),
@@ -699,40 +702,42 @@ func TestReleaseAnnounceOnVersionCheck(t *testing.T) {
 		releaseAnnounceCheck(t, api, h)
 
 		releaseAnnounceWantMessages(t, h, owner)
-		releaseAnnounceWantRequests(t, gh, 0)
-		windowWantSetting(t, d, settingReleaseAnnounceThrough, nil)
+		releaseAnnounceWantRequests(t, gh, 1)
+		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.589"))
 
 		gh.set(func() { gh.releases[0].Prerelease = false })
 		site.mark("v0.5.590")
 		releaseAnnounceCheck(t, api, h)
 
 		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
-		releaseAnnounceWantRequests(t, gh, 1)
+		releaseAnnounceWantRequests(t, gh, 2)
 		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.590"))
 
 		for i := 0; i < 5; i++ {
 			releaseAnnounceCheck(t, api, h)
 		}
 		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
-		releaseAnnounceWantRequests(t, gh, 1)
+		releaseAnnounceWantRequests(t, gh, 2)
 	})
 
-	t.Run("beta channel: each check probes the Latest page while the running version is unannounced, announces once it is promoted, and then stops probing", func(t *testing.T) {
+	t.Run("beta channel: each check probes the Latest page while the running version is unannounced, reads the list once for the official release below it, announces the running version once it is promoted, and then stops probing", func(t *testing.T) {
 		gh := newReleaseAnnounceFakeGitHub(t,
 			releaseAnnouncePre("v0.5.590", releaseAnnounceNotes("v0.5.590")),
 			releaseAnnounceGA("v0.5.589", releaseAnnounceNotesWithoutSection("v0.5.589")),
 		)
 		site := newReleaseAnnounceTestSite(t, "v0.5.589", "v0.5.590", "v0.5.589")
 		api, h, _, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, site)
-		releaseAnnounceReceiveBeta(t, h, owner)
+		releaseAnnounceReceiveBeta(t, api, h, owner)
 		apiTestStampBuild(t, "v0.5.590")
+		// The check the channel switch started is not counted.
+		base := site.calls.Load()
 
 		releaseAnnounceCheck(t, api, h)
 		releaseAnnounceCheck(t, api, h)
 
 		releaseAnnounceWantMessages(t, h, owner)
-		releaseAnnounceWantRequests(t, gh, 0)
-		if n := site.calls.Load(); n != 4 {
+		releaseAnnounceWantRequests(t, gh, 1)
+		if n := site.calls.Load() - base; n != 4 {
 			t.Fatalf("release page requests: want 4 (feed and Latest per check), got %d", n)
 		}
 
@@ -741,11 +746,11 @@ func TestReleaseAnnounceOnVersionCheck(t *testing.T) {
 		releaseAnnounceCheck(t, api, h)
 
 		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
-		releaseAnnounceWantRequests(t, gh, 1)
+		releaseAnnounceWantRequests(t, gh, 2)
 
 		releaseAnnounceCheck(t, api, h)
-		releaseAnnounceWantRequests(t, gh, 1)
-		if n := site.calls.Load(); n != 7 {
+		releaseAnnounceWantRequests(t, gh, 2)
+		if n := site.calls.Load() - base; n != 7 {
 			t.Fatalf("release page requests: want 7 (only the feed once announced), got %d", n)
 		}
 	})
@@ -802,6 +807,68 @@ func TestReleaseAnnounceOnVersionCheck(t *testing.T) {
 		releaseAnnounceWantRequests(t, gh, 1)
 	})
 
+	t.Run("beta channel: an official release below a running prerelease is announced at the first check, not when the running one is promoted", func(t *testing.T) {
+		gh := newReleaseAnnounceFakeGitHub(t,
+			releaseAnnouncePre("v0.5.595", releaseAnnounceNotes("v0.5.595")),
+			releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")),
+		)
+		site := newReleaseAnnounceTestSite(t, "v0.5.590", "v0.5.595", "v0.5.590")
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, site)
+		releaseAnnounceReceiveBeta(t, api, h, owner)
+		apiTestStampBuild(t, "v0.5.595")
+
+		releaseAnnounceCheck(t, api, h)
+
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
+		releaseAnnounceWantRequests(t, gh, 1)
+		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.590"))
+
+		for i := 0; i < 3; i++ {
+			releaseAnnounceCheck(t, api, h)
+		}
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
+		releaseAnnounceWantRequests(t, gh, 1)
+
+		gh.set(func() { gh.releases[0].Prerelease = false })
+		site.mark("v0.5.595", "v0.5.595", "v0.5.590")
+		releaseAnnounceCheck(t, api, h)
+
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"}, []any{"v0.5.595"})
+		releaseAnnounceWantRequests(t, gh, 2)
+		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.595"))
+	})
+
+	t.Run("stable channel: a GA station not yet upgraded to Latest reads the list once to record its own release, then nothing, also when Latest moves", func(t *testing.T) {
+		gh := newReleaseAnnounceFakeGitHub(t,
+			releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")),
+			releaseAnnounceGA("v0.5.586", releaseAnnounceNotesWithoutSection("v0.5.586")),
+		)
+		site := newReleaseAnnounceTestSite(t, "v0.5.590")
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, site)
+		apiTestStampBuild(t, "v0.5.586")
+
+		releaseAnnounceCheck(t, api, h)
+
+		releaseAnnounceWantMessages(t, h, owner)
+		releaseAnnounceWantRequests(t, gh, 1)
+		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.586"))
+
+		for i := 0; i < 3; i++ {
+			releaseAnnounceCheck(t, api, h)
+		}
+		gh.set(func() {
+			gh.releases = append([]githubRelease{releaseAnnounceGA("v0.5.591", releaseAnnounceNotes("v0.5.591"))}, gh.releases...)
+		})
+		site.mark("v0.5.591")
+		for i := 0; i < 3; i++ {
+			releaseAnnounceCheck(t, api, h)
+		}
+
+		releaseAnnounceWantMessages(t, h, owner)
+		releaseAnnounceWantRequests(t, gh, 1)
+		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.586"))
+	})
+
 	t.Run("a station parked on an old prerelease below Latest reads the list once per Latest move", func(t *testing.T) {
 		gh := newReleaseAnnounceFakeGitHub(t,
 			releaseAnnounceGA("v0.5.591", releaseAnnounceNotes("v0.5.591")),
@@ -809,7 +876,7 @@ func TestReleaseAnnounceOnVersionCheck(t *testing.T) {
 		)
 		site := newReleaseAnnounceTestSite(t, "v0.5.591", "v0.5.591", "v0.5.590")
 		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, site)
-		releaseAnnounceReceiveBeta(t, h, owner)
+		releaseAnnounceReceiveBeta(t, api, h, owner)
 		apiTestStampBuild(t, "v0.5.590")
 
 		for i := 0; i < 4; i++ {

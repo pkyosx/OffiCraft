@@ -225,14 +225,18 @@ func (s *apiServer) releaseAnnounceRound(includePre bool, latest string) {
 			latest = tag
 		}
 	}
-	// Below Latest's level nothing new can be official yet: a running
-	// prerelease above it waits until a release at or above it is promoted.
+	// Latest stands for the newest official release, so with Latest at or
+	// below the marker the window (marker, running] holds none yet. Latest
+	// above the marker may put one inside it, also while running is a
+	// prerelease above Latest; selection still stops at running, so a Latest
+	// above running is not announced early.
 	latestTag, ok := canonicalSemver(latest)
-	if !ok || semver.Compare(running, latestTag) > 0 {
+	if !ok || !semverOutranks(latestTag, marker) {
 		return
 	}
-	// The list answers the same for the same pair, so a station parked on an
-	// old prerelease reads it once per Latest move, not once per check.
+	// The list answers the same for the same pair, so a station whose window
+	// has nothing new (an old prerelease, or a GA not yet upgraded past Latest)
+	// reads it once per move of running or Latest, not once per check.
 	pair := [2]string{running, latestTag}
 	if pair == s.releaseAnnounceReadPair {
 		return
