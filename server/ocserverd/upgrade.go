@@ -9,10 +9,20 @@ package main
 // untouched until the candidate is verified and smoke-tested. Staging files sit in the running binary's own
 // directory so the final rename is atomic (same filesystem).
 //
-// Exactly ONE <exe>.bak is kept, overwritten by each successful upgrade and
-// never auto-deleted: it IS the manual rollback (stop the server, `mv
-// ocserverd.bak ocserverd`, start). Only the ocserverd binary is swapped
-// (SPA/seeds/warden/agent ride inside it as embeds); install.sh is not run.
+// The running binary is renamed to <exe>.bak and the new one moved into its
+// place; the .bak is overwritten by each successful upgrade and never
+// auto-deleted: it IS the manual rollback (stop the server, `mv ocserverd.bak
+// ocserverd`, start). Only the ocserverd binary is swapped (SPA/seeds/warden/
+// agent ride inside it as embeds); install.sh is not run.
+//
+// TRAP: on Linux /proc/self/exe follows that rename, so asking os.Executable
+// again after the swap answers ocserverd.bak — the OLD build. The path is
+// resolved once and that exact path is exec'd. A process already running from
+// an upgrade leftover (ocserverd.bak, ocserverd.bak.bak…) upgrades the sibling
+// ocserverd instead; targeting its own name would stack another .bak per round
+// while re-executing the old build. That upgrade's .bak is whatever sat at
+// ocserverd (often a build that never loaded), not the build that was running,
+// so it is not a reliable rollback.
 //
 // WHY re-exec, not exit-and-let-a-supervisor-restart: under launchd bin/serve
 // execs ocserverd, so exec keeps the tracked PID; a manual `./ocserverd
@@ -30,6 +40,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -68,6 +79,8 @@ func releaseAssetName(tag string, platform binPlatform) string {
 type upgradeFailure struct {
 	status  int
 	message string
+	// busy: another upgrade holds the lock; not a failure of this attempt.
+	busy bool
 }
 
 func (e *upgradeFailure) Error() string { return e.message }
@@ -239,14 +252,34 @@ func (s *apiServer) upgradeTargetPath() (string, error) {
 	if s.upgradeExeOverride != "" {
 		return s.upgradeExeOverride, nil
 	}
-	exe, err := os.Executable()
+	resolve := s.upgradeExecutable
+	if resolve == nil {
+		resolve = os.Executable
+	}
+	exe, err := resolve()
 	if err != nil {
 		return "", err
 	}
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		return resolved, nil
+		exe = resolved
 	}
-	return exe, nil
+	return canonicalUpgradeTarget(exe), nil
+}
+
+// canonicalUpgradeTarget maps an upgrade leftover (ocserverd followed by one or
+// more ".bak") to the ocserverd beside it; any other name, e.g. a hand-built
+// dev binary, is upgraded in place.
+func canonicalUpgradeTarget(exe string) string {
+	rest, ok := strings.CutPrefix(filepath.Base(exe), serverBinaryName)
+	if !ok || rest == "" {
+		return exe
+	}
+	for rest != "" {
+		if rest, ok = strings.CutPrefix(rest, ".bak"); !ok {
+			return exe
+		}
+	}
+	return filepath.Join(filepath.Dir(exe), serverBinaryName)
 }
 
 func downloadUpgradeTarball(asset releaseAsset, expectedSHA, dir string) (string, *upgradeFailure) {
@@ -360,16 +393,25 @@ func (s *apiServer) upgradePlatform() binPlatform {
 	return serverBinPlatform
 }
 
-func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
-	tag, fail := s.pinUpgradeRelease()
+// executeUpgrade answers the path it swapped; the restart must exec exactly
+// that path (see the TRAP in the header).
+func (s *apiServer) executeUpgrade() (tag, exePath string, fail *upgradeFailure) {
+	exePath, err := s.upgradeTargetPath()
+	if err != nil {
+		return "", "", upgradeFail(http.StatusInternalServerError,
+			"cannot resolve the running binary's path — nothing was changed: %v", err)
+	}
+	dir := filepath.Dir(exePath)
+
+	tag, fail = s.pinUpgradeRelease()
 	if fail != nil {
-		return "", fail
+		return "", "", fail
 	}
 	// Re-check against the PINNED release (the cache may be stale): strictly
 	// newer, so a lagging release list can never turn an upgrade into a
 	// downgrade.
 	if !releaseIsNewer(tag, appVersion) {
-		return "", upgradeFail(http.StatusConflict,
+		return "", "", upgradeFail(http.StatusConflict,
 			"GitHub's current latest (%s) is not newer than the running build (%s) — nothing newer to install",
 			tag, appVersion)
 	}
@@ -378,83 +420,95 @@ func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
 	asset := pinnedReleaseAsset(base, tag, releaseAssetName(tag, s.upgradePlatform()))
 	expectedSHA, fail := fetchExpectedSHA(pinnedReleaseAsset(base, tag, checksumsAssetName), asset.name)
 	if fail != nil {
-		return "", fail
+		return "", "", fail
 	}
-
-	exePath, err := s.upgradeTargetPath()
-	if err != nil {
-		return "", upgradeFail(http.StatusInternalServerError,
-			"cannot resolve the running binary's path — nothing was changed: %v", err)
-	}
-	dir := filepath.Dir(exePath)
 
 	tarPath, fail := downloadUpgradeTarball(asset, expectedSHA, dir)
 	if fail != nil {
-		return "", fail
+		return "", "", fail
 	}
 	defer os.Remove(tarPath)
 
 	tmpPath, fail := extractServerBinary(tarPath, dir)
 	if fail != nil {
-		return "", fail
+		return "", "", fail
 	}
 	defer os.Remove(tmpPath)
 
 	if fail := smokeTestBinary(tmpPath); fail != nil {
-		return "", fail
+		return "", "", fail
 	}
 
+	// When running from ocserverd.bak this rename replaces the running file's
+	// name; its inode lives on until the exec. A missing ocserverd (only ever
+	// the leftover case) has nothing to back up.
 	bakPath := exePath + ".bak"
-	if err := os.Rename(exePath, bakPath); err != nil {
-		return "", upgradeFail(http.StatusInternalServerError,
+	backedUp := true
+	if err := os.Rename(exePath, bakPath); errors.Is(err, fs.ErrNotExist) {
+		backedUp = false
+	} else if err != nil {
+		return "", "", upgradeFail(http.StatusInternalServerError,
 			"cannot back up the running binary to %s — nothing was changed: %v", bakPath, err)
 	}
 	if err := os.Rename(tmpPath, exePath); err != nil {
+		if !backedUp {
+			return "", "", upgradeFail(http.StatusInternalServerError,
+				"cannot move the new binary to %s — nothing was changed: %v", exePath, err)
+		}
 		if restoreErr := os.Rename(bakPath, exePath); restoreErr != nil {
 			log.Printf("[upgrade] CRITICAL: swap failed (%v) AND restoring the backup failed (%v) — %s is missing; restore it manually from %s",
 				err, restoreErr, exePath, bakPath)
-			return "", upgradeFail(http.StatusInternalServerError,
+			return "", "", upgradeFail(http.StatusInternalServerError,
 				"the binary swap failed AND the automatic backup restore failed — manual attention needed (backup at %s): %v", bakPath, err)
 		}
-		return "", upgradeFail(http.StatusInternalServerError,
+		return "", "", upgradeFail(http.StatusInternalServerError,
 			"the binary swap failed — the old binary was restored and keeps serving: %v", err)
 	}
-	return tag, nil
+	return tag, exePath, nil
 }
 
-func restartIntoUpgradedBinary(exePath string) {
+func restartIntoUpgradedBinary(exePath string, env []string) {
 	time.Sleep(upgradeRestartDelay)
 	log.Printf("[upgrade] restarting: exec %s (argv %v)", exePath, os.Args)
-	if err := syscall.Exec(exePath, os.Args, os.Environ()); err != nil {
+	if err := syscall.Exec(exePath, os.Args, env); err != nil {
 		log.Printf("[upgrade] CRITICAL: exec of the upgraded binary failed (%v) — the OLD build keeps serving; the new binary is installed at %s and takes over on the next restart", err, exePath)
 	}
 }
 
-func (s *apiServer) runUpgrade() (version, exePath string, fail *upgradeFailure) {
+// manual is the owner's click: it re-arms auto-update, but only once it holds
+// the lock, so it cannot reopen the gate under an upgrade already running.
+func (s *apiServer) runUpgrade(manual bool) (version, exePath string, fail *upgradeFailure) {
 	available, _ := s.updateStatus()
 	if !available {
 		return "", "", upgradeFail(http.StatusConflict,
 			"no newer release is known — the running build is the latest published on GitHub (use 檢查更新 to re-check)")
 	}
 	if !s.upgradeMu.TryLock() {
-		return "", "", upgradeFail(http.StatusConflict, "an upgrade is already in progress")
+		busy := upgradeFail(http.StatusConflict, "an upgrade is already in progress")
+		busy.busy = true
+		return "", "", busy
 	}
 	defer s.upgradeMu.Unlock()
+	if tag := s.upgradeInstalledAwaitingRestart(); tag != "" {
+		return "", "", upgradeFail(http.StatusConflict,
+			"a new version (%s) is already installed and waits for the server to restart; nothing was changed", tag)
+	}
+	if manual {
+		s.resetAutoUpdateGate()
+	}
 
-	version, fail = s.executeUpgrade()
+	version, exePath, fail = s.executeUpgrade()
 	if fail != nil {
 		return "", "", fail
 	}
-	exePath, err := s.upgradeTargetPath()
-	if err != nil {
-		return "", "", upgradeFail(http.StatusInternalServerError, "%s", err.Error())
-	}
+	s.noteUpgradeInstalled(version)
 	log.Printf("[upgrade] release %s verified and swapped into %s (backup: %s.bak); restarting in %v",
 		version, exePath, exePath, upgradeRestartDelay)
 	return version, exePath, nil
 }
 
-func (s *apiServer) scheduleUpgradeRestart(exePath string) {
+func (s *apiServer) scheduleUpgradeRestart(exePath, tag string) {
+	env := upgradeHandoffEnv(os.Environ(), appVersion, tag)
 	restart := s.upgradeRestart
 	if restart == nil {
 		restart = restartIntoUpgradedBinary
@@ -465,13 +519,13 @@ func (s *apiServer) scheduleUpgradeRestart(exePath string) {
 	// honestly.
 	s.markStationShutdown()
 	go func() {
-		restart(exePath)
+		restart(exePath, env)
 		s.clearStationShutdown()
 	}()
 }
 
 func (s *apiServer) HandleUpgradeApiUpdateUpgradePost(w http.ResponseWriter, r *http.Request) {
-	version, exePath, fail := s.runUpgrade()
+	version, exePath, fail := s.runUpgrade(true)
 	if fail != nil {
 		writeError(w, fail.status, fail.message)
 		return
@@ -480,5 +534,5 @@ func (s *apiServer) HandleUpgradeApiUpdateUpgradePost(w http.ResponseWriter, r *
 		Status:        "restarting",
 		TargetVersion: version,
 	})
-	s.scheduleUpgradeRestart(exePath)
+	s.scheduleUpgradeRestart(exePath, version)
 }
