@@ -177,7 +177,7 @@ func (s *apiServer) openReplyCard(
 	}
 	if taskID != "" && taskStepID == "" {
 		return nil, "", errors.New("refusing to mint a reply card bound to task '" +
-			taskID + "' with no step: a step-less task binding places no 等我回覆 hold " +
+			taskID + "' with no step: a step-less task binding places no waiting_owner hold " +
 			"and orphans the card when the task closes")
 	}
 	if taskStepID != "" && taskID == "" {
@@ -322,7 +322,7 @@ func (s *apiServer) openReplyCard(
 	}
 	s.enqueueWebPush(webPushPayload{
 		Kind: "reply_card", ChatMessageID: msg.ID, ReplyCardID: card.ID,
-		Title: "OffiCraft：需要你決定", Body: "你有一張新的請示卡。",
+		Title: "OffiCraft: decision needed", Body: "You have a new decision card.",
 		NeedsDecision: card.Status == replyCardStatusWaiting,
 	})
 	return &card, "", nil
@@ -430,13 +430,13 @@ func (s *apiServer) writeReplyCardTransitionReceipt(w http.ResponseWriter, c Rep
 // contract; do not shorten it to a bare "missing parameter".
 const linkedTaskRequiredMsg = "linked_task is required and has no default — say whether " +
 	"this ask is about a task. Two legal shapes: send linked_task=null if it is NOT about a " +
-	"task (a plain unbound 請示), or linked_task={\"task_id\": \"t-...\", \"step_id\": " +
+	"task (a plain unbound ask), or linked_task={\"task_id\": \"t-...\", \"step_id\": " +
 	"\"ts-...\"} to bind the ask to the step it is about, which then holds in waiting_owner " +
 	"until you are answered. The server does not infer a binding from the work you hold: a " +
-	"guess that missed used to open a card with no 等我回覆 hold and tell you nothing."
+	"guess that missed used to open a card with no waiting_owner hold and tell you nothing."
 
 const linkedTaskStepRequiredMsg = "linked_task.step_id is required: a card bound to a task " +
-	"but to no step places no 等我回覆 hold, so the task would finish underneath your " +
+	"but to no step places no waiting_owner hold, so the task would finish underneath your " +
 	"question and the owner's answer would then be rejected for good. Send " +
 	"linked_task={\"task_id\": \"t-...\", \"step_id\": \"ts-...\"} naming the step you " +
 	"are on, or linked_task=null if this ask is not about a task."
@@ -1074,7 +1074,7 @@ func firstAnswerGate(card ReplyCard, getTask func(string) (*Task, error)) error 
 	}
 	if card.Status != replyCardStatusWaiting {
 		return refuseInTx(http.StatusConflict,
-			"reply card '"+card.ID+"' is already answered — revise it via PUT (重新決定)")
+			"reply card '"+card.ID+"' is already answered — revise it via PUT (Change my decision)")
 	}
 	if card.TaskID == "" {
 		return nil

@@ -241,10 +241,10 @@ func TestActivateMember_AlreadyOnlineIsNotPendingAndSaysItWasAlreadyRunning(t *t
 	if after.RestartAfterStop {
 		t.Fatalf("online activate must consume restart_after_stop: %+v", after)
 	}
-	const alreadyRunning = "session_alive: it was already running — 喚醒 left that session " +
-		"alone and dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under " +
+	const alreadyRunning = "session_alive: it was already running — Wake left that session " +
+		"alone and dispatched nothing. Its work, and any Accelerated stop or Refocus already under " +
 		"way on it, are untouched. To end the current session and start a fresh one, press " +
-		"強制停止 first, then 喚醒"
+		"Force stop first, then Wake"
 	if after.LastOp != "start" || after.LastOpOK == nil || !*after.LastOpOK ||
 		after.LastOpAt <= 0 || after.LastOpLog != "" || after.LastOpReason != alreadyRunning {
 		t.Fatalf("online activate receipt: last_op %q ok %v at %v log %q reason %q; want start, true, >0, \"\", %q",
@@ -279,10 +279,10 @@ func TestActivateMember_AlreadyRunningNoteOutlivesTheOnlineTick(t *testing.T) {
 	if after == nil {
 		t.Fatal("the tick removed the member")
 	}
-	const alreadyRunning = "session_alive: it was already running — 喚醒 left that session " +
-		"alone and dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under " +
+	const alreadyRunning = "session_alive: it was already running — Wake left that session " +
+		"alone and dispatched nothing. Its work, and any Accelerated stop or Refocus already under " +
 		"way on it, are untouched. To end the current session and start a fresh one, press " +
-		"強制停止 first, then 喚醒"
+		"Force stop first, then Wake"
 	if after.LastOp != "start" || after.LastOpOK == nil || !*after.LastOpOK ||
 		after.LastOpLog != "" || after.LastOpReason != alreadyRunning ||
 		after.LastOpAt != stamped.LastOpAt || after.LastOpAt <= 0 {
@@ -478,7 +478,7 @@ func TestActivateMember_UnderAPressWhileWakingWhoseStopCannotReachTheBootingMach
 		t.Fatalf("second activate: %d %v", status, receipt)
 	}
 	reason := "warden_unreachable: an earlier start is still booting on machine 'm-server-self' and " +
-		"this 喚醒's stop could not reach it, so no second start was sent. It will be retried once " +
+		"this Wake's stop could not reach it, so no second start was sent. It will be retried once " +
 		"that start times out; if it stays here, check machine 'm-server-self'"
 	apiWantValue(t, "receipt", any(receipt), any(map[string]any{
 		"id": seedMiraID, "activation_pending": true, "last_op_reason": reason,
@@ -517,7 +517,7 @@ func TestActivateMember_UnderAPressWhileWakingWhoseStopIsParkedOnTheBootingMachi
 	}
 	// The STOP is owed on the booting machine by name, so the reconcile no longer waits on that
 	// START: the reason is the plain undelivered one, not "an earlier start is still booting".
-	reason := "warden_unreachable: 喚醒 was recorded, but nothing has been dispatched yet — the " +
+	reason := "warden_unreachable: Wake was recorded, but nothing has been dispatched yet — the " +
 		"machine's warden did not take the start. It will be retried; if it stays here, check " +
 		"that machine"
 	apiWantValue(t, "receipt", any(receipt), any(map[string]any{

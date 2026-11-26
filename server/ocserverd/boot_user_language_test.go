@@ -18,7 +18,7 @@ func TestBootContextUserLanguageBlock(t *testing.T) {
 		enBlock      = "# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages."
 	)
 	head := func(block string) string {
-		return sysBody + "\n\n" + block + "\n\n# 使用者自訂（Owner Additions）\n\n" + ownerAddText + "\n\n"
+		return sysBody + "\n\n" + block + "\n\n# Owner Additions\n\n" + ownerAddText + "\n\n"
 	}
 
 	api, h, d, owner := newAPITestServer(t)
@@ -122,7 +122,7 @@ func TestBootContextUserLanguageBlockWithoutOwnerAdditions(t *testing.T) {
 		t.Errorf("outsource head = %q, want prefix %q", workerCtx[:min(len(workerCtx), len(wantWorker)+40)], wantWorker)
 	}
 	for who, ctx := range map[string]string{"staff": staffCtx, "outsource": workerCtx} {
-		if strings.Contains(ctx, "# 使用者自訂（Owner Additions）") {
+		if strings.Contains(ctx, "# Owner Additions") {
 			t.Errorf("%s: blank owner additions produced a heading", who)
 		}
 	}

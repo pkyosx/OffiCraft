@@ -320,7 +320,7 @@ func (s *apiServer) taskNoticeText(kind string, values map[string]string) string
 		s.eventNoticeText(s.mustBootDocSpec(kind, bootDocSingletonKey), values))
 }
 
-const takeoverNoPredecessorHead = "[{task_no}] 你接手了這張任務，這張任務沒有前任。"
+const takeoverNoPredecessorHead = "[{task_no}] You are taking over this task; it has no predecessor."
 
 func (s *apiServer) takeoverNoticeText(taskNo, predecessor string) string {
 	values := map[string]string{"task_no": taskNo, "predecessor": predecessor}

@@ -1002,8 +1002,8 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 			"kind":         "chat",
 			"chat_id":      id,
 			"chat_peer_id": "mira",
-			"title":        "OffiCraft 有新訊息",
-			"body":         "你有一則新訊息。",
+			"title":        "OffiCraft: new message",
+			"body":         "You have a new message.",
 		})
 	})
 
@@ -3814,11 +3814,11 @@ func TestResumeFloorParts(t *testing.T) {
 		}
 		apiWantValue(t, "roster", apiTestJSONOf(t, roster), any(apiTestSeedRoster()))
 		apiWantValue(t, "machines", apiTestJSONOf(t, machines), any(apiTestSeedMachines()))
-		if rosterSize != 575 || machinesSize != 19 {
-			t.Fatalf("sizes = %d, %d, want 575, 19", rosterSize, machinesSize)
+		if rosterSize != 575 || machinesSize != 24 {
+			t.Fatalf("sizes = %d, %d, want 575, 24", rosterSize, machinesSize)
 		}
 		if !reflect.DeepEqual(names, map[string]string{
-			"kip": "Kip", "mira": "Mira", "m-server-self": "伺服器這一台",
+			"kip": "Kip", "mira": "Mira", "m-server-self": "This server",
 		}) {
 			t.Fatalf("names = %#v", names)
 		}
@@ -4411,7 +4411,7 @@ func apiTestSeedMachines() map[string]any {
 	return map[string]any{
 		"list": []any{map[string]any{
 			"machine_id":   "m-server-self",
-			"display_name": "伺服器這一台",
+			"display_name": "This server",
 			"online":       false,
 		}},
 		"you_are_on": "",
@@ -4430,7 +4430,7 @@ func apiTestResumeOverview(chatCount, chatChars int) map[string]any {
 		"cards_waiting":                0,
 		"cards_answered_recent":        0,
 		"roster_chars":                 575,
-		"machines_chars":               19,
+		"machines_chars":               24,
 		"steps_on_answered_card":       0,
 		"steps_on_answered_card_chars": 0,
 	}
@@ -4445,7 +4445,7 @@ func apiWantWallClock(t *testing.T, path, got string) {
 	}
 }
 
-const apiTestResumeNote = "這是一份**開機快照**，不是完整資料。\n聊天：只帶最近的往來，而且是照**字數**（不是則數）收的，收到裝不下為止，由舊到新排。每則都附寄件與收件者的名字、以及帶時區的時間（請跟最上面的 `generated_at` 對照著看）；有回覆卡的會一併附上。\n有兩種「不完整」，意思不一樣，不要混：\n· `body_omitted_chars` > 0 ＝ **這一則就在這裡，只是被摺短了**，數字是被摺掉的字數，這是確定的事實（你自己寫給自己的交接、以及你跟 owner 之間的往來——他說的和你對他說的都算——一律不摺）。要看全文，把那一則的 `id` 放進 `get_chat` 的 `ids`。\n· `chat_earlier_omitted` ＝ **可能整則整則不見了**。這是「可能」不是「一定」：那條線在讀取或字數上限被切斷，而沒有人往切口後面看過，所以就算其實沒有更舊的也會標。它自己會附上怎麼去抓。\n任務：只給精簡列，沒有計畫細節；其中 `answered_card_steps` ＝ **這一步卡在一張 owner 已經回答、卻還沒有人接手的卡上**（`overview` 的 `steps_on_answered_card` ＝ **這份快照帶的這幾列裡**有幾步這樣卡著，不是你所有任務的總數：任務列只帶最近更新的前幾張，你手上票多的時候，更舊的那些就算卡著也不會出現在這裡，也不會被算進去——所以 0 不等於沒有，要確認請用 `list_tasks`／`list_reply_cards`）——那不表示那一步做完了，他的答覆也可能是不通過、要改做，先用 `get_reply_card` 把答案讀完再決定怎麼走。名冊：工作室裡每個人的狀態、所在機器與職責（過長會截斷，`…` 是切口）。機器：機器清單，以及你在哪一台。\n先看 `overview` 的數量與大小，再決定要拉什麼：單張任務用 `get_task`（`detail_chars` 很大的就交給分身去拉），你的卡片用 `list_reply_cards`（記得給 `limit`），要更多聊天或任務用 `list_chat`／`list_tasks`。"
+const apiTestResumeNote = "This is a **boot snapshot**, not the complete data.\nChat: only the most recent exchanges, collected by **characters** (not by message count) until no more fit, ordered oldest to newest. Each message carries the sender's and recipient's names and a time with its time zone (read it against `generated_at` at the top); a reply card, if any, is attached.\nThere are two kinds of \"incomplete\", and they mean different things — do not mix them up:\n· `body_omitted_chars` > 0 = **this message is here, only folded short**; the number is how many characters were folded away, and this is a certain fact (handoffs you wrote to yourself, and your exchanges with the owner — both what he said and what you said to him — are never folded). To see the full text, put that message's `id` in `get_chat`'s `ids`.\n· `chat_earlier_omitted` = **whole messages may be missing**. This is \"may\", not \"are\": that thread was cut at a read or character limit and nobody has looked past the cut, so it is marked even when nothing older actually exists. It carries its own instructions for fetching them.\nTasks: compact rows only, no plan details. In them, `answered_card_steps` = **this step is sitting on a card the owner has already answered, but nobody has picked the answer up yet** (`overview`'s `steps_on_answered_card` = how many steps are stuck this way **among the rows this snapshot carries**, not the total across all your tasks: the task rows carry only the few most recently updated tasks, so when you hold many tasks, older ones stuck this way neither appear here nor are counted — 0 does not mean none; to be sure, use `list_tasks` / `list_reply_cards`) — that does not mean the step is done; his answer may be a rejection or a request to redo the work, so read the answer in full with `get_reply_card` before deciding how to proceed. Roster: everyone in the studio with their status, machine and duties (long text is truncated; `…` marks the cut). Machines: the machine list, and which one you are on.\nLook at `overview`'s counts and sizes first, then decide what to pull: a single task with `get_task` (hand one with a very large `detail_chars` to a sub-agent to pull), your cards with `list_reply_cards` (remember to pass `limit`), and more chat or tasks with `list_chat` / `list_tasks`."
 
 const apiTestPeekNote = "Size-only preview of resume_summary — counts/sizes ONLY, no chat or task content. estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the answered-card pointers its task rows carry. steps_on_answered_card > 0 means that many steps AMONG THE FEW MOST-RECENTLY-UPDATED TASKS the snapshot carries — not across all your tasks — are sitting on a reply card the owner ALREADY answered while the step is still in_progress, and nobody has acted on the answer yet; pull resume_summary (or the cards) and read it before anything else. It is a FLOOR, not a total: the task block is capped at the most recently updated tasks, so when you hold more tasks than that cap, an older task stuck on an answered card is not counted here and 0 does not prove there is none — use list_tasks / list_reply_cards to be sure. So it is what pulling the snapshot actually costs. Use it to decide: if small (rule of thumb < 20000 chars, ≈ 5k tokens) call resume_summary directly in your main session; if large, spawn a cheap sub-agent (e.g. haiku) to call resume_summary and return a compressed digest, so the full payload never burns your own context."
 

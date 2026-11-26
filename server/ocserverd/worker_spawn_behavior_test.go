@@ -1528,7 +1528,7 @@ func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
 			refusal: noCredential, restarted: true,
 			want: "wake_timeout: the start window elapsed with no session, and this server no longer has a " +
 				"record of which machine the START was sent to (the spawn ledger is in-memory and a server " +
-				"restart clears it) — use 更改 to place it again"},
+				"restart clears it) — use Change to place it again"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := newWorkerTestServer(t)

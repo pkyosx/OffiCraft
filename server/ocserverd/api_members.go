@@ -835,12 +835,12 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 			// Without this the generic text below sends the owner to the machine just picked,
 			// which is fine; the one to check is where the earlier START is still booting.
 			reason = spawnReasonWardenLost + ": an earlier start is still booting on machine '" +
-				booting.Target + "' and this 喚醒's stop could not reach it, so no second start " +
+				booting.Target + "' and this Wake's stop could not reach it, so no second start " +
 				"was sent. It will be retried once that start times out; if it stays here, " +
 				"check machine '" + booting.Target + "'"
 		}
 		if reason == "" {
-			reason = spawnReasonWardenLost + ": 喚醒 was recorded, but nothing has been " +
+			reason = spawnReasonWardenLost + ": Wake was recorded, but nothing has been " +
 				"dispatched yet — the machine's warden did not take the start. It will " +
 				"be retried; if it stays here, check that machine"
 		}
@@ -1384,7 +1384,7 @@ func (s *apiServer) HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r
 const (
 	restartSelfNeedsALiveSessionMsg = "restart_self requires a live session to recycle, on a member that is " +
 		"still wanted online"
-	restartSelfLadderBackwardsMsg = "restart_self is 停止 and you are already further along the " +
-		"wind-down ladder (下線 → 加速 → 強制); finish the close-out you " +
+	restartSelfLadderBackwardsMsg = "restart_self is a Stop and you are already further along the " +
+		"wind-down ladder (Stop → Accelerated stop → Force stop); finish the close-out you " +
 		"were given instead"
 )

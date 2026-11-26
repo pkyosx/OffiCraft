@@ -209,22 +209,22 @@ type builtinTaskManual struct {
 var builtinTaskManuals = []builtinTaskManual{
 	{
 		TypeKey:     "builtin-role-design",
-		DisplayName: "建立／修改角色",
-		Purpose:     "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+		DisplayName: "Create / edit role",
+		Purpose:     "Create a new role, or adjust an existing role's role definition and judgment criteria (Insight).",
 		Fields:      []ManualField{},
 		Assignee:    map[string]any{"kind": TaskExecutorStaff, "member_id": seedMiraID},
 	},
 	{
 		TypeKey:     "builtin-task-manual-design",
-		DisplayName: "建立／修改任務手冊",
-		Purpose:     "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
+		DisplayName: "Create / edit task manual",
+		Purpose:     "Create a new task manual, or adjust an existing task manual's content and assigned member.",
 		Fields:      []ManualField{{Name: "manual_name", Required: true, IsKey: true}},
 		Assignee:    map[string]any{},
 	},
 	{
 		TypeKey:     "builtin-remote-access",
-		DisplayName: "開放遠端連線",
-		Purpose:     "幫 Owner 開啟或調整遠端連線，讓手機或其他電腦能用 HTTPS 網址連到控制台，包括第一次開啟，以及之後更換轉發方式或網址。",
+		DisplayName: "Allow remote connections",
+		Purpose:     "Help the Owner turn on or adjust remote connections so a phone or another computer can reach the console at an HTTPS URL — including turning it on for the first time, and later changing the forwarding method or the URL.",
 		Fields:      []ManualField{},
 		Assignee:    map[string]any{"kind": TaskExecutorStaff, "member_id": seedMiraID},
 	},
@@ -560,7 +560,7 @@ func materializeBinary(dir, name string, data []byte) (string, error) {
 
 // 🔴 The ONE title the 使用者自訂 block is served under; workerSharedHead
 // (outsource) uses it too, so staff and contractors boot under one heading.
-const userAdditionsTitle = "# 使用者自訂（Owner Additions）"
+const userAdditionsTitle = "# Owner Additions"
 
 // userLanguageBlock is the 使用者語言 block both boot folds staple between
 // 系統互動 and 使用者自訂. Read at assembly time, so a display.language change

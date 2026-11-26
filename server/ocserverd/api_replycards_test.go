@@ -208,7 +208,7 @@ func TestOpenReplyCard(t *testing.T) {
 		initiator.wantFrames(chatFrame, cardFrame)
 		wantPushed(map[string]any{
 			"kind": "reply_card", "chat_id": card.ChatMessageID, "reply_card_id": card.ID,
-			"title": "OffiCraft：需要你決定", "body": "你有一張新的請示卡。", "needs_decision": true,
+			"title": "OffiCraft: decision needed", "body": "You have a new decision card.", "needs_decision": true,
 		})
 	})
 
@@ -219,7 +219,7 @@ func TestOpenReplyCard(t *testing.T) {
 			Summary: "orphan",
 			Options: []ReplyCardOptionDTO{{Text: "yes"}},
 		}, &Task{ID: "T-1", Status: TaskStatusInProgress}, nil, nil, "mira")
-		want := "refusing to mint a reply card bound to task 'T-1' with no step: a step-less task binding places no 等我回覆 hold and orphans the card when the task closes"
+		want := "refusing to mint a reply card bound to task 'T-1' with no step: a step-less task binding places no waiting_owner hold and orphans the card when the task closes"
 		if err == nil || problem != "" || err.Error() != want {
 			t.Fatalf("step-less binding = problem:%q err:%v, want %q", problem, err, want)
 		}
@@ -473,8 +473,8 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 			"kind":           "reply_card",
 			"chat_id":        messageID,
 			"reply_card_id":  cardID,
-			"title":          "OffiCraft：需要你決定",
-			"body":           "你有一張新的請示卡。",
+			"title":          "OffiCraft: decision needed",
+			"body":           "You have a new decision card.",
 			"needs_decision": true,
 		})
 	})
@@ -491,11 +491,11 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 		}
 		apiWantError(t, data, "validation_error",
 			"linked_task is required and has no default — say whether this ask is about a task. "+
-				"Two legal shapes: send linked_task=null if it is NOT about a task (a plain unbound 請示), "+
+				"Two legal shapes: send linked_task=null if it is NOT about a task (a plain unbound ask), "+
 				"or linked_task={\"task_id\": \"t-...\", \"step_id\": \"ts-...\"} to bind the ask to the "+
 				"step it is about, which then holds in waiting_owner until you are answered. The server does "+
 				"not infer a binding from the work you hold: a guess that missed used to open a card with no "+
-				"等我回覆 hold and tell you nothing.")
+				"waiting_owner hold and tell you nothing.")
 		dashboard.wantFrames()
 		wantPushed()
 		apiTestWantNoReplyCards(t, h, owner)
@@ -513,7 +513,7 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
-			"linked_task.step_id is required: a card bound to a task but to no step places no 等我回覆 hold, "+
+			"linked_task.step_id is required: a card bound to a task but to no step places no waiting_owner hold, "+
 				"so the task would finish underneath your question and the owner's answer would then be "+
 				"rejected for good. Send linked_task={\"task_id\": \"t-...\", \"step_id\": \"ts-...\"} "+
 				"naming the step you are on, or linked_task=null if this ask is not about a task.")
@@ -2639,7 +2639,7 @@ func TestHandleAnswerReplyCardApiReplyCardsCardIdAnswerPost(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"reply card '"+cardID+"' is already answered — revise it via PUT (重新決定)")
+			"reply card '"+cardID+"' is already answered — revise it via PUT (Change my decision)")
 		dashboard.wantFrames()
 		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
 		apiWantValue(t, "card.answer", card["answer"], map[string]any{

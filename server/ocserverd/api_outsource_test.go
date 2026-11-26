@@ -358,8 +358,8 @@ func TestTaskTypeDisplayNames(t *testing.T) {
 	if got["crate"] != "裝箱" {
 		t.Fatalf("display name for crate: want 裝箱, got %q", got["crate"])
 	}
-	if got["builtin-role-design"] != "建立／修改角色" {
-		t.Fatalf("display name for an unedited built-in: want 建立／修改角色, got %q", got["builtin-role-design"])
+	if got["builtin-role-design"] != "Create / edit role" {
+		t.Fatalf("display name for an unedited built-in: want Create / edit role, got %q", got["builtin-role-design"])
 	}
 	if _, ok := got["raw-key"]; ok {
 		t.Fatalf("blank display name should be omitted: %v", got)
@@ -775,7 +775,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 			"status": "active", "desired_state": "offline", "desired_machine_id": "m-box",
 			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the relocate was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		}))
 
 		status, data = apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, "")
@@ -890,7 +890,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		}
 		apiWantError(t, data, "conflict",
 			"refocus requires the worker to be online; this worker is stopping or "+
-				"stopped — press 喚醒 to bring it back")
+				"stopped — press Wake to bring it back")
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		dashboard.wantFrames()
 		apiTestWantEqual(t, "row after the refused refocus", apiTestWorkerRecord(t, d, "ow-abc123"), before)
@@ -1048,7 +1048,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		}
 		apiWantError(t, data, "conflict",
 			"refocus requires the worker to be online; this worker is stopping or "+
-				"stopped — press 喚醒 to bring it back")
+				"stopped — press Wake to bring it back")
 		dashboard.wantFrames()
 		apiTestWantEqual(t, "row after the refused refocus", apiTestWorkerRecord(t, d, "ow-abc123"), before)
 	})
@@ -1076,7 +1076,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		}
 		apiWantError(t, data, "conflict",
 			"refocus requires the worker to be online; this worker is stopping or "+
-				"stopped — press 喚醒 to bring it back")
+				"stopped — press Wake to bring it back")
 		apiTestWantWorker(t, h, owner, "ow-abc123", held)
 		dashboard.wantFrames()
 	})
@@ -1157,8 +1157,8 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus is 停止 and this worker is already further along the wind-down "+
-				"ladder (下線 → 加速 → 強制); a later stage is never replaced by an earlier one")
+			"refocus is a Stop and this worker is already further along the wind-down "+
+				"ladder (Stop → Accelerated stop → Force stop); a later stage is never replaced by an earlier one")
 		apiTestWantWorker(t, h, owner, "ow-abc123", accelerated)
 		dashboard.wantFrames()
 	})
@@ -1456,8 +1456,8 @@ func TestHandleAcceleratedStopMember_Worker(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 has nothing to escalate — this member was already force-stopped "+
-				"(強制停止): its session was cut off and no wind-down is open")
+			"Accelerated stop has nothing to escalate — this member was already force-stopped "+
+				"(Force stop): its session was cut off and no wind-down is open")
 		contractor.wantFrames()
 		after := apiTestMemberRow(t, d, "ow-abc123")
 		if after.RefocusOp != "" || after.StoppingSince != forced.StoppingSince || forced.StoppingSince <= 0 {
@@ -1477,8 +1477,8 @@ func TestHandleAcceleratedStopMember_Worker(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 escalates a wind-down that is already open — this member has not "+
-				"been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first")
+			"Accelerated stop escalates a wind-down that is already open — this member has not "+
+				"been asked to stop. Press Stop (deactivate) or Refocus first")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online",
 		}))
@@ -1495,7 +1495,7 @@ func TestHandleAcceleratedStopMember_Worker(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 requires a live session — there is nothing to accelerate on a "+
+			"Accelerated stop requires a live session — there is nothing to accelerate on a "+
 				"member that is not connected")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, nil))
 		dashboard.wantFrames()
@@ -1984,7 +1984,7 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		apiWantBody(t, data, map[string]any{
 			"id": "ow-abc123", "activation_pending": true,
 			"last_op_reason": "no_machine_selected: no machine is selected for this " +
-				"worker — pick one on the worker (改機器) or on the task type's 手冊 " +
+				"worker — pick one on the worker (Change machine) or on the task type's manual " +
 				"assignee; there is no automatic placement",
 		})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
@@ -1992,7 +1992,7 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 			"forced_stop_at": apiAnyNumber, "forced_stop_live": false,
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "no_machine_selected: no machine is selected for this " +
-				"worker — pick one on the worker (改機器) or on the task type's 手冊 " +
+				"worker — pick one on the worker (Change machine) or on the task type's manual " +
 				"assignee; there is no automatic placement",
 		}))
 		dashboard.wantFrames(
@@ -2015,18 +2015,18 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		}
 		apiWantBody(t, data, map[string]any{
 			"id": "ow-abc123",
-			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
-				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
-				"重新聚焦 already under way on it, are untouched. To end the current " +
-				"session and start a fresh one, press 強制停止 first, then 喚醒",
+			"last_op_reason": "session_alive: it was already running — Wake left that " +
+				"session alone and dispatched nothing. Its work, and any Accelerated stop or " +
+				"Refocus already under way on it, are untouched. To end the current " +
+				"session and start a fresh one, press Force stop first, then Wake",
 		})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online", "desired_state": "online",
 			"last_op": "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
-			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
-				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
-				"重新聚焦 already under way on it, are untouched. To end the current " +
-				"session and start a fresh one, press 強制停止 first, then 喚醒",
+			"last_op_reason": "session_alive: it was already running — Wake left that " +
+				"session alone and dispatched nothing. Its work, and any Accelerated stop or " +
+				"Refocus already under way on it, are untouched. To end the current " +
+				"session and start a fresh one, press Force stop first, then Wake",
 		}))
 		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "online", "owner"))
 		contractor.wantFrames(apiTestWorkerStateDelta(2, "active", "online", "owner"))
@@ -2049,10 +2049,10 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online", "desired_state": "online",
 			"last_op": "start", "last_op_ok": true, "last_op_at": stamped.LastOpAt,
-			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
-				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
-				"重新聚焦 already under way on it, are untouched. To end the current " +
-				"session and start a fresh one, press 強制停止 first, then 喚醒",
+			"last_op_reason": "session_alive: it was already running — Wake left that " +
+				"session alone and dispatched nothing. Its work, and any Accelerated stop or " +
+				"Refocus already under way on it, are untouched. To end the current " +
+				"session and start a fresh one, press Force stop first, then Wake",
 		}))
 	})
 
@@ -2113,10 +2113,10 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 			"refocus_since": apiAnyNumber, "refocus_op": "accelerated_stop",
 			"refocus_deadline": apiAnyNumber,
 			"last_op":          "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
-			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
-				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
-				"重新聚焦 already under way on it, are untouched. To end the current " +
-				"session and start a fresh one, press 強制停止 first, then 喚醒",
+			"last_op_reason": "session_alive: it was already running — Wake left that " +
+				"session alone and dispatched nothing. Its work, and any Accelerated stop or " +
+				"Refocus already under way on it, are untouched. To end the current " +
+				"session and start a fresh one, press Force stop first, then Wake",
 		}))
 	})
 
@@ -2238,7 +2238,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 			"model":   "opus",
 			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the runtime/model was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		}))
 
 		status, data = apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, "")
@@ -2577,7 +2577,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 			"model":   "opus",
 			"last_op": "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the runtime/model was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		}))
 	})
 

@@ -1404,8 +1404,8 @@ func TestRestoreTaskManualField(t *testing.T) {
 			t.Fatalf("read task manual: %d %v", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"type_key": "builtin-role-design", "display_name": "建立／修改角色",
-			"purpose": "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+			"type_key": "builtin-role-design", "display_name": "Create / edit role",
+			"purpose": "Create a new role, or adjust an existing role's role definition and judgment criteria (Insight).",
 			"fields":  []any{},
 			"sop_md":  "第一次改寫", "assignee": map[string]any{"kind": "staff", "member_id": "mira"},
 			"lore": "", "lore_chars": 0,

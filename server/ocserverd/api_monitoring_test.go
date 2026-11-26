@@ -1249,7 +1249,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("monitoring: want 200, got %d (%v)", status, view)
 		}
 		sessions := apiTestSessionsByID(t, view, "mira", "kip", "m-server-self")
-		wantSession := apiTestMonitoringSession("m-server-self", "伺服器這一台", "")
+		wantSession := apiTestMonitoringSession("m-server-self", "This server", "")
 		wantSession["machine"] = "m-server-self"
 		wantSession["runtime"] = "claude"
 		wantSession["model"] = "opus"
@@ -1778,7 +1778,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 				"deleted": false,
 				"payload": map[string]any{
 					"id":            "m-server-self",
-					"name":          "伺服器這一台",
+					"name":          "This server",
 					"status":        "active",
 					"desired_state": "offline",
 					"owner_id":      "owner",
@@ -2368,7 +2368,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		sessions := apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
 		apiWantBody(t, sessions["mira"], apiTestMonitoringSession("mira", "Mira", "Assistant"))
 		apiWantBody(t, sessions["kip"], apiTestMonitoringSession("kip", "Kip", ""))
-		wardenSession := apiTestMonitoringSession("m-server-self", "伺服器這一台", "")
+		wardenSession := apiTestMonitoringSession("m-server-self", "This server", "")
 		wardenSession["machine"] = "m-server-self"
 		apiWantBody(t, sessions["m-server-self"], wardenSession)
 		apiWantBody(t, data, map[string]any{
@@ -2469,7 +2469,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"limit_reached": nil,
 		})
 		sessions := apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
-		wardenSession := apiTestMonitoringSession("m-server-self", "伺服器這一台", "")
+		wardenSession := apiTestMonitoringSession("m-server-self", "This server", "")
 		wardenSession["machine"] = "m-server-self"
 		wardenSession["runtime"] = "claude"
 		wardenSession["account"] = "eva@example.com"
@@ -3338,7 +3338,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 
 	t.Run("a machine alias answers 200 with the alias on the machine and account rows", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
-		if err := d.PutMachineAlias(MachineAlias{MachineID: "m-server-self", DisplayName: "伺服器這一台"}); err != nil {
+		if err := d.PutMachineAlias(MachineAlias{MachineID: "m-server-self", DisplayName: "This server"}); err != nil {
 			t.Fatalf("PutMachineAlias: %v", err)
 		}
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
@@ -3350,7 +3350,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		want := apiTestMonitoringMachine()
-		want["display_name"] = "伺服器這一台"
+		want["display_name"] = "This server"
 		want["runtime_capabilities"] = map[string]any{
 			"claude": map[string]any{"installed": true, "logged_in": true, "version": "2.0.0"},
 		}
@@ -3362,8 +3362,8 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"accounts": []any{},
 		})
 		sessions := apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
-		wardenSession := apiTestMonitoringSession("m-server-self", "伺服器這一台", "")
-		wardenSession["machine"] = "伺服器這一台"
+		wardenSession := apiTestMonitoringSession("m-server-self", "This server", "")
+		wardenSession["machine"] = "This server"
 		apiWantBody(t, sessions["m-server-self"], wardenSession)
 	})
 

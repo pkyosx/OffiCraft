@@ -477,7 +477,7 @@ func (s *apiServer) recoverStaleOnboarding() {
 		Code: onboardingCodeInterrupted,
 		Reason: "automatic first-run setup was interrupted (the server restarted " +
 			"while it was still running), so it did not finish. Install this " +
-			"machine from 監控 › 機器 › 「安裝」, then bring the assistant online.",
+			"machine from Monitor › Machines › Install, then bring the assistant online.",
 	})
 	report.State = onboardingStateFailed
 	report.FinishedAt = nowSecs()

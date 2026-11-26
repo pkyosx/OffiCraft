@@ -224,9 +224,9 @@ func TestMemberBootDocumentsCarryEveryoneLore(t *testing.T) {
 	t.Run("staff and outsource boots list everyone entries ahead of their own in one section", func(t *testing.T) {
 		staffDoc, workerDoc, _ := workerBootLoreFixture(t)
 		for _, tc := range []struct{ name, doc, want string }{
-			{"staff", staffDoc, "# 傳承\n\n## L-3 EVERYONE-SCOPED-MARKER\n\nbody of EVERYONE-SCOPED-MARKER" +
+			{"staff", staffDoc, "# Lore\n\n## L-3 EVERYONE-SCOPED-MARKER\n\nbody of EVERYONE-SCOPED-MARKER" +
 				"\n\n## L-1 STAFF-SCOPED-MARKER\n\nbody of STAFF-SCOPED-MARKER"},
-			{"outsource", workerDoc, "# 傳承\n\n## L-3 EVERYONE-SCOPED-MARKER\n\nbody of EVERYONE-SCOPED-MARKER" +
+			{"outsource", workerDoc, "# Lore\n\n## L-3 EVERYONE-SCOPED-MARKER\n\nbody of EVERYONE-SCOPED-MARKER" +
 				"\n\n## L-2 WORKER-SCOPED-MARKER\n\nbody of WORKER-SCOPED-MARKER"},
 		} {
 			if got := loreBlockOf(tc.doc); got != tc.want {
@@ -246,7 +246,7 @@ func TestMemberBootDocumentsCarryEveryoneLore(t *testing.T) {
 		seedLore(t, s.dal, LoreScopeEveryone, "", "EVERYONE-FITS", LoreStateActive, 50)
 		seedLore(t, s.dal, LoreScopeAgent, seedMiraID, "MIRA-OWN", LoreStateActive, 100)
 		seedLore(t, s.dal, LoreScopeAgent, workerID, "WORKER-OWN", LoreStateActive, 100)
-		const everyoneOnly = "# 傳承\n\n## L-1 EVERYONE-FITS\n\nbody of EVERYONE-FITS"
+		const everyoneOnly = "# Lore\n\n## L-1 EVERYONE-FITS\n\nbody of EVERYONE-FITS"
 
 		for _, tc := range []struct {
 			cap                int

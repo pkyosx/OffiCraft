@@ -37,7 +37,7 @@ func (s *apiServer) outsourceSpawnGate(req outsourceGateRequest) (outsourceGateR
 	if !approver && req.Initiator == nil {
 		return outsourceGateResult{
 			Decision: gateDeny,
-			Reason:   "unauthenticated initiator (no member identity) may not 發包",
+			Reason:   "unauthenticated initiator (no member identity) may not outsource work",
 		}, nil
 	}
 	s.meterOutsourceDispatch(req)

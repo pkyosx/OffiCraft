@@ -1154,7 +1154,7 @@ func TestWriteTaskStepStatusReceipt(t *testing.T) {
 			"closed_ts":           nil,
 			"progress_done":       2,
 			"progress_total":      2,
-			"ready_for_done_note": "這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。請依系統的收尾指示完成收尾後再結案。",
+			"ready_for_done_note": "This report completed every step of the task, so the task now stands ready to close (ready_for_done). Finish the close-out by following the system's close-out instructions, then close the task.",
 		})
 
 		status, closed := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-done", agent, "")
@@ -1961,7 +1961,7 @@ func TestCloseTask(t *testing.T) {
 
 func TestNameWithIDSlot(t *testing.T) {
 	t.Run("a named party carries both facts in one slot", func(t *testing.T) {
-		if got := labelWithID("銀月", "mira"); got != "銀月（mira）" {
+		if got := labelWithID("銀月", "mira"); got != "銀月 (mira)" {
 			t.Fatalf("got %q", got)
 		}
 	})
@@ -1979,7 +1979,7 @@ func TestNameWithIDSlot(t *testing.T) {
 	})
 
 	t.Run("an empty id under a label still composes the parenthesis", func(t *testing.T) {
-		if got := labelWithID("銀月", ""); got != "銀月（）" {
+		if got := labelWithID("銀月", ""); got != "銀月 ()" {
 			t.Fatalf("got %q", got)
 		}
 	})
@@ -4706,7 +4706,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			map[string]any{
 				"from": "system",
 				"to":   "mira",
-				"body": "[T-1] You are taking over this task; your predecessor is Kip（kip）.\n\n" +
+				"body": "[T-1] You are taking over this task; your predecessor is Kip (kip).\n\n" +
 					"Receiving these instructions means there is a task you need to take over. Complete the following preparation, then claim it and start executing:\n\n" +
 					"* **Read the task**: use `get_task` to read the task; if it already has steps, also check the DoD of the current step, and use `get_task_step` to read the full note of every step whose `note_size_chars` is not 0. If you have not read the corresponding task manual yet, read it with `get_task_manual`.\n" +
 					"* **Confirm the handover**: if there is a `reassigned_from`, first read the `handover_note`, then use `post_chat` to confirm the current progress and in-flight items with your predecessor. Wait at most 5 minutes; if the predecessor is offline, unreachable, or has not replied in time, continue the takeover directly from the handover information on the task — do not stop here and wait.\n" +
@@ -4852,7 +4852,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			map[string]any{
 				"from": "system",
 				"to":   "mira",
-				"body": "[T-1] 你接手了這張任務，這張任務沒有前任。\n\n" +
+				"body": "[T-1] You are taking over this task; it has no predecessor.\n\n" +
 					"Receiving these instructions means there is a task you need to take over. Complete the following preparation, then claim it and start executing:\n\n" +
 					"* **Read the task**: use `get_task` to read the task; if it already has steps, also check the DoD of the current step, and use `get_task_step` to read the full note of every step whose `note_size_chars` is not 0. If you have not read the corresponding task manual yet, read it with `get_task_manual`.\n" +
 					"* **Confirm the handover**: if there is a `reassigned_from`, first read the `handover_note`, then use `post_chat` to confirm the current progress and in-flight items with your predecessor. Wait at most 5 minutes; if the predecessor is offline, unreachable, or has not replied in time, continue the takeover directly from the handover information on the task — do not stop here and wait.\n" +
@@ -4913,7 +4913,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			t.Fatalf("the displaced worker must not be sent the predecessor notice, got %+v", got)
 		}
 		rex := t91ChatTo(t, f.api, "rex")
-		if len(rex) != 2 || !strings.HasPrefix(rex[1].Body, "[T-1] You are taking over this task; your predecessor is Kip（kip）.\n\n") {
+		if len(rex) != 2 || !strings.HasPrefix(rex[1].Body, "[T-1] You are taking over this task; your predecessor is Kip (kip).\n\n") {
 			t.Fatalf("the new successor's takeover notice must name the original predecessor, got %+v", rex)
 		}
 		f.must(t, "POST", "/api/tasks/T-1/priority", f.predecessor, `{"priority":"high"}`)
@@ -4929,7 +4929,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		if status != 403 {
 			t.Fatalf("the predecessor itself: want 403, got %d %v", status, data)
 		}
-		apiWantError(t, data, "forbidden", "only the owner or an admin agent may reassign a task to another member; 發包 to an outsource worker instead")
+		apiWantError(t, data, "forbidden", "only the owner or an admin agent may reassign a task to another member; hand it to an outsource worker instead")
 
 		status, data = apiJSON(t, f.h, "POST", "/api/tasks/T-1/reassign", admin, `{"target":{"kind":"staff","member_id":"kip"}}`)
 		if status != 200 {
@@ -5013,7 +5013,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			t.Fatalf("the predecessor gets a second predecessor notice, got %+v", kip)
 		}
 		zed := t91ChatTo(t, f.api, "zed")
-		if len(zed) != 1 || !strings.HasPrefix(zed[0].Body, "[T-1] You are taking over this task; your predecessor is Kip（kip）.\n\n") {
+		if len(zed) != 1 || !strings.HasPrefix(zed[0].Body, "[T-1] You are taking over this task; your predecessor is Kip (kip).\n\n") {
 			t.Fatalf("the new successor's notice names the predecessor, got %+v", zed)
 		}
 		if got := len(t91ChatTo(t, f.api, "rex")); got != rexBefore {
@@ -5041,7 +5041,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			t.Fatalf("the displaced successor keeps only its first notice, got %d rows", got)
 		}
 		zed := t91ChatTo(t, f.api, "zed")
-		if len(zed) != 1 || !strings.HasPrefix(zed[0].Body, "[T-1] 你接手了這張任務，這張任務沒有前任。\n\n") {
+		if len(zed) != 1 || !strings.HasPrefix(zed[0].Body, "[T-1] You are taking over this task; it has no predecessor.\n\n") {
 			t.Fatalf("the new successor gets the no-predecessor takeover notice, got %+v", zed)
 		}
 		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/priority", f.predecessor, `{"priority":"high"}`)
@@ -5351,7 +5351,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "forbidden",
-			"only the owner or an admin agent may reassign a task to another member; 發包 to an outsource worker instead")
+			"only the owner or an admin agent may reassign a task to another member; hand it to an outsource worker instead")
 	})
 
 	t.Run("an agent that is not the task's executor answers 403", func(t *testing.T) {
@@ -5696,7 +5696,7 @@ func TestExecutorLabel(t *testing.T) {
 	t.Run("an outsource executor is labelled by its codename under the 外包 prefix", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
-		if got := api.executorLabel(TaskExecutorOutsource, "ow-abc123"); got != "外包 Contractor" {
+		if got := api.executorLabel(TaskExecutorOutsource, "ow-abc123"); got != "Outsource Contractor" {
 			t.Fatalf("got %q", got)
 		}
 	})
@@ -6575,7 +6575,7 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"task_id": "T-1", "steps_total": 1, "progress_done": 1, "progress_total": 1,
-			"ready_for_done_note": "這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。請依系統的收尾指示完成收尾後再結案。",
+			"ready_for_done_note": "This report completed every step of the task, so the task now stands ready to close (ready_for_done). Finish the close-out by following the system's close-out instructions, then close the task.",
 		})
 		_, view := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
 		if view["status"] != TaskStatusReadyForDone || view["closed_ts"] != nil {
@@ -7077,7 +7077,7 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 			"closed_ts":           nil,
 			"progress_done":       1,
 			"progress_total":      1,
-			"ready_for_done_note": "這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。請依系統的收尾指示完成收尾後再結案。",
+			"ready_for_done_note": "This report completed every step of the task, so the task now stands ready to close (ready_for_done). Finish the close-out by following the system's close-out instructions, then close the task.",
 		})
 
 		readyFrame := map[string]any{
