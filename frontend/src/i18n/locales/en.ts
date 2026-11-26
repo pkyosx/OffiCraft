@@ -2238,7 +2238,7 @@ export const en: Dict = {
       installCmdRegenerate: "Regenerate command",
       installCmdOneTime: "The command works once and is valid for 10 minutes.",
       copyCmdError: "Copy failed",
-      copyBootCmd: "Copy install command",
+      installCmdExpired: "This command has expired. Regenerate it.",
       copyBootCmdError: "Failed to fetch command",
       copyBootCmdCopyError: "Copy failed — select the install command above instead",
       // install-on-server result (POST /bootstrap-here): failure-only (success

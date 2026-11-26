@@ -2285,7 +2285,7 @@ export const zh = {
       installCmdRegenerate: "重新產生指令",
       installCmdOneTime: "指令僅能使用一次，10 分鐘內有效。",
       copyCmdError: "複製失敗",
-      copyBootCmd: "複製安裝指令",
+      installCmdExpired: "指令已過期，請重新產生。",
       copyBootCmdError: "取得指令失敗",
       copyBootCmdCopyError: "複製失敗，請直接選取上方的安裝指令",
       // 於伺服器安裝的結果 (POST /bootstrap-here):僅失敗顯示(成功即消失)

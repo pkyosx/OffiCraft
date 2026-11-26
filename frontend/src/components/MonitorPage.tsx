@@ -3,6 +3,7 @@ import {
   type FocusEvent,
   type ReactNode,
   type RefObject,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -58,6 +59,7 @@ import {
   KeyIcon,
   LogOutIcon,
   PencilIcon,
+  RefreshIcon,
   TrashIcon,
 } from "./icons";
 import { RuntimeActionMenu } from "./RuntimeActionMenu";
@@ -2094,40 +2096,127 @@ function powerText(
 type InstallOs = "mac" | "linux" | "windows";
 const INSTALL_OSES: InstallOs[] = ["mac", "linux", "windows"];
 
-/** One command line the user is meant to paste: where to run it, the command,
- * and its own copy button. */
-function CopyableCommand({ command }: { command: string }) {
-  const { t } = useI18n();
-  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(command);
-      setState("copied");
-    } catch {
-      setState("failed");
-    }
-    window.setTimeout(() => setState("idle"), 1600);
-  }
+/** One command the user is meant to paste: the command box, its icon-only
+ * button beside it, and a message line under the box. Every command in the
+ * 安裝機器 dialog goes through this one layout, so on every OS tab the boxes are
+ * the same width with their edges lined up and the buttons are the same size.
+ * The message line is always mounted and only its text changes: a live region
+ * that arrives already holding its words is not announced by most screen
+ * readers. */
+function CommandBox({
+  text,
+  expired = false,
+  codeTestId,
+  message,
+  srMessage = "",
+  children,
+}: {
+  text: string;
+  expired?: boolean;
+  codeTestId?: string;
+  message: string;
+  /** Read out but not shown: a success is already the button's check mark. */
+  srMessage?: string;
+  children: ReactNode;
+}) {
   return (
     <div className="mon-install__cmd-line">
       <div className="mon-install__cmd-body">
-        <code className="mon-install__cmd-text">{command}</code>
-        <button
-          type="button"
-          className="btn btn--ghost mon-install__cmd-copy"
-          onClick={() => void copy()}
+        <code
+          className={`mon-install__cmd-text${expired ? " mon-install__cmd--expired" : ""}`}
+          data-testid={codeTestId}
         >
-          {state === "copied" ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-          <span>
-            {state === "copied"
-              ? t.monitor.machine.copied
-              : state === "failed"
-                ? t.monitor.machine.copyCmdError
-                : t.monitor.machine.copy}
-          </span>
-        </button>
+          {text}
+        </code>
+        {children}
+      </div>
+      <div className="mon-install__cmd-msg" role="status">
+        {message ? (
+          <span className="mon-install__cmd-msg-text">{message}</span>
+        ) : srMessage ? (
+          <span className="mon-install__sr-text">{srMessage}</span>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function CommandIconButton({
+  label,
+  testId,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  testId?: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="btn btn--ghost mon-install__cmd-icon"
+      aria-label={label}
+      title={label}
+      data-testid={testId}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+type CopyResult = "idle" | "copied" | "failed";
+
+/** The last copy's result, shown for a while and then cleared. One state, not
+ * a copied flag plus a failed flag, so a check mark and a failure never show
+ * together; each new result restarts the clock instead of being cut short by
+ * the previous one's timer. */
+function useCopyResult() {
+  const [result, setResult] = useState<CopyResult>("idle");
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const show = useCallback((next: CopyResult, ms: number) => {
+    window.clearTimeout(timer.current);
+    setResult(next);
+    timer.current = window.setTimeout(() => setResult("idle"), ms);
+  }, []);
+  const reset = useCallback(() => {
+    window.clearTimeout(timer.current);
+    setResult("idle");
+  }, []);
+  return { result, show, reset };
+}
+
+/** A fixed command (no expiry) with its own copy button. */
+function CopyableCommand({ command }: { command: string }) {
+  const { t } = useI18n();
+  const m = t.monitor.machine;
+  const { result: state, show } = useCopyResult();
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(command);
+      show("copied", 1600);
+    } catch {
+      show("failed", 1600);
+    }
+  }
+  return (
+    <CommandBox
+      text={command}
+      message={state === "failed" ? m.copyCmdError : ""}
+      srMessage={state === "copied" ? m.copied : ""}
+    >
+      <CommandIconButton
+        label={state === "copied" ? m.copied : m.copy}
+        onClick={() => void copy()}
+      >
+        {state === "copied" ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+      </CommandIconButton>
+    </CommandBox>
   );
 }
 
@@ -2153,8 +2242,11 @@ export function MachineInstallDialog({
   const [fetchFailed, setFetchFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [expired, setExpired] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [copyFailed, setCopyFailed] = useState(false);
+  const { result: copyResult, show: showCopyResult, reset: resetCopyResult } =
+    useCopyResult();
+  // A copy still waiting on the clipboard when the command is regenerated must
+  // not put its check mark or error next to the new command.
+  const attemptRef = useRef(attempt);
   // Background tabs and a sleeping laptop delay timers, so the deadline itself
   // is what decides expiry; the timer only makes it show up on time.
   const expiresAt = useRef<number | null>(null);
@@ -2171,6 +2263,8 @@ export function MachineInstallDialog({
     setCommand(null);
     setExpired(false);
     setFetchFailed(false);
+    attemptRef.current = attempt;
+    resetCopyResult();
     api.getMachineBootCommand(machineId).then(
       (c) => {
         if (!live) return;
@@ -2186,7 +2280,7 @@ export function MachineInstallDialog({
       live = false;
       window.clearTimeout(expiryTimer);
     };
-  }, [machineId, attempt]);
+  }, [machineId, attempt, resetCopyResult]);
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === "visible") checkExpired();
@@ -2198,15 +2292,16 @@ export function MachineInstallDialog({
 
   async function copyBoot() {
     if (command == null || expired || checkExpired()) return;
-    setCopyFailed(false);
+    const forAttempt = attempt;
+    let ok = true;
     try {
       await navigator.clipboard.writeText(command);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
     } catch {
-      setCopyFailed(true);
-      window.setTimeout(() => setCopyFailed(false), 2400);
+      ok = false;
     }
+    if (attemptRef.current !== forAttempt) return;
+    if (ok) showCopyResult("copied", 1600);
+    else showCopyResult("failed", 2400);
   }
 
   const osLabel: Record<InstallOs, string> = {
@@ -2219,11 +2314,14 @@ export function MachineInstallDialog({
     linux: m.installPasteLinux,
     windows: m.installPasteWindows,
   };
-  const copyLabel = copyFailed
-    ? m.copyBootCmdCopyError
-    : copied
-      ? m.copied
-      : m.copyBootCmd;
+  const bootMessage = fetchFailed
+    ? m.copyBootCmdError
+    : expired
+      ? m.installCmdExpired
+      : copyResult === "failed"
+        ? m.copyBootCmdCopyError
+        : "";
+  const copied = copyResult === "copied";
 
   return (
     <div
@@ -2289,41 +2387,32 @@ export function MachineInstallDialog({
             <div className="mon-install__step-title" data-testid="mon-install-paste-hint">
               {pasteHint[os]}
             </div>
-            <div className="mon-cmd__row mon-install__cmd-row">
-              {fetchFailed ? (
-                <div className="mon-error">{m.copyBootCmdError}</div>
-              ) : (
-                <code
-                  className={`mon-cmd__code mon-install__cmd${
-                    expired ? " mon-install__cmd--expired" : ""
-                  }`}
-                  data-testid="mon-boot-cmd"
-                >
-                  {command ?? m.installCmdLoading}
-                </code>
-              )}
+            <CommandBox
+              text={fetchFailed ? "" : (command ?? m.installCmdLoading)}
+              expired={expired}
+              codeTestId="mon-boot-cmd"
+              message={bootMessage}
+              srMessage={copied ? m.copied : ""}
+            >
               {fetchFailed || expired ? (
-                <button
-                  type="button"
-                  className="btn btn--accent-ghost"
-                  data-testid="mon-copy-boot-cmd-btn"
+                <CommandIconButton
+                  label={m.installCmdRegenerate}
+                  testId="mon-copy-boot-cmd-btn"
                   onClick={regenerate}
                 >
-                  <span>{m.installCmdRegenerate}</span>
-                </button>
+                  <RefreshIcon size={14} />
+                </CommandIconButton>
               ) : (
-                <button
-                  type="button"
-                  className="btn btn--accent-ghost"
-                  data-testid="mon-copy-boot-cmd-btn"
+                <CommandIconButton
+                  label={copied ? m.copied : m.copy}
+                  testId="mon-copy-boot-cmd-btn"
                   disabled={command == null}
                   onClick={() => void copyBoot()}
                 >
                   {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-                  <span>{copyLabel}</span>
-                </button>
+                </CommandIconButton>
               )}
-            </div>
+            </CommandBox>
           </div>
         </div>
         <p className="mon-install__note">{m.installCmdOneTime}</p>
