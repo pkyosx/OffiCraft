@@ -278,6 +278,27 @@ for (const width of [390, 1440]) {
     assertHeadContained(width, l4!);
   });
 
+  test(`a member's section head is a card, and its legend swatches match the bar @${width}px`, async ({ mount, page }) => {
+    await mountAt(mount, page, width, false, MIRA);
+    await expect(page.locator('[data-testid="lore-bar-everyone"]')).toBeVisible();
+    const look = await page.evaluate(() => {
+      const head = document.querySelector('[data-testid="lore-section-head"]')!;
+      const card = document.querySelector('[data-testid="lore-row"]')!;
+      const bg = (el: Element | null) => (el ? getComputedStyle(el).backgroundColor : null);
+      return {
+        head: bg(head),
+        card: bg(card),
+        everyoneBar: bg(document.querySelector('[data-testid="lore-bar-everyone"]')),
+        ownBar: bg(document.querySelector('[data-testid="lore-bar-own"]')),
+        swatches: [...head.querySelectorAll(".lore-dir-card__swatch")].map((el) => bg(el)),
+      };
+    });
+    // Same surface as the entry cards below it, not the page showing through.
+    expect.soft(look.head, `[${width}px] head background`).toBe(look.card);
+    expect.soft(look.swatches, `[${width}px] legend swatches`).toEqual([look.everyoneBar, look.ownBar]);
+    expect.soft(look.everyoneBar, `[${width}px] two bar colours`).not.toBe(look.ownBar);
+  });
+
   test(`the 適用範圍 menu opens inside the viewport @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, MIRA);
     const row = cmp.locator('[data-testid="lore-row"]').first();
