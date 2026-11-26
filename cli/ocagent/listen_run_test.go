@@ -1239,8 +1239,8 @@ func TestDrainChatNow(t *testing.T) {
 		if l.drainWarn == nil {
 			t.Fatal("drainWarn is still nil — the latch would be recreated on every drain")
 		}
-		want := "[ocagent] chat: 補印一頁都沒撈到（HTTP 500）—— 這不是「沒有新訊息」，" +
-			"是這次沒問到。未讀原封不動，下一次補印會再試；等不及就用 get_chat 自己撈。\n"
+		want := "[ocagent] chat: the catch-up fetch got no page at all (HTTP 500) — this is not \"no new messages\"; " +
+			"this time the question went unanswered. Unread messages are untouched and the next catch-up will try again; if you cannot wait, fetch them yourself with get_chat.\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want the fault announced exactly once", out.String())
 		}

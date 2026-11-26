@@ -1067,7 +1067,7 @@ func TestWireLoginCheck(t *testing.T) {
 		}{
 			{name: "claude logged out", claudeBin: claudeOut, runtime: "claude",
 				wantReason: "claude_not_logged_in: `claude auth status` reports logged out on this host. " +
-					"Fix any one: set this member's 執行環境 to Codex; log in with `claude` as this user; " +
+					"Fix any one: set this member's runtime to Codex; log in with `claude` as this user; " +
 					"or re-install the warden with OC_CLAUDE_CRED_CHECK=0 (shell exports do not reach it).",
 				wantState: loginState{Claude: &no}, wantKick: true},
 			{name: "claude unknown", claudeBin: claudeNull, runtime: "claude",

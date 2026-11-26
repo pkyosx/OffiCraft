@@ -14,8 +14,8 @@ func realUpgradeReports(t *testing.T) map[string]map[string]any {
 	reports := map[string]upgradeReport{
 		"running":               {UpgradeID: "ru-1", State: "running", FromVersion: "2.1.200"},
 		"succeeded":             {UpgradeID: "ru-1", State: "succeeded", FromVersion: "2.1.200", ToVersion: "2.1.290"},
-		"failed":                {UpgradeID: "ru-1", State: "failed", FromVersion: "2.1.200", ToVersion: "2.1.200", Reason: "版本沒有變"},
-		"failed-before-reading": {UpgradeID: "ru-2", State: "failed", Reason: "這台機器沒有安裝 Claude Code"},
+		"failed":                {UpgradeID: "ru-1", State: "failed", FromVersion: "2.1.200", ToVersion: "2.1.200", Reason: "the version did not change"},
+		"failed-before-reading": {UpgradeID: "ru-2", State: "failed", Reason: "Claude Code is not installed on this machine"},
 	}
 	bodies := map[string]map[string]any{}
 	for name, rep := range reports {
@@ -64,8 +64,8 @@ func TestWardenRuntimeUpgradeUplinkBodies(t *testing.T) {
 		"running":   {"upgrade_id": "ru-1", "state": "running", "from_version": "2.1.200"},
 		"succeeded": {"upgrade_id": "ru-1", "state": "succeeded", "from_version": "2.1.200", "to_version": "2.1.290"},
 		"failed": {"upgrade_id": "ru-1", "state": "failed", "from_version": "2.1.200", "to_version": "2.1.200",
-			"reason": "版本沒有變"},
-		"failed-before-reading": {"upgrade_id": "ru-2", "state": "failed", "reason": "這台機器沒有安裝 Claude Code"},
+			"reason": "the version did not change"},
+		"failed-before-reading": {"upgrade_id": "ru-2", "state": "failed", "reason": "Claude Code is not installed on this machine"},
 	}
 	if !reflect.DeepEqual(cases, want) {
 		t.Errorf("upgrade report bodies =\n  %#v\nwant\n  %#v", cases, want)

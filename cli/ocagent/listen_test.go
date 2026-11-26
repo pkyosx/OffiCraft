@@ -569,7 +569,7 @@ func TestHandleTaskEvent(t *testing.T) {
 
 		handleTaskEvent(client, cfg, frame("T1"), snaps, "owner", &out)
 
-		want := "[ocagent] task T-be18「fix the listener」status=in_progress (2/5) · by owner\n"
+		want := "[ocagent] task T-be18 \"fix the listener\" status=in_progress (2/5) · by owner\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
 		}
@@ -589,7 +589,7 @@ func TestHandleTaskEvent(t *testing.T) {
 
 		handleTaskEvent(client, cfg, frame("T1"), snaps, "", &out)
 
-		want := "[ocagent] task T-be18「fix the listener」status in_progress → done (5/5)\n"
+		want := "[ocagent] task T-be18 \"fix the listener\" status in_progress → done (5/5)\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
 		}
@@ -605,7 +605,7 @@ func TestHandleTaskEvent(t *testing.T) {
 
 		handleTaskEvent(client, cfg, frame("T1"), snaps, "owner", &out)
 
-		want := "[ocagent] task T-be18「fix the listener」step done (3/5) · by owner\n"
+		want := "[ocagent] task T-be18 \"fix the listener\" step done (3/5) · by owner\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
 		}
@@ -732,8 +732,8 @@ func TestFetchChat(t *testing.T) {
 			t.Errorf("rows = %v, want nil — \"zero messages\" and \"I could not look\" must "+
 				"not be the same answer", got.rows)
 		}
-		want := "[ocagent] chat: 補印一頁都沒撈到（HTTP 500）—— 這不是「沒有新訊息」，" +
-			"是這次沒問到。未讀原封不動，下一次補印會再試；等不及就用 get_chat 自己撈。\n"
+		want := "[ocagent] chat: the catch-up fetch got no page at all (HTTP 500) — this is not \"no new messages\"; " +
+			"this time the question went unanswered. Unread messages are untouched and the next catch-up will try again; if you cannot wait, fetch them yourself with get_chat.\n"
 		if got.stop != want {
 			t.Errorf("stop = %q, want %q", got.stop, want)
 		}
@@ -751,8 +751,8 @@ func TestFetchChat(t *testing.T) {
 		if !reflect.DeepEqual(got.rows, wantRows) {
 			t.Errorf("rows = %v, want %v", got.rows, wantRows)
 		}
-		want := "[ocagent] chat: 補印在第 2 頁斷掉了（已經撈到 1 則）—— 未讀沒撈完，" +
-			"剩下的下一次補印會再試；等不及就用 get_chat 自己回頭撈。\n"
+		want := "[ocagent] chat: the catch-up broke off at page 2 (1 messages fetched so far) — not all unread messages were fetched; " +
+			"the next catch-up will try the rest again; if you cannot wait, go back and fetch them yourself with get_chat.\n"
 		if got.stop != want {
 			t.Errorf("stop = %q, want %q", got.stop, want)
 		}
@@ -769,8 +769,8 @@ func TestFetchChat(t *testing.T) {
 		if len(got.rows) != 2 {
 			t.Errorf("rows = %v, want the two pages it did read", got.rows)
 		}
-		want := "[ocagent] chat: 補印停在第 2 頁（已經撈到 2 則）—— server 的 next_cursor 沒有前進，" +
-			"同一個游標又發了一次。未讀沒撈完，請用 get_chat 自己回頭撈。\n"
+		want := "[ocagent] chat: the catch-up stopped at page 2 (2 messages fetched so far) — the server's next_cursor did not advance, " +
+			"and the same cursor was issued again. Not all unread messages were fetched; go back and fetch them yourself with get_chat.\n"
 		if got.stop != want {
 			t.Errorf("stop = %q, want %q", got.stop, want)
 		}
@@ -789,8 +789,8 @@ func TestFetchChat(t *testing.T) {
 		if len(got.rows) != 10 {
 			t.Errorf("rows = %d, want 10 — the walk refuses more than ten pages", len(got.rows))
 		}
-		want := "[ocagent] chat: 補印撈到第 10 頁就停了（已經撈到 10 則），server 還在給 next_cursor —— " +
-			"這是分頁上限，不是你的信箱真有這麼多。未讀沒撈完，請用 get_chat 自己回頭撈。\n"
+		want := "[ocagent] chat: the catch-up stopped after page 10 (10 messages fetched so far) while the server was still giving next_cursor — " +
+			"this is the page limit, not a sign that your inbox really holds that many. Not all unread messages were fetched; go back and fetch them yourself with get_chat.\n"
 		if got.stop != want {
 			t.Errorf("stop = %q, want %q", got.stop, want)
 		}
@@ -839,13 +839,13 @@ func TestAttachmentSummary(t *testing.T) {
 		m    map[string]any
 		want string
 	}{
-		{"two images", atts(true, true), "📎2圖"},
-		{"one file", atts(false), "📎1檔"},
-		{"a mix reads images then files", atts(true, false, false), "📎1圖 2檔"},
+		{"two images", atts(true, true), "📎2 image(s)"},
+		{"one file", atts(false), "📎1 file(s)"},
+		{"a mix reads images then files", atts(true, false, false), "📎1 image(s) 2 file(s)"},
 		{"an empty attachments array carries no badge", map[string]any{"attachments": []any{}}, ""},
 		{"no attachments field carries no badge", map[string]any{"body": "hi"}, ""},
 		{"a non-array attachments field carries no badge", map[string]any{"attachments": "att-1"}, ""},
-		{"non-map entries are skipped", map[string]any{"attachments": []any{"att-1", map[string]any{"is_image": true}}}, "📎1圖"},
+		{"non-map entries are skipped", map[string]any{"attachments": []any{"att-1", map[string]any{"is_image": true}}}, "📎1 image(s)"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1046,9 +1046,9 @@ func TestConfirm(t *testing.T) {
 			t.Error("confirm = true after the deadline, want false")
 		}
 		want := "[ocagent] listen: batch 1\n" +
-			"[ocagent] 等不到「已送達」的回覆（batch 1，等了 20ms）—— " +
-			"這一批訊息**沒有**被算成你看過了，下一次補印會再送一次。" +
-			"如果這行一直出現，收訊這條路的另一端有問題。\n"
+			"[ocagent] got no \"delivered\" reply (batch 1, waited 20ms) — " +
+			"this batch of messages was **not** counted as read by you, and the next catch-up will send it again. " +
+			"If this line keeps appearing, something is wrong at the other end of the receiving path.\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
 		}
@@ -1071,9 +1071,9 @@ func TestConfirm(t *testing.T) {
 		if want := `{"batch":"1"}` + "\n"; stdout.String() != want {
 			t.Errorf("stdout = %q, want %q", stdout.String(), want)
 		}
-		want := "[ocagent] 等不到「已送達」的回覆（batch 1，等了 20ms）—— " +
-			"這一批訊息**沒有**被算成你看過了，下一次補印會再送一次。" +
-			"如果這行一直出現，收訊這條路的另一端有問題。\n"
+		want := "[ocagent] got no \"delivered\" reply (batch 1, waited 20ms) — " +
+			"this batch of messages was **not** counted as read by you, and the next catch-up will send it again. " +
+			"If this line keeps appearing, something is wrong at the other end of the receiving path.\n"
 		if diag.String() != want {
 			t.Errorf("stderr = %q, want %q", diag.String(), want)
 		}
@@ -1141,8 +1141,8 @@ func TestClearChatFetchFault(t *testing.T) {
 		warn := &drainWarner{chatFaultOpen: true}
 		clearChatFetchFault(warn, &out)
 
-		want := "[ocagent] chat: 補印又問得到了 —— 上面那次「一頁都沒撈到」到此為止。" +
-			"接下來印出來的就是這次真的撈到的東西；沒有東西就是真的沒有新訊息。\n"
+		want := "[ocagent] chat: the catch-up can fetch again — the \"got no page at all\" above ends here. " +
+			"What is printed next is what this fetch really got; if nothing is printed, there really are no new messages.\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
 		}
@@ -1169,10 +1169,10 @@ func TestClearChatFetchFault(t *testing.T) {
 }
 
 func TestWarnMarkReadFailed(t *testing.T) {
-	const want = "[ocagent] mark-read 沒送成功（peer=alice，HTTP 503）— 訊息已經印出來了，" +
-		"但是回條沒送成功，server 那邊就還算未讀：這一批下一次補印會再印一次，" +
-		"而且會一直重印到回條送成功為止，在那之前對方的已讀勾也不會亮。" +
-		"這個行程只會講這一次 —— 之後再看到同一批訊息重複出現，原因就是這一行。\n"
+	const want = "[ocagent] mark-read failed (peer=alice, HTTP 503) — the messages were already printed, " +
+		"but the read receipt did not go through, so the server still counts them as unread: the next catch-up will print this batch again, " +
+		"and keeps reprinting it until a receipt goes through; until then the other side's read tick does not light up either. " +
+		"This process says this only once — if you later see the same batch of messages again, this line is the reason.\n"
 
 	t.Run("the loss is said once per process, whatever peer flaps next", func(t *testing.T) {
 		var out bytes.Buffer
@@ -1222,13 +1222,13 @@ func TestPrintChatLine(t *testing.T) {
 			name: "an attachment badge trails the body",
 			m: map[string]any{"from": "boss", "id": "c-1", "body": "看一下",
 				"attachments": []any{map[string]any{"is_image": true}, map[string]any{}}},
-			want: "[ocagent] chat from boss (#c-1): 看一下 📎1圖 1檔\n",
+			want: "[ocagent] chat from boss (#c-1): 看一下 📎1 image(s) 1 file(s)\n",
 		},
 		{
 			name: "an attachment-only message is the badge itself",
 			m: map[string]any{"from": "boss", "id": "c-1", "body": "",
 				"attachments": []any{map[string]any{"is_image": true}}},
-			want: "[ocagent] chat from boss (#c-1): 📎1圖\n",
+			want: "[ocagent] chat from boss (#c-1): 📎1 image(s)\n",
 		},
 		{
 			name: "a multi-line body stays one event block",
@@ -1244,43 +1244,43 @@ func TestPrintChatLine(t *testing.T) {
 			name: "a webhook row shows its purpose right after the sender",
 			m: map[string]any{"from": "hook:github-pr-review", "id": "c-1", "ts": 1120.0, "body": `{"action":"submitted"}`,
 				"meta": map[string]any{"webhook": map[string]any{"endpoint_id": "github-pr-review", "purpose": "處理 GitHub PR 的 review 留言"}}},
-			want: "[ocagent] chat from hook:github-pr-review [webhook 用途：處理 GitHub PR 的 review 留言] (#c-1, 0s ago): {\"action\":\"submitted\"}\n",
+			want: "[ocagent] chat from hook:github-pr-review [webhook purpose: 處理 GitHub PR 的 review 留言] (#c-1, 0s ago): {\"action\":\"submitted\"}\n",
 		},
 		{
 			name: "a webhook row with a blank purpose says no purpose is set",
 			m: map[string]any{"from": "hook:github-pr-review", "id": "c-1", "body": "x",
 				"meta": map[string]any{"webhook": map[string]any{"endpoint_id": "github-pr-review", "purpose": " \n\t "}}},
-			want: "[ocagent] chat from hook:github-pr-review [webhook 未設定用途] (#c-1): x\n",
+			want: "[ocagent] chat from hook:github-pr-review [webhook: no purpose set] (#c-1): x\n",
 		},
 		{
 			name: "a webhook row without a purpose key says no purpose is set",
 			m: map[string]any{"from": "hook:github-pr-review", "id": "c-1", "body": "x",
 				"meta": map[string]any{"webhook": map[string]any{"endpoint_id": "github-pr-review"}}},
-			want: "[ocagent] chat from hook:github-pr-review [webhook 未設定用途] (#c-1): x\n",
+			want: "[ocagent] chat from hook:github-pr-review [webhook: no purpose set] (#c-1): x\n",
 		},
 		{
 			name: "a multi-line purpose with runs of spaces is flattened to one line",
 			m: map[string]any{"from": "hook:ci", "id": "c-1", "body": "x",
 				"meta": map[string]any{"webhook": map[string]any{"purpose": "  第一行\n\n第二行   有\t空白  "}}},
-			want: "[ocagent] chat from hook:ci [webhook 用途：第一行 第二行 有 空白] (#c-1): x\n",
+			want: "[ocagent] chat from hook:ci [webhook purpose: 第一行 第二行 有 空白] (#c-1): x\n",
 		},
 		{
 			name: "a purpose over 200 runes is cut at 200 and points to get_chat",
 			m: map[string]any{"from": "hook:ci", "id": "c-1", "body": "x",
 				"meta": map[string]any{"webhook": map[string]any{"purpose": strings.Repeat("用", 199) + "甲乙"}}},
-			want: "[ocagent] chat from hook:ci [webhook 用途：" + strings.Repeat("用", 199) + "甲…（用途全文請用 get_chat 讀回）] (#c-1): x\n",
+			want: "[ocagent] chat from hook:ci [webhook purpose: " + strings.Repeat("用", 199) + "甲… (read the full purpose back with get_chat)] (#c-1): x\n",
 		},
 		{
 			name: "a purpose of exactly 200 runes is shown whole",
 			m: map[string]any{"from": "hook:ci", "id": "c-1", "body": "x",
 				"meta": map[string]any{"webhook": map[string]any{"purpose": strings.Repeat("用", 199) + "甲"}}},
-			want: "[ocagent] chat from hook:ci [webhook 用途：" + strings.Repeat("用", 199) + "甲] (#c-1): x\n",
+			want: "[ocagent] chat from hook:ci [webhook purpose: " + strings.Repeat("用", 199) + "甲] (#c-1): x\n",
 		},
 		{
 			name: "a webhook row with no tags carries its purpose in the untagged form",
 			m: map[string]any{"from": "hook:ci", "body": "x",
 				"meta": map[string]any{"webhook": map[string]any{"purpose": "CI 結果"}}},
-			want: "[ocagent] chat from hook:ci [webhook 用途：CI 結果]: x\n",
+			want: "[ocagent] chat from hook:ci [webhook purpose: CI 結果]: x\n",
 		},
 		{
 			name: "a row whose meta.webhook is not an object prints as an ordinary line",

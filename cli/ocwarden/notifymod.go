@@ -99,24 +99,24 @@ const claudeVersionProbeBudget = 2 * time.Second
 // only the first commandResultReasonMax bytes (server/ocserverd/api_monitoring.go),
 // so what the owner must act on comes first and the details stay in the warden log.
 func notifyClaudeTooOldReason(found string) string {
-	return "notify_claude_too_old: 這台機器的 Claude Code 是 " + found + "，低於 " + notifyModMinClaudeVersion +
-		"，Claude 成員無法上線。請到監控頁的機器分頁升級這台機器的 Claude Code。"
+	return "notify_claude_too_old: Claude Code on this machine is " + found + ", below " + notifyModMinClaudeVersion +
+		", so Claude members cannot come online. Upgrade this machine's Claude Code under Monitor › Machines."
 }
 
 // attempts holds the flag read before each launch; two means the restart ran.
 func notifyModNotLoadedReason(attempts []hooksModulesFlag) string {
-	s := "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。"
+	s := "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped. "
 	if len(attempts) == notifyModAttempts {
-		s += "已自動重啟 Claude Code 一次仍沒載入；啟動前快取的開關：第 1 次 " +
-			noteFlagValue(attempts[0]) + "、第 2 次 " + noteFlagValue(attempts[1]) + "。"
+		s += "Claude Code was restarted once automatically and the module still did not load; the switch cached before launch: attempt 1 " +
+			noteFlagValue(attempts[0]) + ", attempt 2 " + noteFlagValue(attempts[1]) + ". "
 	}
-	return s + "常見原因：工作目錄未信任、disableAllHooks、--safe-mode、受管設定擋掉 --plugin-dir。"
+	return s + "Common causes: working directory not trusted, disableAllHooks, --safe-mode, managed settings blocking --plugin-dir."
 }
 
 // The flag is a boolean; anything longer than "unreadable" is left to the log.
 func noteFlagValue(f hooksModulesFlag) string {
 	if len(f.Value) > len("unreadable") {
-		return "非布林值"
+		return "not a boolean"
 	}
 	return f.Value
 }

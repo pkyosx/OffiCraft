@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	defaultNudge = "開始。"
+	defaultNudge = "Start."
 	// Every claude spawn waits up to 30×1s for the notification mod
 	// (waitForNotifyMod), out of the 150s startReceiptDeadlineSecs in
 	// server/ocserverd/receipt_watch.go (the START receipt is POSTed only after
@@ -259,21 +259,21 @@ func compactSettingsJSON(raw string) (string, error) {
 // seeds/boot_sequence.md / boot_sequence_codex.md (pre-fetched into personaFile);
 // do not re-spell it here.
 func buildClaudeSystemPrompt(agentID, role, personaFile, persona string) string {
-	return fmt.Sprintf("你是 %s(role=%s)。以下「---」之後是你的 OffiCraft 開機檔全文"+
-		"(與 %s 內容相同),它已經在你的 system prompt 裡:不要再用任何工具讀那個檔。"+
-		"開機時照開機檔最後的「Boot Sequence」逐步執行。\n---\n",
+	return fmt.Sprintf("You are %s (role=%s). After the \"---\" below is the full text of your OffiCraft boot file "+
+		"(the same content as %s); it is already in your system prompt: do not read that file again with any tool. "+
+		"When booting, carry out the \"Boot Sequence\" at the end of the boot file step by step.\n---\n",
 		agentID, role, personaFile) + persona
 }
 
 // Only for a claude too old to take --append-system-prompt-file: the member
 // then has to read the boot file itself, and one Read call stops short of it.
 func buildAppendSystemPrompt(agentID, role, personaFile string) string {
-	return fmt.Sprintf("你是 %s(role=%s)。你的完整身分、操作準則與啟動步驟都由 "+
-		"launcher 預抓在本地檔 %s。第一步:用 Read 工具從第一行讀到最後一行;"+
-		"一次 Read 讀不完時,用 offset/limit 從上一次停下的那一行接著讀,直到讀到最後一行。"+
-		"不要用 cat/head/tail/sed 或任何終端機指令讀它:終端機輸出只有開頭一小段會進到你的 context,"+
-		"其餘會被靜默丟棄而且不會有任何錯誤訊息,而「Boot Sequence」在整份檔案的最後面。"+
-		"整份讀完後,照裡面「Boot Sequence」段逐步執行。",
+	return fmt.Sprintf("You are %s (role=%s). Your full identity, operating rules and startup steps were "+
+		"pre-fetched by the launcher into the local file %s. First step: read it with the Read tool from the first line to the last line; "+
+		"when one Read call cannot read it all, use offset/limit to continue from the line where the previous call stopped, until you reach the last line. "+
+		"Do not read it with cat/head/tail/sed or any other terminal command: only a small opening part of terminal output reaches your context, "+
+		"the rest is silently dropped with no error message at all, and the \"Boot Sequence\" is at the very end of the file. "+
+		"After reading the whole file, carry out its \"Boot Sequence\" section step by step.",
 		agentID, role, personaFile)
 }
 
@@ -708,7 +708,7 @@ func (d SpawnDeps) withPerSpawn(claudeBin, codexBin string, pretrust func() erro
 // it is compressed to labels. The Codex exit comes FIRST: it is usually the
 // cheapest fix, and owners were being sent to install a runtime they had declined.
 const claudeBinUnresolvedReason = "claude_bin_unresolved: no Claude Code on this machine. " +
-	"Fix any one: set this member's 執行環境 to Codex; " +
+	"Fix any one: set this member's runtime to Codex; " +
 	"install Claude Code here; or re-install the warden with OC_CLAUDE_BIN=<path>."
 
 func (d SpawnDeps) start(p StartParams) SpawnOutcome {
@@ -763,7 +763,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	// while the agent can never boot.
 	if runtimeName == "claude" && d.loggedOut("claude") {
 		return SpawnOutcome{OK: false, Reason: "claude_not_logged_in: `claude auth status` reports " +
-			"logged out on this host. Fix any one: set this member's 執行環境 to Codex; " +
+			"logged out on this host. Fix any one: set this member's runtime to Codex; " +
 			"log in with `claude` as this user; or re-install the warden with " +
 			"OC_CLAUDE_CRED_CHECK=0 (shell exports do not reach it)."}
 	}

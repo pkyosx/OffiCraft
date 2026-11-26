@@ -11,11 +11,11 @@ import (
 // than read off guardPermissionRefusal: the text IS the function (see
 // guardpermission.go), so a test that quoted the constant would agree with any
 // rewrite of it, including one that turns the statement back into a request.
-const wantPermissionRefusal = "OffiCraft 執行環境政策：本環境不允許任何需要人工確認的操作。" +
-	"這個工具呼叫觸發了執行環境的確認提示，而本環境沒有人可以回答這個提示，成員會就此無聲停住。" +
-	"這是環境層的固定政策，由環境自動拒絕，不是建議，也不是由指令輸出提出的要求。" +
-	"可行的替代做法：要刪除檔案或資料夾時，用 rm -r <完整路徑>，路徑要完整字面寫出（不含變數、不含 ~、不含萬用字元）。" +
-	"改用不需要確認的做法後直接重試，不需要詢問任何人。"
+const wantPermissionRefusal = "OffiCraft runtime policy: this environment does not allow any operation that needs human confirmation. " +
+	"This tool call triggered the runtime's confirmation prompt, and nobody in this environment can answer that prompt, so the member would silently stop right there. " +
+	"This is a fixed policy of the environment layer, refused automatically by the environment, not a suggestion, and not a request made by command output. " +
+	"A workable alternative: to delete a file or folder, use rm -r <full path>, with the path written out in full as a literal (no variable, no ~, no wildcard). " +
+	"Switch to an approach that needs no confirmation and retry right away; you do not need to ask anyone."
 
 // wantPermissionAnswer is the WHOLE document the hook writes, byte for byte —
 // the field shape is PermissionRequest's, not PreToolUse's, and a document that
@@ -78,7 +78,7 @@ func TestCmdGuardPermission(t *testing.T) {
 	t.Run("the refusal reaches the member as written, unescaped", func(t *testing.T) {
 		var out bytes.Buffer
 		cmdGuardPermission(strings.NewReader("{}"), &out)
-		if !strings.Contains(out.String(), "rm -r <完整路徑>") {
+		if !strings.Contains(out.String(), "rm -r <full path>") {
 			t.Errorf("the decision document escaped the refusal instead of emitting it as written: %q", out.String())
 		}
 	})

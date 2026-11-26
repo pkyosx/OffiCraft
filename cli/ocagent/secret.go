@@ -178,7 +178,7 @@ the same directory and moved into place, so <path> never holds a partial value.
 --force        replace <path> if it already exists. Without it an existing
                path is refused before anything is fetched.
 
-stdout on success: one line, 已寫入 <path>. The value is never printed.
+stdout on success: one line, Wrote <path>. The value is never printed.
 Delete the file when you are done with it.
 
 Exit codes:
@@ -851,7 +851,7 @@ func cmdSecretWrite(client httpClient, cfg Config, id, path string, force bool, 
 		fmt.Fprintf(errOut, "[ocagent] secret write: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(out, "已寫入 %s\n", path)
+	fmt.Fprintf(out, "Wrote %s\n", path)
 	return 0
 }
 

@@ -261,7 +261,7 @@ func notifyModWrites(t *testing.T) []writtenFile {
 		{"/w/m1/.officraft-mod/hooks/register.ts", notifyModFile(t, "hooks/register.ts"), 0o600},
 		// Every name the mod uses comes from here; it spells none of them itself.
 		{"/w/m1/.officraft-mod/officraft.json",
-			`{"boot_prompt":"開始。","started_marker":"/w/m1/.officraft-mod-started","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
+			`{"boot_prompt":"Start.","started_marker":"/w/m1/.officraft-mod-started","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
 				`"disabled_marker":"/w/m1/.officraft-mod-disabled","booted_marker":"/w/m1/.officraft-mod-booted",` +
 				`"ack_file":"/w/m1/.officraft-listen-ack",` +
 				`"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],` +
@@ -271,16 +271,16 @@ func notifyModWrites(t *testing.T) []writtenFile {
 	}
 }
 
-const goldenNotifyClaudeTooOldReason = "notify_claude_too_old: 這台機器的 Claude Code 是 2.1.286，低於 2.1.287，" +
-	"Claude 成員無法上線。請到監控頁的機器分頁升級這台機器的 Claude Code。"
+const goldenNotifyClaudeTooOldReason = "notify_claude_too_old: Claude Code on this machine is 2.1.286, below 2.1.287, " +
+	"so Claude members cannot come online. Upgrade this machine's Claude Code under Monitor › Machines."
 
-const goldenNotifyModNotLoadedReason = "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。" +
-	"常見原因：工作目錄未信任、disableAllHooks、--safe-mode、受管設定擋掉 --plugin-dir。"
+const goldenNotifyModNotLoadedReason = "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped. " +
+	"Common causes: working directory not trusted, disableAllHooks, --safe-mode, managed settings blocking --plugin-dir."
 
 // After the one restart, with no ~/.claude.json (the harness default) before either launch.
-const goldenNotifyModRetriedReason = "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。" +
-	"已自動重啟 Claude Code 一次仍沒載入；啟動前快取的開關：第 1 次 absent、第 2 次 absent。" +
-	"常見原因：工作目錄未信任、disableAllHooks、--safe-mode、受管設定擋掉 --plugin-dir。"
+const goldenNotifyModRetriedReason = "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped. " +
+	"Claude Code was restarted once automatically and the module still did not load; the switch cached before launch: attempt 1 absent, attempt 2 absent. " +
+	"Common causes: working directory not trusted, disableAllHooks, --safe-mode, managed settings blocking --plugin-dir."
 
 // The read-only log of Claude Code's cached hook-modules flag, for a warden
 // owner with no ~/.claude.json (the harness default).
@@ -306,16 +306,16 @@ func (f funcRunner) Run(name string, args ...string) (string, error) { return f(
 
 // goldenSystemPromptM1 is what the member reads as its appended system prompt:
 // the header, then the persona verbatim.
-const goldenSystemPromptM1 = "你是 m1(role=builder)。以下「---」之後是你的 OffiCraft 開機檔全文" +
-	"(與 /w/m1/persona.md 內容相同),它已經在你的 system prompt 裡:不要再用任何工具讀那個檔。" +
-	"開機時照開機檔最後的「Boot Sequence」逐步執行。\n---\nyou are m1"
+const goldenSystemPromptM1 = "You are m1 (role=builder). After the \"---\" below is the full text of your OffiCraft boot file " +
+	"(the same content as /w/m1/persona.md); it is already in your system prompt: do not read that file again with any tool. " +
+	"When booting, carry out the \"Boot Sequence\" at the end of the boot file step by step.\n---\nyou are m1"
 
-const goldenFallbackPromptM1 = "你是 m1(role=builder)。你的完整身分、操作準則與啟動步驟都由 " +
-	"launcher 預抓在本地檔 /w/m1/persona.md。第一步:用 Read 工具從第一行讀到最後一行;" +
-	"一次 Read 讀不完時,用 offset/limit 從上一次停下的那一行接著讀,直到讀到最後一行。" +
-	"不要用 cat/head/tail/sed 或任何終端機指令讀它:終端機輸出只有開頭一小段會進到你的 context," +
-	"其餘會被靜默丟棄而且不會有任何錯誤訊息,而「Boot Sequence」在整份檔案的最後面。" +
-	"整份讀完後,照裡面「Boot Sequence」段逐步執行。"
+const goldenFallbackPromptM1 = "You are m1 (role=builder). Your full identity, operating rules and startup steps were " +
+	"pre-fetched by the launcher into the local file /w/m1/persona.md. First step: read it with the Read tool from the first line to the last line; " +
+	"when one Read call cannot read it all, use offset/limit to continue from the line where the previous call stopped, until you reach the last line. " +
+	"Do not read it with cat/head/tail/sed or any other terminal command: only a small opening part of terminal output reaches your context, " +
+	"the rest is silently dropped with no error message at all, and the \"Boot Sequence\" is at the very end of the file. " +
+	"After reading the whole file, carry out its \"Boot Sequence\" section step by step."
 
 func TestShellQuote(t *testing.T) {
 	cases := []struct{ in, want string }{
@@ -1747,12 +1747,12 @@ func TestStart(t *testing.T) {
 		}{
 			{"a session.start 12.3 s late and a pane of what the member saw",
 				map[string]time.Time{"/w/m1/.officraft-mod-started": spawnLaunchedAt.Add(12340 * time.Millisecond)},
-				wardenRun{out: "╭ Claude Code ╮\n> 開始。\n\n\n"},
+				wardenRun{out: "╭ Claude Code ╮\n> Start.\n\n\n"},
 				[]string{
 					"m1: notify-mod-not-loaded: .officraft-mod-started written 12.3s after launch",
 					"m1: notify-mod-not-loaded: pane member-m1, last 40 lines:",
 					"m1: notify-mod-not-loaded pane| ╭ Claude Code ╮",
-					"m1: notify-mod-not-loaded pane| > 開始。",
+					"m1: notify-mod-not-loaded pane| > Start.",
 				}},
 			{"a pane taller than 40 lines keeps its last 40",
 				nil,
@@ -2421,12 +2421,12 @@ func TestStart(t *testing.T) {
 			{"no claude on the machine", func(_ *spawnHarness, d *SpawnDeps, _ *StartParams) {
 				d.ClaudeBin = ""
 			}, "claude_bin_unresolved: no Claude Code on this machine. " +
-				"Fix any one: set this member's 執行環境 to Codex; " +
+				"Fix any one: set this member's runtime to Codex; " +
 				"install Claude Code here; or re-install the warden with OC_CLAUDE_BIN=<path>."},
 			{"a signed-out claude", func(_ *spawnHarness, d *SpawnDeps, _ *StartParams) {
 				d.LoginCheck = loginVerdicts(map[string]*bool{"claude": boolRef(false)})
 			}, "claude_not_logged_in: `claude auth status` reports logged out on this host. " +
-				"Fix any one: set this member's 執行環境 to Codex; log in with `claude` as this user; " +
+				"Fix any one: set this member's runtime to Codex; log in with `claude` as this user; " +
 				"or re-install the warden with OC_CLAUDE_CRED_CHECK=0 (shell exports do not reach it)."},
 			{"no codex on the machine", func(_ *spawnHarness, d *SpawnDeps, p *StartParams) {
 				p.Runtime = "codex"
@@ -2720,7 +2720,7 @@ func TestStart(t *testing.T) {
 				prompt = w.content
 			}
 		}
-		if !strings.HasPrefix(prompt, "你是 m1(role=agent)。") {
+		if !strings.HasPrefix(prompt, "You are m1 (role=agent).") {
 			t.Errorf("system prompt =\n%q\nwant the default role", prompt)
 		}
 	})
