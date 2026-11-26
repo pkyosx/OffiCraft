@@ -1397,6 +1397,9 @@ export interface ServerSettingsView {
   /** How often the server re-reads GitHub's release pages in the background
    * (60..3600 seconds; the settings page edits it in minutes). */
   updaterCheckIntervalSecs: number;
+  /** Whether the assistant tells the owner, in chat, what a newly reached
+   * official release adds (true = on, the default for a never-set server). */
+  updaterAnnounceFeatures: boolean;
   /** The studio display name shown in the topbar (T-d693). "" = never set —
    * the caller falls back to the localized default (`t.orgName`). */
   orgName: string;
@@ -1545,6 +1548,8 @@ export interface ServerSettingsPatch {
   updaterAutoUpdate?: boolean;
   /** Background update-check interval, 60..3600 seconds (server 422s outside). */
   updaterCheckIntervalSecs?: number;
+  /** The assistant's new-release feature announcements on/off; releases reached while off are never announced later. */
+  updaterAnnounceFeatures?: boolean;
   /** The studio display name (T-d693); trimmed server-side, max 80 runes, ""
    * clears it back to the localized default (server 422s anything longer). */
   orgName?: string;

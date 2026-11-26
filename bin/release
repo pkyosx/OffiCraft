@@ -199,6 +199,9 @@ usage:
             GitHub stored, then wait for the live station to be on <sha>.
   promote   flip an existing, verified prerelease to the final release.
             Rebuilds nothing. Reads back that the flip landed.
+            Write the release notes' "## 給站長的新功能公告" section BEFORE
+            promoting: stations read it when they reach the release, and
+            never re-read it (format: docs/dev/README.md).
 
   --dry-run publish: stop after artifact verification and print the upload
             command. promote: verify the prerelease and print the flip command.

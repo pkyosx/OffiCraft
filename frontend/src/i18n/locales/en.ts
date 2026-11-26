@@ -2523,6 +2523,9 @@ export const en: Dict = {
     updateCheckIntervalSub:
       "How often the server asks GitHub in the background whether a newer version exists; Check for updates and upgrading always ask right away (1–60 minutes)",
     minutes: "minutes",
+    announceFeatures: "Let the assistant tell me about new-version features",
+    announceFeaturesSub:
+      "After upgrading to an official release that has a feature announcement, your assistant tells you in chat what it adds (at most one message per upgrade) · on by default; announcements while it is off are not sent later",
     upgradeFailed: "Upgrade failed",
     upgradeRestarting:
       "Upgrading — the new version is installed and the server is restarting; this page will reload by itself.",

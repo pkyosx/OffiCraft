@@ -57,6 +57,11 @@ describe("toServerSettings", () => {
     expect(toServerSettings(settingsFromServer({ updater_check_interval_secs: 900 })).updaterCheckIntervalSecs).toBe(900);
   });
 
+  it("under a server that omits updater_announce_features, it reads as the shipped true; a sent false is carried as is", () => {
+    expect(toServerSettings(settingsFromServer()).updaterAnnounceFeatures).toBe(true);
+    expect(toServerSettings(settingsFromServer({ updater_announce_features: false })).updaterAnnounceFeatures).toBe(false);
+  });
+
   it("under a server that omits the due-soon lead, it reads as the shipped 1 day; a sent value is carried as is", () => {
     expect(toServerSettings(settingsFromServer()).taskDueSoonLeadMinutes).toBe(1440);
     expect(toServerSettings(settingsFromServer({ task_due_soon_lead_minutes: 90 })).taskDueSoonLeadMinutes).toBe(90);

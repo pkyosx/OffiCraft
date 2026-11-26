@@ -2543,6 +2543,9 @@ export const zh = {
     updateCheckIntervalSub:
       "背景多久向 GitHub 確認一次有沒有新版本；按「檢查更新」與升級一律即時查詢，不受這個間隔影響（1–60 分鐘）",
     minutes: "分鐘",
+    announceFeatures: "讓助理告訴我新版本的功能",
+    announceFeaturesSub:
+      "升級到有新功能公告的正式版後，助理會在聊天裡跟你說這版多了什麼（一次升級最多一則訊息）· 預設開啟；關閉期間的公告不會補發",
     upgradeFailed: "升級失敗",
     upgradeRestarting:
       "升級中——新版本已安裝完成,伺服器重啟中;此頁面將自動重新載入。",

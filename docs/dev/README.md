@@ -270,6 +270,23 @@ bin/release promote <tag>                       [--dry-run]
   - `promote` **刻意不再驗一次**:它不重 build,出貨的 bytes 就是那顆 beta 已經被這道閘驗過的 bytes。
 - 🔴 **出 GA 前的那一輪由人自己跑,不在 `promote` 裡**:`publish` 那道閘讀的是雲端那一輪,裡面的 `e2e-isolation-guard` **一支 playwright spec 都沒跑**(它只驗 `run_all.sh` 的 wiring 形狀);真正跑瀏覽器的是 `macos-e2e`,但那也不等於 `bin/local-ci.sh` 的完整 pre-GA 輪。要在出 GA 前真的把 spec 跑過一遍,跑 `bash bin/local-ci.sh`(改到 live-agent 行為時加 `--live-agent`,會花錢),見〈CI〉。**這刻意沒有被接進 `bin/release`**——那會讓每一顆 beta 都多付一輪 e2e,而自動發 beta 是無人值守的。
 - `promote` 把**既有且已驗過**的 prerelease 翻成正式版,**不重 build**——大家測的 bytes 就是出貨的 bytes。翻的指令是 `gh release edit <tag> --prerelease=false --draft=false --latest=true`,翻完**回讀** GitHub 實際存的東西:若 asset 集合在翻的過程中變了(有人偷偷重傳)那是**失敗**,不是警告;🔴 **若 `--latest` 沒有真的落地(`GET /repos/<repo>/releases/latest` 的 `tag_name` 不是這顆 tag)也是失敗**,以 `[release] VERIFY-FAILED [release-latest]` 非零退出,並印出可執行的下一步(`gh release edit <tag> --repo <repo> --latest=true`)——**下指令不等於做到**,漏設 Latest 不能只靠人記得補。`gh release view --json` 沒有 `isLatest` 欄位(2026-08-28 對 gh 2.93.0 量過),回讀改問 `/repos/<repo>/releases/latest` 這個端點、比對 tag 名。 這個回讀是**短 retry-with-backoff**,跟第 8 步 `settle_station` 同一套形狀(`OC_RELEASE_LATEST_TRIES`/`OC_RELEASE_LATEST_SLEEP`,預設 3 次、間隔 2s)——理由是 GitHub 沒承諾 `--latest=true` 在 `gh release edit` 回來的當下就反映在 `/releases/latest` 上,單發回讀量到「還沒生效」會印一個**假失敗**(release 其實設好了,腳本卻說沒設),那會訓練人忽略這道新守衛。仍然 fail-closed:重試預算用完還是讀不到就照樣 `exit 6`。
+- 🔴 **要讓站長收到新功能公告,在 promote(GA 按鈕或 `bin/release promote`)之前就把公告寫進那顆 release 的說明**。站台升級到正式版後,會讀 release 說明裡標題**整行一字不差**為 `## 給站長的新功能公告` 的那一段(到下一個 `## ` 標題或說明結尾為止),交給助理轉告 Owner(`server/ocserverd/release_announce.go`)。GA 之後才補寫的,已經處理過那一版的站台不會再讀(站台每次開機只查一次:正在跑某一版的 beta 站,那一版之後才 GA 時,下次重新啟動才轉告);沒有這一段的正式版、以及預發佈版本,什麼都不會送。站台把這段原樣放在 `## v<tag>` 底下,所以段內不要用 `## ` 標題(會提前結束這一段);像 `===== 公告開始`／`公告結束` 的行會被拿掉;超過 2000 字會被截斷(段落**最後**的「完整說明」區塊會保留,同一行 `**完整說明**：https://…` 或下面範例的兩行寫法都可以;區塊超過 300 字、或後面還有別的文字,就不保留)。`gh release edit <tag> --notes-file <file>` 會**整份取代**說明,檔案裡要保留原本 `bin/release` 寫的第一行。格式:
+
+  ```markdown
+  ## 給站長的新功能公告
+
+  (選填)一兩句這版的重點。
+
+  ### 新功能
+  - **功能名稱**：站長會看到什麼、怎麼用,一句話。
+  - **功能名稱**：……
+
+  **Demo 影片**  
+  https://…
+
+  **完整說明**  
+  https://…
+  ```
 - `--dry-run`:build + 驗完就停,印出它本來會跑的上傳指令,**什麼都不上傳**。彩排用這個。
 - `--no-settle`:**不等站台升上來**(跳過第 8 步)。理由是 owner 2026-08-05 裁定一:OffiCraft 是大家自架的服務、不是這個 repo 在營運的 SaaS,所以「某台站有沒有升上去」不是發版的成功條件;而無人值守的 runner 根本連不到私人站台,不給旗標的話每一輪自動發版都會死在一個跟 artifact 無關的理由上。**只是明示的 per-invocation opt-out**:預設一個字都沒變(人工發版照樣等站台、等不到照樣紅),第 7 步的回讀與 build 前的 CI 閘都**不受影響**,而且開了旗標那一輪會印一行講明為什麼不驗、結尾成功訊息也**不會**宣稱站台已在那顆 commit 上。守衛在 `bin/tests/release-guard.sh`(E3/E3b/E3c/E3d):E3 是它的**陽性對照**——同一組假站台狀態(站在別的 commit),不帶旗標仍以 `station-settle` 失敗,帶了才回 0。
 

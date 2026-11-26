@@ -78,6 +78,7 @@ func apiTestShippedSettings() map[string]any {
 		"updater_receive_beta":                 false,
 		"updater_auto_update":                  false,
 		"updater_check_interval_secs":          300,
+		"updater_announce_features":            true,
 		"org_name":                             "",
 		"owner_name":                           "",
 		"push_contact_email":                   "",
@@ -419,7 +420,7 @@ func TestHandleSetPasswordApiAuthSetPasswordPost(t *testing.T) {
 	})
 
 	for _, shape := range windowDALShapes {
-		for _, refused := range []string{"auth.claim_token", "updater.auto_update"} {
+		for _, refused := range []string{"auth.claim_token", "updater.auto_update", "release_announce.floor"} {
 			t.Run(shape+": a release build's claim whose "+refused+" write fails leaves no password behind, and the retry lands with auto-update on", func(t *testing.T) {
 				apiTestStampBuild(t, "v1.4.0")
 				d, _, _ := windowDAL(t, shape)
@@ -436,6 +437,7 @@ func TestHandleSetPasswordApiAuthSetPasswordPost(t *testing.T) {
 				windowWantSetting(t, d, "auth.password_hash", nil)
 				windowWantSetting(t, d, "auth.claim_token", &claim)
 				windowWantSetting(t, d, "updater.auto_update", nil)
+				windowWantSetting(t, d, "release_announce.floor", nil)
 
 				lift()
 				status, data = windowJSON(t, h, "POST", "/api/auth/set-password", "", body)
@@ -1488,6 +1490,7 @@ func TestSettingsView(t *testing.T) {
 		SecretCardRetrievedRetentionSecs: 600,
 		BackupRetain:                     5,
 		UpdaterCheckIntervalSecs:         300,
+		UpdaterAnnounceFeatures:          true,
 		TaskDueSoonLeadMinutes:           1440,
 		OrgName:                          "",
 		OwnerName:                        "",

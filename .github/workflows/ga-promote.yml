@@ -106,7 +106,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing verified prerelease tag to flip to GA, e.g. v0.5.256'
+        description: 'Existing verified prerelease tag to flip to GA, e.g. v0.5.256. Write its release notes'' 「## 給站長的新功能公告」 section BEFORE running this: stations read it once, when they reach the release (docs/dev/README.md).'
         required: true
         type: string
 
