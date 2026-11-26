@@ -1,35 +1,35 @@
-# 管理 AI 帳號與用量
+# Manage AI accounts and usage
 
-讀完這頁，你能在「監控」分頁看到每個帳號用了多少、估計花了多少，以及每位成員用的是哪個帳號與模型，並在這裡替機器登入帳號、升級 Claude Code。
+After reading this page, you can use the Monitor tab to see how much each account has used and roughly what it has cost, and which account and model each member is on. You can also sign machines in to an account and upgrade Claude Code from there.
 
-## 用量算在誰的帳號上
+## Whose account the usage counts against
 
-成員用的是你自己的 Claude 與 Codex 帳號，用量與費用都算在你的帳號上。對話內容照常送到 Anthropic 或 OpenAI。
+Members use your own Claude and Codex accounts, so all usage and cost count against your accounts. Conversations are sent to Anthropic or OpenAI as usual.
 
-## 在「監控」分頁看用量
+## Viewing usage in the Monitor tab
 
-打開「監控」分頁就看得到：
+Open the Monitor tab to see:
 
-- **帳號資訊**：每個帳號在「5 小時窗」與「7 天窗」用了多少。用得太快時，帳號會標「過熱」；用完時會標「已達上限」，並寫出重置時間。
-- **估計**：每個帳號累計的估計花費。
-- **AI 會話**：每位成員在哪台機器、用哪個帳號與模型、估計花了多少。
+- **Accounts**: how much each account has used in its "5-hour window" and "7-day window". When an account is being used up too fast, it is marked "overheated"; when it runs out, it is marked "Limit reached" along with the reset time.
+- **est.**: each account's accumulated estimated cost.
+- **AI Sessions**: which machine each member is on, which account and model it uses, and roughly how much it has cost.
 
-各欄位的完整說明見 [介面說明](interface.md) 的「監控」。
+For a full description of every field, see "Monitor" in [Interface reference](interface.md).
 
-## 登入帳號與升級 Claude Code
+## Signing in to an account and upgrading Claude Code
 
-「監控」分頁的「機器資訊」列出每台機器，點 Claude 或 Codex 欄的版本號會打開選單：
+"Machines" in the Monitor tab lists every machine. Click the version number in the Claude or Codex column to open a menu:
 
-- **登入**：替這台機器登入 Claude 或 Codex 帳號，這台機器上的成員就用這個帳號。已經登入時，完成後會換成新登入的帳號。
-- **升級 Claude Code**：升級這台機器上成員使用的 Claude Code。
+- **Sign in**: sign this machine in to a Claude or Codex account. Members on this machine then use that account. If the machine is already signed in, it switches to the newly signed-in account once you finish.
+- **Upgrade Claude Code**: upgrade the Claude Code that members on this machine use.
 
-## 用量用完時
+## When an account runs out
 
-帳號的用量用完時，用這個帳號的成員名字旁會出現驚嘆號，原因寫「已達用量上限」，等重置時間到就會恢復。驚嘆號的其他原因與處理方式，見 [增加成員與發外包](members.md) 的「看懂成員的狀態」。
+When an account's usage runs out, an exclamation mark appears next to the name of every member using that account, with the reason "usage limit reached". The members recover once the reset time arrives. For the other reasons behind the exclamation mark and what to do about them, see "Reading a member's status" in [Add members and hire outsource members](members.md).
 
-## 相關文件
+## Related docs
 
-- [交代工作與回覆請示卡](daily.md)
-- [增加成員與發外包](members.md)
-- [讓成員記住你教過的事（傳承）](lore.md)
-- [介面說明](interface.md)
+- [Assign work and answer reply cards](daily.md)
+- [Add members and hire outsource members](members.md)
+- [Make members remember what you taught them (lore)](lore.md)
+- [Interface reference](interface.md)

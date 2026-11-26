@@ -1,38 +1,38 @@
-# 把帳號金鑰交給成員用（密鑰）
+# Give members your account keys (secrets)
 
-這頁說明密鑰是什麼、每一筆密鑰有什麼，以及成員需要清單裡沒有的機密時會怎麼向你要。
+This page explains what a secret is, what each secret contains, and how a member asks you for a secret that is not in the list.
 
-## 密鑰
+## Secrets
 
-密鑰是你存進 OffiCraft 的機密，例如某個服務的 API token 或登入金鑰。成員需要時取用，機密的內容不會出現在聊天、請示卡或任務紀錄裡。密鑰在上方導覽列的「密鑰」分頁管理。
+A secret is a confidential value you store in OffiCraft, such as an API token or sign-in key for some service. Members fetch it when they need it, and the value never appears in chat, reply cards, or task records. You manage secrets in the Secrets tab on the top navigation bar.
 
-只有你能新增、修改和刪除密鑰。所有在職的成員，正職和外包，都能取用。
+Only you can add, edit, and delete secrets. Every active member, staff and outsource alike, can fetch them.
 
-**不要把值直接貼在聊天裡。** 聊天內容會留在紀錄中，也會被帶進成員的記憶。
+**Do not paste a value straight into chat.** Chat content stays in the records and is also carried into members' memory.
 
-## 每一筆密鑰有什麼
+## What each secret contains
 
-- **名稱**：給你和成員辨認用。
-- **值**：機密本身。**存進去之後，控制台不會再顯示**，你自己也讀不回原本的值；可以換成新的值。
-- **備註**：使用限制，例如「只用於寄送電子報，不要拿來做別的事」。成員使用前會先讀備註。
-- **密鑰 ID**：`sec-` 開頭的一串代碼。交代成員時直接給密鑰 ID 最明確，例如「用密鑰 sec-aaaaaaaaaaaa 登入電子報服務，寄出這週的電子報」。沒給密鑰 ID 時，成員會依名稱和備註找出對應的那一筆；判斷不出來時，會開請示卡請你指定。
-- **最後存取**：成員最後一次取用的時間。可以用來確認成員用了你交代的那一筆，或找出很久沒人用、可以刪除的密鑰。不該被用到的密鑰最近有人取用時，到對應的服務撤銷並換新金鑰，再回 OffiCraft 更新值。
+- **Name**: for you and members to recognize it.
+- **Value**: the confidential value itself. **Once saved, the console never shows it again**, and even you cannot read the original value back. You can replace it with a new value.
+- **Note**: limits on how it may be used, for example "Only for sending the newsletter; do not use it for anything else." Members read the note before using the secret.
+- **Secret ID**: a code starting with `sec-`. Giving a member the secret ID is the clearest way to assign work, for example "Sign in to the newsletter service with secret sec-aaaaaaaaaaaa and send this week's newsletter." Without a secret ID, a member finds the matching secret by its name and note; if it cannot tell which one, it opens a reply card asking you to specify.
+- **Last accessed**: the last time a member fetched the secret. Use it to confirm a member used the secret you told it to, or to find secrets nobody has used for a long time and that can be deleted. If a secret that should not be in use was fetched recently, revoke it at the matching service and issue a new key, then come back to OffiCraft and update the value.
 
-刪除密鑰**無法復原**，成員之後用這筆密鑰 ID 取用會失敗。
+Deleting a secret **cannot be undone**. Any later attempt by a member to fetch it by that secret ID fails.
 
-## 成員需要清單裡沒有的機密
+## When a member needs a secret that is not in the list
 
-成員會開一張 Secret 請示卡向你要。你在卡上填入值，送出後不會再顯示，也只有開卡成員能取得；也可以在卡片下方回覆訊息，回覆後這張卡就結束。內容會在一段時間後刪除，時間長短見 [設定與參數](settings.md) 的「參數調整」。
+The member opens a Secret reply card to ask you for it. You fill in the value on the card; after you send it, it is not shown again, and only the member who opened the card can fetch it. You can also reply with a message below the card, which ends the card. The content is deleted after a while; for how long, see "Parameters" in [Settings and parameters](settings.md).
 
-## 換電腦時要帶走 vault.key
+## Take vault.key with you when you change computers
 
-密鑰的值是用一個叫 `vault.key` 的檔案加密的。平常不需要你處理；只有把資料庫備份搬到別台電腦時，要連同 `vault.key` 一起帶過去，因為備份裡不包含 `vault.key`。詳細說明見 [保護你的工作室](security.md) 的「密鑰與 vault.key」。
+Secret values are encrypted with a file called `vault.key`. Normally you do not need to deal with it. Only when you move a database backup to another computer do you need to take `vault.key` along, because backups do not include `vault.key`. For details, see "Secrets and vault.key" in [Protect your studio](security.md).
 
-各欄位的說明見 [介面說明](interface.md) 的「密鑰」；成員怎麼取用，見 [架構與運作原理](architecture.md) 的「成員怎麼取用密鑰」。
+For a description of each field, see "Secrets" in [Interface reference](interface.md). For how members fetch secrets, see "How members fetch secrets" in [Architecture and how it works](architecture.md).
 
-## 相關文件
+## Related docs
 
-- [保護你的工作室](security.md)
-- [常見問題與排解](troubleshooting.md)
-- [交代工作與回覆請示卡](daily.md)
-- [介面說明](interface.md)
+- [Protect your studio](security.md)
+- [Troubleshooting and FAQ](troubleshooting.md)
+- [Assign work and answer reply cards](daily.md)
+- [Interface reference](interface.md)
