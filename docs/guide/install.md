@@ -176,7 +176,7 @@ Upgrading is done in the console under **Settings › System update & backup**; 
 
 - **Check for updates**: asks GitHub (the site where OffiCraft publishes new versions) whether there is a new version. When there is, "Update to latest" appears.
 - **Update to latest**: OffiCraft downloads the new version, confirms the files are complete, and restarts automatically. The console page reloads automatically, and once it succeeds, "Current version" changes to the new version number.
-- **Automatic updates**: when this is on, OffiCraft upgrades automatically as soon as it detects a new version. It is on by default for new installs (upgrading only to stable releases); existing installs keep their previous setting.
+- **Automatic updates**: when this is on, OffiCraft upgrades automatically as soon as it detects a new version. It is on by default for new installs (upgrading only to official releases); existing installs keep their previous setting.
 
 OffiCraft on other machines follows automatically, usually within 15 minutes, with no need to do anything on each machine.
 
@@ -296,7 +296,7 @@ Each field under **Settings › System update & backup**:
 
 - **Current version**: the version this server is running, with "Check for updates" and "View release" next to it. A status of "Latest version not confirmed yet" means the server has not successfully checked GitHub since it started; it does not mean it is already on the latest version.
 - **Update to latest**: the server downloads the new version, verifies it with the sha256 checksum attached to the release, and confirms the new program runs before replacing itself and restarting.
-- **Automatic updates**: once on, the server upgrades and restarts automatically in the background when it detects a new version. New installs turn it on the first time the password is set with the claim code (upgrading only to stable releases, unless "Receive beta versions" below is also on); existing installs keep their previous setting; installs from source keep it off. When an automatic upgrade fails, each retry waits longer than the last (starting at 5 minutes and doubling each time, up to 6 hours); it starts over immediately when a newer version is published or you press "Update to latest".
+- **Automatic updates**: once on, the server upgrades and restarts automatically in the background when it detects a new version. New installs turn it on the first time the password is set with the claim code (upgrading only to official releases, unless "Receive beta versions" below is also on); existing installs keep their previous setting; installs from source keep it off. When an automatic upgrade fails, each retry waits longer than the last (starting at 5 minutes and doubling each time, up to 6 hours); it starts over immediately when a newer version is published or you press "Update to latest".
 - **Receive beta versions**: once on, checking for updates also includes pre-release versions on GitHub. Off by default.
 - **Update check interval**: how often the background check with GitHub runs, 1–60 minutes, 5 minutes by default. Pressing "Check for updates" and upgrading always check right away, regardless of this field.
 - **Let the assistant tell me about new-version features**: when this is on, after upgrading to an official release that has a feature announcement, the Assistant tells you in chat what the version adds. One upgrade produces at most one message; when several versions are skipped, only the latest five are described, and the rest come with a link to the GitHub release list. On by default. Versions upgraded to while it is off are not announced later, even after you turn it back on. If the Assistant is not online, the message waits until the Assistant next comes online. On installs with "Receive beta versions" on, if the running version is promoted to an official release later, the announcement is made at the next restart.
@@ -397,7 +397,7 @@ bin/ocserver uninstall --dry-run   # only lists what it would do, changes nothin
 
 ---
 
-## Related docs
+## Related pages
 
 - [Your first office](quickstart.md)
 - [Protect your studio](security.md)

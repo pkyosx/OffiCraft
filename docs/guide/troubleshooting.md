@@ -37,12 +37,12 @@ The install script reads `[server].port` only from the file named by `$OC_CONFIG
 
 After changing the port, the console address becomes `http://localhost:<new port>`. For other install options, see "Advanced: install options" in [Install, upgrade, and uninstall](install.md).
 
-### Lost the activation code for setting the admin password
+### Lost the claim code for setting the admin password
 
-The activation code works only once and stops working after you set a password.
+The claim code works only once and stops working after you set a password.
 
-- If you have already set a password: signing in only needs the password, not the activation code.
-- If you have not set a password yet: running `~/.officraft/bin/ocserverd claim-token` on the server machine prints the current activation code. After a password is set, `claim-token` no longer prints an activation code.
+- If you have already set a password: signing in only needs the password, not the claim code.
+- If you have not set a password yet: running `~/.officraft/bin/ocserverd claim-token` on the server machine prints the current claim code. After a password is set, `claim-token` no longer prints a claim code.
 
 ### "Automatic setup did not finish" appears at the top of the console
 
@@ -265,7 +265,7 @@ systemctl --user start com.officraft.serve.service
 
 For the steps to remove one machine (uninstall, delete) or the whole studio, see "Uninstalling" and "Removing a machine from the console" in [Install, upgrade, and uninstall](install.md).
 
-## Related docs
+## Related pages
 
 - [Install, upgrade, and uninstall](install.md)
 - [Protect your studio](security.md)

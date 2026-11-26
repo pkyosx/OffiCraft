@@ -18,7 +18,7 @@ By default, the console can only be opened on the computer OffiCraft is installe
 
 **Do not open access from outside without HTTPS.** Tunnel tools such as cloudflared give you a public HTTPS address, and anyone who knows the address can open the sign-in page. The forwarding feature of private networks such as Tailscale (for example `tailscale serve`) can only be reached by your own devices. Tailscale Funnel, on the other hand, makes the address public, and anyone who knows it can open the sign-in page.
 
-Once a public address is open, your webhook endpoint addresses are exposed along with it. A webhook address needs no sign-in; anyone who has it can send events to a member. So only enter webhook addresses in the services you are connecting. For what to do if an address leaks, see [Send outside events to members automatically (webhooks)](webhook.md).
+Once a public address is open, your webhook endpoint addresses (URLs other services call to send events in) are exposed along with it. A webhook address needs no sign-in; anyone who has it can send events to a member. So only enter webhook addresses in the services you are connecting. For what to do if an address leaks, see [Send outside events to members automatically (webhooks)](webhook.md).
 
 ---
 
@@ -94,7 +94,7 @@ For a description of the Signing keys card, see "System update & backup" in [Set
 
 ---
 
-## Related docs
+## Related pages
 
 - [Use it on your phone](mobile.md)
 - [Give members your account keys (secrets)](secrets.md)

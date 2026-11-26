@@ -32,7 +32,7 @@ Keep in mind:
 
 The phone has the same features as the computer, but shows one area at a time: "Office" first shows the member list, and tapping a member opens its chat; "Ask" lets you answer reply cards directly; "Task" shows each task's status, steps, and notes.
 
-## Related docs
+## Related pages
 
 - [Protect your studio](security.md)
 - [Assigning work and answering reply cards](daily.md)

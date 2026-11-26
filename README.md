@@ -188,7 +188,7 @@ Read these when you want to hand off repetitive, scheduled, or externally trigge
 - [Having AI follow an SOP for repeated work (Task manuals)](docs/guide/sop.md) — write task manuals and decide which steps stop and wait for you.
 - [Doing something on a schedule (Scheduled messages)](docs/guide/schedule.md) — set up scheduled messages so a member receives prewritten instructions at fixed times (the member must be online to act on them).
 - [Send outside events to members automatically (webhooks)](docs/guide/webhook.md) — create webhook endpoints that hand notifications from other services (for example, new Slack messages) to the responsible member.
-- [Making members remember what you taught them (Lore)](docs/guide/lore.md) — write down who you are, what must not be touched (Owner additions), each role's duties, and the lessons members have learned (lore).
+- [Making members remember what you taught them (Lore)](docs/guide/lore.md) — write down who you are, what must not be touched (User additions), each role's duties, and the lessons members have learned (lore).
 - [Give members your account keys (secrets)](docs/guide/secrets.md) — store secrets so members can fetch them without pasting them into chat.
 - [Adding members and hiring outsource](docs/guide/members.md) — add staff members, hire outsource members, wake and stop members, change models and machines, read the status icons, and decide between outsourcing and adding a long-term member.
 

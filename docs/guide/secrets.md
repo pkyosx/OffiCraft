@@ -30,7 +30,7 @@ Secret values are encrypted with a file called `vault.key`. Normally you do not 
 
 For a description of each field, see "Secrets" in [Interface reference](interface.md). For how members fetch secrets, see "How members fetch secrets" in [Architecture and how it works](architecture.md).
 
-## Related docs
+## Related pages
 
 - [Protect your studio](security.md)
 - [Troubleshooting and FAQ](troubleshooting.md)

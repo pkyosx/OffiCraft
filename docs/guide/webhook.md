@@ -42,7 +42,7 @@ So the more specific the purpose, the better members can judge on their own what
 - **Put long-lived webhook endpoints on staff members.** When a member leaves the studio (for example, an outsource member leaves after its task closes, a staff member is deleted, or the machine the member runs on is removed), the webhook endpoints under that member are permanently deleted along with it. The outside service keeps sending events and gets no error, so nothing looks wrong from the outside service's side. A member that is stopped or refocused has not left, and its endpoints are kept.
 - **When you change the Signing Secret in Slack or GitHub, rotate it here at the same time.** If you change only one side, every later event is dropped for failing the signature check.
 
-## Related docs
+## Related pages
 
 - [Protect your studio](security.md)
 - [Having AI follow an SOP for repeated work (Task manuals)](sop.md)
