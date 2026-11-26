@@ -2,7 +2,7 @@
 
 After reading this page, you can go from opening the console for the first time to giving your first piece of work, answering your first reply card, and seeing the task through to being closed. The whole process takes about ten minutes.
 
-Before you start, installation must be finished and the terminal must have printed a setup link. If you have not installed OffiCraft yet, see [Installing, upgrading, and removing](install.md) first.
+Before you start, installation must be finished and the terminal must have printed a setup link. If you have not installed OffiCraft yet, see [Install, upgrade, and uninstall](install.md) first.
 
 Right after installation, the studio has only two people: you, and your Assistant, **Mira**.
 
@@ -20,9 +20,9 @@ To come back to the console later, open `http://localhost:7755` and sign in with
 Two things to note:
 
 - The setup link **can be used only once**. After the password is set, the link no longer works.
-- The console **can be opened only on this computer**, and this cannot be changed. To use it from a phone or another computer, first see [Protecting your studio](security.md), then set it up following [Using it on your phone](mobile.md).
+- The console **can be opened only on this computer**, and this cannot be changed. To use it from a phone or another computer, first see [Protect your studio](security.md), then set it up following [Use it on your phone](mobile.md).
 
-If "Automatic setup did not finish" appears at the top of the console, one of the automatic preparation steps failed, and the banner shows the reason. For what to do, see [FAQ and troubleshooting](troubleshooting.md).
+If "Automatic setup did not finish" appears at the top of the console, one of the automatic preparation steps failed, and the banner shows the reason. For what to do, see [Troubleshooting and FAQ](troubleshooting.md).
 
 ---
 
@@ -124,14 +124,14 @@ Give a piece of work ─> Confirm the task content ─> Member breaks it into st
 
 - First write your [User additions](lore.md): who you are, what the project is about, and what must not be touched. Every member reads it at startup.
 - Write work that comes up again and again as a [task manual](sop.md).
-- To use it from your phone, first see [Protecting your studio](security.md), then set it up following [Using it on your phone](mobile.md).
+- To use it from your phone, first see [Protect your studio](security.md), then set it up following [Use it on your phone](mobile.md).
 
 ---
 
 ## Related pages
 
-- [Protecting your studio](security.md)
+- [Protect your studio](security.md)
 - [Assigning work and answering reply cards](daily.md)
 - [Tracking task progress](tasks.md)
 - [Adding members and hiring outsource](members.md)
-- [FAQ and troubleshooting](troubleshooting.md)
+- [Troubleshooting and FAQ](troubleshooting.md)

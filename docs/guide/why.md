@@ -117,7 +117,7 @@ Read these when you are new to OffiCraft, getting ready to install, or have just
 
 - [Install, upgrade, and uninstall](install.md) — Prerequisites, installing, upgrading, uninstalling, and adding or removing other machines.
 - [Your first office](quickstart.md) — Ten minutes to set a password, hand off your first piece of work, and answer your first reply card.
-- [Protecting your studio](security.md) — The password, two-factor authentication, and passkeys to set up before you connect from your phone or from outside.
+- [Protect your studio](security.md) — The password, two-factor authentication, and passkeys to set up before you connect from your phone or from outside.
 
 **Daily use**
 
@@ -126,7 +126,7 @@ Read these for giving work, answering reply cards, and checking progress and usa
 - [Assigning work and answering reply cards](daily.md) — Chat, attachments, @ a member, grouping members, answering reply cards, and commenting on documents members deliver.
 - [Tracking task progress](tasks.md) — Understanding a task's status, steps, and gates, reviewing results, and force-closing a task.
 - [Managing AI accounts and usage](usage.md) — In the "Monitor" tab, see each account's usage, estimated cost, and the account and model each member uses; log a machine in to an account; upgrade Claude Code.
-- [Using it on your phone](mobile.md) — Connect to the console from your phone, add it to your home screen, and turn on push notifications.
+- [Use it on your phone](mobile.md) — Connect to the console from your phone, add it to your home screen, and turn on push notifications.
 
 **Letting the studio run on its own**
 
@@ -134,9 +134,9 @@ Read these when you want to hand off repeated, timed, or externally triggered wo
 
 - [Having AI follow an SOP for repeated work (Task manuals)](sop.md) — Write task manuals and decide which steps stop and wait for you.
 - [Doing something on a schedule (Scheduled messages)](schedule.md) — Set up scheduled messages so that a member receives a message you wrote in advance at set times (the member must be online to handle it).
-- [Sending outside events to members automatically (Webhook endpoints)](webhook.md) — Create webhook endpoints that pass notifications from other services (for example, new Slack messages) to the responsible member.
+- [Send outside events to members automatically (webhooks)](webhook.md) — Create webhook endpoints that pass notifications from other services (for example, new Slack messages) to the responsible member.
 - [Making members remember what you taught them (Lore)](lore.md) — Write down who you are, what must not be touched (user-defined), each role's responsibilities, and what members have learned (lore).
-- [Giving members account keys (Secrets)](secrets.md) — Store secrets so members can use them without your pasting them into chat.
+- [Give members your account keys (secrets)](secrets.md) — Store secrets so members can use them without your pasting them into chat.
 - [Adding members and hiring outsource](members.md) — Add staff members, hire outsource members, wake and stop members, change models and machines, understand status icons, and decide whether to use outsource or add a permanent member.
 
 **Lookup and reference**
@@ -153,4 +153,4 @@ Read these when you want to look up a field, a setting, or a term, or want to kn
 
 Read this when you run into a problem installing or using OffiCraft, or need to back up or restore the database yourself.
 
-- [FAQ and troubleshooting](troubleshooting.md) — Failed installs, members that do not start, connection problems, upgrades that did not take effect, and backup and restore.
+- [Troubleshooting and FAQ](troubleshooting.md) — Failed installs, members that do not start, connection problems, upgrades that did not take effect, and backup and restore.

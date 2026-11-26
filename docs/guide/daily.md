@@ -66,6 +66,6 @@ You must be signed in to see a comparison page. To show it to someone without an
 - [Your first office](quickstart.md)
 - [Tracking task progress](tasks.md)
 - [Managing AI accounts and usage](usage.md)
-- [Using it on your phone](mobile.md)
+- [Use it on your phone](mobile.md)
 - [Adding members and hiring outsource](members.md)
 - [Interface reference](interface.md)

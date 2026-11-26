@@ -31,6 +31,6 @@ For the full description of each field and the sending rules, see "Scheduled mes
 ## Related pages
 
 - [Having AI follow an SOP for repeated work (Task manuals)](sop.md)
-- [Sending outside events to members automatically (Webhook endpoints)](webhook.md)
+- [Send outside events to members automatically (webhooks)](webhook.md)
 - [Adding members and hiring outsource](members.md)
 - [Interface reference](interface.md)

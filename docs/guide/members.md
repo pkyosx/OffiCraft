@@ -44,7 +44,7 @@ In "Office", click a member's avatar to open the member details.
 - **Refocus**: makes an online member write its current progress as a handover, end its current session, and start a new session that continues from the handover. An AI can keep only a limited amount in mind within one session, and the more it holds, the more likely its responses are to get worse. Starting a new session does not affect the tasks the member is working on. The system also does this automatically when a member's memory is almost full.
 - **Avatar**: the avatar can be changed in both the member details and the outsource details. Only you can change it.
 
-When waking or stopping does not succeed, the reason is shown under "Last operation" in the member details. For what to do, see [FAQ and troubleshooting](troubleshooting.md). For a description of each setting, see "Office" in [Interface reference](interface.md).
+When waking or stopping does not succeed, the reason is shown under "Last operation" in the member details. For what to do, see [Troubleshooting and FAQ](troubleshooting.md). For a description of each setting, see "Office" in [Interface reference](interface.md).
 
 ## Reading a member's status
 
@@ -101,7 +101,7 @@ After a task is closed, its outsource member leaves the list. The outsource memb
 - [Having AI follow an SOP for repeated work (Task manuals)](sop.md)
 - [Making members remember what you taught them (Lore)](lore.md)
 - [Doing something on a schedule (Scheduled messages)](schedule.md)
-- [Sending outside events to members automatically (Webhook endpoints)](webhook.md)
+- [Send outside events to members automatically (webhooks)](webhook.md)
 - [Assigning work and answering reply cards](daily.md)
 - [Interface reference](interface.md)
-- [FAQ and troubleshooting](troubleshooting.md)
+- [Troubleshooting and FAQ](troubleshooting.md)
