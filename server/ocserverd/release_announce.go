@@ -1,6 +1,6 @@
 package main
 
-// After the station boots a newer release, the seeded assistant gets ONE system
+// Once the station runs a newer release, the seeded assistant gets ONE system
 // chat message carrying the 給站長的新功能公告 section of each official release
 // it crossed (newest first, at most releaseAnnounceMaxPerMessage, the rest
 // counted and pointed at the release list), and relays it to the owner in her
@@ -10,14 +10,15 @@ package main
 // Two settings rows bound the window (floor, through]:
 //   - release_announce.floor — the version the station was claimed on (written
 //     in the claim transaction) or, on a station that predates this feature, the
-//     version it first booted with it. Nothing at or below it is announced, so
+//     version it first ran this feature on. Nothing at or below it is announced, so
 //     neither a fresh install nor an upgrading station is handed the backlog.
 //   - release_announce.through — the highest OFFICIAL tag at or below the
 //     running version already handled, whether or not it had a section. It is
-//     NOT simply the running version: a beta station boots a tag while it is
+//     NOT simply the running version: a beta station runs a tag while it is
 //     still a prerelease, and must still announce it after it is promoted.
-// The check runs once per boot, so a tag promoted while a station is already
-// running it is announced at that station's NEXT restart, not live.
+// A round rides on each successful version check (update_check.go) rather than
+// a timer of its own, so a tag promoted while a station is already running it
+// is announced at that station's next version check.
 // The chat message and the through row commit in ONE transaction, so a crash
 // can neither announce twice nor skip.
 
@@ -70,13 +71,9 @@ const releaseAnnounceRepoDefault = releaseRepo
 
 const releaseAPIDefaultBase = "https://api.github.com"
 
-// Vars so the test binary can point a bare apiServer at an unroutable address
-// and shorten the clocks.
+// Vars so the test binary can point a bare apiServer at an unroutable address.
 var (
 	releaseAPIDefault          = releaseAPIDefaultBase
-	releaseAnnounceSettle      = time.Minute
-	releaseAnnounceRetryMin    = 5 * time.Minute
-	releaseAnnounceRetryMax    = time.Hour
 	releaseAnnounceRateWaitMax = 2 * time.Hour
 	// GitHub lists releases by creation date, and a GA keeps the date it was
 	// created as a beta, so the window can sit several pages down.
@@ -149,52 +146,45 @@ func (s *apiServer) releaseAnnounceSource() (base, repo string) {
 	return strings.TrimSuffix(base, "/"), repo
 }
 
-// startReleaseAnnounce runs one check per boot, retrying with backoff until a
-// round finishes; it never touches the upgrade path.
-func (s *apiServer) startReleaseAnnounce() {
-	go releaseAnnounceRetryLoop(func() (done bool, wait time.Duration) {
-		surviveLockInTx("release announcement", func() { done, wait = s.releaseAnnounceRound() })
-		return done, wait
-	}, time.Sleep)
-}
-
-// ⚠️ A wait GitHub names wins over a shorter backoff: retrying before its
-// rate-limit reset spends the egress IP's shared anonymous budget for nothing.
-func releaseAnnounceRetryLoop(round func() (bool, time.Duration), sleep func(time.Duration)) {
-	// Lets the assistant's listener reconnect after an upgrade re-exec, so the
-	// chat delta reaches her live rather than only on her next wake.
-	sleep(releaseAnnounceSettle)
-	backoff := releaseAnnounceRetryMin
-	for {
-		done, wait := round()
-		if done {
+// announceAfterCheck runs one round after a successful version check; tag and
+// none are that check's answer on the channel includePre names. The caller must
+// not hold updateMu: a round reads GitHub and writes the store.
+func (s *apiServer) announceAfterCheck(includePre bool, tag string, none bool) {
+	surviveLockInTx("release announcement", func() {
+		// A round already running answers for this check too.
+		if !s.announceMu.TryLock() {
 			return
 		}
-		sleep(max(wait, backoff))
-		backoff = min(backoff*2, releaseAnnounceRetryMax)
-	}
+		defer s.announceMu.Unlock()
+		latest := ""
+		if !includePre && !none {
+			latest = tag
+		}
+		s.releaseAnnounceRound(includePre, latest)
+	})
 }
 
-// releaseAnnounceRound answers done=false only when it must be retried (GitHub
-// or the store failed); retryAfter is GitHub's own wait, 0 when it named none.
-func (s *apiServer) releaseAnnounceRound() (done bool, retryAfter time.Duration) {
+// releaseAnnounceRound is one pass; latest is the release GitHub marks Latest
+// when the caller already knows it ("" otherwise). A pass that fails leaves
+// everything for the next version check. Callers hold announceMu.
+func (s *apiServer) releaseAnnounceRound(includePre bool, latest string) {
 	running, ok := canonicalSemver(appVersion)
 	if appVersion == unstampedAppVersion || !ok {
-		return true, 0
+		return
 	}
 	// Unclaimed: the claim transaction writes the floor.
 	if s.authPasswordHash() == "" {
-		return true, 0
+		return
 	}
 	floor, err := s.dal.GetSetting(settingReleaseAnnounceFloor)
 	if err != nil {
 		s.releaseAnnounceLog("read %s: %v", settingReleaseAnnounceFloor, err)
-		return false, 0
+		return
 	}
 	through, err := s.dal.GetSetting(settingReleaseAnnounceThrough)
 	if err != nil {
 		s.releaseAnnounceLog("read %s: %v", settingReleaseAnnounceThrough, err)
-		return false, 0
+		return
 	}
 	marker := ""
 	for _, v := range []*string{floor, through} {
@@ -207,50 +197,85 @@ func (s *apiServer) releaseAnnounceRound() (done bool, retryAfter time.Duration)
 		// start from here rather than announce every past release.
 		if err := s.dal.PutSetting(settingReleaseAnnounceFloor, appVersion); err != nil {
 			s.releaseAnnounceLog("write %s: %v", settingReleaseAnnounceFloor, err)
-			return false, 0
 		}
-		return true, 0
+		return
 	}
 	if !semverOutranks(running, marker) {
-		return true, 0
+		return
 	}
 	if !s.announceFeaturesEnabled() {
 		// Off means no backfill: turning it back on must not replay this window.
-		if err := s.dal.PutSetting(settingReleaseAnnounceThrough, appVersion); err != nil {
-			s.releaseAnnounceLog("write %s: %v", settingReleaseAnnounceThrough, err)
-			return false, 0
-		}
-		return true, 0
+		s.advanceReleaseAnnounceThrough(appVersion)
+		return
 	}
-
+	// ⚠️ A wait GitHub named outlives the round: asking before its rate-limit
+	// reset spends the egress IP's shared anonymous budget for nothing.
+	if time.Now().Before(s.releaseAnnounceNotBefore) {
+		return
+	}
+	if includePre {
+		// The beta check's answer is the newest tag of any kind; only the web
+		// page knows which one is Latest, and it costs no API budget.
+		tag, none, err := fetchLatestMarkedRelease(releaseSiteClient(), s.releaseSiteBaseURL())
+		if err != nil {
+			s.releaseAnnounceLog("Latest release unavailable, trying again at the next version check: %v", err)
+			return
+		}
+		if !none {
+			latest = tag
+		}
+	}
+	// Below Latest's level nothing new can be official yet: a running
+	// prerelease above it waits until a release at or above it is promoted.
+	latestTag, ok := canonicalSemver(latest)
+	if !ok || semver.Compare(running, latestTag) > 0 {
+		return
+	}
+	// The list answers the same for the same pair, so a station parked on an
+	// old prerelease reads it once per Latest move, not once per check.
+	pair := [2]string{running, latestTag}
+	if pair == s.releaseAnnounceReadPair {
+		return
+	}
 	releases, covered, wait, err := s.fetchReleaseList(marker)
 	if err != nil {
-		s.releaseAnnounceLog("release list unavailable, retrying later: %v", err)
-		return false, wait
+		if wait > 0 {
+			s.releaseAnnounceNotBefore = time.Now().Add(wait)
+		}
+		s.releaseAnnounceLog("release list unavailable, trying again at the next version check: %v", err)
+		return
 	}
+	if s.deliverReleaseAnnouncements(releases, covered, marker, running) {
+		s.releaseAnnounceReadPair = pair
+	}
+}
+
+// deliverReleaseAnnouncements answers false when a store step failed, so the
+// next version check must read again.
+func (s *apiServer) deliverReleaseAnnouncements(releases []githubRelease, covered bool, marker, running string) bool {
 	newThrough, picks, omitted := selectReleaseAnnouncements(releases, marker, running)
 	if !covered {
-		// Asking again next boot would read the same pages: give up on the part
-		// of the window they do not reach.
+		// Asking again would read the same pages: give up on the part of the
+		// window they do not reach.
 		s.releaseAnnounceLog("the newest %d releases do not reach back to %s; releases after it "+
 			"that are not among them are not announced", len(releases), marker)
 		newThrough = appVersion
 	}
 	if newThrough == "" {
-		return true, 0
+		return true
 	}
 	if len(picks) == 0 {
-		return s.advanceReleaseAnnounceThrough(newThrough), 0
+		return s.advanceReleaseAnnounceThrough(newThrough)
 	}
 	recipient, err := s.resolveChatRecipient(seedMiraID)
 	if errors.Is(err, errNotFound) {
 		s.releaseAnnounceLog("no assistant to relay the announcement of %s (%s): %v — skipped",
 			releaseAnnouncementTags(picks), seedMiraID, err)
-		return s.advanceReleaseAnnounceThrough(newThrough), 0
+		return s.advanceReleaseAnnounceThrough(newThrough)
 	}
 	if err != nil {
-		s.releaseAnnounceLog("look up the assistant (%s), retrying later: %v", seedMiraID, err)
-		return false, 0
+		s.releaseAnnounceLog("look up the assistant (%s), trying again at the next version check: %v", seedMiraID, err)
+		return false
 	}
 	msg := ChatMessage{
 		ID:        "c-" + newHexID(12),
@@ -271,12 +296,12 @@ func (s *apiServer) releaseAnnounceRound() (done bool, retryAfter time.Duration)
 		return putSettingOn(tx, settingReleaseAnnounceThrough, newThrough)
 	}); err != nil {
 		s.releaseAnnounceLog("store the announcement of %s: %v", releaseAnnouncementTags(picks), err)
-		return false, 0
+		return false
 	}
 	s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+msg.ID,
 		map[string]any{"id": msg.ID, "from": msg.Sender, "to": msg.Recipient},
 		audienceMembers(msg.Sender, msg.Recipient), triggerServer)
-	return true, 0
+	return true
 }
 
 func (s *apiServer) advanceReleaseAnnounceThrough(tag string) bool {
@@ -480,9 +505,9 @@ type releaseAnnouncePage struct {
 	releases []githubRelease
 }
 
-// The ETag cache lives only in this process and a boot's check ends at its
-// first full success, so a 304 (free of rate-limit budget) only happens on a
-// retry after a later step of the same round failed.
+// The ETag cache lives only in this process (guarded by announceMu). A 304,
+// which costs no rate-limit budget, answers a re-read after a later step of
+// the previous round failed, or after Latest moved without changing the pages.
 func (s *apiServer) fetchReleasePage(page int) ([]githubRelease, time.Duration, error) {
 	base, repo := s.releaseAnnounceSource()
 	target := fmt.Sprintf("%s/repos/%s/releases?per_page=%d&page=%d", base, repo, releaseAnnouncePerPage, page)

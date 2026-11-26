@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -25,6 +26,8 @@ type releaseAnnounceFakeGitHub struct {
 	releases []githubRelease
 	requests []*http.Request
 	url      string
+	// hold, when set, runs once before the next request is answered.
+	hold func()
 }
 
 func newReleaseAnnounceFakeGitHub(t *testing.T, releases ...githubRelease) *releaseAnnounceFakeGitHub {
@@ -37,6 +40,13 @@ func newReleaseAnnounceFakeGitHub(t *testing.T, releases ...githubRelease) *rele
 }
 
 func (gh *releaseAnnounceFakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
+	gh.mu.Lock()
+	hold := gh.hold
+	gh.hold = nil
+	gh.mu.Unlock()
+	if hold != nil {
+		hold()
+	}
 	gh.mu.Lock()
 	defer gh.mu.Unlock()
 	gh.requests = append(gh.requests, r.Clone(r.Context()))
@@ -76,24 +86,103 @@ func (gh *releaseAnnounceFakeGitHub) requestCount() int {
 	return len(gh.requests)
 }
 
+// releaseAnnounceTestSite is github.com's public release pages: /releases/latest
+// redirects to the release marked Latest, and the feed lists the beta channel.
+type releaseAnnounceTestSite struct {
+	pages map[string]releaseSitePage
+	url   string
+	calls *atomic.Int32
+}
+
+func newReleaseAnnounceTestSite(t *testing.T, latest string, feed ...string) *releaseAnnounceTestSite {
+	t.Helper()
+	site := &releaseAnnounceTestSite{pages: map[string]releaseSitePage{}}
+	site.mark(latest, feed...)
+	srv, calls := newReleaseSiteServer(t, site.pages)
+	site.url, site.calls = srv.URL, calls
+	return site
+}
+
+// mark moves Latest (and the feed); call it only between checks.
+func (site *releaseAnnounceTestSite) mark(latest string, feed ...string) {
+	site.pages[releaseLatestPagePath] = releaseSitePage{status: http.StatusFound,
+		location: "https://github.com/pkyosx/OffiCraft/releases/tag/" + latest}
+	if len(feed) == 0 {
+		feed = []string{latest}
+	}
+	site.pages[releaseFeedPagePath] = releaseSitePage{status: http.StatusOK, body: releaseFeedFixture(feed...)}
+}
+
+func releaseAnnounceWire(api *apiServer, gh *releaseAnnounceFakeGitHub, site *releaseAnnounceTestSite) {
+	api.releaseAPIBase = gh.url
+	api.releaseSiteBase = site.url
+	// Every routine read is due for a check, so each GET /api/version runs one.
+	api.updaterCheckIntervalSecs = 0
+}
+
 // releaseAnnounceTestStation is a claimed station whose claim ran on claimedOn
-// ("" = a self-build) and whose release announcements read gh.
-func releaseAnnounceTestStation(t *testing.T, claimedOn string, gh *releaseAnnounceFakeGitHub) (*apiServer, http.Handler, *DAL, string) {
+// ("" = a self-build), reading release pages from site and the release list
+// from gh.
+func releaseAnnounceTestStation(t *testing.T, claimedOn string, gh *releaseAnnounceFakeGitHub, site *releaseAnnounceTestSite) (*apiServer, http.Handler, *DAL, string) {
 	t.Helper()
 	if claimedOn != "" {
 		apiTestStampBuild(t, claimedOn)
 	}
 	api, h, d, owner := newAPITestServer(t)
-	api.releaseAPIBase = gh.url
+	releaseAnnounceWire(api, gh, site)
 	return api, h, d, owner
 }
 
 // releaseAnnounceTestRestart is the next serve start on the same database.
-func releaseAnnounceTestRestart(t *testing.T, d *DAL, gh *releaseAnnounceFakeGitHub) *apiServer {
+func releaseAnnounceTestRestart(t *testing.T, d *DAL, gh *releaseAnnounceFakeGitHub, site *releaseAnnounceTestSite) (*apiServer, http.Handler) {
 	t.Helper()
-	api, _, _, _ := apiTestStackOn(t, d, true)
-	api.releaseAPIBase = gh.url
-	return api
+	api, h, _, _ := apiTestStackOn(t, d, true)
+	releaseAnnounceWire(api, gh, site)
+	return api, h
+}
+
+// releaseAnnounceCheck is one routine version check (GET /api/version), waited
+// out to its end.
+func releaseAnnounceCheck(t *testing.T, api *apiServer, h http.Handler) {
+	t.Helper()
+	if rec := apiRequest(t, h, "GET", "/api/version", "", ""); rec.Code != 200 {
+		t.Fatalf("GET /api/version: %d %s", rec.Code, rec.Body.String())
+	}
+	waitForUpdateCheckDone(t, api)
+}
+
+// releaseAnnouncePress is the owner's 檢查更新 button.
+func releaseAnnouncePress(t *testing.T, h http.Handler, owner string) {
+	t.Helper()
+	if status, data := apiJSON(t, h, "GET", "/api/release/check", owner, ""); status != 200 {
+		t.Fatalf("GET /api/release/check: %d %v", status, data)
+	}
+}
+
+func releaseAnnounceReceiveBeta(t *testing.T, h http.Handler, owner string) {
+	t.Helper()
+	if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"updater_receive_beta":true}`); status != 200 {
+		t.Fatalf("PATCH: %d %v", status, data)
+	}
+}
+
+func releaseAnnounceWantRequests(t *testing.T, gh *releaseAnnounceFakeGitHub, want int) {
+	t.Helper()
+	if n := gh.requestCount(); n != want {
+		t.Fatalf("GitHub API requests: want %d, got %d", want, n)
+	}
+}
+
+func releaseAnnounceWantMessages(t *testing.T, h http.Handler, owner string, wantTags ...[]any) {
+	t.Helper()
+	msgs := releaseAnnounceSystemMessages(t, h, owner)
+	var got [][]any
+	for _, m := range msgs {
+		ra, _ := m.Meta["release_announcement"].(map[string]any)
+		tags, _ := ra["tags"].([]any)
+		got = append(got, tags)
+	}
+	apiWantValue(t, "announced tags per system message", got, wantTags)
 }
 
 func releaseAnnounceGA(tag, body string) githubRelease {
@@ -173,15 +262,6 @@ func releaseAnnounceSystemMessages(t *testing.T, h http.Handler, owner string) [
 	return out
 }
 
-func releaseAnnounceWantRound(t *testing.T, api *apiServer, wantDone bool) time.Duration {
-	t.Helper()
-	done, wait := api.releaseAnnounceRound()
-	if done != wantDone {
-		t.Fatalf("round done = %v, want %v", done, wantDone)
-	}
-	return wait
-}
-
 func releaseAnnounceStr(s string) *string { return &s }
 
 func TestReleaseAnnounceRound(t *testing.T) {
@@ -193,13 +273,14 @@ func TestReleaseAnnounceRound(t *testing.T) {
 			releaseAnnounceGA("v0.5.585", releaseAnnounceNotesWithoutSection("v0.5.585")),
 			releaseAnnounceGA("v0.5.580", releaseAnnounceNotes("v0.5.580")),
 		)
-		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh)
+		site := newReleaseAnnounceTestSite(t, "v0.5.591")
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, site)
 		apiTestStampBuild(t, "v0.5.590")
 		dashboard := apiTestListen(t, api, "")
 		assistant := apiTestListen(t, api, "mira")
 		bystander := apiTestListen(t, api, "kip")
 
-		releaseAnnounceWantRound(t, api, true)
+		releaseAnnounceCheck(t, api, h)
 
 		msgs := releaseAnnounceSystemMessages(t, h, owner)
 		if len(msgs) != 1 {
@@ -234,39 +315,14 @@ func TestReleaseAnnounceRound(t *testing.T) {
 		assistant.wantFrames(frame)
 		bystander.wantFrames()
 
-		releaseAnnounceWantRound(t, api, true)
-		releaseAnnounceWantRound(t, releaseAnnounceTestRestart(t, d, gh), true)
+		releaseAnnounceCheck(t, api, h)
+		releaseAnnouncePress(t, h, owner)
+		restarted, rh := releaseAnnounceTestRestart(t, d, gh, site)
+		releaseAnnounceCheck(t, restarted, rh)
 		if n := len(releaseAnnounceSystemMessages(t, h, owner)); n != 1 {
-			t.Fatalf("after another round and a restart: want still 1 system message, got %d", n)
+			t.Fatalf("after more checks and a restart: want still 1 system message, got %d", n)
 		}
-		if n := gh.requestCount(); n != 1 {
-			t.Fatalf("GitHub requests: want 1 (nothing pending after the first), got %d", n)
-		}
-	})
-
-	t.Run("a prerelease and an official release without the section send nothing; the official one is recorded and the prerelease is announced once it is promoted", func(t *testing.T) {
-		gh := newReleaseAnnounceFakeGitHub(t,
-			releaseAnnouncePre("v0.5.590", releaseAnnounceNotes("v0.5.590")),
-			releaseAnnounceGA("v0.5.585", releaseAnnounceNotesWithoutSection("v0.5.585")),
-		)
-		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh)
-		apiTestStampBuild(t, "v0.5.590")
-
-		releaseAnnounceWantRound(t, api, true)
-
-		if msgs := releaseAnnounceSystemMessages(t, h, owner); len(msgs) != 0 {
-			t.Fatalf("want no system message, got %+v", msgs)
-		}
-		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.585"))
-
-		gh.set(func() { gh.releases[0].Prerelease = false })
-		releaseAnnounceWantRound(t, releaseAnnounceTestRestart(t, d, gh), true)
-
-		msgs := releaseAnnounceSystemMessages(t, h, owner)
-		if len(msgs) != 1 || !strings.Contains(msgs[0].Body, "\n## v0.5.590\n") {
-			t.Fatalf("want one message announcing v0.5.590 after its promotion, got %+v", msgs)
-		}
-		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.590"))
+		releaseAnnounceWantRequests(t, gh, 1)
 	})
 
 	t.Run("a fresh install starts after every release so far: its claim records its version and nothing is fetched or sent", func(t *testing.T) {
@@ -274,61 +330,50 @@ func TestReleaseAnnounceRound(t *testing.T) {
 			releaseAnnounceGA("v0.5.600", releaseAnnounceNotes("v0.5.600")),
 			releaseAnnounceGA("v0.5.599", releaseAnnounceNotes("v0.5.599")),
 		)
-		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.600", gh)
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.600", gh, newReleaseAnnounceTestSite(t, "v0.5.600"))
 		windowWantSetting(t, d, settingReleaseAnnounceFloor, releaseAnnounceStr("v0.5.600"))
 
-		releaseAnnounceWantRound(t, api, true)
+		releaseAnnounceCheck(t, api, h)
 
-		if msgs := releaseAnnounceSystemMessages(t, h, owner); len(msgs) != 0 {
-			t.Fatalf("want no system message, got %+v", msgs)
-		}
-		if n := gh.requestCount(); n != 0 {
-			t.Fatalf("GitHub requests: want 0, got %d", n)
-		}
+		releaseAnnounceWantMessages(t, h, owner)
+		releaseAnnounceWantRequests(t, gh, 0)
 		windowWantSetting(t, d, settingReleaseAnnounceThrough, nil)
 	})
 
-	t.Run("a self-build's claim records no floor and its rounds do nothing", func(t *testing.T) {
+	t.Run("a self-build's claim records no floor and its checks do nothing", func(t *testing.T) {
 		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.600", releaseAnnounceNotes("v0.5.600")))
-		api, _, d, _ := releaseAnnounceTestStation(t, "", gh)
+		api, h, d, _ := releaseAnnounceTestStation(t, "", gh, newReleaseAnnounceTestSite(t, "v0.5.600"))
 
-		releaseAnnounceWantRound(t, api, true)
+		releaseAnnounceCheck(t, api, h)
 
 		windowWantSetting(t, d, settingReleaseAnnounceFloor, nil)
 		windowWantSetting(t, d, settingReleaseAnnounceThrough, nil)
-		if n := gh.requestCount(); n != 0 {
-			t.Fatalf("GitHub requests: want 0, got %d", n)
-		}
+		releaseAnnounceWantRequests(t, gh, 0)
 	})
 
-	t.Run("a station that predates the feature starts from the version it first boots with, and announces only what comes after", func(t *testing.T) {
+	t.Run("a station that predates the feature starts from the version it first runs the feature on, and announces only what comes after", func(t *testing.T) {
 		gh := newReleaseAnnounceFakeGitHub(t,
 			releaseAnnounceGA("v0.5.600", releaseAnnounceNotes("v0.5.600")),
 			releaseAnnounceGA("v0.5.599", releaseAnnounceNotes("v0.5.599")),
 		)
-		api, h, d, owner := releaseAnnounceTestStation(t, "", gh)
+		site := newReleaseAnnounceTestSite(t, "v0.5.600")
+		api, h, d, owner := releaseAnnounceTestStation(t, "", gh, site)
 		apiTestStampBuild(t, "v0.5.600")
 
-		releaseAnnounceWantRound(t, api, true)
+		releaseAnnounceCheck(t, api, h)
 
 		windowWantSetting(t, d, settingReleaseAnnounceFloor, releaseAnnounceStr("v0.5.600"))
-		if n := gh.requestCount(); n != 0 {
-			t.Fatalf("GitHub requests on the first boot: want 0, got %d", n)
-		}
+		releaseAnnounceWantRequests(t, gh, 0)
 
 		apiTestStampBuild(t, "v0.5.601")
 		gh.set(func() {
 			gh.releases = append([]githubRelease{releaseAnnounceGA("v0.5.601", releaseAnnounceNotes("v0.5.601"))}, gh.releases...)
 		})
-		releaseAnnounceWantRound(t, releaseAnnounceTestRestart(t, d, gh), true)
+		site.mark("v0.5.601")
+		restarted, rh := releaseAnnounceTestRestart(t, d, gh, site)
+		releaseAnnounceCheck(t, restarted, rh)
 
-		msgs := releaseAnnounceSystemMessages(t, h, owner)
-		if len(msgs) != 1 {
-			t.Fatalf("want one system message, got %+v", msgs)
-		}
-		apiWantValue(t, "meta", msgs[0].Meta, map[string]any{
-			"release_announcement": map[string]any{"tags": []any{"v0.5.601"}},
-		})
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.601"})
 	})
 
 	t.Run("skipping six announced releases sends one message with the newest five, newest first, counts the sixth with a link to the release list, and records all six as handled", func(t *testing.T) {
@@ -344,10 +389,11 @@ func TestReleaseAnnounceRound(t *testing.T) {
 			releaseAnnounceGA("v0.5.589", releaseAnnounceNotes("v0.5.589")),
 			releaseAnnounceGA("v0.5.588", releaseAnnounceNotes("v0.5.588")),
 		)
-		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh)
+		site := newReleaseAnnounceTestSite(t, "v0.5.595")
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, site)
 		apiTestStampBuild(t, "v0.5.595")
 
-		releaseAnnounceWantRound(t, api, true)
+		releaseAnnounceCheck(t, api, h)
 
 		msgs := releaseAnnounceSystemMessages(t, h, owner)
 		if len(msgs) != 1 {
@@ -369,10 +415,17 @@ func TestReleaseAnnounceRound(t *testing.T) {
 		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.595"))
 
 		apiTestStampBuild(t, "v0.5.596")
-		releaseAnnounceWantRound(t, releaseAnnounceTestRestart(t, d, gh), true)
+		gh.set(func() {
+			gh.releases = append([]githubRelease{releaseAnnounceGA("v0.5.596", releaseAnnounceNotesWithoutSection("v0.5.596"))}, gh.releases...)
+		})
+		site.mark("v0.5.596")
+		restarted, rh := releaseAnnounceTestRestart(t, d, gh, site)
+		releaseAnnounceCheck(t, restarted, rh)
+		releaseAnnounceWantRequests(t, gh, 2)
 		if n := len(releaseAnnounceSystemMessages(t, h, owner)); n != 1 {
 			t.Fatalf("the counted announcement must never follow: want 1 message, got %d", n)
 		}
+		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.596"))
 	})
 
 	t.Run("skipping exactly five announced releases, alongside prereleases and ones without the section on both sides of the fifth, lists all five and nothing after them", func(t *testing.T) {
@@ -387,10 +440,10 @@ func TestReleaseAnnounceRound(t *testing.T) {
 			releaseAnnounceGA("v0.5.586", releaseAnnounceNotesWithoutSection("v0.5.586")),
 			releaseAnnouncePre("v0.5.585", releaseAnnounceNotes("v0.5.585")),
 		)
-		api, h, _, owner := releaseAnnounceTestStation(t, "v0.5.580", gh)
+		api, h, _, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, newReleaseAnnounceTestSite(t, "v0.5.595"))
 		apiTestStampBuild(t, "v0.5.595")
 
-		releaseAnnounceWantRound(t, api, true)
+		releaseAnnounceCheck(t, api, h)
 
 		msgs := releaseAnnounceSystemMessages(t, h, owner)
 		if len(msgs) != 1 {
@@ -412,30 +465,69 @@ func TestReleaseAnnounceRound(t *testing.T) {
 
 	t.Run("turned off, nothing is fetched or sent and the window is recorded as handled, so turning it back on does not backfill", func(t *testing.T) {
 		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
-		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh)
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, newReleaseAnnounceTestSite(t, "v0.5.590"))
 		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"updater_announce_features":false}`); status != 200 {
 			t.Fatalf("PATCH: %d %v", status, data)
 		}
 		apiTestStampBuild(t, "v0.5.590")
 
-		releaseAnnounceWantRound(t, api, true)
+		releaseAnnounceCheck(t, api, h)
 
 		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.590"))
 		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"updater_announce_features":true}`); status != 200 {
 			t.Fatalf("PATCH: %d %v", status, data)
 		}
-		releaseAnnounceWantRound(t, api, true)
-		if msgs := releaseAnnounceSystemMessages(t, h, owner); len(msgs) != 0 {
-			t.Fatalf("want no system message, got %+v", msgs)
-		}
-		if n := gh.requestCount(); n != 0 {
-			t.Fatalf("GitHub requests: want 0, got %d", n)
-		}
+		releaseAnnounceCheck(t, api, h)
+		releaseAnnounceWantMessages(t, h, owner)
+		releaseAnnounceWantRequests(t, gh, 0)
 	})
 
-	t.Run("a failing release list is retried later: nothing is sent or recorded until it answers, and a rate limit names its own wait", func(t *testing.T) {
+	t.Run("a plain release-list failure sends and records nothing, and the very next check reads again", func(t *testing.T) {
 		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
-		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh)
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, newReleaseAnnounceTestSite(t, "v0.5.590"))
+		apiTestStampBuild(t, "v0.5.590")
+		gh.set(func() { gh.status = http.StatusInternalServerError })
+
+		releaseAnnounceCheck(t, api, h)
+		releaseAnnounceCheck(t, api, h)
+
+		releaseAnnounceWantRequests(t, gh, 2)
+		releaseAnnounceWantMessages(t, h, owner)
+		windowWantSetting(t, d, settingReleaseAnnounceThrough, nil)
+		windowWantSetting(t, d, settingReleaseAnnounceFloor, releaseAnnounceStr("v0.5.580"))
+
+		gh.set(func() { gh.status = http.StatusOK })
+		releaseAnnounceCheck(t, api, h)
+		releaseAnnounceWantRequests(t, gh, 3)
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
+	})
+
+	t.Run("a rate limit's named wait holds every release-list read until it passes, then the next check reads", func(t *testing.T) {
+		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
+		api, h, _, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, newReleaseAnnounceTestSite(t, "v0.5.590"))
+		apiTestStampBuild(t, "v0.5.590")
+		gh.set(func() {
+			gh.status = http.StatusTooManyRequests
+			gh.header = http.Header{"Retry-After": {"1"}}
+		})
+
+		releaseAnnounceCheck(t, api, h)
+		gh.set(func() { gh.status, gh.header = http.StatusOK, nil })
+		releaseAnnounceCheck(t, api, h)
+		releaseAnnouncePress(t, h, owner)
+
+		releaseAnnounceWantRequests(t, gh, 1)
+		releaseAnnounceWantMessages(t, h, owner)
+
+		time.Sleep(1100 * time.Millisecond)
+		releaseAnnounceCheck(t, api, h)
+		releaseAnnounceWantRequests(t, gh, 2)
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
+	})
+
+	t.Run("a far rate-limit reset holds reads across checks", func(t *testing.T) {
+		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
+		api, h, _, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, newReleaseAnnounceTestSite(t, "v0.5.590"))
 		apiTestStampBuild(t, "v0.5.590")
 		reset := time.Now().Add(10 * time.Minute).Unix()
 		gh.set(func() {
@@ -443,26 +535,12 @@ func TestReleaseAnnounceRound(t *testing.T) {
 			gh.header = http.Header{"X-Ratelimit-Remaining": {"0"}, "X-Ratelimit-Reset": {strconv.FormatInt(reset, 10)}}
 		})
 
-		wait := releaseAnnounceWantRound(t, api, false)
+		for i := 0; i < 3; i++ {
+			releaseAnnounceCheck(t, api, h)
+		}
 
-		if wait < 9*time.Minute || wait > 11*time.Minute {
-			t.Fatalf("rate-limited retry wait: want about 10m, got %s", wait)
-		}
-		gh.set(func() { gh.status, gh.header = http.StatusInternalServerError, nil })
-		if wait := releaseAnnounceWantRound(t, api, false); wait != 0 {
-			t.Fatalf("a plain failure names no wait, got %s", wait)
-		}
-		if msgs := releaseAnnounceSystemMessages(t, h, owner); len(msgs) != 0 {
-			t.Fatalf("want no system message, got %+v", msgs)
-		}
-		windowWantSetting(t, d, settingReleaseAnnounceThrough, nil)
-		windowWantSetting(t, d, settingReleaseAnnounceFloor, releaseAnnounceStr("v0.5.580"))
-
-		gh.set(func() { gh.status = http.StatusOK })
-		releaseAnnounceWantRound(t, api, true)
-		if n := len(releaseAnnounceSystemMessages(t, h, owner)); n != 1 {
-			t.Fatalf("once GitHub answers: want 1 system message, got %d", n)
-		}
+		releaseAnnounceWantRequests(t, gh, 1)
+		releaseAnnounceWantMessages(t, h, owner)
 	})
 
 	for _, gone := range []struct {
@@ -478,60 +556,52 @@ func TestReleaseAnnounceRound(t *testing.T) {
 	} {
 		t.Run("an assistant "+gone.name+" is skipped and logged, and the release is recorded as handled", func(t *testing.T) {
 			gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
-			api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh)
+			api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, newReleaseAnnounceTestSite(t, "v0.5.590"))
 			apiTestStampBuild(t, "v0.5.590")
 			gone.remove(t, d)
 			var logs []string
 			api.releaseAnnounceLogf = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
 			dashboard := apiTestListen(t, api, "")
 
-			releaseAnnounceWantRound(t, api, true)
+			releaseAnnounceCheck(t, api, h)
 
 			want := []string{"no assistant to relay the announcement of [v0.5.590] (mira): not found — skipped"}
 			apiWantValue(t, "logs", logs, want)
-			if msgs := releaseAnnounceSystemMessages(t, h, owner); len(msgs) != 0 {
-				t.Fatalf("want no system message, got %+v", msgs)
-			}
+			releaseAnnounceWantMessages(t, h, owner)
 			dashboard.wantFrames()
 			windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.590"))
 		})
 	}
 
-	t.Run("the message and the record commit together: a failed record write leaves no message behind, and the retry sends exactly one", func(t *testing.T) {
+	t.Run("the message and the record commit together: a failed record write leaves no message behind, and the next check sends exactly one", func(t *testing.T) {
 		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
-		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh)
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, newReleaseAnnounceTestSite(t, "v0.5.590"))
 		apiTestStampBuild(t, "v0.5.590")
 		lift := windowRefuseSetting(t, d, settingReleaseAnnounceThrough)
 		dashboard := apiTestListen(t, api, "")
 
-		releaseAnnounceWantRound(t, api, false)
+		releaseAnnounceCheck(t, api, h)
 
-		if msgs := releaseAnnounceSystemMessages(t, h, owner); len(msgs) != 0 {
-			t.Fatalf("a rolled-back round must leave no message, got %+v", msgs)
-		}
+		releaseAnnounceWantMessages(t, h, owner)
 		dashboard.wantFrames()
 		lift()
-		releaseAnnounceWantRound(t, api, true)
-		if n := len(releaseAnnounceSystemMessages(t, h, owner)); n != 1 {
-			t.Fatalf("after the retry: want 1 system message, got %d", n)
-		}
+		releaseAnnounceCheck(t, api, h)
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
 		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.590"))
 	})
 
 	t.Run("an unreadable floor restarts from the running version instead of announcing every past release", func(t *testing.T) {
 		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
-		api, _, d, _ := releaseAnnounceTestStation(t, "v0.5.580", gh)
+		api, h, d, _ := releaseAnnounceTestStation(t, "v0.5.580", gh, newReleaseAnnounceTestSite(t, "v0.5.590"))
 		if err := d.PutSetting(settingReleaseAnnounceFloor, "garbage"); err != nil {
 			t.Fatal(err)
 		}
 		apiTestStampBuild(t, "v0.5.590")
 
-		releaseAnnounceWantRound(t, api, true)
+		releaseAnnounceCheck(t, api, h)
 
 		windowWantSetting(t, d, settingReleaseAnnounceFloor, releaseAnnounceStr("v0.5.590"))
-		if n := gh.requestCount(); n != 0 {
-			t.Fatalf("GitHub requests: want 0, got %d", n)
-		}
+		releaseAnnounceWantRequests(t, gh, 0)
 	})
 
 	t.Run("the window is read across pages until a release at or below the record shows up", func(t *testing.T) {
@@ -546,21 +616,13 @@ func TestReleaseAnnounceRound(t *testing.T) {
 			releases = append(releases, releaseAnnounceGA(fmt.Sprintf("v0.4.%d", i), releaseAnnounceNotes("old")))
 		}
 		gh := newReleaseAnnounceFakeGitHub(t, releases...)
-		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh)
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, newReleaseAnnounceTestSite(t, "v0.5.590"))
 		apiTestStampBuild(t, "v0.5.590")
 
-		releaseAnnounceWantRound(t, api, true)
+		releaseAnnounceCheck(t, api, h)
 
-		msgs := releaseAnnounceSystemMessages(t, h, owner)
-		if len(msgs) != 1 {
-			t.Fatalf("want one system message, got %d", len(msgs))
-		}
-		apiWantValue(t, "meta", msgs[0].Meta, map[string]any{
-			"release_announcement": map[string]any{"tags": []any{"v0.5.590"}},
-		})
-		if n := gh.requestCount(); n != 2 {
-			t.Fatalf("GitHub requests: want 2 pages (the second reaches the record), got %d", n)
-		}
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
+		releaseAnnounceWantRequests(t, gh, 2)
 		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.590"))
 	})
 
@@ -571,138 +633,200 @@ func TestReleaseAnnounceRound(t *testing.T) {
 		}
 		releases = append(releases, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
 		gh := newReleaseAnnounceFakeGitHub(t, releases...)
-		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh)
+		site := newReleaseAnnounceTestSite(t, "v0.5.590")
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, site)
 		apiTestStampBuild(t, "v0.5.590")
 		var logs []string
 		api.releaseAnnounceLogf = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
 
-		releaseAnnounceWantRound(t, api, true)
+		releaseAnnounceCheck(t, api, h)
 
 		apiWantValue(t, "logs", logs, []string{"the newest 1000 releases do not reach back to v0.5.580; " +
 			"releases after it that are not among them are not announced"})
-		if n := gh.requestCount(); n != 10 {
-			t.Fatalf("GitHub requests: want the 10-page cap, got %d", n)
-		}
-		if msgs := releaseAnnounceSystemMessages(t, h, owner); len(msgs) != 0 {
-			t.Fatalf("want no system message, got %d", len(msgs))
-		}
+		releaseAnnounceWantRequests(t, gh, 10)
+		releaseAnnounceWantMessages(t, h, owner)
 		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.590"))
 
-		releaseAnnounceWantRound(t, releaseAnnounceTestRestart(t, d, gh), true)
-		if n := gh.requestCount(); n != 10 {
-			t.Fatalf("the next boot must not ask again: %d requests", n)
-		}
+		restarted, rh := releaseAnnounceTestRestart(t, d, gh, site)
+		releaseAnnounceCheck(t, restarted, rh)
+		releaseAnnounceWantRequests(t, gh, 10)
 	})
 
-	t.Run("a store error while looking up the assistant is retried: nothing is sent or recorded until it reads", func(t *testing.T) {
+	t.Run("a store error while looking up the assistant sends and records nothing, and the next check sends it", func(t *testing.T) {
 		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
-		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh)
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, newReleaseAnnounceTestSite(t, "v0.5.590"))
 		apiTestStampBuild(t, "v0.5.590")
 		if _, err := d.wdb.Exec(`ALTER TABLE member RENAME TO member_away`); err != nil {
 			t.Fatal(err)
 		}
 
-		releaseAnnounceWantRound(t, api, false)
+		releaseAnnounceCheck(t, api, h)
 
 		windowWantSetting(t, d, settingReleaseAnnounceThrough, nil)
 		if _, err := d.wdb.Exec(`ALTER TABLE member_away RENAME TO member`); err != nil {
 			t.Fatal(err)
 		}
-		if msgs := releaseAnnounceSystemMessages(t, h, owner); len(msgs) != 0 {
-			t.Fatalf("want no system message, got %d", len(msgs))
-		}
-		releaseAnnounceWantRound(t, api, true)
-		if n := len(releaseAnnounceSystemMessages(t, h, owner)); n != 1 {
-			t.Fatalf("once the lookup reads: want 1 system message, got %d", n)
-		}
+		releaseAnnounceWantMessages(t, h, owner)
+		releaseAnnounceCheck(t, api, h)
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
 	})
 
 	t.Run("an unclaimed station does nothing: no request and no rows", func(t *testing.T) {
 		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
 		apiTestStampBuild(t, "v0.5.590")
-		api, _, d, _ := newAPITestStack(t)
-		api.releaseAPIBase = gh.url
+		api, h, d, _ := newAPITestStack(t)
+		releaseAnnounceWire(api, gh, newReleaseAnnounceTestSite(t, "v0.5.590"))
 
-		releaseAnnounceWantRound(t, api, true)
+		releaseAnnounceCheck(t, api, h)
 
 		windowWantSetting(t, d, settingReleaseAnnounceFloor, nil)
 		windowWantSetting(t, d, settingReleaseAnnounceThrough, nil)
-		if n := gh.requestCount(); n != 0 {
-			t.Fatalf("GitHub requests: want 0, got %d", n)
-		}
+		releaseAnnounceWantRequests(t, gh, 0)
 	})
 }
 
-func TestReleaseAnnounceRetryLoop(t *testing.T) {
-	type answer struct {
-		done bool
-		wait time.Duration
-	}
-	run := func(answers ...answer) []time.Duration {
-		var slept []time.Duration
-		i := 0
-		releaseAnnounceRetryLoop(func() (bool, time.Duration) {
-			a := answers[i]
-			i++
-			return a.done, a.wait
-		}, func(d time.Duration) { slept = append(slept, d) })
-		if i != len(answers) {
-			t.Fatalf("ran %d rounds, want %d", i, len(answers))
-		}
-		return slept
-	}
-	fail, ok := answer{false, 0}, answer{true, 0}
-
-	t.Run("plain failures back off from 5 minutes, doubling, capped at an hour", func(t *testing.T) {
-		got := run(fail, fail, fail, fail, fail, fail, fail, ok)
-		apiWantValue(t, "sleeps", got, []time.Duration{releaseAnnounceSettle,
-			5 * time.Minute, 10 * time.Minute, 20 * time.Minute, 40 * time.Minute, time.Hour, time.Hour, time.Hour})
-	})
-
-	t.Run("a wait GitHub names wins over a shorter backoff, and the backoff keeps doubling underneath", func(t *testing.T) {
-		got := run(answer{false, 90 * time.Minute}, fail, answer{false, time.Minute}, ok)
-		apiWantValue(t, "sleeps", got, []time.Duration{releaseAnnounceSettle,
-			90 * time.Minute, 10 * time.Minute, 20 * time.Minute})
-	})
-
-	t.Run("a first round that lands sleeps only the settle delay", func(t *testing.T) {
-		apiWantValue(t, "sleeps", run(ok), []time.Duration{releaseAnnounceSettle})
-	})
-}
-
-func TestStartReleaseAnnounce(t *testing.T) {
-	t.Run("a failed check retries on its own until it lands, then stops asking", func(t *testing.T) {
-		for _, v := range []*time.Duration{&releaseAnnounceSettle, &releaseAnnounceRetryMin, &releaseAnnounceRetryMax} {
-			old := *v
-			t.Cleanup(func() { *v = old })
-		}
-		releaseAnnounceSettle, releaseAnnounceRetryMin, releaseAnnounceRetryMax = 0, 5*time.Millisecond, 10*time.Millisecond
-		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
-		api, h, _, owner := releaseAnnounceTestStation(t, "v0.5.580", gh)
+func TestReleaseAnnounceOnVersionCheck(t *testing.T) {
+	t.Run("stable channel: a running prerelease above Latest reads nothing; once it is promoted the next check announces it, and later checks read nothing", func(t *testing.T) {
+		gh := newReleaseAnnounceFakeGitHub(t,
+			releaseAnnouncePre("v0.5.590", releaseAnnounceNotes("v0.5.590")),
+			releaseAnnounceGA("v0.5.589", releaseAnnounceNotesWithoutSection("v0.5.589")),
+		)
+		site := newReleaseAnnounceTestSite(t, "v0.5.589")
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, site)
 		apiTestStampBuild(t, "v0.5.590")
-		gh.set(func() { gh.status = http.StatusBadGateway })
-		failing := true
-		api.releaseAnnounceLogf = func(string, ...any) {
-			// Let GitHub recover after the second failure.
-			if failing && gh.requestCount() >= 2 {
-				failing = false
-				gh.set(func() { gh.status = http.StatusOK })
-			}
+
+		releaseAnnounceCheck(t, api, h)
+		releaseAnnounceCheck(t, api, h)
+
+		releaseAnnounceWantMessages(t, h, owner)
+		releaseAnnounceWantRequests(t, gh, 0)
+		windowWantSetting(t, d, settingReleaseAnnounceThrough, nil)
+
+		gh.set(func() { gh.releases[0].Prerelease = false })
+		site.mark("v0.5.590")
+		releaseAnnounceCheck(t, api, h)
+
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
+		releaseAnnounceWantRequests(t, gh, 1)
+		windowWantSetting(t, d, settingReleaseAnnounceThrough, releaseAnnounceStr("v0.5.590"))
+
+		for i := 0; i < 5; i++ {
+			releaseAnnounceCheck(t, api, h)
+		}
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
+		releaseAnnounceWantRequests(t, gh, 1)
+	})
+
+	t.Run("beta channel: each check probes the Latest page while the running version is unannounced, announces once it is promoted, and then stops probing", func(t *testing.T) {
+		gh := newReleaseAnnounceFakeGitHub(t,
+			releaseAnnouncePre("v0.5.590", releaseAnnounceNotes("v0.5.590")),
+			releaseAnnounceGA("v0.5.589", releaseAnnounceNotesWithoutSection("v0.5.589")),
+		)
+		site := newReleaseAnnounceTestSite(t, "v0.5.589", "v0.5.590", "v0.5.589")
+		api, h, _, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, site)
+		releaseAnnounceReceiveBeta(t, h, owner)
+		apiTestStampBuild(t, "v0.5.590")
+
+		releaseAnnounceCheck(t, api, h)
+		releaseAnnounceCheck(t, api, h)
+
+		releaseAnnounceWantMessages(t, h, owner)
+		releaseAnnounceWantRequests(t, gh, 0)
+		if n := site.calls.Load(); n != 4 {
+			t.Fatalf("release page requests: want 4 (feed and Latest per check), got %d", n)
 		}
 
-		api.startReleaseAnnounce()
+		gh.set(func() { gh.releases[0].Prerelease = false })
+		site.mark("v0.5.590", "v0.5.590", "v0.5.589")
+		releaseAnnounceCheck(t, api, h)
 
-		deadline := time.Now().Add(5 * time.Second)
-		for len(releaseAnnounceSystemMessages(t, h, owner)) == 0 {
-			if time.Now().After(deadline) {
-				t.Fatalf("no announcement after %d GitHub requests", gh.requestCount())
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
+		releaseAnnounceWantRequests(t, gh, 1)
+
+		releaseAnnounceCheck(t, api, h)
+		releaseAnnounceWantRequests(t, gh, 1)
+		if n := site.calls.Load(); n != 7 {
+			t.Fatalf("release page requests: want 7 (only the feed once announced), got %d", n)
+		}
+	})
+
+	t.Run("the 檢查更新 button runs a round too", func(t *testing.T) {
+		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
+		_, h, _, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, newReleaseAnnounceTestSite(t, "v0.5.590"))
+		apiTestStampBuild(t, "v0.5.590")
+
+		releaseAnnouncePress(t, h, owner)
+
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
+	})
+
+	t.Run("a restart onto an official release announces it at the first check", func(t *testing.T) {
+		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
+		site := newReleaseAnnounceTestSite(t, "v0.5.590")
+		_, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, site)
+		apiTestStampBuild(t, "v0.5.590")
+
+		restarted, rh := releaseAnnounceTestRestart(t, d, gh, site)
+		releaseAnnounceCheck(t, restarted, rh)
+
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
+		releaseAnnounceWantRequests(t, gh, 1)
+	})
+
+	t.Run("a routine check while the button's round is still reading sends nothing of its own: exactly one message", func(t *testing.T) {
+		gh := newReleaseAnnounceFakeGitHub(t, releaseAnnounceGA("v0.5.590", releaseAnnounceNotes("v0.5.590")))
+		api, h, _, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, newReleaseAnnounceTestSite(t, "v0.5.590"))
+		apiTestStampBuild(t, "v0.5.590")
+		arrived, release := make(chan struct{}), make(chan struct{})
+		gh.set(func() {
+			gh.hold = func() {
+				close(arrived)
+				select {
+				case <-release:
+				case <-time.After(5 * time.Second):
+				}
 			}
-			time.Sleep(5 * time.Millisecond)
+		})
+		pressed := make(chan struct{})
+		go func() {
+			defer close(pressed)
+			releaseAnnouncePress(t, h, owner)
+		}()
+		<-arrived
+
+		releaseAnnounceCheck(t, api, h)
+		close(release)
+		<-pressed
+
+		releaseAnnounceWantMessages(t, h, owner, []any{"v0.5.590"})
+		releaseAnnounceWantRequests(t, gh, 1)
+	})
+
+	t.Run("a station parked on an old prerelease below Latest reads the list once per Latest move", func(t *testing.T) {
+		gh := newReleaseAnnounceFakeGitHub(t,
+			releaseAnnounceGA("v0.5.591", releaseAnnounceNotes("v0.5.591")),
+			releaseAnnouncePre("v0.5.590", releaseAnnounceNotes("v0.5.590")),
+		)
+		site := newReleaseAnnounceTestSite(t, "v0.5.591", "v0.5.591", "v0.5.590")
+		api, h, d, owner := releaseAnnounceTestStation(t, "v0.5.580", gh, site)
+		releaseAnnounceReceiveBeta(t, h, owner)
+		apiTestStampBuild(t, "v0.5.590")
+
+		for i := 0; i < 4; i++ {
+			releaseAnnounceCheck(t, api, h)
 		}
-		time.Sleep(50 * time.Millisecond)
-		if n := gh.requestCount(); n != 3 {
-			t.Fatalf("GitHub requests: want 3 (two failures, one success, then none), got %d", n)
+		releaseAnnounceWantRequests(t, gh, 1)
+
+		gh.set(func() {
+			gh.releases = append([]githubRelease{releaseAnnounceGA("v0.5.592", releaseAnnounceNotes("v0.5.592"))}, gh.releases...)
+		})
+		site.mark("v0.5.592", "v0.5.592", "v0.5.591", "v0.5.590")
+		for i := 0; i < 3; i++ {
+			releaseAnnounceCheck(t, api, h)
 		}
+		releaseAnnounceWantRequests(t, gh, 2)
+		releaseAnnounceWantMessages(t, h, owner)
+		windowWantSetting(t, d, settingReleaseAnnounceThrough, nil)
 	})
 }
 

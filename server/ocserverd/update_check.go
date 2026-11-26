@@ -16,7 +16,8 @@ package main
 //
 // The one api.github.com caller is release_announce.go, by owner decision: this
 // rule protects upgrades, and that path is optional — when the budget is gone
-// an announcement only arrives later, and it never gates an upgrade.
+// an announcement only arrives later, and it never gates an upgrade. Its round
+// runs after each successful check here, outside updateMu.
 
 import (
 	"encoding/xml"
@@ -137,13 +138,14 @@ func (s *apiServer) refreshUpdateCheck(includePre bool) {
 	tag, none, err := fetchLatestOffiCraftRelease(s.releaseSiteBaseURL(), includePre)
 
 	s.updateMu.Lock()
-	defer s.updateMu.Unlock()
 	if s.updateCheck.includePre != includePre {
+		s.updateMu.Unlock()
 		return
 	}
-	s.updateCheck.fetching = false
 	s.updateCheck.checkedAt = time.Now()
 	if err != nil {
+		s.updateCheck.fetching = false
+		s.updateMu.Unlock()
 		log.Printf("[update-check] GitHub release check failed (channel include_prerelease=%v): %v",
 			includePre, err)
 		return
@@ -152,6 +154,17 @@ func (s *apiServer) refreshUpdateCheck(includePre bool) {
 	s.updateCheck.ok = true
 	s.updateCheck.none = none
 	s.updateCheck.tag = tag
+	s.updateMu.Unlock()
+
+	// fetching stays set through the announcement round, so a read meanwhile
+	// does not start a second check behind it.
+	s.announceAfterCheck(includePre, tag, none)
+
+	s.updateMu.Lock()
+	if s.updateCheck.includePre == includePre {
+		s.updateCheck.fetching = false
+	}
+	s.updateMu.Unlock()
 }
 
 func (s *apiServer) updateCheckedOKAt() *string {
@@ -167,16 +180,20 @@ func (s *apiServer) updateCheckedOKAt() *string {
 // fetchLatestOffiCraftRelease answers the newest admissible tag, or none=true
 // when nothing is published on that channel.
 func fetchLatestOffiCraftRelease(base string, includePre bool) (tag string, none bool, err error) {
-	client := &http.Client{
+	client := releaseSiteClient()
+	if includePre {
+		return fetchNewestFeedRelease(client, base)
+	}
+	return fetchLatestMarkedRelease(client, base)
+}
+
+func releaseSiteClient() *http.Client {
+	return &http.Client{
 		Timeout: updateCheckTimeout,
 		// /releases/latest answers with a redirect whose Location IS the answer;
 		// following it would only fetch a large HTML page.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	if includePre {
-		return fetchNewestFeedRelease(client, base)
-	}
-	return fetchLatestMarkedRelease(client, base)
 }
 
 func fetchLatestMarkedRelease(client *http.Client, base string) (string, bool, error) {
@@ -306,18 +323,22 @@ func (s *apiServer) syncUpdateCheck() updateCheckState {
 	tag, none, err := fetchLatestOffiCraftRelease(s.releaseSiteBaseURL(), includePre)
 
 	s.updateMu.Lock()
-	defer s.updateMu.Unlock()
 	if s.updateCheck.includePre != includePre {
 		s.updateCheck = updateCheckState{includePre: includePre}
 	}
 	s.updateCheck.fetching = false
 	s.updateCheck.checkedAt = time.Now()
 	if err != nil {
+		s.updateMu.Unlock()
 		return updateCheckState{includePre: includePre}
 	}
 	s.updateCheck.lastOKAt = s.updateCheck.checkedAt
 	s.updateCheck.ok = true
 	s.updateCheck.none = none
 	s.updateCheck.tag = tag
-	return s.updateCheck
+	st := s.updateCheck
+	s.updateMu.Unlock()
+
+	s.announceAfterCheck(includePre, tag, none)
+	return st
 }
