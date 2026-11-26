@@ -1143,8 +1143,11 @@ describe("LorePage — 可變動作面", () => {
     expect(renderedIds(container)).toEqual(rows.map((e) => e.id));
   });
 
-  it("when the save goes through but the re-read fails, the cards show the saved values and the page asks for a reload", async () => {
+  it("when the save goes through but the re-read fails, the cards show the saved values, a refused field stays staged against its stored value, and the page asks for a reload", async () => {
     const w = spyWrites();
+    w.state.mockImplementation(async (id) => {
+      if (id === "L-2") throw new ApiError("http 403 for POST /api/lore/L-2/state", 403, "forbidden", "");
+    });
     let saved = false;
     vi.spyOn(api, "listLoreEntries").mockImplementation(async () => {
       if (saved) throw new Error("network down");
@@ -1156,18 +1159,31 @@ describe("LorePage — 可變動作面", () => {
 
     chooseState(container, "L-1", "retired");
     chooseType(container, "L-2", "owner_decision");
+    chooseState(container, "L-2", "pinned");
     saved = true;
     clickSave(container);
 
-    await waitFor(() => expect(bar(container)).toBeNull());
-    expect(w.state.mock.calls).toEqual([["L-1", "retired"]]);
+    const failed = await waitFor(() => {
+      const el = container.querySelector<HTMLElement>('[data-testid="lore-staged-failed"]');
+      if (!el) throw new Error("no failure line");
+      return el;
+    });
+    expect(failed.textContent).toBe(`沒有成功：L-2（${zh.lore.forbidden}）`);
+    expect(w.state.mock.calls).toEqual([
+      ["L-1", "retired"],
+      ["L-2", "pinned"],
+    ]);
     expect(w.edit.mock.calls).toEqual([["L-2", { loreType: "owner_decision" }]]);
     expect(container.querySelector('[data-testid="lore-action-error"]')!.textContent).toBe(
       "已儲存，但重新讀取失敗，請重新整理頁面",
     );
     expect(stateOf(container, "L-1")).toBe("已失效");
     expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe("Owner 決策");
-    expect(unsavedIds(container)).toEqual([]);
+    expect(stateOf(container, "L-2")).toBe("置頂");
+    expect(unsavedIds(container)).toEqual(["L-2"]);
+    expect(revertMarks(container, "L-2")).toEqual([["lore-revert-state", "還原為「生效中」"]]);
+    fireEvent.mouseEnter(mark(container, "L-2", "state"));
+    expect(screen.getByRole("tooltip").textContent).toBe("原為：生效中");
     expect(renderedIds(container)).toEqual(["L-1", "L-2"]);
   });
 
@@ -2403,6 +2419,68 @@ describe("LorePage — 就地編輯", () => {
     expect(edit.mock.calls).toEqual([["L-2", { title: "BBBB", body: "長".repeat(550) }]]);
   });
 
+  it("when the save goes through but the re-read fails, the card shows the new title and body and the page asks for a reload", async () => {
+    vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
+    let edited = false;
+    vi.spyOn(api, "listLoreEntries").mockImplementation(async () => {
+      if (edited) throw new Error("network down");
+      return page(rows(), cap);
+    });
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]));
+
+    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-edit"]')!);
+    const editor = rowById(container, "L-2").querySelector<HTMLElement>('[data-testid="lore-editor"]')!;
+    fireEvent.change(editor.querySelector('[data-testid="lore-edit-title"]')!, { target: { value: "新標題" } });
+    fireEvent.change(editor.querySelector('[data-testid="lore-edit-body"]')!, { target: { value: "新內容" } });
+    edited = true;
+    fireEvent.click(editor.querySelector('[data-testid="lore-edit-save"]')!);
+
+    await waitFor(() =>
+      expect(rowById(container, "L-2").querySelector('[data-testid="lore-editor"]')).toBeNull(),
+    );
+    expect(container.querySelector('[data-testid="lore-action-error"]')!.textContent).toBe(
+      "已儲存，但重新讀取失敗，請重新整理頁面",
+    );
+    expect(rowById(container, "L-2").querySelector(".lore-row__title")!.textContent).toBe("新標題");
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-body"]')!.textContent).toBe("新內容");
+    expect(rowById(container, "L-1").querySelector(".lore-row__title")!.textContent).toBe("第一筆");
+  });
+
+  it("an older re-read that fails after a newer one answered asks for no reload", async () => {
+    vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
+    const first = held<never>();
+    let calls = 0;
+    vi.spyOn(api, "listLoreEntries").mockImplementation(async () => {
+      calls += 1;
+      if (calls === 2) return first.promise;
+      if (calls === 3) {
+        return page([mkEntry({ id: "L-1", title: "一改" }), mkEntry({ id: "L-2", title: "二改" }), rows()[2]], cap);
+      }
+      return page(rows(), cap);
+    });
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]));
+
+    for (const [id, title] of [["L-1", "一改"], ["L-2", "二改"]]) {
+      fireEvent.click(rowById(container, id).querySelector('[data-testid="lore-edit"]')!);
+      const editor = rowById(container, id).querySelector<HTMLElement>('[data-testid="lore-editor"]')!;
+      fireEvent.change(editor.querySelector('[data-testid="lore-edit-title"]')!, { target: { value: title } });
+      fireEvent.click(editor.querySelector('[data-testid="lore-edit-save"]')!);
+      await waitFor(() => expect(calls).toBe(id === "L-1" ? 2 : 3));
+    }
+    await waitFor(() =>
+      expect(rowById(container, "L-2").querySelector(".lore-row__title")!.textContent).toBe("二改"),
+    );
+    first.reject(new Error("network down"));
+
+    await waitFor(() =>
+      expect(rowById(container, "L-1").querySelector('[data-testid="lore-editor"]')).toBeNull(),
+    );
+    expect(container.querySelector('[data-testid="lore-action-error"]')).toBeNull();
+    expect(rowById(container, "L-1").querySelector(".lore-row__title")!.textContent).toBe("一改");
+  });
+
   it("a refused save keeps the editor and the draft and says why", async () => {
     vi.spyOn(api, "editLoreEntry").mockRejectedValue(
       new ApiError("http 403 for PATCH /api/lore/L-2", 403, "forbidden", "置頂的傳承只有管理員能改"),
@@ -2669,6 +2747,51 @@ describe("LorePage — 版本紀錄", () => {
     ]);
   });
 
+  it("when a restore lands but the re-read fails, the card shows the restored title and body and the page asks for a reload", async () => {
+    const { container, list } = await openMiraWithEditedL2();
+    list.mockRejectedValue(new Error("network down"));
+
+    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-edit"]')!);
+    fireEvent.click(
+      rowById(container, "L-2").querySelector('[data-testid="doc-history-entry-lore_entry"]')!,
+    );
+    fireEvent.click(
+      await waitFor(() => {
+        const el = document.querySelector<HTMLElement>('[data-testid^="doc-history-open-"]');
+        if (!el) throw new Error("no retained version listed");
+        return el;
+      }),
+    );
+    const modal = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-testid="doc-history-modal"]');
+      if (!el || !el.textContent?.includes("零命中的預設解讀是查法寫錯了")) {
+        throw new Error("old version not shown yet");
+      }
+      return el;
+    });
+    fireEvent.click(modal.querySelector('[data-testid="doc-history-modal-restore"]')!);
+    fireEvent.click(
+      await waitFor(() => {
+        const el = document.querySelector<HTMLElement>('[data-testid="doc-history-restore-confirm-btn"]');
+        if (!el) throw new Error("no confirm");
+        return el;
+      }),
+    );
+
+    await waitFor(() =>
+      expect(rowById(container, "L-2").querySelector('[data-testid="lore-editor"]')).toBeNull(),
+    );
+    expect(container.querySelector('[data-testid="lore-action-error"]')!.textContent).toBe(
+      "已儲存，但重新讀取失敗，請重新整理頁面",
+    );
+    expect(rowById(container, "L-2").querySelector(".lore-row__title")!.textContent).toBe(
+      "零命中的預設解讀是查法寫錯了",
+    );
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-body"]')!.textContent).toBe(
+      "掃描回空的時候先跑一次陽性對照，確認量具本身還會命中，再去解釋那個零。",
+    );
+  });
+
   it("an entry never edited lists no retained version", async () => {
     const { container } = await openMiraWithEditedL2();
 
@@ -2688,10 +2811,12 @@ describe("LorePage — 版本紀錄", () => {
 
 function held<T>() {
   let resolve!: (v: T) => void;
-  const promise = new Promise<T>((r) => {
-    resolve = r;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function chooseStateOn(container: HTMLElement, entryId: string, next: LoreEntryView["state"]) {

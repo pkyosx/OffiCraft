@@ -82,8 +82,9 @@ export interface DocumentHistoryEntryProps {
    * is false for the document on screen is worse than no footnote.
    */
   docDeletable?: boolean;
-  /** Re-read the document this entry sits in, after a successful restore. */
-  onRestored?: () => Promise<unknown> | void;
+  /** Re-read the document this entry sits in, after a successful restore of
+   * `restored` (undefined when the version's content was never read). */
+  onRestored?: (restored?: Record<string, string>) => Promise<unknown> | void;
   /**
    * Restore the FILE SEED — the document's shipped default. Present only where
    * one exists; where it does not (custom roles, custom task manuals) the
@@ -417,7 +418,7 @@ export function DocumentHistoryEntry({
             // separate step, and DocumentHistoryModal maps a rejection to 還原失敗 — the
             // owner then restores a second time and burns another retained slot.
             try {
-              await onRestored?.();
+              await onRestored?.(revision.content);
             } catch (e) {
               console.warn(
                 "DocumentHistoryEntry: re-read after restore failed (the restore landed)",

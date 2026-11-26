@@ -253,6 +253,14 @@ function withStaged(entry: LoreEntryView, ch: StagedChange | undefined): LoreEnt
   };
 }
 
+function withEdit(entry: LoreEntryView, patch: LoreEntryEdit): LoreEntryView {
+  return {
+    ...entry,
+    ...(patch.title !== undefined ? { title: patch.title } : {}),
+    ...(patch.body !== undefined ? { body: patch.body } : {}),
+  };
+}
+
 /** The scope key the server gives an entry moved to `kind`. */
 function scopeKeyFor(entry: LoreEntryView, kind: LoreScopeKind): string {
   return kind === "everyone" ? "" : kind === "manual" ? entry.taskTypeKey : entry.authorId;
@@ -751,7 +759,8 @@ function LoreView({
 
   // ── after a change: the whole section again, in the server's order, as many
   // rows as were loaded, and the numbers. The rows stay on screen meanwhile.
-  // Resolves false only when the re-read itself failed.
+  // Resolves false only when the re-read itself failed and no newer one has
+  // taken over.
   const rereadSection = useCallback(
     async (def: SectionDef): Promise<boolean> => {
       const gen = bumpGen(def.key);
@@ -795,7 +804,8 @@ function LoreView({
         return true;
       } catch (e) {
         console.warn("LorePage: section re-read failed", e);
-        if (genRef.current.get(def.key) === gen) patchSection(def.key, (p) => ({ ...p, fetchingMore: false }));
+        if (genRef.current.get(def.key) !== gen) return true;
+        patchSection(def.key, (p) => ({ ...p, fetchingMore: false }));
         return false;
       } finally {
         if (genRef.current.get(def.key) === gen) flightRef.current.delete(def.key);
@@ -873,6 +883,21 @@ function LoreView({
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  /** A write landed but its re-read failed: the cards show what was sent. */
+  const showSentAfterFailedReread = useCallback(
+    (sent: (e: LoreEntryView) => LoreEntryView) => {
+      setData((prev) => {
+        const next: Record<string, SectionData> = {};
+        for (const [key, sd] of Object.entries(prev)) {
+          next[key] = { ...sd, entries: sd.entries.map(sent) };
+        }
+        return next;
+      });
+      setActionError(t.lore.stagedSavedRereadFailed);
+    },
+    [t.lore.stagedSavedRereadFailed]
+  );
+
   // One entry at a time, type → scope → state; a failed field keeps its staged
   // value with the server's reason, and the section is re-read once at the end.
   async function saveStaged() {
@@ -913,14 +938,7 @@ function LoreView({
     }
     const rereadOk = await rereadAll();
     if (!rereadOk && sentOk.size > 0) {
-      setData((prev) => {
-        const next: Record<string, SectionData> = {};
-        for (const [key, sd] of Object.entries(prev)) {
-          next[key] = { ...sd, entries: sd.entries.map((e) => withStaged(e, sentOk.get(e.id))) };
-        }
-        return next;
-      });
-      setActionError(t.lore.stagedSavedRereadFailed);
+      showSentAfterFailedReread((e) => withStaged(e, sentOk.get(e.id)));
     }
     // Clear only what went through with the value that was sent; a change
     // staged on the same card meanwhile stays.
@@ -1039,15 +1057,23 @@ function LoreView({
       } catch (e) {
         throw new Error(failText(e));
       }
-      await rereadAll();
+      if (!(await rereadAll())) {
+        showSentAfterFailedReread((e) => (e.id === id ? withEdit(e, patch) : e));
+      }
     },
-    [failText, rereadAll]
+    [failText, rereadAll, showSentAfterFailedReread]
   );
 
-  /** A restore already landed; this only re-reads the section. */
-  const restoredEntry = useCallback(async () => {
-    await rereadAll();
-  }, [rereadAll]);
+  /** A restore already landed; this re-reads the section. */
+  const restoredEntry = useCallback(
+    async (id: string, restored: Record<string, string> | undefined) => {
+      if (await rereadAll()) return;
+      showSentAfterFailedReread((e) =>
+        e.id === id && restored ? withEdit(e, { title: restored.title, body: restored.body }) : e
+      );
+    },
+    [rereadAll, showSentAfterFailedReread]
+  );
 
   // ── 目錄的編號搜尋 ──────────────────────────────────────────────────────
   const [dirSearch, setDirSearch] = useState("");
@@ -1687,7 +1713,7 @@ function LoreRow({
   entryCaps: { title: number; body: number };
   /** Rejects with the reason to show; the draft stays. */
   onSave: (id: string, patch: LoreEntryEdit) => Promise<void>;
-  onRestored: (id: string) => Promise<void>;
+  onRestored: (id: string, restored: Record<string, string> | undefined) => Promise<void>;
 }) {
   const { t, msg } = useI18n();
   const staged = stagedFrom !== null;
@@ -2045,7 +2071,7 @@ function LoreRow({
         <LoreEntryEditor
           entry={entry}
           caps={entryCaps}
-          onRestored={() => onRestored(entry.id)}
+          onRestored={(restored) => onRestored(entry.id, restored)}
           onCancel={() => setEditing(false)}
           onSave={async (patch) => {
             await onSave(entry.id, patch);
@@ -2149,8 +2175,8 @@ function LoreEntryEditor({
 }: {
   entry: LoreEntryView;
   caps: { title: number; body: number };
-  /** Re-reads the card after a 版本紀錄 restore has landed. */
-  onRestored: () => Promise<void>;
+  /** Re-reads the card after a 版本紀錄 restore of `restored` has landed. */
+  onRestored: (restored: Record<string, string> | undefined) => Promise<void>;
   onCancel: () => void;
   onSave: (patch: LoreEntryEdit) => Promise<void>;
 }): ReactNode {
@@ -2226,11 +2252,11 @@ function LoreEntryEditor({
           title={`#${entry.id} ${entry.title}`}
           currentContent={{ title: entry.title, body: entry.body }}
           disabled={saving}
-          onRestored={async () => {
+          onRestored={async (restored) => {
             // The restore already landed, so the draft is stale whatever the
             // re-read does: leave edit mode either way, as DocCard does.
             try {
-              await onRestored();
+              await onRestored(restored);
             } finally {
               onCancel();
             }
