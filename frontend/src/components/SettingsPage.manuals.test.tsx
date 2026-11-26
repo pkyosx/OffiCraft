@@ -136,9 +136,11 @@ describe("設定 › 任務手冊 — list", () => {
     const builtin = (await findByTestId("manual-group-builtin"))
       .parentElement as HTMLElement;
     expect(builtin.getAttribute("role")).toBe("group");
+    // The server stores the built-ins under English names and lists them in
+    // that (English) name order; the Chinese UI still labels them in Chinese.
     expect(
       [...builtin.querySelectorAll(".set-entry__name")].map((n) => n.textContent)
-    ).toEqual(["Allow remote connections", "Create / edit role", "Create / edit task manual"]);
+    ).toEqual(["開放遠端連線", "建立／修改角色", "建立／修改任務手冊"]);
     expect(builtin.querySelector(".manual-group__head")?.textContent).toBe("內建");
     for (const key of ["builtin-role-design", "builtin-task-manual-design", "builtin-remote-access"]) {
       const del = within(builtin).getByTestId(`manual-delete-${key}`);
@@ -155,9 +157,12 @@ describe("設定 › 任務手冊 — list", () => {
     await api.updateTaskManual("builtin-role-design", { displayName: "Hire a role" });
     const { findByTestId, findByLabelText, container } = await renderManualsList();
     const builtin = (await findByTestId("manual-group-builtin")).parentElement as HTMLElement;
+    // The list comes back in the server's order — by stored display name,
+    // case-insensitive — so the renamed manual sorts under H, after both
+    // "Create / edit" ones.
     expect(
       [...builtin.querySelectorAll(".set-entry__name")].map((n) => n.textContent)
-    ).toEqual(["Allow remote connections", "Hire a role", "Create / edit task manual"]);
+    ).toEqual(["Allow remote connections", "Create / edit task manual", "Hire a role"]);
 
     fireEvent.click(await findByTestId("manual-open-builtin-task-manual-design"));
     const title = container.querySelector("h1.settings__title") as HTMLElement;
@@ -167,6 +172,16 @@ describe("設定 › 任務手冊 — list", () => {
     expect((container.querySelector("input.inline-edit__input") as HTMLInputElement).value).toBe(
       "Create / edit task manual"
     );
+  });
+
+  it("on a station that still stores a built-in under its old Chinese name, reads it in the UI's language", async () => {
+    await api.updateTaskManual("builtin-role-design", { displayName: "建立／修改角色" });
+    useEnglishLocale();
+    const { findByTestId } = await renderManualsList();
+    const builtin = (await findByTestId("manual-group-builtin")).parentElement as HTMLElement;
+    const names = [...builtin.querySelectorAll(".set-entry__name")].map((n) => n.textContent);
+    expect(names).toContain("Create / edit role");
+    expect(names).not.toContain("建立／修改角色");
   });
 
   it("says the list is empty, with no group headings, when the server lists nothing", async () => {

@@ -1137,10 +1137,9 @@ type StoredTaskManual = Omit<
   "sopMdChars" | "sopMdCapChars"
 >;
 
-// Names, purposes and ORDER mirror the server's builtinTaskManuals (English
-// since T-745): list_task_manuals sorts by display name, so the built-ins
-// come back as Allow remote connections, Create / edit role, Create / edit
-// task manual.
+// Names and purposes mirror the server's builtinTaskManuals (English since
+// T-745). The seed order here does not matter: listing goes through
+// `sortedTaskManuals`, which sorts the way the server's ListTaskManuals does.
 const MOCK_TASK_MANUAL_SEEDS: readonly StoredTaskManual[] = [
   {
     typeKey: "builtin-remote-access",
@@ -1183,6 +1182,35 @@ function taskManualSeed(typeKey: string): StoredTaskManual | undefined {
 }
 
 let taskManuals: StoredTaskManual[] = structuredClone([...MOCK_TASK_MANUAL_SEEDS]);
+
+/** SQLite's NOCASE: folds ASCII A-Z only; everything else compares by code
+ * point (UTF-8 byte order), not by JS's UTF-16 code-unit order. */
+function compareNoCase(a: string, b: string): number {
+  const fold = (s: string) =>
+    Array.from(s, (ch) => {
+      const c = ch.codePointAt(0)!;
+      return c >= 65 && c <= 90 ? c + 32 : c;
+    });
+  const x = fold(a);
+  const y = fold(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    if (x[i] !== y[i]) return x[i] - y[i];
+  }
+  return x.length - y.length;
+}
+
+/** The manuals in the server's list order — DAL.ListTaskManuals:
+ * `ORDER BY (CASE WHEN display_name = '' THEN type_key ELSE display_name END)
+ * COLLATE NOCASE, type_key`. Created and renamed manuals land where the server
+ * would put them, not at the end of the store. */
+function sortedTaskManuals(): StoredTaskManual[] {
+  const sortName = (m: StoredTaskManual) => m.displayName || m.typeKey;
+  return [...taskManuals].sort(
+    (a, b) =>
+      compareNoCase(sortName(a), sortName(b)) ||
+      (a.typeKey < b.typeKey ? -1 : a.typeKey > b.typeKey ? 1 : 0),
+  );
+}
 
 /** Stored manual → the shape the wire answers with, size and cap measured NOW.
  * The SOP is measured against its OWN cap, so mock mode cannot disagree with
@@ -6113,7 +6141,7 @@ const mockApiImpl = {
   async listTaskTypes(): Promise<TaskTypeView[]> {
     // The LIGHT narrowing of the manuals store (same source of truth as the
     // manual editor — mirrors the http adapter reading the same endpoint).
-    return taskManuals.map((m) => ({
+    return sortedTaskManuals().map((m) => ({
       typeKey: m.typeKey,
       displayName: m.displayName,
       purpose: m.purpose,
@@ -6124,7 +6152,7 @@ const mockApiImpl = {
     // T-1170: the DIRECTORY. The long document is DROPPED here, the way
     // the server drops it — a mock that kept serving it would let the
     // manual sub-page keep reading a list row and stay green.
-    return taskManuals.map((m) => {
+    return sortedTaskManuals().map((m) => {
       const { sopMd: _sop, ...row } = withManualSizes(m);
       return structuredClone(row);
     });

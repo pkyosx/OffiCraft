@@ -324,8 +324,9 @@ export const zh = {
     outsource: "外包",
     unassigned: "未指派",
     adhoc: "自由代辦",
-    // 這些值必須逐字等於 server 出貨的內建任務類型名稱（assets.go）：
-    // taskTypeLabel 只在存的名稱仍是出貨原名時才換成目前語系的這一格。
+    // 這些值是內建任務類型 T-745 以前出貨的中文原名（舊站台的資料仍存這個）；
+    // 現在 server 出貨的是 en.ts 那一格的英文名稱（assets.go）。taskTypeLabel
+    // 只在存的名稱仍是其中一個出貨原名時才換成目前語系的這一格。
     builtinTypeName: {
       roleDesign: "建立／修改角色",
       taskManualDesign: "建立／修改任務手冊",

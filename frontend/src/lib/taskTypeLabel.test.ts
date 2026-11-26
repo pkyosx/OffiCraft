@@ -17,7 +17,20 @@ const ASSETS_GO = join(
 );
 
 describe("taskTypeLabel", () => {
-  it("reads a built-in type under its shipped name in the current language", () => {
+  it("reads a built-in type under its English shipped name in the current language", () => {
+    expect(taskTypeLabel(zh, "builtin-role-design", "Create / edit role")).toBe("建立／修改角色");
+    expect(taskTypeLabel(zh, "builtin-task-manual-design", "Create / edit task manual")).toBe(
+      "建立／修改任務手冊",
+    );
+    expect(taskTypeLabel(zh, "builtin-remote-access", "Allow remote connections")).toBe(
+      "開放遠端連線",
+    );
+    expect(taskTypeLabel(en, "builtin-role-design", "Create / edit role")).toBe(
+      "Create / edit role",
+    );
+  });
+
+  it("still reads a built-in type under its old Chinese name (stations seeded before the rename)", () => {
     expect(taskTypeLabel(en, "builtin-task-manual-design", "建立／修改任務手冊")).toBe(
       "Create / edit task manual",
     );
@@ -43,10 +56,16 @@ describe("taskTypeLabel", () => {
       "Create / edit task manual",
       "Allow remote connections",
     ]);
+    expect(shipped.map(([key, name]) => taskTypeLabel(zh, key, name))).toEqual([
+      "建立／修改角色",
+      "建立／修改任務手冊",
+      "開放遠端連線",
+    ]);
   });
 
   it("shows a renamed built-in type as stored", () => {
     expect(taskTypeLabel(en, "builtin-role-design", "Hire a role")).toBe("Hire a role");
+    expect(taskTypeLabel(zh, "builtin-role-design", "Hire a role")).toBe("Hire a role");
   });
 
   it("falls back to the type key when the name is empty", () => {
@@ -57,5 +76,6 @@ describe("taskTypeLabel", () => {
   it("shows an ordinary type's display name, even one spelled like a built-in's", () => {
     expect(taskTypeLabel(en, "tm-review", "PR 審查")).toBe("PR 審查");
     expect(taskTypeLabel(en, "tm-copy", "建立／修改角色")).toBe("建立／修改角色");
+    expect(taskTypeLabel(zh, "tm-copy", "Create / edit role")).toBe("Create / edit role");
   });
 });
