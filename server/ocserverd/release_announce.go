@@ -46,7 +46,9 @@ const (
 )
 
 // 🔴 Must match the release-notes heading byte for byte; docs/dev/README.md
-// tells whoever promotes a GA to write exactly this line.
+// tells whoever promotes a GA to write exactly this line, and bin/release's
+// check_notes_file mirrors releaseAnnouncementSection's rules: change it with
+// this file.
 const releaseAnnounceHeading = "## 給站長的新功能公告"
 
 const releaseAnnounceMaxPerMessage = 5

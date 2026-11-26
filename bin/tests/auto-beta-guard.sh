@@ -1496,6 +1496,19 @@ elif what == "tag-is-an-input":
     print("inputs=%s uses-input=%s" % (
         ",".join(sorted(ins)) or "-",
         "yes" if "inputs.tag" in bodies or "inputs.tag" in json.dumps(doc) else "no"))
+
+elif what == "flip-route":
+    # The flip must go through bin/release promote, which refuses a GA without
+    # its --notes file; a step flipping the release itself would ship a GA with
+    # no release notes and no announcement check.
+    import re
+    bodies = [str(st.get("run", ""))
+              for j in jobs.values()
+              for st in ((j or {}).get("steps") or [])]
+    calls = sum(len(re.findall(r"\bbin/release\s+promote\b", b)) for b in bodies)
+    direct = sum(1 for b in bodies
+                 if re.search(r"gh\s+release\s+edit|gh\s+api\b.*releases|--prerelease=false|--latest([\s=]|$)|--draft=false", b, re.M))
+    print("release-promote-calls=%d direct-release-writes=%d" % (calls, direct))
 PY
     gap() { python3 "$WORK/gap.py" "$GAP_JSON" "$@"; }
 
@@ -1507,6 +1520,8 @@ PY
       "ga-promote=authorize" "$(gap gate-position)"
     check "W4e4 the tag is a dispatch INPUT and the workflow never picks one itself (the owner makes the call; this only executes it)" \
       "inputs=tag uses-input=yes" "$(gap tag-is-an-input)"
+    check "W4e5 the only route to the flip is ONE bin/release promote call (it refuses a GA without --notes); no step edits the release itself" \
+      "release-promote-calls=1 direct-release-writes=0" "$(gap flip-route)"
 
     if [[ ! -s "$WORK/gate.sh" ]]; then
       bad "W4eD could not find the authorize gate's run body in $GA_ALLOWED_REL — the gate this pack claims to pin is not there to be driven, and W4e2/W4e3 above were reading an absent step. The gate is identified by its step name ('authorize actor'); renaming it without updating this guard is the same as deleting it."

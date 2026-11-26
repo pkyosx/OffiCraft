@@ -106,7 +106,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing verified prerelease tag to flip to GA, e.g. v0.5.256. Write its release notes'' 「## 給站長的新功能公告」 section BEFORE running this: stations read it once, when they reach the release (docs/dev/README.md).'
+        description: 'Existing verified prerelease tag, e.g. v0.5.256. This button can NOT promote it: a GA needs its release notes file (「## 這版的改動」, optionally 「## 給站長的新功能公告」), which a dispatch input cannot carry. Run bin/release promote <tag> --notes <file> locally instead (docs/dev/README.md).'
         required: true
         type: string
 
@@ -172,6 +172,11 @@ jobs:
       # No rebuild, by design: promote flips an EXISTING, already-verified
       # prerelease, so the bytes that ship are the bytes that were tested. It needs
       # gh and nothing else — no go, no node, no full history.
+      # 🔴 Called WITHOUT --notes on purpose, so this step always fails: every GA
+      # must carry a release notes file, a dispatch input cannot carry one, and
+      # bin/release promote refuses without it and prints the local command.
+      # The refusal lives in bin/release alone; do not flip the release here by
+      # any other route (auto-beta-guard W4e5).
       - name: promote the tag to GA
         shell: bash
         env:

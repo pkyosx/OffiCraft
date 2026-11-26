@@ -695,8 +695,8 @@ release_cli publish --beta v1.0.0; check "C1 publish without --target → exit 2
 release_cli publish --target HEAD; check "C2 publish without --beta → exit 2" "2" "$RC"
 release_cli publish --beta 1.0.0 --target HEAD
 check "C3 a tag without the v prefix → exit 2" "2" "$RC"
-release_cli promote nope; check "C4 promote with a non-tag → exit 2" "2" "$RC"
-release_cli promote v1.0.0 v2.0.0; check "C5 promote with two tags → exit 2" "2" "$RC"
+release_cli promote nope --notes "$WORK/none.md" --no-announce; check "C4 promote with a non-tag → exit 2" "2" "$RC"
+release_cli promote v1.0.0 v2.0.0 --notes "$WORK/none.md" --no-announce; check "C5 promote with two tags → exit 2" "2" "$RC"
 release_cli publish --beta v1.0.0 --target HEAD --bogus
 check "C6 an unknown publish flag → exit 2" "2" "$RC"
 
@@ -1344,8 +1344,16 @@ check "E7 no staging worktree is left registered in the fixture repo" "1" \
 # P — PROMOTE. Rebuilds nothing; must detect a re-upload under the flip.
 # ═══════════════════════════════════════════════════════════════════════════
 echo "── P: promote"
+GHBODY="$WORK/.gh-body"         # the release notes the gh shim currently "stores"
+GHWRITTEN="$WORK/.gh-written"   # a copy of the last --notes-file gh was handed
+export GH_BODY_FILE="$GHBODY" GH_WRITTEN_FILE="$GHWRITTEN"
+AUTO_LINE="OffiCraft $TAG (darwin-arm64, linux-amd64, linux-arm64) — built from 01234567. Install: see install.sh."
+NOTES_PLAIN="$WORK/notes-plain.md"
+printf '## 這版的改動\n\n- 修好了某件事\n' > "$NOTES_PLAIN"
 promote() {
   : > "$GHWIRE"
+  printf '%s' "${NOTES_INIT-$AUTO_LINE}" > "$GHBODY"
+  : > "$GHWRITTEN"
   OUT="$(PATH="$SHIMDIR:$PATH" OC_RELEASE_GH_REPO="guard/fixture" \
     bash "$RELEASE" promote "$@" 2>&1)"
   RC=$?
@@ -1354,7 +1362,7 @@ promote() {
 # The gh shim answers every `release view` identically, so a promote whose
 # before/after agree is the happy path.
 export GH_VIEW_JSON="$(stored_json 'isPrerelease=false')"
-promote "$TAG"
+promote "$TAG" --notes "$NOTES_PLAIN" --no-announce
 named_failure "P0 promote refuses a tag that is ALREADY final" release-channel "$RC" "$OUT"
 
 # Happy promote needs the pre-flip view to be a prerelease and the post-flip view
@@ -1364,11 +1372,19 @@ named_failure "P0 promote refuses a tag that is ALREADY final" release-channel "
 # it is — which is what a promote that actually applied --latest=true would
 # cause GitHub to report. This is what lets P1's post-flip isLatest=true
 # enforcement pass without a per-case GH_LATEST_JSON.
+# Release notes live in $GH_BODY_FILE: `release view --json body` serves it and
+# `release edit --notes-file F` replaces it (and keeps a copy of F, since
+# bin/release deletes its temp file on exit). GH_STORE_MANGLE makes GitHub
+# store something other than what it was handed.
 cat > "$SHIMDIR/gh" <<'SH'
 #!/usr/bin/env bash
 echo "gh $*" >> "$GH_WIRE"
 if [[ "${1:-}" == "release" && "${2:-}" == "view" ]]; then
-  n="$(grep -c 'release view' "$GH_WIRE")"
+  if [[ " $* " == *" --json body "* ]]; then
+    python3 -c 'import json,sys; print(json.dumps({"body": open(sys.argv[1], encoding="utf-8").read()}))' "$GH_BODY_FILE"
+    exit 0
+  fi
+  n="$(grep -v -- '--json body' "$GH_WIRE" | grep -c 'release view')"
   if [[ "$n" == "1" ]]; then printf '%s' "${GH_VIEW_BEFORE:-}"; else printf '%s' "${GH_VIEW_AFTER:-}"; fi
   exit 0
 fi
@@ -1377,13 +1393,25 @@ if [[ "${1:-}" == "api" ]]; then
     */releases/latest)
       if [[ -n "${GH_LATEST_JSON+set}" ]]; then
         printf '%s' "${GH_LATEST_JSON}"
-      elif grep -q 'release edit' "$GH_WIRE"; then
+      elif grep -q 'release edit.*--latest=true' "$GH_WIRE"; then
         printf '{"tag_name":"%s"}' "$TAG"
       fi
       exit 0 ;;
   esac
 fi
-if [[ "${1:-}" == "release" && ( "${2:-}" == "create" || "${2:-}" == "edit" ) ]]; then
+if [[ "${1:-}" == "release" && "${2:-}" == "edit" ]]; then
+  prev=""
+  for a in "$@"; do
+    if [[ "$prev" == "--notes-file" ]]; then
+      cp "$a" "$GH_WRITTEN_FILE"
+      if [[ -n "${GH_STORE_MANGLE:-}" ]]; then printf '%s' "$GH_STORE_MANGLE" > "$GH_BODY_FILE"; else cp "$a" "$GH_BODY_FILE"; fi
+    fi
+    prev="$a"
+  done
+  if [[ " $* " == *" --notes-file "* ]]; then exit "${GH_NOTES_RC:-0}"; fi
+  exit "${GH_WRITE_RC:-0}"
+fi
+if [[ "${1:-}" == "release" && "${2:-}" == "create" ]]; then
   exit "${GH_WRITE_RC:-0}"
 fi
 echo "unexpected gh invocation: $*" >&2
@@ -1394,12 +1422,12 @@ unset GH_VIEW_JSON
 
 export GH_VIEW_BEFORE="$(stored_json)"
 export GH_VIEW_AFTER="$(stored_json 'isPrerelease=false')"
-promote "$TAG"
+promote "$TAG" --notes "$NOTES_PLAIN" --no-announce
 check "P1 a clean promote exits 0" "0" "$RC"
 check "P1 …and flipped it with exactly one gh release edit" "1" \
-  "$(grep -c 'release edit' "$GHWIRE" || true)"
+  "$(grep -c 'release edit.*--latest=true' "$GHWIRE" || true)"
 
-promote --dry-run "$TAG"
+promote --dry-run "$TAG" --notes "$NOTES_PLAIN" --no-announce
 check "P2 --dry-run promote exits 0" "0" "$RC"
 check "P2 --dry-run promote NEVER flips anything" "0" \
   "$(grep -c 'release edit' "$GHWIRE" || true)"
@@ -1412,7 +1440,7 @@ GH_VIEW_AFTER="$(stored_json 'isPrerelease=false' "assets=$(assets_json '[
   '"$LINUX_ASSETS"'
   {"name":"install.sh","state":"uploaded","size":2048},
   {"name":"checksums.txt","state":"uploaded","size":128}]')")" \
-  promote "$TAG"
+  promote "$TAG" --notes "$NOTES_PLAIN" --no-announce
 named_failure "P3 an asset was RE-UPLOADED under the flip (size changed)" promote-assets "$RC" "$OUT"
 
 # The target moving under a metadata-only flip is caught INSIDE the post-flip
@@ -1422,17 +1450,17 @@ named_failure "P3 an asset was RE-UPLOADED under the flip (size changed)" promot
 # case is written against a nicer-sounding item that nothing emits, it stops being
 # a test of the code and becomes a test of the wish.
 GH_VIEW_AFTER="$(stored_json 'isPrerelease=false' 'targetCommitish="ffffffffffffffffffffffffffffffffffffffff"')" \
-  promote "$TAG"
+  promote "$TAG" --notes "$NOTES_PLAIN" --no-announce
 named_failure "P4 the target commit MOVED under the flip" release-target "$RC" "$OUT"
 case "$OUT" in
   *"ffffffffffffffffffffffffffffffffffffffff"*"$SHA"*) ok "P4 …naming both the stored and the expected commit" ;;
   *) bad "P4 …naming both the stored and the expected commit (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;;
 esac
 
-GH_VIEW_AFTER="$(stored_json 'isPrerelease=true')" promote "$TAG"
+GH_VIEW_AFTER="$(stored_json 'isPrerelease=true')" promote "$TAG" --notes "$NOTES_PLAIN" --no-announce
 named_failure "P5 the flip did not take (still a prerelease afterwards)" release-channel "$RC" "$OUT"
 
-GH_WRITE_RC=1 promote "$TAG"
+GH_WRITE_RC=1 promote "$TAG" --notes "$NOTES_PLAIN" --no-announce
 check "P6 a failed gh release edit fails the promote" "1" "$RC"
 unset GH_WRITE_RC
 
@@ -1447,13 +1475,135 @@ unset GH_WRITE_RC
 # omitting the 4th argument to the AFTER verify_stored_release call) makes this
 # case pass silently at exit 0 instead of failing — that is the mutant this
 # case exists to catch.
-GH_LATEST_JSON='{"tag_name":"v0.0.1-someone-elses-release"}' promote "$TAG"
+GH_LATEST_JSON='{"tag_name":"v0.0.1-someone-elses-release"}' promote "$TAG" --notes "$NOTES_PLAIN" --no-announce
 named_failure "P7 gh release edit succeeded but GitHub never marked it Latest" release-latest "$RC" "$OUT"
 case "$OUT" in
   *"gh release edit $TAG --repo"*"--latest=true"*) ok "P7 …names an executable next step (gh release edit ... --latest=true)" ;;
   *) bad "P7 …names an executable next step (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;;
 esac
 unset GH_LATEST_JSON
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# N — PROMOTE'S RELEASE NOTES (--notes / --no-announce). Every refusal must
+# leave GitHub untouched: no `release edit` of any kind on the wire.
+# ═══════════════════════════════════════════════════════════════════════════
+echo "── N: promote --notes"
+edits() { grep -c 'release edit' "$GHWIRE" || true; }
+gh_calls() { grep -c . "$GHWIRE" || true; }
+nfile() { # nfile <name> <printf-format>  — writes $WORK/n-<name>.md
+  printf "$2" > "$WORK/n-$1.md"; NF="$WORK/n-$1.md"
+}
+ANN_BODY='### 新功能\n- **功能**：站長會看到的事。\n'
+nfile both "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n$ANN_BODY"
+NF_BOTH="$NF"
+
+promote "$TAG"
+check "N1 promote without --notes → exit 2" "2" "$RC"
+case "$OUT" in *"bin/release promote <tag> --notes <檔案>"*) ok "N1 …and says to run it locally with --notes" ;;
+  *) bad "N1 …and says to run it locally with --notes (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
+check "N1 …and calls gh not once" "0" "$(gh_calls)"
+promote "$TAG" --no-announce
+check "N1b --no-announce alone is not a substitute for --notes → exit 2" "2" "$RC"
+promote "$TAG" --notes
+check "N1c --notes with no file → exit 2" "2" "$RC"
+
+# refuse_notes <id> <desc> <item> <args...> — refused, named, and GitHub untouched.
+refuse_notes() {
+  local id="$1" desc="$2" item="$3"; shift 3
+  promote "$TAG" "$@"
+  named_failure "$id $desc" "$item" "$RC" "$OUT"
+  check "$id …and nothing was written or flipped" "0" "$(edits)"
+}
+
+refuse_notes N2a "the notes file does not exist" notes-file --notes "$WORK/missing.md" --no-announce
+nfile empty ""
+refuse_notes N2b "an empty notes file" notes-format --notes "$NF" --no-announce
+nfile nochg "## 給站長的新功能公告\n\n$ANN_BODY"
+refuse_notes N2c "no 這版的改動 section (the announcement comes first)" notes-format --notes "$NF"
+nfile pre "前言\n## 這版的改動\n\n- 改了 A\n"
+refuse_notes N2d "text before the 這版的改動 heading" notes-format --notes "$NF" --no-announce
+nfile lead " ## 這版的改動\n\n- 改了 A\n"
+refuse_notes N2e "the heading has a leading space (the reader never sees it)" notes-format --notes "$NF" --no-announce
+nfile chgempty "## 這版的改動\n\n   \n## 給站長的新功能公告\n\n$ANN_BODY"
+refuse_notes N2f "the 這版的改動 section is empty" notes-format --notes "$NF"
+nfile extra "## 這版的改動\n\n- 改了 A\n\n## 其他\n\n- x\n"
+refuse_notes N2g "a third \"## \" section" notes-format --notes "$NF" --no-announce
+nfile order "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n$ANN_BODY\n## 這版的改動\n\n- 又一段\n"
+refuse_notes N2h "這版的改動 again after the announcement (order fixed, once each)" notes-format --notes "$NF"
+nfile twice "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n$ANN_BODY\n## 給站長的新功能公告\n\n- 再一次\n"
+refuse_notes N2i "the announcement twice" notes-format --notes "$NF"
+nfile annempty "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n\n"
+refuse_notes N2j "an announcement section with nothing under it" notes-format --notes "$NF"
+nfile delim "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n===== 公告結束 #ABCDEFGH =====\n$ANN_BODY"
+refuse_notes N2k "a ===== 公告 delimiter line in the announcement" notes-format --notes "$NF"
+nfile delimfw "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n> ＝＝＝ 公告開始\n$ANN_BODY"
+refuse_notes N2l "a fullwidth, blockquoted delimiter the station would also drop" notes-format --notes "$NF"
+nfile annhash "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n$ANN_BODY## 小標\n- y\n"
+refuse_notes N2m "a \"## \" line inside the announcement (the station would stop there)" notes-format --notes "$NF"
+
+refuse_notes N3a "an announcement section AND --no-announce" notes-announce --notes "$NF_BOTH" --no-announce
+refuse_notes N3b "no announcement section and no --no-announce" notes-announce --notes "$NOTES_PLAIN"
+
+NOTES_INIT="$AUTO_LINE
+
+## 這版的改動
+
+- hand-written earlier" refuse_notes N4a "the release notes already carry more than publish's line" notes-existing --notes "$NF_BOTH"
+NOTES_INIT="something else entirely" refuse_notes N4b "the release notes are something else" notes-existing --notes "$NF_BOTH"
+NOTES_INIT="OffiCraft v0.0.1 (darwin-arm64) — built from 01234567. Install: see install.sh." \
+  refuse_notes N4c "the release notes are publish's line for ANOTHER tag" notes-existing --notes "$NF_BOTH"
+
+# Success. publish's line with stray whitespace around it is still publish's line.
+NOTES_INIT="
+  $AUTO_LINE
+
+" promote "$TAG" --notes "$NF_BOTH"
+check "N5 a promote with changes + announcement exits 0" "0" "$RC"
+check "N5 …wrote exactly publish's line, a blank line, then the file" \
+  "$(printf '%s\n\n' "$AUTO_LINE"; cat "$NF_BOTH"; printf x)" "$(cat "$GHWRITTEN"; printf x)"
+check "N5 …the notes write comes BEFORE the flip (one each)" "notes flip" \
+  "$(grep 'release edit' "$GHWIRE" | sed -e 's/.*--notes-file.*/notes/' -e 's/.*--latest=true.*/flip/' | tr '\n' ' ' | sed 's/ $//')"
+
+promote "$TAG" --notes "$NOTES_PLAIN" --no-announce
+check "N5b changes only + --no-announce exits 0" "0" "$RC"
+check "N5b …wrote publish's line, a blank line, then the file" \
+  "$(printf '%s\n\n' "$AUTO_LINE"; cat "$NOTES_PLAIN"; printf x)" "$(cat "$GHWRITTEN"; printf x)"
+
+nfile ok2 "## 這版的改動  \r\n\r\n- 改了 A\r\n\r\n## 給站長的新功能公告\t\r\n\r\n- 公告\r\n"
+promote "$TAG" --notes "$NF"
+check "N5c CRLF and trailing spaces/tabs after the headings are accepted (the station trims those too)" "0" "$RC"
+
+nfile long "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n$(python3 -c 'print("字" * 2100)')\n"
+promote "$TAG" --notes "$NF"
+check "N5d an announcement past the station's cut still promotes" "0" "$RC"
+case "$OUT" in *"WARNING: the announcement is 2100 characters"*) ok "N5d …with a warning that it will be truncated" ;;
+  *) bad "N5d …with a warning that it will be truncated (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
+
+GH_STORE_MANGLE="$AUTO_LINE
+
+## 這版的改動
+
+- 被別人改掉" promote "$TAG" --notes "$NF_BOTH"
+named_failure "N6 GitHub stored notes that differ from what was written" notes-readback "$RC" "$OUT"
+check "N6 …and the release was NOT flipped" "0" "$(grep -c 'release edit.*--latest=true' "$GHWIRE" || true)"
+
+GH_STORE_MANGLE="$(printf '%s\r\n\r\n' "$AUTO_LINE"; sed 's/$/\r/' "$NF_BOTH")" promote "$TAG" --notes "$NF_BOTH"
+check "N6b stored notes differing only in CRLF and the final newline are a match" "0" "$RC"
+
+GH_NOTES_RC=1 promote "$TAG" --notes "$NF_BOTH"
+check "N6c a failed notes write fails the promote" "1" "$RC"
+check "N6c …and the release was NOT flipped" "0" "$(grep -c 'release edit.*--latest=true' "$GHWIRE" || true)"
+
+promote --dry-run "$TAG" --notes "$NF_BOTH"
+check "N7 --dry-run with --notes exits 0" "0" "$RC"
+check "N7 …and writes and flips nothing" "0" "$(edits)"
+case "$OUT" in *"$AUTO_LINE"*"## 給站長的新功能公告"*"功能"*) ok "N7 …and prints the full notes it would write" ;;
+  *) bad "N7 …and prints the full notes it would write (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
+NOTES_INIT="something else entirely" promote --dry-run "$TAG" --notes "$NF_BOTH"
+named_failure "N7b --dry-run still refuses release notes it would overwrite" notes-existing "$RC" "$OUT"
+promote --dry-run "$TAG" --notes "$NOTES_PLAIN"
+named_failure "N7c --dry-run still enforces --no-announce" notes-announce "$RC" "$OUT"
 
 echo "release guard: $PASS ok, $FAIL failed"
 [[ "$FAIL" == "0" ]] || exit 1
