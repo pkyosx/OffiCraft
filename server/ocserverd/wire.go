@@ -136,6 +136,8 @@ type settingsDTO struct {
 	// button and an upgrade always read GitHub fresh.
 	UpdaterCheckIntervalSecs int `json:"updater_check_interval_secs"`
 
+	UpdaterAnnounceFeatures bool `json:"updater_announce_features"`
+
 	OrgName string `json:"org_name"`
 
 	OwnerName string `json:"owner_name"`

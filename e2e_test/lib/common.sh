@@ -82,12 +82,14 @@ done
 # shell command prefix instead of carrying a second, drift-prone copy.
 # OC_RELEASE_SITE_BASE: pin the GitHub release-page update check at an
 # unroutable loopback — the harness must never reach the real github.com
-# (hermeticity); checks fail fast and honestly.
+# (hermeticity); checks fail fast and honestly. OC_RELEASE_API_BASE does the
+# same for the release-announcement check, the one api.github.com caller.
 OC_E2E_SCRUB_ENV_ARGS=(-u OC_ID -u OC_TOKEN -u OC_BASE)
 OC_E2E_RELEASE_SITE_BASE="http://127.0.0.1:1"
 oc_env() {
   env "${OC_E2E_SCRUB_ENV_ARGS[@]}" \
-    "OC_RELEASE_SITE_BASE=$OC_E2E_RELEASE_SITE_BASE" "$@"
+    "OC_RELEASE_SITE_BASE=$OC_E2E_RELEASE_SITE_BASE" \
+    "OC_RELEASE_API_BASE=$OC_E2E_RELEASE_SITE_BASE" "$@"
 }
 
 # Emit a shell-safe command prefix for a child started by an external carrier
@@ -99,6 +101,7 @@ oc_e2e_scrub_env_command_prefix() {
     printf ' %q' "$arg"
   done
   printf ' %q' "OC_RELEASE_SITE_BASE=$OC_E2E_RELEASE_SITE_BASE"
+  printf ' %q' "OC_RELEASE_API_BASE=$OC_E2E_RELEASE_SITE_BASE"
 }
 
 # python3 as a text tool only (tomllib/json parsing) — not a server dependency.

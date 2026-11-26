@@ -24,6 +24,10 @@ var lockInTxStaged atomic.Int64
 func TestMain(m *testing.M) {
 	// A test that builds a bare apiServer would otherwise read the real github.com.
 	releaseSiteDefault = "http://127.0.0.1:1"
+	releaseAPIDefault = "http://127.0.0.1:1"
+	// A test that runs cmdServe starts the announcement goroutine; parked, it can
+	// never wake into another test's appVersion stamp or closed database.
+	releaseAnnounceSettle = 24 * time.Hour
 	var refusalsMu sync.Mutex
 	var refusals []string
 	txguard.OnRefusal = func(at string) {

@@ -1487,6 +1487,8 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     updaterReceiveBeta: w.updater_receive_beta ?? false,
     updaterAutoUpdate: w.updater_auto_update ?? false,
     updaterCheckIntervalSecs: w.updater_check_interval_secs ?? 300,
+    // ⚠️ `?? true`, unlike the two toggles above: a never-set server reads ON.
+    updaterAnnounceFeatures: w.updater_announce_features ?? true,
     // Studio name (T-d693; schema-optional for DTO-compat — the Go wire always
     // emits it). "" = never set; the topbar substitutes the localized default.
     orgName: w.org_name ?? "",

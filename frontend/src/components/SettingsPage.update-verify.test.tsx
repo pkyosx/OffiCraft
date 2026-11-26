@@ -273,3 +273,34 @@ describe("SettingsPage · 系統更新與備份 · 更新檢查間隔 (minutes o
     expect(patch).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("SettingsPage · 系統更新與備份 · 讓助理告訴我新版本的功能", () => {
+  it("is the fourth row of 更新設定, carries its label and help text, and is on by default", async () => {
+    const utils = await openSoftware();
+    const toggle = utils.getByRole("switch", { name: s.announceFeatures });
+    expect(toggle).toBe(utils.getByTestId("settings-announce-features"));
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    const row = toggle.closest(".param-row") as HTMLElement;
+    expect(row.querySelector(".param-row__name")?.textContent).toBe("讓助理告訴我新版本的功能");
+    expect(row.querySelector(".param-row__sub")?.textContent).toBe(
+      "升級到有新功能公告的正式版後，助理會在聊天裡跟你說這版多了什麼"
+    );
+    const rows = Array.from(row.parentElement!.querySelectorAll(":scope > .param-row"));
+    expect(rows.indexOf(row)).toBe(3);
+    expect(rows).toHaveLength(4);
+  });
+
+  it("clicking writes the flipped value and the switch follows the server, off and back on", async () => {
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openSoftware();
+    const toggle = utils.getByTestId("settings-announce-features");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
+    expect(patch).toHaveBeenLastCalledWith({ updaterAnnounceFeatures: false });
+    expect((await api.getServerSettings()).updaterAnnounceFeatures).toBe(false);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
+    expect(patch).toHaveBeenLastCalledWith({ updaterAnnounceFeatures: true });
+    expect((await api.getServerSettings()).updaterAnnounceFeatures).toBe(true);
+  });
+});
