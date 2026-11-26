@@ -397,10 +397,12 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	})
 
 	// ── DIRECTION 4: everyone + agent + one key is that member's whole boot
-	// list — the two scopes interleaved, pinned first then newest effective —
-	// and its line is the first drop of the whole list. ────────────────────────
+	// list — the two scopes interleaved, pinned first then newest effective,
+	// the higher seq first on a tie — and its line is the first drop of the
+	// whole list. ─────────────────────────────────────────────────────────────
 	mix := hireLoreStaff(t, s, "m-lore-multi-mix", defaultBootRole)
 	pinnedOwn := seedLoreAt(t, s, LoreScopeAgent, mix, mix, "我釘釘", LoreStatePinned, float64(base-10))
+	tiedOwn := seedLoreAt(t, s, LoreScopeAgent, mix, mix, "我丙丙", LoreStateActive, float64(base+4))
 	newerOwn := seedLoreAt(t, s, LoreScopeAgent, mix, mix, "我甲甲", LoreStateActive, float64(base)+3.5)
 	olderOwn := seedLoreAt(t, s, LoreScopeAgent, mix, mix, "我乙乙", LoreStateActive, float64(base)+1.5)
 	status, data = apiJSON(t, h, "GET",
@@ -408,23 +410,42 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("member list page: %d %v", status, data)
 	}
-	var titles []string
+	var titles, listed []string
 	for _, row := range data["entries"].([]any) {
 		titles = append(titles, row.(map[string]any)["title"].(string))
+		listed = append(listed, row.(map[string]any)["id"].(string))
 	}
-	if want := []string{"我釘釘", "壬五五", "我甲甲", "壬四四", "壬三三", "我乙乙", "壬二二", "壬一一"}; !slices.Equal(titles, want) {
+	if want := []string{"我釘釘", "我丙丙", "壬五五", "我甲甲", "壬四四", "壬三三", "我乙乙", "壬二二", "壬一一"}; !slices.Equal(titles, want) {
 		t.Fatalf("member list order = %v, want %v", titles, want)
 	}
-	thirdEveryone := data["entries"].([]any)[4].(map[string]any)["id"]
+	status, boot := apiJSON(t, h, "GET", "/api/members/"+mix+"/boot-context", token, "")
+	if status != http.StatusOK {
+		t.Fatalf("boot-context: %d %v", status, boot)
+	}
+	var booted []string
+	_, loreBlock, _ := strings.Cut(boot["context"].(string), "\n# 傳承\n")
+	for _, line := range strings.Split(loreBlock, "\n") {
+		if id, ok := strings.CutPrefix(line, "## "); ok {
+			booted = append(booted, strings.Fields(id)[0])
+		}
+	}
+	if want := listed[:4]; !slices.Equal(booted, want) {
+		t.Fatalf("boot document carries %v, want the member list's first four %v", booted, want)
+	}
+	if booted[1] != tiedOwn.ID {
+		t.Fatalf("boot document order %v: the own entry tied with 壬五五 on effective_ts "+
+			"has the higher seq and goes first", booted)
+	}
+	secondEveryone := data["entries"].([]any)[4].(map[string]any)["id"]
 	delete(data, "entries")
 	apiWantBody(t, data, map[string]any{
 		"limit": 30, "offset": 0, "cap_chars": 20, "used_chars": 20,
-		"first_dropped_id": thirdEveryone, "first_dropped_chars": 5,
+		"first_dropped_id": secondEveryone, "first_dropped_chars": 5,
 		"budget_segments": []any{
 			map[string]any{"scope_kind": "everyone",
-				"entry_count": 5, "chars": 25, "fitted_count": 2, "fitted_chars": 10},
+				"entry_count": 5, "chars": 25, "fitted_count": 1, "fitted_chars": 5},
 			map[string]any{"scope_kind": "agent",
-				"entry_count": 3, "chars": 15, "fitted_count": 2, "fitted_chars": 10},
+				"entry_count": 4, "chars": 20, "fitted_count": 3, "fitted_chars": 15},
 		},
 	})
 
@@ -434,10 +455,10 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	for _, e := range ownOnly.Entries {
 		got = append(got, e.Id)
 	}
-	if !slices.Equal(got, []string{pinnedOwn.ID, newerOwn.ID, olderOwn.ID}) ||
+	if !slices.Equal(got, []string{pinnedOwn.ID, tiedOwn.ID, newerOwn.ID, olderOwn.ID}) ||
 		ownOnly.FirstDroppedId != olderOwn.ID || ownOnly.UsedChars != 20 {
-		t.Fatalf("agent-only page = %v first_dropped_id=%q used_chars=%d, want [%s %s %s], %s and 20",
-			got, ownOnly.FirstDroppedId, ownOnly.UsedChars, pinnedOwn.ID, newerOwn.ID, olderOwn.ID, olderOwn.ID)
+		t.Fatalf("agent-only page = %v first_dropped_id=%q used_chars=%d, want [%s %s %s %s], %s and 20",
+			got, ownOnly.FirstDroppedId, ownOnly.UsedChars, pinnedOwn.ID, tiedOwn.ID, newerOwn.ID, olderOwn.ID, olderOwn.ID)
 	}
 }
 

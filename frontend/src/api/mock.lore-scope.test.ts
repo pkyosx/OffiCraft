@@ -355,8 +355,8 @@ describe("mock listLoreBudgets", () => {
   it("answers 所有人, every staff and outsource member and every manual, a member counting 所有人 too", async () => {
     expect(await api.listLoreBudgets()).toEqual([
       target("everyone", "", 53, 1),
-      target("agent", "mira", 297, 2),
-      target("agent", "ow-7d8ad859dd9b", 112, 1),
+      target("agent", "mira", 297, 3),
+      target("agent", "ow-7d8ad859dd9b", 112, 2),
       target("manual", "builtin-role-design", 0, 0),
       target("manual", "builtin-task-manual-design", 0, 0),
       target("manual", "builtin-remote-access", 0, 0),
@@ -366,7 +366,7 @@ describe("mock listLoreBudgets", () => {
   it("agrees with the list's 上限線 when the member cap leaves 所有人's entry and Mira's older one out", async () => {
     await api.patchServerSettings({ loreCapCharsRole: 195 });
     const mira = (await api.listLoreBudgets()).find((t) => t.scopeKey === "mira");
-    expect(mira).toEqual(target("agent", "mira", 195, 2, 2, 195));
+    expect(mira).toEqual(target("agent", "mira", 195, 3, 2, 195));
   });
 });
 

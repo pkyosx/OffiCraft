@@ -1563,11 +1563,11 @@ func TestListLoreBudgets(t *testing.T) {
 		st.api.loreCapCharsManual = 12
 		apiWantBody(t, budgets(t), map[string]any{"targets": []any{
 			budgetTarget("everyone", "", 20, 10, 2, 0),
-			budgetTarget("agent", "kip", 20, 10, 0, 0),
-			budgetTarget("agent", "m-scope-admin", 20, 10, 0, 0),
-			budgetTarget("agent", "m-scope-user", 20, 20, 3, 1),
-			budgetTarget("agent", "mira", 20, 10, 0, 0),
-			budgetTarget("agent", "ow-budget-live", 20, 15, 1, 0),
+			budgetTarget("agent", "kip", 20, 10, 2, 0),
+			budgetTarget("agent", "m-scope-admin", 20, 10, 2, 0),
+			budgetTarget("agent", "m-scope-user", 20, 20, 5, 1),
+			budgetTarget("agent", "mira", 20, 10, 2, 0),
+			budgetTarget("agent", "ow-budget-live", 20, 15, 3, 0),
 			budgetTarget("manual", "builtin-task-manual-design", 12, 0, 0, 0),
 			budgetTarget("manual", "builtin-role-design", 12, 0, 0, 0),
 			budgetTarget("manual", "builtin-remote-access", 12, 0, 0, 0),
@@ -1575,16 +1575,16 @@ func TestListLoreBudgets(t *testing.T) {
 		}})
 	})
 
-	t.Run("everyone entries that overflow the member cap count as dropped for every member but not as their entries", func(t *testing.T) {
+	t.Run("a member counts the everyone entries among its entries, and the ones that overflow its cap as dropped", func(t *testing.T) {
 		st.api.loreCapCharsRole = 7
 		st.api.loreCapCharsManual = 12
 		apiWantBody(t, budgets(t), map[string]any{"targets": []any{
 			budgetTarget("everyone", "", 7, 5, 2, 1),
-			budgetTarget("agent", "kip", 7, 5, 0, 1),
-			budgetTarget("agent", "m-scope-admin", 7, 5, 0, 1),
-			budgetTarget("agent", "m-scope-user", 7, 5, 3, 4),
-			budgetTarget("agent", "mira", 7, 5, 0, 1),
-			budgetTarget("agent", "ow-budget-live", 7, 5, 1, 2),
+			budgetTarget("agent", "kip", 7, 5, 2, 1),
+			budgetTarget("agent", "m-scope-admin", 7, 5, 2, 1),
+			budgetTarget("agent", "m-scope-user", 7, 5, 5, 4),
+			budgetTarget("agent", "mira", 7, 5, 2, 1),
+			budgetTarget("agent", "ow-budget-live", 7, 5, 3, 2),
 			budgetTarget("manual", "builtin-task-manual-design", 12, 0, 0, 0),
 			budgetTarget("manual", "builtin-role-design", 12, 0, 0, 0),
 			budgetTarget("manual", "builtin-remote-access", 12, 0, 0, 0),
@@ -1596,7 +1596,7 @@ func TestListLoreBudgets(t *testing.T) {
 		st.api.loreCapCharsRole = 20
 		st.api.loreCapCharsManual = 12
 		apiWantBody(t, budgets(t)["targets"].([]any)[3].(map[string]any),
-			budgetTarget("agent", "m-scope-user", 20, 20, 3, 1))
+			budgetTarget("agent", "m-scope-user", 20, 20, 5, 1))
 		for _, tc := range []struct {
 			name, query string
 			want        map[string]any
@@ -1664,7 +1664,7 @@ func TestListLoreBudgets(t *testing.T) {
 				got = m
 			}
 		}
-		apiWantBody(t, got, budgetTarget("agent", me, 17, 5*carried, 3, len(live)-carried))
+		apiWantBody(t, got, budgetTarget("agent", me, 17, 15, 5, 2))
 	})
 
 	// The member's own entries (effective 400/401) are NEWER than every everyone
@@ -1692,7 +1692,7 @@ func TestListLoreBudgets(t *testing.T) {
 				got = m
 			}
 		}
-		apiWantBody(t, got, budgetTarget("agent", me, 12, 10, 2, 2))
+		apiWantBody(t, got, budgetTarget("agent", me, 12, 10, 4, 2))
 	})
 
 	t.Run("a warden is below the floor and no credential is 401", func(t *testing.T) {

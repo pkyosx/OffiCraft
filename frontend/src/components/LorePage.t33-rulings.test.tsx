@@ -1,6 +1,5 @@
-// LorePage — the writer's name on a 傳承 row (owner rulings rc-01a07b1b2a12 /
-// rc-379631993586): a 外包 or staff writer who has left keeps his NAME on the
-// row, and the card's message goes to Mira instead of to him.
+// LorePage — the writer's name on a 傳承 row: a 外包 or staff writer who has
+// left keeps his NAME on the row, and the card's message goes to Mira.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";

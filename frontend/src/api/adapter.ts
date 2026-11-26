@@ -3697,7 +3697,8 @@ export interface LoreBudgetTargetView {
   scopeKey: string;
   capChars: number;
   usedChars: number;
-  /** Live entries filed under this target itself (not the `everyone` ones). */
+  /** Live entries the target's boot document walks (a member's: its own plus
+   * the `everyone` ones). */
   entryCount: number;
   /** Live entries the selection walks that do not fit. */
   droppedCount: number;

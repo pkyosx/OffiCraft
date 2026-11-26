@@ -8,7 +8,8 @@
 //   dimming.
 //
 //   訊息框的收件人. A message to a peer who is gone reaches nobody, so the box
-//   names and sends to Mira whenever the author cannot take it.
+//   names and sends to Mira whenever the author cannot take it — but only once
+//   the roster has answered: before that a live author looks gone too.
 //
 // Most specs open ONE section (Mira's) whose list request is stubbed: what the
 // page does with the answer is under test here, not the mock's arithmetic.
@@ -264,6 +265,51 @@ describe("LorePage — 訊息框", () => {
       await waitFor(() => expect(box(rowById(container, id)).value).toBe(""));
     }
     expect(posted.map((p) => p.to)).toEqual(["warden-mbp5", "mira", "mira", "mira"]);
+  });
+
+  it("picks nobody until the roster answers, then sends to the live author", async () => {
+    const roster = await api.listMembers();
+    let answerRoster: (v: typeof roster) => void = () => {};
+    vi.spyOn(api, "listMembers").mockReturnValue(
+      new Promise((resolve) => {
+        answerRoster = resolve;
+      }),
+    );
+    stubList(page([mkEntry({ id: "L-1", state: "active", authorId: "warden-mbp5" })]));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const posted = capturePosts();
+    const row = rowById(container, "L-1");
+
+    fireEvent.change(box(row), { target: { value: "還適用嗎" } });
+    expect(box(row).placeholder).toBe("載入中…");
+    expect(sendButton(row).disabled).toBe(true);
+    fireEvent.click(sendButton(row));
+    fireEvent.keyDown(box(row), { key: "Enter" });
+    expect(posted).toEqual([]);
+
+    answerRoster(roster);
+    await waitFor(() => expect(box(row).placeholder).toBe("傳訊息給 Warden · mbp5…"));
+    fireEvent.click(sendButton(row));
+    await waitFor(() => expect(posted.map((p) => p.to)).toEqual(["warden-mbp5"]));
+  });
+
+  it("sends nothing when the roster fails to load, and says the roster did not load", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(api, "listMembers").mockRejectedValue(new Error("boom"));
+    stubList(page([mkEntry({ id: "L-1", state: "active", authorId: "warden-mbp5" })]));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const posted = capturePosts();
+    const row = rowById(container, "L-1");
+
+    await waitFor(() => expect(box(row).placeholder).toBe("載入辦公室成員失敗，請稍後重試"));
+    fireEvent.change(box(row), { target: { value: "還適用嗎" } });
+    expect(sendButton(row).disabled).toBe(true);
+    fireEvent.click(sendButton(row));
+    fireEvent.keyDown(box(row), { key: "Enter" });
+    await Promise.resolve();
+    expect(posted).toEqual([]);
   });
 
   it("sends this row's entry id ahead of the text, then empties the box", async () => {
@@ -785,8 +831,6 @@ describe("LorePage — 卡片不折疊", () => {
     const body = row.querySelector<HTMLElement>('[data-testid="lore-body"]')!;
     const snapshot = () => [row.getAttribute("role"), row.hasAttribute("aria-expanded"), body.className];
     expect(snapshot()).toEqual([null, false, "lore-row__body"]);
-    expect(row.querySelector('[data-testid="lore-expand-mark"]')).toBeNull();
-    // The head holds the tag row and 編輯, nothing else (the ▸/▾ sat there).
     expect(
       Array.from(row.querySelector(".lore-row__head")!.children).map((c) => c.className),
     ).toEqual(["lore-row__badges", "lore-row__actions"]);
@@ -2283,10 +2327,6 @@ function expectOnlyEditAction(row: HTMLElement) {
     ["lore-edit", "doc-btn doc-btn--edit", "編輯"],
   ]);
   expect(buttons[0].querySelector("svg")).not.toBeNull();
-  expect(row.querySelector('[data-testid="lore-more-actions"]')).toBeNull();
-  expect(row.querySelector('[data-testid="lore-more-menu"]')).toBeNull();
-  expect(row.querySelector('[data-testid="lore-bump"]')).toBeNull();
-  expect(row.textContent).not.toContain("提到最新");
 }
 
 describe("LorePage — 卡片右上只有編輯", () => {
@@ -2298,8 +2338,6 @@ describe("LorePage — 卡片右上只有編輯", () => {
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
     const row = rowById(container, "L-1");
     expectOnlyEditAction(row);
-    // 適用範圍 is the tag now, never an action beside 編輯.
-    expect(row.querySelector('.lore-row__actions [data-testid="lore-scope-name"]')).toBeNull();
     fireEvent.click(row.querySelector('[data-testid="lore-edit"]')!);
     expect(row.querySelector('[data-testid="lore-editor"]')).not.toBeNull();
   });

@@ -67,6 +67,14 @@ func (sel loreSelection) firstDropped() loreSegment {
 	return loreSegment{}
 }
 
+func (sel loreSelection) entryCount() int {
+	n := 0
+	for _, seg := range sel.Segments {
+		n += seg.EntryCount
+	}
+	return n
+}
+
 func (sel loreSelection) droppedCount() int {
 	n := 0
 	for _, seg := range sel.Segments {

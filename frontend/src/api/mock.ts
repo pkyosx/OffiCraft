@@ -6438,9 +6438,7 @@ const mockApiImpl = {
         scopeKey,
         capChars: walk.capChars,
         usedChars: walk.usedChars,
-        entryCount: mockLoreEntries.filter(
-          (e) => e.scopeKind === scopeKind && e.scopeKey === scopeKey && e.state !== "retired"
-        ).length,
+        entryCount: walk.segments.reduce((n, s) => n + s.entryCount, 0),
         droppedCount: walk.droppedCount,
       };
     };

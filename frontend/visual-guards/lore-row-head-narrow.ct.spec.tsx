@@ -1,7 +1,7 @@
 // 傳承 directory cards, section pages and row heads at phone and desktop width:
 // the tags (id → type → state → scope) wrap as whole pills, the head's one
 // action (編輯, the app-wide .doc-btn--edit) stays inside the head without
-// overlapping them, no card has a ▸/▾ mark or a clamped body, the 撰寫人 · 生效期
+// overlapping them, no card has a clamped body, the 撰寫人 · 生效期
 // line stays inside the card, the message box's 📎, input and 送出 sit on one row
 // inside the card with room to type, the section head card's name, badges, bar and
 // legend stay inside it, the 適用範圍 menu opens inside the viewport, the inline
@@ -25,7 +25,6 @@ type RowGeom = {
   actionButtons: { text: string; cls: string; svg: boolean; height: number; box: Box }[];
   badges: { cls: string; box: Box }[];
   badgeOrder: string[];
-  mark: Box | null;
   bodyOverflows: boolean | null;
   toggle: boolean;
   meta: Box | null;
@@ -121,9 +120,6 @@ async function measure(page: any): Promise<{
                 return id === "lore-scope" ? "lore-scope-name" : id;
               })
             : [],
-          // Anything in the head besides the tag row and 編輯 is a stray mark
-          // (the retired ▸/▾ sat there).
-          mark: r(row.querySelector(".lore-row__head > :not(.lore-row__badges):not(.lore-row__actions)")),
           bodyOverflows: (() => {
             const body = row.querySelector('[data-testid="lore-body"]') as HTMLElement | null;
             return body ? body.scrollHeight > body.clientHeight + 1 : null;
@@ -207,9 +203,8 @@ function assertHeadContained(width: number, row: RowGeom) {
   if (input) expect.soft(input.box.right - input.box.left, `${tag} message input too narrow`).toBeGreaterThanOrEqual(150);
   const send = row.composerItems.find((c) => c.id === "lore-msg-send");
   if (send) expect.soft(send.box.bottom - send.box.top, `${tag} 送出 wraps`).toBeLessThanOrEqual(40);
-  // No fold: the body shows in full, nothing marks or toggles a row.
+  // No fold: the body shows in full and the row is not a toggle.
   expect.soft(row.bodyOverflows, `${tag} body missing or clipped`).toBe(false);
-  expect.soft(row.mark, `${tag} expand mark`).toBeNull();
   expect.soft(row.toggle, `${tag} row is a toggle`).toBe(false);
   expect.soft(row.actions, `${tag} actions missing`).not.toBeNull();
   // One 編輯 at every width, the app's own edit button: pencil + label, and

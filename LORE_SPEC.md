@@ -146,9 +146,9 @@
 - **改狀態**：`entry_id` ＋ 目標狀態（`active` / `pinned` / `retired`），可帶 `retire_reason`。沒有批次 API（`rc-bb0adff66ff5`）。
 - **提到最新**：`entry_id` ⇒ `effective_ts` ← 現在。`created_ts` 不動。**沒有上移／下移**（`rc-bb0adff66ff5`）：排序規則只有 §2 那一條，「提到最新」是唯一調位置的動作。
 - **讀清單**（`GET /api/lore`）：依 scope 篩選、分頁。每筆帶 `lore_type`。類型篩選 `lore_types`（只有複數）：五個值以外的元素 ⇒ 400 並點名；跟其他軸一樣在 SQL 裡 AND 進去。每一筆都有類型，所以五個值全勾等於不篩。
-  - 所有人的條目沒有 key，所以 `scope_keys` 不會把它們篩掉：`scope_kinds=everyone&scope_kinds=agent&scope_keys=<成員 id>` 回的就是那位成員開機時讀的整份清單，所有人的條目與自己的條目照 §2 的順序混排。
+  - 所有人的條目沒有 key，所以 `scope_kinds` 含 `everyone` 時，`scope_keys` 不會把它們篩掉：`scope_kinds=everyone&scope_kinds=agent&scope_keys=<成員 id>` 回的就是那位成員開機時讀的整份清單，所有人的條目與自己的條目照 §2 的順序混排。
   - 篩選收斂到**單一對象**（`everyone` 不帶 key、`agent` / `manual` 各帶一個 key，或 `everyone`＋`agent` 帶一個成員 key）時，回應另帶 `cap_chars`、`used_chars`、`first_dropped_id`、`first_dropped_chars` 與 `budget_segments`（每個 scope 一段：筆數、字數、放得下幾筆、放得下的字數；成員是固定先 `everyone` 再 `agent`）。`first_dropped_id` 在只問 `agent` 時是該成員自己第一筆放不下的，在問成員整份清單時是整份清單第一筆放不下的（可能是所有人的條目）。這些數字由 §2 同一份挑選算出，**針對整個對象、不受其他篩選軸與分頁影響**；沒收斂到單一對象時都是 0 ／空。
-- **各對象用量**（`GET /api/lore/budgets`）：一次回每一個開機文件對象的預算——`everyone`、名冊上每位成員（正職與外包，warden 除外）、每本任務手冊——各帶 `cap_chars`、`used_chars`、`entry_count`（只算掛在該對象自己底下的置頂＋生效條目）、`dropped_count`（走訪到但放不下的筆數；成員對象會把放不下的所有人條目算進去）。同一份挑選算出，所以跟上限線永遠一致。
+- **各對象用量**（`GET /api/lore/budgets`）：一次回每一個開機文件對象的預算——`everyone`、名冊上每位成員（正職與外包，warden 除外）、每本任務手冊——各帶 `cap_chars`、`used_chars`、`entry_count`（該對象開機文件走訪的置頂＋生效條目；成員對象連所有人的條目一起算，跟成員段落清單的列數、`dropped_count` 的分母一致）、`dropped_count`（走訪到但放不下的筆數；成員對象會把放不下的所有人條目算進去）。同一份挑選算出，所以跟上限線永遠一致。
 - **改適用範圍**（T-236，只限負責人／admin agent，其他人含撰寫人都是 403）：`set_lore_entry_scope`，`entry_id` ＋目標 `scope_kind`（`agent` / `manual` / `everyone`）。`scope_key` 由伺服器推：撰寫人的 member id／條目來源任務的類型（來源任務沒有類型、而撰寫人是外包時，改用那位外包綁定任務的類型）／空字串。推不出類型時 `manual` 是 400。清單上每筆的 `scope_options` 就是這支接受的選項。下次開機生效，不通知撰寫人、不留變更紀錄。
 
 ---

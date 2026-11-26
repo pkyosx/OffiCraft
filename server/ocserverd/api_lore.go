@@ -615,7 +615,7 @@ func newLoreBudgetTargetDTO(scopeKind, scopeKey string, sel loreSelection) LoreB
 		ScopeKey:     scopeKey,
 		CapChars:     sel.CapChars,
 		UsedChars:    sel.UsedChars,
-		EntryCount:   sel.segment(scopeKind).EntryCount,
+		EntryCount:   sel.entryCount(),
 		DroppedCount: sel.droppedCount(),
 	}
 }

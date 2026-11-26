@@ -127,9 +127,12 @@ interface AuthorIdentity {
   peerId: string;
 }
 
+/** `roster` is set while the roster has not answered (or failed to): until
+ * then a live author cannot be told from an absent one, so nobody is picked. */
 interface MessageRecipient {
   id: string;
   name: string;
+  roster?: "loading" | "error";
 }
 
 interface ScopeChoice {
@@ -248,13 +251,14 @@ type EntrySeed = { key: string; entryId: string; state: LoreEntryState };
 interface LoreShared {
   members: ReturnType<typeof useMembers>["members"];
   membersLoading: boolean;
+  membersError: boolean;
   workers: ReturnType<typeof useOutsourceWorkers>["workers"];
   manuals: ReturnType<typeof useTaskManuals>["manuals"];
   entryCaps: { title: number; body: number };
 }
 
 export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
-  const { members, loading: membersLoading } = useMembers();
+  const { members, loading: membersLoading, error: membersError } = useMembers();
   const { workers } = useOutsourceWorkers();
   const { manuals } = useTaskManuals();
   const [entryCaps, setEntryCaps] = useState({
@@ -273,8 +277,8 @@ export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
     };
   }, []);
   const shared = useMemo<LoreShared>(
-    () => ({ members, membersLoading, workers, manuals, entryCaps }),
-    [members, membersLoading, workers, manuals, entryCaps]
+    () => ({ members, membersLoading, membersError, workers, manuals, entryCaps }),
+    [members, membersLoading, membersError, workers, manuals, entryCaps]
   );
   const [route] = useHashRoute();
   const sec = route.page === "lore" ? route.loreSection : undefined;
@@ -345,7 +349,7 @@ function LoreView({
   refreshBudgets: () => Promise<void>;
 }) {
   const { t, msg } = useI18n();
-  const { members, membersLoading, workers, manuals, entryCaps } = shared;
+  const { members, membersLoading, membersError, workers, manuals, entryCaps } = shared;
   const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
 
   // ── 篩選 ────────────────────────────────────────────────────────────────
@@ -1072,6 +1076,8 @@ function LoreView({
   }
 
   function messageRecipient(entry: LoreEntryView): MessageRecipient {
+    if (membersLoading) return { id: "", name: "", roster: "loading" };
+    if (membersError) return { id: "", name: "", roster: "error" };
     const author = resolveAuthor(entry.authorId);
     if (entry.state !== "pinned" && author.peerId !== "") {
       return { id: author.peerId, name: author.text };
@@ -1968,7 +1974,15 @@ function LoreMessageBox({
     clearAttachments,
   } = useAttachmentStaging(STAGING_TARGET_PER_MOUNT);
   const canSend =
-    !sending && (draft.trim().length > 0 || pendingAttachments.length > 0);
+    !sending &&
+    recipient.roster === undefined &&
+    (draft.trim().length > 0 || pendingAttachments.length > 0);
+  const placeholder =
+    recipient.roster === "loading"
+      ? t.lore.loadingMore
+      : recipient.roster === "error"
+        ? t.office.loadError
+        : t.tasks.messagePlaceholder(recipient.name);
 
   useLayoutEffect(() => {
     if (boxRef.current) autosizeTextarea(boxRef.current);
@@ -2042,8 +2056,8 @@ function LoreMessageBox({
           rows={1}
           value={draft}
           disabled={sending}
-          placeholder={t.tasks.messagePlaceholder(recipient.name)}
-          aria-label={t.tasks.messagePlaceholder(recipient.name)}
+          placeholder={placeholder}
+          aria-label={placeholder}
           data-testid="lore-msg-input"
           data-recipient={recipient.id}
           onChange={(e) => setDraft(e.target.value)}
