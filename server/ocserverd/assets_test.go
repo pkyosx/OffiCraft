@@ -363,7 +363,10 @@ func TestBuildBootContext(t *testing.T) {
 		return strings.ReplaceAll(string(data), ownerPlaceholder, wireOwnerID)
 	}
 	wantContext := func(userText string) string {
-		parts := []string{strings.TrimSpace(readSeed(systemInteractionSeedMD))}
+		parts := []string{
+			strings.TrimSpace(readSeed(systemInteractionSeedMD)),
+			"# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。",
+		}
 		if strings.TrimSpace(userText) != "" {
 			parts = append(parts, userAdditionsTitle+"\n\n"+strings.TrimSpace(userText))
 		}

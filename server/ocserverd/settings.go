@@ -141,9 +141,10 @@ const (
 	settingUpdaterAutoUpdate = "updater.auto_update"
 
 	settingUpdaterCheckIntervalSecs = "updater.check_interval_secs"
-	// org.name reaches every agent via get_global_context; owner.name and
-	// display.* never enter an agent read path. "" = never set: the frontend
-	// falls back to its localized default / cached value.
+	// org.name reaches every agent via get_global_context; display.language
+	// reaches every member's boot context (userLanguageBlock); owner.name and the
+	// other display.* never enter an agent read path. "" = never set: the
+	// frontend falls back to its localized default / cached value.
 	settingOrgName = "org.name"
 
 	settingOwnerName = "owner.name"

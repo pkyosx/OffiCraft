@@ -429,6 +429,22 @@ def _expected_lore_block(client, owner_token, member_id: str) -> str:
     return out
 
 
+_USER_LANGUAGE_ZH = (
+    "# User Language\n\n"
+    "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。"
+)
+_USER_LANGUAGE_EN = (
+    "# User Language\n\n"
+    "Use English for everything you write to the user, including reports. "
+    "Do not use other languages."
+)
+
+
+def _user_language_block(display_language: str) -> str:
+    # "" (never set) and "zh" share the Traditional Chinese text.
+    return _USER_LANGUAGE_EN if display_language == "en" else _USER_LANGUAGE_ZH
+
+
 def _expected_context(
     client, owner_token, role_key: str, user_text: str, member_id: str = ""
 ) -> str:
@@ -443,8 +459,11 @@ def _expected_context(
     # if this file and §2.2 ever disagree about the ORDER, that is a real bug in
     # one of them; if they disagree about FORMATTING, this file wins by design.
     #
-    # Order (must match §2.2): 系統互動 → 使用者自訂 → 角色定義 → 判準 →
-    # 傳承 → 啟動步驟.
+    # Order (must match §2.2): 系統互動 → 使用者語言 → 使用者自訂 → 角色定義 →
+    # 判準 → 傳承 → 啟動步驟.
+    #
+    # 使用者語言 is never dropped; which text it carries follows the station's
+    # display_language, read off the wire because another file may have set it.
     #
     # 傳承 (T-33) sits between the persona and the recency-authoritative 啟動步驟
     # tail (server/ocserverd/assets.go) and, like 使用者自訂 and 判準, is dropped
@@ -463,7 +482,12 @@ def _expected_context(
     # gate is the FOLDED TEXT — deliberately not is_default and not has_seed,
     # which answer different questions and would each drop or emit the section
     # for the wrong roles.
-    parts = [_rendered(_seed("system_interaction.md")).strip()]
+    settings = client.get("/api/settings", headers=_auth(owner_token))
+    assert settings.status_code == 200, settings.text
+    parts = [
+        _rendered(_seed("system_interaction.md")).strip(),
+        _user_language_block(settings.json()["display_language"]),
+    ]
     if user_text.strip():
         parts.append(f"# 使用者自訂（Owner Additions）\n\n{user_text.strip()}")
     parts.append(
@@ -620,6 +644,53 @@ def test_member_boot_context_preview_equals_the_member_boot_fold_verbatim(
         )
     finally:
         client.delete(f"/api/members/{member_id}", headers=_auth(owner_token))
+
+
+def test_boot_fold_user_language_follows_display_language(
+    client, owner_token
+) -> None:
+    """§2.2 block 2: the 使用者語言 block sits between 系統互動 and 使用者自訂,
+    and switches with display_language at the next assembly — "" (never set)
+    and "zh" give the Chinese text, "en" the English one."""
+    original = client.get("/api/settings", headers=_auth(owner_token)).json()[
+        "display_language"
+    ]
+    marker = f"conf language marker {uuid.uuid4().hex[:8]}"
+    r = client.post(
+        "/api/global-context", json={"text": marker}, headers=_auth(owner_token)
+    )
+    assert r.status_code == 200, r.text
+    sys_block = _rendered(_seed("system_interaction.md")).strip()
+    try:
+        for lang, block in (
+            ("", _USER_LANGUAGE_ZH),
+            ("en", _USER_LANGUAGE_EN),
+            ("zh", _USER_LANGUAGE_ZH),
+        ):
+            r = client.patch(
+                "/api/settings",
+                json={"display_language": lang},
+                headers=_auth(owner_token),
+            )
+            assert r.status_code == 200, r.text
+            context, role_key = _bootstrap_context(client, owner_token)
+            head = (
+                f"{sys_block}\n\n{block}\n\n"
+                f"# 使用者自訂（Owner Additions）\n\n{marker}\n\n"
+            )
+            assert context.startswith(head), (
+                f"display_language={lang!r}: the language block is missing or not "
+                "between 系統互動 and 使用者自訂"
+            )
+            assert context.count("# User Language") == 1, context
+            assert context == _expected_context(client, owner_token, role_key, marker)
+    finally:
+        client.patch(
+            "/api/settings",
+            json={"display_language": original},
+            headers=_auth(owner_token),
+        )
+        client.post("/api/global-context/reset", headers=_auth(owner_token))
 
 
 def test_bootstrap_unknown_role_404(client, owner_token) -> None:

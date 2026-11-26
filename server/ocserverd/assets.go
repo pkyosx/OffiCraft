@@ -413,9 +413,9 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 		roleTitle = roleDTO.Key
 	}
 	// Staff and outsource boot contexts are the SAME slots in the same order:
-	// 系統互動, 使用者自訂 (skipped when blank), persona (staff only), 啟動步驟
-	// (recency-authoritative tail). Only the persona slot differs.
-	parts := []string{strings.TrimSpace(sysSeed)}
+	// 系統互動, 使用者語言, 使用者自訂 (skipped when blank), persona (staff only),
+	// 啟動步驟 (recency-authoritative tail). Only the persona slot differs.
+	parts := []string{strings.TrimSpace(sysSeed), userLanguageBlock(s.displayLanguageSnapshot())}
 	if strings.TrimSpace(userCtx.Text) != "" {
 		parts = append(parts,
 			userAdditionsTitle+"\n\n"+strings.TrimSpace(userCtx.Text))
@@ -561,6 +561,20 @@ func materializeBinary(dir, name string, data []byte) (string, error) {
 // 🔴 The ONE title the 使用者自訂 block is served under; workerSharedHead
 // (outsource) uses it too, so staff and contractors boot under one heading.
 const userAdditionsTitle = "# 使用者自訂（Owner Additions）"
+
+// userLanguageBlock is the 使用者語言 block both boot folds staple between
+// 系統互動 and 使用者自訂. Read at assembly time, so a display.language change
+// reaches each member at its next boot and never a running session. Anything
+// other than "en" — including "" (never set) — gets the Traditional Chinese
+// text: that is the studio's language when the owner has not chosen one.
+func userLanguageBlock(lang string) string {
+	if lang == "en" {
+		return "# User Language\n\n" +
+			"Use English for everything you write to the user, including reports. Do not use other languages."
+	}
+	return "# User Language\n\n" +
+		"除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。"
+}
 
 // Named so "the one document of this kind" is not a magic "global" that reads
 // like the 全域脈絡 document it is not.
