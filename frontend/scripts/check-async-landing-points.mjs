@@ -847,6 +847,18 @@ const MODULE_STATE = [
   },
   {
     file: "lib/hashRoute.ts",
+    name: "acceptedIdx",
+    verdict:
+      "the history-entry index of the URL the navigation guard last let through, used to step a refused Back/Forward back with history.go(); it describes the browser history, not any room",
+  },
+  {
+    file: "lib/hashRoute.ts",
+    name: "lastIdx",
+    verdict:
+      "the highest history-entry index stamped so far, so a new entry gets a larger one; app-wide history bookkeeping, no room's value",
+  },
+  {
+    file: "lib/hashRoute.ts",
     name: "listeners",
     verdict:
       "the route subscribers behind the one hashchange listener; each removes itself on unmount, and only the URL is handed to them",

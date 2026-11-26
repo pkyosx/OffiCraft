@@ -397,6 +397,39 @@ let navigationGuard: NavigationGuard | null = null;
 // The last hash the guard let through. A refused browser back/forward or a
 // hand-edited hash is put back to this.
 let acceptedHash: string | null = null;
+// Each history entry this page sees is stamped with a rising index in
+// history.state, so a refused Back/Forward can be undone with history.go()
+// instead of rewriting an entry (which would erase the reader's back history).
+const HIST_IDX = "ocHistIdx";
+let acceptedIdx = 0;
+let lastIdx = 0;
+
+function entryIdx(): number | undefined {
+  const st: unknown = history.state;
+  if (st && typeof st === "object") {
+    const v = (st as Record<string, unknown>)[HIST_IDX];
+    if (typeof v === "number") return v;
+  }
+  return undefined;
+}
+
+function stampEntry(idx: number): void {
+  const st: unknown = history.state;
+  const base = st && typeof st === "object" ? (st as Record<string, unknown>) : {};
+  history.replaceState({ ...base, [HIST_IDX]: idx }, "");
+}
+
+function acceptEntry(): void {
+  const idx = entryIdx();
+  if (idx === undefined) {
+    lastIdx += 1;
+    stampEntry(lastIdx);
+    acceptedIdx = lastIdx;
+  } else {
+    acceptedIdx = idx;
+    lastIdx = Math.max(lastIdx, idx);
+  }
+}
 
 export function setNavigationGuard(guard: NavigationGuard): () => void {
   navigationGuard = guard;
@@ -432,10 +465,20 @@ function onHashChange(): void {
   const cur = window.location.hash;
   const prev = acceptedHash ?? "";
   if (cur !== prev && navigationGuard && !navigationGuard(parseHash(cur))) {
-    // replaceState fires no hashchange, so subscribers keep the old route.
-    history.replaceState(null, "", window.location.pathname + window.location.search + prev);
+    const idx = entryIdx();
+    if (idx !== undefined && idx !== acceptedIdx) {
+      // Back/Forward onto an entry we know: step back to where we were. The
+      // hashchange that brings us there matches acceptedHash and passes.
+      history.go(acceptedIdx - idx);
+    } else if (idx === undefined) {
+      // A new entry (a hand-typed hash): return to the accepted one behind it.
+      history.back();
+    } else {
+      history.replaceState(history.state, "", window.location.pathname + window.location.search + prev);
+    }
     return;
   }
+  acceptEntry();
   acceptedHash = cur;
   for (const cb of listeners) cb();
 }
@@ -443,6 +486,7 @@ function onHashChange(): void {
 function subscribe(cb: () => void): () => void {
   if (listeners.size === 0) {
     acceptedHash = window.location.hash;
+    acceptEntry();
     window.addEventListener("hashchange", onHashChange);
   }
   listeners.add(cb);

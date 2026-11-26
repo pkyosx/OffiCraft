@@ -2,7 +2,7 @@
 // route → hash update, plus the navigateHash home-strip behaviour.
 
 import { describe, it, expect } from "vitest";
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { parseHash, formatHash, navigateHash, setNavigationGuard, useHashRoute } from "./hashRoute";
 
 describe("parseHash", () => {
@@ -477,11 +477,51 @@ describe("navigation guard", () => {
     const release = setNavigationGuard(() => false);
     try {
       window.location.hash = "#tasks";
-      await new Promise((r) => setTimeout(r, 20));
-      expect(window.location.hash).toBe("#lore/agent/mira");
+      await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
       expect(seen.every((h) => h === "#lore/agent/mira")).toBe(true);
     } finally {
       release();
+      unmount();
+    }
+  });
+});
+
+describe("navigation guard and real history traversal", () => {
+  const wait = () => new Promise((r) => setTimeout(r, 30));
+
+  it("a refused Back keeps both the page and the entry behind it; Back works again once allowed", async () => {
+    history.replaceState(null, "", window.location.pathname + "#tasks");
+    function Probe() {
+      useHashRoute();
+      return null;
+    }
+    const { unmount } = render(<Probe />);
+    try {
+      navigateHash({ page: "lore", loreSection: { kind: "agent", key: "mira" } });
+      await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
+      await wait();
+      const lengthBefore = history.length;
+
+      let asked = 0;
+      const release = setNavigationGuard(() => {
+        asked += 1;
+        return false;
+      });
+      history.back();
+      await waitFor(() => expect(asked).toBe(1));
+      await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
+      await wait();
+      expect(window.location.hash).toBe("#lore/agent/mira");
+      expect(history.length).toBe(lengthBefore);
+      release();
+
+      // The entry behind was not overwritten: Back still reaches it.
+      history.back();
+      await waitFor(() => expect(window.location.hash).toBe("#tasks"));
+      // …and Forward the section page.
+      history.forward();
+      await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
+    } finally {
       unmount();
     }
   });

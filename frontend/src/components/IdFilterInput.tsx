@@ -57,6 +57,7 @@ interface IdFilterInputProps {
    * ⇒ 7. A pre-change id typed in here still QUERIES fine; it is only too long
    * to read at a glance, which is the cost that ruling accepted. */
   widthCh: number;
+  disabled?: boolean;
 }
 
 export function IdFilterInput({
@@ -66,6 +67,7 @@ export function IdFilterInput({
   label,
   testId,
   widthCh,
+  disabled = false,
 }: IdFilterInputProps) {
   return (
     // The box is sized by the SIZER below, not by the input: the width has to be
@@ -100,6 +102,7 @@ export function IdFilterInput({
         aria-label={label}
         placeholder={label}
         value={value}
+        disabled={disabled}
         spellCheck={false}
         autoComplete="off"
         onChange={(e) => onChange(e.target.value)}

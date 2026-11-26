@@ -24,6 +24,7 @@ import { api } from "../api";
 // same class the adapters throw — `runAction` branches on `status` and reads
 // `serverMessage`, neither of which a plain Error carries.
 import { ApiError } from "../api/errors";
+import { hasRegisteredUnsavedWork } from "../lib/unsavedInput";
 import { codeForStatus } from "../api/errorCodes";
 // The action-error copy is asserted by VALUE, not by "is non-empty": an error
 // line saying the wrong sentence is a line that passed a non-empty check.
@@ -1549,12 +1550,14 @@ describe("LorePage — 提到最新移到最前面", () => {
   const ROW_H = 100;
   /** jsdom has no layout: rows stack ROW_H apart in DOM order under a
    * scrollport whose top is 0. */
-  function fakeLayout(container: HTMLElement) {
+  function fakeLayout(container: HTMLElement, viewH = 500, contentH = 5000) {
     const scroller = container.querySelector<HTMLElement>('[data-testid="lore-page"]')!;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => viewH });
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => contentH });
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       const box = (top: number, h: number) =>
         ({ top, bottom: top + h, left: 0, right: 300, width: 300, height: h, x: 0, y: top, toJSON() {} }) as DOMRect;
-      if (this === scroller) return box(0, 500);
+      if (this === scroller) return box(0, viewH);
       if (this instanceof HTMLElement && this.dataset.testid === "lore-row") {
         const rows = Array.from(container.querySelectorAll('[data-testid="lore-row"]'));
         return box(rows.indexOf(this) * ROW_H - scroller.scrollTop, ROW_H);
@@ -1638,6 +1641,68 @@ describe("LorePage — 提到最新移到最前面", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("at the bottom of the page it holds the card after the moved one still instead", async () => {
+    const { container } = await renderRows();
+    // Five 100px rows in a 300px view: the page scrolls at most 200.
+    const scroller = fakeLayout(container, 300, 500);
+    scroller.scrollTop = 200;
+
+    fireEvent.click(rowById(container, "A3").querySelector('[data-testid="lore-bump"]')!);
+
+    await waitFor(() => expect(renderedIds(container)).toEqual(["P", "A3", "A1", "A2", "A4"]));
+    expect(scroller.scrollTop).toBe(200);
+    expect(rowById(container, "A4").getBoundingClientRect().top).toBe(200);
+  });
+
+  it("places by state, not by the re-read's effective_ts: an active card lands after the pinned ones, a pinned one on top", async () => {
+    vi.spyOn(api, "bumpLoreEntry").mockResolvedValue(undefined);
+    // The re-read comes back with an OLD effective_ts; the card still moves.
+    vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) => {
+      const id = o?.entryIds?.[0];
+      if (id === "A4") return page([mkEntry({ id: "A4", effectiveTs: 1 })]);
+      if (id === "P2") return page([mkEntry({ id: "P2", state: "pinned", effectiveTs: 1 })]);
+      return page([
+        mkEntry({ id: "P", state: "pinned", effectiveTs: 10 }),
+        mkEntry({ id: "P2", state: "pinned", effectiveTs: 9 }),
+        mkEntry({ id: "A1", effectiveTs: 8 }),
+        mkEntry({ id: "A4", effectiveTs: 5 }),
+      ]);
+    });
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(4));
+
+    fireEvent.click(rowById(container, "A4").querySelector('[data-testid="lore-bump"]')!);
+    await waitFor(() => expect(renderedIds(container)).toEqual(["P", "P2", "A4", "A1"]));
+
+    fireEvent.click(rowById(container, "P2").querySelector('[data-testid="lore-bump"]')!);
+    await waitFor(() => expect(renderedIds(container)).toEqual(["P2", "P", "A4", "A1"]));
+  });
+
+  it("a card already at the top of its group stays and shows no toast", async () => {
+    const { container, list } = await renderRows();
+    fireEvent.click(rowById(container, "A1").querySelector('[data-testid="lore-bump"]')!);
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(renderedIds(container)).toEqual(["P", "A1", "A2", "A3", "A4"]);
+    expect(container.querySelector('[data-testid="lore-toast"]')).toBeNull();
+  });
+
+  it("leaving and coming back clears the toast and the error line", async () => {
+    const { container } = await renderRows();
+    fireEvent.click(rowById(container, "A3").querySelector('[data-testid="lore-bump"]')!);
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-toast"]')).not.toBeNull());
+    vi.mocked(api.bumpLoreEntry).mockRejectedValueOnce(new ApiError("http 403", 403, "forbidden", ""));
+    fireEvent.click(rowById(container, "A4").querySelector('[data-testid="lore-bump"]')!);
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-action-error"]')).not.toBeNull());
+
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-target"]')).not.toBeNull());
+    fireEvent.click(container.querySelector('[data-testid="lore-target"]')!);
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
+    expect(container.querySelector('[data-testid="lore-toast"]')).toBeNull();
+    expect(container.querySelector('[data-testid="lore-action-error"]')).toBeNull();
   });
 
   it("a refused bump moves nothing and shows no toast", async () => {
@@ -2324,6 +2389,81 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(container.querySelector('[data-testid="lore-highlight-missing"]')).toBeNull();
   });
 
+  it("a retired entry found from the directory opens its section with 已失效 ticked, so it is listed without paging", async () => {
+    stubTargets();
+    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
+      o?.scopeKeys === undefined
+        ? page([mkEntry({ id: "L-9", state: "retired" })])
+        : miraPage(
+            [mkEntry({ id: "L-198" }), mkEntry({ id: "L-9", state: "retired" })].filter((e) =>
+              o?.states?.includes(e.state),
+            ),
+          ),
+    );
+    const { container } = renderPage();
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
+    searchFor(container, "lore-directory-id", "L-9");
+
+    await waitFor(() => expect(renderedIds(container)).toEqual(["L-198", "L-9"]));
+    expect(list.mock.calls.slice(1).map((c) => c[0])).toEqual([
+      { states: ["pinned", "active", "retired"], scopeKinds: ["agent"], scopeKeys: ["mira"], limit: 30, offset: 0 },
+    ]);
+    expect(rowById(container, "L-9").classList.contains("lore-row--highlight")).toBe(true);
+  });
+
+  it("an id whose section is gone says so once and stays on the directory", async () => {
+    stubTargets();
+    stubList(page([mkEntry({ id: "L-5", scopeKind: "agent", scopeKey: "m-left" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
+    searchFor(container, "lore-directory-id", "L-5");
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="lore-directory-note"]')?.textContent).toBe(
+        "L-5 所在的段落已經不在了（成員已離開或手冊已刪除）",
+      ),
+    );
+    expect(window.location.hash).toBe("");
+  });
+
+  it("paging for a highlight stops at the cap and says the entry is not there", async () => {
+    stubTargets();
+    let n = 0;
+    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
+      miraPage(Array.from({ length: 30 }, () => mkEntry({ id: `L-${1000 + n++}` })), { offset: o?.offset ?? 0 }),
+    );
+    window.location.hash = "#lore/agent/mira/entry/L-9";
+    const { container } = renderPage();
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-highlight-missing"]')).not.toBeNull(), {
+      timeout: 3000,
+    });
+    // The first page and ten more, then it gives up.
+    expect(list).toHaveBeenCalledTimes(11);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(list).toHaveBeenCalledTimes(11);
+  });
+
+  it("paging for a highlight stops once the reader changes a filter", async () => {
+    stubTargets();
+    const page2 = held<LoreEntryPageView>();
+    let n = 0;
+    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
+      (o?.offset ?? 0) === 30
+        ? page2.promise
+        : miraPage(Array.from({ length: 30 }, () => mkEntry({ id: `L-${1000 + n++}` }))),
+    );
+    window.location.hash = "#lore/agent/mira/entry/L-9";
+    const { container } = renderPage();
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(container.querySelector<HTMLElement>('[data-testid="lore-filter-state"]')!);
+    fireEvent.click(container.querySelector<HTMLElement>('[data-testid="lore-filter-state-opt-retired"] input')!);
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
+    page2.resolve(miraPage([]));
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(list.mock.calls.map((c) => c[0]?.offset)).toEqual([0, 30, 0]);
+  });
+
   it("a highlighted entry the section does not list says so", async () => {
     stubTargets();
     stubList(miraPage([mkEntry({ id: "L-198" })]));
@@ -2860,6 +3000,72 @@ describe("LorePage — 編輯多筆", () => {
     expect(unsaved(container)).toEqual(["L-1"]);
   });
 
+  it("the filters are locked while the mode is on, with a hint", async () => {
+    stubList(page(rows()));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
+    fireEvent.click(container.querySelector('[data-testid="lore-multi-toggle"]')!);
+    for (const id of ["lore-filter-id", "lore-filter-author", "lore-filter-type", "lore-filter-state"]) {
+      expect(container.querySelector<HTMLInputElement | HTMLButtonElement>(`[data-testid="${id}"]`)!.disabled).toBe(true);
+    }
+    expect(container.querySelector('[data-testid="lore-multi-filters-locked"]')!.textContent).toBe(
+      "編輯多筆時篩選先鎖住；全部儲存或取消後再改。",
+    );
+    fireEvent.click(container.querySelector('[data-testid="lore-multi-toggle"]')!);
+    expect(container.querySelector<HTMLInputElement>('[data-testid="lore-filter-id"]')!.disabled).toBe(false);
+    expect(container.querySelector('[data-testid="lore-multi-filters-locked"]')).toBeNull();
+  });
+
+  it("while 全部儲存 runs, the chips and the bar are locked and leaving the section is refused", async () => {
+    const s = spies();
+    const gate = held<void>();
+    s.edit.mockReturnValue(gate.promise);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { container } = await renderMode();
+    pick(container, "L-1", "lore-type", "lore-type-owner_decision");
+    fireEvent.click(container.querySelector('[data-testid="lore-multi-save"]')!);
+    await waitFor(() => expect(s.edit).toHaveBeenCalled());
+
+    for (const chip of ["lore-state", "lore-type", "lore-scope-name"]) {
+      expect(rowById(container, "L-2").querySelector<HTMLButtonElement>(`[data-testid="${chip}"]`)!.disabled).toBe(true);
+    }
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="lore-multi-save"]')!.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="lore-multi-cancel"]')!.disabled).toBe(true);
+
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+    expect(window.location.hash).toBe("#lore/agent/mira");
+    expect(confirm).not.toHaveBeenCalled();
+
+    gate.resolve();
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-multi-result"]')).not.toBeNull());
+    expect(unsaved(container)).toEqual([]);
+    expect(rowById(container, "L-2").querySelector<HTMLButtonElement>('[data-testid="lore-state"]')!.disabled).toBe(false);
+  });
+
+  it("staged changes count as unsaved work for the stale-build reload, and a successful 全部儲存 removes every guard", async () => {
+    spies();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { container } = await renderMode();
+    const unload = () => {
+      const e = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(hasRegisteredUnsavedWork()).toBe(false);
+    pick(container, "L-1", "lore-state", "lore-state-retired");
+    expect(hasRegisteredUnsavedWork()).toBe(true);
+    expect(unload()).toBe(true);
+
+    fireEvent.click(container.querySelector('[data-testid="lore-multi-save"]')!);
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-multi-result"]')).not.toBeNull());
+
+    expect(hasRegisteredUnsavedWork()).toBe(false);
+    expect(unload()).toBe(false);
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(1));
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
   it("with staged changes, leaving the section asks first and closing the page is held", async () => {
     spies();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
@@ -2888,8 +3094,7 @@ describe("LorePage — 編輯多筆", () => {
 
     // A browser back / hand-edited hash is put back too.
     window.location.hash = "#tasks";
-    await new Promise((r) => setTimeout(r, 20));
-    expect(window.location.hash).toBe("#lore/agent/mira");
+    await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
     expect(confirm).toHaveBeenCalledTimes(2);
 
     confirm.mockReturnValue(true);

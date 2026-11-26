@@ -4,7 +4,7 @@ import { hasWritesInFlight } from "../api/client";
 import { useI18n } from "../i18n";
 import { hasAnyChatDraft } from "../lib/chatDraftStore";
 import { createStaleBuildWatch } from "../lib/staleBuild";
-import { trackUnsavedTextFields } from "../lib/unsavedInput";
+import { hasRegisteredUnsavedWork, trackUnsavedTextFields } from "../lib/unsavedInput";
 import "./status-banner.css";
 
 export function BuildUpdateBanner(): JSX.Element | null {
@@ -17,7 +17,8 @@ export function BuildUpdateBanner(): JSX.Element | null {
       // Not isWindowActive: WebKit in-app browsers and home-screen apps report
       // no focus until the first tap, which would reload a page being read.
       isWatched: () => document.visibilityState === "visible",
-      hasUnsavedInput: () => hasAnyChatDraft() || hasEditedField.current(),
+      hasUnsavedInput: () =>
+        hasAnyChatDraft() || hasEditedField.current() || hasRegisteredUnsavedWork(),
       hasWritesInFlight,
       reload: () => window.location.reload(),
       storage: {

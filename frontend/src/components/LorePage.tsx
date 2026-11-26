@@ -69,6 +69,7 @@ import type { AvatarKind } from "../lib/themeBundle";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import { autosizeTextarea } from "../lib/autosize";
+import { registerUnsavedWork } from "../lib/unsavedInput";
 import { enterShouldSend } from "../lib/composerKeys";
 import {
   formatHash,
@@ -215,21 +216,23 @@ function loreRank(s: LoreEntryState): number {
   return s === "pinned" ? 0 : s === "active" ? 1 : 2;
 }
 
-/** 提到最新's card goes where the server now sorts it: ahead of the first row it
- * outranks, i.e. right after the 置頂 rows for a live entry. */
-function moveBumped(entries: LoreEntryView[], id: string): LoreEntryView[] {
+/** 提到最新's card goes to the top of its own state group — right after the
+ * 置頂 rows for a live entry — which is where the server now sorts it. Decided
+ * by state alone, not by the re-read's effective_ts, so a lagging clock cannot
+ * leave it behind. null when it is already there. */
+function moveBumped(entries: LoreEntryView[], id: string): LoreEntryView[] | null {
   const i = entries.findIndex((e) => e.id === id);
-  if (i < 0) return entries;
+  if (i < 0) return null;
   const moved = entries[i];
   const rest = entries.filter((_, j) => j !== i);
-  let at = rest.findIndex(
-    (e) =>
-      loreRank(e.state) > loreRank(moved.state) ||
-      (loreRank(e.state) === loreRank(moved.state) && e.effectiveTs <= moved.effectiveTs)
-  );
+  let at = rest.findIndex((e) => loreRank(e.state) >= loreRank(moved.state));
   if (at < 0) at = rest.length;
+  if (at === i) return null;
   return [...rest.slice(0, at), moved, ...rest.slice(at)];
 }
+
+/** Auto-paging for a highlighted entry stops after this many extra pages. */
+const HIGHLIGHT_PAGE_CAP = 10;
 
 /** 編輯多筆: what a card would change to once 全部儲存 sends it. */
 interface StagedChange {
@@ -349,20 +352,12 @@ export function LorePage({
   const [multiSaving, setMultiSaving] = useState(false);
   const [multiResult, setMultiResult] = useState<{ text: string; failed: boolean } | null>(null);
 
-  // A section page starts clean: filters, selection and 編輯多筆 belong to the
-  // section they were set on, and the directory shows none of them.
-  const [pageFor, setPageFor] = useState(sectionKey);
-  if (pageFor !== sectionKey) {
-    setPageFor(sectionKey);
-    setSearchDraft("");
-    setAppliedSearch("");
-    setStates(new Set(DEFAULT_STATES));
-    setAuthors(new Set());
-    setLoreTypes(new Set());
-    setMultiEdit(false);
-    setStaged(new Map());
-    setMultiResult(null);
-  }
+  const savingRef = useRef(false);
+  const sectionKeyRef = useRef(sectionKey);
+  sectionKeyRef.current = sectionKey;
+  // The directory's id search knows the entry's state; the section page it
+  // opens ticks that state so the entry is listed (a 已失效 one included).
+  const seedRef = useRef<{ key: string; entryId: string; state: LoreEntryState } | null>(null);
 
   // ── sections ───────────────────────────────────────────────────────────
   const [budgets, setBudgets] = useState<LoreBudgetTargetView[] | null>(null);
@@ -466,6 +461,9 @@ export function LorePage({
         .listLoreEntries({ ...baseOptsRef.current, ...scopeOpts(def), limit: PAGE, offset: 0 })
         .then((page) => {
           if (genRef.current.get(def.key) !== gen) return -1;
+          // Out of flight before the rows land: an effect that runs on them
+          // (the highlight's auto-paging) may ask for the next page at once.
+          flightRef.current.delete(def.key);
           patchSection(def.key, (p) => ({
             entries: page.entries,
             cap: isLatestCap(def.key, capSeq) ? capOf(page) : p.cap,
@@ -491,9 +489,9 @@ export function LorePage({
   );
 
   const loadMore = useCallback(
-    (def: SectionDef) => {
+    (def: SectionDef): boolean => {
       const held = dataRef.current[def.key];
-      if (!held || held.exhausted || held.error || flightRef.current.has(def.key)) return;
+      if (!held || held.exhausted || held.error || flightRef.current.has(def.key)) return false;
       const gen = genRef.current.get(def.key) ?? 0;
       const capSeq = nextCapSeq(def.key);
       flightRef.current.add(def.key);
@@ -507,6 +505,7 @@ export function LorePage({
         })
         .then((page) => {
           if (genRef.current.get(def.key) !== gen) return;
+          flightRef.current.delete(def.key);
           patchSection(def.key, (p) => {
             // An entry that changed between two reads can slide across the page
             // boundary and arrive twice; the first copy keeps its place.
@@ -528,6 +527,7 @@ export function LorePage({
           patchSection(def.key, (p) => ({ ...p, fetchingMore: false }));
           flightRef.current.delete(def.key);
         });
+      return true;
     },
     [patchSection]
   );
@@ -791,7 +791,8 @@ export function LorePage({
   );
   // ── 提到最新 moves the card; the viewport stays on what the reader saw ────
   const [toast, setToast] = useState<{ id: string } | null>(null);
-  const anchorRef = useRef<{ el: HTMLElement; top: number } | null>(null);
+  type Anchor = { el: HTMLElement; top: number };
+  const anchorRef = useRef<{ main: Anchor; fallback: Anchor | null } | null>(null);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), TOAST_MS);
@@ -801,8 +802,14 @@ export function LorePage({
     const a = anchorRef.current;
     anchorRef.current = null;
     const sc = scrollRef.current;
-    if (!a || !sc || !a.el.isConnected) return;
-    const delta = a.el.getBoundingClientRect().top - a.top;
+    if (!a || !sc || !a.main.el.isConnected) return;
+    const shift = (x: Anchor) => x.el.getBoundingClientRect().top - x.top;
+    let delta = shift(a.main);
+    // Near the bottom the page may not scroll that far, and a clamped scroll
+    // moves the view anyway. The card after the moved one keeps its place
+    // without any scroll, so hold that one still instead.
+    const max = sc.scrollHeight - sc.clientHeight;
+    if (a.fallback?.el.isConnected && sc.scrollTop + delta > max + 1) delta = shift(a.fallback);
     if (delta !== 0) sc.scrollTop += delta;
   }, [data]);
 
@@ -810,24 +817,29 @@ export function LorePage({
     (id: string) => {
       const key = sectionOfEntry(id);
       if (!key) return;
+      const next = moveBumped(dataRef.current[key]?.entries ?? [], id);
+      if (!next) return;
       const sc = scrollRef.current;
       anchorRef.current = null;
       if (sc) {
+        const rows = [...sc.querySelectorAll<HTMLElement>('[data-testid="lore-row"]')];
+        const after = rows[rows.findIndex((el) => el.dataset.entryId === id) + 1];
+        const fallback = after ? { el: after, top: after.getBoundingClientRect().top } : null;
         // The first card that starts in view, other than the one leaving. A
         // card cut off at the top would do as well on paper, but when the
         // leaving card sat right under it there is often not enough page left
         // below to scroll it back into place.
         const top = sc.getBoundingClientRect().top;
-        for (const el of sc.querySelectorAll<HTMLElement>('[data-testid="lore-row"]')) {
+        for (const el of rows) {
           if (el.dataset.entryId === id) continue;
           const box = el.getBoundingClientRect();
           if (box.top >= top) {
-            anchorRef.current = { el, top: box.top };
+            anchorRef.current = { main: { el, top: box.top }, fallback };
             break;
           }
         }
       }
-      patchSection(key, (p) => ({ ...p, entries: moveBumped(p.entries, id) }));
+      patchSection(key, (p) => ({ ...p, entries: moveBumped(p.entries, id) ?? p.entries }));
       setToast({ id });
     },
     [patchSection, sectionOfEntry]
@@ -900,7 +912,7 @@ export function LorePage({
   const stage = useCallback(
     (id: string, patch: StagedChange) => {
       const orig = findEntry(id);
-      if (!orig) return;
+      if (!orig || savingRef.current) return;
       setMultiResult(null);
       setStaged((prev) => {
         const next = new Map(prev);
@@ -920,51 +932,63 @@ export function LorePage({
   // The same runner shape as the batch bar: one entry at a time, failures
   // collected with the server's reason, the section re-read once at the end.
   async function saveStaged() {
+    const forKey = sectionKey;
+    savingRef.current = true;
     setMultiSaving(true);
     setActionError(null);
     setMultiResult(null);
     const done: string[] = [];
     const failed: { id: string; reason: string }[] = [];
-    const left = new Map<string, StagedChange>();
+    const sentOk = new Map<string, StagedChange>();
     const touched: string[] = [];
-    for (const [id, ch] of stagedRef.current) {
-      const keep: StagedChange = {};
+    for (const [id, ch] of [...stagedRef.current]) {
+      const ok: StagedChange = {};
       let reason = "";
-      let any = false;
-      const attempt = async (fn: () => Promise<unknown>, onFail: () => void) => {
+      let anyFailed = false;
+      const attempt = async (fn: () => Promise<unknown>, onOk: () => void) => {
         try {
           await fn();
-          any = true;
+          onOk();
         } catch (e) {
-          onFail();
+          anyFailed = true;
           if (reason === "") reason = failText(e);
         }
       };
-      if (ch.loreType) {
-        const lt = ch.loreType;
-        await attempt(() => api.editLoreEntry(id, { loreType: lt }), () => (keep.loreType = lt));
+      const { loreType, scopeKind, state } = ch;
+      if (loreType) await attempt(() => api.editLoreEntry(id, { loreType }), () => (ok.loreType = loreType));
+      if (scopeKind) await attempt(() => api.setLoreEntryScope(id, scopeKind), () => (ok.scopeKind = scopeKind));
+      if (state) await attempt(() => api.setLoreEntryState(id, state), () => (ok.state = state));
+      if (Object.keys(ok).length > 0) {
+        touched.push(id);
+        sentOk.set(id, ok);
       }
-      if (ch.scopeKind) {
-        const sk = ch.scopeKind;
-        await attempt(() => api.setLoreEntryScope(id, sk), () => (keep.scopeKind = sk));
-      }
-      if (ch.state) {
-        const st = ch.state;
-        await attempt(() => api.setLoreEntryState(id, st), () => (keep.state = st));
-      }
-      if (any) touched.push(id);
-      if (Object.keys(keep).length > 0) {
-        failed.push({ id, reason });
-        left.set(id, keep);
-      } else {
-        done.push(id);
-      }
+      if (anyFailed) failed.push({ id, reason });
+      else done.push(id);
     }
     const changed = new Map<string, string[]>();
-    if (sectionKey && touched.length > 0) changed.set(sectionKey, touched);
+    if (forKey && touched.length > 0) changed.set(forKey, touched);
     await refreshInPlace(changed, true);
-    setStaged(left);
+    savingRef.current = false;
     setMultiSaving(false);
+    // The section changed under the save: its staged map was already dropped,
+    // and these results belong to cards no longer on screen.
+    if (sectionKeyRef.current !== forKey) return;
+    // Clear only what went through with the value that was sent; a failed
+    // field keeps its staged value.
+    setStaged((prev) => {
+      const next = new Map(prev);
+      for (const [id, ok] of sentOk) {
+        const cur = next.get(id);
+        if (!cur) continue;
+        const left: StagedChange = { ...cur };
+        if (ok.loreType !== undefined && left.loreType === ok.loreType) delete left.loreType;
+        if (ok.scopeKind !== undefined && left.scopeKind === ok.scopeKind) delete left.scopeKind;
+        if (ok.state !== undefined && left.state === ok.state) delete left.state;
+        if (Object.keys(left).length === 0) next.delete(id);
+        else next.set(id, left);
+      }
+      return next;
+    });
     setMultiResult({ text: msg.loreBatchResult(done, failed), failed: failed.length > 0 });
   }
 
@@ -973,25 +997,32 @@ export function LorePage({
   // Leaving the section (another tab, the directory, back) or closing the page
   // with staged changes asks first. Highlight changes inside the same section
   // are not leaving.
+  // While 全部儲存 runs, leaving the section is refused outright: its results
+  // would land on a page that no longer shows those cards.
+  const holdsWork = hasStaged || multiSaving;
   useEffect(() => {
-    if (!hasStaged) return;
+    if (!holdsWork) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", onBeforeUnload);
+    const releaseWork = registerUnsavedWork(() => true);
     const release = setNavigationGuard((next: HashRoute) => {
       const same =
         next.page === "lore" &&
         next.loreSection !== undefined &&
         sectionKeyOf(next.loreSection.kind, next.loreSection.key) === sectionKey;
-      return same || window.confirm(leaveText);
+      if (same) return true;
+      if (savingRef.current) return false;
+      return window.confirm(leaveText);
     });
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
+      releaseWork();
       release();
     };
-  }, [hasStaged, sectionKey, leaveText]);
+  }, [holdsWork, sectionKey, leaveText]);
 
   function exitMultiEdit() {
     if (stagedRef.current.size > 0 && !window.confirm(leaveText)) return;
@@ -1020,15 +1051,18 @@ export function LorePage({
         offset: 0,
       });
       const e = page.entries[0];
-      if (!e || e.scopeKind === "unknown") {
+      if (!e) {
         setDirNote(msg.loreDirectoryNotFound(id));
         return;
       }
-      navigateHash({
-        page: "lore",
-        loreSection: { kind: e.scopeKind, key: e.scopeKind === "everyone" ? "" : e.scopeKey },
-        loreEntryId: id,
-      });
+      const key = e.scopeKind === "everyone" ? "" : e.scopeKey;
+      // A removed member or a deleted manual has no section page to open.
+      if (e.scopeKind === "unknown" || !defsRef.current.some((d) => d.key === sectionKeyOf(e.scopeKind, key))) {
+        setDirNote(msg.loreDirectorySectionGone(id));
+        return;
+      }
+      seedRef.current = { key: sectionKeyOf(e.scopeKind, key), entryId: id, state: e.state };
+      navigateHash({ page: "lore", loreSection: { kind: e.scopeKind, key }, loreEntryId: id });
     } catch (e) {
       setDirNote(failText(e));
     }
@@ -1040,6 +1074,29 @@ export function LorePage({
   const [retireOpen, setRetireOpen] = useState(false);
   const [retireReason, setRetireReason] = useState("");
   const [batchResult, setBatchResult] = useState<{ text: string; failed: boolean } | null>(null);
+
+  // A section page starts clean: filters, selection, 編輯多筆 and the bottom
+  // bars belong to the section they were set on.
+  const [pageFor, setPageFor] = useState(sectionKey);
+  if (pageFor !== sectionKey) {
+    setPageFor(sectionKey);
+    const seed = seedRef.current;
+    const seeded = new Set<LoreEntryState>(DEFAULT_STATES);
+    if (seed && seed.key === sectionKey && seed.entryId === highlightId) seeded.add(seed.state);
+    setSearchDraft("");
+    setAppliedSearch("");
+    setStates(seeded);
+    setAuthors(new Set());
+    setLoreTypes(new Set());
+    setMultiEdit(false);
+    setStaged(new Map());
+    setMultiResult(null);
+    setToast(null);
+    setBatchResult(null);
+    setActionError(null);
+    setRetireOpen(false);
+    setRetireReason("");
+  }
 
   const currentDef = sectionKey ? defs.find((d) => d.key === sectionKey) ?? null : null;
   // A selection only ever names cards on screen: a batch must not reach an
@@ -1055,16 +1112,27 @@ export function LorePage({
     });
   }, [currentDef, data, multiEdit]);
 
-  // A highlighted entry beyond the loaded pages: keep paging until it shows
-  // or the section runs out.
+  // A highlighted entry beyond the loaded pages: page on until it shows, the
+  // section runs out, the cap is reached, or the reader changes a filter (then
+  // they are looking for something else).
   const currentData = currentDef ? data[currentDef.key] : undefined;
   const highlightLoaded =
     highlightId !== "" && !!currentData?.entries.some((e) => e.id === highlightId);
+  const hlRef = useRef<{ id: string; filterKey: string; pages: number } | null>(null);
+  const [hlGaveUp, setHlGaveUp] = useState("");
+  const hlCapped = hlGaveUp !== "" && hlGaveUp === highlightId;
   useEffect(() => {
     if (!currentDef || !currentData || highlightId === "" || highlightLoaded) return;
+    let r = hlRef.current;
+    if (!r || r.id !== highlightId) r = hlRef.current = { id: highlightId, filterKey, pages: 0 };
+    if (r.filterKey !== filterKey) return;
     if (currentData.loading || currentData.fetchingMore || currentData.exhausted || currentData.error) return;
-    loadMore(currentDef);
-  }, [currentDef, currentData, highlightId, highlightLoaded, loadMore]);
+    if (r.pages >= HIGHLIGHT_PAGE_CAP) {
+      setHlGaveUp(highlightId);
+      return;
+    }
+    if (loadMore(currentDef)) r.pages += 1;
+  }, [currentDef, currentData, highlightId, highlightLoaded, filterKey, loadMore]);
   const scrolledToRef = useRef("");
   useEffect(() => {
     if (!highlightLoaded) {
@@ -1235,6 +1303,7 @@ export function LorePage({
                   selectable={!multiEdit}
                   selected={selected.includes(entry.id)}
                   unsaved={ch !== undefined}
+                  chipsLocked={multiSaving}
                   highlighted={entry.id === highlightId}
                   entryCaps={entryCaps}
                   onToggleSelect={toggleSelect}
@@ -1381,7 +1450,12 @@ export function LorePage({
 
   const sd = currentDef ? data[currentDef.key] : undefined;
   const highlightMissing =
-    highlightId !== "" && !!sd && !sd.loading && sd.exhausted && !highlightLoaded;
+    highlightId !== "" &&
+    !!sd &&
+    !sd.loading &&
+    !sd.fetchingMore &&
+    (sd.exhausted || hlCapped) &&
+    !highlightLoaded;
 
   return (
     <div className="lore" ref={scrollRef} data-testid="lore-page">
@@ -1421,7 +1495,7 @@ export function LorePage({
           <FilterPanel
             testId="lore-filter"
             clearLabel={t.lore.clearFilters}
-            onClear={narrowing || !statesAtDefault ? clearFilters : undefined}
+            onClear={!multiEdit && (narrowing || !statesAtDefault) ? clearFilters : undefined}
             actions={
               <button
                 type="button"
@@ -1441,12 +1515,14 @@ export function LorePage({
               onCommit={(v) => setAppliedSearch(v.trim())}
               label={t.lore.idSearchLabel}
               testId="lore-filter-id"
+              disabled={multiEdit}
               widthCh={7}
             />
             <MultiSelectFilter
               noun={t.lore.filterAuthorNoun}
               allLabel={t.lore.filterAuthorAll}
               testId="lore-filter-author"
+              disabled={multiEdit}
               options={authorOptions}
               selected={authors}
               onChange={setAuthors}
@@ -1455,6 +1531,7 @@ export function LorePage({
               noun={t.lore.filterTypeNoun}
               allLabel={t.lore.filterTypeAll}
               testId="lore-filter-type"
+              disabled={multiEdit}
               options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
               selected={loreTypes}
               onChange={(next) => setLoreTypes(next as Set<LoreType>)}
@@ -1463,6 +1540,7 @@ export function LorePage({
               noun={t.lore.filterStateNoun}
               allLabel={t.lore.filterStateAll}
               testId="lore-filter-state"
+              disabled={multiEdit}
               options={[
                 { value: "pinned", label: t.lore.statePinned },
                 { value: "active", label: t.lore.stateActive },
@@ -1473,6 +1551,11 @@ export function LorePage({
             />
           </FilterPanel>
 
+          {multiEdit && (
+            <div className="lore__multi-hint" data-testid="lore-multi-filters-locked">
+              {t.lore.multiFiltersLocked}
+            </div>
+          )}
           {highlightMissing && (
             <div className="lore__empty" data-testid="lore-highlight-missing">
               {msg.loreHighlightMissing(highlightId)}
@@ -1699,6 +1782,7 @@ function LoreRow({
   selectable,
   selected,
   unsaved,
+  chipsLocked,
   highlighted,
   entryCaps,
   onToggleSelect,
@@ -1730,6 +1814,8 @@ function LoreRow({
   selected: boolean;
   /** 編輯多筆 has a change staged on this card; `entry` already shows it. */
   unsaved: boolean;
+  /** 全部儲存 is running: the state / type / scope chips cannot stage more. */
+  chipsLocked: boolean;
   highlighted: boolean;
   entryCaps: { title: number; body: number };
   onToggleSelect: (id: string) => void;
@@ -1962,6 +2048,7 @@ function LoreRow({
               aria-expanded={typeOpen}
               data-testid="lore-type"
               data-lore-type={entry.loreType}
+              disabled={chipsLocked}
               onClick={() => setTypeOpen((o) => !o)}
             >
               {loreTypeLabel(t, entry.loreType)}
@@ -2007,6 +2094,7 @@ function LoreRow({
               aria-haspopup="menu"
               aria-expanded={stateOpen}
               data-testid="lore-state"
+              disabled={chipsLocked}
               onClick={() => setStateOpen((o) => !o)}
             >
               {stateLabel}
@@ -2070,6 +2158,7 @@ function LoreRow({
                 aria-haspopup="menu"
                 aria-expanded={scopeOpen}
                 title={t.lore.scopeMenuLabel}
+                disabled={chipsLocked}
                 onClick={() => setScopeOpen((o) => !o)}
               >
                 {scopeGlyph}

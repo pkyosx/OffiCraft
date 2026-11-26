@@ -50,6 +50,12 @@ a.lore__back:focus-visible {
   outline-offset: 2px;
 }
 
+.lore__multi-hint {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
 /* ── the directory ── */
 .lore__dir-search {
   display: flex;
@@ -739,6 +745,11 @@ button.lore-row__status-chip {
   font-weight: 700;
   cursor: pointer;
   transition: background 0.15s;
+}
+button.lore-row__status-chip:disabled,
+button.lore-row__scope-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 button.lore-row__status-chip:hover {
   background: color-mix(in srgb, var(--color-overlay) 6%, transparent);

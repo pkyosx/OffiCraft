@@ -69,6 +69,7 @@ interface MultiSelectFilterProps {
   onChange: (next: Set<string>) => void;
   /** data-testid on the trigger; each option row gets `${testId}-opt-<value>`. */
   testId: string;
+  disabled?: boolean;
 }
 
 export function MultiSelectFilter({
@@ -79,6 +80,7 @@ export function MultiSelectFilter({
   selected,
   onChange,
   testId,
+  disabled = false,
 }: MultiSelectFilterProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -136,6 +138,7 @@ export function MultiSelectFilter({
         aria-expanded={open}
         aria-label={noun}
         data-testid={testId}
+        disabled={disabled}
         onClick={() => setOpen((o) => !o)}
       >
         <span className="tasks__ms-summary">{summary}</span>
@@ -144,7 +147,7 @@ export function MultiSelectFilter({
           className={`tasks__ms-caret${open ? " tasks__ms-caret--open" : ""}`}
         />
       </button>
-      {open && (
+      {open && !disabled && (
         <div className="tasks__ms-pop" role="group" aria-label={noun}>
           {groups.map((g) => (
             <label
