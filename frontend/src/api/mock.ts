@@ -998,19 +998,18 @@ function pickMockMemberName(): string {
     if (!taken.has(candidate.toLowerCase())) return candidate;
   }
 }
-// Mirrors the server custom-role template (server/ocserverd/domain.go; the 兩 section
-// 待填說明 scaffold a fresh custom role starts from).
-const CUSTOM_ROLE_TEMPLATE_MD = `# 角色定義
+// Mirrors the server custom-role template (server/ocserverd/domain.go
+// CustomRoleTemplateMD, byte for byte; the two-section "To fill in" scaffold a
+// fresh custom role starts from).
+const CUSTOM_ROLE_TEMPLATE_MD = `# Role definition
 
-## 你是誰
+## Who you are
 
-（待填：這個角色的身分與定位——用一兩句話說明「你是誰」、在辦公室裡站什麼位置、\
-面對 owner 與其他成員時以什麼視角說話。）
+(To fill in: this role's identity and position — in one or two sentences, say "who you are", where you stand in the office, and from what point of view you speak to the owner and the other members.)
 
-## 你做什麼
+## What you do
 
-（待填：這個角色的職責與工作方式——負責哪些事、怎麼做事、輸出長什麼樣、\
-與 owner 及其他成員怎麼協作、什麼事不歸你管。）
+(To fill in: this role's duties and way of working — what it is responsible for, how it works, what its output looks like, how it works with the owner and the other members, and what is not its business.)
 `;
 // Insight OVERLAY (T-3809), keyed by the BARE `role_key`. An absent entry folds
 // against INSIGHT_SEEDS below (T-e1e3).
