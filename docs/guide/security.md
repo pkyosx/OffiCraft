@@ -1,103 +1,103 @@
-# 保護你的工作室
+# Protect your studio
 
-讀完這頁，你能管理誰進得了控制台、在開放手機或外部連線之前做好準備，並知道哪些金鑰與檔案需要保管好。
+After reading this page, you can control who gets into the console, prepare before opening access from your phone or from outside, and know which keys and files you need to keep safe.
 
-控制台背後就是你的整間工作室：成員在你的電腦上有很大的操作權限，「密鑰」分頁裡存著你交給成員的帳號金鑰。所以要先設好登入控制台的方式，再考慮從外部連線。
-
----
-
-## 開放外部連線之前
-
-控制台預設只能在裝 OffiCraft 的那台電腦上打開，手機或其他電腦直接連不進來。要從手機或其他電腦使用，對 Mira 說「我想從這台電腦以外的地方連到控制台」，見 [在手機上用](mobile.md)。
-
-**轉發開通之前，先完成這三件事：**
-
-1. 確認登入密碼不容易被猜到。開放外部連線後，別人也打得開登入頁。
-2. 開啟兩步驟驗證。通行密鑰不能取代兩步驟驗證：有通行密鑰時，仍然可以只用密碼登入。
-3. 視需要把登入有效期調短。
-
-**不要用沒有 HTTPS 的方式對外開放。** cloudflared 這類 tunnel 工具會給你一個公開的 HTTPS 網址，任何知道網址的人都能打開登入頁；Tailscale 這類私有網路的轉發功能（例如 `tailscale serve`）只有你自己的裝置連得到；Tailscale Funnel 則會把網址公開，任何知道網址的人都能打開登入頁。
-
-開了公開網址之後，回呼端點（webhook）的網址也會一起對外。回呼網址不需要登入，拿到網址的人就能送事件給成員，所以只把回呼網址填在要串接的服務裡。網址外流時怎麼處理，見 [讓外部事件自動送給成員（回呼端點）](webhook.md)。
+Behind the console is your entire studio: members have wide permissions on your computer, and the Secrets tab holds the account keys you have handed to members. So set up how you sign in to the console first, and only then think about connecting from outside.
 
 ---
 
-## 登入密碼
+## Before opening access from outside
 
-第一次打開控制台時設定的密碼，就是登入控制台的密碼，至少 8 個字。
+By default, the console can only be opened on the computer OffiCraft is installed on; phones and other computers cannot connect directly. To use it from a phone or another computer, tell Mira "I want to reach the console from somewhere other than this computer". See [Use it on your phone](mobile.md).
 
-**修改密碼**：點右上角頭像 › 帳號安全 › 修改密碼。改密碼後，其他裝置上已登入的控制台都會被登出，要用新密碼重新登入。
+**Before forwarding is turned on, do these three things first:**
 
-忘記密碼時，要在裝 OffiCraft 的那台電腦上執行指令重設，步驟見 [常見問題與排解](troubleshooting.md) 的「忘記密碼、驗證器遺失或通行密鑰無法使用」。
+1. Make sure your sign-in password is hard to guess. Once outside access is open, other people can reach the sign-in page too.
+2. Turn on two-factor authentication. A passkey does not replace two-factor authentication: even with a passkey, you can still sign in with only the password.
+3. Shorten the session length if needed.
 
----
+**Do not open access from outside without HTTPS.** Tunnel tools such as cloudflared give you a public HTTPS address, and anyone who knows the address can open the sign-in page. The forwarding feature of private networks such as Tailscale (for example `tailscale serve`) can only be reached by your own devices. Tailscale Funnel, on the other hand, makes the address public, and anyone who knows it can open the sign-in page.
 
-## 兩步驟驗證
-
-開啟後，每次用密碼登入，都要再輸入驗證器 App（例如 Google Authenticator、1Password、iPhone 內建的密碼 App）顯示的 6 位數驗證碼。控制台要從外部連線時，建議開啟。
-
-開啟方式：點右上角頭像 › 帳號安全 › 兩步驟驗證，照畫面指示用驗證器 App 掃 QR code，再輸入驗證碼。
-
-**驗證器遺失時**，要在裝 OffiCraft 的那台電腦上執行指令關閉兩步驟驗證，步驟見 [常見問題與排解](troubleshooting.md) 的「忘記密碼、驗證器遺失或通行密鑰無法使用」。
-
-設定畫面的說明見 [介面說明](interface.md) 的「帳號安全與登入」。
+Once a public address is open, your webhook endpoint addresses are exposed along with it. A webhook address needs no sign-in; anyone who has it can send events to a member. So only enter webhook addresses in the services you are connecting. For what to do if an address leaks, see [Send outside events to members automatically (webhooks)](webhook.md).
 
 ---
 
-## 通行密鑰
+## Sign-in password
 
-通行密鑰讓你用 Face ID、Touch ID、指紋、裝置密碼或實體安全金鑰登入，不用輸入密碼，也不用輸入兩步驟驗證的驗證碼。用密碼登入的方式仍然可以用。
+The password you set the first time you opened the console is the password for signing in to the console. It is at least 8 characters long.
 
-新增方式：點右上角頭像 › 帳號安全 › 通行密鑰，取一個認得出來的裝置名稱（例如「我的筆電」），再照瀏覽器跳出的對話框完成。
+**Changing your password**: click your profile picture in the top-right corner › Account security › Change password. After you change it, the console is signed out on every other device that was signed in, and you have to sign in again with the new password.
 
-之後登入頁會出現「用通行密鑰登入」。
-
-**每一把通行密鑰只能在新增時用的網址使用。** 用不同網址打開控制台（例如轉發後的 HTTPS 網址和 `http://localhost:7755`）時，要在每個網址各自新增。用 `http://127.0.0.1:7755` 這類 IP 位址打開時，不能使用通行密鑰，請改用 `localhost` 網址打開，兩個網址打開的是同一間工作室。
-
-遺失某台裝置時，到同一個清單把那台裝置的通行密鑰刪除。
-
-設定畫面的說明見 [介面說明](interface.md) 的「帳號安全與登入」。
+If you forget your password, you reset it by running a command on the computer OffiCraft is installed on. For the steps, see "Forgot your password, lost your authenticator, or a passkey stops working" in [Troubleshooting and FAQ](troubleshooting.md).
 
 ---
 
-## 登入有效期
+## Two-factor authentication
 
-登入後多久需要重新登入，在 **設定 › 參數調整 › 登入有效期** 調整，可選 12 小時、24 小時、7 天、30 天，預設 24 小時。新的設定從下一次登入開始生效。
+Once it is on, every password sign-in also asks for the 6-digit code shown in an authenticator app (for example Google Authenticator, 1Password, or the Passwords app built into iPhone). Turning it on is recommended if the console will be reached from outside.
 
-控制台會從外部連線，或會在別人也碰得到的裝置上登入時，建議選短一點。
+To turn it on: click your profile picture in the top-right corner › Account security › Two-factor authentication, scan the QR code with your authenticator app as the screen shows, then enter the code.
 
----
+**If you lose your authenticator**, you turn two-factor authentication off by running a command on the computer OffiCraft is installed on. For the steps, see "Forgot your password, lost your authenticator, or a passkey stops working" in [Troubleshooting and FAQ](troubleshooting.md).
 
-## 密鑰與 vault.key
-
-「密鑰」分頁裡的值，以及 Secret 請示卡還沒刪除的內容，是用一個叫 `vault.key` 的檔案加密後存進資料庫的。`vault.key`、資料庫和自動備份都在同一台電腦的同一個資料夾，平常不需要你處理；在同一台電腦上從備份還原，也不用動 `vault.key`。
-
-只有把資料庫備份複製到別台電腦（例如換電腦）時要注意：備份裡不包含 `vault.key`，要連同 `vault.key` 一起帶過去，否則原本的密鑰無法讀取，只能刪除後重新建立。備份不含 `vault.key` 是刻意的：只拿到備份的人，解不開裡面的密鑰。
-
-資料庫的備份與還原步驟，見 [常見問題與排解](troubleshooting.md) 的「備份與還原」。新增、修改、刪除密鑰，以及成員怎麼取用，見 [把帳號金鑰交給成員用（密鑰）](secrets.md)。
+For a description of the settings screen, see "Account security and sign-in" in [Interface reference](interface.md).
 
 ---
 
-## 簽章金鑰
+## Passkeys
 
-簽章金鑰是 OffiCraft 用來證明登入狀態與分享連結有效的金鑰。你的登入、成員與機器的登入，以及「複製對外連結」和「複製分享連結」產生的連結，都靠簽章金鑰確認。
+A passkey lets you sign in with Face ID, Touch ID, a fingerprint, your device passcode, or a physical security key, without typing your password or a two-factor code. Signing in with your password still works.
 
-懷疑登入狀態或分享連結外流時：
+To add one: click your profile picture in the top-right corner › Account security › Passkeys, give it a device name you will recognize (for example "My laptop"), then finish in the dialog the browser shows.
 
-1. 到 **設定 › 系統更新與備份** 最下方的「簽章金鑰」卡，按「產生新金鑰」。新金鑰立即接手，已登入的人不會被登出。
-2. 等每一台機器都上線過一次，換成新金鑰。
-3. 在舊金鑰旁按「移除」。
+After that, the sign-in page shows "Sign in with a passkey".
 
-**移除無法復原，而且立即生效**：舊金鑰簽過的登入與分享連結全部失效，持有連結的人不會收到通知；還沒換到新金鑰的機器會立刻斷線。所以移除之前，請確認每台機器都已經上線過。
+**Each passkey only works on the address it was added on.** If you open the console at different addresses (for example the forwarded HTTPS address and `http://localhost:7755`), add a passkey on each address separately. Passkeys cannot be used when you open the console through an IP address such as `http://127.0.0.1:7755`; open it through the `localhost` address instead. Both addresses open the same studio.
 
-簽章金鑰卡的說明見 [設定與參數](settings.md) 的「系統更新與備份」。成員與機器各自的登入有效期，見 [設定與參數](settings.md) 的「參數調整」。
+If you lose a device, delete that device's passkey from the same list.
+
+For a description of the settings screen, see "Account security and sign-in" in [Interface reference](interface.md).
 
 ---
 
-## 相關文件
+## Session length
 
-- [在手機上用](mobile.md)
-- [把帳號金鑰交給成員用（密鑰）](secrets.md)
-- [讓外部事件自動送給成員（回呼端點）](webhook.md)
-- [設定與參數](settings.md)
-- [常見問題與排解](troubleshooting.md)
+How long you stay signed in before you have to sign in again is set in **Settings › Parameters › Session length**. You can choose 12 hours, 24 hours, 7 days, or 30 days; the default is 24 hours. A new setting takes effect from your next sign-in.
+
+If the console is reached from outside, or you sign in on devices other people can also use, a shorter setting is recommended.
+
+---
+
+## Secrets and vault.key
+
+The values in the Secrets tab, and the content of Secret reply cards that has not yet been deleted, are encrypted with a file called `vault.key` before being stored in the database. `vault.key`, the database, and the automatic backups all sit in the same folder on the same computer, and normally you do not need to deal with them. Restoring from a backup on the same computer does not require touching `vault.key` either.
+
+You only need to be careful when you copy a database backup to another computer (for example, when you change computers): backups do not include `vault.key`, so take `vault.key` along with them. Otherwise the existing secrets cannot be read and can only be deleted and created again. Leaving `vault.key` out of backups is deliberate: someone who gets hold of only a backup cannot decrypt the secrets inside it.
+
+For the steps to back up and restore the database, see "Backup and restore" in [Troubleshooting and FAQ](troubleshooting.md). For adding, editing, and deleting secrets, and how members fetch them, see [Give members your account keys (secrets)](secrets.md).
+
+---
+
+## Signing keys
+
+Signing keys are what OffiCraft uses to prove that sign-ins and share links are valid. Your sign-in, the sign-ins of members and machines, and the links created by "Copy external link" and "Copy share link" are all checked against a signing key.
+
+If you suspect a sign-in or a share link has leaked:
+
+1. Go to the "Signing keys" card at the bottom of **Settings › System update & backup** and press "Create a new key". The new key takes over immediately, and nobody who is signed in is signed out.
+2. Wait until every machine has come online at least once, so that it switches to the new key.
+3. Press "Remove" next to the old key.
+
+**Removing cannot be undone and takes effect immediately**: every sign-in and share link signed with the old key stops working, and people holding those links are not notified. Machines that have not yet switched to the new key are disconnected immediately. So before removing, make sure every machine has come online.
+
+For a description of the Signing keys card, see "System update & backup" in [Settings and parameters](settings.md). For how long members and machines each stay signed in, see "Parameters" in [Settings and parameters](settings.md).
+
+---
+
+## Related docs
+
+- [Use it on your phone](mobile.md)
+- [Give members your account keys (secrets)](secrets.md)
+- [Send outside events to members automatically (webhooks)](webhook.md)
+- [Settings and parameters](settings.md)
+- [Troubleshooting and FAQ](troubleshooting.md)

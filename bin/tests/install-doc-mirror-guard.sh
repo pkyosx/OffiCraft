@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 # bin/tests/install-doc-mirror-guard.sh — README.md and docs/guide/install.md
 # carry the SAME install instructions word for word (owner ruling): the
-# README for GitHub readers, the guide for the cockpit's 使用說明 and for Mira
+# README for GitHub readers, the guide for the cockpit's User guide and for Mira
 # (get_doc). Edit one copy and forget the other, and a reader of one gets steps
 # the other no longer gives. Nothing else compares the two files.
 #
-# WHAT IS COMPARED: from the line `### 系統需求` through the end of the
-# `### 確認安裝成功` section (the next `###`/`##` heading or `---`), byte for byte.
+# WHAT IS COMPARED: from the line `### System requirements` through the end of the
+# `### Confirm the installation` section (the next `###`/`##` heading or `---`), byte for byte.
 # Each file's own material around that block is deliberately NOT compared.
 #
 # WHY HEADINGS AND NOT MARKER COMMENTS: the cockpit's Markdown renderer has no
 # HTML/comment syntax, so a `<!-- BEGIN -->` marker would print as visible text
-# in 使用說明.
+# in the User guide.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 FILES=(README.md docs/guide/install.md)
-START='### 系統需求'
-LAST='### 確認安裝成功'
+START='### System requirements'
+LAST='### Confirm the installation'
 
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
