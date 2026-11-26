@@ -1,8 +1,6 @@
 // LorePage — the writer's name on a 傳承 row (owner rulings rc-01a07b1b2a12 /
 // rc-379631993586): a 外包 or staff writer who has left keeps his NAME on the
-// row, and the pill stops being a way to message him. A test that only checked
-// "the link is gone" would also pass for a row that had quietly stopped saying
-// who wrote the entry, which is the thing the ruling protects.
+// row, and the card's message goes to Mira instead of to him.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -90,6 +88,20 @@ function rowById(container: HTMLElement, id: string): HTMLElement {
   return el;
 }
 
+/** Send one message from the row's box; answers who it went to. */
+async function messageRecipientOf(row: HTMLElement): Promise<string> {
+  const to: string[] = [];
+  vi.spyOn(api, "postChat").mockImplementation(async (m) => {
+    to.push(m.to);
+  });
+  fireEvent.change(row.querySelector('[data-testid="lore-msg-input"]')!, {
+    target: { value: "還適用嗎" },
+  });
+  fireEvent.click(row.querySelector('[data-testid="lore-msg-send"]')!);
+  await waitFor(() => expect(to).toHaveLength(1));
+  return to[0];
+}
+
 beforeEach(() => {
   // The page reads its section from the hash; every spec starts on the directory.
   history.replaceState(null, "", window.location.pathname);
@@ -101,7 +113,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("LorePage — 已離開的撰寫人只留名牌，不能傳訊息", () => {
+describe("LorePage — 已離開的撰寫人只留名牌，訊息改給 Mira", () => {
   const RELEASED = "ow-gone";
   const LIVE = "ow-live";
   const DEPARTED_STAFF = "m-gone";
@@ -133,38 +145,19 @@ describe("LorePage — 已離開的撰寫人只留名牌，不能傳訊息", () 
     });
   }
 
-  it("keeps the codename on the row and the pill is no longer a link", async () => {
+  it("keeps the codename on the row, and the card's message goes to Mira", async () => {
     stubRoster([]); // nobody is on the live roster any more
     stubList([mkEntry({ id: "L-9", authorId: RELEASED })]);
     const { container } = await renderPage();
 
     const row = await waitFor(() => rowById(container, "L-9"));
-
-    // ① THE NAME SURVIVES. He wrote this entry and that does not stop being
-    //    true — the row must still say 外包 · O-9, not fall back to a raw id
-    //    and not go blank.
-    //
-    //    🔴 IT IS READ OFF **EITHER** PILL ELEMENT ON PURPOSE. The two arms are
-    //    different elements (a <button> when reachable, a <span> when not), so
-    //    a query naming only the span would throw a shape error under the very
-    //    mutant this spec exists to catch — a red in the wrong place, saying
-    //    nothing about whether the name survived. This half must be readable
-    //    whichever arm rendered; ② is where the arm itself is judged.
-    const pill = await waitFor(() => {
-      const el = row.querySelector<HTMLElement>(
-        '[data-testid="lore-author-row"], [data-testid="lore-author-link"]',
-      );
-      if (!el) throw new Error("no 撰寫人 pill on the row at all");
-      return el;
-    });
-    expect(pill.textContent).toContain("O-9");
-
-    // ② THE AFFORDANCE GOES: a plain span, not a dead clickable pill.
-    expect(row.querySelector('[data-testid="lore-author-link"]')).toBeNull();
-    expect(pill.tagName).toBe("SPAN");
+    await waitFor(() =>
+      expect(row.querySelector('[data-testid="lore-author-row"]')?.textContent).toBe("外包 · O-9"),
+    );
+    expect(await messageRecipientOf(row)).toBe("mira");
   });
 
-  it("under a departed staff writer the row keeps the plain name the per-id read serves, not as a link", async () => {
+  it("under a departed staff writer the row keeps the plain name the per-id read serves, and the message goes to Mira", async () => {
     stubRoster([]);
     stubList([mkEntry({ id: "L-11", authorId: DEPARTED_STAFF })]);
     const { container } = await renderPage();
@@ -175,7 +168,7 @@ describe("LorePage — 已離開的撰寫人只留名牌，不能傳訊息", () 
         row.querySelector('[data-testid="lore-author-row"]')?.textContent,
       ).toBe("阿哲"),
     );
-    expect(row.querySelector('[data-testid="lore-author-link"]')).toBeNull();
+    expect(await messageRecipientOf(row)).toBe("mira");
   });
 
   it("while the roster is still loading no per-id read is issued for a live staff writer, and once it lands a departed one is still named", async () => {
@@ -217,20 +210,18 @@ describe("LorePage — 已離開的撰寫人只留名牌，不能傳訊息", () 
     );
   });
 
-  it("a 外包 who is STILL on the live roster gets a link that opens his chat", async () => {
-    // The other direction: a fix that unlinked every ow- author would pass the
-    // specs above and take the live case with it.
+  it("a 外包 who is STILL on the live roster gets the card's message himself", async () => {
     stubRoster([worker(LIVE, "O-1")]);
     stubList([mkEntry({ id: "L-10", authorId: LIVE })]);
     const { container } = await renderPage();
 
     const row = await waitFor(() => rowById(container, "L-10"));
-    const link = await waitFor(() => {
-      const el = row.querySelector<HTMLElement>('[data-testid="lore-author-link"]');
-      if (!el) throw new Error("no author link yet");
-      return el;
-    });
-    expect(link.textContent).toContain("O-1");
+    await waitFor(() =>
+      expect(
+        row.querySelector<HTMLTextAreaElement>('[data-testid="lore-msg-input"]')!.placeholder,
+      ).toBe("傳訊息給 外包 · O-1…"),
+    );
+    expect(await messageRecipientOf(row)).toBe(LIVE);
   });
 });
 

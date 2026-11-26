@@ -367,7 +367,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "lore.loreTypeOther",
   "lore.loreTypeOwnerDecision",
   "lore.loreTypeOwnerPreference",
-  "lore.messageAuthor",
   "lore.messageSent",
   "lore.openManualLabel",
   "lore.retireReasonLabel",

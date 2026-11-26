@@ -7,9 +7,8 @@
 //   local sum cannot produce this answer. `capChars === 0` means no line AND no
 //   dimming.
 //
-//   撰寫人不在名冊上. The failure mode is a LIVE icon — a 傳訊息 button that
-//   opens a chat with a peer who is gone — so the whole affordance must be a
-//   non-button.
+//   訊息框的收件人. A message to a peer who is gone reaches nobody, so the box
+//   names and sends to Mira whenever the author cannot take it.
 //
 // Most specs open ONE section (Mira's) whose list request is stubbed: what the
 // page does with the answer is under test here, not the mock's arithmetic.
@@ -18,7 +17,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { LorePage } from "./LorePage";
-import { __resetMock } from "../api/mock";
+import { __resetMock, mockApi } from "../api/mock";
 import { api } from "../api";
 // The 可變動作面 specs need to build a REFUSAL, and the refusal has to be the
 // same class the adapters throw — `runAction` branches on `status` and reads
@@ -30,6 +29,7 @@ import { codeForStatus } from "../api/errorCodes";
 import { zh } from "../i18n/locales/zh";
 import { clearLocale, useEnglishLocale } from "../test/effortOptions";
 import type {
+  ChatAttachmentInput,
   LoreBudgetTargetView,
   LoreEntryPageView,
   LoreEntryView,
@@ -215,40 +215,157 @@ describe("LorePage — 界線", () => {
   });
 });
 
-describe("LorePage — 撰寫人", () => {
-  it("drops the whole 傳訊息 affordance when the author is off the roster", async () => {
+describe("LorePage — 訊息框", () => {
+  type Posted = {
+    to: string;
+    body: string;
+    meta?: Record<string, unknown>;
+    attachments?: ChatAttachmentInput[];
+  };
+  function capturePosts(): Posted[] {
+    const posted: Posted[] = [];
+    vi.spyOn(api, "postChat").mockImplementation(async (m) => {
+      posted.push({ to: m.to, body: m.body, meta: m.meta, attachments: m.attachments });
+    });
+    return posted;
+  }
+  const box = (row: HTMLElement) =>
+    row.querySelector<HTMLTextAreaElement>('[data-testid="lore-msg-input"]')!;
+  const sendButton = (row: HTMLElement) =>
+    row.querySelector<HTMLButtonElement>('[data-testid="lore-msg-send"]')!;
+
+  it("goes to a live author unless the entry is pinned, and to Mira for a pinned entry, the owner's or a departed author's", async () => {
     stubList(
       page([
-        // "mira" IS on the mock roster; "m-gone" wrote an entry and has since
-        // left. The entry stays either way — only the live affordance differs.
-        mkEntry({ id: "here", state: "active", authorId: "mira" }),
-        mkEntry({ id: "gone", state: "active", authorId: "m-gone" }),
+        mkEntry({ id: "L-1", state: "active", authorId: "warden-mbp5" }),
+        mkEntry({ id: "L-2", state: "pinned", authorId: "warden-mbp5" }),
+        mkEntry({ id: "L-3", state: "active", authorId: "owner" }),
+        mkEntry({ id: "L-4", state: "active", authorId: "m-gone" }),
       ]),
     );
     const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(4));
+    await waitFor(() =>
+      expect(box(rowById(container, "L-1")).placeholder).toBe("傳訊息給 Warden · mbp5…"),
+    );
+    expect(
+      ["L-1", "L-2", "L-3", "L-4"].map((id) => box(rowById(container, id)).placeholder),
+    ).toEqual([
+      "傳訊息給 Warden · mbp5…",
+      "傳訊息給 Mira…",
+      "傳訊息給 Mira…",
+      "傳訊息給 Mira…",
+    ]);
 
+    const posted = capturePosts();
+    for (const id of ["L-1", "L-2", "L-3", "L-4"]) {
+      fireEvent.change(box(rowById(container, id)), { target: { value: "還適用嗎" } });
+      fireEvent.click(sendButton(rowById(container, id)));
+      await waitFor(() => expect(box(rowById(container, id)).value).toBe(""));
+    }
+    expect(posted.map((p) => p.to)).toEqual(["warden-mbp5", "mira", "mira", "mira"]);
+  });
+
+  it("sends this row's entry id ahead of the text, then empties the box", async () => {
+    stubList(
+      page([
+        mkEntry({ id: "L-7", state: "active", authorId: "mira" }),
+        mkEntry({ id: "L-31", state: "active", authorId: "mira" }),
+      ]),
+    );
+    const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+    const posted = capturePosts();
 
-    const here = rowById(container, "here");
-    const gone = rowById(container, "gone");
+    const row = rowById(container, "L-31");
+    fireEvent.change(box(row), { target: { value: "  這條還適用嗎  " } });
+    fireEvent.click(sendButton(row));
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toEqual({
+      to: "mira",
+      body: "[LoreID=L-31] 這條還適用嗎",
+      meta: { lore_entry_id: "L-31" },
+      attachments: undefined,
+    });
+    await waitFor(() => expect(box(row).value).toBe(""));
+    expect(box(rowById(container, "L-7")).value).toBe("");
+  });
+
+  it("sends on Enter like the 任務卡 box", async () => {
+    stubList(page([mkEntry({ id: "L-7", authorId: "mira" })]));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const posted = capturePosts();
+    const row = rowById(container, "L-7");
+    fireEvent.change(box(row), { target: { value: "收到" } });
+    fireEvent.keyDown(box(row), { key: "Enter" });
+    await waitFor(() => expect(posted.map((p) => p.body)).toEqual(["[LoreID=L-7] 收到"]));
+  });
+
+  it("carries staged files on the same message and sends with no text at all", async () => {
+    stubList(page([mkEntry({ id: "L-7", authorId: "mira" })]));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const posted = capturePosts();
+    const row = rowById(container, "L-7");
+    expect(sendButton(row).disabled).toBe(true);
+
+    const fileInput = row.querySelector<HTMLInputElement>(
+      '[data-testid="lore-message-box"] input[type="file"]',
+    )!;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(["hello"], "note.txt", { type: "text/plain" })] },
+    });
+    await waitFor(() => expect(sendButton(row).disabled).toBe(false));
+    fireEvent.click(sendButton(row));
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0].body).toBe("[LoreID=L-7] ");
+    expect(posted[0].attachments!.map((a) => a.filename)).toEqual(["note.txt"]);
+  });
+
+  it("keeps the draft and says so when the send fails", async () => {
+    vi.spyOn(api, "postChat").mockRejectedValue(new Error("boom"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    stubList(page([mkEntry({ id: "L-7", authorId: "mira" })]));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const row = rowById(container, "L-7");
+
+    fireEvent.change(box(row), { target: { value: "這條還適用嗎" } });
+    fireEvent.click(sendButton(row));
 
     await waitFor(() =>
-      expect(here.querySelector('[data-testid="lore-author-link"]')).not.toBeNull(),
+      expect(row.querySelector('[data-testid="lore-msg-failed"]')?.textContent).toBe(
+        "訊息送出失敗，請稍後重試",
+      ),
     );
-    // The reachable author's pill carries the icon INSIDE it.
-    const link = here.querySelector<HTMLElement>('[data-testid="lore-author-link"]')!;
-    expect(link.tagName).toBe("BUTTON");
-    expect(link.querySelector("svg")).not.toBeNull();
+    expect(box(row).value).toBe("這條還適用嗎");
+  });
 
-    // 🔴 The departed author's pill is not a button at all. Asserting only
-    // "no svg" would pass for a dead clickable pill, which is the actual bug.
-    expect(gone.querySelector('[data-testid="lore-author-link"]')).toBeNull();
-    const plain = gone.querySelector<HTMLElement>('[data-testid="lore-author-row"]')!;
-    expect(plain).not.toBeNull();
-    expect(plain.tagName).toBe("SPAN");
-    expect(plain.querySelector("svg")).toBeNull();
-    // The entry itself is untouched — the author is still NAMED.
-    expect(plain.textContent).toContain("m-gone");
+  it("offers the 傳承 suggested replies, and a pick fills the box without sending", async () => {
+    await mockApi.patchServerSettings({
+      suggestedRepliesReplyCard: ["請示卡那一份"],
+      suggestedRepliesTaskMessage: ["任務那一份"],
+      suggestedRepliesLoreMessage: ["這條還適用嗎", "這條可以退場了"],
+    });
+    stubList(page([mkEntry({ id: "L-11", authorId: "mira" })]));
+    const { container } = await renderOpen();
+    const posted = capturePosts();
+    const chips = await waitFor(() => {
+      const el = container.querySelector<HTMLElement>('[data-testid="lore-suggested-replies"]');
+      if (!el) throw new Error("no suggested replies under the box");
+      return el;
+    });
+    expect(Array.from(chips.querySelectorAll("button")).map((b) => b.textContent?.trim())).toEqual([
+      "這條還適用嗎",
+      "這條可以退場了",
+    ]);
+
+    fireEvent.click(chips.querySelectorAll("button")[1]);
+    await waitFor(() => expect(box(rowById(container, "L-11")).value).toBe("這條可以退場了"));
+    expect(posted).toEqual([]);
   });
 });
 
@@ -370,72 +487,6 @@ describe("LorePage — 條目編號", () => {
 
     // The card has no fold; a click on the id copies and does nothing else.
     expect(container.querySelector('[data-testid="lore-row"]')!.hasAttribute("aria-expanded")).toBe(false);
-  });
-});
-
-// ────────────────────────────────────────────────────────────────────────────
-// 撰寫人跳過去要「帶著編號」(owner rc-abf2c90d887c option ②).
-//
-// 🔴 THE JUMP IS NOT THE THING BEING GUARDED — the seed is. A jump that lands
-// on the right person with an EMPTY composer looks completely correct on
-// screen: the office opens, the chat is the right one, the cursor blinks. The
-// reader types 「這條還適用嗎」 and the author receives a sentence with no
-// subject, holding dozens of entries, and has to ask which one back — which is
-// the exact question the jump existed to save. Nothing errors, nothing is
-// missing from the screen, and the damage lands on the OTHER person's side.
-//
-// So the assertion is on the ROUTE THAT GETS WRITTEN, and it is written twice
-// with two different rows. One row alone would still pass if every row seeded
-// the FIRST entry's id (the `entry.id` inside the row map is the value at
-// risk); it takes a second row with a different id to tell "carries this row's
-// id" apart from "carries some id".
-describe("LorePage — 撰寫人跳過去帶著條目編號", () => {
-  beforeEach(() => {
-    window.location.hash = "";
-  });
-
-  it("seeds the composer with THIS row's entry id, not merely with an id", async () => {
-    stubList(
-      page([
-        mkEntry({ id: "L-7", state: "active", authorId: "mira" }),
-        mkEntry({ id: "L-31", state: "active", authorId: "mira" }),
-      ]),
-    );
-    const { container } = await renderOpen();
-
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
-
-    const first = rowById(container, "L-7");
-    await waitFor(() =>
-      expect(
-        first.querySelector('[data-testid="lore-author-link"]'),
-      ).not.toBeNull(),
-    );
-    fireEvent.click(
-      first.querySelector<HTMLElement>('[data-testid="lore-author-link"]')!,
-    );
-
-    // The whole route, not a substring: 「有帶東西過去」 and 「帶對了」 are
-    // different claims, and `toContain("compose")` would accept the first for
-    // the second.
-    expect(window.location.hash).toBe("#office/chat/mira/compose/L-7");
-    window.location.hash = "#lore/agent/mira";
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
-
-    // The SECOND row, same author, different id. A page that hardcoded or
-    // captured one entry's id would still be sitting on L-7 here.
-    fireEvent.click(rowById(container, "L-31"));
-    const second = rowById(container, "L-31");
-    await waitFor(() =>
-      expect(
-        second.querySelector('[data-testid="lore-author-link"]'),
-      ).not.toBeNull(),
-    );
-    fireEvent.click(
-      second.querySelector<HTMLElement>('[data-testid="lore-author-link"]')!,
-    );
-
-    expect(window.location.hash).toBe("#office/chat/mira/compose/L-31");
   });
 });
 
@@ -704,7 +755,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
 // ────────────────────────────────────────────────────────────────────────────
 // 卡片版面 (owner 2026-09-08).
 describe("LorePage — 卡片底下一行小字", () => {
-  it("shows 撰寫人 · 生效期 · 字數 on one line at the bottom, and no message box on the card", async () => {
+  it("shows 撰寫人 · 生效期 on one line, and the message box is the last thing on the card", async () => {
     stubList(
       page([
         mkEntry({ id: "L-7", authorId: "mira", title: "標題", body: "四個字的", effectiveTs: 1788400000 }),
@@ -714,16 +765,13 @@ describe("LorePage — 卡片底下一行小字", () => {
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
     const row = rowById(container, "L-7");
     const meta = row.querySelector<HTMLElement>(".lore-row__meta")!;
-    expect(
-      Array.from(meta.querySelectorAll('[data-testid="lore-author-link"], [data-testid="lore-effective"], [data-testid="lore-size"]')).map(
-        (el) => el.getAttribute("data-testid"),
-      ),
-    ).toEqual(["lore-author-link", "lore-effective", "lore-size"]);
-    expect(meta.querySelector('[data-testid="lore-size"]')!.textContent).toBe("6 字");
-    // The size left the head: one place for it.
-    expect(row.querySelector('.lore-row__head [data-testid="lore-size"]')).toBeNull();
-    expect(row.querySelector("textarea")).toBeNull();
-    expect(row.textContent).not.toContain("傳訊息給");
+    expect(Array.from(meta.children).map((el) => el.getAttribute("data-testid") ?? el.textContent)).toEqual([
+      "lore-author-row",
+      "·",
+      "lore-effective",
+    ]);
+    expect(meta.querySelector('[data-testid="lore-author"]')!.textContent).toBe("Mira");
+    expect(row.lastElementChild!.getAttribute("data-testid")).toBe("lore-message-box");
   });
 
 });
@@ -745,7 +793,7 @@ describe("LorePage — 卡片不折疊", () => {
     expect(body.textContent).toContain("第四行");
     // Out of the tab order; focusable only from code (a highlighted entry).
     expect(row.getAttribute("tabindex")).toBe("-1");
-    expect(row.querySelector('[data-testid="lore-author-link"]')).not.toBeNull();
+    expect(row.querySelector('[data-testid="lore-author-row"]')).not.toBeNull();
     expect(row.querySelector('[data-testid="lore-effective"]')).not.toBeNull();
     fireEvent.click(body);
     fireEvent.keyDown(row, { key: "Enter" });

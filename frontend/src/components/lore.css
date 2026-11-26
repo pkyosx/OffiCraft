@@ -19,6 +19,9 @@
  *                            ← .task-card__progress / -bar / -fill / -text
  *   .lore__group-title       ← replies.css .replies__section-title
  *
+ * The one exception is the message box: owner wants it to BE the 任務卡's box,
+ * so both cards share card-composer.css rather than a copy.
+ *
  * Colours are theme tokens only — no literals.
  *
  * LorePage.tsx imports this file itself (frontend/.claude/rules/
@@ -686,7 +689,7 @@ button.lore-badge--lore-type:hover:not(:disabled) {
   font-weight: 700;
 }
 
-/* ── 撰寫人 · 生效期 · 字數 on one muted line ── */
+/* ── 撰寫人 · 生效期 on one muted line ── */
 .lore-row__meta {
   display: flex;
   flex-wrap: wrap;
@@ -720,18 +723,6 @@ button.lore-badge--lore-type:hover:not(:disabled) {
   flex: none;
   color: var(--color-text-muted);
 }
-button.lore-row__chip--link {
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-.lore-row__chip--link:hover {
-  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
-  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
-}
-.lore-row__chip--link:hover .lore-row__author,
-.lore-row__chip--link:hover svg {
-  color: var(--color-accent);
-}
 .lore-row__author {
   min-width: 0;
   overflow: hidden;
@@ -745,12 +736,6 @@ button.lore-row__chip--link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-.lore-row__size {
-  font-size: 12px;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 .lore-row__effective-ts {
   white-space: nowrap;
@@ -787,6 +772,13 @@ button.lore-row__action:hover:not(:disabled) {
   color: var(--color-text-muted);
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.lore-row__message {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
 }
 
 /* ── 編輯: the card's title and body become this, in place ── */
@@ -830,7 +822,8 @@ button.lore-row__action:hover:not(:disabled) {
   max-height: 320px;
   overflow-y: auto;
 }
-.lore-row__editor-error {
+.lore-row__editor-error,
+.lore-row__message-error {
   font-size: 12px;
   color: var(--color-danger);
 }

@@ -110,7 +110,6 @@ export const en: Dict = {
     openManualLabel: "Open task manual",
     copyEntryIdLabel: "Copy entry id",
     authorUnknown: "—",
-    messageAuthor: "Message the author",
     effectiveLabel: "Effective",
     retireReasonLabel: "Retire reason",
     scopeChangedMid: " now applies to ",
@@ -2759,7 +2758,7 @@ export const en: Dict = {
       "Sentences you can drop in with one tap when messaging on a task.",
     suggestedRepliesLoreMessage: "Lore-message suggestions",
     suggestedRepliesLoreMessageSub:
-      "Sentences you can drop in with one tap when messaging a lore entry's writer.",
+      "Sentences you can drop in with one tap in a lore entry's message box.",
     suggestedRepliesChat: "Chat suggestions",
     suggestedRepliesChatSub: "Sentences you can drop in with one tap when chatting with any member.",
     suggestedReplyPlaceholder: "e.g. Got it, go ahead",

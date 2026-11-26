@@ -153,6 +153,7 @@ import {
   TasksIcon,
 } from "./icons";
 import "./inline-edit.css";
+import "./card-composer.css";
 
 /** Terminal statuses (已完成/終止/重複) — owner actions and ticking stop here. */
 const TERMINAL = new Set(["done", "terminated", "duplicated"]);

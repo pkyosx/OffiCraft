@@ -111,7 +111,6 @@ export const zh = {
     openManualLabel: "開啟任務手冊",
     copyEntryIdLabel: "複製條目編號",
     authorUnknown: "—",
-    messageAuthor: "傳訊息給撰寫人",
     effectiveLabel: "生效期",
     retireReasonLabel: "失效理由",
     // 適用範圍徽章與選單
@@ -2832,7 +2831,7 @@ export const zh = {
     // 數字。「傳承條目」而不是「傳承」:那一格的收件人是寫下那一條的人,不是
     // 一份文件。
     suggestedRepliesLoreMessage: "傳承訊息建議回覆",
-    suggestedRepliesLoreMessageSub: "傳訊息給傳承條目的撰寫人時可一鍵帶入的句子。",
+    suggestedRepliesLoreMessageSub: "在傳承條目的訊息框可一鍵帶入的句子。",
     suggestedRepliesChat: "聊天室建議回覆",
     suggestedRepliesChatSub: "與任一成員對話時可一鍵帶入的句子。",
     suggestedReplyPlaceholder: "例:收到,照這樣做",

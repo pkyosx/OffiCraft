@@ -33,6 +33,7 @@ import { useI18n } from "../i18n";
 import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { api, viewerMaySetLoreScope } from "../api";
 import type {
+  ChatAttachmentInput,
   LoreBudgetTargetView,
   LoreEntryEdit,
   LoreEntryPageView,
@@ -49,6 +50,13 @@ import { loadServerSettings } from "../hooks/sharedServerSettings";
 import { useMembers } from "../hooks/useMembers";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useTaskManuals } from "../hooks/useTaskManuals";
+import { useIsMobile } from "../hooks/useIsMobile";
+import { useSuggestedRepliesLoreMessage } from "../hooks/useSuggestedReplies";
+import {
+  ATTACH_ACCEPT,
+  STAGING_TARGET_PER_MOUNT,
+  useAttachmentStaging,
+} from "../hooks/useAttachmentStaging";
 import {
   useWorkerAvatarUrls,
   useWorkerCodenames,
@@ -59,6 +67,7 @@ import type { AvatarKind } from "../lib/themeBundle";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import { autosizeTextarea } from "../lib/autosize";
+import { enterShouldSend } from "../lib/composerKeys";
 import {
   formatHash,
   navigateHash,
@@ -67,21 +76,29 @@ import {
   type LoreSectionKind,
 } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
+import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import { Markdown } from "./Markdown";
 import { MultiSelectFilter } from "./MultiSelectFilter";
+import { SuggestedReplies, appendSuggestion } from "./SuggestedReplies";
 import {
   BookIcon,
-  ChatBubbleIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  PaperclipIcon,
   PencilIcon,
+  SendIcon,
   UsersIcon,
 } from "./icons";
 import "./lore.css";
+// The message box wears the 任務卡 box's classes: .chat__input / .chat__attach
+// and ComposerAttachmentPreview's .chat__preview-* from office.css, the row and
+// 送出 from card-composer.css.
+import "./office.css";
+import "./card-composer.css";
 // The body renders through <Markdown>'s `.doc-md` skin from settings.css;
 // imported here rather than relied on transitively (css-layout-traps.md).
 import "./settings.css";
@@ -99,11 +116,20 @@ const STATE_ACTIONS: readonly LoreEntryState[] = ["retired", "active", "pinned"]
 /** What the 狀態 filter starts on: retired entries stay hidden until ticked. */
 const DEFAULT_STATES: readonly LoreEntryState[] = ["pinned", "active"];
 
+/** Who gets an entry's message when its author cannot (pinned, the owner's, or
+ * an author no longer on the roster). */
+const LORE_MESSAGE_FALLBACK_ID = "mira";
+
 /** How one author id resolves against the LIVE roster. `peerId === ""` means
- * "not reachable" and is what drops the 傳訊息 icon — see LoreAuthorChip. */
+ * "not reachable": the entry's message box then goes to the 特助. */
 interface AuthorIdentity {
   text: string;
   peerId: string;
+}
+
+interface MessageRecipient {
+  id: string;
+  name: string;
 }
 
 interface ScopeChoice {
@@ -163,11 +189,6 @@ function scopeOpts(def: { kind: LoreScopeKind; scopeKey: string }): LoreListOpti
   return def.kind === "everyone"
     ? { scopeKinds: ["everyone"] }
     : { scopeKinds: [def.kind], scopeKeys: [def.scopeKey] };
-}
-
-/** Characters as the cap counts them: Unicode code points of title + body. */
-function entryChars(title: string, body: string): number {
-  return [...title].length + [...body].length;
 }
 
 /** `212`, `L-212` and `l-212` all mean L-212; null when the text is not an id. */
@@ -1025,7 +1046,7 @@ function LoreView({
                   }
                   highlighted={entry.id === highlightId}
                   entryCaps={entryCaps}
-                  onOpenChat={openChat}
+                  recipient={messageRecipient(entry)}
                   onOpenManual={openManual}
                   onSetState={setEntryState}
                   onSetScope={setEntryScope}
@@ -1051,11 +1072,15 @@ function LoreView({
     );
   }
 
-  // 撰寫人 → the office, with this entry's id seeded into the composer: the
-  // author may hold dozens of entries, and a question without the id has no
-  // subject. (`composeTaskNo` carries a 傳承 id here; the prefix tells them apart.)
-  function openChat(peerId: string, entryId: string) {
-    navigateHash({ page: "office", chatId: peerId, composeTaskNo: entryId });
+  function messageRecipient(entry: LoreEntryView): MessageRecipient {
+    const author = resolveAuthor(entry.authorId);
+    if (entry.state !== "pinned" && author.peerId !== "") {
+      return { id: author.peerId, name: author.text };
+    }
+    return {
+      id: LORE_MESSAGE_FALLBACK_ID,
+      name: resolveAuthor(LORE_MESSAGE_FALLBACK_ID).text,
+    };
   }
 
   function openManual(typeKey: string) {
@@ -1364,7 +1389,7 @@ function LoreRow({
   avatar,
   scope,
   scopeMenu,
-  onOpenChat,
+  recipient,
   onOpenManual,
   onSetState,
   onSetScope,
@@ -1381,7 +1406,7 @@ function LoreRow({
   /** 屬於, already resolved (resolveScope). `manualKey` non-empty offers the
    * manual jump inside the 適用範圍 menu. */
   scope: { kind: "" | LoreScopeKind; label: string; manualKey: string };
-  onOpenChat: (peerId: string, entryId: string) => void;
+  recipient: MessageRecipient;
   onOpenManual: (typeKey: string) => void;
   onSetState: (id: string, next: LoreEntryState) => void;
   /** null ⇒ the viewer may not switch this entry's scope; the scope tag is plain text. */
@@ -1750,11 +1775,7 @@ function LoreRow({
       )}
 
       <div className="lore-row__meta">
-        <LoreAuthorChip
-          author={author}
-          avatar={avatar}
-          onOpenChat={(peerId) => onOpenChat(peerId, entry.id)}
-        />
+        <LoreAuthorChip author={author} avatar={avatar} />
         <span className="lore-row__meta-dot" aria-hidden="true">·</span>
         <span
           className="lore-row__effective-ts"
@@ -1763,10 +1784,6 @@ function LoreRow({
         >
           {formatAbsolute(entry.effectiveTs, Date.now() / 1000)}
         </span>
-        <span className="lore-row__meta-dot" aria-hidden="true">·</span>
-        <span className="lore-row__size" data-testid="lore-size">
-          {msg.loreChars(entryChars(entry.title, entry.body))}
-        </span>
       </div>
       {/* No reason, no line: an empty one would teach that retirements come unexplained. */}
       {entry.retireReason !== "" && (
@@ -1774,6 +1791,7 @@ function LoreRow({
           {t.lore.retireReasonLabel}：{entry.retireReason}
         </div>
       )}
+      <LoreMessageBox entryId={entry.id} recipient={recipient} />
     </article>
   );
 }
@@ -1898,47 +1916,172 @@ function LoreEntryEditor({
   );
 }
 
-/** The 撰寫人 pill.
- *
- * 🔴 THE TWO ARMS ARE DIFFERENT ELEMENTS, not one element with a hidden icon.
- * A resolvable author gets a `<button>` carrying avatar + name + 傳訊息 icon; an
- * author who is no longer on the roster gets a plain `<span>` with the same
- * pill look and NO icon. Hiding only the glyph would leave a clickable pill
- * that opens a chat with nobody — the affordance, not just its decoration, is
- * what has to go. (Same construction as TaskCard's creator row.) */
+/** The 撰寫人 pill: who wrote the entry, never a way to reach them — the
+ * message box under the card is that. */
 function LoreAuthorChip({
   author,
   avatar,
-  onOpenChat,
 }: {
   author: AuthorIdentity;
   avatar: { src?: string; kind: AvatarKind } | null;
-  onOpenChat: (peerId: string) => void;
 }): ReactNode {
-  const { t } = useI18n();
-  if (author.peerId === "") {
-    return (
-      <span className="lore-row__chip" data-testid="lore-author-row">
-        <span className="lore-row__author" data-testid="lore-author">
-          {author.text}
-        </span>
-      </span>
-    );
-  }
   return (
-    <button
-      type="button"
-      className="lore-row__chip lore-row__chip--link"
-      title={t.lore.messageAuthor}
-      aria-label={t.lore.messageAuthor}
-      data-testid="lore-author-link"
-      onClick={() => onOpenChat(author.peerId)}
-    >
-      {avatar ? <Avatar size={18} kind={avatar.kind} src={avatar.src} /> : null}
+    <span className="lore-row__chip" data-testid="lore-author-row">
+      {author.peerId !== "" && avatar ? (
+        <Avatar size={18} kind={avatar.kind} src={avatar.src} />
+      ) : null}
       <span className="lore-row__author" data-testid="lore-author">
         {author.text}
       </span>
-      <ChatBubbleIcon size={13} />
-    </button>
+    </span>
+  );
+}
+
+/** The 任務卡 message box on a 傳承 card: one message to `recipient`, sent
+ * without leaving the page, with the entry id leading it.
+ *
+ * `[LoreID=…]` is a literal, not an i18n key: the reader is an agent, and a
+ * prefix that changed with the cockpit's language could not be matched on.
+ * `meta.lore_entry_id` carries the same id for a program, so nothing has to
+ * parse the human-facing prefix. */
+function LoreMessageBox({
+  entryId,
+  recipient,
+}: {
+  entryId: string;
+  recipient: MessageRecipient;
+}): ReactNode {
+  const { t } = useI18n();
+  const isMobile = useIsMobile();
+  const suggestedReplies = useSuggestedRepliesLoreMessage();
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const isComposingRef = useRef(false);
+  const {
+    pendingAttachments,
+    attachError,
+    onPaste,
+    onPickFile,
+    removeAttachment,
+    clearAttachments,
+  } = useAttachmentStaging(STAGING_TARGET_PER_MOUNT);
+  const canSend =
+    !sending && (draft.trim().length > 0 || pendingAttachments.length > 0);
+
+  useLayoutEffect(() => {
+    if (boxRef.current) autosizeTextarea(boxRef.current);
+  }, [draft]);
+
+  async function send() {
+    if (!canSend) return;
+    const attachments: ChatAttachmentInput[] = pendingAttachments.map((a) => ({
+      dataB64: a.dataUri,
+      ...(a.filename ? { filename: a.filename } : {}),
+    }));
+    setSending(true);
+    try {
+      await api.postChat({
+        to: recipient.id,
+        body: `[LoreID=${entryId}] ${draft.trim()}`,
+        meta: { lore_entry_id: entryId },
+        ...(attachments.length > 0 ? { attachments } : {}),
+      });
+      setDraft("");
+      clearAttachments();
+      setFailed(false);
+    } catch (e) {
+      console.warn("LorePage: lore message failed", e);
+      setFailed(true);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (enterShouldSend(e, { isMobile, composing: isComposingRef.current })) {
+      e.preventDefault();
+      void send();
+    }
+  }
+
+  return (
+    <div className="lore-row__message" data-testid="lore-message-box">
+      {(pendingAttachments.length > 0 || attachError) && (
+        <ComposerAttachmentPreview
+          pendingAttachments={pendingAttachments}
+          attachError={attachError}
+          onRemove={removeAttachment}
+        />
+      )}
+      <div className="task-card__composer">
+        <input
+          ref={fileInputRef}
+          className="chat__file-input"
+          type="file"
+          accept={ATTACH_ACCEPT}
+          multiple
+          onChange={onPickFile}
+          hidden
+        />
+        <button
+          type="button"
+          className="chat__attach"
+          aria-label={t.chat.attachLabel}
+          title={t.chat.attachLabel}
+          disabled={sending}
+          data-testid="lore-msg-attach"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <PaperclipIcon size={18} />
+        </button>
+        <textarea
+          ref={boxRef}
+          className="chat__input"
+          rows={1}
+          value={draft}
+          disabled={sending}
+          placeholder={t.tasks.messagePlaceholder(recipient.name)}
+          aria-label={t.tasks.messagePlaceholder(recipient.name)}
+          data-testid="lore-msg-input"
+          data-recipient={recipient.id}
+          onChange={(e) => setDraft(e.target.value)}
+          onCompositionStart={() => {
+            isComposingRef.current = true;
+          }}
+          onCompositionEnd={(e) => {
+            isComposingRef.current = false;
+            setDraft(e.currentTarget.value);
+          }}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+        ></textarea>
+        <button
+          type="button"
+          className="task-card__send"
+          disabled={!canSend}
+          data-testid="lore-msg-send"
+          onClick={() => void send()}
+        >
+          <SendIcon size={14} />
+          {t.tasks.send}
+        </button>
+      </div>
+      <SuggestedReplies
+        replies={suggestedReplies}
+        testId="lore-suggested-replies"
+        onPick={(suggestion) => {
+          setDraft((cur) => appendSuggestion(cur, suggestion));
+          boxRef.current?.focus();
+        }}
+      />
+      {failed && (
+        <div className="lore-row__message-error" role="status" data-testid="lore-msg-failed">
+          {t.tasks.messageError}
+        </div>
+      )}
+    </div>
   );
 }

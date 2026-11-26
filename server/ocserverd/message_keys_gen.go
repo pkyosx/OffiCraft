@@ -368,7 +368,6 @@ var messageKeys = map[string]bool{
 	"lore.loreTypeOther":                               true,
 	"lore.loreTypeOwnerDecision":                       true,
 	"lore.loreTypeOwnerPreference":                     true,
-	"lore.messageAuthor":                               true,
 	"lore.messageSent":                                 true,
 	"lore.openManualLabel":                             true,
 	"lore.retireReasonLabel":                           true,

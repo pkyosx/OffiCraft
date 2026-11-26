@@ -1,8 +1,9 @@
 // 傳承 directory cards, section pages and row heads at phone and desktop width:
 // the tags (id → type → state → scope) wrap as whole pills, the head's one
 // action (編輯, the app-wide .doc-btn--edit) stays inside the head without
-// overlapping them, no card has a ▸/▾ mark or a clamped body, the 撰寫人 · 生效期 ·
-// 字數 line stays inside the card, the section head card's name, badges, bar and
+// overlapping them, no card has a ▸/▾ mark or a clamped body, the 撰寫人 · 生效期
+// line stays inside the card, the message box's 📎, input and 送出 sit on one row
+// inside the card with room to type, the section head card's name, badges, bar and
 // legend stay inside it, the 適用範圍 menu opens inside the viewport, the inline
 // editor fits, and a state change leaves the scroll position and the card where
 // they were.
@@ -29,6 +30,8 @@ type RowGeom = {
   toggle: boolean;
   meta: Box | null;
   metaItems: Box[];
+  composer: Box | null;
+  composerItems: { id: string; box: Box }[];
 };
 
 const MIRA = "#lore/agent/mira";
@@ -128,6 +131,10 @@ async function measure(page: any): Promise<{
           toggle: row.getAttribute("role") === "button",
           meta: r(row.querySelector(".lore-row__meta")),
           metaItems: [...row.querySelectorAll(".lore-row__meta > *")].map((c) => r(c)!),
+          composer: r(row.querySelector('[data-testid="lore-message-box"] .task-card__composer')),
+          composerItems: [
+            ...row.querySelectorAll('[data-testid="lore-message-box"] .task-card__composer > :not([hidden])'),
+          ].map((c) => ({ id: c.getAttribute("data-testid") ?? c.tagName, box: r(c)! })),
         };
       }
     );
@@ -180,10 +187,26 @@ function assertHeadContained(width: number, row: RowGeom) {
       .toBeGreaterThanOrEqual(row.head.left - 1);
   }
   expect.soft(row.meta, `${tag} meta line missing`).not.toBeNull();
-  expect.soft(row.metaItems.length, `${tag} meta items`).toBeGreaterThanOrEqual(5);
+  expect.soft(row.metaItems.length, `${tag} meta items`).toBe(3);
   if (row.row)
     for (const m of row.metaItems)
       expect.soft(inside(m, row.row), `${tag} meta item outside the card`).toBe(true);
+  expect.soft(row.composer, `${tag} message box missing`).not.toBeNull();
+  expect
+    .soft(row.composerItems.map((c) => c.id), `${tag} message box parts`)
+    .toEqual(["lore-msg-attach", "lore-msg-input", "lore-msg-send"]);
+  row.composerItems.forEach((c, i) => {
+    if (row.row) expect.soft(inside(c.box, row.row), `${tag} "${c.id}" outside the card`).toBe(true);
+    const next = row.composerItems[i + 1];
+    if (next) {
+      expect.soft(c.box.right, `${tag} "${c.id}" runs into "${next.id}"`).toBeLessThanOrEqual(next.box.left + 1);
+      expect.soft(Math.abs(c.box.bottom - next.box.bottom), `${tag} "${c.id}" and "${next.id}" not on one row`).toBeLessThanOrEqual(4);
+    }
+  });
+  const input = row.composerItems.find((c) => c.id === "lore-msg-input");
+  if (input) expect.soft(input.box.right - input.box.left, `${tag} message input too narrow`).toBeGreaterThanOrEqual(150);
+  const send = row.composerItems.find((c) => c.id === "lore-msg-send");
+  if (send) expect.soft(send.box.bottom - send.box.top, `${tag} 送出 wraps`).toBeLessThanOrEqual(40);
   // No fold: the body shows in full, nothing marks or toggles a row.
   expect.soft(row.bodyOverflows, `${tag} body missing or clipped`).toBe(false);
   expect.soft(row.mark, `${tag} expand mark`).toBeNull();
