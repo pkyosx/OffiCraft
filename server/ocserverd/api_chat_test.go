@@ -4076,7 +4076,7 @@ func TestHandlePeekResumeSummarySizeApiResumeSummarySizeGet(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"identity":              "owner",
 			"overview":              apiTestResumeOverview(0, 26),
-			"estimated_total_chars": 620,
+			"estimated_total_chars": 625,
 			"note":                  apiTestPeekNote,
 		})
 		dashboard.wantFrames()
@@ -4093,7 +4093,7 @@ func TestHandlePeekResumeSummarySizeApiResumeSummarySizeGet(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"identity":              "owner",
 			"overview":              apiTestResumeOverview(1, 64),
-			"estimated_total_chars": 658,
+			"estimated_total_chars": 663,
 			"note":                  apiTestPeekNote,
 		})
 	})
