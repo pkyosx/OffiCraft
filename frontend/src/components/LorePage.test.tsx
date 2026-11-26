@@ -18,7 +18,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { createRoot } from "react-dom/client";
 import { I18nProvider } from "../i18n";
-import { LorePage } from "./LorePage";
+import { LorePage, loreBodyOverflow } from "./LorePage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
 // The 可變動作面 specs need to build a REFUSAL, and the refusal has to be the
@@ -132,6 +132,9 @@ function rowById(container: HTMLElement, id: string): HTMLElement {
 beforeEach(() => {
   __resetMock();
   clearLocale();
+  // jsdom has no layout; every body counts as overflowing its clamped line
+  // unless a spec says otherwise, so the row stays an expand toggle.
+  vi.spyOn(loreBodyOverflow, "measure").mockReturnValue(true);
 });
 
 afterEach(() => {
@@ -1094,7 +1097,7 @@ describe("LorePage — 篩選器複選", () => {
 // literally so a future change has to state the new order rather than arrive at
 // one by accident:
 //   篩選列  編號 → 撰寫人 → 類型 → 狀態                (任務頁: 任務編號 → 負責人 → 類型 → 狀態)
-//   列上    編號 → 狀態 → 屬於                          (任務卡: 編號 → 優先權 → 狀態 → 類型)
+//   列上    編號 → 類型 → 狀態 → 屬於                   (任務卡: 編號 → 優先權 → 狀態 → 類型)
 describe("LorePage — 順序跟任務頁一致", () => {
   it("puts the id box and the three filters in the 任務頁 order, and keeps that order as they are used", async () => {
     stubList(page([mkEntry({ id: "L-1" })]));
@@ -1117,7 +1120,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
     expect(idsInDomOrder()).toEqual(fields);
   });
 
-  it("puts the entry id FIRST on the row, ahead of the state badge", async () => {
+  it("reads 編號 → 類型 → 狀態 → 屬於 on the row", async () => {
     stubList(page([mkEntry({ id: "L-9", state: "pinned" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
@@ -1125,17 +1128,20 @@ describe("LorePage — 順序跟任務頁一致", () => {
     const row = rowById(container, "L-9");
     const marks = Array.from(
       row.querySelectorAll(
-        '[data-testid="lore-entry-id"], [data-testid="lore-state"], [data-testid="lore-scope"]',
+        '[data-testid="lore-entry-id"], [data-testid="lore-type"], [data-testid="lore-state"], [data-testid="lore-scope"]',
       ),
     ).map((el) => el.getAttribute("data-testid"));
 
-    // 🔴 The id LEADS, the way 任務卡's #T-1 does. It is what you quote to
-    // somebody else, so it is what the eye should land on first — and it landed
-    // second here until the owner put the two screenshots side by side.
-    expect(marks).toEqual(["lore-entry-id", "lore-state", "lore-scope"]);
+    // 🔴 The id LEADS, the way 任務卡's #T-1 does: it is what you quote to
+    // somebody else.
+    expect(marks).toEqual(["lore-entry-id", "lore-type", "lore-state", "lore-scope"]);
+    // Nothing sits between the checkbox and the id.
+    expect(row.querySelector(".lore-row__badges")!.firstElementChild!.getAttribute("data-testid")).toBe(
+      "lore-entry-id",
+    );
   });
 
-  it("puts the type tag at the very front of every collapsed row, ahead of the id and the title", async () => {
+  it("shows the type tag right after the id on every collapsed row, ahead of the title", async () => {
     stubList(
       page([
         mkEntry({ id: "L-1", loreType: "instruction_conflict", effectiveTs: 6 }),
@@ -1151,18 +1157,19 @@ describe("LorePage — 順序跟任務頁一致", () => {
     const tags = ["L-1", "L-2", "L-3", "L-4", "L-5"].map((id) => {
       const row = rowById(container, id);
       expect(row.getAttribute("aria-expanded")).toBe("false");
-      const firstInRow = row.querySelector(
-        '[data-testid="lore-type"], [data-testid="lore-entry-id"], .lore-row__title',
-      );
+      const order = Array.from(
+        row.querySelectorAll('[data-testid="lore-type"], [data-testid="lore-entry-id"], .lore-row__title'),
+      ).map((el) => el.getAttribute("data-testid") ?? "title");
       const tag = row.querySelector('[data-testid="lore-type"]');
-      return [id, firstInRow?.getAttribute("data-testid") ?? null, tag?.textContent ?? null];
+      return [id, order, tag?.textContent ?? null];
     });
+    const order = ["lore-entry-id", "lore-type", "title"];
     expect(tags).toEqual([
-      ["L-1", "lore-type", "指示衝突"],
-      ["L-2", "lore-type", "指示補充"],
-      ["L-3", "lore-type", "Owner 決策"],
-      ["L-4", "lore-type", "Owner 偏好"],
-      ["L-5", "lore-type", "其他"],
+      ["L-1", order, "指示衝突"],
+      ["L-2", order, "指示補充"],
+      ["L-3", order, "Owner 決策"],
+      ["L-4", order, "Owner 偏好"],
+      ["L-5", order, "其他"],
     ]);
   });
 
@@ -2270,10 +2277,6 @@ describe("LorePage — 就地編輯", () => {
     const editor = rowById(container, "L-2").querySelector<HTMLElement>('[data-testid="lore-editor"]')!;
     expect(editor.querySelector<HTMLInputElement>('[data-testid="lore-edit-title"]')!.value).toBe("AAAA");
     fireEvent.change(editor.querySelector('[data-testid="lore-edit-body"]')!, { target: { value: "BB" } });
-    expect(editor.querySelector('[data-testid="lore-edit-effect"]')!.textContent).toBe(
-      "這筆從 20 字變成 6 字；儲存後剩 24 字，L-3（20 字）會變成讀得到",
-    );
-    expect(editor.querySelector('[data-testid="lore-edit-body-count"]')!.textContent).toBe("2 / 500");
 
     fireEvent.click(editor.querySelector('[data-testid="lore-edit-save"]')!);
 
@@ -2290,22 +2293,25 @@ describe("LorePage — 就地編輯", () => {
     await waitFor(() => expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull());
   });
 
-  it("editing the first entry that cannot be read compares its new size with the room left", async () => {
+  it("edits title and body only: no type control, no character counters, no effect sentence", async () => {
+    const edit = vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
     stubList({ ...page(rows(), cap), usedChars: 990, firstDroppedChars: 4 });
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
 
     fireEvent.click(rowById(container, "L-3").querySelector('[data-testid="lore-edit"]')!);
     const editor = rowById(container, "L-3").querySelector<HTMLElement>('[data-testid="lore-editor"]')!;
-    expect(editor.querySelector('[data-testid="lore-edit-effect"]')!.textContent).toBe(
-      "這筆從 4 字變成 4 字；只剩 10 字，儲存後這筆會變成讀得到",
-    );
-    fireEvent.change(editor.querySelector('[data-testid="lore-edit-body"]')!, {
-      target: { value: "三".repeat(20) },
-    });
-    expect(editor.querySelector('[data-testid="lore-edit-effect"]')!.textContent).toBe(
-      "這筆從 4 字變成 23 字；只剩 10 字，這筆還是讀不到",
-    );
+    expect(
+      Array.from(editor.querySelectorAll("input, textarea")).map((el) => el.getAttribute("data-testid")),
+    ).toEqual(["lore-edit-title", "lore-edit-body"]);
+    expect(editor.querySelector('[role="radiogroup"], [data-testid^="lore-edit-type"]')).toBeNull();
+    expect(editor.querySelector('[data-testid$="-count"], [data-testid="lore-edit-effect"]')).toBeNull();
+    expect(editor.textContent).not.toMatch(/\d+ \/ \d+/);
+
+    fireEvent.change(editor.querySelector('[data-testid="lore-edit-title"]')!, { target: { value: "新標題" } });
+    fireEvent.click(editor.querySelector('[data-testid="lore-edit-save"]')!);
+    await waitFor(() => expect(edit).toHaveBeenCalled());
+    expect(edit.mock.calls).toEqual([["L-3", { title: "新標題" }]]);
   });
 
   it("an entry already over a lowered cap saves a shorter or untouched field and refuses one that grows", async () => {
@@ -2353,6 +2359,179 @@ describe("LorePage — 就地編輯", () => {
     );
     expect(editor.querySelector<HTMLInputElement>('[data-testid="lore-edit-title"]')!.value).toBe("新標題");
     expect(list).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("LorePage — 類型選單", () => {
+  const rows = () => [
+    mkEntry({ id: "L-1", effectiveTs: 3 }),
+    mkEntry({ id: "L-2", loreType: "other", effectiveTs: 2 }),
+    mkEntry({ id: "L-3", effectiveTs: 1 }),
+  ];
+
+  it("the type tag opens a menu of the five types with the current one marked", async () => {
+    stubList(page(rows()));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
+    const row = rowById(container, "L-2");
+    const tag = row.querySelector<HTMLElement>('[data-testid="lore-type"]')!;
+    expect(tag.tagName).toBe("BUTTON");
+    expect(tag.getAttribute("aria-haspopup")).toBe("menu");
+    expect(row.querySelector('[data-testid="lore-type-options"]')).toBeNull();
+
+    fireEvent.click(tag);
+    const menu = row.querySelector<HTMLElement>('[data-testid="lore-type-options"]')!;
+    expect(menu.getAttribute("role")).toBe("menu");
+    const items = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    expect(items.map((el) => el.textContent)).toEqual([
+      "指示衝突",
+      "指示補充",
+      "Owner 決策",
+      "Owner 偏好",
+      "其他",
+    ]);
+    expect(
+      items.filter((el) => el.classList.contains("lore-row__menu-item--active")).map((el) => el.textContent),
+    ).toEqual(["其他"]);
+    // Opening the menu is not a row toggle.
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.mouseDown(document.body);
+    expect(row.querySelector('[data-testid="lore-type-options"]')).toBeNull();
+  });
+
+  it("choosing a type sends only loreType and re-reads that card where it stands", async () => {
+    const edit = vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
+    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
+      o?.entryIds
+        ? page([mkEntry({ id: "L-2", loreType: "owner_decision", effectiveTs: 2 })])
+        : page(rows()),
+    );
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]));
+    const before = rowById(container, "L-2");
+
+    fireEvent.click(before.querySelector('[data-testid="lore-type"]')!);
+    fireEvent.click(before.querySelector('[data-testid="lore-type-owner_decision"]')!);
+
+    await waitFor(() =>
+      expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe(
+        "Owner 決策",
+      ),
+    );
+    expect(edit.mock.calls).toEqual([["L-2", { loreType: "owner_decision" }]]);
+    expect(rowById(container, "L-2")).toBe(before);
+    expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]);
+    expect(list.mock.calls[1][0]).toEqual({
+      scopeKinds: ["agent"], scopeKeys: ["mira"], entryIds: ["L-2"], limit: 1, offset: 0,
+    });
+    expect(before.querySelector('[data-testid="lore-type-options"]')).toBeNull();
+  });
+
+  it("choosing the current type sends nothing", async () => {
+    const edit = vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
+    stubList(page(rows()));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
+    const row = rowById(container, "L-2");
+    fireEvent.click(row.querySelector('[data-testid="lore-type"]')!);
+    fireEvent.click(row.querySelector('[data-testid="lore-type-other"]')!);
+    expect(row.querySelector('[data-testid="lore-type-options"]')).toBeNull();
+    expect(edit).not.toHaveBeenCalled();
+  });
+
+  it("a refused type change says so on the action error line", async () => {
+    vi.spyOn(api, "editLoreEntry").mockRejectedValue(
+      new ApiError("http 403 for PATCH /api/lore/L-2", 403, "forbidden", ""),
+    );
+    stubList(page(rows()));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
+    const row = rowById(container, "L-2");
+    fireEvent.click(row.querySelector('[data-testid="lore-type"]')!);
+    fireEvent.click(row.querySelector('[data-testid="lore-type-instruction_conflict"]')!);
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="lore-action-error"]')?.textContent).toBe(
+        zh.lore.forbidden,
+      ),
+    );
+    expect(row.querySelector('[data-testid="lore-type"]')!.textContent).toBe("其他");
+  });
+});
+
+describe("LorePage — 只有放不下一行的內容才能展開", () => {
+  const LONG = "一段很長的內容。".repeat(40);
+
+  async function renderTwoBodies() {
+    vi.spyOn(loreBodyOverflow, "measure").mockImplementation(
+      (el) => (el.textContent ?? "").length > 50,
+    );
+    stubList(
+      page([
+        mkEntry({ id: "short", body: "一行就放得下", effectiveTs: 2 }),
+        mkEntry({ id: "long", body: LONG, effectiveTs: 1 }),
+      ]),
+    );
+    const r = await renderOpen();
+    await waitFor(() => expect(renderedIds(r.container)).toHaveLength(2));
+    return r;
+  }
+
+  it("a body that fits its line has no chevron, is not a toggle, and a click does not expand it", async () => {
+    const { container } = await renderTwoBodies();
+    const row = rowById(container, "short");
+    expect(row.querySelector('[data-testid="lore-expand-mark"]')).toBeNull();
+    expect(row.hasAttribute("role")).toBe(false);
+    expect(row.hasAttribute("aria-expanded")).toBe(false);
+    expect(row.hasAttribute("tabindex")).toBe(false);
+    expect(row.classList.contains("lore-row--toggle")).toBe(false);
+
+    fireEvent.click(row.querySelector('[data-testid="lore-body"]')!);
+    expect(row.querySelector('[data-testid="lore-body"]')!.classList.contains("lore-row__body--clamped")).toBe(
+      true,
+    );
+    expect(row.querySelector('[data-testid="lore-expand-mark"]')).toBeNull();
+  });
+
+  it("a body that overflows shows the chevron and toggles on a row click, both ways", async () => {
+    const { container } = await renderTwoBodies();
+    const row = rowById(container, "long");
+    expect(row.querySelector('[data-testid="lore-expand-mark"]')).not.toBeNull();
+    expect(row.getAttribute("role")).toBe("button");
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    expect(row.classList.contains("lore-row--toggle")).toBe(true);
+
+    fireEvent.click(row.querySelector('[data-testid="lore-body"]')!);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    expect(row.querySelector('[data-testid="lore-body"]')!.classList.contains("lore-row__body--clamped")).toBe(
+      false,
+    );
+    // Unclamped, the body no longer overflows; the row must still collapse.
+    expect(row.querySelector('[data-testid="lore-expand-mark"]')).not.toBeNull();
+    fireEvent.click(row.querySelector('[data-testid="lore-body"]')!);
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("re-measures when the body changes", async () => {
+    vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
+    vi.spyOn(loreBodyOverflow, "measure").mockImplementation(
+      (el) => (el.textContent ?? "").length > 50,
+    );
+    vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
+      o?.entryIds ? page([mkEntry({ id: "s", body: LONG })]) : page([mkEntry({ id: "s", body: "短" })]),
+    );
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toEqual(["s"]));
+    expect(rowById(container, "s").querySelector('[data-testid="lore-expand-mark"]')).toBeNull();
+
+    fireEvent.click(rowById(container, "s").querySelector('[data-testid="lore-edit"]')!);
+    const editor = rowById(container, "s").querySelector<HTMLElement>('[data-testid="lore-editor"]')!;
+    fireEvent.change(editor.querySelector('[data-testid="lore-edit-body"]')!, { target: { value: LONG } });
+    fireEvent.click(editor.querySelector('[data-testid="lore-edit-save"]')!);
+
+    await waitFor(() =>
+      expect(rowById(container, "s").querySelector('[data-testid="lore-expand-mark"]')).not.toBeNull(),
+    );
   });
 });
 

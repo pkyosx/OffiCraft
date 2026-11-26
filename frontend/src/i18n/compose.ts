@@ -92,7 +92,6 @@ export interface Messages {
   loreCapLine: (used: number, cap: number, firstDroppedId: string, need: number) => string;
   loreCapLineAway: (firstDroppedId: string) => string;
   loreEveryoneRef: (count: number) => string;
-  loreEditEffect: (oldChars: number, newChars: number, effect: LoreEditEffect) => string;
   loreBatchSelected: (n: number) => string;
   loreBatchResult: (done: string[], failed: { id: string; reason: string }[]) => string;
   // ── secrets ──
@@ -258,17 +257,6 @@ export interface LoreBudgetSentence {
   firstDroppedId: string;
   firstDroppedChars: number;
 }
-
-/** What saving an inline edit does to the section's cap line. */
-export type LoreEditEffect =
-  | { mode: "size" }
-  | {
-      mode: "remain";
-      remain: number;
-      firstDropped: { id: string; chars: number; readable: boolean } | null;
-    }
-  | { mode: "over"; over: number }
-  | { mode: "self"; remain: number; readable: boolean };
 
 export function makeMessages(t: Dict, language: Lang): Messages {
   // The separator between a parameter and an adjacent fragment where the two
@@ -539,31 +527,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     loreCapLineAway: (firstDroppedId) =>
       `${t.lore.capLineAwayLead}${firstDroppedId}${t.lore.capLineAwayTail}`,
     loreEveryoneRef: (count) => `${t.lore.everyoneRefLead}${num(count)}${t.lore.everyoneRefTail}`,
-    loreEditEffect: (oldChars, newChars, effect) => {
-      const l = t.lore;
-      const size = `${l.editSizeLead}${num(oldChars)}${l.editSizeMid}${num(newChars)}${l.editSizeTail}`;
-      switch (effect.mode) {
-        case "size":
-          return size;
-        case "over":
-          return `${size}${l.editOverLead}${num(effect.over)}${l.editOverTail}`;
-        case "self":
-          return (
-            `${size}${l.editSelfLead}${num(effect.remain)}` +
-            (effect.readable ? l.editSelfReadable : l.editSelfStill)
-          );
-        case "remain": {
-          const fd = effect.firstDropped;
-          return (
-            `${size}${l.editRemainLead}${num(effect.remain)}${l.editRemainTail}` +
-            (fd
-              ? `${l.editFirstDroppedLead}${fd.id}${l.editFirstDroppedOpen}${num(fd.chars)}` +
-                `${l.editFirstDroppedClose}${fd.readable ? l.editBecomesReadable : l.editStillDropped}`
-              : "")
-          );
-        }
-      }
-    },
     loreBatchSelected: (n) => `${t.lore.batchSelectedLead}${num(n)}${t.lore.batchSelectedTail}`,
     loreBatchResult: (done, failed) => {
       const l = t.lore;

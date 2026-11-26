@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { zh, type Dict } from "./locales/zh";
 import { en } from "./locales/en";
-import { makeMessages, effortText, type LoreBudgetSentence, type LoreEditEffect } from "./compose";
+import { makeMessages, effortText, type LoreBudgetSentence } from "./compose";
 import { applyWording } from "./wording";
 import { MESSAGE_KEYS } from "./messageKeys.generated";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
@@ -68,7 +68,6 @@ type Arg =
   | ActivityWait
   | DueRemaining
   | LoreBudgetSentence
-  | LoreEditEffect
   | { id: string; reason: string }[];
 const MEMBER_DROPPING: LoreBudgetSentence = {
   capChars: 10000,
@@ -218,10 +217,6 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "loreCapLine", [9640, 10000, "L-212", 520], "上限線　已用 9,640 / 10,000 字・L-212 需要 520 字，從這裡以下讀不到"],
     ["zh", "loreCapLineAway", ["L-212"], "上限線在 L-212，不在目前的結果裡"],
     ["zh", "loreEveryoneRef", [14], "所有人的傳承 14 筆排在最前面（在「所有人」那一段調整）"],
-    ["zh", "loreEditEffect", [480, 102, { mode: "remain", remain: 738, firstDropped: { id: "L-212", chars: 520, readable: true } }], "這筆從 480 字變成 102 字；儲存後剩 738 字，L-212（520 字）會變成讀得到"],
-    ["zh", "loreEditEffect", [480, 900, { mode: "over", over: 60 }], "這筆從 480 字變成 900 字；儲存後會超出上限 60 字，排在後面的會讀不到"],
-    ["zh", "loreEditEffect", [520, 300, { mode: "self", remain: 360, readable: true }], "這筆從 520 字變成 300 字；只剩 360 字，儲存後這筆會變成讀得到"],
-    ["zh", "loreEditEffect", [410, 300, { mode: "size" }], "這筆從 410 字變成 300 字"],
     ["zh", "loreBatchSelected", [2], "已選 2 筆"],
     ["zh", "loreBatchResult", [["L-1", "L-3"], [{ id: "L-2", reason: "你沒有權限做這個動作" }]], "已完成 L-1、L-3；沒有成功：L-2（你沒有權限做這個動作）"],
     ["zh", "secretCopyId", ["sec-00000000000a"], "複製密鑰 ID sec-00000000000a"],
@@ -431,8 +426,6 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "loreCapLine", [9640, 10000, "L-212", 520], "Cap line · used 9,640 / 10,000 chars · L-212 needs 520 chars; nothing from here down is read"],
     ["en", "loreCapLineAway", ["L-212"], "The cap line is at L-212, which is not in the current results"],
     ["en", "loreEveryoneRef", [14], "Everyone's lore, 14 entries, comes first (change it in the Everyone section)"],
-    ["en", "loreEditEffect", [480, 102, { mode: "remain", remain: 738, firstDropped: { id: "L-212", chars: 520, readable: false } }], "This entry goes from 480 to 102 chars; after saving 738 chars are left, and L-212 (520 chars) is still not read"],
-    ["en", "loreEditEffect", [520, 300, { mode: "self", remain: 200, readable: false }], "This entry goes from 520 to 300 chars; only 200 chars are left, so this entry is still not read"],
     ["en", "loreBatchSelected", [2], "2 selected"],
     ["en", "loreBatchResult", [["L-1"], [{ id: "L-2", reason: "admin only" }, { id: "L-4", reason: "" }]], "Done: L-1; Did not go through: L-2 (admin only), L-4"],
     ["en", "secretCopyId", ["sec-00000000000a"], "Copy secret ID sec-00000000000a"],

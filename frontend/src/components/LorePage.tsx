@@ -31,7 +31,6 @@ import {
   type ReactNode,
 } from "react";
 import { useI18n } from "../i18n";
-import type { LoreEditEffect } from "../i18n/compose";
 import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { api, viewerMaySetLoreScope } from "../api";
 import type {
@@ -195,6 +194,12 @@ function editFieldBlocked(next: string, stored: string, capChars: number): boole
   const n = [...next].length;
   return next !== stored && n > capChars && n >= [...stored].length;
 }
+
+/** Whether a clamped 內容 box hides text. A seam so jsdom tests, which have no
+ * layout, can say which bodies overflow. */
+export const loreBodyOverflow = {
+  measure: (el: HTMLElement): boolean => el.scrollHeight > el.clientHeight + 1,
+};
 
 /** A changed card keeps its place until the section reloads, even when its
  * new state or a bump would sort it elsewhere: the owner changes several
@@ -770,6 +775,11 @@ export function LorePage({
       void runOne(id, () => api.setLoreEntryScope(id, kind), true).catch(() => {}),
     [runOne]
   );
+  const setEntryLoreType = useCallback(
+    (id: string, loreType: LoreType) =>
+      void runOne(id, () => api.editLoreEntry(id, { loreType })).catch(() => {}),
+    [runOne]
+  );
   /** Rejects with the reason so the editor can keep the draft and say why. */
   const editEntry = useCallback(
     async (id: string, patch: LoreEntryEdit): Promise<void> => {
@@ -860,44 +870,6 @@ export function LorePage({
   }
 
   // ── render helpers ──────────────────────────────────────────────────────
-  function editDescriber(sd: SectionData) {
-    const cut = cutIndexOf(sd);
-    const { capChars, usedChars, firstDroppedId, firstDroppedChars } = sd.cap;
-    return (entry: LoreEntryView, oldChars: number, newChars: number): string => {
-      let effect: LoreEditEffect = { mode: "size" };
-      const pos = sd.entries.findIndex((e) => e.id === entry.id);
-      // Above the line when it sits before the line on screen, or — with no
-      // narrowing filter, so the rows are a prefix of the server's order —
-      // when the line has not been loaded yet.
-      const above =
-        firstDroppedId === ""
-          ? true
-          : cut >= 0
-            ? pos >= 0 && pos < cut
-            : !narrowing && !sd.exhausted;
-      if (capChars > 0 && entry.state !== "retired") {
-        if (entry.id === firstDroppedId) {
-          const room = capChars - usedChars;
-          effect = { mode: "self", remain: room, readable: newChars <= room };
-        } else if (above) {
-          const remain = capChars - usedChars + oldChars - newChars;
-          effect =
-            remain < 0
-              ? { mode: "over", over: -remain }
-              : {
-                  mode: "remain",
-                  remain,
-                  firstDropped:
-                    firstDroppedId === ""
-                      ? null
-                      : { id: firstDroppedId, chars: firstDroppedChars, readable: remain >= firstDroppedChars },
-                };
-        }
-      }
-      return msg.loreEditEffect(oldChars, newChars, effect);
-    };
-  }
-
   function renderHeaderUsage(def: SectionDef) {
     const b = def.target;
     const usage =
@@ -981,7 +953,6 @@ export function LorePage({
       );
     }
     const cut = cutIndexOf(sd);
-    const describe = editDescriber(sd);
     return (
       <>
         {renderSummary(def, sd)}
@@ -1016,12 +987,12 @@ export function LorePage({
               isMobile={isMobile}
               selected={selected.includes(entry.id)}
               entryCaps={entryCaps}
-              describeEdit={(oldChars, newChars) => describe(entry, oldChars, newChars)}
               onToggleSelect={toggleSelect}
               onOpenChat={openChat}
               onOpenManual={openManual}
               onSetState={setEntryState}
               onSetScope={setEntryScope}
+              onSetLoreType={setEntryLoreType}
               onBump={bumpEntry}
               onSave={editEntry}
               onRestored={restoredEntry}
@@ -1321,7 +1292,8 @@ function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string
   }
 }
 
-/** ONE 傳承 row. Collapsed by default; the whole row is the toggle surface. */
+/** ONE 傳承 row. Collapsed by default; when the body overflows its clamped
+ * line, the whole row is the toggle surface. */
 function LoreRow({
   entry,
   dimmed,
@@ -1333,11 +1305,11 @@ function LoreRow({
   onOpenManual,
   onSetState,
   onSetScope,
+  onSetLoreType,
   onBump,
   isMobile,
   selected,
   entryCaps,
-  describeEdit,
   onToggleSelect,
   onSave,
   onRestored,
@@ -1357,13 +1329,12 @@ function LoreRow({
   /** null ⇒ the viewer may not switch this entry's scope; the badge is inert. */
   scopeMenu: ScopeMenu | null;
   onSetScope: (id: string, kind: LoreScopeKind) => void;
+  onSetLoreType: (id: string, loreType: LoreType) => void;
   onBump: (id: string) => void;
   /** Phone width: 提到最新 and 編輯 fold into the 「⋯」 menu. */
   isMobile: boolean;
   selected: boolean;
   entryCaps: { title: number; body: number };
-  /** The sentence about what saving does to the section's 上限線. */
-  describeEdit: (oldChars: number, newChars: number) => string;
   onToggleSelect: (id: string) => void;
   /** Rejects with the reason to show; the draft stays. */
   onSave: (id: string, patch: LoreEntryEdit) => Promise<void>;
@@ -1373,6 +1344,8 @@ function LoreRow({
   const [expanded, setExpanded] = useState(false);
   const [stateOpen, setStateOpen] = useState(false);
   const statusRef = useRef<HTMLDivElement>(null);
+  const [typeOpen, setTypeOpen] = useState(false);
+  const typeRef = useRef<HTMLDivElement>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
   const scopeRef = useRef<HTMLSpanElement>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -1421,6 +1394,33 @@ function LoreRow({
     return () => document.removeEventListener("mousedown", onDown);
   }, [stateOpen]);
 
+  useEffect(() => {
+    if (!typeOpen) return;
+    function onDown(e: MouseEvent) {
+      if (!typeRef.current?.contains(e.target as Node)) setTypeOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [typeOpen]);
+
+  // A body that fits its one clamped line reads the same expanded, so the row
+  // only offers 展開 when the clamp actually hides something. Measured while
+  // clamped only: an expanded body never overflows, and re-measuring then would
+  // take away the way to collapse it.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [bodyOverflows, setBodyOverflows] = useState(false);
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el || expanded) return;
+    const check = () => setBodyOverflows(loreBodyOverflow.measure(el));
+    check();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [entry.body, expanded, editing]);
+  const toggleable = bodyOverflows || expanded;
+
   // Copied verbatim in SHAPE from TaskCard.onCardToggleClick: a click that
   // landed on an interactive descendant does that control's job and must not
   // also flip the row, and a click that ended a drag-selection is reading. The
@@ -1428,6 +1428,7 @@ function LoreRow({
   // so the `hit !== e.currentTarget` guard is what keeps ordinary body clicks
   // toggling instead of being swallowed.
   function onRowToggleClick(e: React.MouseEvent<HTMLElement>) {
+    if (!toggleable) return;
     const target = e.target as HTMLElement;
     // `.lore-row__composer` is in this list for the same reason the controls
     // are: it is a WRITING surface that now renders on the COLLAPSED row, so a
@@ -1443,7 +1444,7 @@ function LoreRow({
     setExpanded((v) => !v);
   }
   function onRowToggleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
-    if (e.target !== e.currentTarget) return;
+    if (!toggleable || e.target !== e.currentTarget) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       setExpanded((v) => !v);
@@ -1491,14 +1492,18 @@ function LoreRow({
     <article
       className={`lore-row lore-row--${entry.state}${
         dimmed ? " lore-row--dimmed" : ""
-      }`}
+      }${toggleable ? " lore-row--toggle" : ""}`}
       data-testid="lore-row"
       data-entry-id={entry.id}
       data-dimmed={dimmed ? "true" : "false"}
-      role="button"
-      tabIndex={0}
-      aria-expanded={expanded}
-      aria-label={expanded ? t.lore.collapseCard : t.lore.expandCard}
+      {...(toggleable
+        ? {
+            role: "button",
+            tabIndex: 0,
+            "aria-expanded": expanded,
+            "aria-label": expanded ? t.lore.collapseCard : t.lore.expandCard,
+          }
+        : {})}
       onClick={onRowToggleClick}
       onKeyDown={onRowToggleKeyDown}
     >
@@ -1512,28 +1517,9 @@ function LoreRow({
           onChange={() => onToggleSelect(entry.id)}
         />
         <div className="lore-row__badges">
-          {/* The type tag leads the row, ahead of the id, so a collapsed row
-              shows it before anything else. */}
-          <span
-            className="lore-badge lore-badge--lore-type"
-            data-testid="lore-type"
-            data-lore-type={entry.loreType}
-          >
-            {loreTypeLabel(t, entry.loreType)}
-          </span>
-          {/* 🔴 THE BADGE ORDER IS 任務卡'S ORDER (owner, 2026-09-07: 「The order
-              of buttons / filters matters」「make them consistent with task」).
-              That card reads 編號 → 優先權 → 狀態 → 類型, so this row reads
-              編號 → 狀態 → 屬於, behind the type tag the owner put at the very
-              front. The id leads the card's order on both because it is what you
-              quote to somebody else; it used to sit second here, behind the state,
-              and the two pages disagreed about where a reader's eye should land.
-              傳承 has no 優先權 — there is nothing to put in that slot, and
-              inventing one to fill the gap would be consistency in the shape only. */}
-          {/* 條目編號, right of the status chip. It is a <button>, so the row's
-              own toggle handler lets it through the same way it lets the status
-              chip through — clicking the id copies it and does NOT expand the
-              row. */}
+          {/* Order: 編號 → 類型 → 狀態 → 屬於. The id leads, as on 任務卡, because it
+              is what you quote to somebody else (owner: 「make them consistent
+              with task」). 傳承 has no 優先權; do not invent one for the slot. */}
           <button
             type="button"
             className="lore-row__id-badge"
@@ -1564,10 +1550,52 @@ function LoreRow({
             )}
           </button>
 
-          {/* ONE status badge, and it is also the control (spec §6). The menu
-              hangs from the badge's LEFT edge — .lore-row__status-pop pins
-              left:0 — because the badge sits at the row's left end and a
-              right-anchored pop would open off the row. */}
+          <div className="lore-row__status" ref={typeRef}>
+            <button
+              type="button"
+              className="lore-badge lore-badge--lore-type lore-row__status-chip"
+              title={t.lore.typeMenuLabel}
+              aria-label={t.lore.typeMenuLabel}
+              aria-haspopup="menu"
+              aria-expanded={typeOpen}
+              data-testid="lore-type"
+              data-lore-type={entry.loreType}
+              onClick={() => setTypeOpen((o) => !o)}
+            >
+              {loreTypeLabel(t, entry.loreType)}
+            </button>
+            {typeOpen && (
+              <div
+                className="lore-row__menu-pop lore-row__status-pop"
+                role="menu"
+                aria-label={t.lore.typeMenuLabel}
+                data-testid="lore-type-options"
+              >
+                {LORE_TYPES.map((lt) => (
+                  <button
+                    key={lt}
+                    type="button"
+                    role="menuitem"
+                    className={`lore-row__menu-item${
+                      entry.loreType === lt ? " lore-row__menu-item--active" : ""
+                    }`}
+                    data-testid={`lore-type-${lt}`}
+                    onClick={() => {
+                      setTypeOpen(false);
+                      if (entry.loreType !== lt) onSetLoreType(entry.id, lt);
+                    }}
+                  >
+                    {loreTypeLabel(t, lt)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ONE status badge, and it is also the control (spec §6). Both this
+              menu and the type menu hang from their badge's LEFT edge
+              (.lore-row__status-pop pins left:0): the badges sit at the row's
+              left, and a right-anchored pop would open off the row. */}
           <div className="lore-row__status" ref={statusRef}>
             <button
               type="button"
@@ -1814,20 +1842,21 @@ function LoreRow({
 
         {/* A pure STATE INDICATOR: aria-hidden, no role, pointer-events:none in
             CSS, and a DIFFERENT ICON per state rather than one icon rotated. */}
-        <span
-          className="lore-row__expand-mark"
-          data-testid="lore-expand-mark"
-          aria-hidden="true"
-        >
-          {expanded ? <ChevronDownIcon size={18} /> : <ChevronRightIcon size={18} />}
-        </span>
+        {toggleable && (
+          <span
+            className="lore-row__expand-mark"
+            data-testid="lore-expand-mark"
+            aria-hidden="true"
+          >
+            {expanded ? <ChevronDownIcon size={18} /> : <ChevronRightIcon size={18} />}
+          </span>
+        )}
       </div>
 
       {editing ? (
         <LoreEntryEditor
           entry={entry}
           caps={entryCaps}
-          describeEdit={describeEdit}
           onRestored={() => onRestored(entry.id)}
           onCancel={() => setEditing(false)}
           onSave={async (patch) => {
@@ -1872,6 +1901,7 @@ function LoreRow({
               links. `_` is NOT inline syntax there, so a body carrying
               `note_size_chars` is unaffected — the case that prompted the worry. */}
           <div
+            ref={bodyRef}
             className={`lore-row__body${
               expanded ? "" : " lore-row__body--clamped"
             }`}
@@ -1950,14 +1980,12 @@ function LoreRow({
 function LoreEntryEditor({
   entry,
   caps,
-  describeEdit,
   onRestored,
   onCancel,
   onSave,
 }: {
   entry: LoreEntryView;
   caps: { title: number; body: number };
-  describeEdit: (oldChars: number, newChars: number) => string;
   /** Re-reads the card after a 版本紀錄 restore has landed. */
   onRestored: () => Promise<void>;
   onCancel: () => void;
@@ -1966,7 +1994,6 @@ function LoreEntryEditor({
   const { t } = useI18n();
   const [title, setTitle] = useState(entry.title);
   const [body, setBody] = useState(entry.body);
-  const [loreType, setLoreType] = useState<LoreType>(entry.loreType);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -1974,16 +2001,13 @@ function LoreEntryEditor({
     if (bodyRef.current) autosizeTextarea(bodyRef.current);
   }, [body]);
 
-  const titleLen = [...title].length;
-  const bodyLen = [...body].length;
   const titleBlank = title.trim() === "";
   const nextTitle = title.trim();
   const nextBody = body.trim();
   const over =
     editFieldBlocked(nextTitle, entry.title, caps.title) ||
     editFieldBlocked(nextBody, entry.body, caps.body);
-  const changed =
-    nextTitle !== entry.title || nextBody !== entry.body || loreType !== entry.loreType;
+  const changed = nextTitle !== entry.title || nextBody !== entry.body;
   const canSave = !saving && changed && !titleBlank && !over;
 
   async function save() {
@@ -1991,7 +2015,6 @@ function LoreEntryEditor({
     const patch: LoreEntryEdit = {};
     if (nextTitle !== entry.title) patch.title = nextTitle;
     if (nextBody !== entry.body) patch.body = nextBody;
-    if (loreType !== entry.loreType) patch.loreType = loreType;
     setSaving(true);
     setError(null);
     try {
@@ -2005,15 +2028,7 @@ function LoreEntryEditor({
   return (
     <div className="lore-row__editor" data-testid="lore-editor">
       <label className="lore-row__editor-field">
-        <span className="lore-row__editor-label">
-          {t.lore.editTitleLabel}
-          <span
-            className={`lore-row__editor-count${titleLen > caps.title ? " lore-row__editor-count--over" : ""}`}
-            data-testid="lore-edit-title-count"
-          >
-            {titleLen} / {caps.title}
-          </span>
-        </span>
+        <span className="lore-row__editor-label">{t.lore.editTitleLabel}</span>
         <input
           type="text"
           className="lore-row__editor-input"
@@ -2024,15 +2039,7 @@ function LoreEntryEditor({
         />
       </label>
       <label className="lore-row__editor-field">
-        <span className="lore-row__editor-label">
-          {t.lore.editBodyLabel}
-          <span
-            className={`lore-row__editor-count${bodyLen > caps.body ? " lore-row__editor-count--over" : ""}`}
-            data-testid="lore-edit-body-count"
-          >
-            {bodyLen} / {caps.body}
-          </span>
-        </span>
+        <span className="lore-row__editor-label">{t.lore.editBodyLabel}</span>
         <textarea
           ref={bodyRef}
           className="lore-row__editor-input lore-row__editor-body"
@@ -2043,28 +2050,6 @@ function LoreEntryEditor({
           onChange={(e) => setBody(e.target.value)}
         />
       </label>
-      <div className="lore-row__editor-field">
-        <span className="lore-row__editor-label">{t.lore.editTypeLabel}</span>
-        <div className="lore-row__segmented" role="radiogroup" aria-label={t.lore.editTypeLabel}>
-          {LORE_TYPES.map((lt) => (
-            <button
-              key={lt}
-              type="button"
-              role="radio"
-              aria-checked={loreType === lt}
-              className={`lore-row__segment${loreType === lt ? " lore-row__segment--on" : ""}`}
-              data-testid={`lore-edit-type-${lt}`}
-              disabled={saving}
-              onClick={() => setLoreType(lt)}
-            >
-              {loreTypeLabel(t, lt)}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="lore-row__editor-effect" data-testid="lore-edit-effect">
-        {describeEdit(entryChars(entry.title, entry.body), titleLen + bodyLen)}
-      </div>
       {(titleBlank || over || error) && (
         <div className="lore-row__editor-error" role="status" data-testid="lore-edit-error">
           {error ?? (titleBlank ? t.lore.editTitleBlank : t.lore.editOverCap)}

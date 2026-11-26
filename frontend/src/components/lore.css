@@ -313,8 +313,9 @@ button.lore-batch__link {
 }
 
 /* ── one 傳承 row ──
- * The whole row is the toggle surface, so it takes the pointer cursor and a
- * focus ring; the ▸/▾ mark is only a mirror of that state. */
+ * A row whose body overflows its clamped line (--toggle) is the toggle surface,
+ * so it takes the pointer cursor and a focus ring; the ▸/▾ mark is only a
+ * mirror of that state. */
 .lore-row {
   display: flex;
   flex-direction: column;
@@ -324,6 +325,8 @@ button.lore-batch__link {
   border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
   background: var(--color-card);
   text-align: left;
+}
+.lore-row--toggle {
   cursor: pointer;
 }
 .lore-row:focus-visible {
@@ -642,7 +645,7 @@ button.lore-row__scope-chip--editable:hover {
   max-width: 100%;
 }
 
-/* Type tag: the row's leading capsule. Filled and dot-less so it does not read
+/* Type tag. Filled and dot-less so it does not read
  * as one more state pill beside the status badge. One colour for every type —
  * owner ruling rc-f15bc5f4013d; do not colour-code the types. */
 .lore-badge--lore-type {
@@ -671,6 +674,14 @@ button.lore-row__status-chip {
 }
 button.lore-row__status-chip:hover {
   background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+/* The type tag as a menu trigger keeps its fill; the chip rule above would
+ * otherwise make it transparent. */
+button.lore-badge--lore-type {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+button.lore-badge--lore-type:hover {
+  background: color-mix(in srgb, currentColor 22%, transparent);
 }
 /* 「點了在徽章左緣下方開小選單」 — anchored to the badge's LEFT edge. */
 .lore-row__status-pop {
@@ -864,17 +875,8 @@ button.lore-row__action:hover:not(:disabled) {
   min-width: 0;
 }
 .lore-row__editor-label {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
   font-size: 12.5px;
   color: var(--color-text-muted);
-}
-.lore-row__editor-count {
-  font-variant-numeric: tabular-nums;
-}
-.lore-row__editor-count--over {
-  color: var(--color-danger);
 }
 .lore-row__editor-input {
   width: 100%;
@@ -898,35 +900,6 @@ button.lore-row__action:hover:not(:disabled) {
   min-height: 72px;
   max-height: 320px;
   overflow-y: auto;
-}
-.lore-row__segmented {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-button.lore-row__segment {
-  margin: 0;
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
-  background: transparent;
-  color: var(--color-text-muted);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-button.lore-row__segment--on {
-  color: var(--color-accent);
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
-  font-weight: 700;
-}
-.lore-row__editor-effect {
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--color-text);
-  overflow-wrap: anywhere;
 }
 .lore-row__editor-error {
   font-size: 12px;

@@ -31,6 +31,9 @@ export function LoreRowHeadStory({ longManual = false }: { longManual?: boolean 
       });
       // The owner's screenshot: type → id → 置頂 → ⚙ 任務 chip.
       await mockApi.setLoreEntryState("L-4", "pinned");
+      // A body that fits one line at any width, beside the seed's longer ones:
+      // the ▸/▾ mark must be absent on this row and present on those.
+      await mockApi.editLoreEntry("L-7", { body: "讀一遍再送。" });
       setReady(true);
     })();
   }, [longManual]);

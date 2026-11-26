@@ -2,7 +2,8 @@
 // wrap as whole pills, the 屬於 chip never gets squeezed to its glyph with the
 // caret spilling out, only a name longer than a whole line ellipsizes, and the
 // checkbox and the actions (提到最新／編輯, or 「⋯」 on a phone) stay inside the
-// head without overlapping the badges. The section header's CJK labels stay on
+// head without overlapping the badges. The badges read id → type → state →
+// scope, and the ▸/▾ mark is there exactly when the clamped body overflows. The section header's CJK labels stay on
 // one line, the batch bar and the inline editor fit, and a state change leaves
 // the scroll position and the card where they were.
 //
@@ -23,7 +24,10 @@ type RowGeom = {
   actions: Box | null;
   actionButtons: { text: string; box: Box }[];
   badges: { cls: string; box: Box }[];
+  badgeOrder: string[];
   mark: Box | null;
+  bodyOverflows: boolean | null;
+  toggle: boolean;
   chip: Box | null;
   chipEditable: boolean;
   caret: Box | null;
@@ -76,7 +80,17 @@ async function measure(page: any): Promise<{
                 box: r(c)!,
               }))
             : [],
+          badgeOrder: badges
+            ? [...badges.children].map(
+                (c) => c.getAttribute("data-testid") ?? c.querySelector("[data-testid]")?.getAttribute("data-testid") ?? "",
+              )
+            : [],
           mark: r(row.querySelector(".lore-row__expand-mark")),
+          bodyOverflows: (() => {
+            const body = row.querySelector('[data-testid="lore-body"]') as HTMLElement | null;
+            return body ? body.scrollHeight > body.clientHeight + 1 : null;
+          })(),
+          toggle: row.getAttribute("role") === "button",
           chip: r(chip),
           chipEditable: !!chip?.classList.contains("lore-row__scope-chip--editable"),
           caret: r(row.querySelector(".lore-row__scope-caret")),
@@ -116,8 +130,11 @@ const inside = (inner: Box, outer: Box) =>
 function assertHeadContained(width: number, row: RowGeom) {
   const tag = `[${width}px] ${row.id}`;
   expect.soft(row.head, `${tag} .lore-row__head missing`).not.toBeNull();
-  // type, id, status, scope — all four, inside the wrapper.
+  // id, type, status, scope — all four, in that order, inside the wrapper.
   expect.soft(row.badges.length, `${tag} .lore-row__badges children`).toBe(4);
+  expect
+    .soft(row.badgeOrder, `${tag} badge order`)
+    .toEqual(["lore-entry-id", "lore-type", "lore-state", "lore-scope"]);
   expect.soft(row.chip, `${tag} scope chip missing`).not.toBeNull();
   expect.soft(row.name, `${tag} scope name missing`).not.toBeNull();
   if (!row.head) return;
@@ -143,7 +160,11 @@ function assertHeadContained(width: number, row: RowGeom) {
         expect.soft(inside(row.caret, row.chip), `${tag} caret outside the chip`).toBe(true);
     }
   }
-  expect.soft(row.mark, `${tag} expand mark missing`).not.toBeNull();
+  expect.soft(row.bodyOverflows, `${tag} body missing`).not.toBeNull();
+  expect
+    .soft(row.mark !== null, `${tag} expand mark shown iff the clamped body overflows`)
+    .toBe(row.bodyOverflows === true);
+  expect.soft(row.toggle, `${tag} row is a toggle iff the clamped body overflows`).toBe(row.bodyOverflows === true);
   if (row.mark) {
     expect.soft(inside(row.mark, row.head), `${tag} expand mark outside the head`).toBe(true);
   }
@@ -189,6 +210,9 @@ for (const width of [390, 1440]) {
     assertNoHScroll(width, g);
     assertSectionHeadsContained(width, g.sections);
     expect(g.rows.length, `[${width}px] rows rendered`).toBeGreaterThanOrEqual(5);
+    // Both kinds of row must be on screen, or the iff check above proves nothing.
+    expect.soft(g.rows.some((r) => r.bodyOverflows === true), `[${width}px] an overflowing body`).toBe(true);
+    expect.soft(g.rows.some((r) => r.bodyOverflows === false), `[${width}px] a one-line body`).toBe(true);
 
     const l4 = g.rows.find((r) => r.id === "L-4");
     // The owner's case: pinned, ⚙ 任務 scope, editable chip with a caret.
@@ -355,7 +379,7 @@ for (const width of [390, 1440]) {
       return {
         row: r(row),
         editor: r(editor),
-        parts: [...editor.querySelectorAll("input, textarea, button, .lore-row__editor-label, .lore-row__segmented")].map((c) => ({
+        parts: [...editor.querySelectorAll("input, textarea, button, .lore-row__editor-label")].map((c) => ({
           text: (c.textContent ?? "").trim().slice(0, 12) || c.getAttribute("data-testid") || c.tagName,
           box: r(c),
         })),
@@ -369,6 +393,19 @@ for (const width of [390, 1440]) {
     for (const p of g.parts) {
       expect.soft(inside(p.box, g.editor), `[${width}px] "${p.text}" outside the editor`).toBe(true);
     }
+    assertNoHScroll(width, await pageAndLoreOver(page));
+  });
+
+  test(`the type menu opens inside the card @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false);
+    const row = cmp.locator('[data-entry-id="L-4"]');
+    await row.locator('[data-testid="lore-type"]').click();
+    await expect(row.locator('[data-testid="lore-type-options"]')).toBeVisible();
+    const pop = await boxOf(page, '[data-entry-id="L-4"] [data-testid="lore-type-options"]');
+    const card = await boxOf(page, '[data-entry-id="L-4"]');
+    expect(pop, `[${width}px] type menu`).not.toBeNull();
+    expect.soft(pop!.left, `[${width}px] type menu left`).toBeGreaterThanOrEqual(card!.left - 1);
+    expect.soft(pop!.right, `[${width}px] type menu right`).toBeLessThanOrEqual(card!.right + 1);
     assertNoHScroll(width, await pageAndLoreOver(page));
   });
 
