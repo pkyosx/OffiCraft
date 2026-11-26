@@ -120,7 +120,7 @@
 # asset set that changed under promote means someone re-uploaded behind our back,
 # and that is a failure, not a warning.
 # Before the flip it writes the --notes file into the release notes and reads
-# them back: a station that reaches the GA reads its 給站長的新功能公告 once and
+# them back: a station that reaches the GA reads its station-owner announcement once and
 # never again, so a GA must not exist without the notes it was meant to carry.
 #
 # ── RELEASES ARE NOT CODE-SIGNED, AND THERE IS NO OPTION TO SIGN ────────────
@@ -204,7 +204,7 @@ usage:
             Rebuilds nothing. Reads back that the flip landed.
   --notes <file>
             promote, required: "## 這版的改動" (required) then optionally
-            "## 給站長的新功能公告" — no other "## " headings, format rules in
+            "## Announcement for station owners" — no other "## " headings, format rules in
             docs/dev/README.md. The release notes must still be just publish's
             one generated line; promote writes that line + a blank line +
             <file>, reads it back, and only then flips. Stations read the
@@ -415,7 +415,6 @@ cmd_promote() {
   [[ -n "$TAG" ]] || { echo "[release] promote needs a tag" >&2; usage; }
   if [[ -z "$NOTES_SRC" ]]; then
     echo "[release] promote needs --notes <file>: every GA carries its '$NOTES_CHANGES_HEADING' section." >&2
-    echo "[release] 正式版請在本機用 bin/release promote <tag> --notes <檔案> 執行。" >&2
     usage
   fi
   require_tag_shape "$TAG"
@@ -514,14 +513,16 @@ cmd_promote() {
 
 # ── the release notes promote --notes writes ─────────────────────────────────
 # The file is "## 這版的改動" (required, for every reader of the release page),
-# then optionally "## 給站長的新功能公告" (what stations relay to the owner).
+# then optionally "## Announcement for station owners" (what stations relay to
+# the owner; the Chinese heading notes used before it is still accepted).
 # 🔴 The announcement rules mirror releaseAnnouncementSection in
 # server/ocserverd/release_announce.go, the station-side reader. A section
 # accepted here must reach the owner whole: a line the reader would end the
 # section on, or silently drop, is refused instead of shipped. Change both
 # together.
 NOTES_CHANGES_HEADING="## 這版的改動"
-ANNOUNCE_HEADING="## 給站長的新功能公告"
+ANNOUNCE_HEADING="## Announcement for station owners"
+ANNOUNCE_LEGACY_HEADING="## 給站長的新功能公告"
 ANNOUNCE_MAX_RUNES=2000
 
 # check_notes_file <file> — prints "yes"/"no" (has an announcement section) on
@@ -530,12 +531,14 @@ ANNOUNCE_MAX_RUNES=2000
 check_notes_file() {
   local rc=0
   NOTES_FILE="$1" CHANGES_HEADING="$NOTES_CHANGES_HEADING" ANNOUNCE_HEADING="$ANNOUNCE_HEADING" \
+  ANNOUNCE_LEGACY_HEADING="$ANNOUNCE_LEGACY_HEADING" \
   ANNOUNCE_MAX_RUNES="$ANNOUNCE_MAX_RUNES" python3 -c '
 import os, re, sys, unicodedata
 
 path = os.environ["NOTES_FILE"]
 changes_h = os.environ["CHANGES_HEADING"]
 announce_h = os.environ["ANNOUNCE_HEADING"]
+announce_legacy_h = os.environ["ANNOUNCE_LEGACY_HEADING"]
 max_runes = int(os.environ["ANNOUNCE_MAX_RUNES"])
 # Fixed order; each at most once; only the first is required.
 SECTIONS = [(changes_h, True), (announce_h, False)]
@@ -571,7 +574,8 @@ def go_trim(s):
     return s[i:j]
 
 # releaseAnnounceFold, then a pattern wider than releaseAnnounceDelimiterLike:
-# a "===== 公告" line is refused even when the reader would let it through.
+# a "===== ANNOUNCEMENT" or "===== 公告" line is refused even when the reader
+# would let it through.
 def fold(line):
     out = []
     for c in line:
@@ -584,7 +588,7 @@ def fold(line):
             c = " "
         out.append(c)
     return "".join(out).lstrip(" >*_`~")
-delimiter = re.compile(r"^=+\s*公告", re.ASCII)
+delimiter = re.compile(r"^=+\s*(公告|announcement)", re.ASCII | re.IGNORECASE)
 
 # A heading that is almost right is read by the station as body text, so the
 # announcement silently disappears; refuse it rather than let the
@@ -596,9 +600,9 @@ def bare(line):
     t = fold(line).translate(ZERO_WIDTH)
     return t.lstrip(" #>*_`~").rstrip(" :*_")
 for n, line in enumerate(lines, start=1):
-    if line.rstrip(" \t") in (changes_h, announce_h):
+    if line.rstrip(" \t") in (changes_h, announce_h, announce_legacy_h):
         continue
-    for h in (changes_h, announce_h):
+    for h in (changes_h, announce_h, announce_legacy_h):
         if bare(line) == h[3:]:
             fail("notes-format", "%s line %d looks like the %r heading but is not exactly that line (no leading space, \"## \" with one ASCII space, nothing after it); stations would not see it as the section. Line: %r" % (path, n, h, line))
 
@@ -619,6 +623,8 @@ for n, line in enumerate(lines[first:], start=first + 1):
         found[-1][2].append((n, line))
         continue
     h = line.rstrip(" \t")
+    if h == announce_legacy_h:
+        h = announce_h
     names = [x for x, _ in SECTIONS]
     if h not in names:
         fail("notes-format", "%s line %d is a \"## \" heading other than %s; only those two may appear (stations stop reading the announcement at any \"## \" line). Use \"### \" instead. Line: %r" % (path, n, " / ".join(repr(x) for x in names), line))
@@ -636,10 +642,10 @@ announce = next((f for f in found if f[0] == announce_h), None)
 if announce:
     for n, line in announce[2]:
         if delimiter.match(fold(line)):
-            fail("notes-format", "%s line %d looks like the \"===== 公告開始/結束\" delimiter stations wrap the announcement in; stations drop such lines. Line: %r" % (path, n, line))
+            fail("notes-format", "%s line %d looks like the \"===== ANNOUNCEMENT START/END\" delimiter stations wrap the announcement in (or its earlier Chinese form \"===== 公告開始/結束\"); stations drop such lines. Line: %r" % (path, n, line))
     runes = len(go_trim("\n".join(l for _, l in announce[2])))
     if runes > max_runes:
-        sys.stderr.write("[release] WARNING: the announcement is %d characters; stations cut it to %d (a trailing 完整說明 block is kept). Not refused.\n" % (runes, max_runes))
+        sys.stderr.write("[release] WARNING: the announcement is %d characters; stations cut it to %d (a trailing **Full release notes** block is kept). Not refused.\n" % (runes, max_runes))
 print("yes" if announce else "no")
 ' || rc=$?
   [[ "$rc" == 0 ]] || exit "$rc"

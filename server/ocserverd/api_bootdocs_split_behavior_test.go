@@ -434,6 +434,15 @@ func TestEventNoticeText_SendsTheBodyTheOwnerEditedAndNotTheShippedSeed(t *testi
 				t.Fatalf("the shipped body is still in what was sent — the send site "+
 					"is reading the seed, not the fold:\n%s", got)
 			}
+
+			if err := s.dal.PutBootDocument(BootDocument{
+				Kind: spec.Kind, Key: spec.Key, Text: head + "\n\n" + docBodyLegacyMarker + "\n\n" + ownerBody,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if got := tc.send(s); got != want {
+				t.Fatalf("an edit stored with the Chinese marker of earlier seeds was not sent the same way:\n got %q\nwant %q", got, want)
+			}
 		})
 	}
 }

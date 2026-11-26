@@ -1,7 +1,7 @@
 package main
 
 // Once the station runs a newer release, the seeded assistant gets ONE system
-// chat message carrying the 給站長的新功能公告 section of each official release
+// chat message carrying the station-owner announcement section of each official release
 // it crossed (newest first, at most releaseAnnounceMaxPerMessage, the rest
 // counted and pointed at the release list), and relays it to the owner as a
 // chat message, unchanged or translated into the cockpit language. It is a
@@ -51,7 +51,11 @@ const (
 // tells whoever promotes a GA to write exactly this line, and bin/release's
 // check_notes_file mirrors releaseAnnouncementSection's rules: change it with
 // this file.
-const releaseAnnounceHeading = "## 給站長的新功能公告"
+const releaseAnnounceHeading = "## Announcement for station owners"
+
+// ⚠️ Release notes published before the English heading still carry this one,
+// and a station reads them when it crosses those releases: keep accepting it.
+const releaseAnnounceLegacyHeading = "## 給站長的新功能公告"
 
 const releaseAnnounceMaxPerMessage = 5
 
@@ -60,9 +64,10 @@ const releaseAnnounceMaxRunes = 2000
 
 const releaseAnnounceTruncatedNote = "(Too long, so it was truncated; see the full notes)"
 
-const releaseAnnounceFullNotesPrefix = "**完整說明**"
+// The first is the template's; the second is in release notes published before it.
+var releaseAnnounceFullNotesPrefixes = []string{"**Full release notes**", "**完整說明**"}
 
-// A kept 完整說明 block is outside the rune budget's cut, so a longer one could
+// A kept full-notes block is outside the rune budget's cut, so a longer one could
 // carry the bulk of an over-cap section past the truncation.
 const releaseAnnounceFullNotesMaxRunes = 300
 
@@ -82,8 +87,9 @@ var (
 )
 
 // A line the content could use to fake the end of the quoted block, matched
-// after releaseAnnounceFold.
-var releaseAnnounceDelimiterLike = regexp.MustCompile(`^=+\s*公告\s*(開始|結束)`)
+// after releaseAnnounceFold. The Chinese form is the delimiter stations sent
+// before the English one; an assistant may still take it for a delimiter.
+var releaseAnnounceDelimiterLike = regexp.MustCompile(`^=+\s*(公告\s*(開始|結束)|(?i:announcement\s*(start|end)))`)
 
 // Every line break GitHub text can carry becomes \n BEFORE anything is matched
 // line by line: ocagent indents continuation lines only after \n, so a bare CR
@@ -389,7 +395,7 @@ func releaseAnnouncementSection(body string) (string, bool) {
 	lines := strings.Split(releaseAnnounceLineBreaks.Replace(body), "\n")
 	start := -1
 	for i, line := range lines {
-		if strings.TrimRight(line, " \t") == releaseAnnounceHeading {
+		if h := strings.TrimRight(line, " \t"); h == releaseAnnounceHeading || h == releaseAnnounceLegacyHeading {
 			start = i + 1
 			break
 		}
@@ -414,8 +420,8 @@ func releaseAnnouncementSection(body string) (string, bool) {
 	return truncateReleaseAnnouncement(content), true
 }
 
-// The note points at the 完整說明 link the block format ends with, so a
-// trailing 完整說明 block survives the cut.
+// The note points at the full-notes link the block format ends with, so a
+// trailing full-notes block survives the cut.
 func truncateReleaseAnnouncement(content string) string {
 	if len([]rune(content)) <= releaseAnnounceMaxRunes {
 		return content
@@ -432,21 +438,26 @@ func truncateReleaseAnnouncement(content string) string {
 	return out
 }
 
-// splitReleaseAnnounceFullNotes splits off the 完整說明 block when it ends the
-// content, in either shape the template has used: "**完整說明**：url" on one line,
-// or the heading alone (the owner's final template ends it with a Markdown
-// hard break) and the url on the next line. Only the end counts, so a mention
+// splitReleaseAnnounceFullNotes splits off the full-notes block when it ends
+// the content, in either shape the template has used: "**Full release notes**:
+// url" on one line, or the heading alone (the owner's final template ends it
+// with a Markdown hard break) and the url on the next line. Only the end counts, so a mention
 // earlier in the text is never mistaken for it.
 func splitReleaseAnnounceFullNotes(content string) (body, block string) {
 	lines := strings.Split(content, "\n")
 	n := len(lines)
 	start := -1
-	switch {
-	case n >= 2 && strings.HasPrefix(lines[n-1], releaseAnnounceFullNotesPrefix):
-		start = n - 1
-	case n >= 3 && strings.TrimSpace(lines[n-1]) != "" &&
-		strings.TrimRight(strings.TrimRight(lines[n-2], " \t"), "：:") == releaseAnnounceFullNotesPrefix:
-		start = n - 2
+	for _, prefix := range releaseAnnounceFullNotesPrefixes {
+		switch {
+		case n >= 2 && strings.HasPrefix(lines[n-1], prefix):
+			start = n - 1
+		case n >= 3 && strings.TrimSpace(lines[n-1]) != "" &&
+			strings.TrimRight(strings.TrimRight(lines[n-2], " \t"), "：:") == prefix:
+			start = n - 2
+		}
+		if start >= 0 {
+			break
+		}
 	}
 	if start < 0 {
 		return content, ""

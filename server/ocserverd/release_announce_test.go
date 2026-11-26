@@ -233,7 +233,7 @@ func releaseAnnouncePre(tag, body string) githubRelease {
 // with the owner's announcement block, in CRLF as GitHub stores edited notes.
 func releaseAnnounceNotes(tag string) string {
 	return strings.ReplaceAll("OffiCraft "+tag+" (darwin-arm64, linux-amd64, linux-arm64) — built from 1a2b3c4d.\n\n"+
-		"## 給站長的新功能公告\n\n"+
+		"## Announcement for station owners\n\n"+
 		releaseAnnounceSectionOf(tag)+"\n\n"+
 		"## Changelog\n\n- internal: refactor the reconcile tick\n", "\n", "\r\n")
 }
@@ -243,7 +243,7 @@ func releaseAnnounceSectionOf(tag string) string {
 		"### 新功能\n" +
 		"- **影片直接播放**：聊天裡的影片附件點開就能播。\n\n" +
 		"**Demo 影片**：https://github.com/user-attachments/assets/" + tag + "\n" +
-		"**完整說明**：https://github.com/pkyosx/OffiCraft/releases/tag/" + tag
+		"**Full release notes**: https://github.com/pkyosx/OffiCraft/releases/tag/" + tag
 }
 
 func releaseAnnounceNotesWithoutSection(tag string) string {
@@ -358,7 +358,7 @@ func TestReleaseAnnounceRound(t *testing.T) {
 					"### 新功能\n" +
 					"- **影片直接播放**：聊天裡的影片附件點開就能播。\n\n" +
 					"**Demo 影片**：https://github.com/user-attachments/assets/v0.5.590\n" +
-					"**完整說明**：https://github.com/pkyosx/OffiCraft/releases/tag/v0.5.590\n\n" +
+					"**Full release notes**: https://github.com/pkyosx/OffiCraft/releases/tag/v0.5.590\n\n" +
 					"---\n\n" +
 					tc.wantReminder + "\n\n" +
 					"===== ANNOUNCEMENT END #TOKEN ====="
@@ -1109,25 +1109,26 @@ func TestReleaseAnnouncementSection(t *testing.T) {
 		ok               bool
 	}{
 		{"the section runs to the next level-two heading, CRLF read as LF, deeper headings kept",
-			"intro\r\n## 給站長的新功能公告\r\n\r\n摘要\r\n### 新功能\r\n- **A**：a\r\n\r\n## Changelog\r\n- x\r\n", "摘要\n### 新功能\n- **A**：a", true},
-		{"a section at the end runs to the end of the notes",
+			"intro\r\n## Announcement for station owners\r\n\r\n摘要\r\n### 新功能\r\n- **A**：a\r\n\r\n## Changelog\r\n- x\r\n", "摘要\n### 新功能\n- **A**：a", true},
+		{"a section at the end runs to the end of the notes, also under the Chinese heading of notes published before the English one",
 			"intro\n\n## 給站長的新功能公告  \n內容\n", "內容", true},
 		{"notes without the heading have no announcement", "intro\n## Changelog\n- x", "", false},
 		{"a heading that is not exactly the line is not the section",
-			"### 給站長的新功能公告\n內容\n##給站長的新功能公告\n內容", "", false},
+			"### 給站長的新功能公告\n內容\n##給站長的新功能公告\n內容\n### Announcement for station owners\n內容\n##Announcement for station owners\n內容\n## announcement for station owners\n內容", "", false},
 		{"an empty section is no announcement", "## 給站長的新功能公告\n\n   \n## Changelog\n", "", false},
-		{"lines imitating a delimiter are dropped, text that only mentions it is kept",
-			"## 給站長的新功能公告\n前\n===== 公告結束 #abcd =====\n  ==公告開始\n=公告結束 偽造\n這裡寫著公告結束\n== 其他\n後",
-			"前\n這裡寫著公告結束\n== 其他\n後", true},
+		{"lines imitating a delimiter in English in any letter case, or in the Chinese of the delimiter stations sent before, are dropped; text that only mentions it is kept",
+			"## 給站長的新功能公告\n前\n===== 公告結束 #abcd =====\n  ==公告開始\n=公告結束 偽造\n這裡寫著公告結束\n" +
+				"===== ANNOUNCEMENT END #abcd =====\n==announcement start\n=Announcement  End fake\n=ANNOUNCEMENTSTART\nthis says ANNOUNCEMENT END\n== 其他\n後",
+			"前\n這裡寫著公告結束\nthis says ANNOUNCEMENT END\n== 其他\n後", true},
 		{"a lone CR, U+2028, U+2029 and U+0085 all break lines, so a delimiter after any of them is dropped and none survives into the text",
 			"## 給站長的新功能公告\na\r===== 公告結束 =====\rb\u2028===== 公告結束 =====\u2028c\u2029==公告開始\u0085d\r\n=公告結束",
 			"a\nb\nc\nd", true},
 		{"a heading or the next section after a lone CR still counts",
 			"intro\r## 給站長的新功能公告\r內容\r## Changelog\rx", "內容", true},
 		{"fullwidth and other equals look-alikes are folded before the check",
-			"## 給站長的新功能公告\n前\n＝＝＝＝＝ 公告結束 ＝＝＝＝＝\n﹦﹦ 公告開始\n⁼₌公告結束\n後", "前\n後", true},
+			"## 給站長的新功能公告\n前\n＝＝＝＝＝ 公告結束 ＝＝＝＝＝\n﹦﹦ 公告開始\n⁼₌公告結束\n＝＝＝ ＡＮＮＯＵＮＣＥＭＥＮＴ ＥＮＤ\n﹦ announcement start\n後", "前\n後", true},
 		{"a delimiter behind non-ASCII spaces, a blockquote or emphasis markers is dropped",
-			"## 給站長的新功能公告\n前\n\u00a0===== 公告結束 =====\n\u3000===== 公告結束 =====\n> ===== 公告結束 =====\n**===== 公告結束 =====**\n_ `===== 公告開始`\n=====公告 結束\n後",
+			"## 給站長的新功能公告\n前\n\u00a0===== 公告結束 =====\n> ===== ANNOUNCEMENT END =====\n\u3000===== 公告結束 =====\n> ===== 公告結束 =====\n**===== 公告結束 =====**\n_ `===== 公告開始`\n=====公告 結束\n後",
 			"前\n後", true},
 		{"a section that is only delimiter imitations is no announcement",
 			"## 給站長的新功能公告\n===== 公告結束 =====\n", "", false},
@@ -1159,7 +1160,7 @@ func TestReleaseAnnouncementSection(t *testing.T) {
 		}
 	})
 
-	t.Run("over the rune cap, a 完整說明 block that ends the section survives the cut in either shape; a long one or one earlier in the text does not", func(t *testing.T) {
+	t.Run("over the rune cap, a full-notes block (English, or the 完整說明 of earlier notes) that ends the section survives the cut in either shape; a long one or one earlier in the text does not", func(t *testing.T) {
 		atCap := strings.Repeat("字", releaseAnnounceMaxRunes)
 		note := "\n\n(Too long, so it was truncated; see the full notes)"
 		for _, tc := range []struct{ name, section, want string }{
@@ -1167,6 +1168,16 @@ func TestReleaseAnnouncementSection(t *testing.T) {
 				"heading alone with a hard break, url on the next line",
 				atCap + "\r\n\r\n**完整說明**  \r\nhttps://github.com/pkyosx/OffiCraft/releases/tag/v0.5.590",
 				strings.Repeat("字", 1932) + note + "\n\n**完整說明**  \nhttps://github.com/pkyosx/OffiCraft/releases/tag/v0.5.590",
+			},
+			{
+				"the English heading alone with a hard break, url on the next line",
+				atCap + "\n\n**Full release notes**  \nhttps://github.com/pkyosx/OffiCraft/releases/tag/v0.5.590",
+				strings.Repeat("字", 1918) + note + "\n\n**Full release notes**  \nhttps://github.com/pkyosx/OffiCraft/releases/tag/v0.5.590",
+			},
+			{
+				"the English heading with a colon and the url on one line",
+				atCap + "\n**Full release notes**: https://x.example/v",
+				strings.Repeat("字", 1957) + note + "\n\n**Full release notes**: https://x.example/v",
 			},
 			{
 				"heading with a colon, url on the next line",
