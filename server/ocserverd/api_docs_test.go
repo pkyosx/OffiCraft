@@ -171,7 +171,7 @@ func apiGuideIndex() []map[string]any {
 		{"slug": "settings", "title": "設定與參數"},
 		{"slug": "theme", "title": "Themes (look and wording)"},
 		{"slug": "architecture", "title": "架構與運作原理"},
-		{"slug": "glossary", "title": "名詞表"},
+		{"slug": "glossary", "title": "Glossary"},
 		{"slug": "troubleshooting", "title": "Troubleshooting and FAQ"},
 	}
 }
@@ -250,7 +250,7 @@ func TestHandleGetDocApiDocsSlugGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"slug": "glossary", "title": "名詞表", "markdown_md": apiAnyString,
+			"slug": "glossary", "title": "Glossary", "markdown_md": apiAnyString,
 		})
 	})
 

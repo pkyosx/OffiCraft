@@ -1,140 +1,139 @@
-# 名詞表
+# Glossary
 
-這頁列出控制台與使用說明裡每個名詞的意思，以及完整說明所在的頁面。名詞以預設主題、中文介面的用語為準；套用自訂主題時，畫面上的用詞可能不同。
+This page lists what each term in the console and the user guide means, and which page has the full explanation. Terms follow the wording of the default theme in the English interface; with a custom theme applied, the words on screen may differ.
 
-## 人與角色
+## People and roles
 
-- **CEO（你）**：工作室唯一的使用者，也就是你。你給方向、回覆請示卡、決定風險界線。工作室不支援多位使用者。
-- **成員**：常駐的 AI 同事，有名字、角色、模型與跨工作階段保留的記憶。辦公室分頁左側的「正職」列出所有成員。見 [增加成員與發外包](members.md)。
-- **正職**：常駐成員，擔任一個角色，可以長期接各種工作。
-- **外包**：臨時雇用的 AI 工作者，以代號稱呼，一位外包只做一張任務，做完就離開。任務手冊的「負責成員」選外包、任務轉派給外包，或正職成員把一件工作發包出去時，server 會自動雇用外包。見 [增加成員與發外包](members.md)。
-- **特助**：預設成員 Mira 的角色。開箱即有，負責日常維運與你交辦的雜事，也可以代你回覆請示卡。自動設定的步驟與主題編輯器稱她為「助理」。
-- **角色**：成員擔任的職位。每個角色有一份角色定義與一份判準，成員換了新的工作階段，讀的仍是同一份。見 [讓成員記住你教過的事（傳承）](lore.md)。
-- **角色定義**：說明角色負責什麼、怎麼做事的文件，在 設定 › 角色誌。
-- **判準（Insight）**：角色在工作中累積的取捨與判斷原則。所有成員都看得到，只有該角色本人、你和特助能修改。見 [讓成員記住你教過的事（傳承）](lore.md)。
-- **角色誌**：設定裡管理角色的地方，可以新增、重新命名、刪除角色，並編輯角色定義與判準。
-- **招攬新成員**：辦公室側欄底部的按鈕。在「正職」頁籤按下會到角色誌新增角色；在「外包」頁籤按下會開啟外包上限設定。
-- **外包上限（最多雇用）**：同時可雇用的外包數量上限，可設為無限；設為 0 時顯示「已暫停指派」，不會再雇用新外包。
-- **雇用數量**：一本任務手冊同時最多可以有幾位外包在做它的任務。
+- **CEO (You)**: the one user of the studio, that is, you. You set direction, answer reply cards, and decide where the risk limits are. A studio does not support more than one user.
+- **Member**: a permanent AI colleague with a name, a role, a model, and memory kept across sessions. "Staff" on the left of the Office tab lists every member. See [Adding members and hiring outsource](members.md).
+- **Staff**: a permanent member who holds one role and can take on all kinds of work over the long term.
+- **Outsource**: a temporarily hired AI worker, referred to by a code name. One outsource member works on one task only and leaves when it is done. The server hires outsource members automatically when a task manual's "Assigned executor" is set to outsource, when a task is reassigned to outsource, or when a staff member contracts a piece of work out. See [Adding members and hiring outsource](members.md).
+- **Assistant**: the role of the built-in member Mira. Mira is there from the start, handles day-to-day upkeep and the odd jobs you hand over, and can also answer reply cards on your behalf.
+- **Role**: the position a member holds. Each role has one role definition and one Insight; when a member starts a new session, it still reads the same two documents. See [Making members remember what you taught them (Lore)](lore.md).
+- **Role definition**: the document that describes what a role is responsible for and how it works, under Settings › Role journal.
+- **Insight**: the trade-offs and judgement principles a role builds up through its work. Every member can read it; only the role itself, you, and the Assistant can change it. See [Making members remember what you taught them (Lore)](lore.md).
+- **Role journal**: the place in Settings where roles are managed. You can add, rename, and delete roles, and edit their role definitions and Insights.
+- **Recruit a member**: the button at the bottom of the Office sidebar. On the "Staff" tab it takes you to the Role journal to add a role; on the "Outsource" tab it opens the outsource cap setting.
+- **Outsource cap (Max hires)**: the most outsource members that can be hired at the same time. It can be set to unlimited; set to 0, it shows "Assignment paused" and no new outsource members are hired.
+- **Hire count**: the most outsource members that can work on one task manual's tasks at the same time.
 
-## 成員的狀態與操作
+## Member status and actions
 
-- **圓點狀態**：頭像右下角的圓點，共五種：喚醒中、線上、停止中、已停止、離線。見 [架構與運作原理](architecture.md)。
-- **喚醒中**：已經送出啟動指令，正在等成員連上 server。
-- **線上**：成員的連線還在，可以收訊息與工作。
-- **停止中**：已經要求停止，成員正在收尾。
-- **已停止**：已經要求停止，成員已經結束。server 不會自動把它叫回來。
-- **離線**：沒有人要求停止，但成員的連線斷了。若成員設定為應該在線，server 會自動重新喚醒它。
-- **運作狀態**：名字旁的圖示，表示成員此刻工作中、等待中或閒置；還沒回報時是「狀態未知」。子代理與背景等待顯示在「運行狀況」。見 [增加成員與發外包](members.md)。
-- **警示（驚嘆號）**：成員名字下方、角色前面的驚嘆號，表示已達用量上限、登入失效、伺服器異常、模型呼叫失敗（附代碼），或所在機器未登入 Claude／Codex，不論成員目前是否在線。見 [常見問題與排解](troubleshooting.md)。
-- **喚醒**：讓已停止或離線的成員開始工作。成員詳情的「喚醒」可以立即喚醒。
-- **停止／加速停止／強制停止**：同一顆按鈕的三個階段。停止是請成員收尾後結束；加速停止是給收尾一個期限；強制停止是立即結束，未儲存的工作會遺失。
-- **重新聚焦**：請線上的成員把手上的進度寫成交接，結束目前的工作階段，再開一個新的工作階段從交接接著做。
-- **換手**：成員結束目前的工作階段、由新的工作階段接續。記憶用量到門檻、重新聚焦、更改設定、成員自己要求、登入憑證快到期時都會發生。見 [架構與運作原理](architecture.md)。
-- **第一次通知／最後通牒**：觸發換手的兩段記憶用量門檻。Claude 成員看百分比，Codex 成員看記憶壓縮次數。在 設定 › 參數調整。
-- **記憶用量**：成員目前工作階段用掉多少記憶容量。Codex 成員另外顯示記憶壓縮次數。
-- **運行狀況**：成員詳情裡顯示目前狀態、子代理與背景等待的區塊。子代理是成員為了分工而另外開出、替它處理一部分工作的 AI 工作者；背景等待是成員在等某個背景執行的指令或排程。
-- **最近操作**：成員詳情裡最後一次喚醒或停止的結果與原因。喚醒失敗的原因記在這裡。
-- **AI 執行環境**：成員用 Claude Code 還是 Codex 執行。
-- **思考強度（投入程度）**：模型的投入程度，分低、中、高、極高、最高。
-- **RESUME SUMMARY**：成員被喚醒時，server 替它組好的喚醒快照，內容有近期聊天、進行中的任務、請示卡、名冊與機器。成員詳情可以預覽它下次會拿到的內容。
+- **Status dot**: the dot at the bottom right of the avatar. There are five: Waking, Online, Stopping, Stopped, Offline. See [Architecture and how it works](architecture.md).
+- **Waking**: the start command has been sent, and the server is waiting for the member to connect.
+- **Online**: the member's connection is up, so it can receive messages and work.
+- **Stopping**: a stop has been requested, and the member is wrapping up.
+- **Stopped**: a stop has been requested, and the member has ended. The server does not bring it back on its own.
+- **Offline**: no one asked the member to stop, but its connection dropped. If the member is set to be online, the server wakes it again automatically.
+- **Activity status**: the icon next to the name, showing whether the member is Working, Waiting, or Idle right now; before the member reports, it shows "Status unknown". Sub-agents and background waits are shown under "Runtime". See [Adding members and hiring outsource](members.md).
+- **Warning (exclamation mark)**: the exclamation mark below the member's name, before the role. It means the member has hit its usage limit, its login has expired, the server has a problem, a model call failed (with a code), or the machine it runs on is not logged in to Claude / Codex, whether or not the member is online. See [FAQ and troubleshooting](troubleshooting.md).
+- **Wake**: makes a stopped or offline member start working. "Wake" in the member details wakes it immediately.
+- **Stop / Accelerated stop / Force stop**: three stages of the same button. Stop asks the member to wrap up and then end; Accelerated stop gives the wrap-up a deadline; Force stop ends it immediately, and unsaved work is lost.
+- **Refocus**: asks an online member to write its progress into a handover, end its current session, and start a new session that continues from the handover.
+- **Handover**: the member ends its current session and a new session takes over. It happens when memory use reaches a threshold, on Refocus, when settings change, when the member asks for it itself, and when its login credential is about to expire. See [Architecture and how it works](architecture.md).
+- **First notice / Final call**: the two memory-use thresholds that trigger a handover. Claude members are measured by percentage, Codex members by the number of memory compactions. Under Settings › Parameters.
+- **Memory used**: how much memory capacity the member's current session has used. Codex members also show the number of memory compactions.
+- **Runtime**: the section in the member details that shows the current status, sub-agents, and background waits. A sub-agent is an extra AI worker a member opens to split up work and handle part of it; a background wait means the member is waiting on a command or schedule running in the background.
+- **Last operation**: the result and reason of the latest wake or stop, in the member details. The reason a wake failed is recorded here.
+- **AI runtime**: whether the member runs on Claude Code or Codex.
+- **Effort**: how much effort the model puts in: Low, Medium, High, X-High, Max.
+- **RESUME SUMMARY**: the wake snapshot the server puts together for a member when it wakes, with recent chat, open tasks, reply cards, the roster, and machines. The member details can preview what the member will get next time.
 
-## 聊天與請示卡
+## Chat and reply cards
 
-- **請示卡**：成員需要你決定時開的卡片，一張卡一個問題，附背景與選項，出現在請示分頁與聊天中。見 [交代工作與回覆請示卡](daily.md)。
-- **稍後再看**：把還沒回覆的請示卡先收進「已延後」，選定的時間到了自動回到請示。卡仍然算還沒回覆，開卡的成員不會收到通知。
-- **Secret 請示卡**：成員向你要一個機密值的請示卡。你填入的值只有開卡成員能取得，取得後過一段時間，或一直沒人取得，都會自動刪除。見 [把帳號金鑰交給成員用（密鑰）](secrets.md)。
-- **建議回覆**：輸入框下方可一鍵帶入的預設句子。聊天室每位成員一份，另有所有成員共用的一份；請示卡、任務訊息、傳承訊息也各有一份。任務手冊也各有一份。請示卡的回覆框依序列出卡片所屬任務的手冊那份、開卡成員專屬的那份、請示卡那份；任務卡的訊息框先列任務手冊那份、再列任務訊息那份；外包成員的聊天室先列它手上任務的手冊那份、再列成員專屬與共用的。見 [設定與參數](settings.md)。
-- **刪除訊息**：你 24 小時內送出的一般聊天訊息可以刪除，原位置顯示「此訊息已刪除」。
-- **單選／多選**：選項前是序號的是單選卡，點選項即送出；選項前是勾選框的是多選卡，勾完再送出。
-- **AI 建議**：成員推薦的選項上的標籤。
-- **重新決定**：修改你已經回覆過的請示卡答案。
-- **標為過期**：不回答就結束一張請示卡。成員會收到通知，可能重新開卡。
-- **引用原文**：回覆請示卡時引用卡片上的一段文字。
-- **回覆這則／回覆這段**：在聊天中引用整則訊息，或選取一段文字後只引用那一段來回覆。
-- **提及（@）**：在聊天、任務卡、請示卡的輸入框打 `@` 選擇成員或外包。被提及的人不會收到額外通知。
-- **文件註解**：在成員交來的文件上選取文字、點選圖片、點網頁上標好的位置，或對整份文件加上註解，送回給寄出文件的成員。
-- **比較頁**：顯示兩份內容差異的頁面，可以「複製對外連結」給沒有帳號的人看。
+- **Reply card**: a card a member opens when it needs your decision. One card is one question, with background and options; it appears in the Ask tab and in chat. See [Assigning work and answering reply cards](daily.md).
+- **Later**: moves an unanswered reply card into "Snoozed"; at the time you pick, it returns to Ask on its own. The card still counts as unanswered, and the member who opened it is not notified.
+- **Secret reply card**: a reply card in which a member asks you for a secret value. Only the member who opened the card can retrieve the value you enter; it is deleted automatically some time after it is retrieved, or if no one ever retrieves it. See [Giving members account keys (Secrets)](secrets.md).
+- **Suggested replies**: preset sentences below the input box that you can drop in with one tap. The chat has one set for each member, plus one set shared by all members; reply cards, task messages, and lore messages each have their own set too, and so does every task manual. A reply card's reply box lists, in order, the set from the manual of the task the card belongs to, the set for the member who opened the card, and the reply-card set; a task card's message box lists the task manual's set first, then the task-message set; an outsource member's chat lists the set from the manual of its task first, then the member's own set and the shared set. See [Settings and parameters](settings.md).
+- **Deleting a message**: you can delete an ordinary chat message you sent within the last 24 hours; its place then shows "This message was deleted".
+- **Single choice / multiple choice**: a card whose options are numbered is single choice, and tapping an option sends it; a card whose options have tick boxes is multiple choice, and you send it after ticking.
+- **AI pick**: the label on the option the member recommends.
+- **Change my decision**: changes the answer of a reply card you have already answered.
+- **Mark expired**: ends a reply card without answering it. The member is notified and may open a new card.
+- **Quoted passage**: a piece of the card's text you quote when answering a reply card.
+- **Reply / Reply to this part**: in chat, quotes a whole message, or only a passage you selected, in your reply.
+- **Mention (@)**: type `@` in the input box of chat, a task card, or a reply card to pick a member or outsource member. The person mentioned gets no extra notification.
+- **Document comments**: on a document a member sent you, select text, click an image, click a marked spot on a web page, or comment on the whole document, and send it back to the member who sent the document.
+- **Comparison page**: a page that shows the differences between two pieces of content. "Copy external link" lets someone without an account see it.
 
-## 任務
+## Tasks
 
-- **任務**：一件分成多個步驟、每步都有完成定義的工作。見 [追蹤任務進度](tasks.md)。
-- **任務狀態**：共八種：尚未執行、進行中、等我回覆、等待外部、可結案、已完成、終止、重複。已完成、終止、重複是結案狀態。
-- **可結案**：所有步驟都完成了，等負責人收尾結案。任務不會自己從可結案變成已完成。
-- **轉派中**：任務正在轉給另一位成員或外包時，疊加在狀態旁的標示。
-- **優先權**：高、中、低、凍結。凍結的任務暫停推進。
-- **到期日**：任務的期限，可以加上時間。到期前「快到期提醒」設定的時間內算快到期，過了到期時刻算已逾期。見 [追蹤任務進度](tasks.md)。
-- **步驟**：任務的一個階段，狀態有待辦、進行中、完成、等我回覆、等待外部、已取代。每個步驟可以有備註。
-- **DoD（完成定義）**：一個步驟「怎樣算做完」的描述，內容是可以客觀檢查的結果。見 [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md)。
-- **完成條件（AC）**：整張任務完成時要達成、可以觀察與驗證的結果，寫在建立任務前的確認請示卡上（卡上標「AC」）。完成條件針對整張任務，DoD 針對單一步驟。見 [追蹤任務進度](tasks.md)。
-- **關卡**：規劃任務時預先標好、需要你核可的步驟。計畫送出時就會在任務卡上預告，走到時成員開請示卡等你。開過請示卡或標為關卡的步驟，任務卡上會標「審批」。見 [追蹤任務進度](tasks.md)。
-- **並行**：一組可以同時進行、互不依賴的步驟，任務卡上顯示「同時進行 · N 項並行」。
-- **產物**：任務產出並附在任務上的檔案，保留版本，可以比較差異。
-- **檔案庫**：不屬於任何任務、所有成員都能讀取與更新的參考檔案，主分頁之一。成員以 `sd-` 開頭的 ID 讀取，保留最近幾個舊版本。見 [介面說明](interface.md)。
-- **轉派**：把任務交給另一位成員或外包，可以附交接備註。
-- **終止**：結束一張不再需要做的任務。
-- **標記重複**：把任務標成另一張任務的重複，要選原票。
-- **強制結案**：步驟還沒全部完成時直接結案，理由可不填，無法復原。
+- **Task**: a piece of work split into several steps, each with its own definition of done. See [Tracking task progress](tasks.md).
+- **Task status**: eight in all: Not started, In progress, Awaiting my reply, Waiting on external, Ready to close, Done, Terminated, Duplicate. Done, Terminated, and Duplicate are closed states.
+- **Ready to close**: every step is done, and the task is waiting for its owner to wrap it up and close it. A task never moves from Ready to close to Done on its own.
+- **Reassigning**: a marker shown next to the status while a task is being handed to another member or outsource member.
+- **Priority**: High, Mid, Low, Frozen. Frozen tasks are paused.
+- **Due date**: the task's deadline, optionally with a time. Within the "Due-soon lead time" before it, the task is Due soon; past the due time, it is Overdue. See [Tracking task progress](tasks.md).
+- **Step**: one stage of a task. Its status is To do, In progress, Done, Awaiting my reply, Waiting on external, or Superseded. Each step can have a note.
+- **DoD (definition of done)**: a description of what counts as "finished" for a step, written as results that can be checked objectively. See [Having AI follow an SOP for repeated work (Task manuals)](sop.md).
+- **Acceptance criteria (AC)**: the observable, verifiable results the whole task must achieve when it is complete, written on the confirmation reply card sent before the task is created (labelled "AC" on the card). Acceptance criteria are for the whole task; a DoD is for a single step. See [Tracking task progress](tasks.md).
+- **Gate**: a step marked when the task is planned as needing your approval. The task card announces it as soon as the plan is submitted, and when the step is reached, the member opens a reply card and waits for you. Steps that have opened a reply card or are marked as gates are labelled "Approval" on the task card. See [Tracking task progress](tasks.md).
+- **In parallel**: a group of steps that do not depend on each other and can be done at the same time. The task card shows "In parallel · N items".
+- **Artifacts**: files a task produces and attaches to itself. Versions are kept and can be compared.
+- **Files**: reference files that belong to no task and that every member can read and update; one of the main tabs. Members read them by an ID starting with `sd-`, and the last few old versions are kept. See [Interface guide](interface.md).
+- **Reassign**: hands a task to another member or outsource member, optionally with a handover note.
+- **Terminate**: ends a task that no longer needs doing.
+- **Mark duplicate**: marks a task as a duplicate of another task; you pick the original.
+- **Force close**: closes a task while some steps are not done. A reason is optional. This cannot be undone.
 
-## 讓工作室自己運轉
+## Letting the studio run itself
 
-- **任務手冊**：一類工作的標準做法，包含用途、需要的欄位、SOP 與負責成員，在 設定 › 任務手冊。見 [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md)。
-- **任務定義**：任務手冊裡描述「這是什麼任務、需要哪些資訊、該怎麼做」的頁面。
-- **SOP**：任務手冊中「該怎麼做？」那一段，成員依此規劃任務步驟。
-- **識別鍵**：任務手冊中用來判斷「是不是同一件事」的欄位。識別鍵相同且原任務還沒結案時，不會再開一張新任務。
-- **負責成員**：任務手冊指定由哪位成員或外包處理這類任務。選外包時要選機器。
-- **傳承**：成員在工作中學到、要長期記住的事，主分頁之一。見 [讓成員記住你教過的事（傳承）](lore.md)。
-- **成員傳承／任務傳承／所有人**：傳承的適用範圍，分別是某位成員、某本任務手冊、所有成員。
-- **傳承類型**：指示衝突、指示補充、Owner 決策、Owner 偏好、其他。
-- **置頂／生效中／已失效**：傳承的狀態。傳承分頁上縮成一列、標著「讀不到」的條目，成員讀不到。
-- **全域情境**：所有成員都會讀到的文件，分上線（BOOT）、下線（STOP）、任務事件（TASK）三組，在 設定 › 全域情境。見 [設定與參數](settings.md)。
-- **使用者自訂**：全域情境最上面留給你寫給所有成員的文件，不受開發者模式影響。
-- **預設內容／同步預設內容**：文件的出廠內容；同步預設內容會把文件改回出廠內容。
-- **版本紀錄**：設定裡的文件保留最近幾次修改，可以比較差異或還原。見 [設定與參數](settings.md)。
-- **密鑰**：交給成員使用的帳號密碼、API 金鑰等機密值，主分頁之一。值加密保存，成員需要時向 server 取用。見 [把帳號金鑰交給成員用（密鑰）](secrets.md)。
-- **vault.key**：加密密鑰用的金鑰檔，和資料庫在同一個資料夾。資料庫備份不包含它；把備份搬到別台電腦還原時，少了它，密鑰就無法讀取。見 [保護你的工作室](security.md)。
-- **定期訊息**：依設定的頻率、時刻與時區自動送給成員的訊息，在成員詳情設定。見 [定時做某件事（定期訊息）](schedule.md)。
-- **回呼端點**：屬於某位成員的網址，外部服務呼叫它時，內容會變成一則聊天訊息送給該成員。見 [讓外部事件自動送給成員（回呼端點）](webhook.md)。
-- **端點 ID**：回呼端點網址中的名稱，建立後不可修改。
-- **簽章密鑰（Signing Secret）**：Slack、GitHub 回呼端點用來驗證請求確實來自該服務的共享密鑰。見 [讓外部事件自動送給成員（回呼端點）](webhook.md)。
+- **Task manual**: the standard way to handle one kind of work, with its purpose, the fields it needs, an SOP, and the assigned executor, under Settings › Task manuals. See [Having AI follow an SOP for repeated work (Task manuals)](sop.md).
+- **Task definition**: the page in a task manual that describes "what this task is, what information it needs, and how to do it".
+- **SOP**: the "How should it be done?" part of a task manual. Members plan a task's steps from it.
+- **Identity key**: the fields in a task manual used to decide "is this the same piece of work". If the identity key matches and the original task is not closed yet, no new task is opened.
+- **Assigned executor**: the member or outsource that a task manual names to handle this kind of task. Choosing outsource requires choosing a machine.
+- **Lore**: things members learn on the job and need to remember for the long term; one of the main tabs. See [Making members remember what you taught them (Lore)](lore.md).
+- **Member lore / Task lore / Everyone**: the scope a lore entry applies to: one member, one task manual, or all members.
+- **Lore type**: Instruction conflict, Instruction supplement, Owner decision, Owner preference, Other.
+- **Pinned / Active / Retired**: the states of a lore entry. Entries below the cap line on the Lore tab cannot be read by members.
+- **Global context**: documents every member reads, in three groups: start-up (BOOT), shut-down (STOP), and task events (TASK), under Settings › Global context. See [Settings and parameters](settings.md).
+- **User additions**: the document in Global context kept for you to write to all members.
+- **Default content / Sync to default**: the factory content of a document; Sync to default changes the document back to its factory content.
+- **Version history**: documents in Settings keep their last few edits, which you can compare or restore. See [Settings and parameters](settings.md).
+- **Secrets**: secret values handed to members, such as account passwords and API keys; one of the main tabs. Values are stored encrypted, and members fetch them from the server when they need them. See [Giving members account keys (Secrets)](secrets.md).
+- **vault.key**: the key file used to encrypt secrets, in the same folder as the database. Database backups do not include it; if you move a backup to another computer to restore it without this file, the secrets cannot be read. See [Protecting your studio](security.md).
+- **Scheduled message**: a message sent to a member automatically at the frequency, time of day, and time zone you set, configured in the member details. See [Doing something on a schedule (Scheduled messages)](schedule.md).
+- **Webhook endpoint**: a URL that belongs to one member; when an outside service calls it, the content becomes a chat message to that member. See [Sending outside events to members automatically (Webhook endpoints)](webhook.md).
+- **Endpoint ID**: the name in a webhook endpoint's URL. It cannot be changed after the endpoint is created.
+- **Signing Secret**: a shared secret that Slack and GitHub webhook endpoints use to verify a request really came from that service. See [Sending outside events to members automatically (Webhook endpoints)](webhook.md).
 
-## 帳號、安全與設定
+## Account, security, and settings
 
-- **帳號安全**：頭像選單中管理修改密碼、兩步驟驗證、通行密鑰的地方。見 [保護你的工作室](security.md)。
-- **兩步驟驗證**：登入時除了密碼，還要輸入驗證器 App 產生的 6 位數驗證碼。
-- **通行密鑰**：用裝置的生物辨識或螢幕鎖登入，不需輸入密碼。
-- **啟用碼**：第一次設定管理密碼時需要的一次性代碼。
-- **登入有效期／成員登入有效期**：你登入控制台後多久要重新登入；成員的登入憑證多久要重新取得。
-- **簽章金鑰**：server 用來簽發登入憑證與分享連結的金鑰，在 設定 › 系統更新與備份。移除舊金鑰會讓它簽過的登入與連結立即失效。見 [保護你的工作室](security.md)。
-- **機器憑證壽命**：每台機器的 warden 登入憑證有效期，到期前會自動換新，錯過換新的機器要重新安裝。
-- **偏好設定**：頭像選單中調整主題、語言與版面的地方。
-- **通知信箱**：開啟推播通知前要先填的電子郵件。見 [在手機上用](mobile.md)。
-- **主題**：控制台的外觀（顏色、字型、頭像、圖示）與可選的用語覆蓋。內建五套：辦公室・晨光、辦公室・暮色、辦公室・夜燈、辦公室・深色（無背景）、辦公室・淺色（無背景）；新工作室預設依時段在前三套之間切換。見 [主題（外觀與用語）](theme.md)。
-- **依時段切換**：依你裝置的當地時間，在設定好的時間點自動換主題。見 [主題（外觀與用語）](theme.md)。
-- **應景主題**：節日期間自動套用的主題，有的也會依時段換成不同版本，可以在主題設定的「顯示應景主題」關閉。
-- **背景動畫**：主題背景要不要播放動畫，選項有自動、播放、靜止，只存在這台裝置；選「自動」時手機與平板顯示靜止畫面。見 [主題（外觀與用語）](theme.md)。
-- **參數調整**：設定裡各項系統參數（門檻、字數上限、間隔、備份份數等）。見 [設定與參數](settings.md)。
-- **系統更新與備份**：設定裡檢查更新、升級、自動更新、更新檢查間隔、開發者模式、備份健康與簽章金鑰所在的頁面。見 [設定與參數](settings.md)。
-- **開發者模式**：系統更新與備份 › 進階裡的開關，預設關閉。關著時全域情境裡除了使用者自訂以外的文件都鎖住，誰都改不了。見 [設定與參數](settings.md)。
-- **接收 Beta 版本**：檢查更新時也納入預發佈版本。
-- **備份健康**：顯示排程備份是否正常（備份正常、備份異常、無法判斷）。見 [常見問題與排解](troubleshooting.md)。
+- **Account security**: the place in the avatar menu for changing your password, two-factor authentication, and passkeys. See [Protecting your studio](security.md).
+- **Two-factor authentication**: at sign-in, besides the password, you also enter a 6-digit code from an authenticator app.
+- **Passkeys**: sign in with your device's biometrics or screen lock, without typing a password.
+- **Claim code**: the one-time code needed the first time you set the admin password.
+- **Session length / Member login lifetime**: how long after you sign in to the console you must sign in again; how long before a member must get a new login credential.
+- **Signing keys**: the keys the server uses to issue login credentials and share links, under Settings › System update & backup. Removing an old key immediately invalidates the logins and links it signed. See [Protecting your studio](security.md).
+- **Machine credential lifetime**: how long each machine's warden login credential is valid. It is renewed automatically before it expires; a machine that misses the renewal has to be reinstalled.
+- **Preferences**: the place in the avatar menu for adjusting theme, language, and layout.
+- **Notification email**: the email address you must enter before turning on push notifications. See [Using it on your phone](mobile.md).
+- **Theme**: the look of the console (colors, fonts, avatars, icons) plus optional wording overrides. Five are built in: Office · Morning light, Office · Dusk, Office · Night lamp, Office · Dark (no background), Office · Light (no background); a new studio switches among the first three by time of day by default. See [Themes (look and wording)](theme.md).
+- **Switch by time of day**: changes the theme automatically at the times you set, based on your device's local time. See [Themes (look and wording)](theme.md).
+- **Seasonal theme**: a theme applied automatically during holidays; some also switch to different versions by time of day. It can be turned off with "Show seasonal theme" in the theme settings.
+- **Background animation**: whether the theme background plays an animation. The options are Auto, Play, and Still, saved only on this device; with "Auto", phones and tablets show a still image. See [Themes (look and wording)](theme.md).
+- **Parameters**: the system parameters in Settings (thresholds, size caps, intervals, number of backups kept, and so on). See [Settings and parameters](settings.md).
+- **System update & backup**: the Settings page for checking for updates, upgrading, automatic updates, the update check interval, backup health, and signing keys. See [Settings and parameters](settings.md).
+- **Receive beta versions**: also includes pre-release versions when checking for updates.
+- **Backup health**: shows whether scheduled backups are working (Backups are healthy, Backups are failing, Cannot tell). See [FAQ and troubleshooting](troubleshooting.md).
 
-## 系統與運作
+## System and operation
 
-- **server（ocserverd）**：保存所有資料、決定成員該上線或停止的主程式，內嵌控制台網頁，只接受本機連線。見 [架構與運作原理](architecture.md)。
-- **warden**：每台機器上的背景程式，照 server 的指令啟動或停止成員，並回報機器狀態。
-- **ocagent**：成員工作階段裡的工具，負責和 server 保持連線、收發附件、取用密鑰、回報狀態。
-- **officraft**：在 macOS 上啟動 warden 的程式，macOS 權限詢問中顯示的名稱。
-- **機器**：執行成員的一台電腦（Mac、Linux，或 Windows 的 WSL2）。一間工作室可以有多台機器，在 監控 › 機器資訊 管理。
-- **解除安裝（機器）**：請那台機器的 warden 移除自己，機器變成離線，紀錄保留，可以再安裝。
-- **刪除（機器）**：把機器從清單移除並讓它的憑證立即失效，不會移除機器上的程式。
-- **tmux**：讓程式在背景持續執行的終端機工具，每位成員在機器上都執行在一個 tmux 工作階段裡。成員詳情的「終端 · TMUX」提供連進該工作階段、直接看成員畫面的指令。
-- **SSE**：server 持續把新訊息與更新送給成員的一條常開連線。成員是否在線，以這條連線是否還在為準。
-- **MCP**：成員要求 server 做事（傳訊息、開卡、建任務、回報進度）時使用的一套標準指令。
+- **server (ocserverd)**: the main program that stores all data and decides which members should be online or stopped. It serves the console web page and only accepts connections from the same computer. See [Architecture and how it works](architecture.md).
+- **warden**: a background program on each machine that starts or stops members as the server instructs and reports the machine's status.
+- **ocagent**: the tool inside a member's session that keeps the connection to the server, sends and receives attachments, fetches secrets, and reports status.
+- **officraft**: the program that starts the warden on macOS; it is the name shown in macOS permission prompts.
+- **Machine**: one computer that runs members (a Mac, Linux, or WSL2 on Windows). A studio can have several machines, managed under Monitor › Machines.
+- **Uninstall (machine)**: asks that machine's warden to remove itself. The machine goes offline, its record is kept, and it can be installed again.
+- **Delete (machine)**: removes the machine from the list and immediately invalidates its credential. It does not remove the programs on the machine.
+- **tmux**: a terminal tool that keeps programs running in the background. Each member runs in its own tmux session on its machine. "Terminal · TMUX" in the member details gives the command to attach to that session and see the member's screen directly.
+- **SSE**: an always-open connection over which the server keeps sending new messages and updates to a member. Whether a member is online is decided by whether this connection is still up.
+- **MCP**: a standard set of commands members use to ask the server to do things (send messages, open cards, create tasks, report progress).
 
-## 相關文件
+## Related pages
 
-- [架構與運作原理](architecture.md)
-- [介面說明](interface.md)
-- [設定與參數](settings.md)
-- [常見問題與排解](troubleshooting.md)
+- [Architecture and how it works](architecture.md)
+- [Interface guide](interface.md)
+- [Settings and parameters](settings.md)
+- [FAQ and troubleshooting](troubleshooting.md)
