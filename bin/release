@@ -404,6 +404,7 @@ cmd_promote() {
       --dry-run) DRY=1; shift ;;
       --notes)
         [[ $# -ge 2 && -n "$2" ]] || { echo "[release] --notes needs a file" >&2; usage; }
+        [[ "$2" != -* ]] || { echo "[release] --notes needs a file, got the option '$2' (write ./$2 for a file named like that)" >&2; usage; }
         NOTES_SRC="$2"; shift 2 ;;
       --no-announce) NO_ANNOUNCE=1; shift ;;
       -*) echo "[release] unknown promote argument: $1" >&2; usage ;;
@@ -447,11 +448,21 @@ cmd_promote() {
   trap "rm -rf '$NOTES_DIR'" EXIT
   NOTES="$NOTES_DIR/notes.md"
   read_release_body "$TAG" > "$NOTES_DIR/current.md"
-  compose_release_notes "$TAG" "$NOTES_DIR/current.md" "$NOTES_SRC" > "$NOTES"
+  compose_release_notes "$TAG" "$NOTES_DIR/current.md" "$NOTES_SRC" "$NOTES_DIR/auto-line" > "$NOTES"
+  # Notes already equal to what this file writes are a promote that failed
+  # after writing them: skip the write so re-running the same command resumes.
+  local WRITTEN=0
+  notes_match "$NOTES" "$NOTES_DIR/current.md" && WRITTEN=1
+  local RESTORE
+  RESTORE="gh release edit $TAG --repo $GH_REPO --notes '$(cat "$NOTES_DIR/auto-line")'"
 
   if [[ "$DRY" == 1 ]]; then
     say "DRY RUN — prerelease and notes verified, NOTHING written or flipped."
-    say "The release notes would be replaced with (gh release edit $TAG --repo $GH_REPO --notes-file <file>):"
+    if [[ "$WRITTEN" == 1 ]]; then
+      say "The release notes already are exactly this (no write needed):"
+    else
+      say "The release notes would be replaced with (gh release edit $TAG --repo $GH_REPO --notes-file <file>):"
+    fi
     echo "----- 8< -----"
     cat "$NOTES"
     echo "----- >8 -----"
@@ -460,16 +471,20 @@ cmd_promote() {
     return 0
   fi
 
-  say "  writing the release notes"
-  gh release edit "$TAG" --repo "$GH_REPO" --notes-file "$NOTES" >/dev/null \
-    || die "gh release edit --notes-file failed — $TAG was NOT promoted; check its release notes before retrying."
+  if [[ "$WRITTEN" == 1 ]]; then
+    say "  the release notes already are exactly this file's — not writing them again"
+  else
+    say "  writing the release notes"
+    gh release edit "$TAG" --repo "$GH_REPO" --notes-file "$NOTES" >/dev/null \
+      || notes_written_fail "gh release edit --notes-file failed — $TAG was NOT promoted, but GitHub may have stored the notes anyway." "$RESTORE" resume
+  fi
   read_release_body "$TAG" > "$NOTES_DIR/stored.md"
   notes_match "$NOTES" "$NOTES_DIR/stored.md" \
-    || fail_item notes-readback "the release notes GitHub stored for $TAG differ from what was written — $TAG was NOT promoted. Compare them with: gh release view $TAG --repo $GH_REPO --json body"
+    || notes_written_fail "VERIFY-FAILED [notes-readback]: the release notes GitHub stored for $TAG differ from what was written — $TAG was NOT promoted. Compare them with: gh release view $TAG --repo $GH_REPO --json body" "$RESTORE" restore 6
   say "  release notes read back identical"
 
   gh release edit "$TAG" --repo "$GH_REPO" --prerelease=false --draft=false --latest=true \
-    || die "gh release edit failed — $TAG was NOT promoted."
+    || notes_written_fail "gh release edit failed — $TAG was NOT promoted, but its release notes ARE already written." "$RESTORE" resume
 
   # Read back: the flip landed, AND nothing else moved. Passing $BEFORE_TARGET as
   # the EXPECTED target is what pins the commit — a target that moved under the
@@ -571,6 +586,19 @@ def fold(line):
     return "".join(out).lstrip(" >*_`~")
 delimiter = re.compile(r"^=+\s*公告", re.ASCII)
 
+# A heading that is almost right is read by the station as body text, so the
+# announcement silently disappears; refuse it rather than let the
+# --no-announce hint below steer the author into shipping without one.
+ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"))
+def bare(line):
+    return "".join(c for c in fold(line).translate(ZERO_WIDTH) if c != "#" and not go_space(c))
+for n, line in enumerate(lines, start=1):
+    if line.rstrip(" \t") in (changes_h, announce_h):
+        continue
+    for h in (changes_h, announce_h):
+        if h[3:] in bare(line):
+            fail("notes-format", "%s line %d mentions %r but is not exactly that heading line (no leading space, \"## \" with one ASCII space, no other marks); stations would not see it as the section. Line: %r" % (path, n, h, line))
+
 first = next((i for i, l in enumerate(lines) if go_trim(l)), None)
 if first is None:
     fail("notes-format", "%s is empty; its first line must be exactly %r." % (path, changes_h))
@@ -630,26 +658,48 @@ sys.stdout.write(body)
   [[ "$rc" == 0 ]] || fail_item notes-read "gh release view $1 --json body returned no readable body."
 }
 
-# compose_release_notes <tag> <current-notes-file> <notes-file> — refuses
-# unless the current notes are exactly publish's one generated line, so notes
-# someone already wrote are never overwritten.
+# compose_release_notes <tag> <current-notes-file> <notes-file> <auto-line-out>
+# — refuses unless the current notes are exactly publish's one generated line,
+# or already exactly what this file writes, so notes someone else wrote are
+# never overwritten. Writes publish's line to <auto-line-out>.
 compose_release_notes() {
   local rc=0
-  WANT_TAG="$1" python3 - "$2" "$3" <<'PY' || rc=$?
+  WANT_TAG="$1" GH_REPO="$GH_REPO" python3 - "$2" "$3" "$4" <<'PY' || rc=$?
 import os, re, sys
 tag = os.environ["WANT_TAG"]
 current = open(sys.argv[1], encoding="utf-8").read().replace("\r", "")
 notes = open(sys.argv[2], encoding="utf-8").read()
-line = current.strip()
 auto = re.compile(r"OffiCraft %s \([^()\n]*\) — built from [0-9a-f]{7,40}\. Install: see install\.sh\." % re.escape(tag))
+line = current.strip()
 if not auto.fullmatch(line):
-    shown = current if len(current) <= 400 else current[:400] + "…"
-    sys.stderr.write("[release] VERIFY-FAILED [notes-existing]: %s release notes are not just the line publish wrote, so --notes will not overwrite them. Current notes:\n%s\n" % (tag, shown))
-    sys.stderr.write("[release]   If they are already what this file would write (a promote that failed after writing them), restore that one line with gh release edit --notes before re-running.\n")
-    raise SystemExit(6)
+    head = line.split("\n", 1)[0].strip()
+    norm = lambda t: t.replace("\r", "").rstrip("\n")
+    if auto.fullmatch(head) and norm(current) == norm(head + "\n\n" + notes):
+        line = head
+    else:
+        shown = current if len(current) <= 400 else current[:400] + "…"
+        sys.stderr.write("[release] VERIFY-FAILED [notes-existing]: %s release notes are neither just the line publish wrote nor exactly what this file writes, so --notes will not overwrite them. Current notes:\n%s\n" % (tag, shown))
+        if auto.fullmatch(head):
+            sys.stderr.write("[release]   To discard them and keep only publish's line, then re-run:\n[release]     gh release edit %s --repo %s --notes '%s'\n" % (tag, os.environ.get("GH_REPO", "<repo>"), head))
+        raise SystemExit(6)
+open(sys.argv[3], "w", encoding="utf-8").write(line)
 sys.stdout.write(line + "\n\n" + notes)
 PY
   [[ "$rc" == 0 ]] || exit "$rc"
+}
+
+# notes_written_fail <message> <restore-command> <resume|restore> [exit-code]
+# — a failure after the release notes may have changed. The release is still a
+# prerelease, so stations relay nothing; say how to go on from here.
+notes_written_fail() {
+  echo "[release] $1" >&2
+  if [[ "$3" == resume ]]; then
+    echo "[release]   Re-running the same command resumes from here. To put the notes back instead:" >&2
+  else
+    echo "[release]   Re-running is refused while the notes are like this. Put them back, then re-run:" >&2
+  fi
+  echo "[release]     $2" >&2
+  exit "${4:-1}"
 }
 
 # notes_match <written> <stored> — GitHub may hand back CRLF and drop the final

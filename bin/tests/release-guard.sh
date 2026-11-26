@@ -1507,6 +1507,11 @@ promote "$TAG" --no-announce
 check "N1b --no-announce alone is not a substitute for --notes → exit 2" "2" "$RC"
 promote "$TAG" --notes
 check "N1c --notes with no file → exit 2" "2" "$RC"
+promote "$TAG" --notes --dry-run --no-announce
+check "N1d --notes followed by an option → exit 2" "2" "$RC"
+case "$OUT" in *"--notes needs a file, got the option '--dry-run'"*) ok "N1d …and says the option was taken for the file" ;;
+  *) bad "N1d …and says the option was taken for the file (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
+check "N1d …and calls gh not once" "0" "$(gh_calls)"
 
 # refuse_notes <id> <desc> <item> <args...> — refused, named, and GitHub untouched.
 refuse_notes() {
@@ -1542,6 +1547,25 @@ refuse_notes N2l "a fullwidth, blockquoted delimiter the station would also drop
 nfile annhash "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n$ANN_BODY## 小標\n- y\n"
 refuse_notes N2m "a \"## \" line inside the announcement (the station would stop there)" notes-format --notes "$NF"
 
+# A near-miss announcement heading is NOT "no announcement": refused as a format
+# error even with --no-announce, which is what the other message would suggest.
+nfile nospace "## 這版的改動\n\n- 改了 A\n\n##給站長的新功能公告\n\n$ANN_BODY"
+refuse_notes N2n "##給站長的新功能公告 (no space) with --no-announce" notes-format --notes "$NF" --no-announce
+case "$OUT" in *"line 5 mentions"*) ok "N2n …and names the line" ;;
+  *) bad "N2n …and names the line (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
+nfile h3 "## 這版的改動\n\n- 改了 A\n\n### 給站長的新功能公告\n\n$ANN_BODY"
+refuse_notes N2o "### 給站長的新功能公告" notes-format --notes "$NF" --no-announce
+nfile fwhash "## 這版的改動\n\n- 改了 A\n\n＃＃ 給站長的新功能公告\n\n$ANN_BODY"
+refuse_notes N2p "fullwidth ＃＃ heading" notes-format --notes "$NF" --no-announce
+nfile zwsp "## 這版的改動\n\n- 改了 A\n\n\xe2\x80\x8b## 給站長的新功能公告\n\n$ANN_BODY"
+refuse_notes N2q "a zero-width space before the heading" notes-format --notes "$NF" --no-announce
+nfile ideo "## 這版的改動\n\n- 改了 A\n\n##\xe3\x80\x80給站長的新功能公告\n\n$ANN_BODY"
+refuse_notes N2r "an ideographic space after ##" notes-format --notes "$NF" --no-announce
+nfile leadann "## 這版的改動\n\n- 改了 A\n\n ## 給站長的新功能公告\n\n$ANN_BODY"
+refuse_notes N2s "a leading space before the announcement heading" notes-format --notes "$NF" --no-announce
+nfile h1chg "# 這版的改動\n\n- 改了 A\n"
+refuse_notes N2t "# 這版的改動 (one #)" notes-format --notes "$NF" --no-announce
+
 refuse_notes N3a "an announcement section AND --no-announce" notes-announce --notes "$NF_BOTH" --no-announce
 refuse_notes N3b "no announcement section and no --no-announce" notes-announce --notes "$NOTES_PLAIN"
 
@@ -1550,6 +1574,8 @@ NOTES_INIT="$AUTO_LINE
 ## 這版的改動
 
 - hand-written earlier" refuse_notes N4a "the release notes already carry more than publish's line" notes-existing --notes "$NF_BOTH"
+case "$OUT" in *"gh release edit $TAG --repo guard/fixture --notes '$AUTO_LINE'"*) ok "N4a …and prints the command that restores publish's line" ;;
+  *) bad "N4a …and prints the command that restores publish's line (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
 NOTES_INIT="something else entirely" refuse_notes N4b "the release notes are something else" notes-existing --notes "$NF_BOTH"
 NOTES_INIT="OffiCraft v0.0.1 (darwin-arm64) — built from 01234567. Install: see install.sh." \
   refuse_notes N4c "the release notes are publish's line for ANOTHER tag" notes-existing --notes "$NF_BOTH"
@@ -1573,6 +1599,8 @@ check "N5b …wrote publish's line, a blank line, then the file" \
 nfile ok2 "## 這版的改動  \r\n\r\n- 改了 A\r\n\r\n## 給站長的新功能公告\t\r\n\r\n- 公告\r\n"
 promote "$TAG" --notes "$NF"
 check "N5c CRLF and trailing spaces/tabs after the headings are accepted (the station trims those too)" "0" "$RC"
+check "N5c …and wrote publish's line, a blank line, then the file (line breaks as LF)" \
+  "$(printf '%s\n\n' "$AUTO_LINE"; tr -d '\r' < "$NF"; printf x)" "$(cat "$GHWRITTEN"; printf x)"
 
 nfile long "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n$(python3 -c 'print("字" * 2100)')\n"
 promote "$TAG" --notes "$NF"
@@ -1587,6 +1615,20 @@ GH_STORE_MANGLE="$AUTO_LINE
 - 被別人改掉" promote "$TAG" --notes "$NF_BOTH"
 named_failure "N6 GitHub stored notes that differ from what was written" notes-readback "$RC" "$OUT"
 check "N6 …and the release was NOT flipped" "0" "$(grep -c 'release edit.*--latest=true' "$GHWIRE" || true)"
+case "$OUT" in *"gh release edit $TAG --repo guard/fixture --notes '$AUTO_LINE'"*) ok "N6 …and prints the command that restores publish's line" ;;
+  *) bad "N6 …and prints the command that restores publish's line (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
+
+# The tail is where a real store goes wrong (cut short, announcement lost), and
+# the announcement is the last section: the file is long enough that a compare
+# of only the first couple of hundred characters cannot see it.
+nfile long2 "## 這版的改動\n\n$(for i in $(seq 1 15); do printf -- '- 第 %s 項改動，說明這一項改了什麼\\n' "$i"; done)\n## 給站長的新功能公告\n\n$ANN_BODY- 最後一行\n"
+NF_LONG="$NF"
+GH_STORE_MANGLE="$(printf '%s\n\n' "$AUTO_LINE"; sed '$d' "$NF_LONG")" promote "$TAG" --notes "$NF_LONG"
+named_failure "N6d GitHub stored the notes without their LAST line" notes-readback "$RC" "$OUT"
+check "N6d …and the release was NOT flipped" "0" "$(grep -c 'release edit.*--latest=true' "$GHWIRE" || true)"
+GH_STORE_MANGLE="$(printf '%s\n\n' "$AUTO_LINE"; sed '/^## 給站長的新功能公告/,$d' "$NF_LONG")" promote "$TAG" --notes "$NF_LONG"
+named_failure "N6e GitHub stored the notes without the whole announcement section" notes-readback "$RC" "$OUT"
+check "N6e …and the release was NOT flipped" "0" "$(grep -c 'release edit.*--latest=true' "$GHWIRE" || true)"
 
 GH_STORE_MANGLE="$(printf '%s\r\n\r\n' "$AUTO_LINE"; sed 's/$/\r/' "$NF_BOTH")" promote "$TAG" --notes "$NF_BOTH"
 check "N6b stored notes differing only in CRLF and the final newline are a match" "0" "$RC"
@@ -1594,6 +1636,27 @@ check "N6b stored notes differing only in CRLF and the final newline are a match
 GH_NOTES_RC=1 promote "$TAG" --notes "$NF_BOTH"
 check "N6c a failed notes write fails the promote" "1" "$RC"
 check "N6c …and the release was NOT flipped" "0" "$(grep -c 'release edit.*--latest=true' "$GHWIRE" || true)"
+case "$OUT" in *"gh release edit $TAG --repo guard/fixture --notes '$AUTO_LINE'"*) ok "N6c …and prints the command that restores publish's line" ;;
+  *) bad "N6c …and prints the command that restores publish's line (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
+
+GH_WRITE_RC=1 promote "$TAG" --notes "$NF_BOTH"
+check "N8a notes written, then the flip fails → exit 1" "1" "$RC"
+case "$OUT" in *"release notes ARE already written"*"Re-running the same command resumes"*) ok "N8a …and says the notes are written and a re-run resumes" ;;
+  *) bad "N8a …and says the notes are written and a re-run resumes (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
+case "$OUT" in *"gh release edit $TAG --repo guard/fixture --notes '$AUTO_LINE'"*) ok "N8a …and prints the command that restores publish's line" ;;
+  *) bad "N8a …and prints the command that restores publish's line (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
+
+# Re-running after that: the notes already are exactly what the file writes, so
+# promote skips the write, reads them back and flips.
+NOTES_INIT="$(printf '%s\n\n' "$AUTO_LINE"; cat "$NF_BOTH")" promote "$TAG" --notes "$NF_BOTH"
+check "N8b re-running over notes this file already wrote exits 0" "0" "$RC"
+check "N8b …without writing them again, and flips once" "flip" \
+  "$(grep 'release edit' "$GHWIRE" | sed -e 's/.*--notes-file.*/notes/' -e 's/.*--latest=true.*/flip/' | tr '\n' ' ' | sed 's/ $//')"
+NOTES_INIT="$(printf '%s\r\n\r\n' "$AUTO_LINE"; sed 's/$/\r/' "$NF_BOTH")" promote "$TAG" --notes "$NF_BOTH"
+check "N8c …also when GitHub hands them back with CRLF" "0" "$RC"
+NOTES_INIT="$(printf '%s\n\n' "$AUTO_LINE"; cat "$NOTES_PLAIN")" promote "$TAG" --notes "$NF_BOTH"
+named_failure "N8d notes written from a DIFFERENT file are not resumed over" notes-existing "$RC" "$OUT"
+check "N8d …and nothing was written or flipped" "0" "$(edits)"
 
 promote --dry-run "$TAG" --notes "$NF_BOTH"
 check "N7 --dry-run with --notes exits 0" "0" "$RC"
