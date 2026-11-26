@@ -1,11 +1,11 @@
-[{task_no}] 此任務已轉派給新的接手人。
+[{task_no}] This task has been reassigned to a new assignee.
 
 <!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->
 
-你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：
+Receiving these instructions means the current task needs to be handed over to another executor. Stop moving it forward and complete the necessary wrap-up, so the new assignee can get the current results and the full context remotely:
 
-* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。
-* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。
-* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。
+* Preserve results: push the git commits that need to be kept to the remote; upload the files that need to be kept with `ocagent upload` and write the attachment ids into the step notes. Do not leave results that only this machine can reach.
+* Write the handover: write the current progress, in-flight items, risks to watch, and next steps into the task's step notes; you can keep adding to them until the new assignee claims the task, after which they can no longer be written. Reply Cards opened before the reassignment have expired automatically; if anything is still waiting on an Owner decision or action, write it into the step notes, and the new assignee will open a new card after claiming. During the handover, do not open any more Reply Cards bound to this task.
+* Handle sub-agents: if any sub-agent is running, ask it to wrap up and write its results back to the corresponding task step.
 
-完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。
+Once the above is done, the handover is complete. If the new assignee is online and reaches out, confirm any details then; otherwise there is no need to wait for or go looking for the new assignee.

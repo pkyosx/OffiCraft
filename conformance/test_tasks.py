@@ -1313,7 +1313,7 @@ def test_manual_crud_and_delete_guard(client, owner_token, executor):
 
 
 _BUILTIN_TASK_MANUAL_DESIGN_SOP_SHA256 = (
-    "bb27fb16377af2f6dc457a06315faff8d12332142dff16a9545d73b1331fc004")
+    "12a3bbc83db1c7b2171b27a91dfd9b51dd60fdbce89b963bf5caefa3274328e9")
 
 
 def test_builtin_manual_is_listed_resettable_and_undeletable(
@@ -1342,7 +1342,7 @@ def test_builtin_manual_is_listed_resettable_and_undeletable(
     assert (r.json()["is_seed"], r.json()["is_default"]) == (True, True), r.json()
     manual = client.get(f"/api/task-manuals/{builtin}", headers=h).json()
     assert manual["purpose"] == "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。", manual
-    assert len(manual["sop_md"]) == 3872, manual["sop_md"][:80]
+    assert len(manual["sop_md"]) == 12335, manual["sop_md"][:80]
     assert hashlib.sha256(manual["sop_md"].encode()).hexdigest() == (
         _BUILTIN_TASK_MANUAL_DESIGN_SOP_SHA256), manual["sop_md"][:80]
     assert manual["is_default"] is True, manual

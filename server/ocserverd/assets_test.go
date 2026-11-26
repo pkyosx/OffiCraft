@@ -171,7 +171,7 @@ func TestSeedInsightMD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seedInsightMD(assistant): %v", err)
 	}
-	if !hasSeed || !strings.Contains(text, "# 接案窗口") {
+	if !hasSeed || !strings.Contains(text, "# Intake Point of Contact") {
 		t.Fatalf("seedInsightMD(assistant) = (%q, %v), want the embedded assistant insight", text, hasSeed)
 	}
 	if strings.Contains(text, ownerPlaceholder) {

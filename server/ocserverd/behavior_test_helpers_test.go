@@ -17,7 +17,7 @@ import (
 	"unicode/utf8"
 )
 
-const bootSequenceH1 = "# 啟動步驟（Boot Sequence"
+const bootSequenceH1 = "# Boot Sequence"
 
 // resumeCtxServer seeds the named roster used by resume-context behavior tests.
 func resumeCtxServer(t *testing.T) *apiServer {

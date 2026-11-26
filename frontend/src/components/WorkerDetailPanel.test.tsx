@@ -1918,9 +1918,9 @@ describe("WorkerDetailPanel — initial-prompt preview (T-ba6b)", () => {
     );
     // seeds.ts 直接 import 真正的 seeds/boot_sequence.md（?raw），沒有第二份
     // 拷貝可以走鐘，所以這一行釘的是那份 seed 的 H1 逐字位元組。
-    // rc-e12733548e4b 之後是新名（啟動程序 → 啟動步驟），與 seed 同一顆
-    // commit 換掉。
-    expect(body.textContent ?? "").toContain("啟動步驟");
+    // rc-e12733548e4b 之後是新名（啟動程序 → 啟動步驟）；T-745 起 seed 改英文
+    // 成 Boot Sequence，與 seed 同一顆 commit 換掉。
+    expect(body.textContent ?? "").toContain("Boot Sequence");
     // T-4595: a worker's boot context is the staff fold minus the persona slot,
     // with no identity block, no task and no manual — so the codename and the
     // bound task title must not appear in the preview.

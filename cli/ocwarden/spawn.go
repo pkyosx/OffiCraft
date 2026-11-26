@@ -261,7 +261,7 @@ func compactSettingsJSON(raw string) (string, error) {
 func buildClaudeSystemPrompt(agentID, role, personaFile, persona string) string {
 	return fmt.Sprintf("你是 %s(role=%s)。以下「---」之後是你的 OffiCraft 開機檔全文"+
 		"(與 %s 內容相同),它已經在你的 system prompt 裡:不要再用任何工具讀那個檔。"+
-		"開機時照開機檔最後的「啟動步驟」逐步執行。\n---\n",
+		"開機時照開機檔最後的「Boot Sequence」逐步執行。\n---\n",
 		agentID, role, personaFile) + persona
 }
 
@@ -272,8 +272,8 @@ func buildAppendSystemPrompt(agentID, role, personaFile string) string {
 		"launcher 預抓在本地檔 %s。第一步:用 Read 工具從第一行讀到最後一行;"+
 		"一次 Read 讀不完時,用 offset/limit 從上一次停下的那一行接著讀,直到讀到最後一行。"+
 		"不要用 cat/head/tail/sed 或任何終端機指令讀它:終端機輸出只有開頭一小段會進到你的 context,"+
-		"其餘會被靜默丟棄而且不會有任何錯誤訊息,而「啟動步驟」在整份檔案的最後面。"+
-		"整份讀完後,照裡面「啟動步驟」段逐步執行。",
+		"其餘會被靜默丟棄而且不會有任何錯誤訊息,而「Boot Sequence」在整份檔案的最後面。"+
+		"整份讀完後,照裡面「Boot Sequence」段逐步執行。",
 		agentID, role, personaFile)
 }
 

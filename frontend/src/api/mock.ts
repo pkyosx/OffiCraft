@@ -5640,7 +5640,7 @@ const mockApiImpl = {
         // 本體取自〈轉派・給前任〉文件（含 owner 的修改），首行與本體之間空一行，
         // 同 server 的 taskNoticeText。
         body: (
-          `[${t.taskNo}] 此任務已轉派給新的接手人。` +
+          `[${t.taskNo}] This task has been reassigned to a new assignee.` +
           "\n\n" +
           foldBootDoc("task_reassign_predecessor", "global").body
         ).trim(),
@@ -5670,7 +5670,7 @@ const mockApiImpl = {
         // 換成 server 的 takeoverNoPredecessorHead。
         body: (
           (predecessor
-            ? `[${t.taskNo}] 你接手了這張任務，你的前任是 ${predecessor}。`
+            ? `[${t.taskNo}] You are taking over this task; your predecessor is ${predecessor}.`
             : `[${t.taskNo}] 你接手了這張任務，這張任務沒有前任。`) +
           "\n\n" +
           foldBootDoc("task_takeover_with_predecessor", "global").body

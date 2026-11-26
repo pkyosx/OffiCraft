@@ -333,7 +333,7 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 			"purpose":          "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
 			"fields":           []any{map[string]any{"name": "manual_name", "required": true, "is_key": true}},
 			"assignee":         map[string]any{},
-			"sop_md_chars":     3872,
+			"sop_md_chars":     12335,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
 			"is_seed":          true,
@@ -345,7 +345,7 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 			"purpose":          "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
 			"fields":           []any{},
 			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
-			"sop_md_chars":     2803,
+			"sop_md_chars":     9219,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
 			"is_seed":          true,
@@ -357,7 +357,7 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 			"purpose":          "幫 Owner 開啟或調整遠端連線，讓手機或其他電腦能用 HTTPS 網址連到控制台，包括第一次開啟，以及之後更換轉發方式或網址。",
 			"fields":           []any{},
 			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
-			"sop_md_chars":     5389,
+			"sop_md_chars":     14974,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
 			"is_seed":          true,
@@ -367,9 +367,9 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 }
 
 const (
-	apiTestRoleDesignSopChars        = 2803
-	apiTestRoleDesignSopSha256       = "0142aa3cd2d0ea730455350b006a10b35b542eed70b1fd0bd8705e90eb9177de"
-	apiTestTaskManualDesignSopSha256 = "bb27fb16377af2f6dc457a06315faff8d12332142dff16a9545d73b1331fc004"
+	apiTestRoleDesignSopChars        = 9219
+	apiTestRoleDesignSopSha256       = "58d517c3d59ff7fb36c91d5b0b09c70a2be2257055fe65cd2c5479583d84595e"
+	apiTestTaskManualDesignSopSha256 = "12a3bbc83db1c7b2171b27a91dfd9b51dd60fdbce89b963bf5caefa3274328e9"
 )
 
 // apiTestWantRoleDesignManual reads builtin-role-design back. The shipped SOP is
@@ -839,7 +839,7 @@ func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
 			"assignee":         map[string]any{},
 			"lore":             "",
 			"lore_chars":       0,
-			"sop_md_chars":     3872,
+			"sop_md_chars":     12335,
 			"sop_md_cap_chars": 15000,
 			"updated_ts":       0,
 			"is_seed":          true,

@@ -1986,7 +1986,7 @@ func TestNameWithIDSlot(t *testing.T) {
 }
 
 // apiTestReadyForDoneNoticeT1 is the factory 〈任務可結案〉 for T-1, with %d for visit_no.
-const apiTestReadyForDoneNoticeT1 = "[T-1] 這張任務的每一個步驟都回報完成了，它現在停在可結案（ready_for_done），不會自己結束。這是它第 %d 次停在可結案。\n\n所有 Steps 已完成，現在進入結案流程。 Task 一旦進入終態，Artifacts、Step notes 與 Task 上的必要紀錄就會凍結，無法再補寫，因此先依序完成以下收尾：\n\n- 整理成果與驗證紀錄：需要驗收或使用的成果以 add_task_artifact 掛到 Task；驗證結果與其他必要紀錄寫回對應的 Task 或 Step。\n- 請 Owner 驗收：開 Reply Card，提供成果、驗證結果，以及需要 Owner 知道的風險或待決事項。Owner 尚未回覆、要求修改或仍有待處理事項時，先不要繼續結案。\n- 處理傳承：Owner 驗收通過後，依開機說明「傳承」判斷是否有值得留下的經驗；有才寫入，沒有就不寫。\n- 清理暫存資料：使用 rm -r <完整路徑> 移除這次執行產生的暫存檔與資料夾，不要接終端機執行（Codex 的 tty 設為 false）。路徑必須直接寫完整，不要使用變數。路徑不存在或刪不掉，把路徑記進回報，繼續收尾。\n- 移除你開啟的外部資源。\n- 確認你自己開的、還在等 Owner 回覆的卡（用 list_reply_cards 查）：還需要答案就先不要結案，已經用不到的標為過期再結案。\n- 完成結案：確認以上事項都已完成後，呼叫 MCP mark_task_done() 將 Task 結案，並停止更新 Task。\n\n如果目前還不適合結案，就不要呼叫 mark_task_done()，讓 Task 維持可結案狀態。之後若新增 Step，Task 會回到進行中。"
+const apiTestReadyForDoneNoticeT1 = "[T-1] Every step of this task has been reported complete. It is now parked at ready to close (ready_for_done) and will not finish on its own. This is visit %d to ready to close.\n\nAll Steps are complete; the closeout process starts now. Once the Task reaches a terminal state, its Artifacts, Step notes, and the required records on the Task are frozen and can no longer be added to, so first complete the following wrap-up in order:\n\n- Organize results and verification records: attach results that need acceptance or will be used to the Task with add_task_artifact; write verification results and other required records back to the corresponding Task or Step.\n- Ask the Owner for acceptance: open a Reply Card with the results, the verification results, and any risks or open items the Owner needs to know about. While the Owner has not replied, has asked for changes, or there are still open items, do not continue the closeout.\n- Handle Lore: after the Owner accepts, decide per the \"Lore\" section of the boot instructions whether there is experience worth keeping; write it only if there is, otherwise write nothing.\n- Clean up temporary data: use rm -r <full path> to remove the temporary files and folders this run created; do not run it attached to a terminal (Codex's tty is set to false). Write the full path literally; do not use variables. If a path does not exist or cannot be deleted, record the path in your report and continue the wrap-up.\n- Remove the external resources you opened.\n- Check the cards you opened that are still waiting for the Owner's reply (look them up with list_reply_cards): if you still need an answer, do not close yet; mark the ones you no longer need as expired, then close.\n- Complete the closeout: after confirming everything above is done, call MCP mark_task_done() to close the Task, and stop updating the Task.\n\nIf it is not yet appropriate to close, do not call mark_task_done(); leave the Task in the ready-to-close state. If a Step is added later, the Task returns to in progress."
 
 func TestDeriveAndPersistTask(t *testing.T) {
 	t.Run("the task's status is re-projected from its steps, persisted and fanned", func(t *testing.T) {
@@ -4695,23 +4695,23 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			map[string]any{
 				"from": "system",
 				"to":   "kip",
-				"body": "[T-1] 此任務已轉派給新的接手人。\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n" +
+				"body": "[T-1] This task has been reassigned to a new assignee.\n\nReceiving these instructions means the current task needs to be handed over to another executor. Stop moving it forward and complete the necessary wrap-up, so the new assignee can get the current results and the full context remotely:\n" +
 					"\n" +
-					"* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
-					"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n" +
-					"* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n" +
+					"* Preserve results: push the git commits that need to be kept to the remote; upload the files that need to be kept with `ocagent upload` and write the attachment ids into the step notes. Do not leave results that only this machine can reach.\n" +
+					"* Write the handover: write the current progress, in-flight items, risks to watch, and next steps into the task's step notes; you can keep adding to them until the new assignee claims the task, after which they can no longer be written. Reply Cards opened before the reassignment have expired automatically; if anything is still waiting on an Owner decision or action, write it into the step notes, and the new assignee will open a new card after claiming. During the handover, do not open any more Reply Cards bound to this task.\n" +
+					"* Handle sub-agents: if any sub-agent is running, ask it to wrap up and write its results back to the corresponding task step.\n" +
 					"\n" +
-					"完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。",
+					"Once the above is done, the handover is complete. If the new assignee is online and reaches out, confirm any details then; otherwise there is no need to wait for or go looking for the new assignee.",
 			},
 			map[string]any{
 				"from": "system",
 				"to":   "mira",
-				"body": "[T-1] 你接手了這張任務，你的前任是 Kip（kip）。\n\n" +
-					"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
-					"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
-					"* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
-					"* **認領前只能讀**：呼叫 `claim_task` 之前，你只能讀取這張任務；前任在你認領前仍可寫入交接資訊。\n" +
-					"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。轉派前開出的 Reply Card 已自動過期，交接資訊中仍需要 Owner 決定的事項，由你重新開卡。",
+				"body": "[T-1] You are taking over this task; your predecessor is Kip（kip）.\n\n" +
+					"Receiving these instructions means there is a task you need to take over. Complete the following preparation, then claim it and start executing:\n\n" +
+					"* **Read the task**: use `get_task` to read the task; if it already has steps, also check the DoD of the current step, and use `get_task_step` to read the full note of every step whose `note_size_chars` is not 0. If you have not read the corresponding task manual yet, read it with `get_task_manual`.\n" +
+					"* **Confirm the handover**: if there is a `reassigned_from`, first read the `handover_note`, then use `post_chat` to confirm the current progress and in-flight items with your predecessor. Wait at most 5 minutes; if the predecessor is offline, unreachable, or has not replied in time, continue the takeover directly from the handover information on the task — do not stop here and wait.\n" +
+					"* **Read-only before claiming**: before you call `claim_task`, you may only read this task; your predecessor can still write handover information until you claim it.\n" +
+					"* **Claim and execute**: once preparation is done, call `claim_task` to claim the task, then continue planning or executing according to the task's current state. Reply Cards opened before the reassignment have expired automatically; for items in the handover information that still need an Owner decision, open a new card yourself.",
 			},
 		})
 	})
@@ -4853,11 +4853,11 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 				"from": "system",
 				"to":   "mira",
 				"body": "[T-1] 你接手了這張任務，這張任務沒有前任。\n\n" +
-					"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
-					"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
-					"* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
-					"* **認領前只能讀**：呼叫 `claim_task` 之前，你只能讀取這張任務；前任在你認領前仍可寫入交接資訊。\n" +
-					"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。轉派前開出的 Reply Card 已自動過期，交接資訊中仍需要 Owner 決定的事項，由你重新開卡。",
+					"Receiving these instructions means there is a task you need to take over. Complete the following preparation, then claim it and start executing:\n\n" +
+					"* **Read the task**: use `get_task` to read the task; if it already has steps, also check the DoD of the current step, and use `get_task_step` to read the full note of every step whose `note_size_chars` is not 0. If you have not read the corresponding task manual yet, read it with `get_task_manual`.\n" +
+					"* **Confirm the handover**: if there is a `reassigned_from`, first read the `handover_note`, then use `post_chat` to confirm the current progress and in-flight items with your predecessor. Wait at most 5 minutes; if the predecessor is offline, unreachable, or has not replied in time, continue the takeover directly from the handover information on the task — do not stop here and wait.\n" +
+					"* **Read-only before claiming**: before you call `claim_task`, you may only read this task; your predecessor can still write handover information until you claim it.\n" +
+					"* **Claim and execute**: once preparation is done, call `claim_task` to claim the task, then continue planning or executing according to the task's current state. Reply Cards opened before the reassignment have expired automatically; for items in the handover information that still need an Owner decision, open a new card yourself.",
 			},
 		})
 	})
@@ -4883,7 +4883,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			t.Fatalf("the displaced successor keeps only its first takeover notice, got %d rows", got)
 		}
 		kip := t91ChatTo(t, f.api, "kip")
-		if len(kip) != 2 || !strings.HasPrefix(kip[1].Body, "[T-1] 此任務已轉派給新的接手人。") || kip[1].Sender != "system" {
+		if len(kip) != 2 || !strings.HasPrefix(kip[1].Body, "[T-1] This task has been reassigned to a new assignee.") || kip[1].Sender != "system" {
 			t.Fatalf("the predecessor must get the second predecessor notice, got %+v", kip)
 		}
 	})
@@ -4913,7 +4913,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			t.Fatalf("the displaced worker must not be sent the predecessor notice, got %+v", got)
 		}
 		rex := t91ChatTo(t, f.api, "rex")
-		if len(rex) != 2 || !strings.HasPrefix(rex[1].Body, "[T-1] 你接手了這張任務，你的前任是 Kip（kip）。\n\n") {
+		if len(rex) != 2 || !strings.HasPrefix(rex[1].Body, "[T-1] You are taking over this task; your predecessor is Kip（kip）.\n\n") {
 			t.Fatalf("the new successor's takeover notice must name the original predecessor, got %+v", rex)
 		}
 		f.must(t, "POST", "/api/tasks/T-1/priority", f.predecessor, `{"priority":"high"}`)
@@ -5009,11 +5009,11 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			t.Fatalf("T-1 after the re-reassign\ngot  %#v\nwant %#v", got, want)
 		}
 		kip := t91ChatTo(t, f.api, "kip")
-		if len(kip) != 2 || !strings.HasPrefix(kip[1].Body, "[T-1] 此任務已轉派給新的接手人。") {
+		if len(kip) != 2 || !strings.HasPrefix(kip[1].Body, "[T-1] This task has been reassigned to a new assignee.") {
 			t.Fatalf("the predecessor gets a second predecessor notice, got %+v", kip)
 		}
 		zed := t91ChatTo(t, f.api, "zed")
-		if len(zed) != 1 || !strings.HasPrefix(zed[0].Body, "[T-1] 你接手了這張任務，你的前任是 Kip（kip）。\n\n") {
+		if len(zed) != 1 || !strings.HasPrefix(zed[0].Body, "[T-1] You are taking over this task; your predecessor is Kip（kip）.\n\n") {
 			t.Fatalf("the new successor's notice names the predecessor, got %+v", zed)
 		}
 		if got := len(t91ChatTo(t, f.api, "rex")); got != rexBefore {
@@ -5201,13 +5201,13 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			map[string]any{
 				"from": "system",
 				"to":   "kip",
-				"body": "[T-1] 此任務已轉派給新的接手人。\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n" +
+				"body": "[T-1] This task has been reassigned to a new assignee.\n\nReceiving these instructions means the current task needs to be handed over to another executor. Stop moving it forward and complete the necessary wrap-up, so the new assignee can get the current results and the full context remotely:\n" +
 					"\n" +
-					"* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
-					"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n" +
-					"* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n" +
+					"* Preserve results: push the git commits that need to be kept to the remote; upload the files that need to be kept with `ocagent upload` and write the attachment ids into the step notes. Do not leave results that only this machine can reach.\n" +
+					"* Write the handover: write the current progress, in-flight items, risks to watch, and next steps into the task's step notes; you can keep adding to them until the new assignee claims the task, after which they can no longer be written. Reply Cards opened before the reassignment have expired automatically; if anything is still waiting on an Owner decision or action, write it into the step notes, and the new assignee will open a new card after claiming. During the handover, do not open any more Reply Cards bound to this task.\n" +
+					"* Handle sub-agents: if any sub-agent is running, ask it to wrap up and write its results back to the corresponding task step.\n" +
 					"\n" +
-					"完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。",
+					"Once the above is done, the handover is complete. If the new assignee is online and reaches out, confirm any details then; otherwise there is no need to wait for or go looking for the new assignee.",
 			},
 		})
 	})

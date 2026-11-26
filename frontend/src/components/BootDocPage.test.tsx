@@ -368,7 +368,7 @@ describe("BootDocPage", () => {
     // codex document is untouched AND it is a different document — its own
     // text, not the claude one it sits next to in the settings list.
     const codex = renderCodex();
-    await codex.findAllByText(/Codex App Server 執行環境/);
+    await codex.findAllByText(/Codex App Server Runtime/);
     expect(codex.container.textContent).not.toContain("只改 claude 這一份");
     expect(await api.getBootDoc("boot_sequence", "codex")).toMatchObject({
       text: SEED_BOOT_SEQUENCE_CODEX_MD.trim(),

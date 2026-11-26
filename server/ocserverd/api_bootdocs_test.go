@@ -15,11 +15,11 @@ import (
 // editable body under it. The three constants are the three halves the read
 // face names.
 const (
-	apiTestTaskCloseoutSeed = "任務 {task_no} 已結案，結案的人是 {closed_by}。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n停下這個任務，移除你開啟的外部資源，並停止更新 task。\n"
+	apiTestTaskCloseoutSeed = "Task {task_no} has been closed; it was closed by {closed_by}.\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\nStop work on this task, remove the external resources you opened, and stop updating the task.\n"
 
-	apiTestTaskCloseoutHead = "任務 {task_no} 已結案，結案的人是 {closed_by}。"
+	apiTestTaskCloseoutHead = "Task {task_no} has been closed; it was closed by {closed_by}."
 
-	apiTestTaskCloseoutBody = "停下這個任務，移除你開啟的外部資源，並停止更新 task。\n"
+	apiTestTaskCloseoutBody = "Stop work on this task, remove the external resources you opened, and stop updating the task.\n"
 )
 
 const apiTestBootDocMarker = "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->"
@@ -29,25 +29,25 @@ const apiTestBootDocMarker = "<!-- ↑唯讀區（程式產生，改不動）｜
 // blank-line join, so its whole text can be written down beside the folds that
 // produce it.
 const (
-	apiTestReassignPredecessorSeed = "[{task_no}] 此任務已轉派給新的接手人。\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\n你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。\n"
-	apiTestReassignPredecessorHead = "[{task_no}] 此任務已轉派給新的接手人。"
-	apiTestReassignPredecessorBody = "你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。\n"
+	apiTestReassignPredecessorSeed = "[{task_no}] This task has been reassigned to a new assignee.\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\nReceiving these instructions means the current task needs to be handed over to another executor. Stop moving it forward and complete the necessary wrap-up, so the new assignee can get the current results and the full context remotely:\n\n* Preserve results: push the git commits that need to be kept to the remote; upload the files that need to be kept with `ocagent upload` and write the attachment ids into the step notes. Do not leave results that only this machine can reach.\n* Write the handover: write the current progress, in-flight items, risks to watch, and next steps into the task's step notes; you can keep adding to them until the new assignee claims the task, after which they can no longer be written. Reply Cards opened before the reassignment have expired automatically; if anything is still waiting on an Owner decision or action, write it into the step notes, and the new assignee will open a new card after claiming. During the handover, do not open any more Reply Cards bound to this task.\n* Handle sub-agents: if any sub-agent is running, ask it to wrap up and write its results back to the corresponding task step.\n\nOnce the above is done, the handover is complete. If the new assignee is online and reaches out, confirm any details then; otherwise there is no need to wait for or go looking for the new assignee.\n"
+	apiTestReassignPredecessorHead = "[{task_no}] This task has been reassigned to a new assignee."
+	apiTestReassignPredecessorBody = "Receiving these instructions means the current task needs to be handed over to another executor. Stop moving it forward and complete the necessary wrap-up, so the new assignee can get the current results and the full context remotely:\n\n* Preserve results: push the git commits that need to be kept to the remote; upload the files that need to be kept with `ocagent upload` and write the attachment ids into the step notes. Do not leave results that only this machine can reach.\n* Write the handover: write the current progress, in-flight items, risks to watch, and next steps into the task's step notes; you can keep adding to them until the new assignee claims the task, after which they can no longer be written. Reply Cards opened before the reassignment have expired automatically; if anything is still waiting on an Owner decision or action, write it into the step notes, and the new assignee will open a new card after claiming. During the handover, do not open any more Reply Cards bound to this task.\n* Handle sub-agents: if any sub-agent is running, ask it to wrap up and write its results back to the corresponding task step.\n\nOnce the above is done, the handover is complete. If the new assignee is online and reaches out, confirm any details then; otherwise there is no need to wait for or go looking for the new assignee.\n"
 )
 
 // apiTestUnblockedHead / apiTestUnblockedBody are the two halves of 〈解除阻擋〉,
 // the one document of the ten whose body is a bullet list and whose join is
 // therefore a blank line.
 const (
-	apiTestUnblockedHead = "[{blocked_task_no}] 擋著這張任務的前置任務已經結束，它不再擋著你。"
-	apiTestUnblockedBody = "- **還沒開始**：請 get_task 讀內容、submit_plan 規劃步驟後開始執行。\n- **已經在進行中**：接著推進，不必重新規劃。\n- **優先權是凍結**：先問清楚為什麼被凍結，等能解凍的人解開再動。\n"
+	apiTestUnblockedHead = "[{blocked_task_no}] The prerequisite task that was blocking this task has finished; it no longer blocks you."
+	apiTestUnblockedBody = "- **Not started yet**: read it with get_task, plan the steps with submit_plan, then start executing.\n- **Already in progress**: keep moving it forward; there is no need to re-plan.\n- **Priority is frozen**: first find out why it was frozen, and wait until someone who can unfreeze it does so before you act.\n"
 )
 
 // apiTestAcceleratedHeadAt is the 〈加速停止〉 head as it renders for the instant
 // 1767225600, the epoch second the wind-down tests hand it.
-const apiTestAcceleratedHeadAt = "你的結束時刻是 2026-01-01T00:00:00Z。"
+const apiTestAcceleratedHeadAt = "Your end time is 2026-01-01T00:00:00Z."
 
 // apiTestCloseoutHeadFilled is 〈任務結案〉's head with both of its names filled.
-const apiTestCloseoutHeadFilled = "任務 T-1 已結案，結案的人是 owner。"
+const apiTestCloseoutHeadFilled = "Task T-1 has been closed; it was closed by owner."
 
 // apiTestBootDocRow is one expected row of bootDocRegistry, written out rather
 // than read off the registry: the two lists are compared, so a kind added,
@@ -336,7 +336,7 @@ func TestFoldBootDocDTO(t *testing.T) {
 			t.Fatalf("foldBootDocDTO: %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
-			"size_chars":     491,
+			"size_chars":     1435,
 			"cap_chars":      15000,
 			"kind":           "task_reassign_predecessor",
 			"key":            "global",
@@ -360,7 +360,7 @@ func TestFoldBootDocDTO(t *testing.T) {
 			t.Fatalf("foldBootDocDTO: %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
-			"size_chars":     67,
+			"size_chars":     102,
 			"cap_chars":      15000,
 			"kind":           "task_reassign_predecessor",
 			"key":            "global",
@@ -441,8 +441,8 @@ func TestSystemInteractionText(t *testing.T) {
 			t.Fatalf("the boot fold and the read face disagree (%d vs %d runes)",
 				utf8.RuneCountInString(got), utf8.RuneCountInString(data["text"].(string)))
 		}
-		if n := utf8.RuneCountInString(got); n != 14453 {
-			t.Fatalf("the shipped block is %d runes, want 14453", n)
+		if n := utf8.RuneCountInString(got); n != 40637 {
+			t.Fatalf("the shipped block is %d runes, want 40637", n)
 		}
 	})
 
@@ -526,12 +526,12 @@ func TestTaskNoticeText(t *testing.T) {
 
 		got := api.taskNoticeText("task_reassign_predecessor", map[string]string{"task_no": "T-9"})
 
-		want := "[T-9] 此任務已轉派給新的接手人。\n\n" +
-			"你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n" +
-			"* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n" +
-			"* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n" +
-			"* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n" +
-			"完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。"
+		want := "[T-9] This task has been reassigned to a new assignee.\n\n" +
+			"Receiving these instructions means the current task needs to be handed over to another executor. Stop moving it forward and complete the necessary wrap-up, so the new assignee can get the current results and the full context remotely:\n\n" +
+			"* Preserve results: push the git commits that need to be kept to the remote; upload the files that need to be kept with `ocagent upload` and write the attachment ids into the step notes. Do not leave results that only this machine can reach.\n" +
+			"* Write the handover: write the current progress, in-flight items, risks to watch, and next steps into the task's step notes; you can keep adding to them until the new assignee claims the task, after which they can no longer be written. Reply Cards opened before the reassignment have expired automatically; if anything is still waiting on an Owner decision or action, write it into the step notes, and the new assignee will open a new card after claiming. During the handover, do not open any more Reply Cards bound to this task.\n" +
+			"* Handle sub-agents: if any sub-agent is running, ask it to wrap up and write its results back to the corresponding task step.\n\n" +
+			"Once the above is done, the handover is complete. If the new assignee is online and reaches out, confirm any details then; otherwise there is no need to wait for or go looking for the new assignee."
 		if got != want {
 			t.Fatalf("notice = %q, want %q", got, want)
 		}
@@ -594,7 +594,7 @@ func TestEventNoticeText(t *testing.T) {
 				apiTestCloseoutHeadFilled + "\nC1"},
 			"the blank-line join separates the sentence from a bullet list": {
 				"task_unblocked", map[string]string{"blocked_task_no": "T-3"},
-				"[T-3] 擋著這張任務的前置任務已經結束，它不再擋著你。\n\nU1"},
+				"[T-3] The prerequisite task that was blocking this task has finished; it no longer blocks you.\n\nU1"},
 		} {
 			got := api.eventNoticeText(api.mustBootDocSpec(c.kind, "global"), c.values)
 			if got != c.want {
@@ -660,8 +660,8 @@ func TestBootSequenceText(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bootSequenceText(codex): %v", err)
 		}
-		if n := utf8.RuneCountInString(codex); n != 2230 {
-			t.Fatalf("the codex sequence is %d runes, want the shipped 2230", n)
+		if n := utf8.RuneCountInString(codex); n != 4823 {
+			t.Fatalf("the codex sequence is %d runes, want the shipped 4823", n)
 		}
 	})
 
@@ -692,8 +692,8 @@ func TestBootSequenceText(t *testing.T) {
 		if got != data["text"] {
 			t.Fatalf("the boot fold and the read face disagree (%d runes)", utf8.RuneCountInString(got))
 		}
-		if n := utf8.RuneCountInString(got); n != 2010 {
-			t.Fatalf("the shipped claude sequence is %d runes, want 2010", n)
+		if n := utf8.RuneCountInString(got); n != 4539 {
+			t.Fatalf("the shipped claude sequence is %d runes, want 4539", n)
 		}
 	})
 }
@@ -973,9 +973,9 @@ func TestReplaceBootDoc(t *testing.T) {
 			"kind":       "task_closeout",
 			"key":        "global",
 			"is_default": false,
-			"size_chars": 105,
+			"size_chars": 195,
 			"cap_chars":  15000,
-			"sha256":     "1a7b91966130612348b1b472b4956266ffc156f3c0cb04744c4b2086edb392f8",
+			"sha256":     "9cb4323e41b6bf5f3dda34f3c06f3441e9d4a29298abcdeb4f138b5ffefb177f",
 		})
 		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
 		if after["text"] != read["text"] || after["body"] != read["body"] {
@@ -1008,8 +1008,8 @@ func TestReplaceBootDoc(t *testing.T) {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
-			"the task close-out procedure you are writing is 15076 chars, over the 15000-char cap, "+
-				"and is not shorter than the 105 chars already stored — nothing was written. What is "+
+			"the task close-out procedure you are writing is 15102 chars, over the 15000-char cap, "+
+				"and is not shorter than the 195 chars already stored — nothing was written. What is "+
 				"already stored is never truncated, but every update must land at or under the cap, or "+
 				"at least come out SHORTER than what is there now. Drop stale or superseded material as "+
 				"part of this write (or in a shrinking write first), then write again.")
@@ -1120,9 +1120,9 @@ func TestBootDocReceiptOf(t *testing.T) {
 			"kind":       "task_reassign_predecessor",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 491,
+			"size_chars": 1435,
 			"cap_chars":  15000,
-			"sha256":     "3637588437d25b98842f64cf21c3c1e592394ff20c7591dd15e8ec82007011b8",
+			"sha256":     "c01f0c02851abe152fa95f994597eac544b9e37822ef8f960322ddb621329710",
 		})
 	})
 
@@ -1323,9 +1323,9 @@ func TestResetBootDoc(t *testing.T) {
 			"kind":       "task_reassign_predecessor",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 491,
+			"size_chars": 1435,
 			"cap_chars":  15000,
-			"sha256":     "3637588437d25b98842f64cf21c3c1e592394ff20c7591dd15e8ec82007011b8",
+			"sha256":     "c01f0c02851abe152fa95f994597eac544b9e37822ef8f960322ddb621329710",
 		})
 		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_reassign_predecessor/global", owner, "")
 		apiWantValue(t, "text", after["text"], apiTestReassignPredecessorSeed)
@@ -1411,7 +1411,7 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "size_chars", data["size_chars"], 14453)
+		apiWantValue(t, "size_chars", data["size_chars"], 40637)
 		apiWantValue(t, "cap_chars", data["cap_chars"], 60000)
 		apiWantValue(t, "kind", data["kind"], "system_interaction")
 		apiWantValue(t, "key", data["key"], "global")
@@ -1421,8 +1421,8 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		apiWantValue(t, "has_seed", data["has_seed"], true)
 		apiWantValue(t, "schema_version", data["schema_version"], 3)
 		text, ok := data["text"].(string)
-		if !ok || utf8.RuneCountInString(text) != 14453 {
-			t.Fatalf("the shipped system-interaction text has %d runes, want 14453", utf8.RuneCountInString(text))
+		if !ok || utf8.RuneCountInString(text) != 40637 {
+			t.Fatalf("the shipped system-interaction text has %d runes, want 40637", utf8.RuneCountInString(text))
 		}
 	})
 
@@ -1576,9 +1576,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 14453,
+			"size_chars": 40637,
 			"cap_chars":  60000,
-			"sha256":     "cebafb42175ceba166ad4a36b6272ed2a106fb9df7d5571ec93c37c039654435",
+			"sha256":     "6f194764c58647e0b7cd8aca4d95416e7dcf4b1f65970ad536c3889118138c3b",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -1609,9 +1609,9 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"kind":       "system_interaction",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 14453,
+			"size_chars": 40637,
 			"cap_chars":  60000,
-			"sha256":     "cebafb42175ceba166ad4a36b6272ed2a106fb9df7d5571ec93c37c039654435",
+			"sha256":     "6f194764c58647e0b7cd8aca4d95416e7dcf4b1f65970ad536c3889118138c3b",
 		})
 		dashboard.wantFrames()
 	})
@@ -1637,7 +1637,7 @@ func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     1008,
+			"size_chars":     2572,
 			"cap_chars":      15000,
 			"kind":           "offboard",
 			"key":            "global",
@@ -1774,9 +1774,9 @@ func TestHandleResetOffboardApiOffboardResetPost(t *testing.T) {
 			"kind":       "offboard",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 1008,
+			"size_chars": 2572,
 			"cap_chars":  15000,
-			"sha256":     "c997707867a214d06f6ea0f6f2c5fa0143dcb43f3e9ccbfb327b2751c06c523b",
+			"sha256":     "3b432bea3e767bc8bc8fd6bd7a762634792c1811fe2652b66d814122d3bc365f",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -1896,7 +1896,7 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "size_chars", data["size_chars"], 2010)
+		apiWantValue(t, "size_chars", data["size_chars"], 4539)
 		apiWantValue(t, "cap_chars", data["cap_chars"], 15000)
 		apiWantValue(t, "kind", data["kind"], "boot_sequence")
 		apiWantValue(t, "key", data["key"], "claude")
@@ -1906,8 +1906,8 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 		apiWantValue(t, "has_seed", data["has_seed"], true)
 		apiWantValue(t, "schema_version", data["schema_version"], 3)
 		text, ok := data["text"].(string)
-		if !ok || utf8.RuneCountInString(text) != 2010 {
-			t.Fatalf("the shipped claude sequence has %d runes, want 2010", utf8.RuneCountInString(text))
+		if !ok || utf8.RuneCountInString(text) != 4539 {
+			t.Fatalf("the shipped claude sequence has %d runes, want 4539", utf8.RuneCountInString(text))
 		}
 	})
 
@@ -1995,9 +1995,9 @@ func TestHandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost(t *testing.T)
 			"kind":       "boot_sequence",
 			"key":        "claude",
 			"is_default": true,
-			"size_chars": 2010,
+			"size_chars": 4539,
 			"cap_chars":  15000,
-			"sha256":     "1b8ebb8cc05637455b590debb5951468ae1dbcecb43ccd3d47f4b116e773c39b",
+			"sha256":     "552917f2bf8ff4559822643805bdc78fccd5ff37b04646efff812fa9155b667e",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -2132,7 +2132,7 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     105,
+			"size_chars":     195,
 			"cap_chars":      15000,
 			"kind":           "task_closeout",
 			"key":            "global",
@@ -2157,7 +2157,7 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     77,
+			"size_chars":     103,
 			"cap_chars":      15000,
 			"kind":           "task_closeout",
 			"key":            "global",
@@ -2181,7 +2181,7 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     105,
+			"size_chars":     195,
 			"cap_chars":      15000,
 			"kind":           "task_closeout",
 			"key":            "global",
@@ -2242,9 +2242,9 @@ func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
 			"kind":       "task_closeout",
 			"key":        "global",
 			"is_default": false,
-			"size_chars": 77,
+			"size_chars": 103,
 			"cap_chars":  15000,
-			"sha256":     "700418ca3be147deaee00b83e27c7c66b9821283dba4b4d21b2f108129f514dd",
+			"sha256":     "efc828e41ba9b61e8e1669f7cfc0d2bb34692b3c3db30d40d038dfe20d3a7c62",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   1,
@@ -2301,9 +2301,9 @@ func TestHandleResetBootDocApiBootDocsKindKeyResetPost(t *testing.T) {
 			"kind":       "task_closeout",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 105,
+			"size_chars": 195,
 			"cap_chars":  15000,
-			"sha256":     "1a7b91966130612348b1b472b4956266ffc156f3c0cb04744c4b2086edb392f8",
+			"sha256":     "9cb4323e41b6bf5f3dda34f3c06f3441e9d4a29298abcdeb4f138b5ffefb177f",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,

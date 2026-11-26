@@ -1,180 +1,180 @@
-# 任務手冊基本定義
+# Basic definition of a task manual
 
-任務手冊用來定義**一類工作什麼時候應該建立成任務、執行時需要哪些資訊，以及從開始到交付應該怎麼做**。
+A task manual defines **when a kind of work should be created as a task, what information execution needs, and how it should be done from start to delivery**.
 
-## 顯示名稱
+## Display name
 
-一個簡短名稱，讓建立任務的人能快速辨識這是哪一類工作。
+A short name that lets whoever creates a task quickly recognize what kind of work this is.
 
-## 這是什麼任務？
+## What is this task?
 
-寫給建立任務的人看，用來判斷**什麼工作應該建立成這一類任務**。
+Written for whoever creates tasks, to judge **what work should be created as this kind of task**.
 
-說明這類任務處理什麼工作。若容易與其他任務手冊混淆，應從內容中看得出彼此的適用範圍。
+Explain what work this kind of task handles. If it is easily confused with other task manuals, the scope of application of each should be evident from the content.
 
-只保留判斷是否應建立這類任務所需的資訊，不放執行步驟、處理細節或個別情境的處理方式。
+Keep only the information needed to judge whether this kind of task should be created; do not include execution steps, handling details, or how to handle individual situations.
 
-不要將會隨現況變動的資訊寫成固定規則。 任務手冊應描述這類工作長期適用的範圍、流程與判斷方式，不以特定成員、角色或其他任務手冊的名稱描述分工與適用範圍。需要判斷應由誰處理或使用哪一本任務手冊時，應在執行時依當下的設定與定義判斷。
+Do not write information that changes with the current situation as fixed rules. A task manual should describe the long-term scope, process, and way of judging for this kind of work, and must not describe the division of labor or scope of application by the names of specific members, roles, or other task manuals. When you need to judge who should handle it or which task manual to use, judge it at execution time based on the settings and definitions at that time.
 
-## 需要哪些資訊？
+## What information is needed?
 
-定義建立這類任務時，**要用什麼資訊識別這次要處理的對象**。
+Define **what information identifies the target to be handled this time** when this kind of task is created.
 
-找出最能代表「是否為同一件工作」的資訊作為識別欄位，用來判斷是否已經存在相同且尚未完成的任務。
+Find the information that best represents "whether this is the same piece of work" and use it as the identifying field, to judge whether an identical unfinished task already exists.
 
-除了識別欄位，只有執行前一定要有、而且每次都不同的資訊才另設欄位；背景與補充說明寫在任務說明，不另開欄位。
+Besides the identifying field, add a separate field only for information that must be available before execution and is different every time; put background and supplementary explanations in the task description, not in separate fields.
 
-## 該怎麼做？
+## How is it done?
 
-寫給任務執行者看，用來定義**這一類任務從開始到完成應該怎麼執行**。
+Written for the task's executor, to define **how this kind of task should be executed from start to completion**.
 
-依實際工作流程拆分步驟，寫清楚每一步要做什麼，以及達到什麼條件後才算完成或可以繼續下一步。
+Split it into steps following the actual workflow, and state clearly what each step does and what condition must be reached before it counts as complete or the next step can begin.
 
-需要時，可以包含執行流程、判斷條件、核可關卡、例外處理與其他會影響工作正確執行的規則。
+When needed, it can include the execution flow, judgment conditions, approval gates, exception handling, and other rules that affect whether the work is executed correctly.
 
-使用以下結構：
+Use the following structure:
 
 ```markdown
-# <需要先了解的背景、原則或名詞>（需要時才寫）
+# <Background, principles, or terms to understand first> (write only when needed)
 
 # SOP
 
-## 1. <步驟名稱>
+## 1. <Step name>
 
-<這一步要做什麼，以及需要遵循的規則。>
+<What this step does, and the rules to follow.>
 
-**完成條件**：<可以觀察或驗證的結果>
+**Completion condition**: <an observable or verifiable result>
 
-## 2. <步驟名稱>
+## 2. <Step name>
 
 ...
 
-# 附錄 A：<名稱>（需要時才寫）
+# Appendix A: <Name> (write only when needed)
 
-<正文執行時會引用，但不適合直接放在單一步驟中的共通規則或參考資訊。>
+<Shared rules or reference information that the main text cites during execution but that does not fit directly into a single step.>
 ```
 
-每個步驟都應有明確的完成條件，讓執行者知道什麼時候可以繼續下一步。
+Every step should have a clear completion condition, so the executor knows when to move on to the next step.
 
-完成條件應是可以觀察或驗證的結果，不使用「處理完成」、「確認沒問題」等無法直接判斷的描述。
+A completion condition should be an observable or verifiable result; do not use descriptions that cannot be judged directly, such as "handling complete" or "confirmed no problems".
 
-需要 Owner 或其他人核可才能繼續時，應在對應步驟中明確寫出核可對象與通過條件。
+When approval from the Owner or someone else is needed to continue, the corresponding step should state explicitly who approves and what the passing condition is.
 
-只寫**這類任務共通，且會影響工作能否正確執行**的內容。必要的流程、判斷條件、例外與注意事項，可以直接寫入任務手冊。
+Write only content that is **common to this kind of task and affects whether the work can be executed correctly**. Necessary processes, judgment conditions, exceptions, and caveats can be written directly into the task manual.
 
-不要為了預先涵蓋所有可能情況而列舉大量假設情境；只有已確認會影響執行方式的情況，才需要補充對應規則。
+Do not enumerate large numbers of hypothetical scenarios to cover every possibility in advance; add a corresponding rule only for situations confirmed to affect how execution is done.
 
-屬於這類工作、不論由誰執行都適用的內容寫在任務手冊；只適用於特定角色的合作方式、判斷原則與取捨依據，寫在該角色的判準（Insight）。
+Content that belongs to this kind of work and applies no matter who executes it goes in the task manual; ways of collaborating, judgment principles, and trade-off criteria that apply only to a specific role go in that role's Insight.
 
-附錄不是必要結構。當一段內容會被多個步驟引用，或內容較完整、直接放進 SOP 會干擾主要流程時，可以整理成附錄，並在需要使用它的步驟中明確引用。
+An appendix is not a required part of the structure. When a piece of content is cited by multiple steps, or is fairly complete and would disrupt the main flow if placed directly in the SOP, it can be organized as an appendix and explicitly cited in the steps that use it.
 
-附錄仍屬於任務手冊的一部分，只放這類任務共通且會影響工作正確執行的內容，不把與任務無關的知識整理進來。
+An appendix is still part of the task manual; put in it only content common to this kind of task that affects whether the work is executed correctly, and do not organize knowledge unrelated to the task into it.
 
-## 負責成員
+## Assigned executor
 
-指定這類任務預設由誰負責執行，以及使用的執行環境。交給外包時要指定執行機器。
+Specify who executes this kind of task by default, and the runtime used. When it is given to outsourcing, specify the execution machine.
 
 # SOP
 
-## 1. 釐清意圖
+## 1. Clarify intent
 
-開始設計前，先確認 Owner 希望這類任務處理什麼工作，以及希望解決什麼問題。
+Before starting the design, first confirm what work the Owner wants this kind of task to handle, and what problem the Owner wants solved.
 
-先根據任務說明與 Owner 已提供的資訊整理目前的理解，再開 Reply Card 向 Owner 確認。不要把 Owner 已經說過的內容拆成問題重新詢問；資訊已足夠時，直接摘要自己的理解請 Owner 確認。
+First organize your current understanding based on the task description and the information the Owner has already provided, then open a Reply Card to confirm with the Owner. Do not break what the Owner has already said into questions and ask them again; when the information is already sufficient, simply summarize your understanding and ask the Owner to confirm it.
 
-如果目前資訊不足，則在同一張卡中補問缺少的資訊。至少要能確認：
+If the current information is insufficient, ask for the missing information on the same card. At minimum, you must be able to confirm:
 
-- **要做什麼事情**：這類任務負責處理的工作範圍。
-- **怎樣算完成**：這類工作達到什麼狀態才算完成。
+- **What to do**: the scope of work this kind of task is responsible for.
+- **What counts as done**: what state this kind of work must reach to count as complete.
 
-此步驟只釐清工作本身，不自行推測任務流程、需要哪些資訊或負責成員。
+This step clarifies only the work itself; do not speculate on your own about the task process, the information needed, or the assigned executor.
 
-**完成條件**：Owner 已確認這類任務要做的事情與怎樣算完成。
+**Completion condition**: the Owner has confirmed what this kind of task does and what counts as done.
 
-## 2. 處理「這是什麼任務？」
+## 2. Handle "What is this task?"
 
-根據 Owner 已確認的工作範圍，依「這是什麼任務？」的內容規則建立或調整任務定義。
+Based on the scope of work the Owner confirmed, create or adjust the task definition according to the content rules of "What is this task?".
 
-設計前先查看現有任務手冊，確認是否已有相同或相近的任務類型。若有範圍重疊或相鄰的情況，應釐清彼此的適用範圍，讓建立任務的人能判斷應該使用哪一本手冊。
+Before designing, look at the existing task manuals to check whether there is already an identical or similar task type. If scopes overlap or are adjacent, clarify the scope of application of each, so whoever creates a task can judge which manual to use.
 
-調整既有任務手冊時，以目前內容為基礎，保留仍然正確且不受此次需求影響的部分，只修改這次需要改變的內容。
+When adjusting an existing task manual, build on the current content, keep the parts that are still correct and unaffected by this request, and change only what needs to change this time.
 
-若資訊不足，且會影響任務範圍或與其他手冊的邊界，開 Reply Card 詢問 Owner。
+If information is insufficient and would affect the task's scope or its boundary with other manuals, open a Reply Card to ask the Owner.
 
-**完成條件**：「這是什麼任務？」的草稿已完成，且沒有尚未釐清的任務範圍或手冊邊界問題。
+**Completion condition**: the draft of "What is this task?" is complete, with no unresolved questions about the task's scope or manual boundaries.
 
-## 3. 處理「該怎麼做？」
+## 3. Handle "How is it done?"
 
-根據 Owner 已確認的工作範圍與完成條件，依「該怎麼做？」的內容規則建立或調整執行流程。
+Based on the scope of work and completion conditions the Owner confirmed, create or adjust the execution flow according to the content rules of "How is it done?".
 
-建立新的任務手冊時，先了解這類工作目前實際的執行方式與相關規則，再依實際工作順序整理 SOP。
+When creating a new task manual, first understand how this kind of work is actually executed today and the related rules, then organize the SOP following the actual order of the work.
 
-調整既有任務手冊時，先查看目前的 SOP、相關規則與任務傳承，確認哪些做法仍然正確、哪些需要調整。保留不受此次需求影響的內容，只修改這次需要改變的部分。
+When adjusting an existing task manual, first look at the current SOP, related rules, and task Lore to confirm which practices are still correct and which need adjusting. Keep content unaffected by this request, and change only the parts that need to change this time.
 
-每個步驟都應說明要做什麼、需要遵循的規則，以及達到什麼條件後才能進入下一步。
+Each step should state what to do, the rules to follow, and what condition must be reached before moving on to the next step.
 
-若缺少的資訊會影響執行流程、完成條件、核可關卡或其他重要處理方式，開 Reply Card 詢問 Owner。
+If missing information would affect the execution flow, completion conditions, approval gates, or other important handling, open a Reply Card to ask the Owner.
 
-**完成條件**：已完成能讓執行者從開始推進到工作完成的 SOP，且各步驟的完成條件與必要的核可關卡皆已明確。
+**Completion condition**: an SOP that lets the executor move from start to completion of the work is done, and every step's completion condition and the necessary approval gates are clear.
 
-## 4. 處理「需要哪些資訊？」
+## 4. Handle "What information is needed?"
 
-先找出這類任務每次執行時**要處理哪一個對象**，再找出最適合用來指向這個對象的資訊，作為任務的識別欄位。
+First identify **which target is handled** each time this kind of task is executed, then find the information best suited to point to that target and use it as the task's identifying field.
 
-例如處理 Jira issue 時，可以使用 Jira ticket；Review PR 時，可以使用 PR。
+For example, when handling a Jira issue, you can use the Jira ticket; when reviewing a PR, you can use the PR.
 
-再確認是否還有執行前一定要有、而且每次都不同的資訊，需要另設欄位。
+Then check whether there is any other information that must be available before execution and is different every time, which needs a separate field.
 
-若無法判斷工作對象或適合的識別欄位，開 Reply Card 詢問 Owner。
+If you cannot judge the work target or a suitable identifying field, open a Reply Card to ask the Owner.
 
-**完成條件**：已確認這類任務的識別欄位，以及必要的其他欄位。
+**Completion condition**: the identifying field for this kind of task, and any other necessary fields, have been confirmed.
 
-## 5. 處理「負責成員」
+## 5. Handle "Assigned executor"
 
-根據這類任務的工作內容與 SOP，整理適合的負責成員與執行環境，開 Reply Card 請 Owner 決定。
+Based on this kind of task's work and SOP, work out a suitable assigned executor and runtime, and open a Reply Card asking the Owner to decide.
 
-預設建議由**外包**負責執行，並另外提供適合的**正職成員候選人**供 Owner 選擇。
+By default, recommend that **outsourcing** executes it, and additionally offer suitable **staff member candidates** for the Owner to choose from.
 
-執行環境預設建議使用 **Claude、Opus、Medium effort**，並可根據工作需求提供其他適合的配置選項供 Owner 選擇。
+For the runtime, by default recommend **Claude, Opus, Medium effort**, and offer other suitable configuration options for the Owner to choose from according to the work's needs.
 
-負責成員選外包時，一併提出執行機器；沒有指定機器，或指定的機器離線時，任務不會開始執行。
+When outsourcing is chosen as the assigned executor, also propose the execution machine; if no machine is specified, or the specified machine is offline, the task will not start executing.
 
-**完成條件**：Owner 已確認這類任務的負責成員與執行環境；交給外包時包含執行機器。
+**Completion condition**: the Owner has confirmed this kind of task's assigned executor and runtime; when given to outsourcing, this includes the execution machine.
 
-## 6. Review 完整任務手冊
+## 6. Review the complete task manual
 
-啟動一個新的 sub-agent 作為 Reviewer，將本手冊對任務手冊各部分的規則，以及這次完成的完整任務手冊提供給它。Reviewer 不參與前面的設計，從獨立角度檢查最終內容是否符合本手冊的定義。
+Start a new sub-agent as the Reviewer, and give it this manual's rules for each part of a task manual, along with the complete task manual produced this time. The Reviewer did not take part in the design so far and checks from an independent angle whether the final content meets this manual's definitions.
 
-Reviewer 檢查：
+The Reviewer checks:
 
-- 「這是什麼任務？」足以讓建立任務的人判斷什麼工作應使用這本手冊，與相近任務手冊的適用範圍清楚。
-- 「需要哪些資訊？」能明確識別這類任務每次要處理的對象，其他欄位都是執行前一定要有的資訊。
-- 「該怎麼做？」足以讓執行者從開始一路推進到完成，沒有缺少必要的步驟、規則或核可關卡。
-- 每個步驟的完成條件都可以觀察或驗證。
-- 任務手冊沒有混入只適用於特定角色的合作方式、判斷原則或取捨依據。
-- 附錄中的內容確實會被任務執行使用，且正文需要使用時已有明確引用。
-- 整體沒有重複、矛盾或不必要的內容。
+- "What is this task?" is enough for whoever creates tasks to judge what work should use this manual, and its scope of application relative to similar task manuals is clear.
+- "What information is needed?" clearly identifies the target this kind of task handles each time, and every other field is information that must be available before execution.
+- "How is it done?" is enough for the executor to move all the way from start to completion, with no missing necessary steps, rules, or approval gates.
+- Every step's completion condition is observable or verifiable.
+- The task manual does not mix in ways of collaborating, judgment principles, or trade-off criteria that apply only to a specific role.
+- Content in appendices is actually used in executing the task, and is explicitly cited where the main text needs it.
+- Overall there is no duplicated, contradictory, or unnecessary content.
 
-Reviewer 發現問題時，依 Review 意見修改後，再交由 Reviewer 檢查。若問題涉及任務範圍、完成條件、執行方式或其他需要 Owner 決定的事項，開 Reply Card 詢問 Owner 後再修改。
+When the Reviewer finds problems, revise according to the review comments, then hand it back to the Reviewer to check. If a problem involves the task's scope, completion conditions, way of execution, or other matters needing an Owner decision, open a Reply Card to ask the Owner, then revise.
 
-**完成條件**：Reviewer 確認最終任務手冊符合本手冊的內容定義，且足以讓執行者完成這類任務。
+**Completion condition**: the Reviewer confirms that the final task manual meets this manual's content definitions and is sufficient for the executor to complete this kind of task.
 
-## 7. Owner 核可
+## 7. Owner approval
 
-Review 通過後，開 Reply Card 請 Owner 核可最終版本。
+After the review passes, open a Reply Card asking the Owner to approve the final version.
 
-建立新的任務手冊時，提供完整的任務手冊內容與負責成員。
+When creating a new task manual, provide the complete task manual content and the assigned executor.
 
-調整既有任務手冊時，針對**「這是什麼任務？」與「該怎麼做？」**使用 `ocagent diff <before> <after>` 產生修改前後的差異，將 diff 連結附在卡片中；其他調整內容直接在卡片中列出，並提供修改後的完整版本供 Owner 核可。
+When adjusting an existing task manual, for **"What is this task?" and "How is it done?"** use `ocagent diff <before> <after>` to generate a before/after diff and attach the diff link to the card; list other adjustments directly on the card, and provide the complete revised version for the Owner to approve.
 
-Owner 要求修改時，依回覆調整內容；若修改會影響任務手冊的實質內容，重新執行 Review，通過後再請 Owner 核可。
+When the Owner asks for changes, adjust the content according to the reply; if the changes affect the task manual's substantive content, run the review again, and after it passes, ask the Owner to approve again.
 
-**完成條件**：Owner 已核可最終任務手冊與負責成員。
+**Completion condition**: the Owner has approved the final task manual and assigned executor.
 
-## 8. 寫入與讀回
+## 8. Write and read back
 
-依 Owner 核可的版本建立或更新任務手冊。若無法自行寫入，開 Reply Card 請 Owner 完成必要操作。
+Create or update the task manual according to the Owner-approved version. If you cannot write it yourself, open a Reply Card asking the Owner to perform the necessary operation.
 
-寫入後重新讀取任務手冊，確認顯示名稱、「這是什麼任務？」、「需要哪些資訊？」、「該怎麼做？」與負責成員皆與 Owner 核可的版本一致。
+After writing, read the task manual back and confirm that the display name, "What is this task?", "What information is needed?", "How is it done?", and the assigned executor all match the Owner-approved version.
 
-**完成條件**：任務手冊已更新，且讀回結果與 Owner 核可版本一致。
+**Completion condition**: the task manual has been updated, and what reads back matches the Owner-approved version.

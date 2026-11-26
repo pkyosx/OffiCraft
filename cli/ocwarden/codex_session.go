@@ -1401,8 +1401,8 @@ func actionableCodexListenerLine(line string) bool {
 // and the first connected line opens this wake instead of being forwarded —
 // so the post-SSE boot steps would never run. The text names the STEP rather
 // than copying the owner's boot document, which moves.
-const codexPostBootWake = "[OffiCraft sidecar] 你的事件流（SSE）已經接上了。" +
-	"請接著做開機說明裡「接上 SSE 之後」的那些步驟（盤點你手上還沒結束的任務並開始推進）。"
+const codexPostBootWake = "[OffiCraft sidecar] Your event stream (SSE) is now connected. " +
+	"Continue with the steps in your boot instructions that come after SSE is connected (take stock of the tasks in your hands that are not finished yet, and start moving them forward)."
 
 const codexSubagentFinishedWake = "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"
 

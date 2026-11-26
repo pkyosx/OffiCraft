@@ -99,7 +99,7 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     // The two share a cap and sit in the same group; opening one must not land
     // on the other, and only an EXACT title match can tell them apart:
     // 「加速停止」contains 「停止」 as a substring, and the accelerated seed's own
-    // H1 is literally 「# 加速停止」 — so a substring check on the title AND a
+    // H1 is literally 「# Accelerated Stop」 — so a substring check on the title AND a
     // body-text search both pass on either page. Hence the strict equality
     // against s.acceleratedStopName below.
     // ⚠️ The previous version of this comment justified the same assertion by

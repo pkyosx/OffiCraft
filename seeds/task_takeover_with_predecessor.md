@@ -1,10 +1,10 @@
-[{task_no}] 你接手了這張任務，你的前任是 {predecessor}。
+[{task_no}] You are taking over this task; your predecessor is {predecessor}.
 
 <!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->
 
-你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：
+Receiving these instructions means there is a task you need to take over. Complete the following preparation, then claim it and start executing:
 
-* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。
-* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。
-* **認領前只能讀**：呼叫 `claim_task` 之前，你只能讀取這張任務；前任在你認領前仍可寫入交接資訊。
-* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。轉派前開出的 Reply Card 已自動過期，交接資訊中仍需要 Owner 決定的事項，由你重新開卡。
+* **Read the task**: use `get_task` to read the task; if it already has steps, also check the DoD of the current step, and use `get_task_step` to read the full note of every step whose `note_size_chars` is not 0. If you have not read the corresponding task manual yet, read it with `get_task_manual`.
+* **Confirm the handover**: if there is a `reassigned_from`, first read the `handover_note`, then use `post_chat` to confirm the current progress and in-flight items with your predecessor. Wait at most 5 minutes; if the predecessor is offline, unreachable, or has not replied in time, continue the takeover directly from the handover information on the task — do not stop here and wait.
+* **Read-only before claiming**: before you call `claim_task`, you may only read this task; your predecessor can still write handover information until you claim it.
+* **Claim and execute**: once preparation is done, call `claim_task` to claim the task, then continue planning or executing according to the task's current state. Reply Cards opened before the reassignment have expired automatically; for items in the handover information that still need an Owner decision, open a new card yourself.

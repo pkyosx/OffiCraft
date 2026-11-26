@@ -3710,7 +3710,7 @@ func TestRunCodexSession(t *testing.T) {
 			}
 			texts = append(texts, input[0].(map[string]any)["text"].(string))
 		}
-		want := []string{"開始。", "[OffiCraft sidecar] 你的事件流（SSE）已經接上了。請接著做開機說明裡「接上 SSE 之後」的那些步驟（盤點你手上還沒結束的任務並開始推進）。", "[ocagent] chat from owner: single", "[ocagent] chat from mira: first\n\n    last \"q\"", "[ocagent] recycle: stop\n[ocagent] recycle: finish"}
+		want := []string{"開始。", "[OffiCraft sidecar] Your event stream (SSE) is now connected. Continue with the steps in your boot instructions that come after SSE is connected (take stock of the tasks in your hands that are not finished yet, and start moving them forward).", "[ocagent] chat from owner: single", "[ocagent] chat from mira: first\n\n    last \"q\"", "[ocagent] recycle: stop\n[ocagent] recycle: finish"}
 		if !reflect.DeepEqual(texts, want) {
 			t.Fatalf("texts=%q, want=%q; out=%q", texts, want, out.String())
 		}

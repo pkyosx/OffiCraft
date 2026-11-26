@@ -16,7 +16,7 @@ func TestWorkerSharedHead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workerSharedHead(default): %v", err)
 	}
-	if !strings.HasPrefix(base, "# Global Context（AI 工作室 · 成員 boot context）") {
+	if !strings.HasPrefix(base, "# Global Context (AI Studio · Member Boot Context)") {
 		t.Fatalf("worker shared head does not begin with the shared system-interaction block: %q", base[:min(len(base), 80)])
 	}
 	if strings.Contains(base, userAdditionsTitle) {

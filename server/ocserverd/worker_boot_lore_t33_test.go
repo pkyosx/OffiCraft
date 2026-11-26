@@ -132,7 +132,7 @@ func cutSlot3(t *testing.T, doc, startAnchor string, minSpan int) (string, int) 
 			startAnchor, n)
 	}
 	start := strings.Index(doc, startAnchor)
-	end := strings.Index(doc, "# Claude Code 執行環境")
+	end := strings.Index(doc, "# Claude Code Runtime")
 	if start < 0 || end < 0 || start >= end {
 		t.Fatalf("cannot locate slot 3 (start %q=%d, slot 4=%d) — the assembly moved "+
 			"and this guard must be re-derived, not deleted", startAnchor, start, end)
