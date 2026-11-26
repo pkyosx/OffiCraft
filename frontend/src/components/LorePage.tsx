@@ -1347,6 +1347,7 @@ function LoreView({
                     className="lore-dir-card__name lore-dir-card__name--link"
                     data-testid="lore-section-name"
                     title={msg.loreOpenManual(sectionName(currentDef))}
+                    aria-label={msg.loreOpenManual(sectionName(currentDef))}
                     onClick={() => openManual(currentDef.scopeKey)}
                   >
                     {sectionName(currentDef)}

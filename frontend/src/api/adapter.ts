@@ -2447,10 +2447,7 @@ export interface Api {
      * checked against the quoted text. Omitted on a whole-message reply. */
     replyExcerpt?: string;
     /** Machine-readable keys stored ON the message, for a reader that must not
-     * have to parse the visible body. The 傳承 composer sends
-     * `{ lore_entry_id }` here so an agent knows which entry the message is
-     * about; the human-facing 「[LoreID=…]」 prefix is display and may be
-     * reworded, this is not.
+     * have to parse the visible body.
      *
      * 🔴 THREE KEYS ARE NOT YOURS TO SET. The server DELETES `reply_to` and
      * `reply_excerpt` (use the `replyTo` / `replyExcerpt` params — the server

@@ -1427,7 +1427,9 @@ describe("LorePage — 適用範圍選單", () => {
     expect(set.mock.calls).toEqual([["L-2", "everyone"]]);
     // The card shows no scope, so the notice is what says the change landed.
     const toast = container.querySelector('[data-testid="lore-toast"]')!;
-    expect(toast.textContent).toMatch(/^L-2 的適用範圍改成「.+」$/);
+    const everyoneLabel = readOptions(openScopeMenu(container, "L-2")).find((o) => o[0] === "lore-scope-everyone")![1];
+    fireEvent.mouseDown(document.body);
+    expect(toast.textContent).toBe(`L-2 的適用範圍改成「${everyoneLabel}」`);
     expect(toast.querySelector('[data-testid="lore-toast-go"]')).toBeNull();
     expect(list.mock.calls).toEqual([
       [{ states: ["pinned", "active"], scopeKinds: ["agent"], scopeKeys: ["mira"], limit: 30, offset: 0 }],

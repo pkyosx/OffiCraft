@@ -1,7 +1,7 @@
-import { composeSeedFor } from "../lib/composeSeed";
 import { useEffect, useRef, useState } from "react";
 import type { ComponentProps } from "react";
 import { useI18n } from "../i18n";
+import { composeSeedFor } from "../lib/composeSeed";
 import type { Member } from "../types";
 import type { OutsourceWorkerView } from "../api/adapter";
 import { api } from "../api";
