@@ -1,4 +1,5 @@
-// CT story: the REAL LorePage against the REAL mock adapter, inside
+// CT story: the REAL LorePage against the REAL mock adapter, opened on `hash`
+// (the directory by default), inside
 // `.app > .app__main` as in App.tsx, so the row gets production's side gutters
 // and `.lore` is height-bound and is the real scroll container.
 //
@@ -14,7 +15,13 @@ const LONG_MANUAL_NAME =
   "跨租戶出貨追蹤資料對帳與異常通報流程（海運、空運、陸運三段承運商回傳格式差異整理與補件）" +
   "以及月底結算前的應收應付逐筆核對、匯率差額說明與客戶端對帳單重新產出";
 
-export function LoreRowHeadStory({ longManual = false }: { longManual?: boolean }) {
+export function LoreRowHeadStory({
+  longManual = false,
+  hash = "",
+}: {
+  longManual?: boolean;
+  hash?: string;
+}) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     // Dynamic import: a static one makes Playwright's node-side transform parse
@@ -34,9 +41,18 @@ export function LoreRowHeadStory({ longManual = false }: { longManual?: boolean 
       // A body that fits one line at any width, beside the seed's longer ones:
       // the ▸/▾ mark must be absent on this row and present on those.
       await mockApi.editLoreEntry("L-7", { body: "讀一遍再送。" });
+      // Enough cards in Mira's section to scroll it on a short viewport.
+      for (let i = 1; i <= 8; i++) {
+        await mockApi.writeLoreEntry({
+          title: `第 ${i} 條補充的原則`,
+          body: "交付前先在乾淨的工作目錄重跑一次，確認結果不是靠本機殘留的檔案才過的。".repeat(1 + (i % 3)),
+          loreType: "other",
+        });
+      }
+      history.replaceState(null, "", window.location.pathname + hash);
       setReady(true);
     })();
-  }, [longManual]);
+  }, [longManual, hash]);
   if (!ready) return null;
   return (
     <I18nProvider>

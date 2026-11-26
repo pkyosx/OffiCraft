@@ -2,7 +2,8 @@
 // route → hash update, plus the navigateHash home-strip behaviour.
 
 import { describe, it, expect } from "vitest";
-import { parseHash, formatHash, navigateHash } from "./hashRoute";
+import { render } from "@testing-library/react";
+import { parseHash, formatHash, navigateHash, setNavigationGuard, useHashRoute } from "./hashRoute";
 
 describe("parseHash", () => {
   it("restores each page from its anchor", () => {
@@ -415,5 +416,73 @@ describe("navigateHash", () => {
     window.removeEventListener("hashchange", onChange);
     expect(window.location.hash).toBe("");
     expect(notified).toBe(true);
+  });
+});
+
+describe("傳承 routes", () => {
+  it("parses the directory, each section kind and an entry highlight", () => {
+    expect(parseHash("#lore")).toEqual({ page: "lore" });
+    expect(parseHash("#lore/everyone")).toEqual({ page: "lore", loreSection: { kind: "everyone", key: "" } });
+    expect(parseHash("#lore/agent/mira")).toEqual({ page: "lore", loreSection: { kind: "agent", key: "mira" } });
+    expect(parseHash("#lore/manual/review%20pr/entry/L-12")).toEqual({
+      page: "lore",
+      loreSection: { kind: "manual", key: "review pr" },
+      loreEntryId: "L-12",
+    });
+    expect(parseHash("#lore/everyone/entry/L-3")).toEqual({
+      page: "lore",
+      loreSection: { kind: "everyone", key: "" },
+      loreEntryId: "L-3",
+    });
+  });
+
+  it("heals a malformed section to the directory", () => {
+    expect(parseHash("#lore/agent")).toEqual({ page: "lore" });
+    expect(parseHash("#lore/role/x")).toEqual({ page: "lore" });
+    expect(parseHash("#lore/agent/mira/entry")).toEqual({ page: "lore", loreSection: { kind: "agent", key: "mira" } });
+  });
+
+  it("formats back to the same hashes", () => {
+    for (const h of ["#lore", "#lore/everyone", "#lore/agent/mira", "#lore/manual/review%20pr/entry/L-12"]) {
+      expect(formatHash(parseHash(h))).toBe(h);
+    }
+  });
+});
+
+describe("navigation guard", () => {
+  it("a refusing guard keeps navigateHash from moving; releasing it lets the next one through", () => {
+    history.replaceState(null, "", window.location.pathname + "#lore/agent/mira");
+    const asked: string[] = [];
+    const release = setNavigationGuard((next) => {
+      asked.push(formatHash(next));
+      return false;
+    });
+    navigateHash({ page: "lore" });
+    expect(window.location.hash).toBe("#lore/agent/mira");
+    expect(asked).toEqual(["#lore"]);
+    release();
+    navigateHash({ page: "lore" });
+    expect(window.location.hash).toBe("#lore");
+  });
+
+  it("a refused browser hash change is put back and subscribers are not told", async () => {
+    history.replaceState(null, "", window.location.pathname + "#lore/agent/mira");
+    const seen: string[] = [];
+    function Probe() {
+      const [route] = useHashRoute();
+      seen.push(formatHash(route));
+      return null;
+    }
+    const { unmount } = render(<Probe />);
+    const release = setNavigationGuard(() => false);
+    try {
+      window.location.hash = "#tasks";
+      await new Promise((r) => setTimeout(r, 20));
+      expect(window.location.hash).toBe("#lore/agent/mira");
+      expect(seen.every((h) => h === "#lore/agent/mira")).toBe(true);
+    } finally {
+      release();
+      unmount();
+    }
   });
 });

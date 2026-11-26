@@ -27,7 +27,13 @@
  *   #tasks/<taskId>                               → tasks page, located on <taskId>
  *   #tasks/executor/<memberId>                    → tasks page, filtered to that
  *                                                   member's unfinished tasks
- *   #lore                                         → 傳承 page (T-33)
+ *   #lore                                         → 傳承 directory (one row per
+ *                                                   target: 所有人, members, manuals)
+ *   #lore/everyone                                → the 所有人 section page
+ *   #lore/agent/<memberId>                        → that member's section page
+ *   #lore/manual/<typeKey>                        → that manual's section page
+ *   #lore/<…section…>/entry/<entryId>             → section page, that entry
+ *                                                   highlighted
  *   #shared-docs                                  → 檔案庫 list
  *   #shared-docs/<docId>                          → that shared document
  *   #secrets                                      → Secrets page
@@ -55,6 +61,8 @@
  * write routes only through `useHashRoute` so the scheme cannot drift.
  */
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+
+export type LoreSectionKind = "everyone" | "agent" | "manual";
 
 export interface HashRoute {
   page:
@@ -159,6 +167,11 @@ export interface HashRoute {
   backTo?: "replies" | "tasks";
   /** replies/tasks only — the item whose deep link should be restored on return. */
   backToId?: string;
+  /** lore only — the section page; absent ⇒ the directory. `key` is "" for
+   * 所有人. */
+  loreSection?: { kind: LoreSectionKind; key: string };
+  /** lore only, with loreSection — the entry to highlight on that page. */
+  loreEntryId?: string;
 }
 
 /** `decodeURIComponent` THROWS on a malformed escape — a lone `%`, `%zz` — and
@@ -235,14 +248,23 @@ export function parseHash(raw: string): HashRoute {
     return rest[0] ? { page: "tasks", taskId: rest[0] } : { page: "tasks" };
   }
 
-  // 傳承 (T-33) — the page carries NO deep-link state. Its narrowing lives in
-  // component state on purpose: the 上限線 is answered by the SERVER for the
-  // filter that was actually sent, so a hash that seeds a filter would have to
-  // seed the scope pair atomically or hand the page a half-applied filter whose
-  // line is drawn for a different question than the one on screen. Any trailing
-  // segment is ignored rather than invented into a filter.
+  // 傳承: the hash names a section (and an entry to highlight), never a
+  // filter. The 上限線 is the server's answer for the filter actually sent, so
+  // a hash-seeded filter would draw a line for a question not on screen.
   if (head === "lore") {
-    return { page: "lore" };
+    let section: HashRoute["loreSection"];
+    let i = 0;
+    if (rest[0] === "everyone") {
+      section = { kind: "everyone", key: "" };
+      i = 1;
+    } else if ((rest[0] === "agent" || rest[0] === "manual") && rest[1]) {
+      section = { kind: rest[0], key: rest[1] };
+      i = 2;
+    }
+    if (!section) return { page: "lore" };
+    return rest[i] === "entry" && rest[i + 1]
+      ? { page: "lore", loreSection: section, loreEntryId: rest[i + 1] }
+      : { page: "lore", loreSection: section };
   }
 
   if (head === "shared-docs") {
@@ -327,7 +349,13 @@ export function formatHash(route: HashRoute): string {
       ? `#tasks/${encodeURIComponent(route.taskId)}`
       : "#tasks";
   }
-  if (route.page === "lore") return "#lore";
+  if (route.page === "lore") {
+    const sec = route.loreSection;
+    if (!sec) return "#lore";
+    const base =
+      sec.kind === "everyone" ? "#lore/everyone" : `#lore/${sec.kind}/${encodeURIComponent(sec.key)}`;
+    return route.loreEntryId ? `${base}/entry/${encodeURIComponent(route.loreEntryId)}` : base;
+  }
   if (route.page === "shared_docs")
     return route.sharedDocId
       ? `#shared-docs/${encodeURIComponent(route.sharedDocId)}`
@@ -362,6 +390,21 @@ export function formatHash(route: HashRoute): string {
   return segs.length ? `#office/${segs.join("/")}` : "";
 }
 
+/** Asked before the route changes; false keeps the current route. One at a
+ * time — the page holding unsaved work installs it. */
+export type NavigationGuard = (next: HashRoute) => boolean;
+let navigationGuard: NavigationGuard | null = null;
+// The last hash the guard let through. A refused browser back/forward or a
+// hand-edited hash is put back to this.
+let acceptedHash: string | null = null;
+
+export function setNavigationGuard(guard: NavigationGuard): () => void {
+  navigationGuard = guard;
+  return () => {
+    if (navigationGuard === guard) navigationGuard = null;
+  };
+}
+
 /** Write a route into the URL. A non-empty hash goes through `location.hash`
  * (fires `hashchange` natively); the empty home route strips the hash entirely
  * via pushState + a synthetic `hashchange` so subscribers still re-read. */
@@ -369,6 +412,8 @@ export function navigateHash(route: HashRoute): void {
   const next = formatHash(route);
   const cur = window.location.hash;
   if (next === cur || (next === "" && (cur === "" || cur === "#"))) return;
+  if (navigationGuard && !navigationGuard(route)) return;
+  acceptedHash = next;
   if (next === "") {
     history.pushState(
       null,
@@ -381,9 +426,30 @@ export function navigateHash(route: HashRoute): void {
   }
 }
 
+const listeners = new Set<() => void>();
+
+function onHashChange(): void {
+  const cur = window.location.hash;
+  const prev = acceptedHash ?? "";
+  if (cur !== prev && navigationGuard && !navigationGuard(parseHash(cur))) {
+    // replaceState fires no hashchange, so subscribers keep the old route.
+    history.replaceState(null, "", window.location.pathname + window.location.search + prev);
+    return;
+  }
+  acceptedHash = cur;
+  for (const cb of listeners) cb();
+}
+
 function subscribe(cb: () => void): () => void {
-  window.addEventListener("hashchange", cb);
-  return () => window.removeEventListener("hashchange", cb);
+  if (listeners.size === 0) {
+    acceptedHash = window.location.hash;
+    window.addEventListener("hashchange", onHashChange);
+  }
+  listeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+    if (listeners.size === 0) window.removeEventListener("hashchange", onHashChange);
+  };
 }
 
 function snapshot(): string {

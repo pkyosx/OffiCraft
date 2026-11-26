@@ -1,4 +1,5 @@
-// 傳承 section headers and row headers at phone and desktop width: the badges
+// 傳承 directory rows, section pages and row headers at phone and desktop
+// width: the badges
 // wrap as whole pills, the 屬於 chip never gets squeezed to its glyph with the
 // caret spilling out, only a name longer than a whole line ellipsizes, and the
 // checkbox and the actions (提到最新／編輯, or 「⋯」 on a phone) stay inside the
@@ -35,15 +36,48 @@ type RowGeom = {
   name: (Box & { scrollW: number; clientW: number }) | null;
 };
 
-async function mountAt(mount: any, page: any, width: number, longManual: boolean) {
-  await page.setViewportSize({ width, height: 900 });
-  const cmp = await mount(<LoreRowHeadStory longManual={longManual} />);
-  const toggles = cmp.locator('[data-testid="lore-section-toggle"]');
-  await expect(toggles.first()).toBeVisible();
-  for (let i = 0; i < (await toggles.count()); i++) await toggles.nth(i).click();
-  await expect(cmp.locator('[data-testid="lore-row"]').first()).toBeVisible();
-  await expect(cmp.locator('[data-entry-id="L-4"]')).toBeVisible();
+const MIRA = "#lore/agent/mira";
+const MANUAL = "#lore/manual/tm-mock";
+
+async function mountAt(
+  mount: any,
+  page: any,
+  width: number,
+  longManual: boolean,
+  hash = MANUAL,
+  height = 900,
+) {
+  await page.setViewportSize({ width, height });
+  const cmp = await mount(<LoreRowHeadStory longManual={longManual} hash={hash} />);
+  if (hash === "") {
+    await expect(cmp.locator('[data-testid="lore-target"]').first()).toBeVisible();
+  } else {
+    await expect(cmp.locator('[data-testid="lore-row"]').first()).toBeVisible();
+  }
   return cmp;
+}
+
+/** Visit every section page from the directory and measure its rows. */
+async function measureEverySection(cmp: any, page: any) {
+  const keys: string[] = await cmp
+    .locator('[data-testid="lore-target"]')
+    .evaluateAll((els: Element[]) => els.map((e) => e.getAttribute("data-section") ?? ""));
+  const rows: RowGeom[] = [];
+  let worstOver = { pageOver: 0, loreOver: 0 };
+  for (const key of keys) {
+    await cmp.locator(`[data-testid="lore-target"][data-section="${key}"]`).click();
+    await expect(cmp.locator('[data-testid="lore-section-head"]')).toBeVisible();
+    await expect(cmp.locator('[data-testid="lore-section-body"]')).not.toContainText("載入中");
+    const g = await measure(page);
+    rows.push(...g.rows);
+    worstOver = {
+      pageOver: Math.max(worstOver.pageOver, g.pageOver),
+      loreOver: g.loreOver === -2 ? -2 : Math.max(worstOver.loreOver, g.loreOver),
+    };
+    await cmp.locator('[data-testid="lore-back"]').click();
+    await expect(cmp.locator('[data-testid="lore-target"]').first()).toBeVisible();
+  }
+  return { rows, ...worstOver, keys };
 }
 
 async function measure(page: any): Promise<{
@@ -101,10 +135,11 @@ async function measure(page: any): Promise<{
         };
       }
     );
-    const sections = [...document.querySelectorAll('[data-testid="lore-section"]')].map((sec) => {
-      const head = sec.querySelector('[data-testid="lore-section-toggle"]')!;
+    const sections = [
+      ...document.querySelectorAll('[data-testid="lore-target"], [data-testid="lore-section-head"]'),
+    ].map((head) => {
       return {
-        key: sec.getAttribute("data-section") ?? "",
+        key: head.getAttribute("data-section") ?? "page",
         head: r(head)!,
         children: [...head.querySelectorAll(":scope > *, .lore-section__usage > *")].map((c) => ({
           cls: (c.className || c.tagName).toString(),
@@ -186,8 +221,12 @@ function assertHeadContained(width: number, row: RowGeom) {
   }
 }
 
-function assertSectionHeadsContained(width: number, sections: { key: string; head: Box; children: { cls: string; box: Box }[] }[]) {
-  expect.soft(sections.length, `[${width}px] sections rendered`).toBeGreaterThanOrEqual(4);
+function assertSectionHeadsContained(
+  width: number,
+  sections: { key: string; head: Box; children: { cls: string; box: Box }[] }[],
+  min = 4,
+) {
+  expect.soft(sections.length, `[${width}px] section heads rendered`).toBeGreaterThanOrEqual(min);
   for (const s of sections) {
     for (const c of s.children) {
       expect
@@ -204,11 +243,19 @@ function assertNoHScroll(width: number, g: { pageOver: number; loreOver: number 
 }
 
 for (const width of [390, 1440]) {
-  test(`normal-length scope names fit whole @${width}px`, async ({ mount, page }) => {
-    await mountAt(mount, page, width, false);
+  test(`the directory lists every target inside its row @${width}px`, async ({ mount, page }) => {
+    await mountAt(mount, page, width, false, "");
     const g = await measure(page);
     assertNoHScroll(width, g);
     assertSectionHeadsContained(width, g.sections);
+    expect(g.rows.length, `[${width}px] the directory shows no cards`).toBe(0);
+  });
+
+  test(`normal-length scope names fit whole on every section page @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false, "");
+    const g = await measureEverySection(cmp, page);
+    assertNoHScroll(width, g);
+    expect(g.keys.length, `[${width}px] sections visited`).toBeGreaterThanOrEqual(4);
     expect(g.rows.length, `[${width}px] rows rendered`).toBeGreaterThanOrEqual(5);
     // Both kinds of row must be on screen, or the iff check above proves nothing.
     expect.soft(g.rows.some((r) => r.bodyOverflows === true), `[${width}px] an overflowing body`).toBe(true);
@@ -242,8 +289,9 @@ for (const width of [390, 1440]) {
     mount,
     page,
   }) => {
-    await mountAt(mount, page, width, true);
+    await mountAt(mount, page, width, true, MANUAL);
     const g = await measure(page);
+    assertSectionHeadsContained(width, g.sections, 1);
     assertNoHScroll(width, g);
     const l4 = g.rows.find((r) => r.id === "L-4");
     expect(l4, `[${width}px] L-4 row`).toBeTruthy();
@@ -277,7 +325,7 @@ async function boxOf(page: any, selector: string): Promise<Box | null> {
 
 for (const width of [390, 1440]) {
   test(`.lore is the height-bound scroll container under .app > .app__main @${width}px`, async ({ mount, page }) => {
-    await mountAt(mount, page, width, false);
+    await mountAt(mount, page, width, false, MIRA, 500);
     const g = await page.evaluate(() => {
       const lore = document.querySelector(".lore") as HTMLElement;
       return {
@@ -293,16 +341,16 @@ for (const width of [390, 1440]) {
     console.log(`[lore ${width}] scroll container`, JSON.stringify(g));
     expect(g.chain).toEqual(["app__main", "app"]);
     expect(g.overflowY).toBe("auto");
-    expect.soft(g.scrollH, "the mock's open sections should be taller than the scrollport").toBeGreaterThan(g.clientH);
+    expect.soft(g.scrollH, "Mira's section should be taller than the scrollport").toBeGreaterThan(g.clientH);
     expect.soft(g.bottom).toBeLessThanOrEqual(g.vh + 1);
     expect.soft(g.docOverY, "the document itself scrolls instead of .lore").toBeLessThanOrEqual(1);
     assertNoHScroll(width, await pageAndLoreOver(page));
   });
 
-  test(`section header labels stay on one line @${width}px`, async ({ mount, page }) => {
-    await mountAt(mount, page, width, false);
+  test(`directory labels stay on one line @${width}px`, async ({ mount, page }) => {
+    await mountAt(mount, page, width, false, "");
     const labels = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-testid="lore-section-toggle"]')].flatMap((head) =>
+      [...document.querySelectorAll('[data-testid="lore-target"]')].flatMap((head) =>
         [...head.querySelectorAll(
           ".lore-section__name, .lore-section__kind, .lore-section__count, .lore-section__chars, .lore-section__dropped, .lore-section__fit",
         )].map((el) => {
@@ -322,7 +370,7 @@ for (const width of [390, 1440]) {
   });
 
   test(`the batch bar stays inside the viewport and the scroll container @${width}px`, async ({ mount, page }) => {
-    const cmp = await mountAt(mount, page, width, false);
+    const cmp = await mountAt(mount, page, width, false, MIRA);
     const selects = cmp.locator('[data-testid="lore-select"]');
     await selects.nth(0).click();
     await selects.nth(1).click();
@@ -409,8 +457,100 @@ for (const width of [390, 1440]) {
     assertNoHScroll(width, await pageAndLoreOver(page));
   });
 
+  test(`提到最新 moves the card to the front without moving what is in view, and 前往 brings it back @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false, MIRA, 500);
+    const ids: string[] = await cmp
+      .locator('[data-testid="lore-row"]')
+      .evaluateAll((els: Element[]) => els.map((e) => e.getAttribute("data-entry-id") ?? ""));
+    expect(ids.length, `[${width}px] Mira's cards`).toBeGreaterThanOrEqual(8);
+    // The reader looks at `anchor` at the top of the view and bumps the card
+    // right under it, so the card lands above what they are reading.
+    const mid = Math.floor(ids.length / 2);
+    const anchorId = ids[mid - 1]!;
+    const target = ids[mid]!;
+    const sel = `[data-testid="lore-row"][data-entry-id="${target}"]`;
+    const anchorSel = `[data-testid="lore-row"][data-entry-id="${anchorId}"]`;
+    await page.evaluate((s: string) => {
+      const lore = document.querySelector(".lore") as HTMLElement;
+      const row = document.querySelector(s) as HTMLElement;
+      lore.scrollTop += row.getBoundingClientRect().top - lore.getBoundingClientRect().top - 10;
+    }, anchorSel);
+    const anchorBefore = await page.evaluate((s: string) => {
+      const lore = document.querySelector(".lore") as HTMLElement;
+      const row = document.querySelector(s) as HTMLElement;
+      return { id: row.dataset.entryId!, top: row.getBoundingClientRect().top, scrollTop: lore.scrollTop };
+    }, anchorSel);
+    await expect(cmp.locator(sel)).toBeInViewport();
+    expect(anchorBefore.scrollTop, `[${width}px] .lore did not scroll`).toBeGreaterThan(0);
+
+    const row = cmp.locator(sel);
+    if (width <= 720) {
+      await row.locator('[data-testid="lore-more-actions"]').click();
+    }
+    await row.locator('[data-testid="lore-bump"]').click();
+    const toast = cmp.locator('[data-testid="lore-toast"]');
+    await expect(toast).toBeVisible();
+    await expect
+      .poll(async () => (await cmp.locator('[data-testid="lore-row"]').evaluateAll((els: Element[]) => els.map((e) => e.getAttribute("data-entry-id")))).indexOf(target))
+      .toBeLessThan(ids.indexOf(target));
+
+    const anchorAfter = await boxOf(page, `[data-testid="lore-row"][data-entry-id="${anchorBefore.id}"]`);
+    console.log(`[lore ${width}] bump`, JSON.stringify({ target, anchorBefore, anchorAfter }));
+    expect.soft(Math.abs(anchorAfter!.top - anchorBefore.top), `[${width}px] ${anchorBefore.id} moved on screen`).toBeLessThanOrEqual(1);
+    const t = await boxOf(page, '[data-testid="lore-toast"]');
+    const vw = await page.evaluate(() => document.documentElement.clientWidth);
+    expect.soft(t!.bottom, `[${width}px] toast below the viewport`).toBeLessThanOrEqual(500 + 1);
+    expect.soft(t!.right, `[${width}px] toast past the viewport`).toBeLessThanOrEqual(vw + 1);
+    assertNoHScroll(width, await pageAndLoreOver(page));
+
+    await cmp.locator('[data-testid="lore-toast-go"]').click();
+    const moved = await page.evaluate((s: string) => {
+      const lore = document.querySelector(".lore") as HTMLElement;
+      const row = document.querySelector(s) as HTMLElement;
+      const a = lore.getBoundingClientRect();
+      const b = row.getBoundingClientRect();
+      return { inView: b.top >= a.top - 1 && b.top < a.bottom, focused: document.activeElement === row };
+    }, sel);
+    expect.soft(moved.inView, `[${width}px] 前往 did not scroll to ${target}`).toBe(true);
+    expect.soft(moved.focused, `[${width}px] 前往 did not focus ${target}`).toBe(true);
+  });
+
+  test(`編輯多筆's bar stays inside the viewport and the scroll container @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false, MIRA, 600);
+    await cmp.locator('[data-testid="lore-multi-toggle"]').click();
+    await expect(cmp.locator('[data-testid="lore-select"]')).toHaveCount(0);
+    const first = cmp.locator('[data-testid="lore-row"]').first();
+    await first.locator('[data-testid="lore-type"]').click();
+    await first.locator('[data-testid="lore-type-options"] .lore-row__menu-item:not(.lore-row__menu-item--active)').first().click();
+    await expect(first.locator('[data-testid="lore-unsaved"]')).toBeVisible();
+    await expect(cmp.locator('[data-testid="lore-multi-count"]')).toHaveText("1 筆未儲存");
+    const g = await page.evaluate(() => {
+      const r = (el: Element) => {
+        const b = el.getBoundingClientRect();
+        return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+      };
+      const bar = document.querySelector('[data-testid="lore-multi-bar"]')!;
+      const head = document.querySelector('[data-testid="lore-row"] .lore-row__head')!;
+      return {
+        bar: r(bar),
+        lore: r(document.querySelector(".lore")!),
+        head: r(head),
+        headBadges: [...head.querySelectorAll(".lore-row__badges > *")].map((c) => r(c)),
+        children: [...bar.querySelectorAll("button, span")].map((c) => r(c)),
+        vw: document.documentElement.clientWidth,
+        vh: window.innerHeight,
+      };
+    });
+    expect.soft(g.bar.bottom, `[${width}px] bar bottom`).toBeLessThanOrEqual(g.vh + 1);
+    expect.soft(g.bar.left, `[${width}px] bar left`).toBeGreaterThanOrEqual(g.lore.left - 1);
+    expect.soft(g.bar.right, `[${width}px] bar right`).toBeLessThanOrEqual(Math.min(g.lore.right, g.vw) + 1);
+    for (const c of g.children) expect.soft(inside(c, g.bar), `[${width}px] bar part outside the bar`).toBe(true);
+    for (const b of g.headBadges) expect.soft(b.right, `[${width}px] badge (with 未儲存) past the head`).toBeLessThanOrEqual(g.head.right + 1);
+    assertNoHScroll(width, await pageAndLoreOver(page));
+  });
+
   test(`a state change leaves the scroll position and the card where they were @${width}px`, async ({ mount, page }) => {
-    const cmp = await mountAt(mount, page, width, false);
+    const cmp = await mountAt(mount, page, width, false, MIRA, 500);
     const ids = await cmp.locator('[data-testid="lore-row"]').evaluateAll((els: Element[]) =>
       els.map((e) => e.getAttribute("data-entry-id")),
     );

@@ -834,6 +834,24 @@ const REGISTRY = [
  * that: the SSE transport is exactly where a per-room cache would be put. */
 const MODULE_STATE = [
   {
+    file: "lib/hashRoute.ts",
+    name: "navigationGuard",
+    verdict:
+      "the one unsaved-work guard asked before the URL route changes, or null; installed and removed by the page that holds the unsaved work, carries no conversation's value",
+  },
+  {
+    file: "lib/hashRoute.ts",
+    name: "acceptedHash",
+    verdict:
+      "the last hash the navigation guard let through, so a refused change can be put back; it is the URL itself, app-wide, not any room's value",
+  },
+  {
+    file: "lib/hashRoute.ts",
+    name: "listeners",
+    verdict:
+      "the route subscribers behind the one hashchange listener; each removes itself on unmount, and only the URL is handed to them",
+  },
+  {
     file: "api/client.ts",
     name: "writesInFlight",
     verdict:

@@ -97,8 +97,8 @@ async function renderPage(props: { canSetScope?: boolean } = {}) {
   );
   fireEvent.click(
     await waitFor(() => {
-      const el = r.container.querySelector<HTMLElement>('[data-testid="lore-section-toggle"]');
-      if (!el) throw new Error("no section header");
+      const el = r.container.querySelector<HTMLElement>('[data-testid="lore-target"]');
+      if (!el) throw new Error("no directory target");
       return el;
     }, { timeout: 3000 }),
   );
@@ -114,6 +114,8 @@ function rowById(container: HTMLElement, id: string): HTMLElement {
 }
 
 beforeEach(() => {
+  // The page reads its section from the hash; every spec starts on the directory.
+  history.replaceState(null, "", window.location.pathname);
   __resetMock();
   __resetWorkerCodenameCache();
 });

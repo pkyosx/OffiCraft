@@ -77,8 +77,8 @@ async function renderPage() {
   );
   fireEvent.click(
     await waitFor(() => {
-      const el = r.container.querySelector<HTMLElement>('[data-testid="lore-section-toggle"]');
-      if (!el) throw new Error("no section header");
+      const el = r.container.querySelector<HTMLElement>('[data-testid="lore-target"]');
+      if (!el) throw new Error("no directory target");
       return el;
     }, { timeout: 3000 }),
   );
@@ -86,6 +86,8 @@ async function renderPage() {
 }
 
 beforeEach(() => {
+  // The page reads its section from the hash; every spec starts on the directory.
+  history.replaceState(null, "", window.location.pathname);
   __resetMock();
 });
 

@@ -1,9 +1,10 @@
-// LorePage — the 傳承 tab: one section per boot-document target (所有人, each
-// member, each task manual), collapsed by default, so the landing view is the
-// budget overview.
+// LorePage — the 傳承 tab. `#lore` is a directory of boot-document targets
+// (所有人, each member, each task manual) with their budget numbers; each target
+// opens its own section page (`#lore/<kind>/<key>`) holding that section's cards
+// and filters.
 //
 // 🔴 EVERY BUDGET NUMBER IS THE SERVER'S. The section headers read
-// `listLoreBudgets`, an open section's sentence and 上限線 read the
+// `listLoreBudgets`, a section page's sentence and 上限線 read the
 // `capChars`/`usedChars`/`firstDroppedId`/`budgetSegments` its own list page
 // answered. Adding up title+body lengths here would be a second copy of the
 // server's picking walk, wrong on every page after the first and wrong for a
@@ -11,15 +12,15 @@
 // exactly like one in the right place.
 //
 // 🔴 THE FILTER TRAVELS WITH THE PAGE REQUEST, never as a `.filter()` over
-// downloaded rows. With a narrowing filter every section asks its own
-// filtered first page; that page answers both "does this section match" and
-// "what to show", correctly under paging. One unscoped request grouped by scope
-// would only see the matches that happen to land on its first page.
+// downloaded rows; a client-side filter is right only for the rows that
+// happen to be downloaded.
 //
 // 🔴 A MUTATION NEVER RELOADS A SECTION FROM PAGE ONE (owner: reloading made
 // him lose his place mid-batch). The changed rows are re-read by id and
 // replaced where they stand, only the numbers are re-asked, and rows re-sort
-// only when a section is reopened or the filter changes.
+// only when a section is reopened or the filter changes. The one exception is
+// 提到最新, which moves its card to the front (owner) while the viewport stays
+// anchored on what the reader was looking at.
 
 import {
   useCallback,
@@ -69,7 +70,14 @@ import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import { autosizeTextarea } from "../lib/autosize";
 import { enterShouldSend } from "../lib/composerKeys";
-import { navigateHash } from "../lib/hashRoute";
+import {
+  formatHash,
+  navigateHash,
+  setNavigationGuard,
+  useHashRoute,
+  type HashRoute,
+  type LoreSectionKind,
+} from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
@@ -83,6 +91,7 @@ import {
   ChatBubbleIcon,
   CheckIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
   ChevronRightIcon,
   GearIcon,
   MoreIcon,
@@ -201,6 +210,50 @@ export const loreBodyOverflow = {
   measure: (el: HTMLElement): boolean => el.scrollHeight > el.clientHeight + 1,
 };
 
+/** The server's order: 置頂, then 生效中, then 已失效, each newest first. */
+function loreRank(s: LoreEntryState): number {
+  return s === "pinned" ? 0 : s === "active" ? 1 : 2;
+}
+
+/** 提到最新's card goes where the server now sorts it: ahead of the first row it
+ * outranks, i.e. right after the 置頂 rows for a live entry. */
+function moveBumped(entries: LoreEntryView[], id: string): LoreEntryView[] {
+  const i = entries.findIndex((e) => e.id === id);
+  if (i < 0) return entries;
+  const moved = entries[i];
+  const rest = entries.filter((_, j) => j !== i);
+  let at = rest.findIndex(
+    (e) =>
+      loreRank(e.state) > loreRank(moved.state) ||
+      (loreRank(e.state) === loreRank(moved.state) && e.effectiveTs <= moved.effectiveTs)
+  );
+  if (at < 0) at = rest.length;
+  return [...rest.slice(0, at), moved, ...rest.slice(at)];
+}
+
+/** 編輯多筆: what a card would change to once 全部儲存 sends it. */
+interface StagedChange {
+  state?: LoreEntryState;
+  loreType?: LoreType;
+  scopeKind?: LoreScopeKind;
+}
+
+function withStaged(entry: LoreEntryView, ch: StagedChange | undefined): LoreEntryView {
+  return ch ? { ...entry, ...ch } : entry;
+}
+
+/** The row element for an entry inside the page. */
+function rowElement(root: HTMLElement | null, id: string): HTMLElement | null {
+  if (!root) return null;
+  for (const el of root.querySelectorAll<HTMLElement>('[data-testid="lore-row"]')) {
+    if (el.dataset.entryId === id) return el;
+  }
+  return null;
+}
+
+/** How long the 「已移到最前面」 toast stays. */
+const TOAST_MS = 5000;
+
 /** A changed card keeps its place until the section reloads, even when its
  * new state or a bump would sort it elsewhere: the owner changes several
  * cards in one pass and must not lose the spot they were working at. */
@@ -229,6 +282,10 @@ export function LorePage({
   const { workers } = useOutsourceWorkers();
   const { manuals } = useTaskManuals();
   const isMobile = useIsMobile();
+  const [route] = useHashRoute();
+  const loreSection = route.page === "lore" ? route.loreSection : undefined;
+  const sectionKey = loreSection ? sectionKeyOf(loreSection.kind, loreSection.key) : null;
+  const highlightId = (route.page === "lore" && route.loreEntryId) || "";
 
   const [entryCaps, setEntryCaps] = useState({
     title: LORE_CAP_CHARS_DEFAULTS.title,
@@ -284,14 +341,34 @@ export function LorePage({
     setLoreTypes(new Set());
   }
 
+  // ── 編輯多筆 ───────────────────────────────────────────────────────────
+  const [multiEdit, setMultiEdit] = useState(false);
+  const [staged, setStaged] = useState<Map<string, StagedChange>>(new Map());
+  const stagedRef = useRef(staged);
+  stagedRef.current = staged;
+  const [multiSaving, setMultiSaving] = useState(false);
+  const [multiResult, setMultiResult] = useState<{ text: string; failed: boolean } | null>(null);
+
+  // A section page starts clean: filters, selection and 編輯多筆 belong to the
+  // section they were set on, and the directory shows none of them.
+  const [pageFor, setPageFor] = useState(sectionKey);
+  if (pageFor !== sectionKey) {
+    setPageFor(sectionKey);
+    setSearchDraft("");
+    setAppliedSearch("");
+    setStates(new Set(DEFAULT_STATES));
+    setAuthors(new Set());
+    setLoreTypes(new Set());
+    setMultiEdit(false);
+    setStaged(new Map());
+    setMultiResult(null);
+  }
+
   // ── sections ───────────────────────────────────────────────────────────
   const [budgets, setBudgets] = useState<LoreBudgetTargetView[] | null>(null);
   const [budgetsError, setBudgetsError] = useState(false);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [data, setData] = useState<Record<string, SectionData>>({});
-  // Sections whose filtered first page came back non-empty; null while there
-  // is no narrowing filter.
-  const [matches, setMatches] = useState<Set<string> | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Only the newest budgets read lands: an older one answering last would put
@@ -456,77 +533,23 @@ export function LorePage({
   );
 
   const budgetsReady = budgets !== null;
-  const narrowingRef = useRef(narrowing);
-  narrowingRef.current = narrowing;
-  // A narrowing run's answers settle matches/open only while it is the
-  // newest run; a cleared or replaced filter must not reopen sections.
-  const narrowRunRef = useRef(0);
-  // A filter change re-asks: with a narrowing filter every section asks its
-  // filtered first page and the matching ones open; otherwise the sections that
-  // are open are re-asked under the new filter and the rest stay collapsed.
+  // The section page loads its one section, again on every filter change.
+  // defs are read through a ref: a budgets refresh after a mutation must not
+  // re-ask the section from page one.
   useEffect(() => {
     if (!budgetsReady) return;
-    const run = ++narrowRunRef.current;
-    const all = defsRef.current;
-    if (narrowingRef.current) {
-      setMatches(null);
-      applyOpen(new Set());
-      setData({});
-      const found = new Set<string>();
-      let pending = all.length;
-      if (pending === 0) setMatches(found);
-      for (const def of all) {
-        void loadSection(def).then((n) => {
-          if (run !== narrowRunRef.current) return;
-          if (n > 0) found.add(def.key);
-          pending -= 1;
-          if (pending === 0) {
-            setMatches(new Set(found));
-            applyOpen(new Set(found));
-          }
-        });
-      }
-      return;
-    }
-    setMatches(null);
-    setData({});
-    for (const def of all) {
-      if (openRef.current.has(def.key)) void loadSection(def);
-    }
-    // defs and the section maps are read through refs: a budgets refresh after
-    // a mutation must not re-ask every open section from page one.
-  }, [filterKey, budgetsReady, loadSection]);
-
-  function toggleSection(def: SectionDef) {
-    if (openRef.current.has(def.key)) {
-      const next = new Set(openRef.current);
-      next.delete(def.key);
-      applyOpen(next);
-      bumpGen(def.key);
-      flightRef.current.delete(def.key);
-      setData((prev) => {
-        const next = { ...prev };
-        delete next[def.key];
-        return next;
-      });
-      return;
-    }
-    applyOpen(new Set(openRef.current).add(def.key));
-    void loadSection(def);
-  }
-
-  function collapseAll() {
     for (const key of openRef.current) {
       bumpGen(key);
       flightRef.current.delete(key);
     }
-    applyOpen(new Set());
     setData({});
-  }
+    const def = sectionKey ? defsRef.current.find((d) => d.key === sectionKey) : undefined;
+    applyOpen(def ? new Set([def.key]) : new Set());
+    if (def) void loadSection(def);
+  }, [filterKey, budgetsReady, sectionKey, loadSection]);
 
-  // ── 捲到底: each open section pages on its own, when its bottom nears the
-  // scrollport's bottom. jsdom has no geometry, so there every open section
-  // that has more is asked.
+  // ── 捲到底: the section pages on when its bottom nears the scrollport's
+  // bottom. jsdom has no geometry, so there any scroll asks for more.
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRefs = useRef(new Map<string, HTMLElement>());
   useEffect(() => {
@@ -766,10 +789,65 @@ export function LorePage({
       void runOne(id, () => api.setLoreEntryState(id, next)).catch(() => {}),
     [runOne]
   );
-  const bumpEntry = useCallback(
-    (id: string) => void runOne(id, () => api.bumpLoreEntry(id)).catch(() => {}),
-    [runOne]
+  // ── 提到最新 moves the card; the viewport stays on what the reader saw ────
+  const [toast, setToast] = useState<{ id: string } | null>(null);
+  const anchorRef = useRef<{ el: HTMLElement; top: number } | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), TOAST_MS);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+  useLayoutEffect(() => {
+    const a = anchorRef.current;
+    anchorRef.current = null;
+    const sc = scrollRef.current;
+    if (!a || !sc || !a.el.isConnected) return;
+    const delta = a.el.getBoundingClientRect().top - a.top;
+    if (delta !== 0) sc.scrollTop += delta;
+  }, [data]);
+
+  const moveToFront = useCallback(
+    (id: string) => {
+      const key = sectionOfEntry(id);
+      if (!key) return;
+      const sc = scrollRef.current;
+      anchorRef.current = null;
+      if (sc) {
+        // The first card that starts in view, other than the one leaving. A
+        // card cut off at the top would do as well on paper, but when the
+        // leaving card sat right under it there is often not enough page left
+        // below to scroll it back into place.
+        const top = sc.getBoundingClientRect().top;
+        for (const el of sc.querySelectorAll<HTMLElement>('[data-testid="lore-row"]')) {
+          if (el.dataset.entryId === id) continue;
+          const box = el.getBoundingClientRect();
+          if (box.top >= top) {
+            anchorRef.current = { el, top: box.top };
+            break;
+          }
+        }
+      }
+      patchSection(key, (p) => ({ ...p, entries: moveBumped(p.entries, id) }));
+      setToast({ id });
+    },
+    [patchSection, sectionOfEntry]
   );
+
+  const bumpEntry = useCallback(
+    (id: string) =>
+      void runOne(id, () => api.bumpLoreEntry(id))
+        .then(() => moveToFront(id))
+        .catch(() => {}),
+    [runOne, moveToFront]
+  );
+
+  function goToEntry(id: string) {
+    setToast(null);
+    const el = rowElement(scrollRef.current, id);
+    if (!el) return;
+    el.scrollIntoView?.({ block: "nearest" });
+    el.focus({ preventScroll: true });
+  }
   const setEntryScope = useCallback(
     (id: string, kind: LoreScopeKind) =>
       void runOne(id, () => api.setLoreEntryScope(id, kind), true).catch(() => {}),
@@ -810,6 +888,152 @@ export function LorePage({
     [refreshInPlace, sectionOfEntry]
   );
 
+  // ── 編輯多筆: chips stage, 全部儲存 sends ──────────────────────────────
+  const findEntry = useCallback((id: string): LoreEntryView | undefined => {
+    for (const d of Object.values(dataRef.current)) {
+      const e = d.entries.find((x) => x.id === id);
+      if (e) return e;
+    }
+    return undefined;
+  }, []);
+
+  const stage = useCallback(
+    (id: string, patch: StagedChange) => {
+      const orig = findEntry(id);
+      if (!orig) return;
+      setMultiResult(null);
+      setStaged((prev) => {
+        const next = new Map(prev);
+        const ch: StagedChange = { ...(next.get(id) ?? {}), ...patch };
+        // Choosing the stored value again un-stages that field.
+        if (ch.state === orig.state) delete ch.state;
+        if (ch.loreType === orig.loreType) delete ch.loreType;
+        if (ch.scopeKind === orig.scopeKind) delete ch.scopeKind;
+        if (Object.keys(ch).length === 0) next.delete(id);
+        else next.set(id, ch);
+        return next;
+      });
+    },
+    [findEntry]
+  );
+
+  // The same runner shape as the batch bar: one entry at a time, failures
+  // collected with the server's reason, the section re-read once at the end.
+  async function saveStaged() {
+    setMultiSaving(true);
+    setActionError(null);
+    setMultiResult(null);
+    const done: string[] = [];
+    const failed: { id: string; reason: string }[] = [];
+    const left = new Map<string, StagedChange>();
+    const touched: string[] = [];
+    for (const [id, ch] of stagedRef.current) {
+      const keep: StagedChange = {};
+      let reason = "";
+      let any = false;
+      const attempt = async (fn: () => Promise<unknown>, onFail: () => void) => {
+        try {
+          await fn();
+          any = true;
+        } catch (e) {
+          onFail();
+          if (reason === "") reason = failText(e);
+        }
+      };
+      if (ch.loreType) {
+        const lt = ch.loreType;
+        await attempt(() => api.editLoreEntry(id, { loreType: lt }), () => (keep.loreType = lt));
+      }
+      if (ch.scopeKind) {
+        const sk = ch.scopeKind;
+        await attempt(() => api.setLoreEntryScope(id, sk), () => (keep.scopeKind = sk));
+      }
+      if (ch.state) {
+        const st = ch.state;
+        await attempt(() => api.setLoreEntryState(id, st), () => (keep.state = st));
+      }
+      if (any) touched.push(id);
+      if (Object.keys(keep).length > 0) {
+        failed.push({ id, reason });
+        left.set(id, keep);
+      } else {
+        done.push(id);
+      }
+    }
+    const changed = new Map<string, string[]>();
+    if (sectionKey && touched.length > 0) changed.set(sectionKey, touched);
+    await refreshInPlace(changed, true);
+    setStaged(left);
+    setMultiSaving(false);
+    setMultiResult({ text: msg.loreBatchResult(done, failed), failed: failed.length > 0 });
+  }
+
+  const hasStaged = staged.size > 0;
+  const leaveText = t.lore.multiLeaveConfirm;
+  // Leaving the section (another tab, the directory, back) or closing the page
+  // with staged changes asks first. Highlight changes inside the same section
+  // are not leaving.
+  useEffect(() => {
+    if (!hasStaged) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    const release = setNavigationGuard((next: HashRoute) => {
+      const same =
+        next.page === "lore" &&
+        next.loreSection !== undefined &&
+        sectionKeyOf(next.loreSection.kind, next.loreSection.key) === sectionKey;
+      return same || window.confirm(leaveText);
+    });
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      release();
+    };
+  }, [hasStaged, sectionKey, leaveText]);
+
+  function exitMultiEdit() {
+    if (stagedRef.current.size > 0 && !window.confirm(leaveText)) return;
+    setStaged(new Map());
+    setMultiResult(null);
+    setMultiEdit(false);
+  }
+
+  // ── 目錄的編號搜尋 ──────────────────────────────────────────────────────
+  const [dirSearch, setDirSearch] = useState("");
+  const [dirNote, setDirNote] = useState<string | null>(null);
+  async function jumpToEntry(raw: string) {
+    setDirNote(null);
+    const v = raw.trim();
+    if (v === "") return;
+    const id = normalizeEntryId(v);
+    if (id === null) {
+      setDirNote(t.lore.directoryIdOnly);
+      return;
+    }
+    try {
+      const page = await api.listLoreEntries({
+        entryIds: [id],
+        states: ["pinned", "active", "retired"],
+        limit: 1,
+        offset: 0,
+      });
+      const e = page.entries[0];
+      if (!e || e.scopeKind === "unknown") {
+        setDirNote(msg.loreDirectoryNotFound(id));
+        return;
+      }
+      navigateHash({
+        page: "lore",
+        loreSection: { kind: e.scopeKind, key: e.scopeKind === "everyone" ? "" : e.scopeKey },
+        loreEntryId: id,
+      });
+    } catch (e) {
+      setDirNote(failText(e));
+    }
+  }
+
   // ── 多選 + 批次 ────────────────────────────────────────────────────────
   const [selected, setSelected] = useState<string[]>([]);
   const [batchRunning, setBatchRunning] = useState(false);
@@ -817,23 +1041,42 @@ export function LorePage({
   const [retireReason, setRetireReason] = useState("");
   const [batchResult, setBatchResult] = useState<{ text: string; failed: boolean } | null>(null);
 
-  const visibleDefs = useMemo(
-    () => (matches ? defs.filter((d) => matches.has(d.key)) : narrowing ? [] : defs),
-    [matches, defs, narrowing]
-  );
+  const currentDef = sectionKey ? defs.find((d) => d.key === sectionKey) ?? null : null;
   // A selection only ever names cards on screen: a batch must not reach an
   // entry the reader can no longer see, and could not refresh it if it did.
+  // 編輯多筆 is the other way to change several cards; the two never overlap.
   useEffect(() => {
     const shown = new Set(
-      visibleDefs
-        .filter((d) => open.has(d.key))
-        .flatMap((d) => (data[d.key]?.entries ?? []).map((e) => e.id))
+      multiEdit || !currentDef ? [] : (data[currentDef.key]?.entries ?? []).map((e) => e.id)
     );
     setSelected((prev) => {
       const kept = prev.filter((id) => shown.has(id));
       return kept.length === prev.length ? prev : kept;
     });
-  }, [visibleDefs, open, data]);
+  }, [currentDef, data, multiEdit]);
+
+  // A highlighted entry beyond the loaded pages: keep paging until it shows
+  // or the section runs out.
+  const currentData = currentDef ? data[currentDef.key] : undefined;
+  const highlightLoaded =
+    highlightId !== "" && !!currentData?.entries.some((e) => e.id === highlightId);
+  useEffect(() => {
+    if (!currentDef || !currentData || highlightId === "" || highlightLoaded) return;
+    if (currentData.loading || currentData.fetchingMore || currentData.exhausted || currentData.error) return;
+    loadMore(currentDef);
+  }, [currentDef, currentData, highlightId, highlightLoaded, loadMore]);
+  const scrolledToRef = useRef("");
+  useEffect(() => {
+    if (!highlightLoaded) {
+      scrolledToRef.current = "";
+      return;
+    }
+    if (scrolledToRef.current === highlightId) return;
+    scrolledToRef.current = highlightId;
+    const el = rowElement(scrollRef.current, highlightId);
+    el?.scrollIntoView?.({ block: "center" });
+    el?.focus({ preventScroll: true });
+  }, [highlightLoaded, highlightId]);
 
   const toggleSelect = useCallback((id: string) => {
     setBatchResult(null);
@@ -975,28 +1218,43 @@ export function LorePage({
                 </span>
               </div>
             )}
-            <LoreRow
-              entry={entry}
-              dimmed={cut >= 0 && pos >= cut}
-              author={resolveAuthor(entry.authorId)}
-              avatar={authorAvatar(entry.authorId)}
-              scope={resolveScope(entry)}
-              scopeMenu={
-                canSetScope && entry.scopeOptions.length > 0 ? resolveScopeMenu(entry) : null
-              }
-              isMobile={isMobile}
-              selected={selected.includes(entry.id)}
-              entryCaps={entryCaps}
-              onToggleSelect={toggleSelect}
-              onOpenChat={openChat}
-              onOpenManual={openManual}
-              onSetState={setEntryState}
-              onSetScope={setEntryScope}
-              onSetLoreType={setEntryLoreType}
-              onBump={bumpEntry}
-              onSave={editEntry}
-              onRestored={restoredEntry}
-            />
+            {(() => {
+              const ch = staged.get(entry.id);
+              const shown = withStaged(entry, ch);
+              return (
+                <LoreRow
+                  entry={shown}
+                  dimmed={cut >= 0 && pos >= cut}
+                  author={resolveAuthor(entry.authorId)}
+                  avatar={authorAvatar(entry.authorId)}
+                  scope={resolveScope(shown)}
+                  scopeMenu={
+                    canSetScope && entry.scopeOptions.length > 0 ? resolveScopeMenu(entry) : null
+                  }
+                  isMobile={isMobile}
+                  selectable={!multiEdit}
+                  selected={selected.includes(entry.id)}
+                  unsaved={ch !== undefined}
+                  highlighted={entry.id === highlightId}
+                  entryCaps={entryCaps}
+                  onToggleSelect={toggleSelect}
+                  onOpenChat={openChat}
+                  onOpenManual={openManual}
+                  onSetState={
+                    multiEdit ? (id, state) => stage(id, { state }) : setEntryState
+                  }
+                  onSetScope={
+                    multiEdit ? (id, scopeKind) => stage(id, { scopeKind }) : setEntryScope
+                  }
+                  onSetLoreType={
+                    multiEdit ? (id, loreType) => stage(id, { loreType }) : setEntryLoreType
+                  }
+                  onBump={bumpEntry}
+                  onSave={editEntry}
+                  onRestored={restoredEntry}
+                />
+              );
+            })()}
           </div>
         ))}
         {!sd.exhausted && (
@@ -1038,17 +1296,15 @@ export function LorePage({
     })),
   ];
 
-  const groups: { kind: LoreScopeKind; label: string; defs: SectionDef[] }[] = [
-    { kind: "everyone", label: t.lore.kindEveryone, defs: [] },
-    { kind: "agent", label: t.lore.kindMember, defs: [] },
-    { kind: "manual", label: t.lore.kindManual, defs: [] },
-  ];
-  for (const d of visibleDefs) groups.find((g) => g.kind === d.kind)?.defs.push(d);
   const kindChip = (k: LoreScopeKind) =>
     k === "everyone" ? t.lore.kindEveryone : k === "manual" ? t.lore.kindManual : t.lore.kindMember;
+  const sectionRoute = (def: SectionDef): HashRoute => ({
+    page: "lore",
+    loreSection: { kind: def.kind as LoreSectionKind, key: def.kind === "everyone" ? "" : def.scopeKey },
+  });
 
-  return (
-    <div className="lore" ref={scrollRef} data-testid="lore-page">
+  const errors = (
+    <>
       {budgetsError && (
         <div className="lore__error" data-testid="lore-load-error">
           {t.lore.loadError}
@@ -1059,219 +1315,351 @@ export function LorePage({
           {actionError}
         </div>
       )}
+    </>
+  );
 
-      <FilterPanel
-        testId="lore-filter"
-        clearLabel={t.lore.clearFilters}
-        onClear={narrowing || !statesAtDefault ? clearFilters : undefined}
-        actions={
-          <button
-            type="button"
-            className="lore__collapse-all"
-            data-testid="lore-collapse-all"
-            onClick={collapseAll}
-          >
-            {t.lore.collapseAll}
-          </button>
-        }
-      >
-        <IdFilterInput
-          value={searchDraft}
-          onChange={setSearchDraft}
-          onCommit={(v) => setAppliedSearch(v.trim())}
-          label={t.lore.idSearchLabel}
-          testId="lore-filter-id"
-          widthCh={7}
-        />
-        <MultiSelectFilter
-          noun={t.lore.filterAuthorNoun}
-          allLabel={t.lore.filterAuthorAll}
-          testId="lore-filter-author"
-          options={authorOptions}
-          selected={authors}
-          onChange={setAuthors}
-        />
-        <MultiSelectFilter
-          noun={t.lore.filterTypeNoun}
-          allLabel={t.lore.filterTypeAll}
-          testId="lore-filter-type"
-          options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
-          selected={loreTypes}
-          onChange={(next) => setLoreTypes(next as Set<LoreType>)}
-        />
-        <MultiSelectFilter
-          noun={t.lore.filterStateNoun}
-          allLabel={t.lore.filterStateAll}
-          testId="lore-filter-state"
-          options={[
-            { value: "pinned", label: t.lore.statePinned },
-            { value: "active", label: t.lore.stateActive },
-            { value: "retired", label: t.lore.stateRetired },
-          ]}
-          selected={states}
-          onChange={(next) => setStates(next as Set<LoreEntryState>)}
-        />
-      </FilterPanel>
-
-      {narrowing && matches && matches.size > 0 && (
-        <div className="lore__search-summary" data-testid="lore-search-summary">
-          {msg.loreSearchSummary(matches.size)}
+  if (sectionKey === null) {
+    const groups: { kind: LoreScopeKind; label: string; defs: SectionDef[] }[] = [
+      { kind: "everyone", label: t.lore.kindEveryone, defs: [] },
+      { kind: "agent", label: t.lore.kindMember, defs: [] },
+      { kind: "manual", label: t.lore.kindManual, defs: [] },
+    ];
+    for (const d of defs) groups.find((g) => g.kind === d.kind)?.defs.push(d);
+    return (
+      <div className="lore" ref={scrollRef} data-testid="lore-page">
+        {errors}
+        <div className="lore__dir-search">
+          <IdFilterInput
+            value={dirSearch}
+            onChange={setDirSearch}
+            onCommit={(v) => void jumpToEntry(v)}
+            label={t.lore.directoryIdLabel}
+            testId="lore-directory-id"
+            widthCh={7}
+          />
+          {dirNote && (
+            <span className="lore__dir-note" role="status" data-testid="lore-directory-note">
+              {dirNote}
+            </span>
+          )}
         </div>
-      )}
-      {narrowing && matches && matches.size === 0 && (
-        <div className="lore__empty" data-testid="lore-empty">
-          {t.lore.emptyFiltered}
-        </div>
-      )}
-
-      {groups.map((g) =>
-        g.defs.length === 0 ? null : (
-          <div className="lore__group" key={g.kind} data-testid={`lore-group-${g.kind}`}>
-            <div className="lore__group-title">{g.label}</div>
-            {g.defs.map((def) => {
-              const isOpen = open.has(def.key);
-              return (
-                <section
+        {groups.map((g) =>
+          g.defs.length === 0 ? null : (
+            <div className="lore__group" key={g.kind} data-testid={`lore-group-${g.kind}`}>
+              <div className="lore__group-title">{g.label}</div>
+              {g.defs.map((def) => (
+                <a
                   key={def.key}
-                  className={`lore-section${isOpen ? " lore-section--open" : ""}`}
-                  data-testid="lore-section"
+                  className="lore-section lore-section__head lore-target"
+                  data-testid="lore-target"
                   data-section={def.key}
+                  href={formatHash(sectionRoute(def))}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigateHash(sectionRoute(def));
+                  }}
                 >
+                  <span className="lore-section__name" data-testid="lore-section-name">
+                    {sectionName(def)}
+                  </span>
+                  <span className="lore-section__kind">{kindChip(def.kind)}</span>
+                  <span className="lore-section__count" data-testid="lore-section-count">
+                    {msg.loreEntryCount(def.target.entryCount)}
+                  </span>
+                  {renderHeaderUsage(def)}
+                  <span className="lore-section__mark" aria-hidden="true">
+                    <ChevronRightIcon size={14} />
+                  </span>
+                </a>
+              ))}
+            </div>
+          )
+        )}
+      </div>
+    );
+  }
+
+  const sd = currentDef ? data[currentDef.key] : undefined;
+  const highlightMissing =
+    highlightId !== "" && !!sd && !sd.loading && sd.exhausted && !highlightLoaded;
+
+  return (
+    <div className="lore" ref={scrollRef} data-testid="lore-page">
+      <a
+        className="lore__back"
+        data-testid="lore-back"
+        href="#lore"
+        onClick={(e) => {
+          e.preventDefault();
+          navigateHash({ page: "lore" });
+        }}
+      >
+        <ChevronLeftIcon size={14} />
+        {t.lore.backToDirectory}
+      </a>
+      {errors}
+
+      {budgetsReady && !currentDef && (
+        <div className="lore__empty" data-testid="lore-section-missing">
+          {t.lore.sectionMissing}
+        </div>
+      )}
+
+      {currentDef && (
+        <>
+          <div className="lore-section__head lore-section__head--page" data-testid="lore-section-head">
+            <span className="lore-section__name" data-testid="lore-section-name">
+              {sectionName(currentDef)}
+            </span>
+            <span className="lore-section__kind">{kindChip(currentDef.kind)}</span>
+            <span className="lore-section__count" data-testid="lore-section-count">
+              {msg.loreEntryCount(currentDef.target.entryCount)}
+            </span>
+            {renderHeaderUsage(currentDef)}
+          </div>
+
+          <FilterPanel
+            testId="lore-filter"
+            clearLabel={t.lore.clearFilters}
+            onClear={narrowing || !statesAtDefault ? clearFilters : undefined}
+            actions={
+              <button
+                type="button"
+                className="lore__multi-toggle"
+                data-testid="lore-multi-toggle"
+                aria-pressed={multiEdit}
+                disabled={multiSaving}
+                onClick={() => (multiEdit ? exitMultiEdit() : setMultiEdit(true))}
+              >
+                {multiEdit ? t.lore.multiEditDone : t.lore.multiEdit}
+              </button>
+            }
+          >
+            <IdFilterInput
+              value={searchDraft}
+              onChange={setSearchDraft}
+              onCommit={(v) => setAppliedSearch(v.trim())}
+              label={t.lore.idSearchLabel}
+              testId="lore-filter-id"
+              widthCh={7}
+            />
+            <MultiSelectFilter
+              noun={t.lore.filterAuthorNoun}
+              allLabel={t.lore.filterAuthorAll}
+              testId="lore-filter-author"
+              options={authorOptions}
+              selected={authors}
+              onChange={setAuthors}
+            />
+            <MultiSelectFilter
+              noun={t.lore.filterTypeNoun}
+              allLabel={t.lore.filterTypeAll}
+              testId="lore-filter-type"
+              options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
+              selected={loreTypes}
+              onChange={(next) => setLoreTypes(next as Set<LoreType>)}
+            />
+            <MultiSelectFilter
+              noun={t.lore.filterStateNoun}
+              allLabel={t.lore.filterStateAll}
+              testId="lore-filter-state"
+              options={[
+                { value: "pinned", label: t.lore.statePinned },
+                { value: "active", label: t.lore.stateActive },
+                { value: "retired", label: t.lore.stateRetired },
+              ]}
+              selected={states}
+              onChange={(next) => setStates(next as Set<LoreEntryState>)}
+            />
+          </FilterPanel>
+
+          {highlightMissing && (
+            <div className="lore__empty" data-testid="lore-highlight-missing">
+              {msg.loreHighlightMissing(highlightId)}
+            </div>
+          )}
+
+          <section
+            className="lore-section"
+            data-testid="lore-section"
+            data-section={currentDef.key}
+          >
+            <div className="lore-section__body" data-testid="lore-section-body">
+              {narrowing && sd && !sd.loading && !sd.error && sd.entries.length === 0 ? (
+                <div className="lore__empty" data-testid="lore-empty">
+                  {t.lore.emptyFiltered}
+                </div>
+              ) : (
+                renderSectionBody(currentDef, sd)
+              )}
+            </div>
+          </section>
+        </>
+      )}
+
+      {(toast || multiEdit || selected.length > 0 || batchResult) && (
+      <div className="lore__dock">
+        {toast && (
+          <div className="lore-batch lore-toast" role="status" data-testid="lore-toast">
+            <span>{t.lore.bumpedToast}</span>
+            <span aria-hidden="true">·</span>
+            <button
+              type="button"
+              className="lore-batch__link lore-toast__go"
+              data-testid="lore-toast-go"
+              onClick={() => goToEntry(toast.id)}
+            >
+              {t.lore.bumpedGo}
+            </button>
+          </div>
+        )}
+
+        {multiEdit && (
+          <div className="lore-batch" data-testid="lore-multi-bar" role="region">
+            <span className="lore-batch__count" data-testid="lore-multi-count">
+              {msg.loreMultiStaged(staged.size)}
+            </span>
+            <button
+              type="button"
+              className="lore-batch__btn"
+              data-testid="lore-multi-save"
+              disabled={multiSaving || staged.size === 0}
+              onClick={() => void saveStaged()}
+            >
+              {t.lore.multiSaveAll}
+            </button>
+            <button
+              type="button"
+              className="lore-batch__link"
+              data-testid="lore-multi-cancel"
+              disabled={multiSaving}
+              onClick={() => {
+                setStaged(new Map());
+                setMultiResult(null);
+                setMultiEdit(false);
+              }}
+            >
+              {t.lore.multiCancel}
+            </button>
+            {multiSaving && <span className="lore-batch__working">{t.lore.batchWorking}</span>}
+            {multiResult && (
+              <div
+                className={`lore-batch__result${multiResult.failed ? " lore-batch__result--failed" : ""}`}
+                role="status"
+                data-testid="lore-multi-result"
+              >
+                <span>{multiResult.text}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!multiEdit && (selected.length > 0 || batchResult) && (
+          <div className="lore-batch" data-testid="lore-batch-bar" role="region">
+            {selected.length > 0 && !retireOpen && (
+              <>
+                <span className="lore-batch__count" data-testid="lore-batch-count">
+                  {msg.loreBatchSelected(selected.length)}
+                </span>
+                {canSetScope && (
                   <button
                     type="button"
-                    className="lore-section__head"
-                    data-testid="lore-section-toggle"
-                    aria-expanded={isOpen}
-                    onClick={() => toggleSection(def)}
+                    className="lore-batch__btn"
+                    data-testid="lore-batch-pin"
+                    disabled={batchRunning}
+                    onClick={() => void runBatch("pinned")}
                   >
-                    <span className="lore-section__mark" aria-hidden="true">
-                      {isOpen ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
-                    </span>
-                    <span className="lore-section__name" data-testid="lore-section-name">
-                      {sectionName(def)}
-                    </span>
-                    <span className="lore-section__kind">{kindChip(def.kind)}</span>
-                    <span className="lore-section__count" data-testid="lore-section-count">
-                      {msg.loreEntryCount(def.target.entryCount)}
-                    </span>
-                    {renderHeaderUsage(def)}
+                    {t.lore.batchPin}
                   </button>
-                  {isOpen && (
-                    <div className="lore-section__body" data-testid="lore-section-body">
-                      {renderSectionBody(def, data[def.key])}
-                    </div>
-                  )}
-                </section>
-              );
-            })}
-          </div>
-        )
-      )}
-
-      {(selected.length > 0 || batchResult) && (
-        <div className="lore-batch" data-testid="lore-batch-bar" role="region">
-          {selected.length > 0 && !retireOpen && (
-            <>
-              <span className="lore-batch__count" data-testid="lore-batch-count">
-                {msg.loreBatchSelected(selected.length)}
-              </span>
-              {canSetScope && (
+                )}
                 <button
                   type="button"
                   className="lore-batch__btn"
-                  data-testid="lore-batch-pin"
+                  data-testid="lore-batch-activate"
                   disabled={batchRunning}
-                  onClick={() => void runBatch("pinned")}
+                  onClick={() => void runBatch("active")}
                 >
-                  {t.lore.batchPin}
+                  {t.lore.batchActivate}
                 </button>
-              )}
-              <button
-                type="button"
-                className="lore-batch__btn"
-                data-testid="lore-batch-activate"
-                disabled={batchRunning}
-                onClick={() => void runBatch("active")}
+                <button
+                  type="button"
+                  className="lore-batch__btn lore-batch__btn--danger"
+                  data-testid="lore-batch-retire"
+                  disabled={batchRunning}
+                  onClick={() => {
+                    setBatchResult(null);
+                    setRetireOpen(true);
+                  }}
+                >
+                  {t.lore.batchRetire}
+                </button>
+                <button
+                  type="button"
+                  className="lore-batch__link"
+                  data-testid="lore-batch-clear"
+                  disabled={batchRunning}
+                  onClick={() => {
+                    setSelected([]);
+                    setBatchResult(null);
+                  }}
+                >
+                  {t.lore.batchClear}
+                </button>
+                {batchRunning && <span className="lore-batch__working">{t.lore.batchWorking}</span>}
+              </>
+            )}
+            {selected.length > 0 && retireOpen && (
+              <>
+                <input
+                  type="text"
+                  className="lore-batch__reason"
+                  data-testid="lore-batch-reason"
+                  aria-label={t.lore.batchRetireReason}
+                  placeholder={t.lore.batchRetireReason}
+                  value={retireReason}
+                  disabled={batchRunning}
+                  onChange={(e) => setRetireReason(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="lore-batch__btn lore-batch__btn--danger"
+                  data-testid="lore-batch-retire-confirm"
+                  disabled={batchRunning}
+                  onClick={() => void runBatch("retired", retireReason.trim())}
+                >
+                  {t.lore.batchRetireConfirm}
+                </button>
+                <button
+                  type="button"
+                  className="lore-batch__link"
+                  data-testid="lore-batch-retire-back"
+                  disabled={batchRunning}
+                  onClick={() => setRetireOpen(false)}
+                >
+                  {t.lore.batchBack}
+                </button>
+              </>
+            )}
+            {batchResult && (
+              <div
+                className={`lore-batch__result${batchResult.failed ? " lore-batch__result--failed" : ""}`}
+                role="status"
+                data-testid="lore-batch-result"
               >
-                {t.lore.batchActivate}
-              </button>
-              <button
-                type="button"
-                className="lore-batch__btn lore-batch__btn--danger"
-                data-testid="lore-batch-retire"
-                disabled={batchRunning}
-                onClick={() => {
-                  setBatchResult(null);
-                  setRetireOpen(true);
-                }}
-              >
-                {t.lore.batchRetire}
-              </button>
-              <button
-                type="button"
-                className="lore-batch__link"
-                data-testid="lore-batch-clear"
-                disabled={batchRunning}
-                onClick={() => {
-                  setSelected([]);
-                  setBatchResult(null);
-                }}
-              >
-                {t.lore.batchClear}
-              </button>
-              {batchRunning && <span className="lore-batch__working">{t.lore.batchWorking}</span>}
-            </>
-          )}
-          {selected.length > 0 && retireOpen && (
-            <>
-              <input
-                type="text"
-                className="lore-batch__reason"
-                data-testid="lore-batch-reason"
-                aria-label={t.lore.batchRetireReason}
-                placeholder={t.lore.batchRetireReason}
-                value={retireReason}
-                disabled={batchRunning}
-                onChange={(e) => setRetireReason(e.target.value)}
-              />
-              <button
-                type="button"
-                className="lore-batch__btn lore-batch__btn--danger"
-                data-testid="lore-batch-retire-confirm"
-                disabled={batchRunning}
-                onClick={() => void runBatch("retired", retireReason.trim())}
-              >
-                {t.lore.batchRetireConfirm}
-              </button>
-              <button
-                type="button"
-                className="lore-batch__link"
-                data-testid="lore-batch-retire-back"
-                disabled={batchRunning}
-                onClick={() => setRetireOpen(false)}
-              >
-                {t.lore.batchBack}
-              </button>
-            </>
-          )}
-          {batchResult && (
-            <div
-              className={`lore-batch__result${batchResult.failed ? " lore-batch__result--failed" : ""}`}
-              role="status"
-              data-testid="lore-batch-result"
-            >
-              <span>{batchResult.text}</span>
-              <button
-                type="button"
-                className="lore-batch__link"
-                data-testid="lore-batch-dismiss"
-                onClick={() => setBatchResult(null)}
-              >
-                {t.lore.batchDismiss}
-              </button>
-            </div>
-          )}
-        </div>
+                <span>{batchResult.text}</span>
+                <button
+                  type="button"
+                  className="lore-batch__link"
+                  data-testid="lore-batch-dismiss"
+                  onClick={() => setBatchResult(null)}
+                >
+                  {t.lore.batchDismiss}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       )}
     </div>
   );
@@ -1308,7 +1696,10 @@ function LoreRow({
   onSetLoreType,
   onBump,
   isMobile,
+  selectable,
   selected,
+  unsaved,
+  highlighted,
   entryCaps,
   onToggleSelect,
   onSave,
@@ -1333,7 +1724,13 @@ function LoreRow({
   onBump: (id: string) => void;
   /** Phone width: 提到最新 and 編輯 fold into the 「⋯」 menu. */
   isMobile: boolean;
+  /** false while 編輯多筆 is on: the checkbox batch is the other way to
+   * change several cards, and the two must not be on screen together. */
+  selectable: boolean;
   selected: boolean;
+  /** 編輯多筆 has a change staged on this card; `entry` already shows it. */
+  unsaved: boolean;
+  highlighted: boolean;
   entryCaps: { title: number; body: number };
   onToggleSelect: (id: string) => void;
   /** Rejects with the reason to show; the draft stays. */
@@ -1492,7 +1889,9 @@ function LoreRow({
     <article
       className={`lore-row lore-row--${entry.state}${
         dimmed ? " lore-row--dimmed" : ""
-      }${toggleable ? " lore-row--toggle" : ""}`}
+      }${toggleable ? " lore-row--toggle" : ""}${highlighted ? " lore-row--highlight" : ""}${
+        unsaved ? " lore-row--unsaved" : ""
+      }`}
       data-testid="lore-row"
       data-entry-id={entry.id}
       data-dimmed={dimmed ? "true" : "false"}
@@ -1503,19 +1902,22 @@ function LoreRow({
             "aria-expanded": expanded,
             "aria-label": expanded ? t.lore.collapseCard : t.lore.expandCard,
           }
-        : {})}
+        : // Focusable from code only: the toast's 前往 and a highlight land here.
+          { tabIndex: -1 })}
       onClick={onRowToggleClick}
       onKeyDown={onRowToggleKeyDown}
     >
       <div className="lore-row__head">
-        <input
-          type="checkbox"
-          className="lore-row__select"
-          data-testid="lore-select"
-          aria-label={t.lore.selectEntry}
-          checked={selected}
-          onChange={() => onToggleSelect(entry.id)}
-        />
+        {selectable && (
+          <input
+            type="checkbox"
+            className="lore-row__select"
+            data-testid="lore-select"
+            aria-label={t.lore.selectEntry}
+            checked={selected}
+            onChange={() => onToggleSelect(entry.id)}
+          />
+        )}
         <div className="lore-row__badges">
           {/* Order: 編號 → 類型 → 狀態 → 屬於. The id leads, as on 任務卡, because it
               is what you quote to somebody else (owner: 「make them consistent
@@ -1762,6 +2164,11 @@ function LoreRow({
               </div>
             )}
           </span>
+          {unsaved && (
+            <span className="lore-badge lore-badge--unsaved" data-testid="lore-unsaved">
+              {t.lore.unsaved}
+            </span>
+          )}
         </div>
 
         <div className="lore-row__actions">

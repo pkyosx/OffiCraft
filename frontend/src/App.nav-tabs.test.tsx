@@ -127,15 +127,15 @@ describe("主導覽分頁", () => {
     expect(active?.textContent).toBe(zh.nav.secrets);
   });
 
-  it("a #lore deep link opens the Lore page, and Mira's section opens to the owner's scope menu on each entry", async () => {
+  it("a #lore deep link opens the Lore directory, and Mira's section page opens to the owner's scope menu on each entry", async () => {
     history.replaceState(null, "", window.location.pathname + "#lore");
     renderApp();
     fireEvent.click(
       await waitFor(() => {
         const el = document.querySelector<HTMLElement>(
-          '[data-testid="lore-section"][data-section="agent:mira"] [data-testid="lore-section-toggle"]',
+          '[data-testid="lore-target"][data-section="agent:mira"]',
         );
-        if (!el) throw new Error("no section for Mira yet");
+        if (!el) throw new Error("no directory row for Mira yet");
         return el;
       }),
     );
@@ -146,6 +146,7 @@ describe("主導覽分頁", () => {
       if (!el) throw new Error("L-2 has no scope badge yet");
       return el;
     });
+    expect(window.location.hash).toBe("#lore/agent/mira");
     expect(badge.tagName).toBe("BUTTON");
     expect(badge.textContent).toBe("建立者：Mira");
 
