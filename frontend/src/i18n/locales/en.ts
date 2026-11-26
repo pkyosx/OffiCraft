@@ -1233,6 +1233,7 @@ export const en: Dict = {
     language: "Language",
     langZh: "中文",
     langEn: "English",
+    languageSub: "Also the language members use with you (from their next start).",
     pushContactEmail: "Notification email",
     pushContactEmailSub: "Notifications are not sent until this is set. The address is shared with the browser's push service, so use one that can be public.",
     pushContactEmailPlaceholder: "name@company.com",

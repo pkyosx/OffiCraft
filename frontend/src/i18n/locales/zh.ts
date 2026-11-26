@@ -1310,6 +1310,7 @@ export const zh = {
     language: "語言",
     langZh: "中文",
     langEn: "English",
+    languageSub: "成員對你使用的語言也跟著換（成員下次開機生效）。",
     pushContactEmail: "通知信箱",
     pushContactEmailSub: "填寫後才會送出通知。這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。",
     pushContactEmailPlaceholder: "name@company.com",

@@ -983,6 +983,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "profile.langEn",
   "profile.langZh",
   "profile.language",
+  "profile.languageSub",
   "profile.layout",
   "profile.layoutNarrow",
   "profile.layoutWide",

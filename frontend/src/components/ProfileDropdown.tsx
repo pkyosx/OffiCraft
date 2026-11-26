@@ -577,6 +577,12 @@ export function ProfileDropdown({
                 {t.profile.langEn}
               </button>
             </div>
+            {/* T-745: display.language is also the User Language block every
+                member boots with, so the choice reaches members at their next
+                start — say so where the choice is made. */}
+            <div className="profile-dd__section-hint profile-dd__section-hint--below">
+              {t.profile.languageSub}
+            </div>
           </div>
 
           <div className="profile-dd__section">

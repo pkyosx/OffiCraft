@@ -984,6 +984,7 @@ var messageKeys = map[string]bool{
 	"profile.langEn":                                   true,
 	"profile.langZh":                                   true,
 	"profile.language":                                 true,
+	"profile.languageSub":                              true,
 	"profile.layout":                                   true,
 	"profile.layoutNarrow":                             true,
 	"profile.layoutWide":                               true,

@@ -84,6 +84,23 @@ describe("ProfileDropdown · preferences scope", () => {
     expect(utils.getByText(p.language)).toBeTruthy();
   });
 
+  it("tells the owner under 語言 that members follow the choice from their next start, in either language (T-745)", async () => {
+    const utils = await openPreferences();
+    expect(
+      utils.getByText("成員對你使用的語言也跟著換（成員下次開機生效）。"),
+    ).toBeTruthy();
+
+    fireEvent.click(utils.getByRole("button", { name: p.langEn }));
+    expect(
+      await utils.findByText(
+        "Also the language members use with you (from their next start).",
+      ),
+    ).toBeTruthy();
+    expect(
+      utils.queryByText("成員對你使用的語言也跟著換（成員下次開機生效）。"),
+    ).toBeNull();
+  });
+
   it("names the selected theme in one row; the row closes the menu and opens the dialog that sets it, and closing returns focus to the menu's trigger", async () => {
     setToken("owner-token");
     await api.putTheme({
