@@ -915,8 +915,8 @@ func TestGovernanceRefusalsAreDistinguishable(t *testing.T) {
 	if pinRec.Body.String() == ownRec.Body.String() {
 		t.Fatalf("both refusals read identically: %s", pinRec.Body.String())
 	}
-	if !strings.Contains(pinRec.Body.String(), "置頂") {
-		t.Fatalf("the pin refusal does not name 置頂: %s", pinRec.Body.String())
+	if !strings.Contains(pinRec.Body.String(), "Pin / unpin") {
+		t.Fatalf("the pin refusal does not name Pin / unpin: %s", pinRec.Body.String())
 	}
 }
 
