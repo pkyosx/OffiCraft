@@ -325,7 +325,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   {
     id: MOCK_SERVER_SELF_ID,
     terminal_attach_command: mockTerminalAttachCommand(MOCK_SERVER_SELF_ID),
-    name: "伺服器這一台",
+    name: "This server",
     kind: "warden",
     role_key: "",
     role_name: "",
@@ -1137,11 +1137,27 @@ type StoredTaskManual = Omit<
   "sopMdChars" | "sopMdCapChars"
 >;
 
+// Names, purposes and ORDER mirror the server's builtinTaskManuals (English
+// since T-745): list_task_manuals sorts by display name, so the built-ins
+// come back as Allow remote connections, Create / edit role, Create / edit
+// task manual.
 const MOCK_TASK_MANUAL_SEEDS: readonly StoredTaskManual[] = [
   {
+    typeKey: "builtin-remote-access",
+    displayName: "Allow remote connections",
+    purpose:
+      "Help the Owner turn on or adjust remote connections so a phone or another computer can reach the console at an HTTPS URL — including turning it on for the first time, and later changing the forwarding method or the URL.",
+    fields: [],
+    sopMd: "# 開放遠端連線\n\n（mock 內建手冊）\n",
+    assignee: { kind: "staff", memberId: "mira" },
+    updatedTs: 0,
+    isSeed: true,
+    isDefault: true,
+  },
+  {
     typeKey: "builtin-role-design",
-    displayName: "建立／修改角色",
-    purpose: "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+    displayName: "Create / edit role",
+    purpose: "Create a new role, or adjust an existing role's role definition and judgment criteria (Insight).",
     fields: [],
     sopMd: "# 角色基本定義\n\n（mock 內建手冊）\n",
     assignee: { kind: "staff", memberId: "mira" },
@@ -1151,23 +1167,11 @@ const MOCK_TASK_MANUAL_SEEDS: readonly StoredTaskManual[] = [
   },
   {
     typeKey: "builtin-task-manual-design",
-    displayName: "建立／修改任務手冊",
-    purpose: "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
+    displayName: "Create / edit task manual",
+    purpose: "Create a new task manual, or adjust an existing task manual's content and assigned member.",
     fields: [{ name: "manual_name", required: true, isKey: true }],
     sopMd: "# 任務手冊基本定義\n\n（mock 內建手冊）\n",
     assignee: null,
-    updatedTs: 0,
-    isSeed: true,
-    isDefault: true,
-  },
-  {
-    typeKey: "builtin-remote-access",
-    displayName: "開放遠端連線",
-    purpose:
-      "幫 Owner 開啟或調整遠端連線，讓手機或其他電腦能用 HTTPS 網址連到控制台，包括第一次開啟，以及之後更換轉發方式或網址。",
-    fields: [],
-    sopMd: "# 開放遠端連線\n\n（mock 內建手冊）\n",
-    assignee: { kind: "staff", memberId: "mira" },
     updatedTs: 0,
     isSeed: true,
     isDefault: true,
@@ -4555,7 +4559,7 @@ const mockApiImpl = {
       id: noticeId,
       from: "system",
       to: m.to,
-      body: `Owner 刪除了訊息 #${id}，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=${id} 讀回。`,
+      body: `The owner deleted message #${id} (now void). If unread, ignore it; original text: get_chat ids=${id}.`,
       ts: now,
       attachments: [],
       replyCardId: null,
@@ -5660,9 +5664,9 @@ const mockApiImpl = {
       if (oldExecutor) {
         const label =
           oldKind === "outsource"
-            ? `外包 ${outsourceWorkers.find((w) => w.id === oldExecutor)?.codename ?? oldExecutor}`
+            ? `Outsource ${outsourceWorkers.find((w) => w.id === oldExecutor)?.codename ?? oldExecutor}`
             : wireMembers.find((m) => m.id === oldExecutor)?.name || oldExecutor;
-        predecessor = label === oldExecutor ? label : `${label}（${oldExecutor}）`;
+        predecessor = label === oldExecutor ? label : `${label} (${oldExecutor})`;
       }
       chatLog.push({
         id: `mock-reassign-new-${stamp}`,
@@ -5673,7 +5677,7 @@ const mockApiImpl = {
         body: (
           (predecessor
             ? `[${t.taskNo}] You are taking over this task; your predecessor is ${predecessor}.`
-            : `[${t.taskNo}] 你接手了這張任務，這張任務沒有前任。`) +
+            : `[${t.taskNo}] You are taking over this task; it has no predecessor.`) +
           "\n\n" +
           foldBootDoc("task_takeover_with_predecessor", "global").body
         ).trim(),

@@ -458,11 +458,11 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
     ],
     [
       "codex_not_logged_in: machine 'm-server-self' is not logged in to codex",
-      "伺服器這一台 未登入 Codex",
+      "This server 未登入 Codex",
     ],
     [
       "claude_not_logged_in: machine 'm-server-self' is not logged in to claude",
-      "伺服器這一台 未登入 Claude",
+      "This server 未登入 Claude",
     ],
   ])("離線 on a Codex model family, old-warden or not-logged-in refusal: the reason is worded in the viewer's language (%s)", async (reason, shown) => {
     __injectMockTask(mkTask({ id: "t-1" }));
@@ -498,7 +498,7 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
     );
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     const line = await findByTestId("worker-detail-lastop-reason");
-    await waitFor(() => expect(line.textContent).toBe("伺服器這一台 未登入 Codex"));
+    await waitFor(() => expect(line.textContent).toBe("This server 未登入 Codex"));
   });
 
   it("運行中: presence online reads the online label", async () => {
@@ -2311,7 +2311,7 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
   it.each([
     ["online", "warden-mbp5", "warden-mbp5", "Warden · mbp5", null],
     ["waking", "warden-mbp5", "m-server-self", "Warden · mbp5", null],
-    ["online", "m-server-self", "m-server-self", "伺服器這一台", "→ 要換到 Warden · mbp5"],
+    ["online", "m-server-self", "m-server-self", "This server", "→ 要換到 Warden · mbp5"],
   ] as const)(
     "a %s worker pinned to warden-mbp5 (no alias), dispatched to %s, last landed on %s: 機器 reads %s, moving-to hint %s",
     async (presence, runningOn, landedOn, cell, movingTo) => {

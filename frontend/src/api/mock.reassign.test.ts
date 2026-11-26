@@ -194,7 +194,7 @@ describe("mock reassign — member target", () => {
         from: "system",
         to: "mira",
         body:
-          "[T-2001] 你接手了這張任務，這張任務沒有前任。\n\n" +
+          "[T-2001] You are taking over this task; it has no predecessor.\n\n" +
           "Receiving these instructions means there is a task you need to take over. Complete the following preparation, then claim it and start executing:\n\n" +
           "* **Read the task**: use `get_task` to read the task; if it already has steps, also check the DoD of the current step, and use `get_task_step` to read the full note of every step whose `note_size_chars` is not 0. If you have not read the corresponding task manual yet, read it with `get_task_manual`.\n" +
           "* **Confirm the handover**: if there is a `reassigned_from`, first read the `handover_note`, then use `post_chat` to confirm the current progress and in-flight items with your predecessor. Wait at most 5 minutes; if the predecessor is offline, unreachable, or has not replied in time, continue the takeover directly from the handover information on the task — do not stop here and wait.\n" +

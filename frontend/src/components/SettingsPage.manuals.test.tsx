@@ -138,7 +138,7 @@ describe("設定 › 任務手冊 — list", () => {
     expect(builtin.getAttribute("role")).toBe("group");
     expect(
       [...builtin.querySelectorAll(".set-entry__name")].map((n) => n.textContent)
-    ).toEqual(["建立／修改角色", "建立／修改任務手冊", "開放遠端連線"]);
+    ).toEqual(["Allow remote connections", "Create / edit role", "Create / edit task manual"]);
     expect(builtin.querySelector(".manual-group__head")?.textContent).toBe("內建");
     for (const key of ["builtin-role-design", "builtin-task-manual-design", "builtin-remote-access"]) {
       const del = within(builtin).getByTestId(`manual-delete-${key}`);
@@ -157,7 +157,7 @@ describe("設定 › 任務手冊 — list", () => {
     const builtin = (await findByTestId("manual-group-builtin")).parentElement as HTMLElement;
     expect(
       [...builtin.querySelectorAll(".set-entry__name")].map((n) => n.textContent)
-    ).toEqual(["Hire a role", "Create / edit task manual", "Allow remote connections"]);
+    ).toEqual(["Allow remote connections", "Hire a role", "Create / edit task manual"]);
 
     fireEvent.click(await findByTestId("manual-open-builtin-task-manual-design"));
     const title = container.querySelector("h1.settings__title") as HTMLElement;
@@ -165,7 +165,7 @@ describe("設定 › 任務手冊 — list", () => {
     expect(container.querySelector("nav.crumbs")?.textContent).toContain("Create / edit task manual");
     fireEvent.click(await findByLabelText(en.settings.manualDisplayName));
     expect((container.querySelector("input.inline-edit__input") as HTMLInputElement).value).toBe(
-      "建立／修改任務手冊"
+      "Create / edit task manual"
     );
   });
 
@@ -266,9 +266,9 @@ describe("設定 › 任務手冊 — list", () => {
     );
     expect(queryByTestId("manual-group-custom")).toBeNull();
     expect((await api.listTaskManuals()).map((m) => m.typeKey)).toEqual([
+      "builtin-remote-access",
       "builtin-role-design",
       "builtin-task-manual-design",
-      "builtin-remote-access",
     ]);
   });
 });
