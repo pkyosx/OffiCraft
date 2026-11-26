@@ -1,55 +1,55 @@
 # OffiCraft
 
-**Craft your own AI office.** OffiCraft 是一間跑在你自己電腦上的 AI 工作室：你僱幾位常駐的 AI 成員，把事情**整件**交給他們，在一個網頁控制台裡看他們做到哪、在他們需要你點頭時回一句。跑的就是你機器上那個 Claude Code 或 Codex——你在它上面串好的設定照舊生效（Claude Code 的 skill / plugin / MCP 原封不動全都在）。
+**Craft your own AI office.** OffiCraft is an AI studio that runs on your own computer: you hire a few long-term AI members, hand them **whole** pieces of work, and use a web console to see how far they have got and to answer when they need your go-ahead. What runs is the Claude Code or Codex already on your machine, so the setup you have built on it still applies (your Claude Code skills, plugins, and MCP servers all stay exactly as they are).
 
-[![OffiCraft 介紹影片](https://img.youtube.com/vi/OQgLX5bAfR0/maxresdefault.jpg)](https://youtu.be/OQgLX5bAfR0)
+[![OffiCraft introduction video](https://img.youtube.com/vi/OQgLX5bAfR0/maxresdefault.jpg)](https://youtu.be/OQgLX5bAfR0)
 
 ---
 
-## 安裝
+## Installing
 
-### 系統需求
+### System requirements
 
-- macOS（Apple Silicon）、Linux（x86_64、arm64），或 Windows 10（版本 2004 以上）／11（透過 WSL2）
-- tmux 3.0 以上（讓程式在背景持續執行的終端機工具）。沒裝時，安裝指令會自動安裝：有 [Homebrew](https://brew.sh) 的 macOS 用 Homebrew，有 `apt-get`（Ubuntu 等 Linux 的套件安裝工具）的 Linux 與 WSL2 用 `apt-get`，安裝前會提示可能需要輸入 Linux 使用者的密碼。macOS 沒有 Homebrew、Linux 沒有 `apt-get`，或自動安裝失敗時，安裝指令會在動到任何 OffiCraft 檔案之前停下，並印出補裝的指令。安裝指令只檢查有沒有裝、不檢查版本。
-- curl（下載檔案的工具）：macOS 內建，多數 Linux 發行版也內建
-- Claude Code 或 Codex，至少一種，並已登入
+- macOS (Apple Silicon), Linux (x86_64, arm64), or Windows 10 (version 2004 or later) / 11 (through WSL2)
+- tmux 3.0 or later (a terminal tool that keeps programs running in the background). If it is missing, the install command installs it automatically: with Homebrew on macOS that has [Homebrew](https://brew.sh), and with `apt-get` (the package installer on Ubuntu and similar Linux distributions) on Linux and WSL2 that have `apt-get`; before installing, it warns that you may need to enter your Linux user's password. If macOS has no Homebrew, Linux has no `apt-get`, or the automatic install fails, the install command stops before touching any OffiCraft files and prints the commands to install what is missing. The install command only checks that tmux is installed, not its version.
+- curl (a tool for downloading files): built into macOS and most Linux distributions
+- At least one of Claude Code or Codex, already signed in
 
-### Windows：準備 WSL2
+### Windows: preparing WSL2
 
-OffiCraft 在 Windows 上透過 WSL2 中的 Ubuntu 執行。macOS 與 Linux 使用者略過此節。
+On Windows, OffiCraft runs in Ubuntu inside WSL2. macOS and Linux users can skip this section.
 
-1. 以系統管理員身分開啟 PowerShell，執行：
+1. Open PowerShell as administrator and run:
 
    ```powershell
    wsl --install -d Ubuntu
    ```
 
-2. 首次安裝 WSL 需重新開機。之後從開始選單開啟「Ubuntu」，依提示設定 Ubuntu 的使用者名稱與密碼。
+2. The first WSL install requires a restart. Then open "Ubuntu" from the Start menu and set the Ubuntu user name and password as prompted.
 
-之後的所有指令都在 Ubuntu 視窗中執行，從開始選單點「Ubuntu」開啟。
+Every command after this runs in the Ubuntu window, which you open by clicking "Ubuntu" in the Start menu.
 
-### 步驟 1：安裝並登入 Claude Code 或 Codex
+### Step 1: Install and sign in to Claude Code or Codex
 
-依使用的工具擇一安裝，也可兩者都安裝。
+Install whichever tool you use, or both.
 
-Claude Code：
+Claude Code:
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash
 ```
 
-安裝完成後開啟新的終端機視窗，執行 `claude`，依提示於瀏覽器完成登入。
+Once it is installed, open a new terminal window, run `claude`, and finish signing in in the browser as prompted.
 
-Codex：
+Codex:
 
 ```bash
 curl -fsSL https://chatgpt.com/codex/install.sh | sh
 ```
 
-安裝完成後開啟新的終端機視窗，執行 `codex`，選擇「Sign in with ChatGPT」完成登入。
+Once it is installed, open a new terminal window, run `codex`, and choose "Sign in with ChatGPT" to sign in.
 
-確認：執行對應的指令，顯示版本號與登入資訊即表示安裝並登入成功。
+Check: run the matching command. If it shows a version number and sign-in information, the tool is installed and signed in.
 
 ```bash
 claude --version && claude auth status --text
@@ -59,17 +59,17 @@ claude --version && claude auth status --text
 codex --version && codex login status
 ```
 
-### 步驟 2：安裝 OffiCraft
+### Step 2: Install OffiCraft
 
 ```bash
 curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
 ```
 
-安裝程式會先檢查系統需求並自動安裝缺少的 tmux；仍有缺少的項目時停止，並列出需要補裝的工具。
+The installer first checks the system requirements and automatically installs tmux if it is missing. If anything is still missing, it stops and lists the tools you need to install.
 
-### 步驟 3：開啟設定連結
+### Step 3: Open the setup link
 
-安裝完成時，終端機會輸出下列訊息與設定連結：
+When the install finishes, the terminal prints the following message and setup link:
 
 ```
 [install] ✅ OffiCraft is installed and running in the background (…)
@@ -77,75 +77,75 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
   open:    http://127.0.0.1:7755/?code=…
 ```
 
-以瀏覽器開啟該連結並設定登入密碼，即進入控制台。Windows 使用者以 Windows 的瀏覽器開啟。
+Open the link in a browser and set a sign-in password to enter the console. Windows users open it in a Windows browser.
 
-### 確認安裝成功
+### Confirm the installation
 
-以設定的密碼登入控制台後，「辦公室」頁面顯示助理 Mira 在線上，並能回覆聊天訊息，即表示 OffiCraft 安裝完成。
+Once you sign in to the console with the password you set, the "Office" page shows the Assistant, Mira, online and able to answer chat messages. That means OffiCraft is installed.
 
-### 更新
+### Updating
 
-- Claude Code 或 Codex 已安裝並登入者，略過步驟 1。
-- OffiCraft 的更新在控制台「設定 › 系統更新與備份」進行，不需重新執行安裝指令。
+- If Claude Code or Codex is already installed and signed in, skip Step 1.
+- OffiCraft updates are done in the console under "Settings › System update & backup"; you do not need to run the install command again.
 
-### 移除
+### Uninstalling
 
 ```bash
 curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash -s -- --uninstall
 ```
 
-移除時，程式、資料庫與背景服務設定會搬到 `~/.officraft.bak-<時間>`，不會刪除資料。
+Uninstalling moves the programs, database, and background service configuration to `~/.officraft.bak-<time>`; no data is deleted.
 
-### 疑難排解
+### Troubleshooting
 
-**出現 `command not found: claude` 或 `command not found: codex`**
+**`command not found: claude` or `command not found: codex` appears**
 
-1. 開啟新的終端機視窗後重新執行。
-2. 仍出現時，執行下列指令（macOS），Linux、WSL 將 `~/.zshrc` 改為 `~/.bashrc`，再開啟新的終端機視窗：
+1. Open a new terminal window and run the command again.
+2. If it still appears, run the following command (macOS; on Linux and WSL, change `~/.zshrc` to `~/.bashrc`), then open a new terminal window:
 
    ```bash
    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
    ```
 
-**WSL 中安裝程式提示 systemd 未啟用**
+**In WSL, the installer says systemd is not enabled**
 
-1. 在 Ubuntu 視窗執行：
+1. In the Ubuntu window, run:
 
    ```bash
    printf '[boot]\nsystemd=true\n' | sudo tee -a /etc/wsl.conf
    ```
 
-2. 在 PowerShell 執行：
+2. In PowerShell, run:
 
    ```powershell
    wsl --shutdown
    ```
 
-3. 重新開啟 Ubuntu 視窗，再執行一次步驟 2 的安裝指令。
+3. Reopen the Ubuntu window and run the install command from Step 2 again.
 
-**開始選單有多個 Ubuntu**
+**Several Ubuntu entries in the Start menu**
 
-1. 在 PowerShell 執行下列指令，查看每一套 Ubuntu 的名稱：
+1. Run the following command in PowerShell to see the name of each Ubuntu:
 
    ```powershell
    wsl -l -v
    ```
 
-2. 逐一以名稱執行下列指令，顯示 `.officraft` 的那一套就是安裝 OffiCraft 的 Ubuntu：
+2. Run the following command with each name in turn; the one that shows `.officraft` is the Ubuntu OffiCraft is installed in:
 
    ```powershell
-   wsl -d <名稱> --cd ~ -- ls -d .officraft
+   wsl -d <name> --cd ~ -- ls -d .officraft
    ```
 
-3. 之後都以下列指令開啟那一套 Ubuntu：
+3. From then on, open that Ubuntu with the following command:
 
    ```powershell
-   wsl -d <名稱>
+   wsl -d <name>
    ```
 
-**安裝程式提示 7755 埠已被占用**
+**The installer says port 7755 is already in use**
 
-關閉占用 7755 埠的程式後，執行下列指令重新安裝（程式此時已安裝，需加上 `--force`）：
+Close the program using port 7755, then run the following command to reinstall (the program is already installed at this point, so `--force` is needed):
 
 ```bash
 curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash -s -- --force
@@ -153,57 +153,57 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 ---
 
-## 從這台電腦以外的地方連線
+## Connecting from somewhere other than this computer
 
-server 只綁 `127.0.0.1`，這一點不能改。要從手機或其他電腦連線，對 Mira 說「我想從這台電腦以外的地方連到控制台」。說明見 [在手機上用](docs/guide/mobile.md)。
+The server only listens on `127.0.0.1`, and this cannot be changed. To connect from a phone or another computer, tell Mira "I want to reach the console from somewhere other than this computer". See [Use it on your phone](docs/guide/mobile.md).
 
 ---
 
-## 使用說明
+## User guide
 
-完整的使用說明在 **[docs/guide/](docs/guide/)**，控制台「設定 › 使用說明」讀的也是同一份。依你現在要做的事，從對應的一組開始讀。
+The full user guide is in **[docs/guide/](docs/guide/)**, and the console's "Settings › User guide" reads the same files. Start with the group that matches what you want to do now.
 
-### 開始使用
+### Getting started
 
-第一次接觸 OffiCraft、準備安裝，或剛裝好想走一遍時讀。
+Read these when you are new to OffiCraft, getting ready to install, or have just installed it and want to try it out.
 
-- [為什麼是 OffiCraft](docs/guide/why.md) — 判斷 OffiCraft 適不適合你。
-- [安裝、升級與移除](docs/guide/install.md) — 前置需求、安裝、升級、移除，以及加入或移除其他機器。
-- [你的第一個辦公室](docs/guide/quickstart.md) — 十分鐘走完設密碼、交出第一件事、回覆第一張請示卡。
-- [保護你的工作室](docs/guide/security.md) — 從手機或外面連進來之前，該設好的密碼、兩步驟驗證與通行密鑰。
+- [Why OffiCraft](docs/guide/why.md) — decide whether OffiCraft suits you.
+- [Install, upgrade, and uninstall](docs/guide/install.md) — prerequisites, installing, upgrading, uninstalling, and adding or removing other machines.
+- [Your first office](docs/guide/quickstart.md) — in ten minutes, set your password, hand off your first piece of work, and answer your first reply card.
+- [Protect your studio](docs/guide/security.md) — the password, two-factor authentication, and passkeys to set up before connecting from your phone or from outside.
 
-### 日常使用
+### Everyday use
 
-每天交代工作、回覆請示卡、看進度與用量時讀。
+Read these when assigning work, answering reply cards, and checking progress and usage day to day.
 
-- [交代工作與回覆請示卡](docs/guide/daily.md) — 聊天、附件、@ 成員、把成員分群組、回覆請示卡，以及在成員交來的文件上寫註解。
-- [追蹤任務進度](docs/guide/tasks.md) — 看懂任務的狀態、步驟與關卡，驗收成果或強制結案。
-- [管理 AI 帳號與用量](docs/guide/usage.md) — 在「監控」分頁看每個帳號的用量、估計花費與每位成員用的帳號與模型，替機器登入帳號、升級 Claude Code。
-- [在手機上用](docs/guide/mobile.md) — 從手機連上控制台、加到主畫面、開推播通知。
+- [Assign work and answer reply cards](docs/guide/daily.md) — chat, attachments, @-mentioning members, grouping members, answering reply cards, and commenting on documents members deliver.
+- [Track task progress](docs/guide/tasks.md) — understand task statuses, steps, and gates; accept results or force close.
+- [Manage AI accounts and usage](docs/guide/usage.md) — see each account's usage, estimated cost, and the account and model each member uses in the Monitor tab; sign machines in to accounts and upgrade Claude Code.
+- [Use it on your phone](docs/guide/mobile.md) — connect to the console from your phone, add it to the Home Screen, and turn on push notifications.
 
-### 讓工作室自己運轉
+### Letting the studio run itself
 
-想把重複、定時或從外部來的工作交出去，或想增加成員時讀。
+Read these when you want to hand off repetitive, scheduled, or externally triggered work, or add members.
 
-- [讓 AI 照 SOP 做重複的事（任務手冊）](docs/guide/sop.md) — 寫任務手冊，決定哪些步驟要停下來等你。
-- [定時做某件事（定期訊息）](docs/guide/schedule.md) — 設定期訊息，讓成員在固定時刻收到預先寫好的交代（成員要在線上才會處理）。
-- [讓外部事件自動送給成員（回呼端點）](docs/guide/webhook.md) — 建回呼端點，把其他服務送來的通知（例如 Slack 的新訊息）交給負責的成員。
-- [讓成員記住你教過的事（傳承）](docs/guide/lore.md) — 寫下你是誰、哪些事不能碰（使用者自訂）、各角色職責，以及成員學到的經驗（傳承）。
-- [把帳號金鑰交給成員用（密鑰）](docs/guide/secrets.md) — 存密鑰，讓成員取用而不必貼進聊天。
-- [增加成員與發外包](docs/guide/members.md) — 新增正職、發外包、喚醒與停止成員、換模型與機器、看懂狀態圖示，以及判斷該外包還是加常駐成員。
+- [Have AI do repetitive work by an SOP (task manuals)](docs/guide/sop.md) — write task manuals and decide which steps stop and wait for you.
+- [Do something on a schedule (scheduled messages)](docs/guide/schedule.md) — set up scheduled messages so a member receives prewritten instructions at fixed times (the member must be online to act on them).
+- [Send outside events to members automatically (webhooks)](docs/guide/webhook.md) — create webhook endpoints that hand notifications from other services (for example, new Slack messages) to the responsible member.
+- [Make members remember what you taught them (lore)](docs/guide/lore.md) — write down who you are, what must not be touched (Owner additions), each role's duties, and the lessons members have learned (lore).
+- [Give members your account keys (secrets)](docs/guide/secrets.md) — store secrets so members can fetch them without pasting them into chat.
+- [Add members and hire outsource members](docs/guide/members.md) — add staff members, hire outsource members, wake and stop members, change models and machines, read the status icons, and decide between outsourcing and adding a long-term member.
 
-### 查詢與參考
+### Lookup and reference
 
-想查某個欄位、參數或名詞，或想知道底層怎麼運作時讀。
+Read these to look up a field, parameter, or term, or to learn how things work underneath.
 
-- [介面說明](docs/guide/interface.md) — 每個分頁與欄位的對照。
-- [設定與參數](docs/guide/settings.md) — 設定的六個子頁與每格參數的範圍。
-- [主題（外觀與用語）](docs/guide/theme.md) — 換外觀、依時段切換、背景動畫、自訂與匯入匯出主題、應景主題。
-- [架構與運作原理](docs/guide/architecture.md) — server、機器與成員怎麼分工。
-- [名詞表](docs/guide/glossary.md) — OffiCraft 用到的名詞。
+- [Interface reference](docs/guide/interface.md) — every tab and field.
+- [Settings and parameters](docs/guide/settings.md) — the six settings pages and the range of each parameter.
+- [Themes (look and wording)](docs/guide/theme.md) — change the look, switch by time of day, background animation, custom and imported/exported themes, seasonal themes.
+- [Architecture and how it works](docs/guide/architecture.md) — how the server, machines, and members divide the work.
+- [Glossary](docs/guide/glossary.md) — the terms OffiCraft uses.
 
-### 遇到問題
+### When something goes wrong
 
-安裝或使用時遇到問題，或要自己備份、還原資料庫時讀。
+Read this when you run into problems installing or using OffiCraft, or want to back up or restore the database yourself.
 
-- [常見問題與排解](docs/guide/troubleshooting.md) — 安裝失敗、成員起不來、回呼端點收不到事件、升級沒生效，以及備份與還原。
+- [Troubleshooting and FAQ](docs/guide/troubleshooting.md) — failed installs, members that will not start, webhook endpoints that receive no events, upgrades that did not take effect, and backup and restore.

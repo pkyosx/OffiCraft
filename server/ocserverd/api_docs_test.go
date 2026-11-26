@@ -154,7 +154,7 @@ func apiDocList(t *testing.T, h http.Handler, credential string, want ...map[str
 func apiGuideIndex() []map[string]any {
 	return []map[string]any{
 		{"slug": "why", "title": "為什麼是 OffiCraft"},
-		{"slug": "install", "title": "安裝、升級與移除"},
+		{"slug": "install", "title": "Install, upgrade, and uninstall"},
 		{"slug": "quickstart", "title": "你的第一個辦公室"},
 		{"slug": "security", "title": "Protect your studio"},
 		{"slug": "daily", "title": "交代工作與回覆請示卡"},
@@ -172,7 +172,7 @@ func apiGuideIndex() []map[string]any {
 		{"slug": "theme", "title": "主題（外觀與用語）"},
 		{"slug": "architecture", "title": "架構與運作原理"},
 		{"slug": "glossary", "title": "名詞表"},
-		{"slug": "troubleshooting", "title": "常見問題與排解"},
+		{"slug": "troubleshooting", "title": "Troubleshooting and FAQ"},
 	}
 }
 
