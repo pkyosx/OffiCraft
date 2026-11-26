@@ -1,6 +1,7 @@
 // 主導覽分頁 — the tab strip itself.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { __resetHashRouteForTests } from "./lib/hashRoute";
 import { render, fireEvent, screen, waitFor, act } from "@testing-library/react";
 import { I18nProvider, useI18n } from "./i18n";
 import { zh } from "./i18n/locales/zh";
@@ -52,6 +53,10 @@ function tabLabels(): string[] {
 }
 
 describe("主導覽分頁", () => {
+  afterEach(() => {
+    __resetHashRouteForTests();
+  });
+
   beforeEach(() => {
     history.replaceState(null, "", window.location.pathname);
     localStorage.clear();

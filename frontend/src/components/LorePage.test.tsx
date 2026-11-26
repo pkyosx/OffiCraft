@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
+import { __resetHashRouteForTests } from "../lib/hashRoute";
 import { LorePage, loreBodyOverflow } from "./LorePage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
@@ -142,6 +143,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __resetHashRouteForTests();
   vi.restoreAllMocks();
 });
 
@@ -2632,6 +2634,23 @@ describe("LorePage — 目錄與段落頁", () => {
       states: ["pinned", "active"], scopeKinds: ["agent"], scopeKeys: ["mira"], limit: 30, offset: 0,
     });
     expect(container.querySelector<HTMLInputElement>('[data-testid="lore-filter-id"]')!.value).toBe("");
+  });
+
+  it("a page re-render between the URL change and its hashchange does not load the new section into the old page", async () => {
+    stubTargets();
+    const list = stubList(page([mkEntry({ id: "L-1" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
+    // The URL moves first; the hashchange comes later. Typing re-renders the
+    // directory in between.
+    history.pushState(null, "", window.location.pathname + "#lore/agent/mira");
+    fireEvent.change(container.querySelector('[data-testid="lore-directory-id"]')!, { target: { value: "2" } });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(list).not.toHaveBeenCalled();
+
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await waitFor(() => expect(renderedIds(container)).toEqual(["L-1"]));
+    expect(list).toHaveBeenCalledTimes(1);
   });
 
   it("a section the server does not list says so and offers the way back", async () => {

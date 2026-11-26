@@ -408,26 +408,49 @@ let acceptedIdx = 0;
 // stamp and a longer history is a new one (a typed hash); with the same length
 // it is an older entry reached by Back that predates the stamps.
 let acceptedLength = 0;
-// A refused change is being walked back with history.go()/back(). Cleared by
-// the hashchange that lands, or — should none come (a traversal that lands on
-// the same hash, or a go() with nowhere to go) — by the next popstate or a
-// short timeout, so the route never stays pinned.
+// While the guard is asked and a refusal is walked back with history.go() /
+// back(), the route stays pinned to the accepted page. The pin ends when the
+// walk-back lands (popstate / hashchange). Should it never land (a go() with
+// nowhere to go), a fallback timer started at the go() puts the accepted URL
+// back and ends it.
 let restoring = false;
 let restoreTimer: ReturnType<typeof setTimeout> | null = null;
 const RESTORE_FALLBACK_MS = 1000;
 
-function endRestoring(): void {
-  restoring = false;
+function clearRestoreTimer(): void {
   if (restoreTimer !== null) {
     clearTimeout(restoreTimer);
     restoreTimer = null;
   }
 }
 
-function startRestoring(): void {
-  restoring = true;
-  if (restoreTimer !== null) clearTimeout(restoreTimer);
+/** Unpin. A URL that is not the accepted one is put back first, so the pin
+ * never hands the route to a page the guard refused. */
+function endRestoring(): void {
+  if (!restoring) return;
+  clearRestoreTimer();
+  const before = snapshot();
+  if (acceptedHash !== null && window.location.hash !== acceptedHash) {
+    history.replaceState(history.state, "", window.location.pathname + window.location.search + acceptedHash);
+  }
+  restoring = false;
+  if (snapshot() !== before) for (const cb of listeners) cb();
+}
+
+function startRestoreTimer(): void {
+  clearRestoreTimer();
   restoreTimer = setTimeout(endRestoring, RESTORE_FALLBACK_MS);
+}
+
+/** Test-only: forget the module's history bookkeeping between tests, so a
+ * timer or pin left by one test cannot act in the next. */
+export function __resetHashRouteForTests(): void {
+  clearRestoreTimer();
+  restoring = false;
+  navigationGuard = null;
+  acceptedHash = null;
+  acceptedIdx = 0;
+  acceptedLength = 0;
 }
 
 function entryIdx(): number | undefined {
@@ -491,15 +514,17 @@ function onHashChange(): void {
   const prev = acceptedHash ?? "";
   if (cur !== prev && navigationGuard) {
     // Pinned before asking: the guard itself may re-render the page.
-    startRestoring();
+    restoring = true;
     if (!navigationGuard(parseHash(cur))) {
       const idx = entryIdx();
       if (idx !== undefined && idx !== acceptedIdx) {
         // Back/Forward onto an entry we know: step back to where we were. The
         // hashchange that brings us there matches acceptedHash and passes.
+        startRestoreTimer();
         history.go(acceptedIdx - idx);
       } else if (idx === undefined && history.length > acceptedLength) {
         // A new entry (a hand-typed hash): return to the accepted one behind it.
+        startRestoreTimer();
         history.back();
       } else if (idx === undefined) {
         // An unstamped older entry reached by Back: stepping further back would
@@ -508,11 +533,11 @@ function onHashChange(): void {
         acceptedLength = history.length;
         endRestoring();
       } else {
-        history.replaceState(history.state, "", window.location.pathname + window.location.search + prev);
         endRestoring();
       }
       return;
     }
+    restoring = false;
   }
   endRestoring();
   acceptEntry();

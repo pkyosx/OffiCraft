@@ -344,9 +344,15 @@ export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
   // One mount per page: filters, selection, 編輯多筆, the bottom bars and the
   // highlight paging belong to the section they were set on, so a section
   // change starts them over by remounting rather than by resetting each.
+  const sectionKey = sec ? sectionKeyOf(sec.kind, sec.key) : null;
+  // 🔴 The view gets its route from here and never reads the hash itself: a
+  // second subscriber could see a new section before this key changes, load
+  // it into the old mount, and have those rows thrown away by the remount.
   return (
     <LoreView
-      key={sec ? sectionKeyOf(sec.kind, sec.key) : ""}
+      key={sectionKey ?? ""}
+      sectionKey={sectionKey}
+      highlightId={(route.page === "lore" && sec && route.loreEntryId) || ""}
       canSetScope={canSetScope}
       shared={shared}
       seedRef={seedRef}
@@ -358,6 +364,8 @@ export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
 }
 
 function LoreView({
+  sectionKey,
+  highlightId,
   canSetScope: canSetScopeProp,
   shared,
   seedRef,
@@ -365,6 +373,8 @@ function LoreView({
   budgetsError,
   refreshBudgets,
 }: {
+  sectionKey: string | null;
+  highlightId: string;
   canSetScope?: boolean;
   shared: LoreShared;
   seedRef: { current: EntrySeed | null };
@@ -375,10 +385,6 @@ function LoreView({
   const { t, msg } = useI18n();
   const { members, membersLoading, workers, manuals, isMobile, entryCaps } = shared;
   const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
-  const [route] = useHashRoute();
-  const loreSection = route.page === "lore" ? route.loreSection : undefined;
-  const sectionKey = loreSection ? sectionKeyOf(loreSection.kind, loreSection.key) : null;
-  const highlightId = (route.page === "lore" && route.loreEntryId) || "";
 
   // ── 篩選 ────────────────────────────────────────────────────────────────
   const [searchDraft, setSearchDraft] = useState("");

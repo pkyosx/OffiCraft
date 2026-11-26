@@ -4,7 +4,19 @@
 import { describe, it, expect, vi } from "vitest";
 import { act, render, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import { parseHash, formatHash, navigateHash, setNavigationGuard, useHashRoute } from "./hashRoute";
+import { afterEach } from "vitest";
+import {
+  __resetHashRouteForTests,
+  parseHash,
+  formatHash,
+  navigateHash,
+  setNavigationGuard,
+  useHashRoute,
+} from "./hashRoute";
+
+afterEach(() => {
+  __resetHashRouteForTests();
+});
 
 describe("parseHash", () => {
   it("restores each page from its anchor", () => {
@@ -661,12 +673,13 @@ describe("a walk-back that never lands", () => {
     return { ...r, seen, bump: () => act(() => bump()), release, go };
   }
 
-  it("the next popstate unpins the route", async () => {
+  it("a popstate that lands somewhere else puts the accepted URL back", async () => {
     const t = await refusedBackWithStuckGo();
     try {
       window.dispatchEvent(new PopStateEvent("popstate"));
+      expect(window.location.hash).toBe("#lore/agent/mira");
       t.bump();
-      expect(t.seen[t.seen.length - 1]).toBe("#tasks");
+      expect(t.seen[t.seen.length - 1]).toBe("#lore/agent/mira");
     } finally {
       t.release();
       t.go.mockRestore();
@@ -674,16 +687,55 @@ describe("a walk-back that never lands", () => {
     }
   });
 
-  it("without a popstate it unpins after a short timeout", async () => {
+  it("without a popstate, the fallback puts the accepted URL back instead of switching to the refused one", async () => {
     const t = await refusedBackWithStuckGo();
     try {
       await new Promise((r) => setTimeout(r, 1100));
+      expect(window.location.hash).toBe("#lore/agent/mira");
       t.bump();
-      expect(t.seen[t.seen.length - 1]).toBe("#tasks");
+      expect(t.seen[t.seen.length - 1]).toBe("#lore/agent/mira");
     } finally {
       t.release();
       t.go.mockRestore();
       t.unmount();
+    }
+  });
+
+  it("the fallback starts at the go(), so a guard that takes longer than it does not cut the walk-back short", async () => {
+    history.replaceState(null, "", window.location.pathname + "#tasks");
+    function Probe() {
+      useHashRoute();
+      return null;
+    }
+    const { unmount } = render(<Probe />);
+    navigateHash({ page: "lore", loreSection: { kind: "agent", key: "mira" } });
+    await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
+    const go = vi.spyOn(history, "go").mockImplementation(() => {});
+    let urlWhenGoCalled = "";
+    go.mockImplementation(() => {
+      urlWhenGoCalled = window.location.hash;
+    });
+    let asked = 0;
+    const release = setNavigationGuard(() => {
+      asked += 1;
+      // A confirm dialog left open longer than the fallback.
+      const until = Date.now() + 1200;
+      while (Date.now() < until) {
+        /* busy */
+      }
+      return false;
+    });
+    try {
+      history.back();
+      await waitFor(() => expect(asked).toBe(1));
+      // The walk-back is under way from the refused URL; nothing ended it early.
+      expect(urlWhenGoCalled).toBe("#tasks");
+      await new Promise((r) => setTimeout(r, 20));
+      expect(window.location.hash).toBe("#tasks");
+    } finally {
+      release();
+      go.mockRestore();
+      unmount();
     }
   });
 });
