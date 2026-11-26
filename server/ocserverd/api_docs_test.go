@@ -170,7 +170,7 @@ func apiGuideIndex() []map[string]any {
 		{"slug": "interface", "title": "介面說明"},
 		{"slug": "settings", "title": "設定與參數"},
 		{"slug": "theme", "title": "Themes (look and wording)"},
-		{"slug": "architecture", "title": "架構與運作原理"},
+		{"slug": "architecture", "title": "Architecture and how it works"},
 		{"slug": "glossary", "title": "Glossary"},
 		{"slug": "troubleshooting", "title": "Troubleshooting and FAQ"},
 	}
