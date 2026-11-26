@@ -472,7 +472,7 @@ func onboardingTestWaitForTerminalReport(t *testing.T, api *apiServer) onboardin
 
 func TestOnboardingLanguagePrompt(t *testing.T) {
 	const wantBody = "This station has just been set up, and the owner has not chosen a display language yet. Please do these three things, in order:\n" +
-		"1. Greet the owner in chat.\n" +
+		"1. Greet the owner in chat, in both Chinese and English.\n" +
 		"2. Then open a decision card asking which language the owner wants to use. Write the card in both Chinese and English, with exactly two options: \"中文\" and \"English\".\n" +
 		"3. When the owner answers, set the display language with update_settings: display_language \"zh\" for 中文, \"en\" for English."
 	wakeOK := onboardingRunner{
