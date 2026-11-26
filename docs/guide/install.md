@@ -262,7 +262,7 @@ A manual install uses the `officraft-<tag>-<os>-<arch>.tar.gz` archive from [Git
 6. Confirms the port is not in use (7755 by default).
 7. Registers the background service `com.officraft.serve`: handed to launchd on macOS, and registered as the systemd user service `com.officraft.serve.service` with linger turned on, on Linux. The service runs in the background, does not stop when you close the terminal, and starts automatically at boot.
 8. Prints the one-time setup link `http://127.0.0.1:7755/?code=…`.
-9. Once the password is set, the server automatically installs this computer's warden and wakes the Assistant, Mira. If one of those steps fails, an "Automatic setup did not finish" banner appears at the top of the console, stating the reason.
+9. Once the password is set, the server automatically installs this computer's warden and wakes the Assistant, Mira. If one of those steps fails, an "Automatic setup did not finish" banner appears at the top of the console, stating the reason. On a new station where no language has been chosen yet, the server also asks Mira to greet you in Chinese and English and to open a reply card asking which language you want; your answer sets the console's language and the language every member writes to you in.
 
 Official releases are prebuilt programs; this computer does not need Go, node, or python.
 

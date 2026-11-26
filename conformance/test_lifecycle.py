@@ -362,18 +362,18 @@ def _expected_lore_block(client, owner_token, member_id: str) -> str:
 
     Every formatting rule below is read off the server source:
 
-      * block heading `# 傳承`               — `loreBlockHeading`,
-                                               server/ocserverd/lore_select.go:121
+      * block heading `# Lore`               — `loreBlockHeading`,
+                                               server/ocserverd/lore_select.go:103
       * per-entry `\\n\\n## <id> <title>`      — renderLoreBlock,
-                                               lore_select.go:141-144 (the id is
+                                               lore_select.go:126-132 (the id is
                                                rendered because it is the handle
                                                a write face takes back)
-      * `（置頂）` suffix on a PINNED entry   — lore_select.go:145-147
-      * body appended after `\\n\\n`, and     — lore_select.go:148-152
+      * ` (pinned)` suffix on a PINNED entry — lore_select.go:133-135
+      * body appended after `\\n\\n`, and     — lore_select.go:136-140
         omitted entirely when it trims blank
-      * an EMPTY selection renders ""        — lore_select.go:135-137, and the
+      * an EMPTY selection renders ""        — lore_select.go:120-122, and the
         and is dropped from the join rather    caller drops "" instead of joining
-        than joined as a blank part            it, assets.go:570-576
+        than joined as a blank part            it, assets.go:443-446
       * selection order: pinned group first, — ListLoreEntriesLive's ORDER BY,
         then effective_ts DESC, seq DESC       server/ocserverd/dal_lore.go:168-178
       * retired entries are excluded          — same WHERE clause, dal_lore.go:171

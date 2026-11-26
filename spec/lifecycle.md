@@ -676,7 +676,7 @@ change. Whether the observation was made is a fact about a deployment, not about
 implementation, and this spec cannot assert it — it is recorded here so that the condition
 is not lost by having been satisfied on paper.
 
-## 2. Boot context — the three-block assembly
+## 2. Boot context — the assembly
 
 The single shared fold both boot paths use (`POST /api/bootstrap` and the reconcile START
 payload) — they MUST produce byte-identical context for the same inputs.

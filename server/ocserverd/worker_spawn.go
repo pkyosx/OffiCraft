@@ -49,7 +49,7 @@ const (
 )
 
 // buildWorkerBootContext is the staff boot context minus the role content
-// (owner-ruled): 系統互動 and 使用者自訂 byte-identical to staff's, then the 傳承
+// (owner-ruled): 系統互動, 使用者語言 and 使用者自訂 byte-identical to staff's, then the 傳承
 // block (everyone scope, then this member's own entries, one budget — owner card
 // rc-3c24fdc61ed3), then the runtime's 啟動步驟 seed LAST (recency-authoritative).
 // Nothing is written FOR outsource readers. The bound task, the type manual and

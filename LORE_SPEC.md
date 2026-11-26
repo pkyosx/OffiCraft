@@ -31,8 +31,8 @@
 | `seq` | INTEGER | 全域遞增，供 `L-<n>` 顯示與穩定排序 |
 | `scope_kind` | TEXT | `agent`、`manual`，或 T-236 起的 `everyone`（所有人，見下方「所有人」）（🔴 DB 的 CHECK 仍收 `role`，見下方「範圍收斂」） |
 | `scope_key` | TEXT | `agent` ⇒ 該成員自己的 member id；`manual` ⇒ task manual 的 `type_key`；`everyone` ⇒ 空字串 |
-| `title` | TEXT | ≤ 標題上限（預設 80 字）。不帶類型前綴，類型在 `lore_type` |
-| `body` | TEXT | ≤ 內容上限（預設 500 字） |
+| `title` | TEXT | ≤ 標題上限（預設 200 字）。不帶類型前綴，類型在 `lore_type` |
+| `body` | TEXT | ≤ 內容上限（預設 1250 字） |
 | `author_id` | TEXT | 寫入者的成員 id，**寫入當下釘死，之後不隨名冊變動** |
 | `source_task_id` | TEXT | 可空，寫入時所在的任務，純紀錄 |
 | `state` | TEXT | **`active` / `pinned` / `retired` 三選一互斥** |
@@ -99,7 +99,7 @@
 在 `GET /api/task-manuals/{type_key}` 回應裡走自己的欄位（`lore` ＋ `lore_chars`）。**不進任何人的開機檔**，正職與外包一視同仁。
 
 🔴 **三個出口共用同一份挑選邏輯**（`selectLoreEntries`；成員出口經 `selectMemberLore`、手冊出口經 `selectLoreForScope`），各自傳不同的 scope 進去。在任何一條路徑上另寫一份挑選，症狀會是「同一筆條目在一個出口看得到、在另一個出口看不到」，而且不報錯。
-**類型標籤怎麼顯示**（`renderLoreBlock`，三個出口共用）：四種有標籤的在編號後、標題前顯示中文標籤，格式 `## L-667 [Owner 決策] 標題`，四個字面值是 `指示衝突`、`指示補充`、`Owner 決策`、`Owner 偏好`。🔴 **`other` 不顯示標籤**（owner：開機文件不提「其他」；`[工作原則]` 那幾筆的標題本身還帶著前綴）。字數上限只算標題＋內容，不算標籤。
+**類型標籤怎麼顯示**（`renderLoreBlock`，三個出口共用）：四種有標籤的在編號後、標題前顯示英文標籤，格式 `## L-667 [Owner decision] 標題`，四個字面值是 `Instruction conflict`、`Instruction supplement`、`Owner decision`、`Owner preference`（T-745 起；之前是中文的 `指示衝突`、`指示補充`、`Owner 決策`、`Owner 偏好`）。座艙上的標籤跟著介面語言，不受這一條影響。🔴 **`other` 不顯示標籤**（owner：開機文件不提「其他」；`[工作原則]` 那幾筆的標題本身還帶著前綴）。字數上限只算標題＋內容，不算標籤。
 
 🔴 除了接上這三個出口所需的改動之外，**不要去抽正職與外包共用開頭那段既有的重複** —— 那段跟傳承無關，屬於 T-14 的範圍，不在本次授權內。
 

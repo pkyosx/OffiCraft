@@ -2752,13 +2752,13 @@ export const en: Dict = {
     // they no longer share one ruler.
     docCapDuty: "Duty size cap",
     docCapDutySub:
-      "Maximum characters in a role's role definition (100–100000). Lowering it truncates nothing already saved; it only affects later saves.",
+      "Maximum characters in a role's role definition (100–250000). Lowering it truncates nothing already saved; it only affects later saves.",
     docCapInsight: "Insight size cap",
     docCapInsightSub:
-      "Maximum characters in a role's Insight (100–100000). Lowering it truncates nothing already saved; it only affects later saves.",
+      "Maximum characters in a role's Insight (100–250000). Lowering it truncates nothing already saved; it only affects later saves.",
     docCapManualSop: "Task manual SOP size cap",
     docCapManualSopSub:
-      "Maximum characters in a task manual's SOP (100–100000). Lowering it truncates nothing already saved; it only affects later saves.",
+      "Maximum characters in a task manual's SOP (100–250000). Lowering it truncates nothing already saved; it only affects later saves.",
     // T-c9b4: the wake snapshot's chat budget. Deliberately not folded into the
     // doc-cap wording above — both directions are now legal on both sides (owner
     // 2026-09-07 dropped every doc-cap floor to 100), but the numbers differ, and

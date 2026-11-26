@@ -4111,7 +4111,7 @@ type SettingsDTO struct {
 	// DiskUsageIntervalSecs How often, in seconds (600 through 86400), each warden measures how much disk OffiCraft uses on its machine, and the server measures its database, backups and old database copies. One measurement walks the whole OffiCraft directory and takes tens of seconds of disk reads, hence the 10-minute floor. Wardens learn the value from their heartbeat reply.
 	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
 
-	// DisplayLanguage The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
+	// DisplayLanguage The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), and a change reaches each member at its next boot (T-745). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
 	// DisplaySeasonalTheme Whether the cockpit takes the built-in seasonal theme while its window is open (a holiday theme shipped with the release, e.g. Halloween; its dates ship with it and are not configurable). true (the default) = show it; false = keep display_theme through the window. Outside every window this has no effect. Same dual-layer contract as display_wide.
@@ -4273,7 +4273,7 @@ type SettingsUpdateDTO struct {
 	// DiskUsageIntervalSecs How often, in seconds, each warden measures how much disk OffiCraft uses on its machine. Must be 600 through 86400. Wardens pick a change up from their next heartbeat reply.
 	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
 
-	// DisplayLanguage The owner's cockpit language (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
+	// DisplayLanguage The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in from its next boot (T-745) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
 	// DisplaySeasonalTheme Turn the built-in seasonal theme on/off for the cockpit. A plain boolean with no unset state: omit the field to leave it unchanged.
@@ -4945,7 +4945,7 @@ type TaskManualDTO struct {
 	// IsSeed Whether this task type ships built-in with OffiCraft rather than being created on this station. Only a built-in manual can be reset (reset_task_manual), and a built-in manual cannot be deleted.
 	IsSeed *bool `json:"is_seed,omitempty"`
 
-	// Lore The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# 傳承`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so it is read-only: read it, do not send it back. The type's accumulated experience lives here.
+	// Lore The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# Lore`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so it is read-only: read it, do not send it back. The type's accumulated experience lives here.
 	Lore *string `json:"lore,omitempty"`
 
 	// LoreChars Size of ``lore`` in CHARACTERS — the block the server assembled for this read, which is a different thing from ``sop_md_chars`` (what a writer may edit).
@@ -6891,7 +6891,7 @@ type ServerInterface interface {
 	// - `chat_budget_chars`: Chat-block budget of the wake snapshot (resume_summary, and the estimate peek_resume_summary_size reports).
 	// - `step_note_cap_chars`: Max length of one step note, checked on write: a stored note over a lowered cap stays readable, but any write that leaves it over the cap is refused.
 	// - `doc_cap_chars_*`: Length cap per document type: `duty` (role definition), `insight`, `manual_sop` (task manual sop_md), `system_interaction` (System interaction), `boot_sequence` (Boot Sequence; one knob for both runtimes, each text measured on its own), `offboard` (Stop). A stored document over a lowered cap accepts only edits that shrink it.
-	// - `display_language`: Cockpit language; "" resets it to unset.
+	// - `display_language`: Cockpit language, and the language every member writes to the owner in from its next boot; "" resets it to unset.
 	// - `display_theme`: Cockpit theme: "" (unset), a built-in id (office, office-light, modern-office-desk-day / -dusk / -night), or an existing custom theme id.
 	// - `display_theme_schedule`: Replaces the time-of-day theme schedule wholesale. Each entry `{start: "HH:MM", theme}` shows `theme` from `start` (viewer-local) until the next entry's start, wrapping past midnight; themes as for display_theme. It overrides display_theme on screen without changing it. [] turns it off; null or omitted leaves it unchanged. Deleting a custom theme drops its entries, and the whole schedule if fewer than 2 remain.
 	// - `display_wide`: true lifts the centred ~1040px content column (the side gutters stay).

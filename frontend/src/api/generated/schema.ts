@@ -2720,7 +2720,7 @@ export interface paths {
         };
         /**
          * Read an outsource worker's boot-context preview (owner/admin agent).
-         * @description Read the outsource worker's boot-context PREVIEW (T-ba6b): the server re-assembles the boot text with the SAME fold the spawn path uses (buildWorkerBootContext), WITHOUT minting any token. Since T-4595 that fold is the STAFF boot context minus the persona slot — 系統互動 + 使用者自訂 + the boot sequence for the worker's own runtime, with no outsource-only document, no 你的身分 block, no bound task and no type manual — but WITH that worker's own 傳承 block (T-33, LoreScopeAgent keyed on its member id), which is the one part that differs from worker to worker. Owner/admin-agent cockpit read (T-6020; the floor is unchanged, and it is now the only thing keeping this read narrow — the text no longer embeds the task or the manual). 404 for an unknown worker or a worker whose bound task is gone. HONEST caveat the UI must carry: this is today's re-assembly, not a verbatim spawn-time record — nothing is stored (no prompt column, no migration).
+         * @description Read the outsource worker's boot-context PREVIEW (T-ba6b): the server re-assembles the boot text with the SAME fold the spawn path uses (buildWorkerBootContext), WITHOUT minting any token. Since T-4595 that fold is the STAFF boot context minus the persona slot — 系統互動 + 使用者語言 + 使用者自訂 + the boot sequence for the worker's own runtime, with no outsource-only document, no 你的身分 block, no bound task and no type manual — but WITH that worker's own 傳承 block (T-33, LoreScopeAgent keyed on its member id), which is the one part that differs from worker to worker. Owner/admin-agent cockpit read (T-6020; the floor is unchanged, and it is now the only thing keeping this read narrow — the text no longer embeds the task or the manual). 404 for an unknown worker or a worker whose bound task is gone. HONEST caveat the UI must carry: this is today's re-assembly, not a verbatim spawn-time record — nothing is stored (no prompt column, no migration).
          */
         get: operations["handle_get_worker_boot_context_api_outsource_workers__id__boot_context_get"];
         put?: never;
@@ -3352,7 +3352,7 @@ export interface paths {
          *     - `chat_budget_chars`: Chat-block budget of the wake snapshot (resume_summary, and the estimate peek_resume_summary_size reports).
          *     - `step_note_cap_chars`: Max length of one step note, checked on write: a stored note over a lowered cap stays readable, but any write that leaves it over the cap is refused.
          *     - `doc_cap_chars_*`: Length cap per document type: `duty` (role definition), `insight`, `manual_sop` (task manual sop_md), `system_interaction` (System interaction), `boot_sequence` (Boot Sequence; one knob for both runtimes, each text measured on its own), `offboard` (Stop). A stored document over a lowered cap accepts only edits that shrink it.
-         *     - `display_language`: Cockpit language; "" resets it to unset.
+         *     - `display_language`: Cockpit language, and the language every member writes to the owner in from its next boot; "" resets it to unset.
          *     - `display_theme`: Cockpit theme: "" (unset), a built-in id (office, office-light, modern-office-desk-day / -dusk / -night), or an existing custom theme id.
          *     - `display_theme_schedule`: Replaces the time-of-day theme schedule wholesale. Each entry `{start: "HH:MM", theme}` shows `theme` from `start` (viewer-local) until the next entry's start, wrapping past midnight; themes as for display_theme. It overrides display_theme on screen without changing it. [] turns it off; null or omitted leaves it unchanged. Deleting a custom theme drops its entries, and the whole schedule if fewer than 2 remain.
          *     - `display_wide`: true lifts the centred ~1040px content column (the side gutters stay).
@@ -10230,7 +10230,7 @@ export interface components {
             codex_notice_round: number;
             /**
              * Display Language
-             * @description The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
+             * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), and a change reaches each member at its next boot (T-745). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
              * @default
              */
             display_language: string;
@@ -10517,7 +10517,7 @@ export interface components {
             codex_notice_round?: number | null;
             /**
              * Display Language
-             * @description The owner's cockpit language (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
+             * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in from its next boot (T-745) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
              */
             display_language?: string | null;
             /**
@@ -11528,7 +11528,7 @@ export interface components {
             updated_ts: number;
             /**
              * Lore
-             * @description The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# 傳承`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so it is read-only: read it, do not send it back. The type's accumulated experience lives here.
+             * @description The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# Lore`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so it is read-only: read it, do not send it back. The type's accumulated experience lives here.
              * @default
              */
             lore: string;
