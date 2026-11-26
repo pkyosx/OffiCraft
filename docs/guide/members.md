@@ -74,7 +74,7 @@ An **exclamation mark** next to the name means this member cannot use the AI mod
 - **usage limit reached**: the account's usage has run out. It recovers when the reset time comes.
 - **server error**, **model call failed**: an error on the side of the AI model service.
 
-While a member is offline, you can still leave a message in the chat box. The member reads it after coming online. For how the status is determined, see "How a member's status is determined" in [Architecture and how it works](architecture.md).
+While a member is offline, you can still leave a message in the chat box. The member reads it after coming online. For how the status is determined, see "How member status is determined" in [Architecture and how it works](architecture.md).
 
 ## Outsource
 
