@@ -481,7 +481,7 @@ func (s *apiServer) runUpgrade(manual bool) (version, exePath string, fail *upgr
 	available, _ := s.updateStatus()
 	if !available {
 		return "", "", upgradeFail(http.StatusConflict,
-			"no newer release is known — the running build is the latest published on GitHub (use 檢查更新 to re-check)")
+			"no newer release is known — the running build is the latest published on GitHub (use Check for updates to re-check)")
 	}
 	if !s.upgradeMu.TryLock() {
 		busy := upgradeFail(http.StatusConflict, "an upgrade is already in progress")

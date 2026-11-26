@@ -456,7 +456,7 @@ func decideUp(
 		dec := decisionNone(obs, st, "circuit open: respawn disabled")
 		dec.ReasonCode = spawnReasonCircuitOpen + ": too many failed starts in a row, so " +
 			"the server has stopped retrying this member for now — it will try again " +
-			"by itself; fix what is failing on its machine, or 停止 and 喚醒 to start over"
+			"by itself; fix what is failing on its machine, or Stop and Wake to start over"
 		dec.StartTimedOut = startTimedOut
 		return dec
 	}
@@ -525,7 +525,7 @@ func decideDown(
 	case accelerated && now < obs.StoppingSince+acceleratedGrace:
 		st.Phase = reconcilePhaseStopping
 		return decisionNone(obs, st,
-			"stopping: 加速停止 — within the grace the owner opened; collection is "+
+			"stopping: accelerated stop — within the grace the owner opened; collection is "+
 				"the agent's stopped report, or this deadline")
 	case accelerated:
 	case cfg.SoftOffboardGrace > 0:
@@ -552,7 +552,7 @@ func decideDown(
 		if firstDispatch {
 			reason = "robust stop: grace elapsed, still online"
 			if accelerated {
-				reason = "robust stop: 加速停止 grace elapsed, still online"
+				reason = "robust stop: accelerated stop grace elapsed, still online"
 			}
 		}
 		st.Phase = reconcilePhaseStopping
@@ -767,14 +767,14 @@ func (s *apiServer) wakeTimeoutReason(code string, cause wakeTimeoutCause, machi
 	case wakeTimeoutTargetForgotten:
 		return code + ": the start window elapsed with no session, and this server no " +
 			"longer has a record of which machine the START was sent to (the spawn " +
-			"ledger is in-memory and a server restart clears it) — use 更改 to place " +
+			"ledger is in-memory and a server restart clears it) — use Change to place " +
 			"it again"
 	}
 	runtime = NormalizeRuntime(runtime)
 	if runtime == RuntimeClaude && s.machineLacksClaudeButHasCodex(machine) {
 		return code + ": the START was dispatched to " + where + " but the agent never " +
 			"came online within the start window — that machine reports no Claude Code " +
-			"installed, so the agent cannot boot there. Fix any one: set its 執行環境 to " +
+			"installed, so the agent cannot boot there. Fix any one: set its AI runtime to " +
 			"Codex (that machine has it ready); or install Claude Code on that machine " +
 			"(warden log: ocwarden.out.log)"
 	}
@@ -813,9 +813,9 @@ func (s *apiServer) resolveEmptyRuntimeForPlacement(m *Member, warden string) {
 			"out there (a warden older than v0.5.211-beta.1 sends the same shape when it merely found "+
 			"no credential evidence). Declining to auto-resolve this member to codex, because "+
 			"persisting that choice is irreversible and signing Claude back in on that machine fixes "+
-			"the cause. Leaving 執行環境 unset (claude): the machine checks Claude's login again when "+
+			"the cause. Leaving the AI runtime unset (claude): the machine checks Claude's login again when "+
 			"the start arrives and refuses it there if Claude is still signed out. To choose "+
-			"deliberately instead: sign Claude in on that machine, or set this member's 執行環境 by "+
+			"deliberately instead: sign Claude in on that machine, or set this member's AI runtime by "+
 			"hand.", m.ID, warden)
 		return
 	}
@@ -1251,10 +1251,10 @@ func (s *apiServer) stampMemberPlacementBlocked(m *Member, now float64) {
 		// Names the pin on the re-read row, not the snapshot: a relocate landing mid-tick would
 		// otherwise be stamped with a complaint about the old machine.
 		reason := placementReasonNoMachine + ": no machine is selected for this member — " +
-			"choose one (改機器) before waking it; there is no automatic placement"
+			"choose one (Change machine) before waking it; there is no automatic placement"
 		if fresh.DesiredMachineID != "" {
 			reason = placementReasonUnavailable + ": machine '" + fresh.DesiredMachineID +
-				"' is not an active machine — choose another one (改機器); " +
+				"' is not an active machine — choose another one (Change machine); " +
 				"no other machine is substituted"
 		}
 		if fresh.LastOp == reconcileCmdStart && fresh.LastOpReason == reason {
@@ -1615,7 +1615,7 @@ func (s *apiServer) stampTokenExpiryWinddown(members []Member, now float64) {
 		if !s.persistRosterStamp(read, m, "recycle: token-expiry stamp") {
 			continue
 		}
-		reconcileLog("recycle: token-expiry 停止 for %s (token estimated to expire at %.0f, "+
+		reconcileLog("recycle: token-expiry stop for %s (token estimated to expire at %.0f, "+
 			"lead %.0fs)", m.ID, expiry, tokenExpiryLeadSecs)
 	}
 }

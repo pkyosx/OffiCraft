@@ -2,7 +2,7 @@ package main
 
 const seedMiraID = "mira"
 
-const seedServerSelfDisplay = "伺服器這一台"
+const seedServerSelfDisplay = "This server"
 
 func seedOutOfBox(d *DAL) error {
 	mira, err := d.GetMember(seedMiraID)

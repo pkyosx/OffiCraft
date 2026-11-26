@@ -428,14 +428,14 @@ func TestADecidedStopNoWardenTakesIsLoggedOnParkAndThenAtMostOncePerMinute(t *te
 					"robust stop "+tc.id+": no target warden reachable (targets [m-box]) — not sent, the tick re-decides it")),
 				"fail-closed": float64(strings.Count(logged, `target warden "m-box" NOT reachable`)),
 				"decision": float64(strings.Count(logged,
-					tc.id+": desired=offline command=none — robust stop: 加速停止 grace elapsed, still online")),
+					tc.id+": desired=offline command=none — robust stop: accelerated stop grace elapsed, still online")),
 			}), any(map[string]any{"park": 2, "fail-closed": 0, "decision": 6}))
 
 			reconcileTestOnline(t, api, "m-box", "")
 			logged = captureStderr(t, func() { tc.tick(api, due+71) })
 			wsWantWardenFrames(t, api, "m-box", wsStopFrame(tc.id))
 			apiWantValue(t, "the decision once the warden is back", any(float64(strings.Count(logged,
-				tc.id+": desired=offline command=stop — robust stop: 加速停止 grace elapsed, still online"))), any(1.0))
+				tc.id+": desired=offline command=stop — robust stop: accelerated stop grace elapsed, still online"))), any(1.0))
 		})
 	}
 }

@@ -489,15 +489,15 @@ func UnreadCounts(messages []ChatMessage, receipts []ChatRead, reader string) ma
 	return counts
 }
 
-const CustomRoleTemplateMD = `# 角色定義
+const CustomRoleTemplateMD = `# Role definition
 
-## 你是誰
+## Who you are
 
-（待填：這個角色的身分與定位——用一兩句話說明「你是誰」、在辦公室裡站什麼位置、面對 owner 與其他成員時以什麼視角說話。）
+(To fill in: this role's identity and position — in one or two sentences, say "who you are", where you stand in the office, and from what point of view you speak to the owner and the other members.)
 
-## 你做什麼
+## What you do
 
-（待填：這個角色的職責與工作方式——負責哪些事、怎麼做事、輸出長什麼樣、與 owner 及其他成員怎麼協作、什麼事不歸你管。）
+(To fill in: this role's duties and way of working — what it is responsible for, how it works, what its output looks like, how it works with the owner and the other members, and what is not its business.)
 `
 
 // FoldedRoleDef.IsSeed means a file seed exists: such a role is resettable, not

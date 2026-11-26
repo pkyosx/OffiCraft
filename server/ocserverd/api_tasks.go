@@ -526,12 +526,12 @@ func labelWithID(label, id string) string {
 	if label == id {
 		return label
 	}
-	return label + "（" + id + "）"
+	return label + " (" + id + ")"
 }
 
 // readyForDoneReceiptNote is wire (ready_for_done_note) and owner-fixed wording;
 // it is deliberately a constant, not text read from a boot doc.
-const readyForDoneReceiptNote = "這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。請依系統的收尾指示完成收尾後再結案。"
+const readyForDoneReceiptNote = "This report completed every step of the task, so the task now stands ready to close (ready_for_done). Finish the close-out by following the system's close-out instructions, then close the task."
 
 func readyForDoneNote(arrived bool) string {
 	if arrived {
@@ -1708,7 +1708,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	case TaskExecutorStaff:
 		if !caller.isAdminCapable() {
 			writeError(w, http.StatusForbidden,
-				"only the owner or an admin agent may reassign a task to another member; 發包 to an outsource worker instead")
+				"only the owner or an admin agent may reassign a task to another member; hand it to an outsource worker instead")
 			return
 		}
 		memberID := trimmedOrEmpty(body.Target.MemberId)
@@ -1792,7 +1792,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		}
 		if gate.Decision == gateDeny {
 			writeError(w, http.StatusForbidden,
-				"not permitted to 發包 to an outsource worker: "+gate.Reason)
+				"not permitted to hand a task to an outsource worker: "+gate.Reason)
 			return
 		}
 	}
@@ -2055,7 +2055,7 @@ func (s *apiServer) executorLabel(kind, id string) string {
 		}
 	case TaskExecutorOutsource:
 		if w, err := s.dal.GetOutsourceWorker(id); err == nil && w != nil && w.Codename != "" {
-			return "外包 " + w.Codename
+			return "Outsource " + w.Codename
 		}
 	}
 	return id
@@ -2374,7 +2374,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 	if err != nil {
 		if errors.Is(err, errOutsourceGateDenied) {
 			writeError(w, http.StatusForbidden,
-				"not permitted to 發包 to an outsource worker: "+gateDenied)
+				"not permitted to hand a task to an outsource worker: "+gateDenied)
 			return
 		}
 		internalError(w, err)

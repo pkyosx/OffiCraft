@@ -1083,7 +1083,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"model_call_warnings":        []any{},
 			},
 			map[string]any{
-				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
+				"id": "m-server-self", "avatar_url": "", "name": "This server",
 				"kind": "warden", "role_key": "", "role_name": "", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "medium",
@@ -1153,7 +1153,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"model_call_warnings":        []any{},
 			},
 			map[string]any{
-				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
+				"id": "m-server-self", "avatar_url": "", "name": "This server",
 				"kind": "warden", "role_key": "", "role_name": "", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "",
@@ -1204,7 +1204,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"model_call_warnings":        []any{},
 			},
 			map[string]any{
-				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
+				"id": "m-server-self", "avatar_url": "", "name": "This server",
 				"kind": "warden", "role_key": "", "role_name": "", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "medium",
@@ -1728,7 +1728,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 		woken := func(over map[string]any) map[string]any {
 			row := map[string]any{
 				"last_op": "start", "last_op_at": apiAnyNumber, "last_op_ok": false,
-				"last_op_reason": "warden_unreachable: 喚醒 was recorded, but nothing has been dispatched yet — the machine's warden did not take the start. It will be retried; if it stays here, check that machine",
+				"last_op_reason": "warden_unreachable: Wake was recorded, but nothing has been dispatched yet — the machine's warden did not take the start. It will be retried; if it stays here, check that machine",
 			}
 			for k, v := range over {
 				row[k] = v
@@ -1975,7 +1975,7 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
 			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the runtime/model was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		})
 
 		status, data = apiJSON(t, h, "POST", "/api/members/runner/activate", owner, `{}`)
@@ -2541,7 +2541,7 @@ func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
 		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
 			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the relocate was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		})
 
 		status, data = apiJSON(t, h, "POST", "/api/members/runner/activate", owner, `{}`)
@@ -2604,7 +2604,7 @@ func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
 		apiTestWantLastOp(t, h, owner, "mira", map[string]any{
 			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the relocate was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		})
 	})
 
@@ -3487,8 +3487,8 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 has nothing to escalate — this member was already force-stopped "+
-				"(強制停止): its session was cut off and no wind-down is open")
+			"Accelerated stop has nothing to escalate — this member was already force-stopped "+
+				"(Force stop): its session was cut off and no wind-down is open")
 		dashboard.wantFrames()
 		m, err := d.GetMember("kip")
 		if err != nil || m == nil {
@@ -3512,7 +3512,7 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 requires a live session — there is nothing to accelerate on a "+
+			"Accelerated stop requires a live session — there is nothing to accelerate on a "+
 				"member that is not connected")
 		dashboard.wantFrames()
 		m, err := d.GetMember("kip")
@@ -3534,8 +3534,8 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 escalates a wind-down that is already open — this member has not "+
-				"been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first")
+			"Accelerated stop escalates a wind-down that is already open — this member has not "+
+				"been asked to stop. Press Stop (deactivate) or Refocus first")
 		dashboard.wantFrames()
 		self.wantFrames()
 		m, err := d.GetMember("kip")
@@ -3628,7 +3628,7 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		}
 		apiWantError(t, data, "conflict",
 			"refocus requires the member to be online; this member is stopping or "+
-				"stopped — press 喚醒 to bring it back")
+				"stopped — press Wake to bring it back")
 		wsWantWardenFrames(t, api, "m-box")
 		dashboard.wantFrames()
 		apiTestWantEqual(t, "row after the refused refocus", apiTestMemberRow(t, d, "runner"), before)
@@ -3790,7 +3790,7 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		}
 		apiWantError(t, data, "conflict",
 			"refocus requires the member to be online; this member is stopping or "+
-				"stopped — press 喚醒 to bring it back")
+				"stopped — press Wake to bring it back")
 		dashboard.wantFrames()
 		apiTestWantEqual(t, "row after the refused refocus", apiTestMemberRow(t, d, "kip"), before)
 	})
@@ -3810,7 +3810,7 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		}
 		apiWantError(t, data, "conflict",
 			"refocus requires the member to be online; this member is stopping or "+
-				"stopped — press 喚醒 to bring it back")
+				"stopped — press Wake to bring it back")
 		dashboard.wantFrames()
 		self.wantFrames()
 		apiTestWantEqual(t, "row after the refused refocus", apiTestMemberRow(t, d, "kip"), before)
@@ -3835,8 +3835,8 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus is 停止 and this member is already further along the "+
-				"wind-down ladder (下線 → 加速 → 強制); a later stage is never "+
+			"refocus is a Stop and this member is already further along the "+
+				"wind-down ladder (Stop → Accelerated stop → Force stop); a later stage is never "+
 				"replaced by an earlier one")
 		dashboard.wantFrames()
 		m, err := d.GetMember("kip")
@@ -4994,7 +4994,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			// unreachable-warden receipt on the row.
 			receipt: map[string]any{
 				"last_op": "start", "at": apiAnyNumber,
-				"reason": "warden_unreachable: 喚醒 was recorded, but nothing has been " +
+				"reason": "warden_unreachable: Wake was recorded, but nothing has been " +
 					"dispatched yet — the machine's warden did not take the start. It will " +
 					"be retried; if it stays here, check that machine",
 			},
@@ -5126,7 +5126,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			},
 			receipt: map[string]any{
 				"last_op": "start", "at": apiAnyNumber,
-				"reason": "warden_unreachable: 喚醒 was recorded, but nothing has been " +
+				"reason": "warden_unreachable: Wake was recorded, but nothing has been " +
 					"dispatched yet — the machine's warden did not take the start. It will " +
 					"be retried; if it stays here, check that machine",
 			},
@@ -5702,8 +5702,8 @@ func TestHandleRestartSelfApiSelfRefocusPost(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"restart_self is 停止 and you are already further along the "+
-				"wind-down ladder (下線 → 加速 → 強制); finish the close-out you "+
+			"restart_self is a Stop and you are already further along the "+
+				"wind-down ladder (Stop → Accelerated stop → Force stop); finish the close-out you "+
 				"were given instead")
 		dashboard.wantFrames()
 		m, err := d.GetMember("kip")

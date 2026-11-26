@@ -243,7 +243,7 @@ func restartingNote(op string) string {
 
 func heldDownNote(op string) string {
 	return spawnReasonHeldDown + ": the " + op + " was saved; this member stays stopped — " +
-		"press 喚醒 when you want it to run"
+		"press Wake when you want it to run"
 }
 
 const restartAfterStopSpentNote = ownerOpReasonRestarting + ": the stop has completed, so " +
@@ -325,12 +325,12 @@ func applyRefocusVerb(row ownerOpRow, snapshot Member, live liveSession, now flo
 
 func refocusWantedOfflineRefusalMsg(noun string) string {
 	return "refocus requires the " + noun + " to be online; this " + noun +
-		" is stopping or stopped — press 喚醒 to bring it back"
+		" is stopping or stopped — press Wake to bring it back"
 }
 
 func refocusLadderRefusalMsg(noun string) string {
-	return "refocus is 停止 and this " + noun + " is already further along the " +
-		"wind-down ladder (下線 → 加速 → 強制); a later stage is never " +
+	return "refocus is a Stop and this " + noun + " is already further along the " +
+		"wind-down ladder (Stop → Accelerated stop → Force stop); a later stage is never " +
 		"replaced by an earlier one"
 }
 
@@ -417,7 +417,7 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcile
 	}
 	if !armRefocusEpoch(m, op, nowSecs()) {
 		reconcileLog("recycle: %s %s — wind-down NOT re-opened: member is already "+
-			"further along the ladder (下線 → 加速 → 強制)", op, m.ID)
+			"further along the ladder (Stop → Accelerated stop → Force stop)", op, m.ID)
 		return false
 	}
 	if grace, clocked := recycleGraceFor(op, cfg); clocked {

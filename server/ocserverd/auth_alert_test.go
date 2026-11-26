@@ -103,7 +103,7 @@ func TestDeliverPasswordExposedAlert(t *testing.T) {
 				"from_name":          "",
 				"to":                 "mira",
 				"to_name":            "",
-				"body":               "🔴 登入警訊：有人用**正確的密碼**登入這台伺服器，但第二階段驗證碼是錯的（最近這段時間共 3 次）。\n\n這代表密碼本身已經在別人手上——第二因素目前擋住了他，但密碼不會自己變回安全。也有可能是老闆自己換了手機、驗證器還沒重新綁定，兩種情況看起來一模一樣，所以請先問，不要直接下結論。\n\n請提醒老闆：確認這幾次是不是他本人，如果不是，請立刻更換密碼（個人選單 › 更改密碼）。在他換掉之前，這則提醒每 15 分鐘最多再出現一次，次數會累加在同一則裡，所以看到數字變大就是還在持續。",
+				"body":               "🔴 Sign-in alert: someone signed in to this server with the **correct password**, but the second-step verification code was wrong (3 times in the recent period).\n\nThis means the password itself is in someone else's hands — the second factor is stopping them for now, but the password will not become safe again on its own. It is also possible that the owner changed phones and has not re-linked the authenticator yet; the two cases look exactly the same, so ask first and do not jump to a conclusion.\n\nPlease remind the owner: confirm whether these attempts were him, and if they were not, change the password right away (personal menu › Change password). Until he changes it, this alert appears again at most once every 15 minutes, with the count accumulating in the same message, so a growing number means it is still happening.",
 				"body_omitted_chars": 0,
 				"ts":                 apiAnyNumber,
 				"ts_display":         "",
@@ -133,13 +133,13 @@ func TestDeliverPasswordExposedAlert(t *testing.T) {
 
 func TestPasswordExposedAlertBody(t *testing.T) {
 	t.Run("one refused attempt reads as one attempt", func(t *testing.T) {
-		if got := passwordExposedAlertBody(1); got != "🔴 登入警訊：有人用**正確的密碼**登入這台伺服器，但第二階段驗證碼是錯的（最近這段時間共 1 次）。\n\n這代表密碼本身已經在別人手上——第二因素目前擋住了他，但密碼不會自己變回安全。也有可能是老闆自己換了手機、驗證器還沒重新綁定，兩種情況看起來一模一樣，所以請先問，不要直接下結論。\n\n請提醒老闆：確認這幾次是不是他本人，如果不是，請立刻更換密碼（個人選單 › 更改密碼）。在他換掉之前，這則提醒每 15 分鐘最多再出現一次，次數會累加在同一則裡，所以看到數字變大就是還在持續。" {
+		if got := passwordExposedAlertBody(1); got != "🔴 Sign-in alert: someone signed in to this server with the **correct password**, but the second-step verification code was wrong (1 time in the recent period).\n\nThis means the password itself is in someone else's hands — the second factor is stopping them for now, but the password will not become safe again on its own. It is also possible that the owner changed phones and has not re-linked the authenticator yet; the two cases look exactly the same, so ask first and do not jump to a conclusion.\n\nPlease remind the owner: confirm whether these attempts were him, and if they were not, change the password right away (personal menu › Change password). Until he changes it, this alert appears again at most once every 15 minutes, with the count accumulating in the same message, so a growing number means it is still happening." {
 			t.Fatalf("got %q", got)
 		}
 	})
 
 	t.Run("several refused attempts read as that count", func(t *testing.T) {
-		if got := passwordExposedAlertBody(3); got != "🔴 登入警訊：有人用**正確的密碼**登入這台伺服器，但第二階段驗證碼是錯的（最近這段時間共 3 次）。\n\n這代表密碼本身已經在別人手上——第二因素目前擋住了他，但密碼不會自己變回安全。也有可能是老闆自己換了手機、驗證器還沒重新綁定，兩種情況看起來一模一樣，所以請先問，不要直接下結論。\n\n請提醒老闆：確認這幾次是不是他本人，如果不是，請立刻更換密碼（個人選單 › 更改密碼）。在他換掉之前，這則提醒每 15 分鐘最多再出現一次，次數會累加在同一則裡，所以看到數字變大就是還在持續。" {
+		if got := passwordExposedAlertBody(3); got != "🔴 Sign-in alert: someone signed in to this server with the **correct password**, but the second-step verification code was wrong (3 times in the recent period).\n\nThis means the password itself is in someone else's hands — the second factor is stopping them for now, but the password will not become safe again on its own. It is also possible that the owner changed phones and has not re-linked the authenticator yet; the two cases look exactly the same, so ask first and do not jump to a conclusion.\n\nPlease remind the owner: confirm whether these attempts were him, and if they were not, change the password right away (personal menu › Change password). Until he changes it, this alert appears again at most once every 15 minutes, with the count accumulating in the same message, so a growing number means it is still happening." {
 			t.Fatalf("got %q", got)
 		}
 	})

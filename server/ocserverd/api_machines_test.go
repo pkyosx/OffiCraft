@@ -1065,7 +1065,7 @@ func TestHandleListMachinesApiMachinesGet(t *testing.T) {
 func apiTestServerSelfMachineRow(online bool) map[string]any {
 	return map[string]any{
 		"machine_id":           "m-server-self",
-		"display_name":         "伺服器這一台",
+		"display_name":         "This server",
 		"online":               online,
 		"is_self":              true,
 		"bin_status":           nil,
@@ -1970,7 +1970,7 @@ func TestHandleBootstrapHereApiMachinesMachineIdBootstrapHerePost(t *testing.T) 
 				"deleted": false,
 				"payload": map[string]any{
 					"id":            ServerSelfHost,
-					"name":          "伺服器這一台",
+					"name":          "This server",
 					"status":        "active",
 					"desired_state": "offline",
 					"owner_id":      "owner",
@@ -2868,7 +2868,7 @@ func TestHandleUpdateMachineApiMachinesMachineIdPatch(t *testing.T) {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", "display_name is required")
-		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "伺服器這一台")
+		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "This server")
 	})
 
 	t.Run("a display name that is only whitespace answers 422 and leaves the roster name alone", func(t *testing.T) {
@@ -2879,7 +2879,7 @@ func TestHandleUpdateMachineApiMachinesMachineIdPatch(t *testing.T) {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", "display_name cannot be blank")
-		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "伺服器這一台")
+		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "This server")
 	})
 
 	t.Run("a body carrying a field the shape does not declare answers 422 and leaves the roster name alone", func(t *testing.T) {
@@ -2890,7 +2890,7 @@ func TestHandleUpdateMachineApiMachinesMachineIdPatch(t *testing.T) {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", `invalid request body: json: unknown field "note"`)
-		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "伺服器這一台")
+		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "This server")
 	})
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {
@@ -2901,7 +2901,7 @@ func TestHandleUpdateMachineApiMachinesMachineIdPatch(t *testing.T) {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
-		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "伺服器這一台")
+		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "This server")
 	})
 }
 

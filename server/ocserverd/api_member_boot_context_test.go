@@ -119,7 +119,7 @@ func TestHandleGetMemberBootContextApiMembersMemberIdBootContextGet(t *testing.T
 			}
 			everyoneAt := strings.Index(context, memberPreviewEveryoneLore)
 			ownAt := strings.Index(context, "OWN LORE OF m-writer")
-			if !strings.Contains(context, "\n\n# 傳承\n\n") || everyoneAt < 0 || ownAt < everyoneAt {
+			if !strings.Contains(context, "\n\n# Lore\n\n") || everyoneAt < 0 || ownAt < everyoneAt {
 				t.Fatalf("want a 傳承 block with the everyone entry before the member's own: %s", context)
 			}
 			if !strings.HasSuffix(context, "\n\n"+tc.wantBoot+"\n") || strings.Contains(context, tc.otherBoot) {

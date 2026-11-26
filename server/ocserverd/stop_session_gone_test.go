@@ -115,7 +115,7 @@ func wantStopGateRefuses(t *testing.T, h http.Handler, id, tok string) {
 	}
 	apiWantError(t, data, "conflict",
 		"member '"+id+"' has a stop in effect (desired_state=offline) — SSE refused "+
-			"(a stopped member must not re-project online; 喚醒 it to reconnect)")
+			"(a stopped member must not re-project online; Wake it to reconnect)")
 }
 
 func TestAStoppedStaffMemberWhoseSessionDroppedIsCollectedAfterTheConfirmWindow(t *testing.T) {
