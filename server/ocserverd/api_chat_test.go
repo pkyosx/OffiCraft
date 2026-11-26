@@ -3814,8 +3814,8 @@ func TestResumeFloorParts(t *testing.T) {
 		}
 		apiWantValue(t, "roster", apiTestJSONOf(t, roster), any(apiTestSeedRoster()))
 		apiWantValue(t, "machines", apiTestJSONOf(t, machines), any(apiTestSeedMachines()))
-		if rosterSize != 575 || machinesSize != 24 {
-			t.Fatalf("sizes = %d, %d, want 575, 24", rosterSize, machinesSize)
+		if rosterSize != 576 || machinesSize != 24 {
+			t.Fatalf("sizes = %d, %d, want 576, 24", rosterSize, machinesSize)
 		}
 		if !reflect.DeepEqual(names, map[string]string{
 			"kip": "Kip", "mira": "Mira", "m-server-self": "This server",
@@ -3835,8 +3835,8 @@ func TestResumeFloorParts(t *testing.T) {
 			t.Fatalf("resumeFloorParts: %v", err)
 		}
 		apiWantValue(t, "roster", apiTestJSONOf(t, roster), []any{apiTestSeedRoster()[1]})
-		if rosterSize != 555 {
-			t.Fatalf("roster_chars = %d, want 555", rosterSize)
+		if rosterSize != 556 {
+			t.Fatalf("roster_chars = %d, want 556", rosterSize)
 		}
 		if names["kip"] != "Kip" {
 			t.Fatalf("names = %#v, want the dismissed colleague still named", names)
@@ -4076,7 +4076,7 @@ func TestHandlePeekResumeSummarySizeApiResumeSummarySizeGet(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"identity":              "owner",
 			"overview":              apiTestResumeOverview(0, 26),
-			"estimated_total_chars": 625,
+			"estimated_total_chars": 626,
 			"note":                  apiTestPeekNote,
 		})
 		dashboard.wantFrames()
@@ -4093,7 +4093,7 @@ func TestHandlePeekResumeSummarySizeApiResumeSummarySizeGet(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"identity":              "owner",
 			"overview":              apiTestResumeOverview(1, 64),
-			"estimated_total_chars": 663,
+			"estimated_total_chars": 664,
 			"note":                  apiTestPeekNote,
 		})
 	})
@@ -4429,7 +4429,7 @@ func apiTestResumeOverview(chatCount, chatChars int) map[string]any {
 		"tasks_detail_chars":           0,
 		"cards_waiting":                0,
 		"cards_answered_recent":        0,
-		"roster_chars":                 575,
+		"roster_chars":                 576,
 		"machines_chars":               24,
 		"steps_on_answered_card":       0,
 		"steps_on_answered_card_chars": 0,
@@ -4445,8 +4445,8 @@ func apiWantWallClock(t *testing.T, path, got string) {
 	}
 }
 
-const apiTestResumeNote = "This is a **boot snapshot**, not the complete data.\nChat: only the most recent exchanges, collected by **characters** (not by message count) until no more fit, ordered oldest to newest. Each message carries the sender's and recipient's names and a time with its time zone (read it against `generated_at` at the top); a reply card, if any, is attached.\nThere are two kinds of \"incomplete\", and they mean different things — do not mix them up:\n· `body_omitted_chars` > 0 = **this message is here, only folded short**; the number is how many characters were folded away, and this is a certain fact (handoffs you wrote to yourself, and your exchanges with the owner — both what he said and what you said to him — are never folded). To see the full text, put that message's `id` in `get_chat`'s `ids`.\n· `chat_earlier_omitted` = **whole messages may be missing**. This is \"may\", not \"are\": that thread was cut at a read or character limit and nobody has looked past the cut, so it is marked even when nothing older actually exists. It carries its own instructions for fetching them.\nTasks: compact rows only, no plan details. In them, `answered_card_steps` = **this step is sitting on a card the owner has already answered, but nobody has picked the answer up yet** (`overview`'s `steps_on_answered_card` = how many steps are stuck this way **among the rows this snapshot carries**, not the total across all your tasks: the task rows carry only the few most recently updated tasks, so when you hold many tasks, older ones stuck this way neither appear here nor are counted — 0 does not mean none; to be sure, use `list_tasks` / `list_reply_cards`) — that does not mean the step is done; his answer may be a rejection or a request to redo the work, so read the answer in full with `get_reply_card` before deciding how to proceed. Roster: everyone in the studio with their status, machine and duties (long text is truncated; `…` marks the cut). Machines: the machine list, and which one you are on.\nLook at `overview`'s counts and sizes first, then decide what to pull: a single task with `get_task` (hand one with a very large `detail_chars` to a sub-agent to pull), your cards with `list_reply_cards` (remember to pass `limit`), and more chat or tasks with `list_chat` / `list_tasks`."
+const apiTestResumeNote = "This is a **boot snapshot**, not the complete data.\nChat: only the most recent exchanges, collected by **characters** (not by message count) until no more fit, ordered oldest to newest. Each message carries the sender's and recipient's names and a time with its time zone (read it against `generated_at` at the top); a reply card, if any, is attached.\nThere are two kinds of \"incomplete\", and they mean different things — do not mix them up:\n· `body_omitted_chars` > 0 = **this message is here, only folded short**; the number is how many characters were folded away, and this is a certain fact (handoffs you wrote to yourself, and your exchanges with the owner — both what they said and what you said to them — are never folded). To see the full text, put that message's `id` in `get_chat`'s `ids`.\n· `chat_earlier_omitted` = **whole messages may be missing**. This is \"may\", not \"are\": that thread was cut at a read or character limit and nobody has looked past the cut, so it is marked even when nothing older actually exists. It carries its own instructions for fetching them.\nTasks: compact rows only, no plan details. In them, `answered_card_steps` = **this step is sitting on a card the owner has already answered, but nobody has picked the answer up yet** (`overview`'s `steps_on_answered_card` = how many steps are stuck this way **among the rows this snapshot carries**, not the total across all your tasks: the task rows carry only the few most recently updated tasks, so when you hold many tasks, older ones stuck this way neither appear here nor are counted — 0 does not mean none; to be sure, use `list_tasks` / `list_reply_cards`) — that does not mean the step is done; their answer may be a rejection or a request to redo the work, so read the answer in full with `get_reply_card` before deciding how to proceed. Roster: everyone in the studio with their status, machine and duties (long text is truncated; `…` marks the cut). Machines: the machine list, and which one you are on.\nLook at `overview`'s counts and sizes first, then decide what to pull: a single task with `get_task` (hand one with a very large `detail_chars` to a sub-agent to pull), your cards with `list_reply_cards` (remember to pass `limit`), and more chat or tasks with `list_chat` / `list_tasks`."
 
 const apiTestPeekNote = "Size-only preview of resume_summary — counts/sizes ONLY, no chat or task content. estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the answered-card pointers its task rows carry. steps_on_answered_card > 0 means that many steps AMONG THE FEW MOST-RECENTLY-UPDATED TASKS the snapshot carries — not across all your tasks — are sitting on a reply card the owner ALREADY answered while the step is still in_progress, and nobody has acted on the answer yet; pull resume_summary (or the cards) and read it before anything else. It is a FLOOR, not a total: the task block is capped at the most recently updated tasks, so when you hold more tasks than that cap, an older task stuck on an answered card is not counted here and 0 does not prove there is none — use list_tasks / list_reply_cards to be sure. So it is what pulling the snapshot actually costs. Use it to decide: if small (rule of thumb < 20000 chars, ≈ 5k tokens) call resume_summary directly in your main session; if large, spawn a cheap sub-agent (e.g. haiku) to call resume_summary and return a compressed digest, so the full payload never burns your own context."
 
-const apiTestSeedAssistantDuty = "The Owner's assistant and the studio's default point of contact.\n\n- **Not sure whom to ask**: come to me first; I will assess it and arrange the follow-up.\n- **How OffiCraft works**: how to use it, what the rules are, where an operation lives — you can ask me about any of it.\n- **Operations you cannot perform**: my permissions are broader than a regular member's; within my permissions I can perform them on your behalf. For anything only the Owner can decide, I will organize it and open a card that goes in front of him."
+const apiTestSeedAssistantDuty = "The Owner's assistant and the studio's default point of contact.\n\n- **Not sure whom to ask**: come to me first; I will assess it and arrange the follow-up.\n- **How OffiCraft works**: how to use it, what the rules are, where an operation lives — you can ask me about any of it.\n- **Operations you cannot perform**: my permissions are broader than a regular member's; within my permissions I can perform them on your behalf. For anything only the Owner can decide, I will organize it and open a card that goes in front of them."

@@ -95,8 +95,8 @@ func passwordExposedAlertBody(count int) string {
 		" (" + attempts + " in the recent period).\n\n" +
 		"This means the password itself is in someone else's hands — the second factor is stopping them for now, but the password will not become safe again on its own. " +
 		"It is also possible that the owner changed phones and has not re-linked the authenticator yet; the two cases look exactly the same, so ask first and do not jump to a conclusion.\n\n" +
-		"Please remind the owner: confirm whether these attempts were him, and if they were not, change the password right away" +
-		" (personal menu › Change password). Until he changes it, this alert appears again at most once every " +
+		"Please remind the owner: confirm whether these attempts were theirs, and if they were not, change the password right away" +
+		" (personal menu › Change password). Until they change it, this alert appears again at most once every " +
 		strconv.Itoa(int(authAlertInterval.Minutes())) + " minutes, " +
 		"with the count accumulating in the same message, so a growing number means it is still happening."
 }
