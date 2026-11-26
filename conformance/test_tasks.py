@@ -1342,7 +1342,7 @@ def test_builtin_manual_is_listed_resettable_and_undeletable(
     assert r.status_code == 200, r.text
     assert (r.json()["is_seed"], r.json()["is_default"]) == (True, True), r.json()
     manual = client.get(f"/api/task-manuals/{builtin}", headers=h).json()
-    assert manual["purpose"] == "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。", manual
+    assert manual["purpose"] == "Create a new task manual, or adjust an existing task manual's content and assigned member.", manual
     assert len(manual["sop_md"]) == 12335, manual["sop_md"][:80]
     assert hashlib.sha256(manual["sop_md"].encode()).hexdigest() == (
         _BUILTIN_TASK_MANUAL_DESIGN_SOP_SHA256), manual["sop_md"][:80]

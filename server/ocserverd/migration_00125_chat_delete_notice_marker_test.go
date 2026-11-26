@@ -25,6 +25,15 @@ func openAt124(t *testing.T) *sql.DB {
 	return db
 }
 
+// legacyDeleteNoticeBody is the notice text servers wrote before 00125 (the
+// rows this migration backfills). It is pinned here rather than taken from
+// chatDeleteNoticeBody, which now sends the English wording and already sets
+// the marker itself.
+func legacyDeleteNoticeBody(id string) string {
+	return "Owner 刪除了訊息 #" + id + "，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=" +
+		id + " 讀回。"
+}
+
 func TestMigration00125(t *testing.T) {
 	recalledBody := "Owner 收回了訊息 #c-gone，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=c-gone 讀回。"
 	seed := func(t *testing.T, db *sql.DB) {
@@ -35,16 +44,16 @@ func TestMigration00125(t *testing.T) {
 		}{
 			{"c-gone", "owner", "打錯了", `{}`, 10},
 			{"c-kept", "owner", "還在", `{}`, 0},
-			{"c-n1", "system", chatDeleteNoticeBody("c-gone"), `{"reply_to":"c-gone"}`, 0},
+			{"c-n1", "system", legacyDeleteNoticeBody("c-gone"), `{"reply_to":"c-gone"}`, 0},
 			{"c-n2", "system", recalledBody, `{"reply_to":"c-gone"}`, 0},
-			{"c-x1", "system", chatDeleteNoticeBody("c-kept"), `{"reply_to":"c-kept"}`, 0},
-			{"c-x2", "mira", chatDeleteNoticeBody("c-gone"), `{"reply_to":"c-gone"}`, 0},
-			{"c-x3", "system", chatDeleteNoticeBody("c-gone") + "!", `{"reply_to":"c-gone"}`, 0},
-			{"c-x4", "system", chatDeleteNoticeBody("c-gone"), `{this is not json`, 0},
-			{"c-x5", "system", chatDeleteNoticeBody("c-gone"), `null`, 0},
-			{"c-x6", "system", chatDeleteNoticeBody("c-gone"), `{}`, 0},
-			{"c-x7", "system", chatDeleteNoticeBody("c-gone"), `{"reply_to":7}`, 0},
-			{"c-x8", "system", chatDeleteNoticeBody("c-gone"),
+			{"c-x1", "system", legacyDeleteNoticeBody("c-kept"), `{"reply_to":"c-kept"}`, 0},
+			{"c-x2", "mira", legacyDeleteNoticeBody("c-gone"), `{"reply_to":"c-gone"}`, 0},
+			{"c-x3", "system", legacyDeleteNoticeBody("c-gone") + "!", `{"reply_to":"c-gone"}`, 0},
+			{"c-x4", "system", legacyDeleteNoticeBody("c-gone"), `{this is not json`, 0},
+			{"c-x5", "system", legacyDeleteNoticeBody("c-gone"), `null`, 0},
+			{"c-x6", "system", legacyDeleteNoticeBody("c-gone"), `{}`, 0},
+			{"c-x7", "system", legacyDeleteNoticeBody("c-gone"), `{"reply_to":7}`, 0},
+			{"c-x8", "system", legacyDeleteNoticeBody("c-gone"),
 				`{"reply_to":"c-gone","delete_notice":{"message_id":"c-other"}}`, 0},
 		} {
 			if _, err := db.Exec(`INSERT INTO chat_message (id, sender, recipient, body, ts, meta, deleted_ts)

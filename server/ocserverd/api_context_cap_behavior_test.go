@@ -400,13 +400,14 @@ func TestListViewOmitsTheTextButNotItsSize(t *testing.T) {
 	for i, m := range list {
 		gotKeys[i] = m.TypeKey
 	}
-	if want := []string{"tm-sized", "builtin-task-manual-design", "builtin-role-design", "builtin-remote-access"}; !reflect.DeepEqual(gotKeys, want) {
+	if want := []string{"builtin-remote-access", "builtin-role-design", "builtin-task-manual-design", "tm-sized"}; !reflect.DeepEqual(gotKeys, want) {
 		t.Fatalf("listed type keys = %v, want %v", gotKeys, want)
 	}
-	got := list[0]
+	// tm-sized sorts last: "sized" comes after the built-ins' English names.
+	got := list[3]
 	// The narrowing still happened — otherwise this test would pass on the
 	// full projection and prove nothing about the listing.
-	if _, present := listManualRows(t, s)[0]["sop_md"]; present {
+	if _, present := listManualRows(t, s)[3]["sop_md"]; present {
 		t.Fatalf("listing must still omit %q", "sop_md")
 	}
 	if got.SopMDChars != utf8.RuneCountInString(sop) {
