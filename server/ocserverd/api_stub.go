@@ -272,7 +272,10 @@ type apiServer struct {
 	upgradeMu txguard.Mutex
 
 	upgradeExeOverride string
-	upgradeRestart     func(exePath string)
+	// upgradeExecutable is a test seam (nil in production → os.Executable).
+	upgradeExecutable func() (string, error)
+	upgradeRestart    func(exePath string, env []string)
+	autoUpdateGate    autoUpdateGate
 	// stationShuttingDown: a peer cancellation and a station shutdown both
 	// surface as request-context cancellation, so it must be set at the server
 	// boundary BEFORE that context is cancelled.

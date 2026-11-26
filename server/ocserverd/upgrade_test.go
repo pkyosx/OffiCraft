@@ -1121,13 +1121,13 @@ func TestExecuteUpgrade(t *testing.T) {
 		}
 		api := &apiServer{releaseSiteBase: srv.URL, releasePlatform: upgradeTestReleasePlatform, upgradeExeOverride: exe}
 
-		version, fail := api.executeUpgrade()
+		version, swapped, fail := api.executeUpgrade()
 
 		if fail != nil {
 			t.Fatalf("want no failure, got %d %q", fail.status, fail.message)
 		}
-		if version != "v1.2.3" {
-			t.Fatalf("version: %q", version)
+		if version != "v1.2.3" || swapped != exe {
+			t.Fatalf("result: version=%q swapped=%q", version, swapped)
 		}
 		newBinary, err := os.ReadFile(exe)
 		if err != nil {
@@ -1173,9 +1173,9 @@ func TestExecuteUpgrade(t *testing.T) {
 			}
 			api := &apiServer{releaseSiteBase: srv.URL, releasePlatform: upgradeTestReleasePlatform, upgradeExeOverride: exe}
 
-			version, fail := api.executeUpgrade()
+			version, swapped, fail := api.executeUpgrade()
 
-			if version != "" {
+			if version != "" || swapped != "" {
 				t.Fatalf("version: %q", version)
 			}
 			if fail == nil || fail.status != http.StatusBadGateway || fail.Error() != tc.message {
@@ -1199,9 +1199,9 @@ func TestExecuteUpgrade(t *testing.T) {
 		}
 		api := &apiServer{releaseSiteBase: srv.URL, releasePlatform: upgradeTestReleasePlatform, upgradeExeOverride: exe}
 
-		version, fail := api.executeUpgrade()
+		version, swapped, fail := api.executeUpgrade()
 
-		if version != "" {
+		if version != "" || swapped != "" {
 			t.Fatalf("version: %q", version)
 		}
 		if fail == nil || fail.status != http.StatusConflict || fail.Error() != "GitHub's current latest (v0.0.0) is not newer than the running build (0.0.0) — nothing newer to install" {
@@ -1215,7 +1215,8 @@ func TestExecuteUpgrade(t *testing.T) {
 
 func TestRestartIntoUpgradedBinary(t *testing.T) {
 	if os.Getenv("UPGRADE_RESTART_HELPER") == "1" {
-		restartIntoUpgradedBinary(os.Getenv("UPGRADE_RESTART_TARGET"))
+		restartIntoUpgradedBinary(os.Getenv("UPGRADE_RESTART_TARGET"),
+			append(os.Environ(), "UPGRADE_RESTART_MARKER="+os.Getenv("UPGRADE_RESTART_HELPER_MARKER")))
 		return
 	}
 
@@ -1229,7 +1230,9 @@ func TestRestartIntoUpgradedBinary(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"UPGRADE_RESTART_HELPER=1",
 		"UPGRADE_RESTART_TARGET="+target,
-		"UPGRADE_RESTART_MARKER="+marker,
+		// Only the env handed to restartIntoUpgradedBinary names the marker,
+		// so the marker appearing proves that env reached the exec.
+		"UPGRADE_RESTART_HELPER_MARKER="+marker,
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("restart helper: %v\n%s", err, output)
@@ -1243,7 +1246,121 @@ func TestRestartIntoUpgradedBinary(t *testing.T) {
 	}
 }
 
+// upgradeTestLinuxExecutable stands in for os.Executable on Linux, where
+// /proc/self/exe follows a rename of the running file: once exe has been moved
+// to exe.bak, it answers exe.bak.
+func upgradeTestLinuxExecutable(exe string) func() (string, error) {
+	return func() (string, error) {
+		if _, err := os.Stat(exe + ".bak"); err == nil {
+			return exe + ".bak", nil
+		}
+		return exe, nil
+	}
+}
+
 func TestRunUpgrade(t *testing.T) {
+	t.Run("on Linux the restart execs the path that was swapped, not where the running file moved", func(t *testing.T) {
+		srv := upgradeTestReleaseServer(t, "v1.2.3", "#!/bin/sh\nexit 0\n")
+		dir, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatalf("EvalSymlinks: %v", err)
+		}
+		exe := filepath.Join(dir, "ocserverd")
+		if err := os.WriteFile(exe, []byte("running binary"), 0o755); err != nil {
+			t.Fatalf("write old binary: %v", err)
+		}
+		api := &apiServer{releaseSiteBase: srv.URL, releasePlatform: upgradeTestReleasePlatform,
+			upgradeExecutable: upgradeTestLinuxExecutable(exe), updaterCheckIntervalSecs: 300}
+		upgradeTestKnownRelease(t, api, "v1.2.3")
+
+		version, path, fail := api.runUpgrade(false)
+
+		if fail != nil {
+			t.Fatalf("want no failure, got %d %q", fail.status, fail.message)
+		}
+		if version != "v1.2.3" || path != exe {
+			t.Fatalf("result: version=%q path=%q, want path %q", version, path, exe)
+		}
+		if data, err := os.ReadFile(path); err != nil || string(data) != "#!/bin/sh\nexit 0\n" {
+			t.Fatalf("exec target holds %q, %v", data, err)
+		}
+		if got := upgradeTestDirEntries(t, dir); !reflect.DeepEqual(got, []string{"ocserverd", "ocserverd.bak"}) {
+			t.Fatalf("binary directory: %v", got)
+		}
+	})
+
+	for _, tc := range []struct {
+		name, running string
+		before        map[string]string
+		after         map[string]string
+	}{
+		{
+			name:    "running from ocserverd.bak upgrades the ocserverd beside it",
+			running: "ocserverd.bak",
+			before:  map[string]string{"ocserverd": "installed, never loaded", "ocserverd.bak": "running binary"},
+			after:   map[string]string{"ocserverd": "#!/bin/sh\nexit 0\n", "ocserverd.bak": "installed, never loaded"},
+		},
+		{
+			name:    "running from ocserverd.bak.bak upgrades ocserverd and leaves the chain alone",
+			running: "ocserverd.bak.bak",
+			before:  map[string]string{"ocserverd": "installed, never loaded", "ocserverd.bak": "older", "ocserverd.bak.bak": "running binary"},
+			after:   map[string]string{"ocserverd": "#!/bin/sh\nexit 0\n", "ocserverd.bak": "installed, never loaded", "ocserverd.bak.bak": "running binary"},
+		},
+		{
+			name:    "running from ocserverd.bak with no ocserverd installs it and keeps the running file",
+			running: "ocserverd.bak",
+			before:  map[string]string{"ocserverd.bak": "running binary"},
+			after:   map[string]string{"ocserverd": "#!/bin/sh\nexit 0\n", "ocserverd.bak": "running binary"},
+		},
+		{
+			name:    "a binary with another name is upgraded in place",
+			running: "ocserverd-dev",
+			before:  map[string]string{"ocserverd-dev": "running binary"},
+			after:   map[string]string{"ocserverd-dev": "#!/bin/sh\nexit 0\n", "ocserverd-dev.bak": "running binary"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := upgradeTestReleaseServer(t, "v1.2.3", "#!/bin/sh\nexit 0\n")
+			dir, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatalf("EvalSymlinks: %v", err)
+			}
+			for name, body := range tc.before {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+					t.Fatalf("write %s: %v", name, err)
+				}
+			}
+			running := filepath.Join(dir, tc.running)
+			api := &apiServer{releaseSiteBase: srv.URL, releasePlatform: upgradeTestReleasePlatform,
+				upgradeExecutable: func() (string, error) { return running, nil }, updaterCheckIntervalSecs: 300}
+			upgradeTestKnownRelease(t, api, "v1.2.3")
+
+			version, path, fail := api.runUpgrade(false)
+
+			if fail != nil {
+				t.Fatalf("want no failure, got %d %q", fail.status, fail.message)
+			}
+			wantPath := filepath.Join(dir, "ocserverd")
+			if tc.running == "ocserverd-dev" {
+				wantPath = running
+			}
+			if version != "v1.2.3" || path != wantPath {
+				t.Fatalf("result: version=%q path=%q, want path %q", version, path, wantPath)
+			}
+			got := map[string]string{}
+			for _, name := range upgradeTestDirEntries(t, dir) {
+				data, err := os.ReadFile(filepath.Join(dir, name))
+				if err != nil {
+					t.Fatalf("read %s: %v", name, err)
+				}
+				got[name] = string(data)
+			}
+			if !reflect.DeepEqual(got, tc.after) {
+				t.Fatalf("binary directory:\n got %q\nwant %q", got, tc.after)
+			}
+		})
+	}
+
 	srv := upgradeTestReleaseServer(t, "v1.2.3", "#!/bin/sh\nexit 0\n")
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "ocserverd")
@@ -1253,7 +1370,7 @@ func TestRunUpgrade(t *testing.T) {
 	api := &apiServer{releaseSiteBase: srv.URL, releasePlatform: upgradeTestReleasePlatform, upgradeExeOverride: exe, updaterCheckIntervalSecs: 300}
 	upgradeTestKnownRelease(t, api, "v1.2.3")
 
-	version, path, fail := api.runUpgrade()
+	version, path, fail := api.runUpgrade(false)
 
 	if fail != nil {
 		t.Fatalf("want no failure, got %d %q", fail.status, fail.message)
@@ -1263,21 +1380,52 @@ func TestRunUpgrade(t *testing.T) {
 	}
 }
 
+func TestUpgradeTargetFromLeftover(t *testing.T) {
+	for _, tc := range []struct{ running, want string }{
+		{"/home/u/.officraft/bin/ocserverd", "/home/u/.officraft/bin/ocserverd"},
+		{"/home/u/.officraft/bin/ocserverd.bak", "/home/u/.officraft/bin/ocserverd"},
+		{"/home/u/.officraft-lab/bin/ocserverd.bak.bak.bak", "/home/u/.officraft-lab/bin/ocserverd"},
+		{"/home/u/src/ocserverd-dev", "/home/u/src/ocserverd-dev"},
+		{"/home/u/src/ocserverd.backup", "/home/u/src/ocserverd.backup"},
+		{"/home/u/src/ocserverd.bak.old", "/home/u/src/ocserverd.bak.old"},
+		{"/home/u/src/myocserverd.bak", "/home/u/src/myocserverd.bak"},
+	} {
+		running := tc.running
+		api := &apiServer{upgradeExecutable: func() (string, error) { return running, nil }}
+		got, err := api.upgradeTargetPath()
+		if err != nil || got != tc.want {
+			t.Errorf("running %q: target %q, %v; want %q", tc.running, got, err, tc.want)
+		}
+	}
+}
+
 func TestScheduleUpgradeRestart(t *testing.T) {
 	called := make(chan string, 1)
 	api := &apiServer{}
-	api.upgradeRestart = func(path string) {
+	var gotEnv []string
+	api.upgradeRestart = func(path string, env []string) {
 		if !api.stationShuttingDown.Load() {
 			t.Errorf("restart seam ran before shutdown marker was set")
 		}
+		gotEnv = env
 		called <- path
 	}
+	t.Setenv(upgradeHandoffEnvKey, "stale v0.0.1")
 
-	api.scheduleUpgradeRestart("/tmp/ocserverd")
+	api.scheduleUpgradeRestart("/tmp/ocserverd", "v1.2.3")
 	select {
 	case got := <-called:
 		if got != "/tmp/ocserverd" {
 			t.Fatalf("restart path: %q", got)
+		}
+		var handoffs []string
+		for _, kv := range gotEnv {
+			if strings.HasPrefix(kv, upgradeHandoffEnvKey+"=") {
+				handoffs = append(handoffs, kv)
+			}
+		}
+		if want := []string{upgradeHandoffEnvKey + "=" + appVersion + " v1.2.3"}; !reflect.DeepEqual(handoffs, want) {
+			t.Fatalf("handoff env: %v, want %v", handoffs, want)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("restart seam was not called")
@@ -1365,7 +1513,7 @@ func TestHandleUpgradeApiUpdateUpgradePost(t *testing.T) {
 		api.upgradeExeOverride = exe
 		upgradeTestKnownRelease(t, api, "v1.2.3")
 		restarted := make(chan string, 1)
-		api.upgradeRestart = func(path string) { restarted <- path }
+		api.upgradeRestart = func(path string, _ []string) { restarted <- path }
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/update/upgrade", owner, "")
