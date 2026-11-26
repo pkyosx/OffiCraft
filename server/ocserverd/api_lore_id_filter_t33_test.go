@@ -11,8 +11,7 @@ package main
 // 🔴 WHY THE AXIS IS ON THE SERVER, which is what these tests actually pin.
 // This list is scroll-to-load (30 rows a batch). An id narrowed in the client
 // narrows only the batch already downloaded, so 「這個編號不存在」 and 「它在下一
-// 批，你還沒捲到」 become the same empty screen, and the 上限線 — drawn from the
-// server's own fold — lands beside rows the client has since removed. Every test
+// 批，你還沒捲到」 become the same empty screen. Every test
 // below therefore drives the HANDLER and asserts on the page it answers; none of
 // them filters a slice in Go.
 //

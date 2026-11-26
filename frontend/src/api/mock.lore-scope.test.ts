@@ -168,7 +168,7 @@ describe("mock setLoreEntryScope", () => {
 
   it("filtering only 所有人 returns its rows with the member cap; mixing kinds reports no cap", async () => {
     expect(await api.listLoreEntries({ scopeKinds: ["everyone"] })).toEqual({
-      entries: [L7],
+      entries: [{ ...L7, dropped: false }],
       limit: 30,
       offset: 0,
       capChars: 10000,
@@ -201,8 +201,8 @@ describe("mock setLoreEntryScope", () => {
     ];
 
     const page = await api.listLoreEntries({ scopeKind: "agent", scopeKey: "mira" });
-    expect({ ...page, entries: page.entries.map((e) => e.id) }).toEqual({
-      entries: ["L-1", "L-2", "L-3"],
+    expect({ ...page, entries: page.entries.map((e) => [e.id, e.dropped]) }).toEqual({
+      entries: [["L-1", false], ["L-2", true], ["L-3", undefined]],
       limit: 30,
       offset: 0,
       capChars: 195,
@@ -213,8 +213,8 @@ describe("mock setLoreEntryScope", () => {
     });
 
     const whole = await api.listLoreEntries({ scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"] });
-    expect({ ...whole, entries: whole.entries.map((e) => e.id) }).toEqual({
-      entries: ["L-1", "L-7", "L-2", "L-3"],
+    expect({ ...whole, entries: whole.entries.map((e) => [e.id, e.dropped]) }).toEqual({
+      entries: [["L-1", false], ["L-7", true], ["L-2", true], ["L-3", undefined]],
       limit: 30,
       offset: 0,
       capChars: 195,
@@ -224,9 +224,12 @@ describe("mock setLoreEntryScope", () => {
       budgetSegments: segments,
     });
 
+    const searched = await api.listLoreEntries({ scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], q: "零命中" });
+    expect(searched.entries.map((e) => [e.id, e.dropped])).toEqual([["L-2", true]]);
+
     const alone = await api.listLoreEntries({ scopeKinds: ["everyone"] });
-    expect({ ...alone, entries: alone.entries.map((e) => e.id) }).toEqual({
-      entries: ["L-7"],
+    expect({ ...alone, entries: alone.entries.map((e) => [e.id, e.dropped]) }).toEqual({
+      entries: [["L-7", false]],
       limit: 30,
       offset: 0,
       capChars: 195,
@@ -363,7 +366,7 @@ describe("mock listLoreBudgets", () => {
     ]);
   });
 
-  it("agrees with the list's 上限線 when the member cap leaves 所有人's entry and Mira's older one out", async () => {
+  it("agrees with the list's numbers when the member cap leaves 所有人's entry and Mira's older one out", async () => {
     await api.patchServerSettings({ loreCapCharsRole: 195 });
     const mira = (await api.listLoreBudgets()).find((t) => t.scopeKey === "mira");
     expect(mira).toEqual(target("agent", "mira", 195, 3, 2, 195));
@@ -383,11 +386,11 @@ describe("mock editLoreEntry", () => {
     expect(page.entries.map((e) => e.id)).toEqual(["L-1", "L-2", "L-3"]);
     const { updatedTs, ...rest } = page.entries[1];
     const { updatedTs: wasTs, ...l2 } = L2;
-    expect(rest).toEqual({ ...l2, body: "先跑陽性對照。", loreType: "owner_decision" });
+    expect(rest).toEqual({ ...l2, body: "先跑陽性對照。", loreType: "owner_decision", dropped: false });
     expect(updatedTs).toBeGreaterThan(wasTs);
   });
 
-  it("a shorter 所有人 body moves the member's 上限線: the entry it dropped becomes readable", async () => {
+  it("a shorter 所有人 body makes the member's entry it dropped readable", async () => {
     await api.patchServerSettings({ loreCapCharsRole: 270 });
     const read = async () => {
       const page = await api.listLoreEntries({ scopeKind: "agent", scopeKey: "mira" });

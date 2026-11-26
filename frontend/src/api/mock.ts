@@ -1221,7 +1221,7 @@ function withManualSizes(m: StoredTaskManual): TaskManualView {
 // fixture (the latter is only decidable in a real browser — see the CT spec).
 /** 傳承 fixture (T-33). Enough rows, and enough LENGTH, that the default
  * 10,000-character member budget is not trivially satisfied — a fixture whose
- * every row fits can never show the 上限線 the page exists to draw, so the
+ * every row fits can never show a greyed-out row that cannot be read, so the
  * cockpit would be built against a case that never occurs.
  *
  * 🔴 THREE KINDS OF ROW, AND THE THIRD IS THE ONE PEOPLE WILL WANT TO DELETE.
@@ -1433,13 +1433,16 @@ interface MockLoreWalk {
   droppedCount: number;
   segments: LoreBudgetSegmentView[];
   fitted: LoreEntryView[];
+  /** Every entry the walk reached, true when it was not loaded. */
+  dropped: Map<string, boolean>;
 }
 
 /** The mock's one copy of the server's selection (lore_select.go): a member
  * walks `everyone` and its own entries merged into ONE list in live order
  * under one budget, every other target walks itself, and the walk STOPS at the
  * first entry that does not fit. Segments stay one per scope, `everyone` then
- * `agent`. The list's 上限線, the budgets and the boot document all read this.
+ * `agent`. The list's numbers and each row's `dropped`, the budgets and the
+ * boot document all read this.
  * It always covers the whole scope, never the filtered rows. */
 function mockLoreWalk(scopeKind: LoreScopeKind, scopeKey: string): MockLoreWalk {
   const capChars =
@@ -1469,6 +1472,7 @@ function mockLoreWalk(scopeKind: LoreScopeKind, scopeKey: string): MockLoreWalk 
     droppedCount: 0,
     segments: [],
     fitted: [],
+    dropped: new Map(),
   };
   if (capChars <= 0) return walk;
   let stopped = false;
@@ -1482,9 +1486,11 @@ function mockLoreWalk(scopeKind: LoreScopeKind, scopeKey: string): MockLoreWalk 
       walk.fitted.push(e);
       seg.fittedCount += 1;
       seg.fittedChars += cost;
+      walk.dropped.set(e.id, false);
       continue;
     }
     stopped = true;
+    walk.dropped.set(e.id, true);
     walk.droppedCount += 1;
     if (walk.overall.id === "") walk.overall = { id: e.id, chars: cost };
     if (e.scopeKind === scopeKind && walk.firstDroppedId === "") {
@@ -6419,7 +6425,9 @@ const mockApiImpl = {
     const limit = opts?.limit ?? 30;
     const offset = opts?.offset ?? 0;
     return {
-      entries: structuredClone(ordered.slice(offset, offset + limit)),
+      entries: structuredClone(ordered.slice(offset, offset + limit)).map((e) =>
+        walk?.dropped.has(e.id) ? { ...e, dropped: walk.dropped.get(e.id) } : e
+      ),
       limit,
       offset,
       capChars: walk?.capChars ?? 0,

@@ -556,13 +556,13 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 		out.Entries = append(out.Entries, newLoreEntryDTO(e, facts[e.ID]))
 	}
 
-	// 上限線 (the first entry the fold will NOT carry; the cockpit draws a line
-	// above it) comes from the same lore_select.go selection the folds run: the
-	// page is cut by limit/offset, so the line cannot be derived from its rows.
+	// first_dropped_id and each entry's dropped come from the same
+	// lore_select.go selection the folds run: the page is cut by limit/offset
+	// and the other filters, so neither can be derived from its rows.
 	// everyone and agent share one budget and interleave in one list, so an
-	// agent line is read off the member's selection: on an agent-only page it
-	// is the member's own first drop, on the member's whole list (everyone +
-	// agent) the overall one.
+	// agent page is read off the member's selection: on an agent-only page
+	// first_dropped_id is the member's own first drop, on the member's whole
+	// list (everyone + agent) the overall one.
 	var sel loreSelection
 	var line loreSegment
 	answered := false
@@ -591,6 +591,11 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 		out.FirstDroppedId = line.FirstDroppedID
 		out.FirstDroppedChars = line.FirstDroppedChars
 		out.BudgetSegments = loreBudgetSegmentDTOs(sel)
+		for i := range out.Entries {
+			if dropped, walked := sel.Dropped[out.Entries[i].Id]; walked {
+				out.Entries[i].Dropped = &dropped
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

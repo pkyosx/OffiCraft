@@ -249,8 +249,8 @@ export function parseHash(raw: string): HashRoute {
   }
 
   // 傳承: the hash names a section (and an entry to highlight), never a
-  // filter. The 上限線 is the server's answer for the filter actually sent, so
-  // a hash-seeded filter would draw a line for a question not on screen.
+  // filter. The rows and their numbers are the server's answer for the filter
+  // actually sent, so a hash-seeded filter would answer a question not on screen.
   if (head === "lore") {
     let section: HashRoute["loreSection"];
     let i = 0;

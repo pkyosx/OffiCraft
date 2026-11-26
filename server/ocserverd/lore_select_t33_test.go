@@ -313,6 +313,8 @@ func TestSelectMemberLore(t *testing.T) {
 		{"everything fits: one list, pinned first then newest effective, ties by higher seq, and no other member's",
 			"m-1", 1000, loreSelection{
 				Entries: []LoreEntry{e1, a1, a2, e2, a3, a4, e3}, UsedChars: 86, CapChars: 1000,
+				Dropped: map[string]bool{"L-E1": false, "L-A1": false, "L-A2": false, "L-E2": false,
+					"L-A3": false, "L-A4": false, "L-E3": false},
 				Segments: []loreSegment{
 					{ScopeKind: LoreScopeEveryone, EntryCount: 3, Chars: 60, FittedCount: 3, FittedChars: 60},
 					{ScopeKind: LoreScopeAgent, EntryCount: 4, Chars: 26, FittedCount: 4, FittedChars: 26},
@@ -322,6 +324,8 @@ func TestSelectMemberLore(t *testing.T) {
 			"m-1", 41, loreSelection{
 				Entries: []LoreEntry{e1, a1, a2}, UsedChars: 22, CapChars: 41,
 				FirstDroppedID: "L-E2",
+				Dropped: map[string]bool{"L-E1": false, "L-A1": false, "L-A2": false, "L-E2": true,
+					"L-A3": true, "L-A4": true, "L-E3": true},
 				Segments: []loreSegment{
 					{ScopeKind: LoreScopeEveryone, EntryCount: 3, Chars: 60, FittedCount: 1, FittedChars: 10,
 						FirstDroppedID: "L-E2", FirstDroppedChars: 20},
@@ -333,6 +337,8 @@ func TestSelectMemberLore(t *testing.T) {
 			"m-1", 56, loreSelection{
 				Entries: []LoreEntry{e1, a1, a2, e2, a3, a4}, UsedChars: 56, CapChars: 56,
 				FirstDroppedID: "L-E3",
+				Dropped: map[string]bool{"L-E1": false, "L-A1": false, "L-A2": false, "L-E2": false,
+					"L-A3": false, "L-A4": false, "L-E3": true},
 				Segments: []loreSegment{
 					{ScopeKind: LoreScopeEveryone, EntryCount: 3, Chars: 60, FittedCount: 2, FittedChars: 30,
 						FirstDroppedID: "L-E3", FirstDroppedChars: 30},
@@ -342,6 +348,7 @@ func TestSelectMemberLore(t *testing.T) {
 		{"no member selects nothing",
 			"", 1000, loreSelection{
 				Entries: []LoreEntry{}, CapChars: 1000, Segments: []loreSegment{},
+				Dropped: map[string]bool{},
 			}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -382,8 +389,10 @@ func TestSelectLoreForScopeWithAnEmptyKeySelectsOnlyEveryone(t *testing.T) {
 		want loreSelection
 	}{
 		{LoreScopeEveryone, loreSelection{Entries: []LoreEntry{entry}, UsedChars: 1, CapChars: 100,
+			Dropped:  map[string]bool{"L-1": false},
 			Segments: []loreSegment{{ScopeKind: LoreScopeEveryone, EntryCount: 1, Chars: 1, FittedCount: 1, FittedChars: 1}}}},
-		{LoreScopeAgent, loreSelection{Entries: []LoreEntry{}, CapChars: 100, Segments: []loreSegment{}}},
+		{LoreScopeAgent, loreSelection{Entries: []LoreEntry{}, CapChars: 100, Segments: []loreSegment{},
+			Dropped: map[string]bool{}}},
 	} {
 		got, err := selectLoreForScope(&fakeLoreLister{entries: []LoreEntry{entry}}, tc.kind, "", 100)
 		if err != nil {

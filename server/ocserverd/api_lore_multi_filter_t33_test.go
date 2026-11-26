@@ -27,7 +27,7 @@ package main
 //     because a refusal that says `state` when the caller sent `states` points
 //     them at a field they never filled in.
 //
-//  4. The 上限線 in BOTH directions, in one test. Asserting only that two scopes
+//  4. first_dropped_id in BOTH directions, in one test. Asserting only that two scopes
 //     answer 0/"" is passed by an implementation that never reports a cap at
 //     all; asserting only that one scope answers is passed by one that reports
 //     the role budget over any page whatsoever. The value on the converged side
@@ -219,15 +219,15 @@ func TestBadPluralFilterValueIsRefusedNotIgnored(t *testing.T) {
 	}
 }
 
-// TestCapLineAnswersForOneScopeAndGoesQuietForSeveral — the 上限線 rule extended
+// TestCapLineAnswersForOneScopeAndGoesQuietForSeveral — the first_dropped_id rule extended
 // to the plural axes, BOTH DIRECTIONS IN ONE TEST.
 //
 // 🔴 Half of this test alone proves nothing. Checking only that two scopes give
 // 0/"" is passed by an implementation that never answers a cap at all; checking
 // only that one scope answers is passed by one that answers for any page. The
 // converged half also pins WHICH entry is first dropped — a cap_chars with an
-// arbitrary first_dropped_id beside it is a line in the wrong place, and a line
-// in the wrong place looks exactly like a line in the right place.
+// arbitrary first_dropped_id beside it names the wrong entry, and a wrong one
+// looks exactly like a right one.
 func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	s := loreTestServer(t)
 	me := hireLoreStaff(t, s, "m-lore-multi-4", defaultBootRole)
@@ -266,7 +266,7 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	if one.CapChars != 20 {
 		t.Fatalf("cap_chars = %d on a page that converged on ONE scope, want the "+
 			"cap actually in force (20). 0 means the plural axes never count as "+
-			"converging and the 上限線 is silently gone for every multi-select "+
+			"converging and the budget numbers are silently gone for every multi-select "+
 			"client.", one.CapChars)
 	}
 	if len(one.Entries) != 6 {
@@ -359,6 +359,7 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 			"state": "active", "retire_reason": "", "effective_ts": base + i,
 			"created_ts": base + i, "updated_ts": base + i, "task_type_key": "",
 			"scope_options": []any{"agent", "everyone"}, "lore_type": "other",
+			"dropped": i == 0,
 		}}, everyoneRows...)
 	}
 	status, data := apiJSON(t, h, "GET", "/api/lore?scope_kinds=everyone", token, "")

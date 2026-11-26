@@ -4,12 +4,12 @@
 // and filters.
 //
 // 🔴 EVERY BUDGET NUMBER IS THE SERVER'S. The section headers read
-// `listLoreBudgets`, a section page's sentence and 上限線 read the
-// `capChars`/`usedChars`/`firstDroppedId`/`budgetSegments` its own list page
-// answered. Adding up title+body lengths here would be a second copy of the
-// server's picking walk, wrong on every page after the first and wrong for a
-// member whose 所有人 entries interleave with its own; a line in the wrong
-// place looks exactly like one in the right place.
+// `listLoreBudgets`, a section page's sentence reads the
+// `capChars`/`usedChars`/`budgetSegments` its own list page answered, and a
+// card is greyed out exactly when the server marked it `dropped`. Adding up
+// title+body lengths, or greying by position, would be a second copy of the
+// server's picking walk, wrong on every page after the first, after any
+// filter, and for a member whose 所有人 entries interleave with its own.
 //
 // 🔴 THE FILTER TRAVELS WITH THE PAGE REQUEST, never as a `.filter()` over
 // downloaded rows; a client-side filter is right only for the rows that
@@ -18,8 +18,9 @@
 // 🔴 狀態、類型、適用範圍 ARE STAGED, NOT SENT (owner C1). The card shows the
 // staged value and 未儲存; 儲存變更 sends them all, then the whole section is
 // re-read in the server's order (as many rows as were loaded) together with
-// the numbers. Re-reading only the changed rows left the 上限線 and the
-// dimming where the old order had them. 編輯 and 還原 still save at once and
+// the numbers. Re-reading only the changed rows left the counts and the
+// greying where the old order had them. Until then a card stays greyed (or
+// not) as the server last said. 編輯 and 還原 still save at once and
 // re-read the section the same way; staged values outlive that re-read.
 
 import {
@@ -152,22 +153,18 @@ interface ScopeMenu {
   defaultKind: LoreScopeKind;
 }
 
-type CapInfo = Omit<LoreEntryPageView, "entries" | "limit" | "offset">;
+type CapInfo = Pick<LoreEntryPageView, "capChars" | "usedChars" | "budgetSegments">;
 
 const NO_CAP: CapInfo = {
   capChars: 0,
-  firstDroppedId: "",
   usedChars: 0,
-  firstDroppedChars: 0,
   budgetSegments: [],
 };
 
 function capOf(page: LoreEntryPageView): CapInfo {
   return {
     capChars: page.capChars,
-    firstDroppedId: page.firstDroppedId,
     usedChars: page.usedChars,
-    firstDroppedChars: page.firstDroppedChars,
     budgetSegments: page.budgetSegments,
   };
 }
@@ -252,13 +249,6 @@ function withStaged(entry: LoreEntryView, ch: StagedChange | undefined): LoreEnt
 /** The scope key the server gives an entry moved to `kind`. */
 function scopeKeyFor(entry: LoreEntryView, kind: LoreScopeKind): string {
   return kind === "everyone" ? "" : kind === "manual" ? entry.taskTypeKey : entry.authorId;
-}
-
-/** Where the 上限線 falls among the rows on screen, or -1 when the first
- * dropped entry is not among them. */
-function cutIndexOf(data: SectionData): number {
-  if (data.cap.capChars <= 0 || data.cap.firstDroppedId === "") return -1;
-  return data.entries.findIndex((e) => e.id === data.cap.firstDroppedId);
 }
 
 type EntrySeed = { key: string; entryId: string; state: LoreEntryState };
@@ -470,7 +460,7 @@ function LoreView({
   };
   // Per-section count of reads that answer a cap. Rows from a slower read may
   // still merge, but only the newest read's cap is drawn, or an older answer
-  // landing last would move the 上限線 back.
+  // landing last would bring back stale numbers.
   const capSeqRef = useRef(new Map<string, number>());
   const nextCapSeq = (key: string) => {
     const n = (capSeqRef.current.get(key) ?? 0) + 1;
@@ -1095,7 +1085,6 @@ function LoreView({
         ? cap.budgetSegments.find((s) => s.scopeKind === "everyone") ?? null
         : null;
     const pct = (chars: number) => `${Math.min(100, (chars / cap.capChars) * 100)}%`;
-    const cut = cutIndexOf(sd);
     return (
       <>
         <div className="lore-dir-card__seg" data-testid="lore-section-bar">
@@ -1137,11 +1126,6 @@ function LoreView({
             {msg.loreLegendLeft(cap.capChars, Math.max(0, cap.capChars - cap.usedChars))}
           </span>
         </div>
-        {cap.firstDroppedId !== "" && cut < 0 && !sd.loading && (
-          <div className="lore-section__cap-away" data-testid="lore-cap-away">
-            {msg.loreCapLineAway(cap.firstDroppedId)}
-          </div>
-        )}
       </>
     );
   }
@@ -1157,7 +1141,6 @@ function LoreView({
         </div>
       );
     }
-    const cut = cutIndexOf(sd);
     return (
       <>
         {sd.entries.length === 0 && (
@@ -1165,7 +1148,7 @@ function LoreView({
             {t.lore.sectionEmpty}
           </div>
         )}
-        {sd.entries.map((stored, pos) => {
+        {sd.entries.map((stored) => {
           const ch = staged.get(stored.id);
           const entry = withStaged(stored, ch);
           const arrow = t.lore.stagedDiffArrow;
@@ -1180,22 +1163,10 @@ function LoreView({
             changes.push(`${t.lore.stagedDiffScope}${resolveScope(stored).label}${arrow}${resolveScope(entry).label}`);
           }
           return (
-          <div key={entry.id} className="lore-section__item">
-            {cut >= 0 && pos === cut && (
-              <div className="lore__cap-line" data-testid="lore-cap-line">
-                <span className="lore__cap-line-text">
-                  {msg.loreCapLine(
-                    sd.cap.usedChars,
-                    sd.cap.capChars,
-                    sd.cap.firstDroppedId,
-                    sd.cap.firstDroppedChars
-                  )}
-                </span>
-              </div>
-            )}
             <LoreRow
+                  key={entry.id}
                   entry={entry}
-                  dimmed={cut >= 0 && pos >= cut}
+                  dimmed={stored.dropped === true}
                   author={resolveAuthor(entry.authorId)}
                   avatar={authorAvatar(entry.authorId)}
                   scope={resolveScope(entry)}
@@ -1215,7 +1186,6 @@ function LoreView({
                   onSave={editEntry}
                   onRestored={restoredEntry}
                 />
-          </div>
           );
         })}
         {!sd.exhausted && (

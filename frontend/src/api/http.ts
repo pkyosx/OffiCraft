@@ -2322,7 +2322,7 @@ export const httpApi: Api = {
     //
     // 🔴 EVERY NARROWING IS A QUERY PARAMETER. Nothing here downloads a list and
     // filters it: the server applies the filter inside the query, before the
-    // page is cut, so a count or a 上限線 taken from the answer is about the
+    // page is cut, so a count or a `dropped` taken from the answer is about the
     // whole filtered scope rather than about the rows that happened to land on
     // this page. Filtering client-side would make 「捲到底沒有了」 and 「真的沒有
     // 了」 the same picture.

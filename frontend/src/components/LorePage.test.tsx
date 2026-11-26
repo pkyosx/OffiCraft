@@ -1,11 +1,10 @@
 // LorePage — what an open section draws from the server's numbers, the card,
 // its actions, and the filters.
 //
-//   界線. `firstDroppedId` and `capChars` are the SERVER'S answer over the
-//   whole scope, so the fixture's TEXT LENGTHS ARE DELIBERATELY NOT A CLUE: the
-//   entry named by `firstDroppedId` is one of the SHORTEST rows on screen. A
-//   local sum cannot produce this answer. `capChars === 0` means no line AND no
-//   dimming.
+//   變灰. Each entry's `dropped` is the SERVER'S answer over the whole
+//   target, so the fixture's TEXT LENGTHS ARE DELIBERATELY NOT A CLUE: a
+//   dropped entry is one of the SHORTEST rows on screen. A local sum cannot
+//   produce this answer.
 //
 //   訊息框的收件人. A message to a peer who is gone reaches nobody, so the box
 //   names and sends to Mira whenever the author cannot take it — but only once
@@ -144,19 +143,18 @@ afterEach(() => {
 });
 
 
-describe("LorePage — 界線", () => {
-  // 🔴 The line falls where the SERVER says. `mid` is one of the SHORTEST
-  // entries on screen and still the first dropped: any local title+body sum
-  // would put the line somewhere else.
+describe("LorePage — 變灰", () => {
+  // 🔴 `mid` is one of the SHORTEST entries on screen and still dropped: any
+  // local title+body sum would grey something else.
   const entries = [
-    mkEntry({ id: "p1", state: "pinned", title: "很長很長的置頂標題".repeat(8) }),
-    mkEntry({ id: "top", state: "active", title: "上面這一筆".repeat(20) }),
-    mkEntry({ id: "mid", state: "active", title: "短", body: "短" }),
-    mkEntry({ id: "low", state: "active" }),
+    mkEntry({ id: "p1", state: "pinned", title: "很長很長的置頂標題".repeat(8), dropped: false }),
+    mkEntry({ id: "top", state: "active", title: "上面這一筆".repeat(20), dropped: false }),
+    mkEntry({ id: "mid", state: "active", title: "短", body: "短", dropped: true }),
+    mkEntry({ id: "low", state: "active", dropped: true }),
     mkEntry({ id: "r1", state: "retired", retireReason: "重複" }),
   ];
 
-  it("dims firstDroppedId and everything under it, and draws the line above it with used / cap and what it needs", async () => {
+  it("greys out exactly the cards the server marks dropped; a retired card carries no dropped and keeps its own look", async () => {
     stubList({
       ...page(entries, { capChars: 10000, firstDroppedId: "mid" }),
       usedChars: 9640,
@@ -165,53 +163,22 @@ describe("LorePage — 界線", () => {
     const { container } = await renderOpen();
 
     await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
-    expect(renderedIds(container)).toEqual(["p1", "top", "mid", "low", "r1"]);
-
-    // Above the line: NOT dimmed.
-    expect(rowById(container, "p1").dataset.dimmed).toBe("false");
-    expect(rowById(container, "top").dataset.dimmed).toBe("false");
-    // The named entry itself is BELOW the line — it is the first one that does
-    // not get loaded — and so is everything after it, groups included.
-    expect(rowById(container, "mid").dataset.dimmed).toBe("true");
-    expect(rowById(container, "low").dataset.dimmed).toBe("true");
-    expect(rowById(container, "r1").dataset.dimmed).toBe("true");
-
-    const lines = container.querySelectorAll('[data-testid="lore-cap-line"]');
-    expect(lines).toHaveLength(1);
-    expect(lines[0].textContent).toBe(
-      "上限線　已用 9,640 / 10,000 字・mid 需要 520 字，從這裡以下讀不到",
-    );
-
-    // …and it sits BEFORE the row it names in document order.
     expect(
-      lines[0].compareDocumentPosition(rowById(container, "mid")) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+      renderedIds(container).map((id) => [id, rowById(container, id).dataset.dimmed]),
+    ).toEqual([
+      ["p1", "false"],
+      ["top", "false"],
+      ["mid", "true"],
+      ["low", "true"],
+      ["r1", "false"],
+    ]);
   });
 
-  it("draws no line and dims nothing when capChars is 0 (filter did not converge)", async () => {
-    stubList(page(entries, { capChars: 0, firstDroppedId: "" }));
+  it("greys nothing when no entry carries dropped (the request did not converge on one target)", async () => {
+    stubList(page(entries.map((e) => ({ ...e, dropped: undefined })), { capChars: 0, firstDroppedId: "" }));
     const { container } = await renderOpen();
 
     await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
-
-    expect(container.querySelectorAll('[data-testid="lore-cap-line"]')).toHaveLength(
-      0,
-    );
-    for (const id of ["p1", "top", "mid", "low", "r1"]) {
-      expect(rowById(container, id).dataset.dimmed).toBe("false");
-    }
-  });
-
-  it("draws no line when the whole scope fits (capChars set, firstDroppedId empty)", async () => {
-    stubList(page(entries, { capChars: 10000, firstDroppedId: "" }));
-    const { container } = await renderOpen();
-
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
-
-    expect(container.querySelectorAll('[data-testid="lore-cap-line"]')).toHaveLength(
-      0,
-    );
     for (const id of ["p1", "top", "mid", "low", "r1"]) {
       expect(rowById(container, id).dataset.dimmed).toBe("false");
     }
@@ -986,7 +953,7 @@ describe("LorePage — 可變動作面", () => {
     expect(changeLines(container, "L-2")).toEqual(["類型：其他 → Owner 決策", "適用範圍：Mira → 所有人"]);
     expect(changeLines(container, "L-3")).toEqual([]);
     expect(container.querySelector('[data-testid="lore-staged-notice"]')!.textContent).toBe(
-      "有 3 項變更還沒儲存。 上限線、筆數與字數是儲存前的狀態，儲存後才會重新計算並重新排列。",
+      "有 3 項變更還沒儲存。 哪幾筆變灰（讀不到）、筆數與字數是儲存前的狀態，儲存後才會重新計算並重新排列。",
     );
     expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("3 項變更未儲存");
     expect(
@@ -1045,23 +1012,23 @@ describe("LorePage — 可變動作面", () => {
     expect(list).toHaveBeenCalledTimes(1);
   });
 
-  it("儲存變更 sends every staged change once, then re-reads the whole section in the server's order with the line where the server puts it", async () => {
+  it("儲存變更 sends every staged change once, then re-reads the whole section in the server's order and greys what the new answer marks dropped", async () => {
     const w = spyWrites();
     const before = page(
       [
-        mkEntry({ id: "P-1", state: "pinned" }),
-        mkEntry({ id: "A-1" }),
-        mkEntry({ id: "A-2" }),
-        mkEntry({ id: "A-3" }),
+        mkEntry({ id: "P-1", state: "pinned", dropped: false }),
+        mkEntry({ id: "A-1", dropped: false }),
+        mkEntry({ id: "A-2", dropped: false }),
+        mkEntry({ id: "A-3", dropped: true }),
       ],
       { capChars: 1000, firstDroppedId: "A-3" },
     );
     const after = page(
       [
-        mkEntry({ id: "A-1", loreType: "owner_decision" }),
-        mkEntry({ id: "A-2" }),
-        mkEntry({ id: "P-1", state: "active" }),
-        mkEntry({ id: "A-3" }),
+        mkEntry({ id: "A-1", loreType: "owner_decision", dropped: false }),
+        mkEntry({ id: "A-2", dropped: false }),
+        mkEntry({ id: "P-1", state: "active", dropped: true }),
+        mkEntry({ id: "A-3", dropped: true }),
       ],
       { capChars: 1000, firstDroppedId: "P-1" },
     );
@@ -1077,7 +1044,14 @@ describe("LorePage — 可變動作面", () => {
 
     chooseState(container, "P-1", "active");
     chooseType(container, "A-1", "owner_decision");
-    expect(renderedIds(container)).toEqual(["P-1", "A-1", "A-2", "A-3"]);
+    expect(
+      renderedIds(container).map((id) => [id, rowById(container, id).getAttribute("data-dimmed")]),
+    ).toEqual([
+      ["P-1", "false"],
+      ["A-1", "false"],
+      ["A-2", "false"],
+      ["A-3", "true"],
+    ]);
     saved = true;
     clickSave(container);
 
@@ -1086,8 +1060,6 @@ describe("LorePage — 可變動作面", () => {
     expect(w.edit.mock.calls).toEqual([["A-1", { loreType: "owner_decision" }]]);
     expect(w.scope).not.toHaveBeenCalled();
     expect(list.mock.calls.map((c) => c[0])).toEqual([MIRA_OPTS, MIRA_OPTS]);
-    const line = container.querySelector('[data-testid="lore-cap-line"]')!;
-    expect(line.closest(".lore-section__item")!.querySelector('[data-testid="lore-row"]')!.getAttribute("data-entry-id")).toBe("P-1");
     expect(
       renderedIds(container).map((id) => [id, rowById(container, id).getAttribute("data-dimmed")]),
     ).toEqual([
@@ -1654,7 +1626,7 @@ function searchFor(container: HTMLElement, testId: string, text: string) {
   fireEvent.keyDown(box, { key: "Enter" });
 }
 
-/** Mira's section as the server would answer it: the 上限線 at L-212. */
+/** Mira's section as the server would answer it, L-212 the first entry it cannot read. */
 function miraPage(entries: LoreEntryView[], over: Partial<LoreEntryPageView> = {}): LoreEntryPageView {
   return {
     ...page(entries, { capChars: 10000, firstDroppedId: "L-212" }),
@@ -1752,18 +1724,18 @@ describe("LorePage — 目錄與段落頁", () => {
     );
   });
 
-  it("opening a member's section lists 所有人's entries one by one among the member's own in the server's order, tags them 所有人, and draws the line above the first entry that cannot be read even when it is 所有人's", async () => {
+  it("opening a member's section lists 所有人's entries one by one among the member's own in the server's order, tags them 所有人, and greys every card the server marks dropped, 所有人's included", async () => {
     stubTargets();
     const everyone = { scopeKind: "everyone" as const, scopeKey: "" };
     const list = stubList(
       miraPage(
         [
-          mkEntry({ id: "L-198", state: "pinned" }),
-          mkEntry({ id: "L-240", ...everyone }),
-          mkEntry({ id: "L-231" }),
-          mkEntry({ id: "L-219", ...everyone }),
-          mkEntry({ id: "L-212" }),
-          mkEntry({ id: "L-205", ...everyone }),
+          mkEntry({ id: "L-198", state: "pinned", dropped: false }),
+          mkEntry({ id: "L-240", ...everyone, dropped: false }),
+          mkEntry({ id: "L-231", dropped: false }),
+          mkEntry({ id: "L-219", ...everyone, dropped: true }),
+          mkEntry({ id: "L-212", dropped: true }),
+          mkEntry({ id: "L-205", ...everyone, dropped: true }),
         ],
         {
           usedChars: 9400,
@@ -1808,21 +1780,6 @@ describe("LorePage — 目錄與段落頁", () => {
       "上限 10,000 字，剩 600 字",
     ]);
     expect(container.querySelector('[data-testid="lore-everyone-ref"]')).toBeNull();
-    const sequence = Array.from(
-      body.querySelectorAll('[data-testid="lore-row"], [data-testid="lore-cap-line"]'),
-    ).map((el) => el.getAttribute("data-entry-id") ?? el.getAttribute("data-testid"));
-    expect(sequence).toEqual([
-      "L-198",
-      "L-240",
-      "L-231",
-      "lore-cap-line",
-      "L-219",
-      "L-212",
-      "L-205",
-    ]);
-    expect(body.querySelector('[data-testid="lore-cap-line"]')!.textContent).toBe(
-      "上限線　已用 9,400 / 10,000 字・L-219 需要 900 字，從這裡以下讀不到",
-    );
     expect(
       renderedIds(body).map((id) => [
         id,
@@ -1837,28 +1794,22 @@ describe("LorePage — 目錄與段落頁", () => {
       ["L-212", "Mira", "true"],
       ["L-205", "所有人", "true"],
     ]);
-    expect(body.querySelector('[data-testid="lore-cap-away"]')).toBeNull();
   });
 
-  it("when the first entry that cannot be read is not among the rows, draws no line and says where the line is; the next page brings the line in", async () => {
+  it("a card on a later page is greyed by its own dropped", async () => {
     stubTargets();
-    const first = Array.from({ length: 30 }, (_, i) => mkEntry({ id: `L-${100 + i}` }));
+    const first = Array.from({ length: 30 }, (_, i) => mkEntry({ id: `L-${100 + i}`, dropped: false }));
     const list = vi
       .spyOn(api, "listLoreEntries")
       .mockImplementation(async (o) =>
         (o?.offset ?? 0) === 0
           ? miraPage(first)
-          : miraPage([mkEntry({ id: "L-212" }), mkEntry({ id: "L-213" })], { offset: 30 }),
+          : miraPage([mkEntry({ id: "L-212", dropped: true }), mkEntry({ id: "L-213", dropped: true })], { offset: 30 }),
       );
     const { container } = renderPage();
     await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
     openSection(container, "agent:mira");
     await waitFor(() => expect(renderedIds(container)).toHaveLength(30));
-
-    expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull();
-    expect(container.querySelector('[data-testid="lore-cap-away"]')!.textContent).toBe(
-      "上限線在 L-212，不在目前的結果裡",
-    );
     expect(
       Array.from(container.querySelectorAll('[data-testid="lore-row"]')).filter(
         (el) => (el as HTMLElement).dataset.dimmed === "true",
@@ -1871,18 +1822,20 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(list.mock.calls[1]).toEqual([
       { states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 30 },
     ]);
-    const line = container.querySelector('[data-testid="lore-cap-line"]')!;
-    expect(line.compareDocumentPosition(rowById(container, "L-212")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(rowById(container, "L-129").dataset.dimmed).toBe("false");
     expect(rowById(container, "L-212").dataset.dimmed).toBe("true");
-    expect(container.querySelector('[data-testid="lore-cap-away"]')).toBeNull();
+    expect(rowById(container, "L-213").dataset.dimmed).toBe("true");
   });
 
-  it("when 所有人's newer entries fill the cap, the bar is all 所有人 and every card from the line down is dimmed, 所有人's or the member's own", async () => {
+  it("when 所有人's newer entries fill the cap, the bar is all 所有人 and every card the server marks dropped is greyed, 所有人's or the member's own", async () => {
     stubTargets();
     const everyone = { scopeKind: "everyone" as const, scopeKey: "" };
     stubList(
-      miraPage([mkEntry({ id: "L-240", ...everyone }), mkEntry({ id: "L-231", ...everyone }), mkEntry({ id: "L-212" })], {
+      miraPage([
+        mkEntry({ id: "L-240", ...everyone, dropped: false }),
+        mkEntry({ id: "L-231", ...everyone, dropped: true }),
+        mkEntry({ id: "L-212", dropped: true }),
+      ], {
         usedChars: 9800,
         firstDroppedId: "L-231",
         firstDroppedChars: 300,
@@ -1914,19 +1867,18 @@ describe("LorePage — 目錄與段落頁", () => {
     ]);
     expect(head.querySelector<HTMLElement>('[data-testid="lore-bar-everyone"]')!.style.width).toBe("98%");
     expect(head.querySelector<HTMLElement>('[data-testid="lore-bar-own"]')!.style.width).toBe("0%");
-    expect(
-      Array.from(
-        body.querySelectorAll('[data-testid="lore-row"], [data-testid="lore-cap-line"]'),
-      ).map((el) => el.getAttribute("data-entry-id") ?? el.getAttribute("data-testid")),
-    ).toEqual(["L-240", "lore-cap-line", "L-231", "L-212"]);
-    expect(renderedIds(body).map((id) => rowById(body, id).dataset.dimmed)).toEqual(["false", "true", "true"]);
+    expect(renderedIds(body).map((id) => [id, rowById(body, id).dataset.dimmed])).toEqual([
+      ["L-240", "false"],
+      ["L-231", "true"],
+      ["L-212", "true"],
+    ]);
   });
 
-  it("a title search whose results leave out the cap-line entry says where the line is and dims nothing", async () => {
+  it("a title search greys the results the server marks dropped though the first entry it cannot read is not among them", async () => {
     stubTargets();
     vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
       o?.q === "審查" && o.scopeKeys?.[0] === "mira"
-        ? miraPage([mkEntry({ id: "L-231" }), mkEntry({ id: "L-205" })])
+        ? miraPage([mkEntry({ id: "L-231", dropped: false }), mkEntry({ id: "L-205", dropped: true })])
         : page([]),
     );
     const { container } = renderPage();
@@ -1937,13 +1889,9 @@ describe("LorePage — 目錄與段落頁", () => {
     searchFor(container, "lore-filter-id", "審查");
 
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-231", "L-205"]));
-    expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull();
-    expect(container.querySelector('[data-testid="lore-cap-away"]')!.textContent).toBe(
-      "上限線在 L-212，不在目前的結果裡",
-    );
     expect(renderedIds(container).map((id) => rowById(container, id).dataset.dimmed)).toEqual([
       "false",
-      "false",
+      "true",
     ]);
   });
 
@@ -2256,9 +2204,9 @@ describe("LorePage — 目錄與段落頁", () => {
 
 describe("LorePage — 就地編輯", () => {
   const rows = () => [
-    mkEntry({ id: "L-1", title: "第一筆", body: "一" }),
-    mkEntry({ id: "L-2", title: "AAAA", body: "BBBBBBBBBBBBBBBB" }),
-    mkEntry({ id: "L-3", title: "第三筆", body: "三" }),
+    mkEntry({ id: "L-1", title: "第一筆", body: "一", dropped: false }),
+    mkEntry({ id: "L-2", title: "AAAA", body: "BBBBBBBBBBBBBBBB", dropped: false }),
+    mkEntry({ id: "L-3", title: "第三筆", body: "三", dropped: true }),
   ];
   const cap = { capChars: 1000, firstDroppedId: "L-3" };
 
@@ -2269,7 +2217,7 @@ describe("LorePage — 就地編輯", () => {
     const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async () =>
       edited
         ? {
-            ...page([rows()[0], mkEntry({ id: "L-2", title: "AAAA", body: "BB" }), rows()[2]], cap),
+            ...page([rows()[0], mkEntry({ id: "L-2", title: "AAAA", body: "BB", dropped: false }), { ...rows()[2], dropped: false }], cap),
             usedChars: 976,
             firstDroppedChars: 0,
             firstDroppedId: "",
@@ -2278,7 +2226,7 @@ describe("LorePage — 就地編輯", () => {
     );
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]));
-    expect(container.querySelector('[data-testid="lore-cap-line"]')).not.toBeNull();
+    expect(rowById(container, "L-3").dataset.dimmed).toBe("true");
     fireEvent.click(rowById(container, "L-1").querySelector('[data-testid="lore-state"]')!);
     fireEvent.click(rowById(container, "L-1").querySelector('[data-testid="lore-state-retired"]')!);
 
@@ -2299,7 +2247,7 @@ describe("LorePage — 就地編輯", () => {
       { states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 },
       { states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 },
     ]);
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull());
+    await waitFor(() => expect(rowById(container, "L-3").dataset.dimmed).toBe("false"));
     expect(state).not.toHaveBeenCalled();
     expect(rowById(container, "L-1").querySelector('[data-testid="lore-state"]')!.textContent).toBe("已失效");
     expect(rowById(container, "L-1").querySelector('[data-testid="lore-unsaved"]')).not.toBeNull();
@@ -2693,18 +2641,18 @@ describe("LorePage — 晚到的回應", () => {
     expect(list).toHaveBeenCalledTimes(1);
   });
 
-  it("an older re-read answering last does not bring back its rows, its cap line or its header numbers", async () => {
+  it("an older re-read answering last does not bring back its rows, their greying or its header numbers", async () => {
     vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
     vi.spyOn(api, "setLoreEntryState").mockResolvedValue(undefined);
     const firstReread = held<LoreEntryPageView>();
     const firstBudgets = held<LoreBudgetTargetView[]>();
-    const rows = [mkEntry({ id: "L-1" }), mkEntry({ id: "L-2" })];
-    const lineAtL2 = page(rows, { capChars: 1000, firstDroppedId: "L-2" });
+    const rows = [mkEntry({ id: "L-1", dropped: true }), mkEntry({ id: "L-2", dropped: true })];
+    const lineAtL2 = page(rows, { capChars: 1000, firstDroppedId: "L-1" });
     let listCalls = 0;
     vi.spyOn(api, "listLoreEntries").mockImplementation(async () => {
       listCalls += 1;
       if (listCalls === 2) return firstReread.promise;
-      if (listCalls === 3) return page([mkEntry({ id: "L-1", body: "改過" })], { capChars: 1000, firstDroppedId: "" });
+      if (listCalls === 3) return page([mkEntry({ id: "L-1", body: "改過", dropped: false })], { capChars: 1000, firstDroppedId: "" });
       return lineAtL2;
     });
     let budgetCalls = 0;
@@ -2714,7 +2662,7 @@ describe("LorePage — 晚到的回應", () => {
       return [{ ...MIRA_TARGET, entryCount: budgetCalls === 1 ? 2 : 5 }];
     });
     const { container } = await renderOpen();
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-cap-line"]')).not.toBeNull());
+    await waitFor(() => expect(rowById(container, "L-1").dataset.dimmed).toBe("true"));
 
     fireEvent.click(rowById(container, "L-1").querySelector('[data-testid="lore-edit"]')!);
     fireEvent.change(rowById(container, "L-1").querySelector('[data-testid="lore-edit-body"]')!, { target: { value: "改過" } });
@@ -2724,14 +2672,14 @@ describe("LorePage — 晚到的回應", () => {
     fireEvent.click(container.querySelector('[data-testid="lore-staged-save"]')!);
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-1"]));
     await waitFor(() => expect(sectionHead(container)).toContain("5 筆"));
-    expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull();
+    expect(rowById(container, "L-1").dataset.dimmed).toBe("false");
 
     firstReread.resolve(lineAtL2);
     firstBudgets.resolve([{ ...MIRA_TARGET, entryCount: 2 }]);
     await new Promise((r) => setTimeout(r, 20));
 
     expect(renderedIds(container)).toEqual(["L-1"]);
-    expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull();
+    expect(rowById(container, "L-1").dataset.dimmed).toBe("false");
     expect(sectionHead(container)).toContain("5 筆");
   });
 
@@ -2747,7 +2695,7 @@ describe("LorePage — 晚到的回應", () => {
         : page(first, { capChars: 1000, firstDroppedId: "L-2" });
     });
     const { container } = await renderOpen();
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-cap-line"]')).not.toBeNull());
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(30));
 
     fireEvent.scroll(container.querySelector('[data-testid="lore-page"]')!);
     chooseStateOn(container, "L-1", "retired");
@@ -2758,6 +2706,5 @@ describe("LorePage — 晚到的回應", () => {
     await new Promise((r) => setTimeout(r, 20));
 
     expect(renderedIds(container)).toEqual(first.slice(1).map((e) => e.id));
-    expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull();
   });
 });

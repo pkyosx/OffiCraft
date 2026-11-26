@@ -2907,7 +2907,7 @@ export interface Api {
    * 🔴 THE FILTER TRAVELS WITH THE PAGE. Every narrowing the page offers is a
    * query parameter, never a client-side `.filter()` on a downloaded list: a
    * page that filters after paging cannot tell 「這一頁剛好沒有」 from
-   * 「根本沒有」, and the 上限線 it draws would fall in the wrong place.
+   * 「根本沒有」.
    *
    * The order is FIXED (置頂 → 生效中 → 已失效, newest effective first inside
    * each group) and is not a parameter. */
@@ -3604,6 +3604,10 @@ export interface LoreEntryView {
   createdTs: number;
   updatedTs: number;
   loreType: LoreType;
+  /** Whether this entry is left out of the one boot document the request
+   * converged on, as the server's selection decided it. Absent on a retired
+   * entry and on a request that did not converge on one target. */
+  dropped?: boolean;
 }
 
 /** The server-side narrowing one list request may carry. Every field is a query
@@ -3634,12 +3638,12 @@ export interface LoreListOptions {
    * it out of the query entirely so the server never has to decide what an empty
    * set means.
    *
-   * 🔴 `scopeKinds` / `scopeKeys` ALSO DECIDE WHETHER THERE IS A 上限線 AT ALL.
-   * `capChars`/`firstDroppedId` come back non-empty only when the effective
+   * 🔴 `scopeKinds` / `scopeKeys` ALSO DECIDE WHETHER THERE ARE BUDGET NUMBERS.
+   * `capChars`/`firstDroppedId` and each entry's `dropped` come back only when the effective
    * scope_kind set holds EXACTLY ONE value and the effective scope_key set holds
    * exactly one (or the kind is `everyone` alone with no key, since its key is
    * "") — a budget belongs to a scope, and two scopes have two different
-   * budgets with no single line between them. Tick two 範圍 and the page gets
+   * budgets. Tick two 範圍 and the page gets
    * 0 / "", which is the same honest answer an unfiltered page gets. */
   scopeKinds?: LoreScopeKind[];
   scopeKeys?: string[];
@@ -3655,14 +3659,12 @@ export interface LoreListOptions {
   offset?: number;
 }
 
-/** One page, plus where the 上限線 falls.
+/** One page, plus the budget numbers of the target it converged on.
  *
  * 🔴 `firstDroppedId` IS NOT DERIVABLE HERE AND MUST NOT BE RECOMPUTED. The
  * server answers it from the same selection the folds run, over the WHOLE
  * scope (for a member that includes the `everyone` entries merged with its own); this page is cut by `limit`/`offset` long before the budget is spent,
- * so adding up the visible rows would draw the line in the wrong place on every
- * page but the first — and a line in the wrong place looks exactly like a line
- * in the right place.
+ * so adding up the visible rows would be wrong on every page but the first.
  *
  * Both are the empty answer (0 and "") when the request did not converge on ONE
  * scope (or on one member's whole list, `everyone` + `agent` with its key), because a budget belongs to a scope and a page spanning several has no

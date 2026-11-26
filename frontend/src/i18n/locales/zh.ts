@@ -129,7 +129,7 @@ export const zh = {
     stagedNoticeLead: "有 ",
     stagedNoticeTailOne: " 項變更還沒儲存。",
     stagedNoticeTailMany: " 項變更還沒儲存。",
-    stagedNoticeStale: "上限線、筆數與字數是儲存前的狀態，儲存後才會重新計算並重新排列。",
+    stagedNoticeStale: "哪幾筆變灰（讀不到）、筆數與字數是儲存前的狀態，儲存後才會重新計算並重新排列。",
     stagedSaveLead: "儲存變更（",
     stagedSaveTailOne: " 筆）",
     stagedSaveTailMany: " 筆）",
@@ -177,14 +177,6 @@ export const zh = {
     legendCapLead: "上限 ",
     legendLeftMid: "，剩 ",
     legendLeftTail: " 字",
-    capLineAwayLead: "上限線在 ",
-    capLineAwayTail: "，不在目前的結果裡",
-    // 上限線本身
-    capLineLead: "上限線　已用 ",
-    capLineOf: " / ",
-    capLineNeedLead: " 字・",
-    capLineNeedMid: " 需要 ",
-    capLineNeedTail: " 字，從這裡以下讀不到",
     // 卡片右上的動作
     actionEdit: "編輯",
     // 就地編輯

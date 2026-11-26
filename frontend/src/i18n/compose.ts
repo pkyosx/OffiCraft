@@ -95,8 +95,6 @@ export interface Messages {
   loreLegendSegment: (name: string, count: number, fitted: number, chars: number) => string;
   loreLegendLeft: (cap: number, left: number) => string;
   loreScopeChanged: (entryId: string, scope: string) => string;
-  loreCapLine: (used: number, cap: number, firstDroppedId: string, need: number) => string;
-  loreCapLineAway: (firstDroppedId: string) => string;
   loreStagedChanges: (n: number) => string;
   loreStagedNotice: (n: number) => string;
   loreStagedSave: (entries: number) => string;
@@ -495,12 +493,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${entryId}${t.lore.scopeChangedMid}${scope}${t.lore.scopeChangedTail}`,
     loreLegendLeft: (cap, left) =>
       `${t.lore.legendCapLead}${num(cap)}${t.lore.charsTail}${t.lore.legendLeftMid}${num(left)}${t.lore.legendLeftTail}`,
-    loreCapLine: (used, cap, firstDroppedId, need) =>
-      `${t.lore.capLineLead}${num(used)}${t.lore.capLineOf}${num(cap)}` +
-      `${t.lore.capLineNeedLead}${firstDroppedId}${t.lore.capLineNeedMid}${num(need)}` +
-      t.lore.capLineNeedTail,
-    loreCapLineAway: (firstDroppedId) =>
-      `${t.lore.capLineAwayLead}${firstDroppedId}${t.lore.capLineAwayTail}`,
     loreStagedChanges: (n) =>
       `${num(n)}${n === 1 ? t.lore.stagedChangesTailOne : t.lore.stagedChangesTailMany}`,
     loreStagedNotice: (n) =>

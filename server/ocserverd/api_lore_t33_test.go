@@ -1557,6 +1557,23 @@ func TestListLoreBudgets(t *testing.T) {
 		}
 		return data
 	}
+	droppedByTitle := func(t *testing.T, query string) map[string]any {
+		t.Helper()
+		status, data := apiJSON(t, st.h, "GET", "/api/lore?"+query, st.user, "")
+		if status != http.StatusOK {
+			t.Fatalf("%s: %d %v", query, status, data)
+		}
+		out := map[string]any{}
+		for _, raw := range data["entries"].([]any) {
+			e := raw.(map[string]any)
+			if d, ok := e["dropped"]; ok {
+				out[e["title"].(string)] = d
+			} else {
+				out[e["title"].(string)] = "absent"
+			}
+		}
+		return out
+	}
 
 	t.Run("one target per boot document, live entries only, retired and off-roster members left out", func(t *testing.T) {
 		st.api.loreCapCharsRole = 20
@@ -1590,6 +1607,48 @@ func TestListLoreBudgets(t *testing.T) {
 			budgetTarget("manual", "builtin-remote-access", 12, 0, 0, 0),
 			budgetTarget("manual", "tm-budget", 12, 10, 3, 1),
 		}})
+		apiWantBody(t, droppedByTitle(t, "scope_kind=agent&scope_key=m-scope-user"), map[string]any{
+			"我三三": true, "我二二": true, "我一一": true, "我廢廢": "absent",
+		})
+	})
+
+	t.Run("GET /api/lore for one target marks each entry dropped or not for that whole target, whatever the filter or page", func(t *testing.T) {
+		st.api.loreCapCharsRole = 20
+		st.api.loreCapCharsManual = 12
+		for _, tc := range []struct {
+			name, query string
+			want        map[string]any
+		}{
+			{"a member's whole list", "scope_kinds=everyone&scope_kinds=agent&scope_keys=m-scope-user", map[string]any{
+				"眾二二": false, "眾一一": false, "我三三": false, "我二二": false, "我一一": true,
+				"眾廢廢": "absent", "我廢廢": "absent",
+			}},
+			{"agent alone", "scope_kind=agent&scope_key=m-scope-user", map[string]any{
+				"我三三": false, "我二二": false, "我一一": true, "我廢廢": "absent",
+			}},
+			{"everyone", "scope_kind=everyone", map[string]any{
+				"眾二二": false, "眾一一": false, "眾廢廢": "absent",
+			}},
+			{"manual", "scope_kind=manual&scope_key=tm-budget", map[string]any{
+				"手三三": false, "手二二": false, "手一一": true, "手廢廢": "absent",
+			}},
+			{"a title search", "scope_kinds=everyone&scope_kinds=agent&scope_keys=m-scope-user&q=%E4%B8%80%E4%B8%80", map[string]any{
+				"眾一一": false, "我一一": true,
+			}},
+			{"a page past the first", "scope_kinds=everyone&scope_kinds=agent&scope_keys=m-scope-user&states=active&limit=2&offset=3", map[string]any{
+				"我二二": false, "我一一": true,
+			}},
+			{"a kind without a key", "scope_kind=manual", map[string]any{
+				"手三三": "absent", "手二二": "absent", "手一一": "absent", "手廢廢": "absent",
+			}},
+			{"two members", "scope_kind=agent&scope_keys=m-scope-user&scope_keys=ow-budget-live", map[string]any{
+				"我三三": "absent", "我二二": "absent", "我一一": "absent", "我廢廢": "absent", "外一一": "absent",
+			}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				apiWantBody(t, droppedByTitle(t, tc.query), tc.want)
+			})
+		}
 	})
 
 	t.Run("GET /api/lore for one target reports the numbers its budget reports", func(t *testing.T) {
@@ -1684,6 +1743,9 @@ func TestListLoreBudgets(t *testing.T) {
 		apiWantBody(t, data, map[string]any{"limit": 1, "offset": 0,
 			"cap_chars": 12, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
 			"budget_segments": []any{budgetSegment("everyone", 2, 10, 0, 0), budgetSegment("agent", 2, 10, 2, 10)},
+		})
+		apiWantBody(t, droppedByTitle(t, "scope_kinds=everyone&scope_kinds=agent&scope_keys="+me), map[string]any{
+			"新二二": false, "新一一": false, "眾二二": true, "眾一一": true, "眾廢廢": "absent",
 		})
 
 		var got map[string]any

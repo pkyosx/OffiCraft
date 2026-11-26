@@ -1,6 +1,6 @@
 package main
 
-// api_lore_cutoff_t33_test.go — T-33 spec §6 上限線: GET /api/lore reports WHICH
+// api_lore_cutoff_t33_test.go — T-33 spec §5 first_dropped_id: GET /api/lore reports WHICH
 // entry the fold drops, and it reports it from the fold's own selector.
 //
 // 🔴 THE EXPECTATION IS THE ASSEMBLED BOOT DOCUMENT, not a second run of
@@ -285,13 +285,14 @@ func TestListReportsNoDropWhenEverythingFits(t *testing.T) {
 
 // TestTheListFaceGoesThroughTheOneSelectorToo extends the guard in
 // api_lore_t33_test.go to the third caller. The two folds were the two the spec
-// named; the 上限線 is a THIRD place the same rule is needed, and restating it
-// here rather than calling the selector is how the line starts pointing at a
-// different entry from the one the fold drops — silently, since both look right.
+// named; the list's first_dropped_id and dropped are a THIRD place the same rule
+// is needed, and restating it here rather than calling the selector is how they
+// start naming a different entry from the one the fold drops — silently, since
+// both look right.
 func TestTheListFaceGoesThroughTheOneSelectorToo(t *testing.T) {
 	src := readSourceForLoreGuard(t, "api_lore.go")
 	if !strings.Contains(src, "selectLoreForScope(") {
-		t.Fatalf("api_lore.go no longer calls selectLoreForScope — the 上限線 is " +
+		t.Fatalf("api_lore.go no longer calls selectLoreForScope — first_dropped_id is " +
 			"being computed from a second copy of the picking rule")
 	}
 }

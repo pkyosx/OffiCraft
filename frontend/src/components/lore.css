@@ -273,35 +273,6 @@ button.lore-dir-card__name--link:hover {
   color: var(--color-text-muted);
 }
 
-/* ── 上限線 ──
- * Drawn immediately ABOVE the first entry that does not fit, carrying the
- * section's used / cap and what that entry needs. Danger colour because
- * crossing it has a consequence (those entries are not read), not because
- * anything is broken. The text wraps rather than ellipsizes: the numbers on it
- * are the point. */
-.lore__cap-line {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 6px 0 2px;
-  color: var(--color-danger);
-  font-size: 11.5px;
-  font-weight: 700;
-}
-.lore__cap-line::before,
-.lore__cap-line::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: color-mix(in srgb, var(--color-danger) 45%, transparent);
-}
-.lore__cap-line-text {
-  flex: 0 1 auto;
-  min-width: 0;
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-
 .lore__more {
   padding: 8px 0 4px;
   min-height: 20px;
@@ -319,17 +290,6 @@ button.lore-dir-card__name--link:hover {
   flex-direction: column;
   gap: 10px;
   min-width: 0;
-}
-.lore-section__item {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-.lore-section__cap-away {
-  font-size: 12.5px;
-  color: var(--color-danger);
-  overflow-wrap: anywhere;
 }
 .lore-section__staged-note {
   padding: 8px 12px;
@@ -602,11 +562,11 @@ button.lore-dir-card__name--link:hover {
   margin: 6px 0;
 }
 
-/* ── 線以下的條目：內容轉灰 ──
+/* ── 讀不到的條目（伺服器回 dropped）：內容轉灰 ──
  * 🔴 THE CONTENT ONLY. The status badge and every button keep their normal
- * colour (spec §6), because they are still live controls — the entry below the
- * line is exactly the one an owner is most likely to want to 置頂 or 失效, and
- * greying the way to do that would fight the reason the line is drawn.
+ * colour (spec §6), because they are still live controls — an entry that cannot
+ * be read is exactly the one an owner is most likely to want to 置頂 or 失效,
+ * and greying the way to do that would fight the reason it is greyed.
  * Deliberately NOT `.lore-row--dimmed { opacity }` on the row: that would take
  * the controls down with it. */
 .lore-row--dimmed .lore-row__title,

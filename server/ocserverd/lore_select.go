@@ -25,12 +25,15 @@ type loreLister interface {
 
 type loreSelection struct {
 	Entries []LoreEntry
-	// The cockpit draws its 上限線 immediately above this entry.
+	// The first entry the walk reached and could not load.
 	FirstDroppedID string
+	// Every entry the walk reached, true when it was not loaded. An entry the
+	// walk never saw (retired, or another reader's) has no key.
+	Dropped map[string]bool
 	// One per scope kind, listed in the order of selectLoreEntries' walk
 	// argument (a member: everyone, then agent) — not the order the entries
-	// interleave in — so a member's own list can draw its line above its own
-	// first dropped entry even when the overall first drop is an everyone entry.
+	// interleave in — so a member's agent-only list can name its own first
+	// dropped entry even when the overall first drop is an everyone entry.
 	Segments []loreSegment
 
 	UsedChars int
@@ -96,7 +99,7 @@ func loreEntryChars(e LoreEntry) int {
 //
 // 🔴 The walk STOPS at the first entry that does not fit; it does not skip it and
 // look for smaller ones. Everything below is OLDER, and a non-contiguous loaded
-// set leaves the cockpit's 上限線 no honest place to be drawn.
+// set would let a newer entry go unread while an older one is read.
 func selectLoreForScope(lister loreLister, scopeKind, scopeKey string, capChars int) (loreSelection, error) {
 	if lister == nil || capChars <= 0 || (scopeKey == "" && scopeKind != LoreScopeEveryone) {
 		// capChars <= 0 is "no room", not "unlimited" — a mis-loaded setting must
@@ -149,7 +152,7 @@ func loreLiveBefore(a, b LoreEntry) bool {
 
 // mergeLoreLive merges two lists that are each already in live order; it keeps
 // each list's own order, so a scope's fitted entries stay a prefix of that
-// scope and its first dropped entry still has an honest place for the line.
+// scope.
 func mergeLoreLive(a, b []LoreEntry) []LoreEntry {
 	out := make([]LoreEntry, 0, len(a)+len(b))
 	for len(a) > 0 && len(b) > 0 {
@@ -165,7 +168,8 @@ func mergeLoreLive(a, b []LoreEntry) []LoreEntry {
 // walk names the scope kinds the segments are reported in, so a scope with no
 // live entries still answers its (zero) segment.
 func selectLoreEntries(entries []LoreEntry, capChars int, walk ...string) loreSelection {
-	sel := loreSelection{Entries: []LoreEntry{}, CapChars: capChars, Segments: []loreSegment{}}
+	sel := loreSelection{Entries: []LoreEntry{}, CapChars: capChars, Segments: []loreSegment{},
+		Dropped: map[string]bool{}}
 	segOf := map[string]int{}
 	for _, kind := range walk {
 		segOf[kind] = len(sel.Segments)
@@ -189,11 +193,13 @@ func selectLoreEntries(entries []LoreEntry, capChars int, walk ...string) loreSe
 				sel.Entries = append(sel.Entries, e)
 				seg.FittedCount++
 				seg.FittedChars += cost
+				sel.Dropped[e.ID] = false
 				continue
 			}
 			stopped = true
 			sel.FirstDroppedID = e.ID
 		}
+		sel.Dropped[e.ID] = true
 		if seg.FirstDroppedID == "" {
 			seg.FirstDroppedID = e.ID
 			seg.FirstDroppedChars = cost

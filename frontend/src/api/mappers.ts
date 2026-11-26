@@ -2442,6 +2442,7 @@ export function toLoreEntry(
     // Missing (an older server) or a value this build does not know reads as
     // other, the type every entry written without one has.
     loreType: isLoreType(w.lore_type) ? w.lore_type : "other",
+    ...(w.dropped === undefined ? {} : { dropped: w.dropped }),
   };
 }
 
@@ -2460,7 +2461,7 @@ function toLoreEntryState(s: string): LoreEntryState {
   return s === "pinned" || s === "retired" || s === "active" ? s : "active";
 }
 
-/** One wire page → one view page, carrying the 上限線 through untouched. */
+/** One wire page → one view page, carrying the budget numbers through untouched. */
 export function toLoreEntryPage(
   w: components["schemas"]["LoreEntryListDTO"],
 ): LoreEntryPageView {
