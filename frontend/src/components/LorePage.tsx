@@ -817,7 +817,9 @@ function LoreView({
     [runOne]
   );
   // ── 提到最新 moves the card; the viewport stays on what the reader saw ────
-  const [toast, setToast] = useState<{ id: string } | null>(null);
+  // `scopeLabel` set ⇒ the 適用範圍 notice: the card keeps its place and shows no
+  // scope, so without it nothing on screen would say the change landed.
+  const [toast, setToast] = useState<{ id: string; scopeLabel?: string } | null>(null);
   type Anchor = { el: HTMLElement; top: number };
   const anchorRef = useRef<{ main: Anchor; fallback: Anchor | null } | null>(null);
   useEffect(() => {
@@ -888,8 +890,10 @@ function LoreView({
     el.focus({ preventScroll: true });
   }
   const setEntryScope = useCallback(
-    (id: string, kind: LoreScopeKind) =>
-      void runOne(id, () => api.setLoreEntryScope(id, kind), true).catch(() => {}),
+    (id: string, kind: LoreScopeKind, label: string) =>
+      void runOne(id, () => api.setLoreEntryScope(id, kind), true)
+        .then(() => setToast({ id, scopeLabel: label }))
+        .catch(() => {}),
     [runOne]
   );
   const setEntryLoreType = useCallback(
@@ -1009,7 +1013,9 @@ function LoreView({
   // read first (member sections only), then the target's own, up to the cap.
   function renderSummary(def: SectionDef, sd: SectionData | undefined) {
     const cap = sd?.cap;
-    if (!sd || !cap || cap.capChars <= 0) return dirUsage(def);
+    // 所有人 has no boot document of its own (the cap the server reports is a
+    // member's), so its page reads like its directory card.
+    if (def.kind === "everyone" || !sd || !cap || cap.capChars <= 0) return dirUsage(def);
     const own =
       [...cap.budgetSegments].reverse().find((s) => s.scopeKind === def.kind) ?? null;
     const everyoneSeg =
@@ -1334,9 +1340,22 @@ function LoreView({
             <div className="lore-dir-card__head">
               {dirLead(currentDef)}
               <span className="lore-dir-card__main">
-                <span className="lore-dir-card__name" data-testid="lore-section-name">
-                  {sectionName(currentDef)}
-                </span>
+                {currentDef.kind === "manual" ? (
+                  // The only way back to the manual now that cards carry no scope badge.
+                  <button
+                    type="button"
+                    className="lore-dir-card__name lore-dir-card__name--link"
+                    data-testid="lore-section-name"
+                    title={msg.loreOpenManual(sectionName(currentDef))}
+                    onClick={() => openManual(currentDef.scopeKey)}
+                  >
+                    {sectionName(currentDef)}
+                  </button>
+                ) : (
+                  <span className="lore-dir-card__name" data-testid="lore-section-name">
+                    {sectionName(currentDef)}
+                  </span>
+                )}
                 {dirBadges(currentDef)}
               </span>
             </div>
@@ -1409,17 +1428,23 @@ function LoreView({
 
       {toast && (
         <div className="lore__dock">
-          <div className="lore-batch lore-toast" role="status" data-testid="lore-toast">
-            <span>{t.lore.bumpedToast}</span>
-            <span aria-hidden="true">·</span>
-            <button
-              type="button"
-              className="lore-batch__link lore-toast__go"
-              data-testid="lore-toast-go"
-              onClick={() => goToEntry(toast.id)}
-            >
-              {t.lore.bumpedGo}
-            </button>
+          <div className="lore-toast" role="status" data-testid="lore-toast">
+            {toast.scopeLabel !== undefined ? (
+              <span>{msg.loreScopeChanged(toast.id, toast.scopeLabel)}</span>
+            ) : (
+              <>
+                <span>{t.lore.bumpedToast}</span>
+                <span aria-hidden="true">·</span>
+                <button
+                  type="button"
+                  className="lore-toast__go"
+                  data-testid="lore-toast-go"
+                  onClick={() => goToEntry(toast.id)}
+                >
+                  {t.lore.bumpedGo}
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1467,20 +1492,18 @@ function LoreRow({
   dimmed: boolean;
   author: AuthorIdentity;
   avatar: { src?: string; kind: AvatarKind } | null;
-  /** 屬於, already resolved (resolveScope). `manualKey` non-empty is what
-   * offers the manual jump inside the 適用範圍 menu; `kind` picks the glyph and,
-   * without a menu, whether the pill is the manual button. Both come from that
-   * one place. */
+  /** 屬於, already resolved (resolveScope). `manualKey` non-empty offers the
+   * manual jump inside the 適用範圍 menu. */
   scope: { kind: "" | LoreScopeKind; label: string; manualKey: string };
   onOpenChat: (peerId: string, entryId: string) => void;
   onOpenManual: (typeKey: string) => void;
   onSetState: (id: string, next: LoreEntryState) => void;
-  /** null ⇒ the viewer may not switch this entry's scope; the badge is inert. */
+  /** null ⇒ the viewer may not switch this entry's scope; no 適用範圍 action. */
   scopeMenu: ScopeMenu | null;
-  onSetScope: (id: string, kind: LoreScopeKind) => void;
+  onSetScope: (id: string, kind: LoreScopeKind, label: string) => void;
   onSetLoreType: (id: string, loreType: LoreType) => void;
   onBump: (id: string) => void;
-  /** Phone width: 提到最新 and 編輯 fold into the 「⋯」 menu. */
+  /** Phone width: 提到最新, 編輯 and 適用範圍 fold into the 「⋯」 menu. */
   isMobile: boolean;
   highlighted: boolean;
   entryCaps: { title: number; body: number };
@@ -1536,7 +1559,7 @@ function LoreRow({
     return () => document.removeEventListener("mousedown", onDown);
   }, [typeOpen]);
 
-  // A body that fits its one clamped line reads the same expanded, so the row
+  // A body that fits its two clamped lines reads the same expanded, so the row
   // only offers 展開 when the clamp actually hides something. Measured while
   // clamped only: an expanded body never overflows, and re-measuring then would
   // take away the way to collapse it.
@@ -1638,7 +1661,7 @@ function LoreRow({
     >
       <div className="lore-row__head">
         <div className="lore-row__badges">
-          {/* Order: 編號 → 類型 → 狀態 → 屬於. The id leads, as on 任務卡, because it
+          {/* Order: 編號 → 類型 → 狀態. The id leads, as on 任務卡, because it
               is what you quote to somebody else (owner: 「make them consistent
               with task」). 傳承 has no 優先權; do not invent one for the slot. */}
           <button
@@ -1889,7 +1912,7 @@ function LoreRow({
                         data-testid={`lore-scope-${c.kind}`}
                         onClick={() => {
                           setScopeOpen(false);
-                          if (!current) onSetScope(entry.id, c.kind);
+                          if (!current) onSetScope(entry.id, c.kind, c.label);
                         }}
                       >
                         <span className="lore-row__scope-check" aria-hidden="true">
@@ -1967,7 +1990,7 @@ function LoreRow({
 
               🔴 THE TRUNCATION IS OF THE RENDERED OUTPUT, NEVER OF THE SOURCE. It
               is CSS (-webkit-line-clamp on .lore-row__body--clamped): the markdown
-              is parsed in full and the BOX shows one line of it. Slicing the source
+              is parsed in full and the BOX shows two lines of it. Slicing the source
               string to N characters would cut a `**` or a fence in half and hand
               the parser something that is not the entry's markdown at all.
 

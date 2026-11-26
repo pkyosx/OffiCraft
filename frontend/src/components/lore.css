@@ -148,6 +148,19 @@ a.lore-dir-card:focus-visible {
   color: var(--color-text-strong);
   overflow-wrap: anywhere;
 }
+button.lore-dir-card__name--link {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.lore-dir-card__name--link:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
 .lore-dir-card__badges {
   display: inline-flex;
   flex-wrap: wrap;
@@ -332,7 +345,7 @@ a.lore-dir-card:focus-visible {
 .lore__dock > * {
   pointer-events: auto;
 }
-.lore-batch {
+.lore-toast {
   max-width: 100%;
   display: flex;
   flex-wrap: wrap;
@@ -344,7 +357,7 @@ a.lore-dir-card:focus-visible {
   background: var(--color-card);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
 }
-button.lore-batch__link {
+button.lore-toast__go {
   margin: 0;
   padding: 6px 4px;
   border: none;
@@ -356,7 +369,7 @@ button.lore-batch__link {
   white-space: nowrap;
 }
 /* ── one 傳承 row ──
- * A row whose body overflows its clamped line (--toggle) is the toggle surface,
+ * A row whose body overflows its clamped lines (--toggle) is the toggle surface,
  * so it takes the pointer cursor and a focus ring; the ▸/▾ mark is only a
  * mirror of that state. */
 .lore-row {
@@ -600,27 +613,6 @@ button.lore-batch__link {
 .lore-badge--state-retired {
   color: var(--color-text-muted);
 }
-/* 屬於's name half wears 任務卡's 類型 badge — copy of tasks.css
- * `.task-badge--type`, same token, same 40% border mix. Its own teal
- * (--color-task-type), NOT --color-accent: 置頂 already owns accent on this row
- * and two same-coloured pills side by side would read as one pair. */
-.lore-badge--type {
-  color: var(--color-task-type);
-  border-color: color-mix(in srgb, var(--color-task-type) 40%, transparent);
-}
-/* The leading dot + the 齒輪 must not absorb the shrink the name needs. */
-.lore-badge--type svg,
-.lore-badge--type::before {
-  flex: none;
-}
-/* The name is the one badge whose text is user data of unbounded length (a
- * manual's display name), so it alone opts out of .lore-badge's flex:none —
- * copy of tasks.css's second `.task-badge--type` block. */
-.lore-badge--type {
-  flex: 0 1 auto;
-  max-width: 100%;
-}
-
 /* Type tag. Filled and dot-less so it does not read
  * as one more state pill beside the status badge. One colour for every type —
  * owner ruling rc-f15bc5f4013d; do not colour-code the types. */
@@ -736,7 +728,6 @@ button.lore-badge--lore-type:hover:not(:disabled) {
   flex: none;
 }
 .lore-row__chip {
-  justify-self: start;
   max-width: 100%;
   display: inline-flex;
   align-items: center;

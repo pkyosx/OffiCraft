@@ -1425,6 +1425,10 @@ describe("LorePage — 適用範圍選單", () => {
     );
     fireEvent.mouseDown(document.body);
     expect(set.mock.calls).toEqual([["L-2", "everyone"]]);
+    // The card shows no scope, so the notice is what says the change landed.
+    const toast = container.querySelector('[data-testid="lore-toast"]')!;
+    expect(toast.textContent).toMatch(/^L-2 的適用範圍改成「.+」$/);
+    expect(toast.querySelector('[data-testid="lore-toast-go"]')).toBeNull();
     expect(list.mock.calls).toEqual([
       [{ states: ["pinned", "active"], scopeKinds: ["agent"], scopeKeys: ["mira"], limit: 30, offset: 0 }],
       [{ scopeKinds: ["agent"], scopeKeys: ["mira"], entryIds: ["L-2"], limit: 1, offset: 0 }],
@@ -1738,6 +1742,40 @@ describe("LorePage — 目錄與段落頁", () => {
     expect((cards[0].querySelector(".lore-dir-card__bar-fill") as HTMLElement).style.width).toBe("100%");
     expect(cards[1].querySelector(".lore-dir-card__bar-fill")).toBeNull();
     expect(cards[1].querySelector('[data-testid="lore-section-usage"]')!.textContent).toBe("320 字");
+  });
+
+  it("a manual section's name opens that manual", async () => {
+    stubTargets();
+    stubList(page([mkEntry({ id: "L-8", scopeKind: "manual", scopeKey: "review-pr" })], { capChars: 10000, firstDroppedId: "" }));
+    const { container } = renderPage();
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
+    openSection(container, "manual:review-pr");
+    await waitFor(() => expect(renderedIds(container)).toEqual(["L-8"]));
+    fireEvent.click(container.querySelector('[data-testid="lore-section-name"]')!);
+    expect(window.location.hash).toBe("#settings/manuals/review-pr");
+  });
+
+  it("the 所有人 section page shows only its size, never a cap or a bar it does not have", async () => {
+    stubTargets();
+    stubList({
+      ...page([mkEntry({ id: "L-3", scopeKind: "everyone", scopeKey: "" })], { capChars: 10000, firstDroppedId: "" }),
+      usedChars: 6240,
+      budgetSegments: [
+        { scopeKind: "everyone", entryCount: 14, chars: 6240, fittedCount: 14, fittedChars: 6240 },
+      ],
+    });
+    const { container } = renderPage();
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
+
+    openSection(container, "everyone:");
+
+    await waitFor(() => expect(renderedIds(container)).toEqual(["L-3"]));
+    const head = container.querySelector<HTMLElement>('[data-testid="lore-section-head"]')!;
+    expect(head.querySelector('[data-testid="lore-section-bar"]')).toBeNull();
+    expect(head.querySelector('[data-testid="lore-section-summary"]')).toBeNull();
+    expect(head.querySelector('[data-testid="lore-section-usage"]')!.textContent).toBe(
+      "6,240 字・每位成員先讀",
+    );
   });
 
   it("opening a member's section shows the head card with its two-part bar and legend, the cards and the line above the first entry that cannot be read", async () => {

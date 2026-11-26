@@ -94,6 +94,7 @@ export interface Messages {
   loreHighlightLoadFailed: (id: string) => string;
   loreLegendSegment: (name: string, count: number, fitted: number, chars: number, first: boolean) => string;
   loreLegendLeft: (cap: number, left: number) => string;
+  loreScopeChanged: (entryId: string, scope: string) => string;
   loreCapLine: (used: number, cap: number, firstDroppedId: string, need: number) => string;
   loreCapLineAway: (firstDroppedId: string) => string;
   // ── secrets ──
@@ -489,6 +490,8 @@ export function makeMessages(t: Dict, language: Lang): Messages {
         (first ? l.legendFirstTail : "")
       );
     },
+    loreScopeChanged: (entryId, scope) =>
+      `${entryId}${t.lore.scopeChangedMid}${scope}${t.lore.scopeChangedTail}`,
     loreLegendLeft: (cap, left) =>
       `${t.lore.legendCapLead}${num(cap)}${t.lore.charsTail}${t.lore.legendLeftMid}${num(left)}${t.lore.legendLeftTail}`,
     loreCapLine: (used, cap, firstDroppedId, need) =>

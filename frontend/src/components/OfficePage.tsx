@@ -1,3 +1,4 @@
+import { composeSeedFor } from "../lib/composeSeed";
 import { useEffect, useRef, useState } from "react";
 import type { ComponentProps } from "react";
 import { useI18n } from "../i18n";
@@ -220,13 +221,11 @@ export function OfficePage({
       setWorkerDetailId(null);
     }
   };
-  // T-e987 compose seed: a #office/chat/<id>/compose/<taskNo> deep-link (the
-  // 任務卡 負責人/建立者 label) seeds that chat's composer with "[<taskNo>] ".
+  // A #office/chat/<id>/compose/<no> deep-link (the 任務卡 負責人/建立者 label,
+  // a 傳承 card's author) seeds that chat's composer (composeSeedFor).
   // Only the EXPLICITLY routed peer gets it (never the roster[0] fallback) —
   // gated per ChatArea below on peerId === route.chatId, same rule as msgId.
-  const composeSeed = route.composeTaskNo
-    ? `[${route.composeTaskNo}] `
-    : undefined;
+  const composeSeed = route.composeTaskNo ? composeSeedFor(route.composeTaskNo) : undefined;
   const seedFor = (peerId: string) =>
     peerId === route.chatId ? composeSeed : undefined;
 
