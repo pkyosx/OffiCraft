@@ -204,8 +204,7 @@ func (s *apiServer) releaseAnnounceRound(includePre bool, latest string) {
 		return
 	}
 	if !s.announceFeaturesEnabled() {
-		// Off means no backfill: turning it back on must not replay this window.
-		s.advanceReleaseAnnounceThrough(appVersion)
+		s.recordReleaseAnnounceWindowOff(includePre, latest, running, marker)
 		return
 	}
 	// ⚠️ A wait GitHub named outlives the round: asking before its rate-limit
@@ -251,6 +250,27 @@ func (s *apiServer) releaseAnnounceRound(includePre bool, latest string) {
 	}
 	if s.deliverReleaseAnnouncements(releases, covered, marker, running) {
 		s.releaseAnnounceReadPair = pair
+	}
+}
+
+// recordReleaseAnnounceWindowOff records, with the toggle off, the part of the
+// window known to hold only official releases, so turning it back on does not
+// replay them. ⚠️ Not simply running: a running prerelease recorded here would
+// never be announced after its promotion, even one promoted with the toggle
+// back on. The beta channel does not know Latest without asking GitHub, which
+// an off toggle must not do, so it records nothing and turning it back on
+// relays the official releases reached meanwhile.
+func (s *apiServer) recordReleaseAnnounceWindowOff(includePre bool, latest, running, marker string) {
+	latestTag, ok := canonicalSemver(latest)
+	if includePre || !ok {
+		return
+	}
+	through := appVersion
+	if semverOutranks(running, latestTag) {
+		through = latest
+	}
+	if semverOutranks(through, marker) {
+		s.advanceReleaseAnnounceThrough(through)
 	}
 }
 

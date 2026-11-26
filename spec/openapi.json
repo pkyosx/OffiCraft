@@ -8383,7 +8383,7 @@
           },
           "updater_announce_features": {
             "default": true,
-            "description": "Whether the station's assistant tells the owner, in chat, what a newly reached official release adds. After the station reaches one or more official (non-prerelease) releases whose GitHub release notes carry a feature announcement, whether by upgrading or because the version it runs becomes an official release, the server sends the assistant one system message at its next version check, with at most the newest five announcements, and the assistant relays them. A never-set value reads true. false = nothing is checked or sent, and announcements for releases reached while it is off are never sent later.",
+            "description": "Whether the station's assistant tells the owner, in chat, what a newly reached official release adds. After the station reaches one or more official (non-prerelease) releases whose GitHub release notes carry a feature announcement, whether by upgrading or because the version it runs becomes an official release, the server sends the assistant one system message at its next version check, with at most the newest five announcements, and the assistant relays them. A never-set value reads true. false = nothing is checked or sent, and announcements for releases reached while it is off are never sent later, except on a station receiving beta releases, which relays the official releases it reached while off at the first version check after it is turned back on.",
             "title": "Updater Announce Features",
             "type": "boolean"
           },

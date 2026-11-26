@@ -156,8 +156,13 @@ func (s *apiServer) refreshUpdateCheck(includePre bool) {
 	s.updateCheck.tag = tag
 	s.updateMu.Unlock()
 
-	// fetching stays set through the announcement round, so a read meanwhile
-	// does not start a second check behind it.
+	s.announceThenFinishCheck(includePre, tag, none)
+}
+
+// announceThenFinishCheck runs the announcement round of a check that set
+// fetching. fetching stays set through the round, so a read meanwhile does not
+// start a second check behind it.
+func (s *apiServer) announceThenFinishCheck(includePre bool, tag string, none bool) {
 	s.announceAfterCheck(includePre, tag, none)
 
 	s.updateMu.Lock()
@@ -326,9 +331,9 @@ func (s *apiServer) syncUpdateCheck() updateCheckState {
 	if s.updateCheck.includePre != includePre {
 		s.updateCheck = updateCheckState{includePre: includePre}
 	}
-	s.updateCheck.fetching = false
 	s.updateCheck.checkedAt = time.Now()
 	if err != nil {
+		s.updateCheck.fetching = false
 		s.updateMu.Unlock()
 		return updateCheckState{includePre: includePre}
 	}
@@ -336,9 +341,17 @@ func (s *apiServer) syncUpdateCheck() updateCheckState {
 	s.updateCheck.ok = true
 	s.updateCheck.none = none
 	s.updateCheck.tag = tag
+	// A routine check in flight runs a round of its own.
+	announce := !s.updateCheck.fetching
+	s.updateCheck.fetching = true
 	st := s.updateCheck
+	st.fetching = false
 	s.updateMu.Unlock()
 
-	s.announceAfterCheck(includePre, tag, none)
+	if announce {
+		// The button answers now: the round reads GitHub page by page, and the
+		// owner would watch 檢查更新 hang for a side effect she did not ask for.
+		go s.announceThenFinishCheck(includePre, tag, none)
+	}
 	return st
 }
