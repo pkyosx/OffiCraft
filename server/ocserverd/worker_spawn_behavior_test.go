@@ -1499,8 +1499,8 @@ func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
 		"came online within the start window — check that claude runs and is logged in on that " +
 		"machine (warden log: ocwarden.out.log)"
 	const noCredential = "claude_not_logged_in: `claude auth status` reports logged out on this host."
-	const tooOld = "notify_claude_too_old: 這台機器的 Claude Code 是 2.1.200，低於 2.1.287，Claude 成員無法上線。" +
-		"請到監控頁的機器分頁升級這台機器的 Claude Code。"
+	const tooOld = "notify_claude_too_old: Claude Code on this machine is 2.1.200, below 2.1.287" +
+		", so Claude members cannot come online. Upgrade this machine's Claude Code under Monitor › Machines."
 	for _, c := range []struct {
 		name, refusal, want string
 		// machine clock offset of the refusal's stamp from the start, in seconds
@@ -1521,7 +1521,7 @@ func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
 		{name: "any other refusal: the lapse replaces it with the wake-timeout receipt",
 			refusal: "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH", want: lapsed},
 		{name: "notify mod not loaded: the lapse replaces it with the wake-timeout receipt",
-			refusal: "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。", want: lapsed},
+			refusal: "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped.", want: lapsed},
 		{name: "not logged in, but of an earlier start: the lapse of this start is a wake timeout",
 			refusal: noCredential, want: lapsed, earlier: true},
 		{name: "not logged in, but the server has since lost the start's time: the lapse is a wake timeout",

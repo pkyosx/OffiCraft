@@ -841,8 +841,8 @@ func TestFoldCommandResult(t *testing.T) {
 	t.Run("under a warden's Claude-Code-too-old refusal, the reason and log stay as the warden wrote them and last_op_at is the server's receipt time", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		before := apiTestMemberRow(t, d, "kip")
-		text := "notify_claude_too_old: 這台機器的 Claude Code 是 2.1.200，低於 2.1.287，Claude 成員無法上線。" +
-			"請到監控頁的機器分頁升級這台機器的 Claude Code。"
+		text := "notify_claude_too_old: Claude Code on this machine is 2.1.200, below 2.1.287" +
+			", so Claude members cannot come online. Upgrade this machine's Claude Code under Monitor › Machines."
 
 		received := nowSecs()
 		api.foldCommandResult(map[string]any{
@@ -866,7 +866,7 @@ func TestFoldCommandResult(t *testing.T) {
 	t.Run("under a warden's mod-not-loaded refusal, last_op_at keeps the machine's stamp", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		before := apiTestMemberRow(t, d, "kip")
-		text := "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。"
+		text := "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped."
 
 		api.foldCommandResult(map[string]any{
 			"member_id": "kip", "rpc": "start", "ok": false,

@@ -256,11 +256,11 @@ func TestRuntimeUpgradeReport(t *testing.T) {
 		f := newUpgradeFixture(t)
 		id := f.startUpgrade(t)
 		status, data := f.reportUpgrade(t, f.warden, `{"upgrade_id":"`+id+`","state":"failed",`+
-			`"from_version":"2.1.200","to_version":"2.1.200","reason":"版本沒有變"}`)
+			`"from_version":"2.1.200","to_version":"2.1.200","reason":"the version did not change"}`)
 		if status != http.StatusOK {
 			t.Fatalf("failed report: %d %v", status, data)
 		}
-		apiWantBody(t, data, upgradeBody(id, "failed", "2.1.200", "2.1.200", "版本沒有變", loginEpoch, loginEpoch))
+		apiWantBody(t, data, upgradeBody(id, "failed", "2.1.200", "2.1.200", "the version did not change", loginEpoch, loginEpoch))
 	})
 
 	t.Run("under a running report carrying to_version or reason, neither is kept", func(t *testing.T) {

@@ -2116,8 +2116,8 @@ func TestStampWakeObservability(t *testing.T) {
 		const lapsed = "wake_timeout: the START was dispatched to machine 'm-box' but the agent never came " +
 			"online within the start window — check that claude runs and is logged in on " +
 			"that machine (warden log: ocwarden.out.log)"
-		const tooOld = "notify_claude_too_old: 這台機器的 Claude Code 是 2.1.200，低於 2.1.287，Claude 成員無法上線。" +
-			"請到監控頁的機器分頁升級這台機器的 Claude Code。"
+		const tooOld = "notify_claude_too_old: Claude Code on this machine is 2.1.200, below 2.1.287" +
+			", so Claude members cannot come online. Upgrade this machine's Claude Code under Monitor › Machines."
 		for _, c := range []struct {
 			name, refusal, want string
 		}{
@@ -2127,7 +2127,7 @@ func TestStampWakeObservability(t *testing.T) {
 				"codex_not_logged_in: machine 'm-box' is not logged in to codex"},
 			{"claude code too old", tooOld, tooOld},
 			{"another refusal", "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH", lapsed},
-			{"notify mod not loaded", "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。", lapsed},
+			{"notify mod not loaded", "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped.", lapsed},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				api, d := reconcileTestServer(t)
@@ -2839,8 +2839,8 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 	t.Run("under a warden's machine-setup refusal of the START, the ticks past the start window and through back-off still show that refusal", func(t *testing.T) {
 		const loggedOut = "claude_not_logged_in: machine 'm-box' is not logged in to claude"
 		const noCredential = "claude_not_logged_in: `claude auth status` reports logged out on this host."
-		const tooOld = "notify_claude_too_old: 這台機器的 Claude Code 是 2.1.200，低於 2.1.287，Claude 成員無法上線。" +
-			"請到監控頁的機器分頁升級這台機器的 Claude Code。"
+		const tooOld = "notify_claude_too_old: Claude Code on this machine is 2.1.200, below 2.1.287" +
+			", so Claude members cannot come online. Upgrade this machine's Claude Code under Monitor › Machines."
 		const lapsed = "wake_timeout: the START was dispatched to machine 'm-box' but the agent never came " +
 			"online within the start window — check that claude runs and is logged in on " +
 			"that machine (warden log: ocwarden.out.log)"
@@ -2857,7 +2857,7 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 			{name: "claude code too old, but of an earlier start: the lapse of this start is a wake timeout",
 				refusal: tooOld, want: lapsed, earlier: true},
 			{name: "notify mod not loaded: the lapse replaces it with the wake-timeout receipt",
-				refusal: "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。", want: lapsed},
+				refusal: "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped.", want: lapsed},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				api, d := reconcileTestServer(t)
