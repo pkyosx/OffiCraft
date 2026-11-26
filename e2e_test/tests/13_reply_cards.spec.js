@@ -292,9 +292,9 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     await expect(waitingA).toBeVisible();
     await expect(waitingB).toBeVisible();
     await expect(
-      waitingA.getByTestId('waited'),
+      waitingA.getByTestId('waited-pill'),
       'a waiting card must show the ticking 已等你 counter',
-    ).toContainText('已等你');
+    ).toHaveAttribute('title', /^已等你 /);
     // Server order = created ascending → A (older) renders ABOVE B.
     const order = await page
       .getByTestId('waiting-card')

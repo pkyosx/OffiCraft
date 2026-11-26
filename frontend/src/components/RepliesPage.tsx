@@ -144,7 +144,7 @@ import {
   ReplyCardTaskRef,
   ReplyCardWaitingBody,
 } from "./ReplyCardBody";
-import { formatDuration, formatDurationShort } from "../lib/duration";
+import { formatDurationShort } from "../lib/duration";
 import { snoozeBackShort } from "../lib/replySnooze";
 import { formatAbsolute } from "../lib/dateFormat";
 import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
@@ -1611,12 +1611,11 @@ export function RepliesPage({
       // 🔴 No absolute 開卡 stamp beside it — owner saw one on this very head and
       // answered「我不想知道絕對時間 相對時間已經夠了」. A snoozed card says when it
       // comes back instead.
-      // A desktop draws it as a fixed-width pill (icon + one unit, or MM/DD),
-      // the full words in its title and accessible name; elsewhere the words.
+      // A fixed-width pill (icon + one unit, or MM/DD) on every device, the
+      // full words only in its title and accessible name.
       stamp:
         asSnoozed && until !== null ? (
           <span className="reply-card__waited" data-testid="snoozed-until">
-            <span className="reply-card__waited-text">{msg.replySnoozeBack(until)}</span>
             <span
               className="reply-card__waited-pill"
               data-testid="snoozed-pill"
@@ -1630,9 +1629,6 @@ export function RepliesPage({
           </span>
         ) : (
           <span className="reply-card__waited" data-testid="waited">
-            <span className="reply-card__waited-text">
-              {msg.replyWaited(formatDuration(nowTs - row.createdTs))}
-            </span>
             <span
               className="reply-card__waited-pill"
               data-testid="waited-pill"

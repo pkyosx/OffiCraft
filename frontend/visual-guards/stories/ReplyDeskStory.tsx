@@ -7,7 +7,9 @@
 // question has a body with a mention and a link and runs taller than a phone's
 // room above the selection bar, a waiting secret card, and an answered card in
 // 近期已處理. `longAskers` adds waiting cards from askers whose name, role or
-// (an outsource worker's) current task is longer than a phone's head line.
+// (an outsource worker's) current task — number, type and title — is longer
+// than a phone's head line, and one whose task row (number, priority, no due
+// date) has a title longer than the row.
 // `waits` adds plain waiting cards that have waited those many seconds.
 import { I18nProvider } from "../../src/i18n";
 import { RepliesPage } from "../../src/components/RepliesPage";
@@ -17,6 +19,7 @@ import {
   __injectMockMember,
   __injectMockOutsourceWorker,
   __injectMockTask,
+  __injectMockTaskType,
 } from "../../src/api/mock";
 import { api } from "../../src/api";
 import { QUESTION_BODY, QUESTION_SUMMARY } from "./replyDeskQuestion";
@@ -63,10 +66,28 @@ function seed(questions: boolean, longAskers: boolean, waits: readonly number[])
     __injectMockReplyCard(
       card({ id: "rc-desk-long-name", from: "gf-eva", createdTs: NOW - 40 * 60, task: null })
     );
+    __injectMockReplyCard(
+      card({
+        id: "rc-desk-long-task-row",
+        createdTs: NOW - 45 * 60,
+        task: {
+          id: "T-2",
+          typeKey: "",
+          title: "整理晴光烘焙坊冬季新品的合作廠商比較表與付款條件",
+          priority: "medium",
+        },
+      })
+    );
+    __injectMockTaskType({
+      typeKey: "long-type",
+      displayName: "多語系入門影片的旁白錄製、字幕校對、封面設計、章節切分、配樂授權確認、各平台上架前的最終品質檢查與上線後數據回報流程",
+      purpose: "",
+    });
     __injectMockTask({
       id: "t-long",
-      taskNo: "T-90210",
-      title: "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面",
+      taskNo: "T-9021034",
+      typeKey: "long-type",
+      title: "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面，另含英文與日文版本的字幕翻譯、章節縮圖、配樂授權確認、各平台上架描述撰寫，以及上線後第一週的觀看數據整理與回報，並把觀眾留言中的常見問題整理成下一版的修改清單、附上每一章的平均觀看秒數與跳出點分析",
       status: "in_progress",
       steps: [],
       deps: [],
@@ -78,7 +99,7 @@ function seed(questions: boolean, longAskers: boolean, waits: readonly number[])
       effort: "medium",
       status: "active",
       taskId: "t-long",
-      taskTitle: "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面",
+      taskTitle: "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面，另含英文與日文版本的字幕翻譯、章節縮圖、配樂授權確認、各平台上架描述撰寫，以及上線後第一週的觀看數據整理與回報，並把觀眾留言中的常見問題整理成下一版的修改清單、附上每一章的平均觀看秒數與跳出點分析",
     });
     __injectMockReplyCard(
       card({ id: "rc-desk-long-role", from: "long-role", createdTs: NOW - 50 * 60, task: null })
@@ -132,7 +153,7 @@ function seed(questions: boolean, longAskers: boolean, waits: readonly number[])
       task: {
         id: "T-58412",
         typeKey: "",
-        title: "請示頁改版：任務列、稍後再看、優先序與期限篩選，以及手機版的排版修正",
+        title: "請示頁改版：任務列、稍後再看、優先序與期限篩選，以及手機版的排版修正、卡頭等待時間膠囊與長名字的截斷規則",
         priority: "high",
         dueTs: NOW - 2 * 86_400,
       },

@@ -497,7 +497,8 @@ describe("OutsourcePanel", () => {
     const { findByTestId } = renderOutsource();
     const typeLine = await findByTestId("outsource-type-ow-named");
     expect(typeLine.textContent).toBe("審查 PR");
-    expect(typeLine.getAttribute("title")).toBeNull();
+    // Whole on hover when the line is cut, and still the display name there.
+    expect(typeLine.getAttribute("title")).toBe("審查 PR");
   });
 
   it("an ad-hoc task (typeKey '') reads 自由代辦 on the type line", async () => {

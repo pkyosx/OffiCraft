@@ -581,6 +581,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 		fmt.Fprintln(out, "[ocserverd] --no-outsource: outsource-assignment scheduler disabled (no cadence half, no event-driven assignment)")
 	}
 	api.startLifecycleCadence(time.Duration(lifecycleCadenceSecs * float64(time.Second)))
+	api.adoptInheritedUpgradeHandoff()
 	api.startAutoUpdateCadence(autoUpdateCadence)
 	api.startReleaseAnnounce()
 	api.startScheduledMessageCadence(scheduledMessageCadence)

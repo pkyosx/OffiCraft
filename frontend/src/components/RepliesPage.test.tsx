@@ -277,8 +277,8 @@ describe("RepliesPage", () => {
     expect(cards[2].textContent).toContain("Mira");
     expect(cards[2].textContent).toContain("特助");
     // 已等你 {t} computed from createdTs.
-    expect(cards[2].querySelector('[data-testid="waited"] .reply-card__waited-text')?.textContent).toBe(
-      "已等你 3h"
+    expect(cards[2].querySelector('[data-testid="waited-pill"]')?.getAttribute("title")).toBe(
+      "已等你 3 小時"
     );
     // …in the HEAD, to the RIGHT OF 標為過期 (owner 2026-09-11). The relative
     // wait is what he scans a collapsed row for, so it rides the same line as
@@ -1536,7 +1536,7 @@ describe("RepliesPage", () => {
     fireEvent.click(getByTestId("snoozed-toggle"));
     expect(paneIds("snoozed-card")).toEqual(["rc-2"]);
     const snoozedCard = document.querySelector('[data-testid="snoozed-card"]')!;
-    expect(snoozedCard.querySelector('[data-testid="snoozed-until"] .reply-card__waited-text')!.textContent).toBe("2026/11/5（四） 13:00 回來");
+    expect(snoozedCard.querySelector('[data-testid="snoozed-pill"]')!.getAttribute("title")).toBe("2026/11/5（四） 13:00 回來");
     expect(
       [...snoozedCard.querySelectorAll(".reply-card__head button")]
         .slice(1)

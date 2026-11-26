@@ -355,7 +355,7 @@ owner 2026-08-28 於 rc-f9d284c0aef7 裁定:GA 可以在 GitHub UI 上有一顆�
 - **gate job 紅** ⇒ `auto-beta` 根本不跑 ⇒ 確實沒有 beta。
 - **`auto-beta` 自己在 upload 之後失敗**(回讀某一項不符、runner 中途死、asset 只上傳一半——`gh release create` 那句 die 訊息本身就寫著「check GitHub for a partially created release」)⇒ **留下一顆沒通過回讀的 prerelease,沒有人回收它**。
 
-嚴重度分兩種:存成 **draft** 的無害(draft 不會出現在 `releases.atom`,也不會是 Latest,站台看不到);**asset 缺失或不全**的 prerelease **beta 頻道的站看得見**(`update_check.go` 只看 feed 裡 semver 最大的 tag,不檢查 asset),`auto_update` 開著的 beta 站會挑上它,然後升級在下載那一步拒絕(缺 asset = 無法驗證,什麼都不動),每一輪重試都一樣,直到下一次 merge 發出更大的 tag 才被蓋過去。stable 頻道的站只跟 Latest,不受影響。
+嚴重度分兩種:存成 **draft** 的無害(draft 不會出現在 `releases.atom`,也不會是 Latest,站台看不到);**asset 缺失或不全**的 prerelease **beta 頻道的站看得見**(`update_check.go` 只看 feed 裡 semver 最大的 tag,不檢查 asset),`auto_update` 開著的 beta 站會挑上它,然後升級在下載那一步拒絕(缺 asset = 無法驗證,什麼都不動);同一個 tag 連續失敗會退避重試(5 分鐘起倍增、上限 6 小時,`auto_update.go` 的 `autoUpdateBackoff`),直到下一次 merge 發出更大的 tag(或 owner 手動按升級)才重新從頭算。stable 頻道的站只跟 Latest,不受影響。
 
 **人工清理**:確認 job 紅的原因在 upload 之後,然後
 ```

@@ -261,6 +261,34 @@ systemctl --user start com.officraft.serve.service
 
 出現「檢查更新失敗」時，多半是連不到 GitHub（OffiCraft 的更新發佈在 GitHub；網路或 proxy 問題都會造成），網路恢復後檢查更新就會成功。其他機器上的 warden 會在 server 升級後自行更新，通常在 15 分鐘內完成。升級的完整步驟與各項更新設定，見 [安裝、升級與移除](install.md) 的「升級」與「進階：升級的設定」。
 
+### Linux 或 WSL2：升級後版本沒變，bin 裡有很多 ocserverd.bak
+
+舊版 OffiCraft 在 Linux 與 Windows（WSL2）上升級後，會重新啟動回舊的程式，版本號因此沒變；自動更新開著時會每分鐘再升級一次，每次在 `~/.officraft/bin` 多留下一個名字更長的檔案（`ocserverd.bak.bak`、`ocserverd.bak.bak.bak`……），直到檔名太長、升級失敗為止。macOS 不受影響。
+
+1. 在控制台 **設定 › 系統更新與備份** 關閉「自動更新」。
+2. 在裝 server 的那台機器上重新啟動 server：
+
+   ```bash
+   systemctl --user restart com.officraft.serve.service
+   ```
+
+3. 重新整理控制台，確認 **設定 › 系統更新與備份** 的「目前版本」已是新的版本號。如果仍然出現「升級到最新版」，按一次，等頁面顯示重新啟動後，再執行一次第 2 步的指令，然後重新確認版本。
+4. 列出多出來的檔案，確認清單只有 `ocserverd.bak.bak` 開頭的檔案：
+
+   ```bash
+   find ~/.officraft/bin -maxdepth 1 -name 'ocserverd.bak.bak*' -print
+   ```
+
+5. 清單無誤後刪除它們。`ocserverd` 本身與一份 `ocserverd.bak` 會留著。發生過這個情況的站台，留下的 `ocserverd.bak` 不一定是舊版，不要用它退回上一版：
+
+   ```bash
+   find ~/.officraft/bin -maxdepth 1 -name 'ocserverd.bak.bak*' -delete
+   ```
+
+6. 回到 **設定 › 系統更新與備份**，把「自動更新」打開。
+
+第二個工作室把指令裡的 `~/.officraft` 換成 `~/.officraft-<名稱>`，`com.officraft.serve.service` 換成 `com.officraft.serve.<名稱>.service`。
+
 ## 移除
 
 移除一台機器（解除安裝、刪除）或移除整個工作室的步驟，見 [安裝、升級與移除](install.md) 的「移除」與「從控制台移除一台機器」。
