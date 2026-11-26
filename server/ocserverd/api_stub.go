@@ -268,9 +268,16 @@ type apiServer struct {
 
 	releaseSiteBase string
 
-	releaseAnnounceRepo  string
-	releaseAPIBase       string
-	releaseAnnouncePages map[string]releaseAnnouncePage
+	releaseAnnounceRepo string
+	releaseAPIBase      string
+	// announceMu guards the release-announcement round and the three fields
+	// after it, all in memory only: a restart starts them over.
+	announceMu               txguard.Mutex
+	releaseAnnouncePages     map[string]releaseAnnouncePage
+	releaseAnnounceNotBefore time.Time
+	// releaseAnnounceReadPair is the (running, Latest) pair of the last release
+	// list read that finished.
+	releaseAnnounceReadPair [2]string
 	// releaseAnnounceLogf is a test seam; nil logs through log.Printf.
 	releaseAnnounceLogf func(format string, args ...any)
 	// releasePlatform is a test seam (zero in production → serverBinPlatform):

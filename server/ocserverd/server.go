@@ -583,7 +583,6 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.startLifecycleCadence(time.Duration(lifecycleCadenceSecs * float64(time.Second)))
 	api.adoptInheritedUpgradeHandoff()
 	api.startAutoUpdateCadence(autoUpdateCadence)
-	api.startReleaseAnnounce()
 	api.startScheduledMessageCadence(scheduledMessageCadence)
 	api.startSecretCardSweepCadence(secretCardSweepCadence)
 	api.startRuntimeLoginSweep(runtimeLoginSweepPeriod)
