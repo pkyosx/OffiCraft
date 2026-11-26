@@ -283,7 +283,7 @@ describe("SettingsPage · 系統更新與備份 · 讓助理告訴我新版本�
     const row = toggle.closest(".param-row") as HTMLElement;
     expect(row.querySelector(".param-row__name")?.textContent).toBe("讓助理告訴我新版本的功能");
     expect(row.querySelector(".param-row__sub")?.textContent).toBe(
-      "升級到有新功能公告的正式版後，助理會在聊天裡跟你說這版多了什麼（一次升級最多一則訊息）· 預設開啟；關閉期間的公告不會補發"
+      "升級到有新功能公告的正式版後，助理會在聊天裡跟你說這版多了什麼"
     );
     const rows = Array.from(row.parentElement!.querySelectorAll(":scope > .param-row"));
     expect(rows.indexOf(row)).toBe(3);
