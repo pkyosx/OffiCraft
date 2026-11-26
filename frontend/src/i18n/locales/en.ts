@@ -135,6 +135,7 @@ export const en: Dict = {
     stagedFailedLead: "Did not go through: ",
     stagedReasonOpen: " (",
     stagedReasonClose: ")",
+    stagedSavedRereadFailed: "Saved, but the section could not be reloaded. Please refresh the page.",
     clearFilters: "Clear filters",
     idSearchLabel: "ID or title",
     loreTypeInstructionConflict: "Instruction conflict",

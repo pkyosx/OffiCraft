@@ -138,6 +138,7 @@ export const zh = {
     stagedFailedLead: "沒有成功：",
     stagedReasonOpen: "（",
     stagedReasonClose: "）",
+    stagedSavedRereadFailed: "已儲存，但重新讀取失敗，請重新整理頁面",
     // 篩選列
     clearFilters: "清除篩選",
     idSearchLabel: "編號或標題",

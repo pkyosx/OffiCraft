@@ -15,12 +15,12 @@
 // downloaded rows; a client-side filter is right only for the rows that
 // happen to be downloaded.
 //
-// 🔴 狀態、類型、適用範圍 ARE STAGED, NOT SENT (owner C1). The card shows the
-// staged value in a warn-coloured frame; 儲存變更 sends them all, then the whole section is
-// re-read in the server's order (as many rows as were loaded) together with
-// the numbers. Re-reading only the changed rows left the counts and the
-// greying where the old order had them. Until then a card stays greyed (or
-// not) as the server last said. 編輯 and 還原 still save at once and
+// 🔴 狀態、類型、適用範圍 ARE STAGED, NOT SENT. The card shows the staged
+// value in a warn-coloured frame; 儲存變更 sends them all, then the whole
+// section is re-read in the server's order (as many rows as were loaded)
+// together with the numbers. Until then a card stays greyed (or not) as the
+// server last said; if that re-read fails, the cards keep the values that went
+// through and the page asks for a reload. 編輯 and 還原 still save at once and
 // re-read the section the same way; staged values outlive that re-read.
 
 import {
@@ -751,8 +751,9 @@ function LoreView({
 
   // ── after a change: the whole section again, in the server's order, as many
   // rows as were loaded, and the numbers. The rows stay on screen meanwhile.
+  // Resolves false only when the re-read itself failed.
   const rereadSection = useCallback(
-    async (def: SectionDef) => {
+    async (def: SectionDef): Promise<boolean> => {
       const gen = bumpGen(def.key);
       const capSeq = nextCapSeq(def.key);
       flightRef.current.add(def.key);
@@ -767,7 +768,7 @@ function LoreView({
         while (offset < want) {
           const limit = Math.min(MAX_LIST_LIMIT, want - offset);
           const p = await api.listLoreEntries({ ...baseOptsRef.current, ...scopeOpts(def), limit, offset });
-          if (genRef.current.get(def.key) !== gen) return;
+          if (genRef.current.get(def.key) !== gen) return true;
           last = p;
           offset += p.entries.length;
           for (const e of p.entries) {
@@ -791,9 +792,11 @@ function LoreView({
           exhausted,
           moreFailed: false,
         }));
+        return true;
       } catch (e) {
         console.warn("LorePage: section re-read failed", e);
         if (genRef.current.get(def.key) === gen) patchSection(def.key, (p) => ({ ...p, fetchingMore: false }));
+        return false;
       } finally {
         if (genRef.current.get(def.key) === gen) flightRef.current.delete(def.key);
       }
@@ -801,11 +804,14 @@ function LoreView({
     [patchSection]
   );
 
-  const rereadAll = useCallback(async () => {
+  /** Resolves false when the open section could not be re-read. */
+  const rereadAll = useCallback(async (): Promise<boolean> => {
     const def = sectionKey ? defsRef.current.find((d) => d.key === sectionKey) : undefined;
-    const work: Promise<void>[] = [refreshBudgets()];
-    if (def && openRef.current.has(def.key)) work.push(rereadSection(def));
-    await Promise.all(work);
+    const [, sectionOk] = await Promise.all([
+      refreshBudgets(),
+      def && openRef.current.has(def.key) ? rereadSection(def) : Promise.resolve(true),
+    ]);
+    return sectionOk;
   }, [sectionKey, refreshBudgets, rereadSection]);
 
   const failText = useCallback(
@@ -905,7 +911,17 @@ function LoreView({
       if (Object.keys(ok).length > 0) sentOk.set(id, ok);
       if (anyFailed) failed.push({ id, reason });
     }
-    await rereadAll();
+    const rereadOk = await rereadAll();
+    if (!rereadOk && sentOk.size > 0) {
+      setData((prev) => {
+        const next: Record<string, SectionData> = {};
+        for (const [key, sd] of Object.entries(prev)) {
+          next[key] = { ...sd, entries: sd.entries.map((e) => withStaged(e, sentOk.get(e.id))) };
+        }
+        return next;
+      });
+      setActionError(t.lore.stagedSavedRereadFailed);
+    }
     // Clear only what went through with the value that was sent; a change
     // staged on the same card meanwhile stays.
     setStaged((prev) => {
@@ -1811,6 +1827,7 @@ function LoreRow({
                 field="loreType"
                 from={stagedFrom.loreType}
                 onRevert={() => onRevert(entry.id, "loreType")}
+                disabled={chipsLocked}
               />
             )}
             {typeOpen && (
@@ -1866,6 +1883,7 @@ function LoreRow({
                 field="state"
                 from={stagedFrom.state}
                 onRevert={() => onRevert(entry.id, "state")}
+                disabled={chipsLocked}
               />
             )}
             {stateOpen && (
@@ -1928,6 +1946,7 @@ function LoreRow({
                   field="scope"
                   from={stagedFrom.scope}
                   onRevert={() => onRevert(entry.id, "scope")}
+                  disabled={chipsLocked}
                 />
               )}
               </span>
@@ -2079,24 +2098,26 @@ function LoreRow({
   );
 }
 
-/** 編輯 turns the card's title and body into this, in place. */
 /** ↺ on a staged tag's top-right corner. A mouse hovers it for 「原為：…」 and
- * clicks to put that one field back; a touch tap shows the same line with a
- * 還原 button instead, so a tap alone never reverts. */
+ * clicks to put that one field back; a touch or pen tap shows the same line
+ * with a 還原 button instead, so a tap alone never reverts. */
 function LoreRevertMark({
   field,
   from,
   onRevert,
+  disabled,
 }: {
   field: StagedField;
   from: string;
   onRevert: () => void;
+  disabled: boolean;
 }) {
   const { t, msg } = useI18n();
   return (
     <InstantHint
       hint={msg.loreStagedFrom(from)}
       onActivate={onRevert}
+      disabled={disabled}
       className="lore-row__revert"
       aria-label={msg.loreStagedRevertTo(from)}
       data-testid={`lore-revert-${field}`}
@@ -2118,6 +2139,7 @@ function LoreRevertMark({
   );
 }
 
+/** 編輯 turns the card's title and body into this, in place. */
 function LoreEntryEditor({
   entry,
   caps,

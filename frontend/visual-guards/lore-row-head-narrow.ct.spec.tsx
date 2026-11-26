@@ -556,7 +556,6 @@ for (const width of [390, 1440]) {
         return {
           bar: r(bar),
           main: r(document.querySelector(".app__main")!),
-          head: document.querySelector('[data-testid="lore-section-head"]')!.textContent ?? "",
           parts: [...bar.querySelectorAll("button, .lore-savebar__count")].map((c) => ({
             text: (c.textContent ?? "").trim(),
             box: r(c),
@@ -577,7 +576,6 @@ for (const width of [390, 1440]) {
       const mids = g.parts.map((p) => (p.box.top + p.box.bottom) / 2);
       expect.soft(Math.max(...mids) - Math.min(...mids), `${tag} bar parts not on one line`).toBeLessThanOrEqual(3);
       for (const p of g.parts) expect.soft(inside(p.box, g.bar), `${tag} "${p.text}" outside the bar`).toBe(true);
-      expect.soft(g.head, `${tag} the head says something about saving`).not.toContain("儲存");
     };
     check(await read(), "top");
     await page.evaluate(() => {

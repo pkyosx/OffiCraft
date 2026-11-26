@@ -388,6 +388,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "lore.stagedRevertToLead",
   "lore.stagedRevertToTail",
   "lore.stagedSave",
+  "lore.stagedSavedRereadFailed",
   "lore.stagedSaving",
   "lore.stateActive",
   "lore.stateMenuLabel",

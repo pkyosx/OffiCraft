@@ -389,6 +389,7 @@ var messageKeys = map[string]bool{
 	"lore.stagedRevertToLead":                          true,
 	"lore.stagedRevertToTail":                          true,
 	"lore.stagedSave":                                  true,
+	"lore.stagedSavedRereadFailed":                     true,
 	"lore.stagedSaving":                                true,
 	"lore.stateActive":                                 true,
 	"lore.stateMenuLabel":                              true,

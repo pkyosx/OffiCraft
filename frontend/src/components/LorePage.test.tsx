@@ -946,6 +946,7 @@ describe("LorePage — 可變動作面", () => {
         mkEntry({ id: "L-3", state: "active" }),
       ]),
     );
+    vi.spyOn(api, "listLoreBudgets").mockResolvedValue([{ ...MIRA_TARGET, entryCount: 3, usedChars: 1200 }]);
     const { container } = await renderOpen({ canSetScope: true });
     await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
     expect(bar(container)).toBeNull();
@@ -965,7 +966,7 @@ describe("LorePage — 可變動作面", () => {
       ["lore-revert-scope", "還原為「Mira」"],
     ]);
     expect(revertMarks(container, "L-3")).toEqual([]);
-    expect(sectionHead(container)).not.toContain("儲存");
+    expect(sectionHead(container)).toBe("Mira · 3 筆1,200 / 10,000 字");
     expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("3 項變更還沒儲存");
     expect(
       Array.from(bar(container)!.querySelectorAll("button")).map((b) => b.textContent),
@@ -1119,6 +1120,57 @@ describe("LorePage — 可變動作面", () => {
     await waitFor(() => expect(sectionHead(container)).toContain("2 筆讀不到"));
   });
 
+  it("儲存變更 re-reads as many rows as were loaded, past the first page, and keeps them all", async () => {
+    spyWrites();
+    const rows = Array.from({ length: 45 }, (_, i) => mkEntry({ id: `L-${i + 1}` }));
+    const list = vi
+      .spyOn(api, "listLoreEntries")
+      .mockImplementation(async (o) => page(rows.slice(o?.offset ?? 0, (o?.offset ?? 0) + (o?.limit ?? 30))));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(30));
+    fireEvent.scroll(container.querySelector('[data-testid="lore-page"]')!);
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(45));
+
+    chooseState(container, "L-40", "pinned");
+    clickSave(container);
+
+    await waitFor(() => expect(bar(container)).toBeNull());
+    expect(list.mock.calls.map((c) => [c[0]?.limit, c[0]?.offset])).toEqual([
+      [30, 0],
+      [30, 30],
+      [60, 0],
+    ]);
+    expect(renderedIds(container)).toEqual(rows.map((e) => e.id));
+  });
+
+  it("when the save goes through but the re-read fails, the cards show the saved values and the page asks for a reload", async () => {
+    const w = spyWrites();
+    let saved = false;
+    vi.spyOn(api, "listLoreEntries").mockImplementation(async () => {
+      if (saved) throw new Error("network down");
+      return page([mkEntry({ id: "L-1", state: "active" }), mkEntry({ id: "L-2", state: "active" })]);
+    });
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+    expect(container.querySelector('[data-testid="lore-action-error"]')).toBeNull();
+
+    chooseState(container, "L-1", "retired");
+    chooseType(container, "L-2", "owner_decision");
+    saved = true;
+    clickSave(container);
+
+    await waitFor(() => expect(bar(container)).toBeNull());
+    expect(w.state.mock.calls).toEqual([["L-1", "retired"]]);
+    expect(w.edit.mock.calls).toEqual([["L-2", { loreType: "owner_decision" }]]);
+    expect(container.querySelector('[data-testid="lore-action-error"]')!.textContent).toBe(
+      "已儲存，但重新讀取失敗，請重新整理頁面",
+    );
+    expect(stateOf(container, "L-1")).toBe("已失效");
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe("Owner 決策");
+    expect(unsavedIds(container)).toEqual([]);
+    expect(renderedIds(container)).toEqual(["L-1", "L-2"]);
+  });
+
   it("全部捨棄 puts every card back to its stored value and sends nothing", async () => {
     const w = spyWrites();
     const list = stubList(page([mkEntry({ id: "L-1", state: "active" }), mkEntry({ id: "L-2", state: "pinned" })]));
@@ -1169,7 +1221,7 @@ describe("LorePage — 可變動作面", () => {
     expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("1 項變更還沒儲存");
   });
 
-  it("while 儲存變更 runs, the chips and both buttons are locked", async () => {
+  it("while 儲存變更 runs, the chips, their ↺ and both buttons are locked, and a tap on ↺ offers no 還原", async () => {
     const sent = held<void>();
     vi.spyOn(api, "setLoreEntryState").mockReturnValue(sent.promise);
     stubList(page([mkEntry({ id: "L-1", state: "active" })]));
@@ -1184,10 +1236,13 @@ describe("LorePage — 可變動作面", () => {
       expect(container.querySelector('[data-testid="lore-staged-save"]')!.textContent).toBe("儲存中…"),
     );
     expect(
-      ["lore-state", "lore-type", "lore-staged-save", "lore-staged-discard"].map(
+      ["lore-state", "lore-revert-state", "lore-type", "lore-staged-save", "lore-staged-discard"].map(
         (id) => (container.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement).disabled,
       ),
-    ).toEqual([true, true, true, true]);
+    ).toEqual([true, true, true, true, true]);
+    press(mark(container, "L-1", "state"), "touch");
+    expect(screen.queryByTestId("lore-revert-confirm")).toBeNull();
+    expect(stateOf(container, "L-1")).toBe("置頂");
     expect(row.querySelector<HTMLButtonElement>('[data-testid="lore-edit"]')!.disabled).toBe(false);
     sent.resolve();
     await waitFor(() => expect(bar(container)).toBeNull());
