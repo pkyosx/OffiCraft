@@ -10,9 +10,9 @@
 #
 #     bin/release promote <tag> --notes <file> [--no-announce]
 #
-# The refusal lives in bin/release alone. Do not make this step pass by giving it
-# canned notes, --no-announce, or a flip of its own: the notes and the
-# announcement are the owner's call per release, and auto-beta-guard W4e5 reddens.
+# ⚠️ This is the owner's ruling: every GA carries its notes file. Do not let this
+# button route around it (canned notes, --no-announce, a flip of its own); the
+# refusal lives in bin/release alone, and auto-beta-guard W4e5/W4e5x reddens.
 #
 # The file stays, actor gate included, because auto-beta-guard pins it as the ONE
 # place under .github/ allowed to name the flip (W4/W4b/W4e/W4f): the tag is a

@@ -590,14 +590,17 @@ delimiter = re.compile(r"^=+\s*公告", re.ASCII)
 # announcement silently disappears; refuse it rather than let the
 # --no-announce hint below steer the author into shipping without one.
 ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"))
+# Only a line that IS the heading text once its marks are peeled off counts;
+# a sentence that merely contains the words is ordinary content.
 def bare(line):
-    return "".join(c for c in fold(line).translate(ZERO_WIDTH) if c != "#" and not go_space(c))
+    t = fold(line).translate(ZERO_WIDTH)
+    return t.lstrip(" #>*_`~").rstrip(" :*_")
 for n, line in enumerate(lines, start=1):
     if line.rstrip(" \t") in (changes_h, announce_h):
         continue
     for h in (changes_h, announce_h):
-        if h[3:] in bare(line):
-            fail("notes-format", "%s line %d mentions %r but is not exactly that heading line (no leading space, \"## \" with one ASCII space, no other marks); stations would not see it as the section. Line: %r" % (path, n, h, line))
+        if bare(line) == h[3:]:
+            fail("notes-format", "%s line %d looks like the %r heading but is not exactly that line (no leading space, \"## \" with one ASCII space, nothing after it); stations would not see it as the section. Line: %r" % (path, n, h, line))
 
 first = next((i for i, l in enumerate(lines) if go_trim(l)), None)
 if first is None:

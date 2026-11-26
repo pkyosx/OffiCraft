@@ -1551,7 +1551,7 @@ refuse_notes N2m "a \"## \" line inside the announcement (the station would stop
 # error even with --no-announce, which is what the other message would suggest.
 nfile nospace "## 這版的改動\n\n- 改了 A\n\n##給站長的新功能公告\n\n$ANN_BODY"
 refuse_notes N2n "##給站長的新功能公告 (no space) with --no-announce" notes-format --notes "$NF" --no-announce
-case "$OUT" in *"line 5 mentions"*) ok "N2n …and names the line" ;;
+case "$OUT" in *"line 5 looks like"*) ok "N2n …and names the line" ;;
   *) bad "N2n …and names the line (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
 nfile h3 "## 這版的改動\n\n- 改了 A\n\n### 給站長的新功能公告\n\n$ANN_BODY"
 refuse_notes N2o "### 給站長的新功能公告" notes-format --notes "$NF" --no-announce
@@ -1565,6 +1565,14 @@ nfile leadann "## 這版的改動\n\n- 改了 A\n\n ## 給站長的新功能公�
 refuse_notes N2s "a leading space before the announcement heading" notes-format --notes "$NF" --no-announce
 nfile h1chg "# 這版的改動\n\n- 改了 A\n"
 refuse_notes N2t "# 這版的改動 (one #)" notes-format --notes "$NF" --no-announce
+nfile colon "## 這版的改動\n\n- 改了 A\n\n**給站長的新功能公告：**\n\n$ANN_BODY"
+refuse_notes N2u "a bold 給站長的新功能公告： line standing in for the heading" notes-format --notes "$NF" --no-announce
+
+# The words alone are ordinary content: only a line that IS the heading text
+# once its marks are peeled off is a near-miss heading.
+nfile words "## 這版的改動\n\n- 這版的改動不影響既有設定。\n- 設定頁新增「給站長的新功能公告」開關說明\n\n### 這版的改動細節\n- x\n\n## 給站長的新功能公告\n\n這版的改動主要是聊天室變快了。\n"
+promote "$TAG" --notes "$NF"
+check "N2v sentences that merely contain 這版的改動 / 給站長的新功能公告 pass" "0" "$RC"
 
 refuse_notes N3a "an announcement section AND --no-announce" notes-announce --notes "$NF_BOTH" --no-announce
 refuse_notes N3b "no announcement section and no --no-announce" notes-announce --notes "$NOTES_PLAIN"
@@ -1657,6 +1665,10 @@ check "N8c …also when GitHub hands them back with CRLF" "0" "$RC"
 NOTES_INIT="$(printf '%s\n\n' "$AUTO_LINE"; cat "$NOTES_PLAIN")" promote "$TAG" --notes "$NF_BOTH"
 named_failure "N8d notes written from a DIFFERENT file are not resumed over" notes-existing "$RC" "$OUT"
 check "N8d …and nothing was written or flipped" "0" "$(edits)"
+NOTES_INIT="$(printf 'OffiCraft v0.0.1 (darwin-arm64) — built from 01234567. Install: see install.sh.\n\n'; cat "$NF_BOTH")" \
+  promote "$TAG" --notes "$NF_BOTH"
+named_failure "N8e this file under ANOTHER tag's publish line is not resumed over" notes-existing "$RC" "$OUT"
+check "N8e …and nothing was written or flipped" "0" "$(edits)"
 
 promote --dry-run "$TAG" --notes "$NF_BOTH"
 check "N7 --dry-run with --notes exits 0" "0" "$RC"

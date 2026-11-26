@@ -1511,6 +1511,29 @@ elif what == "flip-route":
                  if re.search(r"gh\s+release\s+edit|gh\s+api\b.*releases|--prerelease=false|--latest([\s=]|$)|--draft=false", b, re.M))
     notes_flags = sum(len(re.findall(r"--notes\b|--no-announce\b", b)) for b in bodies)
     print("release-promote-calls=%d notes-flags=%d direct-release-writes=%d" % (calls, notes_flags, direct))
+
+elif what == "promote-step":
+    # Every step that is not the gate, as GitHub would run it: ${{ }} expressions
+    # replaced with stand-ins, env as given. Written to argv[3] as one bash
+    # script per step that exports the env and runs the body under GitHub's
+    # `shell: bash` flags.
+    import re, shlex
+    def sub(v):
+        v = str(v)
+        v = re.sub(r"\$\{\{\s*inputs\.tag\s*\}\}", "v9.9.9-guard", v)
+        return re.sub(r"\$\{\{[^}]*\}\}", "stand-in", v)
+    out = []
+    for j in jobs.values():
+        for st in ((j or {}).get("steps") or []):
+            if not isinstance(st, dict) or is_gate(st) or "run" not in st:
+                continue
+            env = dict((j or {}).get("env") or {})
+            env.update(st.get("env") or {})
+            lines = ["export %s=%s" % (k, shlex.quote(sub(v))) for k, v in sorted(env.items())]
+            lines.append("bash --noprofile --norc -eo pipefail -c %s" % shlex.quote(sub(st["run"])))
+            out.append("\n".join(lines))
+    open(sys.argv[3], "w").write("\n".join("( %s )" % o for o in out) + "\n")
+    print(len(out))
 PY
     gap() { python3 "$WORK/gap.py" "$GAP_JSON" "$@"; }
 
@@ -1524,6 +1547,28 @@ PY
       "inputs=tag uses-input=yes" "$(gap tag-is-an-input)"
     check "W4e5 the button cannot ship a GA: ONE bin/release promote call with no --notes / --no-announce (so bin/release refuses), and no step edits the release itself" \
       "release-promote-calls=1 notes-flags=0 direct-release-writes=0" "$(gap flip-route)"
+
+    # ── W4e5x: the button, EXECUTED — it must refuse before touching GitHub ──
+    # The text check above cannot see flags that arrive another way (an env var
+    # expanded in the run body, a file the step writes). So every non-gate step
+    # is run as GitHub would run it, from this repo's root with the real
+    # bin/release and a gh that only records it was called. A press must exit 2
+    # (bin/release's refusal without --notes) having called gh not once.
+    GA_PS_DIR="$WORK/ga-promote-step"
+    mkdir -p "$GA_PS_DIR"
+    printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\nexit 0\n' "$GA_PS_DIR/gh.log" > "$GA_PS_DIR/gh"
+    chmod +x "$GA_PS_DIR/gh"
+    : > "$GA_PS_DIR/gh.log"
+    GA_PS_N="$(gap promote-step "$GA_PS_DIR/steps.sh")"
+    GA_PS_RC=0
+    ( cd "$ROOT" && PATH="$GA_PS_DIR:$PATH" bash "$GA_PS_DIR/steps.sh" ) > "$GA_PS_DIR/out" 2>&1 || GA_PS_RC=$?
+    check "W4e5x pressing the button, executed with a recording gh: its one non-gate step exits 2 (bin/release refuses without --notes) and gh is called not once" \
+      "steps=1 rc=2 gh-calls=0" "steps=$GA_PS_N rc=$GA_PS_RC gh-calls=$(grep -c . "$GA_PS_DIR/gh.log" || true)"
+    if grep -q 'bin/release promote <tag> --notes' "$GA_PS_DIR/out"; then
+      ok "W4e5x …and the red run prints the local command to promote with"
+    else
+      bad "W4e5x …and the red run prints the local command to promote with (out: $(tr '\n' '|' < "$GA_PS_DIR/out"))"
+    fi
 
     if [[ ! -s "$WORK/gate.sh" ]]; then
       bad "W4eD could not find the authorize gate's run body in $GA_ALLOWED_REL — the gate this pack claims to pin is not there to be driven, and W4e2/W4e3 above were reading an absent step. The gate is identified by its step name ('authorize actor'); renaming it without updating this guard is the same as deleting it."
