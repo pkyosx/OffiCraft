@@ -1417,75 +1417,82 @@ function mockLoreChars(e: LoreEntryView): number {
   return [...e.title].length + [...e.body].length;
 }
 
+interface MockLoreDrop {
+  id: string;
+  chars: number;
+}
+
 interface MockLoreWalk {
   capChars: number;
   usedChars: number;
+  /** The walked target's own first drop (a member: its own agent entries). */
   firstDroppedId: string;
   firstDroppedChars: number;
+  /** The first drop of the whole list, whichever scope it belongs to. */
+  overall: MockLoreDrop;
   droppedCount: number;
   segments: LoreBudgetSegmentView[];
   fitted: LoreEntryView[];
 }
 
 /** The mock's one copy of the server's selection (lore_select.go): a member
- * walks `everyone` then its own entries under one budget, every other target
- * walks itself, and the walk STOPS at the first entry that does not fit. The
- * list's 上限線, the budgets and the boot document all read this. It always
- * covers the whole scope, never the filtered rows. */
+ * walks `everyone` and its own entries merged into ONE list in live order
+ * under one budget, every other target walks itself, and the walk STOPS at the
+ * first entry that does not fit. Segments stay one per scope, `everyone` then
+ * `agent`. The list's 上限線, the budgets and the boot document all read this.
+ * It always covers the whole scope, never the filtered rows. */
 function mockLoreWalk(scopeKind: LoreScopeKind, scopeKey: string): MockLoreWalk {
   const capChars =
     scopeKind === "manual"
       ? mockServerSettings.lore_cap_chars_manual
       : mockServerSettings.lore_cap_chars_role;
-  const live = (kind: LoreScopeKind, key: string) =>
-    mockLoreEntries
-      .filter((e) => e.scopeKind === kind && e.scopeKey === key && e.state !== "retired")
-      .sort(mockLoreOrder);
-  const parts: [LoreScopeKind, LoreEntryView[]][] =
-    scopeKind === "agent"
-      ? [
-          ["everyone", live("everyone", "")],
-          ["agent", live("agent", scopeKey)],
-        ]
-      : [[scopeKind, live(scopeKind, scopeKind === "everyone" ? "" : scopeKey)]];
+  const walked: LoreScopeKind[] = scopeKind === "agent" ? ["everyone", "agent"] : [scopeKind];
+  const keyOf = (kind: LoreScopeKind) => (kind === "everyone" ? "" : scopeKey);
+  const list = mockLoreEntries
+    .filter(
+      (e) =>
+        walked.some((k) => e.scopeKind === k && e.scopeKey === keyOf(k)) && e.state !== "retired"
+    )
+    .sort(mockLoreOrder);
+  const segs = new Map(
+    walked.map((kind): [LoreScopeKind, LoreBudgetSegmentView] => [
+      kind,
+      { scopeKind: kind, entryCount: 0, chars: 0, fittedCount: 0, fittedChars: 0 },
+    ])
+  );
   const walk: MockLoreWalk = {
     capChars,
     usedChars: 0,
     firstDroppedId: "",
     firstDroppedChars: 0,
+    overall: { id: "", chars: 0 },
     droppedCount: 0,
     segments: [],
     fitted: [],
   };
   if (capChars <= 0) return walk;
   let stopped = false;
-  for (const [kind, list] of parts) {
-    const seg: LoreBudgetSegmentView = {
-      scopeKind: kind,
-      entryCount: list.length,
-      chars: 0,
-      fittedCount: 0,
-      fittedChars: 0,
-    };
-    for (const e of list) {
-      const cost = mockLoreChars(e);
-      seg.chars += cost;
-      if (!stopped && walk.usedChars + cost <= capChars) {
-        walk.usedChars += cost;
-        walk.fitted.push(e);
-        seg.fittedCount += 1;
-        seg.fittedChars += cost;
-        continue;
-      }
-      stopped = true;
-      walk.droppedCount += 1;
-      if (kind === scopeKind && walk.firstDroppedId === "") {
-        walk.firstDroppedId = e.id;
-        walk.firstDroppedChars = cost;
-      }
+  for (const e of list) {
+    const seg = segs.get(e.scopeKind as LoreScopeKind)!;
+    const cost = mockLoreChars(e);
+    seg.entryCount += 1;
+    seg.chars += cost;
+    if (!stopped && walk.usedChars + cost <= capChars) {
+      walk.usedChars += cost;
+      walk.fitted.push(e);
+      seg.fittedCount += 1;
+      seg.fittedChars += cost;
+      continue;
     }
-    walk.segments.push(seg);
+    stopped = true;
+    walk.droppedCount += 1;
+    if (walk.overall.id === "") walk.overall = { id: e.id, chars: cost };
+    if (e.scopeKind === scopeKind && walk.firstDroppedId === "") {
+      walk.firstDroppedId = e.id;
+      walk.firstDroppedChars = cost;
+    }
   }
+  walk.segments = [...segs.values()];
   return walk;
 }
 
@@ -6374,10 +6381,16 @@ const mockApiImpl = {
         );
       }
     }
+    // `everyone` rows carry no key, so a key set narrows only the keyed kinds
+    // asked beside `everyone`: everyone + agent + one member is that member's
+    // boot list.
+    const keyless = kinds.includes("everyone");
     const matches = mockLoreEntries.filter(
       (e) =>
         (kinds.length === 0 || kinds.includes(e.scopeKind as (typeof kinds)[number])) &&
-        (keys.length === 0 || keys.includes(e.scopeKey)) &&
+        (keys.length === 0 ||
+          keys.includes(e.scopeKey) ||
+          (keyless && e.scopeKind === "everyone")) &&
         (states.length === 0 || states.includes(e.state)) &&
         (authors.length === 0 || authors.includes(e.authorId)) &&
         (loreTypes.length === 0 || loreTypes.includes(e.loreType)) &&
@@ -6386,13 +6399,22 @@ const mockApiImpl = {
     );
     const ordered = [...matches].sort(mockLoreOrder);
 
-    // CONVERGED MEANS EXACTLY ONE kind and ONE key (or `everyone` alone):
-    // two scopes have two budgets and no single line between them.
+    // CONVERGED MEANS EXACTLY ONE kind and ONE key, `everyone` alone, or one
+    // member's whole list (`everyone` + `agent` + its key), whose line is the
+    // whole list's first drop.
     const everyoneOnly = kinds.length === 1 && kinds[0] === "everyone" && keys.length === 0;
-    const walk =
-      (kinds.length === 1 && keys.length === 1 && kinds[0] !== "everyone") || everyoneOnly
+    const memberList =
+      kinds.length === 2 && kinds.includes("everyone") && kinds.includes("agent") && keys.length === 1;
+    const walk = memberList
+      ? mockLoreWalk("agent", keys[0])
+      : (kinds.length === 1 && keys.length === 1 && kinds[0] !== "everyone") || everyoneOnly
         ? mockLoreWalk(kinds[0], keys[0] ?? "")
         : null;
+    const line: MockLoreDrop = !walk
+      ? { id: "", chars: 0 }
+      : memberList
+        ? walk.overall
+        : { id: walk.firstDroppedId, chars: walk.firstDroppedChars };
 
     const limit = opts?.limit ?? 30;
     const offset = opts?.offset ?? 0;
@@ -6401,9 +6423,9 @@ const mockApiImpl = {
       limit,
       offset,
       capChars: walk?.capChars ?? 0,
-      firstDroppedId: walk?.firstDroppedId ?? "",
+      firstDroppedId: line.id,
       usedChars: walk?.usedChars ?? 0,
-      firstDroppedChars: walk?.firstDroppedChars ?? 0,
+      firstDroppedChars: line.chars,
       budgetSegments: walk ? structuredClone(walk.segments) : [],
     };
   },

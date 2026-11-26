@@ -230,8 +230,8 @@ button.lore-dir-card__name--link:hover {
   flex: none;
   border-radius: 0;
 }
-/* 所有人 is read first but belongs to another section, so it is muted; the
- * target's own share keeps the accent of the directory bar. */
+/* 所有人's share is muted so the target's own share keeps the accent of the
+ * directory bar. */
 .lore-dir-card__seg-everyone,
 .lore-dir-card__swatch.lore-dir-card__swatch--everyone {
   background: color-mix(in srgb, var(--color-text-muted) 55%, transparent);

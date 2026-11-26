@@ -8,8 +8,8 @@
 // `capChars`/`usedChars`/`firstDroppedId`/`budgetSegments` its own list page
 // answered. Adding up title+body lengths here would be a second copy of the
 // server's picking walk, wrong on every page after the first and wrong for a
-// member whose 所有人 entries come first; a line in the wrong place looks
-// exactly like one in the right place.
+// member whose 所有人 entries interleave with its own; a line in the wrong
+// place looks exactly like one in the right place.
 //
 // 🔴 THE FILTER TRAVELS WITH THE PAGE REQUEST, never as a `.filter()` over
 // downloaded rows; a client-side filter is right only for the rows that
@@ -184,11 +184,12 @@ function sectionKeyOf(kind: string, key: string): string {
   return `${kind}:${key}`;
 }
 
-/** The scope half of a section's request. 所有人 carries no key. */
+/** The scope half of a section's request. 所有人 carries no key, so a member's
+ * section asks for 所有人 too and gets the member's whole boot list, interleaved. */
 function scopeOpts(def: { kind: LoreScopeKind; scopeKey: string }): LoreListOptions {
-  return def.kind === "everyone"
-    ? { scopeKinds: ["everyone"] }
-    : { scopeKinds: [def.kind], scopeKeys: [def.scopeKey] };
+  if (def.kind === "everyone") return { scopeKinds: ["everyone"] };
+  if (def.kind === "agent") return { scopeKinds: ["everyone", "agent"], scopeKeys: [def.scopeKey] };
+  return { scopeKinds: [def.kind], scopeKeys: [def.scopeKey] };
 }
 
 /** `212`, `L-212` and `l-212` all mean L-212; null when the text is not an id. */
@@ -935,8 +936,8 @@ function LoreView({
   }, [highlightLoaded, highlightId]);
 
   // ── render helpers ──────────────────────────────────────────────────────
-  // The section's own boot document, drawn as one bar: 所有人's entries are
-  // read first (member sections only), then the target's own, up to the cap.
+  // The section's own boot document as one bar. A member's 所有人 and own
+  // entries interleave in boot order; the bar only stacks the two shares.
   function renderSummary(def: SectionDef, sd: SectionData | undefined) {
     const cap = sd?.cap;
     // 所有人 has no boot document of its own (the cap the server reports is a
@@ -974,8 +975,7 @@ function LoreView({
                 t.lore.kindEveryone,
                 everyoneSeg.entryCount,
                 everyoneSeg.fittedCount,
-                everyoneSeg.fittedChars,
-                true
+                everyoneSeg.fittedChars
               )}
             </span>
           )}
@@ -985,8 +985,7 @@ function LoreView({
               sectionName(def),
               own?.entryCount ?? 0,
               own?.fittedCount ?? 0,
-              own?.fittedChars ?? 0,
-              false
+              own?.fittedChars ?? 0
             )}
           </span>
           <span className="lore-dir-card__legend-item">

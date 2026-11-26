@@ -193,8 +193,12 @@ describe("mock setLoreEntryScope", () => {
     });
   });
 
-  it("a member cap that fits only the member's own entry drops it once 所有人 entries come first", async () => {
+  it("a member cap that fits only the member's pinned entry drops 所有人's next one: the member's own line is at its next entry, the whole list's line at 所有人's", async () => {
     await api.patchServerSettings({ loreCapCharsRole: 195 });
+    const segments = [
+      { scopeKind: "everyone", entryCount: 1, chars: 53, fittedCount: 0, fittedChars: 0 },
+      { scopeKind: "agent", entryCount: 2, chars: 244, fittedCount: 1, fittedChars: 195 },
+    ];
 
     const page = await api.listLoreEntries({ scopeKind: "agent", scopeKey: "mira" });
     expect({ ...page, entries: page.entries.map((e) => e.id) }).toEqual({
@@ -202,13 +206,22 @@ describe("mock setLoreEntryScope", () => {
       limit: 30,
       offset: 0,
       capChars: 195,
-      firstDroppedId: "L-1",
-      usedChars: 53,
-      firstDroppedChars: 195,
-      budgetSegments: [
-        { scopeKind: "everyone", entryCount: 1, chars: 53, fittedCount: 1, fittedChars: 53 },
-        { scopeKind: "agent", entryCount: 2, chars: 244, fittedCount: 0, fittedChars: 0 },
-      ],
+      firstDroppedId: "L-2",
+      usedChars: 195,
+      firstDroppedChars: 49,
+      budgetSegments: segments,
+    });
+
+    const whole = await api.listLoreEntries({ scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"] });
+    expect({ ...whole, entries: whole.entries.map((e) => e.id) }).toEqual({
+      entries: ["L-1", "L-7", "L-2", "L-3"],
+      limit: 30,
+      offset: 0,
+      capChars: 195,
+      firstDroppedId: "L-7",
+      usedChars: 195,
+      firstDroppedChars: 53,
+      budgetSegments: segments,
     });
 
     const alone = await api.listLoreEntries({ scopeKinds: ["everyone"] });
@@ -339,7 +352,7 @@ describe("mock listLoreBudgets", () => {
     droppedCount,
   });
 
-  it("answers 所有人, every staff and outsource member and every manual, a member counting 所有人 first", async () => {
+  it("answers 所有人, every staff and outsource member and every manual, a member counting 所有人 too", async () => {
     expect(await api.listLoreBudgets()).toEqual([
       target("everyone", "", 53, 1),
       target("agent", "mira", 297, 2),
@@ -350,10 +363,10 @@ describe("mock listLoreBudgets", () => {
     ]);
   });
 
-  it("agrees with the list's 上限線 when the member cap leaves Mira's own entries out", async () => {
+  it("agrees with the list's 上限線 when the member cap leaves 所有人's entry and Mira's older one out", async () => {
     await api.patchServerSettings({ loreCapCharsRole: 195 });
     const mira = (await api.listLoreBudgets()).find((t) => t.scopeKey === "mira");
-    expect(mira).toEqual(target("agent", "mira", 53, 2, 2, 195));
+    expect(mira).toEqual(target("agent", "mira", 195, 2, 2, 195));
   });
 });
 

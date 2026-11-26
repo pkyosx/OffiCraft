@@ -92,7 +92,7 @@ export interface Messages {
   loreDirectorySectionGone: (id: string) => string;
   loreHighlightMissing: (id: string) => string;
   loreHighlightLoadFailed: (id: string) => string;
-  loreLegendSegment: (name: string, count: number, fitted: number, chars: number, first: boolean) => string;
+  loreLegendSegment: (name: string, count: number, fitted: number, chars: number) => string;
   loreLegendLeft: (cap: number, left: number) => string;
   loreScopeChanged: (entryId: string, scope: string) => string;
   loreCapLine: (used: number, cap: number, firstDroppedId: string, need: number) => string;
@@ -476,19 +476,16 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${num(n)}${n === 1 ? t.lore.entryCountTailOne : t.lore.entryCountTailMany}`,
     loreChars: (n) => `${num(n)}${t.lore.charsTail}`,
     loreDropped: (n) => `${num(n)}${t.lore.droppedTail}`,
-    loreEveryoneUsed: (chars) => `${num(chars)}${t.lore.charsTail}${t.lore.everyoneReadFirst}`,
+    loreEveryoneUsed: (chars) => `${num(chars)}${t.lore.charsTail}${t.lore.everyoneReadByAll}`,
     loreDirUsage: (used, cap) => `${num(used)} / ${num(cap)}${t.lore.charsTail}`,
     loreDirectoryNotFound: (id) => `${t.lore.dirNotFoundLead}${id}${t.lore.dirNotFoundTail}`,
     loreDirectorySectionGone: (id) => `${t.lore.dirSectionGoneLead}${id}${t.lore.dirSectionGoneTail}`,
     loreHighlightMissing: (id) => `${t.lore.highlightMissingLead}${id}${t.lore.highlightMissingTail}`,
     loreHighlightLoadFailed: (id) => `${t.lore.highlightFailedLead}${id}${t.lore.highlightFailedTail}`,
-    loreLegendSegment: (name, count, fitted, chars, first) => {
+    loreLegendSegment: (name, count, fitted, chars) => {
       const l = t.lore;
       const read = fitted < count ? `${l.legendReadLead}${num(fitted)}${l.legendReadTail}` : "";
-      return (
-        `${name} ${num(count)}${l.legendCountUnit}${read}${l.legendSep}${num(chars)}${l.charsTail}` +
-        (first ? l.legendFirstTail : "")
-      );
+      return `${name} ${num(count)}${l.legendCountUnit}${read}${l.legendSep}${num(chars)}${l.charsTail}`;
     },
     loreScopeChanged: (entryId, scope) =>
       `${entryId}${t.lore.scopeChangedMid}${scope}${t.lore.scopeChangedTail}`,
