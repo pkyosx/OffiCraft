@@ -853,9 +853,15 @@ const MODULE_STATE = [
   },
   {
     file: "lib/hashRoute.ts",
-    name: "lastIdx",
+    name: "restoring",
     verdict:
-      "the highest history-entry index stamped so far, so a new entry gets a larger one; app-wide history bookkeeping, no room's value",
+      "true only while a refused Back/Forward is being walked back, so the route reads the accepted hash in that gap; describes the URL, not any room",
+  },
+  {
+    file: "lib/hashRoute.ts",
+    name: "acceptedLength",
+    verdict:
+      "history.length when the accepted entry was taken, to tell a typed new hash from an old entry reached by Back; app-wide history bookkeeping, no room's value",
   },
   {
     file: "lib/hashRoute.ts",

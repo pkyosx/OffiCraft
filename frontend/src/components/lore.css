@@ -502,7 +502,7 @@ button.lore-row__scope-chip {
   font-family: inherit;
   transition: border-color 0.15s;
 }
-button.lore-row__scope-chip:hover {
+button.lore-row__scope-chip:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--color-task-type) 70%, transparent);
 }
 
@@ -513,7 +513,7 @@ button.lore-row__scope-chip:hover {
 button.lore-row__scope-chip--editable {
   border-color: var(--color-accent);
 }
-button.lore-row__scope-chip--editable:hover {
+button.lore-row__scope-chip--editable:hover:not(:disabled) {
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
 }
@@ -751,7 +751,7 @@ button.lore-row__scope-chip:disabled {
   opacity: 0.55;
   cursor: default;
 }
-button.lore-row__status-chip:hover {
+button.lore-row__status-chip:hover:not(:disabled) {
   background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
 /* The type tag as a menu trigger keeps its fill; the chip rule above would
@@ -759,7 +759,7 @@ button.lore-row__status-chip:hover {
 button.lore-badge--lore-type {
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
-button.lore-badge--lore-type:hover {
+button.lore-badge--lore-type:hover:not(:disabled) {
   background: color-mix(in srgb, currentColor 22%, transparent);
 }
 /* 「點了在徽章左緣下方開小選單」 — anchored to the badge's LEFT edge. */

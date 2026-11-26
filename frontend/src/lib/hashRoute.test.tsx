@@ -2,7 +2,8 @@
 // route → hash update, plus the navigateHash home-strip behaviour.
 
 import { describe, it, expect } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { parseHash, formatHash, navigateHash, setNavigationGuard, useHashRoute } from "./hashRoute";
 
 describe("parseHash", () => {
@@ -521,6 +522,108 @@ describe("navigation guard and real history traversal", () => {
       // …and Forward the section page.
       history.forward();
       await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
+    } finally {
+      unmount();
+    }
+  });
+});
+
+describe("history positions after going Back", () => {
+  function Probe({ seen }: { seen: string[] }) {
+    const [route] = useHashRoute();
+    seen.push(formatHash(route));
+    return null;
+  }
+
+  it("Back, then an in-app navigation, then a refused Back returns to the page on screen", async () => {
+    history.replaceState(null, "", window.location.pathname + "#tasks");
+    const seen: string[] = [];
+    const { unmount } = render(<Probe seen={seen} />);
+    try {
+      navigateHash({ page: "lore" });
+      await waitFor(() => expect(window.location.hash).toBe("#lore"));
+      navigateHash({ page: "lore", loreSection: { kind: "agent", key: "mira" } });
+      await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
+      history.back();
+      await waitFor(() => expect(window.location.hash).toBe("#lore"));
+      // A new entry after going Back replaces the forward one.
+      navigateHash({ page: "lore", loreSection: { kind: "agent", key: "mira" } });
+      await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
+
+      let asked = 0;
+      const release = setNavigationGuard(() => {
+        asked += 1;
+        return false;
+      });
+      history.back();
+      await waitFor(() => expect(asked).toBe(1));
+      await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
+      await new Promise((r) => setTimeout(r, 30));
+      expect(window.location.hash).toBe("#lore/agent/mira");
+      expect(seen[seen.length - 1]).toBe("#lore/agent/mira");
+      release();
+
+      // The page's own link still works, and Back still reaches the directory.
+      navigateHash({ page: "lore" });
+      await waitFor(() => expect(window.location.hash).toBe("#lore"));
+      history.back();
+      await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
+    } finally {
+      unmount();
+    }
+  });
+
+  it("a refused Back onto an older, unstamped entry puts the page back without walking further out", async () => {
+    // Two entries made before anything stamped them, as an older build would.
+    history.replaceState(null, "", window.location.pathname + "#old");
+    history.pushState(null, "", window.location.pathname + "#lore/agent/mira");
+    const seen: string[] = [];
+    const { unmount } = render(<Probe seen={seen} />);
+    try {
+      const lengthBefore = history.length;
+      const release = setNavigationGuard(() => false);
+      history.back();
+      await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
+      await new Promise((r) => setTimeout(r, 30));
+      expect(window.location.hash).toBe("#lore/agent/mira");
+      expect(history.length).toBe(lengthBefore);
+      release();
+      history.back();
+      await waitFor(() => expect(window.location.hash).toBe("#old"));
+    } finally {
+      unmount();
+    }
+  });
+});
+
+describe("the route while a refusal is walked back", () => {
+  it("a render in the gap still reads the accepted page, not the refused one", async () => {
+    history.replaceState(null, "", window.location.pathname + "#tasks");
+    const seen: string[] = [];
+    let bump: () => void = () => {};
+    function Probe() {
+      const [route] = useHashRoute();
+      const [, setN] = useState(0);
+      bump = () => setN((n) => n + 1);
+      seen.push(formatHash(route));
+      return null;
+    }
+    const { unmount } = render(<Probe />);
+    try {
+      navigateHash({ page: "lore", loreSection: { kind: "agent", key: "mira" } });
+      await waitFor(() => expect(seen[seen.length - 1]).toBe("#lore/agent/mira"));
+      // The guard re-renders the page, as the lore page does when it shows
+      // 「儲存中，完成後才能離開」.
+      const release = setNavigationGuard(() => {
+        act(() => bump());
+        return false;
+      });
+      const from = seen.length;
+      history.back();
+      await waitFor(() => expect(seen.length).toBeGreaterThan(from));
+      await new Promise((r) => setTimeout(r, 30));
+      expect(seen.slice(from).every((h) => h === "#lore/agent/mira")).toBe(true);
+      release();
     } finally {
       unmount();
     }

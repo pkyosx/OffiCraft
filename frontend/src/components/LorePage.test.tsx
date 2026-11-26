@@ -2464,6 +2464,46 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(list.mock.calls.map((c) => c[0]?.offset)).toEqual([0, 30, 0]);
   });
 
+  it("a pasted link that gave up does not stop the directory search for the same entry from paging to it", async () => {
+    stubTargets();
+    const thirty = (from: number) => Array.from({ length: 30 }, (_, i) => mkEntry({ id: `L-${from + i}` }));
+    vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) => {
+      if (o?.scopeKeys === undefined) return page([mkEntry({ id: "L-9", state: "retired" })]);
+      const withRetired = o.states?.includes("retired");
+      if (!withRetired) return miraPage([mkEntry({ id: "L-198" })]);
+      return (o.offset ?? 0) === 0 ? miraPage(thirty(100)) : miraPage([mkEntry({ id: "L-9", state: "retired" })]);
+    });
+    window.location.hash = "#lore/agent/mira/entry/L-9";
+    const { container } = renderPage();
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-highlight-missing"]')).not.toBeNull());
+
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
+    searchFor(container, "lore-directory-id", "L-9");
+
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(31));
+    expect(rowById(container, "L-9").classList.contains("lore-row--highlight")).toBe(true);
+    expect(container.querySelector('[data-testid="lore-highlight-missing"]')).toBeNull();
+  });
+
+  it("a page that fails to load while paging for a highlight stops and says loading failed", async () => {
+    stubTargets();
+    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) => {
+      if ((o?.offset ?? 0) === 30) throw new Error("network");
+      return miraPage(Array.from({ length: 30 }, (_, i) => mkEntry({ id: `L-${100 + i}` })));
+    });
+    window.location.hash = "#lore/agent/mira/entry/L-9";
+    const { container } = renderPage();
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="lore-highlight-failed"]')?.textContent).toBe(
+        "載入更多條目失敗，還沒找到 L-9；往下捲可以再試一次",
+      ),
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[data-testid="lore-highlight-missing"]')).toBeNull();
+  });
+
   it("a highlighted entry the section does not list says so", async () => {
     stubTargets();
     stubList(miraPage([mkEntry({ id: "L-198" })]));
@@ -3040,6 +3080,36 @@ describe("LorePage — 編輯多筆", () => {
     await waitFor(() => expect(container.querySelector('[data-testid="lore-multi-result"]')).not.toBeNull());
     expect(unsaved(container)).toEqual([]);
     expect(rowById(container, "L-2").querySelector<HTMLButtonElement>('[data-testid="lore-state"]')!.disabled).toBe(false);
+  });
+
+  it("a browser Back while 全部儲存 runs is refused with a status line, and the page stays put", async () => {
+    const s = spies();
+    const gate = held<void>();
+    s.edit.mockReturnValue(gate.promise);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { container } = await renderMode();
+    pick(container, "L-1", "lore-type", "lore-type-owner_decision");
+    fireEvent.click(container.querySelector('[data-testid="lore-multi-save"]')!);
+    await waitFor(() => expect(s.edit).toHaveBeenCalled());
+
+    history.back();
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="lore-multi-leave-blocked"]')?.textContent).toBe(
+        "儲存中，完成後才能離開",
+      ),
+    );
+    await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(window.location.hash).toBe("#lore/agent/mira");
+    expect(renderedIds(container)).toHaveLength(3);
+    expect(confirm).not.toHaveBeenCalled();
+
+    gate.resolve();
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-multi-result"]')).not.toBeNull());
+    expect(container.querySelector('[data-testid="lore-multi-leave-blocked"]')).toBeNull();
+    // Back works again once the save is done.
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(1));
   });
 
   it("staged changes count as unsaved work for the stale-build reload, and a successful 全部儲存 removes every guard", async () => {

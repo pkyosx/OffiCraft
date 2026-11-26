@@ -165,6 +165,8 @@ interface SectionData {
   fetchingMore: boolean;
   error: boolean;
   exhausted: boolean;
+  /** The last next-page read failed; the next scroll retries it. */
+  moreFailed: boolean;
 }
 
 interface SectionDef {
@@ -274,11 +276,64 @@ function cutIndexOf(data: SectionData): number {
   return data.entries.findIndex((e) => e.id === data.cap.firstDroppedId);
 }
 
-export function LorePage({
+type EntrySeed = { key: string; entryId: string; state: LoreEntryState };
+
+export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
+  const [route] = useHashRoute();
+  const sec = route.page === "lore" ? route.loreSection : undefined;
+  // The directory's id search knows the entry's state; the section page it
+  // opens ticks that state so the entry is listed (a 已失效 one included).
+  const seedRef = useRef<EntrySeed | null>(null);
+  // The budgets outlive a section visit: the directory and every section page
+  // read the same numbers, asked once and re-asked after a change.
+  const [budgets, setBudgets] = useState<LoreBudgetTargetView[] | null>(null);
+  const [budgetsError, setBudgetsError] = useState(false);
+  // Only the newest budgets read lands: an older one answering last would put
+  // stale numbers back in the section headers.
+  const budgetsSeqRef = useRef(0);
+  const refreshBudgets = useCallback(async () => {
+    const seq = ++budgetsSeqRef.current;
+    try {
+      const next = await api.listLoreBudgets();
+      if (seq !== budgetsSeqRef.current) return;
+      setBudgets(next);
+      setBudgetsError(false);
+    } catch (e) {
+      console.warn("LorePage: budgets load failed", e);
+      if (seq === budgetsSeqRef.current) setBudgetsError(true);
+    }
+  }, []);
+  useEffect(() => {
+    void refreshBudgets();
+  }, [refreshBudgets]);
+  // One mount per page: filters, selection, 編輯多筆, the bottom bars and the
+  // highlight paging belong to the section they were set on, so a section
+  // change starts them over by remounting rather than by resetting each.
+  return (
+    <LoreView
+      key={sec ? sectionKeyOf(sec.kind, sec.key) : ""}
+      canSetScope={canSetScope}
+      seedRef={seedRef}
+      budgets={budgets}
+      budgetsError={budgetsError}
+      refreshBudgets={refreshBudgets}
+    />
+  );
+}
+
+function LoreView({
   canSetScope: canSetScopeProp,
+  seedRef,
+  budgets,
+  budgetsError,
+  refreshBudgets,
 }: {
   canSetScope?: boolean;
-} = {}) {
+  seedRef: { current: EntrySeed | null };
+  budgets: LoreBudgetTargetView[] | null;
+  budgetsError: boolean;
+  refreshBudgets: () => Promise<void>;
+}) {
   const { t, msg } = useI18n();
   const { members, loading: membersLoading } = useMembers();
   const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
@@ -309,7 +364,12 @@ export function LorePage({
   // ── 篩選 ────────────────────────────────────────────────────────────────
   const [searchDraft, setSearchDraft] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
-  const [states, setStates] = useState<Set<LoreEntryState>>(new Set(DEFAULT_STATES));
+  const [states, setStates] = useState<Set<LoreEntryState>>(() => {
+    const seeded = new Set<LoreEntryState>(DEFAULT_STATES);
+    const seed = seedRef.current;
+    if (seed && seed.key === sectionKey && seed.entryId === highlightId) seeded.add(seed.state);
+    return seeded;
+  });
   const [authors, setAuthors] = useState<Set<string>>(new Set());
   const [loreTypes, setLoreTypes] = useState<Set<LoreType>>(new Set());
 
@@ -355,35 +415,17 @@ export function LorePage({
   const savingRef = useRef(false);
   const sectionKeyRef = useRef(sectionKey);
   sectionKeyRef.current = sectionKey;
-  // The directory's id search knows the entry's state; the section page it
-  // opens ticks that state so the entry is listed (a 已失效 one included).
-  const seedRef = useRef<{ key: string; entryId: string; state: LoreEntryState } | null>(null);
+  // Auto-paging for a highlight; a new section visit is a new mount.
+  const hlRef = useRef<{ id: string; filterKey: string; pages: number } | null>(null);
+  const [hlGaveUp, setHlGaveUp] = useState("");
+  // A browser Back / tab click refused because 全部儲存 is running.
+  const [leaveBlocked, setLeaveBlocked] = useState(false);
 
   // ── sections ───────────────────────────────────────────────────────────
-  const [budgets, setBudgets] = useState<LoreBudgetTargetView[] | null>(null);
-  const [budgetsError, setBudgetsError] = useState(false);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [data, setData] = useState<Record<string, SectionData>>({});
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Only the newest budgets read lands: an older one answering last would put
-  // stale numbers back in the section headers.
-  const budgetsSeqRef = useRef(0);
-  const refreshBudgets = useCallback(async () => {
-    const seq = ++budgetsSeqRef.current;
-    try {
-      const next = await api.listLoreBudgets();
-      if (seq !== budgetsSeqRef.current) return;
-      setBudgets(next);
-      setBudgetsError(false);
-    } catch (e) {
-      console.warn("LorePage: budgets load failed", e);
-      if (seq === budgetsSeqRef.current) setBudgetsError(true);
-    }
-  }, []);
-  useEffect(() => {
-    void refreshBudgets();
-  }, [refreshBudgets]);
 
   const defs = useMemo<SectionDef[]>(() => {
     if (!budgets) return [];
@@ -455,6 +497,7 @@ export function LorePage({
           fetchingMore: false,
           error: false,
           exhausted: false,
+          moreFailed: false,
         },
       }));
       return api
@@ -471,6 +514,7 @@ export function LorePage({
             fetchingMore: false,
             error: false,
             exhausted: page.entries.length < PAGE,
+            moreFailed: false,
           }));
           return page.entries.length;
         })
@@ -515,12 +559,14 @@ export function LorePage({
               entries: p.entries.concat(page.entries.filter((e) => !ids.has(e.id))),
               cap: isLatestCap(def.key, capSeq) ? capOf(page) : p.cap,
               exhausted: page.entries.length < PAGE,
+              moreFailed: false,
             };
           });
         })
         .catch((e) => {
           // The rows already shown stay; the next scroll retries.
           console.warn("LorePage: page load failed", e);
+          if (genRef.current.get(def.key) === gen) patchSection(def.key, (p) => ({ ...p, moreFailed: true }));
         })
         .finally(() => {
           if (genRef.current.get(def.key) !== gen) return;
@@ -970,6 +1016,7 @@ export function LorePage({
     await refreshInPlace(changed, true);
     savingRef.current = false;
     setMultiSaving(false);
+    setLeaveBlocked(false);
     // The section changed under the save: its staged map was already dropped,
     // and these results belong to cards no longer on screen.
     if (sectionKeyRef.current !== forKey) return;
@@ -1014,7 +1061,10 @@ export function LorePage({
         next.loreSection !== undefined &&
         sectionKeyOf(next.loreSection.kind, next.loreSection.key) === sectionKey;
       if (same) return true;
-      if (savingRef.current) return false;
+      if (savingRef.current) {
+        setLeaveBlocked(true);
+        return false;
+      }
       return window.confirm(leaveText);
     });
     return () => {
@@ -1075,29 +1125,6 @@ export function LorePage({
   const [retireReason, setRetireReason] = useState("");
   const [batchResult, setBatchResult] = useState<{ text: string; failed: boolean } | null>(null);
 
-  // A section page starts clean: filters, selection, 編輯多筆 and the bottom
-  // bars belong to the section they were set on.
-  const [pageFor, setPageFor] = useState(sectionKey);
-  if (pageFor !== sectionKey) {
-    setPageFor(sectionKey);
-    const seed = seedRef.current;
-    const seeded = new Set<LoreEntryState>(DEFAULT_STATES);
-    if (seed && seed.key === sectionKey && seed.entryId === highlightId) seeded.add(seed.state);
-    setSearchDraft("");
-    setAppliedSearch("");
-    setStates(seeded);
-    setAuthors(new Set());
-    setLoreTypes(new Set());
-    setMultiEdit(false);
-    setStaged(new Map());
-    setMultiResult(null);
-    setToast(null);
-    setBatchResult(null);
-    setActionError(null);
-    setRetireOpen(false);
-    setRetireReason("");
-  }
-
   const currentDef = sectionKey ? defs.find((d) => d.key === sectionKey) ?? null : null;
   // A selection only ever names cards on screen: a batch must not reach an
   // entry the reader can no longer see, and could not refresh it if it did.
@@ -1118,15 +1145,20 @@ export function LorePage({
   const currentData = currentDef ? data[currentDef.key] : undefined;
   const highlightLoaded =
     highlightId !== "" && !!currentData?.entries.some((e) => e.id === highlightId);
-  const hlRef = useRef<{ id: string; filterKey: string; pages: number } | null>(null);
-  const [hlGaveUp, setHlGaveUp] = useState("");
   const hlCapped = hlGaveUp !== "" && hlGaveUp === highlightId;
   useEffect(() => {
     if (!currentDef || !currentData || highlightId === "" || highlightLoaded) return;
     let r = hlRef.current;
     if (!r || r.id !== highlightId) r = hlRef.current = { id: highlightId, filterKey, pages: 0 };
     if (r.filterKey !== filterKey) return;
-    if (currentData.loading || currentData.fetchingMore || currentData.exhausted || currentData.error) return;
+    if (
+      currentData.loading ||
+      currentData.fetchingMore ||
+      currentData.exhausted ||
+      currentData.error ||
+      currentData.moreFailed
+    )
+      return;
     if (r.pages >= HIGHLIGHT_PAGE_CAP) {
       setHlGaveUp(highlightId);
       return;
@@ -1454,8 +1486,11 @@ export function LorePage({
     !!sd &&
     !sd.loading &&
     !sd.fetchingMore &&
+    !sd.moreFailed &&
     (sd.exhausted || hlCapped) &&
     !highlightLoaded;
+  const highlightFailed =
+    highlightId !== "" && !!sd && !sd.fetchingMore && sd.moreFailed && !highlightLoaded;
 
   return (
     <div className="lore" ref={scrollRef} data-testid="lore-page">
@@ -1561,6 +1596,11 @@ export function LorePage({
               {msg.loreHighlightMissing(highlightId)}
             </div>
           )}
+          {highlightFailed && (
+            <div className="lore__error" data-testid="lore-highlight-failed">
+              {msg.loreHighlightLoadFailed(highlightId)}
+            </div>
+          )}
 
           <section
             className="lore-section"
@@ -1625,6 +1665,11 @@ export function LorePage({
               {t.lore.multiCancel}
             </button>
             {multiSaving && <span className="lore-batch__working">{t.lore.batchWorking}</span>}
+            {multiSaving && leaveBlocked && (
+              <span className="lore-batch__working" role="status" data-testid="lore-multi-leave-blocked">
+                {t.lore.multiLeaveBlocked}
+              </span>
+            )}
             {multiResult && (
               <div
                 className={`lore-batch__result${multiResult.failed ? " lore-batch__result--failed" : ""}`}

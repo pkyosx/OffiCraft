@@ -397,12 +397,19 @@ let navigationGuard: NavigationGuard | null = null;
 // The last hash the guard let through. A refused browser back/forward or a
 // hand-edited hash is put back to this.
 let acceptedHash: string | null = null;
-// Each history entry this page sees is stamped with a rising index in
+// Each history entry this page sees is stamped with its position in
 // history.state, so a refused Back/Forward can be undone with history.go()
 // instead of rewriting an entry (which would erase the reader's back history).
+// A new entry is inserted right after the current one (forward entries are
+// dropped), so it is always the accepted position + 1.
 const HIST_IDX = "ocHistIdx";
 let acceptedIdx = 0;
-let lastIdx = 0;
+// history.length when the accepted entry was taken: a refused entry with no
+// stamp and a longer history is a new one (a typed hash); with the same length
+// it is an older entry reached by Back that predates the stamps.
+let acceptedLength = 0;
+// A refused change is being walked back with history.go()/back().
+let restoring = false;
 
 function entryIdx(): number | undefined {
   const st: unknown = history.state;
@@ -422,13 +429,12 @@ function stampEntry(idx: number): void {
 function acceptEntry(): void {
   const idx = entryIdx();
   if (idx === undefined) {
-    lastIdx += 1;
-    stampEntry(lastIdx);
-    acceptedIdx = lastIdx;
+    acceptedIdx += 1;
+    stampEntry(acceptedIdx);
   } else {
     acceptedIdx = idx;
-    lastIdx = Math.max(lastIdx, idx);
   }
+  acceptedLength = history.length;
 }
 
 export function setNavigationGuard(guard: NavigationGuard): () => void {
@@ -464,20 +470,32 @@ const listeners = new Set<() => void>();
 function onHashChange(): void {
   const cur = window.location.hash;
   const prev = acceptedHash ?? "";
-  if (cur !== prev && navigationGuard && !navigationGuard(parseHash(cur))) {
-    const idx = entryIdx();
-    if (idx !== undefined && idx !== acceptedIdx) {
-      // Back/Forward onto an entry we know: step back to where we were. The
-      // hashchange that brings us there matches acceptedHash and passes.
-      history.go(acceptedIdx - idx);
-    } else if (idx === undefined) {
-      // A new entry (a hand-typed hash): return to the accepted one behind it.
-      history.back();
-    } else {
-      history.replaceState(history.state, "", window.location.pathname + window.location.search + prev);
+  if (cur !== prev && navigationGuard) {
+    // Pinned before asking: the guard itself may re-render the page.
+    restoring = true;
+    if (!navigationGuard(parseHash(cur))) {
+      const idx = entryIdx();
+      if (idx !== undefined && idx !== acceptedIdx) {
+        // Back/Forward onto an entry we know: step back to where we were. The
+        // hashchange that brings us there matches acceptedHash and passes.
+        history.go(acceptedIdx - idx);
+      } else if (idx === undefined && history.length > acceptedLength) {
+        // A new entry (a hand-typed hash): return to the accepted one behind it.
+        history.back();
+      } else if (idx === undefined) {
+        // An unstamped older entry reached by Back: stepping further back would
+        // walk the reader out of the app, so put the accepted page on top of it.
+        history.pushState({ [HIST_IDX]: acceptedIdx }, "", window.location.pathname + window.location.search + prev);
+        acceptedLength = history.length;
+        restoring = false;
+      } else {
+        history.replaceState(history.state, "", window.location.pathname + window.location.search + prev);
+        restoring = false;
+      }
+      return;
     }
-    return;
   }
+  restoring = false;
   acceptEntry();
   acceptedHash = cur;
   for (const cb of listeners) cb();
@@ -496,8 +514,12 @@ function subscribe(cb: () => void): () => void {
   };
 }
 
+// Between a refused Back and the history.go() that undoes it, the URL briefly
+// shows the refused page; a render in that gap must read the accepted one (the
+// lore page would otherwise drop its staged work for a section change that
+// never happened).
 function snapshot(): string {
-  return window.location.hash;
+  return restoring && acceptedHash !== null ? acceptedHash : window.location.hash;
 }
 
 /** The current route (re-rendering on every hash change) + the setter. */

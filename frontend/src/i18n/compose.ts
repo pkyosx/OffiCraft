@@ -90,6 +90,7 @@ export interface Messages {
   loreDirectoryNotFound: (id: string) => string;
   loreDirectorySectionGone: (id: string) => string;
   loreHighlightMissing: (id: string) => string;
+  loreHighlightLoadFailed: (id: string) => string;
   loreMultiStaged: (n: number) => string;
   loreBudgetSentence: (p: LoreBudgetSentence) => string;
   loreCapLine: (used: number, cap: number, firstDroppedId: string, need: number) => string;
@@ -493,6 +494,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     loreDirectoryNotFound: (id) => `${t.lore.dirNotFoundLead}${id}${t.lore.dirNotFoundTail}`,
     loreDirectorySectionGone: (id) => `${t.lore.dirSectionGoneLead}${id}${t.lore.dirSectionGoneTail}`,
     loreHighlightMissing: (id) => `${t.lore.highlightMissingLead}${id}${t.lore.highlightMissingTail}`,
+    loreHighlightLoadFailed: (id) => `${t.lore.highlightFailedLead}${id}${t.lore.highlightFailedTail}`,
     loreMultiStaged: (n) => `${t.lore.multiStagedLead}${num(n)}${t.lore.multiStagedTail}`,
     loreBudgetSentence: (p) => {
       const l = t.lore;
