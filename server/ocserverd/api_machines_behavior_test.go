@@ -340,7 +340,7 @@ func TestBuildInstallScriptWithCode_Mainline(t *testing.T) {
 		}
 		for _, line := range []string{
 			"Error: this install link has expired or was already used.",
-			"Fix: go back to the 「安裝機器」 (Install machine) window and press the regenerate icon (↻) next to the command; if you do not see that icon, close the window and open it again (Monitor › Machines (監控 › 機器資訊), Install from this machine's menu) to get a new command, then run it.",
+			"Fix: go back to the 'Install machine' window and press the regenerate icon (↻) next to the command; if you do not see that icon, close the window and open it again (Monitor › Machines, Install from this machine's menu) to get a new command, then run it.",
 			"修正：回到「安裝機器」視窗按指令旁的重新產生圖示（↻）；如果沒有看到這個圖示，關掉視窗後到「監控 › 機器資訊」的機器選單按「安裝」重新開啟，取得新指令後再執行。",
 			"brew install tmux </dev/null || true",
 			`$oc_sudo sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux' </dev/null >/dev/null || true`,
