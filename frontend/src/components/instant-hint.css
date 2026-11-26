@@ -26,3 +26,14 @@
 .instant-hint--pinned {
   pointer-events: auto;
 }
+.instant-hint__with-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.instant-hint__with-action > :first-child {
+  min-width: 0;
+}
+.instant-hint__with-action > button {
+  flex: none;
+}

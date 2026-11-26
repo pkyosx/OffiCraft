@@ -16,7 +16,7 @@
 // happen to be downloaded.
 //
 // 🔴 狀態、類型、適用範圍 ARE STAGED, NOT SENT (owner C1). The card shows the
-// staged value and 未儲存; 儲存變更 sends them all, then the whole section is
+// staged value in a warn-coloured frame; 儲存變更 sends them all, then the whole section is
 // re-read in the server's order (as many rows as were loaded) together with
 // the numbers. Re-reading only the changed rows left the counts and the
 // greying where the old order had them. Until then a card stays greyed (or
@@ -85,6 +85,7 @@ import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
+import { InstantHint } from "./InstantHint";
 import { Markdown } from "./Markdown";
 import { MultiSelectFilter } from "./MultiSelectFilter";
 import { SuggestedReplies, appendSuggestion } from "./SuggestedReplies";
@@ -95,6 +96,7 @@ import {
   ChevronRightIcon,
   PaperclipIcon,
   PencilIcon,
+  RotateCcwIcon,
   SendIcon,
   UsersIcon,
 } from "./icons";
@@ -235,6 +237,11 @@ interface StagedChange {
   loreType?: LoreType;
   scope?: { kind: LoreScopeKind; key: string; label: string };
 }
+
+type StagedField = keyof StagedChange;
+
+/** The stored value's label for each staged field of one card. */
+type StagedFrom = Partial<Record<StagedField, string>>;
 
 function withStaged(entry: LoreEntryView, ch: StagedChange | undefined): LoreEntryView {
   if (!ch) return entry;
@@ -927,20 +934,53 @@ function LoreView({
     setSaveFailed([]);
   }
 
-  const revertStaged = useCallback((id: string) => {
+  /** Puts one staged field of a card back, or every field on it without `field`. */
+  const revertStaged = useCallback((id: string, field?: StagedField) => {
     if (savingRef.current) return;
+    const cur = stagedRef.current.get(id);
+    if (!cur) return;
+    const left: StagedChange = { ...cur };
+    if (field) delete left[field];
+    const cardCleared = !field || Object.keys(left).length === 0;
     setStaged((prev) => {
-      if (!prev.has(id)) return prev;
       const next = new Map(prev);
-      next.delete(id);
+      if (cardCleared) next.delete(id);
+      else next.set(id, left);
       return next;
     });
-    setSaveFailed((prev) => (prev.some((f) => f.id === id) ? prev.filter((f) => f.id !== id) : prev));
+    if (cardCleared) {
+      setSaveFailed((prev) => (prev.some((f) => f.id === id) ? prev.filter((f) => f.id !== id) : prev));
+    }
   }, []);
 
   const hasStaged = staged.size > 0;
   let stagedFields = 0;
   for (const ch of staged.values()) stagedFields += Object.keys(ch).length;
+  // The bar is fixed to the bottom of the screen, over the end of `.lore`;
+  // `.lore` pads its end by the part the bar covers so the last card can be
+  // scrolled clear of it.
+  const saveBarRef = useRef<HTMLDivElement>(null);
+  const saveBarShown = hasStaged || saving;
+  useLayoutEffect(() => {
+    const bar = saveBarRef.current;
+    const lore = scrollRef.current;
+    if (!saveBarShown || !bar || !lore) return;
+    const reserve = () => {
+      const covered = Math.max(0, lore.getBoundingClientRect().bottom - bar.getBoundingClientRect().top);
+      lore.style.setProperty("--lore-savebar-reserve", `${covered}px`);
+    };
+    reserve();
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(reserve);
+    ro?.observe(bar);
+    ro?.observe(lore);
+    window.addEventListener("resize", reserve);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", reserve);
+      lore.style.removeProperty("--lore-savebar-reserve");
+    };
+  }, [saveBarShown]);
+
   const leaveText = t.lore.stagedLeaveConfirm;
   // Leaving the section (another tab, the directory, Back) or closing the page
   // with staged changes asks first; a highlight inside the same section is not
@@ -1130,6 +1170,14 @@ function LoreView({
     );
   }
 
+  function stagedFromOf(stored: LoreEntryView, ch: StagedChange): StagedFrom {
+    const from: StagedFrom = {};
+    if (ch.loreType) from.loreType = loreTypeLabel(t, stored.loreType);
+    if (ch.state) from.state = stateLabelOf(t, stored.state);
+    if (ch.scope) from.scope = resolveScope(stored).label;
+    return from;
+  }
+
   function renderSectionBody(def: SectionDef, sd: SectionData | undefined) {
     if (!sd || (sd.loading && sd.entries.length === 0)) {
       return <div className="lore__more">{t.lore.loadingMore}</div>;
@@ -1151,17 +1199,6 @@ function LoreView({
         {sd.entries.map((stored) => {
           const ch = staged.get(stored.id);
           const entry = withStaged(stored, ch);
-          const arrow = t.lore.stagedDiffArrow;
-          const changes: string[] = [];
-          if (ch?.loreType) {
-            changes.push(`${t.lore.stagedDiffType}${loreTypeLabel(t, stored.loreType)}${arrow}${loreTypeLabel(t, ch.loreType)}`);
-          }
-          if (ch?.state) {
-            changes.push(`${t.lore.stagedDiffState}${stateLabelOf(t, stored.state)}${arrow}${stateLabelOf(t, ch.state)}`);
-          }
-          if (ch?.scope) {
-            changes.push(`${t.lore.stagedDiffScope}${resolveScope(stored).label}${arrow}${resolveScope(entry).label}`);
-          }
           return (
             <LoreRow
                   key={entry.id}
@@ -1174,7 +1211,7 @@ function LoreView({
                     canSetScope && entry.scopeOptions.length > 0 ? resolveScopeMenu(entry) : null
                   }
                   highlighted={entry.id === highlightId}
-                  changes={changes}
+                  stagedFrom={ch ? stagedFromOf(stored, ch) : null}
                   chipsLocked={saving}
                   onRevert={revertStaged}
                   entryCaps={entryCaps}
@@ -1251,6 +1288,18 @@ function LoreView({
     return (
       <span className="lore-dir-card__glyph" aria-hidden="true">
         {def.kind === "everyone" ? <UsersIcon size={16} /> : <BookIcon size={16} />}
+      </span>
+    );
+  }
+
+  function sectionLead(def: SectionDef) {
+    if (def.kind === "agent") {
+      const a = authorAvatar(def.scopeKey);
+      return <Avatar size={20} kind={a?.kind ?? "staff"} src={a?.src} />;
+    }
+    return (
+      <span className="lore-section__glyph" aria-hidden="true">
+        {def.kind === "everyone" ? <UsersIcon size={14} /> : <BookIcon size={14} />}
       </span>
     );
   }
@@ -1398,38 +1447,6 @@ function LoreView({
 
       {currentDef && (
         <>
-          <div className="lore-dir-card lore-dir-card--page" data-testid="lore-section-head">
-            <div className="lore-dir-card__head">
-              {dirLead(currentDef)}
-              <span className="lore-dir-card__main">
-                {currentDef.kind === "manual" ? (
-                  // The way back to the manual for every viewer; the card scope tag offers it only to those who may move entries.
-                  <button
-                    type="button"
-                    className="lore-dir-card__name lore-dir-card__name--link"
-                    data-testid="lore-section-name"
-                    title={msg.loreOpenManual(sectionName(currentDef))}
-                    aria-label={msg.loreOpenManual(sectionName(currentDef))}
-                    onClick={() => openManual(currentDef.scopeKey)}
-                  >
-                    {sectionName(currentDef)}
-                  </button>
-                ) : (
-                  <span className="lore-dir-card__name" data-testid="lore-section-name">
-                    {sectionName(currentDef)}
-                  </span>
-                )}
-                {dirBadges(currentDef)}
-              </span>
-            </div>
-            {renderSummary(currentDef, sd)}
-            {stagedFields > 0 && (
-              <div className="lore-section__staged-note" role="status" data-testid="lore-staged-notice">
-                <strong>{msg.loreStagedNotice(stagedFields)}</strong> {t.lore.stagedNoticeStale}
-              </div>
-            )}
-          </div>
-
           <FilterPanel
             testId="lore-filter"
             clearLabel={t.lore.clearFilters}
@@ -1465,6 +1482,39 @@ function LoreView({
             />
           </FilterPanel>
 
+          <div className="lore-section__head" data-testid="lore-section-head">
+            <div className="lore__group-title lore-section__title">
+              {sectionLead(currentDef)}
+              {currentDef.kind === "manual" ? (
+                // The way back to the manual for every viewer; the card scope tag offers it only to those who may move entries.
+                <button
+                  type="button"
+                  className="lore-section__name lore-section__name--link"
+                  data-testid="lore-section-name"
+                  title={msg.loreOpenManual(sectionName(currentDef))}
+                  aria-label={msg.loreOpenManual(sectionName(currentDef))}
+                  onClick={() => openManual(currentDef.scopeKey)}
+                >
+                  {sectionName(currentDef)}
+                </button>
+              ) : (
+                <span className="lore-section__name" data-testid="lore-section-name">
+                  {sectionName(currentDef)}
+                </span>
+              )}
+              <span className="lore__group-count">
+                {" · "}
+                <span data-testid="lore-section-count">{msg.loreEntryCount(currentDef.target.entryCount)}</span>
+              </span>
+              {currentDef.target.droppedCount > 0 && (
+                <span className="lore-section__dropped" data-testid="lore-section-dropped">
+                  {msg.loreDropped(currentDef.target.droppedCount)}
+                </span>
+              )}
+            </div>
+            {renderSummary(currentDef, sd)}
+          </div>
+
           {highlightMissing && (
             <div className="lore__empty" data-testid="lore-highlight-missing">
               {msg.loreHighlightMissing(highlightId)}
@@ -1494,56 +1544,63 @@ function LoreView({
         </>
       )}
 
-      {(toast.length > 0 || hasStaged || saving) && (
+      {toast.length > 0 && (
         <div className="lore__dock">
-          {toast.length > 0 && (
-            <div className="lore-toast" role="status" data-testid="lore-toast">
-              {toast.map((m) => (
-                <span key={m.id}>{msg.loreScopeChanged(m.id, m.scopeLabel)}</span>
-              ))}
-            </div>
-          )}
-          {(hasStaged || saving) && (
-            <div className="lore-batch" role="region" aria-label={t.lore.unsaved} data-testid="lore-staged-bar">
-              <span className="lore-batch__count" data-testid="lore-staged-count">
-                {msg.loreStagedChanges(stagedFields)}
+          <div className="lore-toast" role="status" data-testid="lore-toast">
+            {toast.map((m) => (
+              <span key={m.id}>{msg.loreScopeChanged(m.id, m.scopeLabel)}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(hasStaged || saving) && (
+        <div
+          className="lore-savebar"
+          ref={saveBarRef}
+          role="region"
+          aria-label={t.lore.stagedBarLabel}
+          data-testid="lore-staged-bar"
+        >
+          <span className="lore-savebar__text">
+            <span className="lore-savebar__count" data-testid="lore-staged-count">
+              {msg.loreStagedChanges(stagedFields)}
+            </span>
+            {saving && leaveBlocked && (
+              <span className="lore-savebar__note" role="status" data-testid="lore-staged-leave-blocked">
+                {t.lore.stagedLeaveBlocked}
               </span>
-              <span className="lore-batch__actions">
-                <button
-                  type="button"
-                  className="lore-row__action"
-                  data-testid="lore-staged-discard"
-                  disabled={saving}
-                  onClick={discardStaged}
-                >
-                  {t.lore.stagedDiscard}
-                </button>
-                <button
-                  type="button"
-                  className="lore-row__editor-save"
-                  data-testid="lore-staged-save"
-                  disabled={saving || !hasStaged}
-                  onClick={() => void saveStaged()}
-                >
-                  {saving ? t.lore.stagedSaving : msg.loreStagedSave(staged.size)}
-                </button>
+            )}
+            {saveFailed.length > 0 && (
+              <span
+                className="lore-savebar__note lore-savebar__note--failed"
+                role="status"
+                data-testid="lore-staged-failed"
+              >
+                {msg.loreStagedFailed(saveFailed)}
               </span>
-              {saving && leaveBlocked && (
-                <span className="lore-batch__working" role="status" data-testid="lore-staged-leave-blocked">
-                  {t.lore.stagedLeaveBlocked}
-                </span>
-              )}
-              {saveFailed.length > 0 && (
-                <div
-                  className="lore-batch__result lore-batch__result--failed"
-                  role="status"
-                  data-testid="lore-staged-failed"
-                >
-                  {msg.loreStagedFailed(saveFailed)}
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </span>
+          <span className="lore-savebar__actions">
+            <button
+              type="button"
+              className="doc-btn"
+              data-testid="lore-staged-discard"
+              disabled={saving}
+              onClick={discardStaged}
+            >
+              {t.lore.stagedDiscard}
+            </button>
+            <button
+              type="button"
+              className="doc-btn doc-btn--accent"
+              data-testid="lore-staged-save"
+              disabled={saving || !hasStaged}
+              onClick={() => void saveStaged()}
+            >
+              {saving ? t.lore.stagedSaving : t.lore.stagedSave}
+            </button>
+          </span>
         </div>
       )}
     </div>
@@ -1583,7 +1640,7 @@ function LoreRow({
   onSetScope,
   onSetLoreType,
   highlighted,
-  changes,
+  stagedFrom,
   chipsLocked,
   onRevert,
   entryCaps,
@@ -1605,19 +1662,19 @@ function LoreRow({
   onSetScope: (id: string, kind: LoreScopeKind, label: string) => void;
   onSetLoreType: (id: string, loreType: LoreType) => void;
   highlighted: boolean;
-  /** One line per staged field (「狀態：生效中 → 已失效」); `entry` already
-   * shows the staged values. Empty ⇒ nothing staged on this card. */
-  changes: string[];
-  /** 儲存變更 is running: the chips and 還原 cannot change what is staged. */
+  /** The stored value's label of each staged field; `entry` already shows the
+   * staged values. null ⇒ nothing staged on this card. */
+  stagedFrom: StagedFrom | null;
+  /** 儲存變更 is running: the chips cannot change what is staged. */
   chipsLocked: boolean;
-  onRevert: (id: string) => void;
+  onRevert: (id: string, field: StagedField) => void;
   entryCaps: { title: number; body: number };
   /** Rejects with the reason to show; the draft stays. */
   onSave: (id: string, patch: LoreEntryEdit) => Promise<void>;
   onRestored: (id: string) => Promise<void>;
 }) {
   const { t, msg } = useI18n();
-  const unsaved = changes.length > 0;
+  const staged = stagedFrom !== null;
   const [stateOpen, setStateOpen] = useState(false);
   const statusRef = useRef<HTMLDivElement>(null);
   const [typeOpen, setTypeOpen] = useState(false);
@@ -1689,10 +1746,11 @@ function LoreRow({
     <article
       className={`lore-row lore-row--${entry.state}${
         dimmed ? " lore-row--dimmed" : ""
-      }${highlighted ? " lore-row--highlight" : ""}${unsaved ? " lore-row--unsaved" : ""}`}
+      }${highlighted ? " lore-row--highlight" : ""}${staged ? " lore-row--staged" : ""}`}
       data-testid="lore-row"
       data-entry-id={entry.id}
       data-dimmed={dimmed ? "true" : "false"}
+      data-staged={staged ? "true" : "false"}
       // Focusable from code only: a highlighted entry lands here.
       tabIndex={-1}
     >
@@ -1734,7 +1792,9 @@ function LoreRow({
           <div className="lore-row__status" ref={typeRef}>
             <button
               type="button"
-              className="lore-badge lore-badge--lore-type lore-row__status-chip"
+              className={`lore-badge lore-badge--lore-type lore-row__status-chip${
+                stagedFrom?.loreType !== undefined ? " lore-row__status-chip--staged" : ""
+              }`}
               title={t.lore.typeMenuLabel}
               aria-label={t.lore.typeMenuLabel}
               aria-haspopup="menu"
@@ -1746,6 +1806,13 @@ function LoreRow({
             >
               {loreTypeLabel(t, entry.loreType)}
             </button>
+            {stagedFrom?.loreType !== undefined && (
+              <LoreRevertMark
+                field="loreType"
+                from={stagedFrom.loreType}
+                onRevert={() => onRevert(entry.id, "loreType")}
+              />
+            )}
             {typeOpen && (
               <div
                 className="lore-row__menu-pop lore-row__status-pop"
@@ -1781,7 +1848,9 @@ function LoreRow({
           <div className="lore-row__status" ref={statusRef}>
             <button
               type="button"
-              className={`lore-badge lore-badge--state-${entry.state} lore-row__status-chip`}
+              className={`lore-badge lore-badge--state-${entry.state} lore-row__status-chip${
+                stagedFrom?.state !== undefined ? " lore-row__status-chip--staged" : ""
+              }`}
               title={t.lore.stateMenuLabel}
               aria-label={t.lore.stateMenuLabel}
               aria-haspopup="menu"
@@ -1792,6 +1861,13 @@ function LoreRow({
             >
               {stateLabel}
             </button>
+            {stagedFrom?.state !== undefined && (
+              <LoreRevertMark
+                field="state"
+                from={stagedFrom.state}
+                onRevert={() => onRevert(entry.id, "state")}
+              />
+            )}
             {stateOpen && (
               <div
                 className="lore-row__menu-pop lore-row__status-pop"
@@ -1830,9 +1906,12 @@ function LoreRow({
               wrapped to the row's right edge cannot push the menu off a phone. */}
           {scopeMenu ? (
             <span className="lore-row__scope" data-testid="lore-scope" ref={scopeRef}>
+              <span className="lore-row__scope-anchor">
               <button
                 type="button"
-                className="lore-badge lore-badge--scope lore-row__status-chip"
+                className={`lore-badge lore-badge--scope lore-row__status-chip${
+                  stagedFrom?.scope !== undefined ? " lore-row__status-chip--staged" : ""
+                }`}
                 data-testid="lore-scope-name"
                 data-scope-kind={scope.kind}
                 title={t.lore.scopeMenuLabel}
@@ -1844,6 +1923,14 @@ function LoreRow({
               >
                 <span className="lore-badge__text">{scope.label}</span>
               </button>
+              {stagedFrom?.scope !== undefined && (
+                <LoreRevertMark
+                  field="scope"
+                  from={stagedFrom.scope}
+                  onRevert={() => onRevert(entry.id, "scope")}
+                />
+              )}
+              </span>
               {scopeOpen && (
                 <div
                   className="lore-row__menu-pop lore-row__scope-pop"
@@ -1919,22 +2006,6 @@ function LoreRow({
               <span className="lore-badge__text">{scope.label}</span>
             </span>
           )}
-          {unsaved && (
-            <span className="lore-row__unsaved">
-              <span className="lore-badge lore-badge--unsaved" data-testid="lore-unsaved">
-                {t.lore.unsaved}
-              </span>
-              <button
-                type="button"
-                className="lore-row__revert"
-                data-testid="lore-revert"
-                disabled={chipsLocked}
-                onClick={() => onRevert(entry.id)}
-              >
-                {t.lore.stagedRevert}
-              </button>
-            </span>
-          )}
         </div>
 
         <div className="lore-row__actions">
@@ -1950,16 +2021,6 @@ function LoreRow({
           </button>
         </div>
       </div>
-
-      {unsaved && (
-        <div className="lore-row__changes" data-testid="lore-changes">
-          {changes.map((line) => (
-            <div key={line} data-testid="lore-change">
-              {line}
-            </div>
-          ))}
-        </div>
-      )}
 
       {editing ? (
         <LoreEntryEditor
@@ -2019,6 +2080,44 @@ function LoreRow({
 }
 
 /** 編輯 turns the card's title and body into this, in place. */
+/** ↺ on a staged tag's top-right corner. A mouse hovers it for 「原為：…」 and
+ * clicks to put that one field back; a touch tap shows the same line with a
+ * 還原 button instead, so a tap alone never reverts. */
+function LoreRevertMark({
+  field,
+  from,
+  onRevert,
+}: {
+  field: StagedField;
+  from: string;
+  onRevert: () => void;
+}) {
+  const { t, msg } = useI18n();
+  return (
+    <InstantHint
+      hint={msg.loreStagedFrom(from)}
+      onActivate={onRevert}
+      className="lore-row__revert"
+      aria-label={msg.loreStagedRevertTo(from)}
+      data-testid={`lore-revert-${field}`}
+      data-hint-pin=""
+      pinnedAction={
+        <button
+          type="button"
+          className="doc-btn"
+          data-testid="lore-revert-confirm"
+          onClick={onRevert}
+        >
+          <RotateCcwIcon size={13} />
+          <span>{t.lore.stagedRevert}</span>
+        </button>
+      }
+    >
+      <RotateCcwIcon size={9} />
+    </InstantHint>
+  );
+}
+
 function LoreEntryEditor({
   entry,
   caps,

@@ -14,7 +14,7 @@
 // page does with the answer is under test here, not the mock's arithmetic.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { __resetHashRouteForTests } from "../lib/hashRoute";
 import { LorePage } from "./LorePage";
@@ -909,9 +909,20 @@ describe("LorePage — 可變動作面", () => {
   const stateOf = (container: HTMLElement, id: string) =>
     rowById(container, id).querySelector('[data-testid="lore-state"]')!.textContent;
   const unsavedIds = (container: HTMLElement) =>
-    renderedIds(container).filter((id) => rowById(container, id).querySelector('[data-testid="lore-unsaved"]'));
-  const changeLines = (container: HTMLElement, id: string) =>
-    Array.from(rowById(container, id).querySelectorAll('[data-testid="lore-change"]')).map((el) => el.textContent);
+    renderedIds(container).filter((id) => rowById(container, id).dataset.staged === "true");
+  const revertMarks = (container: HTMLElement, id: string) =>
+    Array.from(rowById(container, id).querySelectorAll<HTMLElement>('[data-testid^="lore-revert-"]')).map(
+      (el) => [el.dataset.testid, el.getAttribute("aria-label")],
+    );
+  // jsdom has no PointerEvent, so fireEvent.pointerDown drops pointerType.
+  function press(el: Element, pointerType: "mouse" | "touch") {
+    const ev = new MouseEvent("pointerdown", { bubbles: true });
+    Object.defineProperty(ev, "pointerType", { value: pointerType });
+    fireEvent(el, ev);
+    fireEvent.click(el);
+  }
+  const mark = (container: HTMLElement, id: string, field: string) =>
+    rowById(container, id).querySelector(`[data-testid="lore-revert-${field}"]`)!;
   const bar = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-testid="lore-staged-bar"]');
   const clickSave = (container: HTMLElement) =>
     fireEvent.click(container.querySelector('[data-testid="lore-staged-save"]')!);
@@ -926,7 +937,7 @@ describe("LorePage — 可變動作面", () => {
     };
   }
 
-  it("changing state, type and scope stages them on the card: new values, 未儲存, the bar's count, and nothing sent", async () => {
+  it("changing state, type and scope stages them on the card: new values, a ↺ on each changed tag, the bar's count, and nothing sent", async () => {
     const w = spyWrites();
     const list = stubList(
       page([
@@ -948,17 +959,17 @@ describe("LorePage — 可變動作面", () => {
     expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe("Owner 決策");
     expect(rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!.textContent).toBe("所有人");
     expect(unsavedIds(container)).toEqual(["L-1", "L-2"]);
-    expect(rowById(container, "L-1").querySelector('[data-testid="lore-unsaved"]')!.textContent).toBe("未儲存");
-    expect(changeLines(container, "L-1")).toEqual(["狀態：生效中 → 已失效"]);
-    expect(changeLines(container, "L-2")).toEqual(["類型：其他 → Owner 決策", "適用範圍：Mira → 所有人"]);
-    expect(changeLines(container, "L-3")).toEqual([]);
-    expect(container.querySelector('[data-testid="lore-staged-notice"]')!.textContent).toBe(
-      "有 3 項變更還沒儲存。 哪幾筆變灰（讀不到）、筆數與字數是儲存前的狀態，儲存後才會重新計算並重新排列。",
-    );
-    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("3 項變更未儲存");
+    expect(revertMarks(container, "L-1")).toEqual([["lore-revert-state", "還原為「生效中」"]]);
+    expect(revertMarks(container, "L-2")).toEqual([
+      ["lore-revert-loreType", "還原為「其他」"],
+      ["lore-revert-scope", "還原為「Mira」"],
+    ]);
+    expect(revertMarks(container, "L-3")).toEqual([]);
+    expect(sectionHead(container)).not.toContain("儲存");
+    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("3 項變更還沒儲存");
     expect(
       Array.from(bar(container)!.querySelectorAll("button")).map((b) => b.textContent),
-    ).toEqual(["全部捨棄", "儲存變更（2 筆）"]);
+    ).toEqual(["全部捨棄", "儲存變更"]);
     expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]);
     await new Promise((r) => setTimeout(r, 20));
     expect(w.state).not.toHaveBeenCalled();
@@ -967,7 +978,7 @@ describe("LorePage — 可變動作面", () => {
     expect(list).toHaveBeenCalledTimes(1);
   });
 
-  it("choosing the stored value again takes the card off 未儲存 and the bar away", async () => {
+  it("choosing the stored value again takes the card's frame, the ↺ and the bar away", async () => {
     stubList(page([mkEntry({ id: "L-1", state: "active" }), mkEntry({ id: "L-2", state: "active" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
@@ -977,13 +988,12 @@ describe("LorePage — 可變動作面", () => {
     chooseState(container, "L-2", "active");
 
     expect(unsavedIds(container)).toEqual([]);
-    expect(changeLines(container, "L-2")).toEqual([]);
+    expect(revertMarks(container, "L-2")).toEqual([]);
     expect(stateOf(container, "L-2")).toBe("生效中");
-    expect(container.querySelector('[data-testid="lore-staged-notice"]')).toBeNull();
     expect(bar(container)).toBeNull();
   });
 
-  it("還原 puts only that card back, every staged field on it at once, sends nothing and leaves the other cards staged", async () => {
+  it("a click on a tag's ↺ puts only that field back and sends nothing; the card loses its frame once its last field is back", async () => {
     const w = spyWrites();
     const list = stubList(
       page([mkEntry({ id: "L-1", state: "active" }), mkEntry({ id: "L-2", state: "active" }), mkEntry({ id: "L-3" })]),
@@ -995,21 +1005,56 @@ describe("LorePage — 可變動作面", () => {
     chooseState(container, "L-2", "pinned");
     chooseType(container, "L-2", "owner_preference");
     chooseType(container, "L-3", "instruction_conflict");
-    expect(changeLines(container, "L-2")).toEqual(["類型：其他 → Owner 偏好", "狀態：生效中 → 置頂"]);
-    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-revert"]')!);
+    press(mark(container, "L-2", "state"), "mouse");
 
     expect(stateOf(container, "L-2")).toBe("生效中");
-    expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe("其他");
-    expect(changeLines(container, "L-2")).toEqual([]);
-    expect(rowById(container, "L-2").querySelector('[data-testid="lore-revert"]')).toBeNull();
-    expect(unsavedIds(container)).toEqual(["L-1", "L-3"]);
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe("Owner 偏好");
+    expect(revertMarks(container, "L-2")).toEqual([["lore-revert-loreType", "還原為「其他」"]]);
+    expect(unsavedIds(container)).toEqual(["L-1", "L-2", "L-3"]);
     expect(stateOf(container, "L-1")).toBe("已失效");
-    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("2 項變更未儲存");
-    expect(container.querySelector('[data-testid="lore-staged-save"]')!.textContent).toBe("儲存變更（2 筆）");
+    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("3 項變更還沒儲存");
+
+    press(mark(container, "L-2", "loreType"), "mouse");
+
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe("其他");
+    expect(unsavedIds(container)).toEqual(["L-1", "L-3"]);
+    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("2 項變更還沒儲存");
     await new Promise((r) => setTimeout(r, 20));
     expect(w.state).not.toHaveBeenCalled();
     expect(w.edit).not.toHaveBeenCalled();
     expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("hovering a ↺ shows the stored value", async () => {
+    stubList(page([mkEntry({ id: "L-1", state: "active" })]));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+
+    chooseState(container, "L-1", "pinned");
+    fireEvent.mouseEnter(mark(container, "L-1", "state"));
+
+    expect(screen.getByRole("tooltip").textContent).toBe("原為：生效中");
+    expect(screen.queryByTestId("lore-revert-confirm")).toBeNull();
+  });
+
+  it("a tap on a ↺ does not revert: it shows the stored value with 還原, and only 還原 puts the field back", async () => {
+    stubList(page([mkEntry({ id: "L-1", state: "active" }), mkEntry({ id: "L-2", state: "active" })]));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+
+    chooseState(container, "L-1", "pinned");
+    chooseType(container, "L-1", "owner_decision");
+    press(mark(container, "L-1", "state"), "touch");
+
+    expect(stateOf(container, "L-1")).toBe("置頂");
+    expect(screen.getByRole("tooltip").textContent).toBe("原為：生效中還原");
+
+    fireEvent.click(screen.getByTestId("lore-revert-confirm"));
+
+    expect(stateOf(container, "L-1")).toBe("生效中");
+    expect(rowById(container, "L-1").querySelector('[data-testid="lore-type"]')!.textContent).toBe("Owner 決策");
+    expect(unsavedIds(container)).toEqual(["L-1"]);
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
   it("儲存變更 sends every staged change once, then re-reads the whole section in the server's order and greys what the new answer marks dropped", async () => {
@@ -1121,7 +1166,7 @@ describe("LorePage — 可變動作面", () => {
     expect(unsavedIds(container)).toEqual(["L-2"]);
     expect(stateOf(container, "L-2")).toBe("置頂");
     expect(stateOf(container, "L-1")).toBe("已失效");
-    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("1 項變更未儲存");
+    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("1 項變更還沒儲存");
   });
 
   it("while 儲存變更 runs, the chips and both buttons are locked", async () => {
@@ -1139,10 +1184,10 @@ describe("LorePage — 可變動作面", () => {
       expect(container.querySelector('[data-testid="lore-staged-save"]')!.textContent).toBe("儲存中…"),
     );
     expect(
-      ["lore-state", "lore-type", "lore-revert", "lore-staged-save", "lore-staged-discard"].map(
+      ["lore-state", "lore-type", "lore-staged-save", "lore-staged-discard"].map(
         (id) => (container.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement).disabled,
       ),
-    ).toEqual([true, true, true, true, true]);
+    ).toEqual([true, true, true, true]);
     expect(row.querySelector<HTMLButtonElement>('[data-testid="lore-edit"]')!.disabled).toBe(false);
     sent.resolve();
     await waitFor(() => expect(bar(container)).toBeNull());
@@ -1362,7 +1407,7 @@ describe("LorePage — 適用範圍選單", () => {
 
     expect(container.querySelector('[data-testid="lore-scope-options"]')).toBeNull();
     expect(set).not.toHaveBeenCalled();
-    expect(rowById(container, "L-2").querySelector('[data-testid="lore-unsaved"]')).not.toBeNull();
+    expect(rowById(container, "L-2").dataset.staged).toBe("true");
     expect(readOptions(openScopeMenu(container, "L-2")).find((o) => o[3] === "true")?.[0]).toBe("lore-scope-everyone");
     fireEvent.mouseDown(document.body);
 
@@ -1376,7 +1421,7 @@ describe("LorePage — 適用範圍選單", () => {
       [{ states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 }],
       [{ states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 }],
     ]);
-    expect(rowById(container, "L-2").querySelector('[data-testid="lore-unsaved"]')).toBeNull();
+    expect(rowById(container, "L-2").dataset.staged).toBe("false");
     expect(readOptions(openScopeMenu(container, "L-2")).find((o) => o[3] === "true")?.[0]).toBe("lore-scope-everyone");
   });
 
@@ -1418,7 +1463,7 @@ describe("LorePage — 適用範圍選單", () => {
       ),
     );
     expect(container.querySelector('[data-testid="lore-toast"]')).toBeNull();
-    expect(rowById(container, "L-2").querySelector('[data-testid="lore-unsaved"]')).not.toBeNull();
+    expect(rowById(container, "L-2").dataset.staged).toBe("true");
     expect(
       readOptions(openScopeMenu(container, "L-2")).find((o) => o[3] === "true")?.[0],
     ).toBe("lore-scope-everyone");
@@ -1763,6 +1808,9 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(window.location.hash).toBe("#lore/agent/mira");
     expect(container.querySelector('[data-testid="lore-target"]')).toBeNull();
     expect(container.querySelector('[data-testid="lore-back"]')!.getAttribute("href")).toBe("#lore");
+    expect(
+      Array.from(container.querySelector('[data-testid="lore-page"]')!.children).map((el) => el.getAttribute("data-testid")),
+    ).toEqual(["lore-back", "lore-filter", "lore-section-head", "lore-section"]);
     const head = container.querySelector<HTMLElement>('[data-testid="lore-section-head"]')!;
     expect(head.querySelector('[data-testid="lore-section-name"]')!.textContent).toBe("Mira");
     expect(head.querySelector('[data-testid="lore-section-count"]')!.textContent).toBe("11 筆");
@@ -2250,8 +2298,8 @@ describe("LorePage — 就地編輯", () => {
     await waitFor(() => expect(rowById(container, "L-3").dataset.dimmed).toBe("false"));
     expect(state).not.toHaveBeenCalled();
     expect(rowById(container, "L-1").querySelector('[data-testid="lore-state"]')!.textContent).toBe("已失效");
-    expect(rowById(container, "L-1").querySelector('[data-testid="lore-unsaved"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("1 項變更未儲存");
+    expect(rowById(container, "L-1").dataset.staged).toBe("true");
+    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("1 項變更還沒儲存");
   });
 
   it("edits title and body only: no type control, no character counters, no effect sentence", async () => {
@@ -2416,7 +2464,7 @@ describe("LorePage — 類型選單", () => {
       ),
     );
     expect(row.querySelector('[data-testid="lore-type"]')!.textContent).toBe("指示衝突");
-    expect(row.querySelector('[data-testid="lore-unsaved"]')).not.toBeNull();
+    expect(row.dataset.staged).toBe("true");
   });
 });
 

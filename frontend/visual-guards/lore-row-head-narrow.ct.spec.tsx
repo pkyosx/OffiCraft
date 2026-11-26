@@ -3,10 +3,12 @@
 // action (編輯, the app-wide .doc-btn--edit) stays inside the head without
 // overlapping them, no card has a clamped body, the 撰寫人 · 生效期
 // line stays inside the card, the message box's 📎, input and 送出 sit on one row
-// inside the card with room to type, the section head card's name, badges, bar and
-// legend stay inside it, the 適用範圍 menu opens inside the viewport, the inline
-// editor fits, the unsaved-changes bar, notice, 未儲存 + 還原 and change lines stay inside, and a
-// staged state change leaves the scroll position and the card where they were.
+// inside the card with room to type, the section head's title, bar and legend stay
+// inside it, the 適用範圍 menu opens inside the viewport, the inline editor fits,
+// the unsaved-changes bar holds one line on the screen's bottom edge without
+// covering the last card, a staged card keeps its height with its ↺ marks inside
+// it, and a staged state change leaves the scroll position and the card where
+// they were.
 //
 // Soft assertions on purpose: a page-level overflow failing first would
 // otherwise hide which per-badge check a mutant also broke.
@@ -142,7 +144,7 @@ async function measure(page: any): Promise<{
         head: r(head)!,
         children: [
           ...head.querySelectorAll(
-            ":scope > *, .lore-dir-card__head > *, .lore-dir-card__badges > *, .lore-dir-card__usage > *, .lore-dir-card__legend > *",
+            ":scope > *, .lore-dir-card__head > *, .lore-dir-card__badges > *, .lore-dir-card__usage > *, .lore-dir-card__legend > *, .lore-section__title > *",
           ),
         ].map((c) => ({
           cls: (c.className || c.tagName).toString(),
@@ -279,7 +281,7 @@ for (const width of [390, 1440]) {
     }
   });
 
-  test(`a manual name longer than a line wraps inside the section head card @${width}px`, async ({
+  test(`a manual name longer than a line wraps inside the section head @${width}px`, async ({
     mount,
     page,
   }) => {
@@ -288,7 +290,7 @@ for (const width of [390, 1440]) {
     assertSectionHeadsContained(width, g.sections, 1);
     assertNoHScroll(width, g);
     const head = g.sections.find((s) => s.key === "page");
-    expect(head, `[${width}px] section head card`).toBeTruthy();
+    expect(head, `[${width}px] section head`).toBeTruthy();
     // name, badges, bar or usage, legend: nothing of the head is missing.
     expect.soft(head!.children.length, `[${width}px] head children`).toBeGreaterThanOrEqual(5);
     const l4 = g.rows.find((r) => r.id === "L-4");
@@ -296,25 +298,41 @@ for (const width of [390, 1440]) {
     assertHeadContained(width, l4!);
   });
 
-  test(`a member's section head is a card, and its legend swatches match the bar @${width}px`, async ({ mount, page }) => {
+  test(`a member's section head sits on the page under the filters, not on a card, and its legend swatches match the bar @${width}px`, async ({ mount, page }) => {
     await mountAt(mount, page, width, false, MIRA);
     await expect(page.locator('[data-testid="lore-bar-everyone"]')).toBeVisible();
     const look = await page.evaluate(() => {
       const head = document.querySelector('[data-testid="lore-section-head"]')!;
-      const card = document.querySelector('[data-testid="lore-row"]')!;
       const bg = (el: Element | null) => (el ? getComputedStyle(el).backgroundColor : null);
+      const top = (sel: string) => document.querySelector(sel)?.getBoundingClientRect().top ?? NaN;
+      const bottom = (sel: string) => document.querySelector(sel)?.getBoundingClientRect().bottom ?? NaN;
       return {
         head: bg(head),
-        card: bg(card),
+        headBorder: getComputedStyle(head).borderTopWidth,
         everyoneBar: bg(document.querySelector('[data-testid="lore-bar-everyone"]')),
         ownBar: bg(document.querySelector('[data-testid="lore-bar-own"]')),
         swatches: [...head.querySelectorAll(".lore-dir-card__swatch")].map((el) => bg(el)),
+        order: [
+          [bottom('[data-testid="lore-back"]'), top('[data-testid="lore-filter"]')],
+          [bottom('[data-testid="lore-filter"]'), top(".lore-section__title")],
+          [bottom(".lore-section__title"), top('[data-testid="lore-section-bar"]')],
+          [bottom('[data-testid="lore-section-summary"]'), top('[data-testid="lore-row"]')],
+        ],
+        titleLines: (() => {
+          const t = document.querySelector(".lore-section__title")!;
+          return new Set([...t.children].map((c) => Math.round(c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2))).size;
+        })(),
       };
     });
-    // Same surface as the entry cards below it, not the page showing through.
-    expect.soft(look.head, `[${width}px] head background`).toBe(look.card);
+    expect.soft(look.head, `[${width}px] head background`).toBe("rgba(0, 0, 0, 0)");
+    expect.soft(look.headBorder, `[${width}px] head border`).toBe("0px");
+    look.order.forEach(([above, below], i) =>
+      expect.soft(above, `[${width}px] head order step ${i}`).toBeLessThanOrEqual(below + 0.5),
+    );
+    expect.soft(look.titleLines, `[${width}px] name · count and 讀不到 on one line`).toBe(1);
     expect.soft(look.swatches, `[${width}px] legend swatches`).toEqual([look.everyoneBar, look.ownBar]);
     expect.soft(look.everyoneBar, `[${width}px] two bar colours`).not.toBe(look.ownBar);
+    assertNoHScroll(width, await pageAndLoreOver(page));
   });
 
   test(`the 適用範圍 menu opens inside the viewport @${width}px`, async ({ mount, page }) => {
@@ -520,81 +538,80 @@ for (const width of [390, 1440]) {
     assertNoHScroll(width, await pageAndLoreOver(page));
   });
 
-  test(`the unsaved-changes bar, the 還沒儲存 notice, 未儲存 + 還原 and the change lines stay inside @${width}px`, async ({ mount, page }) => {
+  test(`the unsaved-changes bar is one line on the screen's bottom edge, as wide as the app column, and stays there while .lore scrolls @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, MIRA, 600);
     const rows = cmp.locator('[data-testid="lore-row"]');
-    for (const i of [0, 1]) {
-      const row = rows.nth(i);
-      await row.locator('[data-testid="lore-type"]').click();
-      await row.locator('[data-testid="lore-type-options"] .lore-row__menu-item:not(.lore-row__menu-item--active)').first().click();
-      await expect(row.locator('[data-testid="lore-unsaved"]')).toBeVisible();
-    }
+    for (const i of [0, 1]) await stageOtherType(rows.nth(i));
     const second = rows.nth(1);
     await second.locator('[data-testid="lore-state"]').click();
     await second.locator('[data-testid="lore-state-options"] .lore-row__menu-item:not(.lore-row__menu-item--active)').first().click();
-    await expect(second.locator('[data-testid="lore-change"]')).toHaveCount(2);
-    await expect(cmp.locator('[data-testid="lore-staged-count"]')).toHaveText("3 項變更未儲存");
-    await expect(cmp.locator('[data-testid="lore-staged-notice"]')).toBeVisible();
-    const g = await page.evaluate(() => {
-      const r = (el: Element) => {
-        const b = el.getBoundingClientRect();
-        return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
-      };
-      const bar = document.querySelector('[data-testid="lore-staged-bar"]')!;
-      const heads = [...document.querySelectorAll('[data-testid="lore-row"]')]
-        .filter((row) => row.querySelector('[data-testid="lore-unsaved"]'))
-        .map((row) => {
-          const head = row.querySelector(".lore-row__head")!;
-          return {
-            row: r(row),
-            head: r(head),
-            badges: [...head.querySelectorAll(".lore-row__badges > *")].map((c) => r(c)),
-            unsaved: r(row.querySelector('[data-testid="lore-unsaved"]')!),
-            revert: r(row.querySelector('[data-testid="lore-revert"]')!),
-            changes: [...row.querySelectorAll('[data-testid="lore-change"]')].map((c) => ({
-              box: r(c),
-              wide: (c as HTMLElement).scrollWidth > (c as HTMLElement).clientWidth + 1,
-            })),
-          };
-        });
-      return {
-        bar: r(bar),
-        lore: r(document.querySelector(".lore")!),
-        notice: r(document.querySelector('[data-testid="lore-staged-notice"]')!),
-        sectionHead: r(document.querySelector('[data-testid="lore-section-head"]')!),
-        children: [...bar.querySelectorAll("button, .lore-batch__count")].map((c) => ({
-          text: (c.textContent ?? "").trim(),
-          box: r(c),
-        })),
-        heads,
-        vw: document.documentElement.clientWidth,
-        vh: window.innerHeight,
-      };
+    await expect(cmp.locator('[data-testid="lore-staged-count"]')).toHaveText("3 項變更還沒儲存");
+    const read = () =>
+      page.evaluate(() => {
+        const r = (el: Element) => {
+          const b = el.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        };
+        const bar = document.querySelector('[data-testid="lore-staged-bar"]')!;
+        return {
+          bar: r(bar),
+          main: r(document.querySelector(".app__main")!),
+          head: document.querySelector('[data-testid="lore-section-head"]')!.textContent ?? "",
+          parts: [...bar.querySelectorAll("button, .lore-savebar__count")].map((c) => ({
+            text: (c.textContent ?? "").trim(),
+            box: r(c),
+          })),
+          vw: document.documentElement.clientWidth,
+          vh: window.innerHeight,
+        };
+      });
+    const check = (g: Awaited<ReturnType<typeof read>>, when: string) => {
+      const tag = `[${width}px ${when}]`;
+      expect.soft(Math.abs(g.bar.bottom - g.vh), `${tag} bar not on the bottom edge`).toBeLessThanOrEqual(1);
+      expect.soft(Math.abs(g.bar.left - g.main.left), `${tag} bar left vs app column`).toBeLessThanOrEqual(1);
+      expect.soft(Math.abs(g.bar.right - g.main.right), `${tag} bar right vs app column`).toBeLessThanOrEqual(1);
+      expect.soft(g.bar.left, `${tag} bar left`).toBeGreaterThanOrEqual(0);
+      expect.soft(g.bar.right, `${tag} bar right`).toBeLessThanOrEqual(g.vw + 1);
+      expect.soft(g.bar.bottom - g.bar.top, `${tag} bar taller than one line`).toBeLessThanOrEqual(50);
+      expect.soft(g.parts.map((p) => p.text), `${tag} bar parts`).toEqual(["3 項變更還沒儲存", "全部捨棄", "儲存變更"]);
+      const mids = g.parts.map((p) => (p.box.top + p.box.bottom) / 2);
+      expect.soft(Math.max(...mids) - Math.min(...mids), `${tag} bar parts not on one line`).toBeLessThanOrEqual(3);
+      for (const p of g.parts) expect.soft(inside(p.box, g.bar), `${tag} "${p.text}" outside the bar`).toBe(true);
+      expect.soft(g.head, `${tag} the head says something about saving`).not.toContain("儲存");
+    };
+    check(await read(), "top");
+    await page.evaluate(() => {
+      const lore = document.querySelector(".lore") as HTMLElement;
+      lore.scrollTop = lore.scrollHeight / 2;
     });
-    console.log(`[lore ${width}] staged bar`, JSON.stringify({ bar: g.bar, lore: g.lore, vw: g.vw, vh: g.vh }));
-    expect.soft(g.bar.bottom, `[${width}px] bar bottom`).toBeLessThanOrEqual(g.vh + 1);
-    expect.soft(g.bar.top, `[${width}px] bar top`).toBeGreaterThanOrEqual(0);
-    expect.soft(g.bar.left, `[${width}px] bar left`).toBeGreaterThanOrEqual(g.lore.left - 1);
-    expect.soft(g.bar.right, `[${width}px] bar right`).toBeLessThanOrEqual(Math.min(g.lore.right, g.vw) + 1);
-    expect.soft(g.children.map((c) => c.text), `[${width}px] bar parts`).toEqual(["3 項變更未儲存", "全部捨棄", "儲存變更（2 筆）"]);
-    expect.soft(inside(g.notice, g.sectionHead), `[${width}px] 還沒儲存 notice outside the section head`).toBe(true);
-    for (const c of g.children) expect.soft(inside(c.box, g.bar), `[${width}px] "${c.text}" outside the bar`).toBe(true);
-    expect.soft(g.heads.length, `[${width}px] cards tagged 未儲存`).toBe(2);
-    for (const h of g.heads) {
-      expect.soft(inside(h.unsaved, h.head), `[${width}px] 未儲存 outside the head`).toBe(true);
-      expect.soft(inside(h.revert, h.head), `[${width}px] 還原 outside the head`).toBe(true);
-      expect.soft(h.revert.left, `[${width}px] 還原 not beside 未儲存`).toBeGreaterThanOrEqual(h.unsaved.right);
-      expect.soft(Math.abs(h.revert.top - h.unsaved.top), `[${width}px] 還原 off 未儲存's line`).toBeLessThan(12);
-      for (const c of h.changes) {
-        expect.soft(inside(c.box, h.row), `[${width}px] change line outside the card`).toBe(true);
-        expect.soft(c.wide, `[${width}px] change line overflows`).toBe(false);
-      }
-      for (const b of h.badges) expect.soft(b.right, `[${width}px] badge past the head`).toBeLessThanOrEqual(h.head.right + 1);
-    }
+    check(await read(), "scrolled");
     assertNoHScroll(width, await pageAndLoreOver(page));
   });
 
-  test(`a staged state change leaves the scroll position and the card where they were, give or take the 還沒儲存 notice above @${width}px`, async ({ mount, page }) => {
+  test(`scrolled to the end, the last card ends above the unsaved-changes bar @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false, MIRA, 600);
+    await stageOtherType(cmp.locator('[data-testid="lore-row"]').first());
+    await expect(cmp.locator('[data-testid="lore-staged-bar"]')).toBeVisible();
+    await page.evaluate(() => {
+      const lore = document.querySelector(".lore") as HTMLElement;
+      lore.scrollTop = lore.scrollHeight;
+    });
+    await expect(cmp.locator('[data-testid="lore-more"]')).toHaveCount(0);
+    await page.evaluate(() => {
+      const lore = document.querySelector(".lore") as HTMLElement;
+      lore.scrollTop = lore.scrollHeight;
+    });
+    const g = await page.evaluate(() => {
+      const rows = document.querySelectorAll('[data-testid="lore-row"]');
+      return {
+        last: rows[rows.length - 1].getBoundingClientRect().bottom,
+        barTop: document.querySelector('[data-testid="lore-staged-bar"]')!.getBoundingClientRect().top,
+      };
+    });
+    expect(g.last, `[${width}px] last card under the bar`).toBeLessThanOrEqual(g.barTop);
+  });
+
+  test(`a staged state change leaves the scroll position and the card exactly where they were @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, MIRA, 500);
     const ids = await cmp.locator('[data-testid="lore-row"]').evaluateAll((els: Element[]) =>
       els.map((e) => e.getAttribute("data-entry-id")),
@@ -630,10 +647,120 @@ for (const width of [390, 1440]) {
     };
     console.log(`[lore ${width}] state change`, JSON.stringify({ target, next, before, after }));
     expect.soft(Math.abs(after.scrollTop - before.scrollTop), `[${width}px] scrollTop moved`).toBeLessThanOrEqual(1);
-    // The section head grows by the 還沒儲存 notice; nothing else may move the card.
-    const headGrew = after.head!.bottom - before.head!.bottom;
-    expect.soft(headGrew, `[${width}px] the 還沒儲存 notice did not appear`).toBeGreaterThan(0);
-    expect.soft(Math.abs(after.box!.top - before.box!.top - headGrew), `[${width}px] ${target} moved on screen beyond the notice`).toBeLessThanOrEqual(1);
+    expect.soft(Math.abs(after.head!.bottom - before.head!.bottom), `[${width}px] the section head changed size`).toBeLessThanOrEqual(0.5);
+    expect.soft(Math.abs(after.box!.top - before.box!.top), `[${width}px] ${target} moved on screen`).toBeLessThanOrEqual(0.5);
     expect.soft(after.sameNode, `[${width}px] ${target}'s card was torn down and rebuilt`).toBe(true);
   });
+}
+
+async function stageOtherType(row: any) {
+  await row.locator('[data-testid="lore-type"]').click();
+  await row
+    .locator('[data-testid="lore-type-options"] .lore-row__menu-item:not(.lore-row__menu-item--active)')
+    .first()
+    .click();
+  await expect(row).toHaveAttribute("data-staged", "true");
+}
+
+async function stageOtherState(row: any) {
+  await row.locator('[data-testid="lore-state"]').click();
+  await row
+    .locator('[data-testid="lore-state-options"] .lore-row__menu-item:not(.lore-row__menu-item--active)')
+    .first()
+    .click();
+}
+
+/** Every card's box, keyed by id. */
+async function cardBoxes(page: any): Promise<Record<string, Box>> {
+  return page.evaluate(() =>
+    Object.fromEntries(
+      [...document.querySelectorAll('[data-testid="lore-row"]')].map((row) => {
+        const b = row.getBoundingClientRect();
+        return [row.getAttribute("data-entry-id"), { left: b.left, right: b.right, top: b.top, bottom: b.bottom }];
+      }),
+    ),
+  );
+}
+
+for (const width of [360, 390, 1440]) {
+  test(`a staged card is as tall as before, the cards below stay put, and every ↺ sits inside its card @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false, MIRA, 900);
+    const row = cmp.locator('[data-testid="lore-row"]:has(button[data-testid="lore-scope-name"])').first();
+    const id = await row.getAttribute("data-entry-id");
+    const before = await cardBoxes(page);
+    await stageOtherType(row);
+    await stageOtherState(row);
+    await row.locator('button[data-testid="lore-scope-name"]').click();
+    await row
+      .locator('[data-testid="lore-scope-options"] .lore-row__scope-option:not(.lore-row__menu-item--active)')
+      .first()
+      .click();
+    await expect(row.locator('[data-testid^="lore-revert-"]')).toHaveCount(3);
+    const after = await cardBoxes(page);
+    for (const [k, b] of Object.entries(before)) {
+      if (!after[k]) continue;
+      expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top)), `[${width}px] ${k} height changed (staged: ${id})`).toBeLessThanOrEqual(0.5);
+      expect.soft(Math.abs(after[k].top - b.top), `[${width}px] ${k} moved (staged: ${id})`).toBeLessThanOrEqual(0.5);
+    }
+    await assertMarksInside(page, width);
+    assertNoHScroll(width, await pageAndLoreOver(page));
+  });
+
+  test(`a card under a long manual name keeps its height when its type and state are staged @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, true, MANUAL, 900);
+    const row = cmp.locator('[data-entry-id="L-4"]');
+    const before = await cardBoxes(page);
+    await stageOtherType(row);
+    await stageOtherState(row);
+    await expect(row.locator('[data-testid^="lore-revert-"]')).toHaveCount(2);
+    const after = await cardBoxes(page);
+    for (const [k, b] of Object.entries(before)) {
+      if (!after[k]) continue;
+      expect.soft(Math.abs(after[k].bottom - after[k].top - (b.bottom - b.top)), `[${width}px] ${k} height changed`).toBeLessThanOrEqual(0.5);
+    }
+    await assertMarksInside(page, width);
+    assertNoHScroll(width, await pageAndLoreOver(page));
+  });
+
+  test(`a staged card shows keyboard focus as the focus ring, not the dashed frame @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false, MIRA, 900);
+    const row = cmp.locator('[data-testid="lore-row"]').first();
+    await stageOtherType(row);
+    const staged = await row.evaluate((el: HTMLElement) => getComputedStyle(el).outlineStyle);
+    expect.soft(staged, `[${width}px] staged frame`).toBe("dashed");
+    await page.keyboard.press("Shift");
+    const focused = await row.evaluate((el: HTMLElement) => {
+      el.focus();
+      const probe = document.createElement("span");
+      probe.style.color = "var(--color-accent)";
+      el.appendChild(probe);
+      const accent = getComputedStyle(probe).color;
+      probe.remove();
+      const cs = getComputedStyle(el);
+      return { visible: el.matches(":focus-visible"), style: cs.outlineStyle, color: cs.outlineColor, accent };
+    });
+    expect(focused.visible, `[${width}px] focus-visible`).toBe(true);
+    expect.soft(focused.style, `[${width}px] focus ring style`).toBe("solid");
+    expect.soft(focused.color, `[${width}px] focus ring colour`).toBe(focused.accent);
+  });
+}
+
+async function assertMarksInside(page: any, width: number) {
+  const marks = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-testid^="lore-revert-"]')].map((m) => {
+      const b = m.getBoundingClientRect();
+      const c = m.closest('[data-testid="lore-row"]')!.getBoundingClientRect();
+      return {
+        id: m.getAttribute("data-testid"),
+        mark: { left: b.left, right: b.right, top: b.top, bottom: b.bottom },
+        card: { left: c.left, right: c.right, top: c.top, bottom: c.bottom },
+        size: [Math.round(b.width), Math.round(b.height)],
+      };
+    }),
+  );
+  expect(marks.length, `[${width}px] ↺ marks`).toBeGreaterThan(0);
+  for (const m of marks) {
+    expect.soft(inside(m.mark, m.card), `[${width}px] ${m.id} outside its card`).toBe(true);
+    expect.soft(m.size, `[${width}px] ${m.id} size`).toEqual([16, 16]);
+  }
 }

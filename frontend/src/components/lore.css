@@ -35,7 +35,7 @@
   height: 100%;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: 12px;
+  padding-bottom: calc(12px + var(--lore-savebar-reserve, 0px));
   /* A card re-read in place must not drag the view along with it; the
    * browser's own anchoring picks a node of its choosing. */
   overflow-anchor: none;
@@ -215,10 +215,6 @@ button.lore-dir-card__name--link:hover {
   font-variant-numeric: tabular-nums;
 }
 
-/* The section page's head is the same card, without the link affordances. */
-.lore-dir-card--page {
-  cursor: default;
-}
 .lore-dir-card__seg {
   display: flex;
   height: 8px;
@@ -291,14 +287,45 @@ button.lore-dir-card__name--link:hover {
   gap: 10px;
   min-width: 0;
 }
-.lore-section__staged-note {
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--color-warn-border);
-  background: var(--color-warn-bg);
-  color: var(--color-warn-fg);
-  font-size: 12.5px;
+
+/* ── a section page's head: a section title like 「成員 · 4」, then the bar ── */
+.lore-section__head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.lore-section__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.lore-section__glyph {
+  display: inline-flex;
+}
+.lore-section__name {
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+button.lore-section__name--link {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.lore-section__name--link:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+.lore-section__dropped {
+  color: var(--color-danger);
+  white-space: nowrap;
 }
 
 /* ── the 適用範圍 notice, pinned to the bottom of the scrollport ── */
@@ -328,43 +355,60 @@ button.lore-dir-card__name--link:hover {
   background: var(--color-card);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
 }
-/* 未儲存的變更: 捨棄 / 儲存變更, docked under the toast. */
-.lore-batch {
-  align-self: stretch;
-  max-width: 100%;
+/* 未儲存的變更 bar: the column's width, on the bottom edge of the screen while
+ * anything is staged, in the tab band's colours. */
+.lore-savebar {
+  position: fixed;
+  z-index: 40;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-width: 1040px;
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px 12px;
+  min-height: 44px;
+  padding: 7px 22px calc(7px + env(safe-area-inset-bottom));
+  background: var(--color-nav-bg);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  font-size: 13px;
+  color: var(--color-text);
+}
+:root[data-layout="wide"] .lore-savebar {
+  max-width: none;
+}
+.lore-savebar__text {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
-  background: var(--color-card);
-  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+  align-items: baseline;
+  gap: 2px 10px;
 }
-.lore-batch__count {
-  font-size: 13px;
-  font-weight: 700;
+.lore-savebar__count {
   white-space: nowrap;
 }
-.lore-batch__actions {
-  margin-left: auto;
+.lore-savebar__note {
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.lore-savebar__note--failed {
+  color: var(--color-danger);
+}
+.lore-savebar__actions {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
-.lore-batch__working {
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-}
-.lore-batch__result {
-  flex: 1 1 100%;
-  min-width: 0;
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-.lore-batch__result--failed {
-  color: var(--color-danger);
+@media (max-width: 720px) {
+  .lore-savebar {
+    padding-inline: 16px;
+  }
 }
 
 /* ── one 傳承 row ── */
@@ -621,44 +665,58 @@ button.lore-dir-card__name--link:hover {
 .lore-badge--lore-type::before {
   content: none;
 }
-.lore-badge--unsaved {
-  color: var(--color-warn-fg);
-  border-color: color-mix(in srgb, var(--color-warn-border) 70%, transparent);
-}
-.lore-row__unsaved {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-button.lore-row__revert {
-  margin: 0;
-  padding: 2px 4px;
-  border: none;
-  background: none;
-  color: var(--color-text-muted);
-  font: inherit;
-  font-size: 12px;
-  text-decoration: underline;
-  cursor: pointer;
-  white-space: nowrap;
-}
-button.lore-row__revert:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.lore-row__changes {
-  margin-top: 6px;
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-  overflow-wrap: anywhere;
-}
-.lore-row--unsaved {
-  border-color: color-mix(in srgb, var(--color-warn-border) 70%, transparent);
-}
 .lore-row--highlight {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+/* Staged: a dashed outline drawn over the card's own 1px border, so the card
+ * keeps its height and the cards below it stay put. .lore-row:focus-visible
+ * outranks it, so keyboard focus still shows its ring. */
+.lore-row--staged {
+  outline: 2px dashed var(--color-warn-fg);
+  outline-offset: -2px;
+}
+/* The changed tag: same pill, dashed warn border (1px, as before). */
+.lore-badge.lore-row__status-chip--staged {
+  border-style: dashed;
+  border-color: var(--color-warn-fg);
+}
+.lore-row__scope-anchor {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+/* ↺ on the changed tag's top-right corner: out of the flow, so the tag row and
+ * the card keep their size; ::after widens the hit area to 24px. */
+button.lore-row__revert {
+  position: absolute;
+  top: -7px;
+  right: -6px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--color-warn-fg);
+  background: var(--color-card);
+  color: var(--color-warn-fg);
+  cursor: pointer;
+}
+button.lore-row__revert::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+}
+button.lore-row__revert:hover {
+  background: color-mix(in srgb, var(--color-warn-fg) 22%, var(--color-card));
+}
+button.lore-row__revert:focus-visible {
+  outline: 2px solid var(--color-warn-fg);
+  outline-offset: 1px;
 }
 
 /* ── badge → state menu (copy of .task-card__status / __status-chip) ── */

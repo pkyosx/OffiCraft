@@ -216,6 +216,30 @@ describe("InstantHint", () => {
     expect(screen.getByRole("tooltip").style.top).toBe("694px");
   });
 
+  it("under a pinned hint with a pinned action, the action shows beside the text and can be clicked; hovering alone shows only the text", () => {
+    const act = vi.fn();
+    render(
+      <InstantHint
+        hint="原為：生效中"
+        data-testid="trigger"
+        pinnedAction={
+          <button type="button" onClick={act}>
+            還原
+          </button>
+        }
+      >
+        !
+      </InstantHint>,
+    );
+    const trigger = screen.getByTestId("trigger");
+    fireEvent.mouseEnter(trigger);
+    expect(screen.getByRole("tooltip").textContent).toBe("原為：生效中");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("tooltip").textContent).toBe("原為：生效中還原");
+    fireEvent.click(screen.getByRole("button", { name: "還原" }));
+    expect(act).toHaveBeenCalledTimes(1);
+  });
+
   it("under a trigger near the right edge, the hint is pulled back inside the viewport with an 8px margin", () => {
     stubRects({ top: 100, bottom: 116, left: 1000 }, { width: 200, height: 40 });
     fireEvent.mouseEnter(renderHint("Claude 未登入"));

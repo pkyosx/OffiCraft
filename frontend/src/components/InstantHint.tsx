@@ -11,6 +11,7 @@ import {
   useState,
   type CSSProperties,
   type HTMLAttributes,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import "./instant-hint.css";
@@ -51,7 +52,8 @@ function contentRect(el: HTMLElement): { top: number; bottom: number; left: numb
  * click there activates like the rest of the button, since a mouse can hover).
  * `triggerRef` follows the mounted trigger, so focus can be handed back to it.
  * `focusable={false}` keeps a span trigger out of the tab order. An empty
- * `hint` shows nothing. */
+ * `hint` shows nothing. `pinnedAction` is shown beside the text only while the
+ * hint is pinned (a phone's way to reach what a mouse click on the trigger does). */
 export function InstantHint({
   hint,
   children,
@@ -59,10 +61,12 @@ export function InstantHint({
   onActivate,
   triggerRef: outerRef,
   focusable = true,
+  pinnedAction,
   ...rest
 }: {
   hint: string;
   onActivate?: () => void;
+  pinnedAction?: ReactNode;
   focusable?: boolean;
   triggerRef?: MutableRefObject<HTMLElement | null>;
 } & Omit<HTMLAttributes<HTMLElement>, "title">) {
@@ -215,9 +219,18 @@ export function InstantHint({
             onClick={(e) => e.stopPropagation()}
             style={pos ?? { top: 0, left: 0, visibility: "hidden" }}
           >
-            {hint.split("\n").map((line, i) => (
-              <div key={i}>{line}</div>
-            ))}
+            {state === "pinned" && pinnedAction ? (
+              <div className="instant-hint__with-action">
+                <div>
+                  {hint.split("\n").map((line, i) => (
+                    <div key={i}>{line}</div>
+                  ))}
+                </div>
+                {pinnedAction}
+              </div>
+            ) : (
+              hint.split("\n").map((line, i) => <div key={i}>{line}</div>)
+            )}
           </div>,
           document.body,
         )}
