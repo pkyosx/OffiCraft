@@ -53,8 +53,9 @@
 #         gh release edit <previous-good-GA-tag> --repo pkyosx/OffiCraft --latest=true
 #
 #     Anyone who already upgraded in the window stays upgraded, and a station
-#     that booted it has already relayed its 給站長的新功能公告 to its owner —
-#     neither can be taken back. There is no downgrade path in the updater.
+#     running it that checked for updates while it was Latest has already
+#     relayed its 給站長的新功能公告 to its owner — neither can be taken back.
+#     There is no downgrade path in the updater.
 #
 # (2) FLIP THE WRONG TAG BACK TO A PRERELEASE, so the release list says what it is:
 #
