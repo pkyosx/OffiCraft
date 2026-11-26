@@ -123,6 +123,8 @@ type apiServer struct {
 
 	updaterCheckIntervalSecs int
 
+	updaterAnnounceFeatures bool
+
 	orgName string
 
 	ownerName string
@@ -265,6 +267,12 @@ type apiServer struct {
 	updateCheck updateCheckState
 
 	releaseSiteBase string
+
+	releaseAnnounceRepo  string
+	releaseAPIBase       string
+	releaseAnnouncePages map[string]releaseAnnouncePage
+	// releaseAnnounceLogf is a test seam; nil logs through log.Printf.
+	releaseAnnounceLogf func(format string, args ...any)
 	// releasePlatform is a test seam (zero in production → serverBinPlatform):
 	// the platform whose release tarball an upgrade installs.
 	releasePlatform binPlatform

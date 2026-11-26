@@ -347,6 +347,7 @@ func (s *apiServer) adoptSettings(auth authSettings) {
 	s.updaterReceiveBeta = auth.updaterReceiveBeta
 	s.updaterAutoUpdate = auth.updaterAutoUpdate
 	s.updaterCheckIntervalSecs = auth.updaterCheckIntervalSecs
+	s.updaterAnnounceFeatures = auth.updaterAnnounceFeatures
 	s.orgName = auth.orgName
 	s.ownerName = auth.ownerName
 	s.pushContactEmail = auth.pushContactEmail
@@ -392,6 +393,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		runtimeLoginRecheckIntervalSecs:  runtimeLoginRecheckIntervalSecsDefault,
 		diskUsageIntervalSecs:            diskUsageIntervalSecsDefault,
 		updaterCheckIntervalSecs:         updaterCheckIntervalSecsDefault,
+		updaterAnnounceFeatures:          true,
 		wardenCredLifetimeSecs:           wardenCredLifetimeSecsDefault,
 		outsourceMaxParallel:             defaultOutsourceMaxParallel,
 		taskDueSoonLeadMinutes:           defaultTaskDueSoonLeadMinutes,
@@ -534,6 +536,10 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	// A conformance/e2e harness seam that re-points the GitHub release pages;
 	// normal deployments never set it.
 	api.releaseSiteBase = env("OC_RELEASE_SITE_BASE")
+	// Re-point ONLY the release announcements (a trial station reading a
+	// throwaway repo); the update check and upgrades keep the real releases.
+	api.releaseAnnounceRepo = env("OC_RELEASE_ANNOUNCE_REPO")
+	api.releaseAPIBase = env("OC_RELEASE_API_BASE")
 	api.namespace = cfg.Server.Namespace
 	api.binCacheDir = filepath.Join(filepath.Dir(dbPath), "bin")
 	api.vault = newSecretVault(vaultKeyPathFor(dbPath))
@@ -577,6 +583,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.startLifecycleCadence(time.Duration(lifecycleCadenceSecs * float64(time.Second)))
 	api.adoptInheritedUpgradeHandoff()
 	api.startAutoUpdateCadence(autoUpdateCadence)
+	api.startReleaseAnnounce()
 	api.startScheduledMessageCadence(scheduledMessageCadence)
 	api.startSecretCardSweepCadence(secretCardSweepCadence)
 	api.startRuntimeLoginSweep(runtimeLoginSweepPeriod)

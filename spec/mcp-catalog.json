@@ -465,6 +465,16 @@
               ],
               "description": "Task replies; [] clears."
             },
+            "updater_announce_features": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "updater_auto_update": {
               "anyOf": [
                 {

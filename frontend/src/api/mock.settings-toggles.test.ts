@@ -16,6 +16,16 @@ describe("mock settings — updater dual-channel toggles", () => {
     expect(s.updaterCheckIntervalSecs).toBe(300);
   });
 
+  it("defaults the release announcements ON, and a PATCH turns them off and on without touching the other toggles", async () => {
+    expect((await mockApi.getServerSettings()).updaterAnnounceFeatures).toBe(true);
+    let s = await mockApi.patchServerSettings({ updaterAnnounceFeatures: false });
+    expect(s.updaterAnnounceFeatures).toBe(false);
+    expect(s.updaterAutoUpdate).toBe(false);
+    expect((await mockApi.getServerSettings()).updaterAnnounceFeatures).toBe(false);
+    s = await mockApi.patchServerSettings({ updaterAnnounceFeatures: true });
+    expect(s.updaterAnnounceFeatures).toBe(true);
+  });
+
   it("under a check interval outside 60..3600 the PATCH is refused with the server's 422 and nothing changes", async () => {
     for (const secs of [59, 3601]) {
       await expect(mockApi.patchServerSettings({ updaterCheckIntervalSecs: secs })).rejects.toMatchObject({

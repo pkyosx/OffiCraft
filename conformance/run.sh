@@ -308,7 +308,8 @@ trap cleanup EXIT
 # OC_RELEASE_SITE_BASE: re-point the GitHub release-page update check at an
 # unroutable loopback address — the black-box run must never reach the real
 # github.com (hermeticity); every check fails FAST and the wire answers its
-# honest degraded faces deterministically.
+# honest degraded faces deterministically. OC_RELEASE_API_BASE does the same
+# for the release-announcement check, the one api.github.com caller.
 # OC_NO_ONBOARDING=1 (T-ba62) is a HOST-SAFETY switch, not a test convenience.
 # The automatic first-run onboarding installs THIS host's warden, and a launchd
 # label is a singleton in the user's GUI domain keyed on uid — it does not follow
@@ -319,7 +320,8 @@ trap cleanup EXIT
 # on machines that may have none at all, where that interlock passes.
 oc_env() { env -u OC_ID -u OC_TOKEN -u OC_BASE OC_CONFIG="$WORK/oc.toml" \
              OC_NO_ONBOARDING=1 \
-             OC_DATABASE_URL="$DB_URL" OC_RELEASE_SITE_BASE="http://127.0.0.1:1" "$@"; }
+             OC_DATABASE_URL="$DB_URL" OC_RELEASE_SITE_BASE="http://127.0.0.1:1" \
+             OC_RELEASE_API_BASE="http://127.0.0.1:1" "$@"; }
 
 # T-e731: the seed .md files, the prebuilt ocwarden/ocagent, and the frozen MCP
 # catalog are served EMBED-ONLY (server/ocserverd/assets.go + api_machines.go —

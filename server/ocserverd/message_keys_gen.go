@@ -1224,6 +1224,8 @@ var messageKeys = map[string]bool{
 	"settings.addRoleSubmit":                           true,
 	"settings.agentTokenTtl":                           true,
 	"settings.agentTokenTtlSub":                        true,
+	"settings.announceFeatures":                        true,
+	"settings.announceFeaturesSub":                     true,
 	"settings.assigneeClear":                           true,
 	"settings.assigneeCopies":                          true,
 	"settings.assigneeCopiesDecrease":                  true,

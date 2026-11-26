@@ -4212,8 +4212,11 @@ type SettingsDTO struct {
 	SuggestedRepliesTaskMessage *[]string `json:"suggested_replies_task_message,omitempty"`
 
 	// TaskDueSoonLeadMinutes How many minutes before a task's due date it starts counting as 即將到期 (due soon) for every task that does not set its own ``due_soon_lead_minutes``. The adjustable range is 1..43200 (1 minute to 30 days); the shipped default is 1440 (the last 24 hours).
-	TaskDueSoonLeadMinutes *int  `json:"task_due_soon_lead_minutes,omitempty"`
-	UpdaterAutoUpdate      *bool `json:"updater_auto_update,omitempty"`
+	TaskDueSoonLeadMinutes *int `json:"task_due_soon_lead_minutes,omitempty"`
+
+	// UpdaterAnnounceFeatures Whether the station's assistant tells the owner, in chat, what a newly reached official release adds. After the station upgrades to one or more official (non-prerelease) releases whose GitHub release notes carry a feature announcement, the server sends the assistant one system message with at most the newest five announcements, and the assistant relays them. A never-set value reads true. false = nothing is checked or sent, and announcements for releases reached while it is off are never sent later.
+	UpdaterAnnounceFeatures *bool `json:"updater_announce_features,omitempty"`
+	UpdaterAutoUpdate       *bool `json:"updater_auto_update,omitempty"`
 
 	// UpdaterCheckIntervalSecs How often, in seconds (60 through 3600), the server re-reads GitHub's release pages in the background to refresh `update_available`. The 檢查更新 button and an upgrade always read fresh and do not wait for it.
 	UpdaterCheckIntervalSecs *int  `json:"updater_check_interval_secs,omitempty"`
@@ -4241,7 +4244,9 @@ type SettingsDTO struct {
 // admits prereleases; `updater_auto_update` toggles unattended background
 // self-upgrade to the newest admissible release (both booleans; a never-set value
 // reads false, and on a release build the first password set with the claim code
-// turns `updater_auto_update` on; the manual upgrade endpoint is unaffected). `updater_check_interval_secs`
+// turns `updater_auto_update` on; the manual upgrade endpoint is unaffected).
+// `updater_announce_features` toggles the assistant's new-release feature
+// announcements (a never-set value reads true). `updater_check_interval_secs`
 // MUST be 60..3600. `task_due_soon_lead_minutes` MUST be 1..43200. The five document caps (T-ae38;
 // the manual's one became two in T-30f1) are independent knobs. Each one MUST be
 // between THAT segment's shipped default (the `default` on the matching
@@ -4367,8 +4372,11 @@ type SettingsUpdateDTO struct {
 	SuggestedRepliesTaskMessage *[]string `json:"suggested_replies_task_message,omitempty"`
 
 	// TaskDueSoonLeadMinutes Minutes before a due date a task without its own lead counts as due soon. Must be between 1 and 43200 (30 days). A change makes the cockpit refetch its task counts.
-	TaskDueSoonLeadMinutes *int  `json:"task_due_soon_lead_minutes,omitempty"`
-	UpdaterAutoUpdate      *bool `json:"updater_auto_update,omitempty"`
+	TaskDueSoonLeadMinutes *int `json:"task_due_soon_lead_minutes,omitempty"`
+
+	// UpdaterAnnounceFeatures Turn the assistant's new-release feature announcements on/off. Announcements for releases reached while it is off are never sent later.
+	UpdaterAnnounceFeatures *bool `json:"updater_announce_features,omitempty"`
+	UpdaterAutoUpdate       *bool `json:"updater_auto_update,omitempty"`
 
 	// UpdaterCheckIntervalSecs How often, in seconds, the server re-reads GitHub's release pages in the background. Must be 60 through 3600.
 	UpdaterCheckIntervalSecs *int  `json:"updater_check_interval_secs,omitempty"`
