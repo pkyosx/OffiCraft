@@ -125,7 +125,7 @@ Read these for giving work, answering reply cards, and checking progress and usa
 
 - [Assigning work and answering reply cards](daily.md) — Chat, attachments, @ a member, grouping members, answering reply cards, and commenting on documents members deliver.
 - [Tracking task progress](tasks.md) — Understanding a task's status, steps, and gates, reviewing results, and force-closing a task.
-- [Managing AI accounts and usage](usage.md) — In the "Monitor" tab, see each account's usage, estimated cost, and the account and model each member uses; log a machine in to an account; upgrade Claude Code.
+- [Manage AI accounts and usage](usage.md) — In the "Monitor" tab, see each account's usage, estimated cost, and the account and model each member uses; log a machine in to an account; upgrade Claude Code.
 - [Use it on your phone](mobile.md) — Connect to the console from your phone, add it to your home screen, and turn on push notifications.
 
 **Letting the studio run on its own**
