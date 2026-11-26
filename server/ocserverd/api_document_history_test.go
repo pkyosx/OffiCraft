@@ -1343,7 +1343,7 @@ func TestRestoreDocumentHistory(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"kind": "offboard", "key": "global", "owner_id": "owner",
 			"text": "old notice", "body": "old notice", "size_chars": 10,
-			"cap_chars": 15000, "has_seed": true, "is_default": false,
+			"cap_chars": 37500, "has_seed": true, "is_default": false,
 			"read_only": false, "read_only_head": "", "schema_version": 3,
 		})
 	})

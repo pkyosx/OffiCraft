@@ -61,7 +61,8 @@ export interface DocCaps {
  * (T-791e). Sized off the seeds actually in the tree, measured rather than
  * guessed: the system-interaction seed is the largest block, while the two
  * boot sequences are much smaller — so 150000 leaves the system block real room
- * to grow while 15000 is roughly ten times what a boot SOP has ever needed.
+ * to grow while a boot SOP has always been far below its 37500 (raised 2.5x
+ * from 15000 with every other document cap).
  *
  * 🔴 A DEFAULT, not the cap: the number in force arrives on the document's own
  * read (`BootDocView.capChars`), and every enforcement point reads THAT. This
@@ -76,21 +77,21 @@ export interface DocCaps {
  * the ceiling on EACH of the four task-event procedures, and unlike the four
  * `doc.cap_chars.*` blocks it is a constant on the server too — there is no
  * setting for it, so this is the live value rather than a fallback. */
-export const TASK_EVENT_CAP_CHARS_DEFAULT = 15000;
+export const TASK_EVENT_CAP_CHARS_DEFAULT = 37500;
 
 export const BOOT_DOC_CAP_CHARS_DEFAULTS: Record<BootDocKind, number> = {
   system_interaction: 150000,
-  boot_sequence: 15000,
+  boot_sequence: 37500,
   // T-c9c0. Sized with the boot sequences rather than the handbook: the
   // 〈停止〉 seed is a short ordered checklist an agent works under time
   // pressure (a recycle gives it a bounded window; an offboard gives it none
   // but the owner is waiting), not a reference text.
-  offboard: 15000,
+  offboard: 37500,
   // T-3201. 加速停止 SHARES the offboard cap on purpose (the server's registry
   // row calls `offboardCap()` for it): it is the same procedure under a shorter
   // clock, and a second ceiling would be a second number to keep in step
   // without a second thing to say about it.
-  accelerated_stop: 15000,
+  accelerated_stop: 37500,
   // The four task-event procedures answer to `taskEventCapCharsDefault`
   // (server/ocserverd/domain.go), one number for all four. Read from the server
   // rather than chosen here.
@@ -103,7 +104,7 @@ export const BOOT_DOC_CAP_CHARS_DEFAULTS: Record<BootDocKind, number> = {
 
 export const DOC_CAP_CHARS_DEFAULTS: DocCaps = {
   duty: 2500,
-  insight: 15000,
+  insight: 37500,
   manualSop: 37500,
   // Not restated: the boot blocks' numbers are stated once, above.
   systemInteraction: BOOT_DOC_CAP_CHARS_DEFAULTS.system_interaction,
@@ -371,7 +372,7 @@ export function capForKind(
       return undefined;
     // T-791e. These abstained while the two blocks' caps existed only as the
     // number the server reports on the document's OWN read — there was no live
-    // value to hand this table, and inventing one (the shipped 150000/15000)
+    // value to hand this table, and inventing one (the shipped 150000/37500)
     // could only ever grey out a revision the server would accept. The same
     // change made them `doc.cap_chars.system_interaction` /
     // `doc.cap_chars.boot_sequence` settings, so the live value now arrives the

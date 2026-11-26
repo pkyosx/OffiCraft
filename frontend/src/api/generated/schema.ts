@@ -10260,7 +10260,7 @@ export interface components {
             /**
              * Doc Cap Chars Boot Sequence
              * @description The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text — they are two renderings of one short checklist, so a studio that needs more room for one needs it for the other. The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 250000.
-             * @default 15000
+             * @default 37500
              */
             doc_cap_chars_boot_sequence: number;
             /**
@@ -10272,7 +10272,7 @@ export interface components {
             /**
              * Doc Cap Chars Insight
              * @description The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 250000.
-             * @default 15000
+             * @default 37500
              */
             doc_cap_chars_insight: number;
             /**
@@ -10284,7 +10284,7 @@ export interface components {
             /**
              * Doc Cap Chars Offboard
              * @description The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 250000. It is sized like the 啟動步驟 blocks rather than the 系統互動 handbook: both are short ordered checklists an agent has to be able to finish under a deadline.
-             * @default 15000
+             * @default 37500
              */
             doc_cap_chars_offboard: number;
             /**

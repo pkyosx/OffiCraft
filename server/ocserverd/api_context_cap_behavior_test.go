@@ -90,7 +90,7 @@ func TestDocCap_FollowsTheLiveSetting(t *testing.T) {
 	}
 
 	// The owner raises the cap.
-	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":20000}`); status != http.StatusOK {
+	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":50000}`); status != http.StatusOK {
 		t.Fatalf("phase 2: raising the cap must be accepted, got %d: %v", status, data)
 	}
 
@@ -105,12 +105,12 @@ func TestDocCap_FollowsTheLiveSetting(t *testing.T) {
 	}
 
 	// And the NEW cap is the one now being enforced — not merely "no cap".
-	status, data = replaceInsight(t, srv, tok, capDoc(t, 20001), false)
+	status, data = replaceInsight(t, srv, tok, capDoc(t, 50001), false)
 	if status != http.StatusBadRequest {
 		t.Fatalf("phase 4: the raised cap must still be a cap, got %d: %v", status, data)
 	}
-	if msg := capErrMessage(data); !strings.Contains(msg, "20000") {
-		t.Fatalf("phase 4: the refusal must name the NEW cap (20000), got %q", msg)
+	if msg := capErrMessage(data); !strings.Contains(msg, "50000") {
+		t.Fatalf("phase 4: the refusal must name the NEW cap (50000), got %q", msg)
 	}
 }
 
@@ -121,17 +121,17 @@ func TestDocCap_FollowsTheLiveSetting(t *testing.T) {
 // agent shrinking toward a limit that no longer exists.
 func TestDocCap_RefusalQuotesTheLiveCapNotTheDefault(t *testing.T) {
 	srv, dal, tok := capDocServer(t)
-	seedInsightOverlay(t, dal, "assistant", capDoc(t, 30000))
+	seedInsightOverlay(t, dal, "assistant", capDoc(t, 60000))
 
-	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":25000}`); status != http.StatusOK {
+	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":50000}`); status != http.StatusOK {
 		t.Fatalf("raise the cap: %d %v", status, data)
 	}
 
-	// Over 25000 and NOT shorter than the 30000 stored → refused.
-	_, data := replaceInsight(t, srv, tok, capDoc(t, 30000), false)
+	// Over 50000 and NOT shorter than the 60000 stored → refused.
+	_, data := replaceInsight(t, srv, tok, capDoc(t, 60000), false)
 	msg := capErrMessage(data)
-	if !strings.Contains(msg, "25000") {
-		t.Fatalf("the refusal must quote the live cap 25000, got %q", msg)
+	if !strings.Contains(msg, "50000") {
+		t.Fatalf("the refusal must quote the live cap 50000, got %q", msg)
 	}
 	if strings.Contains(msg, strconv.Itoa(contextDocMaxCharsDefault)+"-char") {
 		t.Fatalf("the refusal still quotes the shipped default, not the live cap: %q", msg)
@@ -339,11 +339,11 @@ func TestInsightReadReportsSizeAndCap(t *testing.T) {
 	}
 
 	// And it FOLLOWS the setting, like every other reader of the cap.
-	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":33000}`); status != 200 {
+	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":43000}`); status != 200 {
 		t.Fatalf("raise the cap: %d %v", status, data)
 	}
 	_, data = doJSON(t, "GET", srv.URL+"/api/insight/assistant", tok, "")
-	if got, _ := data["cap_chars"].(float64); int(got) != 33000 {
+	if got, _ := data["cap_chars"].(float64); int(got) != 43000 {
 		t.Fatalf("cap_chars must track the setting, got %v", data["cap_chars"])
 	}
 }

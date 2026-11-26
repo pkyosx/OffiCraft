@@ -640,13 +640,14 @@ func LessonsShrinkBlocked(before, after string) bool {
 
 // contextDocMaxCharsDefault (insight) and manualSopCapCharsDefault are only the
 // defaults of `doc.cap_chars.*` settings (the effective cap always arrives as a
-// parameter). A default applies only while the setting has no row, so changing
+// parameter). Both are 37500 since the owner raised every document cap 2.5x;
+// they stay two names because they are two settings. A default applies only while the setting has no row, so changing
 // one never moves a station whose owner has saved that knob. Caps count runes,
 // not bytes, deliberately: the owner picked the numbers from SQLite length()
 // character counts, and len() on mostly-Chinese text would be more than twice
 // as strict.
 const (
-	contextDocMaxCharsDefault = 15000
+	contextDocMaxCharsDefault = 37500
 	manualSopCapCharsDefault  = 37500
 )
 
@@ -659,11 +660,11 @@ const dutyCapCharsDefault = 2500
 // runtimes' texts.
 const (
 	systemInteractionCapCharsDefault = 150000
-	bootSequenceCapCharsDefault      = 15000
-	offboardCapCharsDefault          = 15000
+	bootSequenceCapCharsDefault      = 37500
+	offboardCapCharsDefault          = 37500
 	// taskEventCapCharsDefault is a constant, not yet a `doc.cap_chars.*`
 	// setting: making it one changes the wire contract, which awaits the owner.
-	taskEventCapCharsDefault = 15000
+	taskEventCapCharsDefault = 37500
 )
 
 // minDocCapChars / maxDocCapChars bound all eight adjustable document caps. The

@@ -24,7 +24,7 @@ func apiSeededAssistantRow() map[string]any {
 	return map[string]any{
 		"role_key": "assistant",
 		"duty":     map[string]any{"size_chars": 538, "cap_chars": 2500},
-		"insight":  map[string]any{"size_chars": 3978, "cap_chars": 15000},
+		"insight":  map[string]any{"size_chars": 3978, "cap_chars": 37500},
 	}
 }
 
@@ -78,7 +78,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 				map[string]any{
 					"role_key": roleKey,
 					"duty":     map[string]any{"size_chars": 155, "cap_chars": 2500},
-					"insight":  map[string]any{"size_chars": 0, "cap_chars": 15000},
+					"insight":  map[string]any{"size_chars": 0, "cap_chars": 37500},
 				},
 			},
 			"task_manuals": []any{
@@ -115,7 +115,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 			"roles": []any{map[string]any{
 				"role_key": "assistant",
 				"duty":     map[string]any{"size_chars": 538, "cap_chars": 2500},
-				"insight":  map[string]any{"size_chars": 13, "cap_chars": 15000},
+				"insight":  map[string]any{"size_chars": 13, "cap_chars": 37500},
 			}},
 			"task_manuals": apiBuiltinManualSizeRows(37500),
 		})

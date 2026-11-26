@@ -57,7 +57,7 @@ When remote access needs to be opened (the user wants to reach the console from 
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
 			"size_chars":     3978,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"role_key":       "assistant",
 			"text":           assistantInsightSeed,
 			"owner_id":       "owner",
@@ -79,7 +79,7 @@ When remote access needs to be opened (the user wants to reach the console from 
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
 			"size_chars":     4,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"role_key":       "assistant",
 			"text":           "mine",
 			"owner_id":       "owner",
@@ -101,7 +101,7 @@ When remote access needs to be opened (the user wants to reach the console from 
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
 			"size_chars":     3978,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"role_key":       "assistant",
 			"text":           assistantInsightSeed,
 			"owner_id":       "owner",
@@ -119,7 +119,7 @@ When remote access needs to be opened (the user wants to reach the console from 
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
 			"size_chars":     0,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"role_key":       "engineer",
 			"text":           "",
 			"owner_id":       "owner",
@@ -293,7 +293,7 @@ func TestHandleGetInsightApiInsightRoleKeyGet(t *testing.T) {
 			"role_key":       "engineer",
 			"text":           "",
 			"size_chars":     0,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"owner_id":       "owner",
 			"schema_version": 3,
 			"is_default":     true,
@@ -315,7 +315,7 @@ func TestHandleGetInsightApiInsightRoleKeyGet(t *testing.T) {
 			"role_key":       "engineer",
 			"text":           "weigh latency over purity",
 			"size_chars":     25,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"owner_id":       "owner",
 			"schema_version": 3,
 			"is_default":     false,
@@ -351,7 +351,7 @@ func TestHandleResetInsightApiInsightRoleKeyResetPost(t *testing.T) {
 			"is_default": true,
 			"has_seed":   true,
 			"size_chars": 3978,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "cebe7c08fbba259bce207ecb3dc96c909426722ed77237947d7f3039c19ebbaf",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -384,7 +384,7 @@ func TestHandleResetInsightApiInsightRoleKeyResetPost(t *testing.T) {
 			"is_default": true,
 			"has_seed":   true,
 			"size_chars": 3978,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "cebe7c08fbba259bce207ecb3dc96c909426722ed77237947d7f3039c19ebbaf",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -479,14 +479,14 @@ func TestInsightReceiptOf(t *testing.T) {
 			"is_default": true,
 			"has_seed":   true,
 			"size_chars": 3978,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "cebe7c08fbba259bce207ecb3dc96c909426722ed77237947d7f3039c19ebbaf",
 		})
 	})
 
 	t.Run("the receipt omits the folded text and other DTO metadata", func(t *testing.T) {
 		got := insightReceiptOf(&insightDTO{
-			RoleKey: "engineer", Text: "I1", SizeChars: 2, CapChars: 15000,
+			RoleKey: "engineer", Text: "I1", SizeChars: 2, CapChars: 37500,
 			OwnerID: "owner", SchemaVersion: 3, IsDefault: false, HasSeed: true,
 		})
 		apiWantValue(t, "receipt", apiTestJSONOf(t, got), map[string]any{
@@ -494,7 +494,7 @@ func TestInsightReceiptOf(t *testing.T) {
 			"is_default": false,
 			"has_seed":   true,
 			"size_chars": 2,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "c2818bc4e5ec4ae4a357a0df6fed73652e169ec676f7d4718cfb6807c5f7d1b0",
 		})
 	})
@@ -515,7 +515,7 @@ func TestHandleReplaceInsightApiInsightRoleKeyPost(t *testing.T) {
 			"is_default": false,
 			"has_seed":   false,
 			"size_chars": 2,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "c2818bc4e5ec4ae4a357a0df6fed73652e169ec676f7d4718cfb6807c5f7d1b0",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -549,7 +549,7 @@ func TestHandleReplaceInsightApiInsightRoleKeyPost(t *testing.T) {
 			"is_default": false,
 			"has_seed":   false,
 			"size_chars": 2,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "c2818bc4e5ec4ae4a357a0df6fed73652e169ec676f7d4718cfb6807c5f7d1b0",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -608,7 +608,7 @@ func TestHandleReplaceInsightApiInsightRoleKeyPost(t *testing.T) {
 			"is_default": false,
 			"has_seed":   false,
 			"size_chars": 0,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -666,7 +666,7 @@ func TestHandlePatchInsightApiInsightRoleKeyPatchPost(t *testing.T) {
 			"role_key":       "engineer",
 			"applied_edits":  1,
 			"size_chars":     10,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"sha256":         "1ab01121cca28ffac7e9b0bf95890779867a992a0a9620be18b13cffd14186d2",
 			"owner_id":       "owner",
 			"schema_version": 3,
@@ -703,7 +703,7 @@ func TestHandlePatchInsightApiInsightRoleKeyPatchPost(t *testing.T) {
 			"role_key":       "engineer",
 			"applied_edits":  1,
 			"size_chars":     17,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"sha256":         "6d691094f4bd670b68408444286bbfcf3c14fbf003a4d2df0f0c3f7b093af1f9",
 			"owner_id":       "owner",
 			"schema_version": 3,
@@ -739,7 +739,7 @@ func TestHandlePatchInsightApiInsightRoleKeyPatchPost(t *testing.T) {
 			"role_key":       "engineer",
 			"applied_edits":  2,
 			"size_chars":     10,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"sha256":         "1a989ea86150171c687b0727f218eedbb94c4665a7da9b0add1bf5de607f2bf1",
 			"owner_id":       "owner",
 			"schema_version": 3,

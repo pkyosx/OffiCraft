@@ -25,10 +25,9 @@ func TestShippedDocumentCapsAreServedWhenUnset(t *testing.T) {
 		"lore_cap_chars_body":              1250,
 		"lore_cap_chars_role":              25000,
 		"lore_cap_chars_manual":            25000,
-		// Not raised: insight, boot sequence, offboard.
-		"doc_cap_chars_insight":       15000,
-		"doc_cap_chars_boot_sequence": 15000,
-		"doc_cap_chars_offboard":      15000,
+		"doc_cap_chars_insight":       37500,
+		"doc_cap_chars_boot_sequence": 37500,
+		"doc_cap_chars_offboard":      37500,
 	}
 	for field, v := range want {
 		if data[field] != v {
@@ -117,6 +116,61 @@ func TestShippedDocumentCapsBindWrites(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestRaisedDocumentCapsBindWrites(t *testing.T) {
+	t.Run("insight: 37500 characters saves, 37501 is refused", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		status, data := apiJSON(t, h, "POST", "/api/insight/engineer", owner,
+			`{"text":"`+strings.Repeat("x", 37501)+`"}`)
+		if status != 400 {
+			t.Fatalf("37501-char insight: want 400, got %d (%v)", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/insight/engineer", owner,
+			`{"text":"`+strings.Repeat("x", 37500)+`"}`); status != 200 {
+			t.Fatalf("37500-char insight: want 200, got %d (%v)", status, data)
+		}
+	})
+
+	// Every boot document is written through the same route; a split one stores
+	// a read-only head in front of the body, so its at-cap body is 37500 minus
+	// that head, measured from the size the server reports for a one-character
+	// body rather than assumed.
+	for _, tc := range []struct{ name, kind, key string }{
+		{"boot sequence (claude)", "boot_sequence", "claude"},
+		{"boot sequence (codex)", "boot_sequence", "codex"},
+		{"stop document", "offboard", "global"},
+		{"accelerated stop", "accelerated_stop", "global"},
+		{"task close-out", "task_closeout", "global"},
+		{"task reassignment (to the predecessor)", "task_reassign_predecessor", "global"},
+		{"task reassignment (to the successor)", "task_takeover_with_predecessor", "global"},
+		{"dependency released", "task_unblocked", "global"},
+		{"ready for done", "task_ready_for_done", "global"},
+	} {
+		t.Run(tc.name+": a document of 37500 characters saves, 37501 is refused", func(t *testing.T) {
+			_, h, _, owner := newAPITestServer(t)
+			path := "/api/boot-docs/" + tc.kind + "/" + tc.key
+			status, data := apiJSON(t, h, "POST", path, owner, `{"body":"x"}`)
+			if status != 200 {
+				t.Fatalf("1-char body: want 200, got %d (%v)", status, data)
+			}
+			size, _ := data["size_chars"].(float64)
+			head := int(size) - 1
+			status, data = apiJSON(t, h, "POST", path, owner,
+				`{"body":"`+strings.Repeat("x", 37501-head)+`"}`)
+			if status != 400 {
+				t.Fatalf("37501-char document: want 400, got %d (%v)", status, data)
+			}
+			status, data = apiJSON(t, h, "POST", path, owner,
+				`{"body":"`+strings.Repeat("x", 37500-head)+`"}`)
+			if status != 200 {
+				t.Fatalf("37500-char document: want 200, got %d (%v)", status, data)
+			}
+			if data["size_chars"] != float64(37500) {
+				t.Fatalf("size_chars = %v, want 37500", data["size_chars"])
+			}
+		})
+	}
 }
 
 func TestDocCapCeilingAdmitsTheLargestDefault(t *testing.T) {

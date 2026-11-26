@@ -73,37 +73,37 @@ var apiTestBootDocRows = []apiTestBootDocRow{
 		kind: "boot_sequence", keys: []string{"claude", "codex"},
 		seeds:    []string{"boot_sequence.md", "boot_sequence_codex.md"},
 		docNames: []string{"boot steps (claude)", "boot steps (codex)"},
-		capChars: 15000, vars: nil, split: false, join: "", readOnly: false,
+		capChars: 37500, vars: nil, split: false, join: "", readOnly: false,
 	}, {
 		kind: "offboard", keys: []string{"global"},
 		seeds: []string{"offboard.md"}, docNames: []string{"Stop document"},
-		capChars: 15000, vars: []string{}, split: false, join: "", readOnly: false,
+		capChars: 37500, vars: []string{}, split: false, join: "", readOnly: false,
 	}, {
 		kind: "accelerated_stop", keys: []string{"global"},
 		seeds: []string{"accelerated_stop.md"}, docNames: []string{"accelerated stop sequence"},
-		capChars: 15000, vars: []string{"deadline"}, split: true, join: "\n", readOnly: false,
+		capChars: 37500, vars: []string{"deadline"}, split: true, join: "\n", readOnly: false,
 	}, {
 		kind: "task_closeout", keys: []string{"global"},
 		seeds: []string{"task_closeout.md"}, docNames: []string{"task close-out procedure"},
-		capChars: 15000, vars: []string{"task_no", "closed_by"}, split: true, join: "\n", readOnly: false,
+		capChars: 37500, vars: []string{"task_no", "closed_by"}, split: true, join: "\n", readOnly: false,
 	}, {
 		kind: "task_reassign_predecessor", keys: []string{"global"},
 		seeds:    []string{"task_reassign_predecessor.md"},
 		docNames: []string{"task reassignment document (to the predecessor)"},
-		capChars: 15000, vars: []string{"task_no"}, split: true, join: "\n\n", readOnly: false,
+		capChars: 37500, vars: []string{"task_no"}, split: true, join: "\n\n", readOnly: false,
 	}, {
 		kind: "task_takeover_with_predecessor", keys: []string{"global"},
 		seeds:    []string{"task_takeover_with_predecessor.md"},
 		docNames: []string{"task reassignment document (to the successor)"},
-		capChars: 15000, vars: []string{"task_no", "predecessor"}, split: true, join: "\n\n", readOnly: false,
+		capChars: 37500, vars: []string{"task_no", "predecessor"}, split: true, join: "\n\n", readOnly: false,
 	}, {
 		kind: "task_unblocked", keys: []string{"global"},
 		seeds: []string{"task_unblocked.md"}, docNames: []string{"dependency-released notice"},
-		capChars: 15000, vars: []string{"blocked_task_no"}, split: true, join: "\n\n", readOnly: false,
+		capChars: 37500, vars: []string{"blocked_task_no"}, split: true, join: "\n\n", readOnly: false,
 	}, {
 		kind: "task_ready_for_done", keys: []string{"global"},
 		seeds: []string{"task_ready_for_done.md"}, docNames: []string{"ready-for-done notice"},
-		capChars: 15000, vars: []string{"task_no", "visit_no"}, split: true, join: "\n\n", readOnly: false,
+		capChars: 37500, vars: []string{"task_no", "visit_no"}, split: true, join: "\n\n", readOnly: false,
 	},
 }
 
@@ -191,7 +191,7 @@ func TestMustBootDocSpec(t *testing.T) {
 		got := api.mustBootDocSpec("task_closeout", "global")
 
 		want := bootDocSpec{
-			Kind: "task_closeout", Key: "global", SeedFile: "task_closeout.md", Cap: 15000,
+			Kind: "task_closeout", Key: "global", SeedFile: "task_closeout.md", Cap: 37500,
 			DocName: "task close-out procedure", Vars: []string{"task_no", "closed_by"},
 			Split: true, Join: "\n", ReadOnly: false,
 		}
@@ -337,7 +337,7 @@ func TestFoldBootDocDTO(t *testing.T) {
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
 			"size_chars":     1435,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "task_reassign_predecessor",
 			"key":            "global",
 			"text":           apiTestReassignPredecessorSeed,
@@ -361,7 +361,7 @@ func TestFoldBootDocDTO(t *testing.T) {
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
 			"size_chars":     102,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "task_reassign_predecessor",
 			"key":            "global",
 			"text":           apiTestReassignPredecessorHead + "\n\n" + apiTestBootDocMarker + "\n\nF1",
@@ -385,7 +385,7 @@ func TestFoldBootDocDTO(t *testing.T) {
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
 			"size_chars":     2,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "offboard",
 			"key":            "global",
 			"text":           "O1",
@@ -413,7 +413,7 @@ func TestFoldBootDocDTO(t *testing.T) {
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
 			"size_chars":     33,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "task_reassign_predecessor",
 			"key":            "global",
 			"text":           "written before the marker existed",
@@ -974,7 +974,7 @@ func TestReplaceBootDoc(t *testing.T) {
 			"key":        "global",
 			"is_default": false,
 			"size_chars": 195,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "9cb4323e41b6bf5f3dda34f3c06f3441e9d4a29298abcdeb4f138b5ffefb177f",
 		})
 		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
@@ -1002,13 +1002,13 @@ func TestReplaceBootDoc(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner,
-			`{"body":"`+strings.Repeat("x", 15001)+`"}`)
+			`{"body":"`+strings.Repeat("x", 37501)+`"}`)
 
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
-			"the task close-out procedure you are writing is 15102 chars, over the 15000-char cap, "+
+			"the task close-out procedure you are writing is 37602 chars, over the 37500-char cap, "+
 				"and is not shorter than the 195 chars already stored — nothing was written. What is "+
 				"already stored is never truncated, but every update must land at or under the cap, or "+
 				"at least come out SHORTER than what is there now. Drop stale or superseded material as "+
@@ -1037,7 +1037,7 @@ func TestReplaceBootDoc(t *testing.T) {
 		apiWantValue(t, "key", data["key"], "global")
 		apiWantValue(t, "is_default", data["is_default"], false)
 		apiWantValue(t, "size_chars", data["size_chars"], apiAnyNumber)
-		apiWantValue(t, "cap_chars", data["cap_chars"], 15000)
+		apiWantValue(t, "cap_chars", data["cap_chars"], 37500)
 		apiWantValue(t, "sha256", data["sha256"], apiAnyString)
 		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
 		apiWantValue(t, "body", after["body"], "closing {task_no}")
@@ -1121,14 +1121,14 @@ func TestBootDocReceiptOf(t *testing.T) {
 			"key":        "global",
 			"is_default": true,
 			"size_chars": 1435,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "c01f0c02851abe152fa95f994597eac544b9e37822ef8f960322ddb621329710",
 		})
 	})
 
 	t.Run("it says nothing about the text, the head, the body or the owner the fold carried", func(t *testing.T) {
 		got := bootDocReceiptOf(&bootDocDTO{
-			SizeChars: 2, CapChars: 15000, Kind: "offboard", Key: "global",
+			SizeChars: 2, CapChars: 37500, Kind: "offboard", Key: "global",
 			Text: "O1", ReadOnlyHead: "a head", Body: "O1", OwnerID: "owner",
 			SchemaVersion: 3, IsDefault: false, HasSeed: true, ReadOnly: true,
 		})
@@ -1138,7 +1138,7 @@ func TestBootDocReceiptOf(t *testing.T) {
 			"key":        "global",
 			"is_default": false,
 			"size_chars": 2,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "5b1f94750d53ab84b5f3fb4bf25b8bf15b162f800f004ae2709b56fdc53a5fb7",
 		})
 	})
@@ -1324,7 +1324,7 @@ func TestResetBootDoc(t *testing.T) {
 			"key":        "global",
 			"is_default": true,
 			"size_chars": 1435,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "c01f0c02851abe152fa95f994597eac544b9e37822ef8f960322ddb621329710",
 		})
 		_, after := apiJSON(t, h, "GET", "/api/boot-docs/task_reassign_predecessor/global", owner, "")
@@ -1638,7 +1638,7 @@ func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     2572,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "offboard",
 			"key":            "global",
 			"text":           apiTestOffboardNotice,
@@ -1663,7 +1663,7 @@ func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     2,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "offboard",
 			"key":            "global",
 			"text":           "O1",
@@ -1688,7 +1688,7 @@ func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     2,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "offboard",
 			"key":            "global",
 			"text":           "O1",
@@ -1728,7 +1728,7 @@ func TestHandleReplaceOffboardApiOffboardPost(t *testing.T) {
 			"key":        "global",
 			"is_default": false,
 			"size_chars": 2,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "5b1f94750d53ab84b5f3fb4bf25b8bf15b162f800f004ae2709b56fdc53a5fb7",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -1775,7 +1775,7 @@ func TestHandleResetOffboardApiOffboardResetPost(t *testing.T) {
 			"key":        "global",
 			"is_default": true,
 			"size_chars": 2572,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "3b432bea3e767bc8bc8fd6bd7a762634792c1811fe2652b66d814122d3bc365f",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -1819,7 +1819,7 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     2,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "boot_sequence",
 			"key":            "claude",
 			"text":           "B1",
@@ -1838,7 +1838,7 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     2,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "boot_sequence",
 			"key":            "codex",
 			"text":           "B2",
@@ -1864,7 +1864,7 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     2,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "boot_sequence",
 			"key":            "claude",
 			"text":           "B1",
@@ -1897,7 +1897,7 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantValue(t, "size_chars", data["size_chars"], 4539)
-		apiWantValue(t, "cap_chars", data["cap_chars"], 15000)
+		apiWantValue(t, "cap_chars", data["cap_chars"], 37500)
 		apiWantValue(t, "kind", data["kind"], "boot_sequence")
 		apiWantValue(t, "key", data["key"], "claude")
 		apiWantValue(t, "text", data["text"], apiAnyString)
@@ -1937,7 +1937,7 @@ func TestHandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost(t *testing.T) {
 			"key":        "claude",
 			"is_default": false,
 			"size_chars": 2,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "5b950e77941d01cdf246d00b1ece546bc95234b77d98b44c9187e2733afa696a",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -1996,7 +1996,7 @@ func TestHandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost(t *testing.T)
 			"key":        "claude",
 			"is_default": true,
 			"size_chars": 4539,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "552917f2bf8ff4559822643805bdc78fccd5ff37b04646efff812fa9155b667e",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -2082,7 +2082,7 @@ func TestGenericBootDocSpec(t *testing.T) {
 			t.Fatalf("genericBootDocSpec refused a served pair: %s", rec.Body.String())
 		}
 		want := bootDocSpec{
-			Kind: "offboard", Key: "global", SeedFile: "offboard.md", Cap: 15000,
+			Kind: "offboard", Key: "global", SeedFile: "offboard.md", Cap: 37500,
 			DocName: "Stop document", Vars: []string{}, Split: false, Join: "", ReadOnly: false,
 		}
 		if !reflect.DeepEqual(got, want) {
@@ -2133,7 +2133,7 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     195,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "task_closeout",
 			"key":            "global",
 			"text":           apiTestTaskCloseoutSeed,
@@ -2158,7 +2158,7 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     103,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "task_closeout",
 			"key":            "global",
 			"text":           apiTestTaskCloseoutHead + "\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\nC1",
@@ -2182,7 +2182,7 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     195,
-			"cap_chars":      15000,
+			"cap_chars":      37500,
 			"kind":           "task_closeout",
 			"key":            "global",
 			"text":           apiTestTaskCloseoutSeed,
@@ -2243,7 +2243,7 @@ func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
 			"key":        "global",
 			"is_default": false,
 			"size_chars": 103,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "efc828e41ba9b61e8e1669f7cfc0d2bb34692b3c3db30d40d038dfe20d3a7c62",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -2302,7 +2302,7 @@ func TestHandleResetBootDocApiBootDocsKindKeyResetPost(t *testing.T) {
 			"key":        "global",
 			"is_default": true,
 			"size_chars": 195,
-			"cap_chars":  15000,
+			"cap_chars":  37500,
 			"sha256":     "9cb4323e41b6bf5f3dda34f3c06f3441e9d4a29298abcdeb4f138b5ffefb177f",
 		})
 		dashboard.wantFrames(map[string]any{

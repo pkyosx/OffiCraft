@@ -893,7 +893,7 @@ function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
     size_chars: [...text].length,
     // The LIVE setting, not the shipped default: the server enforces this
     // read's `cap_chars` against `doc.cap_chars.<kind>`, so a mock pinned to
-    // the default would keep answering 150000/15000 after the owner moved the
+    // the default would keep answering 150000/37500 after the owner moved the
     // knob — and the page sizes its edits against exactly this number.
     cap_chars: bootDocCap(kind),
     is_default: overlay === undefined,

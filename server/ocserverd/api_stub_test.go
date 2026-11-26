@@ -545,8 +545,8 @@ func asDocCaps(api *apiServer) map[string]any {
 // asShippedDocCaps is the out-of-box answer of all six.
 func asShippedDocCaps() map[string]any {
 	return map[string]any{
-		"duty": 2500.0, "insight": 15000.0, "manual_sop": 37500.0,
-		"system_interaction": 150000.0, "boot_sequence": 15000.0, "offboard": 15000.0,
+		"duty": 2500.0, "insight": 37500.0, "manual_sop": 37500.0,
+		"system_interaction": 150000.0, "boot_sequence": 37500.0, "offboard": 37500.0,
 	}
 }
 
@@ -648,11 +648,11 @@ func TestStepNoteCap(t *testing.T) {
 }
 
 func TestTaskEventCap(t *testing.T) {
-	t.Run("task event documents expose their fifteen-thousand-character cap", func(t *testing.T) {
+	t.Run("task event documents expose their thirty-seven-and-a-half-thousand-character cap", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 
-		if got := api.taskEventCap(); got != 15000 {
-			t.Fatalf("task event cap = %d, want 15000", got)
+		if got := api.taskEventCap(); got != 37500 {
+			t.Fatalf("task event cap = %d, want 37500", got)
 		}
 	})
 }
