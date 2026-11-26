@@ -1667,6 +1667,34 @@ func TestListLoreBudgets(t *testing.T) {
 		apiWantBody(t, got, budgetTarget("agent", me, 17, 5*carried, 3, len(live)-carried))
 	})
 
+	// The member's own entries (effective 400/401) are NEWER than every everyone
+	// entry (300/301), so they are walked first and the cap falls inside
+	// everyone: the agent line has nothing to draw, the everyone segment drops.
+	t.Run("own entries newer than everyone's fit first and the drops land in the everyone segment", func(t *testing.T) {
+		st.api.loreCapCharsRole = 12
+		me := hireLoreStaff(t, st.api, "m-budget-newer", defaultBootRole)
+		seedLoreAt(t, st.api, LoreScopeAgent, me, me, "新一一", LoreStateActive, 400)
+		seedLoreAt(t, st.api, LoreScopeAgent, me, me, "新二二", LoreStateActive, 401)
+
+		status, data := apiJSON(t, st.h, "GET", "/api/lore?states=active&limit=1&scope_kind=agent&scope_key="+me, st.user, "")
+		if status != http.StatusOK {
+			t.Fatalf("page: %d %v", status, data)
+		}
+		delete(data, "entries")
+		apiWantBody(t, data, map[string]any{"limit": 1, "offset": 0,
+			"cap_chars": 12, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
+			"budget_segments": []any{budgetSegment("everyone", 2, 10, 0, 0), budgetSegment("agent", 2, 10, 2, 10)},
+		})
+
+		var got map[string]any
+		for _, target := range budgets(t)["targets"].([]any) {
+			if m := target.(map[string]any); m["scope_key"] == me {
+				got = m
+			}
+		}
+		apiWantBody(t, got, budgetTarget("agent", me, 12, 10, 2, 2))
+	})
+
 	t.Run("a warden is below the floor and no credential is 401", func(t *testing.T) {
 		for _, tc := range []struct {
 			name, token string

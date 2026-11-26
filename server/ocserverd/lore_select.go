@@ -27,7 +27,9 @@ type loreSelection struct {
 	Entries []LoreEntry
 	// The cockpit draws its 上限線 immediately above this entry.
 	FirstDroppedID string
-	// In walk order, so a member's own list can draw its line above its own
+	// One per scope kind, listed in the order of selectLoreEntries' walk
+	// argument (a member: everyone, then agent) — not the order the entries
+	// interleave in — so a member's own list can draw its line above its own
 	// first dropped entry even when the overall first drop is an everyone entry.
 	Segments []loreSegment
 
@@ -56,6 +58,15 @@ func (sel loreSelection) segment(scopeKind string) loreSegment {
 	return loreSegment{ScopeKind: scopeKind}
 }
 
+func (sel loreSelection) firstDropped() loreSegment {
+	for _, seg := range sel.Segments {
+		if seg.FirstDroppedID != "" && seg.FirstDroppedID == sel.FirstDroppedID {
+			return seg
+		}
+	}
+	return loreSegment{}
+}
+
 func (sel loreSelection) droppedCount() int {
 	n := 0
 	for _, seg := range sel.Segments {
@@ -72,7 +83,8 @@ func loreEntryChars(e LoreEntry) int {
 }
 
 // The order (pinned first, then newest EFFECTIVE first) comes from
-// ListLoreEntriesLive's ORDER BY; this function does not re-sort.
+// ListLoreEntriesLive's ORDER BY; this function does not re-sort. A member's
+// two scopes are merged by the same rule in selectMemberLore.
 //
 // 🔴 The walk STOPS at the first entry that does not fit; it does not skip it and
 // look for smaller ones. Everything below is OLDER, and a non-contiguous loaded
@@ -90,8 +102,11 @@ func selectLoreForScope(lister loreLister, scopeKind, scopeKey string, capChars 
 	return selectLoreEntries(entries, capChars, scopeKind), nil
 }
 
-// everyone scope first, then the member's own agent scope, under one budget —
-// owner ruling T-236.
+// A member's boot document carries the everyone scope and the member's own
+// agent scope as ONE list in live order: an own pinned entry rides ahead of an
+// unpinned everyone entry, and a newer own entry ahead of an older everyone one.
+// 🔴 Owner ruling: neither scope goes first as a block; do not put everyone
+// entries back in front.
 func selectMemberLore(lister loreLister, memberID string, capChars int) (loreSelection, error) {
 	if lister == nil || memberID == "" || capChars <= 0 {
 		return selectLoreEntries(nil, capChars), nil
@@ -104,10 +119,42 @@ func selectMemberLore(lister loreLister, memberID string, capChars int) (loreSel
 	if err != nil {
 		return loreSelection{Entries: []LoreEntry{}, CapChars: capChars}, err
 	}
-	return selectLoreEntries(append(everyone, own...), capChars, LoreScopeEveryone, LoreScopeAgent), nil
+	return selectLoreEntries(mergeLoreLive(everyone, own), capChars, LoreScopeEveryone, LoreScopeAgent), nil
 }
 
-// walk names the scope kinds in the order entries arrive, so a scope with no
+// loreLiveBefore is ListLoreEntriesLive's ORDER BY (dal_lore.go) for entries
+// that come from two scopes.
+//
+// 🔴 CHANGE THIS AND BOTH SQL ORDER BYs TOGETHER: if they drift apart, a
+// member's boot document interleaves its two scopes by a different rule than
+// each scope is sorted by, or than the cockpit lists them in, and every list
+// still looks plausibly ordered on its own.
+func loreLiveBefore(a, b LoreEntry) bool {
+	if ap, bp := a.State == LoreStatePinned, b.State == LoreStatePinned; ap != bp {
+		return ap
+	}
+	if a.EffectiveTS != b.EffectiveTS {
+		return a.EffectiveTS > b.EffectiveTS
+	}
+	return a.Seq > b.Seq
+}
+
+// mergeLoreLive merges two lists that are each already in live order; it keeps
+// each list's own order, so a scope's fitted entries stay a prefix of that
+// scope and its first dropped entry still has an honest place for the line.
+func mergeLoreLive(a, b []LoreEntry) []LoreEntry {
+	out := make([]LoreEntry, 0, len(a)+len(b))
+	for len(a) > 0 && len(b) > 0 {
+		if loreLiveBefore(b[0], a[0]) {
+			out, b = append(out, b[0]), b[1:]
+		} else {
+			out, a = append(out, a[0]), a[1:]
+		}
+	}
+	return append(append(out, a...), b...)
+}
+
+// walk names the scope kinds the segments are reported in, so a scope with no
 // live entries still answers its (zero) segment.
 func selectLoreEntries(entries []LoreEntry, capChars int, walk ...string) loreSelection {
 	sel := loreSelection{Entries: []LoreEntry{}, CapChars: capChars, Segments: []loreSegment{}}

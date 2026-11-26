@@ -119,8 +119,10 @@ func TestHandleGetMemberBootContextApiMembersMemberIdBootContextGet(t *testing.T
 			}
 			everyoneAt := strings.Index(context, memberPreviewEveryoneLore)
 			ownAt := strings.Index(context, "OWN LORE OF m-writer")
-			if !strings.Contains(context, "\n\n# 傳承\n\n") || everyoneAt < 0 || ownAt < everyoneAt {
-				t.Fatalf("want a 傳承 block with the everyone entry before the member's own: %s", context)
+			// Both entries share effective_ts 1, so the later-minted own entry
+			// (higher seq) comes first in the merged list.
+			if !strings.Contains(context, "\n\n# 傳承\n\n") || ownAt < 0 || everyoneAt < ownAt {
+				t.Fatalf("want a 傳承 block with the member's own entry (higher seq) before the everyone one: %s", context)
 			}
 			if !strings.HasSuffix(context, "\n\n"+tc.wantBoot+"\n") || strings.Contains(context, tc.otherBoot) {
 				t.Fatalf("want %q as the last block and no %q: %s", tc.wantBoot, tc.otherBoot, context)

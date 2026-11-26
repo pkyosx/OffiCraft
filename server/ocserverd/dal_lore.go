@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -130,8 +131,11 @@ func getLoreEntryOn(q sqlRowQuerier, id string) (*LoreEntry, error) {
 	return &e, nil
 }
 
-// 🔴 THE LIVE ORDER IS PRODUCED HERE, IN SQL, AND NOWHERE ELSE: selectLoreEntries
-// (lore_select.go) consumes this sequence and only decides where to stop.
+// 🔴 THE LIVE ORDER IS PRODUCED HERE, IN SQL: selectLoreEntries (lore_select.go)
+// consumes this sequence and only decides where to stop. The same rule is
+// written twice more — loreLiveBefore (lore_select.go), which merges a member's
+// two scopes for the boot document, and ListLoreEntriesPage's ORDER BY, which
+// interleaves them on the member's cockpit list — change all three or none.
 func (d *DAL) ListLoreEntriesLive(scopeKind, scopeKey string) ([]LoreEntry, error) {
 	rows, err := d.rdb.Query(
 		`SELECT `+loreEntryColumns+` FROM lore_entry
@@ -189,6 +193,13 @@ func (d *DAL) ListLoreEntriesPage(f loreListFilter, limit, offset int) ([]LoreEn
 		{"lore_type", f.LoreTypes},
 	} {
 		clause, clauseArgs := loreInClause(axis.column, axis.vals)
+		if axis.column == "scope_key" && clause != "" && slices.Contains(f.ScopeKinds, LoreScopeEveryone) {
+			// everyone entries have no key, so a key set narrows only the keyed
+			// scopes beside it: everyone + agent + one member is that member's
+			// boot list.
+			clause = " AND (scope_kind = ? OR" + strings.TrimPrefix(clause, " AND") + ")"
+			clauseArgs = append([]any{LoreScopeEveryone}, clauseArgs...)
+		}
 		query += clause
 		args = append(args, clauseArgs...)
 	}

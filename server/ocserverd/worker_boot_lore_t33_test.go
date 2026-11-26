@@ -220,14 +220,16 @@ func loreBlockOf(doc string) string {
 	return strings.TrimRight(rest, "\n")
 }
 
+// The everyone entry (effective 50) is OLDER than each member's own (effective
+// 100), so the merged list puts the own entry first.
 func TestMemberBootDocumentsCarryEveryoneLore(t *testing.T) {
-	t.Run("staff and outsource boots list everyone entries ahead of their own in one section", func(t *testing.T) {
+	t.Run("staff and outsource boots merge everyone entries with their own by effective time in one section", func(t *testing.T) {
 		staffDoc, workerDoc, _ := workerBootLoreFixture(t)
 		for _, tc := range []struct{ name, doc, want string }{
-			{"staff", staffDoc, "# 傳承\n\n## L-3 EVERYONE-SCOPED-MARKER\n\nbody of EVERYONE-SCOPED-MARKER" +
-				"\n\n## L-1 STAFF-SCOPED-MARKER\n\nbody of STAFF-SCOPED-MARKER"},
-			{"outsource", workerDoc, "# 傳承\n\n## L-3 EVERYONE-SCOPED-MARKER\n\nbody of EVERYONE-SCOPED-MARKER" +
-				"\n\n## L-2 WORKER-SCOPED-MARKER\n\nbody of WORKER-SCOPED-MARKER"},
+			{"staff", staffDoc, "# 傳承\n\n## L-1 STAFF-SCOPED-MARKER\n\nbody of STAFF-SCOPED-MARKER" +
+				"\n\n## L-3 EVERYONE-SCOPED-MARKER\n\nbody of EVERYONE-SCOPED-MARKER"},
+			{"outsource", workerDoc, "# 傳承\n\n## L-2 WORKER-SCOPED-MARKER\n\nbody of WORKER-SCOPED-MARKER" +
+				"\n\n## L-3 EVERYONE-SCOPED-MARKER\n\nbody of EVERYONE-SCOPED-MARKER"},
 		} {
 			if got := loreBlockOf(tc.doc); got != tc.want {
 				t.Fatalf("%s 傳承 section =\n%q\nwant\n%q", tc.name, got, tc.want)
@@ -235,7 +237,7 @@ func TestMemberBootDocumentsCarryEveryoneLore(t *testing.T) {
 		}
 	})
 
-	t.Run("everyone entries spend the shared member cap first, for mira and for an outsource worker", func(t *testing.T) {
+	t.Run("an older everyone entry that does not fit stops the shared member cap after a newer own entry, for mira and for an outsource worker", func(t *testing.T) {
 		s := newWorkerTestServer(t)
 		mira := Member{ID: seedMiraID, Name: "Mira", Kind: KindStaff, RoleKey: defaultBootRole,
 			Runtime: RuntimeClaude, RosterStatus: RosterStatusActive}
@@ -243,20 +245,21 @@ func TestMemberBootDocumentsCarryEveryoneLore(t *testing.T) {
 			t.Fatalf("PutMember: %v", err)
 		}
 		const workerID = "ow-t236cap"
-		seedLore(t, s.dal, LoreScopeEveryone, "", "EVERYONE-FITS", LoreStateActive, 50)
+		seedLore(t, s.dal, LoreScopeEveryone, "", "EVERYONE-OLD", LoreStateActive, 50)
 		seedLore(t, s.dal, LoreScopeAgent, seedMiraID, "MIRA-OWN", LoreStateActive, 100)
 		seedLore(t, s.dal, LoreScopeAgent, workerID, "WORKER-OWN", LoreStateActive, 100)
-		const everyoneOnly = "# 傳承\n\n## L-1 EVERYONE-FITS\n\nbody of EVERYONE-FITS"
+		const everyone = "\n\n## L-1 EVERYONE-OLD\n\nbody of EVERYONE-OLD"
+		const miraOwn = "# 傳承\n\n## L-2 MIRA-OWN\n\nbody of MIRA-OWN"
+		const workerOwn = "# 傳承\n\n## L-3 WORKER-OWN\n\nbody of WORKER-OWN"
 
 		for _, tc := range []struct {
 			cap                int
 			wantStaff, wantOut string
 		}{
-			// "EVERYONE-FITS" + "body of EVERYONE-FITS" is 34 characters.
-			{35, everyoneOnly, everyoneOnly},
-			{10000,
-				everyoneOnly + "\n\n## L-2 MIRA-OWN\n\nbody of MIRA-OWN",
-				everyoneOnly + "\n\n## L-3 WORKER-OWN\n\nbody of WORKER-OWN"},
+			// MIRA-OWN costs 24, WORKER-OWN 28, EVERYONE-OLD 32: under 35 each
+			// own entry fits and the everyone entry after it does not.
+			{35, miraOwn, workerOwn},
+			{10000, miraOwn + everyone, workerOwn + everyone},
 		} {
 			s.loreCapCharsRole = tc.cap
 			staff, err := s.buildBootContext("", &mira)

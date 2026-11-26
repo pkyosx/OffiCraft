@@ -329,8 +329,8 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	}
 
 	// ── DIRECTION 3: everyone (所有人) is filtered WITHOUT a key, answers the
-	// member cap, and — walked ahead of every member's own entries under that
-	// same cap — moves the agent line above. ───────────────────────────────────
+	// member cap, and — merged with the member's own entries under that same
+	// cap, and NEWER than all of them here — moves the agent line above. ───────
 	s.loreCapCharsManual = 9000
 	h, err := buildHandler(specsFor(s), s.keys, s.dal.GetMember, s.authPasswordChangedAt)
 	if err != nil {
@@ -339,11 +339,13 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	token := apiTestAgentToken(t, s, me, "")
 	var everyoneRows []any
 	var oldest string
+	// Strictly newer than every own entry, so the everyone entries walk first.
+	base := int(one.Entries[0].EffectiveTs) + 1000
 	for i, ti := range []string{"壬一一", "壬二二", "壬三三", "壬四四", "壬五五"} {
 		e, err := s.dal.CreateLoreEntryMintingID(LoreEntry{
 			ScopeKind: LoreScopeEveryone, ScopeKey: "", Title: ti, Body: "內容",
 			AuthorID: me, State: LoreStateActive, LoreType: LoreTypeOther,
-			EffectiveTS: float64(200 + i), CreatedTS: float64(200 + i), UpdatedTS: float64(200 + i),
+			EffectiveTS: float64(base + i), CreatedTS: float64(base + i), UpdatedTS: float64(base + i),
 		})
 		if err != nil {
 			t.Fatalf("seed everyone %s: %v", ti, err)
@@ -354,8 +356,8 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 		everyoneRows = append([]any{map[string]any{
 			"id": e.ID, "seq": e.Seq, "scope_kind": "everyone", "scope_key": "",
 			"title": ti, "body": "內容", "author_id": me, "source_task_id": "",
-			"state": "active", "retire_reason": "", "effective_ts": 200 + i,
-			"created_ts": 200 + i, "updated_ts": 200 + i, "task_type_key": "",
+			"state": "active", "retire_reason": "", "effective_ts": base + i,
+			"created_ts": base + i, "updated_ts": base + i, "task_type_key": "",
 			"scope_options": []any{"agent", "everyone"}, "lore_type": "other",
 		}}, everyoneRows...)
 	}
@@ -393,6 +395,50 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 				"entry_count": 6, "chars": 30, "fitted_count": 0, "fitted_chars": 0},
 		},
 	})
+
+	// ── DIRECTION 4: everyone + agent + one key is that member's whole boot
+	// list — the two scopes interleaved, pinned first then newest effective —
+	// and its line is the first drop of the whole list. ────────────────────────
+	mix := hireLoreStaff(t, s, "m-lore-multi-mix", defaultBootRole)
+	pinnedOwn := seedLoreAt(t, s, LoreScopeAgent, mix, mix, "我釘釘", LoreStatePinned, float64(base-10))
+	newerOwn := seedLoreAt(t, s, LoreScopeAgent, mix, mix, "我甲甲", LoreStateActive, float64(base)+3.5)
+	olderOwn := seedLoreAt(t, s, LoreScopeAgent, mix, mix, "我乙乙", LoreStateActive, float64(base)+1.5)
+	status, data = apiJSON(t, h, "GET",
+		"/api/lore?scope_kinds=everyone&scope_kinds=agent&scope_keys="+mix, token, "")
+	if status != http.StatusOK {
+		t.Fatalf("member list page: %d %v", status, data)
+	}
+	var titles []string
+	for _, row := range data["entries"].([]any) {
+		titles = append(titles, row.(map[string]any)["title"].(string))
+	}
+	if want := []string{"我釘釘", "壬五五", "我甲甲", "壬四四", "壬三三", "我乙乙", "壬二二", "壬一一"}; !slices.Equal(titles, want) {
+		t.Fatalf("member list order = %v, want %v", titles, want)
+	}
+	thirdEveryone := data["entries"].([]any)[4].(map[string]any)["id"]
+	delete(data, "entries")
+	apiWantBody(t, data, map[string]any{
+		"limit": 30, "offset": 0, "cap_chars": 20, "used_chars": 20,
+		"first_dropped_id": thirdEveryone, "first_dropped_chars": 5,
+		"budget_segments": []any{
+			map[string]any{"scope_kind": "everyone",
+				"entry_count": 5, "chars": 25, "fitted_count": 2, "fitted_chars": 10},
+			map[string]any{"scope_kind": "agent",
+				"entry_count": 3, "chars": 15, "fitted_count": 2, "fitted_chars": 10},
+		},
+	})
+
+	ownOnly := listLore(t, s, me, HandleListLoreEntriesApiLoreGetParams{
+		ScopeKinds: strsp(LoreScopeAgent), ScopeKeys: strsp(mix)})
+	var got []string
+	for _, e := range ownOnly.Entries {
+		got = append(got, e.Id)
+	}
+	if !slices.Equal(got, []string{pinnedOwn.ID, newerOwn.ID, olderOwn.ID}) ||
+		ownOnly.FirstDroppedId != olderOwn.ID || ownOnly.UsedChars != 20 {
+		t.Fatalf("agent-only page = %v first_dropped_id=%q used_chars=%d, want [%s %s %s], %s and 20",
+			got, ownOnly.FirstDroppedId, ownOnly.UsedChars, pinnedOwn.ID, newerOwn.ID, olderOwn.ID, olderOwn.ID)
+	}
 }
 
 // TestEachAxisFiltersOnItsOwnColumn — the fifth property, and the one the four

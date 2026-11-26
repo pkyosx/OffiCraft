@@ -8,6 +8,7 @@ package main
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -558,31 +559,37 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	// 上限線 (the first entry the fold will NOT carry; the cockpit draws a line
 	// above it) comes from the same lore_select.go selection the folds run: the
 	// page is cut by limit/offset, so the line cannot be derived from its rows.
-	// everyone and agent share one budget (T-236), so an agent line is read off
-	// the member's selection.
+	// everyone and agent share one budget and interleave in one list, so an
+	// agent line is read off the member's selection: on an agent-only page it
+	// is the member's own first drop, on the member's whole list (everyone +
+	// agent) the overall one.
 	var sel loreSelection
+	var line loreSegment
 	answered := false
 	switch {
 	case len(f.ScopeKinds) == 1 && f.ScopeKinds[0] == LoreScopeEveryone && len(f.ScopeKeys) == 0:
 		sel, err = selectLoreForScope(s.dal, LoreScopeEveryone, "", s.loreRoleCap())
-		answered = true
+		line, answered = sel.segment(LoreScopeEveryone), true
 	case len(f.ScopeKinds) == 1 && f.ScopeKinds[0] == LoreScopeAgent && len(f.ScopeKeys) == 1:
 		sel, err = selectMemberLore(s.dal, f.ScopeKeys[0], s.loreRoleCap())
-		answered = true
+		line, answered = sel.segment(LoreScopeAgent), true
+	case len(f.ScopeKinds) == 2 && slices.Contains(f.ScopeKinds, LoreScopeEveryone) &&
+		slices.Contains(f.ScopeKinds, LoreScopeAgent) && len(f.ScopeKeys) == 1:
+		sel, err = selectMemberLore(s.dal, f.ScopeKeys[0], s.loreRoleCap())
+		line, answered = sel.firstDropped(), true
 	case len(f.ScopeKinds) == 1 && f.ScopeKinds[0] == LoreScopeManual && len(f.ScopeKeys) == 1:
 		sel, err = selectLoreForScope(s.dal, f.ScopeKinds[0], f.ScopeKeys[0], s.loreManualCap())
-		answered = true
+		line, answered = sel.segment(LoreScopeManual), true
 	}
 	if err != nil {
 		internalError(w, err)
 		return
 	}
 	if answered {
-		own := sel.segment(f.ScopeKinds[0])
 		out.CapChars = sel.CapChars
 		out.UsedChars = sel.UsedChars
-		out.FirstDroppedId = own.FirstDroppedID
-		out.FirstDroppedChars = own.FirstDroppedChars
+		out.FirstDroppedId = line.FirstDroppedID
+		out.FirstDroppedChars = line.FirstDroppedChars
 		out.BudgetSegments = loreBudgetSegmentDTOs(sel)
 	}
 	writeJSON(w, http.StatusOK, out)

@@ -271,16 +271,35 @@ func loreFixtureOf(id, kind string, chars int) LoreEntry {
 	return e
 }
 
+func loreMemberFixture(id, kind, state string, effective float64, seq, chars int) LoreEntry {
+	e := loreFixtureOf(id, kind, chars)
+	e.State, e.EffectiveTS, e.Seq = state, effective, seq
+	return e
+}
+
+// A member's two scopes arrive each in live order and leave as ONE list in live
+// order. The merged order is written out by hand:
+//
+//	E1 everyone pinned  ts 10        ← pinned (either scope) before any active
+//	A1 own      pinned  ts  5        ← … even ahead of the newer active E2 / A2
+//	A2 own      active  ts 50
+//	E2 everyone active  ts 40
+//	A3 own      active  ts 30
+//	A4 own      active  ts 20 seq 7  ← same ts as E3: higher seq first
+//	E3 everyone active  ts 20 seq 3
 func TestSelectMemberLore(t *testing.T) {
-	e1 := loreFixtureOf("L-1", LoreScopeEveryone, 50)
-	e2 := loreFixtureOf("L-2", LoreScopeEveryone, 50)
-	a3 := loreFixtureOf("L-3", LoreScopeAgent, 30)
-	a4 := loreFixtureOf("L-4", LoreScopeAgent, 5)
-	other := loreFixtureOf("L-9", LoreScopeAgent, 5)
+	e1 := loreMemberFixture("L-E1", LoreScopeEveryone, LoreStatePinned, 10, 1, 10)
+	e2 := loreMemberFixture("L-E2", LoreScopeEveryone, LoreStateActive, 40, 2, 20)
+	e3 := loreMemberFixture("L-E3", LoreScopeEveryone, LoreStateActive, 20, 3, 30)
+	a1 := loreMemberFixture("L-A1", LoreScopeAgent, LoreStatePinned, 5, 4, 5)
+	a2 := loreMemberFixture("L-A2", LoreScopeAgent, LoreStateActive, 50, 5, 7)
+	a3 := loreMemberFixture("L-A3", LoreScopeAgent, LoreStateActive, 30, 6, 11)
+	a4 := loreMemberFixture("L-A4", LoreScopeAgent, LoreStateActive, 20, 7, 3)
+	other := loreMemberFixture("L-9", LoreScopeAgent, LoreStateActive, 60, 9, 5)
 	lister := func() *fakeLoreLister {
 		return &fakeLoreLister{byScope: map[string][]LoreEntry{
-			"everyone/": {e1, e2},
-			"agent/m-1": {a3, a4},
+			"everyone/": {e1, e2, e3},
+			"agent/m-1": {a1, a2, a3, a4},
 			"agent/m-2": {other},
 		}}
 	}
@@ -291,33 +310,33 @@ func TestSelectMemberLore(t *testing.T) {
 		cap    int
 		want   loreSelection
 	}{
-		{"everything fits: everyone entries come first, then the member's own, and no other member's",
+		{"everything fits: one list, pinned first then newest effective, ties by higher seq, and no other member's",
 			"m-1", 1000, loreSelection{
-				Entries: []LoreEntry{e1, e2, a3, a4}, UsedChars: 135, CapChars: 1000,
+				Entries: []LoreEntry{e1, a1, a2, e2, a3, a4, e3}, UsedChars: 86, CapChars: 1000,
 				Segments: []loreSegment{
-					{ScopeKind: LoreScopeEveryone, EntryCount: 2, Chars: 100, FittedCount: 2, FittedChars: 100},
-					{ScopeKind: LoreScopeAgent, EntryCount: 2, Chars: 35, FittedCount: 2, FittedChars: 35},
+					{ScopeKind: LoreScopeEveryone, EntryCount: 3, Chars: 60, FittedCount: 3, FittedChars: 60},
+					{ScopeKind: LoreScopeAgent, EntryCount: 4, Chars: 26, FittedCount: 4, FittedChars: 26},
 				},
 			}},
-		{"one budget across both groups: the member's first entry past the cap and all after it are dropped",
-			"m-1", 110, loreSelection{
-				Entries: []LoreEntry{e1, e2}, UsedChars: 100, CapChars: 110,
-				FirstDroppedID: "L-3",
+		{"the walk stops at an older everyone entry that does not fit, though a smaller own entry after it would",
+			"m-1", 41, loreSelection{
+				Entries: []LoreEntry{e1, a1, a2}, UsedChars: 22, CapChars: 41,
+				FirstDroppedID: "L-E2",
 				Segments: []loreSegment{
-					{ScopeKind: LoreScopeEveryone, EntryCount: 2, Chars: 100, FittedCount: 2, FittedChars: 100},
-					{ScopeKind: LoreScopeAgent, EntryCount: 2, Chars: 35,
-						FirstDroppedID: "L-3", FirstDroppedChars: 30},
+					{ScopeKind: LoreScopeEveryone, EntryCount: 3, Chars: 60, FittedCount: 1, FittedChars: 10,
+						FirstDroppedID: "L-E2", FirstDroppedChars: 20},
+					{ScopeKind: LoreScopeAgent, EntryCount: 4, Chars: 26, FittedCount: 2, FittedChars: 12,
+						FirstDroppedID: "L-A3", FirstDroppedChars: 11},
 				},
 			}},
-		{"a cap that stops inside everyone drops every own entry even if one would fit",
-			"m-1", 60, loreSelection{
-				Entries: []LoreEntry{e1}, UsedChars: 50, CapChars: 60,
-				FirstDroppedID: "L-2",
+		{"every own entry fits while the oldest everyone entry is dropped",
+			"m-1", 56, loreSelection{
+				Entries: []LoreEntry{e1, a1, a2, e2, a3, a4}, UsedChars: 56, CapChars: 56,
+				FirstDroppedID: "L-E3",
 				Segments: []loreSegment{
-					{ScopeKind: LoreScopeEveryone, EntryCount: 2, Chars: 100, FittedCount: 1, FittedChars: 50,
-						FirstDroppedID: "L-2", FirstDroppedChars: 50},
-					{ScopeKind: LoreScopeAgent, EntryCount: 2, Chars: 35,
-						FirstDroppedID: "L-3", FirstDroppedChars: 30},
+					{ScopeKind: LoreScopeEveryone, EntryCount: 3, Chars: 60, FittedCount: 2, FittedChars: 30,
+						FirstDroppedID: "L-E3", FirstDroppedChars: 30},
+					{ScopeKind: LoreScopeAgent, EntryCount: 4, Chars: 26, FittedCount: 4, FittedChars: 26},
 				},
 			}},
 		{"no member selects nothing",
@@ -331,10 +350,22 @@ func TestSelectMemberLore(t *testing.T) {
 				t.Fatalf("select: %v", err)
 			}
 			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("selection =\n%+v\nwant\n%+v", got, tc.want)
+				t.Fatalf("selection %v =\n%+v\nwant %v\n%+v",
+					loreIDsOf(got.Entries), got, loreIDsOf(tc.want.Entries), tc.want)
 			}
 		})
 	}
+
+	t.Run("a member with no entries of its own carries everyone in its own order and a zero agent segment", func(t *testing.T) {
+		got, err := selectMemberLore(lister(), "m-none", 1000)
+		if err != nil {
+			t.Fatalf("select: %v", err)
+		}
+		wantLoreIDs(t, got.Entries, []string{"L-E1", "L-E2", "L-E3"})
+		if seg := got.segment(LoreScopeAgent); seg != (loreSegment{ScopeKind: LoreScopeAgent}) {
+			t.Fatalf("agent segment = %+v, want zero", seg)
+		}
+	})
 
 	t.Run("a failing read is returned as the error", func(t *testing.T) {
 		boom := errors.New("database is closed")

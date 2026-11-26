@@ -1369,8 +1369,8 @@ export interface ServerSettingsView {
   secretCardUnretrievedTtlSecs: number;
   secretCardRetrievedRetentionSecs: number;
   /** T-33: the four 傳承 knobs. The first two are FOLD budgets — how much 傳承
-   * one member's boot document carries (its `everyone` entries first, then its
-   * own, T-236), and how much `get_task_manual`
+   * one member's boot document carries (its `everyone` entries merged with its
+   * own), and how much `get_task_manual`
    * appends after a type's SOP. They are never summed: different readers
    * pay them at different moments. The last two bound ONE entry's title and
    * body at write and edit time.
@@ -3659,13 +3659,13 @@ export interface LoreListOptions {
  *
  * 🔴 `firstDroppedId` IS NOT DERIVABLE HERE AND MUST NOT BE RECOMPUTED. The
  * server answers it from the same selection the folds run, over the WHOLE
- * scope (for a member scope that includes the `everyone` entries ahead of it); this page is cut by `limit`/`offset` long before the budget is spent,
+ * scope (for a member that includes the `everyone` entries merged with its own); this page is cut by `limit`/`offset` long before the budget is spent,
  * so adding up the visible rows would draw the line in the wrong place on every
  * page but the first — and a line in the wrong place looks exactly like a line
  * in the right place.
  *
  * Both are the empty answer (0 and "") when the request did not converge on ONE
- * scope, because a budget belongs to a scope and a page spanning several has no
+ * scope (or on one member's whole list, `everyone` + `agent` with its key), because a budget belongs to a scope and a page spanning several has no
  * single one to report. `firstDroppedId` is also "" when the whole scope fits. */
 export interface LoreEntryPageView {
   entries: LoreEntryView[];
@@ -3677,7 +3677,7 @@ export interface LoreEntryPageView {
   usedChars: number;
   /** The size of the entry `firstDroppedId` names; 0 when nothing is dropped. */
   firstDroppedChars: number;
-  /** The same selection per scope, in walk order (`everyone` first for a member). */
+  /** The same selection per scope (`everyone` then `agent` for a member). */
   budgetSegments: LoreBudgetSegmentView[];
 }
 
