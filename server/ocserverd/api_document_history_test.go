@@ -1079,7 +1079,7 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{
 			RoleKey: "r-design", Name: "Design",
-			DefinitionMD: strings.Repeat("x", 1500),
+			DefinitionMD: strings.Repeat("x", 3000),
 		}); err != nil {
 			t.Fatalf("PutRoleDef: %v", err)
 		}
@@ -1380,7 +1380,7 @@ func TestRestoreTaskManualField(t *testing.T) {
 			"fields": []any{map[string]any{"name": "客戶", "required": true, "is_key": true}},
 			"sop_md": "SOP 舊版", "assignee": map[string]any{},
 			"lore": "", "lore_chars": 0,
-			"sop_md_chars": 6, "sop_md_cap_chars": 15000,
+			"sop_md_chars": 6, "sop_md_cap_chars": 37500,
 			"updated_ts": apiAnyNumber, "is_seed": false, "is_default": false,
 		})
 	})
@@ -1409,7 +1409,7 @@ func TestRestoreTaskManualField(t *testing.T) {
 			"fields":  []any{},
 			"sop_md":  "第一次改寫", "assignee": map[string]any{"kind": "staff", "member_id": "mira"},
 			"lore": "", "lore_chars": 0,
-			"sop_md_chars": 5, "sop_md_cap_chars": 15000,
+			"sop_md_chars": 5, "sop_md_cap_chars": 37500,
 			"updated_ts": apiAnyNumber, "is_seed": true, "is_default": false,
 		})
 	})

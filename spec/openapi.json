@@ -8263,37 +8263,37 @@
           },
           "doc_cap_chars_boot_sequence": {
             "default": 15000,
-            "description": "The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text — they are two renderings of one short checklist, so a studio that needs more room for one needs it for the other. The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000.",
+            "description": "The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text — they are two renderings of one short checklist, so a studio that needs more room for one needs it for the other. The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 250000.",
             "title": "Doc Cap Chars Boot Sequence",
             "type": "integer"
           },
           "doc_cap_chars_duty": {
-            "default": 1000,
-            "description": "The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points — Chinese prose counts one per character). The floor of the adjustable range is this segment's OWN shipped default (the `default` field above), which is smaller than the other three segments'; the ceiling is 100000. Duty had no cap at all before T-ae38.",
+            "default": 2500,
+            "description": "The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points — Chinese prose counts one per character). The floor of the adjustable range is this segment's OWN shipped default (the `default` field above), which is smaller than the other three segments'; the ceiling is 250000. Duty had no cap at all before T-ae38.",
             "title": "Doc Cap Chars Duty",
             "type": "integer"
           },
           "doc_cap_chars_insight": {
             "default": 15000,
-            "description": "The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 100000.",
+            "description": "The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 250000.",
             "title": "Doc Cap Chars Insight",
             "type": "integer"
           },
           "doc_cap_chars_manual_sop": {
-            "default": 15000,
-            "description": "The size cap on a TASK MANUAL's SOP doc (sop_md), in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 100000.",
+            "default": 37500,
+            "description": "The size cap on a TASK MANUAL's SOP doc (sop_md), in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 250000.",
             "title": "Doc Cap Chars Manual Sop",
             "type": "integer"
           },
           "doc_cap_chars_offboard": {
             "default": 15000,
-            "description": "The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000. It is sized like the 啟動步驟 blocks rather than the 系統互動 handbook: both are short ordered checklists an agent has to be able to finish under a deadline.",
+            "description": "The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 250000. It is sized like the 啟動步驟 blocks rather than the 系統互動 handbook: both are short ordered checklists an agent has to be able to finish under a deadline.",
             "title": "Doc Cap Chars Offboard",
             "type": "integer"
           },
           "doc_cap_chars_system_interaction": {
-            "default": 60000,
-            "description": "The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000. It is far larger than the role-journal caps because the block it governs is the studio handbook every agent reads at boot, and it is sized against the seed that ships with it.",
+            "default": 150000,
+            "description": "The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 250000. It is far larger than the role-journal caps because the block it governs is the studio handbook every agent reads at boot, and it is sized against the seed that ships with it.",
             "title": "Doc Cap Chars System Interaction",
             "type": "integer"
           },
@@ -8354,7 +8354,7 @@
             "type": "string"
           },
           "step_note_cap_chars": {
-            "default": 10000,
+            "default": 25000,
             "description": "The size cap on ONE task STEP's working note, in CHARACTERS (Unicode code points — Chinese prose counts one per character). One number serves both faces: it is what `get_task` reports per step and what `get_task_step` reports as `note_cap_chars`, AND it is what both note write faces (the wholesale write and the anchor patch) refuse a longer note against, read from this one setting so the reported ceiling and the enforced one can never drift apart. The adjustable range is 1000..100000. Like `chat_budget_chars`, and unlike the `doc_cap_chars_*` knobs, it may be LOWERED as well as raised: the cap is checked only on WRITE, so a note already stored above a newly lowered cap stays readable in full and simply cannot be edited until it is shortened. Two neighbouring fields are deliberately NOT governed by this setting and keep their own 4,000-character server constant: the task-level handover note and a chat message body (owner ruling 2026-09-06).",
             "title": "Step Note Cap Chars",
             "type": "integer"
@@ -8410,25 +8410,25 @@
             "type": "integer"
           },
           "lore_cap_chars_role": {
-            "default": 10000,
+            "default": 25000,
             "description": "How many characters of 傳承 one member's boot document carries (T-33) — staff and outsource alike, spent by every boot of that member. ``everyone`` entries ride inside this same budget, ahead of the member's own (T-236). INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
             "title": "Lore Cap Chars Role",
             "type": "integer"
           },
           "lore_cap_chars_manual": {
-            "default": 10000,
+            "default": 25000,
             "description": "How many characters of 傳承 ``get_task_manual`` carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.",
             "title": "Lore Cap Chars Manual",
             "type": "integer"
           },
           "lore_cap_chars_title": {
-            "default": 80,
+            "default": 200,
             "description": "The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.",
             "title": "Lore Cap Chars Title",
             "type": "integer"
           },
           "lore_cap_chars_body": {
-            "default": 500,
+            "default": 1250,
             "description": "The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.",
             "title": "Lore Cap Chars Body",
             "type": "integer"
@@ -8474,7 +8474,7 @@
       },
       "SettingsUpdateDTO": {
         "additionalProperties": false,
-        "description": "Partial settings edit (`PATCH /api/settings`) — only supplied fields change,\neffective immediately (no restart). `owner_token_ttl` and `agent_token_ttl` are\nindependent and each MUST be one of 43200 / 86400 / 604800 / 2592000 seconds\n(12h / 24h / 7d / 30d — a whitelist, so a stray 0 can never lock future logins\nor agent mints out); owner changes apply from the next login and agent changes\nfrom the next bootstrap, reconcile, or outsource spawn. The offboard points are a\nPAIR (T-a9d6): `notice_pct` is the SOFT notice and `handover_pct` is the FINAL one\n(and the point the handover itself fires). `handover_pct` MUST be 40..90,\n`notice_pct` MUST be 1..89, and `notice_pct` MUST be strictly below\n`handover_pct` — the pair is checked against the POST-patch values, so either may\nbe sent on its own, and a pair that would cross is a 422 rather than being\nquietly reordered. `codex_notice_round` / `codex_compaction_threshold` are the\nsame pair on the codex axis (rounds, 1..10, notice strictly below threshold).\nAnything else is a 422. `outsource_max_parallel` MUST be -1..20 (-1 = 無限/unlimited — no global cap; 0 pauses outsource assignment).\n`updater_receive_beta` toggles whether the GitHub-release update check also\nadmits prereleases; `updater_auto_update` toggles unattended background\nself-upgrade to the newest admissible release (both booleans; a never-set value\nreads false, and on a release build the first password set with the claim code\nturns `updater_auto_update` on; the manual upgrade endpoint is unaffected).\n`updater_announce_features` toggles the assistant's new-release feature\nannouncements (a never-set value reads true). `updater_check_interval_secs`\nMUST be 60..3600. `task_due_soon_lead_minutes` MUST be 1..43200. The five document caps (T-ae38;\nthe manual's one became two in T-30f1) are independent knobs. Each one MUST be\nbetween THAT segment's shipped default (the `default` on the matching\n`SettingsDTO` field — Duty's is its own, much smaller number) and 100000. The floor equalling the shipped default is the\npoint: a cap can only ever be RAISED (owner ruling 2026-07-31), because\nlowering one would turn documents that are legal today into shrink-only ones.",
+        "description": "Partial settings edit (`PATCH /api/settings`) — only supplied fields change,\neffective immediately (no restart). `owner_token_ttl` and `agent_token_ttl` are\nindependent and each MUST be one of 43200 / 86400 / 604800 / 2592000 seconds\n(12h / 24h / 7d / 30d — a whitelist, so a stray 0 can never lock future logins\nor agent mints out); owner changes apply from the next login and agent changes\nfrom the next bootstrap, reconcile, or outsource spawn. The offboard points are a\nPAIR (T-a9d6): `notice_pct` is the SOFT notice and `handover_pct` is the FINAL one\n(and the point the handover itself fires). `handover_pct` MUST be 40..90,\n`notice_pct` MUST be 1..89, and `notice_pct` MUST be strictly below\n`handover_pct` — the pair is checked against the POST-patch values, so either may\nbe sent on its own, and a pair that would cross is a 422 rather than being\nquietly reordered. `codex_notice_round` / `codex_compaction_threshold` are the\nsame pair on the codex axis (rounds, 1..10, notice strictly below threshold).\nAnything else is a 422. `outsource_max_parallel` MUST be -1..20 (-1 = 無限/unlimited — no global cap; 0 pauses outsource assignment).\n`updater_receive_beta` toggles whether the GitHub-release update check also\nadmits prereleases; `updater_auto_update` toggles unattended background\nself-upgrade to the newest admissible release (both booleans; a never-set value\nreads false, and on a release build the first password set with the claim code\nturns `updater_auto_update` on; the manual upgrade endpoint is unaffected).\n`updater_announce_features` toggles the assistant's new-release feature\nannouncements (a never-set value reads true). `updater_check_interval_secs`\nMUST be 60..3600. `task_due_soon_lead_minutes` MUST be 1..43200. The five document caps (T-ae38;\nthe manual's one became two in T-30f1) are independent knobs. Each one MUST be\nbetween THAT segment's shipped default (the `default` on the matching\n`SettingsDTO` field — Duty's is its own, much smaller number) and 250000. The floor equalling the shipped default is the\npoint: a cap can only ever be RAISED (owner ruling 2026-07-31), because\nlowering one would turn documents that are legal today into shrink-only ones.",
         "properties": {
           "accelerated_grace_secs": {
             "anyOf": [
@@ -8667,7 +8667,7 @@
                 "type": "null"
               }
             ],
-            "description": "The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). One knob for both runtimes, each measured on its own text. Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_boot_sequence`, whose `default` is that floor) and at most 100000.",
+            "description": "The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). One knob for both runtimes, each measured on its own text. Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_boot_sequence`, whose `default` is that floor) and at most 250000.",
             "title": "Doc Cap Chars Boot Sequence"
           },
           "doc_cap_chars_duty": {
@@ -8679,7 +8679,7 @@
                 "type": "null"
               }
             ],
-            "description": "The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points). Must be at least this segment's own shipped default (see `SettingsDTO.doc_cap_chars_duty`, whose `default` is that floor) and at most 100000.",
+            "description": "The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points). Must be at least this segment's own shipped default (see `SettingsDTO.doc_cap_chars_duty`, whose `default` is that floor) and at most 250000.",
             "title": "Doc Cap Chars Duty"
           },
           "doc_cap_chars_insight": {
@@ -8691,7 +8691,7 @@
                 "type": "null"
               }
             ],
-            "description": "The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default (see `SettingsDTO.doc_cap_chars_insight`, whose `default` is that floor) and at most 100000.",
+            "description": "The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default (see `SettingsDTO.doc_cap_chars_insight`, whose `default` is that floor) and at most 250000.",
             "title": "Doc Cap Chars Insight"
           },
           "doc_cap_chars_manual_sop": {
@@ -8703,7 +8703,7 @@
                 "type": "null"
               }
             ],
-            "description": "The size cap on a TASK MANUAL's sop_md doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default (see `SettingsDTO.doc_cap_chars_manual_sop`, whose `default` is that floor) and at most 100000.",
+            "description": "The size cap on a TASK MANUAL's sop_md doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default (see `SettingsDTO.doc_cap_chars_manual_sop`, whose `default` is that floor) and at most 250000.",
             "title": "Doc Cap Chars Manual Sop"
           },
           "doc_cap_chars_offboard": {
@@ -8715,7 +8715,7 @@
                 "type": "null"
               }
             ],
-            "description": "The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_offboard`, whose `default` is that floor) and at most 100000.",
+            "description": "The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_offboard`, whose `default` is that floor) and at most 250000.",
             "title": "Doc Cap Chars Offboard"
           },
           "doc_cap_chars_system_interaction": {
@@ -8727,7 +8727,7 @@
                 "type": "null"
               }
             ],
-            "description": "The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_system_interaction`, whose `default` is that floor) and at most 100000.",
+            "description": "The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_system_interaction`, whose `default` is that floor) and at most 250000.",
             "title": "Doc Cap Chars System Interaction"
           },
           "handover_pct": {

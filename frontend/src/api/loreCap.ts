@@ -13,7 +13,7 @@
 // the direction: since owner 2026-09-07 (card rc-5b66ba099e28 option [1]) the
 // eight `doc.cap_chars.*` knobs share one floor of DOC_CAP_CHARS_MIN and turn
 // both ways, as these four always have. What differs is the numbers — the doc
-// caps run DOC_CAP_CHARS_MIN..100000, and the two ENTRY bounds below are
+// caps run DOC_CAP_CHARS_MIN..250000, and the two ENTRY bounds below are
 // sentence-sized (10..10000: the owner lowered two of them himself the day they
 // shipped, title 140 → 80 and body 1000 → 500, and a floor of 100 would forbid
 // the 80 he is sitting on). Filing them as rows of a table that states one
@@ -32,10 +32,10 @@ export const LORE_CAP_CHARS_DEFAULTS: Record<
   "role" | "manual" | "title" | "body",
   number
 > = {
-  role: 10000,
-  manual: 10000,
-  title: 80,
-  body: 500,
+  role: 25000,
+  manual: 25000,
+  title: 200,
+  body: 1250,
 };
 
 /** The adjustable range for the two FOLD budgets, mirroring the server's 422. */

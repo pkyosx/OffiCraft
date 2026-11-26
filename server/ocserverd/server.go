@@ -399,7 +399,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		taskDueSoonLeadMinutes:           defaultTaskDueSoonLeadMinutes,
 		docCapCharsDuty:                  dutyCapCharsDefault,
 		docCapCharsInsight:               contextDocMaxCharsDefault,
-		docCapCharsManualSop:             contextDocMaxCharsDefault,
+		docCapCharsManualSop:             manualSopCapCharsDefault,
 		docCapCharsSystemInteraction:     systemInteractionCapCharsDefault,
 		docCapCharsBootSequence:          bootSequenceCapCharsDefault,
 		docCapCharsOffboard:              offboardCapCharsDefault,

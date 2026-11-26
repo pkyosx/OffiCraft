@@ -360,7 +360,7 @@ func TestHandleListRolesApiRolesGet(t *testing.T) {
 		apiWantValue(t, "body", got, []any{
 			map[string]any{
 				"size_chars":     169,
-				"cap_chars":      1000,
+				"cap_chars":      2500,
 				"key":            "assistant",
 				"name":           "Assistant",
 				"owner_id":       "owner",
@@ -370,7 +370,7 @@ func TestHandleListRolesApiRolesGet(t *testing.T) {
 			},
 			map[string]any{
 				"size_chars":     21,
-				"cap_chars":      1000,
+				"cap_chars":      2500,
 				"key":            "r-design",
 				"name":           "Design",
 				"owner_id":       "owner",
@@ -403,7 +403,7 @@ func TestHandleListRolesApiRolesGet(t *testing.T) {
 		apiWantValue(t, "body", got, []any{
 			map[string]any{
 				"size_chars":     6,
-				"cap_chars":      1000,
+				"cap_chars":      2500,
 				"key":            "assistant",
 				"name":           "Assistant",
 				"owner_id":       "owner",
@@ -413,7 +413,7 @@ func TestHandleListRolesApiRolesGet(t *testing.T) {
 			},
 			map[string]any{
 				"size_chars":     21,
-				"cap_chars":      1000,
+				"cap_chars":      2500,
 				"key":            "r-design",
 				"name":           "Design",
 				"owner_id":       "owner",
@@ -449,7 +449,7 @@ func TestHandleGetRoleApiRolesRoleGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     21,
-			"cap_chars":      1000,
+			"cap_chars":      2500,
 			"key":            "r-design",
 			"name":           "Design",
 			"definition_md":  "# Duty\nDesign things.",
@@ -470,7 +470,7 @@ func TestHandleGetRoleApiRolesRoleGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     169,
-			"cap_chars":      1000,
+			"cap_chars":      2500,
 			"key":            "assistant",
 			"name":           "Assistant",
 			"definition_md":  apiTestAssistantSeedDefinitionMD,
@@ -581,7 +581,7 @@ func TestHandleCreateRoleApiRolesPost(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     155,
-			"cap_chars":      1000,
+			"cap_chars":      2500,
 			"key":            roleKey,
 			"name":           "Design",
 			"definition_md":  apiTestCustomRoleTemplateMD,
@@ -719,7 +719,7 @@ func TestHandleUpdateRoleApiRolesRolePost(t *testing.T) {
 			"is_default": false,
 			"is_seed":    false,
 			"size_chars": 21,
-			"cap_chars":  1000,
+			"cap_chars":  2500,
 			"sha256":     "724db319a7b3d260d62d6fbe709d8c12cbbf7ff023b99d9efb162cec188b5ff0",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -753,7 +753,7 @@ func TestHandleUpdateRoleApiRolesRolePost(t *testing.T) {
 			"is_default": false,
 			"is_seed":    true,
 			"size_chars": 169,
-			"cap_chars":  1000,
+			"cap_chars":  2500,
 			"sha256":     "8e4957c5da2787a69e5d3470fafcc3badbf5b6e2f863d3eb0cfb29a8988c2425",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -780,12 +780,12 @@ func TestHandleUpdateRoleApiRolesRolePost(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/roles/r-design", owner,
-			`{"definition_md":"`+strings.Repeat("x", 1001)+`"}`)
+			`{"definition_md":"`+strings.Repeat("x", 2501)+`"}`)
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
-			"the role definition doc you are writing is 1001 chars, over the 1000-char cap, "+
+			"the role definition doc you are writing is 2501 chars, over the 2500-char cap, "+
 				"and is not shorter than the 21 chars already stored — nothing was written. "+
 				"What is already stored is never truncated, but every update must land at or "+
 				"under the cap, or at least come out SHORTER than what is there now. Drop stale "+
@@ -892,7 +892,7 @@ func TestHandleResetRoleApiRolesRoleResetPost(t *testing.T) {
 			"is_default": true,
 			"is_seed":    true,
 			"size_chars": 169,
-			"cap_chars":  1000,
+			"cap_chars":  2500,
 			"sha256":     "8e4957c5da2787a69e5d3470fafcc3badbf5b6e2f863d3eb0cfb29a8988c2425",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -925,7 +925,7 @@ func TestHandleResetRoleApiRolesRoleResetPost(t *testing.T) {
 			"is_default": true,
 			"is_seed":    true,
 			"size_chars": 169,
-			"cap_chars":  1000,
+			"cap_chars":  2500,
 			"sha256":     "8e4957c5da2787a69e5d3470fafcc3badbf5b6e2f863d3eb0cfb29a8988c2425",
 		})
 	})

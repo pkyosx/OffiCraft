@@ -51,7 +51,7 @@ describe("T-119 — the step note size cap is an adjustable setting", () => {
   // value derived from them, so all three would drift together in silence; this
   // is the one that names what the server actually ships.
   it("mirrors the server's shipped default and range", () => {
-    expect(STEP_NOTE_CAP_CHARS_DEFAULT).toBe(10000);
+    expect(STEP_NOTE_CAP_CHARS_DEFAULT).toBe(25000);
     expect(STEP_NOTE_CAP_CHARS_MIN).toBe(1000);
     expect(STEP_NOTE_CAP_CHARS_MAX).toBe(100000);
   });

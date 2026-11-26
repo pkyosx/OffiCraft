@@ -638,22 +638,27 @@ func LessonsShrinkBlocked(before, after string) bool {
 	return len(before) >= lessonsShrinkGuardMinChars && len(after)*10 < len(before)
 }
 
-// contextDocMaxCharsDefault is only the default of a `doc.cap_chars.*` setting
-// (the effective cap always arrives as a parameter), shared by insight and a
-// task manual's sop_md. Caps count runes, not bytes, deliberately: the owner
-// picked the numbers from SQLite length() character counts, and len() on
-// mostly-Chinese text would be more than twice as strict.
-const contextDocMaxCharsDefault = 15000
+// contextDocMaxCharsDefault (insight) and manualSopCapCharsDefault are only the
+// defaults of `doc.cap_chars.*` settings (the effective cap always arrives as a
+// parameter). A default applies only while the setting has no row, so changing
+// one never moves a station whose owner has saved that knob. Caps count runes,
+// not bytes, deliberately: the owner picked the numbers from SQLite length()
+// character counts, and len() on mostly-Chinese text would be more than twice
+// as strict.
+const (
+	contextDocMaxCharsDefault = 15000
+	manualSopCapCharsDefault  = 37500
+)
 
 // dutyCapCharsDefault: the factory Duty seed is structurally exempt, because
 // reset_role tombstones and folds back to the file seed with no cap check.
-const dutyCapCharsDefault = 1000
+const dutyCapCharsDefault = 2500
 
 // Boot-context caps are sized against the seeds they ship with (a long handbook
 // vs short checklists). bootSequenceCapCharsDefault is one knob for both
 // runtimes' texts.
 const (
-	systemInteractionCapCharsDefault = 60000
+	systemInteractionCapCharsDefault = 150000
 	bootSequenceCapCharsDefault      = 15000
 	offboardCapCharsDefault          = 15000
 	// taskEventCapCharsDefault is a constant, not yet a `doc.cap_chars.*`
@@ -663,10 +668,12 @@ const (
 
 // minDocCapChars / maxDocCapChars bound all eight adjustable document caps. The
 // shared floor sits below the defaults so caps can be lowered (owner
-// rc-5b66ba099e28); it is 100 rather than 0 because 0 means "no room".
+// rc-5b66ba099e28); it is 100 rather than 0 because 0 means "no room". The
+// ceiling must stay above every default (system interaction's is the largest),
+// or a station could lower that cap and never set it back.
 const (
 	minDocCapChars = 100
-	maxDocCapChars = 100000
+	maxDocCapChars = 250000
 )
 
 // Wake-snapshot chat block budget (`chat.budget_chars`, spent by
@@ -684,7 +691,7 @@ const (
 // chatBodyMaxChars' other users: chat bodies and the task handover note keep
 // 4000 (owner rc-c8cc527bfed3).
 const (
-	stepNoteCapCharsDefault = 10000
+	stepNoteCapCharsDefault = 25000
 	minStepNoteCapChars     = 1000
 	maxStepNoteCapChars     = 100000
 )
@@ -1195,16 +1202,16 @@ func ValidLoreType(s string) bool {
 // renaming would change a key the owner has already set. The member and manual
 // budgets are spent by different readers and are never summed.
 const (
-	loreRoleCapCharsDefault   = 10000
-	loreManualCapCharsDefault = 10000
-	loreTitleCapCharsDefault  = 80
-	loreBodyCapCharsDefault   = 500
+	loreRoleCapCharsDefault   = 25000
+	loreManualCapCharsDefault = 25000
+	loreTitleCapCharsDefault  = 200
+	loreBodyCapCharsDefault   = 1250
 )
 
 // Lore cap floors are non-zero because 0 means "no room" (selectLoreForScope).
 const (
 	minLoreFoldCapChars  = 100
-	maxLoreFoldCapChars  = maxDocCapChars
+	maxLoreFoldCapChars  = 100000
 	minLoreEntryCapChars = 10
 	maxLoreEntryCapChars = 10000
 )

@@ -169,7 +169,7 @@ func TestUpdateSettingsDocCapCharsRange(t *testing.T) {
 			func(s *apiServer) int { return s.dutyCap() }},
 		{"doc_cap_chars_insight", settingDocCapCharsInsight, contextDocMaxCharsDefault,
 			func(s *apiServer) int { return s.insightCap() }},
-		{"doc_cap_chars_manual_sop", settingDocCapCharsManualSop, contextDocMaxCharsDefault,
+		{"doc_cap_chars_manual_sop", settingDocCapCharsManualSop, manualSopCapCharsDefault,
 			func(s *apiServer) int { return s.manualSopCap() }},
 		{"doc_cap_chars_system_interaction", settingDocCapCharsSystemInteraction, systemInteractionCapCharsDefault,
 			func(s *apiServer) int { return s.systemInteractionCap() }},
@@ -202,7 +202,7 @@ func TestUpdateSettingsDocCapCharsRange(t *testing.T) {
 				`{"` + k.field + `":` + below + `}`,
 				`{"` + k.field + `":0}`,
 				`{"` + k.field + `":-1}`,
-				`{"` + k.field + `":100001}`,
+				`{"` + k.field + `":250001}`,
 				`{"handover_pct":60,"` + k.field + `":` + below + `}`, // one bad field poisons the patch
 			} {
 				if status, _ := patchSettings(t, srv.URL, owner, body); status != 422 {
@@ -230,7 +230,7 @@ func TestUpdateSettingsDocCapCharsRange(t *testing.T) {
 			}
 
 			// Both ends of the range are accepted, durable, and live.
-			for _, n := range []string{strconv.Itoa(minDocCapChars), "100000", "42000"} {
+			for _, n := range []string{strconv.Itoa(minDocCapChars), "250000", "42000"} {
 				status, data := patchSettings(t, srv.URL, owner, `{"`+k.field+`":`+n+`}`)
 				if status != 200 {
 					t.Fatalf("PATCH %s=%s: want 200, got %d: %v", k.field, n, status, data)
@@ -277,13 +277,13 @@ func TestLoadAuthSettingsRejectsAnOutOfRangeDocCap(t *testing.T) {
 	shipped := map[string]int{
 		settingDocCapCharsDuty:              dutyCapCharsDefault,
 		settingDocCapCharsInsight:           contextDocMaxCharsDefault,
-		settingDocCapCharsManualSop:         contextDocMaxCharsDefault,
+		settingDocCapCharsManualSop:         manualSopCapCharsDefault,
 		settingDocCapCharsSystemInteraction: systemInteractionCapCharsDefault,
 		settingDocCapCharsBootSequence:      bootSequenceCapCharsDefault,
 		settingDocCapCharsOffboard:          offboardCapCharsDefault,
 	}
 	for key, def := range shipped {
-		for _, bad := range []string{strconv.Itoa(minDocCapChars - 1), "100001", "0", "-5", "lots"} {
+		for _, bad := range []string{strconv.Itoa(minDocCapChars - 1), "250001", "0", "-5", "lots"} {
 			d := newTestDAL(t)
 			if err := d.PutSetting(key, bad); err != nil {
 				t.Fatalf("PutSetting: %v", err)
@@ -375,7 +375,7 @@ func TestTaskManualReadReportsItsDocumentSize(t *testing.T) {
 		t.Fatalf("sop_md_chars: got %v want %d (bytes=%d)",
 			data["sop_md_chars"], utf8.RuneCountInString(sop), len(sop))
 	}
-	if got, _ := data["sop_md_cap_chars"].(float64); int(got) != contextDocMaxCharsDefault {
+	if got, _ := data["sop_md_cap_chars"].(float64); int(got) != manualSopCapCharsDefault {
 		t.Fatalf("sop_md_cap_chars must be the live cap: got %v", data["sop_md_cap_chars"])
 	}
 }
@@ -386,7 +386,7 @@ func TestTaskManualReadReportsItsDocumentSize(t *testing.T) {
 // list is exactly where "which manual is close to the cap" gets asked.
 func TestListViewOmitsTheTextButNotItsSize(t *testing.T) {
 	s := &apiServer{dal: newTestDAL(t), hub: NewHub(),
-		docCapCharsManualSop: contextDocMaxCharsDefault}
+		docCapCharsManualSop: manualSopCapCharsDefault}
 	sop := cjkDoc(t, 90)
 	if err := s.dal.PutTaskManual(TaskManual{
 		TypeKey: "tm-sized", DisplayName: "sized", Purpose: "p",
@@ -413,7 +413,7 @@ func TestListViewOmitsTheTextButNotItsSize(t *testing.T) {
 		t.Fatalf("sop_md_chars must survive the narrowing: got %d want %d",
 			got.SopMDChars, utf8.RuneCountInString(sop))
 	}
-	if got.SopMDCapChars != contextDocMaxCharsDefault {
+	if got.SopMDCapChars != manualSopCapCharsDefault {
 		t.Fatalf("sop_md_cap_chars on the list view: got %d", got.SopMDCapChars)
 	}
 }

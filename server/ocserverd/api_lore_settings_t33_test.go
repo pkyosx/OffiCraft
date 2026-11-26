@@ -36,31 +36,30 @@ func loreSettings(t *testing.T, api *apiServer) settingsDTO {
 // TestLoreCapsShipTheOwnersNumbers pins the four defaults on all three faces:
 // the accessor the folds read, the read face, and the shipped constant.
 //
-// The two entry numbers are the ones the owner set himself on 2026-09-07 (title
-// 140→80, body 1000→500), so they are written out literally here rather than
-// referred to by their constant — a test that says `loreTitleCapCharsDefault`
+// The four numbers are the owner's own, so they are written out literally here
+// rather than referred to by their constant — a test that says `loreTitleCapCharsDefault`
 // stays green when somebody edits that constant, which is the one thing this
 // test exists to notice.
 func TestLoreCapsShipTheOwnersNumbers(t *testing.T) {
 	api := newTasksTestServer(t)
 
-	if got := api.loreRoleCap(); got != 10000 {
-		t.Fatalf("loreRoleCap() = %d, want 10000", got)
+	if got := api.loreRoleCap(); got != 25000 {
+		t.Fatalf("loreRoleCap() = %d, want 25000", got)
 	}
-	if got := api.loreManualCap(); got != 10000 {
-		t.Fatalf("loreManualCap() = %d, want 10000", got)
+	if got := api.loreManualCap(); got != 25000 {
+		t.Fatalf("loreManualCap() = %d, want 25000", got)
 	}
-	if got := api.loreTitleCap(); got != 80 {
-		t.Fatalf("loreTitleCap() = %d, want 80", got)
+	if got := api.loreTitleCap(); got != 200 {
+		t.Fatalf("loreTitleCap() = %d, want 200", got)
 	}
-	if got := api.loreBodyCap(); got != 500 {
-		t.Fatalf("loreBodyCap() = %d, want 500", got)
+	if got := api.loreBodyCap(); got != 1250 {
+		t.Fatalf("loreBodyCap() = %d, want 1250", got)
 	}
 
 	dto := loreSettings(t, api)
-	if dto.LoreCapCharsRole != 10000 || dto.LoreCapCharsManual != 10000 ||
-		dto.LoreCapCharsTitle != 80 || dto.LoreCapCharsBody != 500 {
-		t.Fatalf("GET /api/settings reports %d/%d/%d/%d, want 10000/10000/80/500",
+	if dto.LoreCapCharsRole != 25000 || dto.LoreCapCharsManual != 25000 ||
+		dto.LoreCapCharsTitle != 200 || dto.LoreCapCharsBody != 1250 {
+		t.Fatalf("GET /api/settings reports %d/%d/%d/%d, want 25000/25000/200/1250",
 			dto.LoreCapCharsRole, dto.LoreCapCharsManual,
 			dto.LoreCapCharsTitle, dto.LoreCapCharsBody)
 	}
@@ -124,8 +123,8 @@ func TestLoreCapsRefuseOutOfRange(t *testing.T) {
 	}
 	// Nothing moved.
 	dto := loreSettings(t, api)
-	if dto.LoreCapCharsRole != 10000 || dto.LoreCapCharsManual != 10000 ||
-		dto.LoreCapCharsTitle != 80 || dto.LoreCapCharsBody != 500 {
+	if dto.LoreCapCharsRole != 25000 || dto.LoreCapCharsManual != 25000 ||
+		dto.LoreCapCharsTitle != 200 || dto.LoreCapCharsBody != 1250 {
 		t.Fatalf("a refused PATCH moved a value: %d/%d/%d/%d",
 			dto.LoreCapCharsRole, dto.LoreCapCharsManual,
 			dto.LoreCapCharsTitle, dto.LoreCapCharsBody)
@@ -143,8 +142,8 @@ func TestLoreFoldCapsAreIndependent(t *testing.T) {
 	if got := api.loreRoleCap(); got != 1234 {
 		t.Fatalf("loreRoleCap() = %d, want 1234", got)
 	}
-	if got := api.loreManualCap(); got != 10000 {
-		t.Fatalf("loreManualCap() = %d, want its own untouched 10000 — the two "+
+	if got := api.loreManualCap(); got != 25000 {
+		t.Fatalf("loreManualCap() = %d, want its own untouched 25000 — the two "+
 			"budgets are independent and are never summed or shared", got)
 	}
 }

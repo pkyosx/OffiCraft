@@ -208,7 +208,7 @@ describe("DocumentHistoryModal", () => {
     // `sop_md` and on nothing else a revision happens to carry. The un-capped
     // neighbour is the discrimination: a fixture with only the blocked case
     // would also pass on a modal that judges every field it is handed.
-    const overCap = "字".repeat(DOC_CAP_CHARS_DEFAULT + 1);
+    const overCap = "字".repeat(DOC_CAP_CHARS_DEFAULTS.manualSop + 1);
 
     const clear = open({
       kind: "task_manual_sop",

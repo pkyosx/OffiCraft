@@ -893,7 +893,7 @@ function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
     size_chars: [...text].length,
     // The LIVE setting, not the shipped default: the server enforces this
     // read's `cap_chars` against `doc.cap_chars.<kind>`, so a mock pinned to
-    // the default would keep answering 60000/15000 after the owner moved the
+    // the default would keep answering 150000/15000 after the owner moved the
     // knob — and the page sizes its edits against exactly this number.
     cap_chars: bootDocCap(kind),
     is_default: overlay === undefined,
@@ -1217,7 +1217,7 @@ function withManualSizes(m: StoredTaskManual): TaskManualView {
 // marker-stripping and "an alert must not look like an ordinary quote" have a
 // fixture (the latter is only decidable in a real browser — see the CT spec).
 /** 傳承 fixture (T-33). Enough rows, and enough LENGTH, that the default
- * 10,000-character member budget is not trivially satisfied — a fixture whose
+ * 25,000-character member budget is not trivially satisfied — a fixture whose
  * every row fits can never show the 上限線 the page exists to draw, so the
  * cockpit would be built against a case that never occurs.
  *
@@ -7603,12 +7603,12 @@ const mockApiImpl = {
     ] as const) {
       if (
         field !== undefined &&
-        (field < DOC_CAP_CHARS_MIN || field > 100000)
+        (field < DOC_CAP_CHARS_MIN || field > 250000)
       ) {
         throw mockApiError(
           "http 422 for PATCH /api/settings",
           422,
-          `${wire} must be between ${DOC_CAP_CHARS_MIN} and 100000 characters — a lowered cap binds the next write only; stored content over it is never truncated and still reads back`
+          `${wire} must be between ${DOC_CAP_CHARS_MIN} and 250000 characters — a lowered cap binds the next write only; stored content over it is never truncated and still reads back`
         );
       }
     }

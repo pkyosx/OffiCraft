@@ -1338,7 +1338,7 @@ export interface ServerSettingsView {
    * shipped defaults live in
    * `DOC_CAP_CHARS_DEFAULTS` (docCap.ts, mirroring server/ocserverd/domain.go);
    * Duty's is deliberately much smaller than every other one. Each floor IS that segment's own
-   * default and the ceiling is 100000, so a cap only ever goes UP. Numbers are
+   * default and the ceiling is 250000, so a cap only ever goes UP. Numbers are
    * not restated here — they are owner-adjustable settings. */
   docCapCharsDuty: number;
   docCapCharsInsight: number;
@@ -1347,7 +1347,7 @@ export interface ServerSettingsView {
    * and in the same rune unit. `docCapCharsBootSequence` is ONE number across
    * both runtimes — claude and codex are two documents of one block, each
    * measured on its own text. Defaults in `BOOT_DOC_CAP_CHARS_DEFAULTS`
-   * (docCap.ts); same floor-is-the-default, ceiling-100000 rule as above. */
+   * (docCap.ts); same floor-is-the-default, ceiling-250000 rule as above. */
   docCapCharsSystemInteraction: number;
   docCapCharsBootSequence: number;
   /** T-c9c0: the 〈停止〉 document's cap, same surface and same rule. */
@@ -1509,7 +1509,7 @@ export interface ServerSettingsPatch {
   /** 1..43200 minutes. */
   taskDueSoonLeadMinutes?: number;
   /** T-ae38 document size caps, in characters. Each must be between
-   * `DOC_CAP_CHARS_MIN` (100 since owner 2026-09-07) and 100000 — one shared
+   * `DOC_CAP_CHARS_MIN` (100 since owner 2026-09-07) and 250000 — one shared
    * floor, so every one of them may be lowered as well as raised. */
   docCapCharsDuty?: number;
   docCapCharsInsight?: number;

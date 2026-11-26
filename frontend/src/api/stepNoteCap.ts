@@ -12,7 +12,7 @@
 // owner 2026-09-07 (card rc-5b66ba099e28 option [1]) the eight
 // `doc.cap_chars.*` knobs share one floor of DOC_CAP_CHARS_MIN and turn both
 // ways, as this one always has. What differs is the numbers — the doc caps run
-// DOC_CAP_CHARS_MIN..100000, and this one's floor is 1000, because a step note
+// DOC_CAP_CHARS_MIN..250000, and this one's floor is 1000, because a step note
 // is one agent's handover line rather than a document, and a note capped at a
 // couple of hundred characters cannot carry a handover at all.
 //
@@ -23,7 +23,7 @@
 /** The shipped default, in CHARACTERS (Unicode code points — the unit the
  * server measures in). Used only as the fallback for a caller with no server
  * value yet; the number in force always arrives on GET /api/settings. */
-export const STEP_NOTE_CAP_CHARS_DEFAULT = 10000;
+export const STEP_NOTE_CAP_CHARS_DEFAULT = 25000;
 
 /** The adjustable range, mirroring the server's 422. */
 export const STEP_NOTE_CAP_CHARS_MIN = 1000;
