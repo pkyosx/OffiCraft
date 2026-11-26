@@ -709,6 +709,13 @@ export const zh = {
       "暫時無法確認這個編號是否存在，請稍後重試。",
     loadError: "載入請示失敗，請稍後重試",
     waitedLabel: "已等你",
+    // 桌面版「已等你」小膠囊的提示與無障礙名稱用的完整時長：已等你 23 小時 59 分。
+    waitedDayOne: "天",
+    waitedDayMany: "天",
+    waitedHourOne: "小時",
+    waitedHourMany: "小時",
+    waitedMinuteOne: "分",
+    waitedMinuteMany: "分",
     // 開卡/已回覆一律絕對時間含日期(如 7/13 09:05),不用相對或「今天」。
     openedAtLabel: "開卡",
     answeredAtLabel: "已回覆",
@@ -767,7 +774,6 @@ export const zh = {
     quoteCancel: "取消引用",
     // §3.6 請示 → 任務：純聊天請示不顯示任務列。請示頁的任務列另外帶任務編號、
     // 優先序與期限；聊天視窗裡的卡只顯示標題。
-    viewTask: "查看任務詳情",
     openTask: "查看任務",
     expandCard: "展開這張請示卡",
     collapseCard: "收合這張請示卡",

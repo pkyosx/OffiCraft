@@ -34,6 +34,7 @@ import type { Dict } from "./locales/zh";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
 import { dayStartOf, formatAbsolute, formatClock, formatResetTime } from "../lib/dateFormat";
 import { splitLeadMinutes, type DueRemaining, type LeadUnit } from "../lib/dueDate";
+import { durationParts } from "../lib/duration";
 
 /** The UI languages a wording overlay keys on (mirrors i18n's `Language`;
  * declared locally so this module never imports the provider back). */
@@ -68,6 +69,7 @@ export interface Messages {
   passkeyIpHint: (url: string) => string;
   // ── replies ──
   replyWaited: (elapsed: string) => string;
+  replyWaitedFull: (seconds: number) => string;
   replyOpenedAt: (time: string) => string;
   replyAnsweredAt: (time: string) => string;
   replyExpiredAt: (time: string) => string;
@@ -402,6 +404,17 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     taskReassignTitle: (taskNo) => `${tasks.reassignTitleLabel} ${taskNo}`,
 
     replyWaited: (elapsed) => `${replies.waitedLabel} ${elapsed}`,
+    // 「已等你 23 小時 59 分」/「Waiting 23 hours 59 minutes」: every non-zero
+    // part, so the desktop pill's single unit loses nothing for whoever asks.
+    replyWaitedFull: (seconds) => {
+      const { days, hours, minutes } = durationParts(seconds);
+      const parts = [
+        days > 0 ? counted(days, replies.waitedDayOne, replies.waitedDayMany) : "",
+        hours > 0 ? counted(hours, replies.waitedHourOne, replies.waitedHourMany) : "",
+        minutes > 0 ? counted(minutes, replies.waitedMinuteOne, replies.waitedMinuteMany) : "",
+      ].filter((part) => part !== "");
+      return messages.replyWaited(parts.join(" "));
+    },
     replyOpenedAt: (time) => `${replies.openedAtLabel} ${time}`,
     replyAnsweredAt: (time) => `${replies.answeredAtLabel} ${time}`,
     replyExpiredAt: (time) => `${replies.expiredAtLabel} ${time}`,

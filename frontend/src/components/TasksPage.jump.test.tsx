@@ -1,8 +1,8 @@
 // 請示 ↔ 任務: the 請示 → 任務 leg. Locked here:
 //   1. A TASK-derived reply card (card.task non-null) shows the 精簡任務資訊
-//      row: the TYPE + 查看任務詳情 — and NEVER the task number / 識別鍵
+//      row: the TYPE + the 查看任務 chevron — and NEVER the task number / 識別鍵
 //      (adjudicated). A pure chat ask shows nothing.
-//   2. Clicking 查看任務詳情 routes to #tasks/<taskId>.
+//   2. Clicking 查看任務 routes to #tasks/<taskId>.
 //   3. Arriving at #tasks/<id> narrows the page to that ONE task in the normal
 //      layout (a closed target included); emptying the 編號 field
 //      returns to the full list; an unknown id KEEPS its anchor and the page
@@ -13,7 +13,7 @@
 //   4. The chat's inline card (ChatReplyCard) carries the same task row.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TasksPage } from "./TasksPage";
 import { RepliesPage } from "./RepliesPage";
@@ -157,7 +157,13 @@ describe("請示卡的任務資訊 (RepliesPage)", () => {
     expect(ref.querySelector(".reply-card__task-title")?.textContent).toBe(
       "同步 PROJ-1421 到 T-9 的排程"
     );
-    expect(ref.querySelector('[data-testid="reply-task-jump"]')?.textContent).toBe("查看任務");
+    const jump = within(ref).getByRole("button", { name: "查看任務" });
+    expect(jump).toBe(ref.querySelector('[data-testid="reply-task-jump"]'));
+    expect(jump.getAttribute("title")).toBe("查看任務");
+    // Named by aria-label, not only by the title fallback.
+    expect(jump.getAttribute("aria-label")).toBe("查看任務");
+    expect(jump.textContent).toBe("");
+    expect(jump.querySelector("svg")).not.toBeNull();
     expect(ref.textContent).not.toContain("sync-jira");
 
     fireEvent.click(await findByTestId("reply-task-jump"));
@@ -201,9 +207,13 @@ describe("請示卡的任務資訊 (ChatReplyCard)", () => {
     const ref = await findByTestId("reply-task-ref");
     expect(ref.textContent).not.toContain("review-pr");
     expect(ref.textContent).toContain("修 PR");
-    // The chat card names the task by its title only.
-    expect(taskRefTextOutsideTitle(ref)).toBe("查看任務詳情");
-    fireEvent.click(await findByTestId("reply-task-jump"));
+    // The chat card names the task by its title only; the jump is the same
+    // chevron, named 查看任務 like the 請示 page's.
+    expect(taskRefTextOutsideTitle(ref)).toBe("");
+    const jump = within(ref).getByRole("button", { name: "查看任務" });
+    expect(jump.getAttribute("title")).toBe("查看任務");
+    expect(jump.getAttribute("aria-label")).toBe("查看任務");
+    fireEvent.click(jump);
     expect(window.location.hash).toBe("#tasks/t-99");
   });
 

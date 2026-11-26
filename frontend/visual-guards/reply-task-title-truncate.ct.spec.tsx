@@ -4,7 +4,7 @@
 // contractor's card said who was asking but not WHICH piece of work). Titles
 // are free-length — real ones run past 40 characters — so the row needs one
 // element that gives way. If none does, the row grows past the card and the
-// 查看任務詳情 jump is pushed out of reach, or the card itself starts panning
+// 查看任務 jump is pushed out of reach, or the card itself starts panning
 // sideways.
 //
 // WHY A REAL BROWSER: this is layout. jsdom resolves no flex box and no
@@ -112,7 +112,7 @@ for (const viewport of WIDTHS) {
     expect(rowBox && jumpBox).toBeTruthy();
     expect(
       jumpBox!.x + jumpBox!.width,
-      "查看任務詳情 must stay inside the row",
+      "查看任務 must stay inside the row",
     ).toBeLessThanOrEqual(rowBox!.x + rowBox!.width + 1);
 
     // (3) CONTROL — a title that fits is NOT clipped. This is what separates

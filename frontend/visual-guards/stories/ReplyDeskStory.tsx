@@ -8,6 +8,7 @@
 // room above the selection bar, a waiting secret card, and an answered card in
 // 近期已處理. `longAskers` adds waiting cards from askers whose name, role or
 // (an outsource worker's) current task is longer than a phone's head line.
+// `waits` adds plain waiting cards that have waited those many seconds.
 import { I18nProvider } from "../../src/i18n";
 import { RepliesPage } from "../../src/components/RepliesPage";
 import { ReplyCardsProvider } from "../../src/hooks/useReplyCards";
@@ -44,9 +45,12 @@ function card(over: Partial<ReplyCard>): ReplyCard {
 }
 
 let seeded = false;
-function seed(questions: boolean, longAskers: boolean) {
+function seed(questions: boolean, longAskers: boolean, waits: readonly number[]) {
   if (seeded) return;
   seeded = true;
+  for (const [i, ago] of waits.entries()) {
+    __injectMockReplyCard(card({ id: `rc-desk-wait-${i}`, createdTs: NOW - ago, task: null }));
+  }
   if (longAskers) {
     __injectMockMember({ id: "gf-eva", kind: "staff", name: "GF Eva Rhapsody Inbox" });
     __injectMockMember({
@@ -168,15 +172,17 @@ export function ReplyDeskStory({
   cardReadFails = false,
   cardReadHangs = false,
   longAskers = false,
+  waits = [],
 }: {
   questions?: boolean;
   longAskers?: boolean;
+  waits?: readonly number[];
   /** Every one-card read fails: opening a card and 複製 alike. */
   cardReadFails?: boolean;
   /** Every one-card read stays in flight. */
   cardReadHangs?: boolean;
 }) {
-  seed(questions, longAskers);
+  seed(questions, longAskers, waits);
   if (cardReadFails) api.getReplyCard = failRead;
   if (cardReadHangs) api.getReplyCard = hangRead;
   // Another window's 稍後再看, for a guard that needs a card to change panes

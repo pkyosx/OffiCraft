@@ -68,8 +68,15 @@ export function useLongPress<T>(
     onMouseDownCapture(e: MouseEvent) {
       if (fired.current) e.preventDefault();
     },
+    // Only the click the lifting finger produces is swallowed. A click with
+    // detail 0 is a keyboard's or a screen reader's activation: swallowing it
+    // would eat the first one after any long press, because what the press
+    // opened (the action sheet) lives outside this container and its taps
+    // never end the swallow. It also leaves the flag in place, so a scroll that
+    // closes the sheet while the finger is still down cannot let that finger's
+    // click through.
     onClickCapture(e: MouseEvent) {
-      if (!fired.current) return;
+      if (!fired.current || e.detail === 0) return;
       fired.current = false;
       e.preventDefault();
       e.stopPropagation();

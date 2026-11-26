@@ -94,7 +94,7 @@ export interface HashRoute {
    * already tagged with the task). One-shot, only seeds an empty draft. */
   composeTaskNo?: string;
   /** tasks only — the task the page narrows to + highlights on open (§3.6 請示
-   * → 任務跳轉: the reply card's 查看任務詳情 link routes here; the page
+   * → 任務跳轉: the reply card's 查看任務 chevron routes here; the page
    * guarantees visibility — expands its lane, overrides the other filters).
    *
    * T-93 (owner 2026-09-05, `rc-428906235337`): when the id names NO task the
