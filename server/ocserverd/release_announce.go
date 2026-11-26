@@ -467,17 +467,13 @@ func releaseAnnouncementTags(picks []releaseAnnouncement) []string {
 }
 
 // 🔴 The rules are the owner's wording, verbatim; do not rephrase them. Only
-// the preferred language, the versions in the title line, and the closing
-// reminder are filled in by the station.
+// the preferred language, the title line, and the closing reminder are filled
+// in by the station.
 func releaseAnnouncementBody(token string, picks []releaseAnnouncement, omitted int, listURL string, displayLanguage string) string {
-	tags := make([]string, 0, len(picks))
-	for _, p := range picks {
-		tags = append(tags, releaseAnnouncementHeading(p.tag))
-	}
-	language, title := "中文", "OffiCraft "+strings.Join(tags, "、")+" 更新公告"
+	language, title := "中文", "OffiCraft 更新公告"
 	reminder := "若不想收到這類通知，可以到「設定 › 更新設定」關閉。"
 	if displayLanguage == "en" {
-		language, title = " English", "OffiCraft "+strings.Join(tags, ", ")+" release announcement"
+		language, title = " English", "OffiCraft release announcement"
 		reminder = "If you don't want these notices, you can turn them off in Settings › Update settings."
 	}
 	var b strings.Builder
