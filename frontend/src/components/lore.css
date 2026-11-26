@@ -14,7 +14,7 @@
  *   .lore-row__menu-pop      ← .task-card__menu-pop
  *   .lore-row__menu-item     ← .task-card__menu-item (+ --active = accent/700)
  *   .lore-row__expand-mark   ← .task-card__expand-mark
- *   .lore-row__meta / __chip ← .task-card__meta / __chip
+ *   .lore-row__chip          ← .task-card__chip
  *   .lore-dir-card           ← .task-card
  *   .lore-dir-card__usage / __bar / __bar-fill / __usage-text
  *                            ← .task-card__progress / -bar / -fill / -text
@@ -200,6 +200,50 @@ a.lore-dir-card:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* The section page's head is the same card, without the link affordances. */
+.lore-dir-card--page {
+  cursor: default;
+}
+.lore-dir-card__seg {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
+  overflow: hidden;
+}
+.lore-dir-card__seg > span {
+  flex: none;
+  border-radius: 0;
+}
+/* 所有人 is read first but belongs to another section, so it is muted; the
+ * target's own share keeps the accent of the directory bar. */
+.lore-dir-card__seg-everyone,
+.lore-dir-card__swatch--everyone {
+  background: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
+}
+.lore-dir-card__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.lore-dir-card__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lore-dir-card__swatch {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--color-accent);
+}
+
 /* ── 所有人／成員／任務手冊 headings over the target sections ── */
 .lore__group {
   display: flex;
@@ -251,90 +295,15 @@ a.lore-dir-card:focus-visible {
   text-align: center;
 }
 
-/* ── a target: its directory row, and the head + cards of its section page ── */
+/* ── a section page's list: the cards sit straight on the page, as on 任務 ── */
 .lore-section {
-  border-radius: var(--radius-card);
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
-  background: color-mix(in srgb, var(--color-card) 60%, transparent);
   min-width: 0;
-}
-a.lore-section__head,
-.lore-section__head--page {
-  width: 100%;
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  padding: 12px 14px;
-  border: none;
-  border-radius: var(--radius-card);
-  background: none;
-  color: var(--color-text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.lore-section__head--page {
-  padding: 0 2px;
-  cursor: default;
-}
-a.lore-section__head:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-.lore-section__mark {
-  flex: none;
-  display: inline-flex;
-  color: var(--color-text-muted);
-}
-.lore-section__name {
-  min-width: 0;
-  font-size: 14px;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-.lore-section__kind {
-  flex: none;
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
-  font-size: 11.5px;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-.lore-section__count {
-  flex: none;
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-.lore-section__usage {
-  margin-left: auto;
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-.lore-section__dropped {
-  color: var(--color-danger);
-  white-space: nowrap;
-}
-.lore-section__fit {
-  white-space: nowrap;
 }
 .lore-section__body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 0 12px 12px;
   min-width: 0;
-}
-.lore-section > .lore-section__body:first-child {
-  padding-top: 12px;
 }
 .lore-section__item {
   display: flex;
@@ -342,34 +311,10 @@ a.lore-section__head:focus-visible {
   gap: 10px;
   min-width: 0;
 }
-.lore-section__summary {
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--color-text);
-  overflow-wrap: anywhere;
-}
 .lore-section__cap-away {
-  margin-top: 4px;
-  color: var(--color-danger);
-}
-.lore-section__everyone-ref {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 14px;
-  border-radius: 10px;
-  border: 1px dashed color-mix(in srgb, var(--color-overlay) 22%, transparent);
   font-size: 12.5px;
-  color: var(--color-text-muted);
+  color: var(--color-danger);
   overflow-wrap: anywhere;
-}
-.lore-section__everyone-ref-chars {
-  flex: none;
-  white-space: nowrap;
 }
 
 /* ── the 提到最新 toast, pinned to the bottom of the scrollport ── */
@@ -486,83 +431,18 @@ button.lore-batch__link {
   opacity: 0.85;
 }
 
-/* ── 屬於, on the COLLAPSED row ──
- * Quieter than the id badge on purpose: the id is what you copy and quote, the
- * scope is what you scan. So it is muted text rather than a second heavy pill —
- * two pills side by side would make the row read as having two identifiers.
- *
- * It sits BEFORE .lore-row__expand-mark, which claims the right edge with
- * margin-left:auto, so the scope stays next to the id and the ▸/▾ stays put.
- *
- * `min-width: 0` + the ellipsis on the name: a long manual display name must
- * shorten rather than push the ▸/▾ off the row.
- *
- * 🔴 THERE IS NO LONGER A TEXT KIND PREFIX (owner 2026-09-08: 「這個不必要」).
- * The kind is carried by the GLYPH inside the badge — person for 成員傳承, gear
- * for 任務傳承 — so `.lore-row__scope-glyph` must never be hidden or shrunk to
- * nothing: with the word gone it is the only thing telling the two apart. */
+/* ── 適用範圍: an action beside 編輯 (in 「⋯」 on a phone) ──
+ * The section already names whose entries these are, so the scope is not a
+ * badge on every card. The menu anchors to .lore-row__head and caps its width,
+ * so it cannot push off a phone screen (css-layout-traps: no vw clamp on an
+ * absolute pop). */
 .lore-row__scope {
   display: inline-flex;
-  /* `center`, not `baseline`: the NAME half is a pill (.lore-badge--type) with
-   * its own border and padding, and baseline-aligning a bordered pill against
-   * bare text sits the pill low. */
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
-/* The kind glyph inside the badge. `flex: none` so it never gives up its box to
- * a long name — the NAME truncates, the kind does not, exactly as the text
- * prefix used to be the half that never shortened. */
-.lore-row__scope-glyph {
-  flex: none;
-}
-/* The name text INSIDE the badge — copied from tasks.css `.task-card__type`,
- * the span that lives inside 任務卡's 類型 badge. */
-.lore-row__scope-name {
-  color: var(--color-text);
-  font-weight: 600;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Only a 任務傳承 has a page to land on; role and member scopes render as the
- * plain <span> pill above and are never clickable. Copied from tasks.css
- * `button.task-card__type-chip`. */
-button.lore-row__scope-chip {
-  cursor: pointer;
-  background: none;
-  font-family: inherit;
-  transition: border-color 0.15s;
-}
-button.lore-row__scope-chip:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--color-task-type) 70%, transparent);
-}
-
-/* ── 適用範圍 (T-236): the badge is the menu trigger for a viewer who may switch
- * scopes. The menu anchors to .lore-row__head (left:0; right:0) and caps its
- * width, so a badge far from the row's left edge cannot push it off a phone
- * screen (css-layout-traps: no vw clamp on an absolute pop). */
-button.lore-row__scope-chip--editable {
-  border-color: var(--color-accent);
-}
-button.lore-row__scope-chip--editable:hover:not(:disabled) {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
-}
-.lore-row__scope-caret {
-  flex: none;
-  color: var(--color-accent);
-}
-.lore-row__scope-glyph--everyone {
-  color: var(--color-task-type);
 }
 .lore-row__scope-pop {
-  left: 0;
+  left: auto;
   right: 0;
-  width: auto;
+  width: 100%;
   max-width: 340px;
 }
 .lore-row__scope-pop-title {
@@ -625,8 +505,7 @@ button.lore-row__scope-chip--editable:hover:not(:disabled) {
   color: var(--color-text);
   white-space: pre-wrap;
 }
-/* 內容預設一行截斷 (spec §6), and 內容 is now the ONLY thing 展開／收合 governs
- * — owner 2026-09-08, card rc-2e10ee03b97c: 「唯一要折疊的是 content」.
+/* 內容預設兩行截斷 (spec §6), and 內容 is the ONLY thing 展開／收合 governs.
  *
  * 🔴 THE CLAMP IS ON THE RENDERED BOX, NOT ON THE SOURCE STRING. The body is
  * markdown now, and cutting the source to one line's worth of characters would
@@ -635,7 +514,7 @@ button.lore-row__scope-chip--editable:hover:not(:disabled) {
  * already laid out, so the parse is always of the whole text. */
 .lore-row__body--clamped {
   display: -webkit-box;
-  -webkit-line-clamp: 1;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   white-space: normal;
@@ -682,10 +561,9 @@ button.lore-row__scope-chip--editable:hover:not(:disabled) {
  * the controls down with it. */
 .lore-row--dimmed .lore-row__title,
 .lore-row--dimmed .lore-row__body,
-.lore-row--dimmed .lore-row__meta-label,
 .lore-row--dimmed .lore-row__author,
 .lore-row--dimmed .lore-row__effective-ts,
-.lore-row--dimmed .lore-row__retire-reason {
+.lore-row--dimmed .lore-row__retire {
   color: var(--color-text-muted);
   opacity: 0.55;
 }
@@ -774,8 +652,7 @@ button.lore-row__status-chip {
   cursor: pointer;
   transition: background 0.15s;
 }
-button.lore-row__status-chip:disabled,
-button.lore-row__scope-chip:disabled {
+button.lore-row__status-chip:disabled {
   opacity: 0.55;
   cursor: default;
 }
@@ -845,19 +722,18 @@ button.lore-badge--lore-type:hover:not(:disabled) {
   opacity: 0.7;
 }
 
-/* ── label column (copy of .task-card__meta) ──
- * Two columns so every label cell takes the widest label's width and the value
- * pills line up — language-agnostic, no hard-coded label width. */
+/* ── 撰寫人 · 生效期 · 字數 on one muted line ── */
 .lore-row__meta {
-  display: grid;
-  grid-template-columns: max-content 1fr;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 7px 12px;
-}
-.lore-row__meta-label {
-  font-size: 12.5px;
+  gap: 4px 8px;
+  min-width: 0;
+  font-size: 12px;
   color: var(--color-text-muted);
-  opacity: 0.75;
+}
+.lore-row__meta-dot {
+  flex: none;
 }
 .lore-row__chip {
   justify-self: start;
@@ -923,9 +799,8 @@ button.lore-row__chip--link {
   min-width: 120px;
 }
 .lore-row__effective-ts {
-  font-size: 12.5px;
-  color: var(--color-text);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 button.lore-row__action {
   flex: none;
@@ -952,11 +827,12 @@ button.lore-row__action:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
 
-.lore-row__retire-reason {
-  font-size: 12.5px;
+.lore-row__retire {
+  font-size: 12px;
   line-height: 1.5;
-  color: var(--color-text);
+  color: var(--color-text-muted);
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* ── 編輯: the card's title and body become this, in place ── */
@@ -1026,119 +902,3 @@ button.lore-row__editor-save:disabled {
   cursor: default;
 }
 
-/* ── 傳訊息給撰寫人 ──
- * 🔴 IT IS NO LONGER A CELL OF `.lore-row__meta`. The composer renders on the
- * COLLAPSED row now (owner: 「訊息輸入框預設就要在」), which puts it outside the
- * label/value grid entirely — so the `grid-column: 1 / -1` span that used to
- * give it both columns is gone and it is simply a full-width child of the
- * flex-column `.lore-row`.
- *
- * The three parts below are copies of 任務卡's composer row, value for value:
- *   .lore-row__composer-row    ← tasks.css .task-card__composer
- *   .lore-row__composer-attach ← office.css .chat__attach
- *   .lore-row__composer-input  ← office.css .chat__input
- *   .lore-row__composer-send   ← tasks.css .task-card__send
- * copied rather than imported, for the reason at the top of this file. */
-.lore-row__composer {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 2px;
-  min-width: 0;
-}
-.lore-row__composer-row {
-  display: flex;
-  /* Bottom-align: the input is a growing textarea (multi-line drafts) — the
-   * send button stays anchored to its last line, like the chat composer. */
-  align-items: flex-end;
-  gap: 8px;
-}
-/* 📎 — same 44px square as the chat composer's, a quiet card surface beside the
- * solid send button (copy of office.css .chat__attach). */
-.lore-row__composer-attach {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  flex: none;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
-  background: var(--color-card);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-}
-.lore-row__composer-attach:hover:not(:disabled) {
-  color: var(--color-text);
-  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
-}
-/* While a send is in flight the whole row is inert — the 📎 greys out with the
- * send button (tasks.css does the same for its unassigned case; office.css
- * never disables .chat__attach because the chat composer has no such state). */
-.lore-row__composer-attach:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.lore-row__composer-input {
-  flex: 1;
-  min-width: 0;
-  min-height: 44px;
-  /* Auto-grown by autosizeTextarea; this is the ceiling it grows into, after
-   * which the box scrolls rather than pushing the rest of the row off. */
-  max-height: 132px;
-  height: 44px;
-  margin: 0;
-  padding: 11px 16px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
-  background: var(--color-card);
-  color: var(--color-text);
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 20px;
-  outline: none;
-  resize: none;
-  overflow-y: auto;
-}
-.lore-row__composer-input::placeholder {
-  color: var(--color-text-muted);
-}
-.lore-row__composer-input:focus {
-  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
-}
-/* Solid indigo, icon + word — the 任務卡 send button (copy of
- * tasks.css .task-card__send), not the hollow accent outline this box wore. */
-.lore-row__composer-send {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 9px 16px;
-  border-radius: 10px;
-  border: none;
-  background: var(--color-indigo);
-  color: var(--color-text-strong);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: filter 0.15s;
-}
-.lore-row__composer-send:hover:not(:disabled) {
-  filter: brightness(1.15);
-}
-/* Disabled must READ as disabled — a send button that looks live on an empty
- * box teaches the reader that clicking it did nothing. */
-.lore-row__composer-send:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.lore-row__composer-error {
-  font-size: 11.5px;
-  color: var(--color-danger);
-}
-.lore-row__composer-sent {
-  font-size: 11.5px;
-  color: var(--color-text-muted);
-}

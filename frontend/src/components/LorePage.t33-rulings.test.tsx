@@ -1,31 +1,8 @@
-// LorePage — the owner rulings on card rc-01a07b1b2a12 / rc-379631993586 that
-// land on ONE box: the message a reader sends to the person who wrote a 傳承
-// entry. (The THIRD ruling from that card — the 建議回覆 list under this box —
-// lives in LorePage.suggested-replies-t33.test.tsx, beside the settings row it
-// is configured from.)
-//
-//   A. The visible prefix is 「[LoreID=L-7] 」, not 「[L-7] 」. The old shape put
-//      an id on the wire without ever saying what kind of id it was, next to a
-//      任務 box sending 「[T-33] 」 — two namespaces, one indistinguishable
-//      bracket. The owner picked the spelled-out form OVER a translated label
-//      precisely because it must not move with the cockpit's language, so the
-//      assertions below are on the LITERAL BYTES. A test that rebuilt the
-//      expected string from the same template the component uses would agree
-//      with the old shape too.
-//
-//   B. `meta.lore_entry_id` rides beside it. The prefix is for a PERSON and is
-//      display — the owner has already deleted one thing that sat next to it —
-//      while an agent receiving the message must be able to say WHICH ENTRY it
-//      is about without parsing a human-facing string. Asserting the prefix
-//      alone would pass for a message no program can route.
-//
-//   D. A 外包 who has left gets his NAME on the row and NO message box. Before
-//      this, a released worker whose codename still resolved got a live-looking
-//      composer and the refusal arrived from the SERVER after the reader had
-//      typed and pressed send. The two halves are one spec on purpose: a test
-//      that only checked "the box is gone" would also pass for a row that had
-//      quietly stopped saying who wrote the entry, which is the thing the
-//      ruling explicitly protects.
+// LorePage — the writer's name on a 傳承 row (owner rulings rc-01a07b1b2a12 /
+// rc-379631993586): a 外包 or staff writer who has left keeps his NAME on the
+// row, and the pill stops being a way to message him. A test that only checked
+// "the link is gone" would also pass for a row that had quietly stopped saying
+// who wrote the entry, which is the thing the ruling protects.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -124,54 +101,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("LorePage — 傳承訊息的前綴與 meta (rc-01a07b1b2a12 / rc-379631993586)", () => {
-  /** Send one message from the box on entry `entryId` and answer what
-   * `api.postChat` was handed — the WHOLE argument, not a chosen field: `meta`
-   * is exactly the part an assertion on `body` alone cannot see. */
-  async function sendFrom(entryId: string, typed: string) {
-    const posted: Parameters<typeof api.postChat>[0][] = [];
-    vi.spyOn(api, "postChat").mockImplementation(async (m) => {
-      posted.push(m);
-    });
-    stubList([mkEntry({ id: entryId, authorId: "mira" })]);
-    const { container } = await renderPage();
-    await waitFor(() =>
-      expect(
-        container.querySelector('[data-testid="lore-msg-input"]'),
-      ).not.toBeNull(),
-    );
-    fireEvent.change(
-      container.querySelector<HTMLTextAreaElement>(
-        '[data-testid="lore-msg-input"]',
-      )!,
-      { target: { value: typed } },
-    );
-    fireEvent.click(
-      container.querySelector<HTMLElement>('[data-testid="lore-msg-send"]')!,
-    );
-    await waitFor(() => expect(posted).toHaveLength(1));
-    return posted[0];
-  }
-
-  it("leads the body with 「[LoreID=…] 」 — the literal, not the bare id", async () => {
-    const sent = await sendFrom("L-7", "這條還適用嗎");
-    // 🔴 THE WHOLE STRING. `toContain("L-7")` passes for 「[L-7] …」, which is
-    // the shape this ruling replaced, and for an id appended after the
-    // sentence, which does not solve what the prefix is for.
-    expect(sent.body).toBe("[LoreID=L-7] 這條還適用嗎");
-    expect(sent.to).toBe("mira");
-  });
-
-  it("carries meta.lore_entry_id, which no reader has to parse the body for", async () => {
-    const sent = await sendFrom("L-31", "這條還適用嗎");
-    expect(sent.meta).toEqual({ lore_entry_id: "L-31" });
-    // Both halves, in one spec, because they answer to different readers and
-    // either one can be lost without touching the other.
-    expect(sent.body).toBe("[LoreID=L-31] 這條還適用嗎");
-  });
-});
-
-describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => {
+describe("LorePage — 已離開的撰寫人只留名牌，不能傳訊息", () => {
   const RELEASED = "ow-gone";
   const LIVE = "ow-live";
   const DEPARTED_STAFF = "m-gone";
@@ -203,7 +133,7 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
     });
   }
 
-  it("keeps the codename on the row and drops the composer under it", async () => {
+  it("keeps the codename on the row and the pill is no longer a link", async () => {
     stubRoster([]); // nobody is on the live roster any more
     stubList([mkEntry({ id: "L-9", authorId: RELEASED })]);
     const { container } = await renderPage();
@@ -229,16 +159,12 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
     });
     expect(pill.textContent).toContain("O-9");
 
-    // ② THE AFFORDANCE GOES — both halves of it. The pill is a plain span (a
-    //    dead clickable pill would pass an "is the icon gone" check), and the
-    //    box is not rendered at all.
-    expect(row.querySelector('[data-testid="lore-author-composer"]')).toBeNull();
-    expect(row.querySelector('[data-testid="lore-msg-input"]')).toBeNull();
+    // ② THE AFFORDANCE GOES: a plain span, not a dead clickable pill.
     expect(row.querySelector('[data-testid="lore-author-link"]')).toBeNull();
     expect(pill.tagName).toBe("SPAN");
   });
 
-  it("under a departed staff writer the row keeps the plain name the per-id read serves and drops the composer", async () => {
+  it("under a departed staff writer the row keeps the plain name the per-id read serves, not as a link", async () => {
     stubRoster([]);
     stubList([mkEntry({ id: "L-11", authorId: DEPARTED_STAFF })]);
     const { container } = await renderPage();
@@ -250,8 +176,6 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
       ).toBe("阿哲"),
     );
     expect(row.querySelector('[data-testid="lore-author-link"]')).toBeNull();
-    expect(row.querySelector('[data-testid="lore-author-composer"]')).toBeNull();
-    expect(row.querySelector('[data-testid="lore-msg-input"]')).toBeNull();
   });
 
   it("while the roster is still loading no per-id read is issued for a live staff writer, and once it lands a departed one is still named", async () => {
@@ -293,24 +217,20 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
     );
   });
 
-  it("still renders the composer for a 外包 who is STILL on the live roster", async () => {
-    // The other direction, and it is not decoration: a fix that hid the box for
-    // every ow- author would pass the spec above and take the live case with
-    // it — the two together are what say "departed", not "outsource".
+  it("a 外包 who is STILL on the live roster gets a link that opens his chat", async () => {
+    // The other direction: a fix that unlinked every ow- author would pass the
+    // specs above and take the live case with it.
     stubRoster([worker(LIVE, "O-1")]);
     stubList([mkEntry({ id: "L-10", authorId: LIVE })]);
     const { container } = await renderPage();
 
     const row = await waitFor(() => rowById(container, "L-10"));
-    await waitFor(() =>
-      expect(
-        row.querySelector('[data-testid="lore-author-composer"]'),
-      ).not.toBeNull(),
-    );
-    expect(
-      row.querySelector<HTMLElement>('[data-testid="lore-author-link"]')
-        ?.textContent,
-    ).toContain("O-1");
+    const link = await waitFor(() => {
+      const el = row.querySelector<HTMLElement>('[data-testid="lore-author-link"]');
+      if (!el) throw new Error("no author link yet");
+      return el;
+    });
+    expect(link.textContent).toContain("O-1");
   });
 });
 
@@ -364,22 +284,17 @@ describe("LorePage — 外包條目的適用範圍選單", () => {
     });
     stubList([outsourceEntry("L-1", LIVE), outsourceEntry("L-2", RELEASED)]);
     const { container } = await renderPage({ canSetScope: true });
-    await waitFor(() => {
-      expect(
-        rowById(container, "L-1").querySelector('[data-testid="lore-scope-name"]')!
-          .textContent,
-      ).toBe("建立者：外包 · O-1");
-      expect(
-        rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!
-          .textContent,
-      ).toBe("建立者：外包 · O-9");
-    });
+    await waitFor(() => rowById(container, "L-2"));
 
-    expect(readMenu(container, "L-1")).toBe(
-      "適用範圍任務：PR 審查建立者：外包 · O-1預設所有人",
+    await waitFor(() =>
+      expect(readMenu(container, "L-1")).toBe(
+        "適用範圍任務：PR 審查建立者：外包 · O-1預設所有人",
+      ),
     );
-    expect(readMenu(container, "L-2")).toBe(
-      "適用範圍任務：PR 審查建立者：外包 · O-9預設所有人",
+    await waitFor(() =>
+      expect(readMenu(container, "L-2")).toBe(
+        "適用範圍任務：PR 審查建立者：外包 · O-9預設所有人",
+      ),
     );
   });
 });

@@ -1,12 +1,11 @@
-// 傳承 directory rows, section pages and row headers at phone and desktop
-// width: the badges
-// wrap as whole pills, the 屬於 chip never gets squeezed to its glyph with the
-// caret spilling out, only a name longer than a whole line ellipsizes, and the
-// checkbox and the actions (提到最新／編輯, or 「⋯」 on a phone) stay inside the
-// head without overlapping the badges. The badges read id → type → state →
-// scope, and the ▸/▾ mark is there exactly when the clamped body overflows. The section header's CJK labels stay on
-// one line, the batch bar and the inline editor fit, and a state change leaves
-// the scroll position and the card where they were.
+// 傳承 directory cards, section pages and row heads at phone and desktop width:
+// the badges (id → type → state) wrap as whole pills, the actions (提到最新／編輯／
+// 適用範圍, or 「⋯」 on a phone) stay inside the head without overlapping them, the
+// ▸/▾ mark is there exactly when the clamped body overflows, the 撰寫人 · 生效期 ·
+// 字數 line stays inside the card, the section head card's name, badges, bar and
+// legend stay inside it, the 適用範圍 menu opens inside the viewport, the inline
+// editor fits, and a state change leaves the scroll position and the card where
+// they were.
 //
 // Soft assertions on purpose: a page-level overflow failing first would
 // otherwise hide which per-badge check a mutant also broke.
@@ -28,11 +27,8 @@ type RowGeom = {
   mark: Box | null;
   bodyOverflows: boolean | null;
   toggle: boolean;
-  chip: Box | null;
-  chipEditable: boolean;
-  caret: Box | null;
-  glyph: Box | null;
-  name: (Box & { scrollW: number; clientW: number }) | null;
+  meta: Box | null;
+  metaItems: Box[];
 };
 
 const MIRA = "#lore/agent/mira";
@@ -96,8 +92,6 @@ async function measure(page: any): Promise<{
     const rows = [...document.querySelectorAll('[data-testid="lore-row"]')].map(
       (row) => {
         const badges = row.querySelector(".lore-row__badges");
-        const chip = row.querySelector('[data-testid="lore-scope-name"]');
-        const name = row.querySelector(".lore-row__scope-name") as HTMLElement | null;
         return {
           id: row.getAttribute("data-entry-id") ?? "",
           head: r(row.querySelector(".lore-row__head")),
@@ -123,13 +117,8 @@ async function measure(page: any): Promise<{
             return body ? body.scrollHeight > body.clientHeight + 1 : null;
           })(),
           toggle: row.getAttribute("role") === "button",
-          chip: r(chip),
-          chipEditable: !!chip?.classList.contains("lore-row__scope-chip--editable"),
-          caret: r(row.querySelector(".lore-row__scope-caret")),
-          glyph: r(row.querySelector(".lore-row__scope-glyph")),
-          name: name
-            ? { ...r(name)!, scrollW: name.scrollWidth, clientW: name.clientWidth }
-            : null,
+          meta: r(row.querySelector(".lore-row__meta")),
+          metaItems: [...row.querySelectorAll(".lore-row__meta > *")].map((c) => r(c)!),
         };
       }
     );
@@ -141,7 +130,7 @@ async function measure(page: any): Promise<{
         head: r(head)!,
         children: [
           ...head.querySelectorAll(
-            ":scope > *, .lore-section__usage > *, .lore-dir-card__head > *, .lore-dir-card__badges > *, .lore-dir-card__usage > *",
+            ":scope > *, .lore-dir-card__head > *, .lore-dir-card__badges > *, .lore-dir-card__usage > *, .lore-dir-card__legend > *",
           ),
         ].map((c) => ({
           cls: (c.className || c.tagName).toString(),
@@ -167,13 +156,12 @@ const inside = (inner: Box, outer: Box) =>
 function assertHeadContained(width: number, row: RowGeom) {
   const tag = `[${width}px] ${row.id}`;
   expect.soft(row.head, `${tag} .lore-row__head missing`).not.toBeNull();
-  // id, type, status, scope — all four, in that order, inside the wrapper.
-  expect.soft(row.badges.length, `${tag} .lore-row__badges children`).toBe(4);
+  // id, type, state — in that order, inside the wrapper. No scope badge: the
+  // section already names whose entries these are.
+  expect.soft(row.badges.length, `${tag} .lore-row__badges children`).toBe(3);
   expect
     .soft(row.badgeOrder, `${tag} badge order`)
-    .toEqual(["lore-entry-id", "lore-type", "lore-state", "lore-scope"]);
-  expect.soft(row.chip, `${tag} scope chip missing`).not.toBeNull();
-  expect.soft(row.name, `${tag} scope name missing`).not.toBeNull();
+    .toEqual(["lore-entry-id", "lore-type", "lore-state"]);
   if (!row.head) return;
   for (const b of row.badges) {
     expect
@@ -183,20 +171,11 @@ function assertHeadContained(width: number, row: RowGeom) {
       .soft(b.box.left, `${tag} "${b.cls}" left edge before the head`)
       .toBeGreaterThanOrEqual(row.head.left - 1);
   }
-  if (row.chip) {
-    expect
-      .soft(row.chip.right, `${tag} scope chip right edge past the head`)
-      .toBeLessThanOrEqual(row.head.right + 1);
-    if (row.name)
-      expect.soft(inside(row.name, row.chip), `${tag} scope name outside the chip`).toBe(true);
-    if (row.glyph)
-      expect.soft(inside(row.glyph, row.chip), `${tag} scope glyph outside the chip`).toBe(true);
-    if (row.chipEditable) {
-      expect.soft(row.caret, `${tag} editable chip has no caret`).not.toBeNull();
-      if (row.caret)
-        expect.soft(inside(row.caret, row.chip), `${tag} caret outside the chip`).toBe(true);
-    }
-  }
+  expect.soft(row.meta, `${tag} meta line missing`).not.toBeNull();
+  expect.soft(row.metaItems.length, `${tag} meta items`).toBeGreaterThanOrEqual(5);
+  if (row.row)
+    for (const m of row.metaItems)
+      expect.soft(inside(m, row.row), `${tag} meta item outside the card`).toBe(true);
   expect.soft(row.bodyOverflows, `${tag} body missing`).not.toBeNull();
   expect
     .soft(row.mark !== null, `${tag} expand mark shown iff the clamped body overflows`)
@@ -206,7 +185,8 @@ function assertHeadContained(width: number, row: RowGeom) {
     expect.soft(inside(row.mark, row.head), `${tag} expand mark outside the head`).toBe(true);
   }
   expect.soft(row.actions, `${tag} actions missing`).not.toBeNull();
-  // A phone shows only 「⋯」; a desktop shows the size, 提到最新 and 編輯.
+  // A phone shows only 「⋯」; a desktop shows 提到最新, 編輯 and, for a viewer
+  // who may switch scopes (the story's owner), 適用範圍.
   expect.soft(row.actionButtons.length, `${tag} actions`).toBe(width <= 720 ? 1 : 3);
   for (const b of row.actionButtons) {
     expect.soft(inside(b.box, row.head), `${tag} "${b.text}" outside the head`).toBe(true);
@@ -251,7 +231,7 @@ for (const width of [390, 1440]) {
     expect(g.rows.length, `[${width}px] the directory shows no cards`).toBe(0);
   });
 
-  test(`normal-length scope names fit whole on every section page @${width}px`, async ({ mount, page }) => {
+  test(`every section page keeps each card's badges, actions and meta line inside it @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, "");
     const g = await measureEverySection(cmp, page);
     assertNoHScroll(width, g);
@@ -261,21 +241,17 @@ for (const width of [390, 1440]) {
     expect.soft(g.rows.some((r) => r.bodyOverflows === true), `[${width}px] an overflowing body`).toBe(true);
     expect.soft(g.rows.some((r) => r.bodyOverflows === false), `[${width}px] a one-line body`).toBe(true);
 
-    const l4 = g.rows.find((r) => r.id === "L-4");
-    // The owner's case: pinned, ⚙ 任務 scope, editable chip with a caret.
-    expect(l4?.chipEditable, `[${width}px] L-4 chip should be the editable one`).toBe(true);
-
     for (const row of g.rows) {
       assertHeadContained(width, row);
       const tag = `[${width}px] ${row.id}`;
-      if (row.name)
-        expect
-          .soft(row.name.scrollW, `${tag} normal-length scope name truncated`)
-          .toBeLessThanOrEqual(row.name.clientW + 1);
       if (width === 1440) {
         const tops = row.badges.map((b) => (b.box.top + b.box.bottom) / 2);
         expect
           .soft(Math.max(...tops) - Math.min(...tops), `${tag} badges not on one line`)
+          .toBeLessThanOrEqual(4);
+        const metaTops = row.metaItems.map((m) => (m.top + m.bottom) / 2);
+        expect
+          .soft(Math.max(...metaTops) - Math.min(...metaTops), `${tag} meta not on one line`)
           .toBeLessThanOrEqual(4);
       } else if (row.mark && row.head) {
         expect
@@ -285,7 +261,7 @@ for (const width of [390, 1440]) {
     }
   });
 
-  test(`a name longer than a line ellipsizes inside the head @${width}px`, async ({
+  test(`a manual name longer than a line wraps inside the section head card @${width}px`, async ({
     mount,
     page,
   }) => {
@@ -293,13 +269,37 @@ for (const width of [390, 1440]) {
     const g = await measure(page);
     assertSectionHeadsContained(width, g.sections, 1);
     assertNoHScroll(width, g);
+    const head = g.sections.find((s) => s.key === "page");
+    expect(head, `[${width}px] section head card`).toBeTruthy();
+    // name, badges, bar or usage, legend: nothing of the head is missing.
+    expect.soft(head!.children.length, `[${width}px] head children`).toBeGreaterThanOrEqual(5);
     const l4 = g.rows.find((r) => r.id === "L-4");
     expect(l4, `[${width}px] L-4 row`).toBeTruthy();
     assertHeadContained(width, l4!);
-    expect(l4!.name, `[${width}px] L-4 name`).not.toBeNull();
-    expect
-      .soft(l4!.name!.scrollW, `[${width}px] L-4 long name should ellipsize`)
-      .toBeGreaterThan(l4!.name!.clientW + 1);
+  });
+
+  test(`the 適用範圍 menu opens inside the viewport @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false, MIRA);
+    const row = cmp.locator('[data-testid="lore-row"]').first();
+    if (width <= 720) {
+      await row.locator('[data-testid="lore-more-actions"]').click();
+      await row.locator('[data-testid="lore-scope-more"]').click();
+    } else {
+      await row.locator('[data-testid="lore-scope-name"]').click();
+    }
+    const pop = row.locator('[data-testid="lore-scope-options"]');
+    await expect(pop).toBeVisible();
+    const g = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="lore-scope-options"]')!;
+      const b = el.getBoundingClientRect();
+      const card = el.closest('[data-testid="lore-row"]')!.getBoundingClientRect();
+      return { left: b.left, right: b.right, cardLeft: card.left, cardRight: card.right, vw: window.innerWidth };
+    });
+    expect.soft(g.left, `[${width}px] menu left edge`).toBeGreaterThanOrEqual(0);
+    expect.soft(g.right, `[${width}px] menu right edge`).toBeLessThanOrEqual(g.vw);
+    expect.soft(g.left, `[${width}px] menu inside the card`).toBeGreaterThanOrEqual(g.cardLeft - 1);
+    expect.soft(g.right, `[${width}px] menu inside the card`).toBeLessThanOrEqual(g.cardRight + 1);
+    assertNoHScroll(width, await pageAndLoreOver(page));
   });
 }
 

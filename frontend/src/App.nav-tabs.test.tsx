@@ -139,22 +139,24 @@ describe("主導覽分頁", () => {
         return el;
       }),
     );
-    const badge = await waitFor(() => {
+    const action = await waitFor(() => {
       const el = document.querySelector<HTMLElement>(
         '[data-testid="lore-row"][data-entry-id="L-2"] [data-testid="lore-scope-name"]',
       );
-      if (!el) throw new Error("L-2 has no scope badge yet");
+      if (!el) throw new Error("L-2 has no 適用範圍 action yet");
       return el;
     });
     expect(window.location.hash).toBe("#lore/agent/mira");
-    expect(badge.tagName).toBe("BUTTON");
-    expect(badge.textContent).toBe("建立者：Mira");
+    expect(action.tagName).toBe("BUTTON");
+    expect(action.textContent).toBe("適用範圍");
 
-    fireEvent.click(badge);
-    expect(
-      document.querySelector(
-        '[data-testid="lore-row"][data-entry-id="L-2"] [data-testid="lore-scope-options"]',
-      )?.textContent,
-    ).toBe("適用範圍建立者：Mira預設所有人");
+    fireEvent.click(action);
+    await waitFor(() =>
+      expect(
+        document.querySelector(
+          '[data-testid="lore-row"][data-entry-id="L-2"] [data-testid="lore-scope-options"]',
+        )?.textContent,
+      ).toBe("適用範圍建立者：Mira預設所有人"),
+    );
   });
 });

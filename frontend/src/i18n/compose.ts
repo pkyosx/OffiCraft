@@ -92,10 +92,10 @@ export interface Messages {
   loreDirectorySectionGone: (id: string) => string;
   loreHighlightMissing: (id: string) => string;
   loreHighlightLoadFailed: (id: string) => string;
-  loreBudgetSentence: (p: LoreBudgetSentence) => string;
+  loreLegendSegment: (name: string, count: number, fitted: number, chars: number, first: boolean) => string;
+  loreLegendLeft: (cap: number, left: number) => string;
   loreCapLine: (used: number, cap: number, firstDroppedId: string, need: number) => string;
   loreCapLineAway: (firstDroppedId: string) => string;
-  loreEveryoneRef: (count: number) => string;
   // ── secrets ──
   secretCopyId: (secretId: string) => string;
   secretDeleteConfirmBody: (name: string) => string;
@@ -247,19 +247,6 @@ export function evenMinuteStep(minutes: number[]): number | null {
 }
 
 /** Build the composed messages for one (already wording-overlaid) dict. */
-/** The numbers behind the sentence at the top of an open 傳承 section. `own` is
- * the target's own segment; `everyone` is present only for a member target,
- * whose boot document reads the 所有人 entries first. */
-export interface LoreBudgetSentence {
-  capChars: number;
-  usedChars: number;
-  ownName: string;
-  everyone: { count: number; chars: number; fitted: number; fittedChars: number } | null;
-  own: { count: number; fitted: number; fittedChars: number };
-  firstDroppedId: string;
-  firstDroppedChars: number;
-}
-
 export function makeMessages(t: Dict, language: Lang): Messages {
   // The separator between a parameter and an adjacent fragment where the two
   // languages disagree: en writes a space, zh runs the characters together.
@@ -494,44 +481,22 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     loreDirectorySectionGone: (id) => `${t.lore.dirSectionGoneLead}${id}${t.lore.dirSectionGoneTail}`,
     loreHighlightMissing: (id) => `${t.lore.highlightMissingLead}${id}${t.lore.highlightMissingTail}`,
     loreHighlightLoadFailed: (id) => `${t.lore.highlightFailedLead}${id}${t.lore.highlightFailedTail}`,
-    loreBudgetSentence: (p) => {
+    loreLegendSegment: (name, count, fitted, chars, first) => {
       const l = t.lore;
-      let out = `${l.sumCapLead}${num(p.capChars)}${l.sumCapMid}${num(p.usedChars)}${l.sumCapTail}`;
-      if (p.everyone && p.everyone.fitted < p.everyone.count) {
-        out +=
-          `${l.sumEveryoneOverLead}${num(p.everyone.count)}${l.sumEveryoneOverMid}` +
-          `${num(p.everyone.fitted)}${l.sumEveryoneOverUnit}${num(p.everyone.fittedChars)}` +
-          l.sumEveryoneOverTail;
-        return p.own.count > 0
-          ? out +
-              `${l.sumOwnAllDroppedLead}${p.ownName}${l.sumOwnAllDroppedMid}` +
-              `${num(p.own.count)}${l.sumOwnAllDroppedTail}`
-          : out + l.sumEnd;
-      }
-      if (p.everyone) {
-        out +=
-          `${l.sumEveryoneLead}${num(p.everyone.count)}${l.sumEveryoneMid}` +
-          `${num(p.everyone.chars)}${l.sumEveryoneTail}` +
-          `${l.sumOwnLead}${p.ownName}${l.sumOwnMid}${num(p.own.fitted)}` +
-          `${l.sumOwnUnit}${num(p.own.fittedChars)}${l.sumOwnTail}`;
-      } else {
-        out += `${l.sumFitLead}${num(p.own.fitted)}${l.sumFitMid}${num(p.own.fittedChars)}${l.sumFitTail}`;
-      }
-      if (p.firstDroppedId === "") return out + l.sumAllFit;
+      const read = fitted < count ? `${l.legendReadLead}${num(fitted)}${l.legendReadTail}` : "";
       return (
-        out +
-        `${l.sumDropLead}${p.firstDroppedId}${l.sumDropMid}${num(p.own.count - p.own.fitted)}` +
-        `${l.sumDropCount}${p.firstDroppedId}${l.sumDropNeed}${num(p.firstDroppedChars)}` +
-        `${l.sumDropRemain}${num(p.capChars - p.usedChars)}${l.sumDropTail}`
+        `${name} ${num(count)}${l.legendCountUnit}${read}${l.legendSep}${num(chars)}${l.charsTail}` +
+        (first ? l.legendFirstTail : "")
       );
     },
+    loreLegendLeft: (cap, left) =>
+      `${t.lore.legendCapLead}${num(cap)}${t.lore.charsTail}${t.lore.legendLeftMid}${num(left)}${t.lore.legendLeftTail}`,
     loreCapLine: (used, cap, firstDroppedId, need) =>
       `${t.lore.capLineLead}${num(used)}${t.lore.capLineOf}${num(cap)}` +
       `${t.lore.capLineNeedLead}${firstDroppedId}${t.lore.capLineNeedMid}${num(need)}` +
       t.lore.capLineNeedTail,
     loreCapLineAway: (firstDroppedId) =>
       `${t.lore.capLineAwayLead}${firstDroppedId}${t.lore.capLineAwayTail}`,
-    loreEveryoneRef: (count) => `${t.lore.everyoneRefLead}${num(count)}${t.lore.everyoneRefTail}`,
     secretCopyId: (secretId) => `${t.secrets.copyIdLabel} ${secretId}`,
     secretDeleteConfirmBody: (name) =>
       `${t.secrets.deleteConfirmLead}${name}${t.secrets.deleteConfirmTail}`,

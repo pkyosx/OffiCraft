@@ -30,7 +30,6 @@ import { codeForStatus } from "../api/errorCodes";
 import { zh } from "../i18n/locales/zh";
 import { clearLocale, useEnglishLocale } from "../test/effortOptions";
 import type {
-  ChatAttachmentInput,
   LoreBudgetTargetView,
   LoreEntryPageView,
   LoreEntryView,
@@ -266,77 +265,41 @@ describe("LorePage — 撰寫人", () => {
  * click the row on purpose: the collapsed list is where the reader who cannot
  * tell one scope from another is standing, so every one of these specs is also
  * a statement that the pill is reachable without expanding anything. */
-async function scopePillFor(
+/** Open the 適用範圍 menu of the one row on screen and answer its option labels. */
+async function scopeOptionLabels(
   scopeKind: LoreEntryView["scopeKind"],
   scopeKey: string,
-): Promise<HTMLElement> {
-  stubList(page([mkEntry({ id: "s1", scopeKind, scopeKey })]));
-  const { container } = await renderOpen();
+): Promise<string[]> {
+  stubList(
+    page([
+      mkEntry({
+        id: "s1",
+        scopeKind,
+        scopeKey,
+        taskTypeKey: scopeKind === "manual" ? scopeKey : "",
+        scopeOptions: scopeKind === "manual" ? ["manual", "agent", "everyone"] : ["agent", "everyone"],
+      }),
+    ]),
+  );
+  const { container } = await renderOpen({ canSetScope: true });
   await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
-  const pill = await waitFor(() => {
-    const el = container.querySelector<HTMLElement>(
-      '[data-testid="lore-scope-name"]',
-    );
-    if (!el) throw new Error("no 屬於 pill");
-    return el;
-  });
-  return pill;
+  fireEvent.click(container.querySelector('[data-testid="lore-scope-name"]')!);
+  return Array.from(container.querySelectorAll('[data-testid="lore-scope-option-label"]')).map(
+    (el) => el.textContent ?? "",
+  );
 }
 
-describe("LorePage — 屬於", () => {
-  it("names the manual, a built-in one in the UI language, and jumps to it; a member names but does not jump", async () => {
-    useEnglishLocale();
-    vi.spyOn(api, "listTaskManuals").mockResolvedValue([
-      { typeKey: "builtin-role-design", displayName: "建立／修改角色", purpose: "", fields: [] },
-    ] as never);
-
-    const manual = await scopePillFor("manual", "builtin-role-design");
-    expect(manual.tagName).toBe("BUTTON");
-    expect(manual.textContent).toContain("Create / edit role");
-    window.location.hash = "";
-    fireEvent.click(manual);
-    // The SAME jump the 任務卡's 類型 chip makes.
-    expect(window.location.hash).toBe("#settings/manuals/builtin-role-design");
+describe("LorePage — 適用範圍", () => {
+  it("the card carries no scope badge: the section already names whose entries these are", async () => {
+    stubList(page([mkEntry({ id: "s1", scopeKind: "agent", scopeKey: "mira", scopeOptions: ["agent", "everyone"] })]));
+    const { container } = await renderOpen({ canSetScope: true });
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const row = rowById(container, "s1");
+    expect(row.querySelector(".lore-row__badges")!.textContent).not.toContain("建立者");
+    expect(row.querySelector(".lore-row__badges [data-testid='lore-scope']")).toBeNull();
   });
 
-  it("renders a member scope as plain text, never as a dead button", async () => {
-    const member = await scopePillFor("agent", "mira");
-    // 🔴 Asserting only "no href" would pass for a pill that LOOKS clickable and
-    // goes nowhere — the same failure LoreAuthorChip guards against. A member
-    // has no page to land on, so it must not be a button at all.
-    expect(member.tagName).toBe("SPAN");
-    expect(member.textContent).toContain("Mira");
-  });
-
-  it("renders an ORPHAN (unknown kind) with its raw key, and names no kind", async () => {
-    // 🔴 THIS IS A LIVE CASE, NOT FUTURE-PROOFING. The server's migration
-    // deliberately left `scope_kind='role'` on every entry whose owning member
-    // it could not determine, and `toLoreEntry` maps that to "unknown". Such a
-    // row arrives on the unfiltered page — the page this one opens on.
-    const orphan = await scopePillFor("unknown", "r-legacy-orphan");
-    expect(orphan.tagName).toBe("SPAN");
-    // The raw key, so the reader can at least say WHICH one it is.
-    expect(orphan.textContent).toContain("r-legacy-orphan");
-    // 🔴 AND NO KIND AT ALL. Stamping it with the person glyph or the gear
-    // would assert an owner the migration explicitly refused to choose — the
-    // one thing this arm exists to avoid.
-    const chip = orphan.closest('[data-testid="lore-scope"]')!;
-    expect(chip.querySelectorAll(".lore-row__scope-glyph")).toHaveLength(0);
-  });
-
-  it("an everyone entry's badge reads 所有人 with the group glyph", async () => {
-    const everyone = await scopePillFor("everyone", "");
-    expect(everyone.tagName).toBe("SPAN");
-    expect(everyone.textContent).toBe("所有人");
-    const chip = everyone.closest('[data-testid="lore-scope"]')!;
-    expect(
-      Array.from(chip.querySelectorAll(".lore-row__scope-glyph")).map((g) =>
-        g.getAttribute("class"),
-      ),
-    ).toEqual(["lore-row__scope-glyph lore-row__scope-glyph--everyone"]);
-  });
-
-  it("a viewer who may not switch scopes gets an inert badge; one who may gets a menu trigger", async () => {
+  it("a viewer who may not switch scopes gets no 適用範圍 action; one who may gets a menu trigger beside 編輯", async () => {
     stubList(
       page([
         mkEntry({
@@ -349,13 +312,8 @@ describe("LorePage — 屬於", () => {
     );
     const viewer = await renderOpen({ canSetScope: false });
     await waitFor(() => expect(renderedIds(viewer.container)).toHaveLength(1));
-    const inert = viewer.container.querySelector<HTMLElement>(
-      '[data-testid="lore-scope-name"]',
-    )!;
-    expect(inert.tagName).toBe("SPAN");
-    expect(inert.textContent).toBe("建立者：Mira");
-    expect(inert.hasAttribute("aria-haspopup")).toBe(false);
-    expect(inert.querySelector(".lore-row__scope-caret")).toBeNull();
+    expect(viewer.container.querySelector('[data-testid="lore-scope-name"]')).toBeNull();
+    expect(viewer.container.querySelector('[data-testid="lore-scope"]')).toBeNull();
     viewer.unmount();
 
     const owner = await renderOpen({ canSetScope: true });
@@ -364,55 +322,26 @@ describe("LorePage — 屬於", () => {
       '[data-testid="lore-scope-name"]',
     )!;
     expect(trigger.tagName).toBe("BUTTON");
-    expect(trigger.textContent).toBe("建立者：Mira");
+    expect(trigger.textContent).toBe("適用範圍");
     expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
-    expect(trigger.querySelector(".lore-row__scope-caret")).not.toBeNull();
+    expect(trigger.closest(".lore-row__actions")).not.toBeNull();
+    fireEvent.click(trigger);
+    expect(owner.container.querySelector('[data-testid="lore-scope-options"]')).not.toBeNull();
   });
 
-  it("a non-owner clicking a manual badge opens that manual and no menu", async () => {
+  it("names a built-in manual in the UI language inside the menu", async () => {
+    useEnglishLocale();
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
-      { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
+      { typeKey: "builtin-role-design", displayName: "建立／修改角色", purpose: "", fields: [] },
     ] as never);
-    stubList(
-      page([
-        mkEntry({
-          id: "s1",
-          scopeKind: "manual",
-          scopeKey: "review-pr",
-          taskTypeKey: "review-pr",
-          sourceTaskId: "T-5",
-          scopeOptions: ["manual", "agent", "everyone"],
-        }),
-      ]),
-    );
-    const { container } = await renderOpen({ canSetScope: false });
-    await waitFor(() =>
-      expect(
-        container.querySelector('[data-testid="lore-scope-name"]')?.textContent,
-      ).toBe("任務：PR 審查"),
-    );
-    window.location.hash = "";
-    fireEvent.click(container.querySelector('[data-testid="lore-scope-name"]')!);
-    expect(window.location.hash).toBe("#settings/manuals/review-pr");
-    expect(container.querySelector('[data-testid="lore-scope-options"]')).toBeNull();
+    const labels = await scopeOptionLabels("manual", "builtin-role-design");
+    expect(labels.join("|")).toContain("Create / edit role");
   });
 
-  it("falls back to the raw key rather than rendering an empty cell", async () => {
-    // A manual that has since been deleted. The entry still rides its type_key
-    // and the reader must still be told WHICH one — a blank cell reads as a
-    // broken field, and it is the failure this fallback exists to prevent.
+  it("falls back to the raw key for a manual that no longer exists rather than an empty label", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([] as never);
-    const gone = await scopePillFor("manual", "deleted-type");
-    expect(gone.textContent).toContain("deleted-type");
-  });
-
-  it("never renames an unknown scope into one of the real three", async () => {
-    // A cockpit older than the server. `unknown` is NOT a scope; carrying it
-    // through unrenamed is what stops this page inventing a fourth meaning for
-    // one of the three that exist.
-    const unknown = await scopePillFor("unknown", "some-future-key");
-    expect(unknown.tagName).toBe("SPAN");
-    expect(unknown.textContent).toContain("some-future-key");
+    const labels = await scopeOptionLabels("manual", "deleted-type");
+    expect(labels.join("|")).toContain("deleted-type");
   });
 });
 
@@ -549,337 +478,6 @@ describe("LorePage — 撰寫人跳過去帶著條目編號", () => {
 // scopes have THE SAME DISPLAY NAME. That is the whole discrimination: a chip
 // carrying the name alone renders identical text for both rows and would pass
 // any assertion written against one of them.
-describe("LorePage — 屬於 在收合的列上就說得出是哪一種", () => {
-  it("tells a 成員傳承 from a 任務傳承 when both are named Mira, without opening either row", async () => {
-    vi.spyOn(api, "listTaskManuals").mockResolvedValue([
-      // A manual that happens to carry the SAME display name as the member.
-      { typeKey: "mira-work", displayName: "Mira", purpose: "", fields: [] },
-    ] as never);
-
-    stubList(
-      page([
-        mkEntry({ id: "L-1", scopeKind: "agent", scopeKey: "mira" }),
-        mkEntry({ id: "L-2", scopeKind: "manual", scopeKey: "mira-work" }),
-      ]),
-    );
-    const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
-
-    // NOT expanded — no click anywhere. Asserted on the rows' own
-    // `aria-expanded`, because every element that used to be expanded-only
-    // (屬於, then 撰寫人) has since moved onto the closed row; a proxy that keeps
-    // moving is a proxy that keeps going silently always-true.
-    for (const id of ["L-1", "L-2"]) {
-      expect(rowById(container, id).getAttribute("aria-expanded")).toBe("false");
-    }
-
-    // 🔴 PRESENCE IS ITS OWN ASSERTION, on its own line. Reading .textContent
-    // off a `!`-asserted querySelector would make a MISSING pill fail inside an
-    // accessor instead of at a spec line — a red that says 「something threw」
-    // where the spec meant to say 「屬於 is not on the closed row」.
-    const scopeOf = (id: string) => {
-      const el = rowById(container, id).querySelector('[data-testid="lore-scope"]');
-      expect(el).not.toBeNull();
-      return el as HTMLElement;
-    };
-    const memberScope = scopeOf("L-1");
-    const manualScope = scopeOf("L-2");
-
-    expect(memberScope.textContent).toBe("建立者：Mira");
-    expect(manualScope.textContent).toBe("任務：Mira");
-
-    const member = memberScope.querySelector(".lore-row__scope-glyph--member");
-    const task = manualScope.querySelector(".lore-row__scope-glyph--task");
-    expect(member).not.toBeNull();
-    expect(task).not.toBeNull();
-    // 🔴 AND THE TWO GLYPHS ARE ACTUALLY DIFFERENT DRAWINGS. A class name is a
-    // label; two <svg>s wearing different class names could be the same icon,
-    // which would look — on the closed list this spec exists for — exactly like
-    // no discrimination at all. Comparing the rendered SVG bodies is what makes
-    // that impossible.
-    expect(member!.innerHTML).not.toBe(task!.innerHTML);
-
-    // 🔴 一次只出現一個 (owner 2026-09-08). Not two glyphs on one badge, and
-    // never the other kind's glyph on this one.
-    expect(memberScope.querySelectorAll(".lore-row__scope-glyph")).toHaveLength(1);
-    expect(manualScope.querySelectorAll(".lore-row__scope-glyph")).toHaveLength(1);
-    expect(
-      memberScope.querySelector(".lore-row__scope-glyph--task"),
-    ).toBeNull();
-    expect(
-      manualScope.querySelector(".lore-row__scope-glyph--member"),
-    ).toBeNull();
-
-  });
-
-  it("names an outsource member's entry the same way a staff member's is named", async () => {
-    // 🔴 THE TWO USED TO BE DIFFERENT KINDS — staff lore was 角色傳承 and only a
-    // contractor's was 成員傳承. Since the collapse both are 成員傳承 keyed by a
-    // member id, and this pins that they are not drifting back apart on the
-    // display side while sharing one scope on the wire.
-    const agent = await scopePillFor("agent", "ow-nobody");
-    const chip = agent.closest('[data-testid="lore-scope"]')!;
-    // The kind is the GLYPH now, not a word (owner 2026-09-08 removed the text
-    // prefix), so 「same way a staff member's is named」 is asserted on the
-    // person glyph rather than on 「成員傳承」.
-    expect(chip.querySelector(".lore-row__scope-glyph--member")).not.toBeNull();
-    expect(chip.querySelector(".lore-row__scope-glyph--task")).toBeNull();
-    // The member is not on the live roster, so the raw id is the honest label.
-    expect(chip.textContent).toContain("ow-nobody");
-  });
-});
-
-// ────────────────────────────────────────────────────────────────────────────
-// 內嵌輸入框 (owner, card rc-abf2c90d887c option ②).
-//
-// Three properties here, and all three fail with a screen that looks correct:
-//
-//   ① THE ENTRY ID LEADS THE MESSAGE. Drop the prefix and the box still
-//      accepts text, still clears, still says 已送出 — and the author receives
-//      「這條還適用嗎」 with no subject, holding dozens of entries. The damage
-//      is entirely on the recipient's side and nothing on this screen shows it.
-//      The assertion is therefore on the BODY THAT WAS SENT, not on the box.
-//   ② A FAILED SEND KEEPS THE DRAFT AND SAYS SO. A box that clears itself on a
-//      failure is pixel-identical to one that succeeded; what is lost is the
-//      reader's own sentence, and they have no way to know it never left.
-//   ③ A DEPARTED AUTHOR GETS NO BOX AT ALL. Not a disabled one — the pill for
-//      such an author is deliberately not a button, and a composer that sends
-//      into nothing is that same dead affordance in a larger shape.
-describe("LorePage — 內嵌輸入框", () => {
-  /** 🔴 THIS HELPER NO LONGER OPENS ANYTHING, AND THAT IS AN ASSERTION.
-   * It used to click the row, because the box lived in the expanded body. Owner
-   * moved it onto the collapsed row (「訊息輸入框預設就要在（不用展開）」, the
-   * 任務卡 behaviour), so every spec below now also states that the box is
-   * reachable without a click — a `waitFor` that never resolves is how a
-   * regression back into `expanded &&` shows up here.
-   *
-   * ⚠️ IT NO LONGER CHECKS 「撰寫人 is absent」. That line was a second reading
-   * of 「the row is closed」, and 撰寫人 stopped being expanded-only on
-   * 2026-09-08 — keeping it would have been a guard that can only fail for the
-   * wrong reason. `aria-expanded` below is the state itself. */
-  async function openComposer(entryId = "L-7", authorId = "mira") {
-    stubList(page([mkEntry({ id: entryId, state: "active", authorId })]));
-    const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
-    await waitFor(() =>
-      expect(
-        container.querySelector('[data-testid="lore-msg-input"]'),
-      ).not.toBeNull(),
-    );
-    // The row really is closed. 🔴 ASSERT ON `aria-expanded`, WHICH IS THE
-    // STATE ITSELF. This used to read `lore-author-row` and that testid is
-    // rendered ONLY on the DEPARTED-author branch (peerId === ""), so for the
-    // reachable author every call here uses it was null whether the row was
-    // open or shut — a guard that could not fail. Verified by planting the
-    // mutant it was supposed to catch: it stayed green.
-    expect(
-      container
-        .querySelector('[data-testid="lore-row"]')!
-        .getAttribute("aria-expanded"),
-    ).toBe("false");
-    return container;
-  }
-
-  it("sends the entry id AHEAD of what was typed", async () => {
-    const posted: { to: string; body: string }[] = [];
-    vi.spyOn(api, "postChat").mockImplementation(async (m) => {
-      posted.push({ to: m.to, body: m.body });
-    });
-
-    const container = await openComposer("L-7");
-    const box = container.querySelector<HTMLTextAreaElement>(
-      '[data-testid="lore-msg-input"]',
-    )!;
-    fireEvent.change(box, { target: { value: "這條還適用嗎" } });
-    fireEvent.click(
-      container.querySelector<HTMLElement>('[data-testid="lore-msg-send"]')!,
-    );
-
-    await waitFor(() => expect(posted).toHaveLength(1));
-    // 🔴 The WHOLE body, and the id at the FRONT. `toContain("L-7")` would also
-    // pass for an id appended after the sentence, which does not solve the
-    // problem the prefix exists for — the author reads the first words.
-    // The shape spells out WHICH KIND of id it carries since owner
-    // rc-01a07b1b2a12 / rc-379631993586 「ok. B.」; the bare 「[L-7] 」 it replaced
-    // was indistinguishable from the 任務 box's own bracket.
-    expect(posted[0].body).toBe("[LoreID=L-7] 這條還適用嗎");
-    expect(posted[0].to).toBe("mira");
-
-    // The box empties on success, and the screen says it went.
-    await waitFor(() => expect(box.value).toBe(""));
-    expect(
-      container.querySelector('[data-testid="lore-msg-sent"]'),
-    ).not.toBeNull();
-  });
-
-  // ⚠️ THIS SPEC USED TO ASSERT THE OPPOSITE, and the flip is owner's, not a
-  // convenience. It read 「tells the reader the id will be prepended, before
-  // they send anything」 and required `lore-msg-prefix-note` to be PRESENT and
-  // to name the entry — that line was the only place on screen saying that what
-  // goes out is not what was typed. Owner removed the line in the round that
-  // made this row look like a 任務卡 (任務卡 has no such line) and ruled the
-  // round 外觀-only, so THE PREFIX ITSELF STAYS.
-  //
-  // 🔴 So the spec keeps the half that still holds and states the cost of the
-  // half that changed: no note, and the id still leads the wire. Deleting the
-  // spec instead would have left 「the note is gone」 unrecorded and 「the prefix
-  // survived the note's removal」 unguarded — and the prefix is the half whose
-  // loss lands on the OTHER person's side, where nothing on this screen shows
-  // it.
-  it("no longer shows the prefix note, and still sends the id ahead of the text", async () => {
-    const posted: { to: string; body: string }[] = [];
-    vi.spyOn(api, "postChat").mockImplementation(async (m) => {
-      posted.push({ to: m.to, body: m.body });
-    });
-
-    const container = await openComposer("L-31");
-    expect(
-      container.querySelector('[data-testid="lore-msg-prefix-note"]'),
-    ).toBeNull();
-
-    const box = container.querySelector<HTMLTextAreaElement>(
-      '[data-testid="lore-msg-input"]',
-    )!;
-    fireEvent.change(box, { target: { value: "這條還適用嗎" } });
-    fireEvent.click(
-      container.querySelector<HTMLElement>('[data-testid="lore-msg-send"]')!,
-    );
-
-    await waitFor(() => expect(posted).toHaveLength(1));
-    expect(posted[0].body).toBe("[LoreID=L-31] 這條還適用嗎");
-  });
-
-  // 🔴 THE BOX ON THE COLLAPSED ROW SITS ON THE ROW'S OWN TOGGLE SURFACE.
-  // Every click inside `.lore-row` that is not filtered out by the row's
-  // closest() list flips expanded — so a composer that renders while collapsed
-  // and is NOT in that list folds the entry away as soon as the reader reaches
-  // for it. On screen the box still accepts the click; what happens is the card
-  // shuts. The textarea and the buttons are covered by the element entries in
-  // that list; this asserts the SURFACE AROUND them is too.
-  it("does not expand or collapse the row when the composer is clicked", async () => {
-    const container = await openComposer("L-7");
-    const composer = container.querySelector<HTMLElement>(
-      '[data-testid="lore-author-composer"]',
-    )!;
-
-    fireEvent.click(composer);
-    expect(
-      container
-        .querySelector('[data-testid="lore-row"]')!
-        .getAttribute("aria-expanded"),
-    ).toBe("false");
-
-    const box = container.querySelector<HTMLTextAreaElement>(
-      '[data-testid="lore-msg-input"]',
-    )!;
-    fireEvent.click(box);
-    fireEvent.change(box, { target: { value: "打字不該把卡片摺起來" } });
-    expect(
-      container
-        .querySelector('[data-testid="lore-row"]')!
-        .getAttribute("aria-expanded"),
-    ).toBe("false");
-    expect(box.value).toBe("打字不該把卡片摺起來");
-  });
-
-  // The 📎 owner asked for (「加上附加檔案按鈕」): staged files ride the SAME
-  // postChat call as the text, and a message that is ONLY files is sendable —
-  // the 任務卡 rule. A 📎 whose files never reach `attachments` looks identical
-  // on screen to one whose files do.
-  it("carries staged files on the same message, and sends with no text at all", async () => {
-    const posted: {
-      body: string;
-      attachments?: ChatAttachmentInput[];
-    }[] = [];
-    vi.spyOn(api, "postChat").mockImplementation(async (m) => {
-      posted.push({ body: m.body, attachments: m.attachments });
-    });
-
-    const container = await openComposer("L-7");
-    const send = container.querySelector<HTMLButtonElement>(
-      '[data-testid="lore-msg-send"]',
-    )!;
-    // Empty box, nothing staged ⇒ the button cannot fire.
-    expect(send.disabled).toBe(true);
-    expect(
-      container.querySelector('[data-testid="lore-msg-attach"]'),
-    ).not.toBeNull();
-
-    const fileInput = container.querySelector<HTMLInputElement>(
-      '[data-testid="lore-author-composer"] input[type="file"]',
-    )!;
-    const file = new File(["hello"], "note.txt", { type: "text/plain" });
-    fireEvent.change(fileInput, { target: { files: [file] } });
-
-    // The strip appears, and the send button comes alive with NO text typed.
-    await waitFor(() => expect(send.disabled).toBe(false));
-
-    fireEvent.click(send);
-    await waitFor(() => expect(posted).toHaveLength(1));
-    expect(posted[0].body).toBe("[LoreID=L-7] ");
-    expect(posted[0].attachments).toHaveLength(1);
-    expect(posted[0].attachments![0].filename).toBe("note.txt");
-  });
-
-  it("keeps the draft and says so when the send fails", async () => {
-    vi.spyOn(api, "postChat").mockRejectedValue(new Error("boom"));
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    const container = await openComposer("L-7");
-    const box = container.querySelector<HTMLTextAreaElement>(
-      '[data-testid="lore-msg-input"]',
-    )!;
-    fireEvent.change(box, { target: { value: "這條還適用嗎" } });
-    fireEvent.click(
-      container.querySelector<HTMLElement>('[data-testid="lore-msg-send"]')!,
-    );
-
-    await waitFor(() =>
-      expect(
-        container.querySelector('[data-testid="lore-msg-failed"]'),
-      ).not.toBeNull(),
-    );
-    // 🔴 BOTH halves. A visible notice with an emptied box still costs the
-    // reader their sentence; a kept draft with no notice reads as 「it just did
-    // not send yet」.
-    expect(box.value).toBe("這條還適用嗎");
-    expect(
-      container.querySelector('[data-testid="lore-msg-sent"]'),
-    ).toBeNull();
-  });
-
-  it("gives a departed author no box at all, not a disabled one", async () => {
-    stubList(
-      page([
-        mkEntry({ id: "here", state: "active", authorId: "mira" }),
-        mkEntry({ id: "gone", state: "active", authorId: "m-gone" }),
-      ]),
-    );
-    const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
-
-    // No click: the box is on the collapsed row now, and so is its absence.
-    await waitFor(() =>
-      expect(
-        rowById(container, "here").querySelector(
-          '[data-testid="lore-author-composer"]',
-        ),
-      ).not.toBeNull(),
-    );
-    // 🔴 Absent, not disabled. Asserting only 「the send button is disabled」
-    // would pass for a box that renders, invites typing, and can never deliver.
-    expect(
-      rowById(container, "gone").querySelector(
-        '[data-testid="lore-author-composer"]',
-      ),
-    ).toBeNull();
-    expect(
-      rowById(container, "gone").querySelector('[data-testid="lore-msg-input"]'),
-    ).toBeNull();
-  });
-});
-
-// 篩選器: every filter travels on the section's own request.
 describe("LorePage — 篩選器複選", () => {
   /** The options of the most recent list request. */
   function lastOpts(spy: ReturnType<typeof stubList>) {
@@ -1046,7 +644,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
     expect(idsInDomOrder()).toEqual(fields);
   });
 
-  it("reads 編號 → 類型 → 狀態 → 屬於 on the row", async () => {
+  it("reads 編號 → 類型 → 狀態 on the row", async () => {
     stubList(page([mkEntry({ id: "L-9", state: "pinned" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
@@ -1054,14 +652,13 @@ describe("LorePage — 順序跟任務頁一致", () => {
     const row = rowById(container, "L-9");
     const marks = Array.from(
       row.querySelectorAll(
-        '[data-testid="lore-entry-id"], [data-testid="lore-type"], [data-testid="lore-state"], [data-testid="lore-scope"]',
+        '.lore-row__badges [data-testid]',
       ),
     ).map((el) => el.getAttribute("data-testid"));
 
     // 🔴 The id LEADS, the way 任務卡's #T-1 does: it is what you quote to
     // somebody else.
-    expect(marks).toEqual(["lore-entry-id", "lore-type", "lore-state", "lore-scope"]);
-    // Nothing sits between the checkbox and the id.
+    expect(marks).toEqual(["lore-entry-id", "lore-type", "lore-state"]);
     expect(row.querySelector(".lore-row__badges")!.firstElementChild!.getAttribute("data-testid")).toBe(
       "lore-entry-id",
     );
@@ -1145,31 +742,29 @@ describe("LorePage — 順序跟任務頁一致", () => {
 
 // ────────────────────────────────────────────────────────────────────────────
 // 卡片版面 (owner 2026-09-08).
-describe("LorePage — 訊息框在最下方", () => {
-  it("is the LAST thing on the card, closed and open alike", async () => {
-    stubList(page([mkEntry({ id: "L-7", authorId: "mira" })]));
+describe("LorePage — 卡片底下一行小字", () => {
+  it("shows 撰寫人 · 生效期 · 字數 on one line at the bottom, and no message box on the card", async () => {
+    stubList(
+      page([
+        mkEntry({ id: "L-7", authorId: "mira", title: "標題", body: "四個字的", effectiveTs: 1788400000 }),
+      ]),
+    );
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
     const row = rowById(container, "L-7");
-
-    // 🔴 ASSERTED AS "LAST CHILD", NOT AS "AFTER 內容". Owner's words were
-    // 「訊息匡應該在最下方」 and the box used to sit between 內容 and
-    // 撰寫人／生效期 — a version that merely moved it below 內容 would still be
-    // in the middle of the card and would pass a weaker check.
-    const lastOf = (el: HTMLElement) =>
-      (el.lastElementChild as HTMLElement).getAttribute("data-testid");
-    expect(lastOf(row)).toBe("lore-author-composer");
-    expect(row.getAttribute("aria-expanded")).toBe("false");
-
-    // And it stays last once the row is open — the two states are separate
-    // arrangements of the same JSX and only one of them is exercised by a test
-    // that never clicks.
-    fireEvent.click(row.querySelector('[data-testid="lore-body"]')!);
-    await waitFor(() =>
-      expect(row.getAttribute("aria-expanded")).toBe("true"),
-    );
-    expect(lastOf(row)).toBe("lore-author-composer");
+    const meta = row.querySelector<HTMLElement>(".lore-row__meta")!;
+    expect(
+      Array.from(meta.querySelectorAll('[data-testid="lore-author-link"], [data-testid="lore-effective"], [data-testid="lore-size"]')).map(
+        (el) => el.getAttribute("data-testid"),
+      ),
+    ).toEqual(["lore-author-link", "lore-effective", "lore-size"]);
+    expect(meta.querySelector('[data-testid="lore-size"]')!.textContent).toBe("6 字");
+    // The size left the head: one place for it.
+    expect(row.querySelector('.lore-row__head [data-testid="lore-size"]')).toBeNull();
+    expect(row.querySelector("textarea")).toBeNull();
+    expect(row.textContent).not.toContain("傳訊息給");
   });
+
 });
 
 describe("LorePage — 折疊的只有內容", () => {
@@ -1726,22 +1321,19 @@ describe("LorePage — 適用範圍選單", () => {
     await waitFor(() =>
       expect(renderedIds(container)).toHaveLength(entries.length),
     );
+    // The menu's labels need the roster and the manuals; wait until one reads
+    // a resolved name rather than a raw key.
     await waitFor(() => {
-      const badges = Array.from(
-        container.querySelectorAll('[data-testid="lore-scope-name"]'),
-      ).map((el) => el.textContent ?? "");
-      expect(badges.filter((t) => /review-pr|：mira$/.test(t))).toEqual([]);
+      const menu = openScopeMenu(container, entries[0].id);
+      const text = menu.textContent ?? "";
+      fireEvent.mouseDown(document.body);
+      expect(text).not.toMatch(/review-pr|：mira/);
     });
     return { container, list };
   }
 
   it("a task-bound entry's menu lists task, author, everyone with the task option checked and default", async () => {
     const { container } = await renderRows([taskBound]);
-    expect(
-      rowById(container, "L-1").querySelector('[data-testid="lore-scope-name"]')!
-        .textContent,
-    ).toBe("任務：PR 審查");
-
     const menu = openScopeMenu(container, "L-1");
 
     expect(menu.getAttribute("role")).toBe("menu");
@@ -1806,10 +1398,6 @@ describe("LorePage — 適用範圍選單", () => {
 
   it("a current scope that is not the default is tagged 目前 while the default keeps 預設", async () => {
     const { container } = await renderRows([everyoneNow]);
-    expect(
-      rowById(container, "L-3").querySelector('[data-testid="lore-scope-name"]')!
-        .textContent,
-    ).toBe("所有人");
     const menu = openScopeMenu(container, "L-3");
     expect(readOptions(menu).map((o) => [o[0], o[2], o[3]])).toEqual([
       ["lore-scope-agent", "預設", "false"],
@@ -1829,12 +1417,13 @@ describe("LorePage — 適用範圍選單", () => {
     const menu = openScopeMenu(container, "L-2");
     fireEvent.click(menu.querySelector('[data-testid="lore-scope-everyone"]')!);
 
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
     await waitFor(() =>
       expect(
-        rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!
-          .textContent,
-      ).toBe("所有人"),
+        readOptions(openScopeMenu(container, "L-2")).find((o) => o[3] === "true")?.[0],
+      ).toBe("lore-scope-everyone"),
     );
+    fireEvent.mouseDown(document.body);
     expect(set.mock.calls).toEqual([["L-2", "everyone"]]);
     expect(list.mock.calls).toEqual([
       [{ states: ["pinned", "active"], scopeKinds: ["agent"], scopeKeys: ["mira"], limit: 30, offset: 0 }],
@@ -1846,7 +1435,8 @@ describe("LorePage — 適用範圍選單", () => {
     ).toBeNull();
   });
 
-  it("picking the current scope closes the menu and leaves the badge as it was", async () => {
+  it("picking the current scope closes the menu and sends nothing", async () => {
+    const set = vi.spyOn(api, "setLoreEntryScope").mockResolvedValue(undefined);
     const { container } = await renderRows([staffNoTask]);
 
     const menu = openScopeMenu(container, "L-2");
@@ -1855,10 +1445,7 @@ describe("LorePage — 適用範圍選單", () => {
     expect(
       container.querySelector('[data-testid="lore-scope-options"]'),
     ).toBeNull();
-    expect(
-      rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!
-        .textContent,
-    ).toBe("建立者：Mira");
+    expect(set).not.toHaveBeenCalled();
   });
 
   it("a refused switch shows the server's reason and does not reload the list", async () => {
@@ -1886,9 +1473,8 @@ describe("LorePage — 適用範圍選單", () => {
     );
     expect(list).toHaveBeenCalledTimes(1);
     expect(
-      rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!
-        .textContent,
-    ).toBe("建立者：Mira");
+      readOptions(openScopeMenu(container, "L-2")).find((o) => o[3] === "true")?.[0],
+    ).toBe("lore-scope-agent");
   });
 
   it("a mousedown outside the badge closes the menu; one inside keeps it open", async () => {
@@ -1906,7 +1492,7 @@ describe("LorePage — 適用範圍選單", () => {
     ).toBeNull();
   });
 
-  it("for the owner a manual badge opens the menu, whose last row opens the manual", async () => {
+  it("for the owner the menu of a manual entry ends with a row that opens the manual", async () => {
     const { container } = await renderRows([taskBound]);
     window.location.hash = "";
 
@@ -1972,19 +1558,14 @@ describe("LorePage — 適用範圍選單", () => {
         return el;
       }),
     );
-    await waitFor(() =>
-      expect(
-        rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!
-          .textContent,
-      ).toBe("建立者：Mira"),
-    );
+    await waitFor(() => rowById(container, "L-2"));
     return container;
   }
 
   it.each([
     ["the owner", { scope: "owner", sub: "owner" }],
     ["the assistant", { scope: "agent", sub: "mira" }],
-  ])("%s opens the menu from the badge", async (_label, claims) => {
+  ])("%s opens the menu from the 適用範圍 action", async (_label, claims) => {
     const container = await renderAs(jwt(claims));
     await waitFor(() =>
       expect(
@@ -1996,12 +1577,14 @@ describe("LorePage — 適用範圍選單", () => {
     fireEvent.click(
       rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!,
     );
-    expect(
-      container.querySelector('[data-testid="lore-scope-options"]')?.textContent,
-    ).toBe("適用範圍建立者：Mira預設所有人");
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="lore-scope-options"]')?.textContent,
+      ).toBe("適用範圍建立者：Mira預設所有人"),
+    );
   });
 
-  it("switching sections asks for the roster, workers and manuals once, and the scope badge stays a menu", async () => {
+  it("switching sections asks for the roster, workers and manuals once, and the 適用範圍 action stays a menu", async () => {
     const container = await renderAs(jwt({ scope: "agent", sub: "mira" }));
     const real = await import("../api");
     await waitFor(() =>
@@ -2015,7 +1598,7 @@ describe("LorePage — 適用範圍選單", () => {
       );
     const before = counts();
     // A second read would never answer: a page that re-asked would sit without
-    // a roster and draw the badge as plain text.
+    // a roster and lose the 適用範圍 action.
     vi.mocked(real.api.listMembers).mockReturnValue(new Promise(() => {}));
     vi.mocked(real.api.listLoreBudgets).mockResolvedValue([
       MIRA_TARGET,
@@ -2033,13 +1616,9 @@ describe("LorePage — 適用範圍選單", () => {
     expect(counts()).toEqual(before);
   });
 
-  it("a plain member sees the current scope as text and clicking it opens nothing", async () => {
+  it("a plain member gets no 適用範圍 action at all", async () => {
     const container = await renderAs(jwt({ scope: "agent", sub: "m-kyle" }));
-    const badge = rowById(container, "L-2").querySelector(
-      '[data-testid="lore-scope-name"]',
-    )!;
-    expect(badge.getAttribute("aria-haspopup")).toBeNull();
-    fireEvent.click(badge);
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')).toBeNull();
     expect(container.querySelector('[data-testid="lore-scope-options"]')).toBeNull();
     expect(container.querySelector('[data-testid="lore-scope-agent"]')).toBeNull();
     expect(container.querySelector('[data-testid="lore-scope-everyone"]')).toBeNull();
@@ -2161,7 +1740,7 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(cards[1].querySelector('[data-testid="lore-section-usage"]')!.textContent).toBe("320 字");
   });
 
-  it("opening a member's section shows the sentence, the 所有人 reference row, the cards and the line above the first entry that cannot be read", async () => {
+  it("opening a member's section shows the head card with its two-part bar and legend, the cards and the line above the first entry that cannot be read", async () => {
     stubTargets();
     const list = stubList(
       miraPage([
@@ -2186,26 +1765,28 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(window.location.hash).toBe("#lore/agent/mira");
     expect(container.querySelector('[data-testid="lore-target"]')).toBeNull();
     expect(container.querySelector('[data-testid="lore-back"]')!.getAttribute("href")).toBe("#lore");
-    expect(container.querySelector('[data-testid="lore-section-head"]')!.textContent).toBe(
-      "Mira成員11 筆9,640 / 10,0004 筆讀不到",
-    );
+    const head = container.querySelector<HTMLElement>('[data-testid="lore-section-head"]')!;
+    expect(head.querySelector('[data-testid="lore-section-name"]')!.textContent).toBe("Mira");
+    expect(head.querySelector('[data-testid="lore-section-count"]')!.textContent).toBe("11 筆");
+    expect(head.querySelector('[data-testid="lore-section-dropped"]')!.textContent).toBe("4 筆讀不到");
     expect(list.mock.calls).toEqual([
       [{ states: ["pinned", "active"], scopeKinds: ["agent"], scopeKeys: ["mira"], limit: 30, offset: 0 }],
     ]);
-    expect(body.querySelector('[data-testid="lore-section-summary"]')!.textContent).toBe(
-      "上限 10,000 字，已用 9,640 字：所有人的傳承 14 筆（6,240 字）排在最前面，Mira自己 7 筆（3,400 字）；從 L-212 開始 4 筆讀不到（L-212 需要 520 字，只剩 360 字）。",
-    );
-    expect(body.querySelector('[data-testid="lore-everyone-ref"]')!.textContent).toBe(
-      "所有人的傳承 14 筆排在最前面（在「所有人」那一段調整）6,240 字",
-    );
+    // 所有人 is read first (6,240 of 10,000), then Mira's own 3,400 that fit.
+    expect(head.querySelector<HTMLElement>('[data-testid="lore-bar-everyone"]')!.style.width).toBe("62.4%");
+    expect(head.querySelector<HTMLElement>('[data-testid="lore-bar-own"]')!.style.width).toBe("34%");
+    expect(
+      Array.from(head.querySelectorAll('[data-testid="lore-section-summary"] > *')).map((el) => el.textContent),
+    ).toEqual([
+      "所有人 14 筆 6,240 字（排在最前面）",
+      "Mira 11 筆，讀得到 7 筆 3,400 字",
+      "上限 10,000 字，剩 360 字",
+    ]);
+    expect(container.querySelector('[data-testid="lore-everyone-ref"]')).toBeNull();
     const sequence = Array.from(
-      body.querySelectorAll(
-        '[data-testid="lore-section-summary"], [data-testid="lore-everyone-ref"], [data-testid="lore-row"], [data-testid="lore-cap-line"]',
-      ),
+      body.querySelectorAll('[data-testid="lore-row"], [data-testid="lore-cap-line"]'),
     ).map((el) => el.getAttribute("data-entry-id") ?? el.getAttribute("data-testid"));
     expect(sequence).toEqual([
-      "lore-section-summary",
-      "lore-everyone-ref",
       "L-198",
       "L-231",
       "lore-cap-line",
@@ -2261,7 +1842,7 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(container.querySelector('[data-testid="lore-cap-away"]')).toBeNull();
   });
 
-  it("when 所有人 alone is over the cap, the line sits right under the 所有人 row and every own card is dimmed", async () => {
+  it("when 所有人 alone is over the cap, the bar is all 所有人, the line sits above the first card and every own card is dimmed", async () => {
     stubTargets();
     stubList(
       miraPage([mkEntry({ id: "L-231" }), mkEntry({ id: "L-212" })], {
@@ -2286,14 +1867,21 @@ describe("LorePage — 目錄與段落頁", () => {
       if (!el || renderedIds(el).length === 0) throw new Error("section not loaded");
       return el;
     });
-    expect(body.querySelector('[data-testid="lore-section-summary"]')!.textContent).toBe(
-      "上限 10,000 字，已用 9,800 字：所有人的傳承就超過上限，20 筆裡只放得下 14 筆（9,800 字）；Mira自己的 2 筆都讀不到。",
-    );
+    const head = container.querySelector<HTMLElement>('[data-testid="lore-section-head"]')!;
+    expect(
+      Array.from(head.querySelectorAll('[data-testid="lore-section-summary"] > *')).map((el) => el.textContent),
+    ).toEqual([
+      "所有人 20 筆，讀得到 14 筆 9,800 字（排在最前面）",
+      "Mira 2 筆，讀得到 0 筆 0 字",
+      "上限 10,000 字，剩 200 字",
+    ]);
+    expect(head.querySelector<HTMLElement>('[data-testid="lore-bar-everyone"]')!.style.width).toBe("98%");
+    expect(head.querySelector<HTMLElement>('[data-testid="lore-bar-own"]')!.style.width).toBe("0%");
     expect(
       Array.from(
-        body.querySelectorAll('[data-testid="lore-everyone-ref"], [data-testid="lore-row"], [data-testid="lore-cap-line"]'),
+        body.querySelectorAll('[data-testid="lore-row"], [data-testid="lore-cap-line"]'),
       ).map((el) => el.getAttribute("data-entry-id") ?? el.getAttribute("data-testid")),
-    ).toEqual(["lore-everyone-ref", "lore-cap-line", "L-231", "L-212"]);
+    ).toEqual(["lore-cap-line", "L-231", "L-212"]);
     expect(renderedIds(body).map((id) => rowById(body, id).dataset.dimmed)).toEqual(["true", "true"]);
   });
 
@@ -2345,8 +1933,9 @@ describe("LorePage — 目錄與段落頁", () => {
     );
 
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-9"]));
+    // Its reason is its own line under the meta.
     expect(rowById(container, "L-9").querySelector('[data-testid="lore-retire-reason"]')!.textContent).toBe(
-      "併進 SOP",
+      "失效理由：併進 SOP",
     );
   });
 
@@ -2949,6 +2538,31 @@ describe("LorePage — 手機寬度", () => {
 
     expect(row.querySelector('[data-testid="lore-more-menu"]')).toBeNull();
     expect(row.querySelector('[data-testid="lore-editor"]')).not.toBeNull();
+  });
+
+  it("for a viewer who may switch scopes, 「⋯」 also offers 適用範圍, which opens the same menu", async () => {
+    stubList(
+      page([mkEntry({ id: "L-1", scopeKind: "agent", scopeKey: "mira", scopeOptions: ["agent", "everyone"] })]),
+    );
+    const { container } = await renderOpen({ canSetScope: true });
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const row = rowById(container, "L-1");
+    // No desktop button on a phone: the action lives in 「⋯」 only.
+    expect(row.querySelector('[data-testid="lore-scope-name"]')).toBeNull();
+
+    fireEvent.click(row.querySelector('[data-testid="lore-more-actions"]')!);
+    expect(
+      Array.from(row.querySelectorAll('[data-testid="lore-more-menu"] [role="menuitem"]')).map(
+        (el) => el.textContent,
+      ),
+    ).toEqual(["提到最新", "編輯", "適用範圍"]);
+    fireEvent.click(row.querySelector('[data-testid="lore-scope-more"]')!);
+    expect(row.querySelector('[data-testid="lore-more-menu"]')).toBeNull();
+    await waitFor(() =>
+      expect(row.querySelector('[data-testid="lore-scope-options"]')?.textContent).toBe(
+        "適用範圍建立者：Mira預設所有人",
+      ),
+    );
   });
 });
 

@@ -35,7 +35,6 @@ import { useI18n } from "../i18n";
 import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { api, viewerMaySetLoreScope } from "../api";
 import type {
-  ChatAttachmentInput,
   LoreBudgetTargetView,
   LoreEntryEdit,
   LoreEntryPageView,
@@ -52,13 +51,7 @@ import { loadServerSettings } from "../hooks/sharedServerSettings";
 import { useMembers } from "../hooks/useMembers";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { useSuggestedRepliesLoreMessage } from "../hooks/useSuggestedReplies";
 import { useTaskManuals } from "../hooks/useTaskManuals";
-import {
-  ATTACH_ACCEPT,
-  STAGING_TARGET_PER_MOUNT,
-  useAttachmentStaging,
-} from "../hooks/useAttachmentStaging";
 import {
   useWorkerAvatarUrls,
   useWorkerCodenames,
@@ -69,7 +62,6 @@ import type { AvatarKind } from "../lib/themeBundle";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import { autosizeTextarea } from "../lib/autosize";
-import { enterShouldSend } from "../lib/composerKeys";
 import {
   formatHash,
   navigateHash,
@@ -78,13 +70,11 @@ import {
   type LoreSectionKind,
 } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
-import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import { Markdown } from "./Markdown";
 import { MultiSelectFilter } from "./MultiSelectFilter";
-import { SuggestedReplies, appendSuggestion } from "./SuggestedReplies";
 import {
   BookIcon,
   ChatBubbleIcon,
@@ -92,18 +82,12 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  GearIcon,
   MoreIcon,
-  PaperclipIcon,
-  SendIcon,
-  UserIcon,
   UsersIcon,
 } from "./icons";
 import "./lore.css";
-// ComposerAttachmentPreview draws `.chat__preview-*` from office.css; the body
-// renders through <Markdown>'s `.doc-md` skin from settings.css. Imported here
-// rather than relied on transitively (css-layout-traps.md).
-import "./office.css";
+// The body renders through <Markdown>'s `.doc-md` skin from settings.css;
+// imported here rather than relied on transitively (css-layout-traps.md).
 import "./settings.css";
 
 /** 捲到底一次載這麼多. A page shorter than this is the last one. */
@@ -1021,71 +1005,65 @@ function LoreView({
   }, [highlightLoaded, highlightId]);
 
   // ── render helpers ──────────────────────────────────────────────────────
-  function renderHeaderUsage(def: SectionDef) {
-    const b = def.target;
-    const usage =
-      def.kind === "everyone"
-        ? msg.loreEveryoneUsed(b.usedChars)
-        : `${b.usedChars.toLocaleString("en-US")} / ${b.capChars.toLocaleString("en-US")}`;
-    return (
-      <span className="lore-section__usage" data-testid="lore-section-usage">
-        <span className="lore-section__chars">{usage}</span>
-        {b.droppedCount > 0 ? (
-          <span className="lore-section__dropped" data-testid="lore-section-dropped">
-            {msg.loreDropped(b.droppedCount)}
-          </span>
-        ) : (
-          <span className="lore-section__fit">{t.lore.allFit}</span>
-        )}
-      </span>
-    );
-  }
-
-  function renderSummary(def: SectionDef, sd: SectionData) {
-    const cap = sd.cap;
-    if (cap.capChars <= 0) return null;
+  // The section's own boot document, drawn as one bar: 所有人's entries are
+  // read first (member sections only), then the target's own, up to the cap.
+  function renderSummary(def: SectionDef, sd: SectionData | undefined) {
+    const cap = sd?.cap;
+    if (!sd || !cap || cap.capChars <= 0) return dirUsage(def);
     const own =
       [...cap.budgetSegments].reverse().find((s) => s.scopeKind === def.kind) ?? null;
     const everyoneSeg =
       def.kind === "agent"
         ? cap.budgetSegments.find((s) => s.scopeKind === "everyone") ?? null
         : null;
+    const pct = (chars: number) => `${Math.min(100, (chars / cap.capChars) * 100)}%`;
     const cut = cutIndexOf(sd);
     return (
       <>
-        <div className="lore-section__summary" data-testid="lore-section-summary">
-          {msg.loreBudgetSentence({
-            capChars: cap.capChars,
-            usedChars: cap.usedChars,
-            ownName: sectionName(def),
-            everyone: everyoneSeg
-              ? {
-                  count: everyoneSeg.entryCount,
-                  chars: everyoneSeg.chars,
-                  fitted: everyoneSeg.fittedCount,
-                  fittedChars: everyoneSeg.fittedChars,
-                }
-              : null,
-            own: {
-              count: own?.entryCount ?? 0,
-              fitted: own?.fittedCount ?? 0,
-              fittedChars: own?.fittedChars ?? 0,
-            },
-            firstDroppedId: cap.firstDroppedId,
-            firstDroppedChars: cap.firstDroppedChars,
-          })}
-          {cap.firstDroppedId !== "" && cut < 0 && !sd.loading && (
-            <div className="lore-section__cap-away" data-testid="lore-cap-away">
-              {msg.loreCapLineAway(cap.firstDroppedId)}
-            </div>
+        <div className="lore-dir-card__seg" data-testid="lore-section-bar">
+          {everyoneSeg && (
+            <span
+              className="lore-dir-card__seg-everyone"
+              data-testid="lore-bar-everyone"
+              style={{ width: pct(everyoneSeg.fittedChars) }}
+            />
           )}
+          <span
+            className="lore-dir-card__bar-fill"
+            data-testid="lore-bar-own"
+            style={{ width: pct(own?.fittedChars ?? 0) }}
+          />
         </div>
-        {everyoneSeg && (
-          <div className="lore-section__everyone-ref" data-testid="lore-everyone-ref">
-            <span>{msg.loreEveryoneRef(everyoneSeg.entryCount)}</span>
-            <span className="lore-section__everyone-ref-chars">
-              {msg.loreChars(everyoneSeg.chars)}
+        <div className="lore-dir-card__legend" data-testid="lore-section-summary">
+          {everyoneSeg && (
+            <span className="lore-dir-card__legend-item">
+              <i className="lore-dir-card__swatch lore-dir-card__swatch--everyone" aria-hidden="true" />
+              {msg.loreLegendSegment(
+                t.lore.kindEveryone,
+                everyoneSeg.entryCount,
+                everyoneSeg.fittedCount,
+                everyoneSeg.fittedChars,
+                true
+              )}
             </span>
+          )}
+          <span className="lore-dir-card__legend-item">
+            <i className="lore-dir-card__swatch" aria-hidden="true" />
+            {msg.loreLegendSegment(
+              sectionName(def),
+              own?.entryCount ?? 0,
+              own?.fittedCount ?? 0,
+              own?.fittedChars ?? 0,
+              false
+            )}
+          </span>
+          <span className="lore-dir-card__legend-item">
+            {msg.loreLegendLeft(cap.capChars, Math.max(0, cap.capChars - cap.usedChars))}
+          </span>
+        </div>
+        {cap.firstDroppedId !== "" && cut < 0 && !sd.loading && (
+          <div className="lore-section__cap-away" data-testid="lore-cap-away">
+            {msg.loreCapLineAway(cap.firstDroppedId)}
           </div>
         )}
       </>
@@ -1106,7 +1084,6 @@ function LoreView({
     const cut = cutIndexOf(sd);
     return (
       <>
-        {renderSummary(def, sd)}
         {sd.entries.length === 0 && (
           <div className="lore__empty" data-testid="lore-section-empty">
             {t.lore.sectionEmpty}
@@ -1176,12 +1153,27 @@ function LoreView({
     navigateHash({ page: "settings", manualKey: typeKey });
   }
 
-  const kindChip = (k: LoreScopeKind) =>
-    k === "everyone" ? t.lore.kindEveryone : k === "manual" ? t.lore.kindManual : t.lore.kindMember;
   const sectionRoute = (def: SectionDef): HashRoute => ({
     page: "lore",
     loreSection: { kind: def.kind as LoreSectionKind, key: def.kind === "everyone" ? "" : def.scopeKey },
   });
+
+  function dirBadges(def: SectionDef) {
+    return (
+      <span className="lore-dir-card__badges">
+        <span className="lore-badge" data-testid="lore-section-count">
+          {msg.loreEntryCount(def.target.entryCount)}
+        </span>
+        {def.target.droppedCount > 0 ? (
+          <span className="lore-badge lore-badge--dropped" data-testid="lore-section-dropped">
+            {msg.loreDropped(def.target.droppedCount)}
+          </span>
+        ) : (
+          <span className="lore-badge lore-badge--fit">{t.lore.allFit}</span>
+        )}
+      </span>
+    );
+  }
 
   function dirLead(def: SectionDef) {
     if (def.kind === "agent") {
@@ -1286,21 +1278,7 @@ function LoreView({
                       <span className="lore-dir-card__name" data-testid="lore-section-name">
                         {sectionName(def)}
                       </span>
-                      <span className="lore-dir-card__badges">
-                        <span className="lore-badge" data-testid="lore-section-count">
-                          {msg.loreEntryCount(def.target.entryCount)}
-                        </span>
-                        {def.target.droppedCount > 0 ? (
-                          <span
-                            className="lore-badge lore-badge--dropped"
-                            data-testid="lore-section-dropped"
-                          >
-                            {msg.loreDropped(def.target.droppedCount)}
-                          </span>
-                        ) : (
-                          <span className="lore-badge lore-badge--fit">{t.lore.allFit}</span>
-                        )}
-                      </span>
+                      {dirBadges(def)}
                     </span>
                     <span className="lore-dir-card__mark" aria-hidden="true">
                       <ChevronRightIcon size={14} />
@@ -1352,15 +1330,17 @@ function LoreView({
 
       {currentDef && (
         <>
-          <div className="lore-section__head lore-section__head--page" data-testid="lore-section-head">
-            <span className="lore-section__name" data-testid="lore-section-name">
-              {sectionName(currentDef)}
-            </span>
-            <span className="lore-section__kind">{kindChip(currentDef.kind)}</span>
-            <span className="lore-section__count" data-testid="lore-section-count">
-              {msg.loreEntryCount(currentDef.target.entryCount)}
-            </span>
-            {renderHeaderUsage(currentDef)}
+          <div className="lore-dir-card lore-dir-card--page" data-testid="lore-section-head">
+            <div className="lore-dir-card__head">
+              {dirLead(currentDef)}
+              <span className="lore-dir-card__main">
+                <span className="lore-dir-card__name" data-testid="lore-section-name">
+                  {sectionName(currentDef)}
+                </span>
+                {dirBadges(currentDef)}
+              </span>
+            </div>
+            {renderSummary(currentDef, sd)}
           </div>
 
           <FilterPanel
@@ -1538,21 +1518,6 @@ function LoreRow({
     return () => document.removeEventListener("mousedown", onDown);
   }, [scopeOpen]);
 
-  const scopeText =
-    scope.kind === "manual"
-      ? msg.loreScopeManual(scope.label)
-      : scope.kind === "agent"
-        ? msg.loreScopeAgent(scope.label)
-        : scope.label;
-  const scopeGlyph =
-    scope.kind === "manual" ? (
-      <GearIcon size={13} className="lore-row__scope-glyph lore-row__scope-glyph--task" />
-    ) : scope.kind === "agent" ? (
-      <UserIcon size={13} className="lore-row__scope-glyph lore-row__scope-glyph--member" />
-    ) : scope.kind === "everyone" ? (
-      <UsersIcon size={13} className="lore-row__scope-glyph lore-row__scope-glyph--everyone" />
-    ) : null;
-
   useEffect(() => {
     if (!stateOpen) return;
     function onDown(e: MouseEvent) {
@@ -1598,13 +1563,8 @@ function LoreRow({
   function onRowToggleClick(e: React.MouseEvent<HTMLElement>) {
     if (!toggleable) return;
     const target = e.target as HTMLElement;
-    // `.lore-row__composer` is in this list for the same reason the controls
-    // are: it is a WRITING surface that now renders on the COLLAPSED row, so a
-    // click that lands on its padding (beside the box, not on it) would fold
-    // the entry away mid-sentence. The textarea/buttons inside it are already
-    // covered by the element entries; this covers the box AROUND them.
     const hit = target.closest(
-      "button, a, textarea, input, select, label, .lore-row__composer, .lore-row__editor, [role='button'], [role='menu'], [role='dialog']"
+      "button, a, textarea, input, select, label, .lore-row__editor, [role='button'], [role='menu'], [role='dialog']"
     );
     if (hit && hit !== e.currentTarget) return;
     const sel = window.getSelection();
@@ -1801,136 +1761,9 @@ function LoreRow({
             )}
           </div>
 
-          {/* 屬於 — which scope pays for this entry.
-              🔴 IT IS ON THE COLLAPSED ROW, WHICH IS THE WHOLE POINT. It used to
-              sit in the expanded body, and the reason given for putting it on the
-              row at all was that 全部 — where the page OPENS — mixes every scope
-              together and the reader cannot tell a 角色傳承 from one manual's.
-              That reader is looking at a COLLAPSED list. A chip they have to open
-              a row to reach answers the question only for somebody who already
-              went looking, which is not the person who was lost (owner, card
-              rc-11734523eb52; the first attempt landed inside `expanded &&`).
-              It is a <button> when it leads somewhere — the 適用範圍 menu, or the
-              manual — so the row's closest() filter lets the click through
-              instead of toggling. */}
-          <span className="lore-row__scope" data-testid="lore-scope" ref={scopeRef}>
-            {/* ONE badge naming the current scope (T-236 mockup): 任務：<手冊>
-                with the gear, 建立者：<作者> with the person glyph, 所有人 with the
-                group glyph; an unknown kind shows its raw key and no glyph.
-                For a viewer who may switch scopes the badge is the 適用範圍 menu
-                trigger, and the manual jump moves into that menu. Otherwise a
-                manual badge still opens the manual and the rest are plain text. */}
-            {scopeMenu ? (
-              <button
-                type="button"
-                className="lore-badge lore-badge--type lore-row__scope-chip lore-row__scope-chip--editable"
-                data-testid="lore-scope-name"
-                data-scope-kind={scope.kind}
-                aria-haspopup="menu"
-                aria-expanded={scopeOpen}
-                title={t.lore.scopeMenuLabel}
-                  onClick={() => setScopeOpen((o) => !o)}
-              >
-                {scopeGlyph}
-                <span className="lore-row__scope-name">{scopeText}</span>
-                <ChevronDownIcon size={12} className="lore-row__scope-caret" />
-              </button>
-            ) : scope.kind === "manual" ? (
-              <button
-                type="button"
-                className="lore-badge lore-badge--type lore-row__scope-chip"
-                data-testid="lore-scope-name"
-                data-scope-kind="manual"
-                aria-label={msg.loreOpenManual(scope.label)}
-                title={msg.loreOpenManual(scope.label)}
-                onClick={() => onOpenManual(scope.manualKey)}
-              >
-                {scopeGlyph}
-                <span className="lore-row__scope-name">{scopeText}</span>
-              </button>
-            ) : (
-              <span
-                className="lore-badge lore-badge--type"
-                data-testid="lore-scope-name"
-                data-scope-kind={scope.kind}
-              >
-                {scopeGlyph}
-                <span className="lore-row__scope-name">{scopeText}</span>
-              </span>
-            )}
-            {scopeMenu && scopeOpen && (
-              <div
-                className="lore-row__menu-pop lore-row__scope-pop"
-                role="menu"
-                aria-label={t.lore.scopeMenuLabel}
-                data-testid="lore-scope-options"
-              >
-                <div className="lore-row__scope-pop-title">{t.lore.scopeMenuLabel}</div>
-                {scopeMenu.choices.map((c) => {
-                  const current = c.kind === entry.scopeKind;
-                  const tag =
-                    c.kind === scopeMenu.defaultKind
-                      ? t.lore.scopeTagDefault
-                      : current
-                        ? t.lore.scopeTagCurrent
-                        : "";
-                  return (
-                    <button
-                      key={c.kind}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={current}
-                      className={`lore-row__menu-item lore-row__scope-option${
-                        current ? " lore-row__menu-item--active" : ""
-                      }`}
-                      data-testid={`lore-scope-${c.kind}`}
-                      onClick={() => {
-                        setScopeOpen(false);
-                        if (!current) onSetScope(entry.id, c.kind);
-                      }}
-                    >
-                      <span className="lore-row__scope-check" aria-hidden="true">
-                        {current && <CheckIcon size={14} />}
-                      </span>
-                      <span className="lore-row__scope-option-head">
-                        <span data-testid="lore-scope-option-label">{c.label}</span>
-                        {tag !== "" && (
-                          <span
-                            className="lore-row__scope-tag"
-                            data-testid="lore-scope-option-tag"
-                          >
-                            {tag}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  );
-                })}
-                {scope.manualKey !== "" && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="lore-row__menu-item lore-row__scope-open-manual"
-                    data-testid="lore-scope-open-manual"
-                    onClick={() => {
-                      setScopeOpen(false);
-                      onOpenManual(scope.manualKey);
-                    }}
-                  >
-                    {msg.loreOpenManual(scope.label)}
-                  </button>
-                )}
-              </div>
-            )}
-          </span>
         </div>
 
         <div className="lore-row__actions">
-          {!isMobile && (
-            <span className="lore-row__size" data-testid="lore-size">
-              {msg.loreChars(entryChars(entry.title, entry.body))}
-            </span>
-          )}
           {isMobile ? (
             <div className="lore-row__more" ref={moreRef}>
               <button
@@ -1975,6 +1808,20 @@ function LoreRow({
                   >
                     {t.lore.actionEdit}
                   </button>
+                  {scopeMenu && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="lore-row__menu-item"
+                      data-testid="lore-scope-more"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        setScopeOpen(true);
+                      }}
+                    >
+                      {t.lore.scopeMenuLabel}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1998,6 +1845,87 @@ function LoreRow({
                 {t.lore.actionEdit}
               </button>
             </>
+          )}
+          {scopeMenu && (!isMobile || scopeOpen) && (
+            <span className="lore-row__scope" data-testid="lore-scope" ref={scopeRef}>
+              {!isMobile && (
+                <button
+                  type="button"
+                  className="lore-row__action"
+                  data-testid="lore-scope-name"
+                  data-scope-kind={scope.kind}
+                  aria-haspopup="menu"
+                  aria-expanded={scopeOpen}
+                  onClick={() => setScopeOpen((o) => !o)}
+                >
+                  {t.lore.scopeMenuLabel}
+                </button>
+              )}
+                {scopeOpen && (
+                <div
+                  className="lore-row__menu-pop lore-row__scope-pop"
+                  role="menu"
+                  aria-label={t.lore.scopeMenuLabel}
+                  data-testid="lore-scope-options"
+                >
+                  <div className="lore-row__scope-pop-title">{t.lore.scopeMenuLabel}</div>
+                  {scopeMenu.choices.map((c) => {
+                    const current = c.kind === entry.scopeKind;
+                    const tag =
+                      c.kind === scopeMenu.defaultKind
+                        ? t.lore.scopeTagDefault
+                        : current
+                          ? t.lore.scopeTagCurrent
+                          : "";
+                    return (
+                      <button
+                        key={c.kind}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={current}
+                        className={`lore-row__menu-item lore-row__scope-option${
+                          current ? " lore-row__menu-item--active" : ""
+                        }`}
+                        data-testid={`lore-scope-${c.kind}`}
+                        onClick={() => {
+                          setScopeOpen(false);
+                          if (!current) onSetScope(entry.id, c.kind);
+                        }}
+                      >
+                        <span className="lore-row__scope-check" aria-hidden="true">
+                          {current && <CheckIcon size={14} />}
+                        </span>
+                        <span className="lore-row__scope-option-head">
+                          <span data-testid="lore-scope-option-label">{c.label}</span>
+                          {tag !== "" && (
+                            <span
+                              className="lore-row__scope-tag"
+                              data-testid="lore-scope-option-tag"
+                            >
+                              {tag}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {scope.manualKey !== "" && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="lore-row__menu-item lore-row__scope-open-manual"
+                      data-testid="lore-scope-open-manual"
+                      onClick={() => {
+                        setScopeOpen(false);
+                        onOpenManual(scope.manualKey);
+                      }}
+                    >
+                      {msg.loreOpenManual(scope.label)}
+                    </button>
+                  )}
+                </div>
+              )}
+            </span>
           )}
         </div>
 
@@ -2073,65 +2001,30 @@ function LoreRow({
         </>
       )}
 
-      {/* 🔴 ALWAYS RENDERED — NOT `expanded &&` ANY MORE (owner 2026-09-08,
-          card rc-2e10ee03b97c). 展開／收合 now governs the CONTENT's length and
-          nothing else, so 撰寫人 / 生效期 / 失效理由 are on the closed row too.
-          Re-wrapping this in `expanded` would put the page back to hiding the
-          three rows the owner asked to see. */}
       <div className="lore-row__meta">
-        {/* 撰寫人自成一列: label left, avatar+name pill right, and the
-            傳訊息 icon INSIDE the pill. */}
-        <span className="lore-row__meta-label">{t.lore.authorLabel}</span>
         <LoreAuthorChip
           author={author}
           avatar={avatar}
           onOpenChat={(peerId) => onOpenChat(peerId, entry.id)}
         />
-
-        {/* 生效期 directly UNDER 撰寫人 (owner: 「生效期移到撰寫人下面一列」). */}
-        <span className="lore-row__meta-label">{t.lore.effectiveLabel}</span>
-        <span className="lore-row__effective-ts" data-testid="lore-effective">
+        <span className="lore-row__meta-dot" aria-hidden="true">·</span>
+        <span
+          className="lore-row__effective-ts"
+          data-testid="lore-effective"
+          title={t.lore.effectiveLabel}
+        >
           {formatAbsolute(entry.effectiveTs, Date.now() / 1000)}
         </span>
-
-        {/* 失效理由沒填就整列不顯示 — no label, no empty value, no dash. An
-            empty reason is not a reason, and a row that renders one teaches
-            the reader that retirements come without explanations. */}
-        {entry.retireReason !== "" && (
-          <>
-            <span className="lore-row__meta-label">
-              {t.lore.retireReasonLabel}
-            </span>
-            <span
-              className="lore-row__retire-reason"
-              data-testid="lore-retire-reason"
-            >
-              {entry.retireReason}
-            </span>
-          </>
-        )}
+        <span className="lore-row__meta-dot" aria-hidden="true">·</span>
+        <span className="lore-row__size" data-testid="lore-size">
+          {msg.loreChars(entryChars(entry.title, entry.body))}
+        </span>
       </div>
-
-      {/* The box to write to this entry's author — LAST ON THE CARD, in BOTH
-          states (owner 2026-09-08, screenshot: 「訊息匡應該在最下方」). It sat
-          between 內容 and 撰寫人／生效期, which put a writing surface in the
-          middle of the things you read.
-          🔴 IT IS OUTSIDE `expanded` AND MUST STAY OUTSIDE IT, the way 任務卡's
-          message box is always on the card (owner: 「訊息輸入框預設就要在」). A
-          reader who wants to ask one question about a row they can already read
-          should not have to open the row first — a step the 任務 page does not
-          ask for. Putting it after the expanded block is what satisfies BOTH
-          rulings at once: collapsed, the block above renders nothing and this is
-          the last thing on the card anyway; expanded, it is below 撰寫人 /
-          生效期 / 失效理由. Moving it back INSIDE `expanded` to "put it at the
-          bottom" would trade one owner ruling for the other.
-          🔴 Only a reachable author gets one. The departed author's pill is
-          deliberately not a button, and a composer that sends to nobody would be
-          that same dead affordance in a larger shape.
-          It is not a cell of `.lore-row__meta`'s grid, so lore.css gives it the
-          full row width itself rather than a `grid-column` span. */}
-      {author.peerId !== "" && (
-        <LoreAuthorComposer entryId={entry.id} author={author} />
+      {/* No reason, no line: an empty one would teach that retirements come unexplained. */}
+      {entry.retireReason !== "" && (
+        <div className="lore-row__retire" data-testid="lore-retire-reason">
+          {t.lore.retireReasonLabel}：{entry.retireReason}
+        </div>
       )}
     </article>
   );
@@ -2253,242 +2146,6 @@ function LoreEntryEditor({
           {saving ? t.lore.editSaving : t.lore.editSave}
         </button>
       </div>
-    </div>
-  );
-}
-
-/** The box under 撰寫人 — one sentence to the person who wrote this entry,
- * sent without leaving the page.
- *
- * 🔴 THE ENTRY ID IS PREPENDED BY THIS BOX, NOT TYPED BY THE READER. The whole
- * reason this affordance exists is that the author may hold dozens of entries
- * and 「這條還適用嗎」 without a subject costs them a round trip to ask which
- * one. Leaving the reader to type the id would put the failure back exactly
- * where it was.
- *
- * ⚠️ NOTHING ON SCREEN SAYS SO ANY MORE. There used to be a line under the box
- * (`.lore-row__composer-note`) — the only place the reader learned that what
- * goes out is not exactly what they typed — and owner removed it in the round
- * that made this row look like a 任務卡 (任務卡 has no such line). The PREFIX
- * ITSELF WAS DELIBERATELY LEFT ALONE: that round was 外觀 only. So the silent
- * rewrite the note existed to disclose is now silent, and that is a known,
- * chosen cost, not an oversight to quietly re-fix here.
- *
- * 🔴 A FAILED SEND KEEPS THE DRAFT AND SAYS SO. A box that clears itself on a
- * failure looks identical to one that succeeded, and what is lost is the
- * reader's own sentence.
- *
- * ATTACHMENTS RIDE THE SAME MESSAGE, through the SAME staging machine the 任務卡
- * composer and the chat composer use (useAttachmentStaging): paste an image into
- * the box or pick files with the 📎, and they go out on the one postChat call
- * this box makes. The slot is per-mount, so one entry's staged files can never
- * surface under another's box.
- */
-function LoreAuthorComposer({
-  entryId,
-  author,
-}: {
-  entryId: string;
-  author: AuthorIdentity;
-}): ReactNode {
-  const { t } = useI18n();
-  const isMobile = useIsMobile();
-  // The owner's 建議回覆 for THIS box (T-33) — its own settings list, never the
-  // 請示卡 or 任務 one. Empty (the shipped state, and the answer to a failed
-  // settings read) renders nothing at all, and the box is untouched by it.
-  const suggestedReplies = useSuggestedRepliesLoreMessage();
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [sent, setSent] = useState(false);
-  const boxRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const isComposingRef = useRef(false);
-  // The SHARED staging machine (same caps, same paste/pick funnels as the chat
-  // composer / 任務卡). `STAGING_TARGET_PER_MOUNT` is the honest slot for this
-  // surface: a LoreRow is mounted per entry, so the files die with the entry's
-  // box and one row's staging cannot appear under another row's.
-  const {
-    pendingAttachments,
-    attachError,
-    onPaste,
-    onPickFile,
-    removeAttachment,
-    clearAttachments,
-  } = useAttachmentStaging(STAGING_TARGET_PER_MOUNT);
-  // 🔴 TEXT **OR** FILES — the same rule 任務卡 uses. A message that is only a
-  // screenshot is a legitimate message; requiring a sentence beside it would
-  // make the 📎 an affordance that cannot complete on its own.
-  const canSend =
-    !sending && (draft.trim().length > 0 || pendingAttachments.length > 0);
-
-  // Auto-grow to the draft, same as the chat composer; the CSS max-height caps
-  // it and the box scrolls beyond that.
-  useLayoutEffect(() => {
-    if (boxRef.current) autosizeTextarea(boxRef.current);
-  }, [draft]);
-
-  async function send() {
-    if (!canSend) return;
-    const attachments: ChatAttachmentInput[] = pendingAttachments.map((a) => ({
-      dataB64: a.dataUri,
-      ...(a.filename ? { filename: a.filename } : {}),
-    }));
-    setSending(true);
-    setSent(false);
-    try {
-      // The id LEADS the message, the same shape the 任務 message box sends
-      // 「[TaskID=T-33] …」 in — and it now NAMES THE KIND OF ID it carries
-      // (owner rc-01a07b1b2a12 [0][1][2], rc-379631993586 「ok. B.」). 「[L-3] …」
-      // said the id without ever saying what it was an id OF, which is only
-      // readable by someone who already knows both id namespaces.
-      //
-      // 🔴 THE LITERAL IS WRITTEN HERE AND IS NOT AN i18n KEY, deliberately.
-      // That is the reason the owner picked this form: the reader on the other
-      // end is an agent, not this browser, and a prefix that changed with the
-      // cockpit's language would be a prefix nothing can match on.
-      //
-      // 🔴 `meta.lore_entry_id` IS THE OTHER HALF AND IS NOT A DUPLICATE OF IT.
-      // The prefix is for a PERSON and is display — the owner can reword it,
-      // and a round of 外觀 work already deleted the note that used to sit
-      // beside it. `meta` is for a PROGRAM: an agent receiving this message has
-      // to know WHICH ENTRY it is about without parsing a human-facing string
-      // that is free to change. The task message box has carried meta.task_id
-      // since it existed; this box carried an empty meta until now.
-      //
-      // The server copies unknown meta keys through WHOLESALE — read, not
-      // assumed: HandlePostChatApiChatPost (api_chat.go) builds its map from
-      // body.Meta, then `delete`s `reply_to` and `reply_excerpt` (it is the
-      // only writer of both) and OVERWRITES `attachments` when the post
-      // carries any. Every other key, this one included, is stored verbatim.
-      await api.postChat({
-        to: author.peerId,
-        body: `[LoreID=${entryId}] ${draft.trim()}`,
-        meta: { lore_entry_id: entryId },
-        ...(attachments.length > 0 ? { attachments } : {}),
-      });
-      setDraft("");
-      clearAttachments();
-      setFailed(false);
-      setSent(true);
-    } catch (e) {
-      console.warn("LorePage: message to author failed", e);
-      // The typed content stays — retry-friendly, and the notice says so. The
-      // STAGED FILES stay for the same reason: clearing them on a failure would
-      // silently cost the reader the thing they cannot retype.
-      setFailed(true);
-    } finally {
-      setSending(false);
-    }
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Shared send rule (IME gate + mobile newline) — see lib/composerKeys. On a
-    // phone Enter is left un-prevented so the box inserts a native newline and
-    // the button is the only way to send.
-    if (enterShouldSend(e, { isMobile, composing: isComposingRef.current })) {
-      e.preventDefault();
-      void send();
-    }
-  }
-
-  return (
-    <div className="lore-row__composer" data-testid="lore-author-composer">
-      {/* Staged-attachment preview strip — the SAME component (and therefore the
-       * same markup and classes) the chat composer / ReplyComposer / 任務卡 use.
-       * The mount guard lives here, as it does at every other call site. */}
-      {(pendingAttachments.length > 0 || attachError) && (
-        <ComposerAttachmentPreview
-          pendingAttachments={pendingAttachments}
-          attachError={attachError}
-          onRemove={removeAttachment}
-        />
-      )}
-      <div className="lore-row__composer-row">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={ATTACH_ACCEPT}
-          multiple
-          onChange={onPickFile}
-          hidden
-        />
-        <button
-          type="button"
-          className="lore-row__composer-attach"
-          aria-label={t.chat.attachLabel}
-          title={t.chat.attachLabel}
-          disabled={sending}
-          data-testid="lore-msg-attach"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <PaperclipIcon size={18} />
-        </button>
-        <textarea
-          ref={boxRef}
-          className="lore-row__composer-input"
-          rows={1}
-          value={draft}
-          disabled={sending}
-          placeholder={t.lore.messagePlaceholder(author.text)}
-          data-testid="lore-msg-input"
-          onChange={(e) => {
-            setDraft(e.target.value);
-            setSent(false);
-          }}
-          onCompositionStart={() => {
-            isComposingRef.current = true;
-          }}
-          onCompositionEnd={(e) => {
-            isComposingRef.current = false;
-            setDraft(e.currentTarget.value);
-          }}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-        ></textarea>
-        <button
-          type="button"
-          className="lore-row__composer-send"
-          disabled={!canSend}
-          data-testid="lore-msg-send"
-          onClick={() => void send()}
-        >
-          <SendIcon size={14} />
-          {t.lore.messageSend}
-        </button>
-      </div>
-      {/* T-33: a pick FILLS this box and leaves the send to the owner — the same
-       * rule the other two boxes keep. This message goes to the entry's writer
-       * and cannot be recalled, so a mis-tap must cost a keystroke, never a
-       * message. It sits OUTSIDE `.lore-row__composer-row` (the flex row holding
-       * the 📎, the textarea and 送出): a row of its own, under that one, as on
-       * 任務卡. */}
-      <SuggestedReplies
-        replies={suggestedReplies}
-        testId="lore-suggested-replies"
-        onPick={(suggestion) => {
-          setDraft((cur) => appendSuggestion(cur, suggestion));
-          boxRef.current?.focus();
-        }}
-      />
-      {failed && (
-        <div
-          className="lore-row__composer-error"
-          role="status"
-          data-testid="lore-msg-failed"
-        >
-          {t.lore.messageFailed}
-        </div>
-      )}
-      {sent && !failed && (
-        <div
-          className="lore-row__composer-sent"
-          role="status"
-          data-testid="lore-msg-sent"
-        >
-          {t.lore.messageSent}
-        </div>
-      )}
     </div>
   );
 }

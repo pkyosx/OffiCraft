@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { zh, type Dict } from "./locales/zh";
 import { en } from "./locales/en";
-import { makeMessages, effortText, type LoreBudgetSentence } from "./compose";
+import { makeMessages, effortText } from "./compose";
 import { applyWording } from "./wording";
 import { MESSAGE_KEYS } from "./messageKeys.generated";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
@@ -60,6 +60,7 @@ const cron = (nextTs: number | null, recurring: boolean) => ({ ...WAIT_CRON, nex
 
 type Arg =
   | string
+  | boolean
   | number
   | string[]
   | number[]
@@ -67,35 +68,7 @@ type Arg =
   | MemberActivity
   | ActivityWait
   | DueRemaining
-  | LoreBudgetSentence
   | { id: string; reason: string }[];
-const MEMBER_DROPPING: LoreBudgetSentence = {
-  capChars: 10000,
-  usedChars: 9640,
-  ownName: "小安",
-  everyone: { count: 14, chars: 6240, fitted: 14, fittedChars: 6240 },
-  own: { count: 11, fitted: 7, fittedChars: 3400 },
-  firstDroppedId: "L-212",
-  firstDroppedChars: 520,
-};
-const MEMBER_EVERYONE_OVER: LoreBudgetSentence = {
-  capChars: 10000,
-  usedChars: 9800,
-  ownName: "小安",
-  everyone: { count: 20, chars: 12000, fitted: 14, fittedChars: 9800 },
-  own: { count: 7, fitted: 0, fittedChars: 0 },
-  firstDroppedId: "L-212",
-  firstDroppedChars: 520,
-};
-const MANUAL_FITS: LoreBudgetSentence = {
-  capChars: 10000,
-  usedChars: 3210,
-  ownName: "review-pr",
-  everyone: null,
-  own: { count: 8, fitted: 8, fittedChars: 3210 },
-  firstDroppedId: "",
-  firstDroppedChars: 0,
-};
 /** [language, message, arguments, the text that must appear on screen]. */
 const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "memberActivitySummary", [act({ busySince: T - 180 })], "主代理工作中"],
@@ -209,18 +182,17 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "loreEntryCount", [14], "14 筆"],
     ["zh", "loreChars", [6240], "6,240 字"],
     ["zh", "loreDropped", [4], "4 筆讀不到"],
+    ["zh", "loreLegendSegment", ["所有人", 14, 14, 6240, true], "所有人 14 筆 6,240 字（排在最前面）"],
+    ["zh", "loreLegendSegment", ["小安", 11, 7, 3400, false], "小安 11 筆，讀得到 7 筆 3,400 字"],
+    ["zh", "loreLegendLeft", [10000, 360], "上限 10,000 字，剩 360 字"],
     ["zh", "loreDirUsage", [9640, 10000], "9,640 / 10,000 字"],
     ["zh", "loreEveryoneUsed", [6240], "6,240 字・每位成員先讀"],
     ["zh", "loreDirectoryNotFound", ["L-212"], "找不到 L-212"],
     ["zh", "loreDirectorySectionGone", ["L-212"], "L-212 所在的段落已經不在了（成員已離開或手冊已刪除）"],
     ["zh", "loreHighlightMissing", ["L-212"], "L-212 不在目前的篩選結果裡（已失效的條目要勾「已失效」才會列出）"],
     ["zh", "loreHighlightLoadFailed", ["L-212"], "載入更多條目失敗，還沒找到 L-212；往下捲可以再試一次"],
-    ["zh", "loreBudgetSentence", [MEMBER_DROPPING], "上限 10,000 字，已用 9,640 字：所有人的傳承 14 筆（6,240 字）排在最前面，小安自己 7 筆（3,400 字）；從 L-212 開始 4 筆讀不到（L-212 需要 520 字，只剩 360 字）。"],
-    ["zh", "loreBudgetSentence", [MEMBER_EVERYONE_OVER], "上限 10,000 字，已用 9,800 字：所有人的傳承就超過上限，20 筆裡只放得下 14 筆（9,800 字）；小安自己的 7 筆都讀不到。"],
-    ["zh", "loreBudgetSentence", [MANUAL_FITS], "上限 10,000 字，已用 3,210 字：8 筆（3,210 字）放得下；全部讀得到。"],
     ["zh", "loreCapLine", [9640, 10000, "L-212", 520], "上限線　已用 9,640 / 10,000 字・L-212 需要 520 字，從這裡以下讀不到"],
     ["zh", "loreCapLineAway", ["L-212"], "上限線在 L-212，不在目前的結果裡"],
-    ["zh", "loreEveryoneRef", [14], "所有人的傳承 14 筆排在最前面（在「所有人」那一段調整）"],
     ["zh", "secretCopyId", ["sec-00000000000a"], "複製密鑰 ID sec-00000000000a"],
     ["zh", "secretDeleteConfirmBody", ["部署權杖"], "要刪除「部署權杖」嗎？刪除後無法復原。"],
     ["zh", "sharedDocCopyId", ["sd-0c41e97a2b58"], "複製檔案 ID sd-0c41e97a2b58"],
@@ -420,18 +392,17 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "loreEntryCount", [14], "14 entries"],
     ["en", "loreChars", [6240], "6,240 chars"],
     ["en", "loreDropped", [4], "4 not read"],
+    ["en", "loreLegendSegment", ["Everyone", 14, 14, 6240, true], "Everyone 14 entries, 6,240 chars (read first)"],
+    ["en", "loreLegendSegment", ["小安", 11, 7, 3400, false], "小安 11 entries, 7 read, 3,400 chars"],
+    ["en", "loreLegendLeft", [10000, 360], "Cap 10,000 chars, 360 chars left"],
     ["en", "loreDirUsage", [9640, 10000], "9,640 / 10,000 chars"],
     ["en", "loreEveryoneUsed", [6240], "6,240 chars · read first by every member"],
     ["en", "loreDirectoryNotFound", ["L-212"], "No entry L-212"],
     ["en", "loreDirectorySectionGone", ["L-212"], "L-212's section is gone (the member left or the manual was deleted)"],
     ["en", "loreHighlightMissing", ["L-212"], "L-212 is not in the current results (tick Retired to list retired entries)"],
     ["en", "loreHighlightLoadFailed", ["L-212"], "Loading more entries failed before L-212 was found; scroll down to try again"],
-    ["en", "loreBudgetSentence", [MEMBER_DROPPING], "Cap 10,000 chars, 9,640 used: everyone's lore, 14 entries (6,240 chars), comes first, then 小安's own 7 entries (3,400 chars); from L-212 on, 4 are not read (L-212 needs 520 chars, only 360 left)."],
-    ["en", "loreBudgetSentence", [MEMBER_EVERYONE_OVER], "Cap 10,000 chars, 9,800 used: everyone's lore alone is over the cap — of 20 entries only 14 fit (9,800 chars); none of 小安's own 7 entries are read."],
-    ["en", "loreBudgetSentence", [MANUAL_FITS], "Cap 10,000 chars, 3,210 used: 8 entries (3,210 chars) fit; everything is read."],
     ["en", "loreCapLine", [9640, 10000, "L-212", 520], "Cap line · used 9,640 / 10,000 chars · L-212 needs 520 chars; nothing from here down is read"],
     ["en", "loreCapLineAway", ["L-212"], "The cap line is at L-212, which is not in the current results"],
-    ["en", "loreEveryoneRef", [14], "Everyone's lore, 14 entries, comes first (change it in the Everyone section)"],
     ["en", "secretCopyId", ["sec-00000000000a"], "Copy secret ID sec-00000000000a"],
     ["en", "secretDeleteConfirmBody", ["Deploy token"], "Delete \u201cDeploy token\u201d? This cannot be undone."],
     ["en", "sharedDocCopyId", ["sd-0c41e97a2b58"], "Copy file ID sd-0c41e97a2b58"],
