@@ -176,8 +176,8 @@ Read these when you are new to OffiCraft, getting ready to install, or have just
 
 Read these when assigning work, answering reply cards, and checking progress and usage day to day.
 
-- [Assign work and answer reply cards](docs/guide/daily.md) — chat, attachments, @-mentioning members, grouping members, answering reply cards, and commenting on documents members deliver.
-- [Track task progress](docs/guide/tasks.md) — understand task statuses, steps, and gates; accept results or force close.
+- [Assigning work and answering reply cards](docs/guide/daily.md) — chat, attachments, @-mentioning members, grouping members, answering reply cards, and commenting on documents members deliver.
+- [Tracking task progress](docs/guide/tasks.md) — understand task statuses, steps, and gates; accept results or force close.
 - [Manage AI accounts and usage](docs/guide/usage.md) — see each account's usage, estimated cost, and the account and model each member uses in the Monitor tab; sign machines in to accounts and upgrade Claude Code.
 - [Use it on your phone](docs/guide/mobile.md) — connect to the console from your phone, add it to the Home Screen, and turn on push notifications.
 
@@ -185,12 +185,12 @@ Read these when assigning work, answering reply cards, and checking progress and
 
 Read these when you want to hand off repetitive, scheduled, or externally triggered work, or add members.
 
-- [Have AI do repetitive work by an SOP (task manuals)](docs/guide/sop.md) — write task manuals and decide which steps stop and wait for you.
-- [Do something on a schedule (scheduled messages)](docs/guide/schedule.md) — set up scheduled messages so a member receives prewritten instructions at fixed times (the member must be online to act on them).
+- [Having AI follow an SOP for repeated work (Task manuals)](docs/guide/sop.md) — write task manuals and decide which steps stop and wait for you.
+- [Doing something on a schedule (Scheduled messages)](docs/guide/schedule.md) — set up scheduled messages so a member receives prewritten instructions at fixed times (the member must be online to act on them).
 - [Send outside events to members automatically (webhooks)](docs/guide/webhook.md) — create webhook endpoints that hand notifications from other services (for example, new Slack messages) to the responsible member.
-- [Make members remember what you taught them (lore)](docs/guide/lore.md) — write down who you are, what must not be touched (Owner additions), each role's duties, and the lessons members have learned (lore).
+- [Making members remember what you taught them (Lore)](docs/guide/lore.md) — write down who you are, what must not be touched (Owner additions), each role's duties, and the lessons members have learned (lore).
 - [Give members your account keys (secrets)](docs/guide/secrets.md) — store secrets so members can fetch them without pasting them into chat.
-- [Add members and hire outsource members](docs/guide/members.md) — add staff members, hire outsource members, wake and stop members, change models and machines, read the status icons, and decide between outsourcing and adding a long-term member.
+- [Adding members and hiring outsource](docs/guide/members.md) — add staff members, hire outsource members, wake and stop members, change models and machines, read the status icons, and decide between outsourcing and adding a long-term member.
 
 ### Lookup and reference
 

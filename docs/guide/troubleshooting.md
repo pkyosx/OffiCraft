@@ -199,8 +199,8 @@ The member's dot shows "Online", but no reply or progress comes. Possible causes
   - **Ready to close**: every step is done, and the task is waiting for its owner to close it. If the owner does not finish up, the menu on the task card's "Ready to close" label has "Force close"; **force closing cannot be undone**.
   - **Frozen**: a task whose priority is Frozen stops moving forward.
 
-  For what each task status means, see [Track task progress](tasks.md).
-- **High memory use**: when a member's memory is nearly full, its replies get worse. "Refocus" in Member details has an online member write its progress into a handover and continue from that handover in a new working session. See [Add members and hire outsource members](members.md).
+  For what each task status means, see [Tracking task progress](tasks.md).
+- **High memory use**: when a member's memory is nearly full, its replies get worse. "Refocus" in Member details has an online member write its progress into a handover and continue from that handover in a new working session. See [Adding members and hiring outsource](members.md).
 
 ## A member will not stop
 
@@ -269,6 +269,6 @@ For the steps to remove one machine (uninstall, delete) or the whole studio, see
 
 - [Install, upgrade, and uninstall](install.md)
 - [Protect your studio](security.md)
-- [Add members and hire outsource members](members.md)
-- [Track task progress](tasks.md)
+- [Adding members and hiring outsource](members.md)
+- [Tracking task progress](tasks.md)
 - [Architecture and how it works](architecture.md)

@@ -35,6 +35,6 @@ The phone has the same features as the computer, but shows one area at a time: "
 ## Related docs
 
 - [Protect your studio](security.md)
-- [Assign work and answer reply cards](daily.md)
-- [Track task progress](tasks.md)
+- [Assigning work and answering reply cards](daily.md)
+- [Tracking task progress](tasks.md)
 - [Troubleshooting and FAQ](troubleshooting.md)

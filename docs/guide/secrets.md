@@ -34,5 +34,5 @@ For a description of each field, see "Secrets" in [Interface reference](interfac
 
 - [Protect your studio](security.md)
 - [Troubleshooting and FAQ](troubleshooting.md)
-- [Assign work and answer reply cards](daily.md)
+- [Assigning work and answering reply cards](daily.md)
 - [Interface reference](interface.md)

@@ -4,7 +4,7 @@ This page explains what a webhook endpoint is, what each of its settings means, 
 
 ## Webhook endpoints
 
-A webhook endpoint is a web address that belongs to one member. When something happens in Slack, GitHub, or another outside service, the service sends the details to this address, and they become a chat message to that member. For example, when someone on Slack mentions a certain keyword, the event goes to the member responsible for replying. If these events need to be handled in a fixed way, you can first create a task manual; the member then opens a task following the manual when an event arrives. See [Have AI do repetitive work by an SOP (task manuals)](sop.md).
+A webhook endpoint is a web address that belongs to one member. When something happens in Slack, GitHub, or another outside service, the service sends the details to this address, and they become a chat message to that member. For example, when someone on Slack mentions a certain keyword, the event goes to the member responsible for replying. If these events need to be handled in a fixed way, you can first create a task manual; the member then opens a task following the manual when an event arrives. See [Having AI follow an SOP for repeated work (Task manuals)](sop.md).
 
 You set up webhook endpoints in the "WEBHOOK ENDPOINTS" card on the member's Member details. Only you and the Assistant, Mira, can set them up.
 
@@ -45,6 +45,6 @@ So the more specific the purpose, the better members can judge on their own what
 ## Related docs
 
 - [Protect your studio](security.md)
-- [Have AI do repetitive work by an SOP (task manuals)](sop.md)
-- [Do something on a schedule (scheduled messages)](schedule.md)
-- [Assign work and answer reply cards](daily.md)
+- [Having AI follow an SOP for repeated work (Task manuals)](sop.md)
+- [Doing something on a schedule (Scheduled messages)](schedule.md)
+- [Assigning work and answering reply cards](daily.md)

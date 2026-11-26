@@ -25,11 +25,11 @@ For a full description of every field, see "Monitor" in [Interface reference](in
 
 ## When an account runs out
 
-When an account's usage runs out, an exclamation mark appears next to the name of every member using that account, with the reason "usage limit reached". The members recover once the reset time arrives. For the other reasons behind the exclamation mark and what to do about them, see "Reading a member's status" in [Add members and hire outsource members](members.md).
+When an account's usage runs out, an exclamation mark appears next to the name of every member using that account, with the reason "usage limit reached". The members recover once the reset time arrives. For the other reasons behind the exclamation mark and what to do about them, see "Reading a member's status" in [Adding members and hiring outsource](members.md).
 
 ## Related docs
 
-- [Assign work and answer reply cards](daily.md)
-- [Add members and hire outsource members](members.md)
-- [Make members remember what you taught them (lore)](lore.md)
+- [Assigning work and answering reply cards](daily.md)
+- [Adding members and hiring outsource](members.md)
+- [Making members remember what you taught them (Lore)](lore.md)
 - [Interface reference](interface.md)
