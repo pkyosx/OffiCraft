@@ -56,7 +56,7 @@ In the following cases, the member starts with Claude Code this time, but the ch
 
 Members upgraded from older versions already have Claude Code saved as their runtime, and this does not change automatically.
 
-Change "AI runtime" in the launch settings to the other option and confirm, and the selected runtime is saved and fixed. For a member with no runtime chosen yet, the screen already shows Claude Code, and confirming it unchanged does not save it. For what to do when a member cannot start on a machine that only has Codex installed, see "Machine has only Codex installed and Mira or new members cannot start" in [FAQ and troubleshooting](troubleshooting.md).
+Change "AI runtime" in the launch settings to the other option and confirm, and the selected runtime is saved and fixed. For a member with no runtime chosen yet, the screen already shows Claude Code, and confirming it unchanged does not save it. For what to do when a member cannot start on a machine that only has Codex installed, see "Machine has only Codex installed and Mira or new members cannot start" in [Troubleshooting and FAQ](troubleshooting.md).
 
 ## How member status is determined
 
@@ -89,7 +89,7 @@ Because every action goes through the server, the console always shows the data 
 
 - The server gives a member its login credential when it starts the member, and the same credential is used for REST, SSE, and MCP. Its validity is "Member login lifetime" under Settings › Parameters. When a credential enters its last hour, the server automatically asks the member to wrap up and hand over so a new one can be issued.
 - Each machine's warden has its own credential too, valid for the "Machine credential lifetime" (30 days by default). The warden renews it automatically before it expires; a machine that misses the renewal is disconnected and has to be reinstalled.
-- File share links, the external links of comparison pages, and login credentials are all issued with the server's signing keys. For the effect of renewing and removing keys, see [Protecting your studio](security.md).
+- File share links, the external links of comparison pages, and login credentials are all issued with the server's signing keys. For the effect of renewing and removing keys, see [Protect your studio](security.md).
 
 ## What members read when they boot
 
@@ -121,9 +121,9 @@ After every step is done, the task becomes Ready to close, and the executor wrap
 
 ## How outside events and time come in
 
-- **Webhook endpoints**: an outside service (Slack, GitHub, or another system) calls a URL that belongs to a member; the server verifies it and turns the content into a chat message to that member. The member handles it like any other chat. See [Sending outside events to members automatically (Webhook endpoints)](webhook.md).
+- **Webhook endpoints**: an outside service (Slack, GitHub, or another system) calls a URL that belongs to a member; the server verifies it and turns the content into a chat message to that member. The member handles it like any other chat. See [Send outside events to members automatically (webhooks)](webhook.md).
 - **Scheduled messages**: the server sends a chat message to a member when the time comes, at the frequency and in the time zone you set. See [Doing something on a schedule (Scheduled messages)](schedule.md).
-- **Push notifications**: when there is a new message or a reply card that needs your decision, the server notifies the devices on which you turned on notifications, through browser push. See [Using it on your phone](mobile.md).
+- **Push notifications**: when there is a new message or a reply card that needs your decision, the server notifies the devices on which you turned on notifications, through browser push. See [Use it on your phone](mobile.md).
 
 ## Where data is stored
 
@@ -163,7 +163,7 @@ ocagent secret run --env NPM_TOKEN=sec-aaaaaaaaaaaa -- npm publish
 - "Last accessed" on the Secrets tab is the time of the last successful `run` or `write`; `list` and `show` do not fetch the value and do not update it.
 - Running `ocagent secret --help` in a member's session lists the full parameters and exit codes of each subcommand.
 
-For how to add secrets and hand them to members, see [Giving members account keys (Secrets)](secrets.md).
+For how to add secrets and hand them to members, see [Give members your account keys (secrets)](secrets.md).
 
 Lore, role definitions, Insights, task manuals, and Global context are all stored on the server as well. When a member boots, the server assembles them into its boot content within the size caps; the size caps are under Settings › Parameters.
 
@@ -191,18 +191,18 @@ For the screens related to members, see [Adding members and hiring outsource](me
 
 A studio can have several computers: the server is on one of them, and members can be spread across the machines.
 
-- **Adding and removing machines**: add a machine under Monitor › Machines, then run the install command the console gives you on that machine; it installs its own warden and connects to the server. To remove one, choose "Uninstall" or "Delete" from the machine name's menu. See "Adding or removing machines" in [Install, upgrade, and remove](install.md).
+- **Adding and removing machines**: add a machine under Monitor › Machines, then run the install command the console gives you on that machine; it installs its own warden and connects to the server. To remove one, choose "Uninstall" or "Delete" from the machine name's menu. See "Adding or removing machines" in [Install, upgrade, and uninstall](install.md).
 - **Assigning members**: the machine chosen in the member details is where the member starts.
 
 A machine only needs to be able to reach the server. Each warden works independently, so one machine going offline only affects the members on it.
 
 ## How updates reach machines
 
-OffiCraft publishes new versions as GitHub Releases. When the server upgrades, it downloads, verifies, and restarts itself; new versions of the warden and ocagent are included in the server, and each warden regularly checks its version with the server and updates itself. For the upgrade screens and how long it takes, see "Upgrading" in [Install, upgrade, and remove](install.md).
+OffiCraft publishes new versions as GitHub Releases. When the server upgrades, it downloads, verifies, and restarts itself; new versions of the warden and ocagent are included in the server, and each warden regularly checks its version with the server and updates itself. For the upgrade screens and how long it takes, see "Upgrading" in [Install, upgrade, and uninstall](install.md).
 
 ## Security design
 
-- **Local connections only, data stored locally**: the server only accepts connections from the same computer (`127.0.0.1`); this cannot be changed. To connect from a phone or another device, you need a tunnel (a channel that lets the outside network reach this machine) or the forwarding feature of a private network (for example `tailscale serve` from the private network service Tailscale) to expose local port 7755. Once it is exposed, anyone who can reach the URL can try to sign in, so you need a strong password and two-factor authentication before opening it up; passkeys do not replace two-factor authentication. To open it up, tell Mira "I want to reach the console from somewhere other than this computer". See [Protecting your studio](security.md).
+- **Local connections only, data stored locally**: the server only accepts connections from the same computer (`127.0.0.1`); this cannot be changed. To connect from a phone or another device, you need a tunnel (a channel that lets the outside network reach this machine) or the forwarding feature of a private network (for example `tailscale serve` from the private network service Tailscale) to expose local port 7755. Once it is exposed, anyone who can reach the URL can try to sign in, so you need a strong password and two-factor authentication before opening it up; passkeys do not replace two-factor authentication. To open it up, tell Mira "I want to reach the console from somewhere other than this computer". See [Protect your studio](security.md).
 - **Only one user**: the studio has only you as CEO, with no multi-user accounts. What each member can do is decided by the server based on its identity.
 - **The server is the source of truth for all data**: every machine and every member sees the same data on the server.
 - **Sessions are disposable**: a member's memory is on the server, so ending a session or changing machines does not make it forget anything.
@@ -212,5 +212,5 @@ OffiCraft publishes new versions as GitHub Releases. When the server upgrades, i
 - [Glossary](glossary.md)
 - [Interface reference](interface.md)
 - [Adding members and hiring outsource](members.md)
-- [Protecting your studio](security.md)
-- [FAQ and troubleshooting](troubleshooting.md)
+- [Protect your studio](security.md)
+- [Troubleshooting and FAQ](troubleshooting.md)
