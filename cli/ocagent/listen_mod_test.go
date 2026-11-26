@@ -298,35 +298,35 @@ func TestModWriter(t *testing.T) {
 		for _, tc := range []struct{ name, event, submitted string }{
 			{"an event at the ceiling", atCeiling, atCeiling},
 			{"one byte over", atCeiling + "a", header + strings.Repeat("a", 166) +
-				"… [這則通知約 1 行／8193 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"},
+				"… [this notice is about 1 lines / 8193 characters, over the 8 KiB limit for delivery to the screen, so its body was not delivered — use get_chat to read the full text]"},
 			{"a thousand-line message", chatEvent(t, "c-6feb08ebdbb6", long.String()),
 				"[ocagent] chat from owner (#c-6feb08ebdbb6): line 0000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
-					" [這則通知約 1194 行／53770 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"},
+					" [this notice is about 1194 lines / 53770 characters, over the 8 KiB limit for delivery to the screen, so its body was not delivered — use get_chat to read the full text]"},
 			{"a first line cut at 200 characters, between characters", bigChat,
 				"[ocagent] chat from owner (#c-2): " + strings.Repeat("界", 166) +
-					"… [這則通知約 1 行／4034 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"},
+					"… [this notice is about 1 lines / 4034 characters, over the 8 KiB limit for delivery to the screen, so its body was not delivered — use get_chat to read the full text]"},
 			{"a webhook whose long endpoint id and purpose push the message id past the cut",
-				"[ocagent] chat from hook:" + strings.Repeat("e", 64) + " [webhook 用途：" + strings.Repeat("用", 200) +
+				"[ocagent] chat from hook:" + strings.Repeat("e", 64) + " [webhook purpose: " + strings.Repeat("用", 200) +
 					"] (#c-0123456789ab, 0s ago): " + big,
-				"[ocagent] chat from hook:" + strings.Repeat("e", 64) + " [webhook 用途：" + strings.Repeat("用", 98) +
-					"… [這則通知約 1 行／9331 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀 #c-0123456789ab 的全文]"},
+				"[ocagent] chat from hook:" + strings.Repeat("e", 64) + " [webhook purpose: " + strings.Repeat("用", 92) +
+					"… [this notice is about 1 lines / 9337 characters, over the 8 KiB limit for delivery to the screen, so its body was not delivered — use get_chat to read the full text of #c-0123456789ab]"},
 			{"a webhook purpose containing a channel tag still yields the message id",
-				"[ocagent] chat from hook:" + strings.Repeat("e", 64) + " [webhook 用途：部署通知 (#deploys 頻道)" +
+				"[ocagent] chat from hook:" + strings.Repeat("e", 64) + " [webhook purpose: 部署通知 (#deploys 頻道)" +
 					strings.Repeat("用", 182) + "] (#c-0123456789ab, 0s ago): " + big,
-				"[ocagent] chat from hook:" + strings.Repeat("e", 64) + " [webhook 用途：部署通知 (#deploys 頻道)" +
-					strings.Repeat("用", 80) +
-					"… [這則通知約 1 行／9331 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀 #c-0123456789ab 的全文]"},
+				"[ocagent] chat from hook:" + strings.Repeat("e", 64) + " [webhook purpose: 部署通知 (#deploys 頻道)" +
+					strings.Repeat("用", 74) +
+					"… [this notice is about 1 lines / 9337 characters, over the 8 KiB limit for delivery to the screen, so its body was not delivered — use get_chat to read the full text of #c-0123456789ab]"},
 			{"ids quoted in the body do not replace the message id",
-				"[ocagent] chat from hook:" + strings.Repeat("e", 64) + " [webhook 用途：" + strings.Repeat("用", 200) +
+				"[ocagent] chat from hook:" + strings.Repeat("e", 64) + " [webhook purpose: " + strings.Repeat("用", 200) +
 					"] (#c-0123456789ab, 0s ago): see PR (#123) and (#c-000000000000) " + big,
-				"[ocagent] chat from hook:" + strings.Repeat("e", 64) + " [webhook 用途：" + strings.Repeat("用", 98) +
-					"… [這則通知約 1 行／9367 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀 #c-0123456789ab 的全文]"},
+				"[ocagent] chat from hook:" + strings.Repeat("e", 64) + " [webhook purpose: " + strings.Repeat("用", 92) +
+					"… [this notice is about 1 lines / 9373 characters, over the 8 KiB limit for delivery to the screen, so its body was not delivered — use get_chat to read the full text of #c-0123456789ab]"},
 			{"a reply card", "[ocagent] reply-card rc-1 answered: " + big,
 				"[ocagent] reply-card rc-1 answered: " + strings.Repeat("b", 164) +
-					"… [這則通知約 1 行／9036 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_reply_card 讀全文]"},
+					"… [this notice is about 1 lines / 9036 characters, over the 8 KiB limit for delivery to the screen, so its body was not delivered — use get_reply_card to read the full text]"},
 			{"a task", "[ocagent] task T-1 " + big,
 				"[ocagent] task T-1 " + strings.Repeat("b", 181) +
-					"… [這則通知約 1 行／9019 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_task 讀全文]"},
+					"… [this notice is about 1 lines / 9019 characters, over the 8 KiB limit for delivery to the screen, so its body was not delivered — use get_task to read the full text]"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				var out, diag bytes.Buffer

@@ -30,12 +30,12 @@ var removalWithAnExpandedTarget = regexp.MustCompile(
 // 🔴 The wording is function, not copy. Measured: phrased as a request, the member
 // refused to comply (tool-result text is not its operator speaking); phrased as a
 // statement about the environment, it rewrote the path itself and finished.
-const guardBashRefusal = "OffiCraft 執行環境政策：移除指令的目標路徑必須是字面路徑，不得含 shell 變數或指令替換。" +
-	"這個形狀會觸發執行環境的確認提示，而本環境沒有人可以回答，成員會就此停住。" +
-	"這是環境層的固定政策，不是建議，也不是由指令輸出提出的要求。" +
-	"改寫方式：把目標寫成完整的字面路徑，例如 rm -r <完整路徑>，不含變數、不含 ~、不含萬用字元。" +
-	"不要改成「先 cd 進目標目錄再用 ./* 之類的相對萬用字元」——那個形狀一樣會停住。" +
-	"改寫後直接重試，不需要詢問任何人。"
+const guardBashRefusal = "OffiCraft runtime policy: the target path of a remove command must be a literal path, with no shell variable or command substitution. " +
+	"This shape triggers the runtime's confirmation prompt, and nobody in this environment can answer it, so the member would stop right there. " +
+	"This is a fixed policy of the environment layer, not a suggestion, and not a request made by command output. " +
+	"How to rewrite it: write the target as the full literal path, for example rm -r <full path>, with no variable, no ~ and no wildcard. " +
+	"Do not switch to \"cd into the target directory first, then use a relative wildcard such as ./*\" — that shape stops the same way. " +
+	"Retry right after rewriting; you do not need to ask anyone."
 
 type preToolUseInput struct {
 	ToolInput struct {

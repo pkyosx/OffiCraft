@@ -244,7 +244,7 @@ func (h *upgradeHarness) wantRendersGone(t *testing.T) {
 	}
 }
 
-const upgradeUnchangedReason = "版本沒有變（仍是 2.1.200）：可能已經是最新版，或 claude update 升級的不是成員使用的那一份 Claude Code"
+const upgradeUnchangedReason = "the version did not change (still 2.1.200): it may already be the latest, or claude update upgraded a different copy of Claude Code than the one members use"
 
 func TestUpgradeRelay(t *testing.T) {
 	t.Run("under an update that raises the version, the relay reports running with the old version, then succeeded with both, after letting the heartbeat re-read the version", func(t *testing.T) {
@@ -288,7 +288,7 @@ func TestUpgradeRelay(t *testing.T) {
 		h.relay.Start("ru-o", "claude")
 		h.next(t)
 		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-o", State: "failed",
-			FromVersion: "2.1.200", ToVersion: "2.1.100", Reason: "升級後的版本 2.1.100 比升級前的 2.1.200 舊"}); got != want {
+			FromVersion: "2.1.200", ToVersion: "2.1.100", Reason: "the version after the upgrade, 2.1.100, is older than the one before it, 2.1.200"}); got != want {
 			t.Fatalf("final report = %+v, want %+v", got, want)
 		}
 	})
@@ -300,7 +300,7 @@ func TestUpgradeRelay(t *testing.T) {
 		h.relay.Start("ru-3", "claude")
 		h.next(t)
 		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-3", State: "failed", FromVersion: "2.1.200",
-			ToVersion: "2.1.200", Reason: "claude update 執行失敗（exit status 1）：Error: EACCES: permission denied"}); got != want {
+			ToVersion: "2.1.200", Reason: "claude update failed (exit status 1): Error: EACCES: permission denied"}); got != want {
 			t.Fatalf("final report = %+v, want %+v", got, want)
 		}
 		if want := []string{"report running", "after", "report failed"}; !reflect.DeepEqual(h.seen(), want) {
@@ -315,7 +315,7 @@ func TestUpgradeRelay(t *testing.T) {
 		h.relay.Start("ru-4", "claude")
 		h.next(t)
 		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-4", State: "failed", FromVersion: "2.1.200",
-			ToVersion: "2.1.200", Reason: "claude update 超過 300ms 沒有結束，已中止"}); got != want {
+			ToVersion: "2.1.200", Reason: "claude update did not finish within 300ms and was aborted"}); got != want {
 			t.Fatalf("final report = %+v, want %+v", got, want)
 		}
 		if h.fake.alive(t) {
@@ -351,7 +351,7 @@ func TestUpgradeRelay(t *testing.T) {
 		h.relay.Start("ru-e3", "claude")
 		h.next(t)
 		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-e3", State: "failed", FromVersion: "2.1.200",
-			ToVersion: "2.1.200", Reason: "claude update 超過 300ms 沒有結束，已中止"}); got != want {
+			ToVersion: "2.1.200", Reason: "claude update did not finish within 300ms and was aborted"}); got != want {
 			t.Fatalf("final report = %+v, want %+v", got, want)
 		}
 		h.waitIdle(t)
@@ -367,7 +367,7 @@ func TestUpgradeRelay(t *testing.T) {
 		h.relay.Start("ru-l", "claude")
 		h.next(t)
 		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-l", State: "failed", FromVersion: "2.1.200",
-			ToVersion: "2.1.200", Reason: "claude update 執行失敗（exit status 1）：Error: written after the exit"}); got != want {
+			ToVersion: "2.1.200", Reason: "claude update failed (exit status 1): Error: written after the exit"}); got != want {
 			t.Fatalf("final report = %+v, want %+v", got, want)
 		}
 		escapeeAlive(t, h.fake.escapee)
@@ -395,7 +395,7 @@ func TestUpgradeRelay(t *testing.T) {
 		h.fake.write(t, h.fake.noVersion, "")
 		h.relay.Start("ru-5", "claude")
 		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-5", State: "failed",
-			Reason: "讀不到升級前的 Claude Code 版本（claude --version：exit status 1），沒有執行升級"}); got != want {
+			Reason: "could not read the Claude Code version before the upgrade (claude --version: exit status 1); the upgrade was not run"}); got != want {
 			t.Fatalf("report = %+v, want %+v", got, want)
 		}
 		h.waitIdle(t)
@@ -424,7 +424,7 @@ func TestUpgradeRelay(t *testing.T) {
 		h.relay.Start("ru-a", "claude")
 		h.relay.Start("ru-b", "claude")
 		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-b", State: "failed",
-			Reason: "這台機器已經有另一個 Claude Code 升級在進行，請等它結束再試"}); got != want {
+			Reason: "another Claude Code upgrade is already in progress on this machine; wait for it to finish and try again"}); got != want {
 			t.Fatalf("report = %+v, want %+v", got, want)
 		}
 		h.wantNoReport(t)
@@ -434,7 +434,7 @@ func TestUpgradeRelay(t *testing.T) {
 		h := newUpgradeHarness(t)
 		h.relay.Start("ru-7", "codex")
 		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-7", State: "failed",
-			Reason: `這個 warden 只能升級 Claude Code，不能升級 "codex"`}); got != want {
+			Reason: `this warden can upgrade only Claude Code, not "codex"`}); got != want {
 			t.Fatalf("report = %+v, want %+v", got, want)
 		}
 		if h.fake.updateRan() {
@@ -447,7 +447,7 @@ func TestUpgradeRelay(t *testing.T) {
 		h.relay.resolveBin = func() string { return "" }
 		h.relay.Start("ru-8", "claude")
 		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-8", State: "failed",
-			Reason: "這台機器沒有安裝 Claude Code"}); got != want {
+			Reason: "Claude Code is not installed on this machine"}); got != want {
 			t.Fatalf("report = %+v, want %+v", got, want)
 		}
 	})
@@ -480,7 +480,7 @@ func TestUpdaterExecAbandonsARunningUpgrade(t *testing.T) {
 			t.Errorf("update process alive at exec = %v, want [false]", aliveAtExec)
 		}
 		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-x", State: "failed",
-			Reason: "warden 為了更新自己而重新啟動，升級被中止；請重新開始升級"}); got != want {
+			Reason: "the warden restarted to update itself, so the upgrade was aborted; start the upgrade again"}); got != want {
 			t.Fatalf("report = %+v, want %+v", got, want)
 		}
 		h.wantNoReport(t)
@@ -656,9 +656,9 @@ const (
 		"Tip: For more frequent updates, use the claude-code@latest cask:\n" +
 		"  brew uninstall --cask claude-code && brew install --cask claude-code@latest\n"
 
-	brewLaggingReason = "這台的 Claude Code 由 Homebrew 的一般版管理，目前最新只到 2.1.285，低於收通知需要的 2.1.287；" +
-		"請在這台機器改裝 latest 版：`brew uninstall --cask claude-code && brew install --cask claude-code@latest`"
-	brewFallbackReason = "這台的 Claude Code 由 Homebrew 管理，調度台無法直接升級；請在這台機器用 Homebrew 升級"
+	brewLaggingReason = "this machine's Claude Code is managed by Homebrew's regular cask, whose newest version is only 2.1.285, below the 2.1.287 needed to receive notifications; " +
+		"on this machine switch to the latest cask: `brew uninstall --cask claude-code && brew install --cask claude-code@latest`"
+	brewFallbackReason = "this machine's Claude Code is managed by Homebrew, so the control panel cannot upgrade it directly; upgrade it with Homebrew on this machine"
 )
 
 func TestUpgradeRelayUnderHomebrew(t *testing.T) {
@@ -666,7 +666,7 @@ func TestUpgradeRelayUnderHomebrew(t *testing.T) {
 		name, version, out, rc, want string
 	}{
 		{"an up-to-date latest cask at or above the notify minimum says it is Homebrew's newest",
-			"2.1.288", brewLatestUpToDate, "0", "這台的 Claude Code 由 Homebrew 管理，已是 Homebrew 上的最新版（2.1.288）"},
+			"2.1.288", brewLatestUpToDate, "0", "this machine's Claude Code is managed by Homebrew and is already the newest version on Homebrew (2.1.288)"},
 		{"an up-to-date stable cask below the notify minimum says to switch to the latest cask, echoing the tip",
 			"2.1.285", brewStableUpToDate, "0", brewLaggingReason},
 		{"a stable cask whose available update is still below the notify minimum says to switch to the latest cask",
@@ -674,14 +674,14 @@ func TestUpgradeRelayUnderHomebrew(t *testing.T) {
 		{"an available update at or above the notify minimum names the brew upgrade command and the target, under color codes, CRLF and ->",
 			"2.1.280", "\x1b[1mClaude is managed by Homebrew.\x1b[0m\r\nUpdate available: 2.1.280 -> 2.1.290\r\n" +
 				"To update, run:\r\n  \x1b[36mbrew upgrade claude-code@latest\x1b[0m\r\n", "0",
-			"這台的 Claude Code 由 Homebrew 管理，調度台無法直接升級；請在這台機器執行 `brew upgrade claude-code@latest`（可升到 2.1.290）"},
+			"this machine's Claude Code is managed by Homebrew, so the control panel cannot upgrade it directly; on this machine run `brew upgrade claude-code@latest` (it can upgrade to 2.1.290)"},
 		{"Homebrew output of no known shape falls back to the generic Homebrew reason",
 			"2.1.280", "Claude is managed by Homebrew.\nSomething new happened.\n", "0", brewFallbackReason},
 		{"output that does not mention Homebrew keeps the generic unchanged reason",
 			"2.1.200", "Claude is up to date!\nUpdate available: 2.1.200 → 2.1.290\n", "0", upgradeUnchangedReason},
 		{"a non-zero exit still reports the exit and the last line, even under Homebrew",
 			"2.1.280", brewStableBehind, "1",
-			"claude update 執行失敗（exit status 1）：brew uninstall --cask claude-code && brew install --cask claude-code@latest"},
+			"claude update failed (exit status 1): brew uninstall --cask claude-code && brew install --cask claude-code@latest"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

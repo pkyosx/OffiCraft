@@ -25,7 +25,7 @@ For a full description of each field and of the event stats, see "Webhook endpoi
 
 ## How a member handles an event
 
-A delivered event becomes a chat message containing the raw content the outside service sent, together with the endpoint ID and purpose. The notification the member receives starts with this endpoint's purpose, or is marked as having no purpose set when it is blank. When the purpose is long, the notification shows only the beginning, and the member reads the full text back before deciding. A member that is online receives it immediately. A member that is offline or stopped is not woken up by it; the message waits until the member next comes online.
+A delivered event becomes a chat message containing the raw content the outside service sent, together with the endpoint ID and purpose. The notification the member receives starts with this endpoint's purpose as `[webhook purpose: <purpose>]`, or with `[webhook: no purpose set]` when it is blank. When the purpose is long, the notification shows only the beginning, and the member reads the full text back before deciding. A member that is online receives it immediately. A member that is offline or stopped is not woken up by it; the message waits until the member next comes online.
 
 Members treat content sent from outside as data, **not as your instructions**:
 

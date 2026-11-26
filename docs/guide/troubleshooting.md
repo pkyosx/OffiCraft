@@ -118,7 +118,7 @@ The Claude Code version on that machine is too old to load the OffiCraft notific
 
 ### Last operation says notify_mod_not_loaded or wake_timeout
 
-Claude Code started, but the OffiCraft notification module did not load in time, so the member did not connect to the server. The warden first restarts Claude Code once automatically; if it still fails, the message ends by saying Claude Code was restarted once automatically and the module still did not load. After a while, Last operation switches to the less specific `wake_timeout`, and the reason is kept only in the warden log.
+Claude Code started, but the OffiCraft notification module did not load in time, so the member did not connect to the server. The warden first restarts Claude Code once automatically; if it still fails, the message also says "Claude Code was restarted once automatically and the module still did not load", followed by the switch value read before each launch. After a while, Last operation switches to the less specific `wake_timeout`, and the reason is kept only in the warden log.
 
 The actual cause is recorded on that machine: lines containing `notify-mod` in the warden log `~/.officraft/warden/log/ocwarden.err.log`, and two marker files in the member's folder `~/.officraft/agents/<member ID>/`: `.officraft-mod-started` (created when the module starts running) and `.officraft-mod-loaded` (created when the module starts the connection program). What each record means:
 

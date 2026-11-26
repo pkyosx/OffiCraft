@@ -114,10 +114,10 @@ func newRecycleHook(client httpClient, cfg Config, out io.Writer) *recycleHook {
 }
 
 // Shipped text: the agent reads these bytes on stdout (like seeds/*.md), and
-// nothing reports a bad edit. 〈停止〉 must match the document's on-screen name
+// nothing reports a bad edit. "Stop" must match the document's on-screen name
 // (ruling rc-e12733548e4b) — the agent goes looking for it by that name.
-const offboardFallback = "server 要收你了，但這則通知沒有帶到〈停止〉 —— " +
-	"請立刻用 MCP get_offboard 拿完整收尾清單並照做，別空手停下。"
+const offboardFallback = "the server is collecting your session, but this notice did not carry the \"Stop\" document — " +
+	"call MCP get_offboard right away to get the full wrap-up checklist and follow it; do not stop empty-handed."
 
 func offboardNoticeIn(frame map[string]any) string {
 	data, ok := frame["data"].(map[string]any)

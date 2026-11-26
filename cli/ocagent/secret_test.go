@@ -605,7 +605,7 @@ func TestCmdSecretWrite(t *testing.T) {
 		if rc := cmdSecretWrite(client, secretCfg, "sec-00000000000a", path, false, &out, &errOut); rc != 0 {
 			t.Fatalf("rc = %d (stderr %q), want 0", rc, errOut.String())
 		}
-		if out.String() != "已寫入 "+path+"\n" {
+		if out.String() != "Wrote "+path+"\n" {
 			t.Fatalf("stdout = %q", out.String())
 		}
 		assertNoValue(t, "secret write", out.String(), errOut.String())

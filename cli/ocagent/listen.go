@@ -469,8 +469,7 @@ func handleTaskEvent(client httpClient, cfg Config, frame map[string]any, snaps 
 	title := previewLine(strOrEmpty(t["title"]), 48)
 	sep := " "
 	if title != "" {
-		title = "「" + title + "」"
-		sep = ""
+		title = " \"" + title + "\""
 	}
 	fmt.Fprintf(out, "[ocagent] task %s%s%s%s%s\n", no, title, sep, what, byTrigger(trigger))
 }
@@ -515,13 +514,13 @@ func fetchChat(client httpClient, cfg Config, selfID string) chatFetch {
 		if status != 200 || !listOK {
 			if page == 1 {
 				return chatFetch{stop: fmt.Sprintf(
-					"[ocagent] chat: 補印一頁都沒撈到（HTTP %d）—— 這不是「沒有新訊息」，"+
-						"是這次沒問到。未讀原封不動，下一次補印會再試；等不及就用 get_chat 自己撈。\n",
+					"[ocagent] chat: the catch-up fetch got no page at all (HTTP %d) — this is not \"no new messages\"; "+
+						"this time the question went unanswered. Unread messages are untouched and the next catch-up will try again; if you cannot wait, fetch them yourself with get_chat.\n",
 					status)}
 			}
 			return chatFetch{rows: rows, stop: fmt.Sprintf(
-				"[ocagent] chat: 補印在第 %d 頁斷掉了（已經撈到 %d 則）—— 未讀沒撈完，"+
-					"剩下的下一次補印會再試；等不及就用 get_chat 自己回頭撈。\n", page, len(rows))}
+				"[ocagent] chat: the catch-up broke off at page %d (%d messages fetched so far) — not all unread messages were fetched; "+
+					"the next catch-up will try the rest again; if you cannot wait, go back and fetch them yourself with get_chat.\n", page, len(rows))}
 		}
 		for _, it := range list {
 			if m, ok := it.(map[string]any); ok {
@@ -534,13 +533,13 @@ func fetchChat(client httpClient, cfg Config, selfID string) chatFetch {
 		}
 		if issued[next] {
 			return chatFetch{rows: rows, stop: fmt.Sprintf(
-				"[ocagent] chat: 補印停在第 %d 頁（已經撈到 %d 則）—— server 的 next_cursor 沒有前進，"+
-					"同一個游標又發了一次。未讀沒撈完，請用 get_chat 自己回頭撈。\n", page, len(rows))}
+				"[ocagent] chat: the catch-up stopped at page %d (%d messages fetched so far) — the server's next_cursor did not advance, "+
+					"and the same cursor was issued again. Not all unread messages were fetched; go back and fetch them yourself with get_chat.\n", page, len(rows))}
 		}
 		if page >= chatUnreadMaxPages {
 			return chatFetch{rows: rows, stop: fmt.Sprintf(
-				"[ocagent] chat: 補印撈到第 %d 頁就停了（已經撈到 %d 則），server 還在給 next_cursor —— "+
-					"這是分頁上限，不是你的信箱真有這麼多。未讀沒撈完，請用 get_chat 自己回頭撈。\n",
+				"[ocagent] chat: the catch-up stopped after page %d (%d messages fetched so far) while the server was still giving next_cursor — "+
+					"this is the page limit, not a sign that your inbox really holds that many. Not all unread messages were fetched; go back and fetch them yourself with get_chat.\n",
 				page, len(rows))}
 		}
 		issued[next] = true
@@ -585,11 +584,11 @@ func attachmentSummary(m map[string]any) string {
 	case imgs == 0 && files == 0:
 		return ""
 	case files == 0:
-		return fmt.Sprintf("📎%d圖", imgs)
+		return fmt.Sprintf("📎%d image(s)", imgs)
 	case imgs == 0:
-		return fmt.Sprintf("📎%d檔", files)
+		return fmt.Sprintf("📎%d file(s)", files)
 	default:
-		return fmt.Sprintf("📎%d圖 %d檔", imgs, files)
+		return fmt.Sprintf("📎%d image(s) %d file(s)", imgs, files)
 	}
 }
 
@@ -693,9 +692,9 @@ func (g *ackGate) confirm(out io.Writer) bool {
 			if g.timeoutNotice != nil {
 				notice = g.timeoutNotice
 			}
-			fmt.Fprintf(notice, "%s等不到「已送達」的回覆（batch %s，等了 %s）—— "+
-				"這一批訊息**沒有**被算成你看過了，下一次補印會再送一次。"+
-				"如果這行一直出現，收訊這條路的另一端有問題。\n",
+			fmt.Fprintf(notice, "%sgot no \"delivered\" reply (batch %s, waited %s) — "+
+				"this batch of messages was **not** counted as read by you, and the next catch-up will send it again. "+
+				"If this line keeps appearing, something is wrong at the other end of the receiving path.\n",
 				agentLinePrefix, token, g.wait)
 			return false
 		}
@@ -728,8 +727,8 @@ func clearChatFetchFault(warn *drainWarner, out io.Writer) {
 		return
 	}
 	warn.chatFaultOpen = false
-	fmt.Fprint(out, "[ocagent] chat: 補印又問得到了 —— 上面那次「一頁都沒撈到」到此為止。"+
-		"接下來印出來的就是這次真的撈到的東西；沒有東西就是真的沒有新訊息。\n")
+	fmt.Fprint(out, "[ocagent] chat: the catch-up can fetch again — the \"got no page at all\" above ends here. "+
+		"What is printed next is what this fetch really got; if nothing is printed, there really are no new messages.\n")
 }
 
 // No local "already seen" ledger: the server's unread set is the only state and
@@ -834,10 +833,10 @@ func warnMarkReadFailed(warn *drainWarner, out io.Writer, peer string, status in
 		}
 		warn.markReadWarned = true
 	}
-	fmt.Fprintf(out, "[ocagent] mark-read 沒送成功（peer=%s，HTTP %d）— 訊息已經印出來了，"+
-		"但是回條沒送成功，server 那邊就還算未讀：這一批下一次補印會再印一次，"+
-		"而且會一直重印到回條送成功為止，在那之前對方的已讀勾也不會亮。"+
-		"這個行程只會講這一次 —— 之後再看到同一批訊息重複出現，原因就是這一行。\n", peer, status)
+	fmt.Fprintf(out, "[ocagent] mark-read failed (peer=%s, HTTP %d) — the messages were already printed, "+
+		"but the read receipt did not go through, so the server still counts them as unread: the next catch-up will print this batch again, "+
+		"and keeps reprinting it until a receipt goes through; until then the other side's read tick does not light up either. "+
+		"This process says this only once — if you later see the same batch of messages again, this line is the reason.\n", peer, status)
 }
 
 // `from` is the server-stamped stable member id (never a display name) — the
@@ -885,12 +884,12 @@ func webhookPurposeSegment(m map[string]any) string {
 	}
 	purpose := []rune(strings.Join(strings.Fields(strOrEmpty(hook["purpose"])), " "))
 	if len(purpose) == 0 {
-		return " [webhook 未設定用途]"
+		return " [webhook: no purpose set]"
 	}
 	if len(purpose) > webhookPurposeMaxRunes {
-		return " [webhook 用途：" + string(purpose[:webhookPurposeMaxRunes]) + "…（用途全文請用 get_chat 讀回）]"
+		return " [webhook purpose: " + string(purpose[:webhookPurposeMaxRunes]) + "… (read the full purpose back with get_chat)]"
 	}
-	return " [webhook 用途：" + string(purpose) + "]"
+	return " [webhook purpose: " + string(purpose) + "]"
 }
 
 // handleReplyCard: an answer is for the card's initiator and for the executor

@@ -45,7 +45,7 @@ const (
 	codexNoCodeReason       = "could not read the one-time code from codex's output"
 	codexNoHomeReason       = "the warden cannot state the CODEX_HOME codex would use"
 	codexNoAuthFileReason   = "codex finished the login but wrote no auth.json"
-	codexKeyringReason      = "這台機器的 Codex 把登入存在系統鑰匙圈，OffiCraft 目前不支援"
+	codexKeyringReason      = "Codex on this machine stores its login in the system keyring, which OffiCraft does not support yet"
 	codexDeviceURLPrefix    = "https://auth.openai.com/"
 	codexStagingPrefix      = ".oc-codex-login-"
 	codexInstallTempPrefix  = ".auth.json.oc-"
@@ -167,7 +167,7 @@ func codexStoreRefusal(config []byte) string {
 		case "keyring", "auto":
 			return codexKeyringReason
 		default:
-			return `這台機器的 Codex 設定 cli_auth_credentials_store = "` + store + `"，不把登入存成檔案，OffiCraft 目前不支援`
+			return `Codex on this machine is set to cli_auth_credentials_store = "` + store + `", which does not store the login as a file; OffiCraft does not support that yet`
 		}
 	}
 	return ""

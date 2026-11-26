@@ -893,7 +893,7 @@ func (i *installer) runInstall(p wardenPaths) error {
 	if i.resolveClaude != nil && p.claudeBin == "" &&
 		(i.resolveCodex == nil || p.codexBin == "") {
 		i.errf("neither Claude Code nor Codex is installed on this machine — NOTHING was installed")
-		i.errf("runtime_bin_unresolved: install one of them and run it once to sign in, then get a fresh install command from the control panel's 「安裝機器」 dialog and run it (a station install via install.sh can simply be re-run):")
+		i.errf("runtime_bin_unresolved: install one of them and run it once to sign in, then get a fresh install command from the control panel's \"Install machine\" dialog and run it (a station install via install.sh can simply be re-run):")
 		i.errf("  Claude Code: curl -fsSL https://claude.ai/install.sh | bash   (then sign in: claude)")
 		i.errf("  Codex:       curl -fsSL https://chatgpt.com/codex/install.sh | sh   (then sign in: codex)")
 		i.errf("  already installed elsewhere? set OC_CLAUDE_BIN or OC_CODEX_BIN to its absolute path")

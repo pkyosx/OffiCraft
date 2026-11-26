@@ -257,8 +257,8 @@ func TestMaybeWindDown(t *testing.T) {
 		if !woke {
 			t.Error("maybeWindDown = false, want true")
 		}
-		want := "[ocagent] offboard: server 要收你了，但這則通知沒有帶到〈停止〉 —— " +
-			"請立刻用 MCP get_offboard 拿完整收尾清單並照做，別空手停下。\n"
+		want := "[ocagent] offboard: the server is collecting your session, but this notice did not carry the \"Stop\" document — " +
+			"call MCP get_offboard right away to get the full wrap-up checklist and follow it; do not stop empty-handed.\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
 		}
@@ -311,8 +311,8 @@ func TestWake(t *testing.T) {
 
 		h.wake("   \n\t\n")
 
-		want := "[ocagent] offboard: server 要收你了，但這則通知沒有帶到〈停止〉 —— " +
-			"請立刻用 MCP get_offboard 拿完整收尾清單並照做，別空手停下。\n"
+		want := "[ocagent] offboard: the server is collecting your session, but this notice did not carry the \"Stop\" document — " +
+			"call MCP get_offboard right away to get the full wrap-up checklist and follow it; do not stop empty-handed.\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
 		}
@@ -443,8 +443,8 @@ func TestWakeForRecycle(t *testing.T) {
 
 		h.wakeForRecycle("")
 
-		want := "[ocagent] recycle: server 要收你了，但這則通知沒有帶到〈停止〉 —— " +
-			"請立刻用 MCP get_offboard 拿完整收尾清單並照做，別空手停下。\n"
+		want := "[ocagent] recycle: the server is collecting your session, but this notice did not carry the \"Stop\" document — " +
+			"call MCP get_offboard right away to get the full wrap-up checklist and follow it; do not stop empty-handed.\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
 		}
@@ -621,8 +621,8 @@ func TestMaybeRecycle(t *testing.T) {
 		if !first || second {
 			t.Errorf("wakes = (%v, %v), want (true, false)", first, second)
 		}
-		want := "[ocagent] recycle: server 要收你了，但這則通知沒有帶到〈停止〉 —— " +
-			"請立刻用 MCP get_offboard 拿完整收尾清單並照做，別空手停下。\n"
+		want := "[ocagent] recycle: the server is collecting your session, but this notice did not carry the \"Stop\" document — " +
+			"call MCP get_offboard right away to get the full wrap-up checklist and follow it; do not stop empty-handed.\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
 		}
