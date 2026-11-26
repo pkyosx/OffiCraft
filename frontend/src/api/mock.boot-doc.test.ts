@@ -400,6 +400,48 @@ describe("mockApi · 開機脈絡預覽", () => {
     expect(ctx).not.toContain("claude 版");
     expect(ctx).not.toContain(SEED_BOOT_SEQUENCE_CODEX_MD.trim());
   });
+
+  it("puts the owner's global context under the server's # Owner Additions heading, staff and outsource alike", async () => {
+    __injectMockTask({
+      id: "t-oa",
+      taskNo: "T-oa",
+      title: "外包任務",
+      typeKey: "",
+      description: "",
+      status: "in_progress",
+      priority: "mid",
+      executorKind: "outsource",
+      executorId: "ow-oa",
+      creatorId: "",
+      dedupeKey: "",
+      deps: [],
+      waitingReason: "",
+      duplicateOf: "",
+      createdTs: 0,
+      updatedTs: 0,
+      closedTs: null,
+      progressDone: 0,
+      progressTotal: 0,
+      steps: [],
+    });
+    __injectMockOutsourceWorker({
+      id: "ow-oa",
+      codename: "O-2",
+      model: "Opus",
+      effort: "high",
+      runtime: "claude",
+      taskId: "t-oa",
+    });
+    await mockApi.saveGlobalContext("owner 寫的全域脈絡\n");
+
+    for (const ctx of [
+      await mockApi.getMemberBootContext("mira"),
+      await mockApi.getWorkerBootContext("ow-oa"),
+    ]) {
+      expect(ctx).toContain("\n\n# Owner Additions\n\nowner 寫的全域脈絡\n\n");
+      expect(ctx).not.toContain("使用者自訂");
+    }
+  });
 });
 
 describe("mockApi · getMemberBootContext", () => {
@@ -409,9 +451,9 @@ describe("mockApi · getMemberBootContext", () => {
 
     const ctx = await mockApi.getMemberBootContext("mira");
 
-    const lore = ctx.indexOf("\n\n# 傳承\n\n");
+    const lore = ctx.indexOf("\n\n# Lore\n\n");
     const everyone = ctx.indexOf("## L-7 回報前先讀一次自己寫的東西");
-    const pinned = ctx.indexOf("## L-1 成功回應不代表資料完整（置頂）");
+    const pinned = ctx.indexOf("## L-1 成功回應不代表資料完整 (pinned)");
     const active = ctx.indexOf("## L-2 零命中的預設解讀是查法寫錯了");
     expect(lore).toBeGreaterThan(ctx.indexOf("# Role: "));
     expect(everyone).toBeGreaterThan(lore);
@@ -436,7 +478,7 @@ describe("mockApi · getMemberBootContext", () => {
 
     const ctx = await mockApi.getMemberBootContext("codex-staff");
 
-    expect(ctx).toContain("# 傳承\n\n## L-7 回報前先讀一次自己寫的東西");
+    expect(ctx).toContain("# Lore\n\n## L-7 回報前先讀一次自己寫的東西");
     expect(ctx).not.toContain("成功回應不代表資料完整");
     expect(ctx.endsWith("\n\ncodex 版\n")).toBe(true);
     expect(ctx).not.toContain("claude 版");
@@ -449,7 +491,7 @@ describe("mockApi · getMemberBootContext", () => {
 
     const role = ctx.indexOf("# Role: ");
     const insight = ctx.indexOf("\n\n# Insight (assistant)\n\n");
-    const lore = ctx.indexOf("\n\n# 傳承\n\n");
+    const lore = ctx.indexOf("\n\n# Lore\n\n");
     const bootSteps = ctx.indexOf("\n\nclaude 版\n");
     expect(role).toBeGreaterThan(-1);
     expect(insight).toBeGreaterThan(role);
@@ -466,7 +508,7 @@ describe("mockApi · getMemberBootContext", () => {
 
     expect(
       ctx.endsWith(
-        "\n\n# 傳承\n\n## L-7 回報前先讀一次自己寫的東西\n\n送出前從頭讀一遍：錯字、漏掉的編號、貼錯的路徑，都是讀的人要多花一輪來回的地方。\n\nclaude 版\n",
+        "\n\n# Lore\n\n## L-7 回報前先讀一次自己寫的東西\n\n送出前從頭讀一遍：錯字、漏掉的編號、貼錯的路徑，都是讀的人要多花一輪來回的地方。\n\nclaude 版\n",
       ),
     ).toBe(true);
     expect(ctx).not.toContain("成功回應不代表資料完整");

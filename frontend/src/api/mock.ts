@@ -6127,7 +6127,7 @@ const mockApiImpl = {
     // too.
     const parts = [foldBootDoc("system_interaction", "global").text.trim()];
     if (userText.trim()) {
-      parts.push(`# 使用者自訂（Owner Additions）\n\n${userText.trim()}`);
+      parts.push(`# Owner Additions\n\n${userText.trim()}`);
     }
     parts.push(
       foldBootDoc(
@@ -8448,7 +8448,7 @@ const mockApiImpl = {
     const userText = foldGlobalContext().text;
     const parts = [foldBootDoc("system_interaction", "global").text.trim()];
     if (userText.trim()) {
-      parts.push(`# 使用者自訂（Owner Additions）\n\n${userText.trim()}`);
+      parts.push(`# Owner Additions\n\n${userText.trim()}`);
     }
     parts.push(
       `# Role: ${roleDef.name || roleDef.key}\n\n${roleDef.definition_md.trim()}`,
@@ -8481,11 +8481,11 @@ const mockApiImpl = {
     }
     if (selected.length > 0) {
       const lines = selected.map((entry) => {
-        const pinned = entry.state === "pinned" ? "（置頂）" : "";
+        const pinned = entry.state === "pinned" ? " (pinned)" : "";
         const body = entry.body.trim();
         return `## ${entry.id} ${entry.title.trim()}${pinned}${body ? `\n\n${body}` : ""}`;
       });
-      parts.push(`# 傳承\n\n${lines.join("\n\n")}`);
+      parts.push(`# Lore\n\n${lines.join("\n\n")}`);
     }
     parts.push(
       foldBootDoc(
