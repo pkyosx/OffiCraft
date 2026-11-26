@@ -1,4 +1,4 @@
-/* 傳承 page: target sections, the 傳承 row, the inline editor, the batch bar.
+/* 傳承 page: target sections, the 傳承 row, the inline editor, the 提到最新 toast.
  *
  * 🔴 THESE ARE COPIES OF tasks.css RULES, NOT A SHARED SHEET, AND THAT IS
  * DELIBERATE. The 傳承 row wears the 任務卡's design language — same badge pill,
@@ -52,12 +52,6 @@ a.lore__back {
 a.lore__back:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
-}
-
-.lore__multi-hint {
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-  overflow-wrap: anywhere;
 }
 
 /* ── the directory ── */
@@ -122,7 +116,10 @@ a.lore-dir-card:focus-visible {
   min-width: 0;
 }
 /* Name + badges wrap inside their own box, so on a phone the badges drop under
- * the name while the chevron stays on the first line at the right edge. */
+ * the name while the chevron stays on the first line at the right edge.
+ * padding-top, not min-height: a name that wraps would otherwise start at the
+ * top of the box while a one-line name is centred in it, and the chevron (and
+ * the 28px lead) would line up with only one of the two. */
 .lore-dir-card__main {
   flex: 1;
   min-width: 0;
@@ -130,7 +127,7 @@ a.lore-dir-card:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 10px;
-  min-height: 28px;
+  padding-top: 3px;
 }
 .lore-dir-card__glyph {
   flex: none;
@@ -254,18 +251,6 @@ a.lore-dir-card:focus-visible {
   text-align: center;
 }
 
-button.lore__multi-toggle {
-  margin: 0;
-  padding: 4px 2px;
-  border: none;
-  background: none;
-  color: var(--color-accent);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
 /* ── a target: its directory row, and the head + cards of its section page ── */
 .lore-section {
   border-radius: var(--radius-card);
@@ -387,8 +372,7 @@ a.lore-section__head:focus-visible {
   white-space: nowrap;
 }
 
-/* ── the floating batch bar, pinned to the bottom of the scrollport ── */
-/* The toast and the bars stack here, pinned to the bottom of the scrollport. */
+/* ── the 提到最新 toast, pinned to the bottom of the scrollport ── */
 .lore__dock {
   position: sticky;
   bottom: 0;
@@ -415,32 +399,6 @@ a.lore-section__head:focus-visible {
   background: var(--color-card);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
 }
-.lore-batch__count {
-  font-size: 13px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-button.lore-batch__btn {
-  margin: 0;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
-  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
-  color: var(--color-text);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-button.lore-batch__btn--danger {
-  color: var(--color-danger);
-  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
-}
-button.lore-batch__btn:disabled,
-button.lore-batch__link:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
 button.lore-batch__link {
   margin: 0;
   padding: 6px 4px;
@@ -452,35 +410,6 @@ button.lore-batch__link {
   cursor: pointer;
   white-space: nowrap;
 }
-.lore-batch__working {
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-}
-.lore-batch__reason {
-  flex: 1 1 220px;
-  min-width: 0;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
-  background: var(--color-bg);
-  color: var(--color-text);
-  font: inherit;
-  font-size: 13px;
-}
-.lore-batch__result {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--color-text);
-  overflow-wrap: anywhere;
-  min-width: 0;
-}
-.lore-batch__result--failed {
-  color: var(--color-danger);
-}
-
 /* ── one 傳承 row ──
  * A row whose body overflows its clamped line (--toggle) is the toggle surface,
  * so it takes the pointer cursor and a focus ring; the ▸/▾ mark is only a
@@ -825,13 +754,6 @@ button.lore-row__scope-chip--editable:hover:not(:disabled) {
 .lore-badge--lore-type::before {
   content: none;
 }
-.lore-badge--unsaved {
-  color: var(--color-warn-fg);
-  border-color: color-mix(in srgb, var(--color-warn-border) 70%, transparent);
-}
-.lore-row--unsaved {
-  border-color: color-mix(in srgb, var(--color-warn-border) 70%, transparent);
-}
 .lore-row--highlight {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 35%, transparent);
@@ -978,15 +900,7 @@ button.lore-row__chip--link {
   white-space: nowrap;
 }
 
-/* ── 選取、字數、提到最新／編輯 (or 「⋯」 on a phone) on the head ── */
-.lore-row__select {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--color-accent);
-  cursor: pointer;
-}
+/* ── 字數、提到最新／編輯 (or 「⋯」 on a phone) on the head ── */
 .lore-row__actions {
   flex: none;
   display: inline-flex;

@@ -17,7 +17,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
-import { __resetHashRouteForTests } from "../lib/hashRoute";
 import { LorePage, loreBodyOverflow } from "./LorePage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
@@ -25,7 +24,6 @@ import { api } from "../api";
 // same class the adapters throw — `runAction` branches on `status` and reads
 // `serverMessage`, neither of which a plain Error carries.
 import { ApiError } from "../api/errors";
-import { hasRegisteredUnsavedWork } from "../lib/unsavedInput";
 import { codeForStatus } from "../api/errorCodes";
 // The action-error copy is asserted by VALUE, not by "is non-empty": an error
 // line saying the wrong sentence is a line that passed a non-empty check.
@@ -143,7 +141,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  __resetHashRouteForTests();
   vi.restoreAllMocks();
 });
 
@@ -260,81 +257,6 @@ describe("LorePage — 撰寫人", () => {
     expect(plain.querySelector("svg")).toBeNull();
     // The entry itself is untouched — the author is still NAMED.
     expect(plain.textContent).toContain("m-gone");
-  });
-});
-
-// ────────────────────────────────────────────────────────────────────────────
-// The three things the owner hit on the trial station (cards rc-11734523eb52 +
-// c-c933a2b41c54). All three share one shape: the screen looked FINE. Nothing
-// was missing in a way that draws the eye — a dropdown had one option too many,
-// and a row simply did not say two facts about itself. So each guard below has
-// to assert a POSITIVE next to the negative, or it would pass on an empty page.
-// ────────────────────────────────────────────────────────────────────────────
-
-/** The roster the 撰寫人 dropdown is built from. `m-server-self` is the real
- * seed's machine-layer member, name and all — the very row the owner circled. */
-function stubRoster() {
-  vi.spyOn(api, "listMembers").mockResolvedValue([
-    {
-      id: "mira",
-      name: "Mira",
-      kind: "staff",
-      role: "assistant",
-      status: "online",
-      lifecycle: "online",
-      unreadCount: 0,
-    },
-    {
-      id: "m-server-self",
-      name: "伺服器這一台",
-      kind: "warden",
-      role: "",
-      status: "offline",
-      lifecycle: "offline",
-      unreadCount: 0,
-    },
-  ] as never);
-}
-
-/** The 撰寫人 axis's option values. It is a MultiSelectFilter now (owner
- * rc-0376bf875757 [1] made all three axes multi-select), so the options live in
- * a popover that has to be OPENED — a helper that read the closed trigger would
- * find nothing and report an empty option list, which is exactly the false
- * negative the spec below refuses to accept. */
-function authorOptionValues(container: HTMLElement): string[] {
-  const trigger = container.querySelector<HTMLElement>(
-    '[data-testid="lore-filter-author"]',
-  );
-  if (!trigger) throw new Error("no 撰寫人 filter");
-  if (trigger.getAttribute("aria-expanded") !== "true") {
-    fireEvent.click(trigger);
-  }
-  return Array.from(
-    container.querySelectorAll('[data-testid^="lore-filter-author-opt-"]'),
-  ).map(
-    (el) =>
-      el.getAttribute("data-testid")!.slice("lore-filter-author-opt-".length),
-  );
-}
-
-describe("LorePage — 撰寫人下拉只列寫得出傳承的身分", () => {
-  it("drops the machine-layer member and keeps the staff one", async () => {
-    stubRoster();
-    stubList(page([mkEntry({ id: "e1" })]));
-    const { container } = await renderOpen();
-
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
-    await waitFor(() =>
-      expect(authorOptionValues(container)).toContain("mira"),
-    );
-
-    // 🔴 THE POSITIVE IS THE POINT. "m-server-self is absent" is also true of a
-    // dropdown that failed to load, of a roster that arrived empty, and of a
-    // testid that no longer matches — three bugs this guard must NOT pass. So
-    // the staff member has to be present in the SAME assertion pass.
-    const values = authorOptionValues(container);
-    expect(values).toContain("mira");
-    expect(values).not.toContain("m-server-self");
   });
 });
 
@@ -1057,19 +979,16 @@ describe("LorePage — 篩選器複選", () => {
     ).toBeNull();
   });
 
-  it("has the id box and the three filters", async () => {
-    stubList(page([mkEntry({ id: "L-1" })]));
+  it("has the id box, the type and state filters, and no 撰寫人 filter: the section already names whose entries these are", async () => {
+    const spy = stubList(page([mkEntry({ id: "L-1" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
 
-    for (const present of [
-      "lore-filter-id",
-      "lore-filter-author",
-      "lore-filter-type",
-      "lore-filter-state",
-    ]) {
-      expect(container.querySelector(`[data-testid="${present}"]`)).not.toBeNull();
-    }
+    const filters = Array.from(container.querySelectorAll('[data-testid^="lore-filter-"]'))
+      .map((el) => el.getAttribute("data-testid")!)
+      .filter((id) => !/-opt-|-clear$|-fields$/.test(id) && id !== "lore-filter");
+    expect(filters).toEqual(["lore-filter-id", "lore-filter-type", "lore-filter-state"]);
+    expect(lastOpts(spy)).not.toHaveProperty("authorIds");
   });
 
   it("names an unconstrained filter 「所有…」 and shows the default state set as two ticks", async () => {
@@ -1082,7 +1001,6 @@ describe("LorePage — 篩選器複選", () => {
         .querySelector<HTMLElement>(`[data-testid="${testId}"]`)!
         .textContent!.replace(/\s+/g, "");
 
-    expect(labelOf("lore-filter-author")).toBe("所有撰寫人");
     expect(labelOf("lore-filter-type")).toBe("所有類型");
     expect(labelOf("lore-filter-state")).toBe("狀態·2");
   });
@@ -1104,7 +1022,7 @@ describe("LorePage — 篩選器複選", () => {
 // The two orders are copied FROM 任務頁, and this spec writes them out
 // literally so a future change has to state the new order rather than arrive at
 // one by accident:
-//   篩選列  編號 → 撰寫人 → 類型 → 狀態                (任務頁: 任務編號 → 負責人 → 類型 → 狀態)
+//   篩選列  編號 → 類型 → 狀態                        (任務頁: 任務編號 → 負責人 → 類型 → 狀態；段落頁已經是某個人或某本手冊，沒有撰寫人)
 //   列上    編號 → 類型 → 狀態 → 屬於                   (任務卡: 編號 → 優先權 → 狀態 → 類型)
 describe("LorePage — 順序跟任務頁一致", () => {
   it("puts the id box and the three filters in the 任務頁 order, and keeps that order as they are used", async () => {
@@ -1112,7 +1030,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
 
-    const fields = ["lore-filter-id", "lore-filter-author", "lore-filter-type", "lore-filter-state"];
+    const fields = ["lore-filter-id", "lore-filter-type", "lore-filter-state"];
     const idsInDomOrder = () =>
       Array.from(container.querySelectorAll('[data-testid^="lore-filter-"]'))
         .map((el) => el.getAttribute("data-testid")!)
@@ -1443,6 +1361,30 @@ describe("LorePage — 可變動作面", () => {
       { scopeKinds: ["agent"], scopeKeys: ["mira"], entryIds: ["L-2"], limit: 1, offset: 0 },
     ]);
     expect(scroller.scrollTop).toBe(240);
+  });
+
+  it("失效 on a middle card keeps it on screen in its place, retired, although the default filter does not list 已失效", async () => {
+    vi.spyOn(api, "setLoreEntryState").mockResolvedValue(undefined);
+    const three = page([
+      mkEntry({ id: "L-1", state: "active" }),
+      mkEntry({ id: "L-2", state: "active" }),
+      mkEntry({ id: "L-3", state: "active" }),
+    ]);
+    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
+      o?.entryIds ? page([mkEntry({ id: "L-2", state: "retired" })]) : three,
+    );
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
+
+    chooseState(container, "L-2", "retired");
+
+    await waitFor(() =>
+      expect(rowById(container, "L-2").querySelector('[data-testid="lore-state"]')!.textContent).toBe(
+        zh.lore.stateRetired,
+      ),
+    );
+    expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]);
+    expect(list.mock.calls.filter((c) => !c[0]?.entryIds)).toHaveLength(1);
   });
 
   it("提到最新 calls bump on the entry that was clicked and re-reads only that entry", async () => {
@@ -2968,368 +2910,6 @@ describe("LorePage — 只有放不下一行的內容才能展開", () => {
   });
 });
 
-describe("LorePage — 編輯多筆", () => {
-  const rows = () => [
-    mkEntry({ id: "L-1", state: "active", loreType: "other", scopeOptions: ["agent", "everyone"] }),
-    mkEntry({ id: "L-2", state: "active", loreType: "other", scopeOptions: ["agent", "everyone"] }),
-    mkEntry({ id: "L-3", state: "active", loreType: "other", scopeOptions: ["agent", "everyone"] }),
-  ];
-
-  function spies() {
-    return {
-      state: vi.spyOn(api, "setLoreEntryState").mockResolvedValue(undefined),
-      edit: vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined),
-      scope: vi.spyOn(api, "setLoreEntryScope").mockResolvedValue(undefined),
-    };
-  }
-
-  async function renderMode() {
-    const list = stubList(page(rows()));
-    const r = await renderOpen({ canSetScope: true });
-    await waitFor(() => expect(renderedIds(r.container)).toHaveLength(3));
-    fireEvent.click(r.container.querySelector('[data-testid="lore-multi-toggle"]')!);
-    return { ...r, list };
-  }
-
-  function pick(container: HTMLElement, id: string, chip: string, item: string) {
-    const row = rowById(container, id);
-    fireEvent.click(row.querySelector(`[data-testid="${chip}"]`)!);
-    fireEvent.click(row.querySelector(`[data-testid="${item}"]`)!);
-  }
-
-  const count = (c: HTMLElement) => c.querySelector('[data-testid="lore-multi-count"]')?.textContent;
-  const unsaved = (c: HTMLElement) =>
-    renderedIds(c).filter((id) => rowById(c, id).querySelector('[data-testid="lore-unsaved"]') !== null);
-
-  it("the mode hides the checkboxes and the batch bar and shows its own bar", async () => {
-    stubList(page(rows()));
-    const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
-    fireEvent.click(rowById(container, "L-1").querySelector('[data-testid="lore-select"]')!);
-    expect(container.querySelector('[data-testid="lore-batch-bar"]')).not.toBeNull();
-
-    fireEvent.click(container.querySelector('[data-testid="lore-multi-toggle"]')!);
-
-    expect(container.querySelectorAll('[data-testid="lore-select"]')).toHaveLength(0);
-    expect(container.querySelector('[data-testid="lore-batch-bar"]')).toBeNull();
-    expect(count(container)).toBe("0 筆未儲存");
-    expect(container.querySelector<HTMLButtonElement>('[data-testid="lore-multi-save"]')!.disabled).toBe(true);
-    // Leaving the mode brings the checkboxes back, with nothing selected.
-    fireEvent.click(container.querySelector('[data-testid="lore-multi-toggle"]')!);
-    expect(container.querySelectorAll('[data-testid="lore-select"]')).toHaveLength(3);
-    expect(container.querySelector('[data-testid="lore-batch-bar"]')).toBeNull();
-  });
-
-  it("state, type and scope chips stage instead of sending, and the card shows the staged value marked 未儲存", async () => {
-    const s = spies();
-    const { container } = await renderMode();
-
-    pick(container, "L-1", "lore-state", "lore-state-retired");
-    pick(container, "L-2", "lore-type", "lore-type-owner_decision");
-    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!);
-    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-scope-everyone"]')!);
-
-    expect(s.state).not.toHaveBeenCalled();
-    expect(s.edit).not.toHaveBeenCalled();
-    expect(s.scope).not.toHaveBeenCalled();
-    expect(rowById(container, "L-1").querySelector('[data-testid="lore-state"]')!.textContent).toBe(zh.lore.stateRetired);
-    expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe("Owner 決策");
-    expect(rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!.textContent).toBe("所有人");
-    expect(unsaved(container)).toEqual(["L-1", "L-2"]);
-    expect(count(container)).toBe("2 筆未儲存");
-
-    // Choosing the stored value again un-stages it.
-    pick(container, "L-1", "lore-state", "lore-state-active");
-    expect(unsaved(container)).toEqual(["L-2"]);
-    expect(count(container)).toBe("1 筆未儲存");
-  });
-
-  it("全部儲存 sends every staged change through the per-entry routes, re-reads the section once, and keeps a refused card staged with its reason", async () => {
-    const s = spies();
-    s.state.mockImplementation(async (id) => {
-      if (id === "L-3") throw new ApiError("http 403", 403, "forbidden", "置頂的傳承只有管理員能改");
-    });
-    const { container, list } = await renderMode();
-    const budgets = vi.mocked(api.listLoreBudgets);
-    budgets.mockClear();
-    list.mockClear();
-
-    pick(container, "L-1", "lore-state", "lore-state-retired");
-    pick(container, "L-2", "lore-type", "lore-type-owner_decision");
-    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!);
-    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-scope-everyone"]')!);
-    pick(container, "L-3", "lore-state", "lore-state-retired");
-    fireEvent.click(container.querySelector('[data-testid="lore-multi-save"]')!);
-
-    await waitFor(() =>
-      expect(container.querySelector('[data-testid="lore-multi-result"]')?.textContent).toBe(
-        "已完成 L-1、L-2；沒有成功：L-3（置頂的傳承只有管理員能改）",
-      ),
-    );
-    expect(s.state.mock.calls).toEqual([["L-1", "retired"], ["L-3", "retired"]]);
-    expect(s.edit.mock.calls).toEqual([["L-2", { loreType: "owner_decision" }]]);
-    expect(s.scope.mock.calls).toEqual([["L-2", "everyone"]]);
-    // One re-read of the section for the cards that changed, one of the numbers.
-    expect(list.mock.calls.map((c) => c[0])).toEqual([
-      { scopeKinds: ["agent"], scopeKeys: ["mira"], entryIds: ["L-1", "L-2"], limit: 2, offset: 0 },
-    ]);
-    expect(budgets).toHaveBeenCalledTimes(1);
-    expect(unsaved(container)).toEqual(["L-3"]);
-    expect(count(container)).toBe("1 筆未儲存");
-    expect(rowById(container, "L-3").querySelector('[data-testid="lore-state"]')!.textContent).toBe(zh.lore.stateRetired);
-  });
-
-  it("取消 discards every staged change and sends nothing", async () => {
-    const s = spies();
-    const { container } = await renderMode();
-    pick(container, "L-1", "lore-state", "lore-state-retired");
-    pick(container, "L-2", "lore-type", "lore-type-owner_decision");
-
-    fireEvent.click(container.querySelector('[data-testid="lore-multi-cancel"]')!);
-
-    expect(container.querySelector('[data-testid="lore-multi-bar"]')).toBeNull();
-    expect(unsaved(container)).toEqual([]);
-    expect(rowById(container, "L-1").querySelector('[data-testid="lore-state"]')!.textContent).toBe(zh.lore.stateActive);
-    expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe("其他");
-    expect(s.state).not.toHaveBeenCalled();
-    expect(s.edit).not.toHaveBeenCalled();
-  });
-
-  it("提到最新 and 編輯 still apply at once inside the mode", async () => {
-    const s = spies();
-    const bump = vi.spyOn(api, "bumpLoreEntry").mockResolvedValue(undefined);
-    const { container } = await renderMode();
-    pick(container, "L-1", "lore-state", "lore-state-retired");
-
-    fireEvent.click(rowById(container, "L-3").querySelector('[data-testid="lore-bump"]')!);
-    await waitFor(() => expect(bump).toHaveBeenCalledWith("L-3"));
-
-    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-edit"]')!);
-    const editor = rowById(container, "L-2").querySelector<HTMLElement>('[data-testid="lore-editor"]')!;
-    fireEvent.change(editor.querySelector('[data-testid="lore-edit-title"]')!, { target: { value: "新標題" } });
-    fireEvent.click(editor.querySelector('[data-testid="lore-edit-save"]')!);
-    await waitFor(() => expect(s.edit).toHaveBeenCalledWith("L-2", { title: "新標題" }));
-    // The staged change is still waiting.
-    expect(s.state).not.toHaveBeenCalled();
-    expect(unsaved(container)).toEqual(["L-1"]);
-  });
-
-  it("the filters are locked while the mode is on, with a hint", async () => {
-    stubList(page(rows()));
-    const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
-    fireEvent.click(container.querySelector('[data-testid="lore-multi-toggle"]')!);
-    for (const id of ["lore-filter-id", "lore-filter-author", "lore-filter-type", "lore-filter-state"]) {
-      expect(container.querySelector<HTMLInputElement | HTMLButtonElement>(`[data-testid="${id}"]`)!.disabled).toBe(true);
-    }
-    expect(container.querySelector('[data-testid="lore-multi-filters-locked"]')!.textContent).toBe(
-      "編輯多筆時篩選先鎖住；全部儲存或取消後再改。",
-    );
-    fireEvent.click(container.querySelector('[data-testid="lore-multi-toggle"]')!);
-    expect(container.querySelector<HTMLInputElement>('[data-testid="lore-filter-id"]')!.disabled).toBe(false);
-    expect(container.querySelector('[data-testid="lore-multi-filters-locked"]')).toBeNull();
-  });
-
-  it("while 全部儲存 runs, the chips and the bar are locked and leaving the section is refused", async () => {
-    const s = spies();
-    const gate = held<void>();
-    s.edit.mockReturnValue(gate.promise);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const { container } = await renderMode();
-    pick(container, "L-1", "lore-type", "lore-type-owner_decision");
-    fireEvent.click(container.querySelector('[data-testid="lore-multi-save"]')!);
-    await waitFor(() => expect(s.edit).toHaveBeenCalled());
-
-    for (const chip of ["lore-state", "lore-type", "lore-scope-name"]) {
-      expect(rowById(container, "L-2").querySelector<HTMLButtonElement>(`[data-testid="${chip}"]`)!.disabled).toBe(true);
-    }
-    expect(container.querySelector<HTMLButtonElement>('[data-testid="lore-multi-save"]')!.disabled).toBe(true);
-    expect(container.querySelector<HTMLButtonElement>('[data-testid="lore-multi-cancel"]')!.disabled).toBe(true);
-
-    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
-    expect(window.location.hash).toBe("#lore/agent/mira");
-    expect(confirm).not.toHaveBeenCalled();
-
-    gate.resolve();
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-multi-result"]')).not.toBeNull());
-    expect(unsaved(container)).toEqual([]);
-    expect(rowById(container, "L-2").querySelector<HTMLButtonElement>('[data-testid="lore-state"]')!.disabled).toBe(false);
-  });
-
-  it("a browser Back while 全部儲存 runs is refused with a status line, and the page stays put", async () => {
-    const s = spies();
-    const gate = held<void>();
-    s.edit.mockReturnValue(gate.promise);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const { container } = await renderMode();
-    pick(container, "L-1", "lore-type", "lore-type-owner_decision");
-    fireEvent.click(container.querySelector('[data-testid="lore-multi-save"]')!);
-    await waitFor(() => expect(s.edit).toHaveBeenCalled());
-
-    history.back();
-    await waitFor(() =>
-      expect(container.querySelector('[data-testid="lore-multi-leave-blocked"]')?.textContent).toBe(
-        "儲存中，完成後才能離開",
-      ),
-    );
-    await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
-    await new Promise((r) => setTimeout(r, 30));
-    expect(window.location.hash).toBe("#lore/agent/mira");
-    expect(renderedIds(container)).toHaveLength(3);
-    expect(confirm).not.toHaveBeenCalled();
-
-    gate.resolve();
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-multi-result"]')).not.toBeNull());
-    expect(container.querySelector('[data-testid="lore-multi-leave-blocked"]')).toBeNull();
-    // Back works again once the save is done.
-    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
-    await waitFor(() => expect(headerTexts(container)).toHaveLength(1));
-  });
-
-  it("staged changes count as unsaved work for the stale-build reload, and a successful 全部儲存 removes every guard", async () => {
-    spies();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    const { container } = await renderMode();
-    const unload = () => {
-      const e = new Event("beforeunload", { cancelable: true });
-      window.dispatchEvent(e);
-      return e.defaultPrevented;
-    };
-    expect(hasRegisteredUnsavedWork()).toBe(false);
-    pick(container, "L-1", "lore-state", "lore-state-retired");
-    expect(hasRegisteredUnsavedWork()).toBe(true);
-    expect(unload()).toBe(true);
-
-    fireEvent.click(container.querySelector('[data-testid="lore-multi-save"]')!);
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-multi-result"]')).not.toBeNull());
-
-    expect(hasRegisteredUnsavedWork()).toBe(false);
-    expect(unload()).toBe(false);
-    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
-    await waitFor(() => expect(headerTexts(container)).toHaveLength(1));
-    expect(confirm).not.toHaveBeenCalled();
-  });
-
-  it("with staged changes, leaving the section asks first and closing the page is held", async () => {
-    spies();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    const { container } = await renderMode();
-
-    const unload = () => {
-      const e = new Event("beforeunload", { cancelable: true });
-      window.dispatchEvent(e);
-      return e.defaultPrevented;
-    };
-    expect(unload()).toBe(false);
-    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
-    expect(confirm).not.toHaveBeenCalled();
-    await waitFor(() => expect(headerTexts(container)).toHaveLength(1));
-
-    openSection(container, "agent:mira");
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
-    fireEvent.click(container.querySelector('[data-testid="lore-multi-toggle"]')!);
-    pick(container, "L-1", "lore-state", "lore-state-retired");
-
-    expect(unload()).toBe(true);
-    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(window.location.hash).toBe("#lore/agent/mira");
-    expect(unsaved(container)).toEqual(["L-1"]);
-
-    // A browser back / hand-edited hash is put back too.
-    window.location.hash = "#tasks";
-    await waitFor(() => expect(window.location.hash).toBe("#lore/agent/mira"));
-    expect(confirm).toHaveBeenCalledTimes(2);
-
-    confirm.mockReturnValue(true);
-    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
-    await waitFor(() => expect(headerTexts(container)).toHaveLength(1));
-    expect(unload()).toBe(false);
-  });
-});
-
-describe("LorePage — 多選批次", () => {
-  function select(container: HTMLElement, ...ids: string[]) {
-    for (const id of ids) {
-      fireEvent.click(rowById(container, id).querySelector('[data-testid="lore-select"]')!);
-    }
-  }
-
-  it("retiring three with one refusal runs them in order with one reason, refreshes once, and names which went through and which did not", async () => {
-    const set = vi.spyOn(api, "setLoreEntryState").mockImplementation(async (id) => {
-      if (id === "L-2") {
-        throw new ApiError("http 403 for POST /api/lore/L-2/state", 403, "forbidden", "只有撰寫人或管理員可以失效");
-      }
-    });
-    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
-      o?.entryIds
-        ? page([
-            mkEntry({ id: "L-1", state: "retired", retireReason: "併進 SOP" }),
-            mkEntry({ id: "L-3", state: "retired", retireReason: "併進 SOP" }),
-          ])
-        : page([mkEntry({ id: "L-1" }), mkEntry({ id: "L-2" }), mkEntry({ id: "L-3" })]),
-    );
-    const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
-    const budgets = api.listLoreBudgets as unknown as ReturnType<typeof vi.fn>;
-    await waitFor(() => expect(budgets).toHaveBeenCalledTimes(1));
-
-    select(container, "L-1", "L-2", "L-3");
-    expect(container.querySelector('[data-testid="lore-batch-count"]')!.textContent).toBe("已選 3 筆");
-    fireEvent.click(container.querySelector('[data-testid="lore-batch-retire"]')!);
-    fireEvent.change(container.querySelector('[data-testid="lore-batch-reason"]')!, {
-      target: { value: "併進 SOP" },
-    });
-    fireEvent.click(container.querySelector('[data-testid="lore-batch-retire-confirm"]')!);
-
-    await waitFor(() =>
-      expect(container.querySelector('[data-testid="lore-batch-result"]')?.textContent).toBe(
-        "已完成 L-1、L-3；沒有成功：L-2（只有撰寫人或管理員可以失效）知道了",
-      ),
-    );
-    expect(set.mock.calls).toEqual([
-      ["L-1", "retired", "併進 SOP"],
-      ["L-2", "retired", "併進 SOP"],
-      ["L-3", "retired", "併進 SOP"],
-    ]);
-    expect(list.mock.calls.map((c) => c[0])).toEqual([
-      { states: ["pinned", "active"], scopeKinds: ["agent"], scopeKeys: ["mira"], limit: 30, offset: 0 },
-      { scopeKinds: ["agent"], scopeKeys: ["mira"], entryIds: ["L-1", "L-3"], limit: 2, offset: 0 },
-    ]);
-    expect(budgets).toHaveBeenCalledTimes(2);
-    expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]);
-    expect(
-      renderedIds(container).map((id) => rowById(container, id).querySelector('[data-testid="lore-state"]')!.textContent),
-    ).toEqual(["已失效", "生效中", "已失效"]);
-    expect(container.querySelector('[data-testid="lore-batch-count"]')!.textContent).toBe("已選 1 筆");
-    expect(
-      rowById(container, "L-2").querySelector<HTMLInputElement>('[data-testid="lore-select"]')!.checked,
-    ).toBe(true);
-  });
-
-  it("offers 置頂 in the batch bar only to a viewer who may pin", async () => {
-    stubList(page([mkEntry({ id: "L-1" })]));
-    const viewer = await renderOpen({ canSetScope: false });
-    await waitFor(() => expect(renderedIds(viewer.container)).toHaveLength(1));
-    select(viewer.container, "L-1");
-    expect(
-      Array.from(viewer.container.querySelectorAll('[data-testid="lore-batch-bar"] button')).map(
-        (b) => b.textContent,
-      ),
-    ).toEqual(["設為生效", "設為失效…", "取消選取"]);
-    viewer.unmount();
-
-    const admin = await renderOpen({ canSetScope: true });
-    await waitFor(() => expect(renderedIds(admin.container)).toHaveLength(1));
-    select(admin.container, "L-1");
-    expect(
-      Array.from(admin.container.querySelectorAll('[data-testid="lore-batch-bar"] button')).map(
-        (b) => b.textContent,
-      ),
-    ).toEqual(["置頂", "設為生效", "設為失效…", "取消選取"]);
-  });
-});
-
 describe("LorePage — 手機寬度", () => {
   beforeEach(() => {
     Object.defineProperty(window, "matchMedia", {
@@ -3577,37 +3157,3 @@ describe("LorePage — 晚到的回應", () => {
   });
 });
 
-describe("LorePage — 選取只留畫面上的卡", () => {
-  it("leaving the section drops its cards from the selection, so no batch bar is left", async () => {
-    stubList(page([mkEntry({ id: "L-1" }), mkEntry({ id: "L-2" })]));
-    const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
-    fireEvent.click(rowById(container, "L-1").querySelector('[data-testid="lore-select"]')!);
-    expect(container.querySelector('[data-testid="lore-batch-count"]')!.textContent).toBe("已選 1 筆");
-
-    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
-
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-batch-bar"]')).toBeNull());
-  });
-
-  it("a filter that leaves a selected card off screen drops it, and a batch then reaches only what is shown", async () => {
-    const set = vi.spyOn(api, "setLoreEntryState").mockResolvedValue(undefined);
-    vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
-      o?.q === "二" ? page([mkEntry({ id: "L-2" })]) : page([mkEntry({ id: "L-1" }), mkEntry({ id: "L-2" })]),
-    );
-    const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
-    fireEvent.click(rowById(container, "L-1").querySelector('[data-testid="lore-select"]')!);
-    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-select"]')!);
-
-    search(container, "二");
-    await waitFor(() => expect(renderedIds(container)).toEqual(["L-2"]));
-    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-select"]')!);
-    expect(container.querySelector('[data-testid="lore-batch-count"]')!.textContent).toBe("已選 1 筆");
-    fireEvent.click(container.querySelector('[data-testid="lore-batch-retire"]')!);
-    fireEvent.click(container.querySelector('[data-testid="lore-batch-retire-confirm"]')!);
-
-    await waitFor(() => expect(set).toHaveBeenCalled());
-    expect(set.mock.calls.map((c) => c[0])).toEqual(["L-2"]);
-  });
-});

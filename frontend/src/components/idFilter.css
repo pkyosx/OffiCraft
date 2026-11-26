@@ -105,11 +105,6 @@
   width: 100%;
   max-width: 100%;
 }
-/* Twin rule in tasks.css; a host may lock its filters. */
-.id-filter:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
 .id-filter::placeholder {
   color: var(--color-text-muted);
 }

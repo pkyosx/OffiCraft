@@ -15,12 +15,12 @@
 // downloaded rows; a client-side filter is right only for the rows that
 // happen to be downloaded.
 //
-// 🔴 A MUTATION NEVER RELOADS A SECTION FROM PAGE ONE (owner: reloading made
-// him lose his place mid-batch). The changed rows are re-read by id and
-// replaced where they stand, only the numbers are re-asked, and rows re-sort
-// only when a section is reopened or the filter changes. The one exception is
-// 提到最新, which moves its card to the front (owner) while the viewport stays
-// anchored on what the reader was looking at.
+// 🔴 A MUTATION NEVER RELOADS A SECTION FROM PAGE ONE (owner: 編輯完不要自動
+// refresh). The changed row is re-read by id and replaced where it stands, only
+// the numbers are re-asked, and rows re-sort only when a section is reopened
+// or the filter changes. The one exception is 提到最新, which moves its card to
+// the front (owner) while the viewport stays anchored on what the reader was
+// looking at.
 
 import {
   useCallback,
@@ -69,12 +69,10 @@ import type { AvatarKind } from "../lib/themeBundle";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import { autosizeTextarea } from "../lib/autosize";
-import { registerUnsavedWork } from "../lib/unsavedInput";
 import { enterShouldSend } from "../lib/composerKeys";
 import {
   formatHash,
   navigateHash,
-  setNavigationGuard,
   useHashRoute,
   type HashRoute,
   type LoreSectionKind,
@@ -236,17 +234,6 @@ function moveBumped(entries: LoreEntryView[], id: string): LoreEntryView[] | nul
 /** Auto-paging for a highlighted entry stops after this many extra pages. */
 const HIGHLIGHT_PAGE_CAP = 10;
 
-/** 編輯多筆: what a card would change to once 全部儲存 sends it. */
-interface StagedChange {
-  state?: LoreEntryState;
-  loreType?: LoreType;
-  scopeKind?: LoreScopeKind;
-}
-
-function withStaged(entry: LoreEntryView, ch: StagedChange | undefined): LoreEntryView {
-  return ch ? { ...entry, ...ch } : entry;
-}
-
 /** The row element for an entry inside the page. */
 function rowElement(root: HTMLElement | null, id: string): HTMLElement | null {
   if (!root) return null;
@@ -260,8 +247,9 @@ function rowElement(root: HTMLElement | null, id: string): HTMLElement | null {
 const TOAST_MS = 5000;
 
 /** A changed card keeps its place until the section reloads, even when its
- * new state or a bump would sort it elsewhere: the owner changes several
- * cards in one pass and must not lose the spot they were working at. */
+ * new state would sort it elsewhere or the filter no longer matches it: the
+ * owner changes several cards in one pass and must not lose the spot they were
+ * working at. */
 function placeChangedRows(
   entries: LoreEntryView[],
   fresh: Map<string, LoreEntryView>
@@ -341,9 +329,9 @@ export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
   useEffect(() => {
     void refreshBudgets();
   }, [refreshBudgets]);
-  // One mount per page: filters, selection, 編輯多筆, the bottom bars and the
-  // highlight paging belong to the section they were set on, so a section
-  // change starts them over by remounting rather than by resetting each.
+  // One mount per page: filters, the toast and the highlight paging belong to
+  // the section they were set on, so a section change starts them over by
+  // remounting rather than by resetting each.
   const sectionKey = sec ? sectionKeyOf(sec.kind, sec.key) : null;
   // 🔴 The view gets its route from here and never reads the hash itself: a
   // second subscriber could see a new section before this key changes, load
@@ -395,13 +383,11 @@ function LoreView({
     if (seed && seed.key === sectionKey && seed.entryId === highlightId) seeded.add(seed.state);
     return seeded;
   });
-  const [authors, setAuthors] = useState<Set<string>>(new Set());
   const [loreTypes, setLoreTypes] = useState<Set<LoreType>>(new Set());
 
   const baseOpts = useMemo<LoreListOptions>(() => {
     const next: LoreListOptions = {};
     if (states.size > 0) next.states = [...states];
-    if (authors.size > 0) next.authorIds = [...authors];
     if (loreTypes.size > 0) next.loreTypes = [...loreTypes];
     if (appliedSearch !== "") {
       const id = normalizeEntryId(appliedSearch);
@@ -409,7 +395,7 @@ function LoreView({
       else next.q = appliedSearch;
     }
     return next;
-  }, [states, authors, loreTypes, appliedSearch]);
+  }, [states, loreTypes, appliedSearch]);
   const filterKey = JSON.stringify(baseOpts);
 
   // Ticking 已失效 only ADDS rows to a section, so it does not count as a
@@ -417,7 +403,7 @@ function LoreView({
   const statesNarrow =
     states.size > 0 && DEFAULT_STATES.some((s) => !states.has(s));
   const narrowing =
-    appliedSearch !== "" || authors.size > 0 || loreTypes.size > 0 || statesNarrow;
+    appliedSearch !== "" || loreTypes.size > 0 || statesNarrow;
   const statesAtDefault =
     states.size === DEFAULT_STATES.length && DEFAULT_STATES.every((s) => states.has(s));
 
@@ -425,26 +411,12 @@ function LoreView({
     setSearchDraft("");
     setAppliedSearch("");
     setStates(new Set(DEFAULT_STATES));
-    setAuthors(new Set());
     setLoreTypes(new Set());
   }
 
-  // ── 編輯多筆 ───────────────────────────────────────────────────────────
-  const [multiEdit, setMultiEdit] = useState(false);
-  const [staged, setStaged] = useState<Map<string, StagedChange>>(new Map());
-  const stagedRef = useRef(staged);
-  stagedRef.current = staged;
-  const [multiSaving, setMultiSaving] = useState(false);
-  const [multiResult, setMultiResult] = useState<{ text: string; failed: boolean } | null>(null);
-
-  const savingRef = useRef(false);
-  const sectionKeyRef = useRef(sectionKey);
-  sectionKeyRef.current = sectionKey;
   // Auto-paging for a highlight; a new section visit is a new mount.
   const hlRef = useRef<{ id: string; filterKey: string; pages: number } | null>(null);
   const [hlGaveUp, setHlGaveUp] = useState("");
-  // A browser Back / tab click refused because 全部儲存 is running.
-  const [leaveBlocked, setLeaveBlocked] = useState(false);
 
   // ── sections ───────────────────────────────────────────────────────────
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -971,141 +943,6 @@ function LoreView({
     [refreshInPlace, sectionOfEntry]
   );
 
-  // ── 編輯多筆: chips stage, 全部儲存 sends ──────────────────────────────
-  const findEntry = useCallback((id: string): LoreEntryView | undefined => {
-    for (const d of Object.values(dataRef.current)) {
-      const e = d.entries.find((x) => x.id === id);
-      if (e) return e;
-    }
-    return undefined;
-  }, []);
-
-  const stage = useCallback(
-    (id: string, patch: StagedChange) => {
-      const orig = findEntry(id);
-      if (!orig || savingRef.current) return;
-      setMultiResult(null);
-      setStaged((prev) => {
-        const next = new Map(prev);
-        const ch: StagedChange = { ...(next.get(id) ?? {}), ...patch };
-        // Choosing the stored value again un-stages that field.
-        if (ch.state === orig.state) delete ch.state;
-        if (ch.loreType === orig.loreType) delete ch.loreType;
-        if (ch.scopeKind === orig.scopeKind) delete ch.scopeKind;
-        if (Object.keys(ch).length === 0) next.delete(id);
-        else next.set(id, ch);
-        return next;
-      });
-    },
-    [findEntry]
-  );
-
-  // The same runner shape as the batch bar: one entry at a time, failures
-  // collected with the server's reason, the section re-read once at the end.
-  async function saveStaged() {
-    const forKey = sectionKey;
-    savingRef.current = true;
-    setMultiSaving(true);
-    setActionError(null);
-    setMultiResult(null);
-    const done: string[] = [];
-    const failed: { id: string; reason: string }[] = [];
-    const sentOk = new Map<string, StagedChange>();
-    const touched: string[] = [];
-    for (const [id, ch] of [...stagedRef.current]) {
-      const ok: StagedChange = {};
-      let reason = "";
-      let anyFailed = false;
-      const attempt = async (fn: () => Promise<unknown>, onOk: () => void) => {
-        try {
-          await fn();
-          onOk();
-        } catch (e) {
-          anyFailed = true;
-          if (reason === "") reason = failText(e);
-        }
-      };
-      const { loreType, scopeKind, state } = ch;
-      if (loreType) await attempt(() => api.editLoreEntry(id, { loreType }), () => (ok.loreType = loreType));
-      if (scopeKind) await attempt(() => api.setLoreEntryScope(id, scopeKind), () => (ok.scopeKind = scopeKind));
-      if (state) await attempt(() => api.setLoreEntryState(id, state), () => (ok.state = state));
-      if (Object.keys(ok).length > 0) {
-        touched.push(id);
-        sentOk.set(id, ok);
-      }
-      if (anyFailed) failed.push({ id, reason });
-      else done.push(id);
-    }
-    const changed = new Map<string, string[]>();
-    if (forKey && touched.length > 0) changed.set(forKey, touched);
-    await refreshInPlace(changed, true);
-    savingRef.current = false;
-    setMultiSaving(false);
-    setLeaveBlocked(false);
-    // The section changed under the save: its staged map was already dropped,
-    // and these results belong to cards no longer on screen.
-    if (sectionKeyRef.current !== forKey) return;
-    // Clear only what went through with the value that was sent; a failed
-    // field keeps its staged value.
-    setStaged((prev) => {
-      const next = new Map(prev);
-      for (const [id, ok] of sentOk) {
-        const cur = next.get(id);
-        if (!cur) continue;
-        const left: StagedChange = { ...cur };
-        if (ok.loreType !== undefined && left.loreType === ok.loreType) delete left.loreType;
-        if (ok.scopeKind !== undefined && left.scopeKind === ok.scopeKind) delete left.scopeKind;
-        if (ok.state !== undefined && left.state === ok.state) delete left.state;
-        if (Object.keys(left).length === 0) next.delete(id);
-        else next.set(id, left);
-      }
-      return next;
-    });
-    setMultiResult({ text: msg.loreBatchResult(done, failed), failed: failed.length > 0 });
-  }
-
-  const hasStaged = staged.size > 0;
-  const leaveText = t.lore.multiLeaveConfirm;
-  // Leaving the section (another tab, the directory, back) or closing the page
-  // with staged changes asks first. Highlight changes inside the same section
-  // are not leaving.
-  // While 全部儲存 runs, leaving the section is refused outright: its results
-  // would land on a page that no longer shows those cards.
-  const holdsWork = hasStaged || multiSaving;
-  useEffect(() => {
-    if (!holdsWork) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    const releaseWork = registerUnsavedWork(() => true);
-    const release = setNavigationGuard((next: HashRoute) => {
-      const same =
-        next.page === "lore" &&
-        next.loreSection !== undefined &&
-        sectionKeyOf(next.loreSection.kind, next.loreSection.key) === sectionKey;
-      if (same) return true;
-      if (savingRef.current) {
-        setLeaveBlocked(true);
-        return false;
-      }
-      return window.confirm(leaveText);
-    });
-    return () => {
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      releaseWork();
-      release();
-    };
-  }, [holdsWork, sectionKey, leaveText]);
-
-  function exitMultiEdit() {
-    if (stagedRef.current.size > 0 && !window.confirm(leaveText)) return;
-    setStaged(new Map());
-    setMultiResult(null);
-    setMultiEdit(false);
-  }
-
   // ── 目錄的編號搜尋 ──────────────────────────────────────────────────────
   const [dirSearch, setDirSearch] = useState("");
   const [dirNote, setDirNote] = useState<string | null>(null);
@@ -1143,27 +980,7 @@ function LoreView({
     }
   }
 
-  // ── 多選 + 批次 ────────────────────────────────────────────────────────
-  const [selected, setSelected] = useState<string[]>([]);
-  const [batchRunning, setBatchRunning] = useState(false);
-  const [retireOpen, setRetireOpen] = useState(false);
-  const [retireReason, setRetireReason] = useState("");
-  const [batchResult, setBatchResult] = useState<{ text: string; failed: boolean } | null>(null);
-
   const currentDef = sectionKey ? defs.find((d) => d.key === sectionKey) ?? null : null;
-  // A selection only ever names cards on screen: a batch must not reach an
-  // entry the reader can no longer see, and could not refresh it if it did.
-  // 編輯多筆 is the other way to change several cards; the two never overlap.
-  useEffect(() => {
-    const shown = new Set(
-      multiEdit || !currentDef ? [] : (data[currentDef.key]?.entries ?? []).map((e) => e.id)
-    );
-    setSelected((prev) => {
-      const kept = prev.filter((id) => shown.has(id));
-      return kept.length === prev.length ? prev : kept;
-    });
-  }, [currentDef, data, multiEdit]);
-
   // A highlighted entry beyond the loaded pages: page on until it shows, the
   // section runs out, the cap is reached, or the reader changes a filter (then
   // they are looking for something else).
@@ -1202,40 +1019,6 @@ function LoreView({
     el?.scrollIntoView?.({ block: "center" });
     el?.focus({ preventScroll: true });
   }, [highlightLoaded, highlightId]);
-
-  const toggleSelect = useCallback((id: string) => {
-    setBatchResult(null);
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }, []);
-
-  // One call per entry, in order; the numbers are re-asked once at the end.
-  async function runBatch(state: LoreEntryState, reason?: string) {
-    setBatchRunning(true);
-    setActionError(null);
-    const done: string[] = [];
-    const failed: { id: string; reason: string }[] = [];
-    const changed = new Map<string, string[]>();
-    let everyoneTouched = false;
-    for (const id of selected) {
-      try {
-        await api.setLoreEntryState(id, state, reason);
-        done.push(id);
-        const key = sectionOfEntry(id);
-        if (key) {
-          changed.set(key, [...(changed.get(key) ?? []), id]);
-          if (key.startsWith("everyone:")) everyoneTouched = true;
-        }
-      } catch (e) {
-        failed.push({ id, reason: failText(e) });
-      }
-    }
-    await refreshInPlace(changed, everyoneTouched);
-    setSelected(failed.map((f) => f.id));
-    setRetireOpen(false);
-    setRetireReason("");
-    setBatchRunning(false);
-    setBatchResult({ text: msg.loreBatchResult(done, failed), failed: failed.length > 0 });
-  }
 
   // ── render helpers ──────────────────────────────────────────────────────
   function renderHeaderUsage(def: SectionDef) {
@@ -1343,44 +1126,27 @@ function LoreView({
                 </span>
               </div>
             )}
-            {(() => {
-              const ch = staged.get(entry.id);
-              const shown = withStaged(entry, ch);
-              return (
-                <LoreRow
-                  entry={shown}
+            <LoreRow
+                  entry={entry}
                   dimmed={cut >= 0 && pos >= cut}
                   author={resolveAuthor(entry.authorId)}
                   avatar={authorAvatar(entry.authorId)}
-                  scope={resolveScope(shown)}
+                  scope={resolveScope(entry)}
                   scopeMenu={
                     canSetScope && entry.scopeOptions.length > 0 ? resolveScopeMenu(entry) : null
                   }
                   isMobile={isMobile}
-                  selectable={!multiEdit}
-                  selected={selected.includes(entry.id)}
-                  unsaved={ch !== undefined}
-                  chipsLocked={multiSaving}
                   highlighted={entry.id === highlightId}
                   entryCaps={entryCaps}
-                  onToggleSelect={toggleSelect}
                   onOpenChat={openChat}
                   onOpenManual={openManual}
-                  onSetState={
-                    multiEdit ? (id, state) => stage(id, { state }) : setEntryState
-                  }
-                  onSetScope={
-                    multiEdit ? (id, scopeKind) => stage(id, { scopeKind }) : setEntryScope
-                  }
-                  onSetLoreType={
-                    multiEdit ? (id, loreType) => stage(id, { loreType }) : setEntryLoreType
-                  }
+                  onSetState={setEntryState}
+                  onSetScope={setEntryScope}
+                  onSetLoreType={setEntryLoreType}
                   onBump={bumpEntry}
                   onSave={editEntry}
                   onRestored={restoredEntry}
                 />
-              );
-            })()}
           </div>
         ))}
         {!sd.exhausted && (
@@ -1409,18 +1175,6 @@ function LoreView({
   function openManual(typeKey: string) {
     navigateHash({ page: "settings", manualKey: typeKey });
   }
-
-  // 撰寫人 offers the live roster only; a machine-layer member can never write
-  // 傳承 (the route refuses it), so `kind === "staff"` is an allow-list.
-  const authorOptions = [
-    ...members
-      .filter((m) => m.kind === "staff")
-      .map((m) => ({ value: m.id, label: m.name })),
-    ...workers.map((w) => ({
-      value: w.id,
-      label: w.codename ? msg.outsourceLabel(w.codename) : w.id,
-    })),
-  ];
 
   const kindChip = (k: LoreScopeKind) =>
     k === "everyone" ? t.lore.kindEveryone : k === "manual" ? t.lore.kindManual : t.lore.kindMember;
@@ -1612,19 +1366,7 @@ function LoreView({
           <FilterPanel
             testId="lore-filter"
             clearLabel={t.lore.clearFilters}
-            onClear={!multiEdit && (narrowing || !statesAtDefault) ? clearFilters : undefined}
-            actions={
-              <button
-                type="button"
-                className="lore__multi-toggle"
-                data-testid="lore-multi-toggle"
-                aria-pressed={multiEdit}
-                disabled={multiSaving}
-                onClick={() => (multiEdit ? exitMultiEdit() : setMultiEdit(true))}
-              >
-                {multiEdit ? t.lore.multiEditDone : t.lore.multiEdit}
-              </button>
-            }
+            onClear={narrowing || !statesAtDefault ? clearFilters : undefined}
           >
             <IdFilterInput
               value={searchDraft}
@@ -1632,23 +1374,12 @@ function LoreView({
               onCommit={(v) => setAppliedSearch(v.trim())}
               label={t.lore.idSearchLabel}
               testId="lore-filter-id"
-              disabled={multiEdit}
               widthCh={7}
-            />
-            <MultiSelectFilter
-              noun={t.lore.filterAuthorNoun}
-              allLabel={t.lore.filterAuthorAll}
-              testId="lore-filter-author"
-              disabled={multiEdit}
-              options={authorOptions}
-              selected={authors}
-              onChange={setAuthors}
             />
             <MultiSelectFilter
               noun={t.lore.filterTypeNoun}
               allLabel={t.lore.filterTypeAll}
               testId="lore-filter-type"
-              disabled={multiEdit}
               options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
               selected={loreTypes}
               onChange={(next) => setLoreTypes(next as Set<LoreType>)}
@@ -1657,7 +1388,6 @@ function LoreView({
               noun={t.lore.filterStateNoun}
               allLabel={t.lore.filterStateAll}
               testId="lore-filter-state"
-              disabled={multiEdit}
               options={[
                 { value: "pinned", label: t.lore.statePinned },
                 { value: "active", label: t.lore.stateActive },
@@ -1668,11 +1398,6 @@ function LoreView({
             />
           </FilterPanel>
 
-          {multiEdit && (
-            <div className="lore__multi-hint" data-testid="lore-multi-filters-locked">
-              {t.lore.multiFiltersLocked}
-            </div>
-          )}
           {highlightMissing && (
             <div className="lore__empty" data-testid="lore-highlight-missing">
               {msg.loreHighlightMissing(highlightId)}
@@ -1702,9 +1427,8 @@ function LoreView({
         </>
       )}
 
-      {(toast || multiEdit || selected.length > 0 || batchResult) && (
-      <div className="lore__dock">
-        {toast && (
+      {toast && (
+        <div className="lore__dock">
           <div className="lore-batch lore-toast" role="status" data-testid="lore-toast">
             <span>{t.lore.bumpedToast}</span>
             <span aria-hidden="true">·</span>
@@ -1717,159 +1441,7 @@ function LoreView({
               {t.lore.bumpedGo}
             </button>
           </div>
-        )}
-
-        {multiEdit && (
-          <div className="lore-batch" data-testid="lore-multi-bar" role="region">
-            <span className="lore-batch__count" data-testid="lore-multi-count">
-              {msg.loreMultiStaged(staged.size)}
-            </span>
-            <button
-              type="button"
-              className="lore-batch__btn"
-              data-testid="lore-multi-save"
-              disabled={multiSaving || staged.size === 0}
-              onClick={() => void saveStaged()}
-            >
-              {t.lore.multiSaveAll}
-            </button>
-            <button
-              type="button"
-              className="lore-batch__link"
-              data-testid="lore-multi-cancel"
-              disabled={multiSaving}
-              onClick={() => {
-                setStaged(new Map());
-                setMultiResult(null);
-                setMultiEdit(false);
-              }}
-            >
-              {t.lore.multiCancel}
-            </button>
-            {multiSaving && <span className="lore-batch__working">{t.lore.batchWorking}</span>}
-            {multiSaving && leaveBlocked && (
-              <span className="lore-batch__working" role="status" data-testid="lore-multi-leave-blocked">
-                {t.lore.multiLeaveBlocked}
-              </span>
-            )}
-            {multiResult && (
-              <div
-                className={`lore-batch__result${multiResult.failed ? " lore-batch__result--failed" : ""}`}
-                role="status"
-                data-testid="lore-multi-result"
-              >
-                <span>{multiResult.text}</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {!multiEdit && (selected.length > 0 || batchResult) && (
-          <div className="lore-batch" data-testid="lore-batch-bar" role="region">
-            {selected.length > 0 && !retireOpen && (
-              <>
-                <span className="lore-batch__count" data-testid="lore-batch-count">
-                  {msg.loreBatchSelected(selected.length)}
-                </span>
-                {canSetScope && (
-                  <button
-                    type="button"
-                    className="lore-batch__btn"
-                    data-testid="lore-batch-pin"
-                    disabled={batchRunning}
-                    onClick={() => void runBatch("pinned")}
-                  >
-                    {t.lore.batchPin}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="lore-batch__btn"
-                  data-testid="lore-batch-activate"
-                  disabled={batchRunning}
-                  onClick={() => void runBatch("active")}
-                >
-                  {t.lore.batchActivate}
-                </button>
-                <button
-                  type="button"
-                  className="lore-batch__btn lore-batch__btn--danger"
-                  data-testid="lore-batch-retire"
-                  disabled={batchRunning}
-                  onClick={() => {
-                    setBatchResult(null);
-                    setRetireOpen(true);
-                  }}
-                >
-                  {t.lore.batchRetire}
-                </button>
-                <button
-                  type="button"
-                  className="lore-batch__link"
-                  data-testid="lore-batch-clear"
-                  disabled={batchRunning}
-                  onClick={() => {
-                    setSelected([]);
-                    setBatchResult(null);
-                  }}
-                >
-                  {t.lore.batchClear}
-                </button>
-                {batchRunning && <span className="lore-batch__working">{t.lore.batchWorking}</span>}
-              </>
-            )}
-            {selected.length > 0 && retireOpen && (
-              <>
-                <input
-                  type="text"
-                  className="lore-batch__reason"
-                  data-testid="lore-batch-reason"
-                  aria-label={t.lore.batchRetireReason}
-                  placeholder={t.lore.batchRetireReason}
-                  value={retireReason}
-                  disabled={batchRunning}
-                  onChange={(e) => setRetireReason(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="lore-batch__btn lore-batch__btn--danger"
-                  data-testid="lore-batch-retire-confirm"
-                  disabled={batchRunning}
-                  onClick={() => void runBatch("retired", retireReason.trim())}
-                >
-                  {t.lore.batchRetireConfirm}
-                </button>
-                <button
-                  type="button"
-                  className="lore-batch__link"
-                  data-testid="lore-batch-retire-back"
-                  disabled={batchRunning}
-                  onClick={() => setRetireOpen(false)}
-                >
-                  {t.lore.batchBack}
-                </button>
-              </>
-            )}
-            {batchResult && (
-              <div
-                className={`lore-batch__result${batchResult.failed ? " lore-batch__result--failed" : ""}`}
-                role="status"
-                data-testid="lore-batch-result"
-              >
-                <span>{batchResult.text}</span>
-                <button
-                  type="button"
-                  className="lore-batch__link"
-                  data-testid="lore-batch-dismiss"
-                  onClick={() => setBatchResult(null)}
-                >
-                  {t.lore.batchDismiss}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+        </div>
       )}
     </div>
   );
@@ -1906,13 +1478,8 @@ function LoreRow({
   onSetLoreType,
   onBump,
   isMobile,
-  selectable,
-  selected,
-  unsaved,
-  chipsLocked,
   highlighted,
   entryCaps,
-  onToggleSelect,
   onSave,
   onRestored,
 }: {
@@ -1935,17 +1502,8 @@ function LoreRow({
   onBump: (id: string) => void;
   /** Phone width: 提到最新 and 編輯 fold into the 「⋯」 menu. */
   isMobile: boolean;
-  /** false while 編輯多筆 is on: the checkbox batch is the other way to
-   * change several cards, and the two must not be on screen together. */
-  selectable: boolean;
-  selected: boolean;
-  /** 編輯多筆 has a change staged on this card; `entry` already shows it. */
-  unsaved: boolean;
-  /** 全部儲存 is running: the state / type / scope chips cannot stage more. */
-  chipsLocked: boolean;
   highlighted: boolean;
   entryCaps: { title: number; body: number };
-  onToggleSelect: (id: string) => void;
   /** Rejects with the reason to show; the draft stays. */
   onSave: (id: string, patch: LoreEntryEdit) => Promise<void>;
   onRestored: (id: string) => Promise<void>;
@@ -2102,9 +1660,7 @@ function LoreRow({
     <article
       className={`lore-row lore-row--${entry.state}${
         dimmed ? " lore-row--dimmed" : ""
-      }${toggleable ? " lore-row--toggle" : ""}${highlighted ? " lore-row--highlight" : ""}${
-        unsaved ? " lore-row--unsaved" : ""
-      }`}
+      }${toggleable ? " lore-row--toggle" : ""}${highlighted ? " lore-row--highlight" : ""}`}
       data-testid="lore-row"
       data-entry-id={entry.id}
       data-dimmed={dimmed ? "true" : "false"}
@@ -2121,16 +1677,6 @@ function LoreRow({
       onKeyDown={onRowToggleKeyDown}
     >
       <div className="lore-row__head">
-        {selectable && (
-          <input
-            type="checkbox"
-            className="lore-row__select"
-            data-testid="lore-select"
-            aria-label={t.lore.selectEntry}
-            checked={selected}
-            onChange={() => onToggleSelect(entry.id)}
-          />
-        )}
         <div className="lore-row__badges">
           {/* Order: 編號 → 類型 → 狀態 → 屬於. The id leads, as on 任務卡, because it
               is what you quote to somebody else (owner: 「make them consistent
@@ -2175,7 +1721,6 @@ function LoreRow({
               aria-expanded={typeOpen}
               data-testid="lore-type"
               data-lore-type={entry.loreType}
-              disabled={chipsLocked}
               onClick={() => setTypeOpen((o) => !o)}
             >
               {loreTypeLabel(t, entry.loreType)}
@@ -2221,7 +1766,6 @@ function LoreRow({
               aria-haspopup="menu"
               aria-expanded={stateOpen}
               data-testid="lore-state"
-              disabled={chipsLocked}
               onClick={() => setStateOpen((o) => !o)}
             >
               {stateLabel}
@@ -2285,8 +1829,7 @@ function LoreRow({
                 aria-haspopup="menu"
                 aria-expanded={scopeOpen}
                 title={t.lore.scopeMenuLabel}
-                disabled={chipsLocked}
-                onClick={() => setScopeOpen((o) => !o)}
+                  onClick={() => setScopeOpen((o) => !o)}
               >
                 {scopeGlyph}
                 <span className="lore-row__scope-name">{scopeText}</span>
@@ -2380,11 +1923,6 @@ function LoreRow({
               </div>
             )}
           </span>
-          {unsaved && (
-            <span className="lore-badge lore-badge--unsaved" data-testid="lore-unsaved">
-              {t.lore.unsaved}
-            </span>
-          )}
         </div>
 
         <div className="lore-row__actions">

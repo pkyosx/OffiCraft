@@ -92,13 +92,10 @@ export interface Messages {
   loreDirectorySectionGone: (id: string) => string;
   loreHighlightMissing: (id: string) => string;
   loreHighlightLoadFailed: (id: string) => string;
-  loreMultiStaged: (n: number) => string;
   loreBudgetSentence: (p: LoreBudgetSentence) => string;
   loreCapLine: (used: number, cap: number, firstDroppedId: string, need: number) => string;
   loreCapLineAway: (firstDroppedId: string) => string;
   loreEveryoneRef: (count: number) => string;
-  loreBatchSelected: (n: number) => string;
-  loreBatchResult: (done: string[], failed: { id: string; reason: string }[]) => string;
   // ── secrets ──
   secretCopyId: (secretId: string) => string;
   secretDeleteConfirmBody: (name: string) => string;
@@ -497,7 +494,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     loreDirectorySectionGone: (id) => `${t.lore.dirSectionGoneLead}${id}${t.lore.dirSectionGoneTail}`,
     loreHighlightMissing: (id) => `${t.lore.highlightMissingLead}${id}${t.lore.highlightMissingTail}`,
     loreHighlightLoadFailed: (id) => `${t.lore.highlightFailedLead}${id}${t.lore.highlightFailedTail}`,
-    loreMultiStaged: (n) => `${t.lore.multiStagedLead}${num(n)}${t.lore.multiStagedTail}`,
     loreBudgetSentence: (p) => {
       const l = t.lore;
       let out = `${l.sumCapLead}${num(p.capChars)}${l.sumCapMid}${num(p.usedChars)}${l.sumCapTail}`;
@@ -536,21 +532,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     loreCapLineAway: (firstDroppedId) =>
       `${t.lore.capLineAwayLead}${firstDroppedId}${t.lore.capLineAwayTail}`,
     loreEveryoneRef: (count) => `${t.lore.everyoneRefLead}${num(count)}${t.lore.everyoneRefTail}`,
-    loreBatchSelected: (n) => `${t.lore.batchSelectedLead}${num(n)}${t.lore.batchSelectedTail}`,
-    loreBatchResult: (done, failed) => {
-      const l = t.lore;
-      const parts: string[] = [];
-      if (done.length > 0) parts.push(`${l.batchDoneLead}${done.join(listSep)}`);
-      if (failed.length > 0) {
-        parts.push(
-          l.batchFailedLead +
-            failed
-              .map((f) => (f.reason ? `${f.id}${l.batchReasonOpen}${f.reason}${l.batchReasonClose}` : f.id))
-              .join(listSep)
-        );
-      }
-      return parts.join(l.batchSep);
-    },
     secretCopyId: (secretId) => `${t.secrets.copyIdLabel} ${secretId}`,
     secretDeleteConfirmBody: (name) =>
       `${t.secrets.deleteConfirmLead}${name}${t.secrets.deleteConfirmTail}`,

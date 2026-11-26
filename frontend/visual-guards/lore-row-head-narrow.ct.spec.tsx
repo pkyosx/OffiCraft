@@ -21,7 +21,6 @@ type RowGeom = {
   id: string;
   head: Box | null;
   row: Box | null;
-  select: Box | null;
   actions: Box | null;
   actionButtons: { text: string; box: Box }[];
   badges: { cls: string; box: Box }[];
@@ -103,7 +102,6 @@ async function measure(page: any): Promise<{
           id: row.getAttribute("data-entry-id") ?? "",
           head: r(row.querySelector(".lore-row__head")),
           row: r(row),
-          select: r(row.querySelector('[data-testid="lore-select"]')),
           actions: r(row.querySelector(".lore-row__actions")),
           actionButtons: [...row.querySelectorAll(".lore-row__actions > :not(.lore-row__more), .lore-row__more > button")].map(
             (b) => ({ text: (b.textContent ?? "").trim() || b.getAttribute("aria-label") || "", box: r(b)! })
@@ -207,8 +205,6 @@ function assertHeadContained(width: number, row: RowGeom) {
   if (row.mark) {
     expect.soft(inside(row.mark, row.head), `${tag} expand mark outside the head`).toBe(true);
   }
-  expect.soft(row.select, `${tag} checkbox missing`).not.toBeNull();
-  if (row.select) expect.soft(inside(row.select, row.head), `${tag} checkbox outside the head`).toBe(true);
   expect.soft(row.actions, `${tag} actions missing`).not.toBeNull();
   // A phone shows only 「⋯」; a desktop shows the size, 提到最新 and 編輯.
   expect.soft(row.actionButtons.length, `${tag} actions`).toBe(width <= 720 ? 1 : 3);
@@ -388,6 +384,16 @@ for (const width of [390, 1440]) {
           key: card.getAttribute("data-section") ?? "",
           card: { left: c.left, right: c.right, top: c.top, bottom: c.bottom },
           name: box(".lore-dir-card__name"),
+          // The name's FIRST line: a long manual name wraps, and the chevron
+          // belongs on its first line, not beside the middle of the block.
+          nameLine: (() => {
+            const el = card.querySelector(".lore-dir-card__name");
+            if (!el) return null;
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const f = range.getClientRects()[0];
+            return f ? { top: f.top, bottom: f.bottom } : null;
+          })(),
           mark: box(".lore-dir-card__mark"),
           bar: box(".lore-dir-card__bar"),
           text: box(".lore-dir-card__usage-text"),
@@ -403,7 +409,10 @@ for (const width of [390, 1440]) {
       expect.soft(c.mark, `[${width}px] ${c.key} chevron`).not.toBeNull();
       if (c.mark && c.name) {
         expect.soft(c.card.right - c.mark.right, `[${width}px] ${c.key} chevron at the right edge`).toBeLessThan(24);
-        expect.soft(Math.abs(c.mark.top - c.name.top), `[${width}px] ${c.key} chevron on the name's line`).toBeLessThan(12);
+      }
+      if (c.mark && c.nameLine) {
+        const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
+        expect.soft(Math.abs(mid(c.mark) - mid(c.nameLine)), `[${width}px] ${c.key} chevron centred on the name's first line`).toBeLessThanOrEqual(3);
       }
       if (c.bar && c.text) {
         bars++;
@@ -430,48 +439,6 @@ for (const width of [390, 1440]) {
       return { danger, dropped: dropped ? getComputedStyle(dropped).color : null };
     });
     expect(colours.dropped, `[${width}px] 讀不到 badge is in the danger colour`).toBe(colours.danger);
-  });
-
-  test(`the batch bar stays inside the viewport and the scroll container @${width}px`, async ({ mount, page }) => {
-    const cmp = await mountAt(mount, page, width, false, MIRA);
-    const selects = cmp.locator('[data-testid="lore-select"]');
-    await selects.nth(0).click();
-    await selects.nth(1).click();
-    const bar = cmp.locator('[data-testid="lore-batch-bar"]');
-    await expect(bar).toBeVisible();
-
-    const check = async (stage: string) => {
-      const g = await page.evaluate(() => {
-        const r = (el: Element) => {
-          const b = el.getBoundingClientRect();
-          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
-        };
-        const bar = document.querySelector('[data-testid="lore-batch-bar"]')!;
-        return {
-          bar: r(bar),
-          lore: r(document.querySelector(".lore")!),
-          children: [...bar.querySelectorAll("button, input, span")].map((c) => ({
-            text: (c.textContent ?? "").trim() || c.getAttribute("data-testid") || c.tagName,
-            box: r(c),
-          })),
-          vw: document.documentElement.clientWidth,
-          vh: window.innerHeight,
-        };
-      });
-      console.log(`[lore ${width}] batch bar ${stage}`, JSON.stringify({ bar: g.bar, lore: g.lore, vw: g.vw, vh: g.vh }));
-      expect.soft(g.bar.left, `[${width}px] ${stage} bar left`).toBeGreaterThanOrEqual(g.lore.left - 1);
-      expect.soft(g.bar.right, `[${width}px] ${stage} bar right`).toBeLessThanOrEqual(Math.min(g.lore.right, g.vw) + 1);
-      expect.soft(g.bar.bottom, `[${width}px] ${stage} bar bottom`).toBeLessThanOrEqual(g.vh + 1);
-      expect.soft(g.bar.top, `[${width}px] ${stage} bar top`).toBeGreaterThanOrEqual(0);
-      for (const c of g.children) {
-        expect.soft(inside(c.box, g.bar), `[${width}px] ${stage} "${c.text}" outside the bar`).toBe(true);
-      }
-      assertNoHScroll(width, await pageAndLoreOver(page));
-    };
-    await check("buttons");
-    await cmp.locator('[data-testid="lore-batch-retire"]').click();
-    await expect(cmp.locator('[data-testid="lore-batch-reason"]')).toBeVisible();
-    await check("reason");
   });
 
   test(`the inline editor fits its card @${width}px`, async ({ mount, page }) => {
@@ -576,40 +543,6 @@ for (const width of [390, 1440]) {
     }, sel);
     expect.soft(moved.inView, `[${width}px] 前往 did not scroll to ${target}`).toBe(true);
     expect.soft(moved.focused, `[${width}px] 前往 did not focus ${target}`).toBe(true);
-  });
-
-  test(`編輯多筆's bar stays inside the viewport and the scroll container @${width}px`, async ({ mount, page }) => {
-    const cmp = await mountAt(mount, page, width, false, MIRA, 600);
-    await cmp.locator('[data-testid="lore-multi-toggle"]').click();
-    await expect(cmp.locator('[data-testid="lore-select"]')).toHaveCount(0);
-    const first = cmp.locator('[data-testid="lore-row"]').first();
-    await first.locator('[data-testid="lore-type"]').click();
-    await first.locator('[data-testid="lore-type-options"] .lore-row__menu-item:not(.lore-row__menu-item--active)').first().click();
-    await expect(first.locator('[data-testid="lore-unsaved"]')).toBeVisible();
-    await expect(cmp.locator('[data-testid="lore-multi-count"]')).toHaveText("1 筆未儲存");
-    const g = await page.evaluate(() => {
-      const r = (el: Element) => {
-        const b = el.getBoundingClientRect();
-        return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
-      };
-      const bar = document.querySelector('[data-testid="lore-multi-bar"]')!;
-      const head = document.querySelector('[data-testid="lore-row"] .lore-row__head')!;
-      return {
-        bar: r(bar),
-        lore: r(document.querySelector(".lore")!),
-        head: r(head),
-        headBadges: [...head.querySelectorAll(".lore-row__badges > *")].map((c) => r(c)),
-        children: [...bar.querySelectorAll("button, span")].map((c) => r(c)),
-        vw: document.documentElement.clientWidth,
-        vh: window.innerHeight,
-      };
-    });
-    expect.soft(g.bar.bottom, `[${width}px] bar bottom`).toBeLessThanOrEqual(g.vh + 1);
-    expect.soft(g.bar.left, `[${width}px] bar left`).toBeGreaterThanOrEqual(g.lore.left - 1);
-    expect.soft(g.bar.right, `[${width}px] bar right`).toBeLessThanOrEqual(Math.min(g.lore.right, g.vw) + 1);
-    for (const c of g.children) expect.soft(inside(c, g.bar), `[${width}px] bar part outside the bar`).toBe(true);
-    for (const b of g.headBadges) expect.soft(b.right, `[${width}px] badge (with 未儲存) past the head`).toBeLessThanOrEqual(g.head.right + 1);
-    assertNoHScroll(width, await pageAndLoreOver(page));
   });
 
   test(`a state change leaves the scroll position and the card where they were @${width}px`, async ({ mount, page }) => {

@@ -40,11 +40,6 @@
   font-size: 13px;
   cursor: pointer;
 }
-/* Twin rule in idFilter.css; a host may lock its filters. */
-.tasks__filter:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
 /* ── multi-select filter dropdown (T-be18) ── */
 .tasks__ms {
   position: relative;

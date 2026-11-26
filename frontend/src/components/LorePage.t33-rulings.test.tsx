@@ -30,7 +30,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
-import { __resetHashRouteForTests } from "../lib/hashRoute";
 import { LorePage } from "./LorePage";
 import { __resetMock } from "../api/mock";
 import { __resetWorkerCodenameCache } from "../hooks/useWorkerCodenames";
@@ -122,7 +121,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  __resetHashRouteForTests();
   vi.restoreAllMocks();
 });
 
