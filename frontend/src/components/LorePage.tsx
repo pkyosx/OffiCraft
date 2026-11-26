@@ -15,10 +15,12 @@
 // downloaded rows; a client-side filter is right only for the rows that
 // happen to be downloaded.
 //
-// 🔴 A MUTATION NEVER RELOADS A SECTION FROM PAGE ONE (owner: 編輯完不要自動
-// refresh). The changed row is re-read by id and replaced where it stands, only
-// the numbers are re-asked, and rows re-sort only when a section is reopened
-// or the filter changes.
+// 🔴 狀態、類型、適用範圍 ARE STAGED, NOT SENT (owner C1). The card shows the
+// staged value and 未儲存; 儲存變更 sends them all, then the whole section is
+// re-read in the server's order (as many rows as were loaded) together with
+// the numbers. Re-reading only the changed rows left the 上限線 and the
+// dimming where the old order had them. 編輯 and 還原 still save at once and
+// re-read the section the same way; staged values outlive that re-read.
 
 import {
   useCallback,
@@ -67,10 +69,12 @@ import type { AvatarKind } from "../lib/themeBundle";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import { autosizeTextarea } from "../lib/autosize";
+import { registerUnsavedWork } from "../lib/unsavedInput";
 import { enterShouldSend } from "../lib/composerKeys";
 import {
   formatHash,
   navigateHash,
+  setNavigationGuard,
   useHashRoute,
   type HashRoute,
   type LoreSectionKind,
@@ -105,6 +109,9 @@ import "./settings.css";
 
 /** 捲到底一次載這麼多. A page shorter than this is the last one. */
 const PAGE = 30;
+
+/** The server's largest `limit` on GET /api/lore. */
+const MAX_LIST_LIMIT = 200;
 
 /** A section's bottom is "reached" within this many px of the scrollport's
  * bottom (the same margin ChatArea uses). */
@@ -225,15 +232,26 @@ function rowElement(root: HTMLElement | null, id: string): HTMLElement | null {
 /** How long the 適用範圍 notice stays. */
 const TOAST_MS = 5000;
 
-/** A changed card keeps its place until the section reloads, even when its
- * new state would sort it elsewhere or the filter no longer matches it: the
- * owner changes several cards in one pass and must not lose the spot they were
- * working at. */
-function placeChangedRows(
-  entries: LoreEntryView[],
-  fresh: Map<string, LoreEntryView>
-): LoreEntryView[] {
-  return entries.map((e) => fresh.get(e.id) ?? e);
+/** What a card will change to once 儲存變更 sends it. */
+interface StagedChange {
+  state?: LoreEntryState;
+  loreType?: LoreType;
+  scope?: { kind: LoreScopeKind; key: string; label: string };
+}
+
+function withStaged(entry: LoreEntryView, ch: StagedChange | undefined): LoreEntryView {
+  if (!ch) return entry;
+  return {
+    ...entry,
+    ...(ch.state ? { state: ch.state } : {}),
+    ...(ch.loreType ? { loreType: ch.loreType } : {}),
+    ...(ch.scope ? { scopeKind: ch.scope.kind, scopeKey: ch.scope.key } : {}),
+  };
+}
+
+/** The scope key the server gives an entry moved to `kind`. */
+function scopeKeyFor(entry: LoreEntryView, kind: LoreScopeKind): string {
+  return kind === "everyone" ? "" : kind === "manual" ? entry.taskTypeKey : entry.authorId;
 }
 
 /** Where the 上限線 falls among the rows on screen, or -1 when the first
@@ -401,6 +419,15 @@ function LoreView({
   const [data, setData] = useState<Record<string, SectionData>>({});
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // ── 暫存的變更 ─────────────────────────────────────────────────────────
+  const [staged, setStaged] = useState<Map<string, StagedChange>>(new Map());
+  const stagedRef = useRef(staged);
+  stagedRef.current = staged;
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [saveFailed, setSaveFailed] = useState<{ id: string; reason: string }[]>([]);
+  // A browser Back / tab click refused because 儲存變更 is running.
+  const [leaveBlocked, setLeaveBlocked] = useState(false);
 
   const defs = useMemo<SectionDef[]>(() => {
     if (!budgets) return [];
@@ -725,59 +752,64 @@ function LoreView({
     [manuals, resolveAuthor, t]
   );
 
-  // ── after a mutation: re-read the changed rows by id and the numbers, in
-  // place. Never page one again.
-  const refreshInPlace = useCallback(
-    async (changed: Map<string, string[]>, everyoneTouched: boolean) => {
-      const byKey = new Map(defsRef.current.map((d) => [d.key, d]));
-      const work: Promise<void>[] = [];
-      for (const key of openRef.current) {
-        const def = byKey.get(key);
-        if (!def) continue;
-        const ids = changed.get(key) ?? [];
-        if (ids.length === 0 && !everyoneTouched) continue;
-        const gen = genRef.current.get(key) ?? 0;
-        const capSeq = nextCapSeq(key);
-        work.push(
-          (async () => {
-            // The other filters are left off on purpose: a row the reader just
-            // retired must come back so its card can show it.
-            const page = await api.listLoreEntries({
-              ...scopeOpts(def),
-              ...(ids.length > 0 ? { entryIds: ids, limit: ids.length } : { limit: 1 }),
-              offset: 0,
-            });
-            const fresh = new Map(page.entries.map((e) => [e.id, e]));
-            const moved = ids.filter((id) => !fresh.has(id));
-            if (moved.length > 0) {
-              const elsewhere = await api.listLoreEntries({
-                entryIds: moved,
-                limit: moved.length,
-                offset: 0,
-              });
-              for (const e of elsewhere.entries) fresh.set(e.id, e);
-            }
-            if (genRef.current.get(key) !== gen) return;
-            patchSection(key, (p) => ({
-              ...p,
-              entries: placeChangedRows(p.entries, fresh),
-              cap: isLatestCap(key, capSeq) ? capOf(page) : p.cap,
-            }));
-          })().catch((e) => console.warn("LorePage: refresh failed", e))
-        );
+  // ── after a change: the whole section again, in the server's order, as many
+  // rows as were loaded, and the numbers. The rows stay on screen meanwhile.
+  const rereadSection = useCallback(
+    async (def: SectionDef) => {
+      const gen = bumpGen(def.key);
+      const capSeq = nextCapSeq(def.key);
+      flightRef.current.add(def.key);
+      const loaded = dataRef.current[def.key]?.entries.length ?? 0;
+      const want = Math.max(PAGE, Math.ceil(loaded / PAGE) * PAGE);
+      try {
+        const rows: LoreEntryView[] = [];
+        const seen = new Set<string>();
+        let offset = 0;
+        let last: LoreEntryPageView | null = null;
+        let exhausted = false;
+        while (offset < want) {
+          const limit = Math.min(MAX_LIST_LIMIT, want - offset);
+          const p = await api.listLoreEntries({ ...baseOptsRef.current, ...scopeOpts(def), limit, offset });
+          if (genRef.current.get(def.key) !== gen) return;
+          last = p;
+          offset += p.entries.length;
+          for (const e of p.entries) {
+            if (seen.has(e.id)) continue;
+            seen.add(e.id);
+            rows.push(e);
+          }
+          if (p.entries.length < limit) {
+            exhausted = true;
+            break;
+          }
+        }
+        flightRef.current.delete(def.key);
+        const fresh = last;
+        patchSection(def.key, (p) => ({
+          entries: rows,
+          cap: fresh && isLatestCap(def.key, capSeq) ? capOf(fresh) : p.cap,
+          loading: false,
+          fetchingMore: false,
+          error: false,
+          exhausted,
+          moreFailed: false,
+        }));
+      } catch (e) {
+        console.warn("LorePage: section re-read failed", e);
+        if (genRef.current.get(def.key) === gen) patchSection(def.key, (p) => ({ ...p, fetchingMore: false }));
+      } finally {
+        if (genRef.current.get(def.key) === gen) flightRef.current.delete(def.key);
       }
-      work.push(refreshBudgets());
-      await Promise.all(work);
     },
-    [patchSection, refreshBudgets]
+    [patchSection]
   );
 
-  const sectionOfEntry = useCallback((id: string): string | null => {
-    for (const [key, d] of Object.entries(dataRef.current)) {
-      if (d.entries.some((e) => e.id === id)) return key;
-    }
-    return null;
-  }, []);
+  const rereadAll = useCallback(async () => {
+    const def = sectionKey ? defsRef.current.find((d) => d.key === sectionKey) : undefined;
+    const work: Promise<void>[] = [refreshBudgets()];
+    if (def && openRef.current.has(def.key)) work.push(rereadSection(def));
+    await Promise.all(work);
+  }, [sectionKey, refreshBudgets, rereadSection]);
 
   const failText = useCallback(
     (e: unknown) =>
@@ -785,82 +817,191 @@ function LoreView({
     [t.lore.forbidden, t.lore.actionFailed]
   );
 
-  const runOne = useCallback(
-    async (id: string, fn: () => Promise<unknown>, scopeMoves = false) => {
-      setActionError(null);
-      const key = sectionOfEntry(id);
-      const entry = key ? dataRef.current[key]?.entries.find((e) => e.id === id) : undefined;
-      try {
-        await fn();
-      } catch (e) {
-        // A 403 is a reachable answer (置頂 is admin-only, the rest is
-        // author-or-admin); the server's own sentence says which rule refused.
-        setActionError(failText(e));
-        throw e;
-      }
-      const changed = new Map<string, string[]>();
-      if (key) changed.set(key, [id]);
-      await refreshInPlace(changed, scopeMoves || entry?.scopeKind === "everyone");
+  const findEntry = useCallback((id: string): LoreEntryView | undefined => {
+    for (const d of Object.values(dataRef.current)) {
+      const e = d.entries.find((x) => x.id === id);
+      if (e) return e;
+    }
+    return undefined;
+  }, []);
+
+  const stage = useCallback(
+    (id: string, patch: StagedChange) => {
+      const orig = findEntry(id);
+      if (!orig || savingRef.current) return;
+      setSaveFailed([]);
+      setStaged((prev) => {
+        const next = new Map(prev);
+        const ch: StagedChange = { ...(next.get(id) ?? {}), ...patch };
+        // Choosing the stored value again un-stages that field.
+        if (ch.state === orig.state) delete ch.state;
+        if (ch.loreType === orig.loreType) delete ch.loreType;
+        if (ch.scope?.kind === orig.scopeKind) delete ch.scope;
+        if (Object.keys(ch).length === 0) next.delete(id);
+        else next.set(id, ch);
+        return next;
+      });
     },
-    [failText, refreshInPlace, sectionOfEntry]
+    [findEntry]
   );
 
   const setEntryState = useCallback(
-    (id: string, next: LoreEntryState) =>
-      void runOne(id, () => api.setLoreEntryState(id, next)).catch(() => {}),
-    [runOne]
+    (id: string, state: LoreEntryState) => stage(id, { state }),
+    [stage]
   );
-  // The 適用範圍 notice. A changed card keeps its place on this section page even
-  // when its new scope belongs to another section, so the notice is what says
-  // the move landed and where the entry now lives.
-  const [toast, setToast] = useState<{ id: string; scopeLabel: string } | null>(null);
+  const setEntryLoreType = useCallback(
+    (id: string, loreType: LoreType) => stage(id, { loreType }),
+    [stage]
+  );
+  const setEntryScope = useCallback(
+    (id: string, kind: LoreScopeKind, label: string) => {
+      const orig = findEntry(id);
+      if (orig) stage(id, { scope: { kind, key: scopeKeyFor(orig, kind), label } });
+    },
+    [findEntry, stage]
+  );
+
+  // The 適用範圍 notice: an entry whose new scope is another section's leaves
+  // this page on the re-read, and the notice says where it went.
+  const [toast, setToast] = useState<{ id: string; scopeLabel: string }[]>([]);
   useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), TOAST_MS);
+    if (toast.length === 0) return;
+    const timer = window.setTimeout(() => setToast([]), TOAST_MS);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const setEntryScope = useCallback(
-    (id: string, kind: LoreScopeKind, label: string) =>
-      void runOne(id, () => api.setLoreEntryScope(id, kind), true)
-        .then(() => setToast({ id, scopeLabel: label }))
-        .catch(() => {}),
-    [runOne]
-  );
-  const setEntryLoreType = useCallback(
-    (id: string, loreType: LoreType) =>
-      void runOne(id, () => api.editLoreEntry(id, { loreType })).catch(() => {}),
-    [runOne]
-  );
+  // One entry at a time, type → scope → state; a failed field keeps its staged
+  // value with the server's reason, and the section is re-read once at the end.
+  async function saveStaged() {
+    savingRef.current = true;
+    setSaving(true);
+    setActionError(null);
+    setSaveFailed([]);
+    const failed: { id: string; reason: string }[] = [];
+    const sentOk = new Map<string, StagedChange>();
+    const moved: { id: string; scopeLabel: string }[] = [];
+    for (const [id, ch] of [...stagedRef.current]) {
+      const ok: StagedChange = {};
+      let reason = "";
+      let anyFailed = false;
+      const attempt = async (fn: () => Promise<unknown>, onOk: () => void) => {
+        try {
+          await fn();
+          onOk();
+        } catch (e) {
+          anyFailed = true;
+          if (reason === "") reason = failText(e);
+        }
+      };
+      const { loreType, scope, state } = ch;
+      if (loreType) await attempt(() => api.editLoreEntry(id, { loreType }), () => (ok.loreType = loreType));
+      if (scope) {
+        await attempt(
+          () => api.setLoreEntryScope(id, scope.kind),
+          () => {
+            ok.scope = scope;
+            moved.push({ id, scopeLabel: scope.label });
+          }
+        );
+      }
+      if (state) await attempt(() => api.setLoreEntryState(id, state), () => (ok.state = state));
+      if (Object.keys(ok).length > 0) sentOk.set(id, ok);
+      if (anyFailed) failed.push({ id, reason });
+    }
+    await rereadAll();
+    // Clear only what went through with the value that was sent; a change
+    // staged on the same card meanwhile stays.
+    setStaged((prev) => {
+      const next = new Map(prev);
+      for (const [id, ok] of sentOk) {
+        const cur = next.get(id);
+        if (!cur) continue;
+        const left: StagedChange = { ...cur };
+        if (ok.loreType !== undefined && left.loreType === ok.loreType) delete left.loreType;
+        if (ok.scope !== undefined && left.scope?.kind === ok.scope.kind) delete left.scope;
+        if (ok.state !== undefined && left.state === ok.state) delete left.state;
+        if (Object.keys(left).length === 0) next.delete(id);
+        else next.set(id, left);
+      }
+      return next;
+    });
+    savingRef.current = false;
+    setSaving(false);
+    setLeaveBlocked(false);
+    setSaveFailed(failed);
+    if (moved.length > 0) setToast(moved);
+  }
+
+  function discardStaged() {
+    setStaged(new Map());
+    setSaveFailed([]);
+  }
+
+  const revertStaged = useCallback((id: string) => {
+    if (savingRef.current) return;
+    setStaged((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
+    setSaveFailed((prev) => (prev.some((f) => f.id === id) ? prev.filter((f) => f.id !== id) : prev));
+  }, []);
+
+  const hasStaged = staged.size > 0;
+  let stagedFields = 0;
+  for (const ch of staged.values()) stagedFields += Object.keys(ch).length;
+  const leaveText = t.lore.stagedLeaveConfirm;
+  // Leaving the section (another tab, the directory, Back) or closing the page
+  // with staged changes asks first; a highlight inside the same section is not
+  // leaving. While 儲存變更 runs, leaving is refused outright: its results
+  // would land on a page that no longer shows those cards.
+  const holdsWork = hasStaged || saving;
+  useEffect(() => {
+    if (!holdsWork) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    const releaseWork = registerUnsavedWork(() => true);
+    const release = setNavigationGuard((next: HashRoute) => {
+      const same =
+        next.page === "lore" &&
+        next.loreSection !== undefined &&
+        sectionKeyOf(next.loreSection.kind, next.loreSection.key) === sectionKey;
+      if (same) return true;
+      if (savingRef.current) {
+        setLeaveBlocked(true);
+        return false;
+      }
+      return window.confirm(leaveText);
+    });
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      releaseWork();
+      release();
+    };
+  }, [holdsWork, sectionKey, leaveText]);
+
   /** Rejects with the reason so the editor can keep the draft and say why. */
   const editEntry = useCallback(
     async (id: string, patch: LoreEntryEdit): Promise<void> => {
       setActionError(null);
-      const key = sectionOfEntry(id);
-      const entry = key ? dataRef.current[key]?.entries.find((e) => e.id === id) : undefined;
       try {
         await api.editLoreEntry(id, patch);
       } catch (e) {
         throw new Error(failText(e));
       }
-      const changed = new Map<string, string[]>();
-      if (key) changed.set(key, [id]);
-      await refreshInPlace(changed, entry?.scopeKind === "everyone");
+      await rereadAll();
     },
-    [failText, refreshInPlace, sectionOfEntry]
+    [failText, rereadAll]
   );
 
-  /** A restore already landed; this only re-reads the card where it stands. */
-  const restoredEntry = useCallback(
-    async (id: string) => {
-      const key = sectionOfEntry(id);
-      const entry = key ? dataRef.current[key]?.entries.find((e) => e.id === id) : undefined;
-      const changed = new Map<string, string[]>();
-      if (key) changed.set(key, [id]);
-      await refreshInPlace(changed, entry?.scopeKind === "everyone");
-    },
-    [refreshInPlace, sectionOfEntry]
-  );
+  /** A restore already landed; this only re-reads the section. */
+  const restoredEntry = useCallback(async () => {
+    await rereadAll();
+  }, [rereadAll]);
 
   // ── 目錄的編號搜尋 ──────────────────────────────────────────────────────
   const [dirSearch, setDirSearch] = useState("");
@@ -1024,7 +1165,21 @@ function LoreView({
             {t.lore.sectionEmpty}
           </div>
         )}
-        {sd.entries.map((entry, pos) => (
+        {sd.entries.map((stored, pos) => {
+          const ch = staged.get(stored.id);
+          const entry = withStaged(stored, ch);
+          const arrow = t.lore.stagedDiffArrow;
+          const changes: string[] = [];
+          if (ch?.loreType) {
+            changes.push(`${t.lore.stagedDiffType}${loreTypeLabel(t, stored.loreType)}${arrow}${loreTypeLabel(t, ch.loreType)}`);
+          }
+          if (ch?.state) {
+            changes.push(`${t.lore.stagedDiffState}${stateLabelOf(t, stored.state)}${arrow}${stateLabelOf(t, ch.state)}`);
+          }
+          if (ch?.scope) {
+            changes.push(`${t.lore.stagedDiffScope}${resolveScope(stored).label}${arrow}${resolveScope(entry).label}`);
+          }
+          return (
           <div key={entry.id} className="lore-section__item">
             {cut >= 0 && pos === cut && (
               <div className="lore__cap-line" data-testid="lore-cap-line">
@@ -1048,8 +1203,11 @@ function LoreView({
                     canSetScope && entry.scopeOptions.length > 0 ? resolveScopeMenu(entry) : null
                   }
                   highlighted={entry.id === highlightId}
+                  changes={changes}
+                  chipsLocked={saving}
+                  onRevert={revertStaged}
                   entryCaps={entryCaps}
-                  recipient={messageRecipient(entry)}
+                  recipient={messageRecipient(stored)}
                   onOpenManual={openManual}
                   onSetState={setEntryState}
                   onSetScope={setEntryScope}
@@ -1058,7 +1216,8 @@ function LoreView({
                   onRestored={restoredEntry}
                 />
           </div>
-        ))}
+          );
+        })}
         {!sd.exhausted && (
           <div
             className="lore__more"
@@ -1294,6 +1453,11 @@ function LoreView({
               </span>
             </div>
             {renderSummary(currentDef, sd)}
+            {stagedFields > 0 && (
+              <div className="lore-section__staged-note" role="status" data-testid="lore-staged-notice">
+                <strong>{msg.loreStagedNotice(stagedFields)}</strong> {t.lore.stagedNoticeStale}
+              </div>
+            )}
           </div>
 
           <FilterPanel
@@ -1360,15 +1524,64 @@ function LoreView({
         </>
       )}
 
-      {toast && (
+      {(toast.length > 0 || hasStaged || saving) && (
         <div className="lore__dock">
-          <div className="lore-toast" role="status" data-testid="lore-toast">
-            <span>{msg.loreScopeChanged(toast.id, toast.scopeLabel)}</span>
-          </div>
+          {toast.length > 0 && (
+            <div className="lore-toast" role="status" data-testid="lore-toast">
+              {toast.map((m) => (
+                <span key={m.id}>{msg.loreScopeChanged(m.id, m.scopeLabel)}</span>
+              ))}
+            </div>
+          )}
+          {(hasStaged || saving) && (
+            <div className="lore-batch" role="region" aria-label={t.lore.unsaved} data-testid="lore-staged-bar">
+              <span className="lore-batch__count" data-testid="lore-staged-count">
+                {msg.loreStagedChanges(stagedFields)}
+              </span>
+              <span className="lore-batch__actions">
+                <button
+                  type="button"
+                  className="lore-row__action"
+                  data-testid="lore-staged-discard"
+                  disabled={saving}
+                  onClick={discardStaged}
+                >
+                  {t.lore.stagedDiscard}
+                </button>
+                <button
+                  type="button"
+                  className="lore-row__editor-save"
+                  data-testid="lore-staged-save"
+                  disabled={saving || !hasStaged}
+                  onClick={() => void saveStaged()}
+                >
+                  {saving ? t.lore.stagedSaving : msg.loreStagedSave(staged.size)}
+                </button>
+              </span>
+              {saving && leaveBlocked && (
+                <span className="lore-batch__working" role="status" data-testid="lore-staged-leave-blocked">
+                  {t.lore.stagedLeaveBlocked}
+                </span>
+              )}
+              {saveFailed.length > 0 && (
+                <div
+                  className="lore-batch__result lore-batch__result--failed"
+                  role="status"
+                  data-testid="lore-staged-failed"
+                >
+                  {msg.loreStagedFailed(saveFailed)}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
+}
+
+function stateLabelOf(t: ReturnType<typeof useI18n>["t"], s: LoreEntryState): string {
+  return s === "pinned" ? t.lore.statePinned : s === "active" ? t.lore.stateActive : t.lore.stateRetired;
 }
 
 function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string {
@@ -1400,6 +1613,9 @@ function LoreRow({
   onSetScope,
   onSetLoreType,
   highlighted,
+  changes,
+  chipsLocked,
+  onRevert,
   entryCaps,
   onSave,
   onRestored,
@@ -1419,12 +1635,19 @@ function LoreRow({
   onSetScope: (id: string, kind: LoreScopeKind, label: string) => void;
   onSetLoreType: (id: string, loreType: LoreType) => void;
   highlighted: boolean;
+  /** One line per staged field (「狀態：生效中 → 已失效」); `entry` already
+   * shows the staged values. Empty ⇒ nothing staged on this card. */
+  changes: string[];
+  /** 儲存變更 is running: the chips and 還原 cannot change what is staged. */
+  chipsLocked: boolean;
+  onRevert: (id: string) => void;
   entryCaps: { title: number; body: number };
   /** Rejects with the reason to show; the draft stays. */
   onSave: (id: string, patch: LoreEntryEdit) => Promise<void>;
   onRestored: (id: string) => Promise<void>;
 }) {
   const { t, msg } = useI18n();
+  const unsaved = changes.length > 0;
   const [stateOpen, setStateOpen] = useState(false);
   const statusRef = useRef<HTMLDivElement>(null);
   const [typeOpen, setTypeOpen] = useState(false);
@@ -1460,12 +1683,7 @@ function LoreRow({
     return () => document.removeEventListener("mousedown", onDown);
   }, [typeOpen]);
 
-  const stateLabel =
-    entry.state === "pinned"
-      ? t.lore.statePinned
-      : entry.state === "active"
-        ? t.lore.stateActive
-        : t.lore.stateRetired;
+  const stateLabel = stateLabelOf(t, entry.state);
 
   function actionLabel(s: LoreEntryState): string {
     return s === "retired"
@@ -1501,7 +1719,7 @@ function LoreRow({
     <article
       className={`lore-row lore-row--${entry.state}${
         dimmed ? " lore-row--dimmed" : ""
-      }${highlighted ? " lore-row--highlight" : ""}`}
+      }${highlighted ? " lore-row--highlight" : ""}${unsaved ? " lore-row--unsaved" : ""}`}
       data-testid="lore-row"
       data-entry-id={entry.id}
       data-dimmed={dimmed ? "true" : "false"}
@@ -1553,6 +1771,7 @@ function LoreRow({
               aria-expanded={typeOpen}
               data-testid="lore-type"
               data-lore-type={entry.loreType}
+              disabled={chipsLocked}
               onClick={() => setTypeOpen((o) => !o)}
             >
               {loreTypeLabel(t, entry.loreType)}
@@ -1598,6 +1817,7 @@ function LoreRow({
               aria-haspopup="menu"
               aria-expanded={stateOpen}
               data-testid="lore-state"
+              disabled={chipsLocked}
               onClick={() => setStateOpen((o) => !o)}
             >
               {stateLabel}
@@ -1649,6 +1869,7 @@ function LoreRow({
                 aria-label={`${t.lore.scopeMenuLabel}：${scope.label}`}
                 aria-haspopup="menu"
                 aria-expanded={scopeOpen}
+                disabled={chipsLocked}
                 onClick={() => setScopeOpen((o) => !o)}
               >
                 <span className="lore-badge__text">{scope.label}</span>
@@ -1728,6 +1949,22 @@ function LoreRow({
               <span className="lore-badge__text">{scope.label}</span>
             </span>
           )}
+          {unsaved && (
+            <span className="lore-row__unsaved">
+              <span className="lore-badge lore-badge--unsaved" data-testid="lore-unsaved">
+                {t.lore.unsaved}
+              </span>
+              <button
+                type="button"
+                className="lore-row__revert"
+                data-testid="lore-revert"
+                disabled={chipsLocked}
+                onClick={() => onRevert(entry.id)}
+              >
+                {t.lore.stagedRevert}
+              </button>
+            </span>
+          )}
         </div>
 
         <div className="lore-row__actions">
@@ -1743,6 +1980,16 @@ function LoreRow({
           </button>
         </div>
       </div>
+
+      {unsaved && (
+        <div className="lore-row__changes" data-testid="lore-changes">
+          {changes.map((line) => (
+            <div key={line} data-testid="lore-change">
+              {line}
+            </div>
+          ))}
+        </div>
+      )}
 
       {editing ? (
         <LoreEntryEditor

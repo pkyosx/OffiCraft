@@ -1,4 +1,4 @@
-/* 傳承 page: target sections, the 傳承 row, the inline editor, the 適用範圍 notice.
+/* 傳承 page: target sections, the 傳承 row, the inline editor, the 適用範圍 notice, the unsaved-changes bar.
  *
  * 🔴 THESE ARE COPIES OF tasks.css RULES, NOT A SHARED SHEET, AND THAT IS
  * DELIBERATE. The 傳承 row wears the 任務卡's design language — same badge pill,
@@ -331,6 +331,15 @@ button.lore-dir-card__name--link:hover {
   color: var(--color-danger);
   overflow-wrap: anywhere;
 }
+.lore-section__staged-note {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-warn-border);
+  background: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
 
 /* ── the 適用範圍 notice, pinned to the bottom of the scrollport ── */
 .lore__dock {
@@ -359,6 +368,45 @@ button.lore-dir-card__name--link:hover {
   background: var(--color-card);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
 }
+/* 未儲存的變更: 捨棄 / 儲存變更, docked under the toast. */
+.lore-batch {
+  align-self: stretch;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: var(--color-card);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+}
+.lore-batch__count {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.lore-batch__actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.lore-batch__working {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.lore-batch__result {
+  flex: 1 1 100%;
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.lore-batch__result--failed {
+  color: var(--color-danger);
+}
+
 /* ── one 傳承 row ── */
 .lore-row {
   display: flex;
@@ -612,6 +660,41 @@ button.lore-dir-card__name--link:hover {
 }
 .lore-badge--lore-type::before {
   content: none;
+}
+.lore-badge--unsaved {
+  color: var(--color-warn-fg);
+  border-color: color-mix(in srgb, var(--color-warn-border) 70%, transparent);
+}
+.lore-row__unsaved {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+button.lore-row__revert {
+  margin: 0;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button.lore-row__revert:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.lore-row__changes {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.lore-row--unsaved {
+  border-color: color-mix(in srgb, var(--color-warn-border) 70%, transparent);
 }
 .lore-row--highlight {
   border-color: var(--color-accent);

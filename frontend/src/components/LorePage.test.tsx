@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
+import { __resetHashRouteForTests } from "../lib/hashRoute";
 import { LorePage } from "./LorePage";
 import { __resetMock, mockApi } from "../api/mock";
 import { api } from "../api";
@@ -138,6 +139,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __resetHashRouteForTests();
   vi.restoreAllMocks();
 });
 
@@ -918,16 +920,6 @@ describe("LorePage — 內容是 markdown", () => {
 // thing that tells those two apart, so the spec asserts the element exists AND
 // that it says something.
 describe("LorePage — 可變動作面", () => {
-  /** Two rows, always. Acting on the SECOND one is what makes the id
-   * assertion real — a call hardwired to the first entry would pass against a
-   * one-row fixture. */
-  function twoRows(secondState: LoreEntryView["state"] = "active") {
-    return page([
-      mkEntry({ id: "L-1", state: "active" }),
-      mkEntry({ id: "L-2", state: secondState }),
-    ]);
-  }
-
   /** Open the 狀態 menu ON ONE ROW and click one of its items. */
   function chooseState(
     container: HTMLElement,
@@ -941,151 +933,299 @@ describe("LorePage — 可變動作面", () => {
     fireEvent.click(item);
   }
 
-  async function renderTwo(secondState: LoreEntryView["state"] = "active") {
-    const list = stubList(twoRows(secondState));
-    const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
-    return { container, list };
+  function chooseType(container: HTMLElement, entryId: string, next: LoreEntryView["loreType"]) {
+    const row = rowById(container, entryId);
+    fireEvent.click(row.querySelector('[data-testid="lore-type"]')!);
+    fireEvent.click(row.querySelector(`[data-testid="lore-type-${next}"]`)!);
   }
 
-  it("失效 asks the server for retired, on the entry that was clicked", async () => {
-    const set = vi
-      .spyOn(api, "setLoreEntryState")
-      .mockResolvedValue(undefined);
-    const { container } = await renderTwo("active");
+  const stateOf = (container: HTMLElement, id: string) =>
+    rowById(container, id).querySelector('[data-testid="lore-state"]')!.textContent;
+  const unsavedIds = (container: HTMLElement) =>
+    renderedIds(container).filter((id) => rowById(container, id).querySelector('[data-testid="lore-unsaved"]'));
+  const changeLines = (container: HTMLElement, id: string) =>
+    Array.from(rowById(container, id).querySelectorAll('[data-testid="lore-change"]')).map((el) => el.textContent);
+  const bar = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-testid="lore-staged-bar"]');
+  const clickSave = (container: HTMLElement) =>
+    fireEvent.click(container.querySelector('[data-testid="lore-staged-save"]')!);
 
-    chooseState(container, "L-2", "retired");
+  const MIRA_OPTS = { states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 };
 
-    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
-    expect(set).toHaveBeenCalledWith("L-2", "retired");
-  });
+  function spyWrites() {
+    return {
+      state: vi.spyOn(api, "setLoreEntryState").mockResolvedValue(undefined),
+      scope: vi.spyOn(api, "setLoreEntryScope").mockResolvedValue(undefined),
+      edit: vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined),
+    };
+  }
 
-  it("生效 asks the server for active, on the entry that was clicked", async () => {
-    const set = vi
-      .spyOn(api, "setLoreEntryState")
-      .mockResolvedValue(undefined);
-    const { container } = await renderTwo("retired");
-
-    chooseState(container, "L-2", "active");
-
-    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
-    expect(set).toHaveBeenCalledWith("L-2", "active");
-  });
-
-  it("置頂 asks the server for pinned on the entry that was clicked, and repaints that card where it stands without re-reading page one or moving the scroll", async () => {
-    const set = vi
-      .spyOn(api, "setLoreEntryState")
-      .mockResolvedValue(undefined);
-    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
-      o?.entryIds ? page([mkEntry({ id: "L-2", state: "pinned" })]) : twoRows("active"),
+  it("changing state, type and scope stages them on the card: new values, 未儲存, the bar's count, and nothing sent", async () => {
+    const w = spyWrites();
+    const list = stubList(
+      page([
+        mkEntry({ id: "L-1", state: "active" }),
+        mkEntry({ id: "L-2", state: "active", scopeOptions: ["agent", "everyone"] }),
+        mkEntry({ id: "L-3", state: "active" }),
+      ]),
     );
+    const { container } = await renderOpen({ canSetScope: true });
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
+    expect(bar(container)).toBeNull();
+
+    chooseState(container, "L-1", "retired");
+    chooseType(container, "L-2", "owner_decision");
+    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!);
+    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-scope-everyone"]')!);
+
+    expect(stateOf(container, "L-1")).toBe("已失效");
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe("Owner 決策");
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!.textContent).toBe("所有人");
+    expect(unsavedIds(container)).toEqual(["L-1", "L-2"]);
+    expect(rowById(container, "L-1").querySelector('[data-testid="lore-unsaved"]')!.textContent).toBe("未儲存");
+    expect(changeLines(container, "L-1")).toEqual(["狀態：生效中 → 已失效"]);
+    expect(changeLines(container, "L-2")).toEqual(["類型：其他 → Owner 決策", "適用範圍：Mira → 所有人"]);
+    expect(changeLines(container, "L-3")).toEqual([]);
+    expect(container.querySelector('[data-testid="lore-staged-notice"]')!.textContent).toBe(
+      "有 3 項變更還沒儲存。 上限線、筆數與字數是儲存前的狀態，儲存後才會重新計算並重新排列。",
+    );
+    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("3 項變更未儲存");
+    expect(
+      Array.from(bar(container)!.querySelectorAll("button")).map((b) => b.textContent),
+    ).toEqual(["全部捨棄", "儲存變更（2 筆）"]);
+    expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(w.state).not.toHaveBeenCalled();
+    expect(w.scope).not.toHaveBeenCalled();
+    expect(w.edit).not.toHaveBeenCalled();
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("choosing the stored value again takes the card off 未儲存 and the bar away", async () => {
+    stubList(page([mkEntry({ id: "L-1", state: "active" }), mkEntry({ id: "L-2", state: "active" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
-    const scroller = container.querySelector<HTMLElement>('[data-testid="lore-page"]')!;
-    scroller.scrollTop = 240;
 
     chooseState(container, "L-2", "pinned");
+    expect(unsavedIds(container)).toEqual(["L-2"]);
+    chooseState(container, "L-2", "active");
 
-    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
-    expect(set).toHaveBeenCalledWith("L-2", "pinned");
-    await waitFor(() =>
-      expect(rowById(container, "L-2").querySelector('[data-testid="lore-state"]')!.textContent).toBe(
-        zh.lore.statePinned,
-      ),
-    );
-    expect(renderedIds(container)).toEqual(["L-1", "L-2"]);
-    expect(list.mock.calls.map((c) => c[0])).toEqual([
-      { states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 },
-      { scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], entryIds: ["L-2"], limit: 1, offset: 0 },
-    ]);
-    expect(scroller.scrollTop).toBe(240);
+    expect(unsavedIds(container)).toEqual([]);
+    expect(changeLines(container, "L-2")).toEqual([]);
+    expect(stateOf(container, "L-2")).toBe("生效中");
+    expect(container.querySelector('[data-testid="lore-staged-notice"]')).toBeNull();
+    expect(bar(container)).toBeNull();
   });
 
-  it("失效 on a middle card, 所有人's in a member's section, keeps it on screen in its place, retired, although the default filter does not list 已失效", async () => {
-    vi.spyOn(api, "setLoreEntryState").mockResolvedValue(undefined);
-    const everyone = { scopeKind: "everyone" as const, scopeKey: "" };
-    const three = page([
-      mkEntry({ id: "L-1", state: "active" }),
-      mkEntry({ id: "L-2", state: "active", ...everyone }),
-      mkEntry({ id: "L-3", state: "active" }),
-    ]);
-    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
-      o?.entryIds ? page([mkEntry({ id: "L-2", state: "retired", ...everyone })]) : three,
+  it("還原 puts only that card back, every staged field on it at once, sends nothing and leaves the other cards staged", async () => {
+    const w = spyWrites();
+    const list = stubList(
+      page([mkEntry({ id: "L-1", state: "active" }), mkEntry({ id: "L-2", state: "active" }), mkEntry({ id: "L-3" })]),
     );
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
 
-    chooseState(container, "L-2", "retired");
+    chooseState(container, "L-1", "retired");
+    chooseState(container, "L-2", "pinned");
+    chooseType(container, "L-2", "owner_preference");
+    chooseType(container, "L-3", "instruction_conflict");
+    expect(changeLines(container, "L-2")).toEqual(["類型：其他 → Owner 偏好", "狀態：生效中 → 置頂"]);
+    fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-revert"]')!);
 
-    await waitFor(() =>
-      expect(rowById(container, "L-2").querySelector('[data-testid="lore-state"]')!.textContent).toBe(
-        zh.lore.stateRetired,
-      ),
-    );
-    expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]);
-    expect(rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')!.textContent).toBe("所有人");
-    expect(list.mock.calls.map((c) => c[0])).toEqual([
-      { states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 },
-      { scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], entryIds: ["L-2"], limit: 1, offset: 0 },
-    ]);
+    expect(stateOf(container, "L-2")).toBe("生效中");
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe("其他");
+    expect(changeLines(container, "L-2")).toEqual([]);
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-revert"]')).toBeNull();
+    expect(unsavedIds(container)).toEqual(["L-1", "L-3"]);
+    expect(stateOf(container, "L-1")).toBe("已失效");
+    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("2 項變更未儲存");
+    expect(container.querySelector('[data-testid="lore-staged-save"]')!.textContent).toBe("儲存變更（2 筆）");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(w.state).not.toHaveBeenCalled();
+    expect(w.edit).not.toHaveBeenCalled();
+    expect(list).toHaveBeenCalledTimes(1);
   });
 
-  // ── 403 必須讀起來像被拒絕 ────────────────────────────────────────────────
-  it("a refused 置頂 SAYS SO — the error line is on screen and carries words", async () => {
-    vi.spyOn(api, "setLoreEntryState").mockRejectedValue(
-      new ApiError("http 403 for POST /api/lore/L-2/state", 403, "forbidden", ""),
+  it("儲存變更 sends every staged change once, then re-reads the whole section in the server's order with the line where the server puts it", async () => {
+    const w = spyWrites();
+    const before = page(
+      [
+        mkEntry({ id: "P-1", state: "pinned" }),
+        mkEntry({ id: "A-1" }),
+        mkEntry({ id: "A-2" }),
+        mkEntry({ id: "A-3" }),
+      ],
+      { capChars: 1000, firstDroppedId: "A-3" },
     );
-    const { container } = await renderTwo("active");
+    const after = page(
+      [
+        mkEntry({ id: "A-1", loreType: "owner_decision" }),
+        mkEntry({ id: "A-2" }),
+        mkEntry({ id: "P-1", state: "active" }),
+        mkEntry({ id: "A-3" }),
+      ],
+      { capChars: 1000, firstDroppedId: "P-1" },
+    );
+    let saved = false;
+    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async () => (saved ? after : before));
+    const budgets = vi
+      .spyOn(api, "listLoreBudgets")
+      .mockResolvedValueOnce([{ ...MIRA_TARGET, entryCount: 4, droppedCount: 1 }])
+      .mockResolvedValue([{ ...MIRA_TARGET, entryCount: 4, droppedCount: 2 }]);
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toEqual(["P-1", "A-1", "A-2", "A-3"]));
+    expect(sectionHead(container)).toContain("1 筆讀不到");
+
+    chooseState(container, "P-1", "active");
+    chooseType(container, "A-1", "owner_decision");
+    expect(renderedIds(container)).toEqual(["P-1", "A-1", "A-2", "A-3"]);
+    saved = true;
+    clickSave(container);
+
+    await waitFor(() => expect(renderedIds(container)).toEqual(["A-1", "A-2", "P-1", "A-3"]));
+    expect(w.state.mock.calls).toEqual([["P-1", "active"]]);
+    expect(w.edit.mock.calls).toEqual([["A-1", { loreType: "owner_decision" }]]);
+    expect(w.scope).not.toHaveBeenCalled();
+    expect(list.mock.calls.map((c) => c[0])).toEqual([MIRA_OPTS, MIRA_OPTS]);
+    const line = container.querySelector('[data-testid="lore-cap-line"]')!;
+    expect(line.closest(".lore-section__item")!.querySelector('[data-testid="lore-row"]')!.getAttribute("data-entry-id")).toBe("P-1");
     expect(
-      container.querySelector('[data-testid="lore-action-error"]'),
-    ).toBeNull();
+      renderedIds(container).map((id) => [id, rowById(container, id).getAttribute("data-dimmed")]),
+    ).toEqual([
+      ["A-1", "false"],
+      ["A-2", "false"],
+      ["P-1", "true"],
+      ["A-3", "true"],
+    ]);
+    expect(unsavedIds(container)).toEqual([]);
+    expect(bar(container)).toBeNull();
+    expect(budgets).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(sectionHead(container)).toContain("2 筆讀不到"));
+  });
 
+  it("全部捨棄 puts every card back to its stored value and sends nothing", async () => {
+    const w = spyWrites();
+    const list = stubList(page([mkEntry({ id: "L-1", state: "active" }), mkEntry({ id: "L-2", state: "pinned" })]));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+
+    chooseState(container, "L-1", "retired");
+    chooseType(container, "L-2", "instruction_conflict");
+    fireEvent.click(container.querySelector('[data-testid="lore-staged-discard"]')!);
+
+    expect(stateOf(container, "L-1")).toBe("生效中");
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe("其他");
+    expect(unsavedIds(container)).toEqual([]);
+    expect(bar(container)).toBeNull();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(w.state).not.toHaveBeenCalled();
+    expect(w.edit).not.toHaveBeenCalled();
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("a refused change stays staged and the bar says which and why; what went through is saved", async () => {
+    vi.spyOn(api, "setLoreEntryState").mockImplementation(async (id) => {
+      if (id === "L-2") {
+        throw new ApiError("http 403 for POST /api/lore/L-2/state", 403, "forbidden", "");
+      }
+    });
+    let saved = false;
+    vi.spyOn(api, "listLoreEntries").mockImplementation(async () =>
+      page([mkEntry({ id: "L-1", state: saved ? "retired" : "active" }), mkEntry({ id: "L-2", state: "active" })]),
+    );
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
+
+    chooseState(container, "L-1", "retired");
     chooseState(container, "L-2", "pinned");
+    saved = true;
+    clickSave(container);
 
-    const line = await waitFor(() => {
-      const el = container.querySelector<HTMLElement>(
-        '[data-testid="lore-action-error"]',
-      );
-      if (!el) throw new Error("no action error line");
+    const failed = await waitFor(() => {
+      const el = container.querySelector<HTMLElement>('[data-testid="lore-staged-failed"]');
+      if (!el) throw new Error("no failure line");
       return el;
     });
-    // Presence alone is not the property: an empty red div reads as a glitch,
-    // not as a refusal. The envelope carried no sentence here, so this is our
-    // own copy — and it must be the REFUSAL copy, not the generic failure one.
-    expect(line.textContent).toBe(zh.lore.forbidden);
-    expect(line.textContent).not.toBe(zh.lore.actionFailed);
+    expect(failed.textContent).toBe(`沒有成功：L-2（${zh.lore.forbidden}）`);
+    expect(unsavedIds(container)).toEqual(["L-2"]);
+    expect(stateOf(container, "L-2")).toBe("置頂");
+    expect(stateOf(container, "L-1")).toBe("已失效");
+    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("1 項變更未儲存");
   });
 
-  // ── 成功之後清單真的重讀 ──────────────────────────────────────────────────
-  // ── 失敗之後畫面沒有假裝成功 ──────────────────────────────────────────────
-  it("a refused action leaves the badge on its OLD value and re-asks nothing", async () => {
-    // 🔴 READ, NOT ASSUMED: `runAction` writes NOTHING to `entries` before the
-    // await — the badge is rendered from the server's `entry.state`, and the
-    // only writer is the list load. So there is no optimistic value to roll
-    // back, and the property to pin is that none appears. `setReloadNonce` is
-    // inside the try AFTER the await, so a refusal must not re-read either —
-    // a re-read on failure would repaint the row and read as "it went through,
-    // then came back".
-    vi.spyOn(api, "setLoreEntryState").mockRejectedValue(
-      new ApiError("http 403 for POST /api/lore/L-2/state", 403, "forbidden", ""),
-    );
-    const { container, list } = await renderTwo("active");
-    const badge = () =>
-      rowById(container, "L-2").querySelector('[data-testid="lore-state"]')!
-        .textContent;
-    expect(badge()).toBe(zh.lore.stateActive);
+  it("while 儲存變更 runs, the chips and both buttons are locked", async () => {
+    const sent = held<void>();
+    vi.spyOn(api, "setLoreEntryState").mockReturnValue(sent.promise);
+    stubList(page([mkEntry({ id: "L-1", state: "active" })]));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
 
-    chooseState(container, "L-2", "pinned");
+    chooseState(container, "L-1", "pinned");
+    clickSave(container);
 
+    const row = rowById(container, "L-1");
     await waitFor(() =>
-      expect(
-        container.querySelector('[data-testid="lore-action-error"]'),
-      ).not.toBeNull(),
+      expect(container.querySelector('[data-testid="lore-staged-save"]')!.textContent).toBe("儲存中…"),
     );
-    // Not 置頂. Not a row that moved into the 置頂 group.
-    expect(badge()).toBe(zh.lore.stateActive);
-    expect(renderedIds(container)).toEqual(["L-1", "L-2"]);
-    expect(list).toHaveBeenCalledTimes(1);
+    expect(
+      ["lore-state", "lore-type", "lore-revert", "lore-staged-save", "lore-staged-discard"].map(
+        (id) => (container.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement).disabled,
+      ),
+    ).toEqual([true, true, true, true, true]);
+    expect(row.querySelector<HTMLButtonElement>('[data-testid="lore-edit"]')!.disabled).toBe(false);
+    sent.resolve();
+    await waitFor(() => expect(bar(container)).toBeNull());
+  });
+
+  it("with staged changes, leaving the section asks first: staying keeps them, leaving goes", async () => {
+    stubList(page([mkEntry({ id: "L-1", state: "active" })]));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const ask = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+    expect(ask).toHaveBeenCalledTimes(0);
+    await waitFor(() => expect(window.location.hash).toBe("#lore"));
+
+    openSection(container, "agent:mira");
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    chooseState(container, "L-1", "retired");
+
+    const unload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+    expect(ask.mock.calls).toEqual([[zh.lore.stagedLeaveConfirm]]);
+    expect(window.location.hash).toBe("#lore/agent/mira");
+    expect(unsavedIds(container)).toEqual(["L-1"]);
+
+    ask.mockReturnValue(true);
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+    await waitFor(() => expect(window.location.hash).toBe("#lore"));
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(1));
+  });
+
+  it("while 儲存變更 runs, leaving is refused without asking and the bar says so", async () => {
+    const sent = held<void>();
+    vi.spyOn(api, "setLoreEntryState").mockReturnValue(sent.promise);
+    stubList(page([mkEntry({ id: "L-1", state: "active" })]));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const ask = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    chooseState(container, "L-1", "retired");
+    clickSave(container);
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("#lore/agent/mira");
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="lore-staged-leave-blocked"]')?.textContent).toBe(
+        "儲存中，完成後才能離開",
+      ),
+    );
+    sent.resolve();
+    await waitFor(() => expect(bar(container)).toBeNull());
   });
 });
 
@@ -1236,42 +1376,39 @@ describe("LorePage — 適用範圍選單", () => {
     ]);
   });
 
-  it("picking another scope sends it for that entry, closes the menu and updates that card in place without re-asking page one", async () => {
+  it("picking another scope stages it on that card; 儲存變更 sends it, re-reads the section and says where the entry went", async () => {
     const set = vi.spyOn(api, "setLoreEntryScope").mockResolvedValue(undefined);
     const { container, list } = await renderRows([taskBound, staffNoTask]);
-    list.mockImplementation(async (o) =>
-      o?.entryIds
-        ? page([{ ...staffNoTask, scopeKind: "everyone", scopeKey: "" }])
-        : page([taskBound, staffNoTask]),
+    let saved = false;
+    list.mockImplementation(async () =>
+      saved ? page([taskBound, { ...staffNoTask, scopeKind: "everyone", scopeKey: "" }]) : page([taskBound, staffNoTask]),
     );
 
     const menu = openScopeMenu(container, "L-2");
+    const everyoneLabel = readOptions(menu).find((o) => o[0] === "lore-scope-everyone")![1];
     fireEvent.click(menu.querySelector('[data-testid="lore-scope-everyone"]')!);
 
-    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
-    await waitFor(() =>
-      expect(
-        readOptions(openScopeMenu(container, "L-2")).find((o) => o[3] === "true")?.[0],
-      ).toBe("lore-scope-everyone"),
-    );
+    expect(container.querySelector('[data-testid="lore-scope-options"]')).toBeNull();
+    expect(set).not.toHaveBeenCalled();
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-unsaved"]')).not.toBeNull();
+    expect(readOptions(openScopeMenu(container, "L-2")).find((o) => o[3] === "true")?.[0]).toBe("lore-scope-everyone");
     fireEvent.mouseDown(document.body);
+
+    saved = true;
+    fireEvent.click(container.querySelector('[data-testid="lore-staged-save"]')!);
+
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-staged-bar"]')).toBeNull());
     expect(set.mock.calls).toEqual([["L-2", "everyone"]]);
-    // The card shows no scope, so the notice is what says the change landed.
-    const toast = container.querySelector('[data-testid="lore-toast"]')!;
-    const everyoneLabel = readOptions(openScopeMenu(container, "L-2")).find((o) => o[0] === "lore-scope-everyone")![1];
-    fireEvent.mouseDown(document.body);
-    expect(toast.textContent).toBe(`L-2 的適用範圍改成「${everyoneLabel}」`);
+    expect(container.querySelector('[data-testid="lore-toast"]')!.textContent).toBe(`L-2 的適用範圍改成「${everyoneLabel}」`);
     expect(list.mock.calls).toEqual([
       [{ states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 }],
-      [{ scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], entryIds: ["L-2"], limit: 1, offset: 0 }],
+      [{ states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 }],
     ]);
-    expect(renderedIds(container)).toEqual(["L-1", "L-2"]);
-    expect(
-      container.querySelector('[data-testid="lore-scope-options"]'),
-    ).toBeNull();
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-unsaved"]')).toBeNull();
+    expect(readOptions(openScopeMenu(container, "L-2")).find((o) => o[3] === "true")?.[0]).toBe("lore-scope-everyone");
   });
 
-  it("picking the current scope closes the menu and sends nothing", async () => {
+  it("picking the current scope closes the menu and stages nothing", async () => {
     const set = vi.spyOn(api, "setLoreEntryScope").mockResolvedValue(undefined);
     const { container } = await renderRows([staffNoTask]);
 
@@ -1281,10 +1418,11 @@ describe("LorePage — 適用範圍選單", () => {
     expect(
       container.querySelector('[data-testid="lore-scope-options"]'),
     ).toBeNull();
+    expect(container.querySelector('[data-testid="lore-staged-bar"]')).toBeNull();
     expect(set).not.toHaveBeenCalled();
   });
 
-  it("a refused switch shows the server's reason and does not reload the list", async () => {
+  it("a refused switch keeps the scope staged and shows the server's reason on the bar", async () => {
     vi.spyOn(api, "setLoreEntryScope").mockRejectedValue(
       new ApiError(
         "http 400 for POST /api/lore/L-2/scope",
@@ -1293,24 +1431,25 @@ describe("LorePage — 適用範圍選單", () => {
         "lore entry L-2 has no task type to key a manual scope to",
       ),
     );
-    const { container, list } = await renderRows([staffNoTask]);
-    expect(container.querySelector('[data-testid="lore-action-error"]')).toBeNull();
+    const { container } = await renderRows([staffNoTask]);
 
     fireEvent.click(
       openScopeMenu(container, "L-2").querySelector(
         '[data-testid="lore-scope-everyone"]',
       )!,
     );
+    fireEvent.click(container.querySelector('[data-testid="lore-staged-save"]')!);
 
     await waitFor(() =>
-      expect(
-        container.querySelector('[data-testid="lore-action-error"]')?.textContent,
-      ).toBe("lore entry L-2 has no task type to key a manual scope to"),
+      expect(container.querySelector('[data-testid="lore-staged-failed"]')?.textContent).toBe(
+        "沒有成功：L-2（lore entry L-2 has no task type to key a manual scope to）",
+      ),
     );
-    expect(list).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-testid="lore-toast"]')).toBeNull();
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-unsaved"]')).not.toBeNull();
     expect(
       readOptions(openScopeMenu(container, "L-2")).find((o) => o[3] === "true")?.[0],
-    ).toBe("lore-scope-agent");
+    ).toBe("lore-scope-everyone");
   });
 
   it("a mousedown outside the badge closes the menu; one inside keeps it open", async () => {
@@ -2123,22 +2262,31 @@ describe("LorePage — 就地編輯", () => {
   ];
   const cap = { capChars: 1000, firstDroppedId: "L-3" };
 
-  it("saving updates that card where it stands, keeps the others in place and re-reads only that entry", async () => {
+  it("saving sends at once, re-reads the whole section with its numbers, and a change staged on another card stays staged", async () => {
     const edit = vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
-    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
-      o?.entryIds
-        ? { ...page([mkEntry({ id: "L-2", title: "AAAA", body: "BB" })], cap), usedChars: 976, firstDroppedChars: 0, firstDroppedId: "" }
+    const state = vi.spyOn(api, "setLoreEntryState").mockResolvedValue(undefined);
+    let edited = false;
+    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async () =>
+      edited
+        ? {
+            ...page([rows()[0], mkEntry({ id: "L-2", title: "AAAA", body: "BB" }), rows()[2]], cap),
+            usedChars: 976,
+            firstDroppedChars: 0,
+            firstDroppedId: "",
+          }
         : { ...page(rows(), cap), usedChars: 990, firstDroppedChars: 20 },
     );
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]));
     expect(container.querySelector('[data-testid="lore-cap-line"]')).not.toBeNull();
+    fireEvent.click(rowById(container, "L-1").querySelector('[data-testid="lore-state"]')!);
+    fireEvent.click(rowById(container, "L-1").querySelector('[data-testid="lore-state-retired"]')!);
 
     fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-edit"]')!);
     const editor = rowById(container, "L-2").querySelector<HTMLElement>('[data-testid="lore-editor"]')!;
     expect(editor.querySelector<HTMLInputElement>('[data-testid="lore-edit-title"]')!.value).toBe("AAAA");
     fireEvent.change(editor.querySelector('[data-testid="lore-edit-body"]')!, { target: { value: "BB" } });
-
+    edited = true;
     fireEvent.click(editor.querySelector('[data-testid="lore-edit-save"]')!);
 
     await waitFor(() =>
@@ -2149,9 +2297,13 @@ describe("LorePage — 就地編輯", () => {
     expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]);
     expect(list.mock.calls.map((c) => c[0])).toEqual([
       { states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 },
-      { scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], entryIds: ["L-2"], limit: 1, offset: 0 },
+      { states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 },
     ]);
     await waitFor(() => expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull());
+    expect(state).not.toHaveBeenCalled();
+    expect(rowById(container, "L-1").querySelector('[data-testid="lore-state"]')!.textContent).toBe("已失效");
+    expect(rowById(container, "L-1").querySelector('[data-testid="lore-unsaved"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("1 項變更未儲存");
   });
 
   it("edits title and body only: no type control, no character counters, no effect sentence", async () => {
@@ -2259,11 +2411,12 @@ describe("LorePage — 類型選單", () => {
     expect(row.querySelector('[data-testid="lore-type-options"]')).toBeNull();
   });
 
-  it("choosing a type sends only loreType and re-reads that card where it stands", async () => {
+  it("choosing a type stages it on that card; 儲存變更 sends only loreType", async () => {
     const edit = vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
-    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
-      o?.entryIds
-        ? page([mkEntry({ id: "L-2", loreType: "owner_decision", effectiveTs: 2 })])
+    let saved = false;
+    vi.spyOn(api, "listLoreEntries").mockImplementation(async () =>
+      saved
+        ? page([rows()[0], mkEntry({ id: "L-2", loreType: "owner_decision", effectiveTs: 2 }), rows()[2]])
         : page(rows()),
     );
     const { container } = await renderOpen();
@@ -2273,21 +2426,19 @@ describe("LorePage — 類型選單", () => {
     fireEvent.click(before.querySelector('[data-testid="lore-type"]')!);
     fireEvent.click(before.querySelector('[data-testid="lore-type-owner_decision"]')!);
 
-    await waitFor(() =>
-      expect(rowById(container, "L-2").querySelector('[data-testid="lore-type"]')!.textContent).toBe(
-        "Owner 決策",
-      ),
-    );
+    expect(before.querySelector('[data-testid="lore-type"]')!.textContent).toBe("Owner 決策");
+    expect(before.querySelector('[data-testid="lore-type-options"]')).toBeNull();
+    expect(edit).not.toHaveBeenCalled();
+
+    saved = true;
+    fireEvent.click(container.querySelector('[data-testid="lore-staged-save"]')!);
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-staged-bar"]')).toBeNull());
     expect(edit.mock.calls).toEqual([["L-2", { loreType: "owner_decision" }]]);
     expect(rowById(container, "L-2")).toBe(before);
-    expect(renderedIds(container)).toEqual(["L-1", "L-2", "L-3"]);
-    expect(list.mock.calls[1][0]).toEqual({
-      scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], entryIds: ["L-2"], limit: 1, offset: 0,
-    });
-    expect(before.querySelector('[data-testid="lore-type-options"]')).toBeNull();
+    expect(before.querySelector('[data-testid="lore-type"]')!.textContent).toBe("Owner 決策");
   });
 
-  it("choosing the current type sends nothing", async () => {
+  it("choosing the current type stages nothing", async () => {
     const edit = vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
     stubList(page(rows()));
     const { container } = await renderOpen();
@@ -2296,10 +2447,11 @@ describe("LorePage — 類型選單", () => {
     fireEvent.click(row.querySelector('[data-testid="lore-type"]')!);
     fireEvent.click(row.querySelector('[data-testid="lore-type-other"]')!);
     expect(row.querySelector('[data-testid="lore-type-options"]')).toBeNull();
+    expect(container.querySelector('[data-testid="lore-staged-bar"]')).toBeNull();
     expect(edit).not.toHaveBeenCalled();
   });
 
-  it("a refused type change says so on the action error line", async () => {
+  it("a refused type change stays staged and the bar says so", async () => {
     vi.spyOn(api, "editLoreEntry").mockRejectedValue(
       new ApiError("http 403 for PATCH /api/lore/L-2", 403, "forbidden", ""),
     );
@@ -2309,12 +2461,14 @@ describe("LorePage — 類型選單", () => {
     const row = rowById(container, "L-2");
     fireEvent.click(row.querySelector('[data-testid="lore-type"]')!);
     fireEvent.click(row.querySelector('[data-testid="lore-type-instruction_conflict"]')!);
+    fireEvent.click(container.querySelector('[data-testid="lore-staged-save"]')!);
     await waitFor(() =>
-      expect(container.querySelector('[data-testid="lore-action-error"]')?.textContent).toBe(
-        zh.lore.forbidden,
+      expect(container.querySelector('[data-testid="lore-staged-failed"]')?.textContent).toBe(
+        `沒有成功：L-2（${zh.lore.forbidden}）`,
       ),
     );
-    expect(row.querySelector('[data-testid="lore-type"]')!.textContent).toBe("其他");
+    expect(row.querySelector('[data-testid="lore-type"]')!.textContent).toBe("指示衝突");
+    expect(row.querySelector('[data-testid="lore-unsaved"]')).not.toBeNull();
   });
 });
 
@@ -2407,7 +2561,7 @@ describe("LorePage — 版本紀錄", () => {
     return { ...r, list };
   }
 
-  it("is reached from the editor, shows the old title and body, compares them with the card, and a restore leaves edit mode with them back on that card in place", async () => {
+  it("is reached from the editor, shows the old title and body, compares them with the card, and a restore leaves edit mode with them back on that card after the section is re-read", async () => {
     const { container, list } = await openMiraWithEditedL2();
     const titleOf = (id: string) =>
       rowById(container, id).querySelector(".lore-row__title")!.textContent;
@@ -2460,7 +2614,7 @@ describe("LorePage — 版本紀錄", () => {
     expect(renderedIds(container)).toEqual(["L-1", "L-7", "L-2"]);
     expect(list.mock.calls.map((c) => c[0])).toEqual([
       { states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 },
-      { scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], entryIds: ["L-2"], limit: 1, offset: 0 },
+      { states: ["pinned", "active"], scopeKinds: ["everyone", "agent"], scopeKeys: ["mira"], limit: 30, offset: 0 },
     ]);
   });
 
@@ -2539,15 +2693,18 @@ describe("LorePage — 晚到的回應", () => {
     expect(list).toHaveBeenCalledTimes(1);
   });
 
-  it("an older refresh answering last does not bring back its cap line or its header numbers", async () => {
+  it("an older re-read answering last does not bring back its rows, its cap line or its header numbers", async () => {
+    vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
     vi.spyOn(api, "setLoreEntryState").mockResolvedValue(undefined);
-    const firstRefresh = held<LoreEntryPageView>();
+    const firstReread = held<LoreEntryPageView>();
     const firstBudgets = held<LoreBudgetTargetView[]>();
     const rows = [mkEntry({ id: "L-1" }), mkEntry({ id: "L-2" })];
     const lineAtL2 = page(rows, { capChars: 1000, firstDroppedId: "L-2" });
-    vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) => {
-      if (o?.entryIds?.[0] === "L-1") return firstRefresh.promise;
-      if (o?.entryIds?.[0] === "L-2") return page([mkEntry({ id: "L-2", state: "retired" })], { capChars: 1000, firstDroppedId: "" });
+    let listCalls = 0;
+    vi.spyOn(api, "listLoreEntries").mockImplementation(async () => {
+      listCalls += 1;
+      if (listCalls === 2) return firstReread.promise;
+      if (listCalls === 3) return page([mkEntry({ id: "L-1", body: "改過" })], { capChars: 1000, firstDroppedId: "" });
       return lineAtL2;
     });
     let budgetCalls = 0;
@@ -2559,39 +2716,48 @@ describe("LorePage — 晚到的回應", () => {
     const { container } = await renderOpen();
     await waitFor(() => expect(container.querySelector('[data-testid="lore-cap-line"]')).not.toBeNull());
 
-    chooseStateOn(container, "L-1", "retired");
+    fireEvent.click(rowById(container, "L-1").querySelector('[data-testid="lore-edit"]')!);
+    fireEvent.change(rowById(container, "L-1").querySelector('[data-testid="lore-edit-body"]')!, { target: { value: "改過" } });
+    fireEvent.click(rowById(container, "L-1").querySelector('[data-testid="lore-edit-save"]')!);
     await waitFor(() => expect(budgetCalls).toBe(2));
     chooseStateOn(container, "L-2", "retired");
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull());
+    fireEvent.click(container.querySelector('[data-testid="lore-staged-save"]')!);
+    await waitFor(() => expect(renderedIds(container)).toEqual(["L-1"]));
     await waitFor(() => expect(sectionHead(container)).toContain("5 筆"));
+    expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull();
 
-    firstRefresh.resolve(lineAtL2);
+    firstReread.resolve(lineAtL2);
     firstBudgets.resolve([{ ...MIRA_TARGET, entryCount: 2 }]);
     await new Promise((r) => setTimeout(r, 20));
 
+    expect(renderedIds(container)).toEqual(["L-1"]);
     expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull();
     expect(sectionHead(container)).toContain("5 筆");
   });
 
-  it("a next page answering after a refresh adds its rows but keeps the refresh's cap", async () => {
+  it("a next page still in flight when the section is re-read is dropped: the re-read's rows and cap stand", async () => {
     vi.spyOn(api, "setLoreEntryState").mockResolvedValue(undefined);
     const first = Array.from({ length: 30 }, (_, i) => mkEntry({ id: `L-${i + 1}` }));
     const nextPage = held<LoreEntryPageView>();
+    let saved = false;
     vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) => {
-      if (o?.entryIds) return page([mkEntry({ id: "L-1", state: "retired" })], { capChars: 1000, firstDroppedId: "" });
       if (o?.offset === 30) return nextPage.promise;
-      return page(first, { capChars: 1000, firstDroppedId: "L-2" });
+      return saved
+        ? page(first.slice(1), { capChars: 1000, firstDroppedId: "" })
+        : page(first, { capChars: 1000, firstDroppedId: "L-2" });
     });
     const { container } = await renderOpen();
     await waitFor(() => expect(container.querySelector('[data-testid="lore-cap-line"]')).not.toBeNull());
 
     fireEvent.scroll(container.querySelector('[data-testid="lore-page"]')!);
     chooseStateOn(container, "L-1", "retired");
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull());
+    saved = true;
+    fireEvent.click(container.querySelector('[data-testid="lore-staged-save"]')!);
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(29));
     nextPage.resolve(page([mkEntry({ id: "L-31" })], { capChars: 1000, firstDroppedId: "L-2" }));
+    await new Promise((r) => setTimeout(r, 20));
 
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(31));
+    expect(renderedIds(container)).toEqual(first.slice(1).map((e) => e.id));
     expect(container.querySelector('[data-testid="lore-cap-line"]')).toBeNull();
   });
 });
-

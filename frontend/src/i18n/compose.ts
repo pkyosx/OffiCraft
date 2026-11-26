@@ -97,6 +97,10 @@ export interface Messages {
   loreScopeChanged: (entryId: string, scope: string) => string;
   loreCapLine: (used: number, cap: number, firstDroppedId: string, need: number) => string;
   loreCapLineAway: (firstDroppedId: string) => string;
+  loreStagedChanges: (n: number) => string;
+  loreStagedNotice: (n: number) => string;
+  loreStagedSave: (entries: number) => string;
+  loreStagedFailed: (failed: { id: string; reason: string }[]) => string;
   // ── secrets ──
   secretCopyId: (secretId: string) => string;
   secretDeleteConfirmBody: (name: string) => string;
@@ -497,6 +501,17 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       t.lore.capLineNeedTail,
     loreCapLineAway: (firstDroppedId) =>
       `${t.lore.capLineAwayLead}${firstDroppedId}${t.lore.capLineAwayTail}`,
+    loreStagedChanges: (n) =>
+      `${num(n)}${n === 1 ? t.lore.stagedChangesTailOne : t.lore.stagedChangesTailMany}`,
+    loreStagedNotice: (n) =>
+      `${t.lore.stagedNoticeLead}${num(n)}${n === 1 ? t.lore.stagedNoticeTailOne : t.lore.stagedNoticeTailMany}`,
+    loreStagedSave: (entries) =>
+      `${t.lore.stagedSaveLead}${num(entries)}${entries === 1 ? t.lore.stagedSaveTailOne : t.lore.stagedSaveTailMany}`,
+    loreStagedFailed: (failed) =>
+      t.lore.stagedFailedLead +
+      failed
+        .map((f) => (f.reason ? `${f.id}${t.lore.stagedReasonOpen}${f.reason}${t.lore.stagedReasonClose}` : f.id))
+        .join(listSep),
     secretCopyId: (secretId) => `${t.secrets.copyIdLabel} ${secretId}`,
     secretDeleteConfirmBody: (name) =>
       `${t.secrets.deleteConfirmLead}${name}${t.secrets.deleteConfirmTail}`,

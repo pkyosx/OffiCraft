@@ -5,8 +5,8 @@
 // line stays inside the card, the message box's 📎, input and 送出 sit on one row
 // inside the card with room to type, the section head card's name, badges, bar and
 // legend stay inside it, the 適用範圍 menu opens inside the viewport, the inline
-// editor fits, and a state change leaves the scroll position and the card where
-// they were.
+// editor fits, the unsaved-changes bar, notice, 未儲存 + 還原 and change lines stay inside, and a
+// staged state change leaves the scroll position and the card where they were.
 //
 // Soft assertions on purpose: a page-level overflow failing first would
 // otherwise hide which per-badge check a mutant also broke.
@@ -520,7 +520,81 @@ for (const width of [390, 1440]) {
     assertNoHScroll(width, await pageAndLoreOver(page));
   });
 
-  test(`a state change leaves the scroll position and the card where they were @${width}px`, async ({ mount, page }) => {
+  test(`the unsaved-changes bar, the 還沒儲存 notice, 未儲存 + 還原 and the change lines stay inside @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false, MIRA, 600);
+    const rows = cmp.locator('[data-testid="lore-row"]');
+    for (const i of [0, 1]) {
+      const row = rows.nth(i);
+      await row.locator('[data-testid="lore-type"]').click();
+      await row.locator('[data-testid="lore-type-options"] .lore-row__menu-item:not(.lore-row__menu-item--active)').first().click();
+      await expect(row.locator('[data-testid="lore-unsaved"]')).toBeVisible();
+    }
+    const second = rows.nth(1);
+    await second.locator('[data-testid="lore-state"]').click();
+    await second.locator('[data-testid="lore-state-options"] .lore-row__menu-item:not(.lore-row__menu-item--active)').first().click();
+    await expect(second.locator('[data-testid="lore-change"]')).toHaveCount(2);
+    await expect(cmp.locator('[data-testid="lore-staged-count"]')).toHaveText("3 項變更未儲存");
+    await expect(cmp.locator('[data-testid="lore-staged-notice"]')).toBeVisible();
+    const g = await page.evaluate(() => {
+      const r = (el: Element) => {
+        const b = el.getBoundingClientRect();
+        return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+      };
+      const bar = document.querySelector('[data-testid="lore-staged-bar"]')!;
+      const heads = [...document.querySelectorAll('[data-testid="lore-row"]')]
+        .filter((row) => row.querySelector('[data-testid="lore-unsaved"]'))
+        .map((row) => {
+          const head = row.querySelector(".lore-row__head")!;
+          return {
+            row: r(row),
+            head: r(head),
+            badges: [...head.querySelectorAll(".lore-row__badges > *")].map((c) => r(c)),
+            unsaved: r(row.querySelector('[data-testid="lore-unsaved"]')!),
+            revert: r(row.querySelector('[data-testid="lore-revert"]')!),
+            changes: [...row.querySelectorAll('[data-testid="lore-change"]')].map((c) => ({
+              box: r(c),
+              wide: (c as HTMLElement).scrollWidth > (c as HTMLElement).clientWidth + 1,
+            })),
+          };
+        });
+      return {
+        bar: r(bar),
+        lore: r(document.querySelector(".lore")!),
+        notice: r(document.querySelector('[data-testid="lore-staged-notice"]')!),
+        sectionHead: r(document.querySelector('[data-testid="lore-section-head"]')!),
+        children: [...bar.querySelectorAll("button, .lore-batch__count")].map((c) => ({
+          text: (c.textContent ?? "").trim(),
+          box: r(c),
+        })),
+        heads,
+        vw: document.documentElement.clientWidth,
+        vh: window.innerHeight,
+      };
+    });
+    console.log(`[lore ${width}] staged bar`, JSON.stringify({ bar: g.bar, lore: g.lore, vw: g.vw, vh: g.vh }));
+    expect.soft(g.bar.bottom, `[${width}px] bar bottom`).toBeLessThanOrEqual(g.vh + 1);
+    expect.soft(g.bar.top, `[${width}px] bar top`).toBeGreaterThanOrEqual(0);
+    expect.soft(g.bar.left, `[${width}px] bar left`).toBeGreaterThanOrEqual(g.lore.left - 1);
+    expect.soft(g.bar.right, `[${width}px] bar right`).toBeLessThanOrEqual(Math.min(g.lore.right, g.vw) + 1);
+    expect.soft(g.children.map((c) => c.text), `[${width}px] bar parts`).toEqual(["3 項變更未儲存", "全部捨棄", "儲存變更（2 筆）"]);
+    expect.soft(inside(g.notice, g.sectionHead), `[${width}px] 還沒儲存 notice outside the section head`).toBe(true);
+    for (const c of g.children) expect.soft(inside(c.box, g.bar), `[${width}px] "${c.text}" outside the bar`).toBe(true);
+    expect.soft(g.heads.length, `[${width}px] cards tagged 未儲存`).toBe(2);
+    for (const h of g.heads) {
+      expect.soft(inside(h.unsaved, h.head), `[${width}px] 未儲存 outside the head`).toBe(true);
+      expect.soft(inside(h.revert, h.head), `[${width}px] 還原 outside the head`).toBe(true);
+      expect.soft(h.revert.left, `[${width}px] 還原 not beside 未儲存`).toBeGreaterThanOrEqual(h.unsaved.right);
+      expect.soft(Math.abs(h.revert.top - h.unsaved.top), `[${width}px] 還原 off 未儲存's line`).toBeLessThan(12);
+      for (const c of h.changes) {
+        expect.soft(inside(c.box, h.row), `[${width}px] change line outside the card`).toBe(true);
+        expect.soft(c.wide, `[${width}px] change line overflows`).toBe(false);
+      }
+      for (const b of h.badges) expect.soft(b.right, `[${width}px] badge past the head`).toBeLessThanOrEqual(h.head.right + 1);
+    }
+    assertNoHScroll(width, await pageAndLoreOver(page));
+  });
+
+  test(`a staged state change leaves the scroll position and the card where they were, give or take the 還沒儲存 notice above @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, MIRA, 500);
     const ids = await cmp.locator('[data-testid="lore-row"]').evaluateAll((els: Element[]) =>
       els.map((e) => e.getAttribute("data-entry-id")),
@@ -535,6 +609,7 @@ for (const width of [390, 1440]) {
     const before = {
       scrollTop: await page.evaluate(() => (document.querySelector(".lore") as HTMLElement).scrollTop),
       box: await boxOf(page, sel),
+      head: await boxOf(page, '[data-testid="lore-section-head"]'),
     };
     await page.evaluate((s: string) => {
       (window as any).__loreRowBefore = document.querySelector(s);
@@ -550,11 +625,15 @@ for (const width of [390, 1440]) {
     const after = {
       scrollTop: await page.evaluate(() => (document.querySelector(".lore") as HTMLElement).scrollTop),
       box: await boxOf(page, sel),
+      head: await boxOf(page, '[data-testid="lore-section-head"]'),
       sameNode: await page.evaluate((s: string) => document.querySelector(s) === (window as any).__loreRowBefore, sel),
     };
     console.log(`[lore ${width}] state change`, JSON.stringify({ target, next, before, after }));
     expect.soft(Math.abs(after.scrollTop - before.scrollTop), `[${width}px] scrollTop moved`).toBeLessThanOrEqual(1);
-    expect.soft(Math.abs(after.box!.top - before.box!.top), `[${width}px] ${target} moved on screen`).toBeLessThanOrEqual(1);
+    // The section head grows by the 還沒儲存 notice; nothing else may move the card.
+    const headGrew = after.head!.bottom - before.head!.bottom;
+    expect.soft(headGrew, `[${width}px] the 還沒儲存 notice did not appear`).toBeGreaterThan(0);
+    expect.soft(Math.abs(after.box!.top - before.box!.top - headGrew), `[${width}px] ${target} moved on screen beyond the notice`).toBeLessThanOrEqual(1);
     expect.soft(after.sameNode, `[${width}px] ${target}'s card was torn down and rebuilt`).toBe(true);
   });
 }
