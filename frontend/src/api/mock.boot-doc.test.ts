@@ -444,6 +444,85 @@ describe("mockApi · 開機脈絡預覽", () => {
   });
 });
 
+describe("mockApi · User Language block (T-745)", () => {
+  const ZH =
+    "# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。";
+  const EN =
+    "# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.";
+
+  function injectWorker(): void {
+    __injectMockTask({
+      id: "t-ul",
+      taskNo: "T-ul",
+      title: "外包任務",
+      typeKey: "",
+      description: "",
+      status: "in_progress",
+      priority: "mid",
+      executorKind: "outsource",
+      executorId: "ow-ul",
+      creatorId: "",
+      dedupeKey: "",
+      deps: [],
+      waitingReason: "",
+      duplicateOf: "",
+      createdTs: 0,
+      updatedTs: 0,
+      closedTs: null,
+      progressDone: 0,
+      progressTotal: 0,
+      steps: [],
+    });
+    __injectMockOutsourceWorker({
+      id: "ow-ul",
+      codename: "O-3",
+      model: "Opus",
+      effort: "high",
+      runtime: "claude",
+      taskId: "t-ul",
+    });
+  }
+
+  async function both(): Promise<string[]> {
+    return [
+      await mockApi.getMemberBootContext("mira"),
+      await mockApi.getWorkerBootContext("ow-ul"),
+    ];
+  }
+
+  it("an unset display language gets the Traditional Chinese block, right after the system interaction and before Owner Additions, staff and outsource alike", async () => {
+    injectWorker();
+    await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
+    await mockApi.saveGlobalContext("owner 寫的全域脈絡\n");
+    for (const ctx of await both()) {
+      expect(ctx.startsWith(`系統互動本文\n\n${ZH}\n\n# Owner Additions\n\nowner 寫的全域脈絡\n\n`)).toBe(true);
+      expect(ctx).not.toContain(EN);
+    }
+  });
+
+  it("display language zh gets the Traditional Chinese block", async () => {
+    injectWorker();
+    await mockApi.patchServerSettings({ displayLanguage: "zh" });
+    for (const ctx of await both()) {
+      expect(ctx).toContain(ZH);
+      expect(ctx).not.toContain(EN);
+    }
+  });
+
+  it("display language en gets the English block, and with no owner text the next block follows it directly", async () => {
+    injectWorker();
+    await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
+    await mockApi.patchServerSettings({ displayLanguage: "en" });
+    const [staff, worker] = await both();
+    for (const ctx of [staff, worker]) {
+      expect(ctx).toContain(`系統互動本文\n\n${EN}\n\n`);
+      expect(ctx).not.toContain(ZH);
+      expect(ctx).not.toContain("# Owner Additions");
+    }
+    expect(staff).toContain(`${EN}\n\n# Role: `);
+  });
+});
+
 describe("mockApi · getMemberBootContext", () => {
   it("a staff member's preview carries the everyone entry, then its own live entries, then the Claude boot steps", async () => {
     await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");

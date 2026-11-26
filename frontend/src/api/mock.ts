@@ -2744,6 +2744,24 @@ function docSizeFields(text: string, cap: "duty" | "insight" | "manualSop") {
   };
 }
 let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
+
+/** The User Language block both boot folds staple between 系統互動 and Owner
+ * Additions — mirrors the server's userLanguageBlock (assets.go) byte for byte.
+ * Read at assembly time from display_language: "en" gets English; anything
+ * else, "" (never set) included, gets the Traditional Chinese text. */
+function mockUserLanguageBlock(lang: string): string {
+  if (lang === "en") {
+    return (
+      "# User Language\n\n" +
+      "Use English for everything you write to the user, including reports. Do not use other languages."
+    );
+  }
+  return (
+    "# User Language\n\n" +
+    "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。"
+  );
+}
+
 const MOCK_CLAIM_TOKEN = "mock-claim-token";
 const TOKEN_TTL_CHOICES = new Set([43200, 86400, 604800, 2592000]);
 
@@ -6100,7 +6118,8 @@ const mockApiImpl = {
     // 🔴 T-4595 rewrote this. It used to assemble 外包工作守則 → 你的身分 →
     // 你的任務 → 任務手冊, and NONE of those exist any more: a worker's boot
     // context is the STAFF fold (getMemberBootContext) MINUS the persona slot —
-    // 系統互動 + 使用者自訂 + the boot sequence for the worker's OWN runtime,
+    // 系統互動 + User Language + 使用者自訂 + the boot sequence for the
+    // worker's OWN runtime,
     // with not one word written for outsource readers. A mock that keeps the
     // old shape is worse than no mock: the cockpit's tests go green against a
     // fake server that still ships a document the real one deleted.
@@ -6125,7 +6144,10 @@ const mockApiImpl = {
     // FOLDED, like the staff preview and like the server, and for the
     // worker's OWN runtime: buildWorkerBootContext branches on it, so this does
     // too.
-    const parts = [foldBootDoc("system_interaction", "global").text.trim()];
+    const parts = [
+      foldBootDoc("system_interaction", "global").text.trim(),
+      mockUserLanguageBlock(mockServerSettings.display_language),
+    ];
     if (userText.trim()) {
       parts.push(`# Owner Additions\n\n${userText.trim()}`);
     }
@@ -8423,7 +8445,8 @@ const mockApiImpl = {
 
   async getMemberBootContext(memberId: string): Promise<string> {
     // Mirrors the server's buildBootContext slot order (spec/lifecycle.md
-    // §2.2): 系統互動 (FOLDED) → 使用者自訂 (skipped when blank) → `# Role:` →
+    // §2.2): 系統互動 (FOLDED) → `# User Language` (display_language) →
+    // 使用者自訂 (skipped when blank) → `# Role:` →
     // `# Insight (role)` (skipped when the folded TEXT is blank — never gate on
     // is_default/has_seed, which would emit an orphan header) → that member's
     // 傳承 → 啟動步驟 for its OWN runtime (FOLDED, recency-authoritative tail).
@@ -8446,7 +8469,10 @@ const mockApiImpl = {
       throw mockApiError(`http 404 for GET ${path}`, 404, `role '${role}' not found`);
     }
     const userText = foldGlobalContext().text;
-    const parts = [foldBootDoc("system_interaction", "global").text.trim()];
+    const parts = [
+      foldBootDoc("system_interaction", "global").text.trim(),
+      mockUserLanguageBlock(mockServerSettings.display_language),
+    ];
     if (userText.trim()) {
       parts.push(`# Owner Additions\n\n${userText.trim()}`);
     }
