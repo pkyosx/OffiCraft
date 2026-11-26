@@ -4126,22 +4126,22 @@ type SettingsDTO struct {
 	// DisplayWide Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login and on every `settings` event as the cross-device source of truth.
 	DisplayWide *bool `json:"display_wide,omitempty"`
 
-	// DocCapCharsBootSequence The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text — they are two renderings of one short checklist, so a studio that needs more room for one needs it for the other. The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000.
+	// DocCapCharsBootSequence The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text — they are two renderings of one short checklist, so a studio that needs more room for one needs it for the other. The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 250000.
 	DocCapCharsBootSequence *int `json:"doc_cap_chars_boot_sequence,omitempty"`
 
-	// DocCapCharsDuty The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points — Chinese prose counts one per character). The floor of the adjustable range is this segment's OWN shipped default (the `default` field above), which is smaller than the other three segments'; the ceiling is 100000. Duty had no cap at all before T-ae38.
+	// DocCapCharsDuty The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points — Chinese prose counts one per character). The floor of the adjustable range is this segment's OWN shipped default (the `default` field above), which is smaller than the other three segments'; the ceiling is 250000. Duty had no cap at all before T-ae38.
 	DocCapCharsDuty *int `json:"doc_cap_chars_duty,omitempty"`
 
-	// DocCapCharsInsight The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 100000.
+	// DocCapCharsInsight The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 250000.
 	DocCapCharsInsight *int `json:"doc_cap_chars_insight,omitempty"`
 
-	// DocCapCharsManualSop The size cap on a TASK MANUAL's SOP doc (sop_md), in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 100000.
+	// DocCapCharsManualSop The size cap on a TASK MANUAL's SOP doc (sop_md), in CHARACTERS (Unicode code points). The floor of the adjustable range is this segment's shipped default (the `default` field above), the ceiling is 250000.
 	DocCapCharsManualSop *int `json:"doc_cap_chars_manual_sop,omitempty"`
 
-	// DocCapCharsOffboard The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000. It is sized like the 啟動步驟 blocks rather than the 系統互動 handbook: both are short ordered checklists an agent has to be able to finish under a deadline.
+	// DocCapCharsOffboard The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 250000. It is sized like the 啟動步驟 blocks rather than the 系統互動 handbook: both are short ordered checklists an agent has to be able to finish under a deadline.
 	DocCapCharsOffboard *int `json:"doc_cap_chars_offboard,omitempty"`
 
-	// DocCapCharsSystemInteraction The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000. It is far larger than the role-journal caps because the block it governs is the studio handbook every agent reads at boot, and it is sized against the seed that ships with it.
+	// DocCapCharsSystemInteraction The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 250000. It is far larger than the role-journal caps because the block it governs is the studio handbook every agent reads at boot, and it is sized against the seed that ships with it.
 	DocCapCharsSystemInteraction *int `json:"doc_cap_chars_system_interaction,omitempty"`
 
 	// HandoverPct The SECOND of the two offboard points: the FINAL notice, and the point the automatic handover itself fires. Must be 40..90 and strictly greater than notice_pct.
@@ -4250,7 +4250,7 @@ type SettingsDTO struct {
 // MUST be 60..3600. `task_due_soon_lead_minutes` MUST be 1..43200. The five document caps (T-ae38;
 // the manual's one became two in T-30f1) are independent knobs. Each one MUST be
 // between THAT segment's shipped default (the `default` on the matching
-// `SettingsDTO` field — Duty's is its own, much smaller number) and 100000. The floor equalling the shipped default is the
+// `SettingsDTO` field — Duty's is its own, much smaller number) and 250000. The floor equalling the shipped default is the
 // point: a cap can only ever be RAISED (owner ruling 2026-07-31), because
 // lowering one would turn documents that are legal today into shrink-only ones.
 type SettingsUpdateDTO struct {
@@ -4288,22 +4288,22 @@ type SettingsUpdateDTO struct {
 	// DisplayWide Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
 	DisplayWide *bool `json:"display_wide,omitempty"`
 
-	// DocCapCharsBootSequence The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). One knob for both runtimes, each measured on its own text. Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_boot_sequence`, whose `default` is that floor) and at most 100000.
+	// DocCapCharsBootSequence The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). One knob for both runtimes, each measured on its own text. Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_boot_sequence`, whose `default` is that floor) and at most 250000.
 	DocCapCharsBootSequence *int `json:"doc_cap_chars_boot_sequence,omitempty"`
 
-	// DocCapCharsDuty The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points). Must be at least this segment's own shipped default (see `SettingsDTO.doc_cap_chars_duty`, whose `default` is that floor) and at most 100000.
+	// DocCapCharsDuty The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points). Must be at least this segment's own shipped default (see `SettingsDTO.doc_cap_chars_duty`, whose `default` is that floor) and at most 250000.
 	DocCapCharsDuty *int `json:"doc_cap_chars_duty,omitempty"`
 
-	// DocCapCharsInsight The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default (see `SettingsDTO.doc_cap_chars_insight`, whose `default` is that floor) and at most 100000.
+	// DocCapCharsInsight The size cap on a role's INSIGHT doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default (see `SettingsDTO.doc_cap_chars_insight`, whose `default` is that floor) and at most 250000.
 	DocCapCharsInsight *int `json:"doc_cap_chars_insight,omitempty"`
 
-	// DocCapCharsManualSop The size cap on a TASK MANUAL's sop_md doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default (see `SettingsDTO.doc_cap_chars_manual_sop`, whose `default` is that floor) and at most 100000.
+	// DocCapCharsManualSop The size cap on a TASK MANUAL's sop_md doc, in CHARACTERS (Unicode code points). Must be at least this segment's shipped default (see `SettingsDTO.doc_cap_chars_manual_sop`, whose `default` is that floor) and at most 250000.
 	DocCapCharsManualSop *int `json:"doc_cap_chars_manual_sop,omitempty"`
 
-	// DocCapCharsOffboard The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_offboard`, whose `default` is that floor) and at most 100000.
+	// DocCapCharsOffboard The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_offboard`, whose `default` is that floor) and at most 250000.
 	DocCapCharsOffboard *int `json:"doc_cap_chars_offboard,omitempty"`
 
-	// DocCapCharsSystemInteraction The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_system_interaction`, whose `default` is that floor) and at most 100000.
+	// DocCapCharsSystemInteraction The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_system_interaction`, whose `default` is that floor) and at most 250000.
 	DocCapCharsSystemInteraction *int `json:"doc_cap_chars_system_interaction,omitempty"`
 
 	// HandoverPct The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).

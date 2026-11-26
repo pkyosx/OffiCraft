@@ -60,7 +60,7 @@ export interface DocCaps {
  * The SHIPPED DEFAULT cap of each boot-context block, in the same rune unit
  * (T-791e). Sized off the seeds actually in the tree, measured rather than
  * guessed: the system-interaction seed is the largest block, while the two
- * boot sequences are much smaller — so 60000 leaves the system block real room
+ * boot sequences are much smaller — so 150000 leaves the system block real room
  * to grow while 15000 is roughly ten times what a boot SOP has ever needed.
  *
  * 🔴 A DEFAULT, not the cap: the number in force arrives on the document's own
@@ -79,7 +79,7 @@ export interface DocCaps {
 export const TASK_EVENT_CAP_CHARS_DEFAULT = 15000;
 
 export const BOOT_DOC_CAP_CHARS_DEFAULTS: Record<BootDocKind, number> = {
-  system_interaction: 60000,
+  system_interaction: 150000,
   boot_sequence: 15000,
   // T-c9c0. Sized with the boot sequences rather than the handbook: the
   // 〈停止〉 seed is a short ordered checklist an agent works under time
@@ -102,9 +102,9 @@ export const BOOT_DOC_CAP_CHARS_DEFAULTS: Record<BootDocKind, number> = {
 };
 
 export const DOC_CAP_CHARS_DEFAULTS: DocCaps = {
-  duty: 1000,
+  duty: 2500,
   insight: 15000,
-  manualSop: 15000,
+  manualSop: 37500,
   // Not restated: the boot blocks' numbers are stated once, above.
   systemInteraction: BOOT_DOC_CAP_CHARS_DEFAULTS.system_interaction,
   bootSequence: BOOT_DOC_CAP_CHARS_DEFAULTS.boot_sequence,
@@ -371,7 +371,7 @@ export function capForKind(
       return undefined;
     // T-791e. These abstained while the two blocks' caps existed only as the
     // number the server reports on the document's OWN read — there was no live
-    // value to hand this table, and inventing one (the shipped 60000/15000)
+    // value to hand this table, and inventing one (the shipped 150000/15000)
     // could only ever grey out a revision the server would accept. The same
     // change made them `doc.cap_chars.system_interaction` /
     // `doc.cap_chars.boot_sequence` settings, so the live value now arrives the

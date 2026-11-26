@@ -11,7 +11,7 @@
 // longer the direction: since owner 2026-09-07 (card rc-5b66ba099e28 option
 // [1]) the eight `doc.cap_chars.*` knobs share one floor of DOC_CAP_CHARS_MIN
 // and turn both ways, exactly as this one always has. What has not converged is
-// the numbers — the doc caps run DOC_CAP_CHARS_MIN..100000, and this budget is
+// the numbers — the doc caps run DOC_CAP_CHARS_MIN..250000, and this budget is
 // a per-read packing allowance with its own 1000..13000 (the ceiling below is
 // tied to a server window, not to a document size). Folding it into a table
 // whose rows all state one range would either silently widen this knob or

@@ -469,3 +469,93 @@ func onboardingTestWaitForTerminalReport(t *testing.T, api *apiServer) onboardin
 	t.Fatal("onboarding report did not reach a terminal state")
 	return onboardingReportDTO{}
 }
+
+func TestOnboardingLanguagePrompt(t *testing.T) {
+	const wantBody = "This station has just been set up, and the owner has not chosen a display language yet. Please do these three things, in order:\n" +
+		"1. Greet the owner in chat.\n" +
+		"2. Then open a decision card asking which language the owner wants to use. Write the card in both Chinese and English, with exactly two options: \"中文\" and \"English\".\n" +
+		"3. When the owner answers, set the display language with update_settings: display_language \"zh\" for 中文, \"en\" for English."
+	wakeOK := onboardingRunner{
+		wardenInstalled: func() bool { return true },
+		wardenOnline:    func(string) bool { return true },
+		sleep:           func(time.Duration) {},
+		now:             func() float64 { return 100 },
+		waitBudget:      time.Second,
+	}
+	systemToMira := func(t *testing.T, d *DAL) []ChatMessage {
+		t.Helper()
+		all, err := d.ListChat()
+		if err != nil {
+			t.Fatalf("ListChat: %v", err)
+		}
+		var out []ChatMessage
+		for _, m := range all {
+			if m.Sender == "system" && m.Recipient == "mira" {
+				out = append(out, m)
+			}
+		}
+		return out
+	}
+
+	t.Run("first onboarding with no language sends the assistant one prompt, and a rerun sends none", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		api.noReconcile = true
+		if got := api.runFirstRunOnboarding(wakeOK, onboardingReportDTO{StartedAt: 10}); got.State != onboardingStateOK {
+			t.Fatalf("report = %#v", got)
+		}
+		msgs := systemToMira(t, d)
+		if len(msgs) != 1 {
+			t.Fatalf("system messages to mira = %d, want 1: %#v", len(msgs), msgs)
+		}
+		if msgs[0].Body != wantBody {
+			t.Fatalf("body =\n%s\nwant\n%s", msgs[0].Body, wantBody)
+		}
+		api.runFirstRunOnboarding(wakeOK, onboardingReportDTO{StartedAt: 20})
+		if n := len(systemToMira(t, d)); n != 1 {
+			t.Fatalf("after a second run: %d system messages to mira, want 1", n)
+		}
+	})
+
+	t.Run("a language already chosen sends nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		api.noReconcile = true
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"en"}`); status != 200 {
+			t.Fatalf("PATCH display_language: %d %v", status, data)
+		}
+		if got := api.runFirstRunOnboarding(wakeOK, onboardingReportDTO{StartedAt: 10}); got.State != onboardingStateOK {
+			t.Fatalf("report = %#v", got)
+		}
+		if msgs := systemToMira(t, d); len(msgs) != 0 {
+			t.Fatalf("system messages to mira = %#v, want none", msgs)
+		}
+	})
+
+	t.Run("a wake that did not dispatch sends nothing", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		api.noReconcile = true
+		run := wakeOK
+		run.wardenOnline = func(string) bool { return false }
+		clock := 100.0
+		run.now = func() float64 { clock += 1; return clock }
+		if got := api.runFirstRunOnboarding(run, onboardingReportDTO{StartedAt: 10}); got.State != onboardingStateFailed {
+			t.Fatalf("report = %#v", got)
+		}
+		if msgs := systemToMira(t, d); len(msgs) != 0 {
+			t.Fatalf("system messages to mira = %#v, want none", msgs)
+		}
+	})
+
+	t.Run("waking the assistant outside onboarding sends nothing", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		api.noReconcile = true
+		if status, data := apiJSON(t, h, "POST", "/api/members/mira/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate mira: %d %v", status, data)
+		}
+		if m := apiTestMemberRow(t, d, "mira"); m.DesiredState != DesiredStateOnline {
+			t.Fatalf("mira desired state = %q, want online", m.DesiredState)
+		}
+		if msgs := systemToMira(t, d); len(msgs) != 0 {
+			t.Fatalf("system messages to mira = %#v, want none", msgs)
+		}
+	})
+}

@@ -756,7 +756,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		return out, err
 	}
 	if err := loadCap(settingDocCapCharsManualSop, minDocCapChars, maxDocCapChars,
-		&out.docCapCharsManualSop, contextDocMaxCharsDefault); err != nil {
+		&out.docCapCharsManualSop, manualSopCapCharsDefault); err != nil {
 		return out, err
 	}
 	if err := loadCap(settingDocCapCharsSystemInteraction, minDocCapChars, maxDocCapChars,

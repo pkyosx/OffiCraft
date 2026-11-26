@@ -68,7 +68,7 @@ var apiTestBootDocRows = []apiTestBootDocRow{
 	{
 		kind: "system_interaction", keys: []string{"global"},
 		seeds: []string{"system_interaction.md"}, docNames: []string{"system interaction block"},
-		capChars: 60000, vars: nil, split: false, join: "", readOnly: false,
+		capChars: 150000, vars: nil, split: false, join: "", readOnly: false,
 	}, {
 		kind: "boot_sequence", keys: []string{"claude", "codex"},
 		seeds:    []string{"boot_sequence.md", "boot_sequence_codex.md"},
@@ -1364,7 +1364,7 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     2,
-			"cap_chars":      60000,
+			"cap_chars":      150000,
 			"kind":           "system_interaction",
 			"key":            "global",
 			"text":           "S1",
@@ -1390,7 +1390,7 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     2,
-			"cap_chars":      60000,
+			"cap_chars":      150000,
 			"kind":           "system_interaction",
 			"key":            "global",
 			"text":           "S1",
@@ -1412,7 +1412,7 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantValue(t, "size_chars", data["size_chars"], 40637)
-		apiWantValue(t, "cap_chars", data["cap_chars"], 60000)
+		apiWantValue(t, "cap_chars", data["cap_chars"], 150000)
 		apiWantValue(t, "kind", data["kind"], "system_interaction")
 		apiWantValue(t, "key", data["key"], "global")
 		apiWantValue(t, "text", data["text"], apiAnyString)
@@ -1452,7 +1452,7 @@ func TestHandleReplaceSystemInteractionApiSystemInteractionPost(t *testing.T) {
 			"key":        "global",
 			"is_default": false,
 			"size_chars": 2,
-			"cap_chars":  60000,
+			"cap_chars":  150000,
 			"sha256":     "3696ad59777e09d5f2daacb544022d435e7cd053d87c5781241fabd8fdf2a90d",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -1486,7 +1486,7 @@ func TestHandleReplaceSystemInteractionApiSystemInteractionPost(t *testing.T) {
 			"key":        "global",
 			"is_default": false,
 			"size_chars": 2,
-			"cap_chars":  60000,
+			"cap_chars":  150000,
 			"sha256":     "3696ad59777e09d5f2daacb544022d435e7cd053d87c5781241fabd8fdf2a90d",
 		})
 		dashboard.wantFrames()
@@ -1519,7 +1519,7 @@ func TestHandleReplaceSystemInteractionApiSystemInteractionPost(t *testing.T) {
 			"key":        "global",
 			"is_default": false,
 			"size_chars": 0,
-			"cap_chars":  60000,
+			"cap_chars":  150000,
 			"sha256":     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -1577,7 +1577,7 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"key":        "global",
 			"is_default": true,
 			"size_chars": 40637,
-			"cap_chars":  60000,
+			"cap_chars":  150000,
 			"sha256":     "6f194764c58647e0b7cd8aca4d95416e7dcf4b1f65970ad536c3889118138c3b",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -1610,7 +1610,7 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 			"key":        "global",
 			"is_default": true,
 			"size_chars": 40637,
-			"cap_chars":  60000,
+			"cap_chars":  150000,
 			"sha256":     "6f194764c58647e0b7cd8aca4d95416e7dcf4b1f65970ad536c3889118138c3b",
 		})
 		dashboard.wantFrames()

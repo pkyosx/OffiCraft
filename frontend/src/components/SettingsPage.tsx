@@ -116,7 +116,7 @@ const DOC_CAP_ORDER: DocCapField[] = [
  *
  * 🔴 A SEPARATE TABLE FROM `DOC_CAP_FIELDS`, AND THE RANGES ARE WHY — the same
  * ruling that gave the chat budget and the step-note cap their own rows. That
- * table carries one shared floor of `DOC_CAP_CHARS_MIN` and a ceiling of 100000;
+ * table carries one shared floor of `DOC_CAP_CHARS_MIN` and a ceiling of 250000;
  * these four sit in two ranges of their own, neither of them that one. Both
  * tables go DOWN as well as up: a doc cap binds the next write against a STORED
  * document (owner 2026-09-07), and a 傳承 entry has NO EDIT PATH AT ALL, so a
@@ -1476,11 +1476,11 @@ function ServerParams({
 
   // One shared floor since owner 2026-09-07 (card rc-5b66ba099e28, option [1]),
   // so each of these knobs goes DOWN as well as up — the local guard mirrors the
-  // server's 422 range exactly, which is now DOC_CAP_CHARS_MIN..100000 for all
+  // server's 422 range exactly, which is now DOC_CAP_CHARS_MIN..250000 for all
   // of them. It was each segment's own shipped default until that ruling.
   // T-c9b4: the wake snapshot's chat budget. Deliberately its OWN row and its
   // own commit rather than a sixth entry in DOC_CAP_FIELDS — that table's range
-  // is DOC_CAP_CHARS_MIN..100000 and neither bound is true here. Both tables now
+  // is DOC_CAP_CHARS_MIN..250000 and neither bound is true here. Both tables now
   // go DOWN as well as up (owner 2026-09-07), but for different reasons: a doc
   // cap binds the next write against a STORED document, while this block is
   // repacked on every read, so a smaller budget just returns fewer messages. Its
@@ -1503,7 +1503,7 @@ function ServerParams({
 
   // T-119: the step-note cap. Its own row and its own commit for the same
   // reason as the chat budget — its range is its own (STEP_NOTE_CAP_CHARS_MIN..
-  // MAX), not DOC_CAP_FIELDS' DOC_CAP_CHARS_MIN..100000. Lowering it costs
+  // MAX), not DOC_CAP_FIELDS' DOC_CAP_CHARS_MIN..250000. Lowering it costs
   // nothing already stored: the cap is checked only on write.
   function commitStepNoteCap() {
     if (!settings || stepNoteCapDraft === null) return;
@@ -1557,7 +1557,7 @@ function ServerParams({
 
   // T-33: the four 傳承 caps. One commit for all four because the row that is
   // being committed carries its own range — unlike commitDocCap, whose ceiling
-  // is a literal 100000 shared by every row it serves.
+  // is a literal 250000 shared by every row it serves.
   function commitLoreCap(field: LoreCapField) {
     const draft = loreCapDrafts[field];
     if (!settings || draft === undefined) return;
@@ -1610,7 +1610,7 @@ function ServerParams({
         delete next[field];
         return next;
       });
-    if (!Number.isInteger(n) || n < DOC_CAP_FIELDS[field].min || n > 100000) {
+    if (!Number.isInteger(n) || n < DOC_CAP_FIELDS[field].min || n > 250000) {
       setRangeError(true);
       clear();
       return;
@@ -1900,7 +1900,7 @@ function ServerParams({
                   <div className="param-row__sub">{t.settings[spec.subKey]}</div>
                 </div>
                 <div className="param-pct">
-                  <input id={spec.inputId} className="param-input" type="number" min={spec.min} max={100000}
+                  <input id={spec.inputId} className="param-input" type="number" min={spec.min} max={250000}
                     aria-label={label}
                     value={docCapDrafts[field] ?? String(settings[field])}
                     onChange={(e) => { setRangeError(false); onClearSaveError(); setDocCapDrafts((d) => ({ ...d, [field]: e.target.value })); }}

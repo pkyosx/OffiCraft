@@ -57,7 +57,7 @@ func TestHandleGetTaskStepApiTasksTaskIdStepsStepIdGet(t *testing.T) {
 			"waiting_reason":    "",
 			"note":              "halfway through",
 			"note_size_chars":   15,
-			"note_cap_chars":    10000,
+			"note_cap_chars":    25000,
 			"started_ts":        0,
 			"finished_ts":       0,
 		})
@@ -93,7 +93,7 @@ func TestHandleGetTaskStepApiTasksTaskIdStepsStepIdGet(t *testing.T) {
 			"waiting_reason":    "",
 			"note":              "",
 			"note_size_chars":   0,
-			"note_cap_chars":    10000,
+			"note_cap_chars":    25000,
 			"started_ts":        apiAnyNumber,
 			"finished_ts":       0,
 		})

@@ -171,7 +171,7 @@ describe("mock setLoreEntryScope", () => {
       entries: [L7],
       limit: 30,
       offset: 0,
-      capChars: 10000,
+      capChars: 25000,
       firstDroppedId: "",
     });
 

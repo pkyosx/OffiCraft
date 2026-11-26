@@ -545,8 +545,8 @@ func asDocCaps(api *apiServer) map[string]any {
 // asShippedDocCaps is the out-of-box answer of all six.
 func asShippedDocCaps() map[string]any {
 	return map[string]any{
-		"duty": 1000.0, "insight": 15000.0, "manual_sop": 15000.0,
-		"system_interaction": 60000.0, "boot_sequence": 15000.0, "offboard": 15000.0,
+		"duty": 2500.0, "insight": 15000.0, "manual_sop": 37500.0,
+		"system_interaction": 150000.0, "boot_sequence": 15000.0, "offboard": 15000.0,
 	}
 }
 
@@ -636,10 +636,10 @@ func TestChatBudget(t *testing.T) {
 }
 
 func TestStepNoteCap(t *testing.T) {
-	t.Run("one task step's working note ships capped at ten thousand characters and a patch takes effect on the next write", func(t *testing.T) {
+	t.Run("one task step's working note ships capped at twenty-five thousand characters and a patch takes effect on the next write", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 
-		apiWantValue(t, "step note cap", any(float64(api.stepNoteCap())), any(10000))
+		apiWantValue(t, "step note cap", any(float64(api.stepNoteCap())), any(25000))
 
 		asPatchSettings(t, h, owner, `{"step_note_cap_chars":20006}`)
 		apiWantValue(t, "step note cap", any(float64(api.stepNoteCap())), any(20006))

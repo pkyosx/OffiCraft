@@ -29,7 +29,7 @@ func TestHandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(t *testing.T)
 			"step_id":     stepID,
 			"step_status": "pending",
 			"size_chars":  15,
-			"cap_chars":   10000,
+			"cap_chars":   25000,
 			"sha256":      "e7ea19f08e8f2b6076240af5bb9642397941d4d96a565df7fbb53f5011113e75",
 		})
 
@@ -123,12 +123,12 @@ func TestHandleUpdateTaskStepNoteApiTasksTaskIdStepsStepIdNotePost(t *testing.T)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, `{"note":"first pass"}`)
 		dashboard := apiTestListen(t, api, "")
 
-		oversized := `{"note":"` + strings.Repeat("x", 10001) + `"}`
+		oversized := `{"note":"` + strings.Repeat("x", 25001) + `"}`
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note", agent, oversized)
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error", "step note is 10001 chars, over the 10000-char limit")
+		apiWantError(t, data, "validation_error", "step note is 25001 chars, over the 25000-char limit")
 
 		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
 		apiWantValue(t, "step.note", step["note"], "first pass")
@@ -359,7 +359,7 @@ func TestHandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(t *testin
 			"step_status":   "pending",
 			"applied_edits": 1,
 			"size_chars":    33,
-			"cap_chars":     10000,
+			"cap_chars":     25000,
 			"sha256":        "f99d5c6977708a5b259c14f9cfc579a7e4e9077d12397c909526d8eeecc115c1",
 		})
 
@@ -474,11 +474,11 @@ func TestHandlePatchTaskStepNoteApiTasksTaskIdStepsStepIdNotePatchPost(t *testin
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/steps/"+stepID+"/note/patch", agent,
-			`{"edits":[{"old":"halfway","new":"`+strings.Repeat("x", 10000)+`"}]}`)
+			`{"edits":[{"old":"halfway","new":"`+strings.Repeat("x", 25000)+`"}]}`)
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error", "step note is 10008 chars, over the 10000-char limit")
+		apiWantError(t, data, "validation_error", "step note is 25008 chars, over the 25000-char limit")
 
 		_, step := apiJSON(t, h, "GET", "/api/tasks/T-1/steps/"+stepID, owner, "")
 		apiWantValue(t, "step.note", step["note"], "halfway through")
