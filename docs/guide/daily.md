@@ -1,71 +1,71 @@
-# 交代工作與回覆請示卡
+# Assigning work and answering reply cards
 
-讀完這頁，你能在聊天室把工作交給成員、把成員清單分成群組、回覆成員開給你的請示卡，以及在成員交來的文件上寫意見送回去。
+After reading this page, you will be able to assign work to members in chat, divide the member list into groups, answer the reply cards that members open for you, and write comments on documents that members hand in and send them back.
 
-## 在聊天室交代工作
+## Assigning work in chat
 
-到「辦公室」分頁，在左側「辦公室成員」點一位成員，右側就是你和這位成員的聊天室。可以打字、附檔案或貼上截圖。
+Go to the "Office" tab and click a member under "Office members" on the left. The right side shows your chat with that member. You can type, attach files, or paste screenshots.
 
-交代一件事時，用一般的話說清楚你要什麼結果就好。要不要開成任務由成員自己判斷；想用任務追蹤，直接說「建一張任務」。照預設的工作守則，成員建立任務之前會先開一張請示卡，請你確認任務內容、完成條件和由誰來做。任務建立後怎麼追，見 [追蹤任務進度](tasks.md)。
+When you give a piece of work, say clearly in ordinary words what result you want. The member decides whether to turn it into a task. If you want to track it as a task, just say "create a task". Under the default work rules, before creating a task the member first opens a reply card asking you to confirm the task content, the acceptance criteria, and who will do it. For how to track a task after it is created, see [Tracking task progress](tasks.md).
 
-成員離線時也可以直接留言，成員上線後就會讀到。想讓成員馬上上線，按輸入框上方的「喚醒」。
+You can also leave a message while a member is offline; the member reads it after coming online. To bring a member online right away, press "Wake" above the message box.
 
-## 用 @ 提到某位成員
+## Mentioning a member with @
 
-在輸入框打 `@`，可以在訊息裡提到某位成員，訊息裡的名字點了會打開那位成員的資料。
+Type `@` in the message box to mention a member in your message. Clicking the name in the message opens that member's profile.
 
-被提到的成員**不會**收到通知。要讓某位成員知道一件事，請到那位成員的聊天室傳訊息。
+The mentioned member does **not** receive a notification. To make sure a member knows about something, send a message in that member's chat.
 
-## 回覆某一則訊息或其中一段
+## Replying to a message or part of one
 
-可以針對某一則訊息回覆，也可以只選取訊息裡的一段文字回覆。送出後，你的訊息上方會附上被引用的原文。
+You can reply to a specific message, or select only part of the text in a message and reply to that. After you send, the quoted original text is shown above your message.
 
-## 看成員現在在做什麼
+## Seeing what members are doing now
 
-成員名字前面的圖示表示成員現在的狀態：工作中、等待中、閒置或離線。名字旁邊出現**驚嘆號**時，表示這位成員現在沒辦法正常使用 AI 模型，例如還沒登入，或帳號用量已經用完。
+The icon in front of a member's name shows the member's current status: Working, Waiting, Idle, or Offline. When an **exclamation mark** appears next to the name, the member cannot use the AI model normally right now, for example because the member is not signed in yet, or the account's usage has run out.
 
-每個圖示的意思與處理方式，見 [增加成員與發外包](members.md)。
+For the meaning of each icon and what to do about it, see [Adding members and hiring outsource](members.md).
 
-## 把成員清單分成群組
+## Dividing the member list into groups
 
-成員多了以後，可以把「辦公室成員」清單分成幾個群組，例如常聊的正職放一組、做同一類工作的外包放一組。按清單上方的「新增群組」建立群組，再把成員拖進去。分好的群組存在伺服器上，換一台電腦或用手機打開也一樣。
+When you have many members, you can divide the "Office members" list into groups, for example one group for staff members you chat with often and one for outsource members doing the same kind of work. Press "New group" above the list to create a group, then drag members into it. Groups are saved on the server, so they look the same on another computer or on your phone.
 
-外包群組可以設定自動分組：之後做某一類任務的新外包，會自動放進這個群組。
+An outsource group can be set to group members automatically: new outsource members who later work on a certain kind of task are placed in that group automatically.
 
-## 回覆請示卡
+## Answering reply cards
 
-成員遇到只有你能決定的事（要不要做、選哪個方案、需要你先完成某個動作），會開一張請示卡，然後停下來等你。請示卡會出現在「請示」分頁、成員的聊天室，以及任務卡上；在任何一處回覆都一樣。「請示」分頁上的數字，是還在等你回覆的卡數，不算按了「稍後再看」的卡。
+When a member reaches something only you can decide (whether to do something, which option to choose, or an action you need to complete first), the member opens a reply card and stops to wait for you. Reply cards appear in the "Ask" tab, in the member's chat, and on the task card; answering in any of these places has the same effect. The number on the "Ask" tab is the number of cards still waiting for your reply, not counting cards for which you pressed "Later".
 
-卡片上寫好了背景、要你做什麼、影響和建議，讀完卡片本身就能回答。屬於某張任務的卡，最上方會標出任務名稱、優先序與期限。卡多的時候，「請示」分頁可以依任務優先序、任務期限篩選或排序。點選項回覆，或直接打字回答都可以。標著「AI 建議」的是成員推薦的選項。
+A card states the background, what you need to do, the impact, and a recommendation, so you can answer from the card alone. A card that belongs to a task shows the task name, priority, and due date at the top. When there are many cards, the "Ask" tab can filter or sort them by task priority and task due date. You can answer by clicking an option or by typing a reply. The option marked "AI pick" is the one the member recommends.
 
-**想改答案**：到「請示」分頁的「近期已處理」，在那張卡上按「重新決定」。成員會收到新的回答。
+**To change your answer**: go to "Recently handled" in the "Ask" tab and press "Change my decision" on that card. The member receives the new answer.
 
-**現在還不想回答**：按「稍後再看」，選幾小時或幾天後回來。卡會先收進「已延後」，時間到自動回到「請示」；開卡的成員不會收到通知，在等這張卡的任務也會繼續等。
+**If you do not want to answer yet**: press "Later" and choose to come back after a number of hours or days. The card moves to "Snoozed" and returns to "Ask" automatically when the time is up. The member who opened the card is not notified, and any task waiting on this card keeps waiting.
 
-**問題已經不需要回答**：把卡片標為過期。標為過期**無法復原**；問題還在的話，成員會重新開一張卡。
+**If the question no longer needs an answer**: mark the card as expired. Marking a card as expired **cannot be undone**; if the question still applies, the member opens a new card.
 
-## 在成員交來的文件上寫註解
+## Writing comments on documents members hand in
 
-成員交來的文件，可以直接在上面寫意見送回給成員修改：打開文件，按「註解」，選取一段文字（網頁文件也可以點成員標好的位置），或按「對整份文件加註解」，寫下意見，寫完按「送出給 AI」。所有註解會合成一則聊天訊息送給成員。
+You can write comments directly on a document a member hands in and send them back to the member for revision: open the document, press "Comments", then select a passage of text (in a web page document you can also click a position the member has marked), or press "Comment on the whole document". Write your comment, and when you are done press "Send to AI". All comments are combined into one chat message sent to the member.
 
-還沒送出的註解只存在這台裝置的瀏覽器裡。**換一台裝置就看不到**，寫完請在同一台裝置上送出。
+Comments that have not been sent are stored only in this device's browser. **They cannot be seen on another device**, so send them from the same device you wrote them on.
 
-## 看成員改了什麼：比較連結
+## Seeing what a member changed: comparison pages
 
-成員要讓你看一份東西改了哪裡時，會給你一個比較連結，點開就看得到改之前和改之後的差異。
+When a member wants to show you what changed in something, the member gives you a link to a comparison page. Opening it shows the differences between the version before and the version after.
 
-比較連結要登入才看得到。要給沒有帳號的人看，可以複製對外連結。**對外連結沒有期限，也無法單獨收回**，請只在必要時使用。
+You must be signed in to see a comparison page. To show it to someone without an account, you can copy the external link. **An external link does not expire and cannot be revoked on its own**, so use it only when necessary.
 
-## 其他
+## Other
 
-- 成員在聊天裡給你的任務或請示卡連結，點了會直接打開那一張任務或請示卡。
-- 聊天訊息、請示卡與任務都可以用簡單的排版（Markdown），例如標題、清單、表格。
+- When a member gives you a link to a task or reply card in chat, clicking it opens that task or reply card directly.
+- Chat messages, reply cards, and tasks can all use simple formatting (Markdown), such as headings, lists, and tables.
 
-## 相關文件
+## Related pages
 
-- [你的第一個辦公室](quickstart.md)
-- [追蹤任務進度](tasks.md)
-- [管理 AI 帳號與用量](usage.md)
-- [在手機上用](mobile.md)
-- [增加成員與發外包](members.md)
-- [介面說明](interface.md)
+- [Your first office](quickstart.md)
+- [Tracking task progress](tasks.md)
+- [Managing AI accounts and usage](usage.md)
+- [Using it on your phone](mobile.md)
+- [Adding members and hiring outsource](members.md)
+- [Interface reference](interface.md)

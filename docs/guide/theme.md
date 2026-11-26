@@ -1,64 +1,64 @@
-# 主題（外觀與用語）
+# Themes (look and wording)
 
-讀完這頁，你會知道內建主題有哪些、依時段切換與應景主題怎麼運作、背景動畫的播放方式、自訂主題能改哪些部分，以及匯入、匯出主題的規則。
+After reading this page, you will know which built-in themes exist, how switching by time of day and seasonal themes work, how background animation plays, which parts of a custom theme you can change, and the rules for importing and exporting themes.
 
-主題只換外觀與用語，不改版面位置，也不改語言。主題和語言各自獨立，例如可以用「辦公室・淺色（無背景）」配 English。
+A theme changes only the look and the wording. It does not change where things are on the screen, and it does not change the language. Themes and language are independent of each other; for example, you can use "Office · Light (no background)" with English.
 
-## 選擇外觀
+## Choosing the appearance
 
-主題設定有兩個入口：頭像選單 › 偏好設定的「主題」打開「外觀」；按頂列的齒輪進入 **設定 › 主題**，頁面分成「外觀」與「主題庫」上下兩區，新增、匯入、匯出、編輯主題在「主題庫」。
+There are two ways into the theme settings: "Theme" under avatar menu › Preferences opens "Appearance"; or press the gear icon in the top bar to go to **Settings › Theme**. That page has two sections, "Appearance" at the top and "Theme library" below. Adding, importing, exporting, and editing themes are done in "Theme library".
 
-內建主題有五套：「辦公室・晨光」、「辦公室・暮色」、「辦公室・夜燈」三套帶辦公室背景，「辦公室・深色（無背景）」、「辦公室・淺色（無背景）」兩套只有顏色。主題不會跟著電腦的深淺色設定自動切換。
+There are five built-in themes: "Office · Morning light", "Office · Dusk", and "Office · Night lamp" have an office background; "Office · Dark (no background)" and "Office · Light (no background)" have colors only. The theme does not switch automatically to follow your computer's dark or light mode setting.
 
-按「恢復預設」可以改回新工作室的預設外觀，這台裝置的背景動畫也會改回「自動」；自訂主題不會被刪除。
+Pressing "Restore default" changes back to the default appearance of a new studio, and also changes background animation on this device back to "Auto". Custom themes are not deleted.
 
-## 依時段自動換主題
+## Changing themes automatically by time of day
 
-新建立的工作室預設依時段切換主題：06:00 換成辦公室・晨光、16:00 換成辦公室・暮色、18:30 換成辦公室・夜燈。從舊版升級時，原本用深色、淺色辦公室主題或從沒選過主題的工作室，也會改成這份預設時段表，只轉換這一次。
+A newly created studio switches themes by time of day by default: Office · Morning light at 06:00, Office · Dusk at 16:00, and Office · Night lamp at 18:30. When upgrading from an older version, studios that used the dark or light office theme, or had never chosen a theme, are also changed to this default schedule. This conversion happens only once.
 
-時段和每個時段用的主題都可以改，也可以把「依時段切換」關掉，固定用一套主題。時間以你這台裝置的當地時間計算；設定存在工作室，在每台裝置都一樣。
+You can change the time slots and the theme used for each slot. You can also turn off "Switch by time of day" and use one fixed theme. Times are based on the local time of the device you are using; the setting is saved in the studio, so it is the same on every device.
 
-## 關掉應景主題
+## Turning off seasonal themes
 
-節日期間（例如萬聖節、感恩節），控制台會自動換上應景主題，顏色、頭像、Logo、導覽圖示與背景整套換掉；有的應景主題也會依時段換成白天、黃昏、晚上的版本。「辦公室」與辦公室裡的「正職」「外包」分頁可能換成節日的名稱；其他用語跟平常相同，只在導覽、標題與空白清單的提示後面加上節日的表情符號或一小句應景話。時段結束後，控制台會自動換回原本的主題，不必重新整理。
+During holidays (for example Halloween or Thanksgiving), the console automatically switches to a seasonal theme that replaces the colors, avatars, logo, navigation icons, and background as a set. Some seasonal themes also switch to a daytime, dusk, or night version depending on the time of day. "Office" and the "Staff" and "Outsource" tabs inside Office may be renamed for the holiday. All other wording stays the same as usual, except that a holiday emoji or a short seasonal phrase is added after the navigation, the headings, and the hints in empty lists. When the holiday period ends, the console automatically switches back to the original theme, without a page reload.
 
-主題設定的「顯示應景主題」切到「關」時，控制台不會換上應景主題。
+When "Show seasonal theme" in the theme settings is set to "Off", the console does not switch to seasonal themes.
 
-## 讓背景動畫停下來
+## Stopping the background animation
 
-有動畫的背景，可以在主題設定的「背景動畫」選擇播放方式：
+For an animated background, you can choose how it plays under "Background animation" in the theme settings:
 
-- **自動**（預設）：手機、平板這類觸控裝置顯示背景的第一格靜止畫面，用滑鼠或觸控板的電腦播放動畫。
-- **播放**、**靜止**：不分裝置，一律播放或一律靜止。
+- **Auto** (default): touch devices such as phones and tablets show a still image of the background's first frame; computers used with a mouse or trackpad play the animation.
+- **Play**, **Still**: always play, or always stay still, on every device.
 
-「背景動畫」只存在這台裝置的瀏覽器，不會跟著帳號同步到其他裝置。
+"Background animation" is stored only in this device's browser. It does not sync to other devices with your account.
 
-## 自己做一套主題
+## Making your own theme
 
-**設定 › 主題** 的「新增」會建立一套自訂主題並打開編輯器。新增的主題以辦公室・深色（無背景）為底，名稱先帶「新主題」。
+"New" in **Settings › Theme** creates a custom theme and opens the editor. The new theme is based on Office · Dark (no background), and its name starts as "New theme".
 
-編輯器可以改名稱、顏色、用詞、字型、頭像、工作室 Logo、導覽圖示與外框背景。除了顏色以外都可以留空，留空就沿用內建的設計。
+In the editor you can change the name, colors, wording, fonts, avatars, studio logo, navigation icons, and outer canvas. Everything except colors can be left blank; anything left blank uses the built-in design.
 
-存好的自訂主題不會自動套用；在主題設定選用這套主題，或把這套主題排進時段，才會套用。
+A saved custom theme is not applied automatically. It is applied only when you choose it in the theme settings or put it into a time slot.
 
-內建主題也能匯出；匯出的檔案匯入後成為一套自訂主題，可以再編輯。
+Built-in themes can also be exported. An exported file becomes a custom theme after it is imported, and can then be edited.
 
-每個區塊能改什麼、圖片的大小上限、外框背景的鋪法，見 [設定與參數](settings.md) 的「主題」。
+For what each section can change, the size limits for images, and how the outer canvas is laid out, see "Theme" in [Settings and parameters](settings.md).
 
-## 匯出與匯入
+## Exporting and importing
 
-**匯出**：在 **設定 › 主題** 某一列按「匯出」，會得到一個 `.json` 主題檔。
+**Export**: press "Export" on a row in **Settings › Theme** to get a `.json` theme file.
 
-**匯入**：按「匯入」，可以貼上主題檔的內容、選擇 `.json` 檔，或貼上主題檔的連結，三種方式擇一。
+**Import**: press "Import", then do one of three things: paste the content of a theme file, choose a `.json` file, or paste a link to a theme file.
 
-匯入前，系統會先檢查內容，不合法的色值、任意的程式碼、過大的內容都會被擋下，所以匯入別人給的主題檔是安全的。
+Before importing, the system checks the content. Invalid color values, arbitrary code, and content that is too large are all blocked, so importing a theme file someone else gave you is safe.
 
-**用連結分享主題時要注意**：拿到連結的人都能看到這套主題，包括裡面的私人圖片；連結不會過期，也無法單獨收回。
+**Be careful when sharing a theme by link**: anyone who has the link can see the theme, including any private images in it. The link does not expire and cannot be revoked on its own.
 
-匯出的檔案包含哪些內容、匯入時出現的提示是什麼意思，見 [設定與參數](settings.md) 的「主題」。
+For what an exported file contains and what the messages shown during import mean, see "Theme" in [Settings and parameters](settings.md).
 
-## 相關文件
+## Related pages
 
-- [設定與參數](settings.md)
-- [介面說明](interface.md)
-- [名詞表](glossary.md)
+- [Settings and parameters](settings.md)
+- [Interface reference](interface.md)
+- [Glossary](glossary.md)

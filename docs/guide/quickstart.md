@@ -1,137 +1,137 @@
-# 你的第一個辦公室
+# Your first office
 
-讀完這頁，你能從第一次打開控制台開始，交出第一件事、回覆第一張請示卡，一路看到任務結案。全程大約十分鐘。
+After reading this page, you can go from opening the console for the first time to giving your first piece of work, answering your first reply card, and seeing the task through to being closed. The whole process takes about ten minutes.
 
-開始之前，安裝要已經完成，終端機上印出了一行設定連結。還沒安裝的話，先看 [安裝、升級與移除](install.md)。
+Before you start, installation must be finished and the terminal must have printed a setup link. If you have not installed OffiCraft yet, see [Installing, upgrading, and removing](install.md) first.
 
-剛裝好時，工作室裡只有兩個人：你，和你的助理 **Mira**。
-
----
-
-## 第一步：打開控制台，設定登入密碼
-
-1. 在裝好 OffiCraft 的那台電腦上，用瀏覽器打開安裝完成時印出的設定連結。連結的開頭是 `http://127.0.0.1:7755/?code=`。裝在 Windows 的 WSL2 裡時，用 Windows 的瀏覽器打開。
-2. 畫面是「設定管理密碼」，啟用碼已經自動填好。輸入兩次新密碼（至少 8 個字），按「開始使用」。
-
-密碼設好後，系統會自動把這台電腦準備好，並喚醒 Mira，不需要你另外操作。
-
-之後要再進控制台，打開 `http://localhost:7755`，用剛設的密碼登入。
-
-要注意兩件事：
-
-- 設定連結**只能用一次**。密碼設好後，連結就失效了。
-- 控制台**只能在這台電腦上打開**，這一點不能改。要從手機或其他電腦使用，先看 [保護你的工作室](security.md)，再照 [在手機上用](mobile.md) 設定。
-
-控制台上方出現「自動設定沒有全部完成」時，表示自動準備的步驟有一步失敗，橫幅上會寫出原因。處理方式見 [常見問題與排解](troubleshooting.md)。
+Right after installation, the studio has only two people: you, and your Assistant, **Mira**.
 
 ---
 
-## 第二步：認識 Mira
+## Step 1: Open the console and set a sign-in password
 
-登入後會看到「辦公室」分頁。左側「辦公室成員」的「正職」頁籤裡，就是 Mira。
+1. On the computer where OffiCraft is installed, open the setup link printed at the end of installation in a browser. The link starts with `http://127.0.0.1:7755/?code=`. If OffiCraft is installed inside WSL2 on Windows, open it in a Windows browser.
+2. The screen is "Set the admin password", and the claim code is already filled in. Enter a new password twice (at least 8 characters) and click "Get started".
 
-Mira 頭像右下角的圓點，表示 Mira 現在有沒有上線。第一次進來時，Mira 通常還在啟動中。
+After the password is set, the system automatically prepares this computer and wakes Mira. You do not need to do anything else.
 
-把滑鼠移到圓點上（手機上點一下圓點）會顯示狀態名稱，等狀態變成「線上」就可以開始。
+To come back to the console later, open `http://localhost:7755` and sign in with the password you just set.
 
-Mira 在線上時，聊天室標題列還會顯示 Mira 目前在做什麼：工作中、等待中或閒置。
+Two things to note:
 
-Mira 是你的助理，負責工作室的日常維運，也接你交代的事情。圓點每種狀態的意思，見 [增加成員與發外包](members.md)。
+- The setup link **can be used only once**. After the password is set, the link no longer works.
+- The console **can be opened only on this computer**, and this cannot be changed. To use it from a phone or another computer, first see [Protecting your studio](security.md), then set it up following [Using it on your phone](mobile.md).
 
----
-
-## 第三步：傳第一則訊息
-
-點 Mira，右側會打開和 Mira 的聊天室。傳一句話試試，例如：
-
-> 你好，先自我介紹一下，順便告訴我這間工作室現在有誰。
-
-送出後，Mira 會在聊天室回覆你。
-
-你和成員之間只透過控制台的聊天溝通。聊天可以附上截圖、設計稿、文件，成員做好的成果也會用附件傳回來。
-
-成員的回覆會盡量精簡，只講重點；需要細節時，直接請成員展開。
-
-Mira 離線時也可以先留言，Mira 上線後就會讀到。
-
-聊天的其他用法見 [交代工作與回覆請示卡](daily.md)。
+If "Automatic setup did not finish" appears at the top of the console, one of the automatic preparation steps failed, and the banner shows the reason. For what to do, see [FAQ and troubleshooting](troubleshooting.md).
 
 ---
 
-## 第四步：交出第一件事
+## Step 2: Meet Mira
 
-交一件需要好幾個步驟的事。下面這件事不用準備任何檔案，可以直接複製到聊天室試試：
+After you sign in, you see the "Office" tab. Mira is on the "Staff" tab of "Office members" on the left.
 
-> 幫我規劃一趟三天兩夜的日本京都旅行，寫成一份行程表，每天列出景點、午餐和晚餐的餐廳、景點之間怎麼移動。請建一張任務來做，開始排行程之前，先問我想玩哪一類景點、預算大概多少。
+The dot at the bottom right of Mira's avatar shows whether Mira is online right now. The first time you come in, Mira is usually still starting up.
 
-Mira 會自己判斷一件事要不要建任務，簡單的事可能直接在聊天室回覆；想用任務追蹤，就像範例一樣直接說「建一張任務」。
+Move the mouse over the dot (on a phone, tap the dot) to see the status name. When the status changes to "Online", you can begin.
 
-照預設的工作守則，Mira 建立任務之前會先開一張請示卡，列出任務名稱、要解決的問題、完成條件和由誰來做，請你確認：
+While Mira is online, the chat title bar also shows what Mira is doing now: Working, Waiting, or Idle.
 
-1. 打開「請示」分頁，或直接在聊天室裡看這張請示卡。
-2. 內容沒問題就選同意的選項；想調整範圍或完成條件，直接打字回覆。
-3. 你確認後，Mira 建立任務。
-
-打開「任務」分頁，就看得到這張任務。任務拆成幾個步驟，每個步驟寫明做到什麼程度才算完成。任務卡上看得到：
-
-- 目前做到哪一步。
-- 每一步的狀態。
-- 每一步的備註。
-
-想看懂任務卡上的每個欄位，見 [追蹤任務進度](tasks.md)。
+Mira is your Assistant. Mira handles the day-to-day running of the studio and also takes on the work you give. For what each status of the dot means, see [Adding members and hiring outsource](members.md).
 
 ---
 
-## 第五步：回覆一張請示卡
+## Step 3: Send your first message
 
-做到某一步，有事只有你能決定時（例如旅行範例裡你想玩哪一類景點、預算多少，或是要不要動手、選哪個方向），Mira 不會替你決定，而是開一張**請示卡**停下來等你。那一步的狀態會變成「等我回覆」。
+Click Mira, and a chat with Mira opens on the right. Try sending a message, for example:
 
-「請示」分頁上的數字，是還在等你回覆的卡數（不算按了「稍後再看」的卡）。
+> Hi, please introduce yourself, and tell me who is in this studio right now.
 
-打開請示卡，你會看到：
+After you send it, Mira replies in the chat.
 
-- 一個問題，以及做判斷需要的背景與取捨。
-- 幾個選項。標著「AI 建議」的是 Mira 推薦的做法，不一定排在第一個。
-- 選項前面是序號的是**單選卡**：點一個選項就直接送出。
-- 選項前面是勾選框的是**多選卡**：「AI 建議」的選項已經預先勾好，可以增減，勾完再送出。
-- 也可以在「輸入回覆…」直接打字回覆。單選卡上已經打好的文字，會和你點的選項一起送出。
+You and the members communicate only through chat in the console. You can attach screenshots, design files, and documents to chat messages, and members send back finished work as attachments too.
 
-回覆後，Mira 接著做下去。已回覆的卡在「近期已處理」裡，可以按「重新決定」改答案。
+Members keep their replies as short as they can and cover only the main points. When you need details, ask the member to expand.
 
-請示卡的其他用法見 [交代工作與回覆請示卡](daily.md)。
+You can leave a message for Mira even while Mira is offline. Mira reads it after coming online.
+
+For other ways to use chat, see [Assigning work and answering reply cards](daily.md).
 
 ---
 
-## 第六步：驗收並結案
+## Step 4: Give your first piece of work
 
-所有步驟做完後，任務狀態變成「**可結案**」。這時任務還沒結束：
+Give a piece of work that takes several steps. The example below needs no files prepared, so you can copy it into the chat and try it:
 
-1. Mira 把成果（報告、連結、產出的檔案）放到任務卡的產物上，再開一張請示卡請你驗收。
-2. 你看過成果。沒問題就回覆驗收通過；要修改就直接說，Mira 改完會再請你驗收一次。
-3. 驗收通過後，Mira 把任務結案，狀態變成「**已完成**」，任務移到「已結案」區。
+> Plan a three-day, two-night trip to Kyoto, Japan for me, written as an itinerary. For each day, list the sights, a restaurant for lunch and one for dinner, and how to get between the sights. Please create a task for this. Before you start planning the itinerary, ask me what kind of sights I want to see and roughly what my budget is.
 
-任務**不會**因為時間到而自動結案。負責的成員已經無法收尾時，你可以點任務卡上的狀態標籤（例如「可結案」），在選單選「**強制結案**」。**強制結案無法復原。**
+Mira decides on its own whether a piece of work needs a task. Simple things may be answered directly in the chat. If you want it tracked as a task, say "create a task" directly, as in the example.
 
-到這裡，你已經走完一次完整流程：
+Under the default working rules, before creating a task Mira first opens a reply card listing the task name, the problem to solve, the completion criteria, and who will do it, and asks you to confirm:
+
+1. Open the "Ask" tab, or view the reply card directly in the chat.
+2. If the content is fine, choose the option that agrees. To change the scope or the completion criteria, type a reply.
+3. After you confirm, Mira creates the task.
+
+Open the "Task" tab to see the task. The task is broken into several steps, and each step states what must be done for it to count as complete. On the task card you can see:
+
+- Which step the work is on now.
+- The status of each step.
+- The note for each step.
+
+To understand each field on the task card, see [Tracking task progress](tasks.md).
+
+---
+
+## Step 5: Answer a reply card
+
+When the work reaches a point where something can only be decided by you (for example, in the trip example, what kind of sights you want and what your budget is, or whether to go ahead and which direction to take), Mira does not decide for you. Instead, Mira opens a **reply card** and stops to wait for you. The status of that step changes to "Awaiting my reply".
+
+The number on the "Ask" tab is the number of cards still waiting for your reply (cards you clicked "Later" on are not counted).
+
+When you open a reply card, you see:
+
+- A question, with the background and trade-offs you need to decide.
+- Several options. The one marked "AI pick" is the approach Mira recommends. It is not necessarily listed first.
+- If the options have numbers in front of them, it is a **single-choice card**: clicking an option sends it right away.
+- If the options have checkboxes in front of them, it is a **multiple-choice card**: the "AI pick" options are already checked. You can add or remove checks, then send.
+- You can also type a reply in "Type a reply…". On a single-choice card, text you have already typed is sent together with the option you click.
+
+After you reply, Mira continues the work. Cards you have answered are in "Recently handled", where you can click "Change my decision" to change your answer.
+
+For other ways to use reply cards, see [Assigning work and answering reply cards](daily.md).
+
+---
+
+## Step 6: Review and close the task
+
+After all steps are done, the task status changes to "**Ready to close**". The task is not finished yet at this point:
+
+1. Mira puts the results (reports, links, produced files) in the task card's artifacts, then opens a reply card asking you to review them.
+2. You look over the results. If everything is fine, reply that the review is approved. If something needs changing, say so directly; Mira makes the changes and asks you to review again.
+3. After the review is approved, Mira closes the task, the status changes to "**Done**", and the task moves to the "Closed" section.
+
+A task is **not** closed automatically when time runs out. If the assigned member can no longer finish it, you can click the status label on the task card (for example "Ready to close") and choose "**Force close**" from the menu. **Force close cannot be undone.**
+
+You have now gone through the whole process once:
 
 ```
-交代一件事 ─> 確認任務內容 ─> 成員拆成帶完成定義的步驟 ─> 需要你決定時開請示卡 ─> 你回覆 ─> 步驟全部完成（可結案）─> 驗收並結案（已完成）
+Give a piece of work ─> Confirm the task content ─> Member breaks it into steps with completion criteria ─> Opens a reply card when you need to decide ─> You reply ─> All steps done (Ready to close) ─> Review and close (Done)
 ```
 
 ---
 
-## 接下來
+## What to do next
 
-- 先寫好 [使用者自訂](lore.md)：你是誰、專案在做什麼、哪些事不能碰，每位成員開機都會讀到。
-- 反覆出現的工作，寫成 [任務手冊](sop.md)。
-- 要從手機用，先看 [保護你的工作室](security.md)，再照 [在手機上用](mobile.md) 設定。
+- First write your [User additions](lore.md): who you are, what the project is about, and what must not be touched. Every member reads it at startup.
+- Write work that comes up again and again as a [task manual](sop.md).
+- To use it from your phone, first see [Protecting your studio](security.md), then set it up following [Using it on your phone](mobile.md).
 
 ---
 
-## 相關文件
+## Related pages
 
-- [保護你的工作室](security.md)
-- [交代工作與回覆請示卡](daily.md)
-- [追蹤任務進度](tasks.md)
-- [增加成員與發外包](members.md)
-- [常見問題與排解](troubleshooting.md)
+- [Protecting your studio](security.md)
+- [Assigning work and answering reply cards](daily.md)
+- [Tracking task progress](tasks.md)
+- [Adding members and hiring outsource](members.md)
+- [FAQ and troubleshooting](troubleshooting.md)
