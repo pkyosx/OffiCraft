@@ -277,7 +277,7 @@ describe("RepliesPage", () => {
     expect(cards[2].textContent).toContain("Mira");
     expect(cards[2].textContent).toContain("特助");
     // 已等你 {t} computed from createdTs.
-    expect(cards[2].querySelector('[data-testid="waited"]')?.textContent).toBe(
+    expect(cards[2].querySelector('[data-testid="waited"] .reply-card__waited-text')?.textContent).toBe(
       "已等你 3h"
     );
     // …in the HEAD, to the RIGHT OF 標為過期 (owner 2026-09-11). The relative
@@ -1092,7 +1092,50 @@ describe("RepliesPage", () => {
     await openCards();
     const ref = await findByTestId("reply-task-ref");
     expect(ref.querySelector(".reply-card__task-title")).toBeNull();
-    expect(ref.textContent).toBe("#t-3查看任務");
+    expect(ref.textContent).toBe("#t-3");
+    expect(within(ref).getByRole("button", { name: "查看任務" })).toBeTruthy();
+  });
+
+  it("the desktop pill shows the wait in ONE unit — 1m, 11m, 23h, 3d — with the full wait as its title and accessible name; a snoozed card's pill shows its return date as MM/DD, the full return time as title and name", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(THU_10AM * 1000);
+    for (const [id, ago] of [
+      ["rc-1m", 70],
+      ["rc-11m", 11 * 60 + 30],
+      ["rc-23h", 23 * 3600 + 59 * 60],
+      ["rc-3d", 3 * 86400 + 4 * 3600 + 5 * 60],
+    ] as const) {
+      __injectMockReplyCard(mkCard({ id, createdTs: THU_10AM - ago }));
+    }
+    __injectMockReplyCard(
+      mkCard({ id: "rc-snz", createdTs: THU_10AM - 60, snoozedUntilTs: THU_10AM + 86400 + 4.5 * 3600 }),
+    );
+    const { getByTestId } = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1m", "rc-11m", "rc-23h", "rc-3d"]));
+    const pillOf = (id: string) =>
+      within(document.querySelector<HTMLElement>(`[data-reply-card-id="${id}"] .reply-card__head`)!).getByRole("img");
+    const expected: [string, string, string][] = [
+      ["rc-1m", "1m", "已等你 1 分"],
+      ["rc-11m", "11m", "已等你 11 分"],
+      ["rc-23h", "23h", "已等你 23 小時 59 分"],
+      ["rc-3d", "3d", "已等你 3 天 4 小時 5 分"],
+    ];
+    for (const [id, short, full] of expected) {
+      const pill = pillOf(id);
+      expect(pill.getAttribute("data-testid")).toBe("waited-pill");
+      expect(pill.textContent, id).toBe(short);
+      expect(pill.getAttribute("aria-label")).toBe(full);
+      expect(pill.getAttribute("title")).toBe(full);
+      expect(pill.querySelector('svg path[d="M5 22h14"]'), "an hourglass").not.toBeNull();
+    }
+
+    fireEvent.click(getByTestId("snoozed-toggle"));
+    const snoozed = pillOf("rc-snz");
+    expect(snoozed.getAttribute("data-testid")).toBe("snoozed-pill");
+    expect(snoozed.textContent).toBe("11/06");
+    expect(snoozed.querySelector('svg polyline[points="12 7 12 12 15 14"]'), "the 稍後再看 clock").not.toBeNull();
+    expect(snoozed.querySelector('svg path[d="M3 3v5h5"]'), "not the 取消延後 glyph").toBeNull();
+    expect(snoozed.getAttribute("aria-label")).toBe("2026/11/6（五） 14:30 回來");
+    expect(snoozed.getAttribute("title")).toBe("2026/11/6（五） 14:30 回來");
   });
 
   it("starts every card collapsed — head, task row and 已等你 only, no question and no options", async () => {
@@ -1415,7 +1458,11 @@ describe("RepliesPage", () => {
       /^2026\/9\/30（三）已逾期 \d+ 天$/
     );
     expect(over.querySelector(".reply-card__task-title")!.textContent).toBe("修好登入");
-    expect(over.querySelector('[data-testid="reply-task-jump"]')!.textContent).toBe("查看任務");
+    const jump = over.querySelector<HTMLElement>('[data-testid="reply-task-jump"]')!;
+    expect(within(over as HTMLElement).getByRole("button", { name: "查看任務" })).toBe(jump);
+    expect(jump.getAttribute("title")).toBe("查看任務");
+    expect(jump.getAttribute("aria-label")).toBe("查看任務");
+    expect(jump.textContent).toBe("");
     expect(over.textContent).not.toContain("x");
 
     const card = document.querySelector('[data-reply-card-id="rc-over"]')!;
@@ -1489,7 +1536,7 @@ describe("RepliesPage", () => {
     fireEvent.click(getByTestId("snoozed-toggle"));
     expect(paneIds("snoozed-card")).toEqual(["rc-2"]);
     const snoozedCard = document.querySelector('[data-testid="snoozed-card"]')!;
-    expect(snoozedCard.querySelector('[data-testid="snoozed-until"]')!.textContent).toBe("2026/11/5（四） 13:00 回來");
+    expect(snoozedCard.querySelector('[data-testid="snoozed-until"] .reply-card__waited-text')!.textContent).toBe("2026/11/5（四） 13:00 回來");
     expect(
       [...snoozedCard.querySelectorAll(".reply-card__head button")]
         .slice(1)
@@ -1681,7 +1728,7 @@ describe("RepliesPage", () => {
     expect(card.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("a finger held 500ms on a card opens the chat's sheet with 複製訊息・選取文字 only — no 回覆這則 on a waiting, secret or handled card — without folding it; a mouse held as long opens nothing", async () => {
+  it("a finger held 500ms on a card opens the chat's sheet with the head's actions — 跳到原訊息, plus 稍後再看・標為過期 while it waits, then 複製訊息・選取文字, never 回覆這則 — without folding it; a mouse held as long opens nothing", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-1" }));
     __injectMockReplyCard(
       mkCard({
@@ -1711,9 +1758,9 @@ describe("RepliesPage", () => {
     expect(menuLabels()).toEqual([]);
 
     await hold(summary, 520);
-    expect(menuLabels()).toEqual(["複製訊息", "選取文字"]);
+    expect(menuLabels()).toEqual(["跳到原訊息", "稍後再看", "標為過期", "複製訊息", "選取文字"]);
     expect(card.classList.contains("reply-card--pressed")).toBe(true);
-    fireEvent.click(summary);
+    fireEvent.click(summary, { detail: 1 });
     expect(card.getAttribute("aria-expanded"), "the press's own click folded the card").toBe("false");
     act(() => {
       fireEvent.pointerDown(getByTestId("chat-msg-sheet-backdrop"));
@@ -1724,14 +1771,157 @@ describe("RepliesPage", () => {
     fireEvent.click(getByTestId("answered-toggle"));
     await waitFor(() => expect(paneIds("answered-card")).toEqual(["rc-done"]));
     await hold(document.querySelector('[data-reply-card-id="rc-done"] .reply-card__summary')!, 520);
-    expect(menuLabels()).toEqual(["複製訊息", "選取文字"]);
+    expect(menuLabels()).toEqual(["跳到原訊息", "複製訊息", "選取文字"]);
     act(() => {
       fireEvent.pointerDown(getByTestId("chat-msg-sheet-backdrop"));
     });
     fireEvent.click(getByTestId("chat-msg-sheet-backdrop"));
 
     await hold(document.querySelector('[data-reply-card-id="rc-secret"] .reply-card__summary')!, 520);
-    expect(menuLabels()).toEqual(["複製訊息", "選取文字"]);
+    expect(menuLabels()).toEqual(["跳到原訊息", "稍後再看", "標為過期", "複製訊息", "選取文字"]);
+  });
+
+  it("the sheet's 稍後再看 (取消延後 on a snoozed card), 標為過期 and 跳到原訊息 do what the head's buttons do: the same snooze menu, as a sheet; the same unsnooze; the same expire confirmation; the same chat route — and a keyboard's first activation in what the sheet opened is not swallowed", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(THU_10AM * 1000);
+    __injectMockReplyCard(mkCard({ id: "rc-1", createdTs: THU_10AM - 600 }));
+    __injectMockReplyCard(mkCard({ id: "rc-2", createdTs: THU_10AM - 1200 }));
+    __injectMockReplyCard(mkCard({ id: "rc-s", createdTs: THU_10AM - 1800, snoozedUntilTs: THU_10AM + 86400 }));
+    const snoozeSpy = vi.spyOn(api, "snoozeReplyCard");
+    const { getByTestId, findByTestId, queryByTestId } = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1", "rc-2"]));
+    const summaryOf = (id: string) =>
+      document.querySelector(`[data-reply-card-id="${id}"] .reply-card__summary`)!;
+
+    await hold(summaryOf("rc-1"), 520);
+    choose("稍後再看");
+    const sheet = await findByTestId("snooze-menu-rc-1");
+    expect(sheet.className).toBe("reply-snooze reply-snooze--sheet");
+    expect(sheet.parentElement?.getAttribute("data-testid")).toBe("snooze-backdrop");
+    // A bare click, as a keyboard Enter or a screen reader sends: no
+    // pointerdown first to tell the long press its own click has passed.
+    fireEvent.click(getByTestId("snooze-preset-3h"), { detail: 0 });
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-2"]));
+    expect(snoozeSpy).toHaveBeenCalledWith("rc-1", THU_10AM + 3 * 3600);
+    expect(queryByTestId("snooze-menu-rc-1")).toBeNull();
+
+    fireEvent.click(getByTestId("snoozed-toggle"));
+    expect(paneIds("snoozed-card")).toEqual(["rc-1", "rc-s"]);
+    await hold(summaryOf("rc-s"), 520);
+    expect(menuLabels()).toEqual(["跳到原訊息", "取消延後", "標為過期", "複製訊息", "選取文字"]);
+    choose("取消延後");
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-2", "rc-s"]));
+    expect(snoozeSpy).toHaveBeenLastCalledWith("rc-s", null);
+
+    await hold(summaryOf("rc-2"), 520);
+    choose("標為過期");
+    expect(paneIds("waiting-card")).toEqual(["rc-2", "rc-s"]);
+    fireEvent.click(await findByTestId("expire-confirm-btn"), { detail: 0 });
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-s"]));
+    expect((await mockApiCard("rc-2")).status).toBe("expired");
+
+    await hold(summaryOf("rc-s"), 520);
+    choose("跳到原訊息");
+    await waitFor(() => expect(window.location.hash).toBe("#office/chat/mira/msg/msg-1"));
+  });
+
+  it("the lifting finger's click is still swallowed when a scroll closed the sheet while the finger was down", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1" }));
+    renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+    const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-1"]')!;
+    const summary = card.querySelector(".reply-card__summary")!;
+    const press = (type: string) => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: 10, clientY: 10 });
+      Object.defineProperty(e, "pointerType", { value: "touch" });
+      act(() => {
+        summary.dispatchEvent(e);
+      });
+    };
+    press("pointerdown");
+    await act(() => new Promise((r) => setTimeout(r, 520)));
+    expect(menuLabels()).not.toEqual([]);
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+    expect(menuLabels()).toEqual([]);
+    press("pointerup");
+    fireEvent.click(summary, { detail: 1 });
+    expect(card.getAttribute("aria-expanded"), "the finger's own click folded the card").toBe("false");
+  });
+
+  it("after a long press, the first keyboard activation of a head button is not swallowed", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1" }));
+    const { getByRole } = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+    await hold(document.querySelector('[data-reply-card-id="rc-1"] .reply-card__summary')!, 520);
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(menuLabels()).toEqual([]);
+    fireEvent.click(getByRole("button", { name: "跳到原訊息" }), { detail: 0 });
+    await waitFor(() => expect(window.location.hash).toBe("#office/chat/mira/msg/msg-1"));
+  });
+
+  it("a card found by its id that, once opened, turns out answered elsewhere offers only 跳到原訊息・複製訊息・選取文字, though the lookup still says it waits", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1" }));
+    const answered = mkCard({
+      id: "rc-1",
+      status: "answered",
+      answeredTs: Date.now() / 1000 - 5,
+      answer: { optionIdxs: [0], text: "", attachments: [] },
+    });
+    // The id lookup reads it waiting; the open card's own read finds it answered.
+    vi.spyOn(api, "getReplyCard")
+      .mockResolvedValueOnce(mkCard({ id: "rc-1" }))
+      .mockResolvedValue(answered);
+    const scrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = vi.fn();
+    try {
+      window.location.hash = "#replies/card/rc-1";
+      const { findByTestId } = render(
+        <I18nProvider>
+          <WithSuggestedReplies>
+            <ReplyCardsProvider>
+              <RepliesPage replyCardId="rc-1" />
+            </ReplyCardsProvider>
+          </WithSuggestedReplies>
+        </I18nProvider>
+      );
+      await findByTestId("answered-card");
+      const card = document.querySelector('[data-reply-card-id="rc-1"]')!;
+      expect(card.getAttribute("aria-expanded")).toBe("true");
+      await hold(card.querySelector(".reply-card__summary")!, 520);
+      expect(menuLabels()).toEqual(["跳到原訊息", "複製訊息", "選取文字"]);
+    } finally {
+      Element.prototype.scrollIntoView = scrollIntoView;
+    }
+  });
+
+  it("a 稍後再看 opened from the long-press menu is asked for once: the card coming back to 待回覆 later does not open the menu by itself", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1" }));
+    const { findByTestId, queryByTestId, getByTestId } = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+    await hold(document.querySelector('[data-reply-card-id="rc-1"] .reply-card__summary')!, 520);
+    choose("稍後再看");
+    await findByTestId("snooze-menu-rc-1");
+    fireEvent.click(getByTestId("snooze-preset-3h"));
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual([]));
+    fireEvent.click(getByTestId("snoozed-toggle"));
+    fireEvent.click(getByTestId("unsnooze-card"));
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+    expect(queryByTestId("snooze-menu-rc-1")).toBeNull();
+  });
+
+  it("Esc on a 稍後再看 sheet the long-press menu opened gives focus back to the card, not to the hidden head button nor to the page", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1" }));
+    const { findByTestId, queryByTestId, getByTestId } = renderPage();
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+    const card = document.querySelector<HTMLElement>('[data-reply-card-id="rc-1"]')!;
+    await hold(card.querySelector(".reply-card__summary")!, 520);
+    choose("稍後再看");
+    await findByTestId("snooze-menu-rc-1");
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(queryByTestId("snooze-menu-rc-1")).toBeNull();
+    expect(document.activeElement).not.toBe(getByTestId("snooze-card"));
+    expect(document.activeElement).toBe(card);
   });
 
   it("選取文字 opens the card in the selection mode with the rest of the page inert; 取消 ends it with the card folded again, and 回覆 quotes the selection into the card's answer box and leaves it open", async () => {

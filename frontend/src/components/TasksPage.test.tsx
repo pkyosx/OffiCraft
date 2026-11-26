@@ -1803,7 +1803,7 @@ describe("TasksPage", () => {
     });
 
     it("auto-expands and hydrates a DONE task jumped to via #tasks/<id> (T-4108 regression)", async () => {
-      // The real report: a reply card's 查看任務詳情 (or the 外包 panel task chip)
+      // The real report: a reply card's 查看任務 (or the 外包 panel task chip)
       // routes to #tasks/<id>. For a CLOSED task that filters the list to one
       // card in an open lane — but the card itself must ALSO auto-expand
       // (located → setExpanded), otherwise the owner lands on the task they

@@ -23,7 +23,6 @@ export function ReplyTaskDueScrollStory() {
                         title: `期限測試任務 ${taskNo}`,
                       }}
                       onJump={() => {}}
-                      jumpLabel="查看任務"
                       lead={
                         <span className="reply-card__task-chips">
                           <TaskDueChip

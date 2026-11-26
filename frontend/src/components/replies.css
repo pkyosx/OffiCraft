@@ -215,6 +215,41 @@
     width: 26px;
     height: 26px;
   }
+  /* A touch-only screen draws none of the 請示 page's head buttons: they are
+   * all in the card's long-press menu (RepliesPage `pressMenuItems`), and the
+   * name column takes the whole line. Like the chat's toolbar they stay in the
+   * accessibility tree and come back when the keyboard reaches one. The
+   * wrapper leaves the flow (top right, on the avatar's line) so that a
+   * failed copy from the menu still shows its 複製失敗 there, over the name. */
+  .replies .reply-card__head {
+    position: relative;
+  }
+  .replies .reply-card__head > .reply-card__actions:not(:has(:focus-visible)) {
+    position: absolute;
+    top: 0;
+    right: 0;
+    height: 34px;
+    pointer-events: none;
+  }
+  .replies
+    .reply-card__head
+    > .reply-card__actions:not(:has(:focus-visible))
+    :is(.chat__msg-copy, .reply-card__icon-btn) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .replies .reply-card__head .reply-card__copy .chat__msg-copy-status--failed {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    margin: 0;
+    transform: translateY(-50%);
+  }
 }
 .reply-card__jump:hover {
   color: var(--color-text);
@@ -229,14 +264,53 @@
   color: var(--color-text-muted);
   white-space: nowrap;
 }
-/* Fixed width so the buttons beside it line up from card to card; sized for
- * the longest waited stamp, en 「Waiting 23h 59m」 (~99–100px at 12.5px).
- * Phones put the stamp on its own line under the buttons instead. */
-@media (min-width: 721px) {
+/* A touch tablet (wider than a phone, no mouse) keeps the words on the head's
+ * line; one width, sized for the longest, en 「Waiting 23h 59m」 (~99–100px at
+ * 12.5px), keeps them in the same right-aligned column on every card. Phones
+ * put the stamp on its own line instead; a desktop draws the pill below. */
+@media (min-width: 721px) and (hover: none) {
   .reply-card__waited {
     min-width: 8.25em;
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+}
+/* Only one of the stamp's two forms shows: the words, or on a desktop the
+ * pill (below). */
+.reply-card__waited-pill {
+  display: none;
+}
+/* Desktop (a mouse, wider than a phone): the stamp is a light pill of one fixed
+ * width on every card — icon plus ONE unit (59m / 23h / 3d), or a snoozed
+ * card's clock plus MM/DD — so the buttons beside it line up; the full words
+ * are its title and accessible name. */
+@media (min-width: 721px) and (hover: hover) {
+  .reply-card__head > .reply-card__actions {
+    gap: 10px;
+  }
+  .reply-card__waited-text {
+    display: none;
+  }
+  .reply-card__waited-pill {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    /* 999d with its icon is 46px of content at 12px; MM/DD is 50px, which
+     * still fits, centred with less room either side. */
+    width: 64px;
+    height: 22px;
+    padding: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
+    color: var(--color-text-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .reply-card__waited-pill > svg {
+    flex: none;
   }
 }
 .reply-card__answered-at {
@@ -723,12 +797,12 @@
   .reply-card {
     padding: 14px;
   }
-  /* Avatar, name and the buttons on the first line, buttons at its right end
-   * as on a desktop; the stamp alone on the line under them, at the right.
-   * The name column's zero flex basis (the base rule) is what keeps the
-   * buttons and the column beside the avatar; a content-sized basis
-   * (`flex: 1 1 auto`) lets a long name or task title push the buttons, or
-   * the whole column, onto the next line. */
+  /* Avatar and name on the first line (with a mouse, the buttons at its right
+   * end as on a desktop; on touch there are none); the stamp alone on the line
+   * under them, at the right. The name column's zero flex basis (the base
+   * rule) is what keeps the buttons and the column beside the avatar; a
+   * content-sized basis (`flex: 1 1 auto`) lets a long name or task title push
+   * the buttons, or the whole column, onto the next line. */
   .reply-card__head {
     flex-wrap: wrap;
     row-gap: 0;
@@ -754,9 +828,6 @@
     margin: 0 4px 0 0;
     transform: translateY(-50%);
   }
-  .reply-card__head > .reply-card__actions {
-    gap: 6px;
-  }
   /* The zero-height full-width item that puts the stamp on a line of its own. */
   .reply-card__head::after {
     content: "";
@@ -780,8 +851,7 @@
 }
 /* The task's own title (T-ee17). It is the only free-length thing on this row,
  * so it is the one that shrinks; the ellipsis says a title was cut rather than
- * ending mid-word as if that were the whole name. The jump keeps its intrinsic
- * width — a cut 查看任務詳情 helps nobody.
+ * ending mid-word as if that were the whole name. The jump keeps its width.
  *
  * `overflow: hidden` is doing TWO jobs and both are load-bearing: it clips the
  * text, AND it is what lets this flex item go below its content width at all
@@ -799,20 +869,26 @@
   font-size: 12px;
   color: var(--color-text-muted);
 }
+/* 查看任務: a borderless chevron, named only in aria-label and title. The
+ * negative block margin keeps its hit area from making the row taller. */
 .reply-card__task-jump {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -6px 0;
   padding: 0;
   border: none;
+  border-radius: 6px;
   background: none;
   cursor: pointer;
-  font-size: 12px;
   color: var(--color-accent);
+  transition: background-color 0.15s;
 }
 .reply-card__task-jump:hover {
-  text-decoration: underline;
+  background: color-mix(in srgb, currentColor 12%, transparent);
 }
 
 /* The 請示 page's task row: the card's top line, ruled off from the head below

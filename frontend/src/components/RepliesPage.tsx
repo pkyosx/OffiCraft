@@ -101,11 +101,13 @@ import {
   ChevronRightIcon,
   CloseIcon,
   CopyIcon,
+  HourglassIcon,
   TextCursorIcon,
 } from "./icons";
 import {
   ExpireActionIcon,
   JumpToMessageIcon,
+  SnoozeActionIcon,
   UnsnoozeActionIcon,
 } from "./replyCardActionIcons";
 import { FilterPanel } from "./FilterPanel";
@@ -142,7 +144,8 @@ import {
   ReplyCardTaskRef,
   ReplyCardWaitingBody,
 } from "./ReplyCardBody";
-import { formatDuration } from "../lib/duration";
+import { formatDuration, formatDurationShort } from "../lib/duration";
+import { snoozeBackShort } from "../lib/replySnooze";
 import { formatAbsolute } from "../lib/dateFormat";
 import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
 // the rail's `.outsource-row__*` / `.current-task-title` rules the asker's
@@ -814,6 +817,14 @@ export function RepliesPage({
   // ── 複製・長按選單・選取模式 (the chat room's, on this page's cards) ──────
   const messageCopy = useMessageCopy();
   const [pressMenu, setPressMenu] = useState<string | null>(null);
+  const [snoozeRequestId, setSnoozeRequestId] = useState<string | null>(null);
+  // A pulse: the card's menu opens in its own effect, which runs before this
+  // one. Left set, a request whose card was not on the page (moved by an
+  // update between the long press and the tap) would open the menu by itself
+  // whenever that card next shows.
+  useEffect(() => {
+    if (snoozeRequestId !== null) setSnoozeRequestId(null);
+  }, [snoozeRequestId]);
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const openBeforeSelectingRef = useRef(false);
   const focusCardOnExitRef = useRef(false);
@@ -883,11 +894,50 @@ export function RepliesPage({
 
   /** No 回覆這則, unlike the chat room's sheet: the owner's ruling, since the
    * card's own answer box is right there on this page. Do not add it back to
-   * match the chat. */
+   * match the chat.
+   *
+   * A touch-only screen hides the head's buttons (replies.css), so this sheet
+   * is their only way in there and must offer every one the head offers, each
+   * through the same handler as its button. The card's own actions come first
+   * and 複製・選取文字 last: the owner's order, unlike the chat's sheet. */
   function pressMenuItems(id: string): PressMenuItem[] {
     const row = rowsById.get(id);
     if (!row) return [];
-    return [
+    const opened = openCards.get(id);
+    const waitingNow = row.status === "waiting" && (!opened || opened.status === "waiting");
+    const snoozedNow = waitingNow && snoozedShownRows.some((c) => c.id === id);
+    const cardActions: PressMenuItem[] = [
+      {
+        key: "jump",
+        label: t.replies.jumpToChat,
+        icon: <JumpToMessageIcon size={13} />,
+        onSelect: () => void jumpToChat(row),
+      },
+    ];
+    if (waitingNow)
+      cardActions.push(
+        snoozedNow
+          ? {
+              key: "unsnooze",
+              label: t.replies.unsnooze,
+              icon: <UnsnoozeActionIcon size={13} />,
+              onSelect: () => void doUnsnooze(id),
+            }
+          : {
+              key: "snooze",
+              label: t.replies.snooze,
+              icon: <SnoozeActionIcon size={13} />,
+              onSelect: () => setSnoozeRequestId(id),
+            },
+        {
+          key: "expire",
+          label: t.replies.expire,
+          icon: <ExpireActionIcon size={13} />,
+          onSelect: () => setExpireTarget(row),
+        },
+      );
+    const items: PressMenuItem[] = [
+      ...cardActions,
       {
         key: "copy",
         label: t.chat.copyMessage,
@@ -901,6 +951,7 @@ export function RepliesPage({
         onSelect: () => enterSelection(id),
       },
     ];
+    return items;
   }
 
   // ── 開卡人 options + counts ────────────────────────────────────────────────
@@ -1176,7 +1227,6 @@ export function RepliesPage({
     return (
       <ReplyCardTaskRef
         task={task}
-        jumpLabel={t.replies.openTask}
         onJump={() => setRoute({ page: "tasks", taskId: task.id })}
         lead={
           <span className="reply-card__task-chips">
@@ -1561,14 +1611,40 @@ export function RepliesPage({
       // 🔴 No absolute 開卡 stamp beside it — owner saw one on this very head and
       // answered「我不想知道絕對時間 相對時間已經夠了」. A snoozed card says when it
       // comes back instead.
+      // A desktop draws it as a fixed-width pill (icon + one unit, or MM/DD),
+      // the full words in its title and accessible name; elsewhere the words.
       stamp:
         asSnoozed && until !== null ? (
           <span className="reply-card__waited" data-testid="snoozed-until">
-            {msg.replySnoozeBack(until)}
+            <span className="reply-card__waited-text">{msg.replySnoozeBack(until)}</span>
+            <span
+              className="reply-card__waited-pill"
+              data-testid="snoozed-pill"
+              role="img"
+              aria-label={msg.replySnoozeBack(until)}
+              title={msg.replySnoozeBack(until)}
+            >
+              <SnoozeActionIcon size={12} />
+              <span className="reply-card__waited-short">{snoozeBackShort(until)}</span>
+            </span>
           </span>
         ) : (
           <span className="reply-card__waited" data-testid="waited">
-            {msg.replyWaited(formatDuration(nowTs - row.createdTs))}
+            <span className="reply-card__waited-text">
+              {msg.replyWaited(formatDuration(nowTs - row.createdTs))}
+            </span>
+            <span
+              className="reply-card__waited-pill"
+              data-testid="waited-pill"
+              role="img"
+              aria-label={msg.replyWaitedFull(nowTs - row.createdTs)}
+              title={msg.replyWaitedFull(nowTs - row.createdTs)}
+            >
+              <HourglassIcon size={12} />
+              <span className="reply-card__waited-short">
+                {formatDurationShort(nowTs - row.createdTs)}
+              </span>
+            </span>
           </span>
         ),
       expirable: true,
@@ -1584,7 +1660,11 @@ export function RepliesPage({
           <UnsnoozeActionIcon size={13} />
         </button>
       ) : (
-        <ReplySnoozeMenu cardId={row.id} onSnooze={(ts) => doSnooze(row.id, ts)} />
+        <ReplySnoozeMenu
+          cardId={row.id}
+          onSnooze={(ts) => doSnooze(row.id, ts)}
+          openRequested={snoozeRequestId === row.id}
+        />
       ),
       notice: unsnoozeErrors.has(row.id) ? (
         <div className="reply-card__error" data-testid="unsnooze-error">

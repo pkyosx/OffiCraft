@@ -325,19 +325,18 @@ export function ReplyCardQuestionAttachments({
  *
  * ONE HOME for both surfaces (the 請示 page and the inline ChatReplyCard), so
  * the title is written once. The 請示 page passes `lead` — the task number,
- * priority and due chips — and its own jump label; the chat card shows the
- * title alone. The typeKey is never shown. The jump is a callback so this stays
- * presentational (each surface owns its own router). */
+ * priority and due chips; the chat card shows the title alone. The jump has no
+ * visible label so that the title keeps the row's width. The typeKey is never
+ * shown. The jump is a callback so this stays presentational (each surface owns
+ * its own router). */
 export function ReplyCardTaskRef({
   task,
   onJump,
   lead,
-  jumpLabel,
 }: {
   task: NonNullable<ReplyCard["task"]>;
   onJump: () => void;
   lead?: ReactNode;
-  jumpLabel?: string;
 }) {
   const { t } = useI18n();
   return (
@@ -355,10 +354,11 @@ export function ReplyCardTaskRef({
         type="button"
         className="reply-card__task-jump"
         data-testid="reply-task-jump"
+        aria-label={t.replies.openTask}
+        title={t.replies.openTask}
         onClick={onJump}
       >
-        {jumpLabel ?? t.replies.viewTask}
-        <ChevronRightIcon size={12} />
+        <ChevronRightIcon size={14} />
       </button>
     </div>
   );

@@ -239,6 +239,17 @@ describe("ChatArea long-press sheet", () => {
     expect(document.querySelector("[data-testid='chat-delete-confirm']")).not.toBeNull();
   });
 
+  it("after a long press, the first keyboard activation of a message's button is not swallowed", async () => {
+    const { container } = renderChat();
+    hold(bubbleOf(container, "mine"), 500);
+    tapBackdrop();
+    expect(menus()).toHaveLength(0);
+    await act(async () => {
+      fireEvent.click(within(rowOf(container, "theirs")).getByRole("button", { name: "複製訊息" }), { detail: 0 });
+    });
+    expect(clipboard).toEqual(["對方的一段話"]);
+  });
+
   it("does what the item says and closes; a 複製 that worked leaves only words for a screen reader, a failed one shows 複製失敗 on the message", async () => {
     const { container } = renderChat();
 

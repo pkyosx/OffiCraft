@@ -690,6 +690,14 @@ export const en: Dict = {
       "Could not confirm whether this id exists right now. Please try again.",
     loadError: "Failed to load your asks. Please try again.",
     waitedLabel: "Waiting",
+    // The full duration in the desktop pill's tooltip and accessible name:
+    // "Waiting 23 hours 59 minutes".
+    waitedDayOne: "day",
+    waitedDayMany: "days",
+    waitedHourOne: "hour",
+    waitedHourMany: "hours",
+    waitedMinuteOne: "minute",
+    waitedMinuteMany: "minutes",
     // Opened/answered stamps are always absolute with the date (e.g. 7/13
     // 09:05) — no relative time, no "Today" special case.
     openedAtLabel: "Opened",
@@ -744,7 +752,6 @@ export const en: Dict = {
     redecidePlaceholder: "Or type a new reply…",
     quoteLabel: "Quoted",
     quoteCancel: "Remove the quote",
-    viewTask: "View task details",
     openTask: "View task",
     expandCard: "Expand this ask",
     collapseCard: "Collapse this ask",

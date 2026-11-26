@@ -17,6 +17,13 @@ export const SNOOZE_PRESETS: readonly { amount: number; unit: SnoozeUnit }[] = [
   { amount: 3, unit: "day" },
 ];
 
+/** "MM/DD" of a return time, in local time — the desktop pill's short form. */
+export function snoozeBackShort(tsSeconds: number): string {
+  const d = new Date(tsSeconds * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
+}
+
 export function snoozeUntil(amount: number, unit: SnoozeUnit, nowTs: number): number {
   return Math.floor(nowTs) + amount * SNOOZE_UNIT_SECONDS[unit];
 }

@@ -1,10 +1,11 @@
 // 稍後再看 on a waiting card: four presets, then a custom span with a live
 // preview of when the card comes back. A popover beside the button on a
-// desktop, a bottom sheet on a phone. The menu is portaled, so its clicks still
-// bubble to the card through the React tree; `role="dialog"` is what the card's
-// toggle filter skips.
+// desktop, a bottom sheet on a phone — and always a sheet when the card's
+// long-press menu opened it, since the trigger is out of sight there. The menu
+// is portaled, so its clicks still bubble to the card through the React tree;
+// `role="dialog"` is what the card's toggle filter skips.
 
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -27,13 +28,19 @@ export type SnoozeOutcome = "ok" | "stale" | "failed";
 export function ReplySnoozeMenu({
   cardId,
   onSnooze,
+  openRequested = false,
 }: {
   cardId: string;
   onSnooze: (untilTs: number) => Promise<SnoozeOutcome>;
+  /** Opens the menu as a sheet without its trigger (the long-press menu). A
+   * one-render pulse: it opens on the render it turns true. */
+  openRequested?: boolean;
 }) {
   const { t, msg } = useI18n();
   const mobile = useIsMobile();
   const [open, setOpen] = useState(false);
+  const [requested, setRequested] = useState(false);
+  const sheet = mobile || requested;
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [amount, setAmount] = useState("");
@@ -47,13 +54,25 @@ export function ReplySnoozeMenu({
     setOpen(false);
     setFailed(false);
     setPos(null);
-    if (refocus) triggerRef.current?.focus();
+    // A requested open has no visible trigger to return to — focusing it from a
+    // key would reveal the touch head's hidden buttons — so focus goes back to
+    // the card instead of falling to the page.
+    if (requested)
+      triggerRef.current?.closest<HTMLElement>(".reply-card")?.focus({ preventScroll: true });
+    else if (refocus) triggerRef.current?.focus();
+    setRequested(false);
   }
+
+  useEffect(() => {
+    if (!openRequested) return;
+    setRequested(true);
+    setOpen(true);
+  }, [openRequested]);
 
   useEscapeLayer(() => close(true), menuRef, open);
 
   useLayoutEffect(() => {
-    if (!open || mobile) return;
+    if (!open || sheet) return;
     const anchor = triggerRef.current?.getBoundingClientRect();
     const box = menuRef.current?.getBoundingClientRect();
     if (!anchor || !box) return;
@@ -67,11 +86,11 @@ export function ReplySnoozeMenu({
         ? below
         : Math.max(EDGE, anchor.top - 4 - box.height);
     setPos({ left, top });
-  }, [open, mobile]);
+  }, [open, sheet]);
 
   useLayoutEffect(() => {
-    // On a phone the backdrop covers everything and closes the sheet itself.
-    if (!open || mobile) return;
+    // A sheet's backdrop covers everything and closes the sheet itself.
+    if (!open || sheet) return;
     const onDown = (e: PointerEvent) => {
       const target = e.target as Node;
       if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
@@ -79,7 +98,7 @@ export function ReplySnoozeMenu({
     };
     document.addEventListener("pointerdown", onDown, true);
     return () => document.removeEventListener("pointerdown", onDown, true);
-  }, [open, mobile]);
+  }, [open, sheet]);
 
   async function pick(untilTs: number) {
     setBusy(true);
@@ -200,7 +219,7 @@ export function ReplySnoozeMenu({
       </button>
       {open &&
         createPortal(
-          mobile ? (
+          sheet ? (
             <div
               className="reply-snooze__backdrop"
               data-testid="snooze-backdrop"

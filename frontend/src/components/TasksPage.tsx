@@ -107,7 +107,7 @@ export function TasksPage() {
     loading: membersLoading,
     error: membersError,
   } = useMembers();
-  // ── 請示 → 任務: a reply card 查看任務詳情 routes to #tasks/<id>. That id
+  // ── 請示 → 任務: a reply card's 查看任務 routes to #tasks/<id>. That id
   // is just another filter dimension — the list narrows to that one task in the
   // normal layout, cleared the same way any other axis is: empty its field.
   // Read BEFORE the axes below so the very first ask already carries it.
