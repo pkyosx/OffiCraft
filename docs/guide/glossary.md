@@ -70,7 +70,7 @@ This page lists what each term in the console and the user guide means, and whic
 - **Gate**: a step marked when the task is planned as needing your approval. The task card announces it as soon as the plan is submitted, and when the step is reached, the member opens a reply card and waits for you. Steps that have opened a reply card or are marked as gates are labelled "Approval" on the task card. See [Tracking task progress](tasks.md).
 - **In parallel**: a group of steps that do not depend on each other and can be done at the same time. The task card shows "In parallel · N items".
 - **Artifacts**: files a task produces and attaches to itself. Versions are kept and can be compared.
-- **Files**: reference files that belong to no task and that every member can read and update; one of the main tabs. Members read them by an ID starting with `sd-`, and the last few old versions are kept. See [Interface guide](interface.md).
+- **Files**: reference files that belong to no task and that every member can read and update; one of the main tabs. Members read them by an ID starting with `sd-`, and the last few old versions are kept. See [Interface reference](interface.md).
 - **Reassign**: hands a task to another member or outsource member, optionally with a handover note.
 - **Terminate**: ends a task that no longer needs doing.
 - **Mark duplicate**: marks a task as a duplicate of another task; you pick the original.
@@ -134,6 +134,6 @@ This page lists what each term in the console and the user guide means, and whic
 ## Related pages
 
 - [Architecture and how it works](architecture.md)
-- [Interface guide](interface.md)
+- [Interface reference](interface.md)
 - [Settings and parameters](settings.md)
 - [FAQ and troubleshooting](troubleshooting.md)

@@ -210,7 +210,7 @@ OffiCraft publishes new versions as GitHub Releases. When the server upgrades, i
 ## Related pages
 
 - [Glossary](glossary.md)
-- [Interface guide](interface.md)
+- [Interface reference](interface.md)
 - [Adding members and hiring outsource](members.md)
 - [Protecting your studio](security.md)
 - [FAQ and troubleshooting](troubleshooting.md)
