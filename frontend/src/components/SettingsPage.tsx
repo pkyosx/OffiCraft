@@ -2181,9 +2181,10 @@ function SecretDurationRow({
  * shows the restart notice and polls /api/version until git_sha advances,
  * then reloads the page.
  *
- * Below the card sit the two software-update toggles (/api/settings knobs):
- * 接收 Beta (follow GitHub prereleases too) and 自動更新
- * (unattended background self-upgrade running the same verified body).
+ * Below the card sit the update settings (/api/settings knobs):
+ * 接收 Beta (follow GitHub prereleases too), 自動更新
+ * (unattended background self-upgrade running the same verified body), the
+ * check interval, and the assistant's new-release announcements.
  */
 function SoftwareUpdate({
   version,
@@ -2542,7 +2543,7 @@ function SoftwareUpdate({
        * the card's single status line above — no second result element is
        * ever created. */}
 
-      {/* ── the two software-update toggles (/api/settings) ── */}
+      {/* ── the update settings (/api/settings) ── */}
       <h2 className="settings__title settings__title--doc">
         {t.settings.updateSettings}
       </h2>
@@ -2610,6 +2611,27 @@ function SoftwareUpdate({
                 onBlur={commitCheckInterval} onKeyDown={(e) => { if (e.key === "Enter") commitCheckInterval(); }} />
               <span className="param-pct__sign">{t.settings.minutes}</span>
             </div>
+          </div>
+          <div className="param-row">
+            <div className="param-row__body">
+              <span className="param-row__name">{t.settings.announceFeatures}</span>
+              <div className="param-row__sub">{t.settings.announceFeaturesSub}</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.updaterAnnounceFeatures}
+              aria-label={t.settings.announceFeatures}
+              className={`set-toggle${settings.updaterAnnounceFeatures ? " set-toggle--on" : ""}`}
+              onClick={() => {
+                onClearSaveError();
+                setVerifyStatus("idle");
+                void onSave({ updaterAnnounceFeatures: !settings.updaterAnnounceFeatures });
+              }}
+              data-testid="settings-announce-features"
+            >
+              <span className="set-toggle__knob" />
+            </button>
           </div>
           {(saveError || checkIntervalRangeError) && (
             <div className="set-error param-error">

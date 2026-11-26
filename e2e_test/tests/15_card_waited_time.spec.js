@@ -110,13 +110,16 @@ test.describe('C2 · reply cards stamp the WAIT as a relative counter, with no a
       waiting,
       'a card starts collapsed — 預設全部折疊',
     ).toHaveAttribute('aria-expanded', 'false');
+    // The words live in the pill's title and accessible name; the pill shows
+    // one unit.
     const waited = waiting.getByTestId('waited');
+    const pill = waited.getByTestId('waited-pill');
     await expect(
-      waited,
+      pill,
       'the card must carry the relative 已等你 counter',
-    ).toContainText('已等你');
+    ).toHaveAttribute('title', /^已等你 /);
     expect(
-      await waited.innerText(),
+      `${await pill.getAttribute('title')} ${await waited.innerText()}`,
       'the 已等你 counter must NOT be an absolute date+time',
     ).not.toMatch(ABSOLUTE_RE);
 

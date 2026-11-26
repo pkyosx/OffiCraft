@@ -128,6 +128,11 @@
 .reply-card__avatar:focus-visible {
   box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
+/* Avatar, name column, the buttons (with a mouse; on touch there are none)
+ * and the stamp share one line on every width, the stamp at its right end.
+ * The head does not wrap and everything else in it is `flex: none`, so the
+ * name column (`min-width: 0`) is the one that gives up width; letting the
+ * head wrap again would put the buttons and stamp under a long name. */
 .reply-card__who {
   display: flex;
   flex-direction: column;
@@ -150,12 +155,33 @@
  * `.current-task-title`, drawn by the rail's components and styled by the rail's
  * rules in office.css — including the `+` rule that spaces them. This block only
  * stacks them; it must never restate their appearance, or the two surfaces drift
- * on the next change to either. The one exception is the phone head, which cuts
- * each line to one (the ≤720px block below). */
+ * on the next change to either. The two exceptions are about cutting, not
+ * looks: the task line becomes one line of text that ends in 「…」 (the rule
+ * below), and the phone head cuts the title to one line (the ≤720px block). */
 .reply-card__worker-task {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+/* The rail's task line (chip + type) inside the name column, which on a
+ * narrow head is far narrower than on the rail. As a flex row its chip, an
+ * inline-flex box, is cut mid-character once the column is narrower than it,
+ * and the type gets a sliver too thin for 「…」. Laid out as one line of text
+ * instead, whatever does not fit ends in a single 「…」: the type's text first,
+ * then the chip as a whole. Scoped to this head so the rail keeps its own. */
+.reply-card__head .outsource-row__task-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reply-card__head .outsource-row__task-line > .outsource-row__chip {
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.reply-card__head .outsource-row__task-line > .outsource-row__type {
+  display: inline;
+  vertical-align: middle;
 }
 /* A quiet text button (secondary action). */
 /* nowrap: a CJK label's min-content is one character, so a squeezed row
@@ -219,8 +245,10 @@
    * all in the card's long-press menu (RepliesPage `pressMenuItems`), and the
    * name column takes the whole line. Like the chat's toolbar they stay in the
    * accessibility tree and come back when the keyboard reaches one. The
-   * wrapper leaves the flow (top right, on the avatar's line) so that a
-   * failed copy from the menu still shows its 複製失敗 there, over the name. */
+   * wrapper leaves the flow (the head's full height at its right end, the
+   * head being one line) so that a failed copy from the menu still shows its
+   * 複製失敗 there, centred on the stamp: over it for the second or two it
+   * shows, without moving the stamp or the name. */
   .replies .reply-card__head {
     position: relative;
   }
@@ -228,7 +256,7 @@
     position: absolute;
     top: 0;
     right: 0;
-    height: 34px;
+    bottom: 0;
     pointer-events: none;
   }
   .replies
@@ -255,62 +283,41 @@
   color: var(--color-text);
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
-/* The waiting card's ONE stamp, at the right edge of the head after 標為過期.
+/* The waiting card's ONE stamp, at the right end of the head's first line.
  * 🔴 No absolute 開卡 stamp beside it — owner 2026-09-11:「我不想知道絕對時間
- * 相對時間已經夠了」. */
+ * 相對時間已經夠了」.
+ * It is a light pill of one fixed width on every card and every device — icon
+ * plus ONE unit (59m / 23h / 3d), or a snoozed card's clock plus MM/DD — so
+ * its right edge, and on a desktop the buttons before it, sit at the same x
+ * on every card; the full words are its title and accessible name. */
 .reply-card__waited {
   flex: none;
-  font-size: 12.5px;
+  display: inline-flex;
+}
+.reply-card__waited-pill {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  /* 999d with its icon is 46px of content at 12px; MM/DD is 50px, which
+   * still fits, centred with less room either side. */
+  width: 64px;
+  height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
   color: var(--color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-/* A touch tablet (wider than a phone, no mouse) keeps the words on the head's
- * line; one width, sized for the longest, en 「Waiting 23h 59m」 (~99–100px at
- * 12.5px), keeps them in the same right-aligned column on every card. Phones
- * put the stamp on its own line instead; a desktop draws the pill below. */
-@media (min-width: 721px) and (hover: none) {
-  .reply-card__waited {
-    min-width: 8.25em;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
+.reply-card__waited-pill > svg {
+  flex: none;
 }
-/* Only one of the stamp's two forms shows: the words, or on a desktop the
- * pill (below). */
-.reply-card__waited-pill {
-  display: none;
-}
-/* Desktop (a mouse, wider than a phone): the stamp is a light pill of one fixed
- * width on every card — icon plus ONE unit (59m / 23h / 3d), or a snoozed
- * card's clock plus MM/DD — so the buttons beside it line up; the full words
- * are its title and accessible name. */
 @media (min-width: 721px) and (hover: hover) {
   .reply-card__head > .reply-card__actions {
     gap: 10px;
-  }
-  .reply-card__waited-text {
-    display: none;
-  }
-  .reply-card__waited-pill {
-    box-sizing: border-box;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    /* 999d with its icon is 46px of content at 12px; MM/DD is 50px, which
-     * still fits, centred with less room either side. */
-    width: 64px;
-    height: 22px;
-    padding: 0;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
-    color: var(--color-text-muted);
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  .reply-card__waited-pill > svg {
-    flex: none;
   }
 }
 .reply-card__answered-at {
@@ -797,19 +804,8 @@
   .reply-card {
     padding: 14px;
   }
-  /* Avatar and name on the first line (with a mouse, the buttons at its right
-   * end as on a desktop; on touch there are none); the stamp alone on the line
-   * under them, at the right. The name column's zero flex basis (the base
-   * rule) is what keeps the buttons and the column beside the avatar; a
-   * content-sized basis (`flex: 1 1 auto`) lets a long name or task title push
-   * the buttons, or the whole column, onto the next line. */
-  .reply-card__head {
-    flex-wrap: wrap;
-    row-gap: 0;
-  }
   /* Name, role and an outsource asker's task title: one line each, ending in
-   * 「…」 when cut. The task line above the title is the rail's and already
-   * keeps to one line, its chip cut at the column's edge. */
+   * 「…」 when cut, like the task line above the title on every width. */
   .reply-card__head :is(.reply-card__name, .reply-card__role, .current-task-title) {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -827,17 +823,6 @@
     right: 100%;
     margin: 0 4px 0 0;
     transform: translateY(-50%);
-  }
-  /* The zero-height full-width item that puts the stamp on a line of its own. */
-  .reply-card__head::after {
-    content: "";
-    order: 1;
-    flex-basis: 100%;
-  }
-  .reply-card__head > :is(.reply-card__waited, .reply-card__answered-at) {
-    order: 2;
-    margin-top: 6px;
-    margin-left: auto;
   }
 }
 
@@ -892,8 +877,10 @@
 }
 
 /* The 請示 page's task row: the card's top line, ruled off from the head below
- * it. It wraps on a narrow card — chips first, then the title, the jump held at
- * the end. */
+ * it. Task number, priority, title and the 查看任務 chevron are one line on
+ * every width, the chevron at its right end: the chips are row items of their
+ * own, and the title's zero basis means it never pushes anything onto a next
+ * line — it takes what is left and ends in 「…」. */
 .reply-card__task--row {
   flex-wrap: wrap;
   gap: 6px 10px;
@@ -902,21 +889,36 @@
   border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
 }
 .reply-card__task-chips {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
+  display: contents;
 }
 .reply-card__task--row .reply-card__task-title {
-  flex: 1 1 8em;
-  min-width: 0;
+  flex: 1 1 0;
   font-size: 13px;
   color: var(--color-text);
 }
 .reply-card__task--row .reply-card__task-jump {
   margin-left: auto;
   white-space: nowrap;
+}
+/* A phone's due chip is a line of its own under that line: its full date and
+ * state (「2026/11/24（二） 12:15 · 已逾期 2 天」) is about as wide as a 320px
+ * card, so it cannot share the line with the chevron, and cutting it would hide
+ * whether the task is overdue. A desktop keeps it beside the priority. */
+@media (max-width: 720px) {
+  /* The zero-height full-width break before it; its own line would add a
+   * second row gap, so the gap is the chip's margin instead. */
+  .reply-card__task--row:has(> .reply-card__task-chips > .task-card__due-chip) {
+    row-gap: 0;
+  }
+  .reply-card__task--row:has(> .reply-card__task-chips > .task-card__due-chip)::after {
+    content: "";
+    order: 1;
+    flex-basis: 100%;
+  }
+  .reply-card__task--row .task-card__due-chip {
+    order: 2;
+    margin-top: 6px;
+  }
 }
 
 /* ---- 稍後再看 ---- */

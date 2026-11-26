@@ -141,9 +141,12 @@ const (
 	settingUpdaterAutoUpdate = "updater.auto_update"
 
 	settingUpdaterCheckIntervalSecs = "updater.check_interval_secs"
-	// org.name reaches every agent via get_global_context; owner.name and
-	// display.* never enter an agent read path. "" = never set: the frontend
-	// falls back to its localized default / cached value.
+	// An absent row reads true (release_announce.go).
+	settingUpdaterAnnounceFeatures = "updater.announce_features"
+	// org.name reaches every agent via get_global_context; display.language
+	// reaches every member's boot context (userLanguageBlock); owner.name and the
+	// other display.* never enter an agent read path. "" = never set: the
+	// frontend falls back to its localized default / cached value.
 	settingOrgName = "org.name"
 
 	settingOwnerName = "owner.name"
@@ -298,6 +301,7 @@ type authSettings struct {
 	updaterReceiveBeta               bool
 	updaterAutoUpdate                bool
 	updaterCheckIntervalSecs         int
+	updaterAnnounceFeatures          bool
 	orgName                          string
 	ownerName                        string
 	pushContactEmail                 string
@@ -471,6 +475,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		runtimeLoginRecheckIntervalSecs: runtimeLoginRecheckIntervalSecsDefault,
 		diskUsageIntervalSecs:           diskUsageIntervalSecsDefault,
 		updaterCheckIntervalSecs:        updaterCheckIntervalSecsDefault,
+		updaterAnnounceFeatures:         true,
 		displaySeasonalTheme:            true,
 		displayThemeSchedule:            []ThemeScheduleEntryDTO{},
 	}
@@ -866,6 +871,9 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 				settingUpdaterCheckIntervalSecs, updaterCheckIntervalRangeMsg, *v)
 		}
 		out.updaterCheckIntervalSecs = n
+	}
+	if err := getBool(settingUpdaterAnnounceFeatures, &out.updaterAnnounceFeatures); err != nil {
+		return out, err
 	}
 	if err := getBool(settingDisplayWide, &out.displayWide); err != nil {
 		return out, err

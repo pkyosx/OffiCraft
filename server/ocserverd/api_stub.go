@@ -123,6 +123,8 @@ type apiServer struct {
 
 	updaterCheckIntervalSecs int
 
+	updaterAnnounceFeatures bool
+
 	orgName string
 
 	ownerName string
@@ -265,6 +267,12 @@ type apiServer struct {
 	updateCheck updateCheckState
 
 	releaseSiteBase string
+
+	releaseAnnounceRepo  string
+	releaseAPIBase       string
+	releaseAnnouncePages map[string]releaseAnnouncePage
+	// releaseAnnounceLogf is a test seam; nil logs through log.Printf.
+	releaseAnnounceLogf func(format string, args ...any)
 	// releasePlatform is a test seam (zero in production → serverBinPlatform):
 	// the platform whose release tarball an upgrade installs.
 	releasePlatform binPlatform
@@ -272,7 +280,10 @@ type apiServer struct {
 	upgradeMu txguard.Mutex
 
 	upgradeExeOverride string
-	upgradeRestart     func(exePath string)
+	// upgradeExecutable is a test seam (nil in production → os.Executable).
+	upgradeExecutable func() (string, error)
+	upgradeRestart    func(exePath string, env []string)
+	autoUpdateGate    autoUpdateGate
 	// stationShuttingDown: a peer cancellation and a station shutdown both
 	// surface as request-context cancellation, so it must be set at the server
 	// boundary BEFORE that context is cancelled.

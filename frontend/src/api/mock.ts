@@ -2638,6 +2638,8 @@ const DEFAULT_MOCK_SETTINGS = {
   updater_receive_beta: false,
   updater_auto_update: false,
   updater_check_interval_secs: 300,
+  // ON out of the box, like a never-set server.
+  updater_announce_features: true,
   // Studio name (T-d693) — "" out of the box, mirroring the server (the topbar
   // shows the localized default until the owner names the studio).
   org_name: "",
@@ -7894,6 +7896,9 @@ const mockApiImpl = {
     }
     if (patch.updaterCheckIntervalSecs !== undefined) {
       mockServerSettings.updater_check_interval_secs = patch.updaterCheckIntervalSecs;
+    }
+    if (patch.updaterAnnounceFeatures !== undefined) {
+      mockServerSettings.updater_announce_features = patch.updaterAnnounceFeatures;
     }
     if (patch.orgName !== undefined) {
       mockServerSettings.org_name = patch.orgName.trim();

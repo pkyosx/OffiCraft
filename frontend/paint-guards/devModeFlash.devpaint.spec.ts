@@ -101,6 +101,7 @@ function settingsDTO() {
     doc_cap_chars_manual_sop: 15000,
     updater_receive_beta: false,
     updater_auto_update: false,
+    updater_announce_features: true,
     org_name: "",
     owner_name: "",
     push_contact_email: "",

@@ -1,31 +1,23 @@
-# .github/workflows/ga-promote.yml — the GA button (T-39a5).
+# .github/workflows/ga-promote.yml — the GA button.
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# WHAT THIS IS, AND THE RULING THAT ALLOWS IT TO EXIST
+# 🔴 THIS BUTTON ALWAYS FAILS: A GA IS PROMOTED LOCALLY
 # ─────────────────────────────────────────────────────────────────────────────
-# Flipping a verified prerelease to the final release ("GA") used to be forbidden
-# to automate at all: bin/tests/auto-beta-guard.sh refused, under W4/W4b, any file
-# under .github/ that so much as NAMED the subcommand, on the ruling that the
-# beta->final flip is a human decision.
+# Every GA must carry a release notes file ("## 這版的改動", optionally
+# "## 給站長的新功能公告"), and a dispatch input cannot carry a file. The promote
+# step therefore calls bin/release WITHOUT --notes, bin/release refuses, and the
+# run goes red printing the command to run on a machine instead:
 #
-# 🔴 THAT RULING WAS OVERTURNED BY THE OWNER ON 2026-08-28, in rc-f9d284c0aef7,
-# with one condition attached. His words:
+#     bin/release promote <tag> --notes <file> [--no-announce]
 #
-#     "決定是我下的 然後我會讓你幫我執行 UI 上可以有這個 action
-#      但是只有 seth / eva 可以跑這個"
+# ⚠️ This is the owner's ruling: every GA carries its notes file. Do not let this
+# button route around it (canned notes, --no-announce, a flip of its own); the
+# refusal lives in bin/release alone, and auto-beta-guard W4e5/W4e5x reddens.
 #
-# Three things follow from that sentence, and all three are mechanised — here and
-# in bin/tests/auto-beta-guard.sh (W4e/W4f), which now pins THIS FILE's shape
-# instead of pinning its non-existence:
-#
-#   1. The action may exist and may be triggered from the GitHub UI.
-#   2. Only people the owner has given write access to this repo may run it. See
-#      WHO CAN PRESS THIS below — the UI alone does NOT enforce that, so this
-#      workflow enforces it itself.
-#   3. "決定是我下的" — WHICH tag ships is still a human decision, so the tag
-#      arrives as an INPUT. This workflow never selects one. There is deliberately
-#      no "newest beta" lookup here: that would hand the decision to the machine,
-#      which is the half of the old ruling that was NOT overturned.
+# The file stays, actor gate included, because auto-beta-guard pins it as the ONE
+# place under .github/ allowed to name the flip (W4/W4b/W4e/W4f): the tag is a
+# dispatch input the workflow never picks itself, and only collaborators with
+# write or admin access get past the first step.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # 🔴 WHO CAN PRESS THIS
@@ -33,30 +25,21 @@
 # Collaborators of this repo with write or admin access — nobody else. That is
 # asked of GitHub at run time, not spelled out here: the gate reads
 # `GET /repos/{owner}/{repo}/collaborators/{actor}/permission` and proceeds only
-# on `admin` or `write`. The owner's ruling was "only seth / eva"; as of
-# 2026-08-28 the repo's collaborators ARE exactly pkyosx (admin) and 8thEdition
-# (push), so this is that ruling — expressed as the permission it actually rests
-# on rather than as two strings that go stale the moment the list changes.
+# on `admin` or `write`.
 #
-# ⚠️ GITHUB ONLY KEEPS OUT ACCOUNTS WITHOUT WRITE ACCESS — THAT IS THE WHOLE OF
-# WHAT IT ENFORCES FOR US, AND THAT IS WHY THE FIRST STEP EXISTS.
-# There is no per-workflow "who may dispatch" setting. `workflow_dispatch` is open
-# to every account with write access, and a repo can grow read/triage
-# collaborators, org members and outside contributors who must not ship a GA. So
-# the check lives in the job's FIRST STEP, before anything touches a release, and
-# a refusal is a red run that names the actor and the permission GitHub reported.
-# Restricting the UI is not a substitute for it and must not be treated as one.
+# ⚠️ `workflow_dispatch` has no "who may dispatch" setting and is open to every
+# account with write access, while a repo can grow read/triage collaborators who
+# must not ship a GA. So the check is the job's FIRST STEP, before anything
+# touches a release. Restricting the UI is not a substitute for it.
 #
 # ⚠️ FAIL-CLOSED, INCLUDING WHEN THE ANSWER NEVER ARRIVES. An API error, a missing
-# gh, an unparseable body, an absent field — all refuse. There is no "could not
-# check, carry on" path, and bin/tests/auto-beta-guard.sh (W4eD) proves that by
-# executing this step's own run: body against a stubbed gh.
+# gh, an unparseable body, an absent field — all refuse. auto-beta-guard (W4eD)
+# executes this step's own run: body against a stubbed gh to prove it.
 #
-# To change who may press: change who has write access to the repo. There is no
-# list in this file to edit, and adding one would be a step backwards.
+# To change who may press: change who has write access to the repo.
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# 🔴 PRESSED IT BY MISTAKE? HOW TO ROLL BACK
+# 🔴 A WRONG GA (promoted locally with bin/release): HOW TO ROLL BACK
 # ─────────────────────────────────────────────────────────────────────────────
 # A wrong promote does TWO separable things, and they need two different undos.
 # Do them in this order.
@@ -69,9 +52,9 @@
 #
 #         gh release edit <previous-good-GA-tag> --repo pkyosx/OffiCraft --latest=true
 #
-#     Stable-channel stations stop being offered it on their next check. Anyone who
-#     already upgraded in the window stays upgraded — this stops the bleeding, it
-#     does not un-ship the bytes. There is no downgrade path in the updater.
+#     Anyone who already upgraded in the window stays upgraded, and a station
+#     that booted it has already relayed its 給站長的新功能公告 to its owner —
+#     neither can be taken back. There is no downgrade path in the updater.
 #
 # (2) FLIP THE WRONG TAG BACK TO A PRERELEASE, so the release list says what it is:
 #
@@ -82,20 +65,19 @@
 #     prerelease flag, so the tag stays on offer to them either way — until a
 #     greater tag is published.
 #
-# (3) VERIFY BOTH, because issuing a command is not the same as it landing — the
-#     whole reason bin/release reads back rather than trusting `gh`:
+# (3) VERIFY BOTH, because issuing a command is not the same as it landing:
 #
 #         gh api repos/pkyosx/OffiCraft/releases/latest --jq .tag_name
 #         gh release view <wrongly-promoted-tag> --repo pkyosx/OffiCraft --json isPrerelease
 #
 # NOTHING IS DELETED in any of this. Do NOT `gh release delete` the bad tag: the
-# assets are what someone may already be running, and bin/release's promote path
-# fingerprints the asset set precisely so the shipped bytes stay the tested bytes.
+# assets are what someone may already be running.
 #
-# ⚠️ IF THE RUN FAILED PART-WAY, read its log before undoing anything. promote is
-# verify -> flip -> read-back: a VERIFY-FAILED [release-latest] means the flip was
-# issued and the read-back could not confirm it, so check (3) FIRST — the release
-# may be fully promoted, not promoted at all, or promoted with the pointer unset.
+# ⚠️ IF promote FAILED PART-WAY, read its output before undoing anything. It runs
+# verify -> write notes -> read notes back -> flip -> read back. A failure up to
+# the notes read-back leaves a prerelease (bin/release prints how to restore its
+# notes, or re-run the same command); a VERIFY-FAILED after the flip means the
+# flip was issued but not confirmed, so check (3) FIRST.
 name: GA promote
 
 # Manual only. No push, no pull_request, no schedule — this workflow must never
@@ -106,7 +88,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing verified prerelease tag to flip to GA, e.g. v0.5.256'
+        description: 'Existing verified prerelease tag, e.g. v0.5.256. This button can NOT promote it: a GA needs its release notes file (「## 這版的改動」, optionally 「## 給站長的新功能公告」), which a dispatch input cannot carry. Run bin/release promote <tag> --notes <file> locally instead (docs/dev/README.md).'
         required: true
         type: string
 
@@ -169,9 +151,8 @@ jobs:
 
       - uses: actions/checkout@v5
 
-      # No rebuild, by design: promote flips an EXISTING, already-verified
-      # prerelease, so the bytes that ship are the bytes that were tested. It needs
-      # gh and nothing else — no go, no node, no full history.
+      # 🔴 Called WITHOUT --notes on purpose, so this step always fails (see the
+      # file header). Do not add --notes, --no-announce or a flip of its own.
       - name: promote the tag to GA
         shell: bash
         env:

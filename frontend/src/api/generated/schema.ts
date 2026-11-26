@@ -10363,6 +10363,12 @@ export interface components {
              */
             task_due_soon_lead_minutes: number;
             /**
+             * Updater Announce Features
+             * @description Whether the station's assistant tells the owner, in chat, what a newly reached official release adds. After the station upgrades to one or more official (non-prerelease) releases whose GitHub release notes carry a feature announcement, the server sends the assistant one system message with at most the newest five announcements, and the assistant relays them. A never-set value reads true. false = nothing is checked or sent, and announcements for releases reached while it is off are never sent later.
+             * @default true
+             */
+            updater_announce_features: boolean;
+            /**
              * Updater Auto Update
              * @default false
              */
@@ -10451,7 +10457,9 @@ export interface components {
          *     admits prereleases; `updater_auto_update` toggles unattended background
          *     self-upgrade to the newest admissible release (both booleans; a never-set value
          *     reads false, and on a release build the first password set with the claim code
-         *     turns `updater_auto_update` on; the manual upgrade endpoint is unaffected). `updater_check_interval_secs`
+         *     turns `updater_auto_update` on; the manual upgrade endpoint is unaffected).
+         *     `updater_announce_features` toggles the assistant's new-release feature
+         *     announcements (a never-set value reads true). `updater_check_interval_secs`
          *     MUST be 60..3600. `task_due_soon_lead_minutes` MUST be 1..43200. The five document caps (T-ae38;
          *     the manual's one became two in T-30f1) are independent knobs. Each one MUST be
          *     between THAT segment's shipped default (the `default` on the matching
@@ -10621,6 +10629,11 @@ export interface components {
              * @description Minutes before a due date a task without its own lead counts as due soon. Must be between 1 and 43200 (30 days). A change makes the cockpit refetch its task counts.
              */
             task_due_soon_lead_minutes?: number | null;
+            /**
+             * Updater Announce Features
+             * @description Turn the assistant's new-release feature announcements on/off. Announcements for releases reached while it is off are never sent later.
+             */
+            updater_announce_features?: boolean | null;
             /** Updater Auto Update */
             updater_auto_update?: boolean | null;
             /**

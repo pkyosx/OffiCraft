@@ -2,7 +2,7 @@
 # officraft — THE release command. Two subcommands, one job each:
 #
 #   bin/release publish --beta <tag> --target <sha> [--dry-run] [--no-settle]
-#   bin/release promote <tag>                       [--dry-run]
+#   bin/release promote <tag> --notes <file> [--no-announce] [--dry-run]
 #
 # WHY THIS FILE HAS SUBCOMMANDS (T-588c). The old form was `bin/release <tag>`:
 # it built from whatever the CURRENT worktree's HEAD happened to be, packaged
@@ -119,6 +119,9 @@
 # and that the asset set and target commit are the same ones it verified. An
 # asset set that changed under promote means someone re-uploaded behind our back,
 # and that is a failure, not a warning.
+# Before the flip it writes the --notes file into the release notes and reads
+# them back: a station that reaches the GA reads its 給站長的新功能公告 once and
+# never again, so a GA must not exist without the notes it was meant to carry.
 #
 # ── RELEASES ARE NOT CODE-SIGNED, AND THERE IS NO OPTION TO SIGN ────────────
 # (owner ruling, T-0398, 2026-07-31: take the whole thing out, INCLUDING the
@@ -192,16 +195,28 @@ usage() {
   cat >&2 <<'USAGE'
 usage:
   bin/release publish --beta <tag> --target <sha> [--dry-run] [--no-settle]
-  bin/release promote <tag> [--dry-run]
+  bin/release promote <tag> --notes <file> [--no-announce] [--dry-run]
 
   publish   build <tag> from a clean staging worktree at <sha>, verify the
             artifacts, upload them as a PRERELEASE in one call, read back what
             GitHub stored, then wait for the live station to be on <sha>.
   promote   flip an existing, verified prerelease to the final release.
             Rebuilds nothing. Reads back that the flip landed.
+  --notes <file>
+            promote, required: "## 這版的改動" (required) then optionally
+            "## 給站長的新功能公告" — no other "## " headings, format rules in
+            docs/dev/README.md. The release notes must still be just publish's
+            one generated line; promote writes that line + a blank line +
+            <file>, reads it back, and only then flips. Stations read the
+            announcement section once, when they reach the release.
+  --no-announce
+            promote: required exactly when <file> has no announcement
+            section, refused when it has one.
 
   --dry-run publish: stop after artifact verification and print the upload
-            command. promote: verify the prerelease and print the flip command.
+            command. promote: verify the notes file, the prerelease and its
+            current notes, print the notes it would write and the flip
+            command; write and flip nothing.
   --no-settle
             publish: do NOT wait for a station to upgrade (step 8). Whether a
             self-hosted station moved is not a success condition for a release
@@ -383,17 +398,39 @@ cmd_publish() {
 # promote
 # ═══════════════════════════════════════════════════════════════════════════
 cmd_promote() {
-  local TAG="" DRY=0
+  local TAG="" DRY=0 NOTES_SRC="" NO_ANNOUNCE=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dry-run) DRY=1; shift ;;
+      --notes)
+        [[ $# -ge 2 && -n "$2" ]] || { echo "[release] --notes needs a file" >&2; usage; }
+        [[ "$2" != -* ]] || { echo "[release] --notes needs a file, got the option '$2' (write ./$2 for a file named like that)" >&2; usage; }
+        NOTES_SRC="$2"; shift 2 ;;
+      --no-announce) NO_ANNOUNCE=1; shift ;;
       -*) echo "[release] unknown promote argument: $1" >&2; usage ;;
       *) [[ -z "$TAG" ]] || { echo "[release] promote takes exactly one tag" >&2; usage; }
          TAG="$1"; shift ;;
     esac
   done
   [[ -n "$TAG" ]] || { echo "[release] promote needs a tag" >&2; usage; }
+  if [[ -z "$NOTES_SRC" ]]; then
+    echo "[release] promote needs --notes <file>: every GA carries its '$NOTES_CHANGES_HEADING' section." >&2
+    echo "[release] 正式版請在本機用 bin/release promote <tag> --notes <檔案> 執行。" >&2
+    usage
+  fi
   require_tag_shape "$TAG"
+  local HAS_ANNOUNCE
+  HAS_ANNOUNCE="$(check_notes_file "$NOTES_SRC")"
+  # Stations read the announcement once, when they first reach the GA, and
+  # never again: a forgotten one cannot be sent later, so leaving it out has to
+  # be said on the command line, and saying it while the file has one is a
+  # contradiction, not a preference.
+  if [[ "$HAS_ANNOUNCE" == yes && "$NO_ANNOUNCE" == 1 ]]; then
+    fail_item notes-announce "$NOTES_SRC has a '$ANNOUNCE_HEADING' section but --no-announce was given — drop one of them."
+  fi
+  if [[ "$HAS_ANNOUNCE" == no && "$NO_ANNOUNCE" == 0 ]]; then
+    fail_item notes-announce "$NOTES_SRC has no '$ANNOUNCE_HEADING' section, so stations get no announcement for $TAG. If that is intended, add --no-announce."
+  fi
   say "promote $TAG: existing prerelease -> final release (NO rebuild)"
 
   # Pre-flip verification: it must ALREADY be the thing we are allowed to promote.
@@ -405,14 +442,49 @@ cmd_promote() {
   BEFORE_FINGERPRINT="$(printf '%s\n' "$BEFORE" | sed -n '3,$p')"
   say "  verified prerelease on targetCommitish $BEFORE_TARGET"
 
+  local NOTES_DIR NOTES
+  NOTES_DIR="$(mktemp -d -t oc-release-notes.XXXXXX)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$NOTES_DIR'" EXIT
+  NOTES="$NOTES_DIR/notes.md"
+  read_release_body "$TAG" > "$NOTES_DIR/current.md"
+  compose_release_notes "$TAG" "$NOTES_DIR/current.md" "$NOTES_SRC" "$NOTES_DIR/auto-line" > "$NOTES"
+  # Notes already equal to what this file writes are a promote that failed
+  # after writing them: skip the write so re-running the same command resumes.
+  local WRITTEN=0
+  notes_match "$NOTES" "$NOTES_DIR/current.md" && WRITTEN=1
+  local RESTORE
+  RESTORE="gh release edit $TAG --repo $GH_REPO --notes '$(cat "$NOTES_DIR/auto-line")'"
+
   if [[ "$DRY" == 1 ]]; then
-    say "DRY RUN — prerelease verified, NOTHING flipped. The flip would be:"
+    say "DRY RUN — prerelease and notes verified, NOTHING written or flipped."
+    if [[ "$WRITTEN" == 1 ]]; then
+      say "The release notes already are exactly this (no write needed):"
+    else
+      say "The release notes would be replaced with (gh release edit $TAG --repo $GH_REPO --notes-file <file>):"
+    fi
+    echo "----- 8< -----"
+    cat "$NOTES"
+    echo "----- >8 -----"
+    say "The flip would be:"
     say "  gh release edit $TAG --repo $GH_REPO --prerelease=false --draft=false --latest=true"
     return 0
   fi
 
+  if [[ "$WRITTEN" == 1 ]]; then
+    say "  the release notes already are exactly this file's — not writing them again"
+  else
+    say "  writing the release notes"
+    gh release edit "$TAG" --repo "$GH_REPO" --notes-file "$NOTES" >/dev/null \
+      || notes_written_fail "gh release edit --notes-file failed — $TAG was NOT promoted, but GitHub may have stored the notes anyway." "$RESTORE" resume
+  fi
+  read_release_body "$TAG" > "$NOTES_DIR/stored.md"
+  notes_match "$NOTES" "$NOTES_DIR/stored.md" \
+    || notes_written_fail "VERIFY-FAILED [notes-readback]: the release notes GitHub stored for $TAG differ from what was written — $TAG was NOT promoted. Compare them with: gh release view $TAG --repo $GH_REPO --json body" "$RESTORE" restore 6
+  say "  release notes read back identical"
+
   gh release edit "$TAG" --repo "$GH_REPO" --prerelease=false --draft=false --latest=true \
-    || die "gh release edit failed — $TAG was NOT promoted."
+    || notes_written_fail "gh release edit failed — $TAG was NOT promoted, but its release notes ARE already written." "$RESTORE" resume
 
   # Read back: the flip landed, AND nothing else moved. Passing $BEFORE_TARGET as
   # the EXPECTED target is what pins the commit — a target that moved under the
@@ -438,6 +510,210 @@ cmd_promote() {
   [[ "$AFTER_FINGERPRINT" == "$BEFORE_FINGERPRINT" ]] \
     || fail_item promote-assets "the asset set changed during promote (name/size differ) — the promoted bytes are not the tested bytes."
   say "promoted and verified: $TAG is now the final release on $BEFORE_TARGET, and GitHub confirms it is Latest"
+}
+
+# ── the release notes promote --notes writes ─────────────────────────────────
+# The file is "## 這版的改動" (required, for every reader of the release page),
+# then optionally "## 給站長的新功能公告" (what stations relay to the owner).
+# 🔴 The announcement rules mirror releaseAnnouncementSection in
+# server/ocserverd/release_announce.go, the station-side reader. A section
+# accepted here must reach the owner whole: a line the reader would end the
+# section on, or silently drop, is refused instead of shipped. Change both
+# together.
+NOTES_CHANGES_HEADING="## 這版的改動"
+ANNOUNCE_HEADING="## 給站長的新功能公告"
+ANNOUNCE_MAX_RUNES=2000
+
+# check_notes_file <file> — prints "yes"/"no" (has an announcement section) on
+# stdout; exits 6 naming the broken rule. Warns, without refusing, when the
+# reader would truncate the announcement.
+check_notes_file() {
+  local rc=0
+  NOTES_FILE="$1" CHANGES_HEADING="$NOTES_CHANGES_HEADING" ANNOUNCE_HEADING="$ANNOUNCE_HEADING" \
+  ANNOUNCE_MAX_RUNES="$ANNOUNCE_MAX_RUNES" python3 -c '
+import os, re, sys, unicodedata
+
+path = os.environ["NOTES_FILE"]
+changes_h = os.environ["CHANGES_HEADING"]
+announce_h = os.environ["ANNOUNCE_HEADING"]
+max_runes = int(os.environ["ANNOUNCE_MAX_RUNES"])
+# Fixed order; each at most once; only the first is required.
+SECTIONS = [(changes_h, True), (announce_h, False)]
+
+def fail(item, msg):
+    sys.stderr.write("[release] VERIFY-FAILED [%s]: %s\n" % (item, msg))
+    raise SystemExit(6)
+
+try:
+    raw = open(path, "rb").read()
+except OSError as e:
+    fail("notes-file", "cannot read the notes file %r: %s" % (path, e.strerror or e))
+try:
+    text = raw.decode("utf-8")
+except UnicodeDecodeError as e:
+    fail("notes-format", "%s is not valid UTF-8 (%s)." % (path, e))
+
+# Same line breaks as releaseAnnounceLineBreaks: the reader splits on all five.
+for a in ("\r\n", "\r", "\x85", " ", " "):
+    text = text.replace(a, "\n")
+lines = text.split("\n")
+
+# Go unicode.IsSpace: Latin-1 controls plus every Zs, U+2028/2029.
+def go_space(c):
+    return c in "\t\n\v\f\r\x85  " or unicodedata.category(c) == "Zs"
+
+def go_trim(s):
+    i, j = 0, len(s)
+    while i < j and go_space(s[i]):
+        i += 1
+    while j > i and go_space(s[j - 1]):
+        j -= 1
+    return s[i:j]
+
+# releaseAnnounceFold, then a pattern wider than releaseAnnounceDelimiterLike:
+# a "===== 公告" line is refused even when the reader would let it through.
+def fold(line):
+    out = []
+    for c in line:
+        o = ord(c)
+        if 0xFF01 <= o <= 0xFF5E:
+            c = chr(o - 0xFEE0)
+        elif c in "﹦⁼₌":
+            c = "="
+        elif go_space(c):
+            c = " "
+        out.append(c)
+    return "".join(out).lstrip(" >*_`~")
+delimiter = re.compile(r"^=+\s*公告", re.ASCII)
+
+# A heading that is almost right is read by the station as body text, so the
+# announcement silently disappears; refuse it rather than let the
+# --no-announce hint below steer the author into shipping without one.
+ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"))
+# Only a line that IS the heading text once its marks are peeled off counts;
+# a sentence that merely contains the words is ordinary content.
+def bare(line):
+    t = fold(line).translate(ZERO_WIDTH)
+    return t.lstrip(" #>*_`~").rstrip(" :*_")
+for n, line in enumerate(lines, start=1):
+    if line.rstrip(" \t") in (changes_h, announce_h):
+        continue
+    for h in (changes_h, announce_h):
+        if bare(line) == h[3:]:
+            fail("notes-format", "%s line %d looks like the %r heading but is not exactly that line (no leading space, \"## \" with one ASCII space, nothing after it); stations would not see it as the section. Line: %r" % (path, n, h, line))
+
+first = next((i for i, l in enumerate(lines) if go_trim(l)), None)
+if first is None:
+    fail("notes-format", "%s is empty; its first line must be exactly %r." % (path, changes_h))
+# The reader matches a heading after trimming trailing spaces/tabs only, so
+# leading whitespace or a BOM makes it invisible to every station.
+if lines[first].rstrip(" \t") != changes_h:
+    fail("notes-format", "%s line %d must be exactly %r (the first non-empty line, nothing before it, no leading space); found %r." % (path, first + 1, changes_h, lines[first]))
+
+# Split into sections at every "## " line: the reader ends the announcement at
+# the first one, so no other "## " heading may exist at all.
+found = []   # [heading, line number, body lines]
+expect = 0
+for n, line in enumerate(lines[first:], start=first + 1):
+    if not line.startswith("## "):
+        found[-1][2].append((n, line))
+        continue
+    h = line.rstrip(" \t")
+    names = [x for x, _ in SECTIONS]
+    if h not in names:
+        fail("notes-format", "%s line %d is a \"## \" heading other than %s; only those two may appear (stations stop reading the announcement at any \"## \" line). Use \"### \" instead. Line: %r" % (path, n, " / ".join(repr(x) for x in names), line))
+    idx = names.index(h)
+    if idx < expect:
+        fail("notes-format", "%s line %d: %r appears again or out of order; the order is %s, each at most once." % (path, n, h, " then ".join(repr(x) for x in names)))
+    expect = idx + 1
+    found.append([h, n, []])
+
+for h, n, body in found:
+    if not go_trim("\n".join(l for _, l in body)):
+        fail("notes-format", "%s line %d: %r has nothing under it." % (path, n, h))
+
+announce = next((f for f in found if f[0] == announce_h), None)
+if announce:
+    for n, line in announce[2]:
+        if delimiter.match(fold(line)):
+            fail("notes-format", "%s line %d looks like the \"===== 公告開始/結束\" delimiter stations wrap the announcement in; stations drop such lines. Line: %r" % (path, n, line))
+    runes = len(go_trim("\n".join(l for _, l in announce[2])))
+    if runes > max_runes:
+        sys.stderr.write("[release] WARNING: the announcement is %d characters; stations cut it to %d (a trailing 完整說明 block is kept). Not refused.\n" % (runes, max_runes))
+print("yes" if announce else "no")
+' || rc=$?
+  [[ "$rc" == 0 ]] || exit "$rc"
+  echo "[release]   notes file $1 passes the format rules" >&2
+}
+
+# read_release_body <tag> — the stored release notes, raw, on stdout.
+read_release_body() {
+  local json rc=0
+  json="$(gh release view "$1" --repo "$GH_REPO" --json body 2>/dev/null)" \
+    || fail_item notes-read "gh release view $1 --json body failed — cannot read the current release notes."
+  python3 -c '
+import json, sys
+body = json.loads(sys.stdin.read()).get("body")
+if not isinstance(body, str):
+    raise SystemExit(1)
+sys.stdout.write(body)
+' <<<"$json" || rc=$?
+  [[ "$rc" == 0 ]] || fail_item notes-read "gh release view $1 --json body returned no readable body."
+}
+
+# compose_release_notes <tag> <current-notes-file> <notes-file> <auto-line-out>
+# — refuses unless the current notes are exactly publish's one generated line,
+# or already exactly what this file writes, so notes someone else wrote are
+# never overwritten. Writes publish's line to <auto-line-out>.
+compose_release_notes() {
+  local rc=0
+  WANT_TAG="$1" GH_REPO="$GH_REPO" python3 - "$2" "$3" "$4" <<'PY' || rc=$?
+import os, re, sys
+tag = os.environ["WANT_TAG"]
+current = open(sys.argv[1], encoding="utf-8").read().replace("\r", "")
+notes = open(sys.argv[2], encoding="utf-8").read()
+auto = re.compile(r"OffiCraft %s \([^()\n]*\) — built from [0-9a-f]{7,40}\. Install: see install\.sh\." % re.escape(tag))
+line = current.strip()
+if not auto.fullmatch(line):
+    head = line.split("\n", 1)[0].strip()
+    norm = lambda t: t.replace("\r", "").rstrip("\n")
+    if auto.fullmatch(head) and norm(current) == norm(head + "\n\n" + notes):
+        line = head
+    else:
+        shown = current if len(current) <= 400 else current[:400] + "…"
+        sys.stderr.write("[release] VERIFY-FAILED [notes-existing]: %s release notes are neither just the line publish wrote nor exactly what this file writes, so --notes will not overwrite them. Current notes:\n%s\n" % (tag, shown))
+        if auto.fullmatch(head):
+            sys.stderr.write("[release]   To discard them and keep only publish's line, then re-run:\n[release]     gh release edit %s --repo %s --notes '%s'\n" % (tag, os.environ.get("GH_REPO", "<repo>"), head))
+        raise SystemExit(6)
+open(sys.argv[3], "w", encoding="utf-8").write(line)
+sys.stdout.write(line + "\n\n" + notes)
+PY
+  [[ "$rc" == 0 ]] || exit "$rc"
+}
+
+# notes_written_fail <message> <restore-command> <resume|restore> [exit-code]
+# — a failure after the release notes may have changed. The release is still a
+# prerelease, so stations relay nothing; say how to go on from here.
+notes_written_fail() {
+  echo "[release] $1" >&2
+  if [[ "$3" == resume ]]; then
+    echo "[release]   Re-running the same command resumes from here. To put the notes back instead:" >&2
+  else
+    echo "[release]   Re-running is refused while the notes are like this. Put them back, then re-run:" >&2
+  fi
+  echo "[release]     $2" >&2
+  exit "${4:-1}"
+}
+
+# notes_match <written> <stored> — GitHub may hand back CRLF and drop the final
+# newline, neither of which changes what anyone reads.
+notes_match() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+def norm(p):
+    return open(p, encoding="utf-8").read().replace("\r", "").rstrip("\n")
+raise SystemExit(0 if norm(sys.argv[1]) == norm(sys.argv[2]) else 1)
+PY
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1171,7 +1447,7 @@ case "$SUB" in
 [release]
 [release] Then, once the beta is proven, promote it WITHOUT rebuilding:
 [release]
-[release]   bin/release promote $SUB
+[release]   bin/release promote $SUB --notes <file>
 EOM
     exit 2 ;;
   *) echo "[release] unknown subcommand: $SUB" >&2; usage ;;

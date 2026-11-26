@@ -2,16 +2,15 @@ package main
 
 import "strings"
 
-// workerSharedHead mirrors the first two blocks of the staff fold
-// (buildBootContext): 系統互動, then 使用者自訂 only when the owner text is
-// non-blank. The 啟動步驟 block is NOT here: it is the recency-authoritative tail and is
+// workerSharedHead mirrors the head of the staff fold (buildBootContext):
+// 系統互動, 使用者語言, then 使用者自訂 only when the owner text is non-blank. The 啟動步驟 block is NOT here: it is the recency-authoritative tail and is
 // appended last by buildWorkerBootContext.
 func (s *apiServer) workerSharedHead() (string, error) {
 	sys, err := s.systemInteractionText()
 	if err != nil {
 		return "", err
 	}
-	parts := []string{strings.TrimSpace(sys)}
+	parts := []string{strings.TrimSpace(sys), userLanguageBlock(s.displayLanguageSnapshot())}
 
 	userCtx, err := s.foldUserContextDTO()
 	if err != nil {

@@ -2995,6 +2995,7 @@ export const httpApi: Api = {
       updater_receive_beta?: boolean;
       updater_auto_update?: boolean;
       updater_check_interval_secs?: number;
+      updater_announce_features?: boolean;
       org_name?: string;
       owner_name?: string;
       push_contact_email?: string;
@@ -3089,6 +3090,9 @@ export const httpApi: Api = {
     }
     if (patch.updaterCheckIntervalSecs !== undefined) {
       body.updater_check_interval_secs = patch.updaterCheckIntervalSecs;
+    }
+    if (patch.updaterAnnounceFeatures !== undefined) {
+      body.updater_announce_features = patch.updaterAnnounceFeatures;
     }
     if (patch.orgName !== undefined) body.org_name = patch.orgName;
     if (patch.ownerName !== undefined) body.owner_name = patch.ownerName;

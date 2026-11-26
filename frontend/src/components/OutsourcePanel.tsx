@@ -69,6 +69,7 @@ export function OutsourceTaskLine({
   idPrefix: string;
 }) {
   const { t } = useI18n();
+  const typeLabel = taskTypeLabel(t, w.taskTypeKey ?? "", w.taskTypeName ?? "") || t.tasks.adhoc;
   return (
     <span
       className="outsource-row__task-line"
@@ -99,8 +100,9 @@ export function OutsourceTaskLine({
       <span
         className="outsource-row__type"
         data-testid={`${idPrefix}-type-${w.id}`}
+        title={typeLabel}
       >
-        {taskTypeLabel(t, w.taskTypeKey ?? "", w.taskTypeName ?? "") || t.tasks.adhoc}
+        {typeLabel}
       </span>
     </span>
   );

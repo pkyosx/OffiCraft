@@ -2518,11 +2518,14 @@ export const en: Dict = {
     receiveBeta: "Receive beta versions",
     receiveBetaSub: "Update checks also follow GitHub prereleases · off = official releases only",
     autoUpdate: "Automatic updates",
-    autoUpdateSub: "Upgrade and restart in the background when a newer version appears · on by default for new installs; stations already in use keep their setting",
+    autoUpdateSub: "Upgrade and restart in the background when a newer version appears",
     updateCheckInterval: "Update check interval",
     updateCheckIntervalSub:
       "How often the server asks GitHub in the background whether a newer version exists; Check for updates and upgrading always ask right away (1–60 minutes)",
     minutes: "minutes",
+    announceFeatures: "Let the assistant tell me about new-version features",
+    announceFeaturesSub:
+      "After upgrading to an official release that has a feature announcement, your assistant tells you in chat what it adds",
     upgradeFailed: "Upgrade failed",
     upgradeRestarting:
       "Upgrading — the new version is installed and the server is restarting; this page will reload by itself.",

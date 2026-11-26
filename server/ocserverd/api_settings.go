@@ -235,6 +235,11 @@ func (s *apiServer) HandleSetPasswordApiAuthSetPasswordPost(w http.ResponseWrite
 			if err := putSettingOn(tx, settingUpdaterAutoUpdate, strconv.FormatBool(true)); err != nil {
 				return err
 			}
+			// A new install is never told about releases older than itself
+			// (release_announce.go).
+			if err := putSettingOn(tx, settingReleaseAnnounceFloor, appVersion); err != nil {
+				return err
+			}
 		}
 		return deleteSettingOn(tx, settingClaimToken)
 	})
@@ -776,6 +781,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		v := *body.UpdaterCheckIntervalSecs
 		put(settingUpdaterCheckIntervalSecs, strconv.Itoa(v), func() { s.updaterCheckIntervalSecs = v })
 	}
+	if body.UpdaterAnnounceFeatures != nil && *body.UpdaterAnnounceFeatures != s.updaterAnnounceFeatures {
+		v := *body.UpdaterAnnounceFeatures
+		put(settingUpdaterAnnounceFeatures, strconv.FormatBool(v), func() { s.updaterAnnounceFeatures = v })
+	}
 	if body.OrgName != nil && orgName != s.orgName {
 		put(settingOrgName, orgName, func() { s.orgName = orgName })
 	}
@@ -926,6 +935,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		UpdaterReceiveBeta:               s.updaterReceiveBeta,
 		UpdaterAutoUpdate:                s.updaterAutoUpdate,
 		UpdaterCheckIntervalSecs:         s.updaterCheckIntervalSecs,
+		UpdaterAnnounceFeatures:          s.updaterAnnounceFeatures,
 		OrgName:                          s.orgName,
 		OwnerName:                        s.ownerName,
 		PushContactEmail:                 s.pushContactEmail,

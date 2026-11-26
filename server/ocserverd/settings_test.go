@@ -159,6 +159,9 @@ func TestLoadAuthSettings(t *testing.T) {
 		if got.updaterCheckIntervalSecs != 300 {
 			t.Fatalf("fresh update check interval: want 300, got %d", got.updaterCheckIntervalSecs)
 		}
+		if !got.updaterAnnounceFeatures {
+			t.Fatal("fresh release announcements: want on (no row reads true), got off")
+		}
 		again, secondLogs, err := settingsTestLoadAuth(t, d, defaultConfig())
 		if err != nil {
 			t.Fatalf("second loadAuthSettings: %v", err)
@@ -248,6 +251,7 @@ func TestLoadAuthSettings(t *testing.T) {
 			settingRuntimeLoginRecheckIntervalSecs: "90",
 			settingDiskUsageIntervalSecs:           "7200",
 			settingUpdaterCheckIntervalSecs:        "900",
+			settingUpdaterAnnounceFeatures:         "false",
 			settingSuggestedRepliesReplyCard:       ` ["first"] `,
 			settingSuggestedRepliesTaskMessage:     `["second","third"]`,
 		} {
@@ -281,6 +285,9 @@ func TestLoadAuthSettings(t *testing.T) {
 		if got.updaterCheckIntervalSecs != 900 {
 			t.Fatalf("update check interval did not load as stored: %d", got.updaterCheckIntervalSecs)
 		}
+		if got.updaterAnnounceFeatures {
+			t.Fatal("release announcements turned off did not load as stored")
+		}
 		wantCtx := SseContextHighConfig{NoticePct: 41, HandoverPct: 66, MinBootSecs: 12.5, StaleGuard: false}
 		if got.ctxHigh != wantCtx {
 			t.Fatalf("context settings did not load as stored: %+v", got.ctxHigh)
@@ -311,6 +318,7 @@ func TestLoadAuthSettings(t *testing.T) {
 			{name: "update check interval below range", key: settingUpdaterCheckIntervalSecs, value: "59", want: `settings updater.check_interval_secs: must be between 60 and 3600 seconds: "59"`},
 			{name: "update check interval above range", key: settingUpdaterCheckIntervalSecs, value: "3601", want: `settings updater.check_interval_secs: must be between 60 and 3600 seconds: "3601"`},
 			{name: "update check interval not a number", key: settingUpdaterCheckIntervalSecs, value: "often", want: `settings updater.check_interval_secs: must be between 60 and 3600 seconds: "often"`},
+			{name: "release announcements not a bool", key: settingUpdaterAnnounceFeatures, value: "sometimes", want: `settings updater.announce_features: not a bool: "sometimes"`},
 			{name: "invalid suggested reply JSON", key: settingSuggestedRepliesTaskMessage, value: "not-json", want: `settings suggested_replies.task_message: must be a JSON array of strings: "not-json"`},
 		}
 		for _, tc := range cases {

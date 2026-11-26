@@ -116,6 +116,18 @@ describe("httpApi · PATCH bodies carry ONLY the supplied fields", () => {
     expect(JSON.parse(String(body))).toEqual({ display_seasonal_theme: false });
     expect(s.displaySeasonalTheme).toBe(false);
   });
+
+  it("patchServerSettings {updaterAnnounceFeatures: false} sends {updater_announce_features: false} only", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ owner_token_ttl: 86400, agent_token_ttl: 604800, updater_announce_features: false })
+    );
+    const s = await httpApi.patchServerSettings({ updaterAnnounceFeatures: false });
+    const { url, method, body } = await lastRequest();
+    expect(url).toBe("/api/settings");
+    expect(method).toBe("PATCH");
+    expect(JSON.parse(String(body))).toEqual({ updater_announce_features: false });
+    expect(s.updaterAnnounceFeatures).toBe(false);
+  });
 });
 
 describe("httpApi · secret reply cards", () => {

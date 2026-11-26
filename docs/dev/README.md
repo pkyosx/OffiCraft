@@ -251,7 +251,7 @@ CI 的 wire-freeze gate 擋任何未過 spec 的漂移；行為面由 `conforman
 
 ```
 bin/release publish --beta <tag> --target <sha> [--dry-run] [--no-settle]
-bin/release promote <tag>                       [--dry-run]
+bin/release promote <tag> --notes <file> [--no-announce] [--dry-run]
 ```
 
 - `publish` 從 `<sha>` 切一個**丟棄式 detached staging worktree**(不是「當前 tree 乾淨就好」——bytes 來自你指名的那個 commit),在裡面 build、打包每個支援平台各一個 tarball(平台清單是 `bin/release` 的 `RELEASE_PLATFORMS`),**上傳前先驗 artifact**(每個 tarball 的 member list、每顆 binary 都是該 tarball 平台的執行檔格式、從 `go version -m` 讀 ocserverd 真正被 link 進去的 `appVersion`/`buildSHA`、`shasum -c`),然後**一次** `gh release create --prerelease --target <sha>` 帶齊全部 asset(所以不存在「release 已建立但 asset 只上傳一半」的視窗)。
@@ -270,7 +270,38 @@ bin/release promote <tag>                       [--dry-run]
   - `promote` **刻意不再驗一次**:它不重 build,出貨的 bytes 就是那顆 beta 已經被這道閘驗過的 bytes。
 - 🔴 **出 GA 前的那一輪由人自己跑,不在 `promote` 裡**:`publish` 那道閘讀的是雲端那一輪,裡面的 `e2e-isolation-guard` **一支 playwright spec 都沒跑**(它只驗 `run_all.sh` 的 wiring 形狀);真正跑瀏覽器的是 `macos-e2e`,但那也不等於 `bin/local-ci.sh` 的完整 pre-GA 輪。要在出 GA 前真的把 spec 跑過一遍,跑 `bash bin/local-ci.sh`(改到 live-agent 行為時加 `--live-agent`,會花錢),見〈CI〉。**這刻意沒有被接進 `bin/release`**——那會讓每一顆 beta 都多付一輪 e2e,而自動發 beta 是無人值守的。
 - `promote` 把**既有且已驗過**的 prerelease 翻成正式版,**不重 build**——大家測的 bytes 就是出貨的 bytes。翻的指令是 `gh release edit <tag> --prerelease=false --draft=false --latest=true`,翻完**回讀** GitHub 實際存的東西:若 asset 集合在翻的過程中變了(有人偷偷重傳)那是**失敗**,不是警告;🔴 **若 `--latest` 沒有真的落地(`GET /repos/<repo>/releases/latest` 的 `tag_name` 不是這顆 tag)也是失敗**,以 `[release] VERIFY-FAILED [release-latest]` 非零退出,並印出可執行的下一步(`gh release edit <tag> --repo <repo> --latest=true`)——**下指令不等於做到**,漏設 Latest 不能只靠人記得補。`gh release view --json` 沒有 `isLatest` 欄位(2026-08-28 對 gh 2.93.0 量過),回讀改問 `/repos/<repo>/releases/latest` 這個端點、比對 tag 名。 這個回讀是**短 retry-with-backoff**,跟第 8 步 `settle_station` 同一套形狀(`OC_RELEASE_LATEST_TRIES`/`OC_RELEASE_LATEST_SLEEP`,預設 3 次、間隔 2s)——理由是 GitHub 沒承諾 `--latest=true` 在 `gh release edit` 回來的當下就反映在 `/releases/latest` 上,單發回讀量到「還沒生效」會印一個**假失敗**(release 其實設好了,腳本卻說沒設),那會訓練人忽略這道新守衛。仍然 fail-closed:重試預算用完還是讀不到就照樣 `exit 6`。
-- `--dry-run`:build + 驗完就停,印出它本來會跑的上傳指令,**什麼都不上傳**。彩排用這個。
+- 🔴 **`promote` 一定要帶 `--notes <檔案>`,它會先把這份檔案寫進 release 說明、讀回比對,通過才翻正式版**。不帶 `--notes` 直接報錯(每一版正式版都要有改動說明)。檔案是固定兩段:
+  - `## 這版的改動`(**必要**):給所有人看的完整改動清單。**第一個非空行**必須整行就是這個標題(前面不能有任何字、不能有前導空白;行尾空白／tab 可以),段內至少一行非空內容。
+  - `## 給站長的新功能公告`(**選填**,有的話必須在改動段**後面**,而且是檔案的最後一段——它後面寫的任何東西(`---`、署名……)都會被當成公告的一部分一起轉告):站台升級到這個正式版後,會讀說明裡標題**整行一字不差**為這行的那一段(到下一個 `## ` 行或說明結尾為止),交給助理轉告 Owner(`server/ocserverd/release_announce.go`)。段內不能有 `## ` 開頭的行(站台讀到那裡就停)、不能有 `===== 公告開始`／`公告結束` 這類 `===== 公告` 開頭的行(站台會拿掉;全形 `＝`、前面加 `>`／`*` 的寫法一樣擋)、標題後至少一行非空內容。超過 2000 字只印**警告**不擋:站台會截斷,段落**最後**的「完整說明」區塊會保留(同一行 `**完整說明**：https://…` 或下面範例的兩行寫法都可以;區塊超過 300 字、或後面還有別的文字,就不保留)。
+  - 除了這兩個標題,檔案裡**不得有其他 `## ` 開頭的行**;兩段順序固定、各最多一次。小標用 `### `。看起來像這兩個標題、卻不是一字不差的那一行(去掉 `#`、全形 `＃`、空白、零寬字元、`>`／`*`／`_` 與結尾的 `：` 之後,剩下的正好是標題文字:`##給站長…`、`### 給站長…`、`## 這版的改動：`、前導空白、全形空白……)都**直接拒絕並報行號**——站台不會把它當成公告段,公告會無聲消失。內文句子裡出現這兩個詞沒有關係。
+  - 🔴 **沒寫公告段時必須同時給 `--no-announce`;有公告段時不得給 `--no-announce`**。站台只在第一次升到那一版時讀一次,GA 之後才補寫的,已經處理過那一版的站台不會再讀(正在跑某一版 beta 的站,那一版之後才 GA 時,下次重新啟動才轉告)——漏寫補不回來,所以「這版不發公告」必須在指令上明講。沒有公告段的正式版、以及預發佈版本,站台什麼都不會送。
+  - 寫入前 release 說明必須**只有** `publish` 自動寫的那一行(`OffiCraft <tag> (<平台>) — built from <sha>. Install: see install.sh.`,前後空白／換行不計),**或者正好已經是這份檔案會寫出的內容**(見下面「接續」);其他內容一律報錯、**不覆蓋**。寫入的內容是「那一行 + 空行 + 檔案全文」(檔案的 CRLF 寫成 LF),`gh release edit --notes-file` 寫完立刻讀回比對(忽略 `\r` 與結尾換行的差異),不同就報錯、**不翻正式版**。
+  - **動 GitHub 之前**就報錯、什麼都沒改的:`[release] VERIFY-FAILED [notes-file]`(檔案讀不到)／`[notes-format]`／`[notes-announce]`(公告段與 `--no-announce` 不一致)／`[notes-read]`(讀不到現有說明)／`[notes-existing]`(現有說明不能覆蓋;若第一行仍是 publish 那一行,會印出還原指令)。`--dry-run` 一樣做這些檢查,印出將寫入的完整說明,什麼都不寫、不翻。檔案規則跟站台讀取端對齊,改其中一邊要一起改另一邊。
+  - **寫入之後**才可能失敗的三處,release 都還是預發佈版本(站台不會轉告),而且都會印出可直接貼上的還原指令 `gh release edit <tag> --repo <repo> --notes '<publish 那一行>'`:
+    - `gh release edit --notes-file` 回非零(GitHub 可能其實已經存了)、或說明寫好之後翻版失敗:**直接重跑同一行指令就會接續**——說明已經正好是這份檔案的內容時,`promote` 不重寫,讀回比對後直接翻版。
+    - `[notes-readback]`(GitHub 存的跟寫的不一樣):重跑會被 `[notes-existing]` 擋,先貼還原指令把說明改回那一行再重跑。
+
+  ```markdown
+  ## 這版的改動
+
+  - 修正……
+  - 新增……
+
+  ## 給站長的新功能公告
+
+  (選填)一兩句這版的重點。
+
+  ### 新功能
+  - **功能名稱**：站長會看到什麼、怎麼用,一句話。
+  - **功能名稱**：……
+
+  **Demo 影片**  
+  https://…
+
+  **完整說明**  
+  https://…
+  ```
+- `--dry-run`:`publish` build + 驗完就停,印出它本來會跑的上傳指令,**什麼都不上傳**。彩排用這個。`promote` 見上面 `--notes` 那條。
 - `--no-settle`:**不等站台升上來**(跳過第 8 步)。理由是 owner 2026-08-05 裁定一:OffiCraft 是大家自架的服務、不是這個 repo 在營運的 SaaS,所以「某台站有沒有升上去」不是發版的成功條件;而無人值守的 runner 根本連不到私人站台,不給旗標的話每一輪自動發版都會死在一個跟 artifact 無關的理由上。**只是明示的 per-invocation opt-out**:預設一個字都沒變(人工發版照樣等站台、等不到照樣紅),第 7 步的回讀與 build 前的 CI 閘都**不受影響**,而且開了旗標那一輪會印一行講明為什麼不驗、結尾成功訊息也**不會**宣稱站台已在那顆 commit 上。守衛在 `bin/tests/release-guard.sh`(E3/E3b/E3c/E3d):E3 是它的**陽性對照**——同一組假站台狀態(站在別的 commit),不帶旗標仍以 `station-settle` 失敗,帶了才回 0。
 
 ### 回讀查證(publish 的第 7、8 步)
@@ -314,13 +345,13 @@ isDraft False | isPrerelease True | targetCommitish fb89a69aad8c
 owner 2026-08-28 於 rc-f9d284c0aef7 裁定:GA 可以在 GitHub UI 上有一顆手動 action,**但只有 seth / eva 可以跑**。那顆按鈕就是這支 workflow;「誰能跑」現在綁的是 repo 的 collaborator 權限,而非檔案裡的兩個帳號名。
 
 - **只吃一個輸入**:要 promote 的 tag。**它不會自己挑**(不去找「最新那顆 beta」)——「決定是我下的」,workflow 只是執行手段。
-- **做的事就是呼叫 `bin/release promote <tag>`**,沒有第二份發版邏輯:翻版(`--prerelease=false --draft=false --latest=true`)、回讀驗證、asset 指紋比對、fail-closed 全都在 `bin/release` 裡,見上面〈release〉那節。**不重 build**——出貨的 bytes 就是那顆 beta 被驗過的 bytes。
+- 🔴 **這顆按鈕現在一定失敗,不會發出正式版**:它呼叫 `bin/release promote <tag>` 但不帶 `--notes`(workflow 的輸入帶不了一份檔案),`bin/release` 就以「正式版請在本機用 `bin/release promote <tag> --notes <檔案>` 執行」拒絕。拒絕只寫在 `bin/release` 一處,workflow 沒有第二份發版邏輯;`bin/tests/auto-beta-guard.sh` 的 W4e5 釘住這支 workflow 只有一個 `bin/release promote` 呼叫、那個呼叫不帶 `--notes` 也不帶 `--no-announce`、沒有任何 step 自己 `gh release edit` 或帶翻版旗標,所以按鈕繞不過說明檢查。正式版請在本機跑,見上面〈發版指令〉。
 - 🔴 **誰能按:本 repo 具 write／admin 的 collaborator,其餘一律擋。**
   job 的**第一個 step** 拿 `github.actor` 去問 GitHub `GET /repos/{owner}/{repo}/collaborators/{actor}/permission`,回 `admin` 或 `write` 才放行。owner 的裁定是「只有 seth / eva」;2026-08-28 實測本 repo 的 collaborator 恰好就是 `pkyosx`(admin)與 `8thEdition`(push),所以這是同一條裁定——只是寫成它真正依據的那個權限,而不是兩個會過期的字串。
   ⚠️ **GitHub 擋不住這件事**:`workflow_dispatch` 沒有「誰可以按」的設定,任何有 write 權限的帳號都能按,而 repo 隨時可能多出 read／triage 的 collaborator。所以閘在 job 裡自己擋,拒絕時紅、並印出被拒的帳號與 GitHub 回報的權限。**UI 權限不是替代品。**
   ⚠️ **fail-closed**:API 出錯、`gh` 不在、body 解不出來、欄位缺席——**一律擋**,沒有「查不到就放行」這條路。`bin/tests/auto-beta-guard.sh` 的 W4eD 餵一支假 `gh` 把這個 step 的 `run:` body 真的跑一遍來釘住這件事,W4e1 另外禁止 gate body 裡再出現任何寫死的帳號名。
   要改誰能按:**改 repo 的 collaborator 權限**,檔案裡沒有名單可編。
-- **按錯了怎麼回退**(完整版寫在 workflow 檔頭,那裡是權威):
+- **發錯正式版怎麼回退**(按鈕已發不出正式版,這是給本機 `promote` 發錯時用的;完整版寫在 workflow 檔頭,那裡是權威):
   1. **先止血**——`server/ocserverd/update_check.go` 讀 GitHub 的公開 release 頁:stable 頻道的站吃的是 GitHub 標成 **Latest** 的那一顆(`github.com/<repo>/releases/latest`)。所以決定 stable 站會不會吃到的是 **Latest 指標**,先把它移回上一顆正式版:
      `gh release edit <上一顆正式版 tag> --repo pkyosx/OffiCraft --latest=true`
   2. **再把按錯的 tag 翻回 prerelease**,讓 release 清單名實相符:
@@ -338,7 +369,7 @@ owner 2026-08-28 於 rc-f9d284c0aef7 裁定:GA 可以在 GitHub UI 上有一顆�
 - **gate job 紅** ⇒ `auto-beta` 根本不跑 ⇒ 確實沒有 beta。
 - **`auto-beta` 自己在 upload 之後失敗**(回讀某一項不符、runner 中途死、asset 只上傳一半——`gh release create` 那句 die 訊息本身就寫著「check GitHub for a partially created release」)⇒ **留下一顆沒通過回讀的 prerelease,沒有人回收它**。
 
-嚴重度分兩種:存成 **draft** 的無害(draft 不會出現在 `releases.atom`,也不會是 Latest,站台看不到);**asset 缺失或不全**的 prerelease **beta 頻道的站看得見**(`update_check.go` 只看 feed 裡 semver 最大的 tag,不檢查 asset),`auto_update` 開著的 beta 站會挑上它,然後升級在下載那一步拒絕(缺 asset = 無法驗證,什麼都不動),每一輪重試都一樣,直到下一次 merge 發出更大的 tag 才被蓋過去。stable 頻道的站只跟 Latest,不受影響。
+嚴重度分兩種:存成 **draft** 的無害(draft 不會出現在 `releases.atom`,也不會是 Latest,站台看不到);**asset 缺失或不全**的 prerelease **beta 頻道的站看得見**(`update_check.go` 只看 feed 裡 semver 最大的 tag,不檢查 asset),`auto_update` 開著的 beta 站會挑上它,然後升級在下載那一步拒絕(缺 asset = 無法驗證,什麼都不動);同一個 tag 連續失敗會退避重試(5 分鐘起倍增、上限 6 小時,`auto_update.go` 的 `autoUpdateBackoff`),直到下一次 merge 發出更大的 tag(或 owner 手動按升級)才重新從頭算。stable 頻道的站只跟 Latest,不受影響。
 
 **人工清理**:確認 job 紅的原因在 upload 之後,然後
 ```

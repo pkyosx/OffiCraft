@@ -13,6 +13,10 @@ package main
 // Latest (so moving that pointer is what rolls stable stations back); the beta
 // channel takes the semver-greatest entry of the releases feed whatever its
 // prerelease flag, because the feed does not carry the flag.
+//
+// The one api.github.com caller is release_announce.go, by owner decision: this
+// rule protects upgrades, and that path is optional — when the budget is gone
+// an announcement only arrives later, and it never gates an upgrade.
 
 import (
 	"encoding/xml"
