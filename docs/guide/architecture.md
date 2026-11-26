@@ -56,7 +56,7 @@ In the following cases, the member starts with Claude Code this time, but the ch
 
 Members upgraded from older versions already have Claude Code saved as their runtime, and this does not change automatically.
 
-Change "AI runtime" in the launch settings to the other option and confirm, and the selected runtime is saved and fixed. For a member with no runtime chosen yet, the screen already shows Claude Code, and confirming it unchanged does not save it. For what to do when a member cannot start on a machine that only has Codex installed, see "Machine has only Codex installed and Mira or new members cannot start" in [Troubleshooting and FAQ](troubleshooting.md).
+Change "AI runtime" in the launch settings to the other option and confirm, and the selected runtime is saved and fixed. For a member with no runtime chosen yet, the screen already shows Claude Code, and confirming it unchanged does not save it. For what to do when a member cannot start on a machine that only has Codex installed, see "The machine has only Codex, and Mira or a new member will not start" in [Troubleshooting and FAQ](troubleshooting.md).
 
 ## How member status is determined
 
