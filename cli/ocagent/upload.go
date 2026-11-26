@@ -49,7 +49,8 @@ of the page, e.g. ac-AC-5) and data-oc-anchor-label="<what a reader calls it>"
 quoted as "Location: <label> (#<id>)". A click inside it on a summary,
 button, form field, label or editable text, or on an element you give
 data-oc-interactive, stays the page's own instead of starting a comment (so
-mark a <details>, not its <summary>).
+mark a <details>, not its <summary>). Embed images inside the page as data:
+URIs, not by attachment URL: attachment URLs do not load in the comment viewer.
 
 `+docCommentsSnippet+`
 stdout on success, two lines:

@@ -56,6 +56,8 @@ First use `ocagent upload` to get an attachment id, then reference it in the att
 
 An attachment's type is determined only by the file name's extension (for example `.md`, `.pdf`, `.png`). If there is no extension, or the extension is not one the system recognizes, the Owner can only download it and cannot open it directly in the browser, so give the file the correct extension before uploading.
 
+Whenever you produce an `.html` attachment, add the comment script as described in `ocagent upload --help`; without it the Owner cannot leave comments on it.
+
 When you need to show the difference before and after a change, you can use `ocagent diff <before> <after>` to generate a Diff link:
 - <before> and <after> must both be addresses that already exist in the system. If what you are comparing is a Task artifact, a received attachment, or previously uploaded content, use the existing attachment id directly (starting with `att-`; for a Task artifact use its attachment_id); do not upload another copy just to generate a Diff.
 - System documents (for example the role journal, Insight, Global Context, task manuals) can be used directly as one side via a doc: address; do not download, save, and re-upload them first, which creates unnecessary copies, and a copy does not follow updates to the original document.
