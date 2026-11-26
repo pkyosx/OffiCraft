@@ -822,29 +822,6 @@
   line-height: 1.5;
   color: var(--color-text-muted);
 }
-.mon-cmd__row {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-}
-.mon-cmd__code {
-  flex: 1;
-  min-width: 0;
-  padding: 10px 12px;
-  border-radius: 9px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
-  color: var(--color-text-strong);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 12.5px;
-  line-height: 1.5;
-  overflow-x: auto;
-  white-space: pre;
-}
-.mon-cmd__copy {
-  flex-shrink: 0;
-  cursor: pointer;
-}
 /* bootstrap-on-server failure result — red-tinted card + the raw log */
 .mon-cmd--err {
   border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
@@ -999,6 +976,9 @@
 .mon-install__cmd-line {
   margin-top: 6px;
 }
+/* Every command row (WSL step and install command alike) uses these rules, so
+ * the boxes share one width and edge line on every OS tab. The button stays
+ * beside the box at phone width too: it is icon-only, and the box wraps. */
 .mon-install__cmd-body {
   display: flex;
   align-items: flex-start;
@@ -1007,6 +987,9 @@
 .mon-install__cmd-text {
   flex: 1;
   min-width: 0;
+  /* Same height as the button, so an empty box (fetch failed) still lines up. */
+  min-height: 32px;
+  box-sizing: border-box;
   padding: 6px 8px;
   border-radius: 6px;
   border: 1px solid var(--color-border);
@@ -1018,33 +1001,31 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.mon-install__box .mon-install__cmd-copy {
+.mon-install__box .mon-install__cmd-icon {
   flex-shrink: 0;
-  align-self: flex-start;
-  height: 28px;
-  padding: 0 8px;
-  font-size: 12px;
-}
-.mon-install__cmd {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.mon-install__cmd-row {
-  margin-top: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
 }
 .mon-install__cmd--expired {
   opacity: 0.5;
 }
-.mon-install__box .mon-install__cmd-row .btn {
-  align-self: center;
+.mon-install__cmd-msg {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-hot);
 }
-@media (max-width: 720px) {
-  .mon-install__cmd-row {
-    flex-direction: column;
-  }
-  .mon-install__box .mon-install__cmd-row .btn {
-    align-self: flex-start;
-  }
+.mon-install__cmd-msg-text {
+  display: block;
+  margin-top: 4px;
+}
+.mon-install__sr-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ── 帳號詳情 modal (T-a9a7) — same dim-overlay + card language as
