@@ -141,14 +141,13 @@ describe("主導覽分頁", () => {
     );
     const action = await waitFor(() => {
       const el = document.querySelector<HTMLElement>(
-        '[data-testid="lore-row"][data-entry-id="L-2"] [data-testid="lore-scope-name"]',
+        '[data-testid="lore-row"][data-entry-id="L-2"] button[data-testid="lore-scope-name"]',
       );
-      if (!el) throw new Error("L-2 has no 適用範圍 action yet");
+      if (!el) throw new Error("L-2's scope tag is not a menu trigger yet");
       return el;
     });
     expect(window.location.hash).toBe("#lore/agent/mira");
-    expect(action.tagName).toBe("BUTTON");
-    expect(action.textContent).toBe("適用範圍");
+    expect(action.textContent).toBe("Mira");
 
     fireEvent.click(action);
     await waitFor(() =>

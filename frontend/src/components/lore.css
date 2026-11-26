@@ -1,8 +1,8 @@
-/* 傳承 page: target sections, the 傳承 row, the inline editor, the 提到最新 toast.
+/* 傳承 page: target sections, the 傳承 row, the inline editor, the 適用範圍 notice.
  *
  * 🔴 THESE ARE COPIES OF tasks.css RULES, NOT A SHARED SHEET, AND THAT IS
  * DELIBERATE. The 傳承 row wears the 任務卡's design language — same badge pill,
- * same popover, same label/value grid, same ▸/▾ corner — but tasks.css belongs
+ * same popover, same label/value grid — but tasks.css belongs
  * to the 任務 page. Importing it here (or widening a `.task-card__*` selector to
  * cover a lore row) would mean a change made for this page can silently change
  * how a task card looks, and vice versa. So the vocabulary is copied under
@@ -13,7 +13,6 @@
  *   .lore-row__status(-chip) ← .task-card__status / button.task-card__status-chip
  *   .lore-row__menu-pop      ← .task-card__menu-pop
  *   .lore-row__menu-item     ← .task-card__menu-item (+ --active = accent/700)
- *   .lore-row__expand-mark   ← .task-card__expand-mark
  *   .lore-row__chip          ← .task-card__chip
  *   .lore-dir-card           ← .task-card
  *   .lore-dir-card__usage / __bar / __bar-fill / __usage-text
@@ -34,8 +33,8 @@
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 12px;
-  /* 提到最新 compensates the scroll itself; the browser's own anchoring would
-   * pick a different node and the two would fight. */
+  /* A card re-read in place must not drag the view along with it; the
+   * browser's own anchoring picks a node of its choosing. */
   overflow-anchor: none;
 }
 
@@ -330,7 +329,7 @@ button.lore-dir-card__name--link:hover {
   overflow-wrap: anywhere;
 }
 
-/* ── the 提到最新 toast, pinned to the bottom of the scrollport ── */
+/* ── the 適用範圍 notice, pinned to the bottom of the scrollport ── */
 .lore__dock {
   position: sticky;
   bottom: 0;
@@ -357,21 +356,7 @@ button.lore-dir-card__name--link:hover {
   background: var(--color-card);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
 }
-button.lore-toast__go {
-  margin: 0;
-  padding: 6px 4px;
-  border: none;
-  background: none;
-  color: var(--color-text-muted);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-/* ── one 傳承 row ──
- * A row whose body overflows its clamped lines (--toggle) is the toggle surface,
- * so it takes the pointer cursor and a focus ring; the ▸/▾ mark is only a
- * mirror of that state. */
+/* ── one 傳承 row ── */
 .lore-row {
   display: flex;
   flex-direction: column;
@@ -382,9 +367,6 @@ button.lore-toast__go {
   background: var(--color-card);
   text-align: left;
 }
-.lore-row--toggle {
-  cursor: pointer;
-}
 .lore-row:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
@@ -393,12 +375,12 @@ button.lore-toast__go {
 .lore-row__head {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
 }
 /* Wraps like 任務卡's badge row: on a phone the badge that does not fit moves
- * to its own line whole (owner, for 任務卡: 「手機上 type 自己一行我接受」),
- * instead of the 屬於 badge being squeezed down to its glyph. */
+ * to its own line whole (owner, for 任務卡: 「手機上 type 自己一行我接受」).
+ * The 編輯 button keeps the head's first line; the tags wrap beside it. */
 .lore-row__badges {
   flex: 1;
   min-width: 0;
@@ -444,17 +426,35 @@ button.lore-toast__go {
   opacity: 0.85;
 }
 
-/* ── 適用範圍: an action beside 編輯 (in 「⋯」 on a phone) ──
- * The section already names whose entries these are, so the scope is not a
- * badge on every card. The menu anchors to .lore-row__head and caps its width,
- * so it cannot push off a phone screen (css-layout-traps: no vw clamp on an
- * absolute pop). */
+/* ── 適用範圍: the fourth tag ──
+ * The wrapper is deliberately NOT positioned: the menu anchors to
+ * .lore-row__head and caps its width, so a tag that wrapped to the right edge
+ * cannot push it off a phone screen (css-layout-traps: no vw clamp on an
+ * absolute pop). The tag itself may shrink: a long manual name ellipsizes
+ * inside the tag row instead of pushing past the card. */
 .lore-row__scope {
   display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+.lore-badge.lore-badge--scope {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--color-text);
+}
+.lore-badge--scope::before {
+  content: none;
+}
+.lore-badge__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .lore-row__scope-pop {
-  left: auto;
-  right: 0;
+  left: 0;
+  right: auto;
   width: 100%;
   max-width: 340px;
 }
@@ -517,20 +517,6 @@ button.lore-toast__go {
   line-height: 1.55;
   color: var(--color-text);
   white-space: pre-wrap;
-}
-/* 內容預設兩行截斷 (spec §6), and 內容 is the ONLY thing 展開／收合 governs.
- *
- * 🔴 THE CLAMP IS ON THE RENDERED BOX, NOT ON THE SOURCE STRING. The body is
- * markdown now, and cutting the source to one line's worth of characters would
- * hand the parser a half-open `**` or an unterminated fence — i.e. it would
- * render something that is not the entry. `-webkit-line-clamp` clamps what was
- * already laid out, so the parse is always of the whole text. */
-.lore-row__body--clamped {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  white-space: normal;
 }
 /* The markdown skin, handed the bits of `.doc-md` back that fight a row — the
  * same three the chat bubble hands back (office.css .chat__msg-text.doc-md):
@@ -700,20 +686,6 @@ button.lore-badge--lore-type:hover:not(:disabled) {
   font-weight: 700;
 }
 
-/* ── ▸/▾ (copy of .task-card__expand-mark) ──
- * pointer-events:none cascades to the inline svg, so a click here lands on the
- * row underneath — the mark is a state mirror, never a control. */
-.lore-row__expand-mark {
-  flex: none;
-  align-self: center;
-  margin-left: auto;
-  display: inline-flex;
-  pointer-events: none;
-  line-height: 1;
-  color: var(--color-text-muted);
-  opacity: 0.7;
-}
-
 /* ── 撰寫人 · 生效期 · 字數 on one muted line ── */
 .lore-row__meta {
   display: flex;
@@ -767,7 +739,7 @@ button.lore-row__chip--link {
   white-space: nowrap;
 }
 
-/* ── 字數、提到最新／編輯 (or 「⋯」 on a phone) on the head ── */
+/* ── 編輯 (settings.css .doc-btn--edit) on the head's first line ── */
 .lore-row__actions {
   flex: none;
   display: inline-flex;
@@ -779,15 +751,6 @@ button.lore-row__chip--link {
   color: var(--color-text-muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-.lore-row__more {
-  position: relative;
-  display: inline-flex;
-}
-.lore-row__more-pop {
-  right: 0;
-  left: auto;
-  min-width: 120px;
 }
 .lore-row__effective-ts {
   white-space: nowrap;

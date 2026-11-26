@@ -97,8 +97,6 @@ export const zh = {
     highlightMissingLead: "",
     highlightMissingTail: " 不在目前的篩選結果裡（已失效的條目要勾「已失效」才會列出）",
     sectionMissing: "找不到這一段",
-    bumpedToast: "已移到最前面",
-    bumpedGo: "前往",
     dirSectionGoneLead: "",
     dirSectionGoneTail: " 所在的段落已經不在了（成員已離開或手冊已刪除）",
     highlightFailedLead: "載入更多條目失敗，還沒找到 ",
@@ -115,7 +113,6 @@ export const zh = {
     authorUnknown: "—",
     messageAuthor: "傳訊息給撰寫人",
     effectiveLabel: "生效期",
-    bump: "提到最新",
     retireReasonLabel: "失效理由",
     // 適用範圍徽章與選單
     scopeChangedMid: " 的適用範圍改成「",
@@ -167,9 +164,8 @@ export const zh = {
     capLineNeedLead: " 字・",
     capLineNeedMid: " 需要 ",
     capLineNeedTail: " 字，從這裡以下讀不到",
-    // 卡片右上的動作；手機收進「⋯」
+    // 卡片右上的動作
     actionEdit: "編輯",
-    moreActions: "更多動作",
     // 就地編輯
     editTitleLabel: "標題",
     editBodyLabel: "內容",
@@ -178,8 +174,6 @@ export const zh = {
     editSaving: "儲存中…",
     editTitleBlank: "標題不能空白",
     editOverCap: "超過字數上限",
-    expandCard: "展開這一筆傳承",
-    collapseCard: "收合這一筆傳承",
     loadingMore: "載入中…",
     // 動作失敗要看得見(403 也是)——不要靜靜失敗
     actionFailed: "這個動作沒有成功，請稍後再試",

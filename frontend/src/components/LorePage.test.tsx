@@ -15,9 +15,9 @@
 // page does with the answer is under test here, not the mock's arithmetic.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
-import { LorePage, loreBodyOverflow } from "./LorePage";
+import { LorePage } from "./LorePage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
 // The 可變動作面 specs need to build a REFUSAL, and the refusal has to be the
@@ -134,9 +134,6 @@ beforeEach(() => {
   history.replaceState(null, "", window.location.pathname);
   __resetMock();
   clearLocale();
-  // jsdom has no layout; every body counts as overflowing its clamped line
-  // unless a spec says otherwise, so the row stays an expand toggle.
-  vi.spyOn(loreBodyOverflow, "measure").mockReturnValue(true);
 });
 
 afterEach(() => {
@@ -232,10 +229,6 @@ describe("LorePage — 撰寫人", () => {
 
     await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
 
-    // The 撰寫人 row lives in the expanded body — open both rows.
-    fireEvent.click(rowById(container, "here"));
-    fireEvent.click(rowById(container, "gone"));
-
     const here = rowById(container, "here");
     const gone = rowById(container, "gone");
 
@@ -259,12 +252,6 @@ describe("LorePage — 撰寫人", () => {
   });
 });
 
-/** Build a page whose single row rides `scopeKind` / `scopeKey`, expand it, and
- * hand back the 屬於 pill. */
-/** The 屬於 pill's NAME half, read off a row NOBODY OPENED. The helper does not
- * click the row on purpose: the collapsed list is where the reader who cannot
- * tell one scope from another is standing, so every one of these specs is also
- * a statement that the pill is reachable without expanding anything. */
 /** Open the 適用範圍 menu of the one row on screen and answer its option labels. */
 async function scopeOptionLabels(
   scopeKind: LoreEntryView["scopeKind"],
@@ -290,30 +277,42 @@ async function scopeOptionLabels(
 }
 
 describe("LorePage — 適用範圍", () => {
-  it("the card carries no scope badge: the section already names whose entries these are", async () => {
-    stubList(page([mkEntry({ id: "s1", scopeKind: "agent", scopeKey: "mira", scopeOptions: ["agent", "everyone"] })]));
+  it("the scope rides the tag row as the fourth tag, naming 所有人, the member or the manual", async () => {
+    stubList(
+      page([
+        mkEntry({ id: "s1", scopeKind: "agent", scopeKey: "mira", scopeOptions: ["agent", "everyone"] }),
+      ]),
+    );
     const { container } = await renderOpen({ canSetScope: true });
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
     const row = rowById(container, "s1");
-    expect(row.querySelector(".lore-row__badges")!.textContent).not.toContain("建立者");
-    expect(row.querySelector(".lore-row__badges [data-testid='lore-scope']")).toBeNull();
+    const tag = row.querySelector<HTMLElement>(".lore-row__badges [data-testid='lore-scope-name']")!;
+    expect(tag).not.toBeNull();
+    expect(tag.textContent).toBe("Mira");
+    expect(tag.getAttribute("data-scope-kind")).toBe("agent");
+    expect(tag.closest(".lore-row__actions")).toBeNull();
   });
 
-  it("a viewer who may not switch scopes gets no 適用範圍 action; one who may gets a menu trigger beside 編輯", async () => {
+  it("a viewer who may not switch scopes reads the scope tag as plain text; one who may gets a menu trigger on the tag", async () => {
     stubList(
       page([
         mkEntry({
           id: "s1",
-          scopeKind: "agent",
-          scopeKey: "mira",
+          scopeKind: "everyone",
+          scopeKey: "",
           scopeOptions: ["agent", "everyone"],
         }),
       ]),
     );
     const viewer = await renderOpen({ canSetScope: false });
     await waitFor(() => expect(renderedIds(viewer.container)).toHaveLength(1));
-    expect(viewer.container.querySelector('[data-testid="lore-scope-name"]')).toBeNull();
-    expect(viewer.container.querySelector('[data-testid="lore-scope"]')).toBeNull();
+    const plain = viewer.container.querySelector<HTMLElement>('[data-testid="lore-scope-name"]')!;
+    expect(plain.tagName).toBe("SPAN");
+    expect(plain.textContent).toBe("所有人");
+    expect(plain.hasAttribute("aria-haspopup")).toBe(false);
+    expect(plain.closest(".lore-row__badges")).not.toBeNull();
+    fireEvent.click(plain);
+    expect(viewer.container.querySelector('[data-testid="lore-scope-options"]')).toBeNull();
     viewer.unmount();
 
     const owner = await renderOpen({ canSetScope: true });
@@ -322,9 +321,9 @@ describe("LorePage — 適用範圍", () => {
       '[data-testid="lore-scope-name"]',
     )!;
     expect(trigger.tagName).toBe("BUTTON");
-    expect(trigger.textContent).toBe("適用範圍");
+    expect(trigger.textContent).toBe("所有人");
     expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
-    expect(trigger.closest(".lore-row__actions")).not.toBeNull();
+    expect(trigger.closest(".lore-row__badges")).not.toBeNull();
     fireEvent.click(trigger);
     expect(owner.container.querySelector('[data-testid="lore-scope-options"]')).not.toBeNull();
   });
@@ -346,7 +345,7 @@ describe("LorePage — 適用範圍", () => {
 });
 
 describe("LorePage — 條目編號", () => {
-  it("shows the id, copies it on click, and does NOT expand the row", async () => {
+  it("shows the id and copies it on click", async () => {
     const copied: string[] = [];
     Object.assign(navigator, {
       clipboard: {
@@ -369,27 +368,8 @@ describe("LorePage — 條目編號", () => {
     fireEvent.click(badge);
     await waitFor(() => expect(copied).toEqual(["L-7"]));
 
-    // 🔴 The row must stay COLLAPSED. The id badge sits inside the row, whose
-    // whole surface is the expand toggle; a badge that both copies and expands
-    // would look like it worked while doing something the reader did not ask
-    // for.
-    //
-    // ⚠️ THIS ASSERTION HAS NOW OUTLIVED TWO PROXIES, WHICH IS WHY IT IS ON THE
-    // STATE ITSELF. It first read 「屬於 is absent」 and 屬於 moved onto the
-    // collapsed row; it then read 「撰寫人 is absent」 and 撰寫人 moved onto the
-    // collapsed row too (owner 2026-09-08: 展開／收合 governs the CONTENT and
-    // nothing else). Each move turned the guard ALWAYS-TRUE without failing.
-    // `aria-expanded` is the row's own state, so it cannot be relocated out
-    // from under this line. The clamp says the same thing a second way, and it
-    // is the only remaining thing 展開 actually changes.
-    expect(
-      container
-        .querySelector('[data-testid="lore-row"]')!
-        .getAttribute("aria-expanded"),
-    ).toBe("false");
-    expect(
-      container.querySelector('[data-testid="lore-body"]')?.className,
-    ).toContain("lore-row__body--clamped");
+    // The card has no fold; a click on the id copies and does nothing else.
+    expect(container.querySelector('[data-testid="lore-row"]')!.hasAttribute("aria-expanded")).toBe(false);
   });
 });
 
@@ -425,8 +405,6 @@ describe("LorePage — 撰寫人跳過去帶著條目編號", () => {
 
     await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
 
-    // 撰寫人 lives in the expanded body.
-    fireEvent.click(rowById(container, "L-7"));
     const first = rowById(container, "L-7");
     await waitFor(() =>
       expect(
@@ -462,22 +440,6 @@ describe("LorePage — 撰寫人跳過去帶著條目編號", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// 屬於 on the COLLAPSED row (owner, card rc-11734523eb52 — and the second
-// attempt at it).
-//
-// 🔴 THE FIRST FIX FOR THIS PASSED EVERY REVIEW AND DID NOT SOLVE THE PROBLEM.
-// It put 屬於 in the row's expanded body, and the reason written down for
-// adding it at all was that 全部 — where the page OPENS — mixes every scope
-// together and the reader cannot tell a 角色傳承 from one manual's. That reader
-// is looking at a list of CLOSED rows. An answer they must open a row to reach
-// arrives only for somebody who already knew to go looking, which is not the
-// person who was lost. On screen the two versions are indistinguishable until
-// you notice you are the one doing the clicking.
-//
-// So this spec asserts on rows NOBODY OPENED, and it uses two entries whose
-// scopes have THE SAME DISPLAY NAME. That is the whole discrimination: a chip
-// carrying the name alone renders identical text for both rows and would pass
-// any assertion written against one of them.
 describe("LorePage — 篩選器複選", () => {
   /** The options of the most recent list request. */
   function lastOpts(spy: ReturnType<typeof stubList>) {
@@ -644,7 +606,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
     expect(idsInDomOrder()).toEqual(fields);
   });
 
-  it("reads 編號 → 類型 → 狀態 on the row", async () => {
+  it("reads 編號 → 類型 → 狀態 → 適用範圍 on the row", async () => {
     stubList(page([mkEntry({ id: "L-9", state: "pinned" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
@@ -658,13 +620,13 @@ describe("LorePage — 順序跟任務頁一致", () => {
 
     // 🔴 The id LEADS, the way 任務卡's #T-1 does: it is what you quote to
     // somebody else.
-    expect(marks).toEqual(["lore-entry-id", "lore-type", "lore-state"]);
+    expect(marks).toEqual(["lore-entry-id", "lore-type", "lore-state", "lore-scope-name"]);
     expect(row.querySelector(".lore-row__badges")!.firstElementChild!.getAttribute("data-testid")).toBe(
       "lore-entry-id",
     );
   });
 
-  it("shows the type tag right after the id on every collapsed row, ahead of the title", async () => {
+  it("shows the type tag right after the id on every row, ahead of the title", async () => {
     stubList(
       page([
         mkEntry({ id: "L-1", loreType: "instruction_conflict", effectiveTs: 6 }),
@@ -679,7 +641,6 @@ describe("LorePage — 順序跟任務頁一致", () => {
 
     const tags = ["L-1", "L-2", "L-3", "L-4", "L-5"].map((id) => {
       const row = rowById(container, id);
-      expect(row.getAttribute("aria-expanded")).toBe("false");
       const order = Array.from(
         row.querySelectorAll('[data-testid="lore-type"], [data-testid="lore-entry-id"], .lore-row__title'),
       ).map((el) => el.getAttribute("data-testid") ?? "title");
@@ -767,31 +728,28 @@ describe("LorePage — 卡片底下一行小字", () => {
 
 });
 
-describe("LorePage — 折疊的只有內容", () => {
-  it("keeps 撰寫人 / 生效期 on the CLOSED row and clamps only the body", async () => {
-    stubList(page([mkEntry({ id: "L-7", authorId: "mira" })]));
+describe("LorePage — 卡片不折疊", () => {
+  it("shows the whole body with no chevron, no clamp and no toggle, and a click changes nothing", async () => {
+    stubList(page([mkEntry({ id: "L-7", authorId: "mira", body: "第一行\n第二行\n第三行\n第四行" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
     const row = rowById(container, "L-7");
-
-    // 🔴 CLOSED, and the three meta rows are already there (owner 2026-09-08:
-    // 「唯一要折疊的是 content」). They were expanded-only until this change.
-    expect(row.getAttribute("aria-expanded")).toBe("false");
+    const body = row.querySelector<HTMLElement>('[data-testid="lore-body"]')!;
+    const snapshot = () => [row.getAttribute("role"), row.hasAttribute("aria-expanded"), body.className];
+    expect(snapshot()).toEqual([null, false, "lore-row__body"]);
+    expect(row.querySelector('[data-testid="lore-expand-mark"]')).toBeNull();
+    // The head holds the tag row and 編輯, nothing else (the ▸/▾ sat there).
+    expect(
+      Array.from(row.querySelector(".lore-row__head")!.children).map((c) => c.className),
+    ).toEqual(["lore-row__badges", "lore-row__actions"]);
+    expect(body.textContent).toContain("第四行");
+    // Out of the tab order; focusable only from code (a highlighted entry).
+    expect(row.getAttribute("tabindex")).toBe("-1");
     expect(row.querySelector('[data-testid="lore-author-link"]')).not.toBeNull();
     expect(row.querySelector('[data-testid="lore-effective"]')).not.toBeNull();
-    expect(row.querySelector('[data-testid="lore-bump"]')).not.toBeNull();
-
-    // …and the body — the one thing 展開 still governs — is clamped.
-    const body = () =>
-      row.querySelector<HTMLElement>('[data-testid="lore-body"]')!;
-    expect(body().className).toContain("lore-row__body--clamped");
-
-    fireEvent.click(body());
-    await waitFor(() => expect(row.getAttribute("aria-expanded")).toBe("true"));
-    // 🔴 THE OTHER DIRECTION IS THE HALF THAT FAILS FOR A CARD THAT DROPPED
-    // 展開／收合 ENTIRELY. Owner asked for the content to unfold, not for the
-    // fold to go away; a body that is never clamped passes the line above.
-    expect(body().className).not.toContain("lore-row__body--clamped");
+    fireEvent.click(body);
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(snapshot()).toEqual([null, false, "lore-row__body"]);
   });
 });
 
@@ -853,17 +811,16 @@ describe("LorePage — 內容是 markdown", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// 可變動作面 — 失效 / 生效 / 置頂 / 提到最新, and the 403 path `runAction`
-// exists for.
+// 可變動作面 — 失效 / 生效 / 置頂, and the 403 path `runAction` exists for.
 //
-// 🔴 WHY THESE ARE FOUR SPECS AND NOT ONE. The four actions share `runAction`
-// but each one names its OWN api call and its OWN target value. A single spec
-// that drove all four would go green while three of them were gutted, because
-// the fourth's call would satisfy it. Split, a gutted action reddens exactly
+// 🔴 WHY THESE ARE SEPARATE SPECS AND NOT ONE. The actions share `runAction`
+// but each one names its OWN target value. A single spec that drove all of
+// them would go green while the others were gutted, because the last one's
+// call would satisfy it. Split, a gutted action reddens exactly
 // its own line.
 //
 // 🔴 AND WHY THE 403 SPEC IS THE ONE THAT MATTERS MOST. 置頂 is admin-only and
-// 失效/生效/提到最新 is author-or-admin, so a refusal is a REACHABLE answer, not
+// 失效/生效 is author-or-admin, so a refusal is a REACHABLE answer, not
 // a bug. A swallowed 403 and 「什麼都沒發生」 are the same pixels: the row keeps
 // its old badge either way. `lore-action-error` carrying WORDS is the only
 // thing that tells those two apart, so the spec asserts the element exists AND
@@ -890,12 +847,6 @@ describe("LorePage — 可變動作面", () => {
     const item = row.querySelector(`[data-testid="lore-state-${next}"]`);
     if (!item) throw new Error(`no ${next} menu item on ${entryId}`);
     fireEvent.click(item);
-  }
-
-  function bump(container: HTMLElement, entryId: string) {
-    fireEvent.click(
-      rowById(container, entryId).querySelector('[data-testid="lore-bump"]')!,
-    );
   }
 
   async function renderTwo(secondState: LoreEntryView["state"] = "active") {
@@ -982,27 +933,6 @@ describe("LorePage — 可變動作面", () => {
     expect(list.mock.calls.filter((c) => !c[0]?.entryIds)).toHaveLength(1);
   });
 
-  it("提到最新 calls bump on the entry that was clicked and re-reads only that entry", async () => {
-    // 🔴 A DIFFERENT ROUTE, NOT A FOURTH STATE. 提到最新 moves `effectiveTs`
-    // and leaves `state` alone, so it must NOT arrive as a setState call.
-    const set = vi
-      .spyOn(api, "setLoreEntryState")
-      .mockResolvedValue(undefined);
-    const bumpSpy = vi.spyOn(api, "bumpLoreEntry").mockResolvedValue(undefined);
-    const { container, list } = await renderTwo("active");
-
-    bump(container, "L-2");
-
-    await waitFor(() => expect(bumpSpy).toHaveBeenCalledTimes(1));
-    expect(bumpSpy).toHaveBeenCalledWith("L-2");
-    expect(set).not.toHaveBeenCalled();
-    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
-    expect(list.mock.calls[1][0]).toEqual({
-      scopeKinds: ["agent"], scopeKeys: ["mira"], entryIds: ["L-2"], limit: 1, offset: 0,
-    });
-    await waitFor(() => expect(renderedIds(container)).toEqual(["L-2", "L-1"]));
-  });
-
   // ── 403 必須讀起來像被拒絕 ────────────────────────────────────────────────
   it("a refused 置頂 SAYS SO — the error line is on screen and carries words", async () => {
     vi.spyOn(api, "setLoreEntryState").mockRejectedValue(
@@ -1027,29 +957,6 @@ describe("LorePage — 可變動作面", () => {
     // own copy — and it must be the REFUSAL copy, not the generic failure one.
     expect(line.textContent).toBe(zh.lore.forbidden);
     expect(line.textContent).not.toBe(zh.lore.actionFailed);
-  });
-
-  it("a refused 提到最新 SAYS SO, in the server's own words when it sent any", async () => {
-    // 🔴 The server's sentence says WHICH of the two rules refused
-    // (admin-only vs author-or-admin). Dropping it for our generic copy loses
-    // the only part the reader could act on.
-    vi.spyOn(api, "bumpLoreEntry").mockRejectedValue(
-      new ApiError(
-        "http 403 for POST /api/lore/L-2/bump",
-        403,
-        "forbidden",
-        "只有撰寫人或管理員可以提到最新",
-      ),
-    );
-    const { container } = await renderTwo("active");
-
-    bump(container, "L-2");
-
-    await waitFor(() =>
-      expect(
-        container.querySelector('[data-testid="lore-action-error"]')?.textContent,
-      ).toBe("只有撰寫人或管理員可以提到最新"),
-    );
   });
 
   // ── 成功之後清單真的重讀 ──────────────────────────────────────────────────
@@ -1082,179 +989,6 @@ describe("LorePage — 可變動作面", () => {
     expect(badge()).toBe(zh.lore.stateActive);
     expect(renderedIds(container)).toEqual(["L-1", "L-2"]);
     expect(list).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("LorePage — 提到最新移到最前面", () => {
-  const ROW_H = 100;
-  /** jsdom has no layout: rows stack ROW_H apart in DOM order under a
-   * scrollport whose top is 0. */
-  function fakeLayout(container: HTMLElement, viewH = 500, contentH = 5000) {
-    const scroller = container.querySelector<HTMLElement>('[data-testid="lore-page"]')!;
-    Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => viewH });
-    Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => contentH });
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
-      const box = (top: number, h: number) =>
-        ({ top, bottom: top + h, left: 0, right: 300, width: 300, height: h, x: 0, y: top, toJSON() {} }) as DOMRect;
-      if (this === scroller) return box(0, viewH);
-      if (this instanceof HTMLElement && this.dataset.testid === "lore-row") {
-        const rows = Array.from(container.querySelectorAll('[data-testid="lore-row"]'));
-        return box(rows.indexOf(this) * ROW_H - scroller.scrollTop, ROW_H);
-      }
-      return box(0, 0);
-    });
-    return scroller;
-  }
-
-  const rows = () => [
-    mkEntry({ id: "P", state: "pinned", effectiveTs: 10 }),
-    mkEntry({ id: "A1", effectiveTs: 9 }),
-    mkEntry({ id: "A2", effectiveTs: 8 }),
-    mkEntry({ id: "A3", effectiveTs: 7 }),
-    mkEntry({ id: "A4", effectiveTs: 6 }),
-  ];
-
-  async function renderRows() {
-    vi.spyOn(api, "bumpLoreEntry").mockResolvedValue(undefined);
-    const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
-      o?.entryIds ? page([mkEntry({ id: o.entryIds[0], effectiveTs: 99 })]) : page(rows()),
-    );
-    const r = await renderOpen();
-    await waitFor(() => expect(renderedIds(r.container)).toEqual(["P", "A1", "A2", "A3", "A4"]));
-    return { ...r, list };
-  }
-
-  it("moves the bumped card right after the pinned ones", async () => {
-    const { container } = await renderRows();
-    fireEvent.click(rowById(container, "A3").querySelector('[data-testid="lore-bump"]')!);
-    await waitFor(() => expect(renderedIds(container)).toEqual(["P", "A3", "A1", "A2", "A4"]));
-  });
-
-  it("keeps the card that starts the view where it was on screen", async () => {
-    const { container } = await renderRows();
-    const scroller = fakeLayout(container);
-    // A2 starts the view (top 0); A4 sits below it.
-    scroller.scrollTop = 200;
-
-    fireEvent.click(rowById(container, "A4").querySelector('[data-testid="lore-bump"]')!);
-
-    await waitFor(() => expect(renderedIds(container)).toEqual(["P", "A4", "A1", "A2", "A3"]));
-    // A4 landing above A2 pushes it down a row; the scroll follows.
-    expect(scroller.scrollTop).toBe(300);
-    expect(rowById(container, "A2").getBoundingClientRect().top).toBe(0);
-  });
-
-  it("shows 「已移到最前面 · 前往」; 前往 scrolls to the card and focuses it", async () => {
-    const scrolled: string[] = [];
-    Element.prototype.scrollIntoView = function (this: Element) {
-      scrolled.push((this as HTMLElement).dataset.entryId ?? "");
-    };
-    try {
-      const { container } = await renderRows();
-      fireEvent.click(rowById(container, "A3").querySelector('[data-testid="lore-bump"]')!);
-      const toast = await waitFor(() => {
-        const el = container.querySelector<HTMLElement>('[data-testid="lore-toast"]');
-        if (!el) throw new Error("no toast");
-        return el;
-      });
-      expect(toast.textContent).toBe("已移到最前面·前往");
-      fireEvent.click(toast.querySelector('[data-testid="lore-toast-go"]')!);
-      expect(scrolled).toEqual(["A3"]);
-      expect(document.activeElement).toBe(rowById(container, "A3"));
-      expect(container.querySelector('[data-testid="lore-toast"]')).toBeNull();
-    } finally {
-      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
-    }
-  });
-
-  it("the toast goes away by itself", async () => {
-    const { container } = await renderRows();
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      fireEvent.click(rowById(container, "A3").querySelector('[data-testid="lore-bump"]')!);
-      await waitFor(() => expect(container.querySelector('[data-testid="lore-toast"]')).not.toBeNull());
-      await act(async () => {
-        vi.advanceTimersByTime(5000);
-      });
-      expect(container.querySelector('[data-testid="lore-toast"]')).toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("at the bottom of the page it holds the card after the moved one still instead", async () => {
-    const { container } = await renderRows();
-    // Five 100px rows in a 300px view: the page scrolls at most 200.
-    const scroller = fakeLayout(container, 300, 500);
-    scroller.scrollTop = 200;
-
-    fireEvent.click(rowById(container, "A3").querySelector('[data-testid="lore-bump"]')!);
-
-    await waitFor(() => expect(renderedIds(container)).toEqual(["P", "A3", "A1", "A2", "A4"]));
-    expect(scroller.scrollTop).toBe(200);
-    expect(rowById(container, "A4").getBoundingClientRect().top).toBe(200);
-  });
-
-  it("places by state, not by the re-read's effective_ts: an active card lands after the pinned ones, a pinned one on top", async () => {
-    vi.spyOn(api, "bumpLoreEntry").mockResolvedValue(undefined);
-    // The re-read comes back with an OLD effective_ts; the card still moves.
-    vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) => {
-      const id = o?.entryIds?.[0];
-      if (id === "A4") return page([mkEntry({ id: "A4", effectiveTs: 1 })]);
-      if (id === "P2") return page([mkEntry({ id: "P2", state: "pinned", effectiveTs: 1 })]);
-      return page([
-        mkEntry({ id: "P", state: "pinned", effectiveTs: 10 }),
-        mkEntry({ id: "P2", state: "pinned", effectiveTs: 9 }),
-        mkEntry({ id: "A1", effectiveTs: 8 }),
-        mkEntry({ id: "A4", effectiveTs: 5 }),
-      ]);
-    });
-    const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(4));
-
-    fireEvent.click(rowById(container, "A4").querySelector('[data-testid="lore-bump"]')!);
-    await waitFor(() => expect(renderedIds(container)).toEqual(["P", "P2", "A4", "A1"]));
-
-    fireEvent.click(rowById(container, "P2").querySelector('[data-testid="lore-bump"]')!);
-    await waitFor(() => expect(renderedIds(container)).toEqual(["P2", "P", "A4", "A1"]));
-  });
-
-  it("a card already at the top of its group stays and shows no toast", async () => {
-    const { container, list } = await renderRows();
-    fireEvent.click(rowById(container, "A1").querySelector('[data-testid="lore-bump"]')!);
-    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
-    await new Promise((r) => setTimeout(r, 20));
-    expect(renderedIds(container)).toEqual(["P", "A1", "A2", "A3", "A4"]);
-    expect(container.querySelector('[data-testid="lore-toast"]')).toBeNull();
-  });
-
-  it("leaving and coming back clears the toast and the error line", async () => {
-    const { container } = await renderRows();
-    fireEvent.click(rowById(container, "A3").querySelector('[data-testid="lore-bump"]')!);
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-toast"]')).not.toBeNull());
-    vi.mocked(api.bumpLoreEntry).mockRejectedValueOnce(new ApiError("http 403", 403, "forbidden", ""));
-    fireEvent.click(rowById(container, "A4").querySelector('[data-testid="lore-bump"]')!);
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-action-error"]')).not.toBeNull());
-
-    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-target"]')).not.toBeNull());
-    fireEvent.click(container.querySelector('[data-testid="lore-target"]')!);
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
-    expect(container.querySelector('[data-testid="lore-toast"]')).toBeNull();
-    expect(container.querySelector('[data-testid="lore-action-error"]')).toBeNull();
-  });
-
-  it("a refused bump moves nothing and shows no toast", async () => {
-    vi.spyOn(api, "bumpLoreEntry").mockRejectedValue(
-      new ApiError("http 403 for POST /api/lore/A3/bump", 403, "forbidden", ""),
-    );
-    stubList(page(rows()));
-    const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
-    fireEvent.click(rowById(container, "A3").querySelector('[data-testid="lore-bump"]')!);
-    await waitFor(() => expect(container.querySelector('[data-testid="lore-action-error"]')).not.toBeNull());
-    expect(renderedIds(container)).toEqual(["P", "A1", "A2", "A3", "A4"]);
-    expect(container.querySelector('[data-testid="lore-toast"]')).toBeNull();
   });
 });
 
@@ -1430,7 +1164,6 @@ describe("LorePage — 適用範圍選單", () => {
     const everyoneLabel = readOptions(openScopeMenu(container, "L-2")).find((o) => o[0] === "lore-scope-everyone")![1];
     fireEvent.mouseDown(document.body);
     expect(toast.textContent).toBe(`L-2 的適用範圍改成「${everyoneLabel}」`);
-    expect(toast.querySelector('[data-testid="lore-toast-go"]')).toBeNull();
     expect(list.mock.calls).toEqual([
       [{ states: ["pinned", "active"], scopeKinds: ["agent"], scopeKeys: ["mira"], limit: 30, offset: 0 }],
       [{ scopeKinds: ["agent"], scopeKeys: ["mira"], entryIds: ["L-2"], limit: 1, offset: 0 }],
@@ -1504,7 +1237,6 @@ describe("LorePage — 適用範圍選單", () => {
 
     const menu = openScopeMenu(container, "L-1");
     expect(window.location.hash).toBe("");
-    expect(rowById(container, "L-1").getAttribute("aria-expanded")).toBe("false");
 
     const jump = menu.querySelector<HTMLElement>(
       '[data-testid="lore-scope-open-manual"]',
@@ -1571,7 +1303,7 @@ describe("LorePage — 適用範圍選單", () => {
   it.each([
     ["the owner", { scope: "owner", sub: "owner" }],
     ["the assistant", { scope: "agent", sub: "mira" }],
-  ])("%s opens the menu from the 適用範圍 action", async (_label, claims) => {
+  ])("%s opens the menu from the scope tag", async (_label, claims) => {
     const container = await renderAs(jwt(claims));
     await waitFor(() =>
       expect(
@@ -1590,7 +1322,7 @@ describe("LorePage — 適用範圍選單", () => {
     );
   });
 
-  it("switching sections asks for the roster, workers and manuals once, and the 適用範圍 action stays a menu", async () => {
+  it("switching sections asks for the roster, workers and manuals once, and the scope tag stays a menu", async () => {
     const container = await renderAs(jwt({ scope: "agent", sub: "mira" }));
     const real = await import("../api");
     await waitFor(() =>
@@ -1604,7 +1336,7 @@ describe("LorePage — 適用範圍選單", () => {
       );
     const before = counts();
     // A second read would never answer: a page that re-asked would sit without
-    // a roster and lose the 適用範圍 action.
+    // a roster and lose the 適用範圍 menu.
     vi.mocked(real.api.listMembers).mockReturnValue(new Promise(() => {}));
     vi.mocked(real.api.listLoreBudgets).mockResolvedValue([
       MIRA_TARGET,
@@ -1622,9 +1354,13 @@ describe("LorePage — 適用範圍選單", () => {
     expect(counts()).toEqual(before);
   });
 
-  it("a plain member gets no 適用範圍 action at all", async () => {
+  it("a plain member reads the scope tag as text and gets no 適用範圍 menu", async () => {
     const container = await renderAs(jwt({ scope: "agent", sub: "m-kyle" }));
-    expect(rowById(container, "L-2").querySelector('[data-testid="lore-scope-name"]')).toBeNull();
+    const tag = rowById(container, "L-2").querySelector<HTMLElement>('[data-testid="lore-scope-name"]')!;
+    expect(tag.tagName).toBe("SPAN");
+    expect(tag.textContent).toBe("Mira");
+    expect(tag.hasAttribute("aria-haspopup")).toBe(false);
+    fireEvent.click(tag);
     expect(container.querySelector('[data-testid="lore-scope-options"]')).toBeNull();
     expect(container.querySelector('[data-testid="lore-scope-agent"]')).toBeNull();
     expect(container.querySelector('[data-testid="lore-scope-everyone"]')).toBeNull();
@@ -2396,8 +2132,6 @@ describe("LorePage — 類型選單", () => {
     expect(
       items.filter((el) => el.classList.contains("lore-row__menu-item--active")).map((el) => el.textContent),
     ).toEqual(["其他"]);
-    // Opening the menu is not a row toggle.
-    expect(row.getAttribute("aria-expanded")).toBe("false");
 
     fireEvent.mouseDown(document.body);
     expect(row.querySelector('[data-testid="lore-type-options"]')).toBeNull();
@@ -2462,80 +2196,34 @@ describe("LorePage — 類型選單", () => {
   });
 });
 
-describe("LorePage — 只有放不下一行的內容才能展開", () => {
-  const LONG = "一段很長的內容。".repeat(40);
+/** The head's only action is 編輯, drawn as every other 編輯 in the app
+ * (settings.css .doc-btn--edit: pencil + label), at every width. */
+function expectOnlyEditAction(row: HTMLElement) {
+  const actions = row.querySelector<HTMLElement>(".lore-row__actions")!;
+  const buttons = Array.from(actions.querySelectorAll("button"));
+  expect(buttons.map((b) => [b.getAttribute("data-testid"), b.className, b.textContent])).toEqual([
+    ["lore-edit", "doc-btn doc-btn--edit", "編輯"],
+  ]);
+  expect(buttons[0].querySelector("svg")).not.toBeNull();
+  expect(row.querySelector('[data-testid="lore-more-actions"]')).toBeNull();
+  expect(row.querySelector('[data-testid="lore-more-menu"]')).toBeNull();
+  expect(row.querySelector('[data-testid="lore-bump"]')).toBeNull();
+  expect(row.textContent).not.toContain("提到最新");
+}
 
-  async function renderTwoBodies() {
-    vi.spyOn(loreBodyOverflow, "measure").mockImplementation(
-      (el) => (el.textContent ?? "").length > 50,
-    );
+describe("LorePage — 卡片右上只有編輯", () => {
+  it("on a desktop the head carries one 編輯 button and it opens the editor", async () => {
     stubList(
-      page([
-        mkEntry({ id: "short", body: "一行就放得下", effectiveTs: 2 }),
-        mkEntry({ id: "long", body: LONG, effectiveTs: 1 }),
-      ]),
+      page([mkEntry({ id: "L-1", scopeKind: "agent", scopeKey: "mira", scopeOptions: ["agent", "everyone"] })]),
     );
-    const r = await renderOpen();
-    await waitFor(() => expect(renderedIds(r.container)).toHaveLength(2));
-    return r;
-  }
-
-  it("a body that fits its line has no chevron, is not a toggle, and a click does not expand it", async () => {
-    const { container } = await renderTwoBodies();
-    const row = rowById(container, "short");
-    expect(row.querySelector('[data-testid="lore-expand-mark"]')).toBeNull();
-    expect(row.hasAttribute("role")).toBe(false);
-    expect(row.hasAttribute("aria-expanded")).toBe(false);
-    // Out of the tab order; focusable only from code (前往, a highlight).
-    expect(row.getAttribute("tabindex")).toBe("-1");
-    expect(row.classList.contains("lore-row--toggle")).toBe(false);
-
-    fireEvent.click(row.querySelector('[data-testid="lore-body"]')!);
-    expect(row.querySelector('[data-testid="lore-body"]')!.classList.contains("lore-row__body--clamped")).toBe(
-      true,
-    );
-    expect(row.querySelector('[data-testid="lore-expand-mark"]')).toBeNull();
-  });
-
-  it("a body that overflows shows the chevron and toggles on a row click, both ways", async () => {
-    const { container } = await renderTwoBodies();
-    const row = rowById(container, "long");
-    expect(row.querySelector('[data-testid="lore-expand-mark"]')).not.toBeNull();
-    expect(row.getAttribute("role")).toBe("button");
-    expect(row.getAttribute("aria-expanded")).toBe("false");
-    expect(row.classList.contains("lore-row--toggle")).toBe(true);
-
-    fireEvent.click(row.querySelector('[data-testid="lore-body"]')!);
-    expect(row.getAttribute("aria-expanded")).toBe("true");
-    expect(row.querySelector('[data-testid="lore-body"]')!.classList.contains("lore-row__body--clamped")).toBe(
-      false,
-    );
-    // Unclamped, the body no longer overflows; the row must still collapse.
-    expect(row.querySelector('[data-testid="lore-expand-mark"]')).not.toBeNull();
-    fireEvent.click(row.querySelector('[data-testid="lore-body"]')!);
-    expect(row.getAttribute("aria-expanded")).toBe("false");
-  });
-
-  it("re-measures when the body changes", async () => {
-    vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
-    vi.spyOn(loreBodyOverflow, "measure").mockImplementation(
-      (el) => (el.textContent ?? "").length > 50,
-    );
-    vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
-      o?.entryIds ? page([mkEntry({ id: "s", body: LONG })]) : page([mkEntry({ id: "s", body: "短" })]),
-    );
-    const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toEqual(["s"]));
-    expect(rowById(container, "s").querySelector('[data-testid="lore-expand-mark"]')).toBeNull();
-
-    fireEvent.click(rowById(container, "s").querySelector('[data-testid="lore-edit"]')!);
-    const editor = rowById(container, "s").querySelector<HTMLElement>('[data-testid="lore-editor"]')!;
-    fireEvent.change(editor.querySelector('[data-testid="lore-edit-body"]')!, { target: { value: LONG } });
-    fireEvent.click(editor.querySelector('[data-testid="lore-edit-save"]')!);
-
-    await waitFor(() =>
-      expect(rowById(container, "s").querySelector('[data-testid="lore-expand-mark"]')).not.toBeNull(),
-    );
+    const { container } = await renderOpen({ canSetScope: true });
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    const row = rowById(container, "L-1");
+    expectOnlyEditAction(row);
+    // 適用範圍 is the tag now, never an action beside 編輯.
+    expect(row.querySelector('.lore-row__actions [data-testid="lore-scope-name"]')).toBeNull();
+    fireEvent.click(row.querySelector('[data-testid="lore-edit"]')!);
+    expect(row.querySelector('[data-testid="lore-editor"]')).not.toBeNull();
   });
 });
 
@@ -2560,44 +2248,24 @@ describe("LorePage — 手機寬度", () => {
     delete (window as unknown as { matchMedia?: unknown }).matchMedia;
   });
 
-  it("folds 提到最新 and 編輯 into the 「⋯」 menu, and 編輯 from there opens the editor", async () => {
+  it("shows the same single 編輯 button as a desktop, no 「⋯」 menu, and 編輯 opens the editor", async () => {
     stubList(page([mkEntry({ id: "L-1" })]));
-    const { container } = await renderOpen();
+    const { container } = await renderOpen({ canSetScope: true });
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
     const row = rowById(container, "L-1");
-    expect(row.querySelector('[data-testid="lore-edit"]')).toBeNull();
-    expect(row.querySelector('[data-testid="lore-bump"]')).toBeNull();
-
-    fireEvent.click(row.querySelector('[data-testid="lore-more-actions"]')!);
-    expect(
-      Array.from(row.querySelectorAll('[data-testid="lore-more-menu"] [role="menuitem"]')).map(
-        (el) => el.textContent,
-      ),
-    ).toEqual(["提到最新", "編輯"]);
+    expectOnlyEditAction(row);
     fireEvent.click(row.querySelector('[data-testid="lore-edit"]')!);
-
-    expect(row.querySelector('[data-testid="lore-more-menu"]')).toBeNull();
     expect(row.querySelector('[data-testid="lore-editor"]')).not.toBeNull();
   });
 
-  it("for a viewer who may switch scopes, 「⋯」 also offers 適用範圍, which opens the same menu", async () => {
+  it("the scope tag opens the 適用範圍 menu on a phone too", async () => {
     stubList(
       page([mkEntry({ id: "L-1", scopeKind: "agent", scopeKey: "mira", scopeOptions: ["agent", "everyone"] })]),
     );
     const { container } = await renderOpen({ canSetScope: true });
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
     const row = rowById(container, "L-1");
-    // No desktop button on a phone: the action lives in 「⋯」 only.
-    expect(row.querySelector('[data-testid="lore-scope-name"]')).toBeNull();
-
-    fireEvent.click(row.querySelector('[data-testid="lore-more-actions"]')!);
-    expect(
-      Array.from(row.querySelectorAll('[data-testid="lore-more-menu"] [role="menuitem"]')).map(
-        (el) => el.textContent,
-      ),
-    ).toEqual(["提到最新", "編輯", "適用範圍"]);
-    fireEvent.click(row.querySelector('[data-testid="lore-scope-more"]')!);
-    expect(row.querySelector('[data-testid="lore-more-menu"]')).toBeNull();
+    fireEvent.click(row.querySelector('.lore-row__badges [data-testid="lore-scope-name"]')!);
     await waitFor(() =>
       expect(row.querySelector('[data-testid="lore-scope-options"]')?.textContent).toBe(
         "適用範圍建立者：Mira預設所有人",

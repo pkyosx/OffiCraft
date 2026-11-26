@@ -176,15 +176,14 @@ const TARGETS = [
     // ⚠️ THIS IS THE ONE THAT CAN LIE IF THE FIXTURE IS PLAIN TEXT. 本體是
     // markdown 算繪的,而 markdown 算繪壞掉的樣子是「標記語法原封不動印出來」——
     // 在一筆沒有任何標記的種子上,壞掉跟正常長得一模一樣。L-1 因此是唯一帶
-    // markdown 的種子(見 mock.ts 上的紅字),它同時夠長,能讓摺疊真的摺起來。
-    // 只有本體會摺,所以這張同時是「摺的是哪一段」的證據。
+    // markdown 的種子(見 mock.ts 上的紅字)。本體一律完整顯示,沒有摺疊。
     name: "l3-lore-expanded-markdown",
     hash: "lore",
     act: async (page) => {
-      await loreRow(page, "L-1").locator('[data-testid="lore-expand-mark"]').click();
+      await loreRow(page, "L-1").scrollIntoViewIfNeeded();
       await page.waitForTimeout(400);
     },
-    // 展開的必須是 L-1 那一列,而且 markdown 必須是**算繪後**的:
+    // 拍的必須是 L-1 那一列,而且 markdown 必須是**算繪後**的:
     // 算繪壞掉的樣子是把標記語法原樣印出來,所以看到字面上的 ** 或 `
     // 就是壞的。同時確認清單真的被算成 <li>,不是三行純文字。
     verify: async (page) => {
@@ -212,7 +211,6 @@ const TARGETS = [
       // 而分組會隨資料變。所以改成按 id 定址。
       const row = loreRow(page, "L-3");
       await row.scrollIntoViewIfNeeded();
-      await row.locator('[data-testid="lore-expand-mark"]').click();
       await page.waitForTimeout(400);
     },
     // 這張唯一要證的事就是「離職的撰寫人身上沒有輸入框」。

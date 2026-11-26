@@ -1,7 +1,7 @@
 // 傳承 directory cards, section pages and row heads at phone and desktop width:
-// the badges (id → type → state) wrap as whole pills, the actions (提到最新／編輯／
-// 適用範圍, or 「⋯」 on a phone) stay inside the head without overlapping them, the
-// ▸/▾ mark is there exactly when the clamped body overflows, the 撰寫人 · 生效期 ·
+// the tags (id → type → state → scope) wrap as whole pills, the head's one
+// action (編輯, the app-wide .doc-btn--edit) stays inside the head without
+// overlapping them, no card has a ▸/▾ mark or a clamped body, the 撰寫人 · 生效期 ·
 // 字數 line stays inside the card, the section head card's name, badges, bar and
 // legend stay inside it, the 適用範圍 menu opens inside the viewport, the inline
 // editor fits, and a state change leaves the scroll position and the card where
@@ -21,7 +21,7 @@ type RowGeom = {
   head: Box | null;
   row: Box | null;
   actions: Box | null;
-  actionButtons: { text: string; box: Box }[];
+  actionButtons: { text: string; cls: string; svg: boolean; height: number; box: Box }[];
   badges: { cls: string; box: Box }[];
   badgeOrder: string[];
   mark: Box | null;
@@ -97,9 +97,13 @@ async function measure(page: any): Promise<{
           head: r(row.querySelector(".lore-row__head")),
           row: r(row),
           actions: r(row.querySelector(".lore-row__actions")),
-          actionButtons: [...row.querySelectorAll(".lore-row__actions > :not(.lore-row__more), .lore-row__more > button")].map(
-            (b) => ({ text: (b.textContent ?? "").trim() || b.getAttribute("aria-label") || "", box: r(b)! })
-          ),
+          actionButtons: [...row.querySelectorAll(".lore-row__actions button")].map((b) => ({
+            text: (b.textContent ?? "").trim() || b.getAttribute("aria-label") || "",
+            cls: b.className.toString(),
+            svg: b.querySelector("svg") !== null,
+            height: b.getBoundingClientRect().height,
+            box: r(b)!,
+          })),
           badges: badges
             ? [...badges.children].map((c) => ({
                 cls: (c.className || c.tagName).toString(),
@@ -107,11 +111,16 @@ async function measure(page: any): Promise<{
               }))
             : [],
           badgeOrder: badges
-            ? [...badges.children].map(
-                (c) => c.getAttribute("data-testid") ?? c.querySelector("[data-testid]")?.getAttribute("data-testid") ?? "",
-              )
+            ? [...badges.children].map((c) => {
+                const id = c.getAttribute("data-testid") ?? c.querySelector("[data-testid]")?.getAttribute("data-testid") ?? "";
+                // The scope tag is a bare span for a viewer who may not move
+                // entries and a wrapped menu trigger for one who may.
+                return id === "lore-scope" ? "lore-scope-name" : id;
+              })
             : [],
-          mark: r(row.querySelector(".lore-row__expand-mark")),
+          // Anything in the head besides the tag row and 編輯 is a stray mark
+          // (the retired ▸/▾ sat there).
+          mark: r(row.querySelector(".lore-row__head > :not(.lore-row__badges):not(.lore-row__actions)")),
           bodyOverflows: (() => {
             const body = row.querySelector('[data-testid="lore-body"]') as HTMLElement | null;
             return body ? body.scrollHeight > body.clientHeight + 1 : null;
@@ -156,12 +165,11 @@ const inside = (inner: Box, outer: Box) =>
 function assertHeadContained(width: number, row: RowGeom) {
   const tag = `[${width}px] ${row.id}`;
   expect.soft(row.head, `${tag} .lore-row__head missing`).not.toBeNull();
-  // id, type, state — in that order, inside the wrapper. No scope badge: the
-  // section already names whose entries these are.
-  expect.soft(row.badges.length, `${tag} .lore-row__badges children`).toBe(3);
+  // id, type, state, scope — in that order, inside the wrapper.
+  expect.soft(row.badges.length, `${tag} .lore-row__badges children`).toBe(4);
   expect
     .soft(row.badgeOrder, `${tag} badge order`)
-    .toEqual(["lore-entry-id", "lore-type", "lore-state"]);
+    .toEqual(["lore-entry-id", "lore-type", "lore-state", "lore-scope-name"]);
   if (!row.head) return;
   for (const b of row.badges) {
     expect
@@ -176,19 +184,18 @@ function assertHeadContained(width: number, row: RowGeom) {
   if (row.row)
     for (const m of row.metaItems)
       expect.soft(inside(m, row.row), `${tag} meta item outside the card`).toBe(true);
-  expect.soft(row.bodyOverflows, `${tag} body missing`).not.toBeNull();
-  expect
-    .soft(row.mark !== null, `${tag} expand mark shown iff the clamped body overflows`)
-    .toBe(row.bodyOverflows === true);
-  expect.soft(row.toggle, `${tag} row is a toggle iff the clamped body overflows`).toBe(row.bodyOverflows === true);
-  if (row.mark) {
-    expect.soft(inside(row.mark, row.head), `${tag} expand mark outside the head`).toBe(true);
-  }
+  // No fold: the body shows in full, nothing marks or toggles a row.
+  expect.soft(row.bodyOverflows, `${tag} body missing or clipped`).toBe(false);
+  expect.soft(row.mark, `${tag} expand mark`).toBeNull();
+  expect.soft(row.toggle, `${tag} row is a toggle`).toBe(false);
   expect.soft(row.actions, `${tag} actions missing`).not.toBeNull();
-  // A phone shows only 「⋯」; a desktop shows 提到最新, 編輯 and, for a viewer
-  // who may switch scopes (the story's owner), 適用範圍.
-  expect.soft(row.actionButtons.length, `${tag} actions`).toBe(width <= 720 ? 1 : 3);
+  // One 編輯 at every width, the app's own edit button: pencil + label, and
+  // the 30px .doc-btn box (proves settings.css styles it, not a bare <button>).
+  expect
+    .soft(row.actionButtons.map((b) => [b.text, b.cls, b.svg]), `${tag} actions`)
+    .toEqual([["編輯", "doc-btn doc-btn--edit", true]]);
   for (const b of row.actionButtons) {
+    expect.soft(Math.round(b.height), `${tag} "${b.text}" height`).toBe(30);
     expect.soft(inside(b.box, row.head), `${tag} "${b.text}" outside the head`).toBe(true);
     if (row.row) expect.soft(inside(b.box, row.row), `${tag} "${b.text}" outside the card`).toBe(true);
     for (const badge of row.badges) {
@@ -237,9 +244,6 @@ for (const width of [390, 1440]) {
     assertNoHScroll(width, g);
     expect(g.keys.length, `[${width}px] sections visited`).toBeGreaterThanOrEqual(4);
     expect(g.rows.length, `[${width}px] rows rendered`).toBeGreaterThanOrEqual(5);
-    // Both kinds of row must be on screen, or the iff check above proves nothing.
-    expect.soft(g.rows.some((r) => r.bodyOverflows === true), `[${width}px] an overflowing body`).toBe(true);
-    expect.soft(g.rows.some((r) => r.bodyOverflows === false), `[${width}px] a one-line body`).toBe(true);
 
     for (const row of g.rows) {
       assertHeadContained(width, row);
@@ -253,10 +257,6 @@ for (const width of [390, 1440]) {
         expect
           .soft(Math.max(...metaTops) - Math.min(...metaTops), `${tag} meta not on one line`)
           .toBeLessThanOrEqual(4);
-      } else if (row.mark && row.head) {
-        expect
-          .soft(row.mark.right, `${tag} expand mark not at the head's right edge`)
-          .toBeGreaterThanOrEqual(row.head.right - 2);
       }
     }
   });
@@ -301,13 +301,8 @@ for (const width of [390, 1440]) {
 
   test(`the 適用範圍 menu opens inside the viewport @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, MIRA);
-    const row = cmp.locator('[data-testid="lore-row"]').first();
-    if (width <= 720) {
-      await row.locator('[data-testid="lore-more-actions"]').click();
-      await row.locator('[data-testid="lore-scope-more"]').click();
-    } else {
-      await row.locator('[data-testid="lore-scope-name"]').click();
-    }
+    const row = cmp.locator('[data-testid="lore-row"]:has(button[data-testid="lore-scope-name"])').first();
+    await row.locator('.lore-row__badges button[data-testid="lore-scope-name"]').click();
     const pop = row.locator('[data-testid="lore-scope-options"]');
     await expect(pop).toBeVisible();
     const g = await page.evaluate(() => {
@@ -465,7 +460,6 @@ for (const width of [390, 1440]) {
   test(`the inline editor fits its card @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false);
     const row = cmp.locator('[data-entry-id="L-4"]');
-    if (width <= 720) await row.locator('[data-testid="lore-more-actions"]').click();
     await row.locator('[data-testid="lore-edit"]').click();
     await expect(row.locator('[data-testid="lore-editor"]')).toBeVisible();
     const g = await page.evaluate(() => {
@@ -506,64 +500,6 @@ for (const width of [390, 1440]) {
     expect.soft(pop!.left, `[${width}px] type menu left`).toBeGreaterThanOrEqual(card!.left - 1);
     expect.soft(pop!.right, `[${width}px] type menu right`).toBeLessThanOrEqual(card!.right + 1);
     assertNoHScroll(width, await pageAndLoreOver(page));
-  });
-
-  test(`提到最新 moves the card to the front without moving what is in view, and 前往 brings it back @${width}px`, async ({ mount, page }) => {
-    const cmp = await mountAt(mount, page, width, false, MIRA, 500);
-    const ids: string[] = await cmp
-      .locator('[data-testid="lore-row"]')
-      .evaluateAll((els: Element[]) => els.map((e) => e.getAttribute("data-entry-id") ?? ""));
-    expect(ids.length, `[${width}px] Mira's cards`).toBeGreaterThanOrEqual(8);
-    // The reader looks at `anchor` at the top of the view and bumps the card
-    // right under it, so the card lands above what they are reading.
-    const mid = Math.floor(ids.length / 2);
-    const anchorId = ids[mid - 1]!;
-    const target = ids[mid]!;
-    const sel = `[data-testid="lore-row"][data-entry-id="${target}"]`;
-    const anchorSel = `[data-testid="lore-row"][data-entry-id="${anchorId}"]`;
-    await page.evaluate((s: string) => {
-      const lore = document.querySelector(".lore") as HTMLElement;
-      const row = document.querySelector(s) as HTMLElement;
-      lore.scrollTop += row.getBoundingClientRect().top - lore.getBoundingClientRect().top - 10;
-    }, anchorSel);
-    const anchorBefore = await page.evaluate((s: string) => {
-      const lore = document.querySelector(".lore") as HTMLElement;
-      const row = document.querySelector(s) as HTMLElement;
-      return { id: row.dataset.entryId!, top: row.getBoundingClientRect().top, scrollTop: lore.scrollTop };
-    }, anchorSel);
-    await expect(cmp.locator(sel)).toBeInViewport();
-    expect(anchorBefore.scrollTop, `[${width}px] .lore did not scroll`).toBeGreaterThan(0);
-
-    const row = cmp.locator(sel);
-    if (width <= 720) {
-      await row.locator('[data-testid="lore-more-actions"]').click();
-    }
-    await row.locator('[data-testid="lore-bump"]').click();
-    const toast = cmp.locator('[data-testid="lore-toast"]');
-    await expect(toast).toBeVisible();
-    await expect
-      .poll(async () => (await cmp.locator('[data-testid="lore-row"]').evaluateAll((els: Element[]) => els.map((e) => e.getAttribute("data-entry-id")))).indexOf(target))
-      .toBeLessThan(ids.indexOf(target));
-
-    const anchorAfter = await boxOf(page, `[data-testid="lore-row"][data-entry-id="${anchorBefore.id}"]`);
-    console.log(`[lore ${width}] bump`, JSON.stringify({ target, anchorBefore, anchorAfter }));
-    expect.soft(Math.abs(anchorAfter!.top - anchorBefore.top), `[${width}px] ${anchorBefore.id} moved on screen`).toBeLessThanOrEqual(1);
-    const t = await boxOf(page, '[data-testid="lore-toast"]');
-    const vw = await page.evaluate(() => document.documentElement.clientWidth);
-    expect.soft(t!.bottom, `[${width}px] toast below the viewport`).toBeLessThanOrEqual(500 + 1);
-    expect.soft(t!.right, `[${width}px] toast past the viewport`).toBeLessThanOrEqual(vw + 1);
-    assertNoHScroll(width, await pageAndLoreOver(page));
-
-    await cmp.locator('[data-testid="lore-toast-go"]').click();
-    const moved = await page.evaluate((s: string) => {
-      const lore = document.querySelector(".lore") as HTMLElement;
-      const row = document.querySelector(s) as HTMLElement;
-      const a = lore.getBoundingClientRect();
-      const b = row.getBoundingClientRect();
-      return { inView: b.top >= a.top - 1 && b.top < a.bottom, focused: document.activeElement === row };
-    }, sel);
-    expect.soft(moved.inView, `[${width}px] 前往 did not scroll to ${target}`).toBe(true);
-    expect.soft(moved.focused, `[${width}px] 前往 did not focus ${target}`).toBe(true);
   });
 
   test(`a state change leaves the scroll position and the card where they were @${width}px`, async ({ mount, page }) => {

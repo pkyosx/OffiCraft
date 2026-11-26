@@ -18,9 +18,7 @@
 // 🔴 A MUTATION NEVER RELOADS A SECTION FROM PAGE ONE (owner: 編輯完不要自動
 // refresh). The changed row is re-read by id and replaced where it stands, only
 // the numbers are re-asked, and rows re-sort only when a section is reopened
-// or the filter changes. The one exception is 提到最新, which moves its card to
-// the front (owner) while the viewport stays anchored on what the reader was
-// looking at.
+// or the filter changes.
 
 import {
   useCallback,
@@ -50,7 +48,6 @@ import { LORE_TYPES } from "../api/loreType";
 import { loadServerSettings } from "../hooks/sharedServerSettings";
 import { useMembers } from "../hooks/useMembers";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
-import { useIsMobile } from "../hooks/useIsMobile";
 import { useTaskManuals } from "../hooks/useTaskManuals";
 import {
   useWorkerAvatarUrls,
@@ -79,10 +76,9 @@ import {
   BookIcon,
   ChatBubbleIcon,
   CheckIcon,
-  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  MoreIcon,
+  PencilIcon,
   UsersIcon,
 } from "./icons";
 import "./lore.css";
@@ -189,32 +185,6 @@ function editFieldBlocked(next: string, stored: string, capChars: number): boole
   return next !== stored && n > capChars && n >= [...stored].length;
 }
 
-/** Whether a clamped 內容 box hides text. A seam so jsdom tests, which have no
- * layout, can say which bodies overflow. */
-export const loreBodyOverflow = {
-  measure: (el: HTMLElement): boolean => el.scrollHeight > el.clientHeight + 1,
-};
-
-/** The server's order: 置頂, then 生效中, then 已失效, each newest first. */
-function loreRank(s: LoreEntryState): number {
-  return s === "pinned" ? 0 : s === "active" ? 1 : 2;
-}
-
-/** 提到最新's card goes to the top of its own state group — right after the
- * 置頂 rows for a live entry — which is where the server now sorts it. Decided
- * by state alone, not by the re-read's effective_ts, so a lagging clock cannot
- * leave it behind. null when it is already there. */
-function moveBumped(entries: LoreEntryView[], id: string): LoreEntryView[] | null {
-  const i = entries.findIndex((e) => e.id === id);
-  if (i < 0) return null;
-  const moved = entries[i];
-  const rest = entries.filter((_, j) => j !== i);
-  let at = rest.findIndex((e) => loreRank(e.state) >= loreRank(moved.state));
-  if (at < 0) at = rest.length;
-  if (at === i) return null;
-  return [...rest.slice(0, at), moved, ...rest.slice(at)];
-}
-
 /** Auto-paging for a highlighted entry stops after this many extra pages. */
 const HIGHLIGHT_PAGE_CAP = 10;
 
@@ -227,7 +197,7 @@ function rowElement(root: HTMLElement | null, id: string): HTMLElement | null {
   return null;
 }
 
-/** How long the 「已移到最前面」 toast stays. */
+/** How long the 適用範圍 notice stays. */
 const TOAST_MS = 5000;
 
 /** A changed card keeps its place until the section reloads, even when its
@@ -258,7 +228,6 @@ interface LoreShared {
   membersLoading: boolean;
   workers: ReturnType<typeof useOutsourceWorkers>["workers"];
   manuals: ReturnType<typeof useTaskManuals>["manuals"];
-  isMobile: boolean;
   entryCaps: { title: number; body: number };
 }
 
@@ -266,7 +235,6 @@ export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
   const { members, loading: membersLoading } = useMembers();
   const { workers } = useOutsourceWorkers();
   const { manuals } = useTaskManuals();
-  const isMobile = useIsMobile();
   const [entryCaps, setEntryCaps] = useState({
     title: LORE_CAP_CHARS_DEFAULTS.title,
     body: LORE_CAP_CHARS_DEFAULTS.body,
@@ -283,8 +251,8 @@ export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
     };
   }, []);
   const shared = useMemo<LoreShared>(
-    () => ({ members, membersLoading, workers, manuals, isMobile, entryCaps }),
-    [members, membersLoading, workers, manuals, isMobile, entryCaps]
+    () => ({ members, membersLoading, workers, manuals, entryCaps }),
+    [members, membersLoading, workers, manuals, entryCaps]
   );
   const [route] = useHashRoute();
   const sec = route.page === "lore" ? route.loreSection : undefined;
@@ -355,7 +323,7 @@ function LoreView({
   refreshBudgets: () => Promise<void>;
 }) {
   const { t, msg } = useI18n();
-  const { members, membersLoading, workers, manuals, isMobile, entryCaps } = shared;
+  const { members, membersLoading, workers, manuals, entryCaps } = shared;
   const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
 
   // ── 篩選 ────────────────────────────────────────────────────────────────
@@ -816,79 +784,16 @@ function LoreView({
       void runOne(id, () => api.setLoreEntryState(id, next)).catch(() => {}),
     [runOne]
   );
-  // ── 提到最新 moves the card; the viewport stays on what the reader saw ────
-  // `scopeLabel` set ⇒ the 適用範圍 notice: the card keeps its place and shows no
-  // scope, so without it nothing on screen would say the change landed.
-  const [toast, setToast] = useState<{ id: string; scopeLabel?: string } | null>(null);
-  type Anchor = { el: HTMLElement; top: number };
-  const anchorRef = useRef<{ main: Anchor; fallback: Anchor | null } | null>(null);
+  // The 適用範圍 notice. A changed card keeps its place on this section page even
+  // when its new scope belongs to another section, so the notice is what says
+  // the move landed and where the entry now lives.
+  const [toast, setToast] = useState<{ id: string; scopeLabel: string } | null>(null);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), TOAST_MS);
     return () => window.clearTimeout(timer);
   }, [toast]);
-  useLayoutEffect(() => {
-    const a = anchorRef.current;
-    anchorRef.current = null;
-    const sc = scrollRef.current;
-    if (!a || !sc || !a.main.el.isConnected) return;
-    const shift = (x: Anchor) => x.el.getBoundingClientRect().top - x.top;
-    let delta = shift(a.main);
-    // Near the bottom the page may not scroll that far, and a clamped scroll
-    // moves the view anyway. The card after the moved one keeps its place
-    // without any scroll, so hold that one still instead.
-    const max = sc.scrollHeight - sc.clientHeight;
-    if (a.fallback?.el.isConnected && sc.scrollTop + delta > max + 1) delta = shift(a.fallback);
-    if (delta !== 0) sc.scrollTop += delta;
-  }, [data]);
 
-  const moveToFront = useCallback(
-    (id: string) => {
-      const key = sectionOfEntry(id);
-      if (!key) return;
-      const next = moveBumped(dataRef.current[key]?.entries ?? [], id);
-      if (!next) return;
-      const sc = scrollRef.current;
-      anchorRef.current = null;
-      if (sc) {
-        const rows = [...sc.querySelectorAll<HTMLElement>('[data-testid="lore-row"]')];
-        const after = rows[rows.findIndex((el) => el.dataset.entryId === id) + 1];
-        const fallback = after ? { el: after, top: after.getBoundingClientRect().top } : null;
-        // The first card that starts in view, other than the one leaving. A
-        // card cut off at the top would do as well on paper, but when the
-        // leaving card sat right under it there is often not enough page left
-        // below to scroll it back into place.
-        const top = sc.getBoundingClientRect().top;
-        for (const el of rows) {
-          if (el.dataset.entryId === id) continue;
-          const box = el.getBoundingClientRect();
-          if (box.top >= top) {
-            anchorRef.current = { main: { el, top: box.top }, fallback };
-            break;
-          }
-        }
-      }
-      patchSection(key, (p) => ({ ...p, entries: moveBumped(p.entries, id) ?? p.entries }));
-      setToast({ id });
-    },
-    [patchSection, sectionOfEntry]
-  );
-
-  const bumpEntry = useCallback(
-    (id: string) =>
-      void runOne(id, () => api.bumpLoreEntry(id))
-        .then(() => moveToFront(id))
-        .catch(() => {}),
-    [runOne, moveToFront]
-  );
-
-  function goToEntry(id: string) {
-    setToast(null);
-    const el = rowElement(scrollRef.current, id);
-    if (!el) return;
-    el.scrollIntoView?.({ block: "nearest" });
-    el.focus({ preventScroll: true });
-  }
   const setEntryScope = useCallback(
     (id: string, kind: LoreScopeKind, label: string) =>
       void runOne(id, () => api.setLoreEntryScope(id, kind), true)
@@ -1118,7 +1023,6 @@ function LoreView({
                   scopeMenu={
                     canSetScope && entry.scopeOptions.length > 0 ? resolveScopeMenu(entry) : null
                   }
-                  isMobile={isMobile}
                   highlighted={entry.id === highlightId}
                   entryCaps={entryCaps}
                   onOpenChat={openChat}
@@ -1126,7 +1030,6 @@ function LoreView({
                   onSetState={setEntryState}
                   onSetScope={setEntryScope}
                   onSetLoreType={setEntryLoreType}
-                  onBump={bumpEntry}
                   onSave={editEntry}
                   onRestored={restoredEntry}
                 />
@@ -1341,7 +1244,7 @@ function LoreView({
               {dirLead(currentDef)}
               <span className="lore-dir-card__main">
                 {currentDef.kind === "manual" ? (
-                  // The only way back to the manual now that cards carry no scope badge.
+                  // The way back to the manual for every viewer; the card scope tag offers it only to those who may move entries.
                   <button
                     type="button"
                     className="lore-dir-card__name lore-dir-card__name--link"
@@ -1430,22 +1333,7 @@ function LoreView({
       {toast && (
         <div className="lore__dock">
           <div className="lore-toast" role="status" data-testid="lore-toast">
-            {toast.scopeLabel !== undefined ? (
-              <span>{msg.loreScopeChanged(toast.id, toast.scopeLabel)}</span>
-            ) : (
-              <>
-                <span>{t.lore.bumpedToast}</span>
-                <span aria-hidden="true">·</span>
-                <button
-                  type="button"
-                  className="lore-toast__go"
-                  data-testid="lore-toast-go"
-                  onClick={() => goToEntry(toast.id)}
-                >
-                  {t.lore.bumpedGo}
-                </button>
-              </>
-            )}
+            <span>{msg.loreScopeChanged(toast.id, toast.scopeLabel)}</span>
           </div>
         </div>
       )}
@@ -1468,8 +1356,7 @@ function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string
   }
 }
 
-/** ONE 傳承 row. Collapsed by default; when the body overflows its clamped
- * line, the whole row is the toggle surface. */
+/** ONE 傳承 row. The body always shows in full: no fold, no chevron. */
 function LoreRow({
   entry,
   dimmed,
@@ -1482,8 +1369,6 @@ function LoreRow({
   onSetState,
   onSetScope,
   onSetLoreType,
-  onBump,
-  isMobile,
   highlighted,
   entryCaps,
   onSave,
@@ -1499,13 +1384,10 @@ function LoreRow({
   onOpenChat: (peerId: string, entryId: string) => void;
   onOpenManual: (typeKey: string) => void;
   onSetState: (id: string, next: LoreEntryState) => void;
-  /** null ⇒ the viewer may not switch this entry's scope; no 適用範圍 action. */
+  /** null ⇒ the viewer may not switch this entry's scope; the scope tag is plain text. */
   scopeMenu: ScopeMenu | null;
   onSetScope: (id: string, kind: LoreScopeKind, label: string) => void;
   onSetLoreType: (id: string, loreType: LoreType) => void;
-  onBump: (id: string) => void;
-  /** Phone width: 提到最新, 編輯 and 適用範圍 fold into the 「⋯」 menu. */
-  isMobile: boolean;
   highlighted: boolean;
   entryCaps: { title: number; body: number };
   /** Rejects with the reason to show; the draft stays. */
@@ -1513,25 +1395,13 @@ function LoreRow({
   onRestored: (id: string) => Promise<void>;
 }) {
   const { t, msg } = useI18n();
-  const [expanded, setExpanded] = useState(false);
   const [stateOpen, setStateOpen] = useState(false);
   const statusRef = useRef<HTMLDivElement>(null);
   const [typeOpen, setTypeOpen] = useState(false);
   const typeRef = useRef<HTMLDivElement>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
   const scopeRef = useRef<HTMLSpanElement>(null);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
-
-  useEffect(() => {
-    if (!moreOpen) return;
-    function onDown(e: MouseEvent) {
-      if (!moreRef.current?.contains(e.target as Node)) setMoreOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [moreOpen]);
 
   useEffect(() => {
     if (!scopeOpen) return;
@@ -1559,49 +1429,6 @@ function LoreRow({
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [typeOpen]);
-
-  // A body that fits its two clamped lines reads the same expanded, so the row
-  // only offers 展開 when the clamp actually hides something. Measured while
-  // clamped only: an expanded body never overflows, and re-measuring then would
-  // take away the way to collapse it.
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const [bodyOverflows, setBodyOverflows] = useState(false);
-  useLayoutEffect(() => {
-    const el = bodyRef.current;
-    if (!el || expanded) return;
-    const check = () => setBodyOverflows(loreBodyOverflow.measure(el));
-    check();
-    if (typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(check);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [entry.body, expanded, editing]);
-  const toggleable = bodyOverflows || expanded;
-
-  // Copied verbatim in SHAPE from TaskCard.onCardToggleClick: a click that
-  // landed on an interactive descendant does that control's job and must not
-  // also flip the row, and a click that ended a drag-selection is reading. The
-  // [role='button'] entry also matches THIS element (the article carries it),
-  // so the `hit !== e.currentTarget` guard is what keeps ordinary body clicks
-  // toggling instead of being swallowed.
-  function onRowToggleClick(e: React.MouseEvent<HTMLElement>) {
-    if (!toggleable) return;
-    const target = e.target as HTMLElement;
-    const hit = target.closest(
-      "button, a, textarea, input, select, label, .lore-row__editor, [role='button'], [role='menu'], [role='dialog']"
-    );
-    if (hit && hit !== e.currentTarget) return;
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) return;
-    setExpanded((v) => !v);
-  }
-  function onRowToggleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
-    if (!toggleable || e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      setExpanded((v) => !v);
-    }
-  }
 
   const stateLabel =
     entry.state === "pinned"
@@ -1644,27 +1471,18 @@ function LoreRow({
     <article
       className={`lore-row lore-row--${entry.state}${
         dimmed ? " lore-row--dimmed" : ""
-      }${toggleable ? " lore-row--toggle" : ""}${highlighted ? " lore-row--highlight" : ""}`}
+      }${highlighted ? " lore-row--highlight" : ""}`}
       data-testid="lore-row"
       data-entry-id={entry.id}
       data-dimmed={dimmed ? "true" : "false"}
-      {...(toggleable
-        ? {
-            role: "button",
-            tabIndex: 0,
-            "aria-expanded": expanded,
-            "aria-label": expanded ? t.lore.collapseCard : t.lore.expandCard,
-          }
-        : // Focusable from code only: the toast's 前往 and a highlight land here.
-          { tabIndex: -1 })}
-      onClick={onRowToggleClick}
-      onKeyDown={onRowToggleKeyDown}
+      // Focusable from code only: a highlighted entry lands here.
+      tabIndex={-1}
     >
       <div className="lore-row__head">
         <div className="lore-row__badges">
-          {/* Order: 編號 → 類型 → 狀態. The id leads, as on 任務卡, because it
-              is what you quote to somebody else (owner: 「make them consistent
-              with task」). 傳承 has no 優先權; do not invent one for the slot. */}
+          {/* Order: 編號 → 類型 → 狀態 → 適用範圍. The id leads, as on 任務卡,
+              because it is what you quote to somebody else (owner: 「make them
+              consistent with task」). 傳承 has no 優先權; do not invent one for the slot. */}
           <button
             type="button"
             className="lore-row__id-badge"
@@ -1785,107 +1603,27 @@ function LoreRow({
             )}
           </div>
 
-        </div>
-
-        <div className="lore-row__actions">
-          {isMobile ? (
-            <div className="lore-row__more" ref={moreRef}>
-              <button
-                type="button"
-                className="lore-row__action"
-                data-testid="lore-more-actions"
-                aria-label={t.lore.moreActions}
-                title={t.lore.moreActions}
-                aria-haspopup="menu"
-                aria-expanded={moreOpen}
-                onClick={() => setMoreOpen((o) => !o)}
-              >
-                <MoreIcon size={16} />
-              </button>
-              {moreOpen && (
-                <div
-                  className="lore-row__menu-pop lore-row__more-pop"
-                  role="menu"
-                  data-testid="lore-more-menu"
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="lore-row__menu-item"
-                    data-testid="lore-bump"
-                    onClick={() => {
-                      setMoreOpen(false);
-                      onBump(entry.id);
-                    }}
-                  >
-                    {t.lore.bump}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="lore-row__menu-item"
-                    data-testid="lore-edit"
-                    onClick={() => {
-                      setMoreOpen(false);
-                      setEditing(true);
-                    }}
-                  >
-                    {t.lore.actionEdit}
-                  </button>
-                  {scopeMenu && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="lore-row__menu-item"
-                      data-testid="lore-scope-more"
-                      onClick={() => {
-                        setMoreOpen(false);
-                        setScopeOpen(true);
-                      }}
-                    >
-                      {t.lore.scopeMenuLabel}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="lore-row__action"
-                data-testid="lore-bump"
-                onClick={() => onBump(entry.id)}
-              >
-                {t.lore.bump}
-              </button>
-              <button
-                type="button"
-                className="lore-row__action"
-                data-testid="lore-edit"
-                disabled={editing}
-                onClick={() => setEditing(true)}
-              >
-                {t.lore.actionEdit}
-              </button>
-            </>
-          )}
-          {scopeMenu && (!isMobile || scopeOpen) && (
+          {/* 適用範圍 rides the tag row as the fourth tag. A viewer who may move
+              the entry gets the same badge-is-the-control pattern as 類型/狀態;
+              anyone else reads it as plain text. The menu hangs from
+              .lore-row__head (this wrapper is not positioned) so a tag that
+              wrapped to the row's right edge cannot push the menu off a phone. */}
+          {scopeMenu ? (
             <span className="lore-row__scope" data-testid="lore-scope" ref={scopeRef}>
-              {!isMobile && (
-                <button
-                  type="button"
-                  className="lore-row__action"
-                  data-testid="lore-scope-name"
-                  data-scope-kind={scope.kind}
-                  aria-haspopup="menu"
-                  aria-expanded={scopeOpen}
-                  onClick={() => setScopeOpen((o) => !o)}
-                >
-                  {t.lore.scopeMenuLabel}
-                </button>
-              )}
-                {scopeOpen && (
+              <button
+                type="button"
+                className="lore-badge lore-badge--scope lore-row__status-chip"
+                data-testid="lore-scope-name"
+                data-scope-kind={scope.kind}
+                title={t.lore.scopeMenuLabel}
+                aria-label={`${t.lore.scopeMenuLabel}：${scope.label}`}
+                aria-haspopup="menu"
+                aria-expanded={scopeOpen}
+                onClick={() => setScopeOpen((o) => !o)}
+              >
+                <span className="lore-badge__text">{scope.label}</span>
+              </button>
+              {scopeOpen && (
                 <div
                   className="lore-row__menu-pop lore-row__scope-pop"
                   role="menu"
@@ -1950,20 +1688,30 @@ function LoreRow({
                 </div>
               )}
             </span>
+          ) : (
+            <span
+              className="lore-badge lore-badge--scope"
+              data-testid="lore-scope-name"
+              data-scope-kind={scope.kind}
+              title={t.lore.scopeMenuLabel}
+            >
+              <span className="lore-badge__text">{scope.label}</span>
+            </span>
           )}
         </div>
 
-        {/* A pure STATE INDICATOR: aria-hidden, no role, pointer-events:none in
-            CSS, and a DIFFERENT ICON per state rather than one icon rotated. */}
-        {toggleable && (
-          <span
-            className="lore-row__expand-mark"
-            data-testid="lore-expand-mark"
-            aria-hidden="true"
+        <div className="lore-row__actions">
+          <button
+            type="button"
+            className="doc-btn doc-btn--edit"
+            data-testid="lore-edit"
+            disabled={editing}
+            onClick={() => setEditing(true)}
           >
-            {expanded ? <ChevronDownIcon size={18} /> : <ChevronRightIcon size={18} />}
-          </span>
-        )}
+            <PencilIcon size={14} />
+            <span>{t.lore.actionEdit}</span>
+          </button>
+        </div>
       </div>
 
       {editing ? (
@@ -1981,45 +1729,21 @@ function LoreRow({
         <>
           <h3 className="lore-row__title">{entry.title}</h3>
 
-          {/* 🔴 內容 IS THE ONE THING 展開／收合 STILL CONTROLS (owner 2026-09-08,
-              card rc-2e10ee03b97c, superseding his own ruling 90 seconds earlier:
-              「我覺得好像應該唯一要折疊的是 content 然後要支援 md format」). So the
-              clamp stays HERE, and everything below — 撰寫人 / 生效期 / 失效理由 —
-              moved OUT of `expanded` and now shows on a closed row too. The earlier
-              reading (「才五百字好像沒什麼好折疊的」 ⇒ body always full, meta still
-              hidden) was the exact opposite arrangement and is dead.
+          {/* 🔴 MARKDOWN GOES THROUGH THE SHARED, XSS-SAFE RENDERER, exactly as the
+              chat bubble does. Never dangerouslySetInnerHTML: a 傳承 body is
+              agent-authored free text. `breaks` for the same reason chat turns it
+              on — this text was WRITTEN as plain text, where Enter meant "new
+              line", and standard markdown's soft-wrap would silently join every
+              such line into one run-on.
 
-              🔴 THE TRUNCATION IS OF THE RENDERED OUTPUT, NEVER OF THE SOURCE. It
-              is CSS (-webkit-line-clamp on .lore-row__body--clamped): the markdown
-              is parsed in full and the BOX shows two lines of it. Slicing the source
-              string to N characters would cut a `**` or a fence in half and hand
-              the parser something that is not the entry's markdown at all.
+              ⚠️ Stored bodies were written under a plain-text contract, so
+              characters that are now syntax are read as syntax. This follows chat
+              (one behaviour for one kind of text). The renderer's inline set is
+              only `**bold**`, `` `code` `` and links; `_` is not syntax, so a body
+              carrying `note_size_chars` is unaffected.
 
-              🔴 MARKDOWN GOES THROUGH THE SHARED, XSS-SAFE RENDERER, exactly as the
-              chat bubble does (ChatArea.tsx:2052). Never dangerouslySetInnerHTML:
-              a 傳承 body is agent-authored free text.
-              `breaks` for the same reason chat turns it on — this text was WRITTEN
-              as plain text, where Enter meant "new line", and standard markdown's
-              soft-wrap would silently join every such line into one run-on.
-
-              ⚠️ WHAT THIS COSTS THE ENTRIES THAT ALREADY EXIST, stated rather than
-              papered over: every stored body was written under a plain-text
-              contract, so characters that are now syntax are now read as syntax.
-              Chat had the identical problem with the identical corpus and did NOT
-              escape the text (it renders `m.body` raw through the same component),
-              and this follows chat — one behaviour for one kind of text, rather
-              than a second, page-local escaping rule that would make the same
-              sentence render two ways on two pages. What limits the blast radius is
-              the renderer's own inline set: only `**bold**`, `` `code` `` and
-              links. `_` is NOT inline syntax there, so a body carrying
-              `note_size_chars` is unaffected — the case that prompted the worry. */}
-          <div
-            ref={bodyRef}
-            className={`lore-row__body${
-              expanded ? "" : " lore-row__body--clamped"
-            }`}
-            data-testid="lore-body"
-          >
+              The body is always shown in full (owner: no fold on the card). */}
+          <div className="lore-row__body" data-testid="lore-body">
             <Markdown source={entry.body} className="lore-row__body-md doc-md" breaks />
           </div>
         </>
