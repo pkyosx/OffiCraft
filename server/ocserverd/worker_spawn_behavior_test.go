@@ -120,7 +120,7 @@ func TestBuildWorkerBootContext_FullAssembly(t *testing.T) {
 		"# Global Context", // slot 1 — the 系統互動 seed's own H1
 		// 釘的是 seed 的 H1 逐字位元組（見 worker_sharedcore_test.go 的
 		// bootSequenceH1）。rc-e12733548e4b 之後是新名。
-		"# Boot Sequence",       // slot 4 — the shared boot sequence
+		bootSequenceH1,          // slot 4 — the shared boot sequence
 		"# Claude Code Runtime", // that runtime's 執行環境 section, leading slot 4
 	} {
 		if !strings.Contains(got, want) {
@@ -501,7 +501,7 @@ func TestNotifyWorkerSpawn_DispatchesMemberStart_AndPaces(t *testing.T) {
 	// the spawn path.
 	// 釘的是 seed 的 H1 逐字位元組；rc-e12733548e4b 之後是新名，與 seed 同一顆
 	// commit 換掉。
-	for _, want := range []string{"# Global Context", "# Boot Sequence"} {
+	for _, want := range []string{"# Global Context", bootSequenceH1} {
 		if !strings.Contains(persona, want) {
 			t.Errorf("persona_context is missing the shared block %q", want)
 		}

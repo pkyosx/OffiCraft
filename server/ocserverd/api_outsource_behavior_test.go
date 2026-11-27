@@ -257,7 +257,7 @@ func TestGetWorkerBootContext(t *testing.T) {
 	// empty string.
 	// 釘的是 seed 的 H1 逐字位元組；rc-e12733548e4b 之後是新名，與 seed 同一顆
 	// commit 換掉。
-	for _, want := range []string{"# Global Context", "# Boot Sequence"} {
+	for _, want := range []string{"# Global Context", bootSequenceH1} {
 		if !strings.Contains(got.Context, want) {
 			t.Errorf("preview must contain the shared block %q", want)
 		}

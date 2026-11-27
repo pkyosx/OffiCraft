@@ -24,7 +24,7 @@ func apiSeededAssistantRow() map[string]any {
 	return map[string]any{
 		"role_key": "assistant",
 		"duty":     map[string]any{"size_chars": 539, "cap_chars": 2500},
-		"insight":  map[string]any{"size_chars": 3958, "cap_chars": 37500},
+		"insight":  map[string]any{"size_chars": 3959, "cap_chars": 37500},
 	}
 }
 
@@ -34,11 +34,11 @@ func apiBuiltinManualSizeRows(capChars int) []any {
 	return []any{
 		map[string]any{
 			"type_key": "builtin-remote-access",
-			"sop":      map[string]any{"size_chars": 14997, "cap_chars": capChars},
+			"sop":      map[string]any{"size_chars": 15049, "cap_chars": capChars},
 		},
 		map[string]any{
 			"type_key": "builtin-role-design",
-			"sop":      map[string]any{"size_chars": 9224, "cap_chars": capChars},
+			"sop":      map[string]any{"size_chars": 9061, "cap_chars": capChars},
 		},
 		map[string]any{
 			"type_key": "builtin-task-manual-design",
@@ -77,18 +77,18 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 				apiSeededAssistantRow(),
 				map[string]any{
 					"role_key": roleKey,
-					"duty":     map[string]any{"size_chars": 456, "cap_chars": 2500},
+					"duty":     map[string]any{"size_chars": 445, "cap_chars": 2500},
 					"insight":  map[string]any{"size_chars": 0, "cap_chars": 37500},
 				},
 			},
 			"task_manuals": []any{
 				map[string]any{
 					"type_key": "builtin-remote-access",
-					"sop":      map[string]any{"size_chars": 14997, "cap_chars": 37500},
+					"sop":      map[string]any{"size_chars": 15049, "cap_chars": 37500},
 				},
 				map[string]any{
 					"type_key": "builtin-role-design",
-					"sop":      map[string]any{"size_chars": 9224, "cap_chars": 37500},
+					"sop":      map[string]any{"size_chars": 9061, "cap_chars": 37500},
 				},
 				map[string]any{
 					"type_key": "builtin-task-manual-design",
@@ -137,16 +137,16 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 			"roles": []any{map[string]any{
 				"role_key": "assistant",
 				"duty":     map[string]any{"size_chars": 539, "cap_chars": 2500},
-				"insight":  map[string]any{"size_chars": 3958, "cap_chars": 20000},
+				"insight":  map[string]any{"size_chars": 3959, "cap_chars": 20000},
 			}},
 			"task_manuals": []any{
 				map[string]any{
 					"type_key": "builtin-remote-access",
-					"sop":      map[string]any{"size_chars": 14997, "cap_chars": 30000},
+					"sop":      map[string]any{"size_chars": 15049, "cap_chars": 30000},
 				},
 				map[string]any{
 					"type_key": "builtin-role-design",
-					"sop":      map[string]any{"size_chars": 9224, "cap_chars": 30000},
+					"sop":      map[string]any{"size_chars": 9061, "cap_chars": 30000},
 				},
 				map[string]any{
 					"type_key": "builtin-task-manual-design",
