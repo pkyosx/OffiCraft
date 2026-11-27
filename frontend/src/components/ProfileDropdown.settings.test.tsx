@@ -84,7 +84,7 @@ describe("ProfileDropdown · preferences scope", () => {
     expect(utils.getByText(p.language)).toBeTruthy();
   });
 
-  it("tells the owner under 語言 that members follow the choice from their next start, in either language (T-745)", async () => {
+  it("tells the owner under 語言 that members follow the choice from their next start, in either language", async () => {
     const utils = await openPreferences();
     expect(
       utils.getByText("成員對你使用的語言也跟著換（成員下次開機生效）。"),

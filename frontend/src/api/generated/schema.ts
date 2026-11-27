@@ -2720,7 +2720,7 @@ export interface paths {
         };
         /**
          * Read an outsource worker's boot-context preview (owner/admin agent).
-         * @description Read the outsource worker's boot-context PREVIEW (T-ba6b): the server re-assembles the boot text with the SAME fold the spawn path uses (buildWorkerBootContext), WITHOUT minting any token. Since T-4595 that fold is the STAFF boot context minus the persona slot — 系統互動 + 使用者語言 + 使用者自訂 + the boot sequence for the worker's own runtime, with no outsource-only document, no 你的身分 block, no bound task and no type manual — but WITH that worker's own 傳承 block (T-33, LoreScopeAgent keyed on its member id), which is the one part that differs from worker to worker. Owner/admin-agent cockpit read (T-6020; the floor is unchanged, and it is now the only thing keeping this read narrow — the text no longer embeds the task or the manual). 404 for an unknown worker or a worker whose bound task is gone. HONEST caveat the UI must carry: this is today's re-assembly, not a verbatim spawn-time record — nothing is stored (no prompt column, no migration).
+         * @description Read the outsource worker's boot-context PREVIEW (T-ba6b): the server re-assembles the boot text with the SAME fold the spawn path uses (buildWorkerBootContext), WITHOUT minting any token. Since T-4595 that fold is the STAFF boot context minus the persona slot — System interaction + User Language + Owner Additions + the boot sequence for the worker's own runtime, with no outsource-only document, no identity block, no bound task and no type manual — but WITH that worker's own lore block (T-33, LoreScopeAgent keyed on its member id), which is the one part that differs from worker to worker. Owner/admin-agent cockpit read (T-6020; the floor is unchanged, and it is now the only thing keeping this read narrow — the text no longer embeds the task or the manual). 404 for an unknown worker or a worker whose bound task is gone. HONEST caveat the UI must carry: this is today's re-assembly, not a verbatim spawn-time record — nothing is stored (no prompt column, no migration).
          */
         get: operations["handle_get_worker_boot_context_api_outsource_workers__id__boot_context_get"];
         put?: never;
@@ -10230,7 +10230,7 @@ export interface components {
             codex_notice_round: number;
             /**
              * Display Language
-             * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), and a change reaches each member at its next boot (T-745). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
+             * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
              * @default
              */
             display_language: string;
@@ -10517,7 +10517,7 @@ export interface components {
             codex_notice_round?: number | null;
             /**
              * Display Language
-             * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in from its next boot (T-745) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
+             * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in from its next boot — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
              */
             display_language?: string | null;
             /**

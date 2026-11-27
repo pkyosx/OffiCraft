@@ -99,7 +99,7 @@
 在 `GET /api/task-manuals/{type_key}` 回應裡走自己的欄位（`lore` ＋ `lore_chars`）。**不進任何人的開機檔**，正職與外包一視同仁。
 
 🔴 **三個出口共用同一份挑選邏輯**（`selectLoreEntries`；成員出口經 `selectMemberLore`、手冊出口經 `selectLoreForScope`），各自傳不同的 scope 進去。在任何一條路徑上另寫一份挑選，症狀會是「同一筆條目在一個出口看得到、在另一個出口看不到」，而且不報錯。
-**類型標籤怎麼顯示**（`renderLoreBlock`，三個出口共用）：四種有標籤的在編號後、標題前顯示英文標籤，格式 `## L-667 [Owner decision] 標題`，四個字面值是 `Instruction conflict`、`Instruction supplement`、`Owner decision`、`Owner preference`（T-745 起；之前是中文的 `指示衝突`、`指示補充`、`Owner 決策`、`Owner 偏好`）。座艙上的標籤跟著介面語言，不受這一條影響。🔴 **`other` 不顯示標籤**（owner：開機文件不提「其他」；`[工作原則]` 那幾筆的標題本身還帶著前綴）。字數上限只算標題＋內容，不算標籤。
+**類型標籤怎麼顯示**（`renderLoreBlock`，三個出口共用）：四種有標籤的在編號後、標題前顯示英文標籤，格式 `## L-667 [Owner decision] 標題`，四個字面值是 `Instruction conflict`、`Instruction supplement`、`Owner decision`、`Owner preference`（較早的版本是中文的 `指示衝突`、`指示補充`、`Owner 決策`、`Owner 偏好`）。座艙上的標籤跟著介面語言，不受這一條影響。🔴 **`other` 不顯示標籤**（owner：開機文件不提「其他」；`[工作原則]` 那幾筆的標題本身還帶著前綴）。字數上限只算標題＋內容，不算標籤。
 
 🔴 除了接上這三個出口所需的改動之外，**不要去抽正職與外包共用開頭那段既有的重複** —— 那段跟傳承無關，屬於 T-14 的範圍，不在本次授權內。
 

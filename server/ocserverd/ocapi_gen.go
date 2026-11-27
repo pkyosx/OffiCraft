@@ -4111,7 +4111,7 @@ type SettingsDTO struct {
 	// DiskUsageIntervalSecs How often, in seconds (600 through 86400), each warden measures how much disk OffiCraft uses on its machine, and the server measures its database, backups and old database copies. One measurement walks the whole OffiCraft directory and takes tens of seconds of disk reads, hence the 10-minute floor. Wardens learn the value from their heartbeat reply.
 	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
 
-	// DisplayLanguage The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), and a change reaches each member at its next boot (T-745). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
+	// DisplayLanguage The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
 	// DisplaySeasonalTheme Whether the cockpit takes the built-in seasonal theme while its window is open (a holiday theme shipped with the release, e.g. Halloween; its dates ship with it and are not configurable). true (the default) = show it; false = keep display_theme through the window. Outside every window this has no effect. Same dual-layer contract as display_wide.
@@ -4273,7 +4273,7 @@ type SettingsUpdateDTO struct {
 	// DiskUsageIntervalSecs How often, in seconds, each warden measures how much disk OffiCraft uses on its machine. Must be 600 through 86400. Wardens pick a change up from their next heartbeat reply.
 	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
 
-	// DisplayLanguage The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in from its next boot (T-745) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
+	// DisplayLanguage The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in from its next boot — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
 	// DisplaySeasonalTheme Turn the built-in seasonal theme on/off for the cockpit. A plain boolean with no unset state: omit the field to leave it unchanged.

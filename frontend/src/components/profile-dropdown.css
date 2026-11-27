@@ -250,7 +250,7 @@
   color: var(--color-text-muted);
 }
 
-/* A hint under a control (語言's "members follow it" line, T-745): spaced off
+/* A hint under a control (語言's "members follow it" line): spaced off
    the segmented control above it and allowed to wrap inside the menu width. */
 .profile-dd__section-hint--below {
   margin-top: 6px;
