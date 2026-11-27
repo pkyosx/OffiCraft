@@ -150,6 +150,21 @@ describe("MonitorPage account usage age (T-3b90)", () => {
     expect(screen.getAllByTestId("mon-usage-age").length).toBeGreaterThan(0);
   });
 
+  it("says why the usage is unknown when the account's latest measurement failed, with no number in its place", async () => {
+    getMonitoring.mockResolvedValue({
+      accounts: [{ ...staleAcct(0, false), sevenDay: null, unmeasuredReason: "usage_failed" }],
+      sessions: [],
+      machines: [],
+    });
+    renderMonitor();
+
+    expect((await screen.findByTestId("mon-acct-unmeasured")).textContent).toBe(
+      "用量未知：Anthropic 沒有回答這個帳號的用量"
+    );
+    expect(screen.queryByText(/43%/)).toBeNull();
+    expect(screen.queryByTestId("mon-usage-age")).toBeNull();
+  });
+
   it("says nothing about age when nothing stamped the snapshot", async () => {
     // Honest-null: an unstamped number must NOT be dressed up as "measured 1m
     // ago". Silence here is the truthful output.

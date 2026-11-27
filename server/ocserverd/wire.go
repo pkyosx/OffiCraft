@@ -637,6 +637,9 @@ type monitoringSessionDTO struct {
 	Cost            *float64       `json:"cost"`
 	BankedCost      *float64       `json:"banked_cost"`
 	Tokens          map[string]any `json:"tokens"`
+	// The machine's measured Claude login is another account than the one this
+	// running session was bound to at launch; it moves over when relaunched.
+	AccountSuperseded bool `json:"account_superseded,omitempty"`
 }
 
 // costResetDTO carries the PRE-reset figures: spend has no per-charge ledger,
@@ -671,6 +674,7 @@ type monitoringMachineDTO struct {
 	ClaudeVersion       *string                         `json:"claude_version"`
 	ClaudeCredSource    *string                         `json:"claude_cred_source"`
 	ClaudeSubReadable   *bool                           `json:"claude_sub_readable"`
+	ClaudeLogin         *MonitoringClaudeLoginDTO       `json:"claude_login,omitempty"`
 	RuntimeCapabilities map[string]RuntimeCapabilityDTO `json:"runtime_capabilities"`
 	// HardwareTS / HardwareStale: stale samples are nulled; HardwareStale (past
 	// telemetryFreshSecs) is the SERVER's verdict so a client never re-derives the
@@ -739,6 +743,9 @@ type monitoringAccountDTO struct {
 	SevenDay     *PaceWindow `json:"seven_day"`
 
 	LimitReached *modelCallFailureDTO `json:"limit_reached"`
+	// Set when the account's latest machine measurement failed; the windows
+	// are then null rather than an older or estimated figure.
+	UnmeasuredReason *string `json:"unmeasured_reason,omitempty"`
 }
 
 type monitoringDTO struct {

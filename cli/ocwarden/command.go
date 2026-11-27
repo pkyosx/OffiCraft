@@ -83,9 +83,11 @@ func parseCommandFrame(payload []byte) (*Command, error) {
 // Stop  → a closure over stop(): the robust stop ladder, self-discovering
 // pane pid / process tree / workdir listeners.
 type CommandDeps struct {
-	Spawn    func(StartParams) SpawnOutcome
-	Stop     func(session string) (ok, noop bool)
-	Teardown func() (ok bool, log string)
+	// The heartbeat reports what this measures; Spawn measures through it.
+	ClaudeAccounts *claudeAccountReporter
+	Spawn          func(StartParams) SpawnOutcome
+	Stop           func(session string) (ok, noop bool)
+	Teardown       func() (ok bool, log string)
 	// SelfStop ends the warden through its service manager after the uninstall
 	// receipt; nil means exit(0) is enough.
 	SelfStop func() error
