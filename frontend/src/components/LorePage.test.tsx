@@ -6,9 +6,9 @@
 //   dropped entry is one of the SHORTEST rows on screen. A local sum cannot
 //   produce this answer.
 //
-//   訊息框的收件人. A message to a peer who is gone reaches nobody, so the box
-//   names and sends to Mira whenever the author cannot take it — but only once
-//   the roster has answered: before that a live author looks gone too.
+//   訊息框的收件人. A message to a peer who is gone reaches nobody, so a card
+//   whose author cannot take it has no box at all — but only once the roster
+//   has answered: before that a live author looks gone too.
 //
 // Most specs open ONE section (Mira's) whose list request is stubbed: what the
 // page does with the answer is under test here, not the mock's arithmetic.
@@ -153,7 +153,7 @@ describe("LorePage — 變灰", () => {
     mkEntry({ id: "p1", state: "pinned", title: "很長很長的置頂標題".repeat(8), dropped: false }),
     mkEntry({ id: "top", state: "active", title: "上面這一筆".repeat(20), dropped: false }),
     mkEntry({ id: "mid", state: "active", title: "短", body: "短", dropped: true }),
-    mkEntry({ id: "low", state: "active", dropped: true }),
+    mkEntry({ id: "low", state: "active", dropped: true, authorId: "m-gone" }),
     mkEntry({ id: "r1", state: "retired", retireReason: "重複" }),
   ];
 
@@ -237,7 +237,7 @@ describe("LorePage — 變灰", () => {
     expect(rowById(container, "mid").querySelector('[data-testid="lore-collapse"]')).not.toBeNull();
   });
 
-  it("an opened dropped entry has no chevron while its editor is open or its message box holds text, so neither can be folded away", async () => {
+  it("an opened dropped entry has no chevron while its editor is open or its message box holds text, so neither can be folded away; one with no message box folds as usual", async () => {
     stubList(page(entries, { capChars: 10000, firstDroppedId: "mid" }));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
@@ -257,6 +257,12 @@ describe("LorePage — 變灰", () => {
     expect(collapseOf()).toBeNull();
     fireEvent.change(box, { target: { value: "" } });
     expect(collapseOf()).not.toBeNull();
+
+    fireEvent.click(rowById(container, "low"));
+    const low = rowById(container, "low");
+    expect(low.querySelector('[data-testid="lore-message-box"]')).toBeNull();
+    fireEvent.click(low.querySelector('[data-testid="lore-collapse"]')!);
+    expect(rowById(container, "low").dataset.folded).toBe("true");
   });
 
   it("greys nothing when no entry carries dropped (the request did not converge on one target)", async () => {
@@ -289,7 +295,7 @@ describe("LorePage — 訊息框", () => {
   const sendButton = (row: HTMLElement) =>
     row.querySelector<HTMLButtonElement>('[data-testid="lore-msg-send"]')!;
 
-  it("goes to a live author unless the entry is pinned, and to Mira for a pinned entry, the owner's or a departed author's", async () => {
+  it("goes to the live author whether or not the entry is pinned; the owner's entry and a departed author's have no message box", async () => {
     stubList(
       page([
         mkEntry({ id: "L-1", state: "active", authorId: "warden-mbp5" }),
@@ -304,21 +310,25 @@ describe("LorePage — 訊息框", () => {
       expect(box(rowById(container, "L-1")).placeholder).toBe("傳訊息給 Warden · mbp5…"),
     );
     expect(
-      ["L-1", "L-2", "L-3", "L-4"].map((id) => box(rowById(container, id)).placeholder),
+      ["L-1", "L-2"].map((id) => {
+        const b = box(rowById(container, id));
+        return [b.placeholder, b.dataset.recipient];
+      }),
     ).toEqual([
-      "傳訊息給 Warden · mbp5…",
-      "傳訊息給 Mira…",
-      "傳訊息給 Mira…",
-      "傳訊息給 Mira…",
+      ["傳訊息給 Warden · mbp5…", "warden-mbp5"],
+      ["傳訊息給 Warden · mbp5…", "warden-mbp5"],
     ]);
+    for (const id of ["L-3", "L-4"]) {
+      expect(rowById(container, id).querySelector('[data-testid="lore-message-box"]')).toBeNull();
+    }
 
     const posted = capturePosts();
-    for (const id of ["L-1", "L-2", "L-3", "L-4"]) {
+    for (const id of ["L-1", "L-2"]) {
       fireEvent.change(box(rowById(container, id)), { target: { value: "還適用嗎" } });
       fireEvent.click(sendButton(rowById(container, id)));
       await waitFor(() => expect(box(rowById(container, id)).value).toBe(""));
     }
-    expect(posted.map((p) => p.to)).toEqual(["warden-mbp5", "mira", "mira", "mira"]);
+    expect(posted.map((p) => p.to)).toEqual(["warden-mbp5", "warden-mbp5"]);
   });
 
   it("picks nobody until the roster answers, then sends to the live author", async () => {

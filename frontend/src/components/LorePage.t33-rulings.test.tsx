@@ -1,5 +1,5 @@
 // LorePage — the writer's name on a 傳承 row: a 外包 or staff writer who has
-// left keeps his NAME on the row, and the card's message goes to Mira.
+// left keeps his NAME on the row, and the card has no message box.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -114,7 +114,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("LorePage — 已離開的撰寫人只留名牌，訊息改給 Mira", () => {
+describe("LorePage — 已離開的撰寫人只留名牌，沒有訊息框", () => {
   const RELEASED = "ow-gone";
   const LIVE = "ow-live";
   const DEPARTED_STAFF = "m-gone";
@@ -146,7 +146,7 @@ describe("LorePage — 已離開的撰寫人只留名牌，訊息改給 Mira", (
     });
   }
 
-  it("keeps the codename on the row, and the card's message goes to Mira", async () => {
+  it("keeps the codename on the row, and the card has no message box", async () => {
     stubRoster([]); // nobody is on the live roster any more
     stubList([mkEntry({ id: "L-9", authorId: RELEASED })]);
     const { container } = await renderPage();
@@ -155,10 +155,10 @@ describe("LorePage — 已離開的撰寫人只留名牌，訊息改給 Mira", (
     await waitFor(() =>
       expect(row.querySelector('[data-testid="lore-author-row"]')?.textContent).toBe("外包 · O-9"),
     );
-    expect(await messageRecipientOf(row)).toBe("mira");
+    await waitFor(() => expect(row.querySelector('[data-testid="lore-message-box"]')).toBeNull());
   });
 
-  it("under a departed staff writer the row keeps the plain name the per-id read serves, and the message goes to Mira", async () => {
+  it("under a departed staff writer the row keeps the plain name the per-id read serves, and the card has no message box", async () => {
     stubRoster([]);
     stubList([mkEntry({ id: "L-11", authorId: DEPARTED_STAFF })]);
     const { container } = await renderPage();
@@ -169,7 +169,7 @@ describe("LorePage — 已離開的撰寫人只留名牌，訊息改給 Mira", (
         row.querySelector('[data-testid="lore-author-row"]')?.textContent,
       ).toBe("阿哲"),
     );
-    expect(await messageRecipientOf(row)).toBe("mira");
+    await waitFor(() => expect(row.querySelector('[data-testid="lore-message-box"]')).toBeNull());
   });
 
   it("while the roster is still loading no per-id read is issued for a live staff writer, and once it lands a departed one is still named", async () => {

@@ -127,12 +127,8 @@ const STATE_ACTIONS: readonly LoreEntryState[] = ["retired", "active", "pinned"]
 /** What the 狀態 filter starts on: retired entries stay hidden until ticked. */
 const DEFAULT_STATES: readonly LoreEntryState[] = ["pinned", "active"];
 
-/** Who gets an entry's message when its author cannot (pinned, the owner's, or
- * an author no longer on the roster). */
-const LORE_MESSAGE_FALLBACK_ID = "mira";
-
 /** How one author id resolves against the LIVE roster. `peerId === ""` means
- * "not reachable": the entry's message box then goes to the 特助. */
+ * "not reachable": the entry then has no message box. */
 interface AuthorIdentity {
   text: string;
   peerId: string;
@@ -1332,17 +1328,11 @@ function LoreView({
     );
   }
 
-  function messageRecipient(entry: LoreEntryView): MessageRecipient {
+  function messageRecipient(entry: LoreEntryView): MessageRecipient | null {
     if (membersLoading) return { id: "", name: "", roster: "loading" };
     if (membersError) return { id: "", name: "", roster: "error" };
     const author = resolveAuthor(entry.authorId);
-    if (entry.state !== "pinned" && author.peerId !== "") {
-      return { id: author.peerId, name: author.text };
-    }
-    return {
-      id: LORE_MESSAGE_FALLBACK_ID,
-      name: resolveAuthor(LORE_MESSAGE_FALLBACK_ID).text,
-    };
+    return author.peerId !== "" ? { id: author.peerId, name: author.text } : null;
   }
 
   function openManual(typeKey: string) {
@@ -1751,7 +1741,9 @@ function LoreRow({
   /** 屬於, already resolved (resolveScope). `manualKey` non-empty offers the
    * manual jump inside the 適用範圍 menu. */
   scope: { kind: "" | LoreScopeKind; label: string; manualKey: string };
-  recipient: MessageRecipient;
+  /** null ⇒ the author cannot be messaged (the owner's entry, or gone from
+   * the roster): the card has no message box. */
+  recipient: MessageRecipient | null;
   onOpenManual: (typeKey: string) => void;
   onSetState: (id: string, next: LoreEntryState) => void;
   /** null ⇒ the viewer may not switch this entry's scope; the scope tag is plain text. */
@@ -1780,7 +1772,7 @@ function LoreRow({
   const scopeRef = useRef<HTMLSpanElement>(null);
   const [editing, setEditing] = useState(false);
   const [messageUnsent, setMessageUnsent] = useState(false);
-  const collapse = editing || messageUnsent ? null : onCollapse;
+  const collapse = editing || (recipient !== null && messageUnsent) ? null : onCollapse;
 
   useEffect(() => {
     if (!scopeOpen) return;
@@ -2186,11 +2178,13 @@ function LoreRow({
           {t.lore.retireReasonLabel}：{entry.retireReason}
         </div>
       )}
-      <LoreMessageBox
-        entryId={entry.id}
-        recipient={recipient}
-        onUnsentChange={setMessageUnsent}
-      />
+      {recipient !== null && (
+        <LoreMessageBox
+          entryId={entry.id}
+          recipient={recipient}
+          onUnsentChange={setMessageUnsent}
+        />
+      )}
     </article>
   );
 }
