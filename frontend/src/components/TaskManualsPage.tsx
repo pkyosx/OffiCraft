@@ -5,7 +5,7 @@
 //   List (§5.1)   — one row per type: the DISPLAY NAME (fallback type_key —
 //                   T-fa76), delete button, chevron, grouped 內建 / 自訂 by
 //                   heading alone (the ThemeSettings pattern). Built-in
-//                   manuals ship with OffiCraft and cannot be deleted; 新增類型
+//                   manuals ship with OffiCraft and cannot be deleted; 新增任務手冊
 //                   grows the INLINE create row (the 角色誌 add pattern) — a
 //                   display name alone creates a BLANK manual (the server
 //                   mints the tm- type_key); delete is confirm-modal'd and a
@@ -246,7 +246,7 @@ export function TaskManualsList({
           </div>
         )}
 
-        {/* 新增類型 — the list's bottom entry (spec §5.1). */}
+        {/* 新增任務手冊 — the list's bottom entry (spec §5.1). */}
         {!adding ? (
           <button
             type="button"

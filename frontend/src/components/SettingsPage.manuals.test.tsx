@@ -2,7 +2,7 @@
 //   1. The settings landing carries the 任務手冊 entry (與角色誌並列); the
 //      built-in manuals are listed under 內建 (not deletable), custom ones
 //      under 自訂, which appears only once one exists.
-//   2. 新增類型 (T-fa76): the inline row takes a DISPLAY NAME; the system
+//   2. 新增任務手冊 (T-fa76): the inline row takes a DISPLAY NAME; the system
 //      mints the tm- type_key (never the user's text) and the list row shows
 //      the display name — the key stays out of the UI.
 //   3. The detail is a HUB: 負責成員 summary card + the 任務規劃 entry card —
@@ -188,7 +188,7 @@ describe("設定 › 任務手冊 — list", () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([]);
     const { findByTestId, queryByTestId } = await renderManualsList();
     const empty = await findByTestId("manuals-empty");
-    expect(empty.textContent).toContain("還沒有任務類型");
+    expect(empty.textContent).toContain("還沒有任務手冊");
     expect(queryByTestId("manual-group-builtin")).toBeNull();
     expect(queryByTestId("manual-group-custom")).toBeNull();
   });

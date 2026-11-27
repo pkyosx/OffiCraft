@@ -2907,8 +2907,8 @@ export const zh = {
     // 不對使用者顯示內部檔名 — 手冊是內容，不是檔案）──
     manuals: "任務手冊",
     manualsLoadError: "載入任務手冊失敗，請稍後重試",
-    manualsEmpty: "還沒有任務類型 — 從下方新增第一個",
-    addManual: "新增類型",
+    manualsEmpty: "還沒有任務手冊 — 從下方新增第一個",
+    addManual: "新增任務手冊",
     addManualName: "顯示名稱（例：審查 PR）",
     addManualSubmit: "建立",
     addManualCancel: "取消",
