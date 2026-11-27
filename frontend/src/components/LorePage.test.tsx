@@ -32,14 +32,13 @@ import { codeForStatus } from "../api/errorCodes";
 import { zh } from "../i18n/locales/zh";
 import { formatAbsolute } from "../lib/dateFormat";
 import { clearLocale, useEnglishLocale } from "../test/effortOptions";
+import { LORE_DIR_COLLAPSED_KEY, openEveryLoreDirGroup } from "../test/loreDirectory";
 import type {
   ChatAttachmentInput,
   LoreBudgetTargetView,
   LoreEntryPageView,
   LoreEntryView,
 } from "../api/adapter";
-
-const DIR_COLLAPSED_KEY = "oc_lore_dir_collapsed";
 
 function mkEntry(over: Partial<LoreEntryView> & { id: string }): LoreEntryView {
   return {
@@ -140,9 +139,7 @@ beforeEach(() => {
   history.replaceState(null, "", window.location.pathname);
   __resetMock();
   clearLocale();
-  // Every directory group open, so a spec can reach any card; the first-visit
-  // folding has its own specs.
-  localStorage.setItem(DIR_COLLAPSED_KEY, "[]");
+  openEveryLoreDirGroup();
 });
 
 afterEach(() => {
@@ -1952,11 +1949,11 @@ describe("LorePage — 目錄與段落頁", () => {
 
     expect(dirGroups(container).map(([, open]) => open)).toEqual([false, false]);
     expect(button.getAttribute("aria-label")).toBe("全部展開");
-    expect(JSON.parse(localStorage.getItem(DIR_COLLAPSED_KEY)!)).toEqual(["staff", "manual"]);
+    expect(JSON.parse(localStorage.getItem(LORE_DIR_COLLAPSED_KEY)!)).toEqual(["staff", "manual"]);
   });
 
   it("a first visit opens only 所有人, with 正職成員, 外包成員 and 任務手冊 folded", async () => {
-    localStorage.removeItem(DIR_COLLAPSED_KEY);
+    localStorage.removeItem(LORE_DIR_COLLAPSED_KEY);
     stubTargets();
     stubList(page([]));
     const { container } = renderPage();
@@ -1972,7 +1969,7 @@ describe("LorePage — 目錄與段落頁", () => {
   });
 
   it("a group folded or opened from its heading stays that way on the next visit", async () => {
-    localStorage.removeItem(DIR_COLLAPSED_KEY);
+    localStorage.removeItem(LORE_DIR_COLLAPSED_KEY);
     stubTargets();
     stubList(page([]));
     const first = renderPage();
@@ -1983,7 +1980,7 @@ describe("LorePage — 目錄與段落頁", () => {
 
     expect(dirGroups(first.container).map(([, open]) => open)).toEqual([false, false, true, false]);
     expect(first.container.querySelectorAll('[data-testid="lore-target"]')).toHaveLength(1);
-    expect(JSON.parse(localStorage.getItem(DIR_COLLAPSED_KEY)!)).toEqual(["everyone", "staff", "manual"]);
+    expect(JSON.parse(localStorage.getItem(LORE_DIR_COLLAPSED_KEY)!)).toEqual(["everyone", "staff", "manual"]);
     first.unmount();
 
     const again = renderPage();
@@ -1997,7 +1994,7 @@ describe("LorePage — 目錄與段落頁", () => {
   });
 
   it("全部收合 folds every group, then 全部展開 opens them all, and both are remembered", async () => {
-    localStorage.removeItem(DIR_COLLAPSED_KEY);
+    localStorage.removeItem(LORE_DIR_COLLAPSED_KEY);
     stubTargets();
     stubList(page([]));
     const { container } = renderPage();
@@ -2009,14 +2006,14 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(dirGroups(container).map(([, open]) => open)).toEqual([false, false, false, false]);
     expect(headerTexts(container)).toEqual([]);
     expect(button.getAttribute("aria-label")).toBe("全部展開");
-    expect(JSON.parse(localStorage.getItem(DIR_COLLAPSED_KEY)!)).toEqual(["everyone", "staff", "outsource", "manual"]);
+    expect(JSON.parse(localStorage.getItem(LORE_DIR_COLLAPSED_KEY)!)).toEqual(["everyone", "staff", "outsource", "manual"]);
 
     fireEvent.click(button);
 
     expect(dirGroups(container).map(([, open]) => open)).toEqual([true, true, true, true]);
     expect(headerTexts(container)).toHaveLength(4);
     expect(button.getAttribute("aria-label")).toBe("全部收合");
-    expect(JSON.parse(localStorage.getItem(DIR_COLLAPSED_KEY)!)).toEqual([]);
+    expect(JSON.parse(localStorage.getItem(LORE_DIR_COLLAPSED_KEY)!)).toEqual([]);
   });
 
   it("with storage refusing every read and write, the directory opens on the first-visit folding, still folds, and keeps it across a trip to a section page", async () => {
