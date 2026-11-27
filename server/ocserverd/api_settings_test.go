@@ -1268,7 +1268,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		}
 	})
 
-	t.Run("a display_theme_schedule breaking a rule answers 422 naming it, writes nothing and fans no settings delta", func(t *testing.T) {
+	t.Run("a display_theme_schedule breaking a rule answers 422 naming it, writes nothing, leaves developer mode off and fans no settings delta", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
 		dashboard := apiTestListen(t, api, "")
@@ -1290,15 +1290,18 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
-					`{"org_name":"Harbor Yard","display_theme_schedule":`+tc.schedule+`}`)
+					`{"org_name":"Harbor Yard","developer_mode":true,"display_theme_schedule":`+tc.schedule+`}`)
 				if status != 422 {
 					t.Fatalf("want 422, got %d (%v)", status, data)
 				}
 				apiWantError(t, data, "validation_error", tc.want)
 				windowWantSetting(t, d, "display.theme_schedule", ptrTo(deskDefaultSchedule00120))
 				windowWantSetting(t, d, "org.name", nil)
+				windowWantSetting(t, d, settingDeveloperMode, nil)
 			})
 		}
+		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
+		apiWantBody(t, served, apiTestShippedSettings())
 		dashboard.wantFrames()
 	})
 
@@ -1335,14 +1338,17 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		apiWantError(t, data, "validation_error", "suggested_replies_task_message must be at most 20 entries")
 	})
 
-	t.Run("dismissing an onboarding banner that is not there answers 409", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+	t.Run("dismissing an onboarding banner that is not there answers 409 and rolls back the developer_mode sent with it", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
 
-		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"onboarding_dismissed":true}`)
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"developer_mode":true,"onboarding_dismissed":true}`)
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict", "no onboarding banner is up to dismiss — the first-run report is absent or not in a failed state")
+		windowWantSetting(t, d, settingDeveloperMode, nil)
+		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
+		apiWantBody(t, served, apiTestShippedSettings())
 	})
 
 	t.Run("a body that is not JSON answers 422", func(t *testing.T) {

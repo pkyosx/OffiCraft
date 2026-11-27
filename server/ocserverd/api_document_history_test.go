@@ -1149,6 +1149,22 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 		dashboard.wantFrames()
 	})
 
+	t.Run("while developer mode is off, a plain agent restoring a boot document's revision answers 403, not 409, and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"old notice"}`)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"new notice"}`)
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"developer_mode":false}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/offboard/global/1/restore", agent, "")
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "restoring this document requires admin capability")
+		dashboard.wantFrames()
+	})
+
 	t.Run("restoring a role definition revision fans the owner-only role_def delta", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
