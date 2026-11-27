@@ -49,6 +49,9 @@ const TOPIC_OF: Record<DocumentKind, string> = {
   task_description: "task",
   // T-2ebe: a title belongs to the same TASK, so it fans the same topic.
   task_title: "task",
+  // 傳承 has no SSE topic, so this list re-reads only after its own restore;
+  // a topic name that never fires is the honest mapping.
+  lore_entry: "lore",
   // T-791e: both boot-context blocks ride the EXISTING `global_context` topic
   // rather than a topic named after themselves. The SSE vocabulary is a CLOSED
   // set declared by hub.go's sseTopics (SSE_RESYNC_TOPICS, pinned against its

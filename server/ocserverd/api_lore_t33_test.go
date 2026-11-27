@@ -831,7 +831,7 @@ func TestRetireAndBumpAreAuthorOnly(t *testing.T) {
 	// The refusal has to name every verb the author-only floor actually opens,
 	// 生效 included: a reader who is told only 失效 and 提到最新 concludes a
 	// retired entry of their own is beyond them, and nothing corrects that.
-	wantRefusal := `{"error":{"code":"forbidden","message":"you may only 失效, 生效 or 提到最新 ` +
+	wantRefusal := `{"error":{"code":"forbidden","message":"you may only 失效, 生效, 提到最新 or 編輯 ` +
 		`an entry you WROTE — this one has a different author, and an entry is governed ` +
 		`by the member who wrote it. An admin agent or the owner can act on any entry."}}`
 	if got := rec.Body.String(); got != wantRefusal {
@@ -892,7 +892,7 @@ func TestRetireAndBumpAreAuthorOnly(t *testing.T) {
 			if status != http.StatusForbidden {
 				t.Fatalf("want 403, got %d (%v)", status, data)
 			}
-			apiWantError(t, data, "forbidden", "you may only 失效, 生效 or 提到最新 an entry you WROTE — "+
+			apiWantError(t, data, "forbidden", "you may only 失效, 生效, 提到最新 or 編輯 an entry you WROTE — "+
 				"this one has a different author, and an entry is governed by the member "+
 				"who wrote it. An admin agent or the owner can act on any entry.")
 			windowWantLoreEntry(t, d, e.ID, LoreStateActive, LoreScopeEveryone, "", 100)
@@ -1023,6 +1023,7 @@ func (st loreScopeStack) wantLoreRow(t *testing.T, want loreEntryWant) {
 	apiWantBody(t, data, map[string]any{
 		"entries": []any{want.body()}, "limit": 30, "offset": 0,
 		"cap_chars": 0, "first_dropped_id": "",
+		"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{},
 	})
 }
 
@@ -1318,6 +1319,7 @@ func TestWriteLoreTypeTag(t *testing.T) {
 					"scope_options": []any{"agent", "everyone"}, "lore_type": tc.want,
 				}},
 				"limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+				"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{},
 			})
 		})
 	}
@@ -1345,6 +1347,7 @@ func TestWriteLoreTypeTag(t *testing.T) {
 			}
 			apiWantBody(t, page, map[string]any{
 				"entries": []any{}, "limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+				"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{},
 			})
 		})
 	}
@@ -1366,6 +1369,7 @@ func TestWriteLoreTypeTag(t *testing.T) {
 			}
 			apiWantBody(t, page, map[string]any{
 				"entries": []any{}, "limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+				"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{},
 			})
 		})
 	}
@@ -1480,4 +1484,547 @@ func TestWriteLoreToolCallWithoutATypeHandsTheAgentTheFiveValues(t *testing.T) {
 		len(page["entries"].([]any)) != 0 {
 		t.Fatalf("a refused write must leave no entry, got %d %v", status, page)
 	}
+}
+
+// ── budgets and in-place edit ───────────────────────────────────────────────
+
+// seedLoreAt stores one entry of title+body characters at ts, in state.
+func seedLoreAt(t *testing.T, api *apiServer, kind, key, author, title, state string, ts float64) LoreEntry {
+	t.Helper()
+	e, err := api.dal.CreateLoreEntryMintingID(LoreEntry{
+		ScopeKind: kind, ScopeKey: key, Title: title, Body: "內容",
+		AuthorID: author, State: state, LoreType: LoreTypeOther,
+		EffectiveTS: ts, CreatedTS: ts, UpdatedTS: ts,
+	})
+	if err != nil {
+		t.Fatalf("seed %s: %v", title, err)
+	}
+	return e
+}
+
+func budgetTarget(kind, key string, capChars, used, entries, dropped int) map[string]any {
+	return map[string]any{"scope_kind": kind, "scope_key": key, "cap_chars": capChars,
+		"used_chars": used, "entry_count": entries, "dropped_count": dropped}
+}
+
+func budgetSegment(kind string, entries, chars, fitted, fittedChars int) map[string]any {
+	return map[string]any{"scope_kind": kind, "entry_count": entries, "chars": chars,
+		"fitted_count": fitted, "fitted_chars": fittedChars}
+}
+
+func TestListLoreBudgets(t *testing.T) {
+	st := newLoreScopeStack(t)
+	warden := apiTestPrincipalToken(t, st.api, st.api.dal, principalMachine, "m-budget-warden")
+	adhoc := seedScopeTask(t, st.api, "")
+	for _, w := range []OutsourceWorker{
+		{ID: "ow-budget-live", Codename: "O-91", TaskID: adhoc, Status: WorkerStatusActive, Runtime: RuntimeClaude},
+		{ID: "ow-budget-gone", Codename: "O-92", TaskID: adhoc, Status: WorkerStatusActive, Runtime: RuntimeClaude},
+	} {
+		if err := st.api.dal.PutOutsourceWorker(w); err != nil {
+			t.Fatalf("PutOutsourceWorker(%s): %v", w.ID, err)
+		}
+	}
+	if w, err := st.api.dal.ReleaseWorkerByID("ow-budget-gone", 200); err != nil || w == nil {
+		t.Fatalf("ReleaseWorkerByID: %v / %v", w, err)
+	}
+	if err := st.api.dal.PutTaskManual(TaskManual{
+		TypeKey: "tm-budget", DisplayName: "預算手冊", SopMD: "SOP", UpdatedTS: 1,
+	}); err != nil {
+		t.Fatalf("PutTaskManual: %v", err)
+	}
+
+	// Every entry costs 5 characters (a 3-character title and 內容).
+	const user = "m-scope-user"
+	seedLoreAt(t, st.api, LoreScopeEveryone, "", user, "眾一一", LoreStateActive, 300)
+	seedLoreAt(t, st.api, LoreScopeEveryone, "", user, "眾二二", LoreStateActive, 301)
+	seedLoreAt(t, st.api, LoreScopeEveryone, "", user, "眾廢廢", LoreStateRetired, 302)
+	seedLoreAt(t, st.api, LoreScopeAgent, user, user, "我一一", LoreStateActive, 100)
+	seedLoreAt(t, st.api, LoreScopeAgent, user, user, "我二二", LoreStateActive, 101)
+	seedLoreAt(t, st.api, LoreScopeAgent, user, user, "我三三", LoreStateActive, 102)
+	seedLoreAt(t, st.api, LoreScopeAgent, user, user, "我廢廢", LoreStateRetired, 103)
+	seedLoreAt(t, st.api, LoreScopeAgent, "ow-budget-live", "ow-budget-live", "外一一", LoreStateActive, 100)
+	seedLoreAt(t, st.api, LoreScopeAgent, "ow-budget-gone", "ow-budget-gone", "走一一", LoreStateActive, 100)
+	seedLoreAt(t, st.api, LoreScopeManual, "tm-budget", user, "手一一", LoreStateActive, 100)
+	seedLoreAt(t, st.api, LoreScopeManual, "tm-budget", user, "手二二", LoreStateActive, 101)
+	seedLoreAt(t, st.api, LoreScopeManual, "tm-budget", user, "手三三", LoreStateActive, 102)
+	seedLoreAt(t, st.api, LoreScopeManual, "tm-budget", user, "手廢廢", LoreStateRetired, 103)
+
+	budgets := func(t *testing.T) map[string]any {
+		t.Helper()
+		status, data := apiJSON(t, st.h, "GET", "/api/lore/budgets", st.user, "")
+		if status != http.StatusOK {
+			t.Fatalf("budgets: %d %v", status, data)
+		}
+		return data
+	}
+	droppedByTitle := func(t *testing.T, query string) map[string]any {
+		t.Helper()
+		status, data := apiJSON(t, st.h, "GET", "/api/lore?"+query, st.user, "")
+		if status != http.StatusOK {
+			t.Fatalf("%s: %d %v", query, status, data)
+		}
+		out := map[string]any{}
+		for _, raw := range data["entries"].([]any) {
+			e := raw.(map[string]any)
+			if d, ok := e["dropped"]; ok {
+				out[e["title"].(string)] = d
+			} else {
+				out[e["title"].(string)] = "absent"
+			}
+		}
+		return out
+	}
+
+	t.Run("one target per boot document, live entries only, retired and off-roster members left out", func(t *testing.T) {
+		st.api.loreCapCharsRole = 20
+		st.api.loreCapCharsManual = 12
+		apiWantBody(t, budgets(t), map[string]any{"targets": []any{
+			budgetTarget("everyone", "", 20, 10, 2, 0),
+			budgetTarget("agent", "kip", 20, 10, 2, 0),
+			budgetTarget("agent", "m-scope-admin", 20, 10, 2, 0),
+			budgetTarget("agent", "m-scope-user", 20, 20, 5, 1),
+			budgetTarget("agent", "mira", 20, 10, 2, 0),
+			budgetTarget("agent", "ow-budget-live", 20, 15, 3, 0),
+			budgetTarget("manual", "builtin-task-manual-design", 12, 0, 0, 0),
+			budgetTarget("manual", "builtin-role-design", 12, 0, 0, 0),
+			budgetTarget("manual", "builtin-remote-access", 12, 0, 0, 0),
+			budgetTarget("manual", "tm-budget", 12, 10, 3, 1),
+		}})
+	})
+
+	t.Run("a member counts the everyone entries among its entries, and the ones that overflow its cap as dropped", func(t *testing.T) {
+		st.api.loreCapCharsRole = 7
+		st.api.loreCapCharsManual = 12
+		apiWantBody(t, budgets(t), map[string]any{"targets": []any{
+			budgetTarget("everyone", "", 7, 5, 2, 1),
+			budgetTarget("agent", "kip", 7, 5, 2, 1),
+			budgetTarget("agent", "m-scope-admin", 7, 5, 2, 1),
+			budgetTarget("agent", "m-scope-user", 7, 5, 5, 4),
+			budgetTarget("agent", "mira", 7, 5, 2, 1),
+			budgetTarget("agent", "ow-budget-live", 7, 5, 3, 2),
+			budgetTarget("manual", "builtin-task-manual-design", 12, 0, 0, 0),
+			budgetTarget("manual", "builtin-role-design", 12, 0, 0, 0),
+			budgetTarget("manual", "builtin-remote-access", 12, 0, 0, 0),
+			budgetTarget("manual", "tm-budget", 12, 10, 3, 1),
+		}})
+		apiWantBody(t, droppedByTitle(t, "scope_kind=agent&scope_key=m-scope-user"), map[string]any{
+			"我三三": true, "我二二": true, "我一一": true, "我廢廢": "absent",
+		})
+	})
+
+	t.Run("GET /api/lore for one target marks each entry dropped or not for that whole target, whatever the filter or page", func(t *testing.T) {
+		st.api.loreCapCharsRole = 20
+		st.api.loreCapCharsManual = 12
+		for _, tc := range []struct {
+			name, query string
+			want        map[string]any
+		}{
+			{"a member's whole list", "scope_kinds=everyone&scope_kinds=agent&scope_keys=m-scope-user", map[string]any{
+				"眾二二": false, "眾一一": false, "我三三": false, "我二二": false, "我一一": true,
+				"眾廢廢": "absent", "我廢廢": "absent",
+			}},
+			{"agent alone", "scope_kind=agent&scope_key=m-scope-user", map[string]any{
+				"我三三": false, "我二二": false, "我一一": true, "我廢廢": "absent",
+			}},
+			{"everyone", "scope_kind=everyone", map[string]any{
+				"眾二二": false, "眾一一": false, "眾廢廢": "absent",
+			}},
+			{"manual", "scope_kind=manual&scope_key=tm-budget", map[string]any{
+				"手三三": false, "手二二": false, "手一一": true, "手廢廢": "absent",
+			}},
+			{"a title search", "scope_kinds=everyone&scope_kinds=agent&scope_keys=m-scope-user&q=%E4%B8%80%E4%B8%80", map[string]any{
+				"眾一一": false, "我一一": true,
+			}},
+			{"a page past the first", "scope_kinds=everyone&scope_kinds=agent&scope_keys=m-scope-user&states=active&limit=2&offset=3", map[string]any{
+				"我二二": false, "我一一": true,
+			}},
+			{"a kind without a key", "scope_kind=manual", map[string]any{
+				"手三三": "absent", "手二二": "absent", "手一一": "absent", "手廢廢": "absent",
+			}},
+			{"two members", "scope_kind=agent&scope_keys=m-scope-user&scope_keys=ow-budget-live", map[string]any{
+				"我三三": "absent", "我二二": "absent", "我一一": "absent", "我廢廢": "absent", "外一一": "absent",
+			}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				apiWantBody(t, droppedByTitle(t, tc.query), tc.want)
+			})
+		}
+	})
+
+	t.Run("GET /api/lore for one target reports the numbers its budget reports", func(t *testing.T) {
+		st.api.loreCapCharsRole = 20
+		st.api.loreCapCharsManual = 12
+		apiWantBody(t, budgets(t)["targets"].([]any)[3].(map[string]any),
+			budgetTarget("agent", "m-scope-user", 20, 20, 5, 1))
+		for _, tc := range []struct {
+			name, query string
+			want        map[string]any
+		}{
+			{"agent", "scope_kind=agent&scope_key=m-scope-user", map[string]any{
+				"cap_chars": 20, "used_chars": 20, "first_dropped_id": apiAnyString, "first_dropped_chars": 5,
+				"budget_segments": []any{budgetSegment("everyone", 2, 10, 2, 10), budgetSegment("agent", 3, 15, 2, 10)},
+			}},
+			{"everyone", "scope_kind=everyone", map[string]any{
+				"cap_chars": 20, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
+				"budget_segments": []any{budgetSegment("everyone", 2, 10, 2, 10)},
+			}},
+			{"manual", "scope_kind=manual&scope_key=tm-budget", map[string]any{
+				"cap_chars": 12, "used_chars": 10, "first_dropped_id": apiAnyString, "first_dropped_chars": 5,
+				"budget_segments": []any{budgetSegment("manual", 3, 15, 2, 10)},
+			}},
+			{"a member with no entries of its own", "scope_kind=agent&scope_key=m-scope-admin", map[string]any{
+				"cap_chars": 20, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
+				"budget_segments": []any{budgetSegment("everyone", 2, 10, 2, 10), budgetSegment("agent", 0, 0, 0, 0)},
+			}},
+		} {
+			status, data := apiJSON(t, st.h, "GET", "/api/lore?states=active&limit=1&"+tc.query, st.user, "")
+			if status != http.StatusOK {
+				t.Fatalf("%s page: %d %v", tc.name, status, data)
+			}
+			delete(data, "entries")
+			want := map[string]any{"limit": 1, "offset": 0}
+			for k, v := range tc.want {
+				want[k] = v
+			}
+			apiWantBody(t, data, want)
+		}
+	})
+
+	t.Run("a member's budget counts exactly the entries its boot document carries", func(t *testing.T) {
+		st.api.loreCapCharsRole = 17
+		me := hireLoreStaff(t, st.api, "m-budget-boot", defaultBootRole)
+		everyone, err := st.api.dal.ListLoreEntriesLive(LoreScopeEveryone, "")
+		if err != nil {
+			t.Fatalf("ListLoreEntriesLive: %v", err)
+		}
+		live := append([]LoreEntry{}, everyone...)
+		for i, title := range []string{"甲一一", "乙二二", "丙三三"} {
+			live = append(live, seedLoreAt(t, st.api, LoreScopeAgent, me, me, title, LoreStateActive, float64(100+i)))
+		}
+
+		status, data := apiJSON(t, st.h, "GET", "/api/members/"+me+"/boot-context", st.owner, "")
+		if status != http.StatusOK {
+			t.Fatalf("boot-context: %d %v", status, data)
+		}
+		doc, _ := data["context"].(string)
+		carried := 0
+		for _, e := range live {
+			if strings.Contains(doc, "\n## "+e.ID+" ") {
+				carried++
+			}
+		}
+		if carried != 3 {
+			t.Fatalf("fixture: want the two 所有人 entries and one own entry carried, got %d:\n%s", carried, doc)
+		}
+
+		var got map[string]any
+		for _, target := range budgets(t)["targets"].([]any) {
+			if m := target.(map[string]any); m["scope_key"] == me {
+				got = m
+			}
+		}
+		apiWantBody(t, got, budgetTarget("agent", me, 17, 15, 5, 2))
+	})
+
+	// The member's own entries (effective 400/401) are NEWER than every everyone
+	// entry (300/301), so they are walked first and the cap falls inside
+	// everyone: the agent line has nothing to draw, the everyone segment drops.
+	t.Run("own entries newer than everyone's fit first and the drops land in the everyone segment", func(t *testing.T) {
+		st.api.loreCapCharsRole = 12
+		me := hireLoreStaff(t, st.api, "m-budget-newer", defaultBootRole)
+		seedLoreAt(t, st.api, LoreScopeAgent, me, me, "新一一", LoreStateActive, 400)
+		seedLoreAt(t, st.api, LoreScopeAgent, me, me, "新二二", LoreStateActive, 401)
+
+		status, data := apiJSON(t, st.h, "GET", "/api/lore?states=active&limit=1&scope_kind=agent&scope_key="+me, st.user, "")
+		if status != http.StatusOK {
+			t.Fatalf("page: %d %v", status, data)
+		}
+		delete(data, "entries")
+		apiWantBody(t, data, map[string]any{"limit": 1, "offset": 0,
+			"cap_chars": 12, "used_chars": 10, "first_dropped_id": "", "first_dropped_chars": 0,
+			"budget_segments": []any{budgetSegment("everyone", 2, 10, 0, 0), budgetSegment("agent", 2, 10, 2, 10)},
+		})
+		apiWantBody(t, droppedByTitle(t, "scope_kinds=everyone&scope_kinds=agent&scope_keys="+me), map[string]any{
+			"新二二": false, "新一一": false, "眾二二": true, "眾一一": true, "眾廢廢": "absent",
+		})
+
+		var got map[string]any
+		for _, target := range budgets(t)["targets"].([]any) {
+			if m := target.(map[string]any); m["scope_key"] == me {
+				got = m
+			}
+		}
+		apiWantBody(t, got, budgetTarget("agent", me, 12, 10, 4, 2))
+	})
+
+	t.Run("a warden is below the floor and no credential is 401", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, token string
+			status      int
+			code, msg   string
+		}{
+			{"warden", warden, http.StatusForbidden, "forbidden", "principal not permitted"},
+			{"no credential", "", http.StatusUnauthorized, "unauthorized", "missing credentials"},
+		} {
+			status, data := apiJSON(t, st.h, "GET", "/api/lore/budgets", tc.token, "")
+			if status != tc.status {
+				t.Fatalf("%s: want %d, got %d %v", tc.name, tc.status, status, data)
+			}
+			apiWantError(t, data, tc.code, tc.msg)
+		}
+	})
+}
+
+func TestEditLoreEntry(t *testing.T) {
+	st := newLoreScopeStack(t)
+	const author = "m-scope-user"
+	other := apiTestPrincipalToken(t, st.api, st.api.dal, principalAgent, "m-edit-other")
+	warden := apiTestPrincipalToken(t, st.api, st.api.dal, principalMachine, "m-edit-warden")
+	st.api.loreCapCharsTitle = 4
+	st.api.loreCapCharsBody = 6
+
+	edit := func(t *testing.T, token, entryID, body string) (int, map[string]any) {
+		t.Helper()
+		return apiJSON(t, st.h, "PATCH", "/api/lore/"+entryID, token, body)
+	}
+	row := func(e LoreEntry, title, body, loreType, state string, updated any) map[string]any {
+		return map[string]any{
+			"id": e.ID, "seq": e.Seq, "scope_kind": "agent", "scope_key": author,
+			"title": title, "body": body, "author_id": author, "source_task_id": "",
+			"state": state, "retire_reason": "", "effective_ts": 100, "created_ts": 100,
+			"updated_ts": updated, "task_type_key": "", "scope_options": []any{"agent", "everyone"},
+			"lore_type": loreType,
+		}
+	}
+	wantRow := func(t *testing.T, want map[string]any) {
+		t.Helper()
+		status, data := apiJSON(t, st.h, "GET", "/api/lore?entry_id="+want["id"].(string), st.user, "")
+		if status != http.StatusOK {
+			t.Fatalf("read back: %d %v", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"entries": []any{want}, "limit": 30, "offset": 0, "cap_chars": 0,
+			"first_dropped_id": "", "used_chars": 0, "first_dropped_chars": 0,
+			"budget_segments": []any{},
+		})
+	}
+
+	t.Run("the author, an admin and the owner each change the text in place", func(t *testing.T) {
+		e := seedScopedLore(t, st.api, author, "", "舊標題")
+		for _, step := range []struct {
+			token, body           string
+			title, text, loreType string
+		}{
+			{st.user, `{"title":" 新標題 ","body":" 新內容 ","lore_type":"owner_decision"}`, "新標題", "新內容", "owner_decision"},
+			{st.admin, `{"body":"管理改的"}`, "新標題", "管理改的", "owner_decision"},
+			{st.owner, `{"lore_type":"instruction_supplement","title":null}`, "新標題", "管理改的", "instruction_supplement"},
+		} {
+			status, data := edit(t, step.token, e.ID, step.body)
+			if status != http.StatusOK {
+				t.Fatalf("edit %s: %d %v", step.body, status, data)
+			}
+			apiWantBody(t, data, map[string]any{"id": e.ID, "updated_ts": apiAnyNumber})
+			if data["updated_ts"] == float64(100) {
+				t.Fatalf("an edit left updated_ts at 100: %v", data)
+			}
+			wantRow(t, row(e, step.title, step.text, step.loreType, "active", data["updated_ts"]))
+		}
+	})
+
+	t.Run("an edit reaches the member's boot document and keeps the entry's place", func(t *testing.T) {
+		me := hireLoreStaff(t, st.api, "m-edit-boot", defaultBootRole)
+		older := seedLoreAt(t, st.api, LoreScopeAgent, me, me, "舊一", LoreStateActive, 100)
+		newer := seedLoreAt(t, st.api, LoreScopeAgent, me, me, "新二", LoreStateActive, 200)
+		status, data := edit(t, st.owner, older.ID, `{"title":"改過","body":"改過的","lore_type":"owner_decision"}`)
+		if status != http.StatusOK {
+			t.Fatalf("edit: %d %v", status, data)
+		}
+		status, data = apiJSON(t, st.h, "GET", "/api/members/"+me+"/boot-context", st.owner, "")
+		if status != http.StatusOK {
+			t.Fatalf("boot-context: %d %v", status, data)
+		}
+		wantBlock := "\n\n# 傳承" +
+			"\n\n## " + newer.ID + " 新二\n\n內容" +
+			"\n\n## " + older.ID + " [Owner 決策] 改過\n\n改過的\n\n"
+		doc, _ := data["context"].(string)
+		if strings.Count(doc, "# 傳承") != 1 || !strings.Contains(doc, wantBlock) {
+			t.Fatalf("boot document does not carry exactly this 傳承 block:\n%s\n--- doc ---\n%s", wantBlock, doc)
+		}
+	})
+
+	t.Run("a pinned entry is out of its author's reach and inside an admin's", func(t *testing.T) {
+		e, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
+			ScopeKind: LoreScopeAgent, ScopeKey: author, Title: "釘住", Body: "內容",
+			AuthorID: author, State: LoreStatePinned, LoreType: LoreTypeOther,
+			EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100,
+		})
+		if err != nil {
+			t.Fatalf("seed pinned: %v", err)
+		}
+		status, data := edit(t, st.user, e.ID, `{"title":"作者改"}`)
+		if status != http.StatusForbidden {
+			t.Fatalf("author on a pinned entry: want 403, got %d %v", status, data)
+		}
+		apiWantError(t, data, "forbidden", "a pinned entry is edited only by an admin — it sorts "+
+			"ahead of every other entry in its scope and survives the cap at the expense of "+
+			"everyone else's, so while it is pinned its text is not the writer's call. Ask the "+
+			"owner or an admin agent.")
+		wantRow(t, row(e, "釘住", "內容", "other", "pinned", 100))
+
+		status, data = edit(t, st.admin, e.ID, `{"title":"管理改"}`)
+		if status != http.StatusOK {
+			t.Fatalf("admin on a pinned entry: %d %v", status, data)
+		}
+		wantRow(t, row(e, "管理改", "內容", "other", "pinned", data["updated_ts"]))
+	})
+
+	t.Run("refusals change nothing", func(t *testing.T) {
+		e := seedScopedLore(t, st.api, author, "", "不動")
+		for _, tc := range []struct {
+			name, token, body string
+			status            int
+			code, msg         string
+		}{
+			{"another plain agent", other, `{"title":"別人改"}`, http.StatusForbidden, "forbidden",
+				"you may only 失效, 生效, 提到最新 or 編輯 an entry you WROTE — this one has a different " +
+					"author, and an entry is governed by the member who wrote it. An admin agent or the " +
+					"owner can act on any entry."},
+			{"an empty body", st.user, `{}`, http.StatusBadRequest, "validation_error",
+				"send at least one of title, body or lore_type — nothing was changed"},
+			{"all three null", st.user, `{"title":null,"body":null,"lore_type":null}`, http.StatusBadRequest,
+				"validation_error", "send at least one of title, body or lore_type — nothing was changed"},
+			{"a blank title", st.user, `{"title":"  "}`, http.StatusBadRequest, "validation_error",
+				"title must not be blank — leave it out to keep the current title; nothing was changed"},
+			{"a blank body", st.user, `{"body":""}`, http.StatusBadRequest, "validation_error",
+				"body must not be blank — leave it out to keep the current body; nothing was changed"},
+			{"a title over the cap", st.user, `{"title":"一二三四五"}`, http.StatusBadRequest, "validation_error",
+				docCapRefusal(4, "lore entry title", "不動", "一二三四五")},
+			{"a body over the cap", st.user, `{"body":"一二三四五六七"}`, http.StatusBadRequest, "validation_error",
+				docCapRefusal(6, "lore entry body", "內容", "一二三四五六七")},
+			{"a lore_type outside the vocabulary", st.user, `{"lore_type":"Owner 決策"}`, http.StatusBadRequest, "validation_error",
+				`lore_type must be one of instruction_conflict, instruction_supplement, owner_decision, ` +
+					`owner_preference or other — got "Owner 決策"; nothing was written`},
+			{"a blank lore_type", st.user, `{"lore_type":""}`, http.StatusBadRequest, "validation_error",
+				`lore_type must be one of instruction_conflict, instruction_supplement, owner_decision, ` +
+					`owner_preference or other — got ""; nothing was written`},
+			{"a field the edit does not take", st.user, `{"title":"新","state":"retired"}`, http.StatusUnprocessableEntity,
+				"validation_error", `invalid request body: json: unknown field "state"`},
+			{"a warden", warden, `{"title":"機器改"}`, http.StatusForbidden, "forbidden", "principal not permitted"},
+			{"no credential", "", `{"title":"沒人改"}`, http.StatusUnauthorized, "unauthorized", "missing credentials"},
+		} {
+			status, data := edit(t, tc.token, e.ID, tc.body)
+			if status != tc.status {
+				t.Fatalf("%s: want %d, got %d %v", tc.name, tc.status, status, data)
+			}
+			apiWantError(t, data, tc.code, tc.msg)
+		}
+		wantRow(t, row(e, "不動", "內容", "other", "active", 100))
+	})
+
+	t.Run("a field already over a lowered cap may be edited shorter, never longer, and an untouched one is not judged", func(t *testing.T) {
+		e, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
+			ScopeKind: LoreScopeAgent, ScopeKey: author, Title: "一二三四五六七八", Body: "一二三四五六七八九",
+			AuthorID: author, State: LoreStateActive, LoreType: LoreTypeOther,
+			EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100,
+		})
+		if err != nil {
+			t.Fatalf("seed over-cap: %v", err)
+		}
+		for _, tc := range []struct {
+			name, body string
+			msg        string
+		}{
+			{"a shorter title beside the untouched over-cap body", `{"title":"一二三四五六"}`, ""},
+			{"a title that grows again", `{"title":"一二三四五六七"}`,
+				docCapRefusal(4, "lore entry title", "一二三四五六", "一二三四五六七")},
+			{"a title as long as the stored one", `{"title":"六五四三二一"}`,
+				docCapRefusal(4, "lore entry title", "一二三四五六", "六五四三二一")},
+			{"a body that grows", `{"body":"一二三四五六七八九十"}`,
+				docCapRefusal(6, "lore entry body", "一二三四五六七八九", "一二三四五六七八九十")},
+			{"the over-cap body sent back unchanged beside a new title", `{"title":"短","body":"一二三四五六七八九"}`, ""},
+		} {
+			status, data := edit(t, st.user, e.ID, tc.body)
+			if tc.msg == "" {
+				if status != http.StatusOK {
+					t.Fatalf("%s: want 200, got %d %v", tc.name, status, data)
+				}
+				continue
+			}
+			if status != http.StatusBadRequest {
+				t.Fatalf("%s: want 400, got %d %v", tc.name, status, data)
+			}
+			apiWantError(t, data, "validation_error", tc.msg)
+		}
+		status, data := apiJSON(t, st.h, "GET", "/api/lore?entry_id="+e.ID, st.user, "")
+		if status != http.StatusOK {
+			t.Fatalf("read back: %d %v", status, data)
+		}
+		got := data["entries"].([]any)[0].(map[string]any)
+		if got["title"] != "短" || got["body"] != "一二三四五六七八九" {
+			t.Fatalf("stored title/body = %q/%q, want 短/一二三四五六七八九", got["title"], got["body"])
+		}
+	})
+
+	t.Run("a text edit retains the pre-edit title and body, named by the editor, and only the newest three are kept", func(t *testing.T) {
+		hs := newLoreScopeStack(t)
+		e := seedScopedLore(t, hs.api, author, "", "第零版")
+		history := func(t *testing.T) []any {
+			t.Helper()
+			rec := apiRequest(t, hs.h, "GET", "/api/document-history/lore_entry/"+e.ID, hs.user, "")
+			var out []any
+			if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+				t.Fatalf("history: %d %s", rec.Code, rec.Body.String())
+			}
+			return out
+		}
+		version := func(id int, actor string, titleChars, bodyChars int) map[string]any {
+			return map[string]any{"id": id, "created_ts": apiAnyNumber, "actor_id": actor,
+				"tombstoned": false, "field_chars": map[string]any{"title": titleChars, "body": bodyChars}}
+		}
+
+		if status, data := apiJSON(t, hs.h, "PATCH", "/api/lore/"+e.ID, hs.admin, `{"title":"第一版","body":"改一"}`); status != http.StatusOK {
+			t.Fatalf("edit 1: %d %v", status, data)
+		}
+		apiWantValue(t, "history", any(history(t)), []any{version(1, "m-scope-admin", 3, 2)})
+		status, data := apiJSON(t, hs.h, "GET", "/api/document-history/lore_entry/"+e.ID+"/1", hs.user, "")
+		if status != http.StatusOK {
+			t.Fatalf("version 1: %d %v", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"kind": "lore_entry", "key": e.ID, "id": 1,
+			"content": map[string]any{"title": "第零版", "body": "內容"}})
+
+		for _, body := range []string{
+			`{"lore_type":"owner_preference"}`,
+			`{"title":"第一版","body":"改一"}`,
+			`{"title":"第一版","lore_type":"other"}`,
+		} {
+			if status, data := apiJSON(t, hs.h, "PATCH", "/api/lore/"+e.ID, hs.user, body); status != http.StatusOK {
+				t.Fatalf("edit %s: %d %v", body, status, data)
+			}
+		}
+		apiWantValue(t, "history after edits that change no text", any(history(t)), []any{version(1, "m-scope-admin", 3, 2)})
+
+		for _, body := range []string{`{"body":"改二二"}`, `{"title":"第三版"}`, `{"body":"改四四四"}`} {
+			if status, data := apiJSON(t, hs.h, "PATCH", "/api/lore/"+e.ID, hs.user, body); status != http.StatusOK {
+				t.Fatalf("edit %s: %d %v", body, status, data)
+			}
+		}
+		apiWantValue(t, "history after four text edits", any(history(t)), []any{
+			version(4, author, 3, 3),
+			version(3, author, 3, 3),
+			version(2, author, 3, 2),
+		})
+		status, data = apiJSON(t, hs.h, "GET", "/api/document-history/lore_entry/"+e.ID+"/1", hs.user, "")
+		if status != http.StatusNotFound {
+			t.Fatalf("the oldest version must be pruned: %d %v", status, data)
+		}
+	})
+
+	t.Run("an unknown entry is 404", func(t *testing.T) {
+		status, data := edit(t, st.admin, "L-9999", `{"title":"沒有"}`)
+		if status != http.StatusNotFound {
+			t.Fatalf("want 404, got %d %v", status, data)
+		}
+		apiWantError(t, data, "not_found", "no such lore entry: L-9999")
+	})
 }

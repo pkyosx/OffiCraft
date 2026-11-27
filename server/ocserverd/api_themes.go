@@ -5,9 +5,11 @@ package main
 // (the cap, id uniqueness) are answered against the TABLE.
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -66,7 +68,22 @@ func (s *apiServer) HandleGetThemeApiThemesThemeIdGet(w http.ResponseWriter, r *
 // PutCustomTheme's checkCustomThemeIDMatchesBundle (mapped to 422 below). A
 // second check here was proven decorative by a mutant — the stored bytes are
 // marshalled from this DTO.
+//
+// The body is held to the import's themeFileMaxBytes: a bundle written here
+// directly must not be larger than one that could be imported.
 func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *http.Request, themeID string) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, themeFileMaxBytes))
+	if err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeError(w, http.StatusRequestEntityTooLarge,
+				fmt.Sprintf("that bundle is larger than the %d-byte limit for a theme", themeFileMaxBytes))
+			return
+		}
+		writeError(w, http.StatusUnprocessableEntity, "could not read request body")
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(raw))
 	var body ThemeBundleDTO
 	if !decodeJSONBodyStrict(w, r, &body, themeBundleRequiredFields...) {
 		return
@@ -110,9 +127,6 @@ func (s *apiServer) HandleImportThemeApiThemesImportPost(w http.ResponseWriter, 
 }
 
 func (s *apiServer) saveThemeBundle(w http.ResponseWriter, themeID string, body ThemeBundleDTO) {
-	// Do not prune unknown wording codes before validation: validateWording
-	// caps the RAW entry count and prunes after, so pruning first would let
-	// unrecognised entries bypass the cap.
 	if err := validateThemeBundle(body, "theme "+strconv.Quote(themeID), nil); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return

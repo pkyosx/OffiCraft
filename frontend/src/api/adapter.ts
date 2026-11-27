@@ -1369,15 +1369,15 @@ export interface ServerSettingsView {
   secretCardUnretrievedTtlSecs: number;
   secretCardRetrievedRetentionSecs: number;
   /** T-33: the four 傳承 knobs. The first two are FOLD budgets — how much 傳承
-   * one member's boot document carries (its `everyone` entries first, then its
-   * own, T-236), and how much `get_task_manual`
+   * one member's boot document carries (its `everyone` entries merged with its
+   * own), and how much `get_task_manual`
    * appends after a type's SOP. They are never summed: different readers
    * pay them at different moments. The last two bound ONE entry's title and
-   * body at write time.
-   * NOT document caps — a 傳承 entry has no edit path, so a lowered cap cannot
-   * strand anything already stored and all four may be turned DOWN as well as
-   * up. Defaults and the two ranges in `loreCap.ts` (mirroring
-   * server/ocserverd/domain.go). */
+   * body at write and edit time.
+   * NOT document caps — all four may be turned DOWN as well as up; an entry
+   * already over a lowered title/body cap stays as stored and an edit of that
+   * field is accepted only when it shortens the field. Defaults and the two ranges
+   * in `loreCap.ts` (mirroring server/ocserverd/domain.go). */
   loreCapCharsRole: number;
   loreCapCharsManual: number;
   loreCapCharsTitle: number;
@@ -2447,10 +2447,7 @@ export interface Api {
      * checked against the quoted text. Omitted on a whole-message reply. */
     replyExcerpt?: string;
     /** Machine-readable keys stored ON the message, for a reader that must not
-     * have to parse the visible body. The 傳承 composer sends
-     * `{ lore_entry_id }` here so an agent knows which entry the message is
-     * about; the human-facing 「[LoreID=…]」 prefix is display and may be
-     * reworded, this is not.
+     * have to parse the visible body.
      *
      * 🔴 THREE KEYS ARE NOT YOURS TO SET. The server DELETES `reply_to` and
      * `reply_excerpt` (use the `replyTo` / `replyExcerpt` params — the server
@@ -2910,7 +2907,7 @@ export interface Api {
    * 🔴 THE FILTER TRAVELS WITH THE PAGE. Every narrowing the page offers is a
    * query parameter, never a client-side `.filter()` on a downloaded list: a
    * page that filters after paging cannot tell 「這一頁剛好沒有」 from
-   * 「根本沒有」, and the 上限線 it draws would fall in the wrong place.
+   * 「根本沒有」.
    *
    * The order is FIXED (置頂 → 生效中 → 已失效, newest effective first inside
    * each group) and is not a parameter. */
@@ -2931,7 +2928,7 @@ export interface Api {
    * showing the explanation for a retirement that was undone.
    *
    * Resolves to nothing, for the reason above: the route answers
-   * `LoreEntryStateReceiptDTO` and `LorePage` refetches. */
+   * `LoreEntryStateReceiptDTO` and `LorePage` re-reads the changed row by id. */
   setLoreEntryState(
     entryId: string,
     state: LoreEntryState,
@@ -2939,13 +2936,17 @@ export interface Api {
   ): Promise<void>;
   /** 提到最新 (`POST /api/lore/{entry_id}/bump`): set `effectiveTs` to now so the
    * entry sorts to the front of its group. `createdTs` is NOT touched, which is
-   * what makes this reversible. Resolves to nothing — same receipt, same
-   * refetch. */
+   * what makes this reversible. Resolves to nothing, for the same reason. */
   bumpLoreEntry(entryId: string): Promise<void>;
   /** Move one entry to another scope (`POST /api/lore/{entry_id}/scope`,
    * admin only). The server derives the scope key. Resolves to nothing —
-   * `LorePage` refetches. */
+   * `LorePage` re-reads the changed row by id. */
   setLoreEntryScope(entryId: string, scopeKind: LoreScopeKind): Promise<void>;
+  /** Change an entry's title, body or type in place (`PATCH /api/lore/{entry_id}`).
+   * Resolves to nothing; the page re-reads the row. */
+  editLoreEntry(entryId: string, patch: LoreEntryEdit): Promise<void>;
+  /** Every boot-document target's budget in one read (`GET /api/lore/budgets`). */
+  listLoreBudgets(): Promise<LoreBudgetTargetView[]>;
   // ── Product guide (設定 › 使用說明) ──────────────────────────────────
   /** List the product-guide docs (`GET /api/docs`) — the 使用說明 landing
    * (slug + title cards). The same embed Mira reads via get_doc. */
@@ -3554,11 +3555,9 @@ export type LoreType =
 
 /** ONE 傳承 entry.
  *
- * 🔴 `title` and `body` ARE NEVER EDITABLE. No route changes them, so what is
- * read here is what was written. The mutable surface is `state`,
- * `retireReason`, `effectiveTs` and — admin-only, T-236 — `scopeKind` /
- * `scopeKey`, which is why the cockpit offers 失效 / 生效 / 置頂 / 提到最新
- * and the owner's 適用範圍 menu, and no edit affordance at all.
+ * `title`, `body` and `loreType` change only through `editLoreEntry`; the id,
+ * scope, state and `effectiveTs` stay put on an edit, so the entry keeps its
+ * place in the order.
  *
  * `effectiveTs` vs `createdTs`: `createdTs` is when it was written and never
  * moves; `effectiveTs` starts equal to it and is what 提到最新 sets to now. The
@@ -3605,6 +3604,10 @@ export interface LoreEntryView {
   createdTs: number;
   updatedTs: number;
   loreType: LoreType;
+  /** Whether this entry is left out of the one boot document the request
+   * converged on, as the server's selection decided it. Absent on a retired
+   * entry and on a request that did not converge on one target. */
+  dropped?: boolean;
 }
 
 /** The server-side narrowing one list request may carry. Every field is a query
@@ -3635,12 +3638,12 @@ export interface LoreListOptions {
    * it out of the query entirely so the server never has to decide what an empty
    * set means.
    *
-   * 🔴 `scopeKinds` / `scopeKeys` ALSO DECIDE WHETHER THERE IS A 上限線 AT ALL.
-   * `capChars`/`firstDroppedId` come back non-empty only when the effective
+   * 🔴 `scopeKinds` / `scopeKeys` ALSO DECIDE WHETHER THERE ARE BUDGET NUMBERS.
+   * `capChars`/`firstDroppedId` and each entry's `dropped` come back only when the effective
    * scope_kind set holds EXACTLY ONE value and the effective scope_key set holds
    * exactly one (or the kind is `everyone` alone with no key, since its key is
    * "") — a budget belongs to a scope, and two scopes have two different
-   * budgets with no single line between them. Tick two 範圍 and the page gets
+   * budgets. Tick two 範圍 and the page gets
    * 0 / "", which is the same honest answer an unfiltered page gets. */
   scopeKinds?: LoreScopeKind[];
   scopeKeys?: string[];
@@ -3648,21 +3651,23 @@ export interface LoreListOptions {
   authorIds?: string[];
   /** Sent as `lore_types`. */
   loreTypes?: LoreType[];
+  /** Sent as `entry_ids`; the server matches whole ids exactly. */
+  entryIds?: string[];
+  /** Sent as `q`: a substring of the title; the body is not searched. */
+  q?: string;
   limit?: number;
   offset?: number;
 }
 
-/** One page, plus where the 上限線 falls.
+/** One page, plus the budget numbers of the target it converged on.
  *
  * 🔴 `firstDroppedId` IS NOT DERIVABLE HERE AND MUST NOT BE RECOMPUTED. The
  * server answers it from the same selection the folds run, over the WHOLE
- * scope (for a member scope that includes the `everyone` entries ahead of it); this page is cut by `limit`/`offset` long before the budget is spent,
- * so adding up the visible rows would draw the line in the wrong place on every
- * page but the first — and a line in the wrong place looks exactly like a line
- * in the right place.
+ * scope (for a member that includes the `everyone` entries merged with its own); this page is cut by `limit`/`offset` long before the budget is spent,
+ * so adding up the visible rows would be wrong on every page but the first.
  *
  * Both are the empty answer (0 and "") when the request did not converge on ONE
- * scope, because a budget belongs to a scope and a page spanning several has no
+ * scope (or on one member's whole list, `everyone` + `agent` with its key), because a budget belongs to a scope and a page spanning several has no
  * single one to report. `firstDroppedId` is also "" when the whole scope fits. */
 export interface LoreEntryPageView {
   entries: LoreEntryView[];
@@ -3670,6 +3675,42 @@ export interface LoreEntryPageView {
   offset: number;
   capChars: number;
   firstDroppedId: string;
+  /** What the selection behind `firstDroppedId` spends; 0 with no single scope. */
+  usedChars: number;
+  /** The size of the entry `firstDroppedId` names; 0 when nothing is dropped. */
+  firstDroppedChars: number;
+  /** The same selection per scope (`everyone` then `agent` for a member). */
+  budgetSegments: LoreBudgetSegmentView[];
+}
+
+export interface LoreBudgetSegmentView {
+  scopeKind: LoreScopeKind | "unknown";
+  /** Live (pinned + active) entries of this scope. */
+  entryCount: number;
+  chars: number;
+  fittedCount: number;
+  fittedChars: number;
+}
+
+/** One boot-document target's budget (`GET /api/lore/budgets`). */
+export interface LoreBudgetTargetView {
+  scopeKind: LoreScopeKind | "unknown";
+  /** Member id, manual type_key, or "" for `everyone`. */
+  scopeKey: string;
+  capChars: number;
+  usedChars: number;
+  /** Live entries the target's boot document walks (a member's: its own plus
+   * the `everyone` ones). */
+  entryCount: number;
+  /** Live entries the selection walks that do not fit. */
+  droppedCount: number;
+}
+
+/** `PATCH /api/lore/{entry_id}`: an omitted field is left as it is. */
+export interface LoreEntryEdit {
+  title?: string;
+  body?: string;
+  loreType?: LoreType;
 }
 
 /** What a write carries. `taskId` decides the scope and decides it alone:

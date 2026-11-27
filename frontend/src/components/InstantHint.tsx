@@ -59,10 +59,13 @@ export function InstantHint({
   onActivate,
   triggerRef: outerRef,
   focusable = true,
+  disabled,
   ...rest
 }: {
   hint: string;
   onActivate?: () => void;
+  /** Disables the button trigger (only with `onActivate`). */
+  disabled?: boolean;
   focusable?: boolean;
   triggerRef?: MutableRefObject<HTMLElement | null>;
 } & Omit<HTMLAttributes<HTMLElement>, "title">) {
@@ -184,6 +187,7 @@ export function InstantHint({
         <button
           {...triggerProps}
           type="button"
+          disabled={disabled}
           ref={(el) => {
             triggerRef.current = el;
             if (outerRef) outerRef.current = el;

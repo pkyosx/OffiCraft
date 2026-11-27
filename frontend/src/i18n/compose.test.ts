@@ -60,13 +60,15 @@ const cron = (nextTs: number | null, recurring: boolean) => ({ ...WAIT_CRON, nex
 
 type Arg =
   | string
+  | boolean
   | number
   | string[]
   | number[]
   | null
   | MemberActivity
   | ActivityWait
-  | DueRemaining;
+  | DueRemaining
+  | { id: string; reason: string }[];
 /** [language, message, arguments, the text that must appear on screen]. */
 const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "memberActivitySummary", [act({ busySince: T - 180 })], "主代理工作中"],
@@ -177,6 +179,23 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "loreOpenManual", ["PR 審查"], "開啟任務手冊 PR 審查"],
     ["zh", "loreScopeManual", ["PR 審查"], "任務：PR 審查"],
     ["zh", "loreScopeAgent", ["Mira"], "建立者：Mira"],
+    ["zh", "loreEntryCount", [14], "14 筆"],
+    ["zh", "loreChars", [6240], "6,240 字"],
+    ["zh", "loreDropped", [4], "4 筆讀不到"],
+    ["zh", "loreLegendNumber", [1131], "1,131"],
+    ["zh", "loreLegendCap", [1150], "上限 1,150"],
+    ["zh", "loreLegendFit", [7, 12], "7/12"],
+    ["zh", "loreLegendFit", [1200, 1500], "1,200/1,500"],
+    ["zh", "loreScopeChanged", ["L-12", "所有人"], "L-12 的適用範圍改成「所有人」"],
+    ["zh", "loreDirUsage", [9640, 10000], "9,640 / 10,000 字"],
+    ["zh", "loreEveryoneUsed", [6240], "6,240 字・每位成員都會讀"],
+    ["zh", "loreDirectoryNotFound", ["L-212"], "找不到 L-212"],
+    ["zh", "loreDirectorySectionGone", ["L-212"], "L-212 所在的段落已經不在了（成員已離開或手冊已刪除）"],
+    ["zh", "loreHighlightMissing", ["L-212"], "L-212 不在目前的篩選結果裡（已失效的條目要勾「已失效」才會列出）"],
+    ["zh", "loreHighlightLoadFailed", ["L-212"], "載入更多條目失敗，還沒找到 L-212；往下捲可以再試一次"],
+    ["zh", "loreStagedChanges", [3], "3 項變更還沒儲存"],
+    ["zh", "loreStagedRevertTo", ["生效中"], "還原為「生效中」"],
+    ["zh", "loreStagedFailed", [[{ id: "L-2", reason: "你沒有權限做這個動作" }, { id: "L-4", reason: "" }]], "沒有成功：L-2（你沒有權限做這個動作）、L-4"],
     ["zh", "secretCopyId", ["sec-00000000000a"], "複製密鑰 ID sec-00000000000a"],
     ["zh", "secretDeleteConfirmBody", ["部署權杖"], "要刪除「部署權杖」嗎？刪除後無法復原。"],
     ["zh", "sharedDocCopyId", ["sd-0c41e97a2b58"], "複製檔案 ID sd-0c41e97a2b58"],
@@ -372,6 +391,24 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "loreOpenManual", ["PR review"], "Open task manual PR review"],
     ["en", "loreScopeManual", ["PR review"], "Task: PR review"],
     ["en", "loreScopeAgent", ["Mira"], "Author: Mira"],
+    ["en", "loreEntryCount", [1], "1 entry"],
+    ["en", "loreEntryCount", [14], "14 entries"],
+    ["en", "loreChars", [6240], "6,240 chars"],
+    ["en", "loreDropped", [4], "4 not read"],
+    ["en", "loreLegendNumber", [1131], "1,131"],
+    ["en", "loreLegendCap", [1150], "Cap 1,150"],
+    ["en", "loreLegendFit", [7, 12], "7/12"],
+    ["en", "loreScopeChanged", ["L-12", "Everyone"], "L-12 now applies to Everyone"],
+    ["en", "loreDirUsage", [9640, 10000], "9,640 / 10,000 chars"],
+    ["en", "loreEveryoneUsed", [6240], "6,240 chars · read by every member"],
+    ["en", "loreDirectoryNotFound", ["L-212"], "No entry L-212"],
+    ["en", "loreDirectorySectionGone", ["L-212"], "L-212's section is gone (the member left or the manual was deleted)"],
+    ["en", "loreHighlightMissing", ["L-212"], "L-212 is not in the current results (tick Retired to list retired entries)"],
+    ["en", "loreHighlightLoadFailed", ["L-212"], "Loading more entries failed before L-212 was found; scroll down to try again"],
+    ["en", "loreStagedChanges", [1], "1 unsaved change"],
+    ["en", "loreStagedChanges", [3], "3 unsaved changes"],
+    ["en", "loreStagedRevertTo", ["Active"], "Revert to “Active”"],
+    ["en", "loreStagedFailed", [[{ id: "L-2", reason: "admin only" }, { id: "L-4", reason: "" }]], "Did not go through: L-2 (admin only), L-4"],
     ["en", "secretCopyId", ["sec-00000000000a"], "Copy secret ID sec-00000000000a"],
     ["en", "secretDeleteConfirmBody", ["Deploy token"], "Delete \u201cDeploy token\u201d? This cannot be undone."],
     ["en", "sharedDocCopyId", ["sd-0c41e97a2b58"], "Copy file ID sd-0c41e97a2b58"],

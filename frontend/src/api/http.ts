@@ -112,6 +112,8 @@ import type {
   TaskManualPatch,
   DocSummaryView,
   LoreEntryPageView,
+  LoreBudgetTargetView,
+  LoreEntryEdit,
   LoreEntryState,
   LoreEntryWrite,
   LoreListOptions,
@@ -203,6 +205,7 @@ import {
   toThemeWriteReceipt,
   toThemeDeleteResult,
   toLoreEntryPage,
+  toLoreBudgetTargets,
 } from "./mappers";
 import { suggestedRepliesPatchFields } from "./suggestedReplies";
 import { ownerToken, setToken } from "./auth";
@@ -2319,7 +2322,7 @@ export const httpApi: Api = {
     //
     // 🔴 EVERY NARROWING IS A QUERY PARAMETER. Nothing here downloads a list and
     // filters it: the server applies the filter inside the query, before the
-    // page is cut, so a count or a 上限線 taken from the answer is about the
+    // page is cut, so a count or a `dropped` taken from the answer is about the
     // whole filtered scope rather than about the rows that happened to land on
     // this page. Filtering client-side would make 「捲到底沒有了」 and 「真的沒有
     // 了」 the same picture.
@@ -2347,6 +2350,8 @@ export const httpApi: Api = {
       states?: string[];
       author_ids?: string[];
       lore_types?: string[];
+      entry_ids?: string[];
+      q?: string;
       limit?: number;
       offset?: number;
     } = {};
@@ -2367,6 +2372,10 @@ export const httpApi: Api = {
     if (opts?.loreTypes && opts.loreTypes.length > 0) {
       query.lore_types = opts.loreTypes;
     }
+    if (opts?.entryIds && opts.entryIds.length > 0) {
+      query.entry_ids = opts.entryIds;
+    }
+    if (opts?.q && opts.q.trim() !== "") query.q = opts.q;
     if (opts?.limit !== undefined) query.limit = opts.limit;
     if (opts?.offset !== undefined) query.offset = opts.offset;
     const wire = unwrap(await client.GET("/api/lore", { params: { query } }));
@@ -2403,7 +2412,7 @@ export const httpApi: Api = {
   ): Promise<void> {
     // POST /api/lore/{entry_id}/state -> LoreEntryStateReceiptDTO {id, state,
     // effective_ts, updated_ts} — the bounded receipt both governance doors
-    // answer (T-33). Discarded; LorePage refetches.
+    // answer. Discarded; LorePage re-reads the changed row.
     //
     // retire_reason rides only with `retired`. The server clears any stored
     // value on the other two, and this face does not send one for them either:
@@ -2443,6 +2452,25 @@ export const httpApi: Api = {
         body: { scope_kind: scopeKind },
       }),
     );
+  },
+
+  async editLoreEntry(entryId: string, patch: LoreEntryEdit): Promise<void> {
+    // PATCH /api/lore/{entry_id} -> LoreEntryEditReceiptDTO, discarded. Only
+    // the fields the caller set are sent: an absent field is left unchanged.
+    const body: { title?: string; body?: string; lore_type?: string } = {};
+    if (patch.title !== undefined) body.title = patch.title;
+    if (patch.body !== undefined) body.body = patch.body;
+    if (patch.loreType !== undefined) body.lore_type = patch.loreType;
+    unwrap(
+      await client.PATCH("/api/lore/{entry_id}", {
+        params: { path: { entry_id: entryId } },
+        body,
+      }),
+    );
+  },
+
+  async listLoreBudgets(): Promise<LoreBudgetTargetView[]> {
+    return toLoreBudgetTargets(unwrap(await client.GET("/api/lore/budgets")));
   },
 
   async listDocs(): Promise<DocSummaryView[]> {

@@ -74,25 +74,33 @@ export const zh = {
     loadError: "載入使用說明失敗，請稍後重試",
     empty: "還沒有說明頁",
   },
-  // ── 傳承(T-33,spec §6)──
-  // 一整個自己的分頁,設計語言照任務卡。這裡只放「字」;為什麼這樣排、線怎麼畫
-  // 寫在 components/LorePage.tsx 的檔頭。
-  //
-  // 🔴 界線那一句是「具名的」:它要說出是哪一個 scope 的哪一個額度。所以它由
-  // 四個片段拼出來(prefix · 名字 + 上限 + 數字 + 尾巴),而不是一個帶參數的
-  // function —— dict 的 function leaf 不進 message-key 白名單,主題包就改不到
-  // 它裡面任何一個字(見 i18n/compose.ts 檔頭)。
+  // ── 傳承 ──
+  // 帶數字的句子由 i18n/compose.ts 用這裡的片段拼起來；dict 的 function leaf
+  // 主題包改不到。
   lore: {
     title: "傳承",
     loadError: "載入傳承失敗，請稍後重試",
+    // 下面四個鍵另一份開著的主題包也覆寫了，沒用到也不要刪或改名。
     empty: "還沒有任何傳承",
-    emptyFiltered: "沒有符合篩選條件的傳承",
-    // 三群的標題。順序固定 置頂 → 生效中 → 已失效,不給改。
     groupPinned: "置頂",
-    groupActive: "生效中",
-    groupRetired: "已失效",
+    entryIdCopied: "已複製",
+    messageSent: "已送出",
+    emptyFiltered: "沒有符合篩選條件的傳承",
     // 一顆狀態徽章 + 點開的小選單
     stateMenuLabel: "變更狀態",
+    typeMenuLabel: "變更類型",
+    backToDirectory: "傳承目錄",
+    directoryIdLabel: "條目編號",
+    directoryIdOnly: "這裡只找條目編號（例如 L-212）；要用標題找，先進到一段裡",
+    dirNotFoundLead: "找不到 ",
+    dirNotFoundTail: "",
+    highlightMissingLead: "",
+    highlightMissingTail: " 不在目前的篩選結果裡（已失效的條目要勾「已失效」才會列出）",
+    sectionMissing: "找不到這一段",
+    dirSectionGoneLead: "",
+    dirSectionGoneTail: " 所在的段落已經不在了（成員已離開或手冊已刪除）",
+    highlightFailedLead: "載入更多條目失敗，還沒找到 ",
+    highlightFailedTail: "；往下捲可以再試一次",
     statePinned: "置頂",
     stateActive: "生效中",
     stateRetired: "已失效",
@@ -101,81 +109,38 @@ export const zh = {
     actionPin: "置頂",
     scopeUnknown: "未知範圍",
     openManualLabel: "開啟任務手冊",
-    // 條目編號 chip（照任務卡編號的做法：點了複製）
     copyEntryIdLabel: "複製條目編號",
-    entryIdCopied: "已複製",
-    // 撰寫人自成一列
-    authorLabel: "撰寫人",
     authorUnknown: "—",
-    messageAuthor: "傳訊息給撰寫人",
-    // 內嵌輸入框：撰寫人那一列底下直接寫，不必先跳到辦公室。
-    messagePlaceholder: (name: string) => `傳訊息給 ${name}…`,
-    messageSend: "送出",
-    // 🔴 這一句是「編號會被自動加在最前面」在畫面上唯一的說明。沒有它，送出去
-    // 的字跟輸入框裡看到的字不一樣，而寫的人不會知道多了什麼。
-    messagePrefixNote: (entryId: string) => `會以 ${entryId} 開頭送出`,
-    // 送不出去要看得見，而且打的字要留著——重打一次是這裡最不該有的懲罰。
-    messageFailed: "訊息沒有送出去，你打的字還留著，可以再送一次",
-    messageSent: "已送出",
-    // 生效期與提到最新同一行
+    authorLabel: "撰寫人",
     effectiveLabel: "生效期",
-    bump: "提到最新",
-    // 失效理由 —— 沒填就整列不顯示
     retireReasonLabel: "失效理由",
-    // 範圍的種類名。🔴 有兩個地方用同一組詞：條目列上的「屬於」chip，與具名
-    // 上限線的開頭。所以同一個詞只留一份來源——這三個先前叫
-    // capLineRolePrefix / capLineManualPrefix，名字把它們寫死在上限線上，等於
-    // 在告訴下一個要用的人「你自己再寫一份」，而兩份詞就是兩份會各自漂走的詞。
-    // 🔴 本來三個，現在兩個。scopeKindRole（「角色傳承」）在 2026-09-07 隨著
-    // 負責人收斂範圍一起拿掉（卡 rc-a43100fd0486 圈 [0]）。它沒有為了搬遷剩下
-    // 的孤兒而保留：搬不動的那幾筆走的是 unknown 那一支，只顯示原始的鍵、不冠
-    // 任何種類詞——因為對那種列唯一誠實的說法是「還沒有人決定它屬於誰」，把它
-    // 叫成「角色傳承」等於指向一個這個產品已經沒有的範圍。
-    //
-    // 每個人的傳承都掛在自己的成員 id 上，正職與外包一視同仁。
-    scopeKindAgent: "成員傳承",
-    scopeKindManual: "任務傳承",
-    // 適用範圍徽章與選單（T-236）
+    // 適用範圍徽章與選單
+    scopeChangedMid: " 的適用範圍改成「",
+    scopeChangedTail: "」",
     scopeMenuLabel: "適用範圍",
     scopeManualLead: "任務：",
     scopeAgentLead: "建立者：",
     scopeEveryone: "所有人",
     scopeTagDefault: "預設",
     scopeTagCurrent: "目前",
-    // 具名上限線的其餘片段
-    capLineSep: " · ",
-    capLineMid: " 上限 ",
-    capLineTail: " 字，以下的傳承成員讀不到",
-    // 篩選列：所有撰寫人 → 所有成員傳承 → 所有任務傳承 → 所有類型 → 所有狀態 → 清除篩選。
-    // 順序與名字都是負責人 2026-09-08 逐字給的，抄任務頁的排法，少掉它那個
-    // 任務編號搜尋框（傳承的編號沒有人會用打的去找）。
-    //
-    // 🔴 四格的預設標籤一律用「所有」，不是「全部」。先前這一列兩個詞混著用
-    // （全部撰寫人／所有任務／全部狀態），負責人那一句就是要把它統一；混用會
-    // 讓讀的人以為兩個詞代表兩種不同的「沒有限制」。
-    //
-    // 🔴 成員那一格是「新加回來的一條路」，不是把撰寫人抄一份。撰寫人送的是
-    // authorIds，那不會產生 scope；伺服器只在請求剛好一個 scope kind ＋ 剛好
-    // 一個 scope key 時才回 capChars，所以在只有「撰寫人」的那個版本裡，成員
-    // 傳承的上限線沒有任何路徑叫得出來。成員傳承這一格送的是
-    // scope_kinds=[agent] ＋ scope_keys=[成員 id]，上限線才回得來；這一格的
-    // 「所有人」（T-236）送 scope_kinds=[everyone]、不帶 key，伺服器同樣回上限線。
-    // 它跟任務傳承那一格共用同兩條線上欄位，所以兩格各勾一個時會送出兩個 kind
-    // ／兩個 key，伺服器照規則回 0——不畫線，這是誠實，不是缺陷。
-    //
-    // ⚠️ 沒有統計數字，這是刻意的。任務頁的狀態會寫「狀態 · N」，這裡不寫
-    // ——負責人明講「we dont need count」，而且傳承是往下捲載入的，這裡算得出
-    // 來的只有「目前已載入幾筆」，會隨著捲動一直變。
+    // 狀態、類型、適用範圍改了先暫存，按「儲存變更」才送出
+    stagedBarLabel: "未儲存的變更",
+    stagedChangesTailOne: " 項變更還沒儲存",
+    stagedChangesTailMany: " 項變更還沒儲存",
+    stagedDiscard: "全部捨棄",
+    stagedSave: "儲存變更",
+    stagedRevertToLead: "還原為「",
+    stagedRevertToTail: "」",
+    stagedSaving: "儲存中…",
+    stagedLeaveConfirm: "有未儲存的變更，離開會丟掉它們。確定要離開嗎？",
+    stagedLeaveBlocked: "儲存中，完成後才能離開",
+    stagedFailedLead: "沒有成功：",
+    stagedReasonOpen: "（",
+    stagedReasonClose: "）",
+    stagedSavedRereadFailed: "已儲存，但重新讀取失敗，請重新整理頁面",
+    // 篩選列
     clearFilters: "清除篩選",
-    filterAuthorNoun: "撰寫人",
-    filterAuthorAll: "所有撰寫人",
-    // 成員傳承這一格的選項＝現役成員名冊，跟撰寫人那一格同一份來源；名字用上
-    // 面的 scopeKind* 那一組，所以篩選裡的字跟條目徽章上的字是同一份。
-    filterMemberNoun: "成員傳承",
-    filterMemberAll: "所有成員傳承",
-    filterTaskNoun: "任務傳承",
-    filterTaskAll: "所有任務傳承",
-    // 類型標籤：條目列最前面的膠囊與篩選列「類型」那一格共用這一組詞。
+    idSearchLabel: "編號或標題",
     loreTypeInstructionConflict: "指示衝突",
     loreTypeInstructionSupplement: "指示補充",
     loreTypeOwnerDecision: "Owner 決策",
@@ -185,9 +150,33 @@ export const zh = {
     filterTypeAll: "所有類型",
     filterStateNoun: "狀態",
     filterStateAll: "所有狀態",
-    // 整列可點展開／收合
-    expandCard: "展開這一筆傳承",
-    collapseCard: "收合這一筆傳承",
+    // 每一段的標題列：所有人、每位成員、每本任務手冊
+    kindEveryone: "所有人",
+    kindMember: "成員",
+    kindManual: "任務手冊",
+    entryCountTailOne: " 筆",
+    entryCountTailMany: " 筆",
+    charsTail: " 字",
+    everyoneReadByAll: "・每位成員都會讀",
+    droppedTail: " 筆讀不到",
+    allFit: "全部讀得到",
+    sectionLoadError: "這一段載入失敗，收合再展開可以重試",
+    sectionEmpty: "這一段沒有要顯示的傳承",
+    // 段落頁上方用量條下的說明
+    legendCapLead: "上限 ",
+    // 讀不到的條目縮成一列
+    droppedTag: "讀不到",
+    collapseDropped: "收合",
+    // 卡片右上的動作
+    actionEdit: "編輯",
+    // 就地編輯
+    editTitleLabel: "標題",
+    editBodyLabel: "內容",
+    editCancel: "取消",
+    editSave: "儲存",
+    editSaving: "儲存中…",
+    editTitleBlank: "標題不能空白",
+    editOverCap: "超過字數上限",
     loadingMore: "載入中…",
     // 動作失敗要看得見(403 也是)——不要靜靜失敗
     actionFailed: "這個動作沒有成功，請稍後再試",
@@ -2736,6 +2725,8 @@ export const zh = {
       purpose: "用途",
       fields: "欄位",
       sop_md: "SOP",
+      title: "標題",
+      body: "內容",
     },
     // doc filenames
     // Honest load-failure notice — shown when the role/global-context fetch
@@ -2844,7 +2835,7 @@ export const zh = {
     // 數字。「傳承條目」而不是「傳承」:那一格的收件人是寫下那一條的人,不是
     // 一份文件。
     suggestedRepliesLoreMessage: "傳承訊息建議回覆",
-    suggestedRepliesLoreMessageSub: "傳訊息給傳承條目的撰寫人時可一鍵帶入的句子。",
+    suggestedRepliesLoreMessageSub: "在傳承條目的訊息框可一鍵帶入的句子。",
     suggestedRepliesChat: "聊天室建議回覆",
     suggestedRepliesChatSub: "與任一成員對話時可一鍵帶入的句子。",
     suggestedReplyPlaceholder: "例:收到,照這樣做",

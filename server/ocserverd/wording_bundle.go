@@ -16,18 +16,7 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	maxWordingValueLen = 200
-	// 🔴 The cap is measured on the RAW submitted map, BEFORE unknown codes are
-	// pruned, so it must sit ABOVE len(messageKeys): a pack re-wording every key
-	// must not refuse itself. 2000 is owner ruling rc-e5780adf4f1d; it STAYS a
-	// hard-coded number (the owner did not pick a computed one) — ask the owner
-	// again in about four months, his chosen cadence. The whitelist grows ~7 keys
-	// A DAY (an earlier ~10-a-month estimate was measured wrong). Raise together with
-	// MAX_WORDING_ENTRIES_PER_LANG in frontend/src/lib/themeBundleCore.ts;
-	// nothing compares the two.
-	maxWordingEntriesPerLang = 2000
-)
+const maxWordingValueLen = 200
 
 var wordingLangAllowed = map[string]bool{"zh": true, "en": true}
 
@@ -35,16 +24,11 @@ func validateWording(wording *map[string]map[string]string, where string) error 
 	if wording == nil {
 		return nil
 	}
-	// Language set and the RAW entry cap first, before any pruning — junk keys
-	// cannot slip past the cap by being dropped. Same rule order as the TS twin.
-	for lang, entries := range *wording {
+	// Language set first, before any pruning. Same rule order as the TS twin.
+	for lang := range *wording {
 		if !wordingLangAllowed[lang] {
 			return fmt.Errorf(
 				"%s: wording language %q is not allowed (only zh, en)", where, lang)
-		}
-		if len(entries) > maxWordingEntriesPerLang {
-			return fmt.Errorf(
-				"%s: wording[%s] holds more than %d entries", where, lang, maxWordingEntriesPerLang)
 		}
 	}
 	dropUnknownWordingCodes(*wording, where)

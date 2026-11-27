@@ -827,6 +827,11 @@ var identityGateLedger = map[string]string{
 		"cannot be a Requires floor.",
 	"api_members.go :: HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete :: m.Kind == KindWarden": "" +
 		"the delete half of the same T-c826 target rule, same reasoning.",
+	"api_lore.go :: HandleListLoreBudgetsApiLoreBudgetsGet :: m.Kind == KindWarden": "" +
+		"a warden is a machine, not an AI member: it boots no document, so it has no " +
+		"傳承 budget and is left out of the budget targets. Classifies the listed ROW, " +
+		"not the caller, and is not a staff/outsource difference: staff and outsource " +
+		"members are one arm here, each walked by the same selectMemberLore.",
 	"api_members.go :: HandleGetMemberBootContextApiMembersMemberIdBootContextGet :: m.Kind == KindWarden": "" +
 		"a warden is a machine, not an AI member: no start frame ever carries a staff " +
 		"boot context for it, so the staff preview answers 404 for that kind the same " +

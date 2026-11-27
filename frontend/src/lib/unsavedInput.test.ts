@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { trackUnsavedTextFields } from "./unsavedInput";
+import { hasRegisteredUnsavedWork, registerUnsavedWork, trackUnsavedTextFields } from "./unsavedInput";
 
 let stop: (() => void) | null = null;
 afterEach(() => {
@@ -62,5 +62,19 @@ describe("trackUnsavedTextFields", () => {
     area.focus();
     area.value = "typed";
     expect(t.hasEditedField()).toBe(false);
+  });
+});
+
+describe("registered unsaved work", () => {
+  it("counts while a registered check says true and stops once released", () => {
+    expect(hasRegisteredUnsavedWork()).toBe(false);
+    let dirty = true;
+    const release = registerUnsavedWork(() => dirty);
+    expect(hasRegisteredUnsavedWork()).toBe(true);
+    dirty = false;
+    expect(hasRegisteredUnsavedWork()).toBe(false);
+    dirty = true;
+    release();
+    expect(hasRegisteredUnsavedWork()).toBe(false);
   });
 });

@@ -1,68 +1,28 @@
-// LorePage — the 傳承 tab (T-33, spec §6).
+// LorePage — the 傳承 tab. `#lore` is a directory of boot-document targets
+// (所有人, each member, each task manual) with their budget numbers; each target
+// opens its own section page (`#lore/<kind>/<key>`) holding that section's cards
+// and filters.
 //
-// WHAT THIS PAGE IS. A read-and-curate log. 傳承 entries are written by AGENTS
-// through MCP and their text is NEVER editable (adapter: no route changes
-// `title`/`body`), so there is no compose form and no edit affordance here. What
-// the owner can do to an entry is 失效 / 生效 / 置頂 / 提到最新 and — through the
-// 適用範圍 menu on the scope badge (T-236) — switch its scope; that is the whole
-// mutable surface.
+// 🔴 EVERY BUDGET NUMBER IS THE SERVER'S. The section headers read
+// `listLoreBudgets`, a section page's sentence reads the
+// `capChars`/`usedChars`/`budgetSegments` its own list page answered, and a
+// card is folded (and greyed once opened) exactly when the server marked it
+// `dropped`. Adding up title+body lengths, or greying by position, would be a
+// second copy of the server's picking walk, wrong on every page after the
+// first, after any filter, and for a member whose 所有人 entries interleave
+// with its own.
 //
-// IT WEARS THE 任務卡 DESIGN LANGUAGE, COPIED FROM TaskCard.tsx RATHER THAN
-// SHARED. The classes below are `.lore-*` twins of `.task-card__*`, living in
-// lore.css, because tasks.css is the 任務 page's sheet and this page must not
-// be able to change how a task card looks by adjusting its own row. What was
-// copied, and from where:
+// 🔴 THE FILTER TRAVELS WITH THE PAGE REQUEST, never as a `.filter()` over
+// downloaded rows; a client-side filter is right only for the rows that
+// happen to be downloaded.
 //
-//   · whole-row expand/collapse with the closest() interaction filter
-//     (TaskCard.tsx onCardToggleClick / onCardToggleKeyDown). A click that
-//     lands on a button / menu / select does its own job; a click that ends a
-//     text selection is reading, not a toggle.
-//   · the ▸/▾ indicator: a DIFFERENT ICON, not a rotation, and a pure state
-//     mirror — aria-hidden, pointer-events:none, no role, so a click on it
-//     falls through to the row toggle (TaskCard.tsx:1395-1401).
-//   · one status badge that DROPS A MENU from its left edge
-//     (.lore-row__status-pop { left: 0; right: auto }), the current value
-//     carrying `--active` = accent + 700 (tasks.css .task-card__menu-item--active).
-//   · the label/value grid + the chat-bubble chip for the person row
-//     (.task-card__meta / __chip).
-//
-// 🔴 THE 上限線 IS THE SERVER'S ANSWER, NEVER A SUM COMPUTED HERE.
-// `listLoreEntries` returns `capChars` (the budget of the scope the request
-// converged on) and `firstDroppedId` (the id of the entry immediately BELOW the
-// line). This page reads those two fields and nothing else. Adding up the
-// title+body lengths of the rows on screen would be wrong on every page after
-// the first — the page is cut by `limit`/`offset` long before the budget is
-// spent — and a line in the wrong place looks exactly like a line in the right
-// place. Both empty (`capChars === 0` / `firstDroppedId === ""`) ⇒ the filter
-// did not converge on ONE scope (or the whole scope fits): no line, no dimming.
-// Whether the filter converged is the SERVER'S judgement, reported through
-// `capChars`; this page never decides it.
-//
-// 🔴 THE FILTER TRAVELS WITH THE PAGE REQUEST. Every narrowing is a query
-// parameter on `listLoreEntries`, never a `.filter()` over a downloaded list. A
-// page that filtered after paging could not tell 「這一頁剛好沒有」 from
-// 「根本沒有」, and its 上限線 would answer a different question than the one on
-// screen. That is also why changing any filter throws the loaded rows away and
-// re-asks from offset 0 (see the load effect): appending page 2 of the OLD
-// question under page 1 of the new one is the same bug wearing a scrollbar.
-//
-// THE ORDER IS FIXED AND IS NOT A CONTROL. 置頂 → 生效中 → 已失效 (LORE_GROUPS
-// below); newest effective first WITHIN a group is the server's, and this page
-// preserves the order it received. Only the FILTER is the owner's to change.
-//
-// NOT HERE, ON PURPOSE:
-//   · 轉派 — a 傳承 entry has no executor to hand over to (spec §6: 不做轉派).
-//   · counts / progress bars / percentages — spec §6 names all three as things
-//     the 上限線 must not become. The line says where the budget runs out; it
-//     does not report how full it is.
-// WAS "NOT HERE, ON PURPOSE", NOW ON EVERY ROW — 屬於 (owner, card
-// rc-11734523eb52). The old reason was that the 任務 dropdown already says which
-// scope is on screen, so stamping it per row would repeat the filter N times.
-// That reason only holds on a FILTERED screen. On 全部 — which is where the page
-// opens — every scope is mixed together and the reader has no way to tell a
-// 角色傳承 from one manual's, which is exactly what the owner hit. The filter
-// answers 「我要看哪一批」; the row has to answer 「這一筆是誰的」, and those are
-// different questions.
+// 🔴 狀態、類型、適用範圍 ARE STAGED, NOT SENT. The card shows the staged
+// value in a warn-coloured frame; 儲存變更 sends them all, then the whole
+// section is re-read in the server's order (as many rows as were loaded)
+// together with the numbers. Until then a card stays greyed (or not) as the
+// server last said; if that re-read fails, the cards keep the values that went
+// through and the page asks for a reload. 編輯 and 還原 still save at once and
+// re-read the section the same way; staged values outlive that re-read.
 
 import {
   useCallback,
@@ -78,6 +38,9 @@ import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { api, viewerMaySetLoreScope } from "../api";
 import type {
   ChatAttachmentInput,
+  LoreBudgetTargetView,
+  LoreEntryEdit,
+  LoreEntryPageView,
   LoreEntryState,
   LoreEntryView,
   LoreListOptions,
@@ -85,12 +48,14 @@ import type {
   LoreType,
 } from "../api/adapter";
 import { isHttpStatus, serverMessageOf } from "../api/errors";
+import { LORE_CAP_CHARS_DEFAULTS } from "../api/loreCap";
 import { LORE_TYPES } from "../api/loreType";
+import { loadServerSettings } from "../hooks/sharedServerSettings";
 import { useMembers } from "../hooks/useMembers";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
+import { useTaskManuals } from "../hooks/useTaskManuals";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useSuggestedRepliesLoreMessage } from "../hooks/useSuggestedReplies";
-import { useTaskManuals } from "../hooks/useTaskManuals";
 import {
   ATTACH_ACCEPT,
   STAGING_TARGET_PER_MOUNT,
@@ -106,72 +71,77 @@ import type { AvatarKind } from "../lib/themeBundle";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import { autosizeTextarea } from "../lib/autosize";
+import { registerUnsavedWork } from "../lib/unsavedInput";
 import { enterShouldSend } from "../lib/composerKeys";
-import { navigateHash } from "../lib/hashRoute";
+import {
+  formatHash,
+  navigateHash,
+  setNavigationGuard,
+  useHashRoute,
+  type HashRoute,
+  type LoreSectionKind,
+} from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
+import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { FilterPanel } from "./FilterPanel";
+import { IdFilterInput } from "./IdFilterInput";
+import { InstantHint } from "./InstantHint";
 import { Markdown } from "./Markdown";
 import { MultiSelectFilter } from "./MultiSelectFilter";
 import { SuggestedReplies, appendSuggestion } from "./SuggestedReplies";
 import {
   BookIcon,
-  ChatBubbleIcon,
   CheckIcon,
-  ChevronDownIcon,
+  ChevronLeftIcon,
   ChevronRightIcon,
-  GearIcon,
   PaperclipIcon,
+  PencilIcon,
+  RotateCcwIcon,
   SendIcon,
-  UserIcon,
   UsersIcon,
 } from "./icons";
 import "./lore.css";
-// The staged-attachment preview strip (ComposerAttachmentPreview) draws the
-// `.chat__composer-preview` / `.chat__preview-*` block, which lives in
-// office.css — so this page owns that import rather than free-riding on
-// whichever page happened to be mounted first (frontend/.claude/rules/
-// css-layout-traps.md).
+// The message box wears the 任務卡 box's classes: .chat__input / .chat__attach
+// and ComposerAttachmentPreview's .chat__preview-* from office.css, the row and
+// 送出 from card-composer.css.
 import "./office.css";
-// The 內容 renders through the shared <Markdown>, which wears the `.doc-md`
-// document skin — declared in settings.css. This page imports it rather than
-// free-riding on whichever page happened to mount first, the same convention
-// DocUsage.tsx states (styleOwnership: the one time a component drew another
-// sheet's block without importing it, the styles vanished the day the last
-// transitive importer changed).
+import "./card-composer.css";
+// The body renders through <Markdown>'s `.doc-md` skin from settings.css;
+// imported here rather than relied on transitively (css-layout-traps.md).
 import "./settings.css";
 
-/** 捲到底一次載這麼多 (spec §6). The SAME number is the "is there more" test:
- * a page shorter than this is the last one. */
+/** 捲到底一次載這麼多. A page shorter than this is the last one. */
 const PAGE = 30;
 
-/** 捲到底 = the scrollport is within this many px of its own bottom. Copied
- * from ChatArea's scroll gate (ChatArea.tsx:994-1002) so the two ends of the
- * app agree on what "at the edge" means. */
-const NEAR_BOTTOM_PX = 120;
+/** The server's largest `limit` on GET /api/lore. */
+const MAX_LIST_LIMIT = 200;
 
-/** 🔴 THE THREE GROUPS, IN THE ONE ORDER SPEC §6 ALLOWS. This array IS the
- * order — the render walks it — so reordering it is the only way to change the
- * groups' order, and there is no second copy of the rule to drift from it.
- * 置頂 leads because a pinned entry is the one somebody deliberately put in
- * front; 已失效 trails because it is history. Not configurable: the spec says
- * 排序固定不給改. */
-const LORE_GROUPS: readonly LoreEntryState[] = ["pinned", "active", "retired"];
+/** A section's bottom is "reached" within this many px of the scrollport's
+ * bottom (the same margin ChatArea uses). */
+const NEAR_BOTTOM_PX = 120;
 
 /** The state-change menu, in the order the owner asked for: 失效 / 生效 / 置頂. */
 const STATE_ACTIONS: readonly LoreEntryState[] = ["retired", "active", "pinned"];
 
+/** What the 狀態 filter starts on: retired entries stay hidden until ticked. */
+const DEFAULT_STATES: readonly LoreEntryState[] = ["pinned", "active"];
+
 /** How one author id resolves against the LIVE roster. `peerId === ""` means
- * "not reachable" and is what drops the 傳訊息 icon — see LoreAuthorChip. */
+ * "not reachable": the entry then has no message box. */
 interface AuthorIdentity {
   text: string;
   peerId: string;
 }
 
-/** 所有人 has no scope key, so its filter value is the bare kind prefix. */
-const EVERYONE_VALUE = "everyone:";
+/** `roster` is set while the roster has not answered (or failed to): until
+ * then a live author cannot be told from an absent one, so nobody is picked. */
+interface MessageRecipient {
+  id: string;
+  name: string;
+  roster?: "loading" | "error";
+}
 
-/** One choice in the 適用範圍 menu, resolved for display. */
 interface ScopeChoice {
   kind: LoreScopeKind;
   label: string;
@@ -182,313 +152,467 @@ interface ScopeMenu {
   defaultKind: LoreScopeKind;
 }
 
-/** 屬於 packs BOTH halves of a scope into one option value: `"<kind>:<key>"`.
- *
- * 🔴 THE PREFIX IS NOT DECORATION AND MUST NOT BE DROPPED. The 屬於 list mixes
- * two kinds of thing — members and task manuals — and their keys come from
- * different namespaces that nothing keeps apart: a member id is minted by the
- * server, a manual's `type_key` is typed by a person, and a station whose
- * manual is called `mira` would make the bare key ambiguous. The pair, kept
- * together from the option straight through to the request, is what stops one
- * tick asking about two different things.
- *
- * It is also what lets the request name the KINDS: `scope_kinds` and
- * `scope_keys` are separate axes on the wire, so the page has to be able to say
- * "these keys, and only these kinds" — which it cannot do from bare keys. */
-function belongsValue(kind: LoreScopeKind, key: string): string {
+type CapInfo = Pick<LoreEntryPageView, "capChars" | "usedChars" | "budgetSegments">;
+
+const NO_CAP: CapInfo = {
+  capChars: 0,
+  usedChars: 0,
+  budgetSegments: [],
+};
+
+function capOf(page: LoreEntryPageView): CapInfo {
+  return {
+    capChars: page.capChars,
+    usedChars: page.usedChars,
+    budgetSegments: page.budgetSegments,
+  };
+}
+
+interface SectionData {
+  entries: LoreEntryView[];
+  cap: CapInfo;
+  loading: boolean;
+  fetchingMore: boolean;
+  error: boolean;
+  exhausted: boolean;
+  /** The last next-page read failed; the next scroll retries it. */
+  moreFailed: boolean;
+}
+
+interface SectionDef {
+  key: string;
+  kind: LoreScopeKind;
+  scopeKey: string;
+  target: LoreBudgetTargetView;
+}
+
+function sectionKeyOf(kind: string, key: string): string {
   return `${kind}:${key}`;
 }
 
-function splitBelongs(v: string): { kind: LoreScopeKind; key: string } {
-  const i = v.indexOf(":");
-  return { kind: v.slice(0, i) as LoreScopeKind, key: v.slice(i + 1) };
+/** The scope half of a section's request. 所有人 carries no key, so a member's
+ * section asks for 所有人 too and gets the member's whole boot list, interleaved. */
+function scopeOpts(def: { kind: LoreScopeKind; scopeKey: string }): LoreListOptions {
+  if (def.kind === "everyone") return { scopeKinds: ["everyone"] };
+  if (def.kind === "agent") return { scopeKinds: ["everyone", "agent"], scopeKeys: [def.scopeKey] };
+  return { scopeKinds: [def.kind], scopeKeys: [def.scopeKey] };
 }
 
-export function LorePage({
-  canSetScope: canSetScopeProp,
-}: {
-  canSetScope?: boolean;
-} = {}) {
-  const { t, msg } = useI18n();
-  const {
-    members,
-    loading: membersLoading,
-  } = useMembers();
-  const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
+/** `212`, `L-212` and `l-212` all mean L-212; null when the text is not an id. */
+function normalizeEntryId(raw: string): string | null {
+  const v = raw.trim();
+  if (/^\d+$/.test(v)) return `L-${v}`;
+  const m = /^l-(\d+)$/i.exec(v);
+  return m ? `L-${m[1]}` : null;
+}
+
+/** Mirrors the server's shrink-only cap: a field over its cap may be saved
+ * only when it comes out shorter than what is stored. */
+function editFieldBlocked(next: string, stored: string, capChars: number): boolean {
+  const n = [...next].length;
+  return next !== stored && n > capChars && n >= [...stored].length;
+}
+
+/** Auto-paging for a highlighted entry stops after this many extra pages. */
+const HIGHLIGHT_PAGE_CAP = 10;
+
+/** The row element for an entry inside the page. */
+function rowElement(root: HTMLElement | null, id: string): HTMLElement | null {
+  if (!root) return null;
+  for (const el of root.querySelectorAll<HTMLElement>('[data-testid="lore-row"]')) {
+    if (el.dataset.entryId === id) return el;
+  }
+  return null;
+}
+
+/** How long the 適用範圍 notice stays. */
+const TOAST_MS = 5000;
+
+/** What a card will change to once 儲存變更 sends it. */
+interface StagedChange {
+  state?: LoreEntryState;
+  loreType?: LoreType;
+  scope?: { kind: LoreScopeKind; key: string; label: string };
+}
+
+type StagedField = keyof StagedChange;
+
+/** The stored value's label for each staged field of one card. */
+type StagedFrom = Partial<Record<StagedField, string>>;
+
+function withStaged(entry: LoreEntryView, ch: StagedChange | undefined): LoreEntryView {
+  if (!ch) return entry;
+  return {
+    ...entry,
+    ...(ch.state ? { state: ch.state } : {}),
+    ...(ch.loreType ? { loreType: ch.loreType } : {}),
+    ...(ch.scope ? { scopeKind: ch.scope.kind, scopeKey: ch.scope.key } : {}),
+  };
+}
+
+function withEdit(entry: LoreEntryView, patch: LoreEntryEdit): LoreEntryView {
+  return {
+    ...entry,
+    ...(patch.title !== undefined ? { title: patch.title } : {}),
+    ...(patch.body !== undefined ? { body: patch.body } : {}),
+  };
+}
+
+/** The scope key the server gives an entry moved to `kind`. */
+function scopeKeyFor(entry: LoreEntryView, kind: LoreScopeKind): string {
+  return kind === "everyone" ? "" : kind === "manual" ? entry.taskTypeKey : entry.authorId;
+}
+
+type EntrySeed = { key: string; entryId: string; state: LoreEntryState };
+
+/** What every section visit reads and nothing in a visit changes. Held by the
+ * outer LorePage so a section change does not re-fetch the roster (expensive)
+ * and the cards do not flicker to raw ids and plain-text badges meanwhile. */
+interface LoreShared {
+  members: ReturnType<typeof useMembers>["members"];
+  membersLoading: boolean;
+  membersError: boolean;
+  workers: ReturnType<typeof useOutsourceWorkers>["workers"];
+  manuals: ReturnType<typeof useTaskManuals>["manuals"];
+  entryCaps: { title: number; body: number };
+}
+
+export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
+  const { members, loading: membersLoading, error: membersError } = useMembers();
   const { workers } = useOutsourceWorkers();
   const { manuals } = useTaskManuals();
-
-  // ── 篩選: FOUR CONTROLS OVER THREE WIRE AXES, all query parameters, none a
-  //    client-side pass ──────────────────────────────────────────────────────
-  //
-  // The row is 所有撰寫人 → 所有成員傳承 → 所有任務傳承 → 所有狀態 → 清除篩選
-  // (owner 2026-09-08, verbatim, in that order). It is still the 任務頁's shape
-  // — 負責人 → 類型 → 狀態 — with the 任務編號 box not (yet) present here.
-  //
-  // 🔴 THE REASON THAT BOX IS ABSENT IS NOT "NOBODY TYPES A 傳承 ID". That
-  // sentence used to sit here, LORE_SPEC §6 records it as a post-hoc excuse for
-  // a gap rather than a design decision, and this very branch disproved it:
-  // owner asked for 傳承編號 search on 2026-09-08 (「跟 task 一樣」) and the
-  // server axis for it shipped in ddf4a2f6 (`entry_ids`). The box is absent
-  // because the FRONT half was not built in that round, and whether it belongs
-  // in this row is an open question for owner — not a settled fact about what
-  // readers want.
-  //
-  // 🔴 THE MEMBER CONTROL IS A ROUTE THAT DID NOT EXIST, NOT A SECOND 撰寫人.
-  // The two ask different questions and, more to the point, they travel on
-  // DIFFERENT WIRE AXES. 撰寫人 sends `authorIds` — 「誰寫的」 — which produces no
-  // scope at all. The 上限線 needs the server to answer `capChars`, and the
-  // server only answers it when the request carries EXACTLY ONE scope kind and
-  // EXACTLY ONE scope key. So while members appeared on this page only under
-  // 撰寫人, there was no path by which a 成員傳承 cap line could ever be asked
-  // for. 所有成員傳承 sends `scope_kinds=[agent]` + `scope_keys=[<member id>]`,
-  // which is that path.
-  //
-  // 🔴 IT SHARES BOTH SCOPE AXES WITH 所有任務傳承, and that is why the two are
-  // held in ONE state set below rather than two. Ticking one of each sends two
-  // kinds and two keys, the server answers 0/"" and the page draws no line —
-  // the same honest answer an unfiltered page gets. The page never re-derives
-  // that rule; it reads the server's answer.
-  //
-  // 🔴 AN EARLIER RULING SAID THE OPPOSITE AND HAS BEEN SUPERSEDED. On
-  // 2026-09-07 the owner saw ONE combined 屬於 dropdown listing members and
-  // manuals together and sent it back: 「成員的 filter 不是左邊那個嗎 你第二個
-  // filter 應該只需要放任務」. What he rejected was one control asking two
-  // questions; members were then dropped from the scope axis entirely, which is
-  // what took the 成員傳承 cap line off the board. The 2026-09-08 ruling
-  // restores the member axis as its OWN control — two controls, one question
-  // each — and it is that ruling this code follows.
-  //
-  // ⚠️ NO COUNT BADGE, DELIBERATELY. The 任務頁's 狀態 pill reads 「狀態 · N」;
-  // this one must not. Owner, card rc-a43100fd0486: 「we dont need count」 — and
-  // the page could not honestly produce one anyway, because 傳承 loads by
-  // scrolling, so any number computed here counts the rows fetched SO FAR and
-  // would keep changing as the reader scrolls without anything having changed.
-  //
-  // `belongs` holds BOTH scope controls' ticks as `"<kind>:<key>"` values (see
-  // `belongsValue`). One set, because one pair of wire axes: splitting it into
-  // two states would mean re-merging them at every read and would let the two
-  // halves disagree about what was sent.
-  const [belongs, setBelongs] = useState<Set<string>>(new Set());
-  const [states, setStates] = useState<Set<LoreEntryState>>(new Set());
-  const [authors, setAuthors] = useState<Set<string>>(new Set());
-  const [loreTypes, setLoreTypes] = useState<Set<LoreType>>(new Set());
-
-  // 🔴 THE KIND SET IS DERIVED FROM WHAT IS TICKED, NEVER SENT WHOLE. Ticking
-  // only members sends `scope_kinds=[agent]`; only manuals sends `[manual]`;
-  // both sends both. Sending both kinds unconditionally would widen every
-  // member-only page to include manuals, because the two axes are ANDed on the
-  // wire and a kind nobody ticked would still admit its rows.
-  //
-  // ⚠️ WHAT THE AND-ING CANNOT EXPRESS, stated because it is a real (small) gap
-  // rather than a thing this page gets right. With one member and one manual
-  // ticked the request is (kind ∈ {agent, manual}) AND (key ∈ {m-x, tm-y}) — so
-  // a manual whose `type_key` happened to be `m-x` would also match. The wire
-  // has no per-pair form to say otherwise, and this is strictly narrower than
-  // what the page sent before, so it is left as is and written down here rather
-  // than papered over with a client-side pass (which would break paging: see
-  // this file's header).
-  const opts = useMemo<LoreListOptions>(() => {
-    const next: LoreListOptions = {};
-    const kinds = new Set<LoreScopeKind>();
-    const keys: string[] = [];
-    for (const v of belongs) {
-      const { kind, key } = splitBelongs(v);
-      kinds.add(kind);
-      if (kind !== "everyone") keys.push(key);
-    }
-    if (kinds.size > 0) next.scopeKinds = [...kinds];
-    if (keys.length > 0) next.scopeKeys = keys;
-    if (states.size > 0) next.states = [...states];
-    if (authors.size > 0) next.authorIds = [...authors];
-    if (loreTypes.size > 0) next.loreTypes = [...loreTypes];
-    return next;
-  }, [belongs, states, authors, loreTypes]);
-
-  // What 清除篩選 keys on: whether anything the reader can SEE is narrowing the
-  // page. With one control per axis this is now exactly "is any set non-empty",
-  // and there is no longer a way for a tick to be held in state while not being
-  // in force — which is what the old four-control version had to reason about.
-  const anyFilter =
-    belongs.size > 0 || states.size > 0 || authors.size > 0 || loreTypes.size > 0;
-
-  function clearFilters() {
-    setBelongs(new Set());
-    setStates(new Set());
-    setAuthors(new Set());
-    setLoreTypes(new Set());
-  }
-
-  // ONE state set, TWO controls. Each scope control sees only the ticks whose
-  // value carries its own kind, and writing back replaces only that kind's
-  // ticks — the other control's are carried through untouched. Doing it this
-  // way (rather than two states merged at send time) means there is exactly one
-  // place that holds what was ticked, so the request and the two pills cannot
-  // disagree about it.
-  const ticksOfKind = useCallback(
-    (...kinds: LoreScopeKind[]) =>
-      new Set([...belongs].filter((v) => kinds.includes(splitBelongs(v).kind))),
-    [belongs]
-  );
-  // 所有人 carries no scope key, and the wire ANDs kinds with keys — so any
-  // keyed tick beside it would filter every 所有人 row out. Ticking it clears
-  // the keyed ticks, and ticking a keyed option clears it.
-  const setTicksOfKind = useCallback(
-    (kind: LoreScopeKind, next: Set<string>) =>
-      setBelongs((prev) => {
-        if (next.has(EVERYONE_VALUE) && !prev.has(EVERYONE_VALUE)) {
-          return new Set([EVERYONE_VALUE]);
-        }
-        const merged = new Set([
-          ...[...prev].filter((v) => {
-            const k = splitBelongs(v).kind;
-            return k !== kind && k !== "everyone";
-          }),
-          ...next,
-        ]);
-        const addedKeyed = [...merged].some(
-          (v) => v !== EVERYONE_VALUE && !prev.has(v)
-        );
-        if (addedKeyed) merged.delete(EVERYONE_VALUE);
-        return merged;
-      }),
-    []
-  );
-
-  // ── the page's own data ────────────────────────────────────────────────
-  const [entries, setEntries] = useState<LoreEntryView[]>([]);
-  const [cap, setCap] = useState({ capChars: 0, firstDroppedId: "" });
-  const [loading, setLoading] = useState(true);
-  const [fetchingMore, setFetchingMore] = useState(false);
-  const [error, setError] = useState(false);
-  const [exhausted, setExhausted] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  // Bumped after a successful mutation: 失效/生效/置頂/提到最新 all move an entry
-  // between groups or within one, which moves every later page's offset AND can
-  // move the 上限線. Re-asking from offset 0 is the only answer that stays
-  // consistent; patching the row in place would leave the line where it was
-  // drawn for the previous arrangement.
-  const [reloadNonce, setReloadNonce] = useState(0);
-
-  // 🔴 ONE REQUEST IN FLIGHT AT A TIME, and the latch remembers WHICH question
-  // it is answering (the generation), not just that something is flying. A
-  // filter change bumps the generation and frees the latch at once, so the
-  // abandoned request can neither write its answer (the gen guard in .then)
-  // nor free the latch out from under the new one (the gen guard in .finally).
-  const genRef = useRef(0);
-  const flightRef = useRef(0); // 0 = idle, else the gen of the request in flight
-
-  // Read by the paging callback so it does not have to be re-created (and the
-  // scroll listener re-attached) on every keystroke of state.
-  const entriesRef = useRef(entries);
-  entriesRef.current = entries;
-  const optsRef = useRef(opts);
-  optsRef.current = opts;
-
-  const filterKey = JSON.stringify(opts);
-
-  // FIRST PAGE — and the reset. Everything loaded for the previous filter is
-  // dropped here rather than filtered down: the rows below came from
-  // `offset` values that mean something different now.
+  const [entryCaps, setEntryCaps] = useState({
+    title: LORE_CAP_CHARS_DEFAULTS.title,
+    body: LORE_CAP_CHARS_DEFAULTS.body,
+  });
   useEffect(() => {
-    genRef.current += 1;
-    const gen = genRef.current;
-    flightRef.current = gen;
-    setEntries([]);
-    setCap({ capChars: 0, firstDroppedId: "" });
-    setExhausted(false);
-    setError(false);
-    setLoading(true);
     let alive = true;
-    api
-      .listLoreEntries({ ...optsRef.current, limit: PAGE, offset: 0 })
-      .then((page) => {
-        if (!alive || gen !== genRef.current) return;
-        setEntries(page.entries);
-        setCap({
-          capChars: page.capChars,
-          firstDroppedId: page.firstDroppedId,
-        });
-        setExhausted(page.entries.length < PAGE);
+    loadServerSettings()
+      .then((s) => {
+        if (alive) setEntryCaps({ title: s.loreCapCharsTitle, body: s.loreCapCharsBody });
       })
-      .catch((e) => {
-        console.warn("LorePage: initial load failed", e);
-        if (alive && gen === genRef.current) setError(true);
-      })
-      .finally(() => {
-        if (alive && gen === genRef.current) setLoading(false);
-        if (flightRef.current === gen) flightRef.current = 0;
-      });
+      .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [filterKey, reloadNonce]);
-
-  // NEXT PAGE — 捲到底載 30 筆. `offset` is how many rows are already held, and
-  // the SAME filter rides along (that is the whole point of §6's last bullet:
-  // a page-then-filter split makes 「捲到底沒有了」 and 「真的沒有了」 the same
-  // screen).
-  const loadMore = useCallback(() => {
-    if (flightRef.current !== 0) return;
-    const gen = genRef.current;
-    flightRef.current = gen;
-    setFetchingMore(true);
-    api
-      .listLoreEntries({
-        ...optsRef.current,
-        limit: PAGE,
-        offset: entriesRef.current.length,
-      })
-      .then((page) => {
-        if (gen !== genRef.current) return;
-        // De-dupe by id: an entry whose state changed between two page reads
-        // can slide across a page boundary and arrive twice. Keeping the first
-        // copy preserves the server's order for everything else.
-        setEntries((prev) => {
-          const held = new Set(prev.map((e) => e.id));
-          return prev.concat(page.entries.filter((e) => !held.has(e.id)));
-        });
-        // The line is re-answered by every page, over the WHOLE scope — it is
-        // not accumulated from the rows that arrived.
-        setCap({
-          capChars: page.capChars,
-          firstDroppedId: page.firstDroppedId,
-        });
-        setExhausted(page.entries.length < PAGE);
-      })
-      .catch((e) => {
-        console.warn("LorePage: page load failed", e);
-        // NOT `error`: the rows already on screen are real and stay. Only the
-        // "there might be more" promise failed, and another scroll retries.
-        //
-        // 🔴 THE READER IS TOLD NOTHING, AND THIS COMMENT USED TO CLAIM THEY
-        // WERE. It said the sentinel keeps saying 載入中… — it does not: the
-        // `finally` below clears `fetchingMore`, so the sentinel renders the
-        // empty string. A failed page 2 is therefore pixel-identical to
-        // 「there are only 30 傳承」. The swallow itself follows the tree's
-        // existing convention (useChat.loadOlder does the same and useChat.ts
-        // tracks it as a known gap), so it is left alone here rather than made
-        // to differ from the other page — but do not read this catch as if it
-        // surfaced anything.
-      })
-      .finally(() => {
-        if (gen === genRef.current) setFetchingMore(false);
-        if (flightRef.current === gen) flightRef.current = 0;
-      });
   }, []);
+  const shared = useMemo<LoreShared>(
+    () => ({ members, membersLoading, membersError, workers, manuals, entryCaps }),
+    [members, membersLoading, membersError, workers, manuals, entryCaps]
+  );
+  const [route] = useHashRoute();
+  const sec = route.page === "lore" ? route.loreSection : undefined;
+  // The directory's id search knows the entry's state; the section page it
+  // opens ticks that state so the entry is listed (a 已失效 one included).
+  const seedRef = useRef<EntrySeed | null>(null);
+  // The budgets outlive a section visit: the directory and every section page
+  // read the same numbers, asked once and re-asked after a change.
+  const [budgets, setBudgets] = useState<LoreBudgetTargetView[] | null>(null);
+  const [budgetsError, setBudgetsError] = useState(false);
+  // Only the newest budgets read lands: an older one answering last would put
+  // stale numbers back in the section headers.
+  const budgetsSeqRef = useRef(0);
+  const refreshBudgets = useCallback(async () => {
+    const seq = ++budgetsSeqRef.current;
+    try {
+      const next = await api.listLoreBudgets();
+      if (seq !== budgetsSeqRef.current) return;
+      setBudgets(next);
+      setBudgetsError(false);
+    } catch (e) {
+      console.warn("LorePage: budgets load failed", e);
+      if (seq === budgetsSeqRef.current) setBudgetsError(true);
+    }
+  }, []);
+  useEffect(() => {
+    void refreshBudgets();
+  }, [refreshBudgets]);
+  // One mount per page: filters, the toast and the highlight paging belong to
+  // the section they were set on, so a section change starts them over by
+  // remounting rather than by resetting each.
+  const sectionKey = sec ? sectionKeyOf(sec.kind, sec.key) : null;
+  // 🔴 The view gets its route from here and never reads the hash itself: a
+  // second subscriber could see a new section before this key changes, load
+  // it into the old mount, and have those rows thrown away by the remount.
+  return (
+    <LoreView
+      key={sectionKey ?? ""}
+      sectionKey={sectionKey}
+      highlightId={(route.page === "lore" && sec && route.loreEntryId) || ""}
+      canSetScope={canSetScope}
+      shared={shared}
+      seedRef={seedRef}
+      budgets={budgets}
+      budgetsError={budgetsError}
+      refreshBudgets={refreshBudgets}
+    />
+  );
+}
 
-  // The scroll gate. `.lore` is the scrollport (lore.css: overflow-y auto), the
-  // same shape ChatArea uses — no IntersectionObserver, because jsdom has no
-  // geometry to fire one from and this page's tests would then be pinning a
-  // stub rather than the behaviour.
+function LoreView({
+  sectionKey,
+  highlightId,
+  canSetScope: canSetScopeProp,
+  shared,
+  seedRef,
+  budgets,
+  budgetsError,
+  refreshBudgets,
+}: {
+  sectionKey: string | null;
+  highlightId: string;
+  canSetScope?: boolean;
+  shared: LoreShared;
+  seedRef: { current: EntrySeed | null };
+  budgets: LoreBudgetTargetView[] | null;
+  budgetsError: boolean;
+  refreshBudgets: () => Promise<void>;
+}) {
+  const { t, msg } = useI18n();
+  const { members, membersLoading, membersError, workers, manuals, entryCaps } = shared;
+  const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
+
+  // ── 篩選 ────────────────────────────────────────────────────────────────
+  const [searchDraft, setSearchDraft] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const [states, setStates] = useState<Set<LoreEntryState>>(() => {
+    const seeded = new Set<LoreEntryState>(DEFAULT_STATES);
+    const seed = seedRef.current;
+    if (seed && seed.key === sectionKey && seed.entryId === highlightId) seeded.add(seed.state);
+    return seeded;
+  });
+  const [loreTypes, setLoreTypes] = useState<Set<LoreType>>(new Set());
+
+  const baseOpts = useMemo<LoreListOptions>(() => {
+    const next: LoreListOptions = {};
+    if (states.size > 0) next.states = [...states];
+    if (loreTypes.size > 0) next.loreTypes = [...loreTypes];
+    if (appliedSearch !== "") {
+      const id = normalizeEntryId(appliedSearch);
+      if (id !== null) next.entryIds = [id];
+      else next.q = appliedSearch;
+    }
+    return next;
+  }, [states, loreTypes, appliedSearch]);
+  const filterKey = JSON.stringify(baseOpts);
+
+  // Ticking 已失效 only ADDS rows to a section, so it does not count as a
+  // search; dropping 置頂 or 生效中 narrows like any other filter.
+  const statesNarrow =
+    states.size > 0 && DEFAULT_STATES.some((s) => !states.has(s));
+  const narrowing =
+    appliedSearch !== "" || loreTypes.size > 0 || statesNarrow;
+  const statesAtDefault =
+    states.size === DEFAULT_STATES.length && DEFAULT_STATES.every((s) => states.has(s));
+
+  function clearFilters() {
+    setSearchDraft("");
+    setAppliedSearch("");
+    setStates(new Set(DEFAULT_STATES));
+    setLoreTypes(new Set());
+  }
+
+  // Auto-paging for a highlight; a new section visit is a new mount.
+  const hlRef = useRef<{ id: string; filterKey: string; pages: number } | null>(null);
+  const [hlGaveUp, setHlGaveUp] = useState("");
+
+  // ── sections ───────────────────────────────────────────────────────────
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const [data, setData] = useState<Record<string, SectionData>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // ── 暫存的變更 ─────────────────────────────────────────────────────────
+  const [staged, setStaged] = useState<Map<string, StagedChange>>(new Map());
+  const stagedRef = useRef(staged);
+  stagedRef.current = staged;
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [saveFailed, setSaveFailed] = useState<{ id: string; reason: string }[]>([]);
+  // A browser Back / tab click refused because 儲存變更 is running.
+  const [leaveBlocked, setLeaveBlocked] = useState(false);
+
+  const defs = useMemo<SectionDef[]>(() => {
+    if (!budgets) return [];
+    const rank = (k: string) => (k === "everyone" ? 0 : k === "agent" ? 1 : k === "manual" ? 2 : 3);
+    return budgets
+      .filter((b) => b.scopeKind !== "unknown")
+      .map((b) => ({
+        key: sectionKeyOf(b.scopeKind, b.scopeKey),
+        kind: b.scopeKind as LoreScopeKind,
+        scopeKey: b.scopeKey,
+        target: b,
+      }))
+      .sort((a, b) => rank(a.kind) - rank(b.kind));
+  }, [budgets]);
+  const defsRef = useRef(defs);
+  defsRef.current = defs;
+  const baseOptsRef = useRef(baseOpts);
+  baseOptsRef.current = baseOpts;
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const openRef = useRef(open);
+  openRef.current = open;
+  // 🔴 openRef moves with every setOpen, not only on render: the filter effect
+  // can run between a click that opens a section and the re-render after it,
+  // and reading a stale ref there wipes the new section's data and never
+  // re-asks it, leaving it on 載入中 for good.
+  const applyOpen = (next: Set<string>) => {
+    openRef.current = next;
+    setOpen(next);
+  };
+
+  // Per-section generation: a reload bumps it, and an answer to an older
+  // question (first page, next page or a refresh) is dropped.
+  const genRef = useRef(new Map<string, number>());
+  const flightRef = useRef(new Set<string>());
+  const bumpGen = (key: string) => {
+    const g = (genRef.current.get(key) ?? 0) + 1;
+    genRef.current.set(key, g);
+    return g;
+  };
+  // Per-section count of reads that answer a cap. Rows from a slower read may
+  // still merge, but only the newest read's cap is drawn, or an older answer
+  // landing last would bring back stale numbers.
+  const capSeqRef = useRef(new Map<string, number>());
+  const nextCapSeq = (key: string) => {
+    const n = (capSeqRef.current.get(key) ?? 0) + 1;
+    capSeqRef.current.set(key, n);
+    return n;
+  };
+  const isLatestCap = (key: string, seq: number) => capSeqRef.current.get(key) === seq;
+
+  const patchSection = useCallback(
+    (key: string, fn: (prev: SectionData) => SectionData) =>
+      setData((prev) => (prev[key] ? { ...prev, [key]: fn(prev[key]) } : prev)),
+    []
+  );
+
+  const loadSection = useCallback(
+    (def: SectionDef): Promise<number> => {
+      const gen = bumpGen(def.key);
+      const capSeq = nextCapSeq(def.key);
+      flightRef.current.add(def.key);
+      setData((prev) => ({
+        ...prev,
+        [def.key]: {
+          entries: [],
+          cap: NO_CAP,
+          loading: true,
+          fetchingMore: false,
+          error: false,
+          exhausted: false,
+          moreFailed: false,
+        },
+      }));
+      return api
+        .listLoreEntries({ ...baseOptsRef.current, ...scopeOpts(def), limit: PAGE, offset: 0 })
+        .then((page) => {
+          if (genRef.current.get(def.key) !== gen) return -1;
+          // Out of flight before the rows land: an effect that runs on them
+          // (the highlight's auto-paging) may ask for the next page at once.
+          flightRef.current.delete(def.key);
+          patchSection(def.key, (p) => ({
+            entries: page.entries,
+            cap: isLatestCap(def.key, capSeq) ? capOf(page) : p.cap,
+            loading: false,
+            fetchingMore: false,
+            error: false,
+            exhausted: page.entries.length < PAGE,
+            moreFailed: false,
+          }));
+          return page.entries.length;
+        })
+        .catch((e) => {
+          console.warn("LorePage: section load failed", e);
+          if (genRef.current.get(def.key) === gen) {
+            patchSection(def.key, (p) => ({ ...p, loading: false, error: true }));
+          }
+          return -1;
+        })
+        .finally(() => {
+          if (genRef.current.get(def.key) === gen) flightRef.current.delete(def.key);
+        });
+    },
+    [patchSection]
+  );
+
+  const loadMore = useCallback(
+    (def: SectionDef): boolean => {
+      const held = dataRef.current[def.key];
+      if (!held || held.exhausted || held.error || flightRef.current.has(def.key)) return false;
+      const gen = genRef.current.get(def.key) ?? 0;
+      const capSeq = nextCapSeq(def.key);
+      flightRef.current.add(def.key);
+      patchSection(def.key, (p) => ({ ...p, fetchingMore: true }));
+      api
+        .listLoreEntries({
+          ...baseOptsRef.current,
+          ...scopeOpts(def),
+          limit: PAGE,
+          offset: held.entries.length,
+        })
+        .then((page) => {
+          if (genRef.current.get(def.key) !== gen) return;
+          flightRef.current.delete(def.key);
+          patchSection(def.key, (p) => {
+            // An entry that changed between two reads can slide across the page
+            // boundary and arrive twice; the first copy keeps its place.
+            const ids = new Set(p.entries.map((e) => e.id));
+            return {
+              ...p,
+              entries: p.entries.concat(page.entries.filter((e) => !ids.has(e.id))),
+              cap: isLatestCap(def.key, capSeq) ? capOf(page) : p.cap,
+              exhausted: page.entries.length < PAGE,
+              moreFailed: false,
+            };
+          });
+        })
+        .catch((e) => {
+          // The rows already shown stay; the next scroll retries.
+          console.warn("LorePage: page load failed", e);
+          if (genRef.current.get(def.key) === gen) patchSection(def.key, (p) => ({ ...p, moreFailed: true }));
+        })
+        .finally(() => {
+          if (genRef.current.get(def.key) !== gen) return;
+          patchSection(def.key, (p) => ({ ...p, fetchingMore: false }));
+          flightRef.current.delete(def.key);
+        });
+      return true;
+    },
+    [patchSection]
+  );
+
+  const budgetsReady = budgets !== null;
+  // The section page loads its one section, again on every filter change.
+  // defs are read through a ref: a budgets refresh after a mutation must not
+  // re-ask the section from page one.
+  useEffect(() => {
+    if (!budgetsReady) return;
+    for (const key of openRef.current) {
+      bumpGen(key);
+      flightRef.current.delete(key);
+    }
+    setData({});
+    const def = sectionKey ? defsRef.current.find((d) => d.key === sectionKey) : undefined;
+    applyOpen(def ? new Set([def.key]) : new Set());
+    if (def) void loadSection(def);
+  }, [filterKey, budgetsReady, sectionKey, loadSection]);
+
+  // ── 捲到底: the section pages on when its bottom nears the scrollport's
+  // bottom. jsdom has no geometry, so there any scroll asks for more.
   const scrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRefs = useRef(new Map<string, HTMLElement>());
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     function onScroll() {
       if (!el) return;
-      if (el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX) {
-        loadMore();
+      const bottom = el.getBoundingClientRect().bottom;
+      for (const def of defsRef.current) {
+        if (!openRef.current.has(def.key)) continue;
+        const s = sentinelRefs.current.get(def.key);
+        if (!s) continue;
+        if (s.getBoundingClientRect().top - bottom < NEAR_BOTTOM_PX) loadMore(def);
       }
     }
     el.addEventListener("scroll", onScroll);
@@ -496,9 +620,13 @@ export function LorePage({
   }, [loadMore]);
 
   // ── identity resolution (the SAME shape as TaskCard's `creator`) ────────
+  const allEntries = useMemo(
+    () => Object.values(data).flatMap((d) => d.entries),
+    [data]
+  );
   const workerIds = useMemo(
-    () => entries.map((e) => e.authorId).filter((id) => id.startsWith("ow-")),
-    [entries]
+    () => allEntries.map((e) => e.authorId).filter((id) => id.startsWith("ow-")),
+    [allEntries]
   );
   // A writer who has left — released worker or departed staff — is in neither
   // list; the per-id read still serves the name. A staff id is only judged once
@@ -507,8 +635,7 @@ export function LorePage({
   const rosterLoaded = !membersLoading;
   const unlistedAuthorIds = useMemo(
     () =>
-      entries
-        .map((e) => e.authorId)
+      [...allEntries.map((e) => e.authorId), ...defs.filter((d) => d.kind === "agent").map((d) => d.scopeKey)]
         .filter(
           (id) =>
             id !== "" &&
@@ -517,7 +644,7 @@ export function LorePage({
             (id.startsWith("ow-") ||
               (rosterLoaded && !members.some((m) => m.id === id)))
         ),
-    [entries, members, workers, rosterLoaded]
+    [allEntries, defs, members, workers, rosterLoaded]
   );
   const unlistedNames = useWorkerCodenames(unlistedAuthorIds);
   const releasedAvatarUrls = useWorkerAvatarUrls(workerIds);
@@ -528,24 +655,10 @@ export function LorePage({
       const m = members.find((x) => x.id === id);
       if (m) return { text: m.name, peerId: id };
       if (id.startsWith("ow-")) {
-        // 🔴 THE CODENAME AND THE AFFORDANCE COME FROM DIFFERENT LISTS, AND
-        // THAT IS THE WHOLE POINT. `unlistedNames` resolves a RELEASED
-        // worker's codename through the per-id route (the list routes drop
-        // released rows), so a 外包 who has left still gets his NAME on the row
-        // — he wrote this entry and that does not stop being true. What he no
-        // longer gets is `peerId`, because reachability is a fact about the
-        // LIVE roster and only `workers` speaks for it.
-        //
-        // Before this, a released worker whose codename still resolved got a
-        // non-empty peerId, so the chip stayed a button and the composer
-        // rendered under it — and the reader only found out after typing a
-        // message and pressing send, where the SERVER refused it (a chat
-        // recipient must be the owner or a member still on the roster). The
-        // failure landed after the work, on a screen that had promised
-        // otherwise. Hiding the box moves the refusal to before the typing.
-        //
-        // An id that resolves to no codename at all falls through the same
-        // arm with `text: id` — the raw key, never a blank.
+        // 🔴 The codename and the reachability come from different lists: a
+        // released worker still wrote this entry and keeps his name, but only
+        // the LIVE roster may offer a chat with him — the server refuses a
+        // message to someone no longer on it.
         const live = workers.find((x) => x.id === id);
         const cn = live?.codename ?? unlistedNames.get(id);
         return {
@@ -553,63 +666,15 @@ export function LorePage({
           peerId: live ? id : "",
         };
       }
-      // 🔴 NOT ON THE ROSTER. `authorId` is pinned at write time and is never
-      // re-resolved, so a writer who has since left still wrote this entry —
-      // the ENTRY stays, only the writer's live affordance goes. peerId "" is
-      // what makes the chip a plain span with no 傳訊息 icon (see
-      // LoreAuthorChip); hiding just the icon inside a button would leave a
-      // clickable pill that opens a chat with nobody.
+      // Not on the roster: the entry stays, only the live affordance goes.
       return { text: unlistedNames.get(id) ?? id, peerId: "" };
     },
     [members, workers, unlistedNames, msg, t.lore.authorUnknown]
   );
 
-  /** 屬於 — which scope this ONE entry rides, resolved for display.
-   *
-   * The scopes are not interchangeable and the row must not blur them:
-   * `agent` rides ONE member's own boot document — staff and outsource alike
-   * since the scopes collapsed — `manual` rides that task manual's response,
-   * and `everyone` rides every member's boot document (T-236). For a viewer
-   * who may not switch scopes only `manual` is CLICKABLE, and the asymmetry is
-   * deliberate: a task manual has a settings page to land on, a member does
-   * not, and a pill that looks clickable but goes nowhere is worse than a plain
-   * one (owner did not overrule this on card rc-11734523eb52). For the owner
-   * the badge is the 適用範圍 menu instead, and the manual jump sits inside it.
-   *
-   * 🔴 EVERY UNRESOLVED CASE FALLS BACK TO THE RAW KEY, never to a blank and
-   * never to a guess. A deleted manual and a departed member both still have
-   * entries riding them, and 「rc-…」 tells the reader something whereas an
-   * empty cell tells them the field is broken. `unknown` is the third arm and
-   * is NOT a scope, so it must never be renamed into one of the real ones (see
-   * LoreEntryView.scopeKind).
-   *
-   * 🔴 `unknown` IS A LIVE ARM ON EVERY STATION, NOT A FUTURE-PROOFING HATCH.
-   * It is what the retired `role` kind maps to, and the server's migration
-   * deliberately left that value on any entry whose owning member could not be
-   * determined. Those rows appear on the unfiltered page — which is the page
-   * this one opens on — so this arm renders in practice and its raw-key
-   * fallback is what makes such an entry identifiable at all. */
-  // 🔴 THE NAME ALONE DOES NOT ANSWER THE QUESTION THE OWNER ASKED. A badge
-  // reading 「特助」 does not say whether that is a member or a manual, and on
-  // 全部 — where the page opens — every kind is mixed together. So the scope
-  // carries TWO things: WHICH KIND, and WHICH ONE.
-  //
-  // 🔴 THE KIND IS NOW A VALUE, NOT A LABEL, AND THAT IS THE WHOLE CHANGE.
-  // It used to be the WORD 「成員傳承 · 」 / 「任務傳承 · 」 printed to the left
-  // of the badge. Owner removed that prefix on 2026-09-08 with a screenshot of
-  // it circled: 「這個不必要」. So the kind is returned as the raw discriminator
-  // and the row spends it on an ICON instead (person vs gear) — one badge, and
-  // the glyph says which kind it is.
-  //
-  // ⚠️ WHICH MEANS THE ICON IS NOW THE ONLY DISCRIMINATOR ON A CLOSED ROW.
-  // With the word gone, a member's entry and a manual's entry whose names
-  // happen to match are the same pixels except for that glyph. Dropping the
-  // icon "because the badge already carries the name" undoes the very thing the
-  // 屬於 badge was added for (card rc-11734523eb52).
-  //
-  // `kind` is "" for the unknown arm: an entry the migration could not place
-  // names no kind and gets no glyph, because inventing one would state a fact
-  // the server never sent.
+  /** Which scope this ONE entry rides, for the badge. An unresolved key falls
+   * back to the raw key, never a blank; `unknown` (the retired `role` kind the
+   * migration could not place) names no kind and gets no glyph. */
   const resolveScope = useCallback(
     (entry: LoreEntryView): {
       kind: "" | LoreScopeKind;
@@ -617,14 +682,7 @@ export function LorePage({
       manualKey: string;
     } => {
       if (entry.scopeKind === "agent") {
-        // scopeKey is a MEMBER id here — staff and outsource alike. Reuse the
-        // author resolver so a departed member reads the same way in both
-        // places.
-        return {
-          kind: "agent",
-          label: resolveAuthor(entry.scopeKey).text,
-          manualKey: "",
-        };
+        return { kind: "agent", label: resolveAuthor(entry.scopeKey).text, manualKey: "" };
       }
       if (entry.scopeKind === "manual") {
         const m = manuals.find((x) => x.typeKey === entry.scopeKey);
@@ -637,13 +695,7 @@ export function LorePage({
       if (entry.scopeKind === "everyone") {
         return { kind: "everyone", label: t.lore.scopeEveryone, manualKey: "" };
       }
-      // An unknown kind names no kind — inventing one here would state a fact
-      // the server never sent.
-      return {
-        kind: "",
-        label: entry.scopeKey || t.lore.scopeUnknown,
-        manualKey: "",
-      };
+      return { kind: "", label: entry.scopeKey || t.lore.scopeUnknown, manualKey: "" };
     },
     [manuals, resolveAuthor, t]
   );
@@ -688,192 +740,682 @@ export function LorePage({
     [members, workers, releasedAvatarUrls]
   );
 
-  // ── mutations. A 403 must READ as a refusal, never as nothing happening ──
-  const runAction = useCallback(async (fn: () => Promise<unknown>) => {
-    setActionError(null);
-    try {
-      await fn();
-      setReloadNonce((n) => n + 1);
-    } catch (e) {
-      // 置頂/取消置頂 is admin-only and 失效/生效/提到最新 is author-or-admin, so
-      // a 403 is a REACHABLE answer here, not a bug — and the server's own
-      // sentence says which of the two rules refused. Fall back to our copy
-      // only when the envelope carried none (serverMessageOf returns "").
-      const reason = serverMessageOf(e);
-      setActionError(
-        reason || (isHttpStatus(e, 403) ? t.lore.forbidden : t.lore.actionFailed)
-      );
+  const sectionName = useCallback(
+    (def: { kind: LoreScopeKind; scopeKey: string }): string =>
+      def.kind === "everyone"
+        ? t.lore.kindEveryone
+        : def.kind === "manual"
+          ? taskTypeLabel(
+              t,
+              def.scopeKey,
+              manuals.find((x) => x.typeKey === def.scopeKey)?.displayName ?? ""
+            )
+          : resolveAuthor(def.scopeKey).text,
+    [manuals, resolveAuthor, t]
+  );
+
+  // ── after a change: the whole section again, in the server's order, as many
+  // rows as were loaded, and the numbers. The rows stay on screen meanwhile.
+  // Resolves false only when the re-read itself failed and no newer one has
+  // taken over.
+  const rereadSection = useCallback(
+    async (def: SectionDef): Promise<boolean> => {
+      const gen = bumpGen(def.key);
+      const capSeq = nextCapSeq(def.key);
+      flightRef.current.add(def.key);
+      const loaded = dataRef.current[def.key]?.entries.length ?? 0;
+      const want = Math.max(PAGE, Math.ceil(loaded / PAGE) * PAGE);
+      try {
+        const rows: LoreEntryView[] = [];
+        const seen = new Set<string>();
+        let offset = 0;
+        let last: LoreEntryPageView | null = null;
+        let exhausted = false;
+        while (offset < want) {
+          const limit = Math.min(MAX_LIST_LIMIT, want - offset);
+          const p = await api.listLoreEntries({ ...baseOptsRef.current, ...scopeOpts(def), limit, offset });
+          if (genRef.current.get(def.key) !== gen) return true;
+          last = p;
+          offset += p.entries.length;
+          for (const e of p.entries) {
+            if (seen.has(e.id)) continue;
+            seen.add(e.id);
+            rows.push(e);
+          }
+          if (p.entries.length < limit) {
+            exhausted = true;
+            break;
+          }
+        }
+        flightRef.current.delete(def.key);
+        const fresh = last;
+        patchSection(def.key, (p) => ({
+          entries: rows,
+          cap: fresh && isLatestCap(def.key, capSeq) ? capOf(fresh) : p.cap,
+          loading: false,
+          fetchingMore: false,
+          error: false,
+          exhausted,
+          moreFailed: false,
+        }));
+        return true;
+      } catch (e) {
+        console.warn("LorePage: section re-read failed", e);
+        if (genRef.current.get(def.key) !== gen) return true;
+        patchSection(def.key, (p) => ({ ...p, fetchingMore: false }));
+        return false;
+      } finally {
+        if (genRef.current.get(def.key) === gen) flightRef.current.delete(def.key);
+      }
+    },
+    [patchSection]
+  );
+
+  /** Resolves false when the open section could not be re-read. */
+  const rereadAll = useCallback(async (): Promise<boolean> => {
+    const def = sectionKey ? defsRef.current.find((d) => d.key === sectionKey) : undefined;
+    const [, sectionOk] = await Promise.all([
+      refreshBudgets(),
+      def && openRef.current.has(def.key) ? rereadSection(def) : Promise.resolve(true),
+    ]);
+    return sectionOk;
+  }, [sectionKey, refreshBudgets, rereadSection]);
+
+  const failText = useCallback(
+    (e: unknown) =>
+      serverMessageOf(e) || (isHttpStatus(e, 403) ? t.lore.forbidden : t.lore.actionFailed),
+    [t.lore.forbidden, t.lore.actionFailed]
+  );
+
+  const findEntry = useCallback((id: string): LoreEntryView | undefined => {
+    for (const d of Object.values(dataRef.current)) {
+      const e = d.entries.find((x) => x.id === id);
+      if (e) return e;
     }
-    // t.lore is read through the closure; the callback is recreated when the
-    // language changes, which is exactly when the fallback copy changes too.
-  }, [t.lore.forbidden, t.lore.actionFailed]);
+    return undefined;
+  }, []);
+
+  const stage = useCallback(
+    (id: string, patch: StagedChange) => {
+      const orig = findEntry(id);
+      if (!orig || savingRef.current) return;
+      setSaveFailed([]);
+      setStaged((prev) => {
+        const next = new Map(prev);
+        const ch: StagedChange = { ...(next.get(id) ?? {}), ...patch };
+        // Choosing the stored value again un-stages that field.
+        if (ch.state === orig.state) delete ch.state;
+        if (ch.loreType === orig.loreType) delete ch.loreType;
+        if (ch.scope?.kind === orig.scopeKind) delete ch.scope;
+        if (Object.keys(ch).length === 0) next.delete(id);
+        else next.set(id, ch);
+        return next;
+      });
+    },
+    [findEntry]
+  );
 
   const setEntryState = useCallback(
-    (id: string, next: LoreEntryState) =>
-      void runAction(() => api.setLoreEntryState(id, next)),
-    [runAction]
+    (id: string, state: LoreEntryState) => stage(id, { state }),
+    [stage]
   );
-  const bumpEntry = useCallback(
-    (id: string) => void runAction(() => api.bumpLoreEntry(id)),
-    [runAction]
+  const setEntryLoreType = useCallback(
+    (id: string, loreType: LoreType) => stage(id, { loreType }),
+    [stage]
   );
   const setEntryScope = useCallback(
-    (id: string, kind: LoreScopeKind) =>
-      void runAction(() => api.setLoreEntryScope(id, kind)),
-    [runAction]
+    (id: string, kind: LoreScopeKind, label: string) => {
+      const orig = findEntry(id);
+      if (orig) stage(id, { scope: { kind, key: scopeKeyFor(orig, kind), label } });
+    },
+    [findEntry, stage]
   );
 
-  // 撰寫人 → the office, WITH this entry's id seeded into the composer as
-  // "[L-7] " — the same one-shot seed the 任務卡's 負責人 jump uses for a task
-  // number (TaskCard.openChat → composeTaskNo).
-  //
-  // 🔴 THE SEED IS THE POINT, NOT THE JUMP. Without it the reader arrives at an
-  // EMPTY composer and types "這條還適用嗎" — a sentence with no subject. The
-  // author may hold dozens of entries and has to ask which one, which is the
-  // question the jump was supposed to save. Showing the id on the row and
-  // carrying the id across are two halves of one thing (owner, c-c933a2b41c54
-  // then card rc-abf2c90d887c).
-  //
-  // ⚠️ The route field is named `composeTaskNo` and this passes a 傳承 id
-  // through it. One field carrying two kinds of thing normally needs a second
-  // field saying which — but not here: the VALUE says it. "T-1" and "L-7" are
-  // distinguishable by prefix, so nothing has to be inferred. Renaming the
-  // field would reach four pages and their tests, which is outside this
-  // ticket's scope; it is reported rather than done (owner, c-0b690fa9c0de).
-  function openChat(peerId: string, entryId: string) {
-    navigateHash({ page: "office", chatId: peerId, composeTaskNo: entryId });
+  // The 適用範圍 notice: an entry whose new scope is another section's leaves
+  // this page on the re-read, and the notice says where it went.
+  const [toast, setToast] = useState<{ id: string; scopeLabel: string }[]>([]);
+  useEffect(() => {
+    if (toast.length === 0) return;
+    const timer = window.setTimeout(() => setToast([]), TOAST_MS);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  /** A write landed but its re-read failed: the cards show what was sent. */
+  const showSentAfterFailedReread = useCallback(
+    (sent: (e: LoreEntryView) => LoreEntryView) => {
+      setData((prev) => {
+        const next: Record<string, SectionData> = {};
+        for (const [key, sd] of Object.entries(prev)) {
+          next[key] = { ...sd, entries: sd.entries.map(sent) };
+        }
+        return next;
+      });
+      setActionError(t.lore.stagedSavedRereadFailed);
+    },
+    [t.lore.stagedSavedRereadFailed]
+  );
+
+  // One entry at a time, type → scope → state; a failed field keeps its staged
+  // value with the server's reason, and the section is re-read once at the end.
+  async function saveStaged() {
+    savingRef.current = true;
+    setSaving(true);
+    setActionError(null);
+    setSaveFailed([]);
+    const failed: { id: string; reason: string }[] = [];
+    const sentOk = new Map<string, StagedChange>();
+    const moved: { id: string; scopeLabel: string }[] = [];
+    for (const [id, ch] of [...stagedRef.current]) {
+      const ok: StagedChange = {};
+      let reason = "";
+      let anyFailed = false;
+      const attempt = async (fn: () => Promise<unknown>, onOk: () => void) => {
+        try {
+          await fn();
+          onOk();
+        } catch (e) {
+          anyFailed = true;
+          if (reason === "") reason = failText(e);
+        }
+      };
+      const { loreType, scope, state } = ch;
+      if (loreType) await attempt(() => api.editLoreEntry(id, { loreType }), () => (ok.loreType = loreType));
+      if (scope) {
+        await attempt(
+          () => api.setLoreEntryScope(id, scope.kind),
+          () => {
+            ok.scope = scope;
+            moved.push({ id, scopeLabel: scope.label });
+          }
+        );
+      }
+      if (state) await attempt(() => api.setLoreEntryState(id, state), () => (ok.state = state));
+      if (Object.keys(ok).length > 0) sentOk.set(id, ok);
+      if (anyFailed) failed.push({ id, reason });
+    }
+    const rereadOk = await rereadAll();
+    if (!rereadOk && sentOk.size > 0) {
+      showSentAfterFailedReread((e) => withStaged(e, sentOk.get(e.id)));
+    }
+    // Clear only what went through with the value that was sent; a change
+    // staged on the same card meanwhile stays.
+    setStaged((prev) => {
+      const next = new Map(prev);
+      for (const [id, ok] of sentOk) {
+        const cur = next.get(id);
+        if (!cur) continue;
+        const left: StagedChange = { ...cur };
+        if (ok.loreType !== undefined && left.loreType === ok.loreType) delete left.loreType;
+        if (ok.scope !== undefined && left.scope?.kind === ok.scope.kind) delete left.scope;
+        if (ok.state !== undefined && left.state === ok.state) delete left.state;
+        if (Object.keys(left).length === 0) next.delete(id);
+        else next.set(id, left);
+      }
+      return next;
+    });
+    savingRef.current = false;
+    setSaving(false);
+    setLeaveBlocked(false);
+    setSaveFailed(failed);
+    if (moved.length > 0) setToast(moved);
   }
 
-  // 屬於 → the task-type settings hub, the SAME jump the 任務卡's 類型 chip
-  // makes (TaskCard.openTypeSettings). Only a manual scope has a page to land
-  // on; role, agent and everyone scopes never call this.
+  function discardStaged() {
+    setStaged(new Map());
+    setSaveFailed([]);
+  }
+
+  /** Puts one staged field of a card back, or every field on it without `field`. */
+  const revertStaged = useCallback((id: string, field?: StagedField) => {
+    if (savingRef.current) return;
+    const cur = stagedRef.current.get(id);
+    if (!cur) return;
+    const left: StagedChange = { ...cur };
+    if (field) delete left[field];
+    const cardCleared = !field || Object.keys(left).length === 0;
+    setStaged((prev) => {
+      const next = new Map(prev);
+      if (cardCleared) next.delete(id);
+      else next.set(id, left);
+      return next;
+    });
+    if (cardCleared) {
+      setSaveFailed((prev) => (prev.some((f) => f.id === id) ? prev.filter((f) => f.id !== id) : prev));
+    }
+  }, []);
+
+  const hasStaged = staged.size > 0;
+  let stagedFields = 0;
+  for (const ch of staged.values()) stagedFields += Object.keys(ch).length;
+  // The bar is fixed to the bottom of the screen, over the end of `.lore`;
+  // `.lore` pads its end by the part the bar covers so the last card can be
+  // scrolled clear of it.
+  const saveBarRef = useRef<HTMLDivElement>(null);
+  const saveBarShown = hasStaged || saving;
+  useLayoutEffect(() => {
+    const bar = saveBarRef.current;
+    const lore = scrollRef.current;
+    if (!saveBarShown || !bar || !lore) return;
+    const reserve = () => {
+      const covered = Math.max(0, lore.getBoundingClientRect().bottom - bar.getBoundingClientRect().top);
+      lore.style.setProperty("--lore-savebar-reserve", `${covered}px`);
+    };
+    reserve();
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(reserve);
+    ro?.observe(bar);
+    ro?.observe(lore);
+    window.addEventListener("resize", reserve);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", reserve);
+      lore.style.removeProperty("--lore-savebar-reserve");
+    };
+  }, [saveBarShown]);
+
+  const leaveText = t.lore.stagedLeaveConfirm;
+  // Leaving the section (another tab, the directory, Back) or closing the page
+  // with staged changes asks first; a highlight inside the same section is not
+  // leaving. While 儲存變更 runs, leaving is refused outright: its results
+  // would land on a page that no longer shows those cards.
+  const holdsWork = hasStaged || saving;
+  useEffect(() => {
+    if (!holdsWork) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    const releaseWork = registerUnsavedWork(() => true);
+    const release = setNavigationGuard((next: HashRoute) => {
+      const same =
+        next.page === "lore" &&
+        next.loreSection !== undefined &&
+        sectionKeyOf(next.loreSection.kind, next.loreSection.key) === sectionKey;
+      if (same) return true;
+      if (savingRef.current) {
+        setLeaveBlocked(true);
+        return false;
+      }
+      return window.confirm(leaveText);
+    });
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      releaseWork();
+      release();
+    };
+  }, [holdsWork, sectionKey, leaveText]);
+
+  /** Rejects with the reason so the editor can keep the draft and say why. */
+  const editEntry = useCallback(
+    async (id: string, patch: LoreEntryEdit): Promise<void> => {
+      setActionError(null);
+      try {
+        await api.editLoreEntry(id, patch);
+      } catch (e) {
+        throw new Error(failText(e));
+      }
+      if (!(await rereadAll())) {
+        showSentAfterFailedReread((e) => (e.id === id ? withEdit(e, patch) : e));
+      }
+    },
+    [failText, rereadAll, showSentAfterFailedReread]
+  );
+
+  /** A restore already landed; this re-reads the section. */
+  const restoredEntry = useCallback(
+    async (id: string, restored: Record<string, string> | undefined) => {
+      if (await rereadAll()) return;
+      showSentAfterFailedReread((e) =>
+        e.id === id && restored ? withEdit(e, { title: restored.title, body: restored.body }) : e
+      );
+    },
+    [rereadAll, showSentAfterFailedReread]
+  );
+
+  // ── 目錄的編號搜尋 ──────────────────────────────────────────────────────
+  const [dirSearch, setDirSearch] = useState("");
+  const [dirNote, setDirNote] = useState<string | null>(null);
+  async function jumpToEntry(raw: string) {
+    setDirNote(null);
+    const v = raw.trim();
+    if (v === "") return;
+    const id = normalizeEntryId(v);
+    if (id === null) {
+      setDirNote(t.lore.directoryIdOnly);
+      return;
+    }
+    try {
+      const page = await api.listLoreEntries({
+        entryIds: [id],
+        states: ["pinned", "active", "retired"],
+        limit: 1,
+        offset: 0,
+      });
+      const e = page.entries[0];
+      if (!e) {
+        setDirNote(msg.loreDirectoryNotFound(id));
+        return;
+      }
+      const key = e.scopeKind === "everyone" ? "" : e.scopeKey;
+      // A removed member or a deleted manual has no section page to open.
+      if (e.scopeKind === "unknown" || !defsRef.current.some((d) => d.key === sectionKeyOf(e.scopeKind, key))) {
+        setDirNote(msg.loreDirectorySectionGone(id));
+        return;
+      }
+      seedRef.current = { key: sectionKeyOf(e.scopeKind, key), entryId: id, state: e.state };
+      navigateHash({ page: "lore", loreSection: { kind: e.scopeKind, key }, loreEntryId: id });
+    } catch (e) {
+      setDirNote(failText(e));
+    }
+  }
+
+  const currentDef = sectionKey ? defs.find((d) => d.key === sectionKey) ?? null : null;
+  // A highlighted entry beyond the loaded pages: page on until it shows, the
+  // section runs out, the cap is reached, or the reader changes a filter (then
+  // they are looking for something else).
+  const currentData = currentDef ? data[currentDef.key] : undefined;
+  const highlightLoaded =
+    highlightId !== "" && !!currentData?.entries.some((e) => e.id === highlightId);
+  const hlCapped = hlGaveUp !== "" && hlGaveUp === highlightId;
+  useEffect(() => {
+    if (!currentDef || !currentData || highlightId === "" || highlightLoaded) return;
+    let r = hlRef.current;
+    if (!r || r.id !== highlightId) r = hlRef.current = { id: highlightId, filterKey, pages: 0 };
+    if (r.filterKey !== filterKey) return;
+    if (
+      currentData.loading ||
+      currentData.fetchingMore ||
+      currentData.exhausted ||
+      currentData.error ||
+      currentData.moreFailed
+    )
+      return;
+    if (r.pages >= HIGHLIGHT_PAGE_CAP) {
+      setHlGaveUp(highlightId);
+      return;
+    }
+    if (loadMore(currentDef)) r.pages += 1;
+  }, [currentDef, currentData, highlightId, highlightLoaded, filterKey, loadMore]);
+
+  // A dropped entry shows as one row until opened. Opening is remembered per
+  // entry for the life of the page, so a re-read that keeps it dropped keeps it
+  // open; a highlighted entry opens itself.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const focusAfterToggle = useRef<{ id: string; open: boolean } | null>(null);
+  function setEntryExpanded(id: string, open: boolean) {
+    if (expanded.has(id) === open) return;
+    focusAfterToggle.current = { id, open };
+    setExpanded((prev) => {
+      if (prev.has(id) === open) return prev;
+      const next = new Set(prev);
+      if (open) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+  useEffect(() => {
+    if (highlightId === "") return;
+    setExpanded((prev) => (prev.has(highlightId) ? prev : new Set(prev).add(highlightId)));
+  }, [highlightId]);
+  const highlightExpanded = expanded.has(highlightId);
+  const scrolledToRef = useRef("");
+  useEffect(() => {
+    if (!highlightLoaded) {
+      scrolledToRef.current = "";
+      return;
+    }
+    // Focusing the folded row would lose focus to <body> once the open card
+    // replaces it on the next render.
+    if (!highlightExpanded) return;
+    if (scrolledToRef.current === highlightId) return;
+    scrolledToRef.current = highlightId;
+    const el = rowElement(scrollRef.current, highlightId);
+    el?.scrollIntoView?.({ block: "center" });
+    el?.focus({ preventScroll: true });
+  }, [highlightLoaded, highlightExpanded, highlightId]);
+  useEffect(() => {
+    const f = focusAfterToggle.current;
+    if (!f) return;
+    focusAfterToggle.current = null;
+    const row = rowElement(scrollRef.current, f.id);
+    const target = f.open
+      ? row?.querySelector<HTMLElement>('[data-testid="lore-collapse"]')
+      : row;
+    target?.focus({ preventScroll: true });
+  }, [expanded]);
+
+  // ── render helpers ──────────────────────────────────────────────────────
+  // The section's own boot document as one bar. A member's 所有人 and own
+  // entries interleave in boot order; the bar only stacks the two shares.
+  function renderSummary(def: SectionDef, sd: SectionData | undefined) {
+    const cap = sd?.cap;
+    // 所有人 has no boot document of its own (the cap the server reports is a
+    // member's), so its page reads like its directory card.
+    if (def.kind === "everyone" || !sd || !cap || cap.capChars <= 0) return dirUsage(def);
+    const own =
+      [...cap.budgetSegments].reverse().find((s) => s.scopeKind === def.kind) ?? null;
+    const everyoneSeg =
+      def.kind === "agent"
+        ? cap.budgetSegments.find((s) => s.scopeKind === "everyone") ?? null
+        : null;
+    const pct = (chars: number) => `${Math.min(100, (chars / cap.capChars) * 100)}%`;
+    return (
+      <>
+        <div className="lore-dir-card__seg" data-testid="lore-section-bar">
+          {everyoneSeg && (
+            <span
+              className="lore-dir-card__seg-everyone"
+              data-testid="lore-bar-everyone"
+              style={{ width: pct(everyoneSeg.fittedChars) }}
+            />
+          )}
+          <span
+            className="lore-dir-card__bar-fill"
+            data-testid="lore-bar-own"
+            style={{ width: pct(own?.fittedChars ?? 0) }}
+          />
+        </div>
+        <div className="lore-section__usage" data-testid="lore-section-usage-row">
+          <span data-testid="lore-section-used">
+            <b className="lore-section__used-num">{msg.loreLegendNumber(cap.usedChars)}</b>
+            {t.lore.charsTail}
+          </span>
+          <span data-testid="lore-section-cap">{msg.loreLegendCap(cap.capChars)}</span>
+        </div>
+        <div className="lore-section__legend" data-testid="lore-section-summary">
+          {everyoneSeg && (
+            <>
+              <span className="lore-section__legend-item" data-testid="lore-legend-everyone">
+                <i className="lore-dir-card__swatch lore-dir-card__swatch--everyone" aria-hidden="true" />
+                <span className="lore-section__legend-name">{t.lore.kindEveryone}</span>{" "}
+                {msg.loreLegendFit(everyoneSeg.fittedCount, everyoneSeg.entryCount)}
+              </span>
+              <span className="lore-section__legend-sep" aria-hidden="true">
+                {" · "}
+              </span>
+            </>
+          )}
+          <span className="lore-section__legend-item" data-testid="lore-legend-own">
+            <i className="lore-dir-card__swatch" aria-hidden="true" />
+            <span className="lore-section__legend-name">{sectionName(def)}</span>{" "}
+            {msg.loreLegendFit(own?.fittedCount ?? 0, own?.entryCount ?? 0)}
+          </span>
+        </div>
+      </>
+    );
+  }
+
+  function stagedFromOf(stored: LoreEntryView, ch: StagedChange): StagedFrom {
+    const from: StagedFrom = {};
+    if (ch.loreType) from.loreType = loreTypeLabel(t, stored.loreType);
+    if (ch.state) from.state = stateLabelOf(t, stored.state);
+    if (ch.scope) from.scope = resolveScope(stored).label;
+    return from;
+  }
+
+  function renderSectionBody(def: SectionDef, sd: SectionData | undefined) {
+    if (!sd || (sd.loading && sd.entries.length === 0)) {
+      return <div className="lore__more">{t.lore.loadingMore}</div>;
+    }
+    if (sd.error) {
+      return (
+        <div className="lore__error" data-testid="lore-section-error">
+          {t.lore.sectionLoadError}
+        </div>
+      );
+    }
+    return (
+      <>
+        {sd.entries.length === 0 && (
+          <div className="lore__empty" data-testid="lore-section-empty">
+            {t.lore.sectionEmpty}
+          </div>
+        )}
+        {sd.entries.map((stored) => {
+          const ch = staged.get(stored.id);
+          const entry = withStaged(stored, ch);
+          const foldable = stored.dropped === true && !ch;
+          if (foldable && !expanded.has(entry.id)) {
+            return (
+              <LoreDroppedRow
+                key={entry.id}
+                entry={entry}
+                highlighted={entry.id === highlightId}
+                onExpand={() => setEntryExpanded(entry.id, true)}
+              />
+            );
+          }
+          return (
+            <LoreRow
+                  key={entry.id}
+                  entry={entry}
+                  dimmed={stored.dropped === true}
+                  onCollapse={foldable ? () => setEntryExpanded(entry.id, false) : null}
+                  author={resolveAuthor(entry.authorId)}
+                  avatar={authorAvatar(entry.authorId)}
+                  scope={resolveScope(entry)}
+                  scopeMenu={
+                    canSetScope && entry.scopeOptions.length > 0 ? resolveScopeMenu(entry) : null
+                  }
+                  highlighted={entry.id === highlightId}
+                  stagedFrom={ch ? stagedFromOf(stored, ch) : null}
+                  chipsLocked={saving}
+                  onRevert={revertStaged}
+                  entryCaps={entryCaps}
+                  recipient={messageRecipient(stored)}
+                  onOpenManual={openManual}
+                  onSetState={setEntryState}
+                  onSetScope={setEntryScope}
+                  onSetLoreType={setEntryLoreType}
+                  onSave={editEntry}
+                  onRestored={restoredEntry}
+                />
+          );
+        })}
+        {!sd.exhausted && (
+          <div
+            className="lore__more"
+            data-testid="lore-more"
+            ref={(el) => {
+              if (el) sentinelRefs.current.set(def.key, el);
+              else sentinelRefs.current.delete(def.key);
+            }}
+          >
+            {sd.fetchingMore ? t.lore.loadingMore : ""}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  function messageRecipient(entry: LoreEntryView): MessageRecipient | null {
+    // These ids are never on the roster, so the box must not wait on it to go.
+    if (entry.authorId === "" || isSyntheticSender(entry.authorId)) return null;
+    if (membersLoading) return { id: "", name: "", roster: "loading" };
+    if (membersError) return { id: "", name: "", roster: "error" };
+    const author = resolveAuthor(entry.authorId);
+    return author.peerId !== "" ? { id: author.peerId, name: author.text } : null;
+  }
+
   function openManual(typeKey: string) {
     navigateHash({ page: "settings", manualKey: typeKey });
   }
 
-  // ── grouping + where the line falls ────────────────────────────────────
-  //
-  // The groups are built by walking LORE_GROUPS, so the group order comes from
-  // that array and from nowhere else. Order WITHIN a group is the server's and
-  // is preserved exactly (filter is stable).
-  const groups = useMemo(
-    () =>
-      LORE_GROUPS.map((state) => ({
-        state,
-        items: entries.filter((e) => e.state === state),
-      })),
-    [entries]
-  );
+  const sectionRoute = (def: SectionDef): HashRoute => ({
+    page: "lore",
+    loreSection: { kind: def.kind as LoreSectionKind, key: def.kind === "everyone" ? "" : def.scopeKey },
+  });
 
-  // Display order, flattened — this is the sequence the 上限線 cuts.
-  const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
+  function dirBadges(def: SectionDef) {
+    return (
+      <span className="lore-dir-card__badges">
+        <span className="lore-badge" data-testid="lore-section-count">
+          {msg.loreEntryCount(def.target.entryCount)}
+        </span>
+        {def.target.droppedCount > 0 ? (
+          <span className="lore-badge lore-badge--dropped" data-testid="lore-section-dropped">
+            {msg.loreDropped(def.target.droppedCount)}
+          </span>
+        ) : (
+          <span className="lore-badge lore-badge--fit">{t.lore.allFit}</span>
+        )}
+      </span>
+    );
+  }
 
-  // 🔴 BOTH FIELDS, READ AS THEY CAME. `capChars === 0` OR an empty
-  // `firstDroppedId` ⇒ no line and no dimming: either the filter did not
-  // converge on one scope, or the whole scope fits inside its budget. A third
-  // case is `firstDroppedId` naming an entry that has not been paged in yet —
-  // `indexOf` is then -1 and, again, nothing is drawn and nothing is dimmed.
-  // Drawing a line at the bottom of what happens to be loaded would put it in
-  // the wrong place, and a wrong line is indistinguishable from a right one.
-  const cutIndex =
-    cap.capChars > 0 && cap.firstDroppedId !== ""
-      ? flat.findIndex((e) => e.id === cap.firstDroppedId)
-      : -1;
-  const positions = useMemo(() => {
-    const m = new Map<string, number>();
-    flat.forEach((e, i) => m.set(e.id, i));
-    return m;
-  }, [flat]);
+  function dirLead(def: SectionDef) {
+    if (def.kind === "agent") {
+      const a = authorAvatar(def.scopeKey);
+      return <Avatar size={28} kind={a?.kind ?? "staff"} src={a?.src} />;
+    }
+    return (
+      <span className="lore-dir-card__glyph" aria-hidden="true">
+        {def.kind === "everyone" ? <UsersIcon size={16} /> : <BookIcon size={16} />}
+      </span>
+    );
+  }
 
-  // The line is NAMED — it says which scope's budget it is and how big that
-  // budget is. No percentage, no 已用 x/y (spec §6 rules all three out).
-  //
-  // 🔴 WHETHER THERE IS A LINE IS THE SERVER'S ANSWER (`cap.capChars`), NOT
-  // THIS. Everything here does is put a NAME on a line the server already
-  // decided to draw. The condition below looks like the server's own
-  // 「exactly one kind and one key」 rule and it must not be read as a second
-  // copy of it: it exists so the name is empty when there is no single scope to
-  // name, and if the two ever disagree the line still appears or not by the
-  // server's answer alone. Re-deriving the DECISION here is the drift the whole
-  // 上限線 design is built to avoid.
-  //
-  // 🔴 BOTH HALVES COME FROM `opts`, NOT FROM `belongs`. They have to describe
-  // the request the server answered: `opts` is what was sent, and reading the
-  // control's own state instead would let the name drift from the page whenever
-  // the two disagree — which is exactly when a wrong name is hardest to notice.
-  const soleKind = opts.scopeKinds?.length === 1 ? opts.scopeKinds[0] : "";
-  const soleKey = opts.scopeKeys?.length === 1 ? opts.scopeKeys[0] : "";
-  const scopeName =
-    soleKind === "everyone"
-      ? t.lore.scopeEveryone
-      : soleKind === "" || soleKey === ""
-      ? ""
-      : soleKind === "manual"
-        ? t.lore.scopeKindManual +
-          t.lore.capLineSep +
-          taskTypeLabel(t, soleKey, manuals.find((x) => x.typeKey === soleKey)?.displayName ?? "")
-        : t.lore.scopeKindAgent +
-          t.lore.capLineSep +
-          resolveAuthor(soleKey).text;
-  const capLineText =
-    scopeName + t.lore.capLineMid + cap.capChars + t.lore.capLineTail;
+  function sectionLead(def: SectionDef) {
+    if (def.kind === "agent") {
+      const a = authorAvatar(def.scopeKey);
+      return <Avatar size={20} kind={a?.kind ?? "staff"} src={a?.src} />;
+    }
+    return (
+      <span className="lore-section__glyph" aria-hidden="true">
+        {def.kind === "everyone" ? <UsersIcon size={14} /> : <BookIcon size={14} />}
+      </span>
+    );
+  }
 
-  // 任務傳承 — every TASK MANUAL, and ONLY manuals.
-  //
-  // 🔴 THE KIND PREFIX IS IN THE VALUE, and it is what puts
-  // `scope_kinds=["manual"]` on the request beside `scope_keys`, so the server
-  // narrows on BOTH axes. It is also what lets ONE state set back TWO controls:
-  // the prefix is how each control finds its own ticks again (see
-  // `ticksOfKind`).
-  const belongsOptions = manuals.map((m) => ({
-    value: belongsValue("manual", m.typeKey),
-    label: taskTypeLabel(t, m.typeKey, m.displayName),
-  }));
-  // 🔴 THE LIVE ROSTER, BUILT ONCE AND READ BY TWO CONTROLS. 撰寫人 and
-  // 成員傳承 offer the SAME people — they differ in which wire axis the tick
-  // rides, not in who is on the list — so the list is derived once here. Two
-  // separately-built lists would be two lists that can drift, and a name that
-  // is offered as a 撰寫人 but not as a 成員 (or the reverse) is a gap nobody
-  // would ever see reported.
-  //
-  // Options are the LIVE roster only. An author who has left cannot be offered
-  // here (there is no list of departed ids to offer), which is the same fact the
-  // row states by dropping their 傳訊息 icon.
-  //
-  // 🔴 kind === "staff" is an ALLOW-list, not a "drop the warden" deny-list, and
-  // it is the same one the 辦公室 roster uses. A machine-layer member cannot be
-  // an author at all: POST /api/lore requires principalAgent, classifyMember
-  // sends kind "warden" to principalMachine (rank 0 < 1), so the request is a
-  // 403 at the route and never reaches the handler. Offering it is offering a
-  // choice whose result is ALWAYS an empty list — and an empty list reads as
-  // 「這個人還沒寫過」, not as 「這個人不可能寫」. Owner hit this on the trial
-  // station (card rc-11734523eb52). A deny-list would let the next machine-layer
-  // kind back in silently; this cannot.
-  const roster = [
-    ...members
-      .filter((m) => m.kind === "staff")
-      .map((m) => ({ id: m.id, label: m.name })),
-    ...workers.map((w) => ({
-      id: w.id,
-      label: w.codename ? msg.outsourceLabel(w.codename) : w.id,
-    })),
-  ];
-  const authorOptions = roster.map((r) => ({ value: r.id, label: r.label }));
-  // 成員傳承 — the SAME people, carried on the SCOPE axis instead. The value is
-  // prefixed `agent:` so the request says `scope_kinds=["agent"]` +
-  // `scope_keys=[<member id>]`, which is the only shape the server will answer
-  // a member's `capChars` for.
-  const memberScopeOptions = [
-    { value: EVERYONE_VALUE, label: t.lore.scopeEveryone },
-    ...roster.map((r) => ({
-      value: belongsValue("agent", r.id),
-      label: r.label,
-    })),
-  ];
+  // 所有人 has no cap of its own (it is read inside every member's), so it shows
+  // only its size; a bar there would compare against nothing.
+  function dirUsage(def: SectionDef) {
+    const b = def.target;
+    if (def.kind === "everyone" || b.capChars <= 0) {
+      return (
+        <div className="lore-dir-card__usage" data-testid="lore-section-usage">
+          <span className="lore-dir-card__usage-text">
+            {def.kind === "everyone" ? msg.loreEveryoneUsed(b.usedChars) : msg.loreChars(b.usedChars)}
+          </span>
+        </div>
+      );
+    }
+    const pct = Math.min(100, Math.round((b.usedChars / b.capChars) * 100));
+    return (
+      <div className="lore-dir-card__usage" data-testid="lore-section-usage">
+        <span className="lore-dir-card__bar">
+          <span className="lore-dir-card__bar-fill" style={{ width: `${pct}%` }} />
+        </span>
+        <span className="lore-dir-card__usage-text">
+          {msg.loreDirUsage(b.usedChars, b.capChars)}
+        </span>
+      </div>
+    );
+  }
 
-  return (
-    <div className="lore" ref={scrollRef} data-testid="lore-page">
-      {error && (
+  const errors = (
+    <>
+      {budgetsError && (
         <div className="lore__error" data-testid="lore-load-error">
           {t.lore.loadError}
         </div>
@@ -883,160 +1425,274 @@ export function LorePage({
           {actionError}
         </div>
       )}
+    </>
+  );
 
-      {/* 篩選列 — FilterPanel owns the ROW; the fields are ours (the panel is
-          deliberately field-agnostic, FilterPanel.tsx point 4). `onClear` is
-          passed ONLY while something is actually narrowing the list: the
-          callback's existence IS the decision to show the button. */}
-      <FilterPanel
-        testId="lore-filter"
-        clearLabel={t.lore.clearFilters}
-        onClear={anyFilter ? clearFilters : undefined}
+  if (sectionKey === null) {
+    const groups: { kind: LoreScopeKind; label: string; defs: SectionDef[] }[] = [
+      { kind: "everyone", label: t.lore.kindEveryone, defs: [] },
+      { kind: "agent", label: t.lore.kindMember, defs: [] },
+      { kind: "manual", label: t.lore.kindManual, defs: [] },
+    ];
+    for (const d of defs) groups.find((g) => g.kind === d.kind)?.defs.push(d);
+    return (
+      <div className="lore" ref={scrollRef} data-testid="lore-page">
+        {errors}
+        <div className="lore__dir-search">
+          <IdFilterInput
+            value={dirSearch}
+            onChange={setDirSearch}
+            onCommit={(v) => void jumpToEntry(v)}
+            label={t.lore.directoryIdLabel}
+            testId="lore-directory-id"
+            widthCh={7}
+          />
+          {dirNote && (
+            <span className="lore__dir-note" role="status" data-testid="lore-directory-note">
+              {dirNote}
+            </span>
+          )}
+        </div>
+        {groups.map((g) =>
+          g.defs.length === 0 ? null : (
+            <div className="lore__group" key={g.kind} data-testid={`lore-group-${g.kind}`}>
+              <div className="lore__group-title">
+                {g.label}
+                <span className="lore__group-count"> · {g.defs.length}</span>
+              </div>
+              {g.defs.map((def) => (
+                <a
+                  key={def.key}
+                  className="lore-dir-card lore-target"
+                  data-testid="lore-target"
+                  data-section={def.key}
+                  href={formatHash(sectionRoute(def))}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigateHash(sectionRoute(def));
+                  }}
+                >
+                  <div className="lore-dir-card__head">
+                    {dirLead(def)}
+                    <span className="lore-dir-card__main">
+                      <span className="lore-dir-card__name" data-testid="lore-section-name">
+                        {sectionName(def)}
+                      </span>
+                      {dirBadges(def)}
+                    </span>
+                    <span className="lore-dir-card__mark" aria-hidden="true">
+                      <ChevronRightIcon size={14} />
+                    </span>
+                  </div>
+                  {dirUsage(def)}
+                </a>
+              ))}
+            </div>
+          )
+        )}
+      </div>
+    );
+  }
+
+  const sd = currentDef ? data[currentDef.key] : undefined;
+  const highlightMissing =
+    highlightId !== "" &&
+    !!sd &&
+    !sd.loading &&
+    !sd.fetchingMore &&
+    !sd.moreFailed &&
+    (sd.exhausted || hlCapped) &&
+    !highlightLoaded;
+  const highlightFailed =
+    highlightId !== "" && !!sd && !sd.fetchingMore && sd.moreFailed && !highlightLoaded;
+
+  return (
+    <div className="lore" ref={scrollRef} data-testid="lore-page">
+      <a
+        className="lore__back"
+        data-testid="lore-back"
+        href="#lore"
+        onClick={(e) => {
+          e.preventDefault();
+          navigateHash({ page: "lore" });
+        }}
       >
-        {/* 🔴 THE ORDER IS THE OWNER'S, VERBATIM (2026-09-08):
-            所有撰寫人 → 所有成員傳承 → 所有任務傳承 → 所有狀態 → 清除篩選,
-            with 所有類型 placed by the owner right before 所有狀態.
-            WHO WROTE IT, then WHICH MEMBER it belongs to, then WHICH MANUAL,
-            then WHAT STATE. It is still the 任務頁's order (負責人 → 類型 →
-            狀態) with the scope half split in two, because a reader who has
-            learned one page should not have to re-learn where things are on the
-            other.
+        <ChevronLeftIcon size={14} />
+        {t.lore.backToDirectory}
+      </a>
+      {errors}
 
-            The 任務頁 has a 任務編號 search box ahead of all of these; this
-            page has no counterpart YET. The server side of it exists
-            (`entry_ids`, ddf4a2f6) — owner asked for it on 2026-09-08 — but
-            nothing on this page sends it. Do not re-write this into 「傳承的編號
-            不是誰會去打的東西」: that claim is what LORE_SPEC §6 records as a
-            justification written to fit the gap, and owner asked for the box.
-
-            Nothing here appears conditionally — a filter row whose fields come
-            and go as you tick is a row whose shape the reader cannot learn. */}
-        <MultiSelectFilter
-          noun={t.lore.filterAuthorNoun}
-          allLabel={t.lore.filterAuthorAll}
-          testId="lore-filter-author"
-          options={authorOptions}
-          selected={authors}
-          onChange={setAuthors}
-        />
-        {/* 成員傳承 — WHICH member's lore, on the SCOPE axis.
-            🔴 THIS IS NOT THE SAME QUESTION AS 撰寫人 EVEN THOUGH THE NAMES ARE
-            THE SAME PEOPLE. 撰寫人 asks who WROTE the entry and sends
-            `authorIds`; this asks whose lore the entry IS and sends
-            `scope_kinds=[agent]` + `scope_keys=[<member id>]`. Only the second
-            shape can make the server answer `capChars`, which is why this
-            control exists at all — see the axes comment at the top of the
-            component. */}
-        <MultiSelectFilter
-          noun={t.lore.filterMemberNoun}
-          allLabel={t.lore.filterMemberAll}
-          testId="lore-filter-member"
-          options={memberScopeOptions}
-          selected={ticksOfKind("agent", "everyone")}
-          onChange={(next) => setTicksOfKind("agent", next)}
-        />
-        {/* 任務傳承 — WHICH task manual. Same wire axes as the control above it;
-            ticking one in each sends two kinds and two keys, and the server
-            answers no cap line. That is stated in the axes comment rather than
-            prevented here: the page does not re-implement the server's rule. */}
-        <MultiSelectFilter
-          noun={t.lore.filterTaskNoun}
-          allLabel={t.lore.filterTaskAll}
-          testId="lore-filter-belongs"
-          options={belongsOptions}
-          selected={ticksOfKind("manual")}
-          onChange={(next) => setTicksOfKind("manual", next)}
-        />
-        <MultiSelectFilter
-          noun={t.lore.filterTypeNoun}
-          allLabel={t.lore.filterTypeAll}
-          testId="lore-filter-type"
-          options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
-          selected={loreTypes}
-          onChange={(next) => setLoreTypes(next as Set<LoreType>)}
-        />
-        <MultiSelectFilter
-          noun={t.lore.filterStateNoun}
-          allLabel={t.lore.filterStateAll}
-          testId="lore-filter-state"
-          options={[
-            { value: "pinned", label: t.lore.statePinned },
-            { value: "active", label: t.lore.stateActive },
-            { value: "retired", label: t.lore.stateRetired },
-          ]}
-          selected={states}
-          onChange={(next) => setStates(next as Set<LoreEntryState>)}
-        />
-      </FilterPanel>
-
-      {!loading && !error && flat.length === 0 && (
-        <div className="lore__empty" data-testid="lore-empty">
-          {anyFilter ? t.lore.emptyFiltered : t.lore.empty}
+      {budgetsReady && !currentDef && (
+        <div className="lore__empty" data-testid="lore-section-missing">
+          {t.lore.sectionMissing}
         </div>
       )}
 
-      {groups.map((group) =>
-        group.items.length === 0 ? null : (
-          <section
-            className="lore__group"
-            key={group.state}
-            data-testid={`lore-group-${group.state}`}
+      {currentDef && (
+        <>
+          <FilterPanel
+            testId="lore-filter"
+            clearLabel={t.lore.clearFilters}
+            onClear={narrowing || !statesAtDefault ? clearFilters : undefined}
           >
-            <div className="lore__group-title">
-              {group.state === "pinned"
-                ? t.lore.groupPinned
-                : group.state === "active"
-                  ? t.lore.groupActive
-                  : t.lore.groupRetired}
+            <IdFilterInput
+              value={searchDraft}
+              onChange={setSearchDraft}
+              onCommit={(v) => setAppliedSearch(v.trim())}
+              label={t.lore.idSearchLabel}
+              testId="lore-filter-id"
+              widthCh={7}
+            />
+            <MultiSelectFilter
+              noun={t.lore.filterTypeNoun}
+              allLabel={t.lore.filterTypeAll}
+              testId="lore-filter-type"
+              options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
+              selected={loreTypes}
+              onChange={(next) => setLoreTypes(next as Set<LoreType>)}
+            />
+            <MultiSelectFilter
+              noun={t.lore.filterStateNoun}
+              allLabel={t.lore.filterStateAll}
+              testId="lore-filter-state"
+              options={[
+                { value: "pinned", label: t.lore.statePinned },
+                { value: "active", label: t.lore.stateActive },
+                { value: "retired", label: t.lore.stateRetired },
+              ]}
+              selected={states}
+              onChange={(next) => setStates(next as Set<LoreEntryState>)}
+            />
+          </FilterPanel>
+
+          <div className="lore-section__head" data-testid="lore-section-head">
+            <div className="lore__group-title lore-section__title">
+              {sectionLead(currentDef)}
+              {currentDef.kind === "manual" ? (
+                // The way back to the manual for every viewer; the card scope tag offers it only to those who may move entries.
+                <button
+                  type="button"
+                  className="lore-section__name lore-section__name--link"
+                  data-testid="lore-section-name"
+                  title={msg.loreOpenManual(sectionName(currentDef))}
+                  aria-label={msg.loreOpenManual(sectionName(currentDef))}
+                  onClick={() => openManual(currentDef.scopeKey)}
+                >
+                  {sectionName(currentDef)}
+                </button>
+              ) : (
+                <span className="lore-section__name" data-testid="lore-section-name">
+                  {sectionName(currentDef)}
+                </span>
+              )}
+              <span className="lore__group-count">
+                {" · "}
+                <span data-testid="lore-section-count">{msg.loreEntryCount(currentDef.target.entryCount)}</span>
+              </span>
+              {currentDef.target.droppedCount > 0 && (
+                <span className="lore-section__dropped" data-testid="lore-section-dropped">
+                  {msg.loreDropped(currentDef.target.droppedCount)}
+                </span>
+              )}
             </div>
-            {group.items.map((entry) => {
-              const pos = positions.get(entry.id) ?? -1;
-              // 「線以下」 includes the entry the line sits directly above —
-              // `firstDroppedId` IS the first one that does not get loaded.
-              const dimmed = cutIndex >= 0 && pos >= cutIndex;
-              return (
-                <div key={entry.id}>
-                  {cutIndex >= 0 && pos === cutIndex && (
-                    <div className="lore__cap-line" data-testid="lore-cap-line">
-                      <span className="lore__cap-line-text">{capLineText}</span>
-                    </div>
-                  )}
-                  <LoreRow
-                    entry={entry}
-                    dimmed={dimmed}
-                    author={resolveAuthor(entry.authorId)}
-                    avatar={authorAvatar(entry.authorId)}
-                    scope={resolveScope(entry)}
-                    scopeMenu={
-                      canSetScope && entry.scopeOptions.length > 0
-                        ? resolveScopeMenu(entry)
-                        : null
-                    }
-                    onOpenChat={openChat}
-                    onOpenManual={openManual}
-                    onSetState={setEntryState}
-                    onSetScope={setEntryScope}
-                    onBump={bumpEntry}
-                  />
+            {renderSummary(currentDef, sd)}
+          </div>
+
+          {highlightMissing && (
+            <div className="lore__empty" data-testid="lore-highlight-missing">
+              {msg.loreHighlightMissing(highlightId)}
+            </div>
+          )}
+          {highlightFailed && (
+            <div className="lore__error" data-testid="lore-highlight-failed">
+              {msg.loreHighlightLoadFailed(highlightId)}
+            </div>
+          )}
+
+          <section
+            className="lore-section"
+            data-testid="lore-section"
+            data-section={currentDef.key}
+          >
+            <div className="lore-section__body" data-testid="lore-section-body">
+              {narrowing && sd && !sd.loading && !sd.error && sd.entries.length === 0 ? (
+                <div className="lore__empty" data-testid="lore-empty">
+                  {t.lore.emptyFiltered}
                 </div>
-              );
-            })}
+              ) : (
+                renderSectionBody(currentDef, sd)
+              )}
+            </div>
           </section>
-        )
+        </>
       )}
 
-      {/* The bottom sentinel. It says 載入中… only while there IS more — an
-          exhausted list ends silently rather than with a permanent spinner
-          that reads as a stuck page. */}
-      {!loading && !error && !exhausted && flat.length > 0 && (
-        <div className="lore__more" data-testid="lore-more">
-          {fetchingMore ? t.lore.loadingMore : ""}
+      {toast.length > 0 && (
+        <div className="lore__dock">
+          <div className="lore-toast" role="status" data-testid="lore-toast">
+            {toast.map((m) => (
+              <span key={m.id}>{msg.loreScopeChanged(m.id, m.scopeLabel)}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(hasStaged || saving) && (
+        <div
+          className="lore-savebar"
+          ref={saveBarRef}
+          role="region"
+          aria-label={t.lore.stagedBarLabel}
+          data-testid="lore-staged-bar"
+        >
+          <span className="lore-savebar__text">
+            <span className="lore-savebar__count" data-testid="lore-staged-count">
+              {msg.loreStagedChanges(stagedFields)}
+            </span>
+            {saving && leaveBlocked && (
+              <span className="lore-savebar__note" role="status" data-testid="lore-staged-leave-blocked">
+                {t.lore.stagedLeaveBlocked}
+              </span>
+            )}
+            {saveFailed.length > 0 && (
+              <span
+                className="lore-savebar__note lore-savebar__note--failed"
+                role="status"
+                data-testid="lore-staged-failed"
+              >
+                {msg.loreStagedFailed(saveFailed)}
+              </span>
+            )}
+          </span>
+          <span className="lore-savebar__actions">
+            <button
+              type="button"
+              className="doc-btn"
+              data-testid="lore-staged-discard"
+              disabled={saving}
+              onClick={discardStaged}
+            >
+              {t.lore.stagedDiscard}
+            </button>
+            <button
+              type="button"
+              className="doc-btn doc-btn--accent"
+              data-testid="lore-staged-save"
+              disabled={saving || !hasStaged}
+              onClick={() => void saveStaged()}
+            >
+              {saving ? t.lore.stagedSaving : t.lore.stagedSave}
+            </button>
+          </span>
         </div>
       )}
     </div>
   );
 }
 
+function stateLabelOf(t: ReturnType<typeof useI18n>["t"], s: LoreEntryState): string {
+  return s === "pinned" ? t.lore.statePinned : s === "active" ? t.lore.stateActive : t.lore.stateRetired;
+}
 
 function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string {
   switch (lt) {
@@ -1053,43 +1709,72 @@ function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string
   }
 }
 
-/** ONE 傳承 row. Collapsed by default; the whole row is the toggle surface. */
+/** ONE 傳承 row. The body always shows in full; the only chevron is the one
+ * that folds an opened dropped entry back to its LoreDroppedRow. */
 function LoreRow({
   entry,
   dimmed,
+  onCollapse,
   author,
   avatar,
   scope,
   scopeMenu,
-  onOpenChat,
+  recipient,
   onOpenManual,
   onSetState,
   onSetScope,
-  onBump,
+  onSetLoreType,
+  highlighted,
+  stagedFrom,
+  chipsLocked,
+  onRevert,
+  entryCaps,
+  onSave,
+  onRestored,
 }: {
   entry: LoreEntryView;
   dimmed: boolean;
+  /** Folds an opened dropped entry back to its one-line row; null ⇒ this card
+   * does not fold (it is read, or it carries a staged change). It does not fold
+   * either while its editor is open or its message box holds unsent input. */
+  onCollapse: (() => void) | null;
   author: AuthorIdentity;
   avatar: { src?: string; kind: AvatarKind } | null;
-  /** 屬於, already resolved (resolveScope). `manualKey` non-empty is what
-   * offers the manual jump inside the 適用範圍 menu; `kind` picks the glyph and,
-   * without a menu, whether the pill is the manual button. Both come from that
-   * one place. */
+  /** 屬於, already resolved (resolveScope). `manualKey` non-empty offers the
+   * manual jump inside the 適用範圍 menu. */
   scope: { kind: "" | LoreScopeKind; label: string; manualKey: string };
-  onOpenChat: (peerId: string, entryId: string) => void;
+  /** null ⇒ the author cannot be messaged (the owner's entry, or gone from
+   * the roster): the card has no message box. */
+  recipient: MessageRecipient | null;
   onOpenManual: (typeKey: string) => void;
   onSetState: (id: string, next: LoreEntryState) => void;
-  /** null ⇒ the viewer may not switch this entry's scope; the badge is inert. */
+  /** null ⇒ the viewer may not switch this entry's scope; the scope tag is plain text. */
   scopeMenu: ScopeMenu | null;
-  onSetScope: (id: string, kind: LoreScopeKind) => void;
-  onBump: (id: string) => void;
+  onSetScope: (id: string, kind: LoreScopeKind, label: string) => void;
+  onSetLoreType: (id: string, loreType: LoreType) => void;
+  highlighted: boolean;
+  /** The stored value's label of each staged field; `entry` already shows the
+   * staged values. null ⇒ nothing staged on this card. */
+  stagedFrom: StagedFrom | null;
+  /** 儲存變更 is running: the chips cannot change what is staged. */
+  chipsLocked: boolean;
+  onRevert: (id: string, field: StagedField) => void;
+  entryCaps: { title: number; body: number };
+  /** Rejects with the reason to show; the draft stays. */
+  onSave: (id: string, patch: LoreEntryEdit) => Promise<void>;
+  onRestored: (id: string, restored: Record<string, string> | undefined) => Promise<void>;
 }) {
   const { t, msg } = useI18n();
-  const [expanded, setExpanded] = useState(false);
+  const staged = stagedFrom !== null;
   const [stateOpen, setStateOpen] = useState(false);
   const statusRef = useRef<HTMLDivElement>(null);
+  const [typeOpen, setTypeOpen] = useState(false);
+  const typeRef = useRef<HTMLDivElement>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
   const scopeRef = useRef<HTMLSpanElement>(null);
+  const [editing, setEditing] = useState(false);
+  const [messageUnsent, setMessageUnsent] = useState(false);
+  const collapse = editing || (recipient !== null && messageUnsent) ? null : onCollapse;
 
   useEffect(() => {
     if (!scopeOpen) return;
@@ -1100,21 +1785,6 @@ function LoreRow({
     return () => document.removeEventListener("mousedown", onDown);
   }, [scopeOpen]);
 
-  const scopeText =
-    scope.kind === "manual"
-      ? msg.loreScopeManual(scope.label)
-      : scope.kind === "agent"
-        ? msg.loreScopeAgent(scope.label)
-        : scope.label;
-  const scopeGlyph =
-    scope.kind === "manual" ? (
-      <GearIcon size={13} className="lore-row__scope-glyph lore-row__scope-glyph--task" />
-    ) : scope.kind === "agent" ? (
-      <UserIcon size={13} className="lore-row__scope-glyph lore-row__scope-glyph--member" />
-    ) : scope.kind === "everyone" ? (
-      <UsersIcon size={13} className="lore-row__scope-glyph lore-row__scope-glyph--everyone" />
-    ) : null;
-
   useEffect(() => {
     if (!stateOpen) return;
     function onDown(e: MouseEvent) {
@@ -1124,41 +1794,16 @@ function LoreRow({
     return () => document.removeEventListener("mousedown", onDown);
   }, [stateOpen]);
 
-  // Copied verbatim in SHAPE from TaskCard.onCardToggleClick: a click that
-  // landed on an interactive descendant does that control's job and must not
-  // also flip the row, and a click that ended a drag-selection is reading. The
-  // [role='button'] entry also matches THIS element (the article carries it),
-  // so the `hit !== e.currentTarget` guard is what keeps ordinary body clicks
-  // toggling instead of being swallowed.
-  function onRowToggleClick(e: React.MouseEvent<HTMLElement>) {
-    const target = e.target as HTMLElement;
-    // `.lore-row__composer` is in this list for the same reason the controls
-    // are: it is a WRITING surface that now renders on the COLLAPSED row, so a
-    // click that lands on its padding (beside the box, not on it) would fold
-    // the entry away mid-sentence. The textarea/buttons inside it are already
-    // covered by the element entries; this covers the box AROUND them.
-    const hit = target.closest(
-      "button, a, textarea, input, select, .lore-row__composer, [role='button'], [role='menu'], [role='dialog']"
-    );
-    if (hit && hit !== e.currentTarget) return;
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) return;
-    setExpanded((v) => !v);
-  }
-  function onRowToggleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      setExpanded((v) => !v);
+  useEffect(() => {
+    if (!typeOpen) return;
+    function onDown(e: MouseEvent) {
+      if (!typeRef.current?.contains(e.target as Node)) setTypeOpen(false);
     }
-  }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [typeOpen]);
 
-  const stateLabel =
-    entry.state === "pinned"
-      ? t.lore.statePinned
-      : entry.state === "active"
-        ? t.lore.stateActive
-        : t.lore.stateRetired;
+  const stateLabel = stateLabelOf(t, entry.state);
 
   function actionLabel(s: LoreEntryState): string {
     return s === "retired"
@@ -1194,41 +1839,19 @@ function LoreRow({
     <article
       className={`lore-row lore-row--${entry.state}${
         dimmed ? " lore-row--dimmed" : ""
-      }`}
+      }${highlighted ? " lore-row--highlight" : ""}${staged ? " lore-row--staged" : ""}`}
       data-testid="lore-row"
       data-entry-id={entry.id}
       data-dimmed={dimmed ? "true" : "false"}
-      role="button"
-      tabIndex={0}
-      aria-expanded={expanded}
-      aria-label={expanded ? t.lore.collapseCard : t.lore.expandCard}
-      onClick={onRowToggleClick}
-      onKeyDown={onRowToggleKeyDown}
+      data-staged={staged ? "true" : "false"}
+      // Focusable from code only: a highlighted entry lands here.
+      tabIndex={-1}
     >
       <div className="lore-row__head">
         <div className="lore-row__badges">
-          {/* The type tag leads the row, ahead of the id, so a collapsed row
-              shows it before anything else. */}
-          <span
-            className="lore-badge lore-badge--lore-type"
-            data-testid="lore-type"
-            data-lore-type={entry.loreType}
-          >
-            {loreTypeLabel(t, entry.loreType)}
-          </span>
-          {/* 🔴 THE BADGE ORDER IS 任務卡'S ORDER (owner, 2026-09-07: 「The order
-              of buttons / filters matters」「make them consistent with task」).
-              That card reads 編號 → 優先權 → 狀態 → 類型, so this row reads
-              編號 → 狀態 → 屬於, behind the type tag the owner put at the very
-              front. The id leads the card's order on both because it is what you
-              quote to somebody else; it used to sit second here, behind the state,
-              and the two pages disagreed about where a reader's eye should land.
-              傳承 has no 優先權 — there is nothing to put in that slot, and
-              inventing one to fill the gap would be consistency in the shape only. */}
-          {/* 條目編號, right of the status chip. It is a <button>, so the row's
-              own toggle handler lets it through the same way it lets the status
-              chip through — clicking the id copies it and does NOT expand the
-              row. */}
+          {/* Order: 編號 → 類型 → 狀態 → 適用範圍. The id leads, as on 任務卡,
+              because it is what you quote to somebody else (owner: 「make them
+              consistent with task」). 傳承 has no 優先權; do not invent one for the slot. */}
           <button
             type="button"
             className="lore-row__id-badge"
@@ -1259,23 +1882,87 @@ function LoreRow({
             )}
           </button>
 
-          {/* ONE status badge, and it is also the control (spec §6). The menu
-              hangs from the badge's LEFT edge — .lore-row__status-pop pins
-              left:0 — because the badge sits at the row's left end and a
-              right-anchored pop would open off the row. */}
+          <div className="lore-row__status" ref={typeRef}>
+            <button
+              type="button"
+              className={`lore-badge lore-badge--lore-type lore-row__status-chip${
+                stagedFrom?.loreType !== undefined ? " lore-row__status-chip--staged" : ""
+              }`}
+              title={t.lore.typeMenuLabel}
+              aria-label={t.lore.typeMenuLabel}
+              aria-haspopup="menu"
+              aria-expanded={typeOpen}
+              data-testid="lore-type"
+              data-lore-type={entry.loreType}
+              disabled={chipsLocked}
+              onClick={() => setTypeOpen((o) => !o)}
+            >
+              {loreTypeLabel(t, entry.loreType)}
+            </button>
+            {stagedFrom?.loreType !== undefined && (
+              <LoreRevertMark
+                field="loreType"
+                from={stagedFrom.loreType}
+                onRevert={() => onRevert(entry.id, "loreType")}
+                disabled={chipsLocked}
+              />
+            )}
+            {typeOpen && (
+              <div
+                className="lore-row__menu-pop lore-row__status-pop"
+                role="menu"
+                aria-label={t.lore.typeMenuLabel}
+                data-testid="lore-type-options"
+              >
+                {LORE_TYPES.map((lt) => (
+                  <button
+                    key={lt}
+                    type="button"
+                    role="menuitem"
+                    className={`lore-row__menu-item${
+                      entry.loreType === lt ? " lore-row__menu-item--active" : ""
+                    }`}
+                    data-testid={`lore-type-${lt}`}
+                    onClick={() => {
+                      setTypeOpen(false);
+                      if (entry.loreType !== lt) onSetLoreType(entry.id, lt);
+                    }}
+                  >
+                    {loreTypeLabel(t, lt)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ONE status badge, and it is also the control (spec §6). Both this
+              menu and the type menu hang from their badge's LEFT edge
+              (.lore-row__status-pop pins left:0): the badges sit at the row's
+              left, and a right-anchored pop would open off the row. */}
           <div className="lore-row__status" ref={statusRef}>
             <button
               type="button"
-              className={`lore-badge lore-badge--state-${entry.state} lore-row__status-chip`}
+              className={`lore-badge lore-badge--state-${entry.state} lore-row__status-chip${
+                stagedFrom?.state !== undefined ? " lore-row__status-chip--staged" : ""
+              }`}
               title={t.lore.stateMenuLabel}
               aria-label={t.lore.stateMenuLabel}
               aria-haspopup="menu"
               aria-expanded={stateOpen}
               data-testid="lore-state"
+              disabled={chipsLocked}
               onClick={() => setStateOpen((o) => !o)}
             >
               {stateLabel}
             </button>
+            {stagedFrom?.state !== undefined && (
+              <LoreRevertMark
+                field="state"
+                from={stagedFrom.state}
+                onRevert={() => onRevert(entry.id, "state")}
+                disabled={chipsLocked}
+              />
+            )}
             {stateOpen && (
               <div
                 className="lore-row__menu-pop lore-row__status-pop"
@@ -1307,311 +1994,446 @@ function LoreRow({
             )}
           </div>
 
-          {/* 屬於 — which scope pays for this entry.
-              🔴 IT IS ON THE COLLAPSED ROW, WHICH IS THE WHOLE POINT. It used to
-              sit in the expanded body, and the reason given for putting it on the
-              row at all was that 全部 — where the page OPENS — mixes every scope
-              together and the reader cannot tell a 角色傳承 from one manual's.
-              That reader is looking at a COLLAPSED list. A chip they have to open
-              a row to reach answers the question only for somebody who already
-              went looking, which is not the person who was lost (owner, card
-              rc-11734523eb52; the first attempt landed inside `expanded &&`).
-              It is a <button> when it leads somewhere — the 適用範圍 menu, or the
-              manual — so the row's closest() filter lets the click through
-              instead of toggling. */}
-          <span className="lore-row__scope" data-testid="lore-scope" ref={scopeRef}>
-            {/* ONE badge naming the current scope (T-236 mockup): 任務：<手冊>
-                with the gear, 建立者：<作者> with the person glyph, 所有人 with the
-                group glyph; an unknown kind shows its raw key and no glyph.
-                For a viewer who may switch scopes the badge is the 適用範圍 menu
-                trigger, and the manual jump moves into that menu. Otherwise a
-                manual badge still opens the manual and the rest are plain text. */}
-            {scopeMenu ? (
+          {/* 適用範圍 rides the tag row as the fourth tag. A viewer who may move
+              the entry gets the same badge-is-the-control pattern as 類型/狀態;
+              anyone else reads it as plain text. The menu hangs from
+              .lore-row__head (this wrapper is not positioned) so a tag that
+              wrapped to the row's right edge cannot push the menu off a phone. */}
+          {scopeMenu ? (
+            <span className="lore-row__scope" data-testid="lore-scope" ref={scopeRef}>
+              <span className="lore-row__scope-anchor">
               <button
                 type="button"
-                className="lore-badge lore-badge--type lore-row__scope-chip lore-row__scope-chip--editable"
+                className={`lore-badge lore-badge--scope lore-row__status-chip${
+                  stagedFrom?.scope !== undefined ? " lore-row__status-chip--staged" : ""
+                }`}
                 data-testid="lore-scope-name"
                 data-scope-kind={scope.kind}
+                title={t.lore.scopeMenuLabel}
+                aria-label={`${t.lore.scopeMenuLabel}：${scope.label}`}
                 aria-haspopup="menu"
                 aria-expanded={scopeOpen}
-                title={t.lore.scopeMenuLabel}
+                disabled={chipsLocked}
                 onClick={() => setScopeOpen((o) => !o)}
               >
-                {scopeGlyph}
-                <span className="lore-row__scope-name">{scopeText}</span>
-                <ChevronDownIcon size={12} className="lore-row__scope-caret" />
+                <span className="lore-badge__text">{scope.label}</span>
               </button>
-            ) : scope.kind === "manual" ? (
-              <button
-                type="button"
-                className="lore-badge lore-badge--type lore-row__scope-chip"
-                data-testid="lore-scope-name"
-                data-scope-kind="manual"
-                aria-label={msg.loreOpenManual(scope.label)}
-                title={msg.loreOpenManual(scope.label)}
-                onClick={() => onOpenManual(scope.manualKey)}
-              >
-                {scopeGlyph}
-                <span className="lore-row__scope-name">{scopeText}</span>
-              </button>
-            ) : (
-              <span
-                className="lore-badge lore-badge--type"
-                data-testid="lore-scope-name"
-                data-scope-kind={scope.kind}
-              >
-                {scopeGlyph}
-                <span className="lore-row__scope-name">{scopeText}</span>
+              {stagedFrom?.scope !== undefined && (
+                <LoreRevertMark
+                  field="scope"
+                  from={stagedFrom.scope}
+                  onRevert={() => onRevert(entry.id, "scope")}
+                  disabled={chipsLocked}
+                />
+              )}
               </span>
-            )}
-            {scopeMenu && scopeOpen && (
-              <div
-                className="lore-row__menu-pop lore-row__scope-pop"
-                role="menu"
-                aria-label={t.lore.scopeMenuLabel}
-                data-testid="lore-scope-options"
-              >
-                <div className="lore-row__scope-pop-title">{t.lore.scopeMenuLabel}</div>
-                {scopeMenu.choices.map((c) => {
-                  const current = c.kind === entry.scopeKind;
-                  const tag =
-                    c.kind === scopeMenu.defaultKind
-                      ? t.lore.scopeTagDefault
-                      : current
-                        ? t.lore.scopeTagCurrent
-                        : "";
-                  return (
+              {scopeOpen && (
+                <div
+                  className="lore-row__menu-pop lore-row__scope-pop"
+                  role="menu"
+                  aria-label={t.lore.scopeMenuLabel}
+                  data-testid="lore-scope-options"
+                >
+                  <div className="lore-row__scope-pop-title">{t.lore.scopeMenuLabel}</div>
+                  {scopeMenu.choices.map((c) => {
+                    const current = c.kind === entry.scopeKind;
+                    const tag =
+                      c.kind === scopeMenu.defaultKind
+                        ? t.lore.scopeTagDefault
+                        : current
+                          ? t.lore.scopeTagCurrent
+                          : "";
+                    return (
+                      <button
+                        key={c.kind}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={current}
+                        className={`lore-row__menu-item lore-row__scope-option${
+                          current ? " lore-row__menu-item--active" : ""
+                        }`}
+                        data-testid={`lore-scope-${c.kind}`}
+                        onClick={() => {
+                          setScopeOpen(false);
+                          if (!current) onSetScope(entry.id, c.kind, c.label);
+                        }}
+                      >
+                        <span className="lore-row__scope-check" aria-hidden="true">
+                          {current && <CheckIcon size={14} />}
+                        </span>
+                        <span className="lore-row__scope-option-head">
+                          <span data-testid="lore-scope-option-label">{c.label}</span>
+                          {tag !== "" && (
+                            <span
+                              className="lore-row__scope-tag"
+                              data-testid="lore-scope-option-tag"
+                            >
+                              {tag}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {scope.manualKey !== "" && (
                     <button
-                      key={c.kind}
                       type="button"
-                      role="menuitemradio"
-                      aria-checked={current}
-                      className={`lore-row__menu-item lore-row__scope-option${
-                        current ? " lore-row__menu-item--active" : ""
-                      }`}
-                      data-testid={`lore-scope-${c.kind}`}
+                      role="menuitem"
+                      className="lore-row__menu-item lore-row__scope-open-manual"
+                      data-testid="lore-scope-open-manual"
                       onClick={() => {
                         setScopeOpen(false);
-                        if (!current) onSetScope(entry.id, c.kind);
+                        onOpenManual(scope.manualKey);
                       }}
                     >
-                      <span className="lore-row__scope-check" aria-hidden="true">
-                        {current && <CheckIcon size={14} />}
-                      </span>
-                      <span className="lore-row__scope-option-head">
-                        <span data-testid="lore-scope-option-label">{c.label}</span>
-                        {tag !== "" && (
-                          <span
-                            className="lore-row__scope-tag"
-                            data-testid="lore-scope-option-tag"
-                          >
-                            {tag}
-                          </span>
-                        )}
-                      </span>
+                      {msg.loreOpenManual(scope.label)}
                     </button>
-                  );
-                })}
-                {scope.manualKey !== "" && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="lore-row__menu-item lore-row__scope-open-manual"
-                    data-testid="lore-scope-open-manual"
-                    onClick={() => {
-                      setScopeOpen(false);
-                      onOpenManual(scope.manualKey);
-                    }}
-                  >
-                    {msg.loreOpenManual(scope.label)}
-                  </button>
-                )}
-              </div>
-            )}
-          </span>
+                  )}
+                </div>
+              )}
+            </span>
+          ) : (
+            <span
+              className="lore-badge lore-badge--scope"
+              data-testid="lore-scope-name"
+              data-scope-kind={scope.kind}
+              title={t.lore.scopeMenuLabel}
+            >
+              <span className="lore-badge__text">{scope.label}</span>
+            </span>
+          )}
         </div>
 
-        {/* A pure STATE INDICATOR: aria-hidden, no role, pointer-events:none in
-            CSS, and a DIFFERENT ICON per state rather than one icon rotated. */}
-        <span
-          className="lore-row__expand-mark"
-          data-testid="lore-expand-mark"
-          aria-hidden="true"
-        >
-          {expanded ? <ChevronDownIcon size={18} /> : <ChevronRightIcon size={18} />}
-        </span>
-      </div>
-
-      <h3 className="lore-row__title">{entry.title}</h3>
-
-      {/* 🔴 內容 IS THE ONE THING 展開／收合 STILL CONTROLS (owner 2026-09-08,
-          card rc-2e10ee03b97c, superseding his own ruling 90 seconds earlier:
-          「我覺得好像應該唯一要折疊的是 content 然後要支援 md format」). So the
-          clamp stays HERE, and everything below — 撰寫人 / 生效期 / 失效理由 —
-          moved OUT of `expanded` and now shows on a closed row too. The earlier
-          reading (「才五百字好像沒什麼好折疊的」 ⇒ body always full, meta still
-          hidden) was the exact opposite arrangement and is dead.
-
-          🔴 THE TRUNCATION IS OF THE RENDERED OUTPUT, NEVER OF THE SOURCE. It
-          is CSS (-webkit-line-clamp on .lore-row__body--clamped): the markdown
-          is parsed in full and the BOX shows one line of it. Slicing the source
-          string to N characters would cut a `**` or a fence in half and hand
-          the parser something that is not the entry's markdown at all.
-
-          🔴 MARKDOWN GOES THROUGH THE SHARED, XSS-SAFE RENDERER, exactly as the
-          chat bubble does (ChatArea.tsx:2052). Never dangerouslySetInnerHTML:
-          a 傳承 body is agent-authored free text.
-          `breaks` for the same reason chat turns it on — this text was WRITTEN
-          as plain text, where Enter meant "new line", and standard markdown's
-          soft-wrap would silently join every such line into one run-on.
-
-          ⚠️ WHAT THIS COSTS THE ENTRIES THAT ALREADY EXIST, stated rather than
-          papered over: every stored body was written under a plain-text
-          contract, so characters that are now syntax are now read as syntax.
-          Chat had the identical problem with the identical corpus and did NOT
-          escape the text (it renders `m.body` raw through the same component),
-          and this follows chat — one behaviour for one kind of text, rather
-          than a second, page-local escaping rule that would make the same
-          sentence render two ways on two pages. What limits the blast radius is
-          the renderer's own inline set: only `**bold**`, `` `code` `` and
-          links. `_` is NOT inline syntax there, so a body carrying
-          `note_size_chars` is unaffected — the case that prompted the worry. */}
-      <div
-        className={`lore-row__body${
-          expanded ? "" : " lore-row__body--clamped"
-        }`}
-        data-testid="lore-body"
-      >
-        <Markdown source={entry.body} className="lore-row__body-md doc-md" breaks />
-      </div>
-
-      {/* 🔴 ALWAYS RENDERED — NOT `expanded &&` ANY MORE (owner 2026-09-08,
-          card rc-2e10ee03b97c). 展開／收合 now governs the CONTENT's length and
-          nothing else, so 撰寫人 / 生效期 / 失效理由 are on the closed row too.
-          Re-wrapping this in `expanded` would put the page back to hiding the
-          three rows the owner asked to see. */}
-      <div className="lore-row__meta">
-        {/* 撰寫人自成一列: label left, avatar+name pill right, and the
-            傳訊息 icon INSIDE the pill. */}
-        <span className="lore-row__meta-label">{t.lore.authorLabel}</span>
-        <LoreAuthorChip
-          author={author}
-          avatar={avatar}
-          onOpenChat={(peerId) => onOpenChat(peerId, entry.id)}
-        />
-
-        {/* 生效期 directly UNDER 撰寫人 (owner: 「生效期移到撰寫人下面一列」) —
-            with the composer lifted out of this grid, the two label rows are
-            now adjacent instead of being split by a writing surface. */}
-        <span className="lore-row__meta-label">{t.lore.effectiveLabel}</span>
-        <div className="lore-row__effective">
-          <span className="lore-row__effective-ts" data-testid="lore-effective">
-            {formatAbsolute(entry.effectiveTs, Date.now() / 1000)}
-          </span>
+        <div className="lore-row__actions">
           <button
             type="button"
-            className="lore-row__bump"
-            data-testid="lore-bump"
-            onClick={() => onBump(entry.id)}
+            className="doc-btn doc-btn--edit"
+            data-testid="lore-edit"
+            disabled={editing}
+            onClick={() => setEditing(true)}
           >
-            {t.lore.bump}
+            <PencilIcon size={14} />
+            <span>{t.lore.actionEdit}</span>
           </button>
-        </div>
-
-        {/* 失效理由沒填就整列不顯示 — no label, no empty value, no dash. An
-            empty reason is not a reason, and a row that renders one teaches
-            the reader that retirements come without explanations. */}
-        {entry.retireReason !== "" && (
-          <>
-            <span className="lore-row__meta-label">
-              {t.lore.retireReasonLabel}
-            </span>
-            <span
-              className="lore-row__retire-reason"
-              data-testid="lore-retire-reason"
+          {collapse && (
+            <button
+              type="button"
+              className="lore-row__fold lore-row__fold--open"
+              data-testid="lore-collapse"
+              aria-expanded={true}
+              aria-label={t.lore.collapseDropped}
+              title={t.lore.collapseDropped}
+              onClick={collapse}
             >
-              {entry.retireReason}
-            </span>
-          </>
-        )}
+              <ChevronRightIcon size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* The box to write to this entry's author — LAST ON THE CARD, in BOTH
-          states (owner 2026-09-08, screenshot: 「訊息匡應該在最下方」). It sat
-          between 內容 and 撰寫人／生效期, which put a writing surface in the
-          middle of the things you read.
-          🔴 IT IS OUTSIDE `expanded` AND MUST STAY OUTSIDE IT, the way 任務卡's
-          message box is always on the card (owner: 「訊息輸入框預設就要在」). A
-          reader who wants to ask one question about a row they can already read
-          should not have to open the row first — a step the 任務 page does not
-          ask for. Putting it after the expanded block is what satisfies BOTH
-          rulings at once: collapsed, the block above renders nothing and this is
-          the last thing on the card anyway; expanded, it is below 撰寫人 /
-          生效期 / 失效理由. Moving it back INSIDE `expanded` to "put it at the
-          bottom" would trade one owner ruling for the other.
-          🔴 Only a reachable author gets one. The departed author's pill is
-          deliberately not a button, and a composer that sends to nobody would be
-          that same dead affordance in a larger shape.
-          It is not a cell of `.lore-row__meta`'s grid, so lore.css gives it the
-          full row width itself rather than a `grid-column` span. */}
-      {author.peerId !== "" && (
-        <LoreAuthorComposer entryId={entry.id} author={author} />
+      {editing ? (
+        <LoreEntryEditor
+          entry={entry}
+          caps={entryCaps}
+          onRestored={(restored) => onRestored(entry.id, restored)}
+          onCancel={() => setEditing(false)}
+          onSave={async (patch) => {
+            await onSave(entry.id, patch);
+            setEditing(false);
+          }}
+        />
+      ) : (
+        <>
+          <h3 className="lore-row__title">{entry.title}</h3>
+
+          {/* 🔴 MARKDOWN GOES THROUGH THE SHARED, XSS-SAFE RENDERER, exactly as the
+              chat bubble does. Never dangerouslySetInnerHTML: a 傳承 body is
+              agent-authored free text. `breaks` for the same reason chat turns it
+              on — this text was WRITTEN as plain text, where Enter meant "new
+              line", and standard markdown's soft-wrap would silently join every
+              such line into one run-on.
+
+              ⚠️ Stored bodies were written under a plain-text contract, so
+              characters that are now syntax are read as syntax. This follows chat
+              (one behaviour for one kind of text). The renderer's inline set is
+              only `**bold**`, `` `code` `` and links; `_` is not syntax, so a body
+              carrying `note_size_chars` is unaffected.
+
+              The body is always shown in full (owner: no fold on the card). */}
+          <div className="lore-row__body" data-testid="lore-body">
+            <Markdown source={entry.body} className="lore-row__body-md doc-md" breaks />
+          </div>
+        </>
+      )}
+
+      <div className="lore-row__meta">
+        <span className="lore-row__meta-label">{t.lore.authorLabel}</span>
+        <LoreAuthorChip author={author} avatar={avatar} />
+        <span className="lore-row__meta-label">{t.lore.effectiveLabel}</span>
+        <span className="lore-row__effective-ts" data-testid="lore-effective">
+          {formatAbsolute(entry.effectiveTs, Date.now() / 1000)}
+        </span>
+      </div>
+      {/* No reason, no line: an empty one would teach that retirements come unexplained. */}
+      {entry.retireReason !== "" && (
+        <div className="lore-row__retire" data-testid="lore-retire-reason">
+          {t.lore.retireReasonLabel}：{entry.retireReason}
+        </div>
+      )}
+      {recipient !== null && (
+        <LoreMessageBox
+          entryId={entry.id}
+          recipient={recipient}
+          onUnsentChange={setMessageUnsent}
+        />
       )}
     </article>
   );
 }
 
-/** The box under 撰寫人 — one sentence to the person who wrote this entry,
- * sent without leaving the page.
- *
- * 🔴 THE ENTRY ID IS PREPENDED BY THIS BOX, NOT TYPED BY THE READER. The whole
- * reason this affordance exists is that the author may hold dozens of entries
- * and 「這條還適用嗎」 without a subject costs them a round trip to ask which
- * one. Leaving the reader to type the id would put the failure back exactly
- * where it was.
- *
- * ⚠️ NOTHING ON SCREEN SAYS SO ANY MORE. There used to be a line under the box
- * (`.lore-row__composer-note`) — the only place the reader learned that what
- * goes out is not exactly what they typed — and owner removed it in the round
- * that made this row look like a 任務卡 (任務卡 has no such line). The PREFIX
- * ITSELF WAS DELIBERATELY LEFT ALONE: that round was 外觀 only. So the silent
- * rewrite the note existed to disclose is now silent, and that is a known,
- * chosen cost, not an oversight to quietly re-fix here.
- *
- * 🔴 A FAILED SEND KEEPS THE DRAFT AND SAYS SO. A box that clears itself on a
- * failure looks identical to one that succeeded, and what is lost is the
- * reader's own sentence.
- *
- * ATTACHMENTS RIDE THE SAME MESSAGE, through the SAME staging machine the 任務卡
- * composer and the chat composer use (useAttachmentStaging): paste an image into
- * the box or pick files with the 📎, and they go out on the one postChat call
- * this box makes. The slot is per-mount, so one entry's staged files can never
- * surface under another's box.
- */
-function LoreAuthorComposer({
-  entryId,
+/** A dropped entry, folded: id, title and 讀不到 on one line. Any click, Enter
+ * or Space opens the full card in its place. The id is drawn, not a copy
+ * button, so the whole row stays one control. */
+function LoreDroppedRow({
+  entry,
+  highlighted,
+  onExpand,
+}: {
+  entry: LoreEntryView;
+  highlighted: boolean;
+  onExpand: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div
+      className={`lore-row lore-row--folded${highlighted ? " lore-row--highlight" : ""}`}
+      data-testid="lore-row"
+      data-entry-id={entry.id}
+      data-dimmed="true"
+      data-folded="true"
+      role="button"
+      tabIndex={0}
+      aria-expanded={false}
+      onClick={onExpand}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onExpand();
+        }
+      }}
+    >
+      <span className="lore-row__id-badge" data-testid="lore-entry-id">
+        <BookIcon size={13} />#{entry.id}
+      </span>
+      <span className="lore-row__folded-title" data-testid="lore-folded-title">
+        {entry.title}
+      </span>
+      <span className="lore-badge lore-badge--dropped" data-testid="lore-dropped-tag">
+        {t.lore.droppedTag}
+      </span>
+      <span className="lore-row__fold" aria-hidden="true">
+        <ChevronRightIcon size={16} />
+      </span>
+    </div>
+  );
+}
+
+/** ↺ on a staged tag's top-right corner: hover names the value it goes back
+ * to, and any click or tap reverts that one field at once. */
+function LoreRevertMark({
+  field,
+  from,
+  onRevert,
+  disabled,
+}: {
+  field: StagedField;
+  from: string;
+  onRevert: () => void;
+  disabled: boolean;
+}) {
+  const { msg } = useI18n();
+  const label = msg.loreStagedRevertTo(from);
+  return (
+    <InstantHint
+      hint={label}
+      onActivate={onRevert}
+      disabled={disabled}
+      className="lore-row__revert"
+      aria-label={label}
+      data-testid={`lore-revert-${field}`}
+    >
+      <RotateCcwIcon size={9} />
+    </InstantHint>
+  );
+}
+
+/** 編輯 turns the card's title and body into this, in place. */
+function LoreEntryEditor({
+  entry,
+  caps,
+  onRestored,
+  onCancel,
+  onSave,
+}: {
+  entry: LoreEntryView;
+  caps: { title: number; body: number };
+  /** Re-reads the card after a 版本紀錄 restore of `restored` has landed. */
+  onRestored: (restored: Record<string, string> | undefined) => Promise<void>;
+  onCancel: () => void;
+  onSave: (patch: LoreEntryEdit) => Promise<void>;
+}): ReactNode {
+  const { t } = useI18n();
+  const [title, setTitle] = useState(entry.title);
+  const [body, setBody] = useState(entry.body);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    if (bodyRef.current) autosizeTextarea(bodyRef.current);
+  }, [body]);
+
+  const titleBlank = title.trim() === "";
+  const nextTitle = title.trim();
+  const nextBody = body.trim();
+  const over =
+    editFieldBlocked(nextTitle, entry.title, caps.title) ||
+    editFieldBlocked(nextBody, entry.body, caps.body);
+  const changed = nextTitle !== entry.title || nextBody !== entry.body;
+  const canSave = !saving && changed && !titleBlank && !over;
+
+  async function save() {
+    if (!canSave) return;
+    const patch: LoreEntryEdit = {};
+    if (nextTitle !== entry.title) patch.title = nextTitle;
+    if (nextBody !== entry.body) patch.body = nextBody;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(patch);
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : t.lore.actionFailed);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="lore-row__editor" data-testid="lore-editor">
+      <label className="lore-row__editor-field">
+        <span className="lore-row__editor-label">{t.lore.editTitleLabel}</span>
+        <input
+          type="text"
+          className="lore-row__editor-input"
+          data-testid="lore-edit-title"
+          value={title}
+          disabled={saving}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </label>
+      <label className="lore-row__editor-field">
+        <span className="lore-row__editor-label">{t.lore.editBodyLabel}</span>
+        <textarea
+          ref={bodyRef}
+          className="lore-row__editor-input lore-row__editor-body"
+          data-testid="lore-edit-body"
+          rows={3}
+          value={body}
+          disabled={saving}
+          onChange={(e) => setBody(e.target.value)}
+        />
+      </label>
+      {(titleBlank || over || error) && (
+        <div className="lore-row__editor-error" role="status" data-testid="lore-edit-error">
+          {error ?? (titleBlank ? t.lore.editTitleBlank : t.lore.editOverCap)}
+        </div>
+      )}
+      <div className="lore-row__editor-buttons">
+        {/* 版本紀錄 lives in edit mode only, left of 取消/儲存, as on DocCard. */}
+        <DocumentHistoryEntry
+          kind="lore_entry"
+          docKey={entry.id}
+          title={`#${entry.id} ${entry.title}`}
+          currentContent={{ title: entry.title, body: entry.body }}
+          disabled={saving}
+          onRestored={async (restored) => {
+            // The restore already landed, so the draft is stale whatever the
+            // re-read does: leave edit mode either way, as DocCard does.
+            try {
+              await onRestored(restored);
+            } finally {
+              onCancel();
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="lore-row__action"
+          data-testid="lore-edit-cancel"
+          disabled={saving}
+          onClick={onCancel}
+        >
+          {t.lore.editCancel}
+        </button>
+        <button
+          type="button"
+          className="lore-row__editor-save"
+          data-testid="lore-edit-save"
+          disabled={!canSave}
+          onClick={() => void save()}
+        >
+          {saving ? t.lore.editSaving : t.lore.editSave}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The 撰寫人 pill: who wrote the entry, never a way to reach them — the
+ * message box under the card is that. */
+function LoreAuthorChip({
   author,
+  avatar,
+}: {
+  author: AuthorIdentity;
+  avatar: { src?: string; kind: AvatarKind } | null;
+}): ReactNode {
+  return (
+    <span className="lore-row__chip" data-testid="lore-author-row">
+      {author.peerId !== "" && avatar ? (
+        <Avatar size={18} kind={avatar.kind} src={avatar.src} />
+      ) : null}
+      <span className="lore-row__author" data-testid="lore-author">
+        {author.text}
+      </span>
+    </span>
+  );
+}
+
+/** The 任務卡 message box on a 傳承 card: one message to `recipient`, sent
+ * without leaving the page, with the entry id leading it.
+ *
+ * `[LoreID=…]` is a literal, not an i18n key: the reader is an agent, and a
+ * prefix that changed with the cockpit's language could not be matched on.
+ * `meta.lore_entry_id` carries the same id for a program, so nothing has to
+ * parse the human-facing prefix. */
+function LoreMessageBox({
+  entryId,
+  recipient,
+  onUnsentChange,
 }: {
   entryId: string;
-  author: AuthorIdentity;
+  recipient: MessageRecipient;
+  /** Whether typed text or staged files are waiting to be sent. */
+  onUnsentChange: (unsent: boolean) => void;
 }): ReactNode {
   const { t } = useI18n();
   const isMobile = useIsMobile();
-  // The owner's 建議回覆 for THIS box (T-33) — its own settings list, never the
-  // 請示卡 or 任務 one. Empty (the shipped state, and the answer to a failed
-  // settings read) renders nothing at all, and the box is untouched by it.
   const suggestedReplies = useSuggestedRepliesLoreMessage();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [sent, setSent] = useState(false);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
-  // The SHARED staging machine (same caps, same paste/pick funnels as the chat
-  // composer / 任務卡). `STAGING_TARGET_PER_MOUNT` is the honest slot for this
-  // surface: a LoreRow is mounted per entry, so the files die with the entry's
-  // box and one row's staging cannot appear under another row's.
   const {
     pendingAttachments,
     attachError,
@@ -1620,17 +2442,24 @@ function LoreAuthorComposer({
     removeAttachment,
     clearAttachments,
   } = useAttachmentStaging(STAGING_TARGET_PER_MOUNT);
-  // 🔴 TEXT **OR** FILES — the same rule 任務卡 uses. A message that is only a
-  // screenshot is a legitimate message; requiring a sentence beside it would
-  // make the 📎 an affordance that cannot complete on its own.
   const canSend =
-    !sending && (draft.trim().length > 0 || pendingAttachments.length > 0);
+    !sending &&
+    recipient.roster === undefined &&
+    (draft.trim().length > 0 || pendingAttachments.length > 0);
+  const placeholder =
+    recipient.roster === "loading"
+      ? t.lore.loadingMore
+      : recipient.roster === "error"
+        ? t.office.loadError
+        : t.tasks.messagePlaceholder(recipient.name);
 
-  // Auto-grow to the draft, same as the chat composer; the CSS max-height caps
-  // it and the box scrolls beyond that.
   useLayoutEffect(() => {
     if (boxRef.current) autosizeTextarea(boxRef.current);
   }, [draft]);
+  const unsent = draft !== "" || pendingAttachments.length > 0;
+  useEffect(() => {
+    onUnsentChange(unsent);
+  }, [unsent, onUnsentChange]);
 
   async function send() {
     if (!canSend) return;
@@ -1639,34 +2468,9 @@ function LoreAuthorComposer({
       ...(a.filename ? { filename: a.filename } : {}),
     }));
     setSending(true);
-    setSent(false);
     try {
-      // The id LEADS the message, the same shape the 任務 message box sends
-      // 「[TaskID=T-33] …」 in — and it now NAMES THE KIND OF ID it carries
-      // (owner rc-01a07b1b2a12 [0][1][2], rc-379631993586 「ok. B.」). 「[L-3] …」
-      // said the id without ever saying what it was an id OF, which is only
-      // readable by someone who already knows both id namespaces.
-      //
-      // 🔴 THE LITERAL IS WRITTEN HERE AND IS NOT AN i18n KEY, deliberately.
-      // That is the reason the owner picked this form: the reader on the other
-      // end is an agent, not this browser, and a prefix that changed with the
-      // cockpit's language would be a prefix nothing can match on.
-      //
-      // 🔴 `meta.lore_entry_id` IS THE OTHER HALF AND IS NOT A DUPLICATE OF IT.
-      // The prefix is for a PERSON and is display — the owner can reword it,
-      // and a round of 外觀 work already deleted the note that used to sit
-      // beside it. `meta` is for a PROGRAM: an agent receiving this message has
-      // to know WHICH ENTRY it is about without parsing a human-facing string
-      // that is free to change. The task message box has carried meta.task_id
-      // since it existed; this box carried an empty meta until now.
-      //
-      // The server copies unknown meta keys through WHOLESALE — read, not
-      // assumed: HandlePostChatApiChatPost (api_chat.go) builds its map from
-      // body.Meta, then `delete`s `reply_to` and `reply_excerpt` (it is the
-      // only writer of both) and OVERWRITES `attachments` when the post
-      // carries any. Every other key, this one included, is stored verbatim.
       await api.postChat({
-        to: author.peerId,
+        to: recipient.id,
         body: `[LoreID=${entryId}] ${draft.trim()}`,
         meta: { lore_entry_id: entryId },
         ...(attachments.length > 0 ? { attachments } : {}),
@@ -1674,12 +2478,8 @@ function LoreAuthorComposer({
       setDraft("");
       clearAttachments();
       setFailed(false);
-      setSent(true);
     } catch (e) {
-      console.warn("LorePage: message to author failed", e);
-      // The typed content stays — retry-friendly, and the notice says so. The
-      // STAGED FILES stay for the same reason: clearing them on a failure would
-      // silently cost the reader the thing they cannot retype.
+      console.warn("LorePage: lore message failed", e);
       setFailed(true);
     } finally {
       setSending(false);
@@ -1687,9 +2487,6 @@ function LoreAuthorComposer({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Shared send rule (IME gate + mobile newline) — see lib/composerKeys. On a
-    // phone Enter is left un-prevented so the box inserts a native newline and
-    // the button is the only way to send.
     if (enterShouldSend(e, { isMobile, composing: isComposingRef.current })) {
       e.preventDefault();
       void send();
@@ -1697,10 +2494,7 @@ function LoreAuthorComposer({
   }
 
   return (
-    <div className="lore-row__composer" data-testid="lore-author-composer">
-      {/* Staged-attachment preview strip — the SAME component (and therefore the
-       * same markup and classes) the chat composer / ReplyComposer / 任務卡 use.
-       * The mount guard lives here, as it does at every other call site. */}
+    <div className="lore-row__message" data-testid="lore-message-box">
       {(pendingAttachments.length > 0 || attachError) && (
         <ComposerAttachmentPreview
           pendingAttachments={pendingAttachments}
@@ -1708,9 +2502,10 @@ function LoreAuthorComposer({
           onRemove={removeAttachment}
         />
       )}
-      <div className="lore-row__composer-row">
+      <div className="task-card__composer">
         <input
           ref={fileInputRef}
+          className="chat__file-input"
           type="file"
           accept={ATTACH_ACCEPT}
           multiple
@@ -1719,7 +2514,7 @@ function LoreAuthorComposer({
         />
         <button
           type="button"
-          className="lore-row__composer-attach"
+          className="chat__attach"
           aria-label={t.chat.attachLabel}
           title={t.chat.attachLabel}
           disabled={sending}
@@ -1730,16 +2525,15 @@ function LoreAuthorComposer({
         </button>
         <textarea
           ref={boxRef}
-          className="lore-row__composer-input"
+          className="chat__input"
           rows={1}
           value={draft}
           disabled={sending}
-          placeholder={t.lore.messagePlaceholder(author.text)}
+          placeholder={placeholder}
+          aria-label={placeholder}
           data-testid="lore-msg-input"
-          onChange={(e) => {
-            setDraft(e.target.value);
-            setSent(false);
-          }}
+          data-recipient={recipient.id}
+          onChange={(e) => setDraft(e.target.value)}
           onCompositionStart={() => {
             isComposingRef.current = true;
           }}
@@ -1752,21 +2546,15 @@ function LoreAuthorComposer({
         ></textarea>
         <button
           type="button"
-          className="lore-row__composer-send"
+          className="task-card__send"
           disabled={!canSend}
           data-testid="lore-msg-send"
           onClick={() => void send()}
         >
           <SendIcon size={14} />
-          {t.lore.messageSend}
+          {t.tasks.send}
         </button>
       </div>
-      {/* T-33: a pick FILLS this box and leaves the send to the owner — the same
-       * rule the other two boxes keep. This message goes to the entry's writer
-       * and cannot be recalled, so a mis-tap must cost a keystroke, never a
-       * message. It sits OUTSIDE `.lore-row__composer-row` (the flex row holding
-       * the 📎, the textarea and 送出): a row of its own, under that one, as on
-       * 任務卡. */}
       <SuggestedReplies
         replies={suggestedReplies}
         testId="lore-suggested-replies"
@@ -1776,68 +2564,10 @@ function LoreAuthorComposer({
         }}
       />
       {failed && (
-        <div
-          className="lore-row__composer-error"
-          role="status"
-          data-testid="lore-msg-failed"
-        >
-          {t.lore.messageFailed}
-        </div>
-      )}
-      {sent && !failed && (
-        <div
-          className="lore-row__composer-sent"
-          role="status"
-          data-testid="lore-msg-sent"
-        >
-          {t.lore.messageSent}
+        <div className="lore-row__message-error" role="status" data-testid="lore-msg-failed">
+          {t.tasks.messageError}
         </div>
       )}
     </div>
-  );
-}
-
-/** The 撰寫人 pill.
- *
- * 🔴 THE TWO ARMS ARE DIFFERENT ELEMENTS, not one element with a hidden icon.
- * A resolvable author gets a `<button>` carrying avatar + name + 傳訊息 icon; an
- * author who is no longer on the roster gets a plain `<span>` with the same
- * pill look and NO icon. Hiding only the glyph would leave a clickable pill
- * that opens a chat with nobody — the affordance, not just its decoration, is
- * what has to go. (Same construction as TaskCard's creator row.) */
-function LoreAuthorChip({
-  author,
-  avatar,
-  onOpenChat,
-}: {
-  author: AuthorIdentity;
-  avatar: { src?: string; kind: AvatarKind } | null;
-  onOpenChat: (peerId: string) => void;
-}): ReactNode {
-  const { t } = useI18n();
-  if (author.peerId === "") {
-    return (
-      <span className="lore-row__chip" data-testid="lore-author-row">
-        <span className="lore-row__author" data-testid="lore-author">
-          {author.text}
-        </span>
-      </span>
-    );
-  }
-  return (
-    <button
-      type="button"
-      className="lore-row__chip lore-row__chip--link"
-      title={t.lore.messageAuthor}
-      aria-label={t.lore.messageAuthor}
-      data-testid="lore-author-link"
-      onClick={() => onOpenChat(author.peerId)}
-    >
-      {avatar ? <Avatar size={18} kind={avatar.kind} src={avatar.src} /> : null}
-      <span className="lore-row__author" data-testid="lore-author">
-        {author.text}
-      </span>
-      <ChatBubbleIcon size={13} />
-    </button>
   );
 }

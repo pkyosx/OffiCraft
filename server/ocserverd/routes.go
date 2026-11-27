@@ -1430,6 +1430,12 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool: "bump_lore_entry",
 		}),
 		Gated(principalAgent, routeDef{
+			Method:     "GET",
+			Path:       "/api/lore/budgets",
+			Handler:    w.HandleListLoreBudgetsApiLoreBudgetsGet,
+			MCPExclude: true,
+		}),
+		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/steps",
 			Handler: w.HandleInsertTaskStepApiTasksTaskIdStepsPost,
@@ -1545,6 +1551,12 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Path:    "/api/auth/login-protection",
 			Handler: w.HandleLoginProtectionApiAuthLoginProtectionGet,
 			MCPTool: "get_login_protection",
+		}),
+		Gated(principalAgent, routeDef{
+			Method:  "PATCH",
+			Path:    "/api/lore/{entry_id}",
+			Handler: w.HandleEditLoreEntryApiLoreEntryIdPatch,
+			MCPTool: "edit_lore_entry",
 		}),
 	}
 	out := make([]RouteSpec, len(rows))

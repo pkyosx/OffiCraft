@@ -337,8 +337,9 @@ def _fold_order(entries: list[dict]) -> list[dict]:
 
 def _expected_lore_block(client, owner_token, member_id: str) -> str:
     """Rebuild the 傳承 block (T-33) the staff fold appends after the persona:
-    the `everyone` (所有人) entries first, then the member's own `agent` entries,
-    walked as ONE sequence against ONE budget (T-236, selectMemberLore).
+    the `everyone` (所有人) entries and the member's own `agent` entries merged
+    into ONE list by the fold's order (pinned first, then effective_ts DESC,
+    seq DESC), walked against ONE budget (selectMemberLore).
 
     🔴 KEYED BY THE MEMBER, NOT BY THE ROLE, AND THE EMPTY-STRING CASE IS THE
     ONE TO READ CAREFULLY. The owner collapsed the 傳承 scopes to two on
@@ -397,7 +398,7 @@ def _expected_lore_block(client, owner_token, member_id: str) -> str:
         return ""
     everyone, _ = _lore_scope_rows(client, owner_token, "everyone", "")
     own, cap_chars = _lore_scope_rows(client, owner_token, "agent", member_id)
-    live = _fold_order(everyone) + _fold_order(own)
+    live = _fold_order(everyone + own)
 
     chosen: list[dict] = []
     used = 0

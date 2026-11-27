@@ -84,8 +84,8 @@ func TestLoreCapsMayBeLOWERED(t *testing.T) {
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("lowering the 傳承 caps must be allowed, got %d %s — these four do "+
-			"NOT carry the doc-cap 只能調高 rule: an entry has no edit path, so a "+
-			"lower cap cannot strand anything already stored",
+			"NOT carry the doc-cap 只能調高 rule: an over-cap entry stays as stored "+
+			"and an edit of that field only has to shorten it",
 			rec.Code, rec.Body.String())
 	}
 	if got := api.loreRoleCap(); got != 500 {

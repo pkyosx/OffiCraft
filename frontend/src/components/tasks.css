@@ -1641,49 +1641,6 @@ button.task-card__waiting--dep:focus-visible {
   color: var(--color-text-muted);
 }
 
-/* ── message box ── */
-.task-card__composer {
-  /* Anchors the @mention picker (chat-mention.css) to the row's width. */
-  position: relative;
-  display: flex;
-  /* Bottom-align: the input is a growing textarea (multi-line drafts) — the
-   * send button stays anchored to its last line, like the chat composer. */
-  align-items: flex-end;
-  gap: 8px;
-}
-.task-card__composer .chat__input {
-  flex: 1;
-}
-/* Unassigned task: the whole composer is inert — the attach button greys out
- * like the send button (office.css never disables .chat__attach; this box
- * does, while there is no executor to message). */
-.task-card__composer .chat__attach:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.task-card__send {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 9px 16px;
-  border-radius: 10px;
-  border: none;
-  background: var(--color-indigo);
-  color: var(--color-text-strong);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: filter 0.15s;
-}
-.task-card__send:hover:not(:disabled) {
-  filter: brightness(1.15);
-}
-.task-card__send:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
 /* ── embedded reply card (task 面) ── */
 .task-reply-card {
   border-color: color-mix(in srgb, var(--color-dot-waking) 35%, transparent);

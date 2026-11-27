@@ -832,7 +832,9 @@ export type DocumentKind =
   | "task_reassign_predecessor"
   | "task_takeover_with_predecessor"
   | "task_unblocked"
-  | "task_ready_for_done";
+  | "task_ready_for_done"
+  // One 傳承 entry's title and body, keyed by the entry id ("L-7").
+  | "lore_entry";
 
 /** The DocumentKinds that carry a seeded boot-context / lifecycle document
  * (T-791e, widened by T-3201). Narrower than DocumentKind on purpose: the

@@ -68,15 +68,6 @@ func TestValidateWording(t *testing.T) {
 			}
 		})
 	}
-
-	entries := make(map[string]string, 2001)
-	for i := 0; i < 2001; i++ {
-		entries[fmt.Sprintf("unknown.%04d", i)] = "x"
-	}
-	overCap := map[string]map[string]string{"zh": entries}
-	if err := validateWording(&overCap, "theme[0]"); err == nil || err.Error() != `theme[0]: wording[zh] holds more than 2000 entries` {
-		t.Fatalf("over-cap wording error = %v", err)
-	}
 }
 
 func TestDropUnknownWordingCodes(t *testing.T) {

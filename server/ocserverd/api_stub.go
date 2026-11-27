@@ -513,8 +513,9 @@ func (s *apiServer) loreManualCap() int {
 	return s.loreCapCharsManual
 }
 
-// loreTitleCap / loreBodyCap, unlike the doc caps, may be lowered: an entry has
-// no edit path, so a smaller cap can never strand a stored one.
+// loreTitleCap / loreBodyCap, unlike the doc caps, may be lowered: a stored
+// entry over a lowered cap is left as it is, and only a write or an edit of that
+// field is held to it.
 func (s *apiServer) loreTitleCap() int {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
