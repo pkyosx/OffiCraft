@@ -14,6 +14,8 @@
 // page does with the answer is under test here, not the mock's arithmetic.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { __resetHashRouteForTests } from "../lib/hashRoute";
@@ -233,6 +235,28 @@ describe("LorePage — 變灰", () => {
 
     fireEvent.click(staged.querySelector('[data-testid="lore-revert-state"]')!);
     expect(rowById(container, "mid").querySelector('[data-testid="lore-collapse"]')).not.toBeNull();
+  });
+
+  it("an opened dropped entry has no chevron while its editor is open or its message box holds text, so neither can be folded away", async () => {
+    stubList(page(entries, { capChars: 10000, firstDroppedId: "mid" }));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
+    fireEvent.click(rowById(container, "mid"));
+    const collapseOf = () => rowById(container, "mid").querySelector('[data-testid="lore-collapse"]');
+
+    fireEvent.click(rowById(container, "mid").querySelector('[data-testid="lore-edit"]')!);
+    fireEvent.change(rowById(container, "mid").querySelector('[data-testid="lore-edit-body"]')!, {
+      target: { value: "改到一半" },
+    });
+    expect(collapseOf()).toBeNull();
+    fireEvent.click(rowById(container, "mid").querySelector('[data-testid="lore-edit-cancel"]')!);
+    expect(collapseOf()).not.toBeNull();
+
+    const box = rowById(container, "mid").querySelector('[data-testid="lore-msg-input"]')!;
+    fireEvent.change(box, { target: { value: "還沒送" } });
+    expect(collapseOf()).toBeNull();
+    fireEvent.change(box, { target: { value: "" } });
+    expect(collapseOf()).not.toBeNull();
   });
 
   it("greys nothing when no entry carries dropped (the request did not converge on one target)", async () => {
@@ -1959,6 +1983,20 @@ describe("LorePage — 目錄與段落頁", () => {
     ]);
     expect(head.querySelector<HTMLElement>('[data-testid="lore-bar-everyone"]')!.style.width).toBe("60%");
     expect(head.querySelector<HTMLElement>('[data-testid="lore-bar-own"]')!.style.width).toBe("34%");
+    expect(head.querySelector('[data-testid="lore-bar-everyone"]')!.className).toBe("lore-dir-card__seg-everyone");
+    expect(head.querySelector('[data-testid="lore-bar-own"]')!.className).toBe("lore-dir-card__bar-fill");
+    expect(head.querySelector('[data-testid="lore-legend-everyone"] i')!.className).toBe(
+      "lore-dir-card__swatch lore-dir-card__swatch--everyone",
+    );
+    expect(head.querySelector('[data-testid="lore-legend-own"] i')!.className).toBe("lore-dir-card__swatch");
+    const css = readFileSync(join(__dirname, "lore.css"), "utf8");
+    const ruleOf = (selector: string) => {
+      const start = css.indexOf(selector);
+      return css.slice(start, css.indexOf("}", start));
+    };
+    expect(ruleOf(".lore-dir-card__seg-everyone,")).toContain(".lore-dir-card__swatch.lore-dir-card__swatch--everyone {");
+    expect(ruleOf(".lore-dir-card__bar-fill {")).toContain("background: var(--color-accent);");
+    expect(ruleOf(".lore-dir-card__swatch {")).toContain("background: var(--color-accent);");
     expect(head.querySelector('[data-testid="lore-section-used"]')!.textContent).toBe("9,400 字");
     expect(head.querySelector('[data-testid="lore-section-used"] b')!.textContent).toBe("9,400");
     expect(head.querySelector('[data-testid="lore-section-cap"]')!.textContent).toBe("上限 10,000");
@@ -2127,6 +2165,10 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(rowById(container, "L-198").classList.contains("lore-row--highlight")).toBe(false);
     expect(rowById(container, "L-198").dataset.folded).toBe("true");
     await waitFor(() => expect(document.activeElement).toBe(row));
+
+    window.location.hash = "#lore/agent/mira/entry/L-198";
+    await waitFor(() => expect(rowById(container, "L-198").dataset.folded).toBeUndefined());
+    await waitFor(() => expect(document.activeElement).toBe(rowById(container, "L-198")));
   });
 
   it("a highlighted entry beyond the first page is paged in", async () => {

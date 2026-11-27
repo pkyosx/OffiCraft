@@ -1140,18 +1140,6 @@ function LoreView({
     }
     if (loadMore(currentDef)) r.pages += 1;
   }, [currentDef, currentData, highlightId, highlightLoaded, filterKey, loadMore]);
-  const scrolledToRef = useRef("");
-  useEffect(() => {
-    if (!highlightLoaded) {
-      scrolledToRef.current = "";
-      return;
-    }
-    if (scrolledToRef.current === highlightId) return;
-    scrolledToRef.current = highlightId;
-    const el = rowElement(scrollRef.current, highlightId);
-    el?.scrollIntoView?.({ block: "center" });
-    el?.focus({ preventScroll: true });
-  }, [highlightLoaded, highlightId]);
 
   // A dropped entry shows as one row until opened. Opening is remembered per
   // entry for the life of the page, so a re-read that keeps it dropped keeps it
@@ -1159,6 +1147,7 @@ function LoreView({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const focusAfterToggle = useRef<{ id: string; open: boolean } | null>(null);
   function setEntryExpanded(id: string, open: boolean) {
+    if (expanded.has(id) === open) return;
     focusAfterToggle.current = { id, open };
     setExpanded((prev) => {
       if (prev.has(id) === open) return prev;
@@ -1172,6 +1161,22 @@ function LoreView({
     if (highlightId === "") return;
     setExpanded((prev) => (prev.has(highlightId) ? prev : new Set(prev).add(highlightId)));
   }, [highlightId]);
+  const highlightExpanded = expanded.has(highlightId);
+  const scrolledToRef = useRef("");
+  useEffect(() => {
+    if (!highlightLoaded) {
+      scrolledToRef.current = "";
+      return;
+    }
+    // Focusing the folded row would lose focus to <body> once the open card
+    // replaces it on the next render.
+    if (!highlightExpanded) return;
+    if (scrolledToRef.current === highlightId) return;
+    scrolledToRef.current = highlightId;
+    const el = rowElement(scrollRef.current, highlightId);
+    el?.scrollIntoView?.({ block: "center" });
+    el?.focus({ preventScroll: true });
+  }, [highlightLoaded, highlightExpanded, highlightId]);
   useEffect(() => {
     const f = focusAfterToggle.current;
     if (!f) return;
@@ -1738,7 +1743,8 @@ function LoreRow({
   entry: LoreEntryView;
   dimmed: boolean;
   /** Folds an opened dropped entry back to its one-line row; null ⇒ this card
-   * does not fold (it is read, or it carries a staged change). */
+   * does not fold (it is read, or it carries a staged change). It does not fold
+   * either while its editor is open or its message box holds unsent input. */
   onCollapse: (() => void) | null;
   author: AuthorIdentity;
   avatar: { src?: string; kind: AvatarKind } | null;
@@ -1773,6 +1779,8 @@ function LoreRow({
   const [scopeOpen, setScopeOpen] = useState(false);
   const scopeRef = useRef<HTMLSpanElement>(null);
   const [editing, setEditing] = useState(false);
+  const [messageUnsent, setMessageUnsent] = useState(false);
+  const collapse = editing || messageUnsent ? null : onCollapse;
 
   useEffect(() => {
     if (!scopeOpen) return;
@@ -2113,7 +2121,7 @@ function LoreRow({
             <PencilIcon size={14} />
             <span>{t.lore.actionEdit}</span>
           </button>
-          {onCollapse && (
+          {collapse && (
             <button
               type="button"
               className="lore-row__fold lore-row__fold--open"
@@ -2121,7 +2129,7 @@ function LoreRow({
               aria-expanded={true}
               aria-label={t.lore.collapseDropped}
               title={t.lore.collapseDropped}
-              onClick={onCollapse}
+              onClick={collapse}
             >
               <ChevronRightIcon size={16} />
             </button>
@@ -2178,7 +2186,11 @@ function LoreRow({
           {t.lore.retireReasonLabel}：{entry.retireReason}
         </div>
       )}
-      <LoreMessageBox entryId={entry.id} recipient={recipient} />
+      <LoreMessageBox
+        entryId={entry.id}
+        recipient={recipient}
+        onUnsentChange={setMessageUnsent}
+      />
     </article>
   );
 }
@@ -2410,9 +2422,12 @@ function LoreAuthorChip({
 function LoreMessageBox({
   entryId,
   recipient,
+  onUnsentChange,
 }: {
   entryId: string;
   recipient: MessageRecipient;
+  /** Whether typed text or staged files are waiting to be sent. */
+  onUnsentChange: (unsent: boolean) => void;
 }): ReactNode {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -2445,6 +2460,10 @@ function LoreMessageBox({
   useLayoutEffect(() => {
     if (boxRef.current) autosizeTextarea(boxRef.current);
   }, [draft]);
+  const unsent = draft !== "" || pendingAttachments.length > 0;
+  useEffect(() => {
+    onUnsentChange(unsent);
+  }, [unsent, onUnsentChange]);
 
   async function send() {
     if (!canSend) return;
