@@ -139,10 +139,10 @@ func TestHandleGetMemberBootContextApiMembersMemberIdBootContextGet(t *testing.T
 		if status, data := apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"OWNER ADDITIONS"}`); status != 200 {
 			t.Fatalf("replace owner additions: %d %v", status, data)
 		}
-		zhContext := "# SYSTEM INTERACTION\n\n# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\n" + termAliasesTable() + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
+		zhContext := "# SYSTEM INTERACTION\n\n# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\nWrite to the user in Traditional Chinese (Taiwan) even when the user writes in another language.\n\n" + termAliasesTable() + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
 		const enContext = "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\n# User additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
 		for _, want := range []string{
-			"\n\nThe user sees OffiCraft in Chinese. When you speak Chinese to the user, call OffiCraft features by the Chinese names on their screen below; when the user uses one of these names, it means the English term in the same row.\n\n| Chinese on screen | English (this document) |\n| --- | --- |\n| 辦公室 | Office |\n",
+			"\n\nThe user sees OffiCraft in Chinese. Call OffiCraft features by the Chinese names on their screen below; when the user uses one of these names, it means the English term in the same row.\n\n| Chinese on screen | English (this document) |\n| --- | --- |\n| 辦公室 | Office |\n",
 			"\n| 請示卡／請示 | Reply card／Ask |\n",
 			"\n| 傳承 | Lore |\n",
 		} {
