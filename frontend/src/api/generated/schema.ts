@@ -1330,7 +1330,7 @@ export interface paths {
         put?: never;
         /**
          * Restore a retained document version as a new write: the version's text is written back as an edit, so the document is no longer default (``is_default`` false). An id that list_document_history does not list, including a tombstone version retained by an older server, answers 404. For ``kind`` ``lore_entry`` (key = the lore entry id) a restore needs the same reach as edit_lore_entry — the entry's author or an admin, and admin-only while the entry is pinned — and the restored title and body follow the same shrink-only cap rule as an edit: a changed field over the current cap that does not come out shorter than what is stored is a 400 that changes nothing.
-         * @description While developer mode is off, restoring a version of a boot document is a 409 for every caller; Owner Additions (global_context) versions are never locked.
+         * @description While developer mode is off, restoring a version of a boot document is a 409 for every caller allowed to restore it; User additions (global_context) versions are never locked.
          */
         post: operations["handle_restore_document_history_api_document_history__kind___key___id__restore_post"];
         delete?: never;
@@ -3361,7 +3361,7 @@ export interface paths {
          *     - `chat_budget_chars`: Chat-block budget of the wake snapshot (resume_summary, and the estimate peek_resume_summary_size reports).
          *     - `step_note_cap_chars`: Max length of one step note, checked on write: a stored note over a lowered cap stays readable, but any write that leaves it over the cap is refused.
          *     - `doc_cap_chars_*`: Length cap per document type: `duty` (Duty), `insight`, `manual_sop` (task manual sop_md), `system_interaction` (System interaction), `boot_sequence` (Boot steps; one knob for both runtimes, each text measured on its own), `offboard` (Stop). A stored document over a lowered cap accepts only edits that shrink it.
-         *     - `developer_mode`: Off (the default) locks the boot-context documents: replacing, resetting or restoring them is a 409 for every caller; the owner's additions stay editable.
+         *     - `developer_mode`: Off (the default) locks the boot-context documents: replacing, resetting or restoring them is a 409 for every caller allowed to make the change; User additions stay editable.
          *     - `disk_usage_interval_secs`: How often each warden measures OffiCraft disk usage; wardens apply a change at their next heartbeat.
          *     - `display_language`: Cockpit language, and the language every member writes to the owner in from its next boot; "" resets it to unset.
          *     - `display_theme`: Cockpit theme: "" (unset), a built-in id (office, office-light, modern-office-desk-day / -dusk / -night), or an existing custom theme id.
@@ -10291,7 +10291,7 @@ export interface components {
             codex_notice_round: number;
             /**
              * Developer Mode
-             * @description Developer mode. Off (the default) locks every boot-context block served by the boot-doc routes — edits, resets and restores of them are refused with 409 — while the owner's additions block (global context) stays editable.
+             * @description Developer mode. Off (the default) locks every boot-context block served by the boot-doc routes — edits, resets and restores of them are refused with 409 — while the User additions block (global context) stays editable.
              * @default false
              */
             developer_mode: boolean;
