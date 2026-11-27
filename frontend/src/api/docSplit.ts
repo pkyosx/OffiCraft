@@ -24,7 +24,7 @@ export const DOC_BODY_MARKER =
 
 /** `docBodyLegacyMarker`: the marker seeds carried before the English one.
  * ⚠️ Stored documents still contain it; never stop splitting on it. */
-export const DOC_BODY_LEGACY_MARKER =
+const DOC_BODY_LEGACY_MARKER =
   "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->";
 
 /** `docBodySep`: the marker as it appears on disk, a blank line either side. */

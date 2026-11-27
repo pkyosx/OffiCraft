@@ -128,6 +128,58 @@ func TestHandleGetMemberBootContextApiMembersMemberIdBootContextGet(t *testing.T
 		})
 	}
 
+	t.Run("the User Language block follows display.language, and a change reaches the next preview", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		memberPreviewSeed(t, d, Member{ID: "m-writer", Name: "Writer", RoleKey: memberPreviewRoleKey, Runtime: RuntimeClaude})
+		if status, data := apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"# SYSTEM INTERACTION"}`); status != 200 {
+			t.Fatalf("replace system interaction: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"OWNER ADDITIONS"}`); status != 200 {
+			t.Fatalf("replace owner additions: %d %v", status, data)
+		}
+		const (
+			zhContext = "# SYSTEM INTERACTION\n\n# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\n# Owner Additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
+			enContext = "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\n# Owner Additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
+		)
+		for _, step := range []struct{ name, settings, want string }{
+			{name: "never set", want: zhContext},
+			{name: "en", settings: `{"display_language":"en"}`, want: enContext},
+			{name: "zh", settings: `{"display_language":"zh"}`, want: zhContext},
+			{name: "en again", settings: `{"display_language":"en"}`, want: enContext},
+			{name: "cleared", settings: `{"display_language":""}`, want: zhContext},
+		} {
+			t.Run(step.name, func(t *testing.T) {
+				if step.settings != "" {
+					if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, step.settings); status != 200 {
+						t.Fatalf("PATCH %s: %d %v", step.settings, status, data)
+					}
+				}
+				status, data := apiJSON(t, h, "GET", "/api/members/m-writer/boot-context", owner, "")
+				if status != 200 {
+					t.Fatalf("want 200, got %d (%v)", status, data)
+				}
+				apiWantBody(t, data, map[string]any{"context": step.want})
+			})
+		}
+	})
+
+	t.Run("without owner additions the User Language block sits directly before the role", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		memberPreviewSeed(t, d, Member{ID: "m-writer", Name: "Writer", RoleKey: memberPreviewRoleKey, Runtime: RuntimeClaude})
+		if status, data := apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"# SYSTEM INTERACTION"}`); status != 200 {
+			t.Fatalf("replace system interaction: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"en"}`); status != 200 {
+			t.Fatalf("PATCH display_language: %d %v", status, data)
+		}
+
+		status, data := apiJSON(t, h, "GET", "/api/members/m-writer/boot-context", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"context": "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"})
+	})
+
 	t.Run("two staff members of one role each preview their own 傳承 and not the other's", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		memberPreviewSeed(t, d,

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  DOC_BODY_LEGACY_MARKER,
   DOC_BODY_MARKER,
   docJoinHeadBody,
   docSplitHeadBody,
@@ -19,9 +18,6 @@ describe("docSplitHeadBody", () => {
         "head\n\n<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->\n\nbody",
       ),
     ).toEqual({ head: "head", body: "body", split: true });
-    expect(DOC_BODY_LEGACY_MARKER).toBe(
-      "<!-- ↑唯讀區（程式產生，改不動）｜↓本體（可編輯，零變數） -->",
-    );
   });
 
   it("returns a markerless document whole and reports no split", () => {

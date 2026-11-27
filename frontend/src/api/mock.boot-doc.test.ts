@@ -439,12 +439,11 @@ describe("mockApi · 開機脈絡預覽", () => {
       await mockApi.getWorkerBootContext("ow-oa"),
     ]) {
       expect(ctx).toContain("\n\n# Owner Additions\n\nowner 寫的全域脈絡\n\n");
-      expect(ctx).not.toContain("使用者自訂");
     }
   });
 });
 
-describe("mockApi · User Language block (T-745)", () => {
+describe("mockApi · User Language block", () => {
   const ZH =
     "# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。";
   const EN =
@@ -483,43 +482,37 @@ describe("mockApi · User Language block (T-745)", () => {
     });
   }
 
-  async function both(): Promise<string[]> {
-    return [
-      await mockApi.getMemberBootContext("mira"),
-      await mockApi.getWorkerBootContext("ow-ul"),
-    ];
+  async function heads(lengths: [number, number]): Promise<[string, string]> {
+    const staff = await mockApi.getMemberBootContext("mira");
+    const worker = await mockApi.getWorkerBootContext("ow-ul");
+    return [staff.slice(0, lengths[0]), worker.slice(0, lengths[1])];
   }
 
   it("an unset display language gets the Traditional Chinese block, right after the system interaction and before Owner Additions, staff and outsource alike", async () => {
     injectWorker();
     await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
     await mockApi.saveGlobalContext("owner 寫的全域脈絡\n");
-    for (const ctx of await both()) {
-      expect(ctx.startsWith(`系統互動本文\n\n${ZH}\n\n# Owner Additions\n\nowner 寫的全域脈絡\n\n`)).toBe(true);
-      expect(ctx).not.toContain(EN);
-    }
+    const staff = `系統互動本文\n\n${ZH}\n\n# Owner Additions\n\nowner 寫的全域脈絡\n\n# Role: Assistant\n\n`;
+    const worker = `系統互動本文\n\n${ZH}\n\n# Owner Additions\n\nowner 寫的全域脈絡\n\n# Claude Code Runtime\n\n`;
+    expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
   });
 
   it("display language zh gets the Traditional Chinese block", async () => {
     injectWorker();
+    await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
     await mockApi.patchServerSettings({ displayLanguage: "zh" });
-    for (const ctx of await both()) {
-      expect(ctx).toContain(ZH);
-      expect(ctx).not.toContain(EN);
-    }
+    const staff = `系統互動本文\n\n${ZH}\n\n# Role: Assistant\n\n`;
+    const worker = `系統互動本文\n\n${ZH}\n\n# Claude Code Runtime\n\n`;
+    expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
   });
 
   it("display language en gets the English block, and with no owner text the next block follows it directly", async () => {
     injectWorker();
     await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
     await mockApi.patchServerSettings({ displayLanguage: "en" });
-    const [staff, worker] = await both();
-    for (const ctx of [staff, worker]) {
-      expect(ctx).toContain(`系統互動本文\n\n${EN}\n\n`);
-      expect(ctx).not.toContain(ZH);
-      expect(ctx).not.toContain("# Owner Additions");
-    }
-    expect(staff).toContain(`${EN}\n\n# Role: `);
+    const staff = `系統互動本文\n\n${EN}\n\n# Role: Assistant\n\n`;
+    const worker = `系統互動本文\n\n${EN}\n\n# Claude Code Runtime\n\n`;
+    expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
   });
 });
 
