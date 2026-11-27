@@ -226,7 +226,7 @@ func TestReplaceSharedDoc(t *testing.T) {
 	t.Run("an unknown id is refused with a 404", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		dalWantRefusal(t, d.ReplaceSharedDoc(SharedDocReplacement{ID: "sd-ghost", AttachmentID: "att-1"}, nil),
-			http.StatusNotFound, "shared doc 'sd-ghost' not found")
+			http.StatusNotFound, "file 'sd-ghost' not found")
 	})
 }
 
@@ -269,7 +269,7 @@ func TestRestoreSharedDocVersion(t *testing.T) {
 		dalCreateSharedDoc(t, d, dalTestSharedDoc("sd-2", "att-1"))
 		dalReplaceSharedDocWith(t, d, "sd-2", "att-2", "ann", 200)
 		dalWantRefusal(t, d.RestoreSharedDocVersion("sd-1", 1, "owner", 400),
-			http.StatusNotFound, "version 1 is not a retained version of shared doc 'sd-1'")
+			http.StatusNotFound, "version 1 is not a retained version of file 'sd-1'")
 	})
 }
 
@@ -301,6 +301,6 @@ func TestDeleteSharedDoc(t *testing.T) {
 	t.Run("an unknown id is refused with a 404", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		dalWantRefusal(t, d.DeleteSharedDoc("sd-ghost"),
-			http.StatusNotFound, "shared doc 'sd-ghost' not found")
+			http.StatusNotFound, "file 'sd-ghost' not found")
 	})
 }

@@ -20,7 +20,7 @@ When you receive a request, first clarify how it will be handled, how the task w
 
 Mark the items awaiting an Owner ruling explicitly and leave them to the Owner to confirm.
 
-When remote access needs to be opened (the user wants to reach the console from somewhere other than this computer), create a task with the built-in task manual "Allow remote connections" and execute it following the manual's steps.
+When remote access needs to be opened (the Owner wants to reach the console from somewhere other than this computer), create a task with the built-in task manual "Allow remote connections" and execute it following the manual's steps.
 
 # Operations Guide Point of Contact
 

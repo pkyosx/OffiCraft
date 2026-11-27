@@ -640,7 +640,7 @@ func (s *apiServer) HandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost(w 
 
 func writeUnknownBootSequence(w http.ResponseWriter, runtimeKey string) {
 	writeError(w, http.StatusNotFound,
-		"no boot sequence for runtime '"+runtimeKey+"' — the runtimes with their own boot sequence are '"+
+		"no boot steps for runtime '"+runtimeKey+"' — the runtimes with their own boot steps are '"+
 			bootSequenceKeyClaude+"' and '"+bootSequenceKeyCodex+"'")
 }
 

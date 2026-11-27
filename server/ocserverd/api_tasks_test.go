@@ -1524,7 +1524,7 @@ func TestAuthorizeTaskCreate(t *testing.T) {
 
 	t.Run("an outsource worker is refused before any other rule is consulted", func(t *testing.T) {
 		code, reason := authorizeTaskCreate(outsourceCaller, true, "ow-abc123", "")
-		if code != 403 || reason != "outsource workers may not create tasks" {
+		if code != 403 || reason != "outsource members may not create tasks" {
 			t.Fatalf("got (%d, %q)", code, reason)
 		}
 	})
@@ -1570,7 +1570,7 @@ func TestAuthorizeTaskCreate(t *testing.T) {
 		}
 		code, reason := authorizeTaskCreate(staffCaller, false, "", "mira")
 		if code != 403 || reason != "an ad-hoc task may only name yourself as executor "+
-			"(or be dispatched to an outsource worker)" {
+			"(or be dispatched to an outsource member)" {
 			t.Fatalf("another member: got (%d, %q)", code, reason)
 		}
 	})
@@ -1986,7 +1986,7 @@ func TestNameWithIDSlot(t *testing.T) {
 }
 
 // apiTestReadyForDoneNoticeT1 is the factory 〈任務可結案〉 for T-1, with %d for visit_no.
-const apiTestReadyForDoneNoticeT1 = "[T-1] Every step of this task has been reported complete. It is now parked at ready to close (ready_for_done) and will not finish on its own. This is visit %d to ready to close.\n\nAll Steps are complete; the closeout process starts now. Once the Task reaches a terminal state, its Artifacts, Step notes, and the required records on the Task are frozen and can no longer be added to, so first complete the following wrap-up in order:\n\n- Organize results and verification records: attach results that need acceptance or will be used to the Task with add_task_artifact; write verification results and other required records back to the corresponding Task or Step.\n- Ask the Owner for acceptance: open a Reply Card with the results, the verification results, and any risks or open items the Owner needs to know about. While the Owner has not replied, has asked for changes, or there are still open items, do not continue the closeout.\n- Handle Lore: after the Owner accepts, decide per the \"Lore\" section of the boot instructions whether there is experience worth keeping; write it only if there is, otherwise write nothing.\n- Clean up temporary data: use rm -r <full path> to remove the temporary files and folders this run created; do not run it attached to a terminal (Codex's tty is set to false). You must write out the full path literally; do not use variables. If a path does not exist or cannot be deleted, record the path in your report and continue the wrap-up.\n- Remove the external resources you opened.\n- Check the cards you opened that are still waiting for the Owner's reply (look them up with list_reply_cards): if you still need an answer, do not close yet; mark the ones you no longer need as expired, then close.\n- Complete the closeout: after confirming everything above is done, call MCP mark_task_done() to close the Task, and stop updating the Task.\n\nIf it is not yet appropriate to close, do not call mark_task_done(); leave the Task in the ready-to-close state. If a Step is added later, the Task returns to in progress."
+const apiTestReadyForDoneNoticeT1 = "[T-1] Every step of this task has been reported complete. It is now parked at ready to close (ready_for_done) and will not finish on its own. This is visit %d to ready to close.\n\nAll Steps are complete; the closeout process starts now. Once the Task reaches a terminal state, its Artifacts, Step notes, and the required records on the Task are frozen and can no longer be added to, so first complete the following wrap-up in order:\n\n- Organize results and verification records: attach results that need acceptance or will be used to the Task with add_task_artifact; write verification results and other required records back to the corresponding Task or Step.\n- Ask the Owner for acceptance: open a reply card with the results, the verification results, and any risks or open items the Owner needs to know about. While the Owner has not replied, has asked for changes, or there are still open items, do not continue the closeout.\n- Handle Lore: after the Owner accepts, decide per the \"Lore\" section of the boot instructions whether there is experience worth keeping; write it only if there is, otherwise write nothing.\n- Clean up temporary data: use rm -r <full path> to remove the temporary files and folders this run created; do not run it attached to a terminal (Codex's tty is set to false). You must write out the full path literally; do not use variables. If a path does not exist or cannot be deleted, record the path in your report and continue the wrap-up.\n- Remove the external resources you opened.\n- Check the cards you opened that are still waiting for the Owner's reply (look them up with list_reply_cards): if you still need an answer, do not close yet; mark the ones you no longer need as expired, then close.\n- Complete the closeout: after confirming everything above is done, call MCP mark_task_done() to close the Task, and stop updating the Task.\n\nIf it is not yet appropriate to close, do not call mark_task_done(); leave the Task in the ready-to-close state. If a Step is added later, the Task returns to in progress."
 
 func TestDeriveAndPersistTask(t *testing.T) {
 	t.Run("the task's status is re-projected from its steps, persisted and fanned", func(t *testing.T) {
@@ -3684,8 +3684,8 @@ func TestCallerMayTerminateTask(t *testing.T) {
 		}
 		taskTestUnderCaller(t, api, d, apiTestAgentToken(t, api, "ow-abc123", ""), func(r *http.Request) {
 			ok, reason := callerMayTerminateTask(api.dal.GetMember, r, bound)
-			if ok || reason != "an outsource worker may not terminate its own task; "+
-				"ask the owner or an admin agent" {
+			if ok || reason != "an outsource member may not terminate its own task; "+
+				"ask the owner or an admin" {
 				t.Fatalf("got (%v, %q)", ok, reason)
 			}
 		})
@@ -4104,7 +4104,7 @@ func TestHandleSetTaskDueApiTasksTaskIdDuePost(t *testing.T) {
 				t.Fatalf("want 422, got %d (%v)", status, data)
 			}
 			apiWantError(t, data, "validation_error",
-				"due_soon_lead_minutes must be between 1 and 43200 minutes (30 days), or null to follow the workspace setting")
+				"due_soon_lead_minutes must be between 1 and 43200 minutes (30 days), or null to follow the Due-soon lead time setting (Settings › General)")
 			dashboard.wantFrames()
 			_, got := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
 			if got["due_ts"] != float64(1790000000) || got["due_soon_lead_minutes"] != float64(5) {
@@ -4698,7 +4698,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 				"body": "[T-1] This task has been reassigned to a new assignee.\n\nReceiving these instructions means the current task needs to be handed over to another executor. Stop moving it forward and complete the necessary wrap-up, so the new assignee can get the current results and the full context remotely:\n" +
 					"\n" +
 					"* Preserve results: push the git commits that need to be kept to the remote; upload the files that need to be kept with `ocagent upload` and write the attachment ids into the step notes. Do not leave results that only this machine can reach.\n" +
-					"* Write the handover: write the current progress, in-flight items, risks to watch, and next steps into the task's step notes; you can keep adding to them until the new assignee claims the task, after which they can no longer be written. Reply Cards opened before the reassignment have expired automatically; if anything is still waiting on an Owner decision or action, write it into the step notes, and the new assignee will open a new card after claiming. During the handover, do not open any more Reply Cards bound to this task.\n" +
+					"* Write the handover: write the current progress, in-flight items, risks to watch, and next steps into the task's step notes; you can keep adding to them until the new assignee claims the task, after which they can no longer be written. Reply cards opened before the reassignment have expired automatically; if anything is still waiting on an Owner decision or action, write it into the step notes, and the new assignee will open a new card after claiming. During the handover, do not open any more reply cards bound to this task.\n" +
 					"* Handle sub-agents: if any sub-agent is running, ask it to wrap up and write its results back to the corresponding task step.\n" +
 					"\n" +
 					"Once the above is done, the handover is complete. If the new assignee is online and reaches out, confirm any details then; otherwise there is no need to wait for or go looking for the new assignee.",
@@ -4711,7 +4711,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 					"* **Read the task**: use `get_task` to read the task; if it already has steps, also check the DoD of the current step, and use `get_task_step` to read the full note of every step whose `note_size_chars` is not 0. If you have not read the corresponding task manual yet, read it with `get_task_manual`.\n" +
 					"* **Confirm the handover**: if there is a `reassigned_from`, first read the `handover_note`, then use `post_chat` to confirm the current progress and in-flight items with your predecessor. Wait at most 5 minutes; if the predecessor is offline, unreachable, or has not replied in time, continue the takeover directly from the handover information on the task — do not stop here and wait.\n" +
 					"* **Read-only before claiming**: before you call `claim_task`, you may only read this task; your predecessor can still write handover information until you claim it.\n" +
-					"* **Claim and execute**: once preparation is done, call `claim_task` to claim the task, then continue planning or executing according to the task's current state. Reply Cards opened before the reassignment have expired automatically; for items in the handover information that still need an Owner decision, open a new card yourself.",
+					"* **Claim and execute**: once preparation is done, call `claim_task` to claim the task, then continue planning or executing according to the task's current state. Reply cards opened before the reassignment have expired automatically; for items in the handover information that still need an Owner decision, open a new card yourself.",
 			},
 		})
 	})
@@ -4857,7 +4857,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 					"* **Read the task**: use `get_task` to read the task; if it already has steps, also check the DoD of the current step, and use `get_task_step` to read the full note of every step whose `note_size_chars` is not 0. If you have not read the corresponding task manual yet, read it with `get_task_manual`.\n" +
 					"* **Confirm the handover**: if there is a `reassigned_from`, first read the `handover_note`, then use `post_chat` to confirm the current progress and in-flight items with your predecessor. Wait at most 5 minutes; if the predecessor is offline, unreachable, or has not replied in time, continue the takeover directly from the handover information on the task — do not stop here and wait.\n" +
 					"* **Read-only before claiming**: before you call `claim_task`, you may only read this task; your predecessor can still write handover information until you claim it.\n" +
-					"* **Claim and execute**: once preparation is done, call `claim_task` to claim the task, then continue planning or executing according to the task's current state. Reply Cards opened before the reassignment have expired automatically; for items in the handover information that still need an Owner decision, open a new card yourself.",
+					"* **Claim and execute**: once preparation is done, call `claim_task` to claim the task, then continue planning or executing according to the task's current state. Reply cards opened before the reassignment have expired automatically; for items in the handover information that still need an Owner decision, open a new card yourself.",
 			},
 		})
 	})
@@ -4929,7 +4929,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		if status != 403 {
 			t.Fatalf("the predecessor itself: want 403, got %d %v", status, data)
 		}
-		apiWantError(t, data, "forbidden", "only the owner or an admin agent may reassign a task to another member; hand it to an outsource worker instead")
+		apiWantError(t, data, "forbidden", "only the owner or an admin may reassign a task to another member; hand it to an outsource member instead")
 
 		status, data = apiJSON(t, f.h, "POST", "/api/tasks/T-1/reassign", admin, `{"target":{"kind":"staff","member_id":"kip"}}`)
 		if status != 200 {
@@ -5204,7 +5204,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 				"body": "[T-1] This task has been reassigned to a new assignee.\n\nReceiving these instructions means the current task needs to be handed over to another executor. Stop moving it forward and complete the necessary wrap-up, so the new assignee can get the current results and the full context remotely:\n" +
 					"\n" +
 					"* Preserve results: push the git commits that need to be kept to the remote; upload the files that need to be kept with `ocagent upload` and write the attachment ids into the step notes. Do not leave results that only this machine can reach.\n" +
-					"* Write the handover: write the current progress, in-flight items, risks to watch, and next steps into the task's step notes; you can keep adding to them until the new assignee claims the task, after which they can no longer be written. Reply Cards opened before the reassignment have expired automatically; if anything is still waiting on an Owner decision or action, write it into the step notes, and the new assignee will open a new card after claiming. During the handover, do not open any more Reply Cards bound to this task.\n" +
+					"* Write the handover: write the current progress, in-flight items, risks to watch, and next steps into the task's step notes; you can keep adding to them until the new assignee claims the task, after which they can no longer be written. Reply cards opened before the reassignment have expired automatically; if anything is still waiting on an Owner decision or action, write it into the step notes, and the new assignee will open a new card after claiming. During the handover, do not open any more reply cards bound to this task.\n" +
 					"* Handle sub-agents: if any sub-agent is running, ask it to wrap up and write its results back to the corresponding task step.\n" +
 					"\n" +
 					"Once the above is done, the handover is complete. If the new assignee is online and reaches out, confirm any details then; otherwise there is no need to wait for or go looking for the new assignee.",
@@ -5351,7 +5351,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "forbidden",
-			"only the owner or an admin agent may reassign a task to another member; hand it to an outsource worker instead")
+			"only the owner or an admin may reassign a task to another member; hand it to an outsource member instead")
 	})
 
 	t.Run("an agent that is not the task's executor answers 403", func(t *testing.T) {
@@ -5922,7 +5922,7 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 
 	for _, c := range []struct{ name, body, msg string }{
 		{"a lead of 43201 minutes", `"due_ts":1790000000,"due_soon_lead_minutes":43201`,
-			"due_soon_lead_minutes must be between 1 and 43200 minutes (30 days), or null to follow the workspace setting"},
+			"due_soon_lead_minutes must be between 1 and 43200 minutes (30 days), or null to follow the Due-soon lead time setting (Settings › General)"},
 		{"a lead without a due date", `"due_soon_lead_minutes":3`,
 			"due_soon_lead_minutes needs a due_ts: a task without a due date has no lead"},
 	} {
@@ -6057,7 +6057,7 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, denied)
 		}
 		apiWantError(t, denied, "forbidden",
-			"an ad-hoc task may only name yourself as executor (or be dispatched to an outsource worker)")
+			"an ad-hoc task may only name yourself as executor (or be dispatched to an outsource member)")
 
 		apiTestAgentToken(t, api, "mira", "")
 		status, ownerAssigned := apiJSON(t, h, "POST", "/api/tasks", owner,
@@ -6290,7 +6290,7 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "forbidden",
-			"an ad-hoc task may only name yourself as executor (or be dispatched to an outsource worker)")
+			"an ad-hoc task may only name yourself as executor (or be dispatched to an outsource member)")
 	})
 
 	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
@@ -9158,7 +9158,7 @@ func TestHandleMarkTaskDoneApiTasksTaskIdMarkDonePost(t *testing.T) {
 		apiWantError(t, data, "conflict",
 			"task 'T-1' is in 'not_started', not 'ready_for_done' — every step has "+
 				"to be reported done before the task can be closed as done "+
-				"(or ask the owner or an admin agent for force_task_done)")
+				"(or ask the owner or an admin for force_task_done)")
 	})
 
 	t.Run("an already closed task is a 409 that names WHICH close happened", func(t *testing.T) {

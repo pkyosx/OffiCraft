@@ -100,8 +100,8 @@ func (s *apiServer) pickWorkerWarden(w OutsourceWorker, preferred string, now fl
 // resolved); the reason is what the owner reads on the cockpit.
 func (s *apiServer) resolveWorkerPlacement(w OutsourceWorker, preferred string, now float64) (string, string) {
 	if preferred == "" {
-		return "", placementReasonNoMachine + ": no machine is selected for this worker — " +
-			"pick one on the worker (Change machine) or on the task type's manual assignee; " +
+		return "", placementReasonNoMachine + ": no machine is selected for this outsource member — " +
+			"pick one on the outsource member (Change machine) or in the task manual's Assigned executor; " +
 			"there is no automatic placement"
 	}
 	unavailable := func(detail string) (string, string) {

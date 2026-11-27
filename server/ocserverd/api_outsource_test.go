@@ -417,8 +417,8 @@ func TestHandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(t *testin
 		}
 		workerID := assignOneWorker(t, api)
 		const (
-			zhContext = "# SYSTEM INTERACTION\n\n# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\n# Owner Additions\n\nOWNER ADDITIONS\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
-			enContext = "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\n# Owner Additions\n\nOWNER ADDITIONS\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
+			zhContext = "# SYSTEM INTERACTION\n\n# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\n# User additions\n\nOWNER ADDITIONS\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
+			enContext = "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\n# User additions\n\nOWNER ADDITIONS\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
 		)
 		for _, step := range []struct{ name, settings, want string }{
 			{name: "never set", want: zhContext},
@@ -945,7 +945,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus requires the worker to be online; this worker is stopping or "+
+			"refocus requires the outsource member to be online; this outsource member is stopping or "+
 				"stopped — press Wake to bring it back")
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		dashboard.wantFrames()
@@ -1103,7 +1103,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus requires the worker to be online; this worker is stopping or "+
+			"refocus requires the outsource member to be online; this outsource member is stopping or "+
 				"stopped — press Wake to bring it back")
 		dashboard.wantFrames()
 		apiTestWantEqual(t, "row after the refused refocus", apiTestWorkerRecord(t, d, "ow-abc123"), before)
@@ -1131,7 +1131,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus requires the worker to be online; this worker is stopping or "+
+			"refocus requires the outsource member to be online; this outsource member is stopping or "+
 				"stopped — press Wake to bring it back")
 		apiTestWantWorker(t, h, owner, "ow-abc123", held)
 		dashboard.wantFrames()
@@ -1184,7 +1184,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus requires the worker to be online (no live session to hand over)")
+			"refocus requires the outsource member to be online (no live session to hand over)")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{"desired_state": "online"}))
 		dashboard.wantFrames()
 	})
@@ -1213,7 +1213,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus is a Stop and this worker is already further along the wind-down "+
+			"refocus is a Stop and this outsource member is already further along the wind-down "+
 				"ladder (Stop → Accelerated stop → Force stop); a later stage is never replaced by an earlier one")
 		apiTestWantWorker(t, h, owner, "ow-abc123", accelerated)
 		dashboard.wantFrames()
@@ -2040,16 +2040,16 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		apiWantBody(t, data, map[string]any{
 			"id": "ow-abc123", "activation_pending": true,
 			"last_op_reason": "no_machine_selected: no machine is selected for this " +
-				"worker — pick one on the worker (Change machine) or on the task type's manual " +
-				"assignee; there is no automatic placement",
+				"outsource member — pick one on the outsource member (Change machine) or in the task " +
+				"manual's Assigned executor; there is no automatic placement",
 		})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "desired_state": "online",
 			"forced_stop_at": apiAnyNumber, "forced_stop_live": false,
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "no_machine_selected: no machine is selected for this " +
-				"worker — pick one on the worker (Change machine) or on the task type's manual " +
-				"assignee; there is no automatic placement",
+				"outsource member — pick one on the outsource member (Change machine) or in the task " +
+				"manual's Assigned executor; there is no automatic placement",
 		}))
 		dashboard.wantFrames(
 			apiTestWorkerStateDelta(3, "active", "online", "server"),

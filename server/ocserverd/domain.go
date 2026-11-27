@@ -489,7 +489,7 @@ func UnreadCounts(messages []ChatMessage, receipts []ChatRead, reader string) ma
 	return counts
 }
 
-const CustomRoleTemplateMD = `# Role definition
+const CustomRoleTemplateMD = `# Duty
 
 ## Who you are
 

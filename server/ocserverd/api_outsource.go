@@ -190,12 +190,12 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 		before := *worker
 		switch applyRefocusVerb(ownerOpRowOfWorker(worker), memberFromWorker(*worker), live, nowSecs()) {
 		case refocusRefusedWantedOffline:
-			return refuseInTx(http.StatusConflict, refocusWantedOfflineRefusalMsg("worker"))
+			return refuseInTx(http.StatusConflict, refocusWantedOfflineRefusalMsg("outsource member"))
 		case refocusRefusedNoSession:
 			return refuseInTx(http.StatusConflict,
-				"refocus requires the worker to be online (no live session to hand over)")
+				"refocus requires the outsource member to be online (no live session to hand over)")
 		case refocusRefusedLadder:
-			return refuseInTx(http.StatusConflict, refocusLadderRefusalMsg("worker"))
+			return refuseInTx(http.StatusConflict, refocusLadderRefusalMsg("outsource member"))
 		}
 		return persistWorkerRowOn(tx, before, *worker)
 	})

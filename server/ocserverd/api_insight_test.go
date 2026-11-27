@@ -29,7 +29,7 @@ When you receive a request, first clarify how it will be handled, how the task w
 
 Mark the items awaiting an Owner ruling explicitly and leave them to the Owner to confirm.
 
-When remote access needs to be opened (the user wants to reach the console from somewhere other than this computer), create a task with the built-in task manual "Allow remote connections" and execute it following the manual's steps.
+When remote access needs to be opened (the Owner wants to reach the console from somewhere other than this computer), create a task with the built-in task manual "Allow remote connections" and execute it following the manual's steps.
 
 # Operations Guide Point of Contact
 
@@ -56,7 +56,7 @@ When remote access needs to be opened (the user wants to reach the console from 
 			t.Fatal("foldInsightDTO(seed) = nil")
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
-			"size_chars":     3958,
+			"size_chars":     3959,
 			"cap_chars":      37500,
 			"role_key":       "assistant",
 			"text":           assistantInsightSeed,
@@ -100,7 +100,7 @@ When remote access needs to be opened (the user wants to reach the console from 
 			t.Fatalf("foldInsightDTO(tombstoned): %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
-			"size_chars":     3958,
+			"size_chars":     3959,
 			"cap_chars":      37500,
 			"role_key":       "assistant",
 			"text":           assistantInsightSeed,
@@ -185,7 +185,7 @@ func TestInsightWriteAuthz(t *testing.T) {
 			t.Fatalf("status = %d, want 403 (%s)", rec.Code, rec.Body.String())
 		}
 		apiWantError(t, apiTestDecodeJSONBody(t, rec), "forbidden",
-			"an agent may only write its own role's insight")
+			"a member may only write its own role's Insight")
 	})
 
 	t.Run("a roleless outsource caller cannot write any role's insight", func(t *testing.T) {
@@ -208,7 +208,7 @@ func TestInsightWriteAuthz(t *testing.T) {
 			t.Fatalf("status = %d, want 403 (%s)", rec.Code, rec.Body.String())
 		}
 		apiWantError(t, apiTestDecodeJSONBody(t, rec), "forbidden",
-			"an agent may only write its own role's insight")
+			"a member may only write its own role's Insight")
 	})
 }
 
@@ -350,9 +350,9 @@ func TestHandleResetInsightApiInsightRoleKeyResetPost(t *testing.T) {
 			"role_key":   "assistant",
 			"is_default": true,
 			"has_seed":   true,
-			"size_chars": 3958,
+			"size_chars": 3959,
 			"cap_chars":  37500,
-			"sha256":     "7c9101f9372768e03147061f31db0efdde9ca4a21165bc2a4898713d7b3c5936",
+			"sha256":     "698fc22ab1bcb05b3002b705574ac880dfd1798f7a5890ae176099737f0019fd",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -383,9 +383,9 @@ func TestHandleResetInsightApiInsightRoleKeyResetPost(t *testing.T) {
 			"role_key":   "assistant",
 			"is_default": true,
 			"has_seed":   true,
-			"size_chars": 3958,
+			"size_chars": 3959,
 			"cap_chars":  37500,
-			"sha256":     "7c9101f9372768e03147061f31db0efdde9ca4a21165bc2a4898713d7b3c5936",
+			"sha256":     "698fc22ab1bcb05b3002b705574ac880dfd1798f7a5890ae176099737f0019fd",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   1,
@@ -450,7 +450,7 @@ func TestHandleResetInsightApiInsightRoleKeyResetPost(t *testing.T) {
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "forbidden", "an agent may only write its own role's insight")
+		apiWantError(t, data, "forbidden", "a member may only write its own role's Insight")
 		dashboard.wantFrames()
 	})
 
@@ -478,9 +478,9 @@ func TestInsightReceiptOf(t *testing.T) {
 			"role_key":   "assistant",
 			"is_default": true,
 			"has_seed":   true,
-			"size_chars": 3958,
+			"size_chars": 3959,
 			"cap_chars":  37500,
-			"sha256":     "7c9101f9372768e03147061f31db0efdde9ca4a21165bc2a4898713d7b3c5936",
+			"sha256":     "698fc22ab1bcb05b3002b705574ac880dfd1798f7a5890ae176099737f0019fd",
 		})
 	})
 
@@ -577,7 +577,7 @@ func TestHandleReplaceInsightApiInsightRoleKeyPost(t *testing.T) {
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "forbidden", "an agent may only write its own role's insight")
+		apiWantError(t, data, "forbidden", "a member may only write its own role's Insight")
 		dashboard.wantFrames()
 	})
 
@@ -797,7 +797,7 @@ func TestHandlePatchInsightApiInsightRoleKeyPatchPost(t *testing.T) {
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "forbidden", "an agent may only write its own role's insight")
+		apiWantError(t, data, "forbidden", "a member may only write its own role's Insight")
 		dashboard.wantFrames()
 	})
 

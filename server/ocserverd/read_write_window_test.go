@@ -1789,7 +1789,7 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 				path: "/api/members/ow-abc123/refocus", body: `{}`, worker: true, live: true},
 			window: `UPDATE member SET desired_state = 'offline' WHERE id = '%ID%'`,
 			status: http.StatusConflict,
-			refusal: "refocus requires the worker to be online; this worker is stopping or " +
+			refusal: "refocus requires the outsource member to be online; this outsource member is stopping or " +
 				"stopped — press Wake to bring it back",
 			row: func(t *testing.T, m Member) {
 				if m.RefocusSince != 0 || m.RestartAfterStop {

@@ -401,7 +401,7 @@ describe("mockApi · 開機脈絡預覽", () => {
     expect(ctx).not.toContain(SEED_BOOT_SEQUENCE_CODEX_MD.trim());
   });
 
-  it("puts the owner's global context under the server's # Owner Additions heading, staff and outsource alike", async () => {
+  it("puts the owner's global context under the server's # User additions heading, staff and outsource alike", async () => {
     __injectMockTask({
       id: "t-oa",
       taskNo: "T-oa",
@@ -438,7 +438,7 @@ describe("mockApi · 開機脈絡預覽", () => {
       await mockApi.getMemberBootContext("mira"),
       await mockApi.getWorkerBootContext("ow-oa"),
     ]) {
-      expect(ctx).toContain("\n\n# Owner Additions\n\nowner 寫的全域脈絡\n\n");
+      expect(ctx).toContain("\n\n# User additions\n\nowner 寫的全域脈絡\n\n");
     }
   });
 });
@@ -488,12 +488,12 @@ describe("mockApi · User Language block", () => {
     return [staff.slice(0, lengths[0]), worker.slice(0, lengths[1])];
   }
 
-  it("an unset display language gets the Traditional Chinese block, right after the system interaction and before Owner Additions, staff and outsource alike", async () => {
+  it("an unset display language gets the Traditional Chinese block, right after the system interaction and before User additions, staff and outsource alike", async () => {
     injectWorker();
     await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
     await mockApi.saveGlobalContext("owner 寫的全域脈絡\n");
-    const staff = `系統互動本文\n\n${ZH}\n\n# Owner Additions\n\nowner 寫的全域脈絡\n\n# Role: Assistant\n\n`;
-    const worker = `系統互動本文\n\n${ZH}\n\n# Owner Additions\n\nowner 寫的全域脈絡\n\n# Claude Code Runtime\n\n`;
+    const staff = `系統互動本文\n\n${ZH}\n\n# User additions\n\nowner 寫的全域脈絡\n\n# Role: Assistant\n\n`;
+    const worker = `系統互動本文\n\n${ZH}\n\n# User additions\n\nowner 寫的全域脈絡\n\n# Claude Code Runtime\n\n`;
     expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
   });
 

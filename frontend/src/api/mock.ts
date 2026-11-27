@@ -1001,7 +1001,7 @@ function pickMockMemberName(): string {
 // Mirrors the server custom-role template (server/ocserverd/domain.go
 // CustomRoleTemplateMD, byte for byte; the two-section "To fill in" scaffold a
 // fresh custom role starts from).
-const CUSTOM_ROLE_TEMPLATE_MD = `# Role definition
+const CUSTOM_ROLE_TEMPLATE_MD = `# Duty
 
 ## Who you are
 
@@ -1155,7 +1155,7 @@ const MOCK_TASK_MANUAL_SEEDS: readonly StoredTaskManual[] = [
   {
     typeKey: "builtin-role-design",
     displayName: "Create / edit role",
-    purpose: "Create a new role, or adjust an existing role's role definition and judgment criteria (Insight).",
+    purpose: "Create a new role, or adjust an existing role's Duty and Insight.",
     fields: [],
     sopMd: "# 角色基本定義\n\n（mock 內建手冊）\n",
     assignee: { kind: "staff", memberId: "mira" },
@@ -3316,7 +3316,7 @@ function mockHex12(): string {
 function mockSharedDocOrThrow(method: string, path: string, id: string): WireSharedDoc {
   const row = mockSharedDocs.find((d) => d.id === id);
   if (!row) {
-    throw mockApiError(`http 404 for ${method} ${path}`, 404, `shared doc '${id}' not found`);
+    throw mockApiError(`http 404 for ${method} ${path}`, 404, `file '${id}' not found`);
   }
   return row;
 }
@@ -3327,7 +3327,7 @@ function mockSharedDocNameOrThrow(method: string, path: string, name: string) {
     throw mockApiError(
       `http 400 for ${method} ${path}`,
       400,
-      `shared doc name is ${n} chars, over the 128-char limit`,
+      `file name is ${n} chars, over the 128-char limit`,
     );
   }
 }
@@ -3663,7 +3663,7 @@ const mockApiImpl = {
         throw mockApiError(
           `http 422 for PATCH /api/members/${id}`,
           422,
-          "an outsource worker's codename is task-bound and cannot be renamed",
+          "an outsource member's codename is task-bound and cannot be renamed",
         );
       }
       await mockApiImpl.patchOutsourceMember(id, {
@@ -5532,7 +5532,7 @@ const mockApiImpl = {
       throw mockApiError(
         `http 422 for POST /api/tasks/${id}/due`,
         422,
-        "due_soon_lead_minutes must be between 1 and 43200 minutes (30 days), or null to follow the workspace setting"
+        "due_soon_lead_minutes must be between 1 and 43200 minutes (30 days), or null to follow the Due-soon lead time setting (Settings › General)"
       );
     }
     if (dueTs === null && leadMinutes != null) {
@@ -5929,13 +5929,13 @@ const mockApiImpl = {
     if (w.desiredState === "offline") {
       throw mockApiError(
         `http 409 for POST /api/members/${id}/refocus`,
-        409, "refocus requires the worker to be online; this worker is stopping or stopped — press Wake to bring it back"
+        409, "refocus requires the outsource member to be online; this outsource member is stopping or stopped — press Wake to bring it back"
       );
     }
     if (w.presence !== "online") {
       throw mockApiError(
         `http 409 for POST /api/members/${id}/refocus`,
-        409, "refocus requires the worker to be online"
+        409, "refocus requires the outsource member to be online"
       );
     }
     w.refocusSince = Date.now() / 1000;
@@ -6148,7 +6148,7 @@ const mockApiImpl = {
       mockUserLanguageBlock(mockServerSettings.display_language),
     ];
     if (userText.trim()) {
-      parts.push(`# Owner Additions\n\n${userText.trim()}`);
+      parts.push(`# User additions\n\n${userText.trim()}`);
     }
     parts.push(
       foldBootDoc(
@@ -7081,11 +7081,10 @@ const mockApiImpl = {
     }
     if (!newContent && input.name === undefined && input.description === undefined) {
       const field = row.kind === "link" ? "url" : "attachment_id";
-      const kind = row.kind === "image" ? "an image" : `a ${row.kind}`;
       throw mockApiError(
         `http 400 for POST ${path}`,
         400,
-        `nothing to replace: send ${field} for ${kind} shared doc, a name, or a description`,
+        `nothing to replace: send ${field} for a file of kind '${row.kind}', a name, or a description`,
       );
     }
     if (!newContent && name === row.name && description === row.description) {
@@ -7124,7 +7123,7 @@ const mockApiImpl = {
       throw mockApiError(
         `http 404 for POST ${path}`,
         404,
-        `version ${versionId} is not a retained version of shared doc '${id}'`,
+        `version ${versionId} is not a retained version of file '${id}'`,
       );
     }
     mockSharedDocVersions[id] = [
@@ -8473,7 +8472,7 @@ const mockApiImpl = {
       mockUserLanguageBlock(mockServerSettings.display_language),
     ];
     if (userText.trim()) {
-      parts.push(`# Owner Additions\n\n${userText.trim()}`);
+      parts.push(`# User additions\n\n${userText.trim()}`);
     }
     parts.push(
       `# Role: ${roleDef.name || roleDef.key}\n\n${roleDef.definition_md.trim()}`,

@@ -1496,7 +1496,7 @@ func TestHandleHireMemberApiMembersPost(t *testing.T) {
 		apiWantError(t, data, "validation_error",
 			"POST /api/members hires staff only; got kind 'warden'. "+
 				"A warden is born by onboarding its machine through POST /api/machines "+
-				"(the machine id becomes the warden's member id); an outsource worker is "+
+				"(the machine id becomes the warden's member id); an outsource member is "+
 				"minted by the outsource scheduler when a task is handed out. "+
 				"Neither can be created here")
 		dashboard.wantFrames()
@@ -1513,7 +1513,7 @@ func TestHandleHireMemberApiMembersPost(t *testing.T) {
 		apiWantError(t, data, "validation_error",
 			"POST /api/members hires staff only; got kind 'outsource'. "+
 				"A warden is born by onboarding its machine through POST /api/machines "+
-				"(the machine id becomes the warden's member id); an outsource worker is "+
+				"(the machine id becomes the warden's member id); an outsource member is "+
 				"minted by the outsource scheduler when a task is handed out. "+
 				"Neither can be created here")
 		dashboard.wantFrames()
@@ -2131,7 +2131,7 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
-			"an outsource worker's codename is task-bound and cannot be renamed")
+			"an outsource member's codename is task-bound and cannot be renamed")
 	})
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {

@@ -837,7 +837,7 @@ export const en: Dict = {
       dropHere: "Drag members here",
       moveToNew: "New group…",
       bringInTitleLead: "Move the current “",
-      bringInTitleMid: "” outsource workers into “",
+      bringInTitleMid: "” outsource members into “",
       bringInTitleTail: "”?",
       bringInMoveTicked: "Move the ticked ones",
       bringInDecline: "Apply to new workers only",
@@ -888,21 +888,21 @@ export const en: Dict = {
       paused: "Assignment paused",
       capTitle: "Outsource cap",
       capHint:
-        "Cap how many outsource workers can be hired at once; unlimited removes the cap.",
+        "Cap how many outsource members can be hired at once; unlimited removes the cap.",
       capMaxLabel: "Max hires",
       capUnlimited: "Unlimited",
       capDecrease: "Decrease",
       capIncrease: "Increase",
       capSave: "Done",
       capError: "Didn't save. Please try again.",
-      loadError: "Failed to load outsource workers. Please try again.",
+      loadError: "Failed to load outsource members. Please try again.",
       viewDetail: "Outsource details",
       openTask: "Open task details",
       // The ONE home for the "released" sentence — read by BOTH entries (chat
       // and the detail panel). Deliberately entry-neutral; see zh.ts.
       releasedTitle: "Outsource · released",
       releasedSub:
-        "This outsource worker was released when its task closed; what you see here is a read-only record.",
+        "This outsource member was released when its task closed; what you see here is a read-only record.",
     },
   },
   activity: {
@@ -951,7 +951,7 @@ export const en: Dict = {
     estimatedCost: "est. $",
     // T-7526: the four presence words retired with the 狀態 cell — see zh.ts.
     // ── T-32e1/T-f190 lifecycle ops (aligned with the member detail panel) ──
-    refocusSubmittedNote: "Refocus sent · worker respawning…",
+    refocusSubmittedNote: "Refocus sent · member tidying up its memory…",
     // ⚠️ No `restart` leaf: the wake word is the member panel's
     // `lifecycle.action.spawn` on both panels — see zh.ts.
     stop: "Stop",
@@ -2558,35 +2558,35 @@ export const en: Dict = {
     taskEventSection: "TASK EVENTS",
     acceleratedStopName: "Accelerated stop",
     acceleratedStopSub:
-      "What an agent is told when it is asked to wrap up early · carries a deadline · editable",
+      "What a member is told when it is asked to wrap up early · carries a deadline · editable",
     taskCloseoutName: "Task close-out",
     taskCloseoutSub:
-      "What an agent is told when one of its tasks is judged finished · editable",
+      "What a member is told when one of its tasks is judged finished · editable",
     taskReassignPredecessorName: "Task reassignment · to the predecessor",
     taskReassignPredecessorSub:
-      "What an agent is told when a task it held is handed to somebody else · editable",
+      "What a member is told when a task it held is handed to somebody else · editable",
     taskTakeoverWithPredecessorName: "Task reassignment · to the successor",
     taskTakeoverWithPredecessorSub:
-      "What an agent is told when it takes over a task (the same document with or without a predecessor) · editable",
-    taskUnblockedName: "The ticket blocking your task is released",
+      "What a member is told when it takes over a task (the same document with or without a predecessor) · editable",
+    taskUnblockedName: "The task blocking yours is released",
     taskUnblockedSub:
-      "What an agent is told when the task blocking it is released · editable",
+      "What a member is told when the task blocking it is released · editable",
     taskReadyForDoneName: "Your task is ready to be closed",
     taskReadyForDoneSub:
-      "What an agent is told each time its task becomes ready to close · editable",
+      "What a member is told each time its task becomes ready to close · editable",
     bootDocReadOnlyNote:
-      "This document is shown so you can see exactly what agents are told. Nobody may edit it, and it has no version other than the default content.",
+      "This document is shown so you can see exactly what members are told. Nobody may edit it, and it has no version other than the default content.",
     bootDocSaveConfirmAcceleratedStop:
-      "Save this accelerated-stop procedure? Every agent asked to wrap up early reads this content, and reads it with only a short window left — it has to be finishable in that time.",
+      "Save this accelerated-stop procedure? Every member asked to wrap up early reads this content, and reads it with only a short window left — it has to be finishable in that time.",
     bootDocSaveConfirmTaskEvent:
-      "Save this task-event procedure? Every agent notified of this event from now on reads this content.",
+      "Save this task-event procedure? Every member notified of this event from now on reads this content.",
     bootDocNoteHistoryLead: "Version history keeps the last ",
     bootDocNoteHistoryTail:
       " versions, counted in SAVES rather than in time — a run of small saves pushes the older ones out. Sync to default is never affected and is always available.",
     bootDocSaveConfirmBoot:
       "Save these boot steps? Broken boot steps stop members booting after this from coming online, with no error message anywhere. Check the preview before saving; if it does go wrong, open Default content in the version history and press Sync to default.",
     bootDocSaveConfirmSystem:
-      "Save this system-interaction document? Every agent that boots after the save reads this content.",
+      "Save this system-interaction document? Every member that boots after the save reads this content.",
     bootDocSaveConfirmOffboard:
       "Save this Stop document? Every member stopped after this reads it, with nobody to ask and no time limit; the time-limited case reads the Accelerated stop document instead.",
     bootDocSaveConfirmAction: "Save",
@@ -2708,7 +2708,7 @@ export const en: Dict = {
     sessionTtl: "Session length",
     sessionTtlSub: "How long before you have to sign in again",
     agentTokenTtl: "Member login lifetime",
-    agentTokenTtlSub: "How long newly started members and outsource workers stay logged in before they must log in again",
+    agentTokenTtlSub: "How long newly started staff and outsource members stay logged in before they must log in again",
     ttl12h: "12 hours",
     ttl24h: "24 hours",
     ttl7d: "7 days",
@@ -2914,7 +2914,7 @@ export const en: Dict = {
     manualPlanningSection: "Task planning",
     manualDefEntrySub: "What it is, what info it needs, how to do it",
     manualSuggestedRepliesSection: "Suggested replies",
-    manualSuggestedRepliesSub: "Sentences you can drop in with one tap when answering a reply card about this kind of task, messaging on one, or chatting with the outsource worker on one.",
+    manualSuggestedRepliesSub: "Sentences you can drop in with one tap when answering a reply card about this kind of task, messaging on one, or chatting with the outsource member on one.",
     manualSuggestedRepliesEmpty: "This task type has no sentences of its own yet.",
     manualSuggestedRepliesLoadError: "The suggested replies failed to load.",
     manualSuggestedRepliesRetry: "Reload",

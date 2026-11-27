@@ -210,7 +210,7 @@ var builtinTaskManuals = []builtinTaskManual{
 	{
 		TypeKey:     "builtin-role-design",
 		DisplayName: "Create / edit role",
-		Purpose:     "Create a new role, or adjust an existing role's role definition and judgment criteria (Insight).",
+		Purpose:     "Create a new role, or adjust an existing role's Duty and Insight.",
 		Fields:      []ManualField{},
 		Assignee:    map[string]any{"kind": TaskExecutorStaff, "member_id": seedMiraID},
 	},
@@ -560,7 +560,7 @@ func materializeBinary(dir, name string, data []byte) (string, error) {
 
 // 🔴 The ONE title the 使用者自訂 block is served under; workerSharedHead
 // (outsource) uses it too, so staff and contractors boot under one heading.
-const userAdditionsTitle = "# Owner Additions"
+const userAdditionsTitle = "# User additions"
 
 // userLanguageBlock is the 使用者語言 block both boot folds staple between
 // 系統互動 and 使用者自訂. Read at assembly time, so a display.language change

@@ -104,14 +104,14 @@ const REFUSALS: Array<{ name: string; err: ApiError; needle: string }> = [
   {
     name: "an outsource worker asking at all (403)",
     err: mockApiError("http 403 for POST /x", 403,
-      "outsource workers may not reassign tasks"),
-    needle: "outsource workers may not reassign tasks",
+      "outsource members may not reassign tasks"),
+    needle: "outsource members may not reassign tasks",
   },
   {
     name: "一般正職 naming another member (403)",
     err: mockApiError("http 403 for POST /x", 403,
-      "only the owner or an admin agent may reassign a task to another member; 發包 to an outsource worker instead"),
-    needle: "only the owner or an admin agent may reassign a task to another member",
+      "only the owner or an admin may reassign a task to another member; hand it to an outsource member instead"),
+    needle: "only the owner or an admin may reassign a task to another member",
   },
   {
     name: "an invalid target (400)",

@@ -6,7 +6,7 @@ A role consists of the following:
 
 A short name that lets other members quickly recognize what work this role is responsible for.
 
-## Role definition
+## Duty
 
 Written for other members, to judge **what matters should go to this role**.
 
@@ -25,7 +25,7 @@ Write the systems, domains, or knowledge the role needs to master directly into 
 
 Keep only the information other members need to judge whether to come to this role; do not include execution steps, judgment details, or how to handle individual situations.
 
-**A role definition should describe long-term responsibilities and division of labor, and does not record information that changes with the current situation.** It does not describe the division of labor or the boundaries of responsibility by the names of specific members, other roles, or task manuals. When you need to judge who should handle some other work, judge it at the time the work is actually assigned, based on the settings and definitions at that time.
+**The Duty should describe long-term responsibilities and division of labor, and does not record information that changes with the current situation.** It does not describe the division of labor or the boundaries of responsibility by the names of specific members, other roles, or task manuals. When you need to judge who should handle some other work, judge it at the time the work is actually assigned, based on the settings and definitions at that time.
 
 ## Insight
 
@@ -51,19 +51,19 @@ Insight states "how to judge and why"; it does not state how tools are operated 
 
 First, based on the task description and the information the Owner has already provided, confirm the purpose of creating or modifying the role, and the scope this role is expected to be responsible for.
 
-When the information is already enough to start designing, there is no need to open another card to confirm; open a Reply Card to ask the Owner only when important information that affects the role's scope or design is missing, and do not ask again about content already provided.
+When the information is already enough to start designing, there is no need to open another card to confirm; open a reply card to ask the Owner only when important information that affects the role's scope or design is missing, and do not ask again about content already provided.
 
 **Completion condition**: you can clearly state the purpose of creating or modifying this role and the scope it is expected to be responsible for.
 
-## 2. Handle the role definition
+## 2. Handle the Duty
 
-Check whether there are already roles with the same or similar responsibilities, understand the existing division of labor, then draft the role definition according to the direction the Owner confirmed.
+Check whether there are already roles with the same or similar responsibilities, understand the existing division of labor, then draft the Duty according to the direction the Owner confirmed.
 
-The role definition should let other members judge what matters should go to this role from this content alone.
+The Duty should let other members judge what matters should go to this role from this content alone.
 
 If its responsibilities are close to an existing role's, clarify the scope of application of each.
 
-If adding or adjusting the role may affect the boundaries of responsibility of existing roles, open a Reply Card asking the Owner to confirm how to handle it:
+If adding or adjusting the role may affect the boundaries of responsibility of existing roles, open a reply card asking the Owner to confirm how to handle it:
 
 - Do not adjust the existing roles.
 - Adjust them in this task as well.
@@ -73,19 +73,19 @@ If it is only a small boundary adjustment needed to keep the roles consistent wi
 
 When modifying an existing role, keep content that is unaffected by this request and still correct; do not rewrite for the sake of rewriting.
 
-If there is still important information affecting the role's responsibilities or division of labor that you cannot judge, open a Reply Card to confirm with the Owner.
+If there is still important information affecting the role's responsibilities or division of labor that you cannot judge, open a reply card to confirm with the Owner.
 
-**Completion condition**: the role definition draft is complete, with clear responsibilities and boundaries; existing roles that may be affected have also been handled per the Owner's decision.
+**Completion condition**: the Duty draft is complete, with clear responsibilities and boundaries; existing roles that may be affected have also been handled per the Owner's decision.
 
 ## 3. Handle the Insight
 
-Based on the role definition, create or adjust the Insight according to the content rules of "Insight", and confirm whether there are ways of collaborating, judgment principles, or trade-off principles that this role must follow over the long term and that cannot be expressed through the role definition alone.
+Based on the Duty, create or adjust the Insight according to the content rules of "Insight", and confirm whether there are ways of collaborating, judgment principles, or trade-off principles that this role must follow over the long term and that cannot be expressed through the Duty alone.
 
-First look at the existing Insight and the Owner's past rulings about this role, keep content that is still correct and unaffected by this request, and only add or modify the parts needed this time. If the existing Insight already adequately supports the role definition, no change is needed.
+First look at the existing Insight and the Owner's past rulings about this role, keep content that is still correct and unaffected by this request, and only add or modify the parts needed this time. If the existing Insight already adequately supports the Duty, no change is needed.
 
-If missing information would affect the role's ways of collaborating, judgment principles, or trade-offs, first look for the answer in existing material; if you still cannot judge, open a Reply Card asking the Owner to decide.
+If missing information would affect the role's ways of collaborating, judgment principles, or trade-offs, first look for the answer in existing material; if you still cannot judge, open a reply card asking the Owner to decide.
 
-Additionally, open a Reply Card to confirm whether the Owner has specific knowledge sources this role should consult first when judging or handling problems; if so, organize "in what situations to consult which information" into the Insight.
+Additionally, open a reply card to confirm whether the Owner has specific knowledge sources this role should consult first when judging or handling problems; if so, organize "in what situations to consult which information" into the Insight.
 
 If there is nothing to add, do not add Insight — do not pad it out for completeness.
 
@@ -93,26 +93,26 @@ If there is nothing to add, do not add Insight — do not pad it out for complet
 
 ## 4. Review the complete role
 
-Create an **independent sub-agent that did not take part in the design so far**, and give it this manual's rules for the role definition and Insight, along with the complete organized role content, for review.
+Create an **independent sub-agent that did not take part in the design so far**, and give it this manual's rules for the Duty and Insight, along with the complete organized role content, for review.
 
 At minimum, check:
 
-- From the role definition alone, can other members judge what matters should go to this role?
+- From the Duty alone, can other members judge what matters should go to this role?
 - Are the boundaries of responsibility with other roles clear, without obvious overlap or contradiction?
-- Does the role definition keep only the information needed for assigning work, without mixing in execution steps or judgment details?
+- Does the Duty keep only the information needed for assigning work, without mixing in execution steps or judgment details?
 - Does the Insight contain only role-level principles for collaboration, judgment, trade-offs, and knowledge references, without mixing in workflows or tool operation?
 - Does it cite the names of specific members, other roles, or task manuals to describe the division of labor and boundaries of responsibility?
 - Is there any duplicated, contradictory, or unnecessary content?
 
-When the Reviewer finds problems, revise and review again; if a problem needs an Owner decision, open a Reply Card to confirm with the Owner, then adjust.
+When the Reviewer finds problems, revise and review again; if a problem needs an Owner decision, open a reply card to confirm with the Owner, then adjust.
 
-**Completion condition**: the Reviewer confirms that the complete role content meets the rules for the role definition and Insight, and is sufficient for actual use.
+**Completion condition**: the Reviewer confirms that the complete role content meets the rules for the Duty and Insight, and is sufficient for actual use.
 
 ## 5. Owner approval
 
-After the review passes, open a Reply Card asking the Owner to approve the final content.
+After the review passes, open a reply card asking the Owner to approve the final content.
 
-When creating a new role, provide the complete role name, role definition, and Insight.
+When creating a new role, provide the complete role name, Duty, and Insight.
 
 When modifying an existing role, use `ocagent diff <before> <after>` to generate a diff link so the Owner can directly check what this change modifies, and provide the complete revised version for reference.
 
@@ -124,15 +124,15 @@ If changes the Owner asks for would substantively change the role's responsibili
 
 Write the Owner-approved version to the site.
 
-If the write cannot be completed, do not change the approved content on your own or take another approach; open a Reply Card to confirm with the Owner.
+If the write cannot be completed, do not change the approved content on your own or take another approach; open a reply card to confirm with the Owner.
 
-After writing, read the role content back and confirm the role name, role definition, and Insight all match the Owner-approved version.
+After writing, read the role content back and confirm the role name, Duty, and Insight all match the Owner-approved version.
 
 **Completion condition**: the role has been written successfully, and the content read back matches the Owner-approved version.
 
 ## 7. Activate the member
 
-After creating a new role and confirming it was written correctly, open one Reply Card asking the Owner to decide whether to wake the corresponding member right away, and on the same card provide configuration options for machine, model, and effort.
+After creating a new role and confirming it was written correctly, open one reply card asking the Owner to decide whether to wake the corresponding member right away, and on the same card provide configuration options for machine, model, and effort.
 
 If the Owner chooses to wake it, start it with the configuration they chose; if they choose not to wake it for now, do not start the member.
 

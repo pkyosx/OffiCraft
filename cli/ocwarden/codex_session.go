@@ -109,12 +109,12 @@ func codexPersonaInstruction(personaFile, persona, model string) string {
 		"Never use request_user_input for normal questions; create an OffiCraft reply card instead. "
 	if strings.TrimSpace(model) == "" {
 		instruction += "The OffiCraft launch model setting is blank, so the machine's Codex default applies. " +
-			"If your role's boot sequence calls report_waking, omit its optional model argument; " +
+			"If your role's boot steps call report_waking, omit its optional model argument; " +
 			"never guess or persist a model name."
 	} else {
 		instruction += "The explicit OffiCraft launch model is " + model +
-			". If your role's boot sequence calls report_waking, pass that exact value as its model argument. " +
-			"Follow your role-specific boot sequence when it says not to call report_waking."
+			". If your role's boot steps call report_waking, pass that exact value as its model argument. " +
+			"Follow your role-specific boot steps when they say not to call report_waking."
 	}
 	return instruction + "\n---\n" + persona
 }
@@ -474,8 +474,8 @@ func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
 		}
 		return
 	}
-	s.activity("⚠️ could not deliver (%s): %s — this content did not reach the agent's conversation; "+
-		"the agent will not know anyone said it", detail, codexDeliveryLabel(d.text))
+	s.activity("⚠️ could not deliver (%s): %s — this content did not reach the member's conversation; "+
+		"the member will not know anyone said it", detail, codexDeliveryLabel(d.text))
 	if d.batch != nil {
 		d.batch.failed = true
 	}

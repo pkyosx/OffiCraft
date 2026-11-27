@@ -333,7 +333,7 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 			"purpose":          "Help the Owner turn on or adjust remote connections so a phone or another computer can reach the console at an HTTPS URL — including turning it on for the first time, and later changing the forwarding method or the URL.",
 			"fields":           []any{},
 			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
-			"sop_md_chars":     14997,
+			"sop_md_chars":     15049,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
 			"is_seed":          true,
@@ -342,10 +342,10 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 		map[string]any{
 			"type_key":         "builtin-role-design",
 			"display_name":     "Create / edit role",
-			"purpose":          "Create a new role, or adjust an existing role's role definition and judgment criteria (Insight).",
+			"purpose":          "Create a new role, or adjust an existing role's Duty and Insight.",
 			"fields":           []any{},
 			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
-			"sop_md_chars":     9224,
+			"sop_md_chars":     9061,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
 			"is_seed":          true,
@@ -367,9 +367,9 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 }
 
 const (
-	apiTestRoleDesignSopChars        = 9224
-	apiTestRoleDesignSopSha256       = "4953f808763561795caeba84f8f26b7abc5e2f1f70bfc29fc39799cbebf138e8"
-	apiTestTaskManualDesignSopSha256 = "51d26d8084ed7b4bc5a539fdb8305b3625ba7730ed8fa295f714e6494b0465a5"
+	apiTestRoleDesignSopChars        = 9061
+	apiTestRoleDesignSopSha256       = "92304673056702d6e4b57db8ae9f704342b3f5cd24820bc3b1a095d827694ae8"
+	apiTestTaskManualDesignSopSha256 = "96452eb475b085a37009dd00bb5974a5f140938207369ee80eafe08f8364be10"
 )
 
 // apiTestWantRoleDesignManual reads builtin-role-design back. The shipped SOP is
@@ -441,7 +441,7 @@ func apiTestShippedRoleDesignManual() map[string]any {
 	return map[string]any{
 		"type_key":         "builtin-role-design",
 		"display_name":     "Create / edit role",
-		"purpose":          "Create a new role, or adjust an existing role's role definition and judgment criteria (Insight).",
+		"purpose":          "Create a new role, or adjust an existing role's Duty and Insight.",
 		"fields":           []any{},
 		"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
 		"lore":             "",
@@ -490,7 +490,7 @@ func TestHandleListTaskManualsApiTaskManualsGet(t *testing.T) {
 		edited := []any{shipped[0], shipped[2], map[string]any{
 			"type_key":         "builtin-role-design",
 			"display_name":     "角色設計",
-			"purpose":          "Create a new role, or adjust an existing role's role definition and judgment criteria (Insight).",
+			"purpose":          "Create a new role, or adjust an existing role's Duty and Insight.",
 			"fields":           []any{},
 			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
 			"sop_md_chars":     2,
@@ -704,7 +704,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "forbidden",
-			"assignee is owner/admin-agent governance — a plain agent may not set who executes a task type")
+			"assignee is owner/admin governance — a plain member may not set who executes a task type")
 		dashboard.wantFrames()
 		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(37500)))
 	})
@@ -1051,7 +1051,7 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "forbidden",
-			"assignee is owner/admin-agent governance — a plain agent may not set who executes a task type")
+			"assignee is owner/admin governance — a plain member may not set who executes a task type")
 		dashboard.wantFrames()
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
 			"type_key":         "tm-quote",

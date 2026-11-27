@@ -322,7 +322,7 @@ func (s *apiServer) openReplyCard(
 	}
 	title, pushBody := "OffiCraft：需要你決定", "你有一張新的請示卡。"
 	if s.displayLanguageSnapshot() == "en" {
-		title, pushBody = "OffiCraft: decision needed", "You have a new decision card."
+		title, pushBody = "OffiCraft: decision needed", "You have a new reply card."
 	}
 	s.enqueueWebPush(webPushPayload{
 		Kind: "reply_card", ChatMessageID: msg.ID, ReplyCardID: card.ID,
@@ -1070,7 +1070,7 @@ func (s *apiServer) HandleAnswerReplyCardApiReplyCardsCardIdAnswerPost(w http.Re
 func firstAnswerGate(card ReplyCard, getTask func(string) (*Task, error)) error {
 	if card.Status == replyCardStatusExpired {
 		return refuseInTx(http.StatusConflict,
-			"reply card '"+card.ID+"' is expired — a terminal state; the agent opens a new card if the question still matters")
+			"reply card '"+card.ID+"' is expired — a terminal state; the member opens a new card if the question still matters")
 	}
 	if card.SecretProvidedTS > 0 {
 		return refuseInTx(http.StatusConflict,
@@ -1127,7 +1127,7 @@ func reanswerGate(card ReplyCard, _ func(string) (*Task, error)) error {
 	return nil
 }
 
-const expireNotYourCardMsg = "only the card's own author (or the owner / an admin agent) may mark it expired"
+const expireNotYourCardMsg = "only the card's own author (or the owner / an admin) may mark it expired"
 
 // The expire route's floor is principalAgent (routes.go); this per-card author
 // check (owner ruling T-1b88) is what keeps other agents out.

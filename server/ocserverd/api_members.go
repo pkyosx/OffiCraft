@@ -482,7 +482,7 @@ func (s *apiServer) HandleHireMemberApiMembersPost(w http.ResponseWriter, r *htt
 		writeError(w, http.StatusUnprocessableEntity,
 			"POST /api/members hires staff only; got kind '"+kind+"'. "+
 				"A warden is born by onboarding its machine through POST /api/machines "+
-				"(the machine id becomes the warden's member id); an outsource worker is "+
+				"(the machine id becomes the warden's member id); an outsource member is "+
 				"minted by the outsource scheduler when a task is handed out. "+
 				"Neither can be created here")
 		return
@@ -623,7 +623,7 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	if m.Kind == KindOutsource {
 		if body.Name != nil {
 			writeError(w, http.StatusUnprocessableEntity,
-				"an outsource worker's codename is task-bound and cannot be renamed")
+				"an outsource member's codename is task-bound and cannot be renamed")
 			return
 		}
 		s.handleSetOutsourceWorkerModel(w, r, memberId, body)

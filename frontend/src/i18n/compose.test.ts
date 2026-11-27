@@ -386,7 +386,7 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "groupAutoJoinTitle", ["Frontend"], "Auto-join · Frontend"],
     ["en", "groupFilterLabel", [0], "Filter"],
     ["en", "groupFilterLabel", [3], "Filter · 3"],
-    ["en", "groupBringInTitle", ["PR review", "Review"], "Move the current \u201cPR review\u201d outsource workers into \u201cReview\u201d?"],
+    ["en", "groupBringInTitle", ["PR review", "Review"], "Move the current \u201cPR review\u201d outsource members into \u201cReview\u201d?"],
     ["en", "groupDragPickedUp", ["Mira"], "Picked up Mira."],
     ["en", "groupDragOverGroup", ["Mira", "Frontend"], "Mira will move to \u201cFrontend\u201d."],
     ["en", "groupDragDroppedGroup", ["Mira", "Frontend"], "Mira moved to \u201cFrontend\u201d."],

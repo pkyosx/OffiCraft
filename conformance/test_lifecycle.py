@@ -489,7 +489,7 @@ def _expected_context(
         _user_language_block(settings.json()["display_language"]),
     ]
     if user_text.strip():
-        parts.append(f"# Owner Additions\n\n{user_text.strip()}")
+        parts.append(f"# User additions\n\n{user_text.strip()}")
     parts.append(
         f"# Role: {role['name'] or role['key']}\n\n{role['definition_md'].strip()}"
     )
@@ -540,7 +540,7 @@ def test_boot_fold_bytes_blank_user_block_skipped(client, owner_token) -> None:
     r = client.post("/api/global-context/reset", headers=_auth(owner_token))
     assert r.status_code == 200, r.text
     context, role_key = _bootstrap_context(client, owner_token)
-    assert "# Owner Additions" not in context, (
+    assert "# User additions" not in context, (
         "blank owner text must skip the user-custom header entirely"
     )
     expected = _expected_context(client, owner_token, role_key, "")
@@ -676,7 +676,7 @@ def test_boot_fold_user_language_follows_display_language(
             context, role_key = _bootstrap_context(client, owner_token)
             head = (
                 f"{sys_block}\n\n{block}\n\n"
-                f"# Owner Additions\n\n{marker}\n\n"
+                f"# User additions\n\n{marker}\n\n"
             )
             assert context.startswith(head), (
                 f"display_language={lang!r}: the language block is missing or not "

@@ -215,15 +215,15 @@ func TestCodexPersonaInstruction(t *testing.T) {
 		"Never use request_user_input for normal questions; create an OffiCraft reply card instead. "
 	const persona = "# 身分\n第一行\n\n# 啟動步驟（Boot Sequence）\n最後一行 `$HOME` \"q\" \\ $(x)\n"
 
-	explicit := head + "The explicit OffiCraft launch model is gpt-5-codex. If your role's boot sequence calls " +
+	explicit := head + "The explicit OffiCraft launch model is gpt-5-codex. If your role's boot steps call " +
 		"report_waking, pass that exact value as its model argument. Follow your role-specific " +
-		"boot sequence when it says not to call report_waking.\n---\n" + persona
+		"boot steps when they say not to call report_waking.\n---\n" + persona
 	if got := codexPersonaInstruction("/w/PERSONA.md", persona, "gpt-5-codex"); got != explicit {
 		t.Errorf("codexPersonaInstruction with an explicit model =\n%q\nwant\n%q", got, explicit)
 	}
 
 	blank := head + "The OffiCraft launch model setting is blank, so the machine's Codex default " +
-		"applies. If your role's boot sequence calls report_waking, omit its optional model " +
+		"applies. If your role's boot steps call report_waking, omit its optional model " +
 		"argument; never guess or persist a model name.\n---\n" + persona
 	if got := codexPersonaInstruction("/w/PERSONA.md", persona, ""); got != blank {
 		t.Errorf("codexPersonaInstruction with a blank model =\n%q\nwant\n%q", got, blank)
@@ -953,8 +953,8 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 			t.Errorf("a refused turn/start re-sent %q, want no retry", s.in.String())
 		}
 		wantPane := []string{
-			"⚠️ could not deliver (thread is busy): " + strings.Repeat("あ", 80) + "… — this content did not reach the agent's conversation; " +
-				"the agent will not know anyone said it",
+			"⚠️ could not deliver (thread is busy): " + strings.Repeat("あ", 80) + "… — this content did not reach the member's conversation; " +
+				"the member will not know anyone said it",
 			"batch b-1 could not be delivered to the conversation — told the listener not to mark it read; the next round will reprint it",
 		}
 		if got := s.paneLines(t); !reflect.DeepEqual(got, wantPane) {
@@ -1126,7 +1126,7 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 
 		const text = "[OffiCraft sidecar] A sub-agent you started has finished, and its result is already in the conversation; continue your work from its result."
 		if got, want := s.paneLines(t), []string{
-			"⚠️ could not deliver (thread is busy): " + string([]rune(text)[:80]) + "… — this content did not reach the agent's conversation; the agent will not know anyone said it",
+			"⚠️ could not deliver (thread is busy): " + string([]rune(text)[:80]) + "… — this content did not reach the member's conversation; the member will not know anyone said it",
 		}; !reflect.DeepEqual(got, want) {
 			t.Errorf("the pane shows %q, want %q", got, want)
 		}
@@ -1165,7 +1165,7 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 
 		if got, want := s.paneLines(t), []string{
 			"⚠️ could not deliver (thread is busy): [OffiCraft sidecar] sub-agent /root/mid/grand, started by sub-agent /root/mid, h…" +
-				" — this content did not reach the agent's conversation; the agent will not know anyone said it",
+				" — this content did not reach the member's conversation; the member will not know anyone said it",
 		}; !reflect.DeepEqual(got, want) {
 			t.Errorf("the pane shows %q, want %q", got, want)
 		}

@@ -807,7 +807,7 @@ func TestUnpinningIsAdminOnlyToo(t *testing.T) {
 			apiWantError(t, data, "forbidden", "Pin / unpin is an admin decision — a pinned entry "+
 				"sorts ahead of every other entry in its scope and therefore survives the "+
 				"cap at the expense of everyone else's, so who pins is not the writer's "+
-				"call. Ask the owner or an admin agent.")
+				"call. Ask the owner or an admin.")
 			windowWantLoreEntry(t, d, e.ID, LoreStatePinned, LoreScopeEveryone, "", 100)
 		})
 	}
@@ -833,7 +833,7 @@ func TestRetireAndBumpAreAuthorOnly(t *testing.T) {
 	// retired entry of their own is beyond them, and nothing corrects that.
 	wantRefusal := `{"error":{"code":"forbidden","message":"you may only Retire, Activate or Bump to latest ` +
 		`an entry you WROTE — this one has a different author, and an entry is governed ` +
-		`by the member who wrote it. An admin agent or the owner can act on any entry."}}`
+		`by the member who wrote it. An admin or the owner can act on any entry."}}`
 	if got := rec.Body.String(); got != wantRefusal {
 		t.Fatalf("refusal body = %s, want %s", got, wantRefusal)
 	}
@@ -894,7 +894,7 @@ func TestRetireAndBumpAreAuthorOnly(t *testing.T) {
 			}
 			apiWantError(t, data, "forbidden", "you may only Retire, Activate or Bump to latest an entry you WROTE — "+
 				"this one has a different author, and an entry is governed by the member "+
-				"who wrote it. An admin agent or the owner can act on any entry.")
+				"who wrote it. An admin or the owner can act on any entry.")
 			windowWantLoreEntry(t, d, e.ID, LoreStateActive, LoreScopeEveryone, "", 100)
 		})
 	}

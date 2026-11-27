@@ -80,7 +80,7 @@ Specify who executes this kind of task by default, and the runtime used. When it
 
 Before starting the design, first confirm what work the Owner wants this kind of task to handle, and what problem the Owner wants solved.
 
-First organize your current understanding based on the task description and the information the Owner has already provided, then open a Reply Card to confirm with the Owner. Do not break what the Owner has already said into questions and ask them again; when the information is already sufficient, simply summarize your understanding and ask the Owner to confirm it.
+First organize your current understanding based on the task description and the information the Owner has already provided, then open a reply card to confirm with the Owner. Do not break what the Owner has already said into questions and ask them again; when the information is already sufficient, simply summarize your understanding and ask the Owner to confirm it.
 
 If the current information is insufficient, ask for the missing information on the same card. At minimum, you must be able to confirm:
 
@@ -99,7 +99,7 @@ Before designing, look at the existing task manuals to check whether there is al
 
 When adjusting an existing task manual, build on the current content, keep the parts that are still correct and unaffected by this request, and change only what needs to change this time.
 
-If information is insufficient and would affect the task's scope or its boundary with other manuals, open a Reply Card to ask the Owner.
+If information is insufficient and would affect the task's scope or its boundary with other manuals, open a reply card to ask the Owner.
 
 **Completion condition**: the draft of "What is this task?" is complete, with no unresolved questions about the task's scope or manual boundaries.
 
@@ -113,7 +113,7 @@ When adjusting an existing task manual, first look at the current SOP, related r
 
 Each step should state what to do, the rules to follow, and what condition must be reached before moving on to the next step.
 
-If missing information would affect the execution flow, completion conditions, approval gates, or other important handling, open a Reply Card to ask the Owner.
+If missing information would affect the execution flow, completion conditions, approval gates, or other important handling, open a reply card to ask the Owner.
 
 **Completion condition**: an SOP that lets the executor move from start to completion of the work is done, and every step's completion condition and the necessary approval gates are clear.
 
@@ -125,13 +125,13 @@ For example, when handling a Jira issue, you can use the Jira ticket; when revie
 
 Then check whether there is any other information that must be available before execution and is different every time, which needs a separate field.
 
-If you cannot judge the work target or a suitable identifying field, open a Reply Card to ask the Owner.
+If you cannot judge the work target or a suitable identifying field, open a reply card to ask the Owner.
 
 **Completion condition**: the identifying field for this kind of task, and any other necessary fields, have been confirmed.
 
 ## 5. Handle "Assigned executor"
 
-Based on this kind of task's work and SOP, work out a suitable assigned executor and runtime, and open a Reply Card asking the Owner to decide.
+Based on this kind of task's work and SOP, work out a suitable assigned executor and runtime, and open a reply card asking the Owner to decide.
 
 By default, recommend that **outsourcing** executes it, and additionally offer suitable **staff member candidates** for the Owner to choose from.
 
@@ -155,13 +155,13 @@ The Reviewer checks:
 - Content in appendices is actually used in executing the task, and is explicitly cited where the main text needs it.
 - Overall there is no duplicated, contradictory, or unnecessary content.
 
-When the Reviewer finds problems, revise according to the review comments, then hand it back to the Reviewer to check. If a problem involves the task's scope, completion conditions, way of execution, or other matters needing an Owner decision, open a Reply Card to ask the Owner, then revise.
+When the Reviewer finds problems, revise according to the review comments, then hand it back to the Reviewer to check. If a problem involves the task's scope, completion conditions, way of execution, or other matters needing an Owner decision, open a reply card to ask the Owner, then revise.
 
 **Completion condition**: the Reviewer confirms that the final task manual meets this manual's content definitions and is sufficient for the executor to complete this kind of task.
 
 ## 7. Owner approval
 
-After the review passes, open a Reply Card asking the Owner to approve the final version.
+After the review passes, open a reply card asking the Owner to approve the final version.
 
 When creating a new task manual, provide the complete task manual content and the assigned executor.
 
@@ -173,7 +173,7 @@ When the Owner asks for changes, adjust the content according to the reply; if t
 
 ## 8. Write and read back
 
-Create or update the task manual according to the Owner-approved version. If you cannot write it yourself, open a Reply Card asking the Owner to perform the necessary operation.
+Create or update the task manual according to the Owner-approved version. If you cannot write it yourself, open a reply card asking the Owner to perform the necessary operation.
 
 After writing, read the task manual back and confirm that the display name, "What is this task?", "What information is needed?", "How is it done?", and the assigned executor all match the Owner-approved version.
 

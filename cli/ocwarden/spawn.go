@@ -261,7 +261,7 @@ func compactSettingsJSON(raw string) (string, error) {
 func buildClaudeSystemPrompt(agentID, role, personaFile, persona string) string {
 	return fmt.Sprintf("You are %s (role=%s). After the \"---\" below is the full text of your OffiCraft boot file "+
 		"(the same content as %s); it is already in your system prompt: do not read that file again with any tool. "+
-		"When booting, carry out the \"Boot Sequence\" at the end of the boot file step by step.\n---\n",
+		"When booting, carry out the \"Boot Steps\" at the end of the boot file step by step.\n---\n",
 		agentID, role, personaFile) + persona
 }
 
@@ -272,8 +272,8 @@ func buildAppendSystemPrompt(agentID, role, personaFile string) string {
 		"pre-fetched by the launcher into the local file %s. First step: read it with the Read tool from the first line to the last line; "+
 		"when one Read call cannot read it all, use offset/limit to continue from the line where the previous call stopped, until you reach the last line. "+
 		"Do not read it with cat/head/tail/sed or any other terminal command: only a small opening part of terminal output reaches your context, "+
-		"the rest is silently dropped with no error message at all, and the \"Boot Sequence\" is at the very end of the file. "+
-		"After reading the whole file, carry out its \"Boot Sequence\" section step by step.",
+		"the rest is silently dropped with no error message at all, and the \"Boot Steps\" is at the very end of the file. "+
+		"After reading the whole file, carry out its \"Boot Steps\" section step by step.",
 		agentID, role, personaFile)
 }
 

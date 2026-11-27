@@ -138,8 +138,8 @@ func TestHandleGetMemberBootContextApiMembersMemberIdBootContextGet(t *testing.T
 			t.Fatalf("replace owner additions: %d %v", status, data)
 		}
 		const (
-			zhContext = "# SYSTEM INTERACTION\n\n# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\n# Owner Additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
-			enContext = "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\n# Owner Additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
+			zhContext = "# SYSTEM INTERACTION\n\n# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\n# User additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
+			enContext = "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\n# User additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
 		)
 		for _, step := range []struct{ name, settings, want string }{
 			{name: "never set", want: zhContext},

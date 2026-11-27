@@ -215,7 +215,7 @@ func TestOpenReplyCard(t *testing.T) {
 	t.Run("the owner's notification follows the cockpit language", func(t *testing.T) {
 		for _, tc := range []struct{ language, title, body string }{
 			{"zh", "OffiCraft：需要你決定", "你有一張新的請示卡。"},
-			{"en", "OffiCraft: decision needed", "You have a new decision card."},
+			{"en", "OffiCraft: decision needed", "You have a new reply card."},
 		} {
 			t.Run(tc.language, func(t *testing.T) {
 				api, h, _, owner := newAPITestServer(t)
@@ -2688,7 +2688,7 @@ func TestHandleAnswerReplyCardApiReplyCardsCardIdAnswerPost(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"reply card '"+cardID+"' is expired — a terminal state; the agent opens a new card if the question still matters")
+			"reply card '"+cardID+"' is expired — a terminal state; the member opens a new card if the question still matters")
 		dashboard.wantFrames()
 		_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
 		apiWantValue(t, "card.status", card["status"], "expired")
@@ -3082,7 +3082,7 @@ func TestHandleExpireReplyCardApiReplyCardsCardIdExpirePost(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "forbidden",
-			"only the card's own author (or the owner / an admin agent) may mark it expired")
+			"only the card's own author (or the owner / an admin) may mark it expired")
 		dashboard.wantFrames()
 		wantWaiting(t, h, owner, cardID)
 	})

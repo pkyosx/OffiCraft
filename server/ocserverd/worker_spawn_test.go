@@ -180,7 +180,7 @@ func TestBuildWorkerBootContext(t *testing.T) {
 			t.Fatalf("buildWorkerBootContext: %v", err)
 		}
 		head, tail, found := strings.Cut(after,
-			"# Owner Additions\n\nStudio rule: never touch the bonded rack\n\n")
+			"# User additions\n\nStudio rule: never touch the bonded rack\n\n")
 		if !found {
 			t.Fatalf("the owner's block is not in the assembled context (%d chars)", len(after))
 		}
@@ -225,8 +225,8 @@ func TestResolveWorkerPlacement(t *testing.T) {
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 
 		id, why := api.resolveWorkerPlacement(w, "", 1000)
-		wantPlacement(t, id, why, "", "no_machine_selected: no machine is selected for this worker — "+
-			"pick one on the worker (Change machine) or on the task type's manual assignee; "+
+		wantPlacement(t, id, why, "", "no_machine_selected: no machine is selected for this outsource member — "+
+			"pick one on the outsource member (Change machine) or in the task manual's Assigned executor; "+
 			"there is no automatic placement")
 	})
 
@@ -384,8 +384,8 @@ func TestResolveStickyWorkerPlacement(t *testing.T) {
 		wantPlacement(t, id, why, ServerSelfHost, "")
 
 		id, why = api.resolveStickyWorkerPlacement(w, "", 1000)
-		wantPlacement(t, id, why, "", "no_machine_selected: no machine is selected for this worker — "+
-			"pick one on the worker (Change machine) or on the task type's manual assignee; "+
+		wantPlacement(t, id, why, "", "no_machine_selected: no machine is selected for this outsource member — "+
+			"pick one on the outsource member (Change machine) or in the task manual's Assigned executor; "+
 			"there is no automatic placement")
 	})
 }
@@ -1004,8 +1004,8 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 		apiWantValue(t, "spawn observation", any(float64(len(api.workerSpawnAt))), any(0))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
-			"last_op_reason": "no_machine_selected: no machine is selected for this worker — " +
-				"pick one on the worker (Change machine) or on the task type's manual assignee; " +
+			"last_op_reason": "no_machine_selected: no machine is selected for this outsource member — " +
+				"pick one on the outsource member (Change machine) or in the task manual's Assigned executor; " +
 				"there is no automatic placement",
 		}))
 	})
@@ -1855,8 +1855,8 @@ func TestHandOverWorkerNow(t *testing.T) {
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status":  "active",
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
-			"last_op_reason": "no_machine_selected: no machine is selected for this worker — " +
-				"pick one on the worker (Change machine) or on the task type's manual assignee; " +
+			"last_op_reason": "no_machine_selected: no machine is selected for this outsource member — " +
+				"pick one on the outsource member (Change machine) or in the task manual's Assigned executor; " +
 				"there is no automatic placement",
 		}))
 	})
@@ -3698,8 +3698,8 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		apiWantValue(t, "fsm phase", any(state.Phase), any("offline"))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
-			"last_op_reason": "no_machine_selected: no machine is selected for this worker — " +
-				"pick one on the worker (Change machine) or on the task type's manual assignee; " +
+			"last_op_reason": "no_machine_selected: no machine is selected for this outsource member — " +
+				"pick one on the outsource member (Change machine) or in the task manual's Assigned executor; " +
 				"there is no automatic placement",
 		}))
 	})

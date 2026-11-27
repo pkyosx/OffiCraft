@@ -15,7 +15,7 @@ This task does not include:
 - Changing router or firewall settings.
 - Logging in to any account for the user.
 
-Any operation that needs administrator privileges (for example `sudo` or the computer's password), or that requires the user to log in to an account personally, always goes through an action Reply Card. The card must explain the operation and the expected result; the user completes it themselves. After the reply, read back the result and continue.
+Any operation that needs administrator privileges (for example `sudo` or the computer's password), or that requires the user to log in to an account personally, always goes through an action reply card. The card must explain the operation and the expected result; the user completes it themselves. After the reply, read back the result and continue.
 
 You must not ask the user for passwords or other account credentials.
 
@@ -29,32 +29,32 @@ The following three forwarding methods are available:
 
 ## 1. Security check
 
-Use `get_login_protection` to check whether two-step verification is enabled.
+Use `get_login_protection` to check whether two-factor authentication is enabled.
 
-If it is not enabled, open a decision Reply Card. When opening the card, you must explain:
+If it is not enabled, open a decision reply card. When opening the card, you must explain:
 
-- Two-step verification is not currently enabled on the console.
-- Once remote access is open, the console login page is reachable from other devices; anyone who can log in can interact with AI members and operate the computer through them, so enabling two-step verification first is recommended.
-- A passkey cannot replace two-step verification; even with a passkey set up, the login page still accepts password login.
+- Two-factor authentication is not currently enabled on the console.
+- Once remote access is open, the console login page is reachable from other devices; anyone who can log in can interact with AI members and operate the computer through them, so enabling two-factor authentication first is recommended.
+- A passkey cannot replace two-factor authentication; even with a passkey set up, the login page still accepts password login.
 
 Ask the user to decide:
 
-- Enable two-step verification first, then continue.
+- Enable two-factor authentication first, then continue.
 - Keep the current login protection and continue opening remote access.
 - Do not open remote access.
 
-If the user chooses to enable two-step verification first, ask them to set it up at "avatar at the top right of the console › Account security". After the reply, use `get_login_protection` again to confirm it is enabled before continuing.
+If the user chooses to enable two-factor authentication first, ask them to set it up at "avatar at the top right of the console › Account security". After the reply, use `get_login_protection` again to confirm it is enabled before continuing.
 
-If the user confirms keeping the current login protection and continuing, act on that decision; do not stop the task because two-step verification is off.
+If the user confirms keeping the current login protection and continuing, act on that decision; do not stop the task because two-factor authentication is off.
 
 If the user chooses not to open remote access, do not set up new forwarding; record the user's decision and end the task.
 
-If the console already has external forwarding but two-step verification is not enabled, the card must also explain that the console is already reachable from outside, and ask the user to decide whether to keep the current state, enable two-step verification, or shut down the existing forwarding.
+If the console already has external forwarding but two-factor authentication is not enabled, the card must also explain that the console is already reachable from outside, and ask the user to decide whether to keep the current state, enable two-factor authentication, or shut down the existing forwarding.
 
 **Completion condition**
 
-- The current two-step verification status has been confirmed.
-- If two-step verification is not enabled, the user has decided through a Reply Card whether to proceed with opening or keeping remote access.
+- The current two-factor authentication status has been confirmed.
+- If two-factor authentication is not enabled, the user has decided through a reply card whether to proceed with opening or keeping remote access.
 
 ## 2. Confirm the forwarding method
 
@@ -64,7 +64,7 @@ Confirm that the current member is running on the console computer.
 
 When your own server URL (`OC_BASE`) is `127.0.0.1` or `localhost`, treat it as running on the console computer, and take the console port from that URL.
 
-If not, stop and open a Reply Card asking the user to reassign the task to a member running on the console computer.
+If not, stop and open a reply card asking the user to reassign the task to a member running on the console computer.
 
 ### 2.2 Confirm the current forwarding
 
@@ -92,7 +92,7 @@ If other machines connect through the current forwarding URL, changing or shutti
 
 ### 2.4 Confirm the forwarding method
 
-Open a decision Reply Card and, based on the state confirmed above, ask the user to decide which forwarding method to use this time.
+Open a decision reply card and, based on the state confirmed above, ask the user to decide which forwarding method to use this time.
 
 If existing forwarding meets the need and can be used persistently, offer a "Keep the current forwarding" option, and explain its URL, access scope, and whether other machines use it.
 
@@ -102,18 +102,18 @@ Describe the remaining options by the user's own situation, without requiring th
 - **I have no Cloudflare account or own domain, and want to connect directly from outside (recommended)**: use Tailscale Funnel. The URL is provided by Tailscale, no domain needs to be prepared, and anyone who knows the URL can reach the login page.
 - **I have no Cloudflare account or own domain, and only want my own devices to be able to connect**: use Tailscale's private forwarding. Every device that needs to connect must have Tailscale installed and be logged in to the same account.
 
-If a method does not fit the current environment, do not list it; explain why on the Reply Card.
+If a method does not fit the current environment, do not list it; explain why on the reply card.
 
 If cloudflared already serves other URLs or services, do not modify its existing configuration to add the console. If you cannot confirm the change will not affect existing services, do not offer the Cloudflare option.
 
-If changing the forwarding would affect other studio machines, the Reply Card must also explain which machines are affected.
+If changing the forwarding would affect other studio machines, the reply card must also explain which machines are affected.
 
 **Completion condition**
 
 - The console port has been obtained.
 - Whether forwarding currently exists, and its state, has been confirmed.
 - Whether other studio machines are affected has been confirmed.
-- The user has confirmed through a Reply Card the forwarding method to use this time.
+- The user has confirmed through a reply card the forwarding method to use this time.
 - When using cloudflared, the domain to use has been obtained.
 
 ## 3. Set up and verify the forwarding
@@ -130,7 +130,7 @@ If new forwarding needs to be set up:
 4. Set it to run automatically after boot.
 5. Open the forwarding URL from the console computer, and confirm the response is the console login page, not an error page or another service.
 
-For operations that need administrator privileges or an account login, open an action Reply Card per the rules above, and continue after the user performs them.
+For operations that need administrator privileges or an account login, open an action reply card per the rules above, and continue after the user performs them.
 
 When setting up new forwarding, existing forwarding must stay running. You must not disable existing forwarding to create the new setup.
 
@@ -150,13 +150,13 @@ On macOS the `tailscale` command is not on PATH; when the Tailscale app is not o
 
 If using Tailscale Funnel, opening the forwarding URL from the console computer does not confirm it is reachable from the public internet.
 
-The AI does not verify this itself; in step 4, use an action Reply Card to ask the user to open the forwarding URL over a mobile network on a phone not connected to Tailscale, and report the result.
+The AI does not verify this itself; in step 4, use an action reply card to ask the user to open the forwarding URL over a mobile network on a phone not connected to Tailscale, and report the result.
 
 ### Verification failure
 
 If verification fails, troubleshoot and fix based on the actual error.
 
-If it cannot be resolved, keep the existing working forwarding — do not disable it yourself — and open a Reply Card explaining the current state and the error for the user to decide how to proceed.
+If it cannot be resolved, keep the existing working forwarding — do not disable it yourself — and open a reply card explaining the current state and the error for the user to decide how to proceed.
 
 **Completion condition**
 
@@ -167,9 +167,9 @@ If it cannot be resolved, keep the existing working forwarding — do not disabl
 
 ## 4. User acceptance
 
-Open an action Reply Card asking the user to verify remote access from the device they will actually use. The card provides everything needed for acceptance at once:
+Open an action reply card asking the user to verify remote access from the device they will actually use. The card provides everything needed for acceptance at once:
 
-- **Forwarding URL**: provide the final forwarding URL and ask the user to open it and log in. If two-step verification is enabled, also confirm that two-step verification completes normally.
+- **Forwarding URL**: provide the final forwarding URL and ask the user to open it and log in. If two-factor authentication is enabled, also confirm that two-factor authentication completes normally.
 - **How to connect**: provide the steps for the forwarding method used this time:
   - Tailscale (devices in the account only): install the Tailscale app on the phone, log in to the same account as the console computer, then open the forwarding URL.
   - Tailscale Funnel: turn off Tailscale on the phone and open the forwarding URL over a mobile network.
@@ -177,14 +177,14 @@ Open an action Reply Card asking the user to verify remote access from the devic
 - **Optional settings**: tell the user these do not affect this acceptance and can be set up as needed:
   - Passkey: log in with Face ID or a fingerprint later. A passkey only works for the URL it was added on, so add it through the current forwarding URL.
   - Add to Home Screen: add the console to the phone's home screen to open it like a standalone app.
-  - Push notifications: receive notifications for new messages or Reply Cards. On iPhone, the console must first be added to the home screen.
+  - Push notifications: receive notifications for new messages or reply cards. On iPhone, the console must first be added to the home screen.
 - **Limitations**: remind the user that once the console computer shuts down or sleeps, other devices cannot connect; with cloudflared or Tailscale Funnel, the login page and callback endpoints are exposed to the internet.
 
 Ask the user to reply with the result after logging in. Optional settings are not required and do not affect whether this step is complete.
 
-After the user replies, confirm they have logged in through the final forwarding URL. If they report being unable to connect or log in, troubleshoot based on the actual result; do not treat the Reply Card reply itself as successful acceptance.
+After the user replies, confirm they have logged in through the final forwarding URL. If they report being unable to connect or log in, troubleshoot based on the actual result; do not treat the reply card reply itself as successful acceptance.
 
-If other studio machines need to switch to this URL, after acceptance succeeds, open a separate action Reply Card for the machine migration. The card must:
+If other studio machines need to switch to this URL, after acceptance succeeds, open a separate action reply card for the machine migration. The card must:
 
 - List the machines that need to switch to the new URL.
 - Ask the user to log in through the new URL, go to "Monitor › Machines", and choose "Reinstall" for each machine that needs updating.
