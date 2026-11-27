@@ -360,15 +360,18 @@ func claudeUsageWindow(raw json.RawMessage) map[string]any {
 
 // claudeAccountReporter keeps the latest measurement for the heartbeat; a
 // spawn measures through it too, so the machine's reported login is the one
-// the newest member was bound to. It also binds the claude launches that
-// started unbound to the first later measurement that names an account.
+// the newest member was bound to. It also binds a claude launch that started
+// unbound, once a measurement started after it names the account the machine
+// was logged in as before it.
 type claudeAccountReporter struct {
 	meter func() (claudeAccountMeasurement, bool)
 	logf  func(string, ...any)
 
-	mu       sync.Mutex
-	latest   map[string]any
-	lastNote string
+	mu          sync.Mutex
+	latest      map[string]any
+	lastNote    string
+	started     uint64
+	lastAccount string
 
 	// bindMu is held across a late binding's write, so a spawn's forget
 	// returns only once no write for the previous launch can still land.
@@ -380,6 +383,11 @@ type unboundClaudeLaunch struct {
 	path  string
 	write func(path, content string, mode os.FileMode) error
 	logf  func(string, ...any)
+	// Set by awaitAccount: the last measurement started before the launch, and
+	// the account the machine's last successful measurement before it named
+	// ("" when none had).
+	after        uint64
+	priorAccount string
 }
 
 func newClaudeAccountReporter(meter func() (claudeAccountMeasurement, bool), logf func(string, ...any)) *claudeAccountReporter {
@@ -390,6 +398,10 @@ func (r *claudeAccountReporter) measureNow() claudeAccountMeasurement {
 	if r == nil || r.meter == nil {
 		return claudeAccountMeasurement{}
 	}
+	r.mu.Lock()
+	r.started++
+	seq := r.started
+	r.mu.Unlock()
 	m, ok := r.meter()
 	note := ""
 	switch {
@@ -411,6 +423,9 @@ func (r *claudeAccountReporter) measureNow() claudeAccountMeasurement {
 	} else {
 		r.latest = nil
 	}
+	if ok && m.Account != "" {
+		r.lastAccount = m.Account
+	}
 	changed := note != r.lastNote
 	r.lastNote = note
 	r.mu.Unlock()
@@ -418,16 +433,16 @@ func (r *claudeAccountReporter) measureNow() claudeAccountMeasurement {
 		r.logf("%s", note)
 	}
 	if ok && m.Account != "" {
-		r.bindUnbound(m)
+		r.bindUnbound(m, seq)
 	}
 	return m
 }
 
-// awaitAccount records a claude launch that started unbound. An access token
-// past its life is the usual cause, and nothing here refreshes it; the
-// member's own claude does as soon as it runs, so a later measurement of the
-// same stored login names the account that member is billed to.
+// awaitAccount records a claude launch that started unbound.
 func (r *claudeAccountReporter) awaitAccount(memberID string, launch unboundClaudeLaunch) {
+	r.mu.Lock()
+	launch.after, launch.priorAccount = r.started, r.lastAccount
+	r.mu.Unlock()
 	r.bindMu.Lock()
 	defer r.bindMu.Unlock()
 	if r.unbound == nil {
@@ -443,9 +458,12 @@ func (r *claudeAccountReporter) forget(memberID string) {
 	delete(r.unbound, memberID)
 }
 
-// Each launch is bound at most once; a launch that was bound at spawn is never
-// in the set, so a later login on the machine cannot move it.
-func (r *claudeAccountReporter) bindUnbound(m claudeAccountMeasurement) {
+// bindUnbound settles each pending launch with the first measurement started
+// after it. A running claude keeps the login it started with, so the binding is
+// written only when that measurement names the account measured before the
+// launch; a login switched in between, or no earlier measurement, leaves the
+// session unbound rather than naming an account it may not be using.
+func (r *claudeAccountReporter) bindUnbound(m claudeAccountMeasurement, seq uint64) {
 	r.bindMu.Lock()
 	defer r.bindMu.Unlock()
 	if len(r.unbound) == 0 {
@@ -456,7 +474,18 @@ func (r *claudeAccountReporter) bindUnbound(m claudeAccountMeasurement) {
 		return
 	}
 	for memberID, launch := range r.unbound {
+		if seq <= launch.after {
+			continue
+		}
 		delete(r.unbound, memberID)
+		if launch.priorAccount == "" {
+			launch.logf("%s: launched unbound with no earlier measurement of this machine's login; the session stays unbound", memberID)
+			continue
+		}
+		if launch.priorAccount != m.Account {
+			launch.logf("%s: launched unbound while this machine was logged in as %s, and it is now %s; the session stays unbound", memberID, launch.priorAccount, m.Account)
+			continue
+		}
 		if err := launch.write(launch.path, string(raw), 0o600); err != nil {
 			launch.logf("%s: could not write the Claude account binding (%v); the session stays unbound", memberID, err)
 			continue
@@ -507,8 +536,7 @@ type claudeAccountLaunch struct {
 // credential this claude session will read, as its account for its whole
 // life: a running session keeps the credentials it started with until it is
 // relaunched. When no account was identified the session launches unbound and
-// the file is written by the first later measurement that names one
-// (awaitAccount). A zero result means the session reports no account at all.
+// the file may be written later (bindUnbound). A zero result means the session reports no account at all.
 func (d SpawnDeps) bindClaudeAccount(memberID, workdir string, envPairs []agentEnvPair) claudeAccountLaunch {
 	if d.ClaudeAccounts == nil {
 		return claudeAccountLaunch{}

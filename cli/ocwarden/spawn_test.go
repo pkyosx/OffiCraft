@@ -1446,32 +1446,31 @@ func TestStart(t *testing.T) {
 		}
 	})
 
-	t.Run("a claude spawn whose launch credential names no account launches unbound, and the first later measurement naming one binds that launch once", func(t *testing.T) {
+	t.Run("a claude spawn whose launch credential names no account launches unbound, and the first measurement started after it that names the pre-launch login binds that launch once", func(t *testing.T) {
 		h := newSpawnHarness()
 		d := h.deps()
-		measurements := []claudeAccountMeasurement{
-			{Store: "keychain", MeasuredAt: time.Unix(1795780000, 0), UnmeasuredReason: "token_expired"},
-			{Account: "au-1/org-1", Label: "kyle@x.io(OffiCraft)", Store: "keychain", MeasuredAt: time.Unix(1795780300, 0)},
-			{Account: "au-1/org-2", Label: "kyle@x.io(Team)", Store: "keychain", MeasuredAt: time.Unix(1795780600, 0)},
+		loginA := claudeAccountMeasurement{Account: "au-1/org-1", Label: "kyle@x.io(OffiCraft)", Store: "keychain", MeasuredAt: time.Unix(1795780300, 0)}
+		expired := claudeAccountMeasurement{Store: "keychain", MeasuredAt: time.Unix(1795780000, 0), UnmeasuredReason: "token_expired"}
+		meters := []func() claudeAccountMeasurement{
+			func() claudeAccountMeasurement { return loginA },
+			func() claudeAccountMeasurement {
+				if got := d.start(startParamsM1()); !got.OK {
+					t.Fatalf("outcome = %+v, want OK", got)
+				}
+				return loginA
+			},
+			func() claudeAccountMeasurement { return expired },
+			func() claudeAccountMeasurement { return expired },
+			func() claudeAccountMeasurement { return loginA },
+			func() claudeAccountMeasurement {
+				return claudeAccountMeasurement{Account: "au-1/org-2", Label: "kyle@x.io(Team)", Store: "keychain", MeasuredAt: time.Unix(1795780600, 0)}
+			},
 		}
 		d.ClaudeAccounts = newClaudeAccountReporter(func() (claudeAccountMeasurement, bool) {
-			m := measurements[0]
-			measurements = measurements[1:]
-			return m, true
+			next := meters[0]
+			meters = meters[1:]
+			return next(), true
 		}, nil)
-
-		if got := d.start(startParamsM1()); !got.OK {
-			t.Fatalf("outcome = %+v, want OK", got)
-		}
-
-		wantLaunch := strings.Replace(goldenLaunchM1, `OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" `,
-			`OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" OC_CLAUDE_ACCOUNT_FILE=/w/m1/.oc-claude-account `, 1)
-		if launch := h.runner.calls[3]; launch != "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 "+wantLaunch {
-			t.Errorf("launched\n%s\nwant the golden line naming the binding file but exporting no account", launch)
-		}
-		if want := "m1: no Claude account identified for the launch credential (token_expired); launching unbound until a measurement names one"; !slices.Contains(h.logs, want) {
-			t.Errorf("logs = %q, want %q", h.logs, want)
-		}
 		bindings := func() []writtenFile {
 			var out []writtenFile
 			for _, w := range h.writes {
@@ -1481,8 +1480,25 @@ func TestStart(t *testing.T) {
 			}
 			return out
 		}
+
+		d.ClaudeAccounts.measureNow()
+		d.ClaudeAccounts.measureNow()
+
+		wantLaunch := strings.Replace(goldenLaunchM1, `OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" `,
+			`OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" OC_CLAUDE_ACCOUNT_FILE=/w/m1/.oc-claude-account `, 1)
+		if launch := h.runner.calls[3]; launch != "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 "+wantLaunch {
+			t.Errorf("launched\n%s\nwant the golden line naming the binding file but exporting no account", launch)
+		}
+		if want := "m1: no Claude account identified for the launch credential (token_expired); launching unbound until a measurement names one"; !slices.Contains(h.logs, want) {
+			t.Errorf("logs = %q, want %q", h.logs, want)
+		}
 		if got := bindings(); len(got) != 0 {
-			t.Errorf("wrote a binding %+v for an unidentified account", got)
+			t.Errorf("a measurement started before the spawn wrote the binding %+v", got)
+		}
+
+		d.ClaudeAccounts.measureNow()
+		if got := bindings(); len(got) != 0 {
+			t.Errorf("a failed measurement wrote the binding %+v", got)
 		}
 
 		d.ClaudeAccounts.measureNow()
@@ -1490,10 +1506,65 @@ func TestStart(t *testing.T) {
 
 		want := []writtenFile{{"/w/m1/.oc-claude-account", `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)"}`, 0o600}}
 		if got := bindings(); !reflect.DeepEqual(got, want) {
-			t.Errorf("bindings after two later measurements = %+v, want only the first account named, once: %+v", got, want)
+			t.Errorf("bindings = %+v, want the pre-launch login, once, after the failed measurement: %+v", got, want)
 		}
 		if want := "m1: launched unbound; now bound to au-1/org-1, measured after it started (its earlier spend stays unattributed)"; !slices.Contains(h.logs, want) {
 			t.Errorf("logs = %q, want %q", h.logs, want)
+		}
+	})
+
+	t.Run("an unbound launch stays unbound when the first measurement after it names an account other than the pre-launch login", func(t *testing.T) {
+		loginA := claudeAccountMeasurement{Account: "au-1/org-1", Store: "keychain", MeasuredAt: time.Unix(1795780000, 0)}
+		loginB := claudeAccountMeasurement{Account: "au-1/org-2", Store: "keychain", MeasuredAt: time.Unix(1795780300, 0)}
+		cases := []struct {
+			name      string
+			preLaunch []claudeAccountMeasurement
+			after     []claudeAccountMeasurement
+			wantLog   string
+		}{
+			{
+				name:      "the machine logged in as another account after the launch",
+				preLaunch: []claudeAccountMeasurement{loginA},
+				after:     []claudeAccountMeasurement{loginB, loginA},
+				wantLog:   "m1: launched unbound while this machine was logged in as au-1/org-1, and it is now au-1/org-2; the session stays unbound",
+			},
+			{
+				name:    "no measurement before the launch named an account",
+				after:   []claudeAccountMeasurement{loginA, loginA},
+				wantLog: "m1: launched unbound with no earlier measurement of this machine's login; the session stays unbound",
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newSpawnHarness()
+				d := h.deps()
+				expired := claudeAccountMeasurement{Store: "keychain", MeasuredAt: time.Unix(1795779000, 0), UnmeasuredReason: "token_expired"}
+				measurements := append(append(append([]claudeAccountMeasurement{}, tc.preLaunch...), expired), tc.after...)
+				d.ClaudeAccounts = newClaudeAccountReporter(func() (claudeAccountMeasurement, bool) {
+					m := measurements[0]
+					measurements = measurements[1:]
+					return m, true
+				}, nil)
+				for range tc.preLaunch {
+					d.ClaudeAccounts.measureNow()
+				}
+				if got := d.start(startParamsM1()); !got.OK {
+					t.Fatalf("outcome = %+v, want OK", got)
+				}
+
+				for range tc.after {
+					d.ClaudeAccounts.measureNow()
+				}
+
+				for _, w := range h.writes {
+					if w.path == "/w/m1/.oc-claude-account" {
+						t.Errorf("wrote %q, an account the session may not be using", w.content)
+					}
+				}
+				if !slices.Contains(h.logs, tc.wantLog) {
+					t.Errorf("logs = %q, want %q", h.logs, tc.wantLog)
+				}
+			})
 		}
 	})
 
@@ -1501,6 +1572,7 @@ func TestStart(t *testing.T) {
 		h := newSpawnHarness()
 		d := h.deps()
 		measurements := []claudeAccountMeasurement{
+			{Account: "au-1/org-1", Store: "keychain", MeasuredAt: time.Unix(1795779700, 0)},
 			{Store: "keychain", MeasuredAt: time.Unix(1795780000, 0), UnmeasuredReason: "token_expired"},
 			{Account: "au-1/org-1", Store: "keychain", MeasuredAt: time.Unix(1795780300, 0)},
 		}
@@ -1509,6 +1581,7 @@ func TestStart(t *testing.T) {
 			measurements = measurements[1:]
 			return m, true
 		}, nil)
+		d.ClaudeAccounts.measureNow()
 		if got := d.start(startParamsM1()); !got.OK {
 			t.Fatalf("outcome = %+v, want OK", got)
 		}
