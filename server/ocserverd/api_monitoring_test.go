@@ -1225,7 +1225,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			"hardware":{"cpu_pct":12.5,"ram_pct":40,"ac_power":true},
 			"binaries":{"ocagent":"1.0.0"},
 			"claude":{"version":"2.0.0"},
-			"claude_account":{"account":"au-1/org-1","account_label":"kyle@x.io(Max)","store":"keychain",
+			"claude_account":{"account":"au-1/org-1","account_label":"kyle@x.io(kyle@x.io's Organization)","store":"keychain",
 				"subscription_type":"max","measured_at":`+strconv.FormatInt(time.Now().Unix()+600, 10)+`,
 				"five_hour":{"used_percentage":12,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`},
 				"access_token":"sk-ant-oat01-never-served"},
@@ -1280,7 +1280,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		wantMachine["cutover_effect"] = "effective"
 		wantMachine["claude_login"] = map[string]any{
 			"account":           "au-1/org-1",
-			"display_name":      "kyle@x.io(Max)",
+			"display_name":      "kyle@x.io",
 			"measured_at":       apiAnyNumber,
 			"store":             "keychain",
 			"unmeasured_reason": "",
@@ -1290,8 +1290,8 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			"machines": []any{wantMachine},
 			"accounts": []any{map[string]any{
 				"account":       "au-1/org-1",
-				"account_label": "kyle@x.io(Max)",
-				"display_name":  "kyle@x.io(Max)",
+				"account_label": "kyle@x.io(kyle@x.io's Organization)",
+				"display_name":  "kyle@x.io",
 				"machine":       "",
 				"cost":          nil,
 				"five_hour": map[string]any{

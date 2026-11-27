@@ -5,7 +5,10 @@ package main
 // projection (api_outsource.go / wire.go), so neither serves a raw credential
 // hash.
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 // accountRuntimeKey is an internal provenance stamp, deliberately in no API
 // DTO: account identity is runtime-specific.
@@ -106,9 +109,27 @@ func resolveAccountDisplay(aliases, labels map[string]string, raw string) string
 		return name
 	}
 	if label := labels[raw]; label != "" {
-		return label
+		return defaultAccountName(label)
 	}
 	return ""
+}
+
+// defaultAccountName: display only — account_label stays raw on the wire so the
+// details modal can still split out the org. Anthropic names a personal plan's
+// org "<email>'s Organization", which would only repeat the email.
+func defaultAccountName(label string) string {
+	if !strings.HasSuffix(label, ")") {
+		return label
+	}
+	i := strings.LastIndex(label, "(")
+	if i <= 0 {
+		return label
+	}
+	base, org := label[:i], label[i+1:len(label)-1]
+	if org == base+"'s Organization" {
+		return base
+	}
+	return base + " (" + org + ")"
 }
 
 // accountDisplayFold: pass the SAME telemetry snapshot the handler already took,

@@ -124,7 +124,7 @@ func TestListOutsourceWorkers_AccountLabelOwnerGate(t *testing.T) {
 	})
 
 	rows := listWorkersAs(t, api, wireOwnerID)
-	if rows[0].Account == nil || *rows[0].Account != "eva@corp(Corp)" {
+	if rows[0].Account == nil || *rows[0].Account != "eva@corp (Corp)" {
 		t.Fatalf("owner must see the reported label, got %v", rows[0].Account)
 	}
 

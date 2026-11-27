@@ -2062,8 +2062,8 @@ func TestStartAccountSession(t *testing.T) {
 
 		report(`{"cost":1.5,"account":"acct/y","account_label":"kip@x.io(Y)","runtime":"claude"}`)
 
-		if got := apiTestSession(t, h, owner, "kip")["account"]; got != "kip@x.io(Y)" {
-			t.Errorf("after the late binding the session shows account %v, want kip@x.io(Y)", got)
+		if got := apiTestSession(t, h, owner, "kip")["account"]; got != "kip@x.io (Y)" {
+			t.Errorf("after the late binding the session shows account %v, want kip@x.io (Y)", got)
 		}
 		if row := apiTestAccount(t, h, owner, "acct/y"); row["cost"] != 0.5 {
 			t.Errorf("the late-bound account card = %v, want only the 0.5 spent after the binding", row["cost"])
