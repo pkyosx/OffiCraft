@@ -130,6 +130,7 @@ Every Global context document, Duty, Insight, and task manual SOP has a version 
 - "Restore this version" asks you to confirm first, then overwrites the current content; the current content is saved as a new version, so you can go back again after restoring.
 - For documents with default content (for example User additions, the assistant's Duty and Insight, and built-in task manuals), the last row in the list is "Default content". Open it to view the content and the comparison, then press "Sync to default". The default content of "User additions" is empty, so syncing clears it. When a built-in task manual syncs to its default content, the whole manual (name, purpose, identity keys, SOP, and assigned executor) goes back to its default settings.
 - For task manuals, only the SOP keeps versions; changes to the purpose and identity keys keep none.
+- Lore entry titles and bodies also have a version history, keeping the last 3 changes for each entry. It opens from the entry's edit box on the Lore tab; see "Lore" in [Interface reference](interface.md).
 - When a whole role or custom manual is deleted, its version history is deleted too and cannot be restored.
 - A version that is over the current character limit and not shorter than the current content is marked "Cannot restore" in the list, with the reason.
 
@@ -160,14 +161,14 @@ Each field on the screen, from top to bottom:
 | Secret card: time to retrieve | After you provide the content, how long the member has to retrieve it before the content is deleted and the card expires; affects only content provided afterwards | 1 minute–30 days | 24 hours |
 | Secret card: kept after retrieval | After the member first retrieves it, how long the content is kept, during which the member can retrieve it again; 0 means it is deleted on retrieval; affects only later retrievals | 0 seconds–1 day | 10 minutes |
 | Wake chat budget | The most characters of recent chat a member brings back when it wakes | 1000–13000 | 6000 |
-| Member lore size cap | The most characters of member lore each member reads when it starts | 100–100000 | 25000 |
+| Member lore size cap | The most characters of lore each member reads when it starts; lore for "Everyone" and the member's own lore are merged into one list by pinned state and effective period, and both count toward this cap | 100–100000 | 25000 |
 | Task manual lore size cap | The most characters of task lore attached when a task manual is read | 100–100000 | 25000 |
 | Lore title size cap | The most characters a lore entry's title can have | 10–10000 | 200 |
 | Lore body size cap | The most characters a lore entry's body can have | 10–10000 | 1250 |
 | Backups kept | How many database backups are kept | 1–20 | 5 |
 | Reply-card suggestions | Sentences you can insert with one click when answering a reply card, listed after the task manual's sentences and those specific to the member who opened the card | At most 20 sentences, at most 120 characters each | — |
 | Task-message suggestions | Sentences you can insert with one click when sending a message on a task, listed after the task manual's sentences | At most 20 sentences, at most 120 characters each | — |
-| Lore-message suggestions | Sentences you can insert with one click when messaging the author of a lore entry | At most 20 sentences, at most 120 characters each | — |
+| Lore-message suggestions | Sentences you can insert with one click in a lore entry's message box | At most 20 sentences, at most 120 characters each | — |
 | Chat suggestions | Sentences shared by all member chats that you can insert with one click, listed after the member-specific sentences | At most 20 sentences, at most 120 characters each | — |
 
 **Handover thresholds**: when a member's memory reaches the threshold, it first wraps up and leaves a handover, then the server starts a new session to carry on. Lower thresholds mean more frequent handovers; higher ones let each round run longer. Claude members only look at the two percentage fields, and Codex members only look at the two memory-compaction fields; setting the wrong pair gives no warning at all. "Refocus" in member details makes the member hand over once immediately.
@@ -176,8 +177,8 @@ Each field on the screen, from top to bottom:
 
 - Duty, Insight, SOPs: the limit is checked only on write. A document already over the limit can still be saved as long as the new version is shorter than the old one. When members read these three kinds of documents, they also see the current character count and the limit.
 - Step notes: a note already over the new limit can still be read in full, but must be cut below the limit before it can be changed again. This field only governs step notes; chat messages and reassignment handover notes have their own fixed limits that do not follow this field.
-- Member lore and task lore: when the limit is exceeded, members cannot read the whole entries that do not fit, and there is no error message; the limit line on the Lore tab marks the entry from which reading stops.
-- Lore titles and bodies: a write over the limit is rejected as a whole; entries already saved are not affected.
+- Member lore and task lore: when the limit is exceeded, members cannot read the whole entries that do not fit, and there is no error message; on the Lore tab, entries that cannot be read are collapsed to one line and tagged "Not read".
+- Lore titles and bodies: a new entry over the limit is rejected as a whole. Entries already saved can still be read in full; a title or body already over the new limit can be saved when edited as long as it is shorter than before, and a field you did not change is not checked. Restoring an earlier version follows the same rule.
 
 **Wake chat budget**: lowering it only makes members bring back fewer messages the next time they wake; it deletes no chat history, and members can read the rest themselves. Raising it lets members read more of the conversation when they wake, at the cost of spending those characters on every wake.
 
@@ -187,7 +188,7 @@ Each field on the screen, from top to bottom:
 - Daily backups and pre-upgrade backups each keep this many, so there can be up to twice as many files on disk.
 - Backups over the count are permanently deleted at the next backup and cannot be recovered.
 
-**Suggested replies**: the four lists are saved separately. The reply box of a reply card lists, in order: the "Suggested replies" of the task manual of the task the card belongs to, the sentences specific to the member who opened the card, and "Reply-card suggestions". The message box of a task card lists, in order: the "Suggested replies" of this task's task manual, and "Task-message suggestions". The chat with an outsource member lists, in order: the "Suggested replies" of the task manual of the task it holds, the sentences specific to this member, and "Chat suggestions". Identical sentences are shown only once in each box. When there is no matching task, the task is ad-hoc, or a list has no sentences, that list is not shown. Clicking a sentence only puts it into the input box and does not send it for you; if the input box already has text, the sentence is added on a new line after it. A list can be left empty, in which case no suggestions are shown under the matching input box; when the chat or reply card list is empty, the member-specific sentences are still shown. A sentence over the character limit is rejected when saving, not shortened automatically.
+**Suggested replies**: the four lists are saved separately. The reply box of a reply card lists, in order: the "Suggested replies" of the task manual of the task the card belongs to, the sentences specific to the member who opened the card, and "Reply-card suggestions". The message box of a task card lists, in order: the "Suggested replies" of this task's task manual, and "Task-message suggestions". The chat with an outsource member lists, in order: the "Suggested replies" of the task manual of the task it holds, the sentences specific to this member, and "Chat suggestions". The message box of a lore card lists "Lore-message suggestions". Identical sentences are shown only once in each box. When there is no matching task, the task is ad-hoc, or a list has no sentences, that list is not shown. Clicking a sentence only puts it into the input box and does not send it for you; if the input box already has text, the sentence is added on a new line after it. A list can be left empty, in which case no suggestions are shown under the matching input box; when the chat or reply card list is empty, the member-specific sentences are still shown. A sentence over the character limit is rejected when saving, not shortened automatically.
 
 ## Theme
 

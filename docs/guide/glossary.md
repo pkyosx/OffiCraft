@@ -86,7 +86,7 @@ This page lists what each term in the console and the user guide means, and whic
 - **Lore**: things members learn on the job and need to remember for the long term; one of the main tabs. See [Making members remember what you taught them (Lore)](lore.md).
 - **Member lore / Task lore / Everyone**: the scope a lore entry applies to: one member, one task manual, or all members.
 - **Lore type**: Instruction conflict, Instruction supplement, Owner decision, Owner preference, Other.
-- **Pinned / Active / Retired**: the states of a lore entry. Entries below the cap line on the Lore tab cannot be read by members.
+- **Pinned / Active / Retired**: the states of a lore entry. Entries collapsed to one line and tagged "Not read" on the Lore tab cannot be read by members.
 - **Global context**: documents every member reads, in three groups: start-up (BOOT), shut-down (STOP), and task events (TASK), under Settings › Global context. See [Settings](settings.md).
 - **User additions**: the document in Global context kept for you to write to all members.
 - **Default content / Sync to default**: the factory content of a document; Sync to default changes the document back to its factory content.
