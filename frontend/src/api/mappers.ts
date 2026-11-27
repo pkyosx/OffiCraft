@@ -68,8 +68,6 @@ import type {
   MachineView,
   BinStatus,
   ClaudeCredSource,
-  ClaudeUnmeasuredReason,
-  MonClaudeLoginView,
   WardenShape,
   CutoverEffect,
   MachineDiskUsageView,
@@ -1269,7 +1267,6 @@ function toMonSession(w: WireMonSession): MonSessionView {
     effort: w.effort || "", // live self-reported effort; "" passes through → "—"
     machine: w.machine,
     account: w.account,
-    accountSuperseded: w.account_superseded ?? false,
     // The REPORTED runtime, honest-empty until something reports one — the wire
     // stopped serving the configured value here (T-7f28), so flooring it to
     // "claude" would just put the fabrication back one layer up.
@@ -1328,24 +1325,7 @@ function toMonMachine(w: WireMonMachine): MonMachineView {
     // give, so the component never has to branch on absence to render a blank.
     hardwareInvalid: w.hardware_invalid ?? [],
     diskUsage: w.disk_usage ? toMachineDiskUsage(w.disk_usage) : null,
-    claudeLogin: w.claude_login ? toMonClaudeLogin(w.claude_login) : null,
   };
-}
-
-function toMonClaudeLogin(w: NonNullable<WireMonMachine["claude_login"]>): MonClaudeLoginView {
-  return {
-    account: w.account,
-    displayName: w.display_name,
-    store: w.store,
-    measuredAt: w.measured_at ?? null,
-    unmeasuredReason: toClaudeUnmeasuredReason(w.unmeasured_reason),
-  };
-}
-
-function toClaudeUnmeasuredReason(v: string | null | undefined): ClaudeUnmeasuredReason | null {
-  return v === "no_credential" || v === "token_expired" || v === "profile_failed" || v === "usage_failed"
-    ? v
-    : null;
 }
 
 function toMachineDiskUsage(w: WireMachineDiskUsage): MachineDiskUsageView {
@@ -1413,7 +1393,6 @@ function toMonAccount(w: WireMonAccount): MonAccountView {
           ts: w.limit_reached.ts,
         }
       : null,
-    unmeasuredReason: toClaudeUnmeasuredReason(w.unmeasured_reason),
   };
 }
 

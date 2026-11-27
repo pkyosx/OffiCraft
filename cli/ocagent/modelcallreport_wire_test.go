@@ -18,7 +18,7 @@ func TestModelCallReportUplinkBodies(t *testing.T) {
 	srv, posts := contextServer(t)
 	cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", MemberID: "kyle", AgentsRoot: t.TempDir()}
 	writeModelCallTime(modelCallSuccessPath(cfg), 900)
-	env := testEnv(map[string]string{"HOME": home, "OC_HOST": "lab-1", claudeAccountEnv: `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)"}`})
+	env := testEnv(map[string]string{"HOME": home, "OC_HOST": "lab-1"})
 
 	stubModelCallSleep(t, nil)
 	walked := map[string]int{}

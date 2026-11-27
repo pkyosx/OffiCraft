@@ -665,8 +665,7 @@ func TestBuildLaunchCommand(t *testing.T) {
 func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	home := claudeHome{Home: "/Users/wardenowner"}
 	want := `cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
-		`export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" OC_CLAUDE_ACCOUNT="$(/bin/cat /w/m1/.oc-claude-account)" ` +
-		`OC_CLAUDE_ACCOUNT_FILE=/w/m1/.oc-claude-account ` +
+		`export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft-lab ` +
 		`OC_AGENT_HOME=/w HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
@@ -675,13 +674,13 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		`--settings '{"hooks":{}}'`
 	got := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft-lab", "", "medium",
-		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}}, "/w/m1/.oc-env", home, "", claudeAccountLaunch{File: "/w/m1/.oc-claude-account", Bound: true})
+		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}}, "/w/m1/.oc-env", home, "")
 	if got != want {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
 
 	plain := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
-		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "", home, "", claudeAccountLaunch{})
+		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "", home, "")
 	if plain != buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", home) {
 		t.Errorf("no extra env must be byte-identical to the plain line, got\n%s", plain)
@@ -689,7 +688,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 
 	spaced := buildLaunchCommandWithEnv("/opt/my claude/claude", "/w/a b", "/w/a b/officraft-mcp.json", claudeSystemPromptInline("it's me"),
 		"/w/a b/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/a b/.oc-env",
-		claudeHome{Home: "/Users/warden owner"}, "", claudeAccountLaunch{})
+		claudeHome{Home: "/Users/warden owner"}, "")
 	wantSpaced := `cd '/w/a b'; [ -f '/w/a b/.oc-env' ] && . '/w/a b/.oc-env'; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
 		`export OC_TOKEN="$(/bin/cat '/w/a b/.oc-token')" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
@@ -704,7 +703,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	t.Run("a redirected config home is exported instead of unset", func(t *testing.T) {
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
-			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "", claudeAccountLaunch{})
+			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "")
 		if !strings.Contains(line, "CLAUDE_CONFIG_DIR=/tmp/box") {
 			t.Errorf("a stated config dir must be exported:\n%s", line)
 		}
@@ -719,7 +718,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		// silently erased by it, and every other assertion here still passes.
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
-			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "", claudeAccountLaunch{})
+			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "")
 		source := strings.Index(line, ". /w/m1/.oc-env")
 		pinHome := strings.Index(line, "HOME=/Users/wardenowner")
 		pinDir := strings.Index(line, "CLAUDE_CONFIG_DIR=/tmp/box")
@@ -731,7 +730,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		}
 		unsetLine := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
-			claudeHome{Home: "/Users/wardenowner"}, "", claudeAccountLaunch{})
+			claudeHome{Home: "/Users/wardenowner"}, "")
 		if src, un := strings.Index(unsetLine, ". /w/m1/.oc-env"), strings.Index(unsetLine, "unset CLAUDE_CONFIG_DIR"); src < 0 || un < 0 || src > un {
 			t.Errorf("the unset must follow the source (source=%d unset=%d):\n%s", src, un, unsetLine)
 		}
@@ -762,7 +761,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		}
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", workdir, "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/dev/null", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, render,
-			claudeHome{Home: "/Users/wardenowner"}, "", claudeAccountLaunch{})
+			claudeHome{Home: "/Users/wardenowner"}, "")
 		execAt := strings.Index(line, "; exec ")
 		if execAt < 0 {
 			t.Fatalf("launch line has no exec clause:\n%s", line)
@@ -780,7 +779,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	t.Run("a pin cannot be overridden by an extra env pair of the same name", func(t *testing.T) {
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "",
-			[][2]string{{"HOME", "/Volumes/scratch/home"}}, "", claudeHome{Home: "/Users/wardenowner"}, "", claudeAccountLaunch{})
+			[][2]string{{"HOME", "/Volumes/scratch/home"}}, "", claudeHome{Home: "/Users/wardenowner"}, "")
 		early := strings.Index(line, "HOME=/Volumes/scratch/home")
 		late := strings.Index(line, "HOME=/Users/wardenowner")
 		if late < 0 || (early >= 0 && early > late) {
@@ -1395,246 +1394,6 @@ func TestStart(t *testing.T) {
 		}
 		if want := []string{flagAbsentAttempt1}; !reflect.DeepEqual(h.logs, want) {
 			t.Errorf("logs = %q, want %q", h.logs, want)
-		}
-	})
-
-	t.Run("a claude spawn binds the account the profile endpoint named for its launch credential, and a later machine re-login leaves that binding alone", func(t *testing.T) {
-		h := newSpawnHarness()
-		d := h.deps()
-		measured := 0
-		d.ClaudeAccounts = newClaudeAccountReporter(func() (claudeAccountMeasurement, bool) {
-			measured++
-			if measured > 1 {
-				return claudeAccountMeasurement{Account: "au-1/org-2", Label: "kyle@x.io(Team)", Store: "keychain",
-					MeasuredAt: time.Unix(1795780300, 0)}, true
-			}
-			return claudeAccountMeasurement{Account: "au-1/org-1", Label: "kyle@x.io(OffiCraft)", Store: "keychain",
-				MeasuredAt: time.Unix(1795780000, 0), UnmeasuredReason: "usage_failed"}, true
-		}, nil)
-
-		if got := d.start(startParamsM1()); !got.OK {
-			t.Fatalf("outcome = %+v, want OK", got)
-		}
-
-		if measured != 1 {
-			t.Errorf("measured %d times, want once at the spawn", measured)
-		}
-		if !slices.Contains(h.removes, "/w/m1/.oc-claude-account") {
-			t.Errorf("removes = %v: the previous launch's binding must be cleared first", h.removes)
-		}
-		want := writtenFile{"/w/m1/.oc-claude-account", `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)"}`, 0o600}
-		if !slices.Contains(h.writes, want) {
-			t.Errorf("writes =\n%+v\nwant one of them %+v", h.writes, want)
-		}
-		wantLaunch := strings.Replace(goldenLaunchM1, `OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" `,
-			`OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" OC_CLAUDE_ACCOUNT="$(/bin/cat /w/m1/.oc-claude-account)" `+
-				`OC_CLAUDE_ACCOUNT_FILE=/w/m1/.oc-claude-account `, 1)
-		if launch := h.runner.calls[3]; launch != "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 "+wantLaunch {
-			t.Errorf("launch =\n%s\nwant the golden line exporting the binding", launch)
-		}
-		if got := d.ClaudeAccounts.snapshot()["account"]; got != "au-1/org-1" {
-			t.Errorf("the heartbeat's login = %v, want the account the spawn just bound", got)
-		}
-
-		writes := len(h.writes)
-		d.ClaudeAccounts.measureNow()
-		if got := d.ClaudeAccounts.snapshot()["account"]; got != "au-1/org-2" {
-			t.Errorf("after the re-login the heartbeat's login = %v, want the new account", got)
-		}
-		if len(h.writes) != writes {
-			t.Errorf("a heartbeat measurement wrote %+v, want the running session's binding untouched", h.writes[writes:])
-		}
-	})
-
-	t.Run("a claude spawn whose launch credential names no account launches unbound, and the first measurement started after it that names the pre-launch login binds that launch once", func(t *testing.T) {
-		h := newSpawnHarness()
-		d := h.deps()
-		loginA := claudeAccountMeasurement{Account: "au-1/org-1", Label: "kyle@x.io(OffiCraft)", Store: "keychain", MeasuredAt: time.Unix(1795780300, 0)}
-		expired := claudeAccountMeasurement{Store: "keychain", MeasuredAt: time.Unix(1795780000, 0), UnmeasuredReason: "token_expired"}
-		spawned, overlapEntered, overlapDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
-		meters := []func() claudeAccountMeasurement{
-			func() claudeAccountMeasurement { return loginA },
-			func() claudeAccountMeasurement {
-				if got := d.start(startParamsM1()); !got.OK {
-					t.Fatalf("outcome = %+v, want OK", got)
-				}
-				close(spawned)
-				<-overlapDone
-				return loginA
-			},
-			func() claudeAccountMeasurement {
-				go func() {
-					defer close(overlapDone)
-					d.ClaudeAccounts.measureNow()
-				}()
-				<-overlapEntered
-				return expired
-			},
-			func() claudeAccountMeasurement {
-				close(overlapEntered)
-				<-spawned
-				return loginA
-			},
-			func() claudeAccountMeasurement { return expired },
-			func() claudeAccountMeasurement { return loginA },
-			func() claudeAccountMeasurement {
-				return claudeAccountMeasurement{Account: "au-1/org-2", Label: "kyle@x.io(Team)", Store: "keychain", MeasuredAt: time.Unix(1795780600, 0)}
-			},
-		}
-		d.ClaudeAccounts = newClaudeAccountReporter(func() (claudeAccountMeasurement, bool) {
-			next := meters[0]
-			meters = meters[1:]
-			return next(), true
-		}, nil)
-		bindings := func() []writtenFile {
-			var out []writtenFile
-			for _, w := range h.writes {
-				if w.path == "/w/m1/.oc-claude-account" {
-					out = append(out, w)
-				}
-			}
-			return out
-		}
-
-		d.ClaudeAccounts.measureNow()
-		d.ClaudeAccounts.measureNow()
-
-		wantLaunch := strings.Replace(goldenLaunchM1, `OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" `,
-			`OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" OC_CLAUDE_ACCOUNT_FILE=/w/m1/.oc-claude-account `, 1)
-		if launch := h.runner.calls[3]; launch != "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 "+wantLaunch {
-			t.Errorf("launched\n%s\nwant the golden line naming the binding file but exporting no account", launch)
-		}
-		if want := "m1: no Claude account identified for the launch credential (token_expired); launching unbound until a measurement names one"; !slices.Contains(h.logs, want) {
-			t.Errorf("logs = %q, want %q", h.logs, want)
-		}
-		if got := bindings(); len(got) != 0 {
-			t.Errorf("a measurement started before the spawn, or during its own measurement, wrote the binding %+v", got)
-		}
-
-		d.ClaudeAccounts.measureNow()
-		if got := bindings(); len(got) != 0 {
-			t.Errorf("a failed measurement wrote the binding %+v", got)
-		}
-
-		d.ClaudeAccounts.measureNow()
-		d.ClaudeAccounts.measureNow()
-
-		want := []writtenFile{{"/w/m1/.oc-claude-account", `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)"}`, 0o600}}
-		if got := bindings(); !reflect.DeepEqual(got, want) {
-			t.Errorf("bindings = %+v, want the pre-launch login, once, after the failed measurement: %+v", got, want)
-		}
-		if want := "m1: launched unbound; now bound to au-1/org-1, measured after it started (its earlier spend stays unattributed)"; !slices.Contains(h.logs, want) {
-			t.Errorf("logs = %q, want %q", h.logs, want)
-		}
-	})
-
-	t.Run("an unbound launch stays unbound when the first measurement after it names an account other than the pre-launch login", func(t *testing.T) {
-		loginA := claudeAccountMeasurement{Account: "au-1/org-1", Store: "keychain", MeasuredAt: time.Unix(1795780000, 0)}
-		loginB := claudeAccountMeasurement{Account: "au-1/org-2", Store: "keychain", MeasuredAt: time.Unix(1795780300, 0)}
-		cases := []struct {
-			name      string
-			preLaunch []claudeAccountMeasurement
-			after     []claudeAccountMeasurement
-			wantLog   string
-		}{
-			{
-				name:      "the machine logged in as another account after the launch",
-				preLaunch: []claudeAccountMeasurement{loginA},
-				after:     []claudeAccountMeasurement{loginB, loginA},
-				wantLog:   "m1: launched unbound while this machine was logged in as au-1/org-1, and it is now au-1/org-2; the session stays unbound",
-			},
-			{
-				name:    "no measurement before the launch named an account",
-				after:   []claudeAccountMeasurement{loginA, loginA},
-				wantLog: "m1: launched unbound with no earlier measurement of this machine's login; the session stays unbound",
-			},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				h := newSpawnHarness()
-				d := h.deps()
-				expired := claudeAccountMeasurement{Store: "keychain", MeasuredAt: time.Unix(1795779000, 0), UnmeasuredReason: "token_expired"}
-				measurements := append(append(append([]claudeAccountMeasurement{}, tc.preLaunch...), expired), tc.after...)
-				d.ClaudeAccounts = newClaudeAccountReporter(func() (claudeAccountMeasurement, bool) {
-					m := measurements[0]
-					measurements = measurements[1:]
-					return m, true
-				}, nil)
-				for range tc.preLaunch {
-					d.ClaudeAccounts.measureNow()
-				}
-				if got := d.start(startParamsM1()); !got.OK {
-					t.Fatalf("outcome = %+v, want OK", got)
-				}
-
-				for range tc.after {
-					d.ClaudeAccounts.measureNow()
-				}
-
-				for _, w := range h.writes {
-					if w.path == "/w/m1/.oc-claude-account" {
-						t.Errorf("wrote %q, an account the session may not be using", w.content)
-					}
-				}
-				if !slices.Contains(h.logs, tc.wantLog) {
-					t.Errorf("logs = %q, want %q", h.logs, tc.wantLog)
-				}
-			})
-		}
-	})
-
-	t.Run("an unbound launch that a respawn replaced is not bound by a later measurement", func(t *testing.T) {
-		h := newSpawnHarness()
-		d := h.deps()
-		measurements := []claudeAccountMeasurement{
-			{Account: "au-1/org-1", Store: "keychain", MeasuredAt: time.Unix(1795779700, 0)},
-			{Store: "keychain", MeasuredAt: time.Unix(1795780000, 0), UnmeasuredReason: "token_expired"},
-			{Account: "au-1/org-1", Store: "keychain", MeasuredAt: time.Unix(1795780300, 0)},
-		}
-		d.ClaudeAccounts = newClaudeAccountReporter(func() (claudeAccountMeasurement, bool) {
-			m := measurements[0]
-			measurements = measurements[1:]
-			return m, true
-		}, nil)
-		d.ClaudeAccounts.measureNow()
-		if got := d.start(startParamsM1()); !got.OK {
-			t.Fatalf("outcome = %+v, want OK", got)
-		}
-		d.CaptureEnv = func() (string, error) { return "ANTHROPIC_API_KEY=sk-ant-api03-env\x00", nil }
-		if got := d.start(startParamsM1()); !got.OK {
-			t.Fatalf("respawn outcome = %+v, want OK", got)
-		}
-
-		d.ClaudeAccounts.measureNow()
-
-		for _, w := range h.writes {
-			if w.path == "/w/m1/.oc-claude-account" {
-				t.Errorf("wrote %q into the respawned session's binding", w.content)
-			}
-		}
-	})
-
-	t.Run("a claude spawn whose agent environment carries its own Claude credential launches unbound without measuring", func(t *testing.T) {
-		h := newSpawnHarness()
-		d := h.deps()
-		d.CaptureEnv = func() (string, error) { return "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-env\x00", nil }
-		d.ClaudeAccounts = newClaudeAccountReporter(func() (claudeAccountMeasurement, bool) {
-			t.Error("measured the stored login for a session that will use its environment's credential")
-			return claudeAccountMeasurement{}, false
-		}, nil)
-
-		if got := d.start(startParamsM1()); !got.OK {
-			t.Fatalf("outcome = %+v, want OK", got)
-		}
-
-		want := "m1: the agent environment sets CLAUDE_CODE_OAUTH_TOKEN, which Claude Code uses instead of the stored login; launching unbound"
-		if !slices.Contains(h.logs, want) {
-			t.Errorf("logs = %q, want %q", h.logs, want)
-		}
-		for _, line := range h.logs {
-			if strings.Contains(line, "sk-ant-oat01-env") {
-				t.Errorf("logged the environment's credential: %q", line)
-			}
 		}
 	})
 
@@ -2800,10 +2559,6 @@ func TestStart(t *testing.T) {
 			t.Error("a full model id was looked up in the Codex model list")
 			return nil, nil
 		}
-		d.ClaudeAccounts = newClaudeAccountReporter(func() (claudeAccountMeasurement, bool) {
-			t.Error("a codex spawn measured the Claude login")
-			return claudeAccountMeasurement{}, false
-		}, nil)
 
 		got := d.start(p)
 		if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {

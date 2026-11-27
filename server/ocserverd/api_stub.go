@@ -26,7 +26,7 @@ type apiServer struct {
 	gauge       *memStore
 	activity    *activityStore
 
-	accountQuotas *accountQuotaStore
+	accountRateLimits *accountRateLimitStore
 	// serverDisk is the server's own database/backup measurement; nil until the
 	// first one finishes.
 	serverDisk atomic.Pointer[serverDiskSample]

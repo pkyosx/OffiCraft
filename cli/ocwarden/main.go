@@ -763,15 +763,6 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		logf("[ocwarden] disk usage: enabled (%s)", probe.root)
 	}
 
-	if accounts := commandDeps.ClaudeAccounts; accounts != nil {
-		post = claudeAccountPoster(post, accounts.snapshot)
-		if cfg.Token != "" && cfg.ID != "" && iters == 0 {
-			wg.Add(1)
-			go func() { defer wg.Done(); accounts.run(ctx, sleepUntil) }()
-			logf("[ocwarden] claude account: measured every %s and at each claude spawn", claudeAccountInterval)
-		}
-	}
-
 	runtimeProbe := func() map[string]any {
 		return collectRuntimeCapabilities(env, runner, claudeProbe.collect(), login.state())
 	}
