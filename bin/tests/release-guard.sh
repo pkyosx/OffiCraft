@@ -1350,11 +1350,23 @@ export GH_BODY_FILE="$GHBODY" GH_WRITTEN_FILE="$GHWRITTEN"
 AUTO_LINE="OffiCraft $TAG (darwin-arm64, linux-amd64, linux-arm64) — built from 01234567. Install: see install.sh."
 NOTES_PLAIN="$WORK/notes-plain.md"
 printf '## 這版的改動\n\n- 修好了某件事\n' > "$NOTES_PLAIN"
+# promote reads server/ocserverd/release_announce.go at the tag to pick the
+# announcement markers that tag's stations read.
+tag_repo() { # tag_repo <dir> <release_announce.go line>
+  mkdir -p "$1/server/ocserverd"
+  printf '%s\n' "$2" > "$1/server/ocserverd/release_announce.go"
+  git -C "$1" init -q .
+  git -C "$1" add -A
+  git -C "$1" -c user.email=guard@example.invalid -c user.name=guard -c commit.gpgsign=false commit -qm fixture
+  git -C "$1" tag "$TAG"
+}
+TAG_REPO_EN="$WORK/tag-en"; tag_repo "$TAG_REPO_EN" 'const releaseAnnounceHeading = "## Announcement for station owners"'
+TAG_REPO_ZH="$WORK/tag-zh"; tag_repo "$TAG_REPO_ZH" 'const releaseAnnounceHeading = "## 給站長的新功能公告"'
 promote() {
   : > "$GHWIRE"
   printf '%s' "${NOTES_INIT-$AUTO_LINE}" > "$GHBODY"
   : > "$GHWRITTEN"
-  OUT="$(PATH="$SHIMDIR:$PATH" OC_RELEASE_GH_REPO="guard/fixture" \
+  OUT="$(PATH="$SHIMDIR:$PATH" OC_RELEASE_GH_REPO="guard/fixture" OC_RELEASE_SRC="${PROMOTE_SRC:-$TAG_REPO_EN}" \
     bash "$RELEASE" promote "$@" 2>&1)"
   RC=$?
 }
@@ -1619,6 +1631,20 @@ check "N5e …and wrote publish's line, a blank line, then the file unchanged" \
   "$(printf '%s\n\n' "$AUTO_LINE"; cat "$NF"; printf x)" "$(cat "$GHWRITTEN"; printf x)"
 promote "$TAG" --notes "$NF" --no-announce
 named_failure "N5e …and counts as an announcement section for --no-announce" notes-announce "$RC" "$OUT"
+
+nfile fullnotes "## 這版的改動\n\n- 改了 A\n\n## Announcement for station owners\n\n$ANN_BODY\n**Full release notes**  \nhttps://example.invalid/notes\n"
+PROMOTE_SRC="$TAG_REPO_ZH" promote "$TAG" --notes "$NF"
+check "N5f a tag whose stations read only the Chinese markers exits 0" "0" "$RC"
+check "N5f …and gets the announcement heading and full-notes label in Chinese" \
+  "$(printf '%s\n\n## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n%b\n**完整說明**  \nhttps://example.invalid/notes\n' "$AUTO_LINE" "$ANN_BODY"; printf x)" "$(cat "$GHWRITTEN"; printf x)"
+case "$OUT" in *"only reads the Chinese announcement markers"*) ok "N5f …and says it converted them" ;;
+  *) bad "N5f …and says it converted them (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
+promote "$TAG" --notes "$NF"
+check "N5g a tag whose stations read the English markers keeps them as written" \
+  "$(printf '%s\n\n' "$AUTO_LINE"; cat "$NF"; printf x)" "$(cat "$GHWRITTEN"; printf x)"
+PROMOTE_SRC="$WORK" promote "$TAG" --notes "$NF"
+check "N5h a tag whose code cannot be read gets the Chinese markers every station reads" \
+  "$(printf '%s\n\n## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n%b\n**完整說明**  \nhttps://example.invalid/notes\n' "$AUTO_LINE" "$ANN_BODY"; printf x)" "$(cat "$GHWRITTEN"; printf x)"
 
 nfile ok2 "## 這版的改動  \r\n\r\n- 改了 A\r\n\r\n## 給站長的新功能公告\t\r\n\r\n- 公告\r\n"
 promote "$TAG" --notes "$NF"

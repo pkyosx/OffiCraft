@@ -446,8 +446,22 @@ cmd_promote() {
   # shellcheck disable=SC2064
   trap "rm -rf '$NOTES_DIR'" EXIT
   NOTES="$NOTES_DIR/notes.md"
+  local NOTES_BODY="$NOTES_SRC"
+  if [[ "$HAS_ANNOUNCE" == yes ]]; then
+    local READER
+    READER="$(tag_announce_reader "$TAG" "$BEFORE_TARGET")"
+    if [[ "$READER" != english ]]; then
+      NOTES_BODY="$NOTES_DIR/notes-legacy.md"
+      legacy_announcement_notes "$NOTES_SRC" > "$NOTES_BODY"
+      if [[ "$READER" == chinese ]]; then
+        say "  $TAG's server/ocserverd/release_announce.go only reads the Chinese announcement markers, so they are written as '$ANNOUNCE_LEGACY_HEADING' / '$ANNOUNCE_LEGACY_FULL_NOTES' (stations running it would drop the English ones)"
+      else
+        say "  cannot read $TAG's server/ocserverd/release_announce.go in $SRC (git fetch --tags?), so the announcement markers are written as '$ANNOUNCE_LEGACY_HEADING' / '$ANNOUNCE_LEGACY_FULL_NOTES', which every station version reads"
+      fi
+    fi
+  fi
   read_release_body "$TAG" > "$NOTES_DIR/current.md"
-  compose_release_notes "$TAG" "$NOTES_DIR/current.md" "$NOTES_SRC" "$NOTES_DIR/auto-line" > "$NOTES"
+  compose_release_notes "$TAG" "$NOTES_DIR/current.md" "$NOTES_BODY" "$NOTES_DIR/auto-line" > "$NOTES"
   # Notes already equal to what this file writes are a promote that failed
   # after writing them: skip the write so re-running the same command resumes.
   local WRITTEN=0
@@ -524,6 +538,49 @@ NOTES_CHANGES_HEADING="## 這版的改動"
 ANNOUNCE_HEADING="## Announcement for station owners"
 ANNOUNCE_LEGACY_HEADING="## 給站長的新功能公告"
 ANNOUNCE_MAX_RUNES=2000
+ANNOUNCE_FULL_NOTES="**Full release notes**"
+ANNOUNCE_LEGACY_FULL_NOTES="**完整說明**"
+
+# tag_announce_reader <tag> <target-sha> — "english" when the code at the tag
+# reads the English announcement heading, "chinese" when it does not, and
+# "unreadable" when neither ref resolves here. A station parses release notes
+# with the binary it runs, so a beta cut before the English markers drops an
+# announcement written with them. Releases land on main by squash, so whether
+# the tag contains a given commit cannot answer this; its file content can.
+tag_announce_reader() {
+  local ref src
+  for ref in "$1" "$2"; do
+    [[ -n "$ref" ]] || continue
+    src="$(git -C "$SRC" show "$ref:server/ocserverd/release_announce.go" 2>/dev/null)" || continue
+    if grep -qF -- "\"$ANNOUNCE_HEADING\"" <<<"$src"; then echo english; else echo chinese; fi
+    return 0
+  done
+  echo unreadable
+}
+
+# legacy_announcement_notes <file> — the notes with the announcement heading
+# and its full-notes label in the Chinese forms every station version reads.
+legacy_announcement_notes() {
+  ANNOUNCE_HEADING="$ANNOUNCE_HEADING" ANNOUNCE_LEGACY_HEADING="$ANNOUNCE_LEGACY_HEADING" \
+  FULL_NOTES="$ANNOUNCE_FULL_NOTES" LEGACY_FULL_NOTES="$ANNOUNCE_LEGACY_FULL_NOTES" \
+  python3 - "$1" <<'PY'
+import os, re, sys
+heading, legacy_heading = os.environ["ANNOUNCE_HEADING"], os.environ["ANNOUNCE_LEGACY_HEADING"]
+full, legacy_full = os.environ["FULL_NOTES"], os.environ["LEGACY_FULL_NOTES"]
+text = open(sys.argv[1], encoding="utf-8", newline="").read()
+out, in_announce = [], False
+for line in re.split(r"(?<=\n)", text):
+    body = line.rstrip("\r\n")
+    if body.startswith("## "):
+        in_announce = body.rstrip(" \t") in (heading, legacy_heading)
+        if body.rstrip(" \t") == heading:
+            line = legacy_heading + line[len(heading):]
+    elif in_announce and body.startswith(full):
+        line = legacy_full + line[len(full):]
+    out.append(line)
+sys.stdout.write("".join(out))
+PY
+}
 
 # check_notes_file <file> — prints "yes"/"no" (has an announcement section) on
 # stdout; exits 6 naming the broken rule. Warns, without refusing, when the
