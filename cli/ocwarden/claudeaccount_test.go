@@ -183,7 +183,7 @@ func TestClaudeAccountMeterMeasure(t *testing.T) {
 	t.Run("a valid login is measured as the profile's account with the usage endpoint's windows", func(t *testing.T) {
 		stub := &anthropicStub{profile: answer(personalProfile), usage: answer(personalUsage)}
 
-		got, ok := meterFor(t, stub, valid).measure()
+		got, ok := meterFor(t, stub, valid).measureLogin()
 
 		want := claudeAccountMeasurement{
 			Account: "893ef8f2/0cea9af2", Label: "seth@x.io(Personal)", SubscriptionType: "max", Store: "file",
@@ -207,7 +207,7 @@ func TestClaudeAccountMeterMeasure(t *testing.T) {
 		stub := &anthropicStub{profile: answer(personalProfile),
 			usage: answer(`{"five_hour":{"utilization":null,"resets_at":null},"seven_day":{"utilization":3,"resets_at":"2026-11-29T10:00:00Z"}}`)}
 
-		got, _ := meterFor(t, stub, valid).measure()
+		got, _ := meterFor(t, stub, valid).measureLogin()
 
 		if got.FiveHour != nil || got.SevenDay["used_percentage"] != 3.0 {
 			t.Errorf("windows = five_hour %v, seven_day %v; want no five_hour and the seven_day number", got.FiveHour, got.SevenDay)
@@ -219,7 +219,7 @@ func TestClaudeAccountMeterMeasure(t *testing.T) {
 		expired := storedCredential(fileToken, "max", now.Add(-time.Minute).UnixMilli())
 		meter := meterFor(t, stub, expired)
 
-		got, ok := meter.measure()
+		got, ok := meter.measureLogin()
 
 		want := claudeAccountMeasurement{Store: "file", SubscriptionType: "max", MeasuredAt: now, UnmeasuredReason: "token_expired"}
 		if !ok || !reflect.DeepEqual(got, want) {
@@ -237,7 +237,7 @@ func TestClaudeAccountMeterMeasure(t *testing.T) {
 	t.Run("no stored login is reported unmeasured", func(t *testing.T) {
 		stub := &anthropicStub{profile: answer(personalProfile), usage: answer(personalUsage)}
 
-		got, ok := meterFor(t, stub, "").measure()
+		got, ok := meterFor(t, stub, "").measureLogin()
 
 		if want := (claudeAccountMeasurement{MeasuredAt: now, UnmeasuredReason: "no_credential"}); !ok || !reflect.DeepEqual(got, want) {
 			t.Errorf("measure = %+v, want %+v", got, want)
@@ -253,7 +253,7 @@ func TestClaudeAccountMeterMeasure(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				stub := &anthropicStub{profile: profile, usage: answer(personalUsage)}
 
-				got, ok := meterFor(t, stub, valid).measure()
+				got, ok := meterFor(t, stub, valid).measureLogin()
 
 				if !ok || got.Account != "" || got.Label != "" || got.UnmeasuredReason != "profile_failed" || got.FiveHour != nil || got.SevenDay != nil {
 					t.Errorf("measure = %+v, want profile_failed with no account and no numbers", got)
@@ -268,7 +268,7 @@ func TestClaudeAccountMeterMeasure(t *testing.T) {
 	t.Run("a failed usage call keeps the identified account and reports no numbers", func(t *testing.T) {
 		stub := &anthropicStub{profile: answer(personalProfile), usage: refuse(http.StatusTooManyRequests)}
 
-		got, _ := meterFor(t, stub, valid).measure()
+		got, _ := meterFor(t, stub, valid).measureLogin()
 
 		want := claudeAccountMeasurement{
 			Account: "893ef8f2/0cea9af2", Label: "seth@x.io(Personal)", SubscriptionType: "max", Store: "file",
@@ -284,7 +284,7 @@ func TestClaudeAccountMeterMeasure(t *testing.T) {
 		meter := meterFor(t, stub, valid)
 		meter.installed = func() bool { return false }
 
-		if _, ok := meter.measure(); ok || len(stub.requests) != 0 {
+		if _, ok := meter.measureLogin(); ok || len(stub.requests) != 0 {
 			t.Errorf("measure ok=%v with requests %q, want nothing measured", ok, stub.requests)
 		}
 	})
@@ -378,7 +378,7 @@ func TestClaudeAccountPoster(t *testing.T) {
 					client:    srv.Client(), base: srv.URL, now: time.Now,
 				}
 				var logs []string
-				reporter := newClaudeAccountReporter(meter.measure, func(format string, a ...any) { logs = append(logs, fmt.Sprintf(format, a...)) })
+				reporter := newClaudeAccountReporter(meter.measureLogin, func(format string, a ...any) { logs = append(logs, fmt.Sprintf(format, a...)) })
 				var posted []byte
 				post := claudeAccountPoster(func(path string, payload map[string]any) (int, map[string]any) {
 					posted, _ = json.Marshal(payload)

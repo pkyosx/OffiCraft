@@ -28,6 +28,9 @@ const (
 	anthropicAPIBase   = "https://api.anthropic.com"
 	claudeOAuthBeta    = "oauth-2025-04-20"
 	claudeOAuthTimeout = 10 * time.Second
+
+	anthropicProfilePath = "/api/oauth/profile"
+	anthropicUsagePath   = "/api/oauth/usage"
 )
 
 // The reasons are a closed vocabulary the station validates.
@@ -145,7 +148,7 @@ type claudeAccountMeasurement struct {
 	Detail           string
 }
 
-func (m claudeAccountMeasurement) report() map[string]any {
+func (m claudeAccountMeasurement) heartbeatReport() map[string]any {
 	out := map[string]any{"measured_at": float64(m.MeasuredAt.UnixNano()) / 1e9}
 	for key, value := range map[string]string{
 		"account":           m.Account,
@@ -217,9 +220,9 @@ func claudeKeychainUser(env func(string) string) string {
 	return name
 }
 
-// measure answers ok=false on a host without claude: there is no login to
+// measureLogin answers ok=false on a host without claude: there is no login to
 // speak of, and "unknown" there would read as a fault.
-func (m claudeAccountMeter) measure() (claudeAccountMeasurement, bool) {
+func (m claudeAccountMeter) measureLogin() (claudeAccountMeasurement, bool) {
 	if m.installed != nil && !m.installed() {
 		return claudeAccountMeasurement{}, false
 	}
@@ -245,7 +248,7 @@ func (m claudeAccountMeter) measure() (claudeAccountMeasurement, bool) {
 			Name string `json:"name"`
 		} `json:"organization"`
 	}
-	if detail := m.get(cred, "/api/oauth/profile", &profile); detail != "" {
+	if detail := m.anthropicGet(cred, anthropicProfilePath, &profile); detail != "" {
 		out.UnmeasuredReason, out.Detail = claudeUnmeasuredProfileFailed, detail
 		return out, true
 	}
@@ -261,7 +264,7 @@ func (m claudeAccountMeter) measure() (claudeAccountMeasurement, bool) {
 	out.Label = claudeAccountLabel(profile.Account.Email, profile.Account.DisplayName, profile.Organization.Name)
 
 	var usage map[string]json.RawMessage
-	if detail := m.get(cred, "/api/oauth/usage", &usage); detail != "" {
+	if detail := m.anthropicGet(cred, anthropicUsagePath, &usage); detail != "" {
 		out.UnmeasuredReason, out.Detail = claudeUnmeasuredUsageFailed, detail
 		return out, true
 	}
@@ -270,9 +273,9 @@ func (m claudeAccountMeter) measure() (claudeAccountMeasurement, bool) {
 	return out, true
 }
 
-// get answers "" on success, else a description that never contains the
+// anthropicGet answers "" on success, else a description that never contains the
 // token: only the path, the status, or the error class.
-func (m claudeAccountMeter) get(cred claudeCredential, path string, into any) string {
+func (m claudeAccountMeter) anthropicGet(cred claudeCredential, path string, into any) string {
 	ctx, cancel := context.WithTimeout(context.Background(), claudeOAuthTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.base+path, nil)
@@ -372,7 +375,7 @@ func (r *claudeAccountReporter) measureNow() claudeAccountMeasurement {
 	}
 	r.mu.Lock()
 	if ok {
-		r.latest = m.report()
+		r.latest = m.heartbeatReport()
 	} else {
 		r.latest = nil
 	}
@@ -408,8 +411,8 @@ func (r *claudeAccountReporter) run(ctx context.Context, sleep func(context.Cont
 func claudeAccountPoster(post Poster, snapshot func() map[string]any) Poster {
 	return func(path string, payload map[string]any) (int, map[string]any) {
 		if path == telemetryPath {
-			if report := snapshot(); report != nil {
-				payload["claude_account"] = report
+			if measured := snapshot(); measured != nil {
+				payload["claude_account"] = measured
 			}
 		}
 		return post(path, payload)

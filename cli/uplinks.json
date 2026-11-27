@@ -561,6 +561,62 @@
       "skip_reason": "The GET-only binary downloader, wired into the self-updater."
     },
     {
+      "id": "warden-anthropic-profile",
+      "source": "cli/ocwarden/claudeaccount.go",
+      "callsite": "m.anthropicGet(cred, anthropicProfilePath",
+      "kind": "skip",
+      "skip_reason": "GET with a nil body to api.anthropic.com (not the station): asks Anthropic which account the machine's stored Claude login belongs to."
+    },
+    {
+      "id": "warden-anthropic-usage",
+      "source": "cli/ocwarden/claudeaccount.go",
+      "callsite": "m.anthropicGet(cred, anthropicUsagePath",
+      "kind": "skip",
+      "skip_reason": "GET with a nil body to api.anthropic.com (not the station): asks Anthropic for that login's 5-hour and 7-day usage."
+    },
+    {
+      "id": "warden-anthropic-request",
+      "source": "cli/ocwarden/claudeaccount.go",
+      "callsite": "req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.base+path, nil)",
+      "kind": "skip",
+      "skip_reason": "anthropicGet building its GET to api.anthropic.com with a nil body; the two paths it is called with are the two rows above."
+    },
+    {
+      "id": "warden-anthropic-request-do",
+      "source": "cli/ocwarden/claudeaccount.go",
+      "callsite": "resp, err := m.client.Do(req)",
+      "kind": "skip",
+      "skip_reason": "The send half of anthropicGet above: a nil-body GET to api.anthropic.com."
+    },
+    {
+      "id": "warden-anthropic-meter-wired",
+      "source": "cli/ocwarden/transport.go",
+      "callsite": "runtime.GOOS).measureLogin,",
+      "kind": "skip",
+      "skip_reason": "The Claude login meter handed to the account reporter as a value; the only requests it makes are the two nil-body Anthropic GETs above."
+    },
+    {
+      "id": "warden-claude-account-poster-send",
+      "source": "cli/ocwarden/claudeaccount.go",
+      "callsite": "return post(path, payload)",
+      "kind": "seam",
+      "seam_reason": "claudeAccountPoster: decorates the shared poster by adding the claude_account block to the heartbeat. The send is warden-heartbeat, whose wire test drives it through this decorator."
+    },
+    {
+      "id": "warden-claude-account-poster-built",
+      "source": "cli/ocwarden/main.go",
+      "callsite": "post = claudeAccountPoster(",
+      "kind": "seam",
+      "seam_reason": "Wraps the shared poster seam with claudeAccountPoster. Nothing is on the wire at this line; the heartbeat it later sends is warden-heartbeat."
+    },
+    {
+      "id": "warden-claude-account-poster-wrapped",
+      "source": "cli/ocwarden/main.go",
+      "callsite": "(post, accounts.snapshot)",
+      "kind": "seam",
+      "seam_reason": "The shared poster seam handed to claudeAccountPoster to wrap. See warden-claude-account-poster-built."
+    },
+    {
       "id": "warden-transport-connectonce",
       "source": "cli/ocwarden/transport.go",
       "callsite": "opened, err := t.connectOnce(ctx)",

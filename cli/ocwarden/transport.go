@@ -430,7 +430,7 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		},
 		ClaudeHome: claudeHome,
 		ClaudeAccounts: newClaudeAccountReporter(
-			newClaudeAccountMeter(env, claudeHome, runner, runtime.GOOS).measure,
+			newClaudeAccountMeter(env, claudeHome, runner, runtime.GOOS).measureLogin,
 			func(format string, a ...any) { fmt.Fprintf(os.Stderr, "[ocwarden] "+format+"\n", a...) }),
 		WardenBin:   wardenBin,
 		CodexModels: listCodexModels,
