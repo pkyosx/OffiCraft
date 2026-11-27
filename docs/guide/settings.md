@@ -1,10 +1,10 @@
 # Settings and parameters
 
-After reading this page, you will know what each of the six settings subpages covers, the range and default of every field on the Parameters page, and which settings are not on the settings page and where to find them.
+After reading this page, you will know what each of the six settings subpages covers, the range and default of every field on the General page, and which settings are not on the settings page and where to find them.
 
 ## Opening settings
 
-Settings opens from the gear in the top bar. The settings home page has seven entries, from top to bottom: System update & backup, Global context, Role journal, Task manuals, Parameters, Theme, and User guide. The last one, "User guide", opens these guide pages; the other six are the settings subpages. The path at the top of a subpage links back up one level.
+Settings opens from the gear in the top bar. The settings home page has seven entries, from top to bottom: System update & backup, Global context, Roles, Task manuals, General, Theme, and User guide. The last one, "User guide", opens these guide pages; the other six are the settings subpages. The path at the top of a subpage links back up one level.
 
 ## Settings outside the settings page
 
@@ -12,7 +12,7 @@ Settings opens from the gear in the top bar. The settings home page has seven en
 - **Notification email** — Avatar menu › Notification email. Push notifications can only be turned on after you fill in this field; this email is given to the push service run by the browser vendor and does not stay only on your server. Push is turned on with the bell button in the top bar, separately on each device.
 - **Password, two-factor authentication, passkeys** — Avatar menu › Account security. See [Protect your studio](security.md).
 - **Outsource hiring cap** — Office tab › Outsource tab › Recruit a member, then open "Outsource cap". It can be set from 0 to 20 or "Unlimited"; the default is 3. Setting it to 0 pauses outsource assignment.
-- **Member-specific suggested replies** — "Suggested replies" in the chat header, one list per member, for both staff and outsource. The chat lists this member's sentences first, then "Chat suggestions" from Parameters; identical sentences are shown only once. When the task an outsource member holds has a type, the suggested replies of that task manual come first. Reply cards this member opens also list these sentences, after the task manual's suggested replies and before "Reply-card suggestions".
+- **Member-specific suggested replies** — "Suggested replies" in the chat header, one list per member, for both staff and outsource. The chat lists this member's sentences first, then "Chat suggestions" from General; identical sentences are shown only once. When the task an outsource member holds has a type, the suggested replies of that task manual come first. Reply cards this member opens also list these sentences, after the task manual's suggested replies and before "Reply-card suggestions".
 - **Scheduled messages, webhook endpoints** — Member details. See [Doing something on a schedule (Scheduled messages)](schedule.md) and [Send outside events to members automatically (webhooks)](webhook.md).
 - **Secrets** — The Secrets tab. See [Give members your account keys (secrets)](secrets.md).
 
@@ -46,26 +46,26 @@ All the documents sent to members are on this page. You can edit them, and after
 | Task events (TASK) | Your task is ready to be closed | Each time a task becomes ready to close | 37500 |
 
 - "Boot steps" is a single row in the list; open it and switch between the two documents with "Standard / Codex".
-- The character limits are factory values, and these fields are not on the Parameters page. For a document with a limit, the card's title bar shows "current characters / limit".
+- The character limits are factory values, and these fields are not on the General page. For a document with a limit, the card's title bar shows "current characters / limit".
 - Some documents begin with a read-only section written by the program (for example the member's name or the deadline), marked "Read-only (written by the program, not editable)"; you can only change the paragraphs after the read-only section. Saving replaces the editable part with the contents of the editor.
 - A document with default content is marked "In sync with default" or "Modified" on its card.
 - You are asked to confirm before saving. Take extra care with the boot steps: a broken version keeps members from coming online the next time they start, with no error message at all. "Default content" in the version history can sync the boot steps back to the factory content.
 
 **User additions** are the long-term instructions you write for all members. For how to write them, see [Making members remember what you taught them (Lore)](lore.md).
 
-## Role journal
+## Roles
 
 One page per role, with two documents on it:
 
-- **Role definition** — What this role is responsible for and which rules it follows. After a change, the role's members read the new content the next time they start.
+- **Duty** — What this role is responsible for and which rules it follows. After a change, the role's members read the new content the next time they start.
 - **Insight** — The trade-offs and boundaries this role uses again and again, usually written by the role's own members. Every member can read every role's Insight; only that role's own members, you, and the assistant can write it. The on-screen note says: "Every member can read this Insight; only this role itself and an admin can change it." Here "admin" means you and the assistant. The assistant's Insight has default content; other roles' Insight starts empty.
 
-Every member can look up role definitions and Insight, but they are added automatically only to the startup content of that role's members.
+Every member can look up Duty and Insight, but they are added automatically only to the startup content of that role's members.
 
-The role list has "Add role definition", "Rename role", and "Delete", which you and the assistant can both use. When a role is deleted:
+The role list has "Add role", "Rename role", and "Delete", which you and the assistant can both use. When a role is deleted:
 
 - The role's staff members are marked as having left, and their chat history is kept read-only.
-- The role definition and Insight are deleted permanently and cannot be recovered; the version history is deleted too.
+- The Duty and Insight are deleted permanently and cannot be recovered; the version history is deleted too.
 - It cannot be deleted while a member is online; the screen shows "A member is online — cannot delete". It can be deleted after all of the role's members have stopped.
 - The built-in assistant role cannot be deleted.
 
@@ -86,10 +86,10 @@ The working manual for each kind of task, in two groups: "Built-in" and "Custom"
 
 - The manual page has three parts: the "Assigned executor" card, the "Task definition" in the "Task planning" area (what this task is, what information it needs, and how it is done), and "Suggested replies".
 - "Suggested replies" are sentences specific to this kind of task, at most 20 sentences of at most 120 characters each, visible only to you. These sentences are listed first in three places: the reply box of a reply card that is linked to this kind of task or asks about one; the message box on the task card of this kind of task; and the chat with an outsource member holding this kind of task. Staff members' chats do not list them, because a staff member may be responsible for several kinds of tasks at once. Deleting the manual deletes these sentences; syncing a built-in manual to its default content keeps them.
-- When you add a manual, the system generates its internal ID automatically; you do not need to fill it in and cannot. A new manual starts empty.
+- When you add a manual with "Add task manual", the system generates its internal ID automatically; you do not need to fill it in and cannot. A new manual starts empty.
 - The display name can be changed directly in the title on the manual page; when it is left empty, the internal ID is shown.
 - Members can change a manual's purpose, fields, and SOP; when a member wants to change the SOP, it first opens a reply card and waits for your approval.
-- The SOP has a character limit, set by "Task manual SOP size cap" in "Parameters".
+- The SOP has a character limit, set by "Task manual SOP size cap" in "General".
 
 **Required information and identity keys**
 
@@ -122,18 +122,18 @@ For how to write a manual and choose identity keys and gates, see [Having AI fol
 
 ## Version history
 
-Every Global context document, role definition, Insight, and task manual SOP has a version history:
+Every Global context document, Duty, Insight, and task manual SOP has a version history:
 
-- System interaction, Boot steps, Stop, Accelerated stop, and the 5 task event documents each keep the last 10 changes; other documents (User additions, role definitions, Insight, SOPs, and so on) keep the last 3. This counts saves, not time: a few small edits in a row push out the older versions, and versions pushed out cannot be recovered.
+- System interaction, Boot steps, Stop, Accelerated stop, and the 5 task event documents each keep the last 10 changes; other documents (User additions, Duty, Insight, SOPs, and so on) keep the last 3. This counts saves, not time: a few small edits in a row push out the older versions, and versions pushed out cannot be recovered.
 - It opens from edit mode: after you press "Edit", the button row gains a "Version history" button.
 - Each row in the list shows when that version was replaced and who changed it. Click a row to open that version, and switch between "Version content" and "Changes vs current"; the comparison uses what is stored on the server and does not include unsaved changes in the editor.
 - "Restore this version" asks you to confirm first, then overwrites the current content; the current content is saved as a new version, so you can go back again after restoring.
-- For documents with default content (for example User additions, the assistant's role definition and Insight, and built-in task manuals), the last row in the list is "Default content". Open it to view the content and the comparison, then press "Sync to default". The default content of "User additions" is empty, so syncing clears it. When a built-in task manual syncs to its default content, the whole manual (name, purpose, identity keys, SOP, and assigned executor) goes back to its default settings.
+- For documents with default content (for example User additions, the assistant's Duty and Insight, and built-in task manuals), the last row in the list is "Default content". Open it to view the content and the comparison, then press "Sync to default". The default content of "User additions" is empty, so syncing clears it. When a built-in task manual syncs to its default content, the whole manual (name, purpose, identity keys, SOP, and assigned executor) goes back to its default settings.
 - For task manuals, only the SOP keeps versions; changes to the purpose and identity keys keep none.
 - When a whole role or custom manual is deleted, its version history is deleted too and cannot be restored.
 - A version that is over the current character limit and not shorter than the current content is marked "Cannot restore" in the list, with the reason.
 
-## Parameters
+## General
 
 Each field on the screen, from top to bottom:
 
@@ -152,7 +152,7 @@ Each field on the screen, from top to bottom:
 | Logged-out recheck interval | How often each machine checks again while Claude or Codex is signed out or the check failed | 30–3600 seconds | 30 seconds |
 | Disk usage interval | How often to measure the disk space OffiCraft uses on each machine; it only measures and deletes nothing | 600–86400 seconds | 3600 seconds |
 | Monitoring refresh interval | When events arrive in a row, how often at most the Monitor page refreshes | 1–60 seconds | 5 seconds |
-| Duty size cap | The most characters one role's role definition can have | 100–250000 | 2500 |
+| Duty size cap | The most characters one role's Duty can have | 100–250000 | 2500 |
 | Insight size cap | The most characters one role's Insight can have | 100–250000 | 37500 |
 | Task manual SOP size cap | The most characters one task manual's SOP can have | 100–250000 | 37500 |
 | Task step note size cap | The most characters one task step's note can have | 1000–100000 | 25000 |
@@ -174,7 +174,7 @@ Each field on the screen, from top to bottom:
 
 **Character limits**: lowering any character limit never truncates or deletes content that is already saved.
 
-- Role definitions, Insight, SOPs: the limit is checked only on write. A document already over the limit can still be saved as long as the new version is shorter than the old one. When members read these three kinds of documents, they also see the current character count and the limit.
+- Duty, Insight, SOPs: the limit is checked only on write. A document already over the limit can still be saved as long as the new version is shorter than the old one. When members read these three kinds of documents, they also see the current character count and the limit.
 - Step notes: a note already over the new limit can still be read in full, but must be cut below the limit before it can be changed again. This field only governs step notes; chat messages and reassignment handover notes have their own fixed limits that do not follow this field.
 - Member lore and task lore: when the limit is exceeded, members cannot read the whole entries that do not fit, and there is no error message; the limit line on the Lore tab marks the entry from which reading stops.
 - Lore titles and bodies: a write over the limit is rejected as a whole; entries already saved are not affected.

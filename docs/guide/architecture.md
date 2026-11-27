@@ -74,7 +74,7 @@ The dot at the bottom right of the avatar has five states:
 
 **Activity status** is something else: it shows what the member is doing right now: Working, Waiting (on a background command, a monitor, or a schedule), or Idle; before the member reports, it shows "Status unknown". The data comes from Claude Code hooks (programs Claude Code runs automatically at certain moments) and from the Codex process, and ocagent reports it to the server. The icon's "see runtime details" shows the details of sub-agents (AI workers a member sends out to share the work) and background waits.
 
-**The exclamation mark** means there is a problem with this member's model calls or with the login on its machine, whether or not it is currently online: it has hit its usage limit (with the reset time), its login has expired, the server has a problem, a model call failed (with a code), or the machine it runs on is not logged in to Claude / Codex. Each warden checks the account login status regularly; the check intervals are "Login check interval" and "Logged-out recheck interval" under Settings › Parameters.
+**The exclamation mark** means there is a problem with this member's model calls or with the login on its machine, whether or not it is currently online: it has hit its usage limit (with the reset time), its login has expired, the server has a problem, a model call failed (with a code), or the machine it runs on is not logged in to Claude / Codex. Each warden checks the account login status regularly; the check intervals are "Login check interval" and "Logged-out recheck interval" under Settings › General.
 
 ## How members and the server communicate
 
@@ -87,7 +87,7 @@ Because every action goes through the server, the console always shows the data 
 
 **Identity and credentials**:
 
-- The server gives a member its login credential when it starts the member, and the same credential is used for REST, SSE, and MCP. Its validity is "Member login lifetime" under Settings › Parameters. When a credential enters its last hour, the server automatically asks the member to wrap up and hand over so a new one can be issued.
+- The server gives a member its login credential when it starts the member, and the same credential is used for REST, SSE, and MCP. Its validity is "Member login lifetime" under Settings › General. When a credential enters its last hour, the server automatically asks the member to wrap up and hand over so a new one can be issued.
 - Each machine's warden has its own credential too, valid for the "Machine credential lifetime" (30 days by default). The warden renews it automatically before it expires; a machine that misses the renewal is disconnected and has to be reinstalled.
 - File share links, the external links of comparison pages, and login credentials are all issued with the server's signing keys. For the effect of renewing and removing keys, see [Protect your studio](security.md).
 
@@ -99,13 +99,13 @@ Every time a member boots (including a new session started after a handover), th
 | --- | --- | --- | --- |
 | **User language** | The interface language you choose | Every member, both staff and outsource: if you choose English, members are told to reply to you in English; otherwise (including if you never chose one) in Traditional Chinese | Avatar menu › Preferences › Language |
 | **User additions** | You | Every member, both staff and outsource | Settings › Global context › User additions |
-| **Role definition** | You or the Assistant Mira | Staff members in that role | Settings › Role journal |
-| **Insight** | The members in that role, the Assistant, or you | Staff members in that role | Settings › Role journal › the role's page |
+| **Duty** | You or the Assistant Mira | Staff members in that role | Settings › Roles |
+| **Insight** | The members in that role, the Assistant, or you | Staff members in that role | Settings › Roles › the role's page |
 | **Member lore** | The member itself | The member who wrote it | Lore tab |
 | **"Everyone" lore** | Written by a member, then moved there by you or the Assistant | Every member | Lore tab |
 | **Task lore** | The member itself | Members who read that task manual | Lore tab |
 
-Every member can look up any role definition and Insight, but they are only put into the boot content of that role automatically.
+Every member can look up any role's Duty and Insight, but they are only put into the boot content of that role automatically.
 
 The "Initial prompt" section in the member details shows the combination this member reads at boot. It is a preview assembled from the current settings and may differ from what the member actually received when it booted.
 
@@ -165,15 +165,15 @@ ocagent secret run --env NPM_TOKEN=sec-aaaaaaaaaaaa -- npm publish
 
 For how to add secrets and hand them to members, see [Give members your account keys (secrets)](secrets.md).
 
-Lore, role definitions, Insights, task manuals, and Global context are all stored on the server as well. When a member boots, the server assembles them into its boot content within the size caps; the size caps are under Settings › Parameters.
+Lore, each role's Duty and Insight, task manuals, and Global context are all stored on the server as well. When a member boots, the server assembles them into its boot content within the size caps; the size caps are under Settings › General.
 
 ## Handover: a new session, the same memory
 
-The memory capacity of one Claude Code or Codex session is limited; once it is full, nothing new fits. OffiCraft keeps everything that needs to last (identity, role definition, Insight, lore, task progress, handover summary) on the server, so it can end the current session and start a new one that continues, without the member forgetting anything.
+The memory capacity of one Claude Code or Codex session is limited; once it is full, nothing new fits. OffiCraft keeps everything that needs to last (identity, Duty, Insight, lore, task progress, handover summary) on the server, so it can end the current session and start a new one that continues, without the member forgetting anything.
 
 **When a handover happens:**
 
-- **Memory use reaches a threshold**: the server decides from the memory use ocagent reports. Claude members are measured by memory-use percentage, Codex members by the number of memory compactions. There are two thresholds: at "First notice" the member is asked to wrap up and hand over; at "Final call" the handover happens automatically and a timer starts. Both sets of thresholds are under Settings › Parameters.
+- **Memory use reaches a threshold**: the server decides from the memory use ocagent reports. Claude members are measured by memory-use percentage, Codex members by the number of memory compactions. There are two thresholds: at "First notice" the member is asked to wrap up and hand over; at "Final call" the handover happens automatically and a timer starts. Both sets of thresholds are under Settings › General.
 - **You press "Refocus"**: the member writes its progress into a handover and continues from it in a new session.
 - **You change settings**: changing the machine, model, AI runtime, or effort requires wrapping up first, and takes effect after the member starts again.
 - **The member asks to start over itself**: for example, after finishing a large piece of work, to start again with organized memory.
@@ -181,7 +181,7 @@ The memory capacity of one Claude Code or Codex session is limited; once it is f
 
 **How the wrap-up works:** the wrap-up steps are written in the "Stop" document under Settings › Global context › shut-down (STOP), which you edit. The server sends this document to the member at the moment it asks the member to wrap up. Following the document, the member writes its task progress and step notes back to the server, sends itself a message with its handover state, and then reports that it has stopped.
 
-**Which cases have a time limit:** only two are timed: memory use reaching "Final call", and you pressing "Accelerated stop". Both share the "Accelerated stop deadline" (120 seconds by default, adjustable under Settings › Parameters); if the wrap-up is not finished in time, the server has the warden force the session to end. No other case has a time limit; the server keeps waiting until the member reports that it has finished. The stop button in the member details is a single button that changes in order: "Stop → Accelerated stop → Force stop". "Accelerated stop" sets a deadline for the wrap-up; "Force stop" ends the session immediately (unsaved work is lost).
+**Which cases have a time limit:** only two are timed: memory use reaching "Final call", and you pressing "Accelerated stop". Both share the "Accelerated stop deadline" (120 seconds by default, adjustable under Settings › General); if the wrap-up is not finished in time, the server has the warden force the session to end. No other case has a time limit; the server keeps waiting until the member reports that it has finished. The stop button in the member details is a single button that changes in order: "Stop → Accelerated stop → Force stop". "Accelerated stop" sets a deadline for the wrap-up; "Force stop" ends the session immediately (unsaved work is lost).
 
 **How the new session takes over:** after the old session ends, the server wakes the member again with the same identity and the same role (on the same machine or another one). At boot, the new session reads back the handover summary and the task status on the server, so it knows who it is, what is in hand, and what to do next. On screen you see the dot go from Waking back to Online.
 
