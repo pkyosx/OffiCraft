@@ -1521,11 +1521,24 @@
       "name": "get_chat"
     },
     {
-      "description": "Mint a single-file share link (?sig= HMAC; grants read of this one attachment only). Returns {url} as a SERVER-RELATIVE path \u2014 prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link reads that one blob without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every link it signed at once. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.",
+      "description": "Mint a link that lets anyone holding it read this ONE attachment without signing in. Returns {url, share_link}. `url` is a SERVER-RELATIVE path \u2014 prefix it with the origin you reach this server on \u2014 and is shown only in this response: it cannot be listed or fetched again, so keep it before passing it on. Without `expires_in_days` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link with its own expiry; list_share_links and revoke_share_link manage them. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.",
       "inputSchema": {
         "properties": {
           "attachment_id": {
             "type": "string"
+          },
+          "expires_in_days": {
+            "anyOf": [
+              {
+                "maximum": 365,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days until the link stops opening, 1-365. null = never expires (until someone revokes it). Omit for 7."
           }
         },
         "required": [
@@ -1800,7 +1813,7 @@
       "name": "list_reply_cards"
     },
     {
-      "description": "Mint the EXTERNAL link to one before/after comparison (?sig= HMAC over both addresses AND both column labels). Returns {url} as a SERVER-RELATIVE path \u2014 prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link sees that one comparison without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every comparison link and every file link it signed at once. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=\u2026&after=\u2026 page with no sig, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. Mint this one only for a reader who has no account. A side is a stored attachment id (att-\u2026) or doc:<kind>/<key>/<at>/<field> \u2014 `ocagent diff --help` is the authority on the spelling.",
+      "description": "Mint the EXTERNAL link to one before/after comparison, for a reader who has no account. Returns {url, share_link}. `url` is a SERVER-RELATIVE path \u2014 prefix it with the origin you reach this server on \u2014 and is shown only in this response: it cannot be listed or fetched again. Without `expires_in_days` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link; list_share_links and revoke_share_link manage them. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=\u2026&after=\u2026 page with no `link`, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. A side is a stored attachment id (att-\u2026) or doc:<kind>/<key>/<at>/<field> \u2014 `ocagent diff --help` is the authority on the spelling.",
       "inputSchema": {
         "properties": {
           "after": {
@@ -1810,6 +1823,19 @@
           "before": {
             "description": "The BEFORE side's address: a stored attachment id (att- plus 12 hex digits) or doc:<kind>/<key>/<at>/<field>. Judged for SHAPE only \u2014 an address that no longer resolves is not refused here, it comes back as that side's `gone` marker when the link is opened.",
             "type": "string"
+          },
+          "expires_in_days": {
+            "anyOf": [
+              {
+                "maximum": 365,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days until the link stops opening, 1-365. null = never expires (until someone revokes it). Omit for 7."
           },
           "label_after": {
             "description": "Column heading for the after side. Omit it for a document side: the screen names that one in the reader's own language, and a label written here overrides it in one language for everyone.",
@@ -4999,6 +5025,30 @@
           "type": "object"
         },
         "name": "edit_lore_entry"
-      }
+      },
+    {
+      "description": "List every share link still in force (owner/admin agent): what each opens, who minted it, and when it expires (`expires_ts` null = never). The URLs themselves are never returned.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_share_links"
+    },
+    {
+      "description": "Revoke one share link (owner/admin agent). Irreversible: whoever holds its URL gets a 410 from now on, and there is no undo; to share again, mint a new link. Other links to the same file or comparison keep working.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "share_link_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_link_id"
+        ],
+        "type": "object"
+      },
+      "name": "revoke_share_link"
+    }
   ]
 }

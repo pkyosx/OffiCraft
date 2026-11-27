@@ -509,7 +509,7 @@ export interface paths {
         /**
          * Mint a new signing key and hand signing over to it; the old one stays, verifying.
          * @description - Hands signing over to a NEW key; the outgoing key stays in the ring and keeps verifying.
-         *     - Tokens already in circulation and existing share links keep working; new ones carry the new key.
+         *     - Tokens and preview links already in circulation keep working; new ones carry the new key. Share links do not depend on the key ring.
          *     - Takes effect on the NEXT request — no restart. A second server on the same database keeps its old ring until it restarts.
          *     - Nothing is revoked here; revocation is the separate remove route.
          *     - Owner only.
@@ -534,7 +534,7 @@ export interface paths {
          * Remove a retired key, revoking everything it signed. Refuses the signing key.
          * @description Remove a retired signing key — THIS is the revocation, and it has no undo (owner-gated).
          *
-         *     The moment this returns, every token signed by that key is refused, and every attachment share link produced under it stops working: a share `?sig=` is an HMAC under a key derived from the signing key, so it is governed by the ring too (owner ruling, card rc-cf9c27c07442). There is no grace period and holders are not notified — which is why the timing is a person's decision and never a timer's.
+         *     The moment this returns, every token signed by that key is refused, and every one-hour attachment preview link signed under it stops working. Share links (`GET /api/share-links`) are NOT affected: they are stored credentials, not signatures, and are withdrawn one at a time with `DELETE /api/share-links/{share_link_id}`. There is no grace period and holders are not notified — which is why the timing is a person's decision and never a timer's.
          *
          *     ⚠️ Warden credentials expire again since T-fc53, but "wait for the old tokens to expire" is still not the strategy: a credential lives up to the full `auth.warden_credential_lifetime_secs` (30 days by default) and machines installed before that change carry no `exp` at all. The question to answer before calling this is whether every machine has come back ON THE CURRENT KEY (`token_key_current` on GET /api/machines), not how many days have passed and not merely whether it reconnected: a machine that reconnected while still holding a credential this key signed drops off the moment this returns.
          *
@@ -850,36 +850,41 @@ export interface paths {
          *     renders visually, but script execution and same-origin reach are disabled.
          *     The header has no effect on an image embedded through ``<img>``.
          *
-         *     HTML BY SIG MAY SCRIPT: a ``text/html`` blob requested with ``?token=`` is
-         *     answered ``302`` to the same path carrying only its ``?sig=`` (``Cache-Control:
-         *     no-store``, ``Referrer-Policy: no-referrer``) — a page that may script can read
-         *     its own address, and a ``?token=`` there is the opener's whole login. The same
-         *     blob requested by ``?sig=`` alone is served ``Content-Security-Policy: sandbox
-         *     allow-scripts allow-popups allow-popups-to-escape-sandbox`` with
-         *     ``Referrer-Policy: no-referrer``: its script runs in an opaque origin with no
-         *     reach into this one, and its links and ``window.open`` may open a new tab
-         *     (still no same-origin, top navigation or forms). Requested with an Authorization
-         *     header it keeps plain ``sandbox``. Every other type keeps plain ``sandbox``
-         *     under every credential.
+         *     HTML BY LINK OR SIG MAY SCRIPT: a ``text/html`` blob requested with ``?token=`` is
+         *     answered ``302`` to the same path carrying only a fresh preview ``?sig=&exp=``
+         *     (``Cache-Control: no-store``, ``Referrer-Policy: no-referrer``) — a page that may
+         *     script can read its own address, and a ``?token=`` there is the opener's whole
+         *     login. The same blob requested by ``?link=`` or by ``?sig=&exp=`` alone is served
+         *     ``Content-Security-Policy: sandbox allow-scripts allow-popups
+         *     allow-popups-to-escape-sandbox`` with ``Referrer-Policy: no-referrer``: its script
+         *     runs in an opaque origin with no reach into this one, and its links and
+         *     ``window.open`` may open a new tab (still no same-origin, top navigation or
+         *     forms). Requested with an Authorization header it keeps plain ``sandbox``. Every
+         *     other type keeps plain ``sandbox`` under every credential.
          *
-         *     SHARE-SIG (third credential, this route ONLY — precedence Authorization
-         *     header → ``?token=`` → ``?sig=``): when the request carries NO bearer
-         *     credential at all, a ``?sig=`` query param is accepted instead — an
-         *     HMAC-SHA256 over exactly this ``attachment_id`` under a domain-separated
-         *     key derived from the server signing secret (minted by
-         *     ``GET /api/chat/attachments/{attachment_id}/share-link``). A valid sig
-         *     authorizes reading THIS ONE blob and nothing else; a bad/foreign sig is
-         *     401; ``?sig=`` on any other route is ignored (401 missing credentials).
-         *     Like ``?token=``, the param is an auth credential OUTSIDE the OpenAPI
+         *     SHARE LINK AND PREVIEW SIG (this route ONLY — precedence Authorization header →
+         *     ``?token=`` → ``?link=`` → ``?sig=``): when the request carries NO bearer
+         *     credential, either of two others is accepted, and each authorizes reading THIS
+         *     ONE blob and nothing else:
+         *
+         *     - ``?link=`` — a share link, minted by
+         *       ``POST /api/chat/attachments/{attachment_id}/share-link``. It opens the blob
+         *       until its ``expires_ts`` passes or it is revoked
+         *       (``DELETE /api/share-links/{share_link_id}``); after that, and for an unknown
+         *       credential or one minted for another attachment or for a comparison, the
+         *       answer is ``410``. It does not depend on the signing-key ring: removing a
+         *       signing key leaves every share link working.
+         *     - ``?sig=`` with ``?exp=`` — a preview signature, minted by
+         *       ``GET /api/chat/attachments/{attachment_id}/preview-link`` for the cockpit's own
+         *       preview frames: an HMAC-SHA256 over this ``attachment_id`` and ``exp`` under a
+         *       domain-separated key derived from the signing-key ring, valid until ``exp``
+         *       (one hour after minting). A bad, foreign or past-``exp`` sig, or one without
+         *       ``exp``, is ``401``; it also dies early when the key that made it is removed.
+         *       It is not recorded, not listed and cannot be revoked on its own.
+         *
+         *     ``?link=`` and ``?sig=`` on any other route are ignored (401 missing credentials).
+         *     Like ``?token=``, ``?sig=`` and ``?exp=`` are auth credentials OUTSIDE the OpenAPI
          *     parameter schema.
-         *
-         *     A sig carries NO EXPIRY and cannot be revoked one link at a time. It is not
-         *     unconditionally permanent, though, and since T-62 it never was: the derivation
-         *     key follows the SIGNING-KEY RING, so a sig keeps verifying while the key that
-         *     produced it is still in the ring, and every sig made under a key dies together
-         *     the moment an owner REMOVES that key (`POST
-         *     /api/auth/signing-keys/{key_id}/remove`). That is the whole revocation story —
-         *     coarse, deliberate, and a person's decision rather than a timer's.
          */
         get: operations["handle_get_chat_attachment_api_chat_attachment__attachment_id__get"];
         put?: never;
@@ -922,7 +927,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/chat/attachments/{attachment_id}/share-link": {
+    "/api/chat/attachments/{attachment_id}/preview-link": {
         parameters: {
             query?: never;
             header?: never;
@@ -930,15 +935,39 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Mint a single-file share link (?sig= HMAC; grants read of this one attachment only). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link reads that one blob without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every link it signed at once. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.
-         * @description - Mints a signed link that lets anyone holding it read that ONE blob and nothing else.
-         *     - No expiry and no per-link revocation: the only way to kill one is retiring the signing key, which kills every link made under it at the same instant.
-         *     - Returns a server-relative {url}; prefix your own origin.
+         * Mint a one-hour preview URL for one attachment (cockpit preview frames).
+         * @description - For the cockpit's own previews (the frame behind an HTML, PDF or video preview): a server-relative serve URL carrying `?sig=&exp=`, valid one hour.
+         *     - Not recorded, not listed by `GET /api/share-links`, and cannot be revoked; it lapses on its own.
          *     - 404 for an unknown blob id.
+         *     - Off the MCP surface: to hand a file to someone, mint a share link.
          */
-        get: operations["handle_get_chat_attachment_share_link_api_chat_attachments__attachment_id__share_link_get"];
+        get: operations["handle_get_chat_attachment_preview_link_api_chat_attachments__attachment_id__preview_link_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/attachments/{attachment_id}/share-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a share link to one attachment, valid for a chosen number of days or until revoked.
+         * @description - Each call mints a NEW link with its own expiry; earlier links to the same blob are untouched.
+         *     - Whoever holds the link reads that ONE blob without signing in, until it expires or is revoked.
+         *     - `expires_in_days` omitted (or no body) means 7 days; null means it never expires.
+         *     - Returns a server-relative `url`, shown only here: the server keeps a hash of its credential, never the URL.
+         *     - 404 for an unknown blob id.
+         */
+        post: operations["handle_create_chat_attachment_share_link_api_chat_attachments__attachment_id__share_link_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1118,11 +1147,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Resolve both sides of one comparison (?before=&after=; optional labels and ?sig=). Each side carries its text, its column heading, and an honest gone marker when the address resolves to nothing.
-         * @description - Resolves both sides in one request, so a `sig` cannot be replayed with a swapped side.
+         * Resolve both sides of one comparison (?before=&after=; optional labels and ?link=). Each side carries its text, its column heading, and an honest gone marker when the address resolves to nothing.
+         * @description - Resolves both sides in one request, so a `link` cannot be replayed with a swapped side.
          *     - A side is an attachment id or `doc:<kind>/<key>/<at>/<field>`, `<at>` = current|seed|revision id.
          *     - An address resolving to nothing is not an error (`gone: true` on that side); only an unsayable one is a 422.
-         *     - An authenticated caller needs no `sig`; one with none may present one that dies with its key.
+         *     - An authenticated caller needs no `link`. A caller with no login presents a share link's `link`, valid only with the sides and labels it was minted for; otherwise, or once it has expired or been revoked, the answer is 410.
          */
         get: operations["handle_get_diff_api_diff_get"];
         put?: never;
@@ -1140,17 +1169,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        get?: never;
+        put?: never;
         /**
-         * Mint the EXTERNAL link to one before/after comparison (?sig= HMAC over both addresses AND both column labels). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link sees that one comparison without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every comparison link and every file link it signed at once. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=…&after=… page with no sig, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. Mint this one only for a reader who has no account. A side is a stored attachment id (att-…) or doc:<kind>/<key>/<at>/<field> — `ocagent diff --help` is the authority on the spelling.
-         * @description - Mints a permanent link for one before/after comparison: no expiry, no revocation, nothing stored.
+         * Mint the external link to one before/after comparison, valid for a chosen number of days or until revoked.
+         * @description - Each call mints a NEW link for one before/after comparison with its own expiry.
+         *     - `expires_in_days` omitted means 7 days; null means it never expires.
          *     - Each side is an attachment id (`att-...`) or `doc:<kind>/<key>/<at>/<field>`, where `<at>` is current, seed or a revision id.
-         *     - Returns a server-relative {url}.
          *     - Only shape is checked, not existence: a side may stop resolving later, reported then as `gone`.
+         *     - Returns a server-relative `url`, shown only here: the server keeps a hash of its credential, never the URL.
          *     - 422 for an unsayable address.
          */
-        get: operations["handle_get_diff_share_link_api_diff_share_link_get"];
-        put?: never;
-        post?: never;
+        post: operations["handle_create_diff_share_link_api_diff_share_link_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4745,6 +4775,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/share-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every share link still in force (no URLs).
+         * @description - Every share link still in force, ordered by `created_ts`: what it opens, who minted it, when it expires.
+         *     - Expired and revoked links are not listed. Neither are preview links.
+         *     - No URL or credential is returned; a lost URL cannot be recovered, only replaced by minting a new link.
+         *     - Owner or admin agent.
+         */
+        get: operations["handle_list_share_links_api_share_links_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/share-links/{share_link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke one share link.
+         * @description - Irreversible: the link answers 410 the moment this returns. No undo; to share again, mint a new link.
+         *     - Only this link: other links to the same file or comparison, logins and machines are untouched.
+         *     - 404 when the id is not in `GET /api/share-links` (unknown, already revoked or expired).
+         *     - Returns the revoked link.
+         *     - Owner or admin agent.
+         */
+        delete: operations["handle_revoke_share_link_api_share_links__share_link_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shared-docs": {
         parameters: {
             query?: never;
@@ -5843,19 +5920,24 @@ export interface components {
             mime?: string | null;
         };
         /**
-         * ChatAttachmentShareLinkDTO
-         * @description Response of ``GET /api/chat/attachments/{attachment_id}/share-link``: the
-         *     server-relative serve URL for ONE attachment carrying its ``?sig=``
-         *     file-level HMAC credential (see the attachment GET's SHARE-SIG
-         *     paragraph). The client prefixes its own origin to form the absolute link.
-         *
-         *     The signature has NO expiry and no single link can be withdrawn — but it
-         *     is not unrevocable (T-62): it is derived from whichever signing key minted
-         *     it, so removing that key from the ring voids every link that key signed.
+         * ChatAttachmentPreviewLinkDTO
+         * @description Response of `GET /api/chat/attachments/{attachment_id}/preview-link`: a server-relative serve URL carrying `?sig=&exp=`, valid for one hour. It is not recorded, not listed and cannot be revoked.
          */
-        ChatAttachmentShareLinkDTO: {
+        ChatAttachmentPreviewLinkDTO: {
             /** Url */
             url: string;
+        };
+        /**
+         * ChatAttachmentShareLinkCreateDTO
+         * @description Body of `POST /api/chat/attachments/{attachment_id}/share-link`. The body may be omitted entirely.
+         */
+        ChatAttachmentShareLinkCreateDTO: {
+            /**
+             * Expires In Days
+             * @description Days until the link stops opening, 1–365. null: it never expires and stays valid until revoked. Omitted: 7.
+             * @default 7
+             */
+            expires_in_days: number | null;
         };
         /**
          * ChatAttachmentUploadDTO
@@ -6432,12 +6514,36 @@ export interface components {
             before: components["schemas"]["DiffSideDTO"];
         };
         /**
-         * @description Response of ``GET /api/diff/share-link``: the server-relative page URL for ONE comparison carrying its ``?sig=`` credential. The client prefixes its own origin to form the absolute link, exactly as it does for ChatAttachmentShareLinkDTO.
-         *
-         *     The signature has NO expiry and no single link can be withdrawn — but it is not unrevocable (T-62): it is derived from whichever signing key minted it, so removing that key from the ring voids every link that key signed, at the same instant it voids that key's tokens and file links. Coarse, and a person's decision rather than a timer's.
+         * DiffShareLinkCreateDTO
+         * @description Body of `POST /api/diff/share-link`.
          */
-        DiffShareLinkDTO: {
-            url: string;
+        DiffShareLinkCreateDTO: {
+            /**
+             * After
+             * @description The after side's address. Same two spellings as `before`.
+             */
+            after: string;
+            /**
+             * Before
+             * @description The before side's address: a stored attachment id (`att-` + 12 hex) or `doc:<kind>/<key>/<at>/<field>`, `<at>` = current|seed|revision id. Judged for shape only.
+             */
+            before: string;
+            /**
+             * Expires In Days
+             * @description Days until the link stops opening, 1–365. null: it never expires and stays valid until revoked. Omitted: 7.
+             * @default 7
+             */
+            expires_in_days: number | null;
+            /**
+             * Label After
+             * @default
+             */
+            label_after: string;
+            /**
+             * Label Before
+             * @default
+             */
+            label_before: string;
         };
         /**
          * @description ONE column of a comparison: the address that was asked for, the heading to put above it, and the text to draw.
@@ -10790,6 +10896,87 @@ export interface components {
              * @description Replace the 傳承 message-box 建議回覆 list wholesale (T-33) — the box that writes to the person who wrote that 傳承 entry. Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches another. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
              */
             suggested_replies_lore_message?: string[] | null;
+        };
+        /**
+         * ShareLinkCreatedDTO
+         * @description Response of both share-link mint routes.
+         */
+        ShareLinkCreatedDTO: {
+            share_link: components["schemas"]["ShareLinkDTO"];
+            /**
+             * Url
+             * @description Server-relative; prefix the origin you reach this server on. Returned only in this response: it cannot be listed or fetched again.
+             */
+            url: string;
+        };
+        /**
+         * ShareLinkDTO
+         * @description One share link, without its URL or credential: the URL is returned once, when it is minted, and the server keeps only a hash of the credential.
+         */
+        ShareLinkDTO: {
+            /**
+             * After
+             * @description The comparison's after-side address; null for an attachment link.
+             */
+            after: string | null;
+            /**
+             * Attachment Filename
+             * @description The attachment's filename; null for a diff link.
+             */
+            attachment_filename: string | null;
+            /**
+             * Attachment Id
+             * @description The attachment the link opens; null for a diff link.
+             */
+            attachment_id: string | null;
+            /**
+             * Before
+             * @description The comparison's before-side address; null for an attachment link.
+             */
+            before: string | null;
+            /**
+             * Created By
+             * @description Who minted it: `owner`, or the member id of the AI member that called the tool.
+             */
+            created_by: string;
+            /**
+             * Created Ts
+             * @default 0
+             */
+            created_ts: number;
+            /**
+             * Expires Ts
+             * @description Epoch seconds from which the link answers 410; null when it never expires.
+             */
+            expires_ts: number | null;
+            /**
+             * Id
+             * @description Server-minted (`sl-` + 12 hex), immutable; the key the revoke route takes. Not the credential in the URL.
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "attachment" | "diff";
+            /**
+             * Label After
+             * @description The after column's heading as minted (`""` when none was given); null for an attachment link.
+             */
+            label_after: string | null;
+            /**
+             * Label Before
+             * @description The before column's heading as minted (`""` when none was given); null for an attachment link.
+             */
+            label_before: string | null;
+        };
+        /**
+         * ShareLinksDTO
+         * @description Every share link still in force, ordered by `created_ts`. Expired and revoked links are not listed.
+         */
+        ShareLinksDTO: {
+            /** Share Links */
+            share_links: components["schemas"]["ShareLinkDTO"][];
         };
         /**
          * SigningKeyDTO
@@ -15399,7 +15586,10 @@ export interface operations {
     };
     handle_get_chat_attachment_api_chat_attachment__attachment_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description A share link's credential, as it appears in the URL the mint route returned. */
+                link?: string;
+            };
             header?: never;
             path: {
                 attachment_id: string;
@@ -15423,6 +15613,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Gone: the ``?link=`` share link has expired, has been revoked, or never existed. A request whose Accept prefers text/html (a browser opening the link) gets a page saying the link is no longer valid; any other gets the unified error envelope. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                    "text/html": string;
+                };
             };
             /** @description Range Not Satisfiable: the Range starts past the end of the blob or does not parse. */
             416: {
@@ -15564,7 +15764,7 @@ export interface operations {
             };
         };
     };
-    handle_get_chat_attachment_share_link_api_chat_attachments__attachment_id__share_link_get: {
+    handle_get_chat_attachment_preview_link_api_chat_attachments__attachment_id__preview_link_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -15581,7 +15781,60 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChatAttachmentShareLinkDTO"];
+                    "application/json": components["schemas"]["ChatAttachmentPreviewLinkDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_create_chat_attachment_share_link_api_chat_attachments__attachment_id__share_link_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ChatAttachmentShareLinkCreateDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareLinkCreatedDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -15987,7 +16240,8 @@ export interface operations {
                 after: string;
                 label_before?: string;
                 label_after?: string;
-                sig?: string;
+                /** @description A share link's credential, as it appears in the URL `POST /api/diff/share-link` returned. */
+                link?: string;
             };
             header?: never;
             path?: never;
@@ -16002,6 +16256,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiffPairDTO"];
+                };
+            };
+            /** @description Gone: the `link` share link has expired, has been revoked, never existed, or was minted for other sides or labels (unified error envelope). The /diff page shows it as a link that is no longer valid. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -16033,19 +16296,18 @@ export interface operations {
             };
         };
     };
-    handle_get_diff_share_link_api_diff_share_link_get: {
+    handle_create_diff_share_link_api_diff_share_link_post: {
         parameters: {
-            query: {
-                before: string;
-                after: string;
-                label_before?: string;
-                label_after?: string;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiffShareLinkCreateDTO"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -16053,7 +16315,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DiffShareLinkDTO"];
+                    "application/json": components["schemas"]["ShareLinkCreatedDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
@@ -24385,6 +24647,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoreBudgetListDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_share_links_api_share_links_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareLinksDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_revoke_share_link_api_share_links__share_link_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareLinkDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
