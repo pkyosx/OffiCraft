@@ -176,13 +176,11 @@ describe("the shipped themes/ seasonal data", () => {
       expect((bundle as ThemeBundle).id).toBe(id);
     });
 
-    it(`${file} keeps the plain wording for background commands, monitors and the waits count`, () => {
+    it(`${file} keeps the plain wording for the waits count`, () => {
       const { wording } = readThemesFile(file) as ThemeBundle;
       for (const locale of ["zh", "en"] as const) {
         const words = wording?.[locale] ?? {};
         for (const code of [
-          "activity.waitKind.background_command",
-          "activity.waitKind.monitor",
           "activity.waitsTailOne",
           "activity.waitsTailMany",
         ]) {

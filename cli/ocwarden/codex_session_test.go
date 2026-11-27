@@ -2386,7 +2386,7 @@ func activitySnapshot(busySince any, subagents ...any) map[string]any {
 func activityWithWaits(snapshot map[string]any, commands ...string) map[string]any {
 	waits := []any{}
 	for _, command := range commands {
-		waits = append(waits, map[string]any{"kind": "background_command", "description": command, "next_ts": nil, "recurring": false})
+		waits = append(waits, map[string]any{"kind": "shell", "description": command, "next_ts": nil, "recurring": false})
 	}
 	snapshot["waits"] = waits
 	return snapshot

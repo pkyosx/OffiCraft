@@ -255,7 +255,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
               { id: "p", parentId: "gone", name: "Plan", description: "", startedTs: now - 300 },
             ],
             waits: [
-              { kind: "background_command", description: "每 30 秒檢查 CI", nextTs: null, recurring: false },
+              { kind: "shell", description: "每 30 秒檢查 CI", nextTs: null, recurring: false },
               { kind: "monitor", description: "盯部署紀錄", nextTs: null, recurring: false },
               { kind: "schedule", description: "檢查 PR 審查結果", nextTs: nextRun, recurring: true },
             ],
@@ -283,8 +283,8 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
         [1, "working", "Plan", "5 分鐘"],
         [1, "working", "盤點 Backlog 票Explore", "2 分鐘"],
         [2, "working", "讀取錯誤紀錄general-purpose", "40 秒"],
-        [1, "waiting", "每 30 秒檢查 CI", "背景指令"],
-        [1, "waiting", "盯部署紀錄", "監看"],
+        [1, "waiting", "每 30 秒檢查 CI", "shell"],
+        [1, "waiting", "盯部署紀錄", "monitor"],
         [1, "waiting", "檢查 PR 審查結果", "排程 · 下次 12:15 · 重複"],
       ]);
       expect(container.querySelectorAll(".mp-activity")).toHaveLength(1);

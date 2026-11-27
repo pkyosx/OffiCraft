@@ -283,6 +283,68 @@ func TestCmdActivityReport(t *testing.T) {
 		}
 	})
 
+	t.Run("a working teammate and the foreground children under it stay listed across the main Stop, a standing-by teammate is not shown until it starts again, and a teammate gone from the list goes with its children", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+		tasks := func(extra ...string) string {
+			list := append([]string{`{"id":"bzbqsru8v","type":"shell","status":"running","description":"sleep 400","command":"sleep 400"}`,
+				`{"id":"thgpmlm3x","type":"teammate","status":"running","description":"implement phase 1"}`,
+				`{"id":"t0","type":"teammate","status":"running","description":"spawned before this session"}`}, extra...)
+			return `"background_tasks":[` + strings.Join(list, ",") + `],"session_crons":[]`
+		}
+
+		drive(t, cfg, srv.Client(),
+			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
+			step{1001, agentPreToolUse("", "implement phase 1")},
+			step{1002, activityHook("SubagentStart", `"agent_id":"aimpl-937342692ba02f94","agent_type":"impl"`)},
+			step{1003, agentPostToolUse("", "implement phase 1", `{"status":"teammate_spawned","agentId":"aimpl-937342692ba02f94","name":"impl","team_name":"session-43b63d3c"}`)},
+			step{1004, agentPreToolUse("aimpl-937342692ba02f94", "write the tests")},
+			step{1005, activityHook("SubagentStart", `"agent_id":"w1","agent_type":"gf-builder:unit-tester"`)},
+			step{1006, agentPreToolUse("aimpl-937342692ba02f94", "write the code")},
+			step{1007, activityHook("SubagentStart", `"agent_id":"w2","agent_type":"gf-builder:implementer"`)},
+			step{1010, activityHook("Stop", tasks())},
+			step{1020, activityHook("SubagentStop", `"agent_id":"w1","agent_type":"gf-builder:unit-tester",`+tasks())},
+			step{1021, activityHook("SubagentStop", `"agent_id":"w2","agent_type":"gf-builder:implementer",`+tasks())},
+			step{1022, activityHook("SubagentStop", `"agent_id":"aimpl-937342692ba02f94","agent_type":"impl",`+tasks())},
+			step{1030, activityHook("UserPromptSubmit", `"prompt":"next"`)},
+			step{1031, activityHook("Stop", tasks())},
+			step{1040, activityHook("SubagentStart", `"agent_id":"aimpl-937342692ba02f94","agent_type":"impl"`)},
+			step{1041, activityHook("Stop", tasks())},
+			step{1042, agentPreToolUse("aimpl-937342692ba02f94", "rerun the tests")},
+			step{1043, activityHook("SubagentStart", `"agent_id":"w3","agent_type":"gf-builder:unit-tester"`)},
+			step{1050, activityHook("Stop", `"background_tasks":[{"id":"bzbqsru8v","type":"shell","status":"running","description":"sleep 400"},`+
+				`{"id":"t0","type":"teammate","status":"running","description":"spawned before this session"}],"session_crons":[]`)})
+
+		impl := func(started string) string {
+			return `{"id":"aimpl-937342692ba02f94","parent_id":null,"name":"impl","description":"implement phase 1","started_ts":` + started + `}`
+		}
+		w1 := `{"id":"w1","parent_id":"aimpl-937342692ba02f94","name":"gf-builder:unit-tester","description":"write the tests","started_ts":1005}`
+		w2 := `{"id":"w2","parent_id":"aimpl-937342692ba02f94","name":"gf-builder:implementer","description":"write the code","started_ts":1007}`
+		shell := `{"kind":"shell","description":"sleep 400","next_ts":null,"recurring":false},` +
+			`{"kind":"teammate","description":"spawned before this session","next_ts":null,"recurring":false}`
+		want := []capturedPost{
+			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002") + `],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002") + `],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002") + `,` + w1 + `],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002") + `,` + w1 + `,` + w2 + `],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002") + `,` + w1 + `,` + w2 + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002") + `,` + w2 + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002") + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[` + shell + `]}`),
+			sent(`{"busy":true,"busy_since":1030,"subagents":[],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1040") + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1040") + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1040") + `,` +
+				`{"id":"w3","parent_id":"aimpl-937342692ba02f94","name":"gf-builder:unit-tester","description":"rerun the tests","started_ts":1043}],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[` + shell + `]}`),
+		}
+		if !reflect.DeepEqual(*posts, want) {
+			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
+		}
+	})
+
 	t.Run("a foreground sub-agent takes the oldest pending Agent call, and its late PostToolUse sends nothing", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
@@ -389,7 +451,7 @@ func TestCmdActivityReport(t *testing.T) {
 		}
 	})
 
-	t.Run("Stop drops sub-agents no longer running, never adds one, and lists running shells, monitors and crons as waits", func(t *testing.T) {
+	t.Run("Stop drops sub-agents no longer running, adds a running one it never saw start, and lists every other live background task and cron as a wait", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 		writeActivityState(statePath(cfg), activityState{
@@ -407,32 +469,57 @@ func TestCmdActivityReport(t *testing.T) {
 			`{"id":"a1-child","type":"subagent","status":"running","description":"nested"},`+
 			`{"id":"done","type":"subagent","status":"completed","description":"finished"},`+
 			`{"id":"never-started","type":"subagent","status":"running","description":"unseen"},`+
+			`{"id":"typed-unseen","type":"subagent","status":"running","description":"unseen explore","agent_type":"Explore"},`+
 			`{"id":"s1","type":"shell","status":"running","description":"npm test"},`+
 			`{"id":"s2","type":"shell","status":"completed","description":"go vet"},`+
 			`{"id":"m1","type":"monitor","status":"running","description":"watch the deploy log","command":"tail -f deploy.log"},`+
 			`{"id":"m2","type":"monitor","status":"completed","description":"wait for the build","command":"make build"},`+
 			`{"id":"m3","type":"monitor","status":"running","description":"watch the queue","server":"queue","tool":"subscribe"},`+
 			`{"id":"m4","type":"monitor","status":"running","description":"artifact watch"},`+
-			`{"id":"w1","type":"workflow","status":"running","description":"release workflow"}],`+
+			`{"id":"s3","type":"shell","status":"pending","description":"queued build"},`+
+			`{"id":"t1","type":"teammate","status":"running","description":"review the PR"},`+
+			`{"id":"w1","type":"workflow","status":"running","description":"release workflow","name":"release"},`+
+			`{"id":"w2","type":"workflow","status":"running","description":"","name":"nightly"},`+
+			`{"id":"w3","type":"workflow","status":"completed","description":"old workflow","name":"old"},`+
+			`{"id":"p1","type":"MCP task","status":"running","description":"render the report","server":"docs","tool":"render"},`+
+			`{"id":"p2","type":"MCP task","status":"running","description":"","server":"docs","tool":"export"},`+
+			`{"id":"r1","type":"cloud session","status":"running","description":"ultrareview of #750"},`+
+			`{"id":"d1","type":"dream","status":"running","description":"consolidating memory"},`+
+			`{"id":"x1","type":"auto-mode scan","status":"running","description":"scanning the transcript"},`+
+			`{"id":"k1","type":"code","status":"running","description":"local script"},`+
+			`{"id":"n1","type":"hologram","status":"running","description":"a task type from a later Claude Code"},`+
+			`{"id":"n2","type":"a task type whose name runs well past forty characters","status":"running","description":"long type"},`+
+			`{"id":"e1","type":"","status":"running","description":"untyped"}],`+
 			`"session_crons":[{"id":"c1","schedule":"*/5 * * * *","recurring":true,"prompt":"check CI"}]`)})
 
-		want := []capturedPost{sent(`{"busy":false,"busy_since":null,` +
-			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001}],` +
-			`"waits":[{"kind":"background_command","description":"npm test","next_ts":null,"recurring":false},` +
+		subagents := `"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001},` +
+			`{"id":"never-started","parent_id":null,"name":"unknown","description":"unseen","started_ts":1010},` +
+			`{"id":"typed-unseen","parent_id":null,"name":"Explore","description":"unseen explore","started_ts":1010}]`
+		waits := `"waits":[{"kind":"shell","description":"npm test","next_ts":null,"recurring":false},` +
 			`{"kind":"monitor","description":"watch the deploy log","next_ts":null,"recurring":false},` +
 			`{"kind":"monitor","description":"watch the queue","next_ts":null,"recurring":false},` +
 			`{"kind":"monitor","description":"artifact watch","next_ts":null,"recurring":false},` +
-			`{"kind":"schedule","description":"check CI","next_ts":1200,"recurring":true}]}`)}
+			`{"kind":"shell","description":"queued build","next_ts":null,"recurring":false},` +
+			`{"kind":"teammate","description":"review the PR","next_ts":null,"recurring":false},` +
+			`{"kind":"workflow","description":"release workflow","next_ts":null,"recurring":false},` +
+			`{"kind":"workflow","description":"nightly","next_ts":null,"recurring":false},` +
+			`{"kind":"MCP task","description":"render the report","next_ts":null,"recurring":false},` +
+			`{"kind":"MCP task","description":"docs·export","next_ts":null,"recurring":false},` +
+			`{"kind":"cloud session","description":"ultrareview of #750","next_ts":null,"recurring":false},` +
+			`{"kind":"dream","description":"consolidating memory","next_ts":null,"recurring":false},` +
+			`{"kind":"auto-mode scan","description":"scanning the transcript","next_ts":null,"recurring":false},` +
+			`{"kind":"code","description":"local script","next_ts":null,"recurring":false},` +
+			`{"kind":"hologram","description":"a task type from a later Claude Code","next_ts":null,"recurring":false},` +
+			`{"kind":"a task type whose name runs well past forty characters","description":"long type","next_ts":null,"recurring":false},` +
+			`{"kind":"unknown","description":"untyped","next_ts":null,"recurring":false},` +
+			`{"kind":"schedule","description":"check CI","next_ts":1200,"recurring":true}]`
+		want := []capturedPost{sent(`{"busy":false,"busy_since":null,` +
+			subagents + `,` + waits + `}`)}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
 		if got, want := readFileString(t, statePath(cfg)), `{"busy":false,"busy_since":null,`+
-			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001}],`+
-			`"waits":[{"kind":"background_command","description":"npm test","next_ts":null,"recurring":false},`+
-			`{"kind":"monitor","description":"watch the deploy log","next_ts":null,"recurring":false},`+
-			`{"kind":"monitor","description":"watch the queue","next_ts":null,"recurring":false},`+
-			`{"kind":"monitor","description":"artifact watch","next_ts":null,"recurring":false},`+
-			`{"kind":"schedule","description":"check CI","next_ts":1200,"recurring":true}],"stopped":{"a1-child":true,"gone":true}}`+"\n"; got != want {
+			subagents+`,`+waits+`,"stopped":{"a1-child":true,"gone":true}}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
 		}
 	})
@@ -717,14 +804,14 @@ func TestReannounceActivity(t *testing.T) {
 		cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", MemberID: "kyle", AgentsRoot: t.TempDir()}
 		writeActivityState(activityStatePath(cfg), activityState{
 			Subagents: []activitySubagent{{ID: "a1", Name: "Explore", Description: "survey", StartedTs: 1001}},
-			Waits:     []activityWait{{Kind: "background_command", Description: "npm test"}},
+			Waits:     []activityWait{{Kind: "shell", Description: "npm test"}},
 		})
 
 		reannounceActivity(srv.Client(), cfg, 2000)
 
 		want := []capturedPost{{path: "/api/agent/activity", auth: "Bearer t", body: `{"busy":false,"busy_since":null,` +
 			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1001}],` +
-			`"waits":[{"kind":"background_command","description":"npm test","next_ts":null,"recurring":false}]}`}}
+			`"waits":[{"kind":"shell","description":"npm test","next_ts":null,"recurring":false}]}`}}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}

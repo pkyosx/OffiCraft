@@ -4920,7 +4920,7 @@ export interface components {
             subagents: components["schemas"]["AgentActivitySubagentDTO"][];
             /**
              * Waits
-             * @description What the session is waiting on that will wake it again: background commands, monitors and scheduled prompts. Empty when the runtime does not expose them.
+             * @description What the session is waiting on that will wake it again: background tasks (commands, monitors, teammates standing by, workflows and the other kinds ``kind`` lists) and scheduled prompts. Empty when the runtime does not expose them.
              * @default []
              */
             waits: components["schemas"]["AgentActivityWaitDTO"][];
@@ -4987,9 +4987,9 @@ export interface components {
             description: string;
             /**
              * Kind
-             * @enum {string}
+             * @description ``schedule`` for a scheduled prompt; otherwise the runtime's own name for the background task (Claude Code's ``shell``, ``monitor``, ``teammate``, ``workflow``, ``MCP task``, …; ``shell`` for a Codex background terminal), or ``unknown`` when the runtime gives none. Not checked, and shown as sent.
              */
-            kind: "background_command" | "monitor" | "schedule";
+            kind: string;
             /**
              * Next Ts
              * @description For ``schedule``: epoch seconds of its next run, by the reporting machine's clock; null when unknown or for other kinds.
@@ -7382,7 +7382,7 @@ export interface components {
         };
         /**
          * MemberActivityDTO
-         * @description A member session's working state, derived from its latest activity report: ``busy`` while the main agent is handling a turn or any sub-agent (every nesting level counted) is running; ``waiting`` when neither is running but the session is waiting on background commands or scheduled prompts that will wake it; ``idle`` otherwise.
+         * @description A member session's working state, derived from its latest activity report: ``busy`` while the main agent is handling a turn or any sub-agent (every nesting level counted) is running; ``waiting`` when neither is running but the session is waiting on background tasks or scheduled prompts that will wake it; ``idle`` otherwise.
          */
         MemberActivityDTO: {
             /**

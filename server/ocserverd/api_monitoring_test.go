@@ -176,8 +176,11 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			],
 			"waits": [
 				{"kind": "schedule", "description": "check CI", "next_ts": 1900, "recurring": true},
-				{"kind": "background_command"},
-				{"kind": "monitor", "description": "watch the deploy log"}
+				{"kind": "shell"},
+				{"kind": "monitor", "description": "watch the deploy log"},
+				{"kind": "teammate", "description": "review the PR"},
+				{"kind": "a task type from a later Claude Code v99, named at any length"},
+				{"kind": ""}
 			]}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -199,8 +202,11 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 				},
 				"waits": []any{
 					map[string]any{"kind": "schedule", "description": "check CI", "next_ts": 1900, "recurring": true},
-					map[string]any{"kind": "background_command", "description": "", "next_ts": nil, "recurring": false},
+					map[string]any{"kind": "shell", "description": "", "next_ts": nil, "recurring": false},
 					map[string]any{"kind": "monitor", "description": "watch the deploy log", "next_ts": nil, "recurring": false},
+					map[string]any{"kind": "teammate", "description": "review the PR", "next_ts": nil, "recurring": false},
+					map[string]any{"kind": "a task type from a later Claude Code v99, named at any length", "description": "", "next_ts": nil, "recurring": false},
+					map[string]any{"kind": "", "description": "", "next_ts": nil, "recurring": false},
 				},
 				"ts": receiptTS,
 			},
@@ -222,10 +228,10 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 		},
 		{
 			name: "nothing running but a wait reads waiting",
-			body: `{"busy": false, "subagents": [], "waits": [{"kind": "background_command", "description": "npm test"}]}`,
+			body: `{"busy": false, "subagents": [], "waits": [{"kind": "shell", "description": "npm test"}]}`,
 			want: map[string]any{
 				"state": "waiting", "busy_since": nil, "subagents": []any{},
-				"waits": []any{map[string]any{"kind": "background_command", "description": "npm test", "next_ts": nil, "recurring": false}},
+				"waits": []any{map[string]any{"kind": "shell", "description": "npm test", "next_ts": nil, "recurring": false}},
 			},
 		},
 		{
@@ -450,8 +456,6 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			422, "validation_error", "field required: waits[0].kind"},
 		{"an undeclared key answers 422", `{"busy": false, "subagents": [], "agent_id": "mira"}`,
 			422, "validation_error", `invalid request body: json: unknown field "agent_id"`},
-		{"a wait kind outside the enum answers 400", `{"busy": false, "subagents": [], "waits": [{"kind": "workflow"}]}`,
-			400, "validation_error", `waits[0].kind must be background_command, monitor or schedule, got "workflow"`},
 		{"fifty-one waits answer 400", `{"busy": false, "subagents": [], "waits": [` + strings.Join(tooMany, ",") + `]}`,
 			400, "validation_error", "waits carries 51 items, over the 50-item limit"},
 		{"fifty-one sub-agents answer 400", `{"busy": false, "subagents": [` +

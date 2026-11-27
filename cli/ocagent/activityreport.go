@@ -62,6 +62,9 @@ type activityWait struct {
 type activitySpawn struct {
 	ParentID    *string `json:"parent_id"`
 	Description string  `json:"description"`
+	// background_tasks lists a teammate under a task id of its own, never its
+	// agent id, so it can only be matched there by this description.
+	Teammate bool `json:"teammate,omitempty"`
 }
 
 type activityState struct {
@@ -115,6 +118,10 @@ type activityHookInput struct {
 		Type        string `json:"type"`
 		Status      string `json:"status"`
 		Description string `json:"description"`
+		AgentType   string `json:"agent_type"`
+		Name        string `json:"name"`
+		Server      string `json:"server"`
+		Tool        string `json:"tool"`
 	} `json:"background_tasks"`
 	SessionCrons []struct {
 		Schedule  string `json:"schedule"`
@@ -226,12 +233,21 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) (cha
 	case "Stop", "StopFailure":
 		s.Busy, s.BusySince = false, nil
 		running := map[string]bool{}
+		teammates := map[string]bool{}
 		for _, task := range in.BackgroundTasks {
-			if task.Type == "subagent" && task.Status == "running" {
+			switch {
+			case !isLiveTask(task.Status):
+			case task.Type == "subagent":
 				running[task.ID] = true
+			case task.Type == "teammate":
+				teammates[task.Description] = true
 			}
 		}
-		s.Subagents = keepWithAncestors(s.Subagents, func(sub activitySubagent) bool { return running[sub.ID] })
+		// A foreground child of a background sub-agent or a teammate is never
+		// in background_tasks; its own SubagentStop removes it.
+		s.Subagents = keepLineage(s.Subagents, func(sub activitySubagent) bool {
+			return running[sub.ID] || (s.isTeammate(sub.ID) && teammates[sub.Description])
+		})
 		s.Pending = nil
 		refreshActivityFromTasks(s, in, now)
 	case "PreToolUse":
@@ -246,11 +262,14 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) (cha
 		}
 		var response struct {
 			AgentID string `json:"agentId"`
+			Status  string `json:"status"`
 		}
 		if json.Unmarshal(in.ToolResponse, &response) != nil || response.AgentID == "" {
 			return false, false
 		}
-		return true, recordSpawn(s, response.AgentID, spawnOf(in))
+		spawn := spawnOf(in)
+		spawn.Teammate = response.Status == "teammate_spawned"
+		return true, recordSpawn(s, response.AgentID, spawn)
 	case "SubagentStart":
 		// The shown time is the current run's: every start restarts it,
 		// including a parent carrying on after it stopped to wait for its child
@@ -289,6 +308,21 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) (cha
 		return false, false
 	}
 	return true, true
+}
+
+// Keeps the sub-agents keep accepts, every listed ancestor of one, and every
+// listed descendant of one.
+func keepLineage(subs []activitySubagent, keep func(activitySubagent) bool) []activitySubagent {
+	kept := keepWithAncestors(subs, keep)
+	for grew := true; grew; {
+		grew = false
+		for _, sub := range subs {
+			if sub.ParentID != nil && listsSubagent(kept, *sub.ParentID) && !listsSubagent(kept, sub.ID) {
+				kept, grew = append(kept, sub), true
+			}
+		}
+	}
+	return kept
 }
 
 // Keeps the sub-agents keep accepts plus every listed ancestor of one, so no
@@ -384,21 +418,35 @@ func sameParent(a, b *string) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
+func (s *activityState) isTeammate(id string) bool { return s.Spawns[id].Teammate }
+
+// Claude Code only lists tasks in one of these two states today.
+func isLiveTask(status string) bool { return status == "running" || status == "pending" }
+
 func refreshActivityFromTasks(s *activityState, in activityHookInput, now float64) {
 	s.Waits = nil
 	for _, task := range in.BackgroundTasks {
-		switch {
-		case task.Type == "subagent":
-			for i := range s.Subagents {
-				if s.Subagents[i].ID == task.ID {
-					s.Subagents[i].Description = task.Description
-				}
-			}
-		case task.Status == "running" && task.Type == "shell":
-			s.Waits = append(s.Waits, activityWait{Kind: "background_command", Description: task.Description})
-		case task.Status == "running" && task.Type == "monitor":
-			s.Waits = append(s.Waits, activityWait{Kind: "monitor", Description: task.Description})
+		if !isLiveTask(task.Status) {
+			continue
 		}
+		if task.Type == "subagent" {
+			if !s.updateSubagentDescription(task.ID, task.Description) && !s.Stopped[task.ID] {
+				s.Subagents = append(s.Subagents, activitySubagent{ID: task.ID,
+					Name: orUnknown(task.AgentType), Description: task.Description, StartedTs: now})
+			}
+			continue
+		}
+		if task.Type == "teammate" && s.knowsTeammate(task.Description) {
+			continue
+		}
+		description := task.Description
+		if description == "" {
+			description = task.Name
+		}
+		if description == "" && task.Server != "" {
+			description = task.Server + "·" + task.Tool
+		}
+		s.Waits = append(s.Waits, activityWait{Kind: orUnknown(task.Type), Description: description})
 	}
 	for _, cron := range in.SessionCrons {
 		wait := activityWait{Kind: "schedule", Description: cron.Prompt, Recurring: cron.Recurring}
@@ -408,6 +456,34 @@ func refreshActivityFromTasks(s *activityState, in activityHookInput, now float6
 		}
 		s.Waits = append(s.Waits, wait)
 	}
+}
+
+func orUnknown(name string) string {
+	if name == "" {
+		return "unknown"
+	}
+	return name
+}
+
+func (s *activityState) updateSubagentDescription(id, description string) bool {
+	for i := range s.Subagents {
+		if s.Subagents[i].ID == id {
+			s.Subagents[i].Description = description
+			return true
+		}
+	}
+	return false
+}
+
+// A known teammate is either working, so listed as a sub-agent, or standing by,
+// which wakes nothing and is not shown.
+func (s *activityState) knowsTeammate(description string) bool {
+	for _, spawn := range s.Spawns {
+		if spawn.Teammate && spawn.Description == description {
+			return true
+		}
+	}
+	return false
 }
 
 func newActivityBody(s activityState) activityBody {

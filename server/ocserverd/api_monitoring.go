@@ -196,10 +196,6 @@ func validateAgentActivity(body agentActivityIngestBody) (
 			if wt.WaitKind == nil {
 				return nil, nil, http.StatusUnprocessableEntity, "field required: " + at + ".kind"
 			}
-			if !AgentActivityWaitDTOKind(*wt.WaitKind).Valid() {
-				return nil, nil, http.StatusBadRequest, fmt.Sprintf(
-					"%s.kind must be background_command, monitor or schedule, got %q", at, *wt.WaitKind)
-			}
 			description := strOrEmpty(wt.Description)
 			if n := utf8.RuneCountInString(description); n > activityDescriptionMax {
 				return nil, nil, http.StatusBadRequest, fmt.Sprintf(

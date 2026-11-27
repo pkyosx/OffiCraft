@@ -305,7 +305,7 @@ describe("OutsourcePanel", () => {
           state: "waiting",
           busySince: null,
           subagents: [],
-          waits: [{ kind: "background_command", description: "npm test", nextTs: null, recurring: false }],
+          waits: [{ kind: "shell", description: "npm test", nextTs: null, recurring: false }],
         },
       }),
     );
@@ -320,7 +320,7 @@ describe("OutsourcePanel", () => {
     expect(dialog.querySelector(".mp-activity__summary")).toBeNull();
     expect(Array.from(dialog.querySelectorAll(".mp-activity__row")).map((r) => r.textContent)).toEqual([
       "主代理",
-      "npm test背景指令",
+      "npm testshell",
     ]);
     expect(dialog.querySelector(".mp-activity__row--main .activity-icon__glyph")!.className).toBe(
       "activity-icon__glyph activity-icon__glyph--idle",

@@ -232,7 +232,7 @@ describe("toMemberActivity", () => {
         { id: "a2", parent_id: "a1", name: "Plan", description: "", started_ts: 1_700_000_150 },
       ],
       waits: [
-        { kind: "background_command", description: "npm test", next_ts: null, recurring: false },
+        { kind: "shell", description: "npm test", next_ts: null, recurring: false },
         { kind: "schedule", description: "", next_ts: 1_700_003_600, recurring: true },
       ],
       ts: 1_700_000_200,
@@ -245,7 +245,7 @@ describe("toMemberActivity", () => {
         { id: "a2", parentId: "a1", name: "Plan", description: "", startedTs: 1_700_000_150 },
       ],
       waits: [
-        { kind: "background_command", description: "npm test", nextTs: null, recurring: false },
+        { kind: "shell", description: "npm test", nextTs: null, recurring: false },
         { kind: "schedule", description: "", nextTs: 1_700_003_600, recurring: true },
       ],
     };

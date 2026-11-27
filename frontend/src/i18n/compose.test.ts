@@ -52,11 +52,12 @@ const sub = (name: string, description: string, startedTs: number) => ({
   startedTs,
 });
 const SUBS_4 = [sub("a", "", T), sub("b", "", T), sub("c", "", T), sub("d", "", T)];
-const WAIT_BG = { kind: "background_command" as const, description: "npm test", nextTs: null, recurring: false };
+const WAIT_BG = { kind: "shell" as const, description: "npm test", nextTs: null, recurring: false };
 const WAIT_MON = { kind: "monitor" as const, description: "watch the deploy log", nextTs: null, recurring: false };
 const WAIT_CRON = { kind: "schedule" as const, description: "每小時看 CI", nextTs: null, recurring: false };
 const NEXT = at(2026, 10, 4, 12, 15);
 const cron = (nextTs: number | null, recurring: boolean) => ({ ...WAIT_CRON, nextTs, recurring });
+const waitOf = (kind: string) => ({ kind, description: "", nextTs: null, recurring: false });
 
 type Arg =
   | string
@@ -98,10 +99,11 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "memberActivityDuration", [T - 40, T], "40 秒"],
     ["zh", "memberActivityDuration", [T - 125, T], "2 分鐘"],
     ["en", "memberActivityDuration", [T - 40, T], "40 sec"],
-    ["zh", "memberActivityWaitTag", [WAIT_BG, NOW], "背景指令"],
-    ["en", "memberActivityWaitTag", [WAIT_BG, NOW], "background command"],
-    ["zh", "memberActivityWaitTag", [WAIT_MON, NOW], "監看"],
-    ["en", "memberActivityWaitTag", [WAIT_MON, NOW], "monitor"],
+    ["zh", "memberActivityWaitTag", [WAIT_BG, NOW], "shell"],
+    ["en", "memberActivityWaitTag", [WAIT_BG, NOW], "shell"],
+    ["zh", "memberActivityWaitTag", [WAIT_MON, NOW], "monitor"],
+    ["zh", "memberActivityWaitTag", [waitOf("MCP task"), NOW], "MCP task"],
+    ["zh", "memberActivityWaitTag", [waitOf("constructor"), NOW], "constructor"],
     ["zh", "memberActivityWaitTag", [cron(NEXT, false), NOW], "排程 · 下次 12:15"],
     ["zh", "memberActivityWaitTag", [cron(NEXT, true), NOW], "排程 · 下次 12:15 · 重複"],
     ["zh", "memberActivityWaitTag", [cron(at(2026, 10, 4, 23, 59), false), NOW], "排程 · 下次 23:59"],
@@ -765,7 +767,6 @@ describe("makeMessages", () => {
       "activity.mainAgent",
       "activity.nextLead",
       "activity.recurring",
-      "activity.waitKind.background_command",
       "activity.waitKind.schedule",
       "activity.dialogTitleSep",
       "activity.currentState",

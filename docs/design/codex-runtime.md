@@ -137,7 +137,7 @@ The Codex member boot sequence changes only execution ownership:
    lists the whole session's background tasks. Like Claude Code's, the waits reflect the
    moment a turn last completed: a command started mid-turn is listed once a turn
    completes while it is still running, and drops out as soon as it exits. Each is a
-   `background_command` wait described by its command line (cut to 200 characters), at
+   `shell` wait described by its command line (cut to 200 characters), at
    most 50 of them.
    The sidecar never resumes a thread, so these items alone give the full set.
    Sub-agent token usage is counted into

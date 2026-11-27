@@ -428,7 +428,7 @@ describe("MemberCard activity icon", () => {
           state,
           busySince: state === "busy" ? Date.now() / 1000 + 5 : null,
           subagents: [],
-          waits: state === "waiting" ? [{ kind: "background_command", description: "", nextTs: null, recurring: false }] : [],
+          waits: state === "waiting" ? [{ kind: "shell", description: "", nextTs: null, recurring: false }] : [],
         },
         onChat,
         "Mira",

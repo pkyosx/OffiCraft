@@ -25,14 +25,14 @@ import "../../src/components/member-detail.css";
 const LONG_NAME = "Eva Rhapsody Inbox Supervisor";
 const LONG_WAITS: MemberActivity["waits"] = [
   {
-    kind: "background_command",
+    kind: "shell",
     description:
       "cd /home/user/projects/some-very-long-directory-name/work/feature-branch-checkout/frontend && npx vite --port 5391 --strictPort --host 127.0.0.1 > /tmp/build-cache/-home-user-projects-some-very-long-directory-name/3b7c1e0a9d4f6b2c8e5a1f7d0c9b4e6a2f8d1c3b5a7e9f0d2c4b6a8e1f3d5c7b9a/logs/vite.log 2>&1",
     nextTs: null,
     recurring: false,
   },
   {
-    kind: "background_command",
+    kind: "shell",
     description: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a089f86d081884c7d659a2feaa0c55ad015",
     nextTs: null,
     recurring: false,
@@ -46,7 +46,7 @@ function activityOf(state: MemberActivity["state"], now: number): MemberActivity
       state,
       busySince: null,
       subagents: [],
-      waits: [{ kind: "background_command", description: "每 30 秒檢查 CI", nextTs: null, recurring: false }],
+      waits: [{ kind: "shell", description: "每 30 秒檢查 CI", nextTs: null, recurring: false }],
     };
   }
   return {
@@ -57,7 +57,7 @@ function activityOf(state: MemberActivity["state"], now: number): MemberActivity
       { id: "a2", parentId: "a1", name: "general-purpose", description: "讀取試用站錯誤紀錄", startedTs: now - 40 },
     ],
     waits: [
-      { kind: "background_command", description: "每 30 秒檢查 CI", nextTs: null, recurring: false },
+      { kind: "shell", description: "每 30 秒檢查 CI", nextTs: null, recurring: false },
       { kind: "schedule", description: "檢查 PR 審查結果", nextTs: now + 3600, recurring: true },
     ],
   };

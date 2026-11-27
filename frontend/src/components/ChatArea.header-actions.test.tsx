@@ -255,7 +255,7 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
         activity: busy({
           state: "waiting",
           busySince: null,
-          waits: [{ kind: "background_command", description: "", nextTs: null, recurring: false }],
+          waits: [{ kind: "shell", description: "", nextTs: null, recurring: false }],
         }),
       }),
     });
