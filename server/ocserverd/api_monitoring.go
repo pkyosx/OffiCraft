@@ -1043,27 +1043,28 @@ type rateLimitCandidate struct {
 	measuredAt float64
 }
 
-// Among fresh reports the later resets_at wins: right after a window rolls
-// over, idle members still report the previous period. Freshness comes first,
-// and with no fresh report the latest measurement wins, because a window can
-// carry the wrong account tag (around a re-login a reporter can name the new
-// account for a reading still taken on the old one), and its later resets_at
-// would otherwise win until it expires.
-func pickRateLimitWindow(candidates []rateLimitCandidate, now float64) rateLimitCandidate {
-	fresh := make([]rateLimitCandidate, 0, len(candidates))
-	for _, c := range candidates {
-		if now-c.measuredAt <= telemetryFreshSecs {
-			fresh = append(fresh, c)
+// Every reading of an account was taken on that account: a Claude session
+// reports the account it launched on. A later reset is a later period, and
+// within one period usage only grows, so the latest reset and then the highest
+// usage is the newest reading. The report stamp cannot order them: an idle
+// session re-sends its last call's headers on every status-line tick.
+func pickRateLimitWindow(candidates []rateLimitCandidate) rateLimitCandidate {
+	return pickBy(candidates, func(c, picked rateLimitCandidate) bool {
+		if c.resetAt != picked.resetAt {
+			return c.resetAt > picked.resetAt
 		}
-	}
-	if len(fresh) == 0 {
-		return pickBy(candidates, func(c, picked rateLimitCandidate) bool {
-			return c.measuredAt > picked.measuredAt || (c.measuredAt == picked.measuredAt && c.resetAt > picked.resetAt)
-		})
-	}
-	return pickBy(fresh, func(c, picked rateLimitCandidate) bool {
-		return c.resetAt > picked.resetAt || (c.resetAt == picked.resetAt && c.measuredAt > picked.measuredAt)
+		if used, pickedUsed := usedPercentOf(c.window), usedPercentOf(picked.window); used != pickedUsed {
+			return used > pickedUsed
+		}
+		return c.measuredAt > picked.measuredAt
 	})
+}
+
+func usedPercentOf(window map[string]any) float64 {
+	if used := teleNum(window["used_percentage"]); used != nil {
+		return *used
+	}
+	return -1
 }
 
 func pickBy(pool []rateLimitCandidate, beats func(c, picked rateLimitCandidate) bool) rateLimitCandidate {
@@ -1395,7 +1396,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		freshRL[account] = map[string]any{}
 		rlTS[account] = map[string]float64{}
 		for windowKey, candidates := range byWindow {
-			picked := pickRateLimitWindow(candidates, now)
+			picked := pickRateLimitWindow(candidates)
 			freshRL[account][windowKey] = picked.window
 			rlTS[account][windowKey] = picked.measuredAt
 		}

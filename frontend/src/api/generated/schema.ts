@@ -7901,11 +7901,14 @@ export interface components {
          * MonitoringAccountDTO
          * @description One account's usage. One row per account that reports telemetry carrying an
          *     ``account`` tag: each ``five_hour``/``seven_day`` window is selected
-         *     independently from that account's valid ``rate_limits`` reports: reports
-         *     sampled within the telemetry freshness window come first, and among them the
-         *     later ``resets_at`` wins (ties use the report's rate-limit sample time); when
-         *     no report is fresh, the most recently sampled one wins (ties use the later
-         *     ``resets_at``). The window
+         *     independently from that account's valid ``rate_limits`` reports, including
+         *     the last reading of a member that has since moved to another account, kept
+         *     until that window resets: the later ``resets_at`` wins, then the higher
+         *     ``used_percentage``, then the later rate-limit sample time. Every report of an
+         *     account was measured on that account (a Claude session reports the account it
+         *     launched on), a later reset is a later period, and usage only grows within a
+         *     period; the sample time cannot order them because an idle session re-sends its
+         *     last call's headers on every report. The window
          *     is then shaped
          *     into pacing data. A missing, invalid, expired, or implausibly future reset time
          *     leaves that window honest-None. ``cost`` is the account's own accumulated spend, kept independently of its members' individual totals. It is not the sum of its sessions. Removing a member or clearing an individual member's cost does not reduce the account total; new spend continues to accumulate for the account. The

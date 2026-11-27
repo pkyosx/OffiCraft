@@ -2766,21 +2766,34 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("a fresh report and an older one with a later reset answer 200 with the fresh report's window", func(t *testing.T) {
+	t.Run("a member still on the account it launched on answers 200 with its window on that account's card only", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		now := time.Now().Unix()
-		reportFiveHour(t, api, h, "mira", 10, now+4000)
-		ageRateLimits(api, "mira", float64(now)-telemetryFreshSecs-60)
-		reportFiveHour(t, api, h, "kip", 60, now+3000)
+		kip := apiTestAgentToken(t, api, "kip", "m-server-self")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", kip,
+			`{"runtime":"claude","account":"max-claude",`+
+				`"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":`+strconv.FormatInt(now+4000, 10)+`}}}`); status != 200 {
+			t.Fatalf("kip telemetry: want 200, got %d (%v)", status, data)
+		}
+		ageRateLimits(api, "kip", float64(now)-telemetryFreshSecs-60)
+		reportFiveHour(t, api, h, "mira", 60, now+3000)
 
 		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
+		maxRow := sharedAccountRow(map[string]any{
+			"used_pct":    10,
+			"resets_at":   float64(now + 4000),
+			"elapsed_pct": apiAnyNumber,
+			"measured_at": float64(now) - telemetryFreshSecs - 60,
+			"pace":        nil,
+		})
+		maxRow["account"], maxRow["display_name"] = "max-claude", "max-claude"
 		apiWantBody(t, data, map[string]any{
 			"sessions": data["sessions"],
 			"machines": data["machines"],
-			"accounts": []any{sharedAccountRow(map[string]any{
+			"accounts": []any{maxRow, sharedAccountRow(map[string]any{
 				"used_pct":    60,
 				"resets_at":   float64(now + 3000),
 				"elapsed_pct": apiAnyNumber,
@@ -2814,10 +2827,10 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("fresh reports of the same window answer 200 with the newer sample", func(t *testing.T) {
+	t.Run("reports of the same window answer 200 with the highest usage, however recently an idle session re-sent a lower one", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		now := time.Now().Unix()
-		olderStamp := float64(now) - 30
+		olderStamp := float64(now) - telemetryFreshSecs - 60
 		reportFiveHour(t, api, h, "kip", 60, now+3000)
 		reportFiveHour(t, api, h, "mira", 20, now+3000)
 		ageRateLimits(api, "kip", olderStamp)
@@ -2830,11 +2843,11 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"sessions": data["sessions"],
 			"machines": data["machines"],
 			"accounts": []any{sharedAccountRow(map[string]any{
-				"used_pct":    20,
+				"used_pct":    60,
 				"resets_at":   float64(now + 3000),
 				"elapsed_pct": apiAnyNumber,
-				"measured_at": apiAnyNumber,
-				"pace":        "ok",
+				"measured_at": olderStamp,
+				"pace":        nil,
 			})},
 		})
 	})
@@ -2877,27 +2890,39 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("only stale reports answer 200 with the most recently measured report and no pace verdict", func(t *testing.T) {
+	t.Run("an account whose members report rarely answers 200 with its own stale reading and no pace verdict, beside a fresher account", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		now := time.Now().Unix()
 		staleStamp := float64(now) - telemetryFreshSecs - 60
-		reportFiveHour(t, api, h, "mira", 10, now+4000)
 		reportFiveHour(t, api, h, "kip", 60, now+3000)
-		ageRateLimits(api, "mira", staleStamp)
-		ageRateLimits(api, "kip", staleStamp+30)
+		ageRateLimits(api, "kip", staleStamp)
+		mira := apiTestAgentToken(t, api, "mira", "m-server-self")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", mira,
+			`{"runtime":"claude","account":"max-claude",`+
+				`"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":`+strconv.FormatInt(now+4000, 10)+`}}}`); status != 200 {
+			t.Fatalf("mira telemetry: want 200, got %d (%v)", status, data)
+		}
 
 		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
+		maxRow := sharedAccountRow(map[string]any{
+			"used_pct":    10,
+			"resets_at":   float64(now + 4000),
+			"elapsed_pct": apiAnyNumber,
+			"measured_at": apiAnyNumber,
+			"pace":        "ok",
+		})
+		maxRow["account"], maxRow["display_name"] = "max-claude", "max-claude"
 		apiWantBody(t, data, map[string]any{
 			"sessions": data["sessions"],
 			"machines": data["machines"],
-			"accounts": []any{sharedAccountRow(map[string]any{
+			"accounts": []any{maxRow, sharedAccountRow(map[string]any{
 				"used_pct":    60,
 				"resets_at":   float64(now + 3000),
 				"elapsed_pct": apiAnyNumber,
-				"measured_at": staleStamp + 30,
+				"measured_at": staleStamp,
 				"pace":        nil,
 			})},
 		})
