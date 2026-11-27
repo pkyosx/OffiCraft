@@ -66,10 +66,10 @@ Give a piece of work that takes several steps. The example below needs no files 
 
 Mira decides on its own whether a piece of work needs a task. Simple things may be answered directly in the chat. If you want it tracked as a task, say "create a task" directly, as in the example.
 
-Under the default working rules, before creating a task Mira first opens a reply card listing the task name, the problem to solve, the completion criteria, and who will do it, and asks you to confirm:
+Under the default work rules, before creating a task Mira first opens a reply card listing the task name, the problem to solve, the acceptance criteria, and who will do it, and asks you to confirm:
 
 1. Open the "Ask" tab, or view the reply card directly in the chat.
-2. If the content is fine, choose the option that agrees. To change the scope or the completion criteria, type a reply.
+2. If the content is fine, choose the option that agrees. To change the scope or the acceptance criteria, type a reply.
 3. After you confirm, Mira creates the task.
 
 Open the "Task" tab to see the task. The task is broken into several steps, and each step states what must be done for it to count as complete. On the task card you can see:
@@ -110,12 +110,12 @@ After all steps are done, the task status changes to "**Ready to close**". The t
 2. You look over the results. If everything is fine, reply that the review is approved. If something needs changing, say so directly; Mira makes the changes and asks you to review again.
 3. After the review is approved, Mira closes the task, the status changes to "**Done**", and the task moves to the "Closed" section.
 
-A task is **not** closed automatically when time runs out. If the assigned member can no longer finish it, you can click the status label on the task card (for example "Ready to close") and choose "**Force close**" from the menu. **Force close cannot be undone.**
+A task is **not** closed automatically when time runs out. If the assigned member can no longer finish it, you can click the status tag on the task card (for example "Ready to close") and choose "**Force close**" from the menu. **Force close cannot be undone.**
 
 You have now gone through the whole process once:
 
 ```
-Give a piece of work ─> Confirm the task content ─> Member breaks it into steps with completion criteria ─> Opens a reply card when you need to decide ─> You reply ─> All steps done (Ready to close) ─> Review and close (Done)
+Give a piece of work ─> Confirm the task content ─> Member breaks it into steps, each with a definition of done ─> Opens a reply card when you need to decide ─> You reply ─> All steps done (Ready to close) ─> Review and close (Done)
 ```
 
 ---

@@ -31,7 +31,7 @@ Behind each member is a Claude Code or Codex session on your computer. When a se
 
 | | You | Members |
 | --- | --- | --- |
-| **Morning** | In chat, you say "Go through this month's customer feedback and write a report of the key points" | The member first opens a reply card asking you to confirm the task's scope and completion criteria. After you confirm, the member creates a task and breaks it into several steps, each stating what counts as done |
+| **Morning** | In chat, you say "Go through this month's customer feedback and write a report of the key points" | The member first opens a reply card asking you to confirm the task's scope and acceptance criteria. After you confirm, the member creates a task and breaks it into several steps, each stating what counts as done |
 | **Noon** | You work on something else | When a step needs your decision on direction, the member opens a reply card, and that step stops and waits for you |
 | **Evening** | You open the "Ask" tab, read the question and the options, and click one. When a member asks you to review the result, you look at it before replying | The member finishes the remaining steps based on your decision, attaches the result to the task card, and opens another reply card asking you to review it. After you approve it, the task is closed |
 

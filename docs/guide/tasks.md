@@ -18,7 +18,7 @@ The "Task" tab lists all tasks. The number on the tab is the number of tasks tha
 - **Assignee**: the member currently working on the task.
 - **Priority**: the order in which tasks are handled. When "Frozen" is selected, the member stops moving this task forward.
 - **Due date**: changes color when the task is Due soon or Overdue.
-- **Steps done/total**: how many steps are done and how many there are in total.
+- **Step done/total**: how many steps are done and how many there are in total.
 - **Message box**: send a message directly to the assignee.
 
 For a full description of each field, see "Task" in [Interface reference](interface.md).
@@ -57,7 +57,7 @@ Artifacts are results the assignee places on the task card for you to review or 
 - **Done**: after all steps are complete and you have accepted the result, the assignee closes the task.
 - **Force close**: steps are not finished, but you decide not to continue. **This cannot be undone.**
 - **Terminate**: stop the task; it will not be done. **This cannot be undone.**
-- **Mark duplicate**: search by task number or title to point to the original task. This task is closed as "Duplicate". **This cannot be undone.**
+- **Mark duplicate**: search by Task ID or title to point to the original task. This task is closed as "Duplicate". **This cannot be undone.**
 - **Frozen**: pause the task. Before resuming it, the member opens a card to ask you.
 - **Reassign**: hand the task to a different member or to an outsource member.
 

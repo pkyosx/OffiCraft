@@ -12,7 +12,7 @@ You can also leave a message while a member is offline; the member reads it afte
 
 ## Mentioning a member with @
 
-Type `@` in the message box to mention a member in your message. Clicking the name in the message opens that member's profile.
+Type `@` in the message box to mention a member in your message. Clicking the name in the message opens "Member details" for that member.
 
 The mentioned member does **not** receive a notification. To make sure a member knows about something, send a message in that member's chat.
 
