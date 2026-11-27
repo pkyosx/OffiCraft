@@ -436,10 +436,19 @@ for (const width of [390, 1440]) {
         legendText: legend?.textContent ?? "",
         usageSpread: spread(usage),
         legendSpread: spread(legend),
+        nameToCountGaps: [...head.querySelectorAll(".lore-section__legend-item")].map((item) => {
+          const name = item.querySelector(".lore-section__legend-name")!.getBoundingClientRect();
+          const texts = [...item.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE && n.textContent!.trim() !== "");
+          const range = document.createRange();
+          range.selectNodeContents(texts[texts.length - 1]);
+          return range.getBoundingClientRect().left - name.right;
+        }),
       };
     });
     expect(g.used && g.cap && g.legend, `[${width}px] head rows`).toBeTruthy();
     expect.soft(g.legendText, `[${width}px] legend`).toMatch(/^所有人 \d+\/\d+ · Mira \d+\/\d+$/);
+    expect(g.nameToCountGaps, `[${width}px] legend items`).toHaveLength(2);
+    for (const gap of g.nameToCountGaps) expect.soft(gap, `[${width}px] a visible space between name and count`).toBeGreaterThanOrEqual(2);
     expect.soft(g.usageSpread, `[${width}px] chars and cap on one line`).toBeLessThanOrEqual(4);
     expect.soft(g.legendSpread, `[${width}px] per-source counts on one line`).toBeLessThanOrEqual(4);
     expect.soft(Math.abs(g.used!.left - g.head.left), `[${width}px] chars on the left`).toBeLessThanOrEqual(1);

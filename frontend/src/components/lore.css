@@ -340,12 +340,14 @@ button.lore-section__name--link:hover {
   font-variant-numeric: tabular-nums;
   white-space: pre;
 }
+/* Not a flex box: a flex container drops the whitespace-only text node between name and count. */
 .lore-section__legend-item {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
+  display: inline;
+  white-space: nowrap;
 }
 .lore-section__legend-item .lore-dir-card__swatch {
+  display: inline-block;
+  vertical-align: -0.5px;
   margin-right: 5px;
 }
 .lore-section__legend-name {
