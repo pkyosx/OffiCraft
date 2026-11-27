@@ -17,7 +17,7 @@
       "name": "get_settings"
     },
     {
-        "description": "Edit org-adjustable settings (owner/admin). Only the fields you send change; read current values with get_settings first. An invalid value is a 422 that states the rule and writes nothing.\n\nPARAMETER NOTES. In the input schema the parameters below carry only a short summary; these notes add what the summary and a 422 do not say.\n- `codex_notice_round`, `codex_compaction_threshold`: The codex twins of notice_pct / handover_pct, counted in context-compaction rounds instead of %: notice round = soft notice; threshold = final round, where the handover fires.\n- `backup_retain`: Backup versions (not days) kept per pool; routine and pre-migration backups are separate pools, so 5 keeps up to 10 files. Older files are deleted from disk.\n- `chat_budget_chars`: Chat-block budget of the wake snapshot (resume_summary, and the estimate peek_resume_summary_size reports).\n- `step_note_cap_chars`: Max length of one step note, checked on write: a stored note over a lowered cap stays readable, but any write that leaves it over the cap is refused.\n- `doc_cap_chars_*`: Length cap per document type: `duty` (Duty), `insight`, `manual_sop` (task manual sop_md), `system_interaction` (System interaction), `boot_sequence` (Boot steps; one knob for both runtimes, each text measured on its own), `offboard` (Stop). A stored document over a lowered cap accepts only edits that shrink it.\n- `display_language`: Cockpit language, and the language every member writes to the owner in from its next boot; \"\" resets it to unset.\n- `display_theme`: Cockpit theme: \"\" (unset), a built-in id (office, office-light, modern-office-desk-day / -dusk / -night), or an existing custom theme id.\n- `display_theme_schedule`: Replaces the time-of-day theme schedule wholesale. Each entry `{start: \"HH:MM\", theme}` shows `theme` from `start` (viewer-local) until the next entry's start, wrapping past midnight; themes as for display_theme. It overrides display_theme on screen without changing it. [] turns it off; null or omitted leaves it unchanged. Deleting a custom theme drops its entries, and the whole schedule if fewer than 2 remain.\n- `display_wide`: true lifts the centred ~1040px content column (the side gutters stay).\n- `display_seasonal_theme`: true shows the release's holiday theme during its built-in date window, over the schedule and display_theme; no effect outside the window.\n- `notice_pct`, `handover_pct`: Context-usage % of the two offboard points: notice = soft notice (the agent works the offboard sequence, then calls report_stopped itself); handover = final notice, where the automatic handover fires. Checked against each agent's latest context reading, so lowering one below a member's current usage starts its offboard on the next reconcile pass.\n- `monitoring_refresh_seconds`: Minimum interval between monitoring and machine refreshes.\n- `accelerated_grace_secs`: Grace clock of every clocked wind-down (the second context threshold and the owner-pressed Accelerated stop); never applies to a soft cause.\n- `reassign_handover_timeout_secs`: How long an outsource predecessor under the reassign hold may leave the task unchanged before it is reclaimed. Changes to plan, steps, step notes, priority, dependencies, title/description, or a step-bound reply card restart the clock; artifact changes do not. Staff predecessors are never reclaimed.\n- `runtime_login_check_interval_secs`, `runtime_login_recheck_interval_secs`: How often each warden re-checks Claude/Codex login while that runtime last read logged in (check) vs logged out or failed (recheck). Wardens apply a change at their next heartbeat.\n- `warden_credential_lifetime_secs`: Machine credential lifetime, also stamped as its expiry; wardens renew at two thirds of it and pick a change up at their next poll (~15 min). Lowering it never shortens issued credentials, but lowering it below the fleet's credential age makes every machine renew on its next poll. A machine offline through the whole last third needs a manual re-install.\n- `org_name`, `owner_name`: Studio name and owner nickname; \"\" restores the localized default.\n- `push_contact_email`: Web Push contact address; \"\" stops all Web Push delivery.\n- `suggested_replies_reply_card`, `suggested_replies_task_message`, `suggested_replies_lore_message`, `suggested_replies_chat`: Each replaces that reply box's whole suggestion list (no append). [] empties it; null or omitted leaves it unchanged.\n- `lore_cap_chars_role`: lore characters carried in each member's boot document; `everyone` entries count inside this budget, merged with the member's own into one list (pinned first, then newest effective first).\n- `lore_cap_chars_manual`: lore characters get_task_manual carries; separate from lore_cap_chars_role, never summed.\n- `lore_cap_chars_title`, `lore_cap_chars_body`: Max title / body length of one lore entry when it is written or edited; lowering it leaves stored entries as they are, and an over-cap field can still be edited as long as it comes out shorter than what is stored.",
+        "description": "Edit org-adjustable settings (owner/admin). Only the fields you send change; read current values with get_settings first. An invalid value is a 422 that states the rule and writes nothing.\n\nPARAMETER NOTES. In the input schema the parameters below carry only a short summary; these notes add what the summary and a 422 do not say.\n- `codex_notice_round`, `codex_compaction_threshold`: The codex twins of notice_pct / handover_pct, counted in context-compaction rounds instead of %: notice round = soft notice; threshold = final round, where the handover fires.\n- `backup_retain`: Backup versions (not days) kept per pool; routine and pre-migration backups are separate pools, so 5 keeps up to 10 files. Older files are deleted from disk.\n- `chat_budget_chars`: Chat-block budget of the wake snapshot (resume_summary, and the estimate peek_resume_summary_size reports).\n- `step_note_cap_chars`: Max length of one step note, checked on write: a stored note over a lowered cap stays readable, but any write that leaves it over the cap is refused.\n- `doc_cap_chars_*`: Length cap per document type: `duty` (Duty), `insight`, `manual_sop` (task manual sop_md), `system_interaction` (System interaction), `boot_sequence` (Boot steps; one knob for both runtimes, each text measured on its own), `offboard` (Stop). A stored document over a lowered cap accepts only edits that shrink it.\n- `developer_mode`: Off (the default) locks the boot-context documents: replacing, resetting or restoring them is a 409 for every caller; the owner's additions stay editable.\n- `disk_usage_interval_secs`: How often each warden measures OffiCraft disk usage; wardens apply a change at their next heartbeat.\n- `display_language`: Cockpit language, and the language every member writes to the owner in from its next boot; \"\" resets it to unset.\n- `display_theme`: Cockpit theme: \"\" (unset), a built-in id (office, office-light, modern-office-desk-day / -dusk / -night), or an existing custom theme id.\n- `display_theme_schedule`: Replaces the time-of-day theme schedule wholesale. Each entry `{start: \"HH:MM\", theme}` shows `theme` from `start` (viewer-local) until the next entry's start, wrapping past midnight; themes as for display_theme. It overrides display_theme on screen without changing it. [] turns it off; null or omitted leaves it unchanged. Deleting a custom theme drops its entries, and the whole schedule if fewer than 2 remain.\n- `display_wide`: true lifts the centred ~1040px content column (the side gutters stay).\n- `display_seasonal_theme`: true shows the release's holiday theme during its built-in date window, over the schedule and display_theme; no effect outside the window.\n- `notice_pct`, `handover_pct`: Context-usage % of the two offboard points: notice = soft notice (the agent works the offboard sequence, then calls report_stopped itself); handover = final notice, where the automatic handover fires. Checked against each agent's latest context reading, so lowering one below a member's current usage starts its offboard on the next reconcile pass.\n- `monitoring_refresh_seconds`: Minimum interval between monitoring and machine refreshes.\n- `accelerated_grace_secs`: Grace clock of every clocked wind-down (the second context threshold and the owner-pressed Accelerated stop); never applies to a soft cause.\n- `reassign_handover_timeout_secs`: How long an outsource predecessor under the reassign hold may leave the task unchanged before it is reclaimed. Changes to plan, steps, step notes, priority, dependencies, title/description, or a step-bound reply card restart the clock; artifact changes do not. Staff predecessors are never reclaimed.\n- `runtime_login_check_interval_secs`, `runtime_login_recheck_interval_secs`: How often each warden re-checks Claude/Codex login while that runtime last read logged in (check) vs logged out or failed (recheck). Wardens apply a change at their next heartbeat.\n- `warden_credential_lifetime_secs`: Machine credential lifetime, also stamped as its expiry; wardens renew at two thirds of it and pick a change up at their next poll (~15 min). Lowering it never shortens issued credentials, but lowering it below the fleet's credential age makes every machine renew on its next poll. A machine offline through the whole last third needs a manual re-install.\n- `org_name`, `owner_name`: Studio name and owner nickname; \"\" restores the localized default.\n- `push_contact_email`: Web Push contact address; \"\" stops all Web Push delivery.\n- `suggested_replies_reply_card`, `suggested_replies_task_message`, `suggested_replies_lore_message`, `suggested_replies_chat`: Each replaces that reply box's whole suggestion list (no append). [] empties it; null or omitted leaves it unchanged.\n- `lore_cap_chars_role`: lore characters carried in each member's boot document; `everyone` entries count inside this budget, merged with the member's own into one list (pinned first, then newest effective first).\n- `lore_cap_chars_manual`: lore characters get_task_manual carries; separate from lore_cap_chars_role, never summed.\n- `lore_cap_chars_title`, `lore_cap_chars_body`: Max title / body length of one lore entry when it is written or edited; lowering it leaves stored entries as they are, and an over-cap field can still be edited as long as it comes out shorter than what is stored.\n- `onboarding_dismissed`: true hides the first-run onboarding banner on every device; false shows it again.\n- `task_due_soon_lead_minutes`: Minutes before its due date a task without its own lead counts as due soon.\n- `updater_check_interval_secs`: How often the server re-reads GitHub releases in the background; a manual check always reads fresh.",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -84,6 +84,26 @@
                 }
               ],
               "description": "Codex soft-notice round."
+            },
+            "developer_mode": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "disk_usage_interval_secs": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "display_language": {
               "anyOf": [
@@ -293,6 +313,16 @@
               ],
               "description": "Soft offboard point, %."
             },
+            "onboarding_dismissed": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "org_name": {
               "anyOf": [
                 {
@@ -465,6 +495,16 @@
               ],
               "description": "Task replies; [] clears."
             },
+            "task_due_soon_lead_minutes": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "updater_announce_features": {
               "anyOf": [
                 {
@@ -479,6 +519,16 @@
               "anyOf": [
                 {
                   "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "updater_check_interval_secs": {
+              "anyOf": [
+                {
+                  "type": "integer"
                 },
                 {
                   "type": "null"
@@ -4008,7 +4058,7 @@
       "name": "get_system_interaction"
     },
     {
-      "description": "Replace the EDITABLE HALF of the System interaction block of the boot context ({body}) — the System interaction document every member reads at boot. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.system_interaction cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_system_interaction always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only. While developer mode (an owner-only system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_system_interaction`` when you need the rest.",
+      "description": "Replace the EDITABLE HALF of the System interaction block of the boot context ({body}) — the System interaction document every member reads at boot. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.system_interaction cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_system_interaction always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_system_interaction`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "allow_shrink": {
@@ -4027,7 +4077,7 @@
       "name": "replace_system_interaction"
     },
     {
-      "description": "Restore the System interaction block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no cap setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only. While developer mode (an owner-only system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_system_interaction`` when you need the rest.",
+      "description": "Restore the System interaction block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no cap setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_system_interaction`` when you need the rest.",
       "inputSchema": {
         "properties": {},
         "type": "object"
@@ -4050,7 +4100,7 @@
       "name": "get_boot_sequence"
     },
     {
-      "description": "Replace the EDITABLE HALF of the Boot steps block of ONE runtime ({runtime_key, body}). runtime_key is 'claude' or 'codex' and the two are separate documents that are not interchangeable (only the codex one ends its boot turn by handing control back to the sidecar that holds its connection), so writing the wrong one leaves those agents with Boot steps written for the other runtime — and nothing that never boots reports it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. Neither runtime's document carries a read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.boot_sequence cap (one cap, both runtimes, each measured on its own text); the refusal tells you what you wrote, the cap, and what is stored. The shipped seed is never overwritten, so reset_boot_sequence always gets the factory text back. Owner or admin assistant only. While developer mode (an owner-only system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.",
+      "description": "Replace the EDITABLE HALF of the Boot steps block of ONE runtime ({runtime_key, body}). runtime_key is 'claude' or 'codex' and the two are separate documents that are not interchangeable (only the codex one ends its boot turn by handing control back to the sidecar that holds its connection), so writing the wrong one leaves those agents with Boot steps written for the other runtime — and nothing that never boots reports it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. Neither runtime's document carries a read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.boot_sequence cap (one cap, both runtimes, each measured on its own text); the refusal tells you what you wrote, the cap, and what is stored. The shipped seed is never overwritten, so reset_boot_sequence always gets the factory text back. Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "allow_shrink": {
@@ -4073,7 +4123,7 @@
       "name": "replace_boot_sequence"
     },
     {
-      "description": "Restore ONE runtime's Boot steps block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). runtime_key is 'claude' or 'codex'; anything else is a 404. No length cap is applied on this path — the factory text is part of the product, so no cap setting can block the way back to it, which is what makes this the recovery route when a bad edit has stopped agents from booting. The overlay being discarded is retained in the document history. Owner or admin assistant only. While developer mode (an owner-only system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.",
+      "description": "Restore ONE runtime's Boot steps block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). runtime_key is 'claude' or 'codex'; anything else is a 404. No length cap is applied on this path — the factory text is part of the product, so no cap setting can block the way back to it, which is what makes this the recovery route when a bad edit has stopped agents from booting. The overlay being discarded is retained in the document history. Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "runtime_key": {
@@ -4096,7 +4146,7 @@
       "name": "get_offboard"
     },
     {
-      "description": "Replace the EDITABLE HALF of the Stop block ({body}) — the wrap-up checklist an agent is handed when its session is being collected. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.offboard cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_offboard always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only. While developer mode (an owner-only system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_offboard`` when you need the rest.",
+      "description": "Replace the EDITABLE HALF of the Stop block ({body}) — the wrap-up checklist an agent is handed when its session is being collected. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.offboard cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_offboard always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_offboard`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "allow_shrink": {
@@ -4115,7 +4165,7 @@
       "name": "replace_offboard"
     },
     {
-      "description": "Restore the Stop block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no cap setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only. While developer mode (an owner-only system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_offboard`` when you need the rest.",
+      "description": "Restore the Stop block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap is applied on this path — the factory text is part of the product, so no cap setting can block the way back to it. The overlay being discarded is retained in the document history, so the reset is itself recoverable. Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_offboard`` when you need the rest.",
       "inputSchema": {
         "properties": {},
         "type": "object"
@@ -4155,7 +4205,7 @@
       "name": "get_boot_doc"
     },
     {
-      "description": "Replace the EDITABLE HALF of one boot-context block ({kind, key, body}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. The stored result is judged against that block's own cap. A read-only block refuses with 405 for every caller. The read-only head is NOT sent and cannot be: the server joins the shipped head back on, so no caller has any way to write it. Owner or admin assistant only. While developer mode (an owner-only system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.",
+      "description": "Replace the EDITABLE HALF of one boot-context block ({kind, key, body}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. The stored result is judged against that block's own cap. A read-only block refuses with 405 for every caller. The read-only head is NOT sent and cannot be: the server joins the shipped head back on, so no caller has any way to write it. Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "allow_shrink": {
@@ -4195,7 +4245,7 @@
       "name": "replace_boot_doc"
     },
     {
-      "description": "Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap applies on this path — the way back to factory text is never blocked by a setting, which is what makes it the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only. While developer mode (an owner-only system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.",
+      "description": "Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap applies on this path — the way back to factory text is never blocked by a setting, which is what makes it the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "key": {
