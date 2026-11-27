@@ -80,15 +80,15 @@ This page lists what each term in the console and the user guide means, and whic
 
 - **Task manual**: the standard way to handle one kind of work, with its purpose, the fields it needs, an SOP, and the assigned executor, under Settings › Task manuals. See [Having AI follow an SOP for repeated work (Task manuals)](sop.md).
 - **Task definition**: the page in a task manual that describes "what this task is, what information it needs, and how to do it".
-- **SOP**: the "How should it be done?" part of a task manual. Members plan a task's steps from it.
+- **SOP**: the "How is it done?" part of a task manual. Members plan a task's steps from it.
 - **Identity key**: the fields in a task manual used to decide "is this the same piece of work". If the identity key matches and the original task is not closed yet, no new task is opened.
 - **Assigned executor**: the member or outsource that a task manual names to handle this kind of task. Choosing outsource requires choosing a machine.
 - **Lore**: things members learn on the job and need to remember for the long term; one of the main tabs. See [Making members remember what you taught them (Lore)](lore.md).
 - **Member lore / Task lore / Everyone**: the scope a lore entry applies to: one member, one task manual, or all members.
 - **Lore type**: Instruction conflict, Instruction supplement, Owner decision, Owner preference, Other.
 - **Pinned / Active / Retired**: the states of a lore entry. Entries collapsed to one line and tagged "Not read" on the Lore tab cannot be read by members.
-- **Global context**: documents every member reads, in three groups: start-up (BOOT), shut-down (STOP), and task events (TASK), under Settings › Global context. See [Settings](settings.md).
-- **User additions**: the document in Global context kept for you to write to all members.
+- **Global context**: documents every member reads, in three groups, BOOT, STOP, and TASK EVENTS, under Settings › Global context. See [Settings](settings.md).
+- **User additions**: the document at the top of Global context kept for you to write to all members; developer mode does not affect it.
 - **Default content / Sync to default**: the factory content of a document; Sync to default changes the document back to its factory content.
 - **Version history**: documents in Settings keep their last few edits, which you can compare or restore. See [Settings](settings.md).
 - **Secrets**: secret values handed to members, such as account passwords and API keys; one of the main tabs. Values are stored encrypted, and members fetch them from the server when they need them. See [Give members your account keys (secrets)](secrets.md).
@@ -114,7 +114,8 @@ This page lists what each term in the console and the user guide means, and whic
 - **Seasonal theme**: a theme applied automatically during holidays; some also switch to different versions by time of day. It can be turned off with "Show seasonal theme" in the theme settings.
 - **Background animation**: whether the theme background plays an animation. The options are Auto, Play, and Still, saved only on this device; with "Auto", phones and tablets show a still image. See [Themes (look and wording)](theme.md).
 - **General**: the system parameters in Settings (thresholds, size caps, intervals, number of backups kept, and so on). See [Settings](settings.md).
-- **System update & backup**: the Settings page for checking for updates, upgrading, automatic updates, the update check interval, backup health, and signing keys. See [Settings](settings.md).
+- **System update & backup**: the Settings page for checking for updates, upgrading, automatic updates, the update check interval, developer mode, backup health, and signing keys. See [Settings](settings.md).
+- **Developer mode**: the switch under System update & backup › Advanced, off by default. While it is off, every document in Global context except User additions is locked and nobody can change it. See [Settings](settings.md).
 - **Receive beta versions**: also includes pre-release versions when checking for updates.
 - **Backup health**: shows whether scheduled backups are working (Backups are healthy, Backups are failing, Cannot tell). See [Troubleshooting and FAQ](troubleshooting.md).
 

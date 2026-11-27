@@ -21,29 +21,33 @@ Settings opens from the gear in the top bar. The settings home page has seven en
 From top to bottom:
 
 - **Current version** and **Update settings** (Receive beta versions, Automatic updates, Update check interval, Let the assistant tell me about new-version features) — For checking for updates, upgrading, and the purpose and default of each field, see "Advanced: upgrade settings" in [Install, upgrade, and uninstall](install.md).
+- **Advanced** — It has a single field, "Developer mode", off by default. While it is off, every document in Global context except User additions is locked and nobody can change it; once it is on, you can edit them, sync them back to their default content, or restore earlier versions. User additions are not affected.
 - **Backup health** — Whether scheduled backups keep producing restore points: "Backups are healthy", "Backups are failing", "Cannot tell". The card lists the latest scheduled backup, how long the failure has lasted, the freshness window, and the server diagnostic. "Cannot tell" does not mean there is no problem. For what each status means and how backup and restore work, see "Backup and restore" in [Troubleshooting and FAQ](troubleshooting.md).
-- **Signing keys** — The keys the server uses to issue login credentials and share links, at the bottom of this page. Login credentials for the console, members, and machines, and the links made by "Copy external link" (for files and comparisons), are all signed with a signing key. For more, see "Signing keys" in [Protect your studio](security.md).
+- **Signing keys** — The keys the server uses to issue login credentials and share links, at the bottom of this page. Login credentials for the console, members, and machines, and the links made by "Copy share link" (for files) and "Copy external link" (for comparisons), are all signed with a signing key. For more, see "Signing keys" in [Protect your studio](security.md).
   - The card lists how many keys there are now: the one marked "In use" issues new credentials; one marked "Old key (still valid)" no longer issues any, but credentials and links signed with it remain valid.
   - "Create a new key": the new key takes over signing immediately. Nobody who is logged in is logged out, and no restart is needed. After that, every online machine automatically switches to credentials signed with the new key; offline machines switch once they come online.
   - "Remove": there is no undo, and it takes effect immediately. Every login credential signed with this key stops working, and console tabs using one must log in again; every share link made with this key stops working, and people holding the links are not notified; machines that have not yet switched to the new key disconnect immediately.
 
 ## Global context
 
-All the documents sent to members are on this page. You can edit them, and after you save, members read the new content the next time. The documents come in three groups:
+All the documents sent to members are on this page; after you save, members read the new content the next time.
+
+The card on its own at the top is **User additions**. Every member reads it when it starts, it has no character limit, and you can edit it at any time. The other documents are locked while developer mode is off: below the card is the line "To edit the documents below, turn on developer mode in system settings first.", and "system settings" takes you to System update & backup. While locked, the document rows are not marked "editable"; you can open a document and read it in full, but there is no edit button, and in its place it says "To edit this, turn on developer mode in system settings first." Once developer mode is on, the line disappears and every document can be edited.
+
+The other documents come in three groups:
 
 | Group | Document | When members read it | Character limit |
 | --- | --- | --- | --- |
-| Online (BOOT) | System interaction | When each member starts | 150000 |
-| Online (BOOT) | User additions | When each member starts | None |
-| Online (BOOT) | Boot steps (Claude Code) | Claude Code members follow it when they start | 37500 |
-| Online (BOOT) | Boot steps (Codex CLI) | Codex members follow it when they start | 37500 |
-| Offline (STOP) | Stop | When a member is stopped | 37500 |
-| Offline (STOP) | Accelerated stop | When a member is asked to wrap up early, with a deadline | 37500 |
-| Task events (TASK) | Task close-out | When a task is judged finished | 37500 |
-| Task events (TASK) | Task reassignment · to the predecessor | When a task the member holds is reassigned to someone else | 37500 |
-| Task events (TASK) | Task reassignment · to the successor | When taking over a task (the same document is used whether or not there is a predecessor) | 37500 |
-| Task events (TASK) | The ticket blocking your task is released | When a task it depends on is released | 37500 |
-| Task events (TASK) | Your task is ready to be closed | Each time a task becomes ready to close | 37500 |
+| BOOT | System interaction | When each member starts | 150000 |
+| BOOT | Boot steps (Claude Code) | Claude Code members follow it when they start | 37500 |
+| BOOT | Boot steps (Codex CLI) | Codex members follow it when they start | 37500 |
+| STOP | Stop | When a member is stopped | 37500 |
+| STOP | Accelerated stop | When a member is asked to wrap up early, with a deadline | 37500 |
+| TASK EVENTS | Task close-out | When a task is judged finished | 37500 |
+| TASK EVENTS | Task reassignment · to the predecessor | When a task the member holds is reassigned to someone else | 37500 |
+| TASK EVENTS | Task reassignment · to the successor | When taking over a task (the same document is used whether or not there is a predecessor) | 37500 |
+| TASK EVENTS | The task blocking yours is released | When a task it depends on is released | 37500 |
+| TASK EVENTS | Your task is ready to be closed | Each time a task becomes ready to close | 37500 |
 
 - "Boot steps" is a single row in the list; open it and switch between the two documents with "Standard / Codex".
 - The character limits are factory values, and these fields are not on the General page. For a document with a limit, the card's title bar shows "current characters / limit".
@@ -58,11 +62,11 @@ All the documents sent to members are on this page. You can edit them, and after
 One page per role, with two documents on it:
 
 - **Duty** — What this role is responsible for and which rules it follows. After a change, the role's members read the new content the next time they start.
-- **Insight** — The trade-offs and boundaries this role uses again and again, usually written by the role's own members. Every member can read every role's Insight; only that role's own members, you, and the assistant can write it. The on-screen note says: "Every member can read this Insight; only this role itself and an admin can change it." Here "admin" means you and the assistant. The assistant's Insight has default content; other roles' Insight starts empty.
+- **Insight** — The trade-offs and boundaries this role uses again and again, usually written by the role's own members. Every member can read every role's Insight; only that role's own members, you, and the Assistant can write it. The on-screen note says: "Judgement principles this role keeps for its own work. Only this role's members read them at boot; other members don't read them by default." The Assistant's Insight has default content; other roles' Insight starts empty.
 
 Every member can look up Duty and Insight, but they are added automatically only to the startup content of that role's members.
 
-The role list has "Add role", "Rename role", and "Delete", which you and the assistant can both use. When a role is deleted:
+The role list has "Add role", "Rename role", and "Delete", which you and the Assistant can both use. When a role is deleted:
 
 - The role's staff members are marked as having left, and their chat history is kept read-only.
 - The Duty and Insight are deleted permanently and cannot be recovered; the version history is deleted too.
@@ -101,15 +105,15 @@ The working manual for each kind of task, in two groups: "Built-in" and "Custom"
 
 **Assigned executor**
 
-Only you and the assistant Mira can set it; ordinary members cannot change it.
+Only you and the Assistant Mira can set it; ordinary members cannot change it.
 
 - **Pick a member**: choose one of the staff members.
-- **Outsource**: each task hires one outsource worker to carry it out, and the worker is released after the task is closed. For outsource you also set:
+- **Outsource**: each task hires one outsource member to carry it out, and the member is released after the task is closed. For outsource you also set:
   - **AI runtime**: Claude Code or Codex.
   - **Model**: can be left empty to use the default model.
   - **Effort**: Low, Medium, High, X-High, Max.
-  - **Machine**: which machine the outsource worker runs on. The list shows whether each machine is currently idle, busy, or offline. If no machine is chosen, or the machine is offline or does not have the chosen runtime installed, outsource workers for this kind of task are never woken and are not moved to another machine; the reason is shown on the outsource worker.
-  - **Hire count**: how many outsource workers this kind of task can hire at the same time at most. Pressing "Unlimited" (shown as ∞) means this kind of task has no cap of its own, but the studio-wide outsource cap still applies.
+  - **Machine**: which machine the outsource member runs on. The list shows whether each machine is currently idle, busy, or offline. If no machine is chosen, or the machine is offline or does not have the chosen runtime installed, outsource members for this kind of task are never woken and are not moved to another machine; the reason is shown on the outsource member.
+  - **Hire count**: how many outsource members this kind of task can hire at the same time at most. Pressing "Unlimited" (shown as ∞) means this kind of task has no cap of its own, but the studio-wide outsource cap still applies.
 - **Clear setting**: clears the assigned executor setting.
 
 **Built-in manuals and deleting manuals**
@@ -128,7 +132,7 @@ Every Global context document, Duty, Insight, and task manual SOP has a version 
 - It opens from edit mode: after you press "Edit", the button row gains a "Version history" button.
 - Each row in the list shows when that version was replaced and who changed it. Click a row to open that version, and switch between "Version content" and "Changes vs current"; the comparison uses what is stored on the server and does not include unsaved changes in the editor.
 - "Restore this version" asks you to confirm first, then overwrites the current content; the current content is saved as a new version, so you can go back again after restoring.
-- For documents with default content (for example User additions, the assistant's Duty and Insight, and built-in task manuals), the last row in the list is "Default content". Open it to view the content and the comparison, then press "Sync to default". The default content of "User additions" is empty, so syncing clears it. When a built-in task manual syncs to its default content, the whole manual (name, purpose, identity keys, SOP, and assigned executor) goes back to its default settings.
+- For documents with default content (for example User additions, the Assistant's Duty and Insight, and built-in task manuals), the last row in the list is "Default content". Open it to view the content and the comparison, then press "Sync to default". The default content of "User additions" is empty, so syncing clears it. When a built-in task manual syncs to its default content, the whole manual (name, purpose, identity keys, SOP, and assigned executor) goes back to its default settings.
 - For task manuals, only the SOP keeps versions; changes to the purpose and identity keys keep none.
 - Lore entry titles and bodies also have a version history, keeping the last 3 changes for each entry. It opens from the entry's edit box on the Lore tab; see "Lore" in [Interface reference](interface.md).
 - When a whole role or custom manual is deleted, its version history is deleted too and cannot be restored.
@@ -141,11 +145,11 @@ Each field on the screen, from top to bottom:
 | Parameter | Purpose | Range | Default |
 | --- | --- | --- | --- |
 | Session length | How long after you log in before you must enter your password again | 12 hours / 24 hours / 7 days / 30 days | 24 hours |
-| Member login lifetime | How long before newly started members and outsource workers must get a new login credential; lowering it does not affect credentials already issued | 12 hours / 24 hours / 7 days / 30 days | 7 days |
+| Member login lifetime | How long before newly started staff and outsource members must get a new login credential; lowering it does not affect credentials already issued | 12 hours / 24 hours / 7 days / 30 days | 7 days |
 | Claude first notice | When a Claude member's memory reaches this share, Stop is sent asking it to wrap up and hand over | 1–89%, must be below the final call | 40% |
 | Claude final call | When memory reaches this share, the final call is sent and the handover happens automatically; after that the session is collected forcibly once the Accelerated stop deadline passes | 40–90% | 50% |
-| Codex first notice | After which memory compaction a Codex member is sent Stop | 1–10 times, must be below the final round | 1 less than the final round |
-| Codex final round | After this many memory compactions, the member refocuses automatically | 1–10 times | 3 times |
+| Codex first notice | After which memory compaction a Codex member is sent Stop | 1–10 rounds, must be below the final round | 1 less than the final round |
+| Codex final round | After this many memory compactions, the member refocuses automatically | 1–10 rounds | 3 rounds |
 | Accelerated stop deadline | How many seconds a member has to wrap up after Accelerated stop is pressed or the Claude final call is reached; the member is told this moment verbatim | 10–3600 seconds | 120 seconds |
 | Reassign handover timeout | After a reassignment, how long an outsource predecessor can go without updating the task before it is collected; every task update restarts the timer, and staff predecessors are not affected | 60–86400 seconds | 1800 seconds |
 | Machine credential lifetime | How long a machine's login credential is valid; machines renew it automatically before it expires, and a machine that misses renewal must be reinstalled; lowering it does not affect credentials already issued | 86400–34560000 seconds (1–400 days) | 30 days |
@@ -157,7 +161,7 @@ Each field on the screen, from top to bottom:
 | Insight size cap | The most characters one role's Insight can have | 100–250000 | 37500 |
 | Task manual SOP size cap | The most characters one task manual's SOP can have | 100–250000 | 37500 |
 | Task step note size cap | The most characters one task step's note can have | 1000–100000 | 25000 |
-| Due soon from | How long before its due time a task starts counting as "Due soon"; individual tasks can set their own on the task card | 1 minute–30 days | 1 day |
+| Due-soon lead time | How long before its due time a task starts counting as "Due soon"; individual tasks can set their own on the task card | 1 minute–30 days | 1 day |
 | Secret card: time to retrieve | After you provide the content, how long the member has to retrieve it before the content is deleted and the card expires; affects only content provided afterwards | 1 minute–30 days | 24 hours |
 | Secret card: kept after retrieval | After the member first retrieves it, how long the content is kept, during which the member can retrieve it again; 0 means it is deleted on retrieval; affects only later retrievals | 0 seconds–1 day | 10 minutes |
 | Wake chat budget | The most characters of recent chat a member brings back when it wakes | 1000–13000 | 6000 |
@@ -177,7 +181,7 @@ Each field on the screen, from top to bottom:
 
 - Duty, Insight, SOPs: the limit is checked only on write. A document already over the limit can still be saved as long as the new version is shorter than the old one. When members read these three kinds of documents, they also see the current character count and the limit.
 - Step notes: a note already over the new limit can still be read in full, but must be cut below the limit before it can be changed again. This field only governs step notes; chat messages and reassignment handover notes have their own fixed limits that do not follow this field.
-- Member lore and task lore: when the limit is exceeded, members cannot read the whole entries that do not fit, and there is no error message; on the Lore tab, entries that cannot be read are collapsed to one line and tagged "Not read".
+- Member lore and task lore: when the limit is exceeded, each entry that does not fit is skipped as a whole (entries are never cut short), members cannot read it, and there is no error message; on the Lore tab those entries are collapsed to one line and tagged "Not read".
 - Lore titles and bodies: a new entry over the limit is rejected as a whole. Entries already saved can still be read in full; a title or body already over the new limit can be saved when edited as long as it is shorter than before, and a field you did not change is not checked. Restoring an earlier version follows the same rule.
 
 **Wake chat budget**: lowering it only makes members bring back fewer messages the next time they wake; it deletes no chat history, and members can read the rest themselves. Raising it lets members read more of the conversation when they wake, at the cost of spending those characters on every wake.
