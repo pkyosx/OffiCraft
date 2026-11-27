@@ -1,216 +1,216 @@
-# 架構與運作原理
+# Architecture and how it works
 
-這頁說明 OffiCraft 在你的機器上跑了哪些程式、成員實際是什麼、狀態怎麼判定、資料存在哪裡、換手與更新怎麼進行，以及出問題時各是哪一層負責。
+This page explains which programs OffiCraft runs on your machines, what a member actually is, how status is determined, where data is stored, how handovers and updates work, and which layer is responsible when something goes wrong.
 
-## 整體結構
+## Overall structure
 
-OffiCraft 由一個 server（主程式）加上每台機器各一個 warden（負責在那台機器上啟動、停止成員的背景程式）組成。server 保存所有資料，並決定哪位成員該上線、該停止；warden 照 server 的指令在自己那台機器上啟動或停止成員；每位成員是一個 Claude Code 或 Codex 的工作階段，透過 ocagent 這支小工具和 server 保持連線。你透過控制台網頁操作全部的東西。
+OffiCraft consists of one server (the main program) plus one warden on each machine (a background program that starts and stops members on that machine). The server stores all data and decides which members should be online and which should stop; the warden starts or stops members on its own machine as the server instructs; each member is a Claude Code or Codex session that stays connected to the server through a small tool called ocagent. You operate everything through the console web page.
 
-圖與下文會用到三種連線方式：REST 是一問一答的一般網頁請求；SSE（Server-Sent Events）是一條一直開著的連線，server 有新消息時主動推過來；MCP（Model Context Protocol）是讓 AI 呼叫外部工具的標準格式，成員透過 MCP 對 server 下指令。
+The diagram and the text below use three kinds of connection: REST is an ordinary request-and-response web request; SSE (Server-Sent Events) is a connection that stays open so the server can push new messages as soon as they happen; MCP (Model Context Protocol) is a standard format that lets AI call outside tools, and members use MCP to give the server commands.
 
-![架構圖：你透過控制台操作 server；每台機器上的 warden 依 server 指令啟動或停止成員，成員以 SSE 接收通知、以 MCP 呼叫 server](assets/architecture-overview.svg)
+![Architecture diagram: you operate the server through the console; on each machine the warden starts or stops members as the server instructs; members receive notifications over SSE and call the server over MCP](assets/architecture-overview.svg)
 
-圖中所有連線都連到 server。成員之間不直接溝通，也不依賴「在同一台機器上」：聊天、請示卡、任務都經過 server，所以不同機器上的成員可以互相協作。
+Every connection in the diagram goes to the server. Members do not talk to each other directly, and they do not depend on being on the same machine: chat, reply cards, and tasks all go through the server, so members on different machines can work together.
 
-控制台網頁同樣用兩條路和 server 溝通：送出動作（登入、傳訊息、按按鈕）走 REST，接收更新走 SSE 長連線。新聊天、新請示卡、任務進度會直接出現在畫面上，不需要手動重新整理。SSE 連線中斷時，分頁列上方會出現「即時更新已中斷」橫幅，代表畫面可能不是最新的；橫幅上的「重新整理」會重新載入畫面。
+The console web page also talks to the server in two ways: actions you send (signing in, sending messages, pressing buttons) go over REST, and updates arrive over a long-lived SSE connection. New chat messages, new reply cards, and task progress appear on screen directly, without a manual refresh. When the SSE connection drops, a "Live updates disconnected" banner appears above the tab bar, meaning the screen may not be up to date; "Reload" on the banner reloads the page.
 
-## 三支程式
+## The three programs
 
-| 程式 | 在哪裡跑 | 做什麼 |
+| Program | Where it runs | What it does |
 | --- | --- | --- |
-| **ocserverd**（server） | 安裝 OffiCraft 的那台機器 | 保存身分、聊天、請示卡、任務、傳承、密鑰與設定，資料存在本機的 SQLite 資料庫（整個資料庫存成一個檔案的資料庫軟體）。提供 REST、SSE、MCP 三種介面，並內嵌控制台網頁。只接受本機連線（`127.0.0.1`），這一點不能改。每 30 秒比對一次「每位成員應該在線還是停止」與實際狀態，需要時對 warden 下指令。 |
-| **warden** | 每台機器各一個，常駐背景 | 只執行 server 的指令：在這台機器上啟動、停止成員，回報這台機器的狀態（CPU、記憶體、磁碟、Claude／Codex 版本與登入狀態），並讓自己和 ocagent 保持最新版本。warden 不自己決定要啟動誰，也不是 AI。 |
-| **ocagent** | 每位成員的工作階段裡 | 成員和 server 之間的工具：維持到 server 的 SSE 長連線並把通知送進成員的對話、上傳與下載附件、取用密鑰、回報記憶用量與運作狀態、回報模型呼叫成功或失敗。 |
+| **ocserverd** (server) | The machine OffiCraft is installed on | Stores identities, chat, reply cards, tasks, lore, secrets, and settings, in a local SQLite database (database software that keeps the whole database in a single file). Provides REST, SSE, and MCP interfaces and serves the console web page. Only accepts connections from the same computer (`127.0.0.1`); this cannot be changed. Every 30 seconds it compares "should each member be online or stopped" with the actual state and gives the warden commands when needed. |
+| **warden** | One per machine, always running in the background | Only carries out the server's commands: starts and stops members on this machine, reports this machine's status (CPU, memory, disk, Claude / Codex version and login status), and keeps itself and ocagent on the latest version. The warden does not decide on its own whom to start, and it is not an AI. |
+| **ocagent** | Inside each member's session | The tool between the member and the server: keeps the long-lived SSE connection to the server and passes notifications into the member's conversation, uploads and downloads attachments, fetches secrets, reports memory use and activity status, and reports whether model calls succeed or fail. |
 
-warden 在 macOS 上由一支叫 `officraft` 的小程式啟動。`officraft` 本身不會被自動更新替換，所以 macOS 的權限設定（例如存取檔案的授權）在每次更新後都會維持有效；macOS 跳出權限詢問時，看到的名稱就是 `officraft`。
+On macOS, the warden is started by a small program called `officraft`. `officraft` itself is never replaced by automatic updates, so macOS permission settings (such as permission to access files) stay valid after every update; when macOS shows a permission prompt, `officraft` is the name you see.
 
-## 成員實際在跑什麼
+## What a member is actually running
 
-每位成員在它被指派的機器上，有一個 tmux 工作階段。tmux 是讓終端機程式在背景持續執行、之後可以再接上去查看的工具。成員詳情的「終端 · TMUX」提供接上這個工作階段的指令，在自己的終端機執行就能看到成員的畫面。
+Each member has one tmux session on the machine it is assigned to. tmux is a tool that keeps terminal programs running in the background so you can attach to them later and look. "Terminal · TMUX" in the member details gives the command to attach to that session; run it in your own terminal to see the member's screen.
 
-- **Claude Code 成員**：tmux 裡跑的是你機器上的 `claude`。warden 啟動時會讓 Claude Code 載入 OffiCraft 通知模組，通知模組先送出開機指令，再啟動 `ocagent listen`，之後把 server 推來的每則通知當成一則提示送進成員的主對話。你在 Claude Code 上設定的 skill、plugin、MCP（都是 Claude Code 的擴充功能）照樣有效。
-- **Codex 成員**：tmux 裡跑的是 warden 提供的 Codex 程序，它在背景執行 `codex app-server`，並同時執行 `ocagent listen`，把收到的通知轉成 Codex 的一輪對話。成員是否在線只看 `ocagent listen` 的連線，跟有沒有人接上畫面無關。
+- **Claude Code members**: the tmux session runs `claude` on your machine. When the warden starts it, it has Claude Code load the OffiCraft notification module. The module first sends the boot instructions, then starts `ocagent listen`, and from then on passes each notification the server pushes into the member's main conversation as a prompt. The skills, plugins, and MCP servers you set up in Claude Code (all of them Claude Code extensions) still work.
+- **Codex members**: the tmux session runs a Codex process provided by the warden. It runs `codex app-server` in the background together with `ocagent listen`, and turns each notification it receives into one Codex conversation turn. Whether the member is online depends only on the `ocagent listen` connection, not on whether anyone is attached to the screen.
 
-兩種成員都使用那台機器上已登入的 Claude 或 Codex 帳號。成員的身分、角色、記憶不存在工作階段裡，而是存在 server 上，所以工作階段隨時可以結束，再開一個新的工作階段接續。
+Both kinds of member use the Claude or Codex account already logged in on that machine. A member's identity, role, and memory are not stored in the session but on the server, so a session can end at any time and a new session can pick up from there.
 
-## 成員的權限設定
+## Member permission settings
 
-成員是背景執行的工作階段，跳出權限確認框也沒有人能按，所以兩種執行環境都以「跳過權限確認」的方式啟動：
+Members are sessions running in the background, and there is no one to click a permission prompt if one appears, so both runtimes are started with permission prompts skipped:
 
-- Claude Code 用 `--dangerously-skip-permissions` 啟動。
-- Codex 用 `approvalPolicy: never` 加 `sandbox: danger-full-access`。
+- Claude Code is started with `--dangerously-skip-permissions`.
+- Codex is started with `approvalPolicy: never` plus `sandbox: danger-full-access`.
 
-代價是成員在你的機器上有很大的操作權限。限制成員行為的是成員讀到的工作守則，以及「需要你決定的事要開請示卡」這條規則，不是系統層級的權限控管。Claude Code 內建、會彈出互動選單的 `AskUserQuestion` 工具也因此停用。
+The cost is that members have broad control over your machine. What limits a member's behavior is the working rules it reads, and the rule that "anything you need to decide goes on a reply card", not permission control at the system level. For the same reason, Claude Code's built-in `AskUserQuestion` tool, which pops up an interactive menu, is disabled.
 
-## 成員用 Claude Code 還是 Codex
+## Whether a member uses Claude Code or Codex
 
-新增的正職和出廠的 Mira 一開始沒有選定 AI 執行環境。啟動設定裡顯示的「Claude Code」只是預設顯示值，原封不動送出不會存下來。
+Newly added staff and the built-in Mira start with no AI runtime chosen. The "Claude Code" shown in the launch settings is only the default display value; sending it unchanged does not save it.
 
-真正的執行環境在成員被派到機器上啟動時決定：該機器的 Claude Code 可用就用 Claude Code，Claude Code 不可用而 Codex 可用就用 Codex，決定後就固定在該成員身上。
+The actual runtime is decided when the member is dispatched to a machine and started: if Claude Code is available on that machine, Claude Code is used; if Claude Code is not available but Codex is, Codex is used. Once decided, it stays fixed for that member.
 
-下列情況，成員這次會以 Claude Code 啟動，但不會存下來，下一次啟動會重新判斷：
+In the following cases, the member starts with Claude Code this time, but the choice is not saved, and it is decided again at the next start:
 
-- 那台機器的 warden 還沒回報過能力。
-- `codex` 裝了但沒登入，所以不算可用。
-- 那台機器的 Claude Code 已安裝但登出。這時不會自動改用 Codex，因為選擇一旦存下就不會再自動改；那台機器重新登入 Claude 之後，成員就能以 Claude Code 啟動。
+- The warden on that machine has not reported its capabilities yet.
+- `codex` is installed but not logged in, so it does not count as available.
+- Claude Code on that machine is installed but logged out. Codex is not used automatically in this case, because once a choice is saved it never changes automatically; after that machine logs in to Claude again, the member can start with Claude Code.
 
-從舊版升級上來的成員，執行環境已經存成 Claude Code，不會自動改。
+Members upgraded from older versions already have Claude Code saved as their runtime, and this does not change automatically.
 
-在啟動設定裡把「AI 執行環境」換成另一個選項並確認，選的執行環境就會存下來並固定。尚未選定的成員，畫面上本來就顯示 Claude Code，原封不動確認不會存下來。只裝了 Codex 的機器上有成員起不來時的處理，見 [常見問題與排解](troubleshooting.md) 的「機器只裝了 Codex，Mira 或新成員起不來」。
+Change "AI runtime" in the launch settings to the other option and confirm, and the selected runtime is saved and fixed. For a member with no runtime chosen yet, the screen already shows Claude Code, and confirming it unchanged does not save it. For what to do when a member cannot start on a machine that only has Codex installed, see "The machine has only Codex, and Mira or a new member will not start" in [Troubleshooting and FAQ](troubleshooting.md).
 
-## 成員的狀態怎麼判定
+## How member status is determined
 
-**在不在線上**只看一件事：成員的 `ocagent listen` 此刻有沒有連著 server 的 SSE。連著就是線上，斷了就不是。沒有另外的心跳或逾時判定，控制台、監控頁、其他成員查名冊看到的都是同一份狀態。同一位成員同時只能有一條連線，第二條連上時舊的會被斷開。
+**Whether a member is online** depends on one thing only: whether the member's `ocagent listen` is connected to the server's SSE right now. Connected means online; disconnected means not online. There is no separate heartbeat or timeout check, and the console, the monitoring page, and other members looking at the roster all see the same status. A member can have only one connection at a time; when a second one connects, the old one is cut off.
 
-頭像右下角的圓點有五種狀態：
+The dot at the bottom right of the avatar has five states:
 
-| 狀態 | 意思 |
+| State | Meaning |
 | --- | --- |
-| 喚醒中 | server 已經送出啟動指令，還在等成員連上。大約兩分鐘內沒連上，這次喚醒算失敗，原因寫在成員詳情的「最近操作」。 |
-| 線上 | 成員的連線還在。 |
-| 停止中 | 已經要求停止，成員還在收尾、連線還在。 |
-| 已停止 | 已經要求停止，連線已經斷開。server 不會自動把它叫回來。 |
-| 離線 | 沒有人要求停止，但連線斷了（例如程式結束或機器離線）。只要成員設定為應該在線，server 會在下一輪比對時重新喚醒它。 |
+| Waking | The server has sent the start command and is waiting for the member to connect. If it does not connect within about two minutes, this wake counts as failed, and the reason is written in "Last operation" in the member details. |
+| Online | The member's connection is up. |
+| Stopping | A stop has been requested; the member is still wrapping up and its connection is still up. |
+| Stopped | A stop has been requested and the connection is closed. The server does not bring it back on its own. |
+| Offline | No one asked the member to stop, but the connection dropped (for example, the program exited or the machine went offline). As long as the member is set to be online, the server wakes it again in the next comparison round. |
 
-**運作狀態**是另一件事，表示成員此刻在做什麼：工作中、等待中（等背景指令、監看或排程）、閒置；還沒回報時顯示「狀態未知」。資料來自 Claude Code 的 hook（Claude Code 在特定時機自動執行的程式）與 Codex 程序，由 ocagent 回報給 server。圖示的「查看運行狀況」顯示子代理（成員在工作中另外派出、分擔工作的 AI）與背景等待的細節。
+**Activity status** is something else: it shows what the member is doing right now: Working, Waiting (on a background command, a monitor, or a schedule), or Idle; before the member reports, it shows "Status unknown". The data comes from Claude Code hooks (programs Claude Code runs automatically at certain moments) and from the Codex process, and ocagent reports it to the server. The icon's "see runtime details" shows the details of sub-agents (AI workers a member sends out to share the work) and background waits.
 
-**驚嘆號**表示這位成員的模型呼叫或所在機器的登入有問題，不論它目前是否在線：已達用量上限（附重置時間）、登入失效、伺服器異常、模型呼叫失敗（附代碼），或所在機器未登入 Claude／Codex。帳號登入狀態由各台 warden 定期檢查，檢查間隔在 設定 › 參數調整 的「登入檢查間隔」與「未登入時重查間隔」。
+**The exclamation mark** means there is a problem with this member's model calls or with the login on its machine, whether or not it is currently online: it has hit its usage limit (with the reset time), its login has expired, the server has a problem, a model call failed (with a code), or the machine it runs on is not logged in to Claude / Codex. Each warden checks the account login status regularly; the check intervals are "Login check interval" and "Logged-out recheck interval" under Settings › General.
 
-## 成員和 server 之間怎麼溝通
+## How members and the server communicate
 
-| 方向 | 管道 | 用途 |
+| Direction | Channel | Purpose |
 | --- | --- | --- |
-| server 通知成員 | SSE（`GET /api/events`） | 推送跟這位成員有關的事：給它的新聊天、它開的請示卡被回覆、它的任務有變化。只推本人的事件，別人的聊天與任務要主動查詢。 |
-| 成員對 server 做事 | MCP（`POST /api/mcp`） | 成員主動做的每件事：傳訊息、開請示卡、建任務、回報步驟進度、查名冊、寫傳承。 |
+| Server notifies a member | SSE (`GET /api/events`) | Pushes things that concern this member: new chat messages to it, answers to reply cards it opened, changes to its tasks. Only the member's own events are pushed; other members' chat and tasks must be queried. |
+| Member acts on the server | MCP (`POST /api/mcp`) | Everything a member does on its own initiative: sending messages, opening reply cards, creating tasks, reporting step progress, looking up the roster, writing lore. |
 
-因為所有動作都經過 server，控制台顯示的永遠是 server 上的資料，不是某個成員工作階段裡的暫存狀態。
+Because every action goes through the server, the console always shows the data on the server, not some temporary state inside a member's session.
 
-**身分與憑證**：
+**Identity and credentials**:
 
-- 成員的登入憑證由 server 在啟動成員時發給它，同一份憑證用在 REST、SSE、MCP。有效期是 設定 › 參數調整 的「成員登入有效期」。憑證進入最後一小時時，server 會自動請成員收尾換手，以便發一份新的。
-- 每台機器的 warden 也有自己的憑證，有效期是「機器憑證壽命」（預設 30 天）。warden 會在到期前自動換新；錯過換新的機器會斷線，要重新安裝。
-- 檔案分享連結、比較頁的對外連結與登入憑證，都由 server 的簽章金鑰簽發。換新與移除的影響見 [保護你的工作室](security.md)。
+- The server gives a member its login credential when it starts the member, and the same credential is used for REST, SSE, and MCP. Its validity is "Member login lifetime" under Settings › General. When a credential enters its last hour, the server automatically asks the member to wrap up and hand over so a new one can be issued.
+- Each machine's warden has its own credential too, valid for the "Machine credential lifetime" (30 days by default). The warden renews it automatically before it expires; a machine that misses the renewal is disconnected and has to be reinstalled.
+- File share links, the external links of comparison pages, and login credentials are all issued with the server's signing keys. For the effect of renewing and removing keys, see [Protect your studio](security.md).
 
-## 成員開機時讀到什麼
+## What members read when they boot
 
-成員每次開機（包括換手後開始的新工作階段），server 會把下列內容組進成員的開機文件；任務傳承例外，是成員讀那本任務手冊時才一起附上：
+Every time a member boots (including a new session started after a handover), the server assembles the following into the member's boot document; task lore is the exception, attached only when the member reads that task manual:
 
-| 內容 | 誰寫 | 開機時自動讀到 | 在哪裡管理 |
+| Content | Written by | Read automatically at boot by | Managed in |
 | --- | --- | --- | --- |
-| **使用者語言** | 你選的介面語言 | 每一位成員，正職與外包都有：選 English 時要成員用英文回你，其他情況（包括沒選過）用繁體中文，並附上畫面上功能名稱的中英對照表 | 頭像選單 › 偏好設定 › 語言 |
-| **使用者自訂** | 你 | 每一位成員，正職與外包都有 | 設定 › 全域情境 › 使用者自訂 |
-| **角色定義** | 你或特助 Mira | 該角色的正職成員 | 設定 › 角色誌 |
-| **判準(Insight)** | 該角色的成員本人、特助或你 | 該角色的正職成員 | 設定 › 角色誌 › 角色內頁 |
-| **成員傳承** | 成員自己 | 撰寫人本人 | 傳承分頁 |
-| **「所有人」的傳承** | 成員寫入後由你或特助改掛 | 每一位成員 | 傳承分頁 |
-| **任務傳承** | 成員自己 | 讀到這本任務手冊的成員 | 傳承分頁 |
+| **User language** | The interface language you choose | Every member, both staff and outsource: if you choose English, members are told to reply to you in English; otherwise (including if you never chose one) in Traditional Chinese, along with a Chinese–English table of the feature names on screen | Avatar menu › Preferences › Language |
+| **User additions** | You | Every member, both staff and outsource | Settings › Global context › User additions |
+| **Duty** | You or the Assistant Mira | Staff members in that role | Settings › Roles |
+| **Insight** | The members in that role, the Assistant, or you | Staff members in that role | Settings › Roles › the role's page |
+| **Member lore** | The member itself | The member who wrote it | Lore tab |
+| **"Everyone" lore** | Written by a member, then moved there by you or the Assistant | Every member | Lore tab |
+| **Task lore** | The member itself | Members who read that task manual | Lore tab |
 
-角色定義與判準所有成員都查得到，但只會自動放進該角色的開機內容。
+Every member can look up any role's Duty and Insight, but they are only put into the boot content of that role automatically.
 
-成員詳情的「初始 PROMPT」區塊顯示這位成員開機時讀到的組合。那是依目前設定組出來的預覽，可能和成員當初開機時收到的內容有出入。
+The "Initial prompt" section in the member details shows the combination this member reads at boot. It is a preview assembled from the current settings and may differ from what the member actually received when it booted.
 
-## 任務結案前負責人做什麼
+## What the executor does before a task closes
 
-所有步驟完成後，任務進入可結案，負責人會依序收尾：
+After every step is done, the task becomes Ready to close, and the executor wraps it up in order:
 
-1. 把需要驗收的成果掛成產物，驗證結果寫回任務。
-2. 開一張請示卡請你驗收。你還沒回覆、要求修改或仍有待辦事項時，任務不會結案。
-3. 驗收通過後，判斷有沒有值得留下的經驗，有的話寫成傳承（見 [讓成員記住你教過的事（傳承）](lore.md)）。在有類型的任務裡寫下的傳承，會歸在那本手冊底下，成為任務傳承。
-4. 清掉暫存檔與自己開啟的外部資源，把用不到的請示卡標為過期。
-5. 把任務結案為已完成。
+1. Attaches the results that need acceptance as artifacts and writes the verification results back to the task.
+2. Opens a reply card asking you to accept the work. While you have not answered, ask for changes, or there is still something left to do, the task does not close.
+3. After you accept, decides whether there is experience worth keeping and, if so, writes it as lore (see [Making members remember what you taught them (Lore)](lore.md)). Lore written in a task that has a type is filed under that manual and becomes task lore.
+4. Cleans up temporary files and outside resources it opened itself, and marks reply cards that are no longer needed as expired.
+5. Closes the task as Done.
 
-## 外部事件與時間怎麼進來
+## How outside events and time come in
 
-- **回呼端點**：外部服務（Slack、GitHub 或其他系統）呼叫成員專屬的網址，server 驗證後把內容變成一則聊天訊息送給該成員。成員收到後照一般聊天處理。見 [讓外部事件自動送給成員（回呼端點）](webhook.md)。
-- **定期訊息**：server 依你設定的頻率與時區，在時間到時送一則聊天訊息給成員。見 [定時做某件事（定期訊息）](schedule.md)。
-- **推播通知**：有新訊息或需要你決定的請示時，server 透過瀏覽器推播通知你開啟過通知的裝置。見 [在手機上用](mobile.md)。
+- **Webhook endpoints**: an outside service (Slack, GitHub, or another system) calls a URL that belongs to a member; the server verifies it and turns the content into a chat message to that member. The member handles it like any other chat. See [Send outside events to members automatically (webhooks)](webhook.md).
+- **Scheduled messages**: the server sends a chat message to a member when the time comes, at the frequency and in the time zone you set. See [Doing something on a schedule (Scheduled messages)](schedule.md).
+- **Push notifications**: when there is a new message or a reply card that needs your decision, the server notifies the devices on which you turned on notifications, through browser push. See [Use it on your phone](mobile.md).
 
-## 資料存在哪裡
+## Where data is stored
 
-以預設安裝為例，所有資料都在 server 那台機器的 `~/.officraft/` 底下：
+With a default installation, all data is under `~/.officraft/` on the server's machine:
 
-| 位置 | 內容 |
+| Location | Contents |
 | --- | --- |
-| `server/data/officraft.db` | 資料庫（連同同資料夾的 `officraft.db-wal`、`officraft.db-shm` 三個檔才是完整的一份）。 |
-| `server/data/vault.key` | 加密密鑰值與 Secret 請示卡內容用的金鑰檔。資料庫備份不包含 `vault.key`，要另外保存。 |
-| `server/data/backups/` | 自動備份與手動備份。 |
-| `agents/<成員 ID>/` | 每位成員在該機器上的工作目錄。 |
-| `warden/log/` | warden 的紀錄。 |
+| `server/data/officraft.db` | The database (it is complete only together with `officraft.db-wal` and `officraft.db-shm` in the same folder: three files in all). |
+| `server/data/vault.key` | The key file used to encrypt secret values and the contents of Secret reply cards. Database backups do not include `vault.key`; keep it separately. |
+| `server/data/backups/` | Automatic and manual backups. |
+| `agents/<member ID>/` | Each member's working directory on that machine. |
+| `warden/log/` | The warden's logs. |
 
-密鑰的值與 Secret 請示卡的內容以 `vault.key` 加密後存在資料庫。`vault.key` 在第一次需要加密時（新增密鑰或送出 Secret 請示卡的值）產生，檔案權限只有你自己能讀。資料庫備份（排程備份與 `ocserverd backup`）刻意不包含 `vault.key`：單獨一份資料庫備份外流時，裡面的密鑰無法被解開。
+Secret values and the contents of Secret reply cards are encrypted with `vault.key` and stored in the database. `vault.key` is created the first time something needs encrypting (adding a secret or sending the value of a Secret reply card), and its file permission lets only you read it. Database backups (scheduled backups and `ocserverd backup`) deliberately leave out `vault.key`: if a database backup leaks on its own, the secrets in it cannot be decrypted.
 
-控制台的登入密碼只以雜湊形式存在本機資料庫，不寫在任何設定檔裡。
+The console sign-in password is stored only as a hash in the local database, and is not written in any configuration file.
 
-## 成員怎麼取用密鑰
+## How members fetch secrets
 
-所有在職的 AI 成員（正職與外包）都能取用密鑰，取用一律透過 `ocagent secret` 指令。成員開的 Secret 請示卡，值只有開卡成員能取得，ID 是 `rc-…`，`run` 與 `write` 都接受。值只會交給指令的環境變數，或寫進權限為 0600 的檔案，不會印出來。四個子命令都不會印出值：
+Every active AI member (staff and outsource) can fetch secrets, always through the `ocagent secret` command. For a Secret reply card a member opened, only the member who opened it can get the value; its ID is `rc-…`, and both `run` and `write` accept it. The value is only handed to a command's environment variables or written into a file with permission 0600; it is never printed. None of the four subcommands prints a value:
 
-| 子命令 | 用途 |
+| Subcommand | Purpose |
 | --- | --- |
-| `ocagent secret list` | 列出所有密鑰的 ID、名稱與備註 |
-| `ocagent secret show <ID>` | 顯示一筆密鑰的 ID、名稱與備註 |
-| `ocagent secret run --env 變數=<ID> -- 指令` | 把值放進環境變數後執行指令；指令輸出中出現的值一律顯示為 `***`。也可以用 `--stdin-json <ID>` 把值以 JSON 字串從標準輸入交給指令 |
-| `ocagent secret write <ID> --file <路徑>` | 把值寫進一個權限為 0600 的新檔案，給只能從檔案讀憑證的工具使用 |
+| `ocagent secret list` | Lists the ID, name, and note of every secret |
+| `ocagent secret show <ID>` | Shows the ID, name, and note of one secret |
+| `ocagent secret run --env VARIABLE=<ID> -- command` | Puts the value in an environment variable and runs the command; any occurrence of the value in the command's output is shown as `***`. `--stdin-json <ID>` can also be used to pass the value to the command on standard input as a JSON string |
+| `ocagent secret write <ID> --file <path>` | Writes the value into a new file with permission 0600, for tools that can only read credentials from a file |
 
-例如：
+For example:
 
 ```
 ocagent secret run --env NPM_TOKEN=sec-aaaaaaaaaaaa -- npm publish
 ```
 
-- `run` 一次最多指定 16 筆不同的密鑰；只要有一個 ID 不存在，指令就不會執行。
-- `write` 預設不覆蓋已存在的檔案。
-- 密鑰分頁的「最後存取」是最後一次 `run` 或 `write` 成功的時間；`list` 和 `show` 不取值，不會更新最後存取。
-- 各子命令的完整參數與結束碼，在成員的工作階段裡執行 `ocagent secret --help` 會列出。
+- `run` accepts at most 16 different secrets at once; if any one ID does not exist, the command is not run.
+- `write` does not overwrite an existing file by default.
+- "Last accessed" on the Secrets tab is the time of the last successful `run` or `write`; `list` and `show` do not fetch the value and do not update it.
+- Running `ocagent secret --help` in a member's session lists the full parameters and exit codes of each subcommand.
 
-密鑰的新增與交代方式見 [把帳號金鑰交給成員用（密鑰）](secrets.md)。
+For how to add secrets and hand them to members, see [Give members your account keys (secrets)](secrets.md).
 
-傳承、角色定義、判準、任務手冊與全域情境也都存在 server。成員開機時，server 把這些內容依字數上限組成開機內容交給它；字數上限在 設定 › 參數調整。
+Lore, each role's Duty and Insight, task manuals, and Global context are all stored on the server as well. When a member boots, the server assembles them into its boot content within the size caps; the size caps are under Settings › General.
 
-## 換手：換一個工作階段，不換記憶
+## Handover: a new session, the same memory
 
-一個 Claude Code 或 Codex 工作階段的記憶容量有限，用滿後就放不下新內容。OffiCraft 把要長期保留的東西（身分、角色定義、判準、傳承、任務進度、交接摘要）都放在 server，所以可以結束目前的工作階段、開一個新的接續，成員記得的東西不會少。
+The memory capacity of one Claude Code or Codex session is limited; once it is full, nothing new fits. OffiCraft keeps everything that needs to last (identity, Duty, Insight, lore, task progress, handover summary) on the server, so it can end the current session and start a new one that continues, without the member forgetting anything.
 
-**什麼時候會換手：**
+**When a handover happens:**
 
-- **記憶用量到門檻**：server 根據 ocagent 回報的記憶用量判斷。Claude 成員看記憶用量的百分比，Codex 成員看記憶壓縮的次數。門檻分兩段：到「第一次通知」時請它收尾換手；到「最後通牒」時自動換手並開始計時。兩組門檻都在 設定 › 參數調整。
-- **你按「重新聚焦」**：要成員把進度寫成交接，換一個新的工作階段從交接接著做。
-- **你更改設定**：換機器、模型、AI 執行環境或思考強度，要先收尾，重新開起來後才會生效。
-- **成員自己要求重新開始**：例如剛完成一大段工作，想帶著整理過的記憶重來。
-- **成員登入憑證快到期**：最後一小時時由 server 自動觸發，畫面上不會另外通知你。
+- **Memory use reaches a threshold**: the server decides from the memory use ocagent reports. Claude members are measured by memory-use percentage, Codex members by the number of memory compactions. There are two thresholds: at "First notice" the member is asked to wrap up and hand over; at "Final call" the handover happens automatically and a timer starts. Both sets of thresholds are under Settings › General.
+- **You press "Refocus"**: the member writes its progress into a handover and continues from it in a new session.
+- **You change settings**: changing the machine, model, AI runtime, or effort requires wrapping up first, and takes effect after the member starts again.
+- **The member asks to start over itself**: for example, after finishing a large piece of work, to start again with organized memory.
+- **The member's login credential is about to expire**: triggered automatically by the server in the last hour, with no separate notice on screen.
 
-**收尾怎麼做：** 收尾的步驟寫在 設定 › 全域情境 › 下線（STOP）的「停止」文件裡；開發者模式打開時，這份文件由你編輯。server 在要求成員收尾的當下把這份文件送給它。成員會依文件把任務進度與步驟備註寫回 server、把交接狀態傳一則訊息給自己，然後回報已停止。
+**How the wrap-up works:** the wrap-up steps are written in the "Stop" document under Settings › Global context › STOP; while developer mode is on, you edit this document. The server sends this document to the member at the moment it asks the member to wrap up. Following the document, the member writes its task progress and step notes back to the server, sends itself a message with its handover state, and then reports that it has stopped.
 
-**哪些情況有時間限制：** 只有兩種會計時：記憶用量到「最後通牒」，以及你按下「加速停止」。兩者共用「加速停止秒數」（預設 120 秒，可在 設定 › 參數調整 調整），時間到還沒收完，server 會要求 warden 強制結束。其他情況都沒有時間限制，server 會一直等成員自己回報收完。成員詳情的停止按鈕是同一顆，依序變成「停止 → 加速停止 → 強制停止」：「加速停止」給收尾設下期限，「強制停止」立即結束工作階段（未儲存的工作會遺失）。
+**Which cases have a time limit:** only two are timed: memory use reaching "Final call", and you pressing "Accelerated stop". Both share the "Accelerated stop deadline" (120 seconds by default, adjustable under Settings › General); if the wrap-up is not finished in time, the server has the warden force the session to end. No other case has a time limit; the server keeps waiting until the member reports that it has finished. The stop button in the member details is a single button that changes in order: "Stop → Accelerated stop → Force stop". "Accelerated stop" sets a deadline for the wrap-up; "Force stop" ends the session immediately (unsaved work is lost).
 
-**新的工作階段怎麼接手：** 舊的工作階段結束後，server 用同一個身分、同一個角色重新喚醒它（可以在同一台或另一台機器）。新的工作階段開機時讀回交接摘要與 server 上的任務狀態，就知道自己是誰、手上有什麼事、下一步要做什麼。你在畫面上看到的是圓點從喚醒中變回線上。
+**How the new session takes over:** after the old session ends, the server wakes the member again with the same identity and the same role (on the same machine or another one). At boot, the new session reads back the handover summary and the task status on the server, so it knows who it is, what is in hand, and what to do next. On screen you see the dot go from Waking back to Online.
 
-成員相關的畫面見 [增加成員與發外包](members.md)。
+For the screens related to members, see [Adding members and hiring outsource](members.md).
 
-## 多台機器
+## Multiple machines
 
-一間工作室可以有多台電腦：server 在其中一台，成員可以分散在各台機器上。
+A studio can have several computers: the server is on one of them, and members can be spread across the machines.
 
-- **加入與移除機器**：在 監控 › 機器資訊 新增機器，再到那台機器上執行控制台給的安裝指令，那台機器會裝好自己的 warden 並連上 server；移除時從機器名稱的選單選「解除安裝」或「刪除」。見 [安裝、升級與移除](install.md) 的「加入或移除機器」。
-- **指派成員**：成員詳情裡選的機器，就是成員啟動的地方。
+- **Adding and removing machines**: add a machine under Monitor › Machines, then run the install command the console gives you on that machine; it installs its own warden and connects to the server. To remove one, choose "Uninstall" or "Delete" from the machine name's menu. See "Adding or removing machines" in [Install, upgrade, and uninstall](install.md).
+- **Assigning members**: the machine chosen in the member details is where the member starts.
 
-機器只需要能連到 server。warden 每台獨立運作，一台離線只影響在那台上的成員。
+A machine only needs to be able to reach the server. Each warden works independently, so one machine going offline only affects the members on it.
 
-## 更新怎麼送到機器上
+## How updates reach machines
 
-OffiCraft 以 GitHub Release 發佈新版本。server 升級時自己下載、驗證並重新啟動；warden 與 ocagent 的新版本包含在 server 裡，各台 warden 定期向 server 確認版本並自我更新。升級的畫面與所需時間，見 [安裝、升級與移除](install.md) 的「升級」。
+OffiCraft publishes new versions as GitHub Releases. When the server upgrades, it downloads, verifies, and restarts itself; new versions of the warden and ocagent are included in the server, and each warden regularly checks its version with the server and updates itself. For the upgrade screens and how long it takes, see "Upgrading" in [Install, upgrade, and uninstall](install.md).
 
-## 安全上的設計
+## Security design
 
-- **只接受本機連線，資料存在本機**：server 只接受本機（`127.0.0.1`）連線，這一點不能改。從手機或其他裝置連線，需要用 tunnel（讓外部網路連回這台機器的通道）或私有網路的轉發功能（例如私有網路服務 Tailscale 的 `tailscale serve`）把本機的 7755 埠轉出去。轉出去之後，任何連得到網址的人都能嘗試登入，所以對外開放前要有強密碼與兩步驟驗證；通行密鑰不能取代兩步驟驗證。要開放時，對 Mira 說「我想從這台電腦以外的地方連到控制台」。見 [保護你的工作室](security.md)。
-- **只有一位使用者**：工作室只有你一位 CEO，沒有多使用者帳號。成員能做什麼由 server 依身分決定。
-- **所有資料以 server 為準**：每台機器、每位成員看到的都是 server 上的同一份資料。
-- **工作階段可以丟棄**：成員的記憶在 server，所以工作階段結束或換機器都不會讓它忘記事情。
+- **Local connections only, data stored locally**: the server only accepts connections from the same computer (`127.0.0.1`); this cannot be changed. To connect from a phone or another device, you need a tunnel (a channel that lets the outside network reach this machine) or the forwarding feature of a private network (for example `tailscale serve` from the private network service Tailscale) to expose local port 7755. Once it is exposed, anyone who can reach the URL can try to sign in, so you need a strong password and two-factor authentication before opening it up; passkeys do not replace two-factor authentication. To open it up, tell Mira "I want to reach the console from somewhere other than this computer". See [Protect your studio](security.md).
+- **Only one user**: the studio has only you as CEO, with no multi-user accounts. What each member can do is decided by the server based on its identity.
+- **The server is the source of truth for all data**: every machine and every member sees the same data on the server.
+- **Sessions are disposable**: a member's memory is on the server, so ending a session or changing machines does not make it forget anything.
 
-## 相關文件
+## Related pages
 
-- [名詞表](glossary.md)
-- [介面說明](interface.md)
-- [增加成員與發外包](members.md)
-- [保護你的工作室](security.md)
-- [常見問題與排解](troubleshooting.md)
+- [Glossary](glossary.md)
+- [Interface reference](interface.md)
+- [Adding members and hiring outsource](members.md)
+- [Protect your studio](security.md)
+- [Troubleshooting and FAQ](troubleshooting.md)

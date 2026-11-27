@@ -1,245 +1,245 @@
-# 設定與參數
+# Settings
 
-讀完這頁，你會知道設定的六個子頁各管什麼、參數調整頁上每一格的範圍與預設值，以及哪些設定不在設定頁、要去哪裡找。
+After reading this page, you will know what each of the six settings subpages covers, the range and default of every field on the General page, and which settings are not on the settings page and where to find them.
 
-## 打開設定
+## Opening settings
 
-設定的入口是頂列的齒輪。設定首頁有七個入口，由上到下：系統更新與備份、全域情境、角色誌、任務手冊、參數調整、主題、使用說明。最後一個「使用說明」打開這些說明頁，其餘六個是設定的子頁。子頁頁頂的路徑連回上一層。
+Settings opens from the gear in the top bar. The settings home page has seven entries, from top to bottom: System update & backup, Global context, Roles, Task manuals, General, Theme, and User guide. The last one, "User guide", opens these guide pages; the other six are the settings subpages. The path at the top of a subpage links back up one level.
 
-## 不在設定頁的設定
+## Settings outside the settings page
 
-- **主題、語言、版面** — 頭像選單 › 偏好設定。偏好設定的「主題」打開主題設定，可以選用主題、設定依時段切換、背景動畫與顯示應景主題；新增、編輯、匯入、匯出主題在「設定 › 主題」。語言也決定成員用什麼語言回你和寫報告：改了之後，成員下次開機才換，正在工作的成員不會收到通知。
-- **通知信箱** — 頭像選單 › 通知信箱。推播通知要先填這一格才能開啟；這個信箱會提供給瀏覽器廠商經營的推播服務，不會只留在你的伺服器上。開啟推播是頂列的鈴鐺按鈕，每台裝置各自開。
-- **密碼、兩步驟驗證、通行密鑰** — 頭像選單 › 帳號安全，見 [保護你的工作室](security.md)。
-- **外包同時雇用上限** — 辦公室分頁 › 外包頁籤 › 招攬新成員，打開「外包上限設定」。可設 0 到 20 位或「無限」，預設 3 位；設為 0 會暫停指派外包。
-- **成員專屬的建議回覆** — 聊天室標頭的「建議回覆」，每位成員一份，正職與外包都有。聊天室先列這位成員的句子，再列參數調整的「聊天室建議回覆」，相同的句子只顯示一次；外包成員手上的任務有類型時，最前面再加上那個任務手冊的建議回覆。這位成員開的請示卡也列這些句子，排在任務手冊的建議回覆之後、「請示卡建議回覆」之前。
-- **定期訊息、回呼端點** — 成員詳情，見 [定時做某件事（定期訊息）](schedule.md) 與 [讓外部事件自動送給成員（回呼端點）](webhook.md)。
-- **密鑰** — 密鑰分頁，見 [把帳號金鑰交給成員用（密鑰）](secrets.md)。
+- **Theme, language, layout** — Avatar menu › Preferences. "Theme" in Preferences opens the theme settings, where you can choose a theme, set switching by time of day, the background animation, and showing seasonal themes; adding, editing, importing, and exporting themes is in "Settings › Theme". Language also decides what language members use to reply to you and write reports: after you change it, members switch the next time they start, and members already working are not notified.
+- **Notification email** — Avatar menu › Notification email. Push notifications can only be turned on after you fill in this field; this email is given to the push service run by the browser vendor and does not stay only on your server. Push is turned on with the bell button in the top bar, separately on each device.
+- **Password, two-factor authentication, passkeys** — Avatar menu › Account security. See [Protect your studio](security.md).
+- **Outsource hiring cap** — Office tab › Outsource tab › Recruit a member, then open "Outsource cap". It can be set from 0 to 20 or "Unlimited"; the default is 3. Setting it to 0 pauses outsource assignment.
+- **Member-specific suggested replies** — "Suggested replies" in the chat header, one list per member, for both staff and outsource. The chat lists this member's sentences first, then "Chat suggestions" from General; identical sentences are shown only once. When the task an outsource member holds has a type, the suggested replies of that task manual come first. Reply cards this member opens also list these sentences, after the task manual's suggested replies and before "Reply-card suggestions".
+- **Scheduled messages, webhook endpoints** — Member details. See [Doing something on a schedule (Scheduled messages)](schedule.md) and [Send outside events to members automatically (webhooks)](webhook.md).
+- **Secrets** — The Secrets tab. See [Give members your account keys (secrets)](secrets.md).
 
-## 系統更新與備份
+## System update & backup
 
-畫面由上到下：
+From top to bottom:
 
-- **目前版本**與**更新設定**（接收 Beta 版本、自動更新、更新檢查間隔、讓助理告訴我新版本的功能）— 檢查更新、升級，以及每一格的用途與預設值，見 [安裝、升級與移除](install.md) 的「進階：升級的設定」。
-- **進階** — 只有一格「開發者模式」，預設關閉。關著時，全域情境裡除了使用者自訂以外的文件都鎖住，誰都改不了；打開後才能編輯、同步回預設內容或還原舊版本。使用者自訂不受影響。
-- **備份健康** — 排程備份有沒有持續產生還原點：「備份正常」「備份異常」「無法判斷」。卡片列出最新排程備份、異常已持續多久、保鮮期與伺服器診斷。「無法判斷」不代表沒問題。各狀態的意思與備份、還原的說明，見 [常見問題與排解](troubleshooting.md) 的「備份與還原」。
-- **簽章金鑰** — 伺服器用來簽發登入憑證與分享連結的金鑰，在這一頁最下方。控制台、成員、機器的登入憑證，以及「複製對外連結」與「複製分享連結」產生的連結（檔案的、比較的），都用簽章金鑰簽章。更多說明見 [保護你的工作室](security.md) 的「簽章金鑰」。
-  - 卡上列出目前有幾把金鑰：標「使用中」的那把負責簽發新的憑證；標「舊金鑰（仍有效）」的不再簽發，但用那把簽過的憑證與連結仍然有效。
-  - 「產生新金鑰」：新金鑰立即接手簽章。已登入的人不會被登出，不需要重啟。之後每台在線上的機器會自動換成新金鑰簽的憑證；離線的機器要等上線後才會換。
-  - 「移除」：沒有復原，而且立即生效。用這把金鑰簽的登入憑證全部失效，用到的控制台分頁要重新登入；用這把金鑰產生的分享連結全部失效，持有連結的人不會收到通知；還沒換到新金鑰的機器會立刻斷線。
+- **Current version** and **Update settings** (Receive beta versions, Automatic updates, Update check interval, Let the assistant tell me about new-version features) — For checking for updates, upgrading, and the purpose and default of each field, see "Advanced: upgrade settings" in [Install, upgrade, and uninstall](install.md).
+- **Advanced** — It has a single field, "Developer mode", off by default. While it is off, every document in Global context except User additions is locked and nobody can change it; once it is on, you can edit them, sync them back to their default content, or restore earlier versions. User additions are not affected.
+- **Backup health** — Whether scheduled backups keep producing restore points: "Backups are healthy", "Backups are failing", "Cannot tell". The card lists the latest scheduled backup, how long the failure has lasted, the freshness window, and the server diagnostic. "Cannot tell" does not mean there is no problem. For what each status means and how backup and restore work, see "Backup and restore" in [Troubleshooting and FAQ](troubleshooting.md).
+- **Signing keys** — The keys the server uses to issue login credentials and share links, at the bottom of this page. Login credentials for the console, members, and machines, and the links made by "Copy share link" (for files) and "Copy external link" (for comparisons), are all signed with a signing key. For more, see "Signing keys" in [Protect your studio](security.md).
+  - The card lists how many keys there are now: the one marked "In use" issues new credentials; one marked "Old key (still valid)" no longer issues any, but credentials and links signed with it remain valid.
+  - "Create a new key": the new key takes over signing immediately. Nobody who is logged in is logged out, and no restart is needed. After that, every online machine automatically switches to credentials signed with the new key; offline machines switch once they come online.
+  - "Remove": there is no undo, and it takes effect immediately. Every login credential signed with this key stops working, and console tabs using one must log in again; every share link made with this key stops working, and people holding the links are not notified; machines that have not yet switched to the new key disconnect immediately.
 
-## 全域情境
+## Global context
 
-送給成員的文件都在這一頁，存檔後成員下次讀到的就是新內容。
+All the documents sent to members are on this page; after you save, members read the new content the next time.
 
-最上面單獨一張卡是**使用者自訂**，每位成員開機時都會讀到，沒有字數上限，隨時可以編輯。其餘文件在開發者模式關著時都鎖住：卡片下方有一行「以下文件要修改，請先在系統設定打開開發者模式。」，點「系統設定」會到系統更新與備份；這時文件列不標「可編輯」，點進去看得到全文，但沒有編輯按鈕，原本的位置寫著「要修改，先在系統設定打開開發者模式。」。開發者模式打開後，這行提示消失，每份文件都可以編輯。
+The card on its own at the top is **User additions**. Every member reads it when it starts, it has no character limit, and you can edit it at any time. The other documents are locked while developer mode is off: below the card is the line "To edit the documents below, turn on developer mode in system settings first.", and "system settings" takes you to System update & backup. While locked, the document rows are not marked "editable"; you can open a document and read it in full, but there is no edit button, and in its place it says "To edit this, turn on developer mode in system settings first." Once developer mode is on, the line disappears and every document can be edited.
 
-其餘文件分三組：
+The other documents come in three groups:
 
-| 組 | 文件 | 成員什麼時候讀到 | 字數上限 |
+| Group | Document | When members read it | Character limit |
 | --- | --- | --- | --- |
-| 上線（BOOT） | 系統互動 | 每位成員開機時 | 150000 |
-| 上線（BOOT） | 啟動步驟（Claude Code） | Claude Code 成員開機時照著做 | 37500 |
-| 上線（BOOT） | 啟動步驟（Codex CLI） | Codex 成員開機時照著做 | 37500 |
-| 下線（STOP） | 停止 | 成員被停止時 | 37500 |
-| 下線（STOP） | 加速停止 | 成員被要求提前收工時，附截止時間 | 37500 |
-| 任務事件（TASK） | 任務結案 | 任務被判定結束時 | 37500 |
-| 任務事件（TASK） | 任務轉派 · 給前任 | 手上的任務被轉給別人時 | 37500 |
-| 任務事件（TASK） | 任務轉派 · 給接手人 | 接手任務時（有沒有前任都用這份） | 37500 |
-| 任務事件（TASK） | 擋著你手上任務的票解開了 | 依賴的任務放行時 | 37500 |
-| 任務事件（TASK） | 你手上的任務可以結案了 | 任務每次進到可結案時 | 37500 |
+| BOOT | System interaction | When each member starts | 150000 |
+| BOOT | Boot steps (Claude Code) | Claude Code members follow it when they start | 37500 |
+| BOOT | Boot steps (Codex CLI) | Codex members follow it when they start | 37500 |
+| STOP | Stop | When a member is stopped | 37500 |
+| STOP | Accelerated stop | When a member is asked to wrap up early, with a deadline | 37500 |
+| TASK EVENTS | Task close-out | When a task is judged finished | 37500 |
+| TASK EVENTS | Task reassignment · to the predecessor | When a task the member holds is reassigned to someone else | 37500 |
+| TASK EVENTS | Task reassignment · to the successor | When taking over a task (the same document is used whether or not there is a predecessor) | 37500 |
+| TASK EVENTS | The task blocking yours is released | When a task it depends on is released | 37500 |
+| TASK EVENTS | Your task is ready to be closed | Each time a task becomes ready to close | 37500 |
 
-- 「啟動步驟」在清單上是一列，點進去用「一般／Codex」切換兩份文件。
-- 字數上限是出廠值，參數調整頁上沒有這幾格。有上限的文件，卡片標題列會顯示「目前字數 / 上限」。
-- 有幾份文件的開頭是程式產生的唯讀區（例如成員名字、截止時間），標成「唯讀區（程式產生，改不動）」；你只能改唯讀區之後的段落。儲存會用編輯框的內容取代可編輯的部分。
-- 有預設內容的文件，卡片標「與預設內容同步」或「已修改」。
-- 存檔前會先確認。啟動步驟要特別小心：寫壞會讓之後開機的成員無法上線，而且不會有任何錯誤訊息。版本紀錄裡的「預設內容」可以把啟動步驟同步回出廠內容。
+- "Boot steps" is a single row in the list; open it and switch between the two documents with "Standard / Codex".
+- The character limits are factory values, and these fields are not on the General page. For a document with a limit, the card's title bar shows "current characters / limit".
+- Some documents begin with a read-only section written by the program (for example the member's name or the deadline), marked "Read-only (written by the program, not editable)"; you can only change the paragraphs after the read-only section. Saving replaces the editable part with the contents of the editor.
+- A document with default content is marked "In sync with default" or "Modified" on its card.
+- You are asked to confirm before saving. Take extra care with the boot steps: a broken version keeps members from coming online the next time they start, with no error message at all. "Default content" in the version history can sync the boot steps back to the factory content.
 
-**使用者自訂**是你寫給所有成員的長期指示，內容的寫法見 [讓成員記住你教過的事（傳承）](lore.md)。
+**User additions** are the long-term instructions you write for all members. For how to write them, see [Making members remember what you taught them (Lore)](lore.md).
 
-## 角色誌
+## Roles
 
-每個角色一頁，頁上有兩份文件：
+One page per role, with two documents on it:
 
-- **角色定義** — 這個角色負責什麼、遵守哪些規矩。改了之後，這個角色的成員下次開機讀到新內容。
-- **判準(Insight)** — 這個角色反覆用到的取捨與界線，通常由該角色的成員自己寫進來。所有成員都讀得到任何角色的判準；只有該角色自己的成員、你和特助能寫。畫面上的說明是：「所有成員都看得到這份判準；只有這個角色本人和管理員可以修改。」其中「管理員」指你和特助。特助的判準有一份預設內容，其他角色的判準一開始是空的。
+- **Duty** — What this role is responsible for and which rules it follows. After a change, the role's members read the new content the next time they start.
+- **Insight** — The trade-offs and boundaries this role uses again and again, usually written by the role's own members. Every member can read every role's Insight; only that role's own members, you, and the Assistant can write it. The on-screen note says: "Judgement principles this role keeps for its own work. Only this role's members read them at boot; other members don't read them by default." The Assistant's Insight has default content; other roles' Insight starts empty.
 
-角色定義與判準所有成員都查得到，但只會自動放進該角色的成員的開機內容。
+Every member can look up Duty and Insight, but they are added automatically only to the startup content of that role's members.
 
-角色清單上可以「新增角色定義」「重新命名角色」「刪除」，你和特助都能操作。刪除角色時：
+The role list has "Add role", "Rename role", and "Delete", which you and the Assistant can both use. When a role is deleted:
 
-- 該角色的正職成員會標成已離開，聊天紀錄保留為唯讀。
-- 角色定義與判準會永久刪除，無法復原，版本紀錄也一起刪除。
-- 有成員在線上時不能刪除，畫面會顯示「有成員在線上，無法刪除」；該角色的成員都停止後才能刪除。
-- 內建的特助角色不能刪除。
+- The role's staff members are marked as having left, and their chat history is kept read-only.
+- The Duty and Insight are deleted permanently and cannot be recovered; the version history is deleted too.
+- It cannot be deleted while a member is online; the screen shows "A member is online — cannot delete". It can be deleted after all of the role's members have stopped.
+- The built-in assistant role cannot be deleted.
 
-新增角色就是多請一位正職，說明見 [增加成員與發外包](members.md)。
+Adding a role means hiring one more staff member. See [Adding members and hiring outsource](members.md).
 
-## 任務手冊
+## Task manuals
 
-每一類任務的作業手冊，分「內建」與「自訂」兩組。
+The working manual for each kind of task, in two groups: "Built-in" and "Custom".
 
-**手冊與任務計畫的分工**
+**How manuals and task plans divide the work**
 
-| | 誰寫 | 內容 | 存在哪裡 |
+| | Who writes it | Content | Where it lives |
 | --- | --- | --- | --- |
-| 任務手冊 | 你，或成員經你同意後修改 | 這一類工作的用途、需要的資訊、SOP、負責成員 | 設定 › 任務手冊，跨任務長期存在 |
-| 任務計畫 | 負責這張任務的成員 | 這一張任務實際拆成哪些步驟、每一步的完成定義 | 任務卡上，隨這張任務結案 |
+| Task manual | You, or a member with your approval | The purpose of this kind of work, the information it needs, the SOP, the assigned executor | Settings › Task manuals, lasting across tasks |
+| Task plan | The member responsible for the task | Which steps this particular task is actually split into, and each step's definition of done | On the task card, closed out with the task |
 
-**手冊頁**
+**The manual page**
 
-- 手冊頁有三塊：「負責成員」卡、「任務規劃」區的「任務定義」（這是什麼任務、需要哪些資訊、該怎麼做），以及「建議回覆」。
-- 「建議回覆」是這類任務專屬的句子，最多 20 句，每句最多 120 字，只有你看得到。下面三個地方會最先列這些句子：綁在這類任務上、或在問這類任務的請示卡回覆框；這類任務的任務卡訊息框；手上是這類任務的外包成員的聊天室。正職成員的聊天室不列，因為正職可能同時負責好幾種任務。刪除手冊時這些句子一起刪除；內建手冊同步預設內容時保留。
-- 新增手冊時，系統會自動產生手冊的內部 ID，不需要也不能自己填。新增的手冊一開始是空白的。
-- 顯示名稱可以在手冊頁的標題上直接改；留空時會顯示內部 ID。
-- 成員可以修改手冊的用途、欄位與 SOP；成員要改 SOP 時，會先開請示卡等你同意。
-- SOP 有字數上限，數值在「參數調整」的「任務手冊 SOP 字數上限」。
+- The manual page has three parts: the "Assigned executor" card, the "Task definition" in the "Task planning" area (what this task is, what information it needs, and how it is done), and "Suggested replies".
+- "Suggested replies" are sentences specific to this kind of task, at most 20 sentences of at most 120 characters each, visible only to you. These sentences are listed first in three places: the reply box of a reply card that is linked to this kind of task or asks about one; the message box on the task card of this kind of task; and the chat with an outsource member holding this kind of task. Staff members' chats do not list them, because a staff member may be responsible for several kinds of tasks at once. Deleting the manual deletes these sentences; syncing a built-in manual to its default content keeps them.
+- When you add a manual with "Add task manual", the system generates its internal ID automatically; you do not need to fill it in and cannot. A new manual starts empty.
+- The display name can be changed directly in the title on the manual page; when it is left empty, the internal ID is shown.
+- Members can change a manual's purpose, fields, and SOP; when a member wants to change the SOP, it first opens a reply card and waits for your approval.
+- The SOP has a character limit, set by "Task manual SOP size cap" in "General".
 
-**需要哪些資訊與識別鍵**
+**Required information and identity keys**
 
-- 每個欄位可以打開「必填」（不打開就是選填），也可以設為「🔑 識別鍵」；設為識別鍵會自動變成必填。
-- 識別鍵只在同一個任務類型裡比對，而且只比對還沒結束的任務。舊任務已完成、終止或標記重複之後，同樣的識別鍵值再進來會開一張新任務。
-- 值要完全相同才算同一件事。前後空白不計，大小寫要一樣。
-- 比對到既有任務時，成員會沿用那一張任務，不會另開新的。
-- 沒有設識別鍵的手冊，以及自由代辦任務，不會自動去重。
+- Each field can be switched to "Required" (otherwise it is optional), and can also be set as a "🔑 Identity key"; a field set as an identity key becomes required automatically.
+- Identity keys are matched only within the same task type, and only against tasks that have not ended. Once the old task is done, terminated, or marked as a duplicate, the same identity key value coming in again opens a new task.
+- Values must be exactly the same to count as the same matter. Leading and trailing spaces are ignored; letter case must match.
+- When a match with an existing task is found, the member reuses that task instead of opening a new one.
+- Manuals without an identity key, and ad-hoc tasks, are not deduplicated automatically.
 
-**負責成員**
+**Assigned executor**
 
-只有你和特助 Mira 能設定，一般成員改不了。
+Only you and the Assistant Mira can set it; ordinary members cannot change it.
 
-- **指定成員**：從正職成員裡選一位。
-- **外包**：每張任務雇用一位外包執行，任務結案後外包釋出。外包另設：
-  - **AI 執行環境**：Claude Code 或 Codex。
-  - **模型**：可以留空，使用預設模型。
-  - **投入程度**：低、中、高、極高、最高。
-  - **機器**：外包要在哪一台機器上執行。清單上會標出每台機器目前是閒置、忙碌或離線。沒選機器，或該機器離線、沒有裝所選的執行環境時，這類任務的外包一律不會被喚醒，也不會改到其他機器執行，原因會顯示在該外包上。
-  - **雇用數量**：這一類任務最多同時雇用幾位外包。按「無限」（顯示為 ∞）表示這一類任務不設上限，但仍受全站的外包上限限制。
-- **解除設定**：清掉負責成員設定。
+- **Pick a member**: choose one of the staff members.
+- **Outsource**: each task hires one outsource member to carry it out, and the member is released after the task is closed. For outsource you also set:
+  - **AI runtime**: Claude Code or Codex.
+  - **Model**: can be left empty to use the default model.
+  - **Effort**: Low, Medium, High, X-High, Max.
+  - **Machine**: which machine the outsource member runs on. The list shows whether each machine is currently idle, busy, or offline. If no machine is chosen, or the machine is offline or does not have the chosen runtime installed, outsource members for this kind of task are never woken and are not moved to another machine; the reason is shown on the outsource member.
+  - **Hire count**: how many outsource members this kind of task can hire at the same time at most. Pressing "Unlimited" (shown as ∞) means this kind of task has no cap of its own, but the studio-wide outsource cap still applies.
+- **Clear setting**: clears the assigned executor setting.
 
-**內建手冊與刪除手冊**
+**Built-in manuals and deleting manuals**
 
-- OffiCraft 內建三本手冊：「建立／修改角色」、「建立／修改任務手冊」與「開放遠端連線」。內建手冊可以修改，不能刪除。SOP 版本紀錄裡的「預設內容」可以把整本手冊（包含負責成員）同步回預設設定。
-- 清單每一列右邊的垃圾桶圖示（滑鼠移上去顯示「刪除」）用來刪除自訂手冊，刪除前會要求按「確認刪除」；內建手冊的垃圾桶是灰的，不能刪。
-- 刪除會一併移除手冊的定義、SOP 與版本紀錄，無法復原。這個類型還有未結束的任務時不能刪除，那些任務都結束後才能刪除。
+- OffiCraft has three built-in manuals: "Create / edit role", "Create / edit task manual", and "Allow remote connections". Built-in manuals can be changed but not deleted. "Default content" in the SOP version history can sync the whole manual (including the assigned executor) back to its default settings.
+- The trash-can icon at the right of each row in the list (it shows "Delete" on hover) deletes a custom manual, and you must press "Delete" to confirm first; a built-in manual's trash can is grayed out and cannot be used.
+- Deleting removes the manual's definition, SOP, and version history together, and cannot be undone. A type that still has unfinished tasks cannot be deleted; it can be deleted after those tasks have all ended.
 
-怎麼寫手冊、怎麼挑識別鍵與關卡，見 [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md)。
+For how to write a manual and choose identity keys and gates, see [Having AI follow an SOP for repeated work (Task manuals)](sop.md).
 
-## 版本紀錄
+## Version history
 
-全域情境的每一份文件、角色定義、判準(Insight)、任務手冊的 SOP 都有版本紀錄：
+Every Global context document, Duty, Insight, and task manual SOP has a version history:
 
-- 系統互動、啟動步驟、停止、加速停止與 5 份任務事件文件各保留最近 10 次修改；其他文件（使用者自訂、角色定義、判準、SOP 等）保留最近 3 次。以存檔次數計，不是以時間計，連續小修幾次就會把較舊的版本沖掉，被沖掉的版本救不回來。
-- 入口在編輯模式：按「編輯」後，按鈕列多一顆「版本紀錄」。
-- 清單每一列寫被取代的時間與修改者。點一列打開那一版，可在「版本內容」與「與目前的差異」之間切換；差異比的是伺服器上存著的內容，不含編輯框裡還沒存的修改。
-- 「還原這個版本」會先要你確認，然後覆蓋目前內容；目前內容會存成新的一版，所以還原後還能再退回來。
-- 有預設內容的文件（例如使用者自訂、特助的角色定義與判準、內建任務手冊），清單最後一列是「預設內容」，打開後可以看內容、看差異，再按「同步預設內容」。「使用者自訂」的預設內容是空白的，同步等於清空。內建任務手冊同步預設內容時，整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到預設設定。
-- 任務手冊只有 SOP 留版本；用途與識別鍵的修改不留版本。
-- 傳承條目的標題與內容也有版本紀錄，每一筆保留最近 3 次，入口在傳承分頁條目的編輯框裡，見 [介面說明](interface.md) 的「傳承」。
-- 整份刪除角色或自訂手冊時，版本紀錄一起刪除，無法還原。
-- 超過目前字數上限、而且沒有比目前內容短的版本，在清單上標「無法還原」並寫出原因。
+- System interaction, Boot steps, Stop, Accelerated stop, and the 5 task event documents each keep the last 10 changes; other documents (User additions, Duty, Insight, SOPs, and so on) keep the last 3. This counts saves, not time: a few small edits in a row push out the older versions, and versions pushed out cannot be recovered.
+- It opens from edit mode: after you press "Edit", the button row gains a "Version history" button.
+- Each row in the list shows when that version was replaced and who changed it. Click a row to open that version, and switch between "Version content" and "Changes vs current"; the comparison uses what is stored on the server and does not include unsaved changes in the editor.
+- "Restore this version" asks you to confirm first, then overwrites the current content; the current content is saved as a new version, so you can go back again after restoring.
+- For documents with default content (for example User additions, the Assistant's Duty and Insight, and built-in task manuals), the last row in the list is "Default content". Open it to view the content and the comparison, then press "Sync to default". The default content of "User additions" is empty, so syncing clears it. When a built-in task manual syncs to its default content, the whole manual (name, purpose, identity keys, SOP, and assigned executor) goes back to its default settings.
+- For task manuals, only the SOP keeps versions; changes to the purpose and identity keys keep none.
+- Lore entry titles and bodies also have a version history, keeping the last 3 changes for each entry. It opens from the entry's edit box on the Lore tab; see "Lore" in [Interface reference](interface.md).
+- When a whole role or custom manual is deleted, its version history is deleted too and cannot be restored.
+- A version that is over the current character limit and not shorter than the current content is marked "Cannot restore" in the list, with the reason.
 
-## 參數調整
+## General
 
-畫面由上到下的每一格：
+Each field on the screen, from top to bottom:
 
-| 參數 | 用途 | 範圍 | 預設 |
+| Parameter | Purpose | Range | Default |
 | --- | --- | --- | --- |
-| 登入有效期 | 你登入後多久需要重新輸入密碼 | 12 小時／24 小時／7 天／30 天 | 24 小時 |
-| 成員登入有效期 | 新啟動的成員與外包多久需要重新取得登入憑證；調小不影響已發出的憑證 | 12 小時／24 小時／7 天／30 天 | 7 天 |
-| Claude 第一次通知 | Claude 成員的記憶用到這個比例時，送〈停止〉請它收尾後換手 | 1–89%，要比最後通牒小 | 40% |
-| Claude 最後通牒 | 記憶用到這個比例時送最後通牒並自動換手，之後依加速停止秒數強制回收 | 40–90% | 50% |
-| Codex 第一次通知 | Codex 成員第幾次記憶壓縮後送〈停止〉 | 1–10 次，要比最後通牒回合小 | 比最後通牒回合少 1 次 |
-| Codex 最後通牒回合 | 完成這麼多次記憶壓縮後自動重新聚焦 | 1–10 次 | 3 次 |
-| 加速停止秒數 | 按下加速停止、或碰到 Claude 最後通牒後，成員還有幾秒收尾；這個時刻會原文告訴成員 | 10–3600 秒 | 120 秒 |
-| 轉派交接逾時秒數 | 轉派後，外包前任多久沒有更新任務就被回收；每次更新任務都重新計時，正職前任不受影響 | 60–86400 秒 | 1800 秒 |
-| 機器憑證壽命 | 機器登入憑證的有效期；機器會在到期前自動換新，錯過換新的機器要重新安裝；調小不影響已發出的憑證 | 86400–34560000 秒（1–400 天） | 30 天 |
-| 登入檢查間隔 | Claude 或 Codex 已登入時，每台機器多久再檢查一次 | 30–3600 秒 | 300 秒 |
-| 未登入時重查間隔 | Claude 或 Codex 未登入或檢查失敗時，每台機器多久再檢查一次 | 30–3600 秒 | 30 秒 |
-| 磁碟用量量測間隔 | 多久量一次 OffiCraft 在每台機器佔用的磁碟空間；只量測，不刪除 | 600–86400 秒 | 3600 秒 |
-| 監控刷新間隔 | 收到連續事件時，監控頁最多每隔幾秒刷新一次 | 1–60 秒 | 5 秒 |
-| 角色定義字數上限 | 一個角色的角色定義最多幾個字 | 100–250000 | 2500 |
-| Insight 字數上限 | 一個角色的判準最多幾個字 | 100–250000 | 37500 |
-| 任務手冊 SOP 字數上限 | 一本任務手冊的 SOP 最多幾個字 | 100–250000 | 37500 |
-| 任務步驟備註字數上限 | 一個任務步驟的備註最多幾個字 | 1000–100000 | 25000 |
-| 快到期提醒 | 任務在到期前多久開始算「即將到期」；任務卡上可以為個別任務另設 | 1 分鐘–30 天 | 1 天 |
-| Secret 請示卡的等待取得時間 | 你提供內容後，成員多久沒取得就刪除內容、卡片失效；只影響之後提供的內容 | 1 分鐘–30 天 | 24 小時 |
-| Secret 請示卡的取得後保留時間 | 成員第一次取得後，內容還保留多久，這段時間內成員可以再取得；0 表示取得時立即刪除；只影響之後的取得 | 0 秒–1 天 | 10 分鐘 |
-| 喚醒聊天字數預算 | 成員喚醒時最多帶回多少字的近期聊天 | 1000–13000 | 6000 |
-| 成員傳承字數上限 | 每位成員開機時最多讀多少字的傳承；「所有人」的傳承和成員自己的傳承依置頂、生效期合成一份清單，一起算在這個上限裡 | 100–100000 | 25000 |
-| 任務傳承字數上限 | 讀任務手冊時最多附帶多少字的任務傳承 | 100–100000 | 25000 |
-| 傳承標題字數上限 | 一筆傳承的標題最多幾個字 | 10–10000 | 200 |
-| 傳承內容字數上限 | 一筆傳承的內容最多幾個字 | 10–10000 | 1250 |
-| 備份保留份數 | 資料庫備份保留幾份 | 1–20 份 | 5 份 |
-| 請示卡建議回覆 | 回覆請示卡時可一鍵帶入的句子，排在任務手冊與開卡成員專屬的句子之後 | 最多 20 句，每句最多 120 字 | — |
-| 任務訊息建議回覆 | 在任務上傳訊息時可一鍵帶入的句子，排在任務手冊的句子之後 | 最多 20 句，每句最多 120 字 | — |
-| 傳承訊息建議回覆 | 在傳承條目的訊息框可一鍵帶入的句子 | 最多 20 句，每句最多 120 字 | — |
-| 聊天室建議回覆 | 所有成員聊天室共用、可一鍵帶入的句子，排在成員專屬的句子之後 | 最多 20 句，每句最多 120 字 | — |
+| Session length | How long after you log in before you must enter your password again | 12 hours / 24 hours / 7 days / 30 days | 24 hours |
+| Member login lifetime | How long before newly started staff and outsource members must get a new login credential; lowering it does not affect credentials already issued | 12 hours / 24 hours / 7 days / 30 days | 7 days |
+| Claude first notice | When a Claude member's memory reaches this share, Stop is sent asking it to wrap up and hand over | 1–89%, must be below the final call | 40% |
+| Claude final call | When memory reaches this share, the final call is sent and the handover happens automatically; after that the session is collected forcibly once the Accelerated stop deadline passes | 40–90% | 50% |
+| Codex first notice | After which memory compaction a Codex member is sent Stop | 1–10 rounds, must be below the final round | 1 less than the final round |
+| Codex final round | After this many memory compactions, the member refocuses automatically | 1–10 rounds | 3 rounds |
+| Accelerated stop deadline | How many seconds a member has to wrap up after Accelerated stop is pressed or the Claude final call is reached; the member is told this moment verbatim | 10–3600 seconds | 120 seconds |
+| Reassign handover timeout | After a reassignment, how long an outsource predecessor can go without updating the task before it is collected; every task update restarts the timer, and staff predecessors are not affected | 60–86400 seconds | 1800 seconds |
+| Machine credential lifetime | How long a machine's login credential is valid; machines renew it automatically before it expires, and a machine that misses renewal must be reinstalled; lowering it does not affect credentials already issued | 86400–34560000 seconds (1–400 days) | 30 days |
+| Login check interval | How often each machine checks again while Claude or Codex is signed in | 30–3600 seconds | 300 seconds |
+| Logged-out recheck interval | How often each machine checks again while Claude or Codex is signed out or the check failed | 30–3600 seconds | 30 seconds |
+| Disk usage interval | How often to measure the disk space OffiCraft uses on each machine; it only measures and deletes nothing | 600–86400 seconds | 3600 seconds |
+| Monitoring refresh interval | When events arrive in a row, how often at most the Monitor page refreshes | 1–60 seconds | 5 seconds |
+| Duty size cap | The most characters one role's Duty can have | 100–250000 | 2500 |
+| Insight size cap | The most characters one role's Insight can have | 100–250000 | 37500 |
+| Task manual SOP size cap | The most characters one task manual's SOP can have | 100–250000 | 37500 |
+| Task step note size cap | The most characters one task step's note can have | 1000–100000 | 25000 |
+| Due-soon lead time | How long before its due time a task starts counting as "Due soon"; individual tasks can set their own on the task card | 1 minute–30 days | 1 day |
+| Secret card: time to retrieve | After you provide the content, how long the member has to retrieve it before the content is deleted and the card expires; affects only content provided afterwards | 1 minute–30 days | 24 hours |
+| Secret card: kept after retrieval | After the member first retrieves it, how long the content is kept, during which the member can retrieve it again; 0 means it is deleted on retrieval; affects only later retrievals | 0 seconds–1 day | 10 minutes |
+| Wake chat budget | The most characters of recent chat a member brings back when it wakes | 1000–13000 | 6000 |
+| Member lore size cap | The most characters of lore each member reads when it starts; lore for "Everyone" and the member's own lore are merged into one list by pinned state and effective period, and both count toward this cap | 100–100000 | 25000 |
+| Task manual lore size cap | The most characters of task lore attached when a task manual is read | 100–100000 | 25000 |
+| Lore title size cap | The most characters a lore entry's title can have | 10–10000 | 200 |
+| Lore body size cap | The most characters a lore entry's body can have | 10–10000 | 1250 |
+| Backups kept | How many database backups are kept | 1–20 | 5 |
+| Reply-card suggestions | Sentences you can insert with one click when answering a reply card, listed after the task manual's sentences and those specific to the member who opened the card | At most 20 sentences, at most 120 characters each | — |
+| Task-message suggestions | Sentences you can insert with one click when sending a message on a task, listed after the task manual's sentences | At most 20 sentences, at most 120 characters each | — |
+| Lore-message suggestions | Sentences you can insert with one click in a lore entry's message box | At most 20 sentences, at most 120 characters each | — |
+| Chat suggestions | Sentences shared by all member chats that you can insert with one click, listed after the member-specific sentences | At most 20 sentences, at most 120 characters each | — |
 
-**換手門檻**：成員的記憶用到門檻時，會先收尾、留下交接，再由伺服器重新開一個接著做。門檻調低，換手更頻繁；調高，每一輪跑得更久。Claude 成員只看百分比那兩格，Codex 成員只看記憶壓縮次數那兩格，調錯那一組不會有任何提示。成員詳情的「重新聚焦」會讓成員立即換手一次。
+**Handover thresholds**: when a member's memory reaches the threshold, it first wraps up and leaves a handover, then the server starts a new session to carry on. Lower thresholds mean more frequent handovers; higher ones let each round run longer. Claude members only look at the two percentage fields, and Codex members only look at the two memory-compaction fields; setting the wrong pair gives no warning at all. "Refocus" in member details makes the member hand over once immediately.
 
-**字數上限**：調低任何一格字數上限，都不會截斷或刪除已經存好的內容。
+**Character limits**: lowering any character limit never truncates or deletes content that is already saved.
 
-- 角色定義、Insight、SOP：上限只在寫入時檢查。已經超過上限的文件，只要新版比舊版短，仍然存得進去。成員讀這三種文件時會一併看到目前字數與上限。
-- 步驟備註：已經超過新上限的備註照樣完整讀得到，但要先寫短到上限以下才能再修改。這一格只管步驟備註；聊天訊息與轉派的交接備註有各自固定的上限，不跟著這一格變。
-- 成員傳承與任務傳承：超過上限時，放不下的整筆條目成員讀不到，也不會有錯誤訊息；傳承分頁上讀不到的條目會縮成一列、標著「讀不到」。
-- 傳承標題與內容：超過上限的新條目整筆被拒絕。已經存好的條目照樣完整讀得到；已經超過新上限的標題或內容，修改時只要比原本短就存得進去，沒改的那一欄不檢查；還原舊版本也照這個規則。
+- Duty, Insight, SOPs: the limit is checked only on write. A document already over the limit can still be saved as long as the new version is shorter than the old one. When members read these three kinds of documents, they also see the current character count and the limit.
+- Step notes: a note already over the new limit can still be read in full, but must be cut below the limit before it can be changed again. This field only governs step notes; chat messages and reassignment handover notes have their own fixed limits that do not follow this field.
+- Member lore and task lore: when the limit is exceeded, each entry that does not fit is skipped as a whole (entries are never cut short), members cannot read it, and there is no error message; on the Lore tab those entries are collapsed to one line and tagged "Not read".
+- Lore titles and bodies: a new entry over the limit is rejected as a whole. Entries already saved can still be read in full; a title or body already over the new limit can be saved when edited as long as it is shorter than before, and a field you did not change is not checked. Restoring an earlier version follows the same rule.
 
-**喚醒聊天字數預算**：調低只會讓成員下次喚醒時帶回的訊息變少，不會刪掉任何聊天紀錄；沒帶回的部分成員可以自己再讀。調高讓成員醒來時多讀一些對話，代價是每次喚醒都多花那些字。
+**Wake chat budget**: lowering it only makes members bring back fewer messages the next time they wake; it deletes no chat history, and members can read the rest themselves. Raising it lets members read more of the conversation when they wake, at the cost of spending those characters on every wake.
 
-**備份保留份數**是唯一一格調低會刪掉東西的參數：
+**Backups kept** is the only parameter where lowering the value deletes something:
 
-- 算的是份數，不是天數。能回溯多久取決於那段時間實際備份了幾次。
-- 日常備份與升級前備份各自保留這個份數，所以磁碟上最多會有兩倍的檔案。
-- 超過的份數在下一次備份時永久刪除，救不回來。
+- It counts backups, not days. How far back you can go depends on how many backups were actually made in that period.
+- Daily backups and pre-upgrade backups each keep this many, so there can be up to twice as many files on disk.
+- Backups over the count are permanently deleted at the next backup and cannot be recovered.
 
-**建議回覆**：四份清單各自存檔。請示卡的回覆框依序列出：卡片所屬任務的任務手冊「建議回覆」、開卡成員專屬的句子、「請示卡建議回覆」。任務卡的訊息框依序列出：這個任務的任務手冊「建議回覆」、「任務訊息建議回覆」。外包成員的聊天室依序列出：它手上任務的任務手冊「建議回覆」、這位成員專屬的句子、「聊天室建議回覆」。傳承卡片的訊息框列出「傳承訊息建議回覆」。每個框裡相同的句子只顯示一次。沒有對應任務、任務是自由代辦，或某一份沒有句子時，那一份就不列。點一句只會把句子填進輸入框，不會替你送出；輸入框已經有字時，句子接在後面另起一行。清單可以留空，留空時對應的輸入框下方不顯示建議；聊天室或請示卡的清單留空時，成員專屬的句子照樣顯示。超過字數上限的句子會被拒絕存檔，不會被自動截短。
+**Suggested replies**: the four lists are saved separately. The reply box of a reply card lists, in order: the "Suggested replies" of the task manual of the task the card belongs to, the sentences specific to the member who opened the card, and "Reply-card suggestions". The message box of a task card lists, in order: the "Suggested replies" of this task's task manual, and "Task-message suggestions". The chat with an outsource member lists, in order: the "Suggested replies" of the task manual of the task it holds, the sentences specific to this member, and "Chat suggestions". The message box of a lore card lists "Lore-message suggestions". Identical sentences are shown only once in each box. When there is no matching task, the task is ad-hoc, or a list has no sentences, that list is not shown. Clicking a sentence only puts it into the input box and does not send it for you; if the input box already has text, the sentence is added on a new line after it. A list can be left empty, in which case no suggestions are shown under the matching input box; when the chat or reply card list is empty, the member-specific sentences are still shown. A sentence over the character limit is rejected when saving, not shortened automatically.
 
-## 主題
+## Theme
 
-「設定 › 主題」分成兩區：「外觀」選用哪個主題、設定依時段切換、背景動畫（只存在這台裝置）、開關應景主題，以及恢復預設；「主題庫」可以新增、匯入、匯出、編輯、刪除主題。頭像選單 › 偏好設定的「主題」打開的是同一份外觀設定。各項外觀設定的意思見 [主題（外觀與用語）](theme.md)。
+"Settings › Theme" has two areas: "Appearance" chooses which theme to use, sets switching by time of day, the background animation (saved only on this device), turns seasonal themes on or off, and restores the default; "Theme library" lets you add, import, export, edit, and delete themes. "Theme" in Avatar menu › Preferences opens the same appearance settings. For what each appearance setting means, see [Themes (look and wording)](theme.md).
 
-**編輯器的區塊**
+**Editor sections**
 
-新增時，系統以辦公室・深色（無背景）為底建立一份副本，直接打開編輯器，名稱先帶「新主題」。自訂主題最多 100 套。除了顏色以外都可以留空，留空就沿用內建的設計：
+When you add a theme, the system makes a copy based on Office · Dark (no background) and opens the editor directly, with the name prefilled as "New theme". There can be at most 100 custom themes. Everything except colors can be left empty, in which case the built-in design is kept:
 
-- **顏色** — 七十多個具名顏色，依用途分組：主色、背景與表面、文字、狀態、狀態點、圖示、相依、裝飾、其他。每一項用看得懂的名稱標示，點開用取色器挑色，也可以調不透明度。
-- **用詞** — 一份可以搜尋的介面用語清單，在要改的那一條填「替代字」即可覆蓋；留空則維持原文。
-- **字型** — 「內文字型」與「標題字型」各從一份內建的安全字型清單挑選（含標楷體、黑體、宋體、圓體等中文字型）；選「預設(主題字型)」就沿用原字型。
-- **頭像** — 正職頭像、外包頭像、CEO 頭像、助理頭像，各可上傳一張（PNG、JPEG、WEBP，上限 64 KB）。
-- **工作室 Logo** — 頂列左上角的 Logo（PNG、JPEG、WEBP，上限 64 KB）。
-- **導覽圖示** — 辦公室、請示、任務、密鑰、檔案庫、傳承、監控七個分頁的圖示，各可上傳一張（PNG、JPEG、WEBP，上限 64 KB）。較早的主題檔可能還帶著使用說明的圖示，照樣可以匯入，但這張圖示不會顯示在任何地方，在主題編輯器按儲存後也會被移除，沒有提示。
-- **外框背景** — 疊在底色上的一張圖（PNG、JPEG、WEBP，上限 1 MB），鋪法有三種：
-  - **平鋪** — 重複鋪滿內容欄兩側的外框。
-  - **貼邊** — 左右各貼一張同樣的圖，不做鏡像。
-  - **滿版** — 一張圖填滿整個視窗。只有在這個主題把頂列、頁籤列、內容區的顏色設成半透明（帶透明度的色值，例如 `#RRGGBBAA` 或 `rgba`）時才看得到；系統不會替圖與文字調整對比。
-  - 平鋪與貼邊只畫在內容欄兩側，所以在手機、窄視窗與寬版版面上看不到。
+- **Colours** — Seventy-odd named colors, grouped by use: Brand & accent, Background & surface, Text, Status, Presence dots, Icons, Dependencies, Decoration, Other. Each one is labeled with a readable name; click it to pick a color with the color picker, and you can also adjust its opacity.
+- **Wording** — A searchable list of interface wording; fill in the "replacement" for the line you want to change to override it, or leave it empty to keep the original.
+- **Fonts** — "Body font" and "Title font" are each picked from a built-in list of safe fonts (including Chinese fonts such as Kaiti, Heiti, Songti, and rounded fonts); choose "Default (theme font)" to keep the original font.
+- **Avatars** — Staff avatar, Outsource avatar, CEO avatar, Assistant avatar; one image can be uploaded for each (PNG, JPEG, WEBP, max 64 KB).
+- **Studio logo** — The logo at the top left of the top bar (PNG, JPEG, WEBP, max 64 KB).
+- **Navigation icons** — Icons for the seven tabs Office, Ask, Tasks, Secrets, Files, Lore, and Monitor; one image can be uploaded for each (PNG, JPEG, WEBP, max 64 KB). Older theme files may still carry a User guide icon; they import as usual, but that icon is not shown anywhere, and it is removed without notice when you press Save in the theme editor.
+- **Outer canvas** — An image laid over the base color (PNG, JPEG, WEBP, max 1 MB), with three layouts:
+  - **Tile** — Repeats to fill the frame on both sides of the content column.
+  - **Sides** — Places one copy of the same image on each side, without mirroring.
+  - **Cover** — One image fills the whole window. It is only visible when this theme sets the colors of the top bar, tab bar, and content area to semi-transparent (color values with transparency, such as `#RRGGBBAA` or `rgba`); the system does not adjust the contrast between the image and the text.
+  - Tile and Sides are drawn only on both sides of the content column, so they are not visible on phones, in narrow windows, or in the wide layout.
 
-顏色只能填具體的色值，字型只能從安全字型清單挑，用詞只能覆蓋既有的介面用語，不能放入任意 CSS（網頁的樣式碼）、字型檔或程式碼。
+Colors can only be concrete color values, fonts can only be chosen from the safe font list, and wording can only override existing interface wording; you cannot add arbitrary CSS (a web page's style code), font files, or code.
 
-**匯出與匯入**
+**Exporting and importing**
 
-- 自訂主題匯出的是完整內容：顏色、用詞、字型、頭像、Logo、導覽圖示、外框背景都在檔案裡。內建主題匯出的是那一套的整組顏色。
-- 匯入有三種方式：在「在此貼上主題 JSON…」貼上主題檔的內容；「選擇 .json 檔」；在「…或貼一條連結匯入」貼上主題檔的網址，按「抓取並匯入」。帶背景圖的主題檔通常很大，直接貼上內容不方便。
-- 匯入前會先檢查內容，不合法的色值、任意 CSS、過大的內容都會被擋下。
-- 主題檔裡有不認得的用詞代碼時，仍然會匯入，但會列出被略過的代碼。
-- 已經有同一套自訂主題時，會提示「已經有同一套自訂主題」。
-- 主題檔裡的 id（每套主題的識別碼）和內建應景主題相同時無法匯入。
+- Exporting a custom theme exports its full content: colors, wording, fonts, avatars, logo, navigation icons, and outer canvas are all in the file. Exporting a built-in theme exports that theme's full set of colors.
+- There are three ways to import: paste the theme file's content into "Paste theme JSON here…"; "Choose .json file"; or paste the theme file's web address into "…or import from a link" and press "Fetch and import". Theme files with a background image are usually large, so pasting the content directly is inconvenient.
+- The content is checked before import, and invalid color values, arbitrary CSS, and oversized content are blocked.
+- When a theme file has wording codes that are not recognized, it is still imported, but the skipped codes are listed.
+- When the same custom theme already exists, you are told "This custom theme already exists".
+- A theme file whose id (each theme's identifier) is the same as a built-in seasonal theme cannot be imported.
 
-**主題的其他行為**
+**Other theme behavior**
 
-- 登入頁沿用這台瀏覽器上次使用的主題。
-- 按「登出」會把這台瀏覽器的主題重設回辦公室・深色（無背景），下一個在這台電腦登入的人不會看到前一個人的選擇；登入過期而不是按登出時，登入頁維持原本的主題。
-- 每個應景主題的起訖時間隨版本附帶，不能調整，以你這台電腦的當地時間計算。兩個時段重疊時，同一時間只顯示一個。
-- 應景主題不會改掉你選的主題或時段設定，也不在主題清單裡，不能選來長期使用。
+- The login page uses the theme this browser used last.
+- Pressing "Log out" resets this browser's theme to Office · Dark (no background), so the next person who logs in on this computer does not see the previous person's choice; when the login expires instead of you pressing Log out, the login page keeps the original theme.
+- Each seasonal theme's start and end times come with the version and cannot be adjusted; they are calculated in your computer's local time. When two periods overlap, only one is shown at a time.
+- A seasonal theme does not change the theme or time-of-day settings you chose, is not in the theme list, and cannot be chosen for long-term use.
 
-## 風險與成本的界線
+## Limits on risk and cost
 
-成員什麼時候該停下來開請示卡問你、界線怎麼寫，見 [讓成員記住你教過的事（傳承）](lore.md) 的「風險與成本的界線」；用量與估計花費怎麼看，見 [管理 AI 帳號與用量](usage.md)。
+For when members should stop and open a reply card to ask you, and how to write those limits, see "Limits on risk and cost" in [Making members remember what you taught them (Lore)](lore.md); for how to read usage and estimated spending, see [Manage AI accounts and usage](usage.md).
 
-## 相關文件
+## Related pages
 
-- [介面說明](interface.md)
-- [保護你的工作室](security.md)
-- [主題（外觀與用語）](theme.md)
-- [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md)
-- [增加成員與發外包](members.md)
+- [Interface reference](interface.md)
+- [Protect your studio](security.md)
+- [Themes (look and wording)](theme.md)
+- [Having AI follow an SOP for repeated work (Task manuals)](sop.md)
+- [Adding members and hiring outsource](members.md)
