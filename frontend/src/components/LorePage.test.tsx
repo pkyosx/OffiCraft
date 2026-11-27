@@ -237,7 +237,12 @@ describe("LorePage — 變灰", () => {
     expect(rowById(container, "mid").querySelector('[data-testid="lore-collapse"]')).not.toBeNull();
   });
 
-  it("an opened dropped entry has no chevron while its editor is open or its message box holds text, so neither can be folded away; one with no message box folds as usual", async () => {
+  it("an opened dropped entry has no chevron while its editor is open or its message box holds text, so neither can be folded away; one with no message box, or whose author leaves with text still in it, folds as usual", async () => {
+    const eventSinks: ((topic: string) => void)[] = [];
+    vi.spyOn(api, "subscribeEvents").mockImplementation((sink) => {
+      eventSinks.push(sink);
+      return () => {};
+    });
     stubList(page(entries, { capChars: 10000, firstDroppedId: "mid" }));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
@@ -263,6 +268,16 @@ describe("LorePage — 變灰", () => {
     expect(low.querySelector('[data-testid="lore-message-box"]')).toBeNull();
     fireEvent.click(low.querySelector('[data-testid="lore-collapse"]')!);
     expect(rowById(container, "low").dataset.folded).toBe("true");
+
+    fireEvent.change(box, { target: { value: "還沒送" } });
+    expect(collapseOf()).toBeNull();
+    const roster = await api.listMembers();
+    vi.spyOn(api, "listMembers").mockResolvedValue(roster.filter((m) => m.id !== "mira"));
+    for (const sink of eventSinks) sink("member");
+    await waitFor(() =>
+      expect(rowById(container, "mid").querySelector('[data-testid="lore-message-box"]')).toBeNull(),
+    );
+    expect(collapseOf()).not.toBeNull();
   });
 
   it("greys nothing when no entry carries dropped (the request did not converge on one target)", async () => {
@@ -331,7 +346,7 @@ describe("LorePage — 訊息框", () => {
     expect(posted.map((p) => p.to)).toEqual(["warden-mbp5", "warden-mbp5"]);
   });
 
-  it("picks nobody until the roster answers, then sends to the live author", async () => {
+  it("picks nobody until the roster answers, then sends to the live author; the owner's entry has no message box even before it answers", async () => {
     const roster = await api.listMembers();
     let answerRoster: (v: typeof roster) => void = () => {};
     vi.spyOn(api, "listMembers").mockReturnValue(
@@ -339,11 +354,17 @@ describe("LorePage — 訊息框", () => {
         answerRoster = resolve;
       }),
     );
-    stubList(page([mkEntry({ id: "L-1", state: "active", authorId: "warden-mbp5" })]));
+    stubList(
+      page([
+        mkEntry({ id: "L-1", state: "active", authorId: "warden-mbp5" }),
+        mkEntry({ id: "L-2", state: "active", authorId: "owner" }),
+      ]),
+    );
     const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
     const posted = capturePosts();
     const row = rowById(container, "L-1");
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-message-box"]')).toBeNull();
 
     fireEvent.change(box(row), { target: { value: "還適用嗎" } });
     expect(box(row).placeholder).toBe("載入中…");
@@ -358,16 +379,22 @@ describe("LorePage — 訊息框", () => {
     await waitFor(() => expect(posted.map((p) => p.to)).toEqual(["warden-mbp5"]));
   });
 
-  it("sends nothing when the roster fails to load, and says the roster did not load", async () => {
+  it("sends nothing when the roster fails to load, and says the roster did not load; the owner's entry has no message box", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(api, "listMembers").mockRejectedValue(new Error("boom"));
-    stubList(page([mkEntry({ id: "L-1", state: "active", authorId: "warden-mbp5" })]));
+    stubList(
+      page([
+        mkEntry({ id: "L-1", state: "active", authorId: "warden-mbp5" }),
+        mkEntry({ id: "L-2", state: "active", authorId: "owner" }),
+      ]),
+    );
     const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
     const posted = capturePosts();
     const row = rowById(container, "L-1");
 
     await waitFor(() => expect(box(row).placeholder).toBe("載入辦公室成員失敗，請稍後重試"));
+    expect(rowById(container, "L-2").querySelector('[data-testid="lore-message-box"]')).toBeNull();
     fireEvent.change(box(row), { target: { value: "還適用嗎" } });
     expect(sendButton(row).disabled).toBe(true);
     fireEvent.click(sendButton(row));

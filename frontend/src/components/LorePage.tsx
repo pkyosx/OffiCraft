@@ -1329,6 +1329,8 @@ function LoreView({
   }
 
   function messageRecipient(entry: LoreEntryView): MessageRecipient | null {
+    // These ids are never on the roster, so the box must not wait on it to go.
+    if (entry.authorId === "" || isSyntheticSender(entry.authorId)) return null;
     if (membersLoading) return { id: "", name: "", roster: "loading" };
     if (membersError) return { id: "", name: "", roster: "error" };
     const author = resolveAuthor(entry.authorId);
