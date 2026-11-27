@@ -936,7 +936,7 @@ func TestBuildSpawnDeps(t *testing.T) {
 	for name, wired := range map[string]bool{
 		"Logf": deps.Logf != nil, "WriteFile": deps.WriteFile != nil, "MkdirAll": deps.MkdirAll != nil,
 		"Symlink": deps.Symlink != nil, "Remove": deps.Remove != nil, "Sleep": deps.Sleep != nil,
-		"CodexModels": deps.CodexModels != nil,
+		"CodexModels": deps.CodexModels != nil, "ClaudeAccounts": deps.ClaudeAccounts != nil,
 	} {
 		if !wired {
 			t.Errorf("buildSpawnDeps left %s unwired", name)
@@ -1117,7 +1117,7 @@ func TestBuildCommandDeps(t *testing.T) {
 
 	for name, wired := range map[string]bool{
 		"Spawn": deps.Spawn != nil, "Stop": deps.Stop != nil, "Teardown": deps.Teardown != nil,
-		"Exit": deps.Exit != nil, "Report": deps.Report != nil,
+		"Exit": deps.Exit != nil, "Report": deps.Report != nil, "ClaudeAccounts": deps.ClaudeAccounts != nil,
 	} {
 		if !wired {
 			t.Errorf("buildCommandDeps left %s unwired", name)

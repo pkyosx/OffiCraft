@@ -38,6 +38,9 @@ const (
 	sessionEnv    = "OC_SESSION"
 	tmuxSocketEnv = "OC_TMUX_SOCKET"
 	agentHomeEnv  = "OC_AGENT_HOME"
+	// Set on claude launch lines only.
+	claudeAccountEnv     = "OC_CLAUDE_ACCOUNT"
+	claudeAccountFileEnv = "OC_CLAUDE_ACCOUNT_FILE"
 )
 
 type StartParams struct {
@@ -355,7 +358,7 @@ func (d SpawnDeps) ocAgentTarget() (string, bool) {
 // (--mcp-config) or persona (--append-system-prompt-file / --append-system-prompt).
 func buildLaunchCommand(claudeBin, workdir, mcpConfigPath string, sys claudeSystemPrompt, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, ch claudeHome) string {
 	return buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, sys,
-		tokenFile, agentID, base, session, socket, model, effort, settingsJSON, nil, "", ch, "")
+		tokenFile, agentID, base, session, socket, model, effort, settingsJSON, nil, "", ch, "", claudeAccountLaunch{})
 }
 
 // ⚠️ ORDER IS THE WHOLE GUARANTEE: the CLAUDE_* purge and the HOME /
@@ -391,7 +394,7 @@ func claudeHomeExportPairs(ch claudeHome) [][2]string {
 // the file's same names — a positional override only, NOT enforcement of the OC_*
 // rule (that lives solely in the parser) — and (b) `export PATH=<workdir>:"$PATH"`
 // composes ON TOP of an env-file PATH.
-func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath string, sys claudeSystemPrompt, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, extraEnv [][2]string, envRendered string, ch claudeHome, pluginDir string) string {
+func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath string, sys claudeSystemPrompt, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, extraEnv [][2]string, envRendered string, ch claudeHome, pluginDir string, account claudeAccountLaunch) string {
 	cd := claudeChildEnvPrologue(workdir, envRendered, ch)
 	pairs := [][2]string{
 		{baseEnv, base},
@@ -407,6 +410,12 @@ func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath string, sys cla
 	// earlier may leave PATH without /bin, and a bare `cat` then makes OC_TOKEN silently
 	// EMPTY.
 	kvs = append(kvs, tokenEnv+`="$(/bin/cat `+shellQuote(tokenFile)+`)"`)
+	if account.Bound {
+		kvs = append(kvs, claudeAccountEnv+`="$(/bin/cat `+shellQuote(account.File)+`)"`)
+	}
+	if account.File != "" {
+		kvs = append(kvs, claudeAccountFileEnv+"="+shellQuote(account.File))
+	}
 	for _, p := range pairs {
 		kvs = append(kvs, p[0]+"="+shellQuote(p[1]))
 	}
@@ -653,7 +662,10 @@ type SpawnDeps struct {
 	// ClaudeHome feeds both the launch line and Pretrust's file, which keeps the
 	// write and the read on the same claude.json.
 	ClaudeHome claudeHome
-	WardenBin  string
+	// ClaudeAccounts measures the login a claude spawn will read, which the
+	// spawn binds to the session; nil launches unbound.
+	ClaudeAccounts *claudeAccountReporter
+	WardenBin      string
 	// LoginCheck runs the runtime's login check now (the same one the heartbeat
 	// reports) and returns its verdict; nil verdict = unknown, nil func = no check.
 	LoginCheck func(runtime string) *bool
@@ -887,7 +899,8 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		d.logf("agent env: %s overrides the interactive shell for: %s",
 			d.EnvFile, strings.Join(names, " "))
 	}
-	if pairs := mergeAgentEnv(interactive, fileEnv); len(pairs) > 0 {
+	agentEnv := mergeAgentEnv(interactive, fileEnv)
+	if pairs := agentEnv; len(pairs) > 0 {
 		if err := d.WriteFile(renderPath, renderAgentEnvFile(pairs), 0o600); err != nil {
 			d.logf("agent env: could not write %s (%v); spawning without extra env", renderPath, err)
 		} else {
@@ -899,11 +912,13 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 
 	pluginDir := ""
+	var account claudeAccountLaunch
 	if runtimeName == "claude" {
 		if refusal := d.installNotifyMod(workdir, nudge); refusal != "" {
 			return SpawnOutcome{OK: false, Reason: refusal}
 		}
 		pluginDir = filepath.Join(workdir, notifyModDirName)
+		account = d.bindClaudeAccount(p.MemberID, workdir, agentEnv)
 	}
 
 	command := ""
@@ -914,7 +929,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	} else {
 		command = buildLaunchCommandWithEnv(d.ClaudeBin, workdir, mcpConfigPath, sys,
 			tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort, settingsJSON, extraEnv, envRendered,
-			d.ClaudeHome, pluginDir)
+			d.ClaudeHome, pluginDir, account)
 	}
 
 	if runtimeName == "claude" && d.Pretrust != nil {

@@ -826,13 +826,18 @@ const accountSpendAccountedKey = "cost_accounted"
 // under-counts; subtracting makes the account go down; treating it as absolute
 // erases earlier sessions). The baseline advances only after the write
 // succeeds, so the next report re-carries a failed delta.
+//
+// A report naming no account still advances the baseline: a session whose
+// account becomes known mid-session (a launch the warden binds late) has its
+// spend from before that moment unattributed, not credited to the account.
 func (s *apiServer) accrueAccountSpend(entry map[string]any) {
-	account, _ := entry["account"].(string)
-	if account == "" {
-		return
-	}
 	cost, ok := entry["cost"].(float64)
 	if !ok {
+		return
+	}
+	account, _ := entry["account"].(string)
+	if account == "" {
+		entry[accountSpendAccountedKey] = cost
 		return
 	}
 	accounted, seen := entry[accountSpendAccountedKey].(float64)
@@ -851,20 +856,27 @@ func (s *apiServer) accrueAccountSpend(entry map[string]any) {
 	entry[accountSpendAccountedKey] = cost
 }
 
-// startAccountSpendSession forgets the accrual baseline when the waking report
-// says a new session began. The decrease fallback in accrueAccountSpend cannot
-// see a restart whose first report lands at or above the old figure, nor an
-// account change. A reporter that never reports waking keeps only that fallback:
-// an accepted, silent under-count.
-func (s *apiServer) startAccountSpendSession(actorID string) {
+// startAccountSession forgets the accrual baseline and the account pairing
+// when the waking report says a new session began. The decrease fallback in
+// accrueAccountSpend cannot see a restart whose first report lands at or above
+// the old figure, nor an account change. A reporter that never reports waking
+// keeps only that fallback: an accepted, silent under-count.
+//
+// 🔴 The pairing goes too because a report only ever SETS the account: a
+// relaunch that came up unbound would otherwise keep the previous launch's
+// account, and its spend would be credited there.
+func (s *apiServer) startAccountSession(actorID string) {
 	entry := s.telemetry.Get(actorID)
 	if entry == nil {
 		return
 	}
-	if _, present := entry[accountSpendAccountedKey]; !present {
+	_, baseline := entry[accountSpendAccountedKey]
+	_, paired := entry["account"]
+	if !baseline && !paired {
 		return
 	}
 	delete(entry, accountSpendAccountedKey)
+	clearAccountPairing(entry)
 	s.telemetry.Set(actorID, entry)
 }
 

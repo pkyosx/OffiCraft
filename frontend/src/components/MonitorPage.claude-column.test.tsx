@@ -8,17 +8,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
-import type { Member, MachineView } from "../types";
+import type { Member, MachineView, MonMachineView } from "../types";
 
 const listMembers = vi.fn(async (): Promise<Member[]> => []);
 const listMachines = vi.fn(async (): Promise<MachineView[]> => []);
+const getMonitoring = vi.fn(async () => ({ accounts: [], sessions: [], machines: [] as MonMachineView[] }));
 
 vi.mock("../api", () => ({
   api: {
     listMembers: () => listMembers(),
     listMachines: () => listMachines(),
-    getMonitoring: () =>
-      Promise.resolve({ accounts: [], sessions: [], machines: [] }),
+    getMonitoring: () => getMonitoring(),
     listOutsourceWorkers: () => Promise.resolve([]),
     listTasks: () => Promise.resolve([]),
     listTaskTypes: () => Promise.resolve([]),
@@ -66,6 +66,7 @@ function renderMonitor() {
 describe("MonitorPage claude version column", () => {
   beforeEach(() => {
     listMembers.mockResolvedValue([]);
+    getMonitoring.mockResolvedValue({ accounts: [], sessions: [], machines: [] });
   });
 
   it("shows the reported version in the claude column", async () => {
@@ -92,6 +93,34 @@ describe("MonitorPage claude version column", () => {
     renderMonitor();
     const cell = await screen.findByTestId("mon-claude-version");
     expect(cell.textContent).toBe("—");
+  });
+
+  it("says under the version why the machine's Claude usage is unknown when its login could not be measured", async () => {
+    listMachines.mockResolvedValue([
+      machine("m-probed", { claudeVersion: "2.1.328", claudeCredSource: "both", claudeSubReadable: true }),
+    ]);
+    getMonitoring.mockResolvedValue({
+      accounts: [],
+      sessions: [],
+      machines: [
+        {
+          machine: "m-probed",
+          displayName: "m-probed",
+          claudeLogin: {
+            account: "",
+            displayName: "",
+            store: "keychain",
+            measuredAt: 1_795_780_000,
+            unmeasuredReason: "profile_failed",
+          },
+        } as MonMachineView,
+      ],
+    });
+    renderMonitor();
+
+    expect((await screen.findByTestId("mon-claude-login-unmeasured")).textContent).toBe(
+      "用量未知：Anthropic 沒有回答這個登入是哪個帳號"
+    );
   });
 
   it("heads the claude column next to the merged 機器 column and keeps the empty row spanning it", async () => {

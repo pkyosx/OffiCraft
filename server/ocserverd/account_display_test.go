@@ -131,7 +131,15 @@ func TestApplyAccountReport(t *testing.T) {
 
 func TestResolveAccountDisplay(t *testing.T) {
 	aliases := map[string]string{"acct-alias": "Owner alias", "acct-blank": ""}
-	labels := map[string]string{"acct-alias": "Reporter label", "acct-blank": "Reporter label", "acct-label": "Reporter label"}
+	labels := map[string]string{
+		"acct-alias":    "seth.wang@gofreight.com(GoFreight)",
+		"acct-blank":    "Reporter label",
+		"acct-label":    "Reporter label",
+		"acct-personal": "seth.wang@gofreight.com(seth.wang@gofreight.com's Organization)",
+		"acct-org":      "seth.wang@gofreight.com(GoFreight)",
+		"acct-other":    "seth.wang@gofreight.com(eva@example.com's Organization)",
+		"acct-no-org":   "seth.wang@gofreight.com",
+	}
 	tests := []struct {
 		name string
 		raw  string
@@ -141,6 +149,10 @@ func TestResolveAccountDisplay(t *testing.T) {
 		{name: "reporter label fills absent alias", raw: "acct-label", want: "Reporter label"},
 		{name: "blank alias does not hide label", raw: "acct-blank", want: "Reporter label"},
 		{name: "unknown account is blank", raw: "acct-unknown", want: ""},
+		{name: "personal plan label shows only the email", raw: "acct-personal", want: "seth.wang@gofreight.com"},
+		{name: "team org label shows email then org", raw: "acct-org", want: "seth.wang@gofreight.com (GoFreight)"},
+		{name: "another person's personal org is kept", raw: "acct-other", want: "seth.wang@gofreight.com (eva@example.com's Organization)"},
+		{name: "label without org shows the base", raw: "acct-no-org", want: "seth.wang@gofreight.com"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

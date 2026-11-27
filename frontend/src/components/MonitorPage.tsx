@@ -1474,6 +1474,11 @@ export function MachinesTable({
                     }
                     onUpgrade={() => onUpgrade(m)}
                   />
+                  {hw?.claudeLogin?.unmeasuredReason && (
+                    <div className="mon-account-note" data-testid="mon-claude-login-unmeasured">
+                      {t.monitor.claudeUnmeasured[hw.claudeLogin.unmeasuredReason]}
+                    </div>
+                  )}
                 </td>
                 <td
                   className="mon-table__left mon-runtime-cell mon-runtime-cell--codex"
@@ -2730,6 +2735,9 @@ function SessionRow({
         data-label={t.monitor.sessionCol.account}
       >
         {cells.account || dash}
+        {session?.accountSuperseded && (
+          <div className="mon-account-note">{t.monitor.accountSupersededHint}</div>
+        )}
       </td>
       <td className="mon-table__left" data-label={t.monitor.sessionCol.model}>
         <span className="mon-model">{cells.model || dash}</span>
@@ -2837,6 +2845,9 @@ function OutsourceSessionRow({
         data-label={t.monitor.sessionCol.account}
       >
         {cells.account || dash}
+        {session?.accountSuperseded && (
+          <div className="mon-account-note">{t.monitor.accountSupersededHint}</div>
+        )}
       </td>
       <td className="mon-table__left" data-label={t.monitor.sessionCol.model}>
         <span className="mon-model">{cells.model || dash}</span>
@@ -2973,6 +2984,11 @@ export function AccountCard({
           {msg.monitorLimitReached(account.limitReached.resetsAt, now)}
         </div>
       )}
+      {account.unmeasuredReason && (
+        <div className="mon-account-note" data-testid="mon-acct-unmeasured">
+          {t.monitor.claudeUnmeasured[account.unmeasuredReason]}
+        </div>
+      )}
 
       <UsageBar
         label={t.monitor.fiveHour}
@@ -3003,7 +3019,7 @@ export function AccountCard({
 }
 
 /** Split the stable account key "<account identifier>/<orgUuid>" at the LAST "/" — the
- * reporter (contextreport.readClaudeAccount, T-f694) makes the second dimension
+ * reporter (the warden's profile measurement, cli/ocwarden claudeaccount.go) makes the second dimension
  * the org uuid OR absent, so a bare account identifier (no "/") yields orgUuid null.
  * Exported for unit tests. */
 export function splitAccountKey(key: string): {
@@ -3015,7 +3031,7 @@ export function splitAccountKey(key: string): {
   return { accountIdentifier: key.slice(0, i), orgUuid: key.slice(i + 1) };
 }
 
-/** Parse the reporter label "<base>(<org>)" (contextreport.readClaudeAccountLabel
+/** Parse the reporter label "<base>(<org>)" (claudeAccountLabel, cli/ocwarden
  * fixed contract: base — email, or displayName fallback — first, org name as
  * the TRAILING parenthesis; no parenthesis → no org). Exported for unit tests. */
 export function parseAccountLabel(label: string): {

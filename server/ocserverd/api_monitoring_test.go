@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"reflect"
@@ -1216,6 +1217,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 	t.Run("a full warden report answers a receipt carrying the login check, login recheck and disk-usage intervals, and the blocks it carried show up on the monitoring view", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		resetsAt := time.Now().Unix() + 3600
 
 		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{
 			"rate_limits":{"five_hour":{"used_pct":5}},
@@ -1223,6 +1225,10 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			"hardware":{"cpu_pct":12.5,"ram_pct":40,"ac_power":true},
 			"binaries":{"ocagent":"1.0.0"},
 			"claude":{"version":"2.0.0"},
+			"claude_account":{"account":"au-1/org-1","account_label":"kyle@x.io(kyle@x.io's Organization)","store":"keychain",
+				"subscription_type":"max","measured_at":`+strconv.FormatInt(time.Now().Unix()+600, 10)+`,
+				"five_hour":{"used_percentage":12,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`},
+				"access_token":"sk-ant-oat01-never-served"},
 			"runtimes":{"claude":{"installed":true,"logged_in":true,"version":"2.0.0"}},
 			"runtime":"claude",
 			"cost":1.25,
@@ -1272,11 +1278,40 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		wantMachine["runtime_capabilities_stale"] = false
 		wantMachine["warden_shape"] = "anchor"
 		wantMachine["cutover_effect"] = "effective"
+		wantMachine["claude_login"] = map[string]any{
+			"account":           "au-1/org-1",
+			"display_name":      "kyle@x.io",
+			"measured_at":       apiAnyNumber,
+			"store":             "keychain",
+			"unmeasured_reason": "",
+		}
 		apiWantBody(t, view, map[string]any{
 			"sessions": view["sessions"],
 			"machines": []any{wantMachine},
-			"accounts": view["accounts"],
+			"accounts": []any{map[string]any{
+				"account":       "au-1/org-1",
+				"account_label": "kyle@x.io(kyle@x.io's Organization)",
+				"display_name":  "kyle@x.io",
+				"machine":       "",
+				"cost":          nil,
+				"five_hour": map[string]any{
+					"used_pct":    12,
+					"resets_at":   float64(resetsAt),
+					"elapsed_pct": apiAnyNumber,
+					"measured_at": apiAnyNumber,
+					"pace":        "ok",
+				},
+				"seven_day":     nil,
+				"limit_reached": nil,
+			}},
 		})
+		login := view["machines"].([]any)[0].(map[string]any)["claude_login"].(map[string]any)
+		if measuredAt := login["measured_at"].(float64); measuredAt > float64(time.Now().UnixNano())/1e9 {
+			t.Errorf("claude_login.measured_at = %v: a measurement stamped in the future must be capped at the receive time", measuredAt)
+		}
+		if raw, _ := json.Marshal(view); strings.Contains(string(raw), "sk-ant-oat01") {
+			t.Errorf("the monitoring view served a field the warden must never send: %s", raw)
+		}
 	})
 
 	t.Run("under owner-set login check, login recheck and disk-usage intervals, a warden's receipt carries those values and an agent's receipt on the same machine carries none of them", func(t *testing.T) {
@@ -1574,7 +1609,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error", "rate_limits, tokens, hardware, binaries, claude, cost, effort, runtime, runtimes, "+
+		apiWantError(t, data, "validation_error", "rate_limits, tokens, hardware, binaries, claude, claude_account, cost, effort, runtime, runtimes, "+
 			"self_update, command_result, warden_shape, cutover_effect, model_call, disk_usage or platform is required")
 	})
 
@@ -1696,6 +1731,12 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			{`{"cost":"free"}`, "cost must be a number"},
 			{`{"effort":1}`, "effort must be a string"},
 			{`{"tokens":{},"model":1}`, "model must be a string"},
+			{`{"claude_account":{"store":"env"}}`, "claude_account.store must be 'keychain', 'file' or null"},
+			{`{"claude_account":{"unmeasured_reason":"guessed"}}`,
+				"claude_account.unmeasured_reason must be 'no_credential', 'token_expired', 'profile_failed' or 'usage_failed'"},
+			{`{"claude_account":{"account":7}}`, "claude_account.account must be a string or null"},
+			{`{"claude_account":{"measured_at":"now"}}`, "claude_account.measured_at must be a number or null"},
+			{`{"claude_account":{"five_hour":3}}`, "claude_account.five_hour must be an object or null"},
 		} {
 			status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, c.body)
 			if status != 400 {
@@ -2145,26 +2186,6 @@ func TestRuntimeCapabilitiesStampOf(t *testing.T) {
 	}
 }
 
-func TestRateLimitStampOf(t *testing.T) {
-	cases := []struct {
-		name  string
-		entry map[string]any
-		want  float64
-	}{
-		{name: "stamp", entry: map[string]any{"rate_limits_ts": float64(1720000000)}, want: 1720000000},
-		{name: "wrong type", entry: map[string]any{"rate_limits_ts": "1720000000"}, want: 0},
-		{name: "absent", entry: map[string]any{}, want: 0},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			if got := rateLimitStampOf(tc.entry); got != tc.want {
-				t.Fatalf("rateLimitStampOf(%#v) = %v, want %v", tc.entry, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestUsableRateLimitWindow(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -2357,6 +2378,55 @@ func apiTestSessionsByID(t *testing.T, data map[string]any, ids ...string) map[s
 	return byID
 }
 
+// measureLogin posts a warden heartbeat carrying only its claude_account
+// measurement.
+func measureLogin(t *testing.T, h http.Handler, wardenToken, report string) {
+	t.Helper()
+	if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", wardenToken,
+		`{"claude_account":`+report+`}`); status != 200 {
+		t.Fatalf("warden claude_account: want 200, got %d (%v)", status, data)
+	}
+}
+
+func loginReport(account string, measuredAt float64, windows string) string {
+	return `{"account":"` + account + `","account_label":"` + account + `@x.io","store":"keychain",` +
+		`"subscription_type":"max","measured_at":` + strconv.FormatFloat(measuredAt, 'f', -1, 64) + windows + `}`
+}
+
+func fiveHourWindow(usedPct int, resetsAt float64) string {
+	return `,"five_hour":{"used_percentage":` + strconv.Itoa(usedPct) +
+		`,"resets_at":` + strconv.FormatFloat(resetsAt, 'f', -1, 64) + `}`
+}
+
+func fiveHourPace(usedPct int, resetsAt, measuredAt float64, pace any) map[string]any {
+	return map[string]any{
+		"used_pct":    usedPct,
+		"resets_at":   resetsAt,
+		"elapsed_pct": apiAnyNumber,
+		"measured_at": measuredAt,
+		"pace":        pace,
+	}
+}
+
+// measuredAccountRow is an account row labelled the way loginReport labels it,
+// used on m-server-self.
+func measuredAccountRow(account string, cost float64, fiveHour map[string]any) map[string]any {
+	row := map[string]any{
+		"account":       account,
+		"account_label": account + "@x.io",
+		"display_name":  account + "@x.io",
+		"machine":       "m-server-self",
+		"cost":          cost,
+		"five_hour":     nil,
+		"seven_day":     nil,
+		"limit_reached": nil,
+	}
+	if fiveHour != nil {
+		row["five_hour"] = fiveHour
+	}
+	return row
+}
+
 func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 	t.Run("a seeded roster answers 200 with a session row per member and a machine row per warden", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
@@ -2438,35 +2508,32 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("a reported account answers 200 with an account row naming the machine it burns on", func(t *testing.T) {
+	t.Run("a reported account answers 200 with an account row naming the machine it burns on and the usage that machine measured for it", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
+		now := float64(time.Now().Unix())
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
-			`{"runtime":"claude","account":"eva-m5-claude","account_label":"eva@example.com","cost":3.5,`+
-				`"rate_limits":{"five_hour":{"used_pct":10,"resets_at":`+strconv.FormatInt(time.Now().Unix()+3600, 10)+`}}}`)
+			`{"runtime":"claude","account":"eva-m5-claude","account_label":"eva@example.com","cost":3.5}`)
+		measureLogin(t, h, warden, `{"account":"eva-m5-claude","account_label":"eva@example.com","store":"file",`+
+			`"measured_at":`+strconv.FormatFloat(now, 'f', -1, 64)+fiveHourWindow(10, now+3600)+`}`)
 
 		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		accounts, _ := data["accounts"].([]any)
-		if len(accounts) != 1 {
-			t.Fatalf("accounts: want 1 row, got %v", data["accounts"])
-		}
-		account, _ := accounts[0].(map[string]any)
-		window, _ := account["five_hour"].(map[string]any)
-		if window == nil {
-			t.Fatalf("accounts[0].five_hour: want the reported window, got %v", account["five_hour"])
-		}
-		apiWantBody(t, account, map[string]any{
-			"account":       "eva-m5-claude",
-			"account_label": "eva@example.com",
-			"display_name":  "eva@example.com",
-			"machine":       "m-server-self",
-			"cost":          3.5,
-			"five_hour":     account["five_hour"],
-			"seven_day":     nil,
-			"limit_reached": nil,
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{map[string]any{
+				"account":       "eva-m5-claude",
+				"account_label": "eva@example.com",
+				"display_name":  "eva@example.com",
+				"machine":       "m-server-self",
+				"cost":          3.5,
+				"five_hour":     fiveHourPace(10, now+3600, now, "ok"),
+				"seven_day":     nil,
+				"limit_reached": nil,
+			}},
 		})
 		sessions := apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
 		wardenSession := apiTestMonitoringSession("m-server-self", "This server", "")
@@ -2566,13 +2633,15 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("a departed staff member answers 200 with its account still naming the machine and usage it reported", func(t *testing.T) {
+	t.Run("a departed staff member answers 200 with its account still naming the machine it ran on and the usage measured for it", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		kip := apiTestAgentToken(t, api, "kip", "m-server-self")
 		resetsAt := time.Now().Unix() + 3600
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", kip,
-			`{"runtime":"claude","account":"kip-claude","account_label":"kip@example.com","cost":2,`+
-				`"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`)
+			`{"runtime":"claude","account":"kip-claude","account_label":"kip@example.com","cost":2}`)
+		measureLogin(t, h, apiTestAgentToken(t, api, "m-server-self", "m-server-self"),
+			`{"account":"kip-claude","measured_at":`+strconv.FormatInt(time.Now().Unix(), 10)+
+				fiveHourWindow(10, float64(resetsAt))+`}`)
 		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
 			t.Fatalf("dismiss kip: want 200, got %d (%v)", status, data)
 		}
@@ -2584,6 +2653,10 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		apiTestSessionsByID(t, data, "mira", "m-server-self")
 		machine := apiTestMonitoringMachine()
 		machine["accounts"] = []any{"kip-claude"}
+		machine["claude_login"] = map[string]any{
+			"account": "kip-claude", "display_name": "kip@example.com", "measured_at": apiAnyNumber,
+			"store": "", "unmeasured_reason": "",
+		}
 		apiWantBody(t, data, map[string]any{
 			"sessions": data["sessions"],
 			"machines": []any{machine},
@@ -2606,14 +2679,16 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("a released contractor answers 200 with its account still naming the machine and usage it reported", func(t *testing.T) {
+	t.Run("a released contractor answers 200 with its account still naming the machine it ran on and the usage measured for it", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		worker := apiTestAgentToken(t, api, "ow-abc123", "m-server-self")
 		resetsAt := time.Now().Unix() + 3600
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", worker,
-			`{"runtime":"claude","account":"ow-claude","account_label":"ow@example.com","cost":3,`+
-				`"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`)
+			`{"runtime":"claude","account":"ow-claude","account_label":"ow@example.com","cost":3}`)
+		measureLogin(t, h, apiTestAgentToken(t, api, "m-server-self", "m-server-self"),
+			`{"account":"ow-claude","measured_at":`+strconv.FormatInt(time.Now().Unix(), 10)+
+				fiveHourWindow(10, float64(resetsAt))+`}`)
 		released, err := d.GetOutsourceWorker("ow-abc123")
 		if err != nil || released == nil {
 			t.Fatalf("GetOutsourceWorker: %v (%v)", released, err)
@@ -2630,6 +2705,10 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
 		machine := apiTestMonitoringMachine()
 		machine["accounts"] = []any{"ow-claude"}
+		machine["claude_login"] = map[string]any{
+			"account": "ow-claude", "display_name": "ow@example.com", "measured_at": apiAnyNumber,
+			"store": "", "unmeasured_reason": "",
+		}
 		apiWantBody(t, data, map[string]any{
 			"sessions": data["sessions"],
 			"machines": []any{machine},
@@ -2652,224 +2731,163 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	reportFiveHour := func(t *testing.T, api *apiServer, h http.Handler, id string, usedPct int, resetsAt int64) {
-		t.Helper()
-		token := apiTestAgentToken(t, api, id, "m-server-self")
-		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", token,
-			`{"runtime":"claude","account":"shared-claude",`+
-				`"rate_limits":{"five_hour":{"used_percentage":`+strconv.Itoa(usedPct)+
-				`,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`); status != 200 {
-			t.Fatalf("%s telemetry: want 200, got %d (%v)", id, status, data)
-		}
-	}
-	ageRateLimits := func(api *apiServer, id string, stamp float64) {
-		entry := api.telemetry.Get(id)
-		entry["rate_limits_ts"] = stamp
-		api.telemetry.Set(id, entry)
-	}
-	sharedAccountRow := func(fiveHour map[string]any) map[string]any {
-		return map[string]any{
-			"account":       "shared-claude",
-			"display_name":  "shared-claude",
-			"machine":       "m-server-self",
-			"cost":          nil,
-			"five_hour":     fiveHour,
-			"seven_day":     nil,
-			"limit_reached": nil,
-		}
-	}
-
-	t.Run("an account a member moved away from answers 200 with that member's last reading until its window resets, then with the older unexpired report", func(t *testing.T) {
+	t.Run("two members on one machine bound to different accounts answer 200 with a row per account from the machine's own measurements, spend on each member's bound account, and the member launched before the re-login flagged until its relaunch", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		now := time.Now().Unix()
-		report := func(id, account string, usedPct int, resetsAt int64) {
+		now := float64(time.Now().Unix())
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		report := func(id, account, cost string) {
 			t.Helper()
 			token := apiTestAgentToken(t, api, id, "m-server-self")
 			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", token,
-				`{"runtime":"claude","account":"`+account+`",`+
-					`"rate_limits":{"five_hour":{"used_percentage":`+strconv.Itoa(usedPct)+
-					`,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`); status != 200 {
+				`{"runtime":"claude","account":"`+account+`","account_label":"`+account+`@x.io","cost":`+cost+`,`+
+					`"rate_limits":{"five_hour":{"used_percentage":99,"resets_at":`+strconv.FormatInt(int64(now)+20000, 10)+`}}}`); status != 200 {
 				t.Fatalf("%s telemetry: want 200, got %d (%v)", id, status, data)
 			}
 		}
-		report("mira", "shared-claude", 68, now+3000)
-		ageRateLimits(api, "mira", float64(now)-3600)
-		report("kip", "shared-claude", 80, now+3000)
-		report("kip", "team-claude", 1, now+9000)
-
-		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
+		for _, id := range []string{"kip", "mira"} {
+			link, err := api.hub.Connect(id, "m-server-self")
+			if err != nil {
+				t.Fatalf("hub.Connect: %v", err)
+			}
+			t.Cleanup(func() { api.hub.Disconnect(link) })
 		}
-		accountRow := func(account string, fiveHour map[string]any) map[string]any {
-			return map[string]any{
-				"account":       account,
-				"display_name":  account,
-				"machine":       "m-server-self",
-				"cost":          nil,
-				"five_hour":     fiveHour,
-				"seven_day":     nil,
-				"limit_reached": nil,
+		monitoring := func() map[string]any {
+			t.Helper()
+			status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			return data
+		}
+
+		measureLogin(t, h, warden, loginReport("max-claude", now-400, fiveHourWindow(30, now+3000)))
+		report("kip", "max-claude", "1")
+		measureLogin(t, h, warden, loginReport("ent-claude", now-10, fiveHourWindow(5, now+9000)))
+		report("kip", "max-claude", "3")
+		report("mira", "ent-claude", "0.5")
+
+		data := monitoring()
+		sessions := apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
+		apiWantValue(t, "kip.account", sessions["kip"]["account"], any("max-claude@x.io"))
+		apiWantValue(t, "kip.account_superseded", sessions["kip"]["account_superseded"], any(true))
+		apiWantValue(t, "mira.account", sessions["mira"]["account"], any("ent-claude@x.io"))
+		apiWantValue(t, "mira.account_superseded", sessions["mira"]["account_superseded"], nil)
+		maxRow := measuredAccountRow("max-claude", 3, fiveHourPace(30, now+3000, now-400, "ok"))
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{
+				measuredAccountRow("ent-claude", 0.5, fiveHourPace(5, now+9000, now-10, "ok")),
+				maxRow,
+			},
+		})
+
+		measureLogin(t, h, warden, loginReport("ent-claude", now-claudeAccountFreshSecs-60, fiveHourWindow(4, now+9000)))
+		sessions = apiTestSessionsByID(t, monitoring(), "mira", "kip", "m-server-self")
+		apiWantValue(t, "kip.account_superseded under a login measured too long ago", sessions["kip"]["account_superseded"], nil)
+
+		report("kip", "ent-claude", "0.25")
+
+		data = monitoring()
+		sessions = apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
+		apiWantValue(t, "relaunched kip.account", sessions["kip"]["account"], any("ent-claude@x.io"))
+		apiWantValue(t, "relaunched kip.account_superseded", sessions["kip"]["account_superseded"], nil)
+		maxRow["machine"], maxRow["display_name"] = "", "max-claude"
+		delete(maxRow, "account_label")
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{
+				measuredAccountRow("ent-claude", 0.75, fiveHourPace(5, now+9000, now-10, "ok")),
+				maxRow,
+			},
+		})
+	})
+
+	t.Run("a member's own reported rate limits answer 200 without moving any account's usage, whatever account they name", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		now := float64(time.Now().Unix())
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		kip := apiTestAgentToken(t, api, "kip", "m-server-self")
+		measureLogin(t, h, warden, loginReport("shared-claude", now-30, fiveHourWindow(10, now+3000)))
+		for _, account := range []string{"shared-claude", "other-claude"} {
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", kip,
+				`{"runtime":"claude","account":"`+account+`",`+
+					`"rate_limits":{"five_hour":{"used_percentage":90,"resets_at":`+strconv.FormatInt(int64(now)+9000, 10)+`}}}`); status != 200 {
+				t.Fatalf("kip telemetry: want 200, got %d (%v)", status, data)
 			}
 		}
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		shared := measuredAccountRow("shared-claude", 0, fiveHourPace(10, now+3000, now-30, "ok"))
+		shared["machine"], shared["cost"] = "", nil
 		apiWantBody(t, data, map[string]any{
 			"sessions": data["sessions"],
 			"machines": data["machines"],
 			"accounts": []any{
-				accountRow("shared-claude", map[string]any{
-					"used_pct":    80,
-					"resets_at":   float64(now + 3000),
-					"elapsed_pct": apiAnyNumber,
-					"measured_at": apiAnyNumber,
-					"pace":        "ok",
-				}),
-				accountRow("team-claude", map[string]any{
-					"used_pct":    1,
-					"resets_at":   float64(now + 9000),
-					"elapsed_pct": apiAnyNumber,
-					"measured_at": apiAnyNumber,
-					"pace":        "ok",
-				}),
-			},
-		})
-
-		resetAt := float64(now - 60)
-		api.accountRateLimits.readings["shared-claude"]["kip"]["five_hour"] = rateLimitCandidate{
-			window:     map[string]any{"used_percentage": 80.0, "resets_at": resetAt},
-			resetAt:    resetAt,
-			measuredAt: resetAt - 60,
-		}
-
-		status, data = apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("after the reset want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"sessions": data["sessions"],
-			"machines": data["machines"],
-			"accounts": []any{
-				accountRow("shared-claude", map[string]any{
-					"used_pct":    68,
-					"resets_at":   float64(now + 3000),
-					"elapsed_pct": apiAnyNumber,
-					"measured_at": float64(now - 3600),
-					"pace":        nil,
-				}),
-				accountRow("team-claude", map[string]any{
-					"used_pct":    1,
-					"resets_at":   float64(now + 9000),
-					"elapsed_pct": apiAnyNumber,
-					"measured_at": apiAnyNumber,
-					"pace":        "ok",
-				}),
+				map[string]any{
+					"account":       "other-claude",
+					"display_name":  "other-claude",
+					"machine":       "m-server-self",
+					"cost":          nil,
+					"five_hour":     nil,
+					"seven_day":     nil,
+					"limit_reached": nil,
+				},
+				shared,
 			},
 		})
 	})
 
-	t.Run("a fresh report and an older one with a later reset answer 200 with the fresh report's window", func(t *testing.T) {
+	t.Run("an account the machine has logged out of answers 200 with its last measurement and that measurement's age, untouched by the next account's numbers, and a window that has since reset answers null", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		now := time.Now().Unix()
-		reportFiveHour(t, api, h, "mira", 10, now+4000)
-		ageRateLimits(api, "mira", float64(now)-telemetryFreshSecs-60)
-		reportFiveHour(t, api, h, "kip", 60, now+3000)
+		now := float64(time.Now().Unix())
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		measuredAt := now - 3600
+		measureLogin(t, h, warden, loginReport("max-claude", measuredAt, fiveHourWindow(40, now-60)+
+			`,"seven_day":{"used_percentage":70,"resets_at":`+strconv.FormatFloat(now+86400, 'f', -1, 64)+`}`))
+		measureLogin(t, h, warden, loginReport("ent-claude", now, fiveHourWindow(2, now+15000)))
 
 		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{
-			"sessions": data["sessions"],
-			"machines": data["machines"],
-			"accounts": []any{sharedAccountRow(map[string]any{
-				"used_pct":    60,
-				"resets_at":   float64(now + 3000),
-				"elapsed_pct": apiAnyNumber,
-				"measured_at": apiAnyNumber,
-				"pace":        "ok",
-			})},
-		})
-	})
-
-	t.Run("fresh reports from the previous and the new window answer 200 with the new window", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		now := time.Now().Unix()
-		reportFiveHour(t, api, h, "mira", 90, now+100)
-		reportFiveHour(t, api, h, "kip", 5, now+3600)
-		ageRateLimits(api, "kip", float64(now)-30)
-
-		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"sessions": data["sessions"],
-			"machines": data["machines"],
-			"accounts": []any{sharedAccountRow(map[string]any{
-				"used_pct":    5,
-				"resets_at":   float64(now + 3600),
-				"elapsed_pct": apiAnyNumber,
-				"measured_at": apiAnyNumber,
-				"pace":        "ok",
-			})},
-		})
-	})
-
-	t.Run("fresh reports of the same window answer 200 with the newer sample", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		now := time.Now().Unix()
-		olderStamp := float64(now) - 30
-		reportFiveHour(t, api, h, "kip", 60, now+3000)
-		reportFiveHour(t, api, h, "mira", 20, now+3000)
-		ageRateLimits(api, "kip", olderStamp)
-
-		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"sessions": data["sessions"],
-			"machines": data["machines"],
-			"accounts": []any{sharedAccountRow(map[string]any{
-				"used_pct":    20,
-				"resets_at":   float64(now + 3000),
-				"elapsed_pct": apiAnyNumber,
-				"measured_at": apiAnyNumber,
-				"pace":        "ok",
-			})},
-		})
-	})
-
-	t.Run("a fresh report without a seven-day window answers 200 with the seven-day window from a stale report", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		now := time.Now().Unix()
-		staleStamp := float64(now) - telemetryFreshSecs - 60
-		kip := apiTestAgentToken(t, api, "kip", "m-server-self")
-		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", kip,
-			`{"runtime":"claude","account":"shared-claude",`+
-				`"rate_limits":{"seven_day":{"used_percentage":40,"resets_at":`+strconv.FormatInt(now+86400, 10)+`}}}`); status != 200 {
-			t.Fatalf("kip telemetry: want 200, got %d (%v)", status, data)
-		}
-		ageRateLimits(api, "kip", staleStamp)
-		reportFiveHour(t, api, h, "mira", 60, now+3000)
-
-		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		row := sharedAccountRow(map[string]any{
-			"used_pct":    60,
-			"resets_at":   float64(now + 3000),
+		maxRow := measuredAccountRow("max-claude", 0, nil)
+		maxRow["machine"], maxRow["cost"], maxRow["display_name"] = "", nil, "max-claude"
+		delete(maxRow, "account_label")
+		maxRow["seven_day"] = map[string]any{
+			"used_pct":    70,
+			"resets_at":   now + 86400,
 			"elapsed_pct": apiAnyNumber,
-			"measured_at": apiAnyNumber,
-			"pace":        "ok",
-		})
-		row["seven_day"] = map[string]any{
-			"used_pct":    40,
-			"resets_at":   float64(now + 86400),
-			"elapsed_pct": apiAnyNumber,
-			"measured_at": staleStamp,
+			"measured_at": measuredAt,
 			"pace":        nil,
 		}
+		entRow := measuredAccountRow("ent-claude", 0, fiveHourPace(2, now+15000, now, "ok"))
+		entRow["machine"], entRow["cost"] = "", nil
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{entRow, maxRow},
+		})
+	})
+
+	t.Run("a measurement older than the account's latest answers 200 with the latest, whichever machine sent it last", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		now := float64(time.Now().Unix())
+		box := apiTestDiskBox(t, api, d)
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		measureLogin(t, h, box, loginReport("shared-claude", now-10, fiveHourWindow(20, now+3000)))
+		measureLogin(t, h, warden, loginReport("shared-claude", now-300, fiveHourWindow(10, now+3000)))
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		row := measuredAccountRow("shared-claude", 0, fiveHourPace(20, now+3000, now-10, "ok"))
+		row["machine"], row["cost"] = "", nil
 		apiWantBody(t, data, map[string]any{
 			"sessions": data["sessions"],
 			"machines": data["machines"],
@@ -2877,84 +2895,73 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("only stale reports answer 200 with the most recently measured report and no pace verdict", func(t *testing.T) {
+	t.Run("an account whose latest measurement failed answers 200 with no numbers and the reason, not its earlier reading", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		now := time.Now().Unix()
-		staleStamp := float64(now) - telemetryFreshSecs - 60
-		reportFiveHour(t, api, h, "mira", 10, now+4000)
-		reportFiveHour(t, api, h, "kip", 60, now+3000)
-		ageRateLimits(api, "mira", staleStamp)
-		ageRateLimits(api, "kip", staleStamp+30)
+		now := float64(time.Now().Unix())
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		measureLogin(t, h, warden, loginReport("max-claude", now-400, fiveHourWindow(30, now+3000)))
+		measureLogin(t, h, warden, `{"account":"max-claude","account_label":"max-claude@x.io","store":"keychain",`+
+			`"measured_at":`+strconv.FormatFloat(now-5, 'f', -1, 64)+`,"unmeasured_reason":"usage_failed"}`)
 
 		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
+		row := measuredAccountRow("max-claude", 0, nil)
+		row["machine"], row["cost"] = "", nil
+		row["unmeasured_reason"] = "usage_failed"
 		apiWantBody(t, data, map[string]any{
 			"sessions": data["sessions"],
 			"machines": data["machines"],
-			"accounts": []any{sharedAccountRow(map[string]any{
-				"used_pct":    60,
-				"resets_at":   float64(now + 3000),
-				"elapsed_pct": apiAnyNumber,
-				"measured_at": staleStamp + 30,
-				"pace":        nil,
-			})},
+			"accounts": []any{row},
 		})
 	})
 
-	t.Run("only stale reports measured at the same moment answer 200 with the latest reset", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
-		now := time.Now().Unix()
-		staleStamp := float64(now) - telemetryFreshSecs - 60
-		reportFiveHour(t, api, h, "kip", 60, now+3000)
-		reportFiveHour(t, api, h, "mira", 10, now+4000)
-		reportFiveHour(t, api, h, "ow-abc123", 30, now+2000)
-		ageRateLimits(api, "kip", staleStamp)
-		ageRateLimits(api, "mira", staleStamp)
-		ageRateLimits(api, "ow-abc123", staleStamp)
-
-		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"sessions": data["sessions"],
-			"machines": data["machines"],
-			"accounts": []any{sharedAccountRow(map[string]any{
-				"used_pct":    10,
-				"resets_at":   float64(now + 4000),
-				"elapsed_pct": apiAnyNumber,
-				"measured_at": staleStamp,
-				"pace":        nil,
-			})},
-		})
-	})
-
-	t.Run("only stale reports whose most recent one has already reset answer 200 with the older unexpired report", func(t *testing.T) {
+	t.Run("a machine whose login could not be identified answers 200 with the reason on its row, no account row of its own, and no running member flagged", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		now := time.Now().Unix()
-		staleStamp := float64(now) - telemetryFreshSecs - 60
-		reportFiveHour(t, api, h, "mira", 10, now+4000)
-		reportFiveHour(t, api, h, "kip", 60, now-30)
-		ageRateLimits(api, "mira", staleStamp)
-		ageRateLimits(api, "kip", staleStamp+30)
+		now := float64(time.Now().Unix())
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		kip := apiTestAgentToken(t, api, "kip", "m-server-self")
+		link, err := api.hub.Connect("kip", "m-server-self")
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		t.Cleanup(func() { api.hub.Disconnect(link) })
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", kip,
+			`{"runtime":"claude","account":"max-claude","tokens":{"input":1}}`); status != 200 {
+			t.Fatalf("kip telemetry: want 200, got %d (%v)", status, data)
+		}
+		measureLogin(t, h, warden, `{"store":"keychain","measured_at":`+strconv.FormatFloat(now, 'f', -1, 64)+
+			`,"unmeasured_reason":"profile_failed"}`)
 
 		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
+		sessions := apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
+		apiWantValue(t, "kip.account_superseded", sessions["kip"]["account_superseded"], nil)
+		machine := apiTestMonitoringMachine()
+		machine["agents"] = 2
+		machine["accounts"] = []any{"max-claude"}
+		machine["claude_login"] = map[string]any{
+			"account":           "",
+			"display_name":      "",
+			"measured_at":       now,
+			"store":             "keychain",
+			"unmeasured_reason": "profile_failed",
+		}
 		apiWantBody(t, data, map[string]any{
 			"sessions": data["sessions"],
-			"machines": data["machines"],
-			"accounts": []any{sharedAccountRow(map[string]any{
-				"used_pct":    10,
-				"resets_at":   float64(now + 4000),
-				"elapsed_pct": apiAnyNumber,
-				"measured_at": staleStamp,
-				"pace":        nil,
-			})},
+			"machines": []any{machine},
+			"accounts": []any{map[string]any{
+				"account":       "max-claude",
+				"display_name":  "max-claude",
+				"machine":       "m-server-self",
+				"cost":          nil,
+				"five_hour":     nil,
+				"seven_day":     nil,
+				"limit_reached": nil,
+			}},
 		})
 	})
 
@@ -3376,29 +3383,4 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
-}
-
-func TestAnyOrNil(t *testing.T) {
-	var nilMap map[string]any
-	cases := []struct {
-		name  string
-		input map[string]any
-		want  any
-	}{
-		{name: "nil", input: nilMap, want: nil},
-		{name: "empty", input: map[string]any{}, want: map[string]any{}},
-		{name: "value", input: map[string]any{
-			"five_hour": map[string]any{"used_pct": float64(10)},
-		}, want: map[string]any{
-			"five_hour": map[string]any{"used_pct": float64(10)},
-		}},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			if got := anyOrNil(tc.input); !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("anyOrNil(%#v) = %#v, want %#v", tc.input, got, tc.want)
-			}
-		})
-	}
 }
