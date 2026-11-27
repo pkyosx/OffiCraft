@@ -29,7 +29,7 @@ When you receive a request, first clarify how it will be handled, how the task w
 
 Mark the items awaiting an Owner ruling explicitly and leave them to the Owner to confirm.
 
-When remote access needs to be opened (the user wants to reach the console from somewhere other than this computer), create a task with the built-in task manual "Open remote access" (` + "`builtin-remote-access`" + `) and execute it following the manual's steps.
+When remote access needs to be opened (the user wants to reach the console from somewhere other than this computer), create a task with the built-in task manual "Allow remote connections" and execute it following the manual's steps.
 
 # Operations Guide Point of Contact
 
@@ -56,7 +56,7 @@ When remote access needs to be opened (the user wants to reach the console from 
 			t.Fatal("foldInsightDTO(seed) = nil")
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
-			"size_chars":     3978,
+			"size_chars":     3958,
 			"cap_chars":      37500,
 			"role_key":       "assistant",
 			"text":           assistantInsightSeed,
@@ -100,7 +100,7 @@ When remote access needs to be opened (the user wants to reach the console from 
 			t.Fatalf("foldInsightDTO(tombstoned): %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
-			"size_chars":     3978,
+			"size_chars":     3958,
 			"cap_chars":      37500,
 			"role_key":       "assistant",
 			"text":           assistantInsightSeed,
@@ -350,9 +350,9 @@ func TestHandleResetInsightApiInsightRoleKeyResetPost(t *testing.T) {
 			"role_key":   "assistant",
 			"is_default": true,
 			"has_seed":   true,
-			"size_chars": 3978,
+			"size_chars": 3958,
 			"cap_chars":  37500,
-			"sha256":     "cebe7c08fbba259bce207ecb3dc96c909426722ed77237947d7f3039c19ebbaf",
+			"sha256":     "7c9101f9372768e03147061f31db0efdde9ca4a21165bc2a4898713d7b3c5936",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -383,9 +383,9 @@ func TestHandleResetInsightApiInsightRoleKeyResetPost(t *testing.T) {
 			"role_key":   "assistant",
 			"is_default": true,
 			"has_seed":   true,
-			"size_chars": 3978,
+			"size_chars": 3958,
 			"cap_chars":  37500,
-			"sha256":     "cebe7c08fbba259bce207ecb3dc96c909426722ed77237947d7f3039c19ebbaf",
+			"sha256":     "7c9101f9372768e03147061f31db0efdde9ca4a21165bc2a4898713d7b3c5936",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   1,
@@ -478,9 +478,9 @@ func TestInsightReceiptOf(t *testing.T) {
 			"role_key":   "assistant",
 			"is_default": true,
 			"has_seed":   true,
-			"size_chars": 3978,
+			"size_chars": 3958,
 			"cap_chars":  37500,
-			"sha256":     "cebe7c08fbba259bce207ecb3dc96c909426722ed77237947d7f3039c19ebbaf",
+			"sha256":     "7c9101f9372768e03147061f31db0efdde9ca4a21165bc2a4898713d7b3c5936",
 		})
 	})
 

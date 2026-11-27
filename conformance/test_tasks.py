@@ -1314,7 +1314,7 @@ def test_manual_crud_and_delete_guard(client, owner_token, executor):
 
 
 _BUILTIN_TASK_MANUAL_DESIGN_SOP_SHA256 = (
-    "12a3bbc83db1c7b2171b27a91dfd9b51dd60fdbce89b963bf5caefa3274328e9")
+    "51d26d8084ed7b4bc5a539fdb8305b3625ba7730ed8fa295f714e6494b0465a5")
 
 
 def test_builtin_manual_is_listed_resettable_and_undeletable(

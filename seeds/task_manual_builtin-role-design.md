@@ -25,7 +25,7 @@ Write the systems, domains, or knowledge the role needs to master directly into 
 
 Keep only the information other members need to judge whether to come to this role; do not include execution steps, judgment details, or how to handle individual situations.
 
-**A role definition should describe long-term responsibilities and division of labor, and must not record information that changes with the current situation.** Do not describe the division of labor or the boundaries of responsibility by the names of specific members, other roles, or task manuals. When you need to judge who should handle some other work, judge it at the time the work is actually assigned, based on the settings and definitions at that time.
+**A role definition should describe long-term responsibilities and division of labor, and does not record information that changes with the current situation.** It does not describe the division of labor or the boundaries of responsibility by the names of specific members, other roles, or task manuals. When you need to judge who should handle some other work, judge it at the time the work is actually assigned, based on the settings and definitions at that time.
 
 ## Insight
 

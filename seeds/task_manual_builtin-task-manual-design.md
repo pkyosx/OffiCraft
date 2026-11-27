@@ -14,7 +14,7 @@ Explain what work this kind of task handles. If it is easily confused with other
 
 Keep only the information needed to judge whether this kind of task should be created; do not include execution steps, handling details, or how to handle individual situations.
 
-Do not write information that changes with the current situation as fixed rules. A task manual should describe the long-term scope, process, and way of judging for this kind of work, and must not describe the division of labor or scope of application by the names of specific members, roles, or other task manuals. When you need to judge who should handle it or which task manual to use, judge it at execution time based on the settings and definitions at that time.
+Do not write information that changes with the current situation as fixed rules. A task manual should describe the long-term scope, process, and way of judging for this kind of work, and does not describe the division of labor or scope of application by the names of specific members, roles, or other task manuals. When you need to judge who should handle it or which task manual to use, judge it at execution time based on the settings and definitions at that time.
 
 ## What information is needed?
 

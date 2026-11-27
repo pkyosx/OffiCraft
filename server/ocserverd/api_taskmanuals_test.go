@@ -333,7 +333,7 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 			"purpose":          "Help the Owner turn on or adjust remote connections so a phone or another computer can reach the console at an HTTPS URL — including turning it on for the first time, and later changing the forwarding method or the URL.",
 			"fields":           []any{},
 			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
-			"sop_md_chars":     14974,
+			"sop_md_chars":     14997,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
 			"is_seed":          true,
@@ -345,7 +345,7 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 			"purpose":          "Create a new role, or adjust an existing role's role definition and judgment criteria (Insight).",
 			"fields":           []any{},
 			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
-			"sop_md_chars":     9219,
+			"sop_md_chars":     9224,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
 			"is_seed":          true,
@@ -367,9 +367,9 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 }
 
 const (
-	apiTestRoleDesignSopChars        = 9219
-	apiTestRoleDesignSopSha256       = "58d517c3d59ff7fb36c91d5b0b09c70a2be2257055fe65cd2c5479583d84595e"
-	apiTestTaskManualDesignSopSha256 = "12a3bbc83db1c7b2171b27a91dfd9b51dd60fdbce89b963bf5caefa3274328e9"
+	apiTestRoleDesignSopChars        = 9224
+	apiTestRoleDesignSopSha256       = "4953f808763561795caeba84f8f26b7abc5e2f1f70bfc29fc39799cbebf138e8"
+	apiTestTaskManualDesignSopSha256 = "51d26d8084ed7b4bc5a539fdb8305b3625ba7730ed8fa295f714e6494b0465a5"
 )
 
 // apiTestWantRoleDesignManual reads builtin-role-design back. The shipped SOP is

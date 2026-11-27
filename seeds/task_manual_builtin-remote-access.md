@@ -212,7 +212,7 @@ Before disabling the old forwarding, confirm:
 
 Until all of the above conditions hold, you must not disable the old forwarding.
 
-When disabling the old forwarding, remove only what is no longer needed; you must not also clear other settings still in use.
+When disabling the old forwarding, remove only the forwarding this change has made unnecessary; you must not also clear other settings still in use.
 
 If using Tailscale, note that Funnel and a private `serve` configuration may coexist. `tailscale funnel ... off` also clears the private forwarding; to disable only Funnel and keep the private forwarding, re-run `tailscale serve --bg <console port>` instead.
 
