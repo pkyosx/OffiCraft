@@ -25,9 +25,9 @@ func TestShippedDocumentCapsAreServedWhenUnset(t *testing.T) {
 		"lore_cap_chars_body":              1250,
 		"lore_cap_chars_role":              25000,
 		"lore_cap_chars_manual":            25000,
-		"doc_cap_chars_insight":       37500,
-		"doc_cap_chars_boot_sequence": 37500,
-		"doc_cap_chars_offboard":      37500,
+		"doc_cap_chars_insight":            37500,
+		"doc_cap_chars_boot_sequence":      37500,
+		"doc_cap_chars_offboard":           37500,
 	}
 	for field, v := range want {
 		if data[field] != v {
