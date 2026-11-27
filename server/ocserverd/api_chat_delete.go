@@ -124,5 +124,5 @@ func chatDeleteNotice(deleted ChatMessage, now float64) ChatMessage {
 // Owner-chosen wording, delivered to members as-is: no boot document explains a
 // deleted message, so this text alone must tell them what to do.
 func chatDeleteNoticeBody(id string) string {
-	return "The owner deleted message #" + id + " (now void). If unread, ignore it; original text: get_chat ids=" + id + "."
+	return "Owner deleted message #" + id + " (void). If unread, ignore it. Need the original? Use get_chat ids=" + id + "."
 }

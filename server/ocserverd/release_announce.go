@@ -477,11 +477,12 @@ func releaseAnnouncementTags(picks []releaseAnnouncement) []string {
 	return tags
 }
 
-// 🔴 The rules are the owner's wording, verbatim; do not rephrase them. Only
+// 🔴 The rules are the Owner-approved text (decision card rc-f81e4e4f850c),
+// verbatim; do not rephrase them. Only
 // the preferred language, the title line, and the closing reminder are filled
 // in by the station.
 func releaseAnnouncementBody(token string, picks []releaseAnnouncement, omitted int, listURL string, displayLanguage string) string {
-	language, title := "Chinese", "OffiCraft 更新公告"
+	language, title := "Traditional Chinese (Taiwan)", "OffiCraft 更新公告"
 	reminder := "若不想收到這類通知，可以到「設定 › 更新設定」關閉。"
 	if displayLanguage == "en" {
 		language, title = "English", "OffiCraft release announcement"

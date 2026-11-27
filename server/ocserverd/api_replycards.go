@@ -320,9 +320,13 @@ func (s *apiServer) openReplyCard(
 	if heldTask != nil {
 		s.publishTask(*heldTask, trigger)
 	}
+	title, pushBody := "OffiCraft：需要你決定", "你有一張新的請示卡。"
+	if s.displayLanguageSnapshot() == "en" {
+		title, pushBody = "OffiCraft: decision needed", "You have a new decision card."
+	}
 	s.enqueueWebPush(webPushPayload{
 		Kind: "reply_card", ChatMessageID: msg.ID, ReplyCardID: card.ID,
-		Title: "OffiCraft: decision needed", Body: "You have a new decision card.",
+		Title: title, Body: pushBody,
 		NeedsDecision: card.Status == replyCardStatusWaiting,
 	})
 	return &card, "", nil

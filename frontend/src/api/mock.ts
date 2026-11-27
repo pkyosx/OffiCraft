@@ -1136,8 +1136,8 @@ type StoredTaskManual = Omit<
   "sopMdChars" | "sopMdCapChars"
 >;
 
-// Names and purposes mirror the server's builtinTaskManuals (English since
-// T-745). The seed order here does not matter: listing goes through
+// Names and purposes mirror the server's builtinTaskManuals. The seed order
+// here does not matter: listing goes through
 // `sortedTaskManuals`, which sorts the way the server's ListTaskManuals does.
 const MOCK_TASK_MANUAL_SEEDS: readonly StoredTaskManual[] = [
   {
@@ -2503,10 +2503,10 @@ function acceleratedStopStamps(windingDownToOffline: boolean): {
 }
 
 const MOCK_SESSION_ALIVE_RECEIPT =
-  "session_alive: it was already running — 喚醒 left that session alone and " +
-  "dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under way on " +
+  "session_alive: it was already running — Wake left that session alone and " +
+  "dispatched nothing. Its work, and any Accelerated stop or Refocus already under way on " +
   "it, are untouched. To end the current session and start a fresh one, press " +
-  "強制停止 first, then 喚醒";
+  "Force stop first, then Wake";
 
 function findWire(id: string): WireMember {
   const w = wireMembers.find((m) => m.id === id);
@@ -4604,7 +4604,7 @@ const mockApiImpl = {
       id: noticeId,
       from: "system",
       to: m.to,
-      body: `The owner deleted message #${id} (now void). If unread, ignore it; original text: get_chat ids=${id}.`,
+      body: `Owner deleted message #${id} (void). If unread, ignore it. Need the original? Use get_chat ids=${id}.`,
       ts: now,
       attachments: [],
       replyCardId: null,
@@ -5929,7 +5929,7 @@ const mockApiImpl = {
     if (w.desiredState === "offline") {
       throw mockApiError(
         `http 409 for POST /api/members/${id}/refocus`,
-        409, "worker is stopped — 喚醒 it before refocusing"
+        409, "refocus requires the worker to be online; this worker is stopping or stopped — press Wake to bring it back"
       );
     }
     if (w.presence !== "online") {

@@ -406,10 +406,10 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
     const line = await findByTestId("worker-detail-lastop-reason");
     expect(line.className).toBe("mp-lastop__reason mp-lastop__reason--note");
     expect(line.textContent).toBe(
-      "session_alive: it was already running — 喚醒 left that session alone and " +
-        "dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under way on " +
+      "session_alive: it was already running — Wake left that session alone and " +
+        "dispatched nothing. Its work, and any Accelerated stop or Refocus already under way on " +
         "it, are untouched. To end the current session and start a fresh one, press " +
-        "強制停止 first, then 喚醒",
+        "Force stop first, then Wake",
     );
     expect(container.querySelector(".mp-lastop__head--ok")).not.toBeNull();
     expect(container.querySelector(".mp-lastop__head--fail")).toBeNull();
@@ -1918,8 +1918,6 @@ describe("WorkerDetailPanel — initial-prompt preview (T-ba6b)", () => {
     );
     // seeds.ts 直接 import 真正的 seeds/boot_sequence.md（?raw），沒有第二份
     // 拷貝可以走鐘，所以這一行釘的是那份 seed 的 H1 逐字位元組。
-    // rc-e12733548e4b 之後是新名（啟動程序 → 啟動步驟）；T-745 起 seed 改英文
-    // 成 Boot Sequence，與 seed 同一顆 commit 換掉。
     expect(body.textContent ?? "").toContain("Boot Sequence");
     // T-4595: a worker's boot context is the staff fold minus the persona slot,
     // with no identity block, no task and no manual — so the codename and the

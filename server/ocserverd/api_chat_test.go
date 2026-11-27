@@ -1002,9 +1002,37 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 			"kind":         "chat",
 			"chat_id":      id,
 			"chat_peer_id": "mira",
-			"title":        "OffiCraft: new message",
-			"body":         "You have a new message.",
+			"title":        "OffiCraft 有新訊息",
+			"body":         "你有一則新訊息。",
 		})
+	})
+
+	t.Run("the owner's notification follows the cockpit language", func(t *testing.T) {
+		for _, tc := range []struct{ language, title, body string }{
+			{"zh", "OffiCraft 有新訊息", "你有一則新訊息。"},
+			{"en", "OffiCraft: new message", "You have a new message."},
+		} {
+			t.Run(tc.language, func(t *testing.T) {
+				api, h, _, owner := newAPITestServer(t)
+				if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"`+tc.language+`"}`); status != 200 {
+					t.Fatalf("PATCH display_language: %d %v", status, data)
+				}
+				agent := apiTestAgentToken(t, api, "mira", "")
+				wantPushed := apiTestWebPushSink(t, api)
+
+				status, data := apiJSON(t, h, "POST", "/api/chat", agent, `{"to":"owner","body":"hi boss"}`)
+				if status != 200 {
+					t.Fatalf("want 200, got %d (%v)", status, data)
+				}
+				wantPushed(map[string]any{
+					"kind":         "chat",
+					"chat_id":      data["id"],
+					"chat_peer_id": "mira",
+					"title":        tc.title,
+					"body":         tc.body,
+				})
+			})
+		}
 	})
 
 	t.Run("a message the owner sends fans one chat frame and pushes nothing", func(t *testing.T) {

@@ -59,7 +59,7 @@ describe("mock deleteChatMessage", () => {
       [
         "mira",
         sent.id,
-        `The owner deleted message #${sent.id} (now void). If unread, ignore it; original text: get_chat ids=${sent.id}.`,
+        `Owner deleted message #${sent.id} (void). If unread, ignore it. Need the original? Use get_chat ids=${sent.id}.`,
       ],
     ]);
 

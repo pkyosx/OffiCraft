@@ -10,7 +10,7 @@ import (
 )
 
 func apiTestDeleteNoticeBody(id string) string {
-	return "The owner deleted message #" + id + " (now void). If unread, ignore it; original text: get_chat ids=" + id + "."
+	return "Owner deleted message #" + id + " (void). If unread, ignore it. Need the original? Use get_chat ids=" + id + "."
 }
 
 func apiTestDeletedRow(id, from, to, body string) map[string]any {

@@ -208,8 +208,35 @@ func TestOpenReplyCard(t *testing.T) {
 		initiator.wantFrames(chatFrame, cardFrame)
 		wantPushed(map[string]any{
 			"kind": "reply_card", "chat_id": card.ChatMessageID, "reply_card_id": card.ID,
-			"title": "OffiCraft: decision needed", "body": "You have a new decision card.", "needs_decision": true,
+			"title": "OffiCraft：需要你決定", "body": "你有一張新的請示卡。", "needs_decision": true,
 		})
+	})
+
+	t.Run("the owner's notification follows the cockpit language", func(t *testing.T) {
+		for _, tc := range []struct{ language, title, body string }{
+			{"zh", "OffiCraft：需要你決定", "你有一張新的請示卡。"},
+			{"en", "OffiCraft: decision needed", "You have a new decision card."},
+		} {
+			t.Run(tc.language, func(t *testing.T) {
+				api, h, _, owner := newAPITestServer(t)
+				if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"`+tc.language+`"}`); status != 200 {
+					t.Fatalf("PATCH display_language: %d %v", status, data)
+				}
+				wantPushed := apiTestWebPushSink(t, api)
+				card, problem, err := api.openReplyCard("mira", ReplyCardCreateDTO{
+					Kind:    ReplyCardCreateDTOKind("decision"),
+					Summary: "ship this",
+					Options: []ReplyCardOptionDTO{{Text: "ship"}, {Text: "hold"}},
+				}, nil, nil, nil, "mira")
+				if err != nil || problem != "" || card == nil {
+					t.Fatalf("openReplyCard = card:%#v problem:%q err:%v", card, problem, err)
+				}
+				wantPushed(map[string]any{
+					"kind": "reply_card", "chat_id": card.ChatMessageID, "reply_card_id": card.ID,
+					"title": tc.title, "body": tc.body, "needs_decision": true,
+				})
+			})
+		}
 	})
 
 	t.Run("a task binding without a step returns the complete structural error", func(t *testing.T) {
@@ -473,8 +500,8 @@ func TestHandleCreateReplyCardApiReplyCardsPost(t *testing.T) {
 			"kind":           "reply_card",
 			"chat_id":        messageID,
 			"reply_card_id":  cardID,
-			"title":          "OffiCraft: decision needed",
-			"body":           "You have a new decision card.",
+			"title":          "OffiCraft：需要你決定",
+			"body":           "你有一張新的請示卡。",
 			"needs_decision": true,
 		})
 	})

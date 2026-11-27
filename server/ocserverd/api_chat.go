@@ -46,7 +46,7 @@ const (
 	// Says MAY, not DOES: the marker is also raised when the read filled its window,
 	// whether or not anything older exists.
 	// Every rune here is reserved out of every member's chat budget (resumeChatPackBudget),
-	// so keep it no longer than the 448-rune Chinese hint it replaced (T-745).
+	// so keep it no longer than 448 runes.
 	resumeChatCutHint = "Older messages **may** exist: the thread hit a read/character limit and nobody looked past it, so this shows even if none do. (Not `body_omitted_chars`, one folded message.) Fetch: `get_chat`, `with` = their id, plus `before_ts` and `before_id` of their oldest message here; **both or neither** (one alone: 422). If none of theirs is here, send only `with` (reads from the newest). `get_chat` **never marks read** (`POST /api/chat/mark-read` does)."
 	// Read by every member on every wake, so an unbounded field is paid fleet-wide.
 	// 1000 is the owner's number and he ruled to keep it (rc-d88c445397a3) — do not
@@ -470,9 +470,12 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 		map[string]any{"id": msg.ID, "from": msg.Sender, "to": msg.Recipient},
 		audienceMembers(msg.Sender, msg.Recipient), msg.Sender)
 	if msg.Recipient == wireOwnerID && msg.Sender != wireOwnerID {
+		title, pushBody := "OffiCraft 有新訊息", "你有一則新訊息。"
+		if s.displayLanguageSnapshot() == "en" {
+			title, pushBody = "OffiCraft: new message", "You have a new message."
+		}
 		s.enqueueWebPush(webPushPayload{
-			Kind: "chat", ChatMessageID: msg.ID, ChatPeerID: msg.Sender, Title: "OffiCraft: new message",
-			Body: "You have a new message.",
+			Kind: "chat", ChatMessageID: msg.ID, ChatPeerID: msg.Sender, Title: title, Body: pushBody,
 		})
 	}
 	// 🔴 A receipt, not the message. Do not reintroduce a post-commit read here: its
