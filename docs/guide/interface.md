@@ -553,9 +553,8 @@ For how members retrieve secrets, see "How members fetch secrets" in [Architectu
 **Accounts**
 
 - **5-hour window, 7-day window** — Usage compared with how much of the window has elapsed.
-- **Overheated** — When usage in the 7-day window is running too fast compared with how much time has passed, a red dot and "overheated" are shown. This only appears on accounts measured within roughly the last 10 minutes.
-- **Measured X ago** — How long ago the usage figure was measured. The figure is what the machine's warden got from Anthropic; see [Manage AI accounts and usage](usage.md).
-- **Usage unknown** — Appears, with the reason, when the latest lookup did not return a figure.
+- **Overheated** — When usage in the 7-day window is running too fast compared with how much time has passed, a red dot and "overheated" are shown. This only appears on accounts that still have members reporting.
+- **Measured X ago** — How long ago the usage figure was measured.
 - **Limit reached** — Appears when the account has reached its usage limit, with the reset time (today, tomorrow or a date).
 - **est.** — Accumulated estimated spend. It can be "Reset"; once reset, it cannot be recovered.
 - **Account details** — Email, organization, raw reported label, machines, estimated cost. You can "Rename account" here.
@@ -563,13 +562,12 @@ For how members retrieve secrets, see "How members fetch secrets" in [Architectu
 **Machines**
 
 - **Machine** — Connection dot, machine name and ID. When members on the machine are still running in the old environment, a "Not in effect" exclamation mark is added at the end. Click the machine name to open a menu: "Details", "Rename", "Install" ("Reinstall" when online), "Uninstall", "Delete".
-- **Status, Claude, Codex, Account, CPU, RAM, Battery, Power** — Data reported by the machine. The version numbers in the Claude and Codex columns can be clicked, and the menu includes "Sign in"; the Claude column also has "Upgrade Claude Code". When the account or usage of this machine's Claude login cannot be looked up, "Usage unknown" and the reason appear below the version number in the Claude column.
+- **Status, Claude, Codex, Account, CPU, RAM, Battery, Power** — Data reported by the machine. The version numbers in the Claude and Codex columns can be clicked, and the menu includes "Sign in"; the Claude column also has "Upgrade Claude Code".
 - **Disk** — Space OffiCraft uses on this machine. Click the number to expand the breakdown: "Database", "Automatic database backups", "Member workspaces", "Logs", "Upgrade leftovers", "Old database copies", "Other", "Disk free / total". Shows "Not measured" if it has not been measured yet. This only measures; it does not delete anything.
 
 **AI Sessions**
 
 - Member, Machine, Account, Model, Memory used, est. $. Outsource members have an extra outsource badge.
-- The account is the one the warden got from Anthropic for the Claude login this member uses, at the moment the member started. It is empty if the lookup failed; it is filled in later only if the account the warden finds matches the login from before the member started, and otherwise stays empty until the member restarts. When the machine is later signed in to a different account, "Still on its old account — switches after Refocus" appears below the account; see [Manage AI accounts and usage](usage.md).
 
 For installing machines and signing in to Claude and Codex, see [Install, upgrade, and uninstall](install.md). For resolving warnings, see [Troubleshooting and FAQ](troubleshooting.md).
 

@@ -132,8 +132,9 @@ func ShapeWindow(raw any, windowSec, now float64, measuredAt *float64, freshSecs
 	}
 }
 
-// measuredAt is per window; a window with no stamp is of unknown age and gets
-// no pace verdict.
+// measuredAt is PER WINDOW: the fold picks each window independently
+// (pickRateLimitWindow), so one account-wide stamp would let a fresh 5h window
+// vouch for a frozen 7d one.
 func ShapeWindows(rateLimits any, now float64, measuredAt map[string]float64, freshSecs float64) map[string]*PaceWindow {
 	out := map[string]*PaceWindow{"five_hour": nil, "seven_day": nil}
 	obj, ok := rateLimits.(map[string]any)

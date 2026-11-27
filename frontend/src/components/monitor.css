@@ -221,10 +221,6 @@
 .mon-muted {
   color: var(--color-text-muted);
 }
-.mon-account-note {
-  font-size: 0.85em;
-  color: var(--color-text-muted);
-}
 
 /* A value that is REAL but no longer current (T-b36a). Deliberately shown, not
    hidden: an expired runtime probe is the only explanation an operator has for

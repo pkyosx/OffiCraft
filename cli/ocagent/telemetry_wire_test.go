@@ -98,7 +98,7 @@ func TestContextReportUplinkBodies(t *testing.T) {
 			var out, errOut bytes.Buffer
 
 			rc := cmdContextReport(srv.Client(), cfg,
-				testEnv(map[string]string{"HOME": home, "OC_HOST": "lab-1", claudeAccountEnv: `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)"}`}),
+				testEnv(map[string]string{"HOME": home, "OC_HOST": "lab-1"}),
 				1000.0, strings.NewReader(tc.payload), &out, &errOut)
 
 			if rc != 0 {

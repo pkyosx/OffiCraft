@@ -5,10 +5,7 @@ package main
 // projection (api_outsource.go / wire.go), so neither serves a raw credential
 // hash.
 
-import (
-	"net/http"
-	"strings"
-)
+import "net/http"
 
 // accountRuntimeKey is an internal provenance stamp, deliberately in no API
 // DTO: account identity is runtime-specific.
@@ -22,21 +19,16 @@ func accountLabelOverlay(telemetry map[string]map[string]any, isOwner bool) map[
 		return labels
 	}
 	labelTS := map[string]float64{}
-	offer := func(account, label string, ts float64) {
+	for _, entry := range telemetry {
+		account, _ := entry["account"].(string)
+		label, _ := entry["account_label"].(string)
 		if account == "" || label == "" {
-			return
+			continue
 		}
+		ts, _ := entry["ts"].(float64)
 		if prior, seen := labelTS[account]; !seen || ts > prior {
 			labelTS[account] = ts
 			labels[account] = label
-		}
-	}
-	for _, entry := range telemetry {
-		ts, _ := entry["ts"].(float64)
-		offer(stringOf(entry["account"]), stringOf(entry["account_label"]), ts)
-		if login, isObj := entry["claude_account"].(map[string]any); isObj {
-			measuredAt, _ := login["measured_at"].(float64)
-			offer(stringOf(login["account"]), stringOf(login["account_label"]), measuredAt)
 		}
 	}
 	return labels
@@ -109,27 +101,9 @@ func resolveAccountDisplay(aliases, labels map[string]string, raw string) string
 		return name
 	}
 	if label := labels[raw]; label != "" {
-		return defaultAccountName(label)
+		return label
 	}
 	return ""
-}
-
-// defaultAccountName: display only — account_label stays raw on the wire so the
-// details modal can still split out the org. Anthropic names a personal plan's
-// org "<email>'s Organization", which would only repeat the email.
-func defaultAccountName(label string) string {
-	if !strings.HasSuffix(label, ")") {
-		return label
-	}
-	i := strings.LastIndex(label, "(")
-	if i <= 0 {
-		return label
-	}
-	base, org := label[:i], label[i+1:len(label)-1]
-	if org == base+"'s Organization" {
-		return base
-	}
-	return base + " (" + org + ")"
 }
 
 // accountDisplayFold: pass the SAME telemetry snapshot the handler already took,

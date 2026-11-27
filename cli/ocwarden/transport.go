@@ -411,7 +411,6 @@ var spawnSleep = time.Sleep
 func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socket, ns string) SpawnDeps {
 	wardenBin, _ := os.Executable()
 	listenPIDs := ocagentPIDsByCwdFor(runtime.GOOS, runner, "/proc")
-	claudeHome := resolvedClaudeHome(env, stderrLogf)
 	return SpawnDeps{
 		Runner:    runner,
 		Base:      cfg.Base,
@@ -428,10 +427,7 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		ClaudeTakesPromptFile: func(claudeBin, promptFile string) (bool, string) {
 			return claudeAcceptsPromptFile(withRunTimeout(runner, claudePromptFileProbeBudget), claudeBin, promptFile)
 		},
-		ClaudeHome: claudeHome,
-		ClaudeAccounts: newClaudeAccountReporter(
-			newClaudeAccountMeter(env, claudeHome, runner, runtime.GOOS).measureLogin,
-			func(format string, a ...any) { fmt.Fprintf(os.Stderr, "[ocwarden] "+format+"\n", a...) }),
+		ClaudeHome:  resolvedClaudeHome(env, stderrLogf),
 		WardenBin:   wardenBin,
 		CodexModels: listCodexModels,
 		RepoRoot:    resolveRepoRoot(os.Executable),
@@ -479,7 +475,6 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 	claudeJSONPath := spawnDeps.ClaudeHome.ClaudeJSONPath()
 	listenPIDs := ocagentPIDsByCwdFor(runtime.GOOS, runner, "/proc")
 	return CommandDeps{
-		ClaudeAccounts: spawnDeps.ClaudeAccounts,
 		Spawn: func(p StartParams) SpawnOutcome {
 			workdir := agentWorkdir(spawnDeps.Home, p.MemberID)
 			// 🔴 Resolved per spawn, by the same functions the heartbeat and the
