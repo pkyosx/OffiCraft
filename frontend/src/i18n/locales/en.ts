@@ -1763,7 +1763,7 @@ export const en: Dict = {
     insightEmpty:
       "This role has no Insight yet.",
     insightShared:
-      "Judgement principles this role keeps for its own work; only this role's members get them at boot. Other members can look them up, but only this role itself and an admin can change them.",
+      "Judgement principles this role keeps for its own work. Only this role's members read them at boot; other members don't read them by default.",
     insightSaveError: "Failed to save insight",
     // ── Webhook endpoints (M4) ──
     webhook: {

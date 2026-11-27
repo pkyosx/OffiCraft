@@ -1800,7 +1800,7 @@ export const zh = {
     insightEmpty:
       "這個角色還沒有判準。",
     insightShared:
-      "寫給這個角色自己的判斷原則，只放進這個角色成員的開機內容；其他成員也查得到，但只有這個角色本人和管理員可以修改。",
+      "寫給這個角色自己的判斷原則。只有這個角色的成員開機時會讀，其他成員預設不會讀。",
     insightSaveError: "儲存判準失敗",
     // ── 回呼端點 · WEBHOOK（M4）──
     webhook: {
@@ -2602,7 +2602,7 @@ export const zh = {
     taskReassignPredecessorSub: "手上的任務被轉給別人時給 agent 的交接指示 · 可編輯",
     taskTakeoverWithPredecessorName: "任務轉派 · 給接手人",
     taskTakeoverWithPredecessorSub: "接手任務時給 agent 的指示（有沒有前任都用這份）· 可編輯",
-    taskUnblockedName: "擋著你手上任務的票解開了",
+    taskUnblockedName: "擋住你任務的任務已解開",
     taskUnblockedSub: "依賴的任務放行時給 agent 的通知 · 可編輯",
     taskReadyForDoneName: "你手上的任務可以結案了",
     taskReadyForDoneSub: "任務每次進到可結案時給 agent 的通知 · 可編輯",
@@ -2639,7 +2639,7 @@ export const zh = {
     historyTaskTakeoverWithPredecessorTitle: "任務轉派 · 給接手人的版本紀錄",
     // T-6f44：這份**不再是唯讀的**（owner 的決定 2），所以它跟其他文件
     // 一樣真的會有版本紀錄。
-    historyTaskUnblockedTitle: "擋著你手上任務的票解開了的版本紀錄",
+    historyTaskUnblockedTitle: "擋住你任務的任務已解開的版本紀錄",
     historyTaskReadyForDoneTitle: "你手上的任務可以結案了的版本紀錄",
     // Keep the legacy key in the theme whitelist for saved packs; current cards
     // use the explicit factory-status keys below.

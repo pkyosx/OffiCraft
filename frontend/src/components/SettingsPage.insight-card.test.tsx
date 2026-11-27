@@ -198,14 +198,13 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     expect(size?.textContent?.replace(/\s+/g, " ").trim()).toBe(`2 / ${raised}`);
   });
 
-  it("says out loud that Insight is separate, NOT private", async () => {
-    // The delivery sentence. READ is unrestricted by owner ruling, and a card
-    // that implies a confidentiality boundary this system does not keep is
-    // worse than no card at all.
+  it("says only this role reads Insight at boot, without calling it private", async () => {
+    // READ is unrestricted by owner ruling: the sentence says who reads it by
+    // default, never that others cannot.
     const utils = await openRolePage(zh.office.role.assistant);
     const note = within(insightCard(utils)!).getByText(mp.insightShared);
     expect(note.textContent).toBe(
-      "寫給這個角色自己的判斷原則，只放進這個角色成員的開機內容；其他成員也查得到，但只有這個角色本人和管理員可以修改。"
+      "寫給這個角色自己的判斷原則。只有這個角色的成員開機時會讀，其他成員預設不會讀。"
     );
   });
 
@@ -226,7 +225,7 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     expect(within(card).getByText("Insight (judgement calls)")).toBeTruthy();
     expect(
       within(card).getByText(
-        "Judgement principles this role keeps for its own work; only this role's members get them at boot. Other members can look them up, but only this role itself and an admin can change them."
+        "Judgement principles this role keeps for its own work. Only this role's members read them at boot; other members don't read them by default."
       )
     ).toBeTruthy();
   });
