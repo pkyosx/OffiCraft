@@ -770,10 +770,10 @@ type AgentActivityIngestDTO struct {
 	// BusySince Epoch seconds the main agent's current turn started, by the reporting machine's clock. Ignored when ``busy`` is false; when omitted under ``busy`` the station dates the turn by its first report.
 	BusySince *float64 `json:"busy_since,omitempty"`
 
-	// Subagents Every sub-agent running right now, all nesting levels together.
+	// Subagents Every sub-agent running right now, all nesting levels together, plus every other agent or background task the runtime reports that does not only wait on a program (a Claude Code ``workflow``, ``cloud session``, a type no reader knows yet, …).
 	Subagents []AgentActivitySubagentDTO `json:"subagents"`
 
-	// Waits What the session is waiting on that will wake it again: background tasks (commands, monitors, teammates standing by, workflows and the other kinds ``kind`` lists) and scheduled prompts. Empty when the runtime does not expose them.
+	// Waits What the session is waiting on that will wake it again: background tasks that only run a program (Claude Code's ``shell``, ``monitor``, ``MCP task``, ``code``; a Codex background terminal) and scheduled prompts. Empty when the runtime does not expose them.
 	Waits *[]AgentActivityWaitDTO `json:"waits,omitempty"`
 }
 
@@ -794,7 +794,7 @@ type AgentActivitySubagentDTO struct {
 	// Id The runtime's id for this sub-agent (Claude Code agent_id, Codex thread id); unique within the report.
 	Id string `json:"id"`
 
-	// Name The sub-agent's type (Claude Code, e.g. ``Explore``) or the name its parent gave it (Codex).
+	// Name The sub-agent's type (Claude Code, e.g. ``Explore``), the name its parent gave it (Codex), or for a background task the runtime's name for its type; ``unknown`` when the runtime gives none.
 	Name string `json:"name"`
 
 	// ParentId The ``id`` of the sub-agent that started this one; null when the main agent started it or the runtime did not say.
@@ -809,7 +809,7 @@ type AgentActivityWaitDTO struct {
 	// Description The agent's own one-line description of it (a scheduled prompt's text for ``schedule``).
 	Description *string `json:"description,omitempty"`
 
-	// Kind ``schedule`` for a scheduled prompt; otherwise the runtime's own name for the background task (Claude Code's ``shell``, ``monitor``, ``teammate``, ``workflow``, ``MCP task``, …; ``shell`` for a Codex background terminal), or ``unknown`` when the runtime gives none. Not checked, and shown as sent.
+	// Kind ``schedule`` for a scheduled prompt; otherwise the runtime's own name for the background task (Claude Code's ``shell``, ``monitor``, ``MCP task``, ``code``; ``shell`` for a Codex background terminal). Not checked, and shown as sent.
 	Kind string `json:"kind"`
 
 	// NextTs For ``schedule``: epoch seconds of its next run, by the reporting machine's clock; null when unknown or for other kinds.
@@ -2486,7 +2486,7 @@ type MemberActivityDTO struct {
 	BusySince *float64               `json:"busy_since,omitempty"`
 	State     MemberActivityDTOState `json:"state"`
 
-	// Subagents Every sub-agent running right now, all nesting levels together.
+	// Subagents Every sub-agent running right now, all nesting levels together, plus every other agent or background task the runtime reports that does not only wait on a program (a Claude Code ``workflow``, ``cloud session``, a type no reader knows yet, …).
 	Subagents []AgentActivitySubagentDTO `json:"subagents"`
 
 	// Ts The server's stamp on the report this state came from, in epoch seconds.

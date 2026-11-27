@@ -87,6 +87,9 @@ type activityState struct {
 	// SubagentStart takes the oldest; concurrent spawns from different parents
 	// can be paired wrongly.
 	Pending []activitySpawn `json:"pending,omitempty"`
+	// Background tasks of a type that is not known to only wait, shown as
+	// working; rebuilt from every background_tasks list.
+	Working []activitySubagent `json:"working,omitempty"`
 }
 
 type activitySubagentBody struct {
@@ -423,8 +426,14 @@ func (s *activityState) isTeammate(id string) bool { return s.Spawns[id].Teammat
 // Claude Code only lists tasks in one of these two states today.
 func isLiveTask(status string) bool { return status == "running" || status == "pending" }
 
+// Claude Code task types that run a program without the model. Any other type,
+// including one a later Claude Code adds, is shown as working so that it is
+// never missed (owner c-1dcafca28f9d).
+var waitingTaskTypes = map[string]bool{"shell": true, "monitor": true, "MCP task": true, "code": true}
+
 func refreshActivityFromTasks(s *activityState, in activityHookInput, now float64) {
 	s.Waits = nil
+	working := []activitySubagent{}
 	for _, task := range in.BackgroundTasks {
 		if !isLiveTask(task.Status) {
 			continue
@@ -446,8 +455,14 @@ func refreshActivityFromTasks(s *activityState, in activityHookInput, now float6
 		if description == "" && task.Server != "" {
 			description = task.Server + "·" + task.Tool
 		}
-		s.Waits = append(s.Waits, activityWait{Kind: orUnknown(task.Type), Description: description})
+		if !waitingTaskTypes[task.Type] {
+			working = append(working, activitySubagent{ID: task.ID, Name: orUnknown(task.Type),
+				Description: description, StartedTs: s.workingSince(task.ID, now)})
+			continue
+		}
+		s.Waits = append(s.Waits, activityWait{Kind: task.Type, Description: description})
 	}
+	s.Working = working
 	for _, cron := range in.SessionCrons {
 		wait := activityWait{Kind: "schedule", Description: cron.Prompt, Recurring: cron.Recurring}
 		if next, ok := cronNextRun(cron.Schedule, time.Unix(0, int64(now*1e9)).In(cronLocation)); ok {
@@ -456,6 +471,15 @@ func refreshActivityFromTasks(s *activityState, in activityHookInput, now float6
 		}
 		s.Waits = append(s.Waits, wait)
 	}
+}
+
+func (s *activityState) workingSince(id string, now float64) float64 {
+	for _, task := range s.Working {
+		if task.ID == id {
+			return task.StartedTs
+		}
+	}
+	return now
 }
 
 func orUnknown(name string) string {
@@ -495,7 +519,7 @@ func newActivityBody(s activityState) activityBody {
 	if s.Busy {
 		body.BusySince = s.BusySince
 	}
-	subs := append([]activitySubagent(nil), s.Subagents...)
+	subs := append(append([]activitySubagent(nil), s.Subagents...), s.Working...)
 	sort.SliceStable(subs, func(i, j int) bool { return subs[i].StartedTs < subs[j].StartedTs })
 	for _, sub := range subs {
 		if len(body.Subagents) == activityListMax {

@@ -4915,12 +4915,12 @@ export interface components {
             busy_since: number | null;
             /**
              * Subagents
-             * @description Every sub-agent running right now, all nesting levels together.
+             * @description Every sub-agent running right now, all nesting levels together, plus every other agent or background task the runtime reports that does not only wait on a program (a Claude Code ``workflow``, ``cloud session``, a type no reader knows yet, …).
              */
             subagents: components["schemas"]["AgentActivitySubagentDTO"][];
             /**
              * Waits
-             * @description What the session is waiting on that will wake it again: background tasks (commands, monitors, teammates standing by, workflows and the other kinds ``kind`` lists) and scheduled prompts. Empty when the runtime does not expose them.
+             * @description What the session is waiting on that will wake it again: background tasks that only run a program (Claude Code's ``shell``, ``monitor``, ``MCP task``, ``code``; a Codex background terminal) and scheduled prompts. Empty when the runtime does not expose them.
              * @default []
              */
             waits: components["schemas"]["AgentActivityWaitDTO"][];
@@ -4965,7 +4965,7 @@ export interface components {
             description: string;
             /**
              * Name
-             * @description The sub-agent's type (Claude Code, e.g. ``Explore``) or the name its parent gave it (Codex).
+             * @description The sub-agent's type (Claude Code, e.g. ``Explore``), the name its parent gave it (Codex), or for a background task the runtime's name for its type; ``unknown`` when the runtime gives none.
              */
             name: string;
             /**
@@ -4987,7 +4987,7 @@ export interface components {
             description: string;
             /**
              * Kind
-             * @description ``schedule`` for a scheduled prompt; otherwise the runtime's own name for the background task (Claude Code's ``shell``, ``monitor``, ``teammate``, ``workflow``, ``MCP task``, …; ``shell`` for a Codex background terminal), or ``unknown`` when the runtime gives none. Not checked, and shown as sent.
+             * @description ``schedule`` for a scheduled prompt; otherwise the runtime's own name for the background task (Claude Code's ``shell``, ``monitor``, ``MCP task``, ``code``; ``shell`` for a Codex background terminal). Not checked, and shown as sent.
              */
             kind: string;
             /**
@@ -7398,7 +7398,7 @@ export interface components {
             state: "busy" | "waiting" | "idle";
             /**
              * Subagents
-             * @description Every sub-agent running right now, all nesting levels together.
+             * @description Every sub-agent running right now, all nesting levels together, plus every other agent or background task the runtime reports that does not only wait on a program (a Claude Code ``workflow``, ``cloud session``, a type no reader knows yet, …).
              */
             subagents: components["schemas"]["AgentActivitySubagentDTO"][];
             /**

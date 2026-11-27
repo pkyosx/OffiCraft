@@ -320,25 +320,25 @@ func TestCmdActivityReport(t *testing.T) {
 		}
 		w1 := `{"id":"w1","parent_id":"aimpl-937342692ba02f94","name":"gf-builder:unit-tester","description":"write the tests","started_ts":1005}`
 		w2 := `{"id":"w2","parent_id":"aimpl-937342692ba02f94","name":"gf-builder:implementer","description":"write the code","started_ts":1007}`
-		shell := `{"kind":"shell","description":"sleep 400","next_ts":null,"recurring":false},` +
-			`{"kind":"teammate","description":"spawned before this session","next_ts":null,"recurring":false}`
+		shell := `{"kind":"shell","description":"sleep 400","next_ts":null,"recurring":false}`
+		t0 := `{"id":"t0","parent_id":null,"name":"teammate","description":"spawned before this session","started_ts":1010}`
 		want := []capturedPost{
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002") + `],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002") + `],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002") + `,` + w1 + `],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002") + `,` + w1 + `,` + w2 + `],"waits":[]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002") + `,` + w1 + `,` + w2 + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002") + `,` + w2 + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002") + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[` + shell + `]}`),
-			sent(`{"busy":true,"busy_since":1030,"subagents":[],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1040") + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1040") + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1040") + `,` +
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002") + `,` + w1 + `,` + w2 + `,` + t0 + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002") + `,` + w2 + `,` + t0 + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002") + `,` + t0 + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":true,"busy_since":1030,"subagents":[` + t0 + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `,` + impl("1040") + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `,` + impl("1040") + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `,` + impl("1040") + `,` +
 				`{"id":"w3","parent_id":"aimpl-937342692ba02f94","name":"gf-builder:unit-tester","description":"rerun the tests","started_ts":1043}],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `],"waits":[` + shell + `]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
@@ -451,7 +451,7 @@ func TestCmdActivityReport(t *testing.T) {
 		}
 	})
 
-	t.Run("Stop drops sub-agents no longer running, adds a running one it never saw start, and lists every other live background task and cron as a wait", func(t *testing.T) {
+	t.Run("Stop drops sub-agents no longer running, adds a running one it never saw start, lists a background task of any other type as working unless its type only waits, and lists crons as waits", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 		writeActivityState(statePath(cfg), activityState{
@@ -492,34 +492,33 @@ func TestCmdActivityReport(t *testing.T) {
 			`{"id":"e1","type":"","status":"running","description":"untyped"}],`+
 			`"session_crons":[{"id":"c1","schedule":"*/5 * * * *","recurring":true,"prompt":"check CI"}]`)})
 
-		subagents := `"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001},` +
+		agents := `{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001},` +
 			`{"id":"never-started","parent_id":null,"name":"unknown","description":"unseen","started_ts":1010},` +
-			`{"id":"typed-unseen","parent_id":null,"name":"Explore","description":"unseen explore","started_ts":1010}]`
+			`{"id":"typed-unseen","parent_id":null,"name":"Explore","description":"unseen explore","started_ts":1010}`
+		working := `{"id":"t1","parent_id":null,"name":"teammate","description":"review the PR","started_ts":1010},` +
+			`{"id":"w1","parent_id":null,"name":"workflow","description":"release workflow","started_ts":1010},` +
+			`{"id":"w2","parent_id":null,"name":"workflow","description":"nightly","started_ts":1010},` +
+			`{"id":"r1","parent_id":null,"name":"cloud session","description":"ultrareview of #750","started_ts":1010},` +
+			`{"id":"d1","parent_id":null,"name":"dream","description":"consolidating memory","started_ts":1010},` +
+			`{"id":"x1","parent_id":null,"name":"auto-mode scan","description":"scanning the transcript","started_ts":1010},` +
+			`{"id":"n1","parent_id":null,"name":"hologram","description":"a task type from a later Claude Code","started_ts":1010},` +
+			`{"id":"n2","parent_id":null,"name":"a task type whose name runs well past forty characters","description":"long type","started_ts":1010},` +
+			`{"id":"e1","parent_id":null,"name":"unknown","description":"untyped","started_ts":1010}`
 		waits := `"waits":[{"kind":"shell","description":"npm test","next_ts":null,"recurring":false},` +
 			`{"kind":"monitor","description":"watch the deploy log","next_ts":null,"recurring":false},` +
 			`{"kind":"monitor","description":"watch the queue","next_ts":null,"recurring":false},` +
 			`{"kind":"monitor","description":"artifact watch","next_ts":null,"recurring":false},` +
 			`{"kind":"shell","description":"queued build","next_ts":null,"recurring":false},` +
-			`{"kind":"teammate","description":"review the PR","next_ts":null,"recurring":false},` +
-			`{"kind":"workflow","description":"release workflow","next_ts":null,"recurring":false},` +
-			`{"kind":"workflow","description":"nightly","next_ts":null,"recurring":false},` +
 			`{"kind":"MCP task","description":"render the report","next_ts":null,"recurring":false},` +
 			`{"kind":"MCP task","description":"docs·export","next_ts":null,"recurring":false},` +
-			`{"kind":"cloud session","description":"ultrareview of #750","next_ts":null,"recurring":false},` +
-			`{"kind":"dream","description":"consolidating memory","next_ts":null,"recurring":false},` +
-			`{"kind":"auto-mode scan","description":"scanning the transcript","next_ts":null,"recurring":false},` +
 			`{"kind":"code","description":"local script","next_ts":null,"recurring":false},` +
-			`{"kind":"hologram","description":"a task type from a later Claude Code","next_ts":null,"recurring":false},` +
-			`{"kind":"a task type whose name runs well past forty characters","description":"long type","next_ts":null,"recurring":false},` +
-			`{"kind":"unknown","description":"untyped","next_ts":null,"recurring":false},` +
 			`{"kind":"schedule","description":"check CI","next_ts":1200,"recurring":true}]`
-		want := []capturedPost{sent(`{"busy":false,"busy_since":null,` +
-			subagents + `,` + waits + `}`)}
+		want := []capturedPost{sent(`{"busy":false,"busy_since":null,"subagents":[` + agents + `,` + working + `],` + waits + `}`)}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
-		if got, want := readFileString(t, statePath(cfg)), `{"busy":false,"busy_since":null,`+
-			subagents+`,`+waits+`,"stopped":{"a1-child":true,"gone":true}}`+"\n"; got != want {
+		if got, want := readFileString(t, statePath(cfg)), `{"busy":false,"busy_since":null,"subagents":[`+agents+`],`+
+			waits+`,"stopped":{"a1-child":true,"gone":true},"working":[`+working+`]}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
 		}
 	})
