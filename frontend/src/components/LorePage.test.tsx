@@ -1026,7 +1026,7 @@ describe("LorePage — 可變動作面", () => {
     expect(list).toHaveBeenCalledTimes(1);
   });
 
-  it("hovering a ↺ shows the stored value", async () => {
+  it("hovering a ↺ says which value it reverts to", async () => {
     stubList(page([mkEntry({ id: "L-1", state: "active" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
@@ -1034,11 +1034,10 @@ describe("LorePage — 可變動作面", () => {
     chooseState(container, "L-1", "pinned");
     fireEvent.mouseEnter(mark(container, "L-1", "state"));
 
-    expect(screen.getByRole("tooltip").textContent).toBe("原為：生效中");
-    expect(screen.queryByTestId("lore-revert-confirm")).toBeNull();
+    expect(screen.getByRole("tooltip").textContent).toBe("還原為「生效中」");
   });
 
-  it("a tap on a ↺ does not revert: it shows the stored value with 還原, and only 還原 puts the field back", async () => {
+  it("a tap on a ↺ puts only that field back at once", async () => {
     stubList(page([mkEntry({ id: "L-1", state: "active" }), mkEntry({ id: "L-2", state: "active" })]));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
@@ -1047,15 +1046,9 @@ describe("LorePage — 可變動作面", () => {
     chooseType(container, "L-1", "owner_decision");
     press(mark(container, "L-1", "state"), "touch");
 
-    expect(stateOf(container, "L-1")).toBe("置頂");
-    expect(screen.getByRole("tooltip").textContent).toBe("原為：生效中還原");
-
-    fireEvent.click(screen.getByTestId("lore-revert-confirm"));
-
     expect(stateOf(container, "L-1")).toBe("生效中");
     expect(rowById(container, "L-1").querySelector('[data-testid="lore-type"]')!.textContent).toBe("Owner 決策");
     expect(unsavedIds(container)).toEqual(["L-1"]);
-    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
   it("儲存變更 sends every staged change once, then re-reads the whole section in the server's order and greys what the new answer marks dropped", async () => {
@@ -1183,7 +1176,7 @@ describe("LorePage — 可變動作面", () => {
     expect(unsavedIds(container)).toEqual(["L-2"]);
     expect(revertMarks(container, "L-2")).toEqual([["lore-revert-state", "還原為「生效中」"]]);
     fireEvent.mouseEnter(mark(container, "L-2", "state"));
-    expect(screen.getByRole("tooltip").textContent).toBe("原為：生效中");
+    expect(screen.getByRole("tooltip").textContent).toBe("還原為「生效中」");
     expect(renderedIds(container)).toEqual(["L-1", "L-2"]);
   });
 
@@ -1237,7 +1230,7 @@ describe("LorePage — 可變動作面", () => {
     expect(container.querySelector('[data-testid="lore-staged-count"]')!.textContent).toBe("1 項變更還沒儲存");
   });
 
-  it("while 儲存變更 runs, the chips, their ↺ and both buttons are locked, and a tap on ↺ offers no 還原", async () => {
+  it("while 儲存變更 runs, the chips, their ↺ and both buttons are locked", async () => {
     const sent = held<void>();
     vi.spyOn(api, "setLoreEntryState").mockReturnValue(sent.promise);
     stubList(page([mkEntry({ id: "L-1", state: "active" })]));
@@ -1257,7 +1250,6 @@ describe("LorePage — 可變動作面", () => {
       ),
     ).toEqual([true, true, true, true, true]);
     press(mark(container, "L-1", "state"), "touch");
-    expect(screen.queryByTestId("lore-revert-confirm")).toBeNull();
     expect(stateOf(container, "L-1")).toBe("置頂");
     expect(row.querySelector<HTMLButtonElement>('[data-testid="lore-edit"]')!.disabled).toBe(false);
     sent.resolve();
@@ -2747,8 +2739,11 @@ describe("LorePage — 版本紀錄", () => {
     ]);
   });
 
-  it("when a restore lands but the re-read fails, the card shows the restored title and body and the page asks for a reload", async () => {
+  it("when a restore lands but the re-read fails, the card shows the restored title and body, another card keeps its own, and the page asks for a reload", async () => {
     const { container, list } = await openMiraWithEditedL2();
+    const l1Title = rowById(container, "L-1").querySelector(".lore-row__title")!.textContent;
+    const l1Body = rowById(container, "L-1").querySelector('[data-testid="lore-body"]')!.textContent;
+    chooseStateOn(container, "L-1", "retired");
     list.mockRejectedValue(new Error("network down"));
 
     fireEvent.click(rowById(container, "L-2").querySelector('[data-testid="lore-edit"]')!);
@@ -2790,6 +2785,10 @@ describe("LorePage — 版本紀錄", () => {
     expect(rowById(container, "L-2").querySelector('[data-testid="lore-body"]')!.textContent).toBe(
       "掃描回空的時候先跑一次陽性對照，確認量具本身還會命中，再去解釋那個零。",
     );
+    expect(rowById(container, "L-1").querySelector(".lore-row__title")!.textContent).toBe(l1Title);
+    expect(rowById(container, "L-1").querySelector('[data-testid="lore-body"]')!.textContent).toBe(l1Body);
+    expect(rowById(container, "L-1").querySelector('[data-testid="lore-state"]')!.textContent).toBe("已失效");
+    expect(rowById(container, "L-1").dataset.staged).toBe("true");
   });
 
   it("an entry never edited lists no retained version", async () => {

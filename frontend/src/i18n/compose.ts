@@ -97,7 +97,6 @@ export interface Messages {
   loreScopeChanged: (entryId: string, scope: string) => string;
   loreStagedChanges: (n: number) => string;
   loreStagedFailed: (failed: { id: string; reason: string }[]) => string;
-  loreStagedFrom: (stored: string) => string;
   loreStagedRevertTo: (stored: string) => string;
   // ── secrets ──
   secretCopyId: (secretId: string) => string;
@@ -495,7 +494,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${t.lore.legendCapLead}${num(cap)}${t.lore.charsTail}${t.lore.legendLeftMid}${num(left)}${t.lore.legendLeftTail}`,
     loreStagedChanges: (n) =>
       `${num(n)}${n === 1 ? t.lore.stagedChangesTailOne : t.lore.stagedChangesTailMany}`,
-    loreStagedFrom: (stored) => `${t.lore.stagedFromLead}${stored}`,
     loreStagedRevertTo: (stored) => `${t.lore.stagedRevertToLead}${stored}${t.lore.stagedRevertToTail}`,
     loreStagedFailed: (failed) =>
       t.lore.stagedFailedLead +

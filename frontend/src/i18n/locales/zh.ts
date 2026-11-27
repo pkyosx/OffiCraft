@@ -128,8 +128,6 @@ export const zh = {
     stagedChangesTailMany: " 項變更還沒儲存",
     stagedDiscard: "全部捨棄",
     stagedSave: "儲存變更",
-    stagedRevert: "還原",
-    stagedFromLead: "原為：",
     stagedRevertToLead: "還原為「",
     stagedRevertToTail: "」",
     stagedSaving: "儲存中…",

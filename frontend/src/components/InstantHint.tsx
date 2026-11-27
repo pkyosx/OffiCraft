@@ -11,7 +11,6 @@ import {
   useState,
   type CSSProperties,
   type HTMLAttributes,
-  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import "./instant-hint.css";
@@ -48,13 +47,11 @@ function contentRect(el: HTMLElement): { top: number; bottom: number; left: numb
  *
  * With `onActivate` the trigger is a button instead: a click or Enter/Space
  * calls it and no longer pins the hint; hover and focus still show it, and a
- * touch or pen tap on a descendant marked `data-hint-pin` pins it as above (a
- * mouse click there activates like the rest of the button, since a mouse can
- * hover).
+ * touch tap on a descendant marked `data-hint-pin` pins it as above (a mouse
+ * click there activates like the rest of the button, since a mouse can hover).
  * `triggerRef` follows the mounted trigger, so focus can be handed back to it.
  * `focusable={false}` keeps a span trigger out of the tab order. An empty
- * `hint` shows nothing. `pinnedAction` is shown beside the text only while the
- * hint is pinned (a phone's way to reach what a mouse click on the trigger does). */
+ * `hint` shows nothing. */
 export function InstantHint({
   hint,
   children,
@@ -62,7 +59,6 @@ export function InstantHint({
   onActivate,
   triggerRef: outerRef,
   focusable = true,
-  pinnedAction,
   disabled,
   ...rest
 }: {
@@ -70,7 +66,6 @@ export function InstantHint({
   onActivate?: () => void;
   /** Disables the button trigger (only with `onActivate`). */
   disabled?: boolean;
-  pinnedAction?: ReactNode;
   focusable?: boolean;
   triggerRef?: MutableRefObject<HTMLElement | null>;
 } & Omit<HTMLAttributes<HTMLElement>, "title">) {
@@ -168,10 +163,10 @@ export function InstantHint({
     },
     onClick: (e: ReactMouseEvent<HTMLElement>) => {
       e.stopPropagation();
-      // Touch and pen have no hover, so a tap on a `data-hint-pin` part of a
-      // button trigger pins the hint instead of activating.
+      // A phone has no hover, so a tap on a `data-hint-pin` part of a button
+      // trigger pins the hint instead of activating.
       const pinPart = (e.target as Element).closest("[data-hint-pin]");
-      const tapped = lastPointerTypeRef.current !== "" && lastPointerTypeRef.current !== "mouse";
+      const tapped = lastPointerTypeRef.current === "touch";
       lastPointerTypeRef.current = "";
       if (onActivate && !(tapped && pinPart && e.currentTarget.contains(pinPart))) {
         setState("closed");
@@ -224,18 +219,9 @@ export function InstantHint({
             onClick={(e) => e.stopPropagation()}
             style={pos ?? { top: 0, left: 0, visibility: "hidden" }}
           >
-            {state === "pinned" && pinnedAction ? (
-              <div className="instant-hint__with-action">
-                <div>
-                  {hint.split("\n").map((line, i) => (
-                    <div key={i}>{line}</div>
-                  ))}
-                </div>
-                {pinnedAction}
-              </div>
-            ) : (
-              hint.split("\n").map((line, i) => <div key={i}>{line}</div>)
-            )}
+            {hint.split("\n").map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}
           </div>,
           document.body,
         )}

@@ -216,64 +216,6 @@ describe("InstantHint", () => {
     expect(screen.getByRole("tooltip").style.top).toBe("694px");
   });
 
-  it("under a pinned hint with a pinned action, the action shows beside the text and can be clicked; hovering alone shows only the text", () => {
-    const act = vi.fn();
-    render(
-      <InstantHint
-        hint="原為：生效中"
-        data-testid="trigger"
-        pinnedAction={
-          <button type="button" onClick={act}>
-            還原
-          </button>
-        }
-      >
-        !
-      </InstantHint>,
-    );
-    const trigger = screen.getByTestId("trigger");
-    fireEvent.mouseEnter(trigger);
-    expect(screen.getByRole("tooltip").textContent).toBe("原為：生效中");
-    fireEvent.click(trigger);
-    expect(screen.getByRole("tooltip").textContent).toBe("原為：生效中還原");
-    fireEvent.click(screen.getByRole("button", { name: "還原" }));
-    expect(act).toHaveBeenCalledTimes(1);
-  });
-
-  it("under onActivate, a mouse click on the pin part activates, while a touch or pen tap pins the hint with its action and activates nothing", () => {
-    const activate = vi.fn();
-    render(
-      <InstantHint
-        hint="原為：生效中"
-        onActivate={activate}
-        data-testid="trigger"
-        data-hint-pin=""
-        pinnedAction={<button type="button">還原</button>}
-      >
-        ↺
-      </InstantHint>,
-    );
-    const trigger = screen.getByTestId("trigger");
-    const press = (pointerType: string) => {
-      const ev = new MouseEvent("pointerdown", { bubbles: true });
-      Object.defineProperty(ev, "pointerType", { value: pointerType });
-      fireEvent(trigger, ev);
-      fireEvent.click(trigger);
-    };
-
-    for (const pointerType of ["touch", "pen"]) {
-      press(pointerType);
-      expect(screen.getByRole("tooltip").textContent).toBe("原為：生效中還原");
-      press(pointerType);
-      expect(screen.queryByRole("tooltip")).toBeNull();
-    }
-    expect(activate).not.toHaveBeenCalled();
-
-    press("mouse");
-    expect(activate).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("tooltip")).toBeNull();
-  });
-
   it("under a trigger near the right edge, the hint is pulled back inside the viewport with an 8px margin", () => {
     stubRects({ top: 100, bottom: 116, left: 1000 }, { width: 200, height: 40 });
     fireEvent.mouseEnter(renderHint("Claude 未登入"));

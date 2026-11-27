@@ -125,8 +125,6 @@ export const en: Dict = {
     stagedChangesTailMany: " unsaved changes",
     stagedDiscard: "Discard all",
     stagedSave: "Save changes",
-    stagedRevert: "Revert",
-    stagedFromLead: "Was: ",
     stagedRevertToLead: "Revert to “",
     stagedRevertToTail: "”",
     stagedSaving: "Saving…",

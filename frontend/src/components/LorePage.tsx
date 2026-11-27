@@ -2124,9 +2124,8 @@ function LoreRow({
   );
 }
 
-/** ↺ on a staged tag's top-right corner. A mouse hovers it for 「原為：…」 and
- * clicks to put that one field back; a touch or pen tap shows the same line
- * with a 還原 button instead, so a tap alone never reverts. */
+/** ↺ on a staged tag's top-right corner: hover names the value it goes back
+ * to, and any click or tap reverts that one field at once. */
 function LoreRevertMark({
   field,
   from,
@@ -2138,27 +2137,16 @@ function LoreRevertMark({
   onRevert: () => void;
   disabled: boolean;
 }) {
-  const { t, msg } = useI18n();
+  const { msg } = useI18n();
+  const label = msg.loreStagedRevertTo(from);
   return (
     <InstantHint
-      hint={msg.loreStagedFrom(from)}
+      hint={label}
       onActivate={onRevert}
       disabled={disabled}
       className="lore-row__revert"
-      aria-label={msg.loreStagedRevertTo(from)}
+      aria-label={label}
       data-testid={`lore-revert-${field}`}
-      data-hint-pin=""
-      pinnedAction={
-        <button
-          type="button"
-          className="doc-btn"
-          data-testid="lore-revert-confirm"
-          onClick={onRevert}
-        >
-          <RotateCcwIcon size={13} />
-          <span>{t.lore.stagedRevert}</span>
-        </button>
-      }
     >
       <RotateCcwIcon size={9} />
     </InstantHint>
