@@ -36,7 +36,7 @@ If you forget your password, you reset it by running a command on the computer O
 
 Once it is on, every password sign-in also asks for the 6-digit code shown in an authenticator app (for example Google Authenticator, 1Password, or the Passwords app built into iPhone). Turning it on is recommended if the console will be reached from outside.
 
-To turn it on: click your profile picture in the top-right corner › Account security › Two-factor authentication, scan the QR code with your authenticator app as the screen shows, then enter the code.
+To turn it on: click your profile picture in the top-right corner › Account security › Two-factor authentication. If it shows "Not enabled on this server", first click **Enable two-factor for this server**; this only makes the option available. Then scan the QR code with your authenticator app as the screen shows, then enter the code.
 
 **If you lose your authenticator**, you turn two-factor authentication off by running a command on the computer OffiCraft is installed on. For the steps, see "Forgot your password, lost your authenticator, or a passkey stops working" in [Troubleshooting and FAQ](troubleshooting.md).
 
