@@ -1083,7 +1083,7 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 	// screen showing the old text.
 	for _, kind := range eventProcKinds() {
 		t.Run("restoring "+kind+" writes the revision back and fans the boot-doc delta", func(t *testing.T) {
-			api, h, _, owner := newAPITestServer(t)
+			api, h, _, owner := newAPITestServerInDeveloperMode(t)
 			path := "/api/boot-docs/" + kind + "/" + bootDocSingletonKey
 			apiJSON(t, h, "POST", path, owner, `{"body":"v1 body"}`)
 			apiJSON(t, h, "POST", path, owner, `{"body":"v2 body"}`)
@@ -1118,6 +1118,36 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 			})
 		})
 	}
+
+	t.Run("while developer mode is off, restoring a boot document's revision answers 409 to the owner and to an admin agent, and the document stays", func(t *testing.T) {
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"old notice"}`)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"new notice"}`)
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"developer_mode":false}`)
+		dashboard := apiTestListen(t, api, "")
+
+		for _, caller := range []string{owner, admin} {
+			status, data := apiJSON(t, h, "POST", "/api/document-history/offboard/global/1/restore", caller, "")
+			if status != 409 {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict",
+				"the Stop document is locked while developer mode is off — turn on developer mode in system settings first; nothing was written")
+		}
+		status, data := apiJSON(t, h, "GET", "/api/offboard", owner, "")
+		if status != 200 {
+			t.Fatalf("read offboard: %d %v", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"kind": "offboard", "key": "global", "owner_id": "owner",
+			"text": "new notice", "body": "new notice", "size_chars": 10,
+			"cap_chars": 37500, "has_seed": true, "is_default": false,
+			"read_only": false, "read_only_head": "", "schema_version": 3,
+			"developer_mode_required": true,
+		})
+		dashboard.wantFrames()
+	})
 
 	t.Run("restoring a role definition revision fans the owner-only role_def delta", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
@@ -1430,7 +1460,7 @@ func TestTaskDescriptionRestoreAuthz(t *testing.T) {
 
 func TestRestoreDocumentHistory(t *testing.T) {
 	t.Run("restoring an offboard revision stores the old body under the shipped head and fans a boot delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"old notice"}`)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"new notice"}`)
 		dashboard := apiTestListen(t, api, "")
@@ -1462,6 +1492,7 @@ func TestRestoreDocumentHistory(t *testing.T) {
 			"text": "old notice", "body": "old notice", "size_chars": 10,
 			"cap_chars": 37500, "has_seed": true, "is_default": false,
 			"read_only": false, "read_only_head": "", "schema_version": 3,
+			"developer_mode_required": false,
 		})
 	})
 }

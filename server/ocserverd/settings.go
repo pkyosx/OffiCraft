@@ -163,6 +163,8 @@ const (
 
 	settingDisplayWide = "display.wide"
 
+	settingDeveloperMode = "doc.developer_mode"
+
 	settingDisplaySeasonalTheme = "display.seasonal_theme"
 
 	settingDisplayThemeSchedule = "display.theme_schedule"
@@ -308,6 +310,7 @@ type authSettings struct {
 	displayTheme                     string
 	displayLanguage                  string
 	displayWide                      bool
+	developerMode                    bool
 	displaySeasonalTheme             bool
 	displayThemeSchedule             []ThemeScheduleEntryDTO
 
@@ -876,6 +879,9 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		return out, err
 	}
 	if err := getBool(settingDisplayWide, &out.displayWide); err != nil {
+		return out, err
+	}
+	if err := getBool(settingDeveloperMode, &out.developerMode); err != nil {
 		return out, err
 	}
 	if err := getBool(settingDisplaySeasonalTheme, &out.displaySeasonalTheme); err != nil {

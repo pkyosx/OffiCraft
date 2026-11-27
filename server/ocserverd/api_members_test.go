@@ -695,7 +695,7 @@ func TestOffboardNoticeFor(t *testing.T) {
 	})
 
 	t.Run("an outsource member bound to a typed task answers the 停止 document alone", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServerInDeveloperMode(t)
 		w := apiTestTypedTaskWorker(t, api, h, d, owner, "delivery")
 
 		apiTestSentinelWindDownDocs(t, api)
@@ -706,7 +706,7 @@ func TestOffboardNoticeFor(t *testing.T) {
 	})
 
 	t.Run("an outsource member bound to a typed task answers the 加速停止 document alone", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServerInDeveloperMode(t)
 		w := apiTestTypedTaskWorker(t, api, h, d, owner, "delivery")
 		w.DesiredState = DesiredStateOffline
 		w.StoppingSince = 1000

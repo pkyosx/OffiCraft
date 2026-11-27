@@ -136,6 +136,8 @@ type apiServer struct {
 
 	displayWide bool
 
+	developerMode bool
+
 	displaySeasonalTheme bool
 	// displayThemeSchedule and suggestedReplies* are REPLACED wholesale on a
 	// patch, never mutated in place, so a reader holding a slice under
@@ -592,6 +594,12 @@ func (s *apiServer) displayWideSnapshot() bool {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.displayWide
+}
+
+func (s *apiServer) developerModeSnapshot() bool {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.developerMode
 }
 
 func (s *apiServer) displaySeasonalThemeSnapshot() bool {

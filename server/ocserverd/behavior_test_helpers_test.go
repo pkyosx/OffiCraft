@@ -843,6 +843,10 @@ func newBootDocFixture(t *testing.T) bootDocFixture {
 		owner: mint("owner", "owner"),
 		admin: mint("mira", "agent"),
 	}
+	if status, body := f.do(t, http.MethodPatch, "/api/settings", f.owner,
+		map[string]bool{"developer_mode": true}); status != http.StatusOK {
+		t.Fatalf("turning developer mode on: %d %s", status, body)
+	}
 	if got := classifyMember(&Member{ID: "mira", RoleKey: adminRoleKey}); got != principalAdminAgent {
 		t.Fatalf("fixture premise: seeded mira must classify as %q, got %q", principalAdminAgent, got)
 	}

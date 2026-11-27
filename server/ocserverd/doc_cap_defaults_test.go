@@ -67,7 +67,7 @@ func TestShippedDocumentCapsBindWrites(t *testing.T) {
 	})
 
 	t.Run("system interaction: 150000 characters saves, 150001 is refused", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+		_, h, _, owner := newAPITestServerInDeveloperMode(t)
 		status, data := apiJSON(t, h, "POST", "/api/system-interaction", owner,
 			`{"body":"`+strings.Repeat("x", 150001)+`"}`)
 		if status != 400 {
@@ -148,7 +148,7 @@ func TestRaisedDocumentCapsBindWrites(t *testing.T) {
 		{"ready for done", "task_ready_for_done", "global"},
 	} {
 		t.Run(tc.name+": a document of 37500 characters saves, 37501 is refused", func(t *testing.T) {
-			_, h, _, owner := newAPITestServer(t)
+			_, h, _, owner := newAPITestServerInDeveloperMode(t)
 			path := "/api/boot-docs/" + tc.kind + "/" + tc.key
 			status, data := apiJSON(t, h, "POST", path, owner, `{"body":"x"}`)
 			if status != 200 {

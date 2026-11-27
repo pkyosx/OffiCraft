@@ -406,7 +406,7 @@ func TestHandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(t *testin
 	})
 
 	t.Run("the User Language block follows display.language, and a change reaches the next preview", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServerInDeveloperMode(t)
 		api.noOutsource = true
 		memberPreviewSeed(t, d)
 		if status, data := apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"# SYSTEM INTERACTION"}`); status != 200 {
@@ -441,7 +441,7 @@ func TestHandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(t *testin
 	})
 
 	t.Run("without owner additions the User Language block sits directly before the lore", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServerInDeveloperMode(t)
 		api.noOutsource = true
 		memberPreviewSeed(t, d)
 		if status, data := apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"# SYSTEM INTERACTION"}`); status != 200 {

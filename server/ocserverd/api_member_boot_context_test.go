@@ -131,7 +131,7 @@ func TestHandleGetMemberBootContextApiMembersMemberIdBootContextGet(t *testing.T
 	}
 
 	t.Run("the User Language block follows display.language, and a change reaches the next preview", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
+		_, h, d, owner := newAPITestServerInDeveloperMode(t)
 		memberPreviewSeed(t, d, Member{ID: "m-writer", Name: "Writer", RoleKey: memberPreviewRoleKey, Runtime: RuntimeClaude})
 		if status, data := apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"# SYSTEM INTERACTION"}`); status != 200 {
 			t.Fatalf("replace system interaction: %d %v", status, data)
@@ -173,7 +173,7 @@ func TestHandleGetMemberBootContextApiMembersMemberIdBootContextGet(t *testing.T
 	})
 
 	t.Run("without owner additions the User Language block sits directly before the role", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
+		_, h, d, owner := newAPITestServerInDeveloperMode(t)
 		memberPreviewSeed(t, d, Member{ID: "m-writer", Name: "Writer", RoleKey: memberPreviewRoleKey, Runtime: RuntimeClaude})
 		if status, data := apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"# SYSTEM INTERACTION"}`); status != 200 {
 			t.Fatalf("replace system interaction: %d %v", status, data)

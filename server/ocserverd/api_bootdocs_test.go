@@ -193,7 +193,7 @@ func TestMustBootDocSpec(t *testing.T) {
 		want := bootDocSpec{
 			Kind: "task_closeout", Key: "global", SeedFile: "task_closeout.md", Cap: 37500,
 			DocName: "task close-out procedure", Vars: []string{"task_no", "closed_by"},
-			Split: true, Join: "\n", ReadOnly: false,
+			Split: true, Join: "\n", ReadOnly: false, DeveloperModeRequired: true,
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("spec = %#v, want %#v", got, want)
@@ -223,22 +223,29 @@ func TestMustBootDocSpec(t *testing.T) {
 }
 
 func TestBootDocSpecFor(t *testing.T) {
-	t.Run("every (kind, key) pair the registry serves resolves to the seed, cap, name and split rules that pair declares", func(t *testing.T) {
-		api, _, _, _ := newAPITestServer(t)
+	t.Run("every (kind, key) pair the registry serves resolves to the seed, cap, name and split rules that pair declares, locked until the owner turns developer mode on", func(t *testing.T) {
+		locked, _, _, _ := newAPITestServer(t)
+		unlocked, _, _, _ := newAPITestServerInDeveloperMode(t)
 
-		for _, row := range apiTestBootDocRows {
-			for i, key := range row.keys {
-				got, ok := api.bootDocSpecFor(row.kind, key)
-				if !ok {
-					t.Fatalf("bootDocSpecFor(%q, %q): not found", row.kind, key)
-				}
-				want := bootDocSpec{
-					Kind: row.kind, Key: key, SeedFile: row.seeds[i], Cap: row.capChars,
-					DocName: row.docNames[i], Vars: row.vars,
-					Split: row.split, Join: row.join, ReadOnly: row.readOnly,
-				}
-				if !reflect.DeepEqual(got, want) {
-					t.Fatalf("bootDocSpecFor(%q, %q) = %#v, want %#v", row.kind, key, got, want)
+		for _, server := range []struct {
+			api                   *apiServer
+			developerModeRequired bool
+		}{{locked, true}, {unlocked, false}} {
+			for _, row := range apiTestBootDocRows {
+				for i, key := range row.keys {
+					got, ok := server.api.bootDocSpecFor(row.kind, key)
+					if !ok {
+						t.Fatalf("bootDocSpecFor(%q, %q): not found", row.kind, key)
+					}
+					want := bootDocSpec{
+						Kind: row.kind, Key: key, SeedFile: row.seeds[i], Cap: row.capChars,
+						DocName: row.docNames[i], Vars: row.vars,
+						Split: row.split, Join: row.join, ReadOnly: row.readOnly,
+						DeveloperModeRequired: server.developerModeRequired,
+					}
+					if !reflect.DeepEqual(got, want) {
+						t.Fatalf("bootDocSpecFor(%q, %q) = %#v, want %#v", row.kind, key, got, want)
+					}
 				}
 			}
 		}
@@ -336,23 +343,24 @@ func TestFoldBootDocDTO(t *testing.T) {
 			t.Fatalf("foldBootDocDTO: %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
-			"size_chars":     1498,
-			"cap_chars":      37500,
-			"kind":           "task_reassign_predecessor",
-			"key":            "global",
-			"text":           apiTestReassignPredecessorSeed,
-			"read_only_head": apiTestReassignPredecessorHead,
-			"body":           apiTestReassignPredecessorBody,
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     true,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              1498,
+			"cap_chars":               37500,
+			"kind":                    "task_reassign_predecessor",
+			"key":                     "global",
+			"text":                    apiTestReassignPredecessorSeed,
+			"read_only_head":          apiTestReassignPredecessorHead,
+			"body":                    apiTestReassignPredecessorBody,
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              true,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": true,
 		})
 	})
 
 	t.Run("an overlay replaces the body under the shipped head and stops the document reading as the default", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_reassign_predecessor/global", owner, `{"body":"F1"}`)
 
 		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("task_reassign_predecessor", "global"))
@@ -360,23 +368,24 @@ func TestFoldBootDocDTO(t *testing.T) {
 			t.Fatalf("foldBootDocDTO: %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
-			"size_chars":     165,
-			"cap_chars":      37500,
-			"kind":           "task_reassign_predecessor",
-			"key":            "global",
-			"text":           apiTestReassignPredecessorHead + "\n\n" + apiTestBootDocMarker + "\n\nF1",
-			"read_only_head": apiTestReassignPredecessorHead,
-			"body":           "F1",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              165,
+			"cap_chars":               37500,
+			"kind":                    "task_reassign_predecessor",
+			"key":                     "global",
+			"text":                    apiTestReassignPredecessorHead + "\n\n" + apiTestBootDocMarker + "\n\nF1",
+			"read_only_head":          apiTestReassignPredecessorHead,
+			"body":                    "F1",
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              false,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": false,
 		})
 	})
 
 	t.Run("a kind that declares no read-only half names none, and its whole text is the half a write takes", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
 
 		dto, err := api.foldBootDocDTO(api.mustBootDocSpec("offboard", "global"))
@@ -384,18 +393,19 @@ func TestFoldBootDocDTO(t *testing.T) {
 			t.Fatalf("foldBootDocDTO: %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
-			"size_chars":     2,
-			"cap_chars":      37500,
-			"kind":           "offboard",
-			"key":            "global",
-			"text":           "O1",
-			"read_only_head": "",
-			"body":           "O1",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              2,
+			"cap_chars":               37500,
+			"kind":                    "offboard",
+			"key":                     "global",
+			"text":                    "O1",
+			"read_only_head":          "",
+			"body":                    "O1",
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              false,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": false,
 		})
 	})
 
@@ -412,18 +422,19 @@ func TestFoldBootDocDTO(t *testing.T) {
 			t.Fatalf("foldBootDocDTO: %v", err)
 		}
 		apiWantValue(t, "dto", apiTestJSONOf(t, dto), map[string]any{
-			"size_chars":     33,
-			"cap_chars":      37500,
-			"kind":           "task_reassign_predecessor",
-			"key":            "global",
-			"text":           "written before the marker existed",
-			"read_only_head": "",
-			"body":           "written before the marker existed",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              33,
+			"cap_chars":               37500,
+			"kind":                    "task_reassign_predecessor",
+			"key":                     "global",
+			"text":                    "written before the marker existed",
+			"read_only_head":          "",
+			"body":                    "written before the marker existed",
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              false,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": true,
 		})
 	})
 }
@@ -447,7 +458,7 @@ func TestSystemInteractionText(t *testing.T) {
 	})
 
 	t.Run("an owner edit reaches the boot fold in place of the shipped block", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"S1"}`)
 
 		got, err := api.systemInteractionText()
@@ -462,7 +473,7 @@ func TestSystemInteractionText(t *testing.T) {
 
 func TestWinddownNoticeText(t *testing.T) {
 	t.Run("a soft wind-down is sent the whole Stop document and no instant at all", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
 		dashboard := apiTestListen(t, api, "")
 
@@ -484,7 +495,7 @@ func TestWinddownNoticeText(t *testing.T) {
 	})
 
 	t.Run("the final call reads the accelerated-stop document with the deadline rendered UTC above its body", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-docs/accelerated_stop/global", owner, `{"body":"A1"}`)
 
 		got := api.winddownNoticeText(offboardKindFinal, 1767225600)
@@ -495,7 +506,7 @@ func TestWinddownNoticeText(t *testing.T) {
 	})
 
 	t.Run("a final call with no clock sends nothing rather than a 1970 deadline", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-docs/accelerated_stop/global", owner, `{"body":"A1"}`)
 
 		for name, deadline := range map[string]float64{"no clock": 0, "a clock before the epoch": -1} {
@@ -539,7 +550,7 @@ func TestTaskNoticeText(t *testing.T) {
 	})
 
 	t.Run("both of the close-out document's names are filled and its own join is used", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
 
 		got := api.taskNoticeText("task_closeout",
@@ -551,7 +562,7 @@ func TestTaskNoticeText(t *testing.T) {
 	})
 
 	t.Run("a name the caller left out sends nothing rather than a sentence with the braces still in it", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
 
 		for name, values := range map[string]map[string]string{
@@ -580,7 +591,7 @@ func TestTaskNoticeText(t *testing.T) {
 
 func TestEventNoticeText(t *testing.T) {
 	t.Run("each kind joins its two halves its own way, so the same fold renders two shapes", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_unblocked/global", owner, `{"body":"U1"}`)
 
@@ -604,7 +615,7 @@ func TestEventNoticeText(t *testing.T) {
 	})
 
 	t.Run("a kind with no read-only half is rendered whole, marker line and all being absent", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1\n\nO2"}`)
 
 		got := api.eventNoticeText(api.mustBootDocSpec("offboard", "global"), map[string]string{})
@@ -646,7 +657,7 @@ func TestEventNoticeText(t *testing.T) {
 
 func TestBootSequenceText(t *testing.T) {
 	t.Run("each runtime reads its own document, and editing one leaves the other's alone", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-sequence/claude", owner, `{"body":"B1"}`)
 
 		claude, err := api.bootSequenceText("claude")
@@ -666,7 +677,7 @@ func TestBootSequenceText(t *testing.T) {
 	})
 
 	t.Run("a runtime with no sequence of its own reads the claude document rather than an empty one", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-sequence/claude", owner, `{"body":"B1"}`)
 		apiJSON(t, h, "POST", "/api/boot-sequence/codex", owner, `{"body":"B2"}`)
 
@@ -700,7 +711,7 @@ func TestBootSequenceText(t *testing.T) {
 
 func TestBootDocSnapshotIn(t *testing.T) {
 	t.Run("it serialises the row as it stands inside the transaction, text and tombstone together", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
+		_, h, d, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
 
 		got, err := bootDocSnapshotIn("offboard", "global")(d.rdb)
@@ -714,7 +725,7 @@ func TestBootDocSnapshotIn(t *testing.T) {
 	})
 
 	t.Run("a reset row follows the default and snapshots to the empty object, which retains no revision", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
+		_, h, d, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
 		apiJSON(t, h, "POST", "/api/offboard/reset", owner, "")
 
@@ -825,7 +836,7 @@ func TestPublishBootDoc(t *testing.T) {
 
 func TestWriteBootDoc(t *testing.T) {
 	t.Run("a write that changes the text stores it, retains the revision it replaced and fans the delta", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
 		spec := api.mustBootDocSpec("offboard", "global")
 		current, err := api.foldBootDocDTO(spec)
@@ -869,7 +880,7 @@ func TestWriteBootDoc(t *testing.T) {
 	})
 
 	t.Run("a write that changes nothing stores nothing, retains nothing and fans nothing", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
 		spec := api.mustBootDocSpec("offboard", "global")
 		current, err := api.foldBootDocDTO(spec)
@@ -898,7 +909,7 @@ func TestWriteBootDoc(t *testing.T) {
 	})
 
 	t.Run("adopting the shipped bytes as an edit changes no text and is still a write, because the next reset turns on it", func(t *testing.T) {
-		api, _, d, owner := newAPITestServer(t)
+		api, _, d, owner := newAPITestServerInDeveloperMode(t)
 		spec := api.mustBootDocSpec("offboard", "global")
 		current, err := api.foldBootDocDTO(spec)
 		if err != nil {
@@ -959,7 +970,7 @@ func apiTestBootDocHistory(t *testing.T, d *DAL, kind, key string) any {
 
 func TestReplaceBootDoc(t *testing.T) {
 	t.Run("the body a caller reads back is the body it may write, and writing it changes only the default flag", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		_, read := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
 		dashboard := apiTestListen(t, api, "")
 
@@ -998,7 +1009,7 @@ func TestReplaceBootDoc(t *testing.T) {
 	})
 
 	t.Run("a body over the cap is refused with the three numbers and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner,
@@ -1019,7 +1030,7 @@ func TestReplaceBootDoc(t *testing.T) {
 	})
 
 	t.Run("a body naming a declared variable is accepted and stored under the shipped head", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		_, read := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
 		head, ok := read["read_only_head"].(string)
 		if !ok || head == "" {
@@ -1146,7 +1157,7 @@ func TestBootDocReceiptOf(t *testing.T) {
 
 func TestBootDocStoredText(t *testing.T) {
 	t.Run("a split kind gets the SHIPPED head joined back on, whatever is stored now", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
 
 		got, err := api.bootDocStoredText(api.mustBootDocSpec("task_closeout", "global"), "C2")
@@ -1307,7 +1318,7 @@ func TestResetBootDoc(t *testing.T) {
 	})
 
 	t.Run("the reset falls the folded read back to the shipped seed and retains the edit it replaced", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_reassign_predecessor/global", owner, `{"body":"F1"}`)
 		var req *http.Request
 		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
@@ -1354,7 +1365,7 @@ func TestResetBootDoc(t *testing.T) {
 
 func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 	t.Run("an edited document answers the overlay, its size and the flags that say it is an edit", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"S1"}`)
 		dashboard := apiTestListen(t, api, "")
 
@@ -1363,24 +1374,25 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     2,
-			"cap_chars":      150000,
-			"kind":           "system_interaction",
-			"key":            "global",
-			"text":           "S1",
-			"read_only_head": "",
-			"body":           "S1",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              2,
+			"cap_chars":               150000,
+			"kind":                    "system_interaction",
+			"key":                     "global",
+			"text":                    "S1",
+			"read_only_head":          "",
+			"body":                    "S1",
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              false,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": false,
 		})
 		dashboard.wantFrames()
 	})
 
 	t.Run("an ordinary agent identity may read it, because this row sits at the machine floor", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"S1"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
 
@@ -1389,18 +1401,19 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     2,
-			"cap_chars":      150000,
-			"kind":           "system_interaction",
-			"key":            "global",
-			"text":           "S1",
-			"read_only_head": "",
-			"body":           "S1",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              2,
+			"cap_chars":               150000,
+			"kind":                    "system_interaction",
+			"key":                     "global",
+			"text":                    "S1",
+			"read_only_head":          "",
+			"body":                    "S1",
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              false,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": false,
 		})
 	})
 
@@ -1439,7 +1452,7 @@ func TestHandleGetSystemInteractionApiSystemInteractionGet(t *testing.T) {
 
 func TestHandleReplaceSystemInteractionApiSystemInteractionPost(t *testing.T) {
 	t.Run("a replace answers the receipt over the stored document and fans the owner-only global_context delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
 
@@ -1473,7 +1486,7 @@ func TestHandleReplaceSystemInteractionApiSystemInteractionPost(t *testing.T) {
 	})
 
 	t.Run("writing the same body twice changes nothing the second time and fans nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"S1"}`)
 		dashboard := apiTestListen(t, api, "")
 
@@ -1493,7 +1506,7 @@ func TestHandleReplaceSystemInteractionApiSystemInteractionPost(t *testing.T) {
 	})
 
 	t.Run("emptying a document that had content answers 400 and writes nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"S1"}`)
 		dashboard := apiTestListen(t, api, "")
 
@@ -1506,7 +1519,7 @@ func TestHandleReplaceSystemInteractionApiSystemInteractionPost(t *testing.T) {
 	})
 
 	t.Run("emptying a document with allow_shrink answers the empty receipt and still fans the delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"S1"}`)
 		dashboard := apiTestListen(t, api, "")
 
@@ -1563,7 +1576,7 @@ func TestHandleReplaceSystemInteractionApiSystemInteractionPost(t *testing.T) {
 
 func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T) {
 	t.Run("resetting an edited document answers the shipped receipt flagged default and fans the owner-only global_context delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"S1"}`)
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
@@ -1598,7 +1611,7 @@ func TestHandleResetSystemInteractionApiSystemInteractionResetPost(t *testing.T)
 	})
 
 	t.Run("resetting a document nobody has edited changes nothing and fans nothing", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/system-interaction/reset", owner, "")
@@ -1637,24 +1650,25 @@ func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     2572,
-			"cap_chars":      37500,
-			"kind":           "offboard",
-			"key":            "global",
-			"text":           apiTestOffboardNotice,
-			"read_only_head": "",
-			"body":           apiTestOffboardNotice,
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     true,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              2572,
+			"cap_chars":               37500,
+			"kind":                    "offboard",
+			"key":                     "global",
+			"text":                    apiTestOffboardNotice,
+			"read_only_head":          "",
+			"body":                    apiTestOffboardNotice,
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              true,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": true,
 		})
 		dashboard.wantFrames()
 	})
 
 	t.Run("an edited document answers the overlay in place of the seed", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+		_, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
 
 		status, data := apiJSON(t, h, "GET", "/api/offboard", owner, "")
@@ -1662,23 +1676,24 @@ func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     2,
-			"cap_chars":      37500,
-			"kind":           "offboard",
-			"key":            "global",
-			"text":           "O1",
-			"read_only_head": "",
-			"body":           "O1",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              2,
+			"cap_chars":               37500,
+			"kind":                    "offboard",
+			"key":                     "global",
+			"text":                    "O1",
+			"read_only_head":          "",
+			"body":                    "O1",
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              false,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": false,
 		})
 	})
 
 	t.Run("an ordinary agent identity may read it, because this row sits at the machine floor", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
 
@@ -1687,18 +1702,19 @@ func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     2,
-			"cap_chars":      37500,
-			"kind":           "offboard",
-			"key":            "global",
-			"text":           "O1",
-			"read_only_head": "",
-			"body":           "O1",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              2,
+			"cap_chars":               37500,
+			"kind":                    "offboard",
+			"key":                     "global",
+			"text":                    "O1",
+			"read_only_head":          "",
+			"body":                    "O1",
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              false,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": false,
 		})
 	})
 
@@ -1715,7 +1731,7 @@ func TestHandleGetOffboardApiOffboardGet(t *testing.T) {
 
 func TestHandleReplaceOffboardApiOffboardPost(t *testing.T) {
 	t.Run("a replace answers the receipt over the stored document and fans the owner-only global_context delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
 
@@ -1761,7 +1777,7 @@ func TestHandleReplaceOffboardApiOffboardPost(t *testing.T) {
 
 func TestHandleResetOffboardApiOffboardResetPost(t *testing.T) {
 	t.Run("resetting an edited document answers the shipped receipt flagged default and fans the owner-only global_context delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
@@ -1808,7 +1824,7 @@ func TestHandleResetOffboardApiOffboardResetPost(t *testing.T) {
 
 func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 	t.Run("an edited runtime answers its own overlay and the other runtime keeps its own", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-sequence/claude", owner, `{"body":"B1"}`)
 		apiJSON(t, h, "POST", "/api/boot-sequence/codex", owner, `{"body":"B2"}`)
 		dashboard := apiTestListen(t, api, "")
@@ -1818,18 +1834,19 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     2,
-			"cap_chars":      37500,
-			"kind":           "boot_sequence",
-			"key":            "claude",
-			"text":           "B1",
-			"read_only_head": "",
-			"body":           "B1",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              2,
+			"cap_chars":               37500,
+			"kind":                    "boot_sequence",
+			"key":                     "claude",
+			"text":                    "B1",
+			"read_only_head":          "",
+			"body":                    "B1",
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              false,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": false,
 		})
 
 		status, data = apiJSON(t, h, "GET", "/api/boot-sequence/codex", owner, "")
@@ -1837,24 +1854,25 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     2,
-			"cap_chars":      37500,
-			"kind":           "boot_sequence",
-			"key":            "codex",
-			"text":           "B2",
-			"read_only_head": "",
-			"body":           "B2",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              2,
+			"cap_chars":               37500,
+			"kind":                    "boot_sequence",
+			"key":                     "codex",
+			"text":                    "B2",
+			"read_only_head":          "",
+			"body":                    "B2",
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              false,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": false,
 		})
 		dashboard.wantFrames()
 	})
 
 	t.Run("an ordinary agent identity may read it, because this row sits at the machine floor", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-sequence/claude", owner, `{"body":"B1"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
 
@@ -1863,18 +1881,19 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     2,
-			"cap_chars":      37500,
-			"kind":           "boot_sequence",
-			"key":            "claude",
-			"text":           "B1",
-			"read_only_head": "",
-			"body":           "B1",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              2,
+			"cap_chars":               37500,
+			"kind":                    "boot_sequence",
+			"key":                     "claude",
+			"text":                    "B1",
+			"read_only_head":          "",
+			"body":                    "B1",
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              false,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": false,
 		})
 	})
 
@@ -1924,7 +1943,7 @@ func TestHandleGetBootSequenceApiBootSequenceRuntimeKeyGet(t *testing.T) {
 
 func TestHandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost(t *testing.T) {
 	t.Run("a replace of one runtime's steps answers the receipt and fans the owner-only global_context delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
 
@@ -1982,7 +2001,7 @@ func TestHandleReplaceBootSequenceApiBootSequenceRuntimeKeyPost(t *testing.T) {
 
 func TestHandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost(t *testing.T) {
 	t.Run("resetting one runtime's edited steps answers the shipped receipt flagged default and fans the owner-only global_context delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-sequence/claude", owner, `{"body":"B1"}`)
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
@@ -2084,6 +2103,7 @@ func TestGenericBootDocSpec(t *testing.T) {
 		want := bootDocSpec{
 			Kind: "offboard", Key: "global", SeedFile: "offboard.md", Cap: 37500,
 			DocName: "Stop document", Vars: []string{}, Split: false, Join: "", ReadOnly: false,
+			DeveloperModeRequired: true,
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("spec = %#v, want %#v", got, want)
@@ -2132,24 +2152,25 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     258,
-			"cap_chars":      37500,
-			"kind":           "task_closeout",
-			"key":            "global",
-			"text":           apiTestTaskCloseoutSeed,
-			"read_only_head": apiTestTaskCloseoutHead,
-			"body":           apiTestTaskCloseoutBody,
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     true,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              258,
+			"cap_chars":               37500,
+			"kind":                    "task_closeout",
+			"key":                     "global",
+			"text":                    apiTestTaskCloseoutSeed,
+			"read_only_head":          apiTestTaskCloseoutHead,
+			"body":                    apiTestTaskCloseoutBody,
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              true,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": true,
 		})
 		dashboard.wantFrames()
 	})
 
 	t.Run("an edited document answers the overlay still joined under the shipped head", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+		_, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
 
 		status, data := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
@@ -2157,18 +2178,19 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     166,
-			"cap_chars":      37500,
-			"kind":           "task_closeout",
-			"key":            "global",
-			"text":           apiTestTaskCloseoutHead + "\n\n<!-- ↑ read-only (generated by the program, cannot be edited) | ↓ body (editable, no variables) -->\n\nC1",
-			"read_only_head": apiTestTaskCloseoutHead,
-			"body":           "C1",
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     false,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              166,
+			"cap_chars":               37500,
+			"kind":                    "task_closeout",
+			"key":                     "global",
+			"text":                    apiTestTaskCloseoutHead + "\n\n<!-- ↑ read-only (generated by the program, cannot be edited) | ↓ body (editable, no variables) -->\n\nC1",
+			"read_only_head":          apiTestTaskCloseoutHead,
+			"body":                    "C1",
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              false,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": false,
 		})
 	})
 
@@ -2181,18 +2203,19 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     258,
-			"cap_chars":      37500,
-			"kind":           "task_closeout",
-			"key":            "global",
-			"text":           apiTestTaskCloseoutSeed,
-			"read_only_head": apiTestTaskCloseoutHead,
-			"body":           apiTestTaskCloseoutBody,
-			"owner_id":       "owner",
-			"schema_version": 3,
-			"is_default":     true,
-			"has_seed":       true,
-			"read_only":      false,
+			"size_chars":              258,
+			"cap_chars":               37500,
+			"kind":                    "task_closeout",
+			"key":                     "global",
+			"text":                    apiTestTaskCloseoutSeed,
+			"read_only_head":          apiTestTaskCloseoutHead,
+			"body":                    apiTestTaskCloseoutBody,
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              true,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": true,
 		})
 	})
 
@@ -2230,7 +2253,7 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 
 func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
 	t.Run("a replace addressed by kind and key answers the receipt and fans the owner-only global_context delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
 
@@ -2263,6 +2286,70 @@ func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
 		bystander.wantFrames()
 	})
 
+	t.Run("while developer mode is off every served document answers 409 to the owner and to an admin agent, and writes and fans nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		for _, row := range apiTestBootDocRows {
+			for i, key := range row.keys {
+				path := "/api/boot-docs/" + row.kind + "/" + key
+				_, before := apiJSON(t, h, "GET", path, owner, "")
+				for _, caller := range []string{owner, admin} {
+					status, data := apiJSON(t, h, "POST", path, caller, `{"body":"C1"}`)
+					if status != 409 {
+						t.Fatalf("%s: want 409, got %d (%v)", path, status, data)
+					}
+					apiWantError(t, data, "conflict", "the "+row.docNames[i]+
+						" is locked while developer mode is off — turn on developer mode in system settings first; nothing was written")
+				}
+				_, after := apiJSON(t, h, "GET", path, owner, "")
+				if !reflect.DeepEqual(before, after) {
+					t.Fatalf("%s changed under a refused write: before %v, after %v", path, before, after)
+				}
+			}
+		}
+		dashboard.wantFrames()
+	})
+
+	t.Run("once the owner turns developer mode on, the write it refused lands", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+		if status, data := apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`); status != 409 {
+			t.Fatalf("want 409 before developer mode, got %d (%v)", status, data)
+		}
+
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"developer_mode":true}`); status != 200 {
+			t.Fatalf("turning developer mode on: want 200, got %d (%v)", status, data)
+		}
+		status, data := apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"kind":       "task_closeout",
+			"key":        "global",
+			"is_default": false,
+			"size_chars": 166,
+			"cap_chars":  37500,
+			"sha256":     "cc986d9b0ebb0e7b6c9f3f514b3039d58fd558100e93ad1fb8ba93ec6795d3d8",
+		})
+		dashboard.wantFrames(apiTestSettingsFrame(1, "owner"), map[string]any{
+			"seq":   2,
+			"topic": "global_context",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "global_context",
+				"key":     "owner",
+				"epoch":   2,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		})
+	})
+
 	t.Run("a kind this server does not serve answers 404 and writes nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
@@ -2288,7 +2375,7 @@ func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
 
 func TestHandleResetBootDocApiBootDocsKindKeyResetPost(t *testing.T) {
 	t.Run("resetting an edited document addressed by kind and key answers the shipped receipt and fans the owner-only global_context delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
@@ -2320,6 +2407,42 @@ func TestHandleResetBootDocApiBootDocsKindKeyResetPost(t *testing.T) {
 			"trigger": "owner",
 		})
 		bystander.wantFrames()
+	})
+
+	t.Run("while developer mode is off, resetting an edited document answers 409 to the owner and to an admin agent, and the edit stays", func(t *testing.T) {
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"developer_mode":false}`)
+		dashboard := apiTestListen(t, api, "")
+
+		for _, caller := range []string{owner, admin} {
+			status, data := apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global/reset", caller, "")
+			if status != 409 {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict", "the task close-out procedure is locked while developer mode is off — turn on developer mode in system settings first; nothing was written")
+		}
+		status, data := apiJSON(t, h, "GET", "/api/boot-docs/task_closeout/global", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars":              166,
+			"cap_chars":               37500,
+			"kind":                    "task_closeout",
+			"key":                     "global",
+			"text":                    apiTestTaskCloseoutHead + "\n\n" + apiTestBootDocMarker + "\n\nC1",
+			"read_only_head":          apiTestTaskCloseoutHead,
+			"body":                    "C1",
+			"owner_id":                "owner",
+			"schema_version":          3,
+			"is_default":              false,
+			"has_seed":                true,
+			"read_only":               false,
+			"developer_mode_required": true,
+		})
+		dashboard.wantFrames()
 	})
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {

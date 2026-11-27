@@ -184,6 +184,12 @@ func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusForbidden, "restoring this document requires admin capability")
 			return false
 		}
+		if write {
+			if spec, ok := s.bootDocSpecFor(kind, key); ok && spec.DeveloperModeRequired {
+				writeError(w, http.StatusConflict, bootDocDeveloperModeRefusal(spec))
+				return false
+			}
+		}
 	case "global_context", "role_definition":
 		if write && !principalAtLeast(s.principalOfRequest(r), principalAdminAgent) {
 			writeError(w, http.StatusForbidden, "restoring this document requires admin capability")

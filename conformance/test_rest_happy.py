@@ -167,7 +167,7 @@ class HCtx:
 
 @pytest.fixture(scope="session")
 def hctx(
-    client, owner_token, fresh_member, fresh_machine, fresh_role
+    client, owner_token, fresh_member, fresh_machine, fresh_role, developer_mode_on
 ) -> HCtx:
     member_id = hire_member(client, owner_token, "conf-happy-agent")
     token = mint_member_token(client, owner_token, member_id, ttl_days=1)
@@ -4801,6 +4801,75 @@ def test_settings_updater_channel_toggles_roundtrip(hctx: HCtx) -> None:
         body = r.json()
         assert body["updater_receive_beta"] is False, body
         assert body["updater_auto_update"] is False, body
+
+
+def test_developer_mode_off_locks_boot_documents_but_not_the_owners_additions(
+    hctx: HCtx, admin_agent: AgentIdentity
+) -> None:
+    """Developer mode off: every boot-document write face (replace, reset,
+    restoring a retained version) is a 409 for the owner and an admin agent
+    alike, the read face says so in ``developer_mode_required``, and the
+    owner's additions (global context) stay writable. An admin agent may flip
+    the setting itself. The test leaves developer mode on, as the session
+    fixture set it, and the documents it touched at their shipped text."""
+    owner = _auth(hctx.owner_token)
+    admin = _auth(admin_agent.token)
+    doc = "/api/boot-docs/task_ready_for_done/global"
+    locked = (
+        "the ready-for-done notice is locked while developer mode is off — "
+        "turn on developer mode in system settings first; nothing was written"
+    )
+    for body in ("v1 conformance", "v2 conformance"):
+        r = hctx.client.post(doc, json={"body": body}, headers=owner)
+        assert r.status_code == 200, f"{r.status_code} {r.text}"
+    r = hctx.client.get("/api/document-history/task_ready_for_done/global", headers=owner)
+    assert r.status_code == 200, f"{r.status_code} {r.text}"
+    versions = r.json()
+    assert versions, "two edits retained no revision"
+    restore = f"/api/document-history/task_ready_for_done/global/{versions[0]['id']}/restore"
+    g = hctx.client.get("/api/global-context", headers=owner)
+    assert g.status_code == 200, f"{g.status_code} {g.text}"
+    additions = g.json()
+    try:
+        r = hctx.client.patch("/api/settings", json={"developer_mode": False}, headers=admin)
+        assert r.status_code == 200, f"{r.status_code} {r.text}"
+        assert r.json()["developer_mode"] is False, r.json()
+
+        r = hctx.client.get(doc, headers=owner)
+        assert r.status_code == 200, f"{r.status_code} {r.text}"
+        assert r.json()["developer_mode_required"] is True, r.json()
+        assert r.json()["body"] == "v2 conformance", r.json()
+
+        for who in (owner, admin):
+            for method_path, payload in (
+                (doc, {"body": "refused"}),
+                (doc + "/reset", None),
+                (restore, None),
+            ):
+                r = hctx.client.post(method_path, json=payload, headers=who)
+                assert r.status_code == 409, f"{method_path}: {r.status_code} {r.text}"
+                assert r.json() == {"error": {"code": "conflict", "message": locked}}, r.json()
+        r = hctx.client.get(doc, headers=owner)
+        assert r.json()["body"] == "v2 conformance", "a refused write changed the document"
+
+        r = hctx.client.post(
+            "/api/global-context", json={"text": "conformance additions"}, headers=owner
+        )
+        assert r.status_code == 200, f"{r.status_code} {r.text}"
+    finally:
+        if additions["is_default"]:
+            r = hctx.client.post("/api/global-context/reset", headers=owner)
+        else:
+            r = hctx.client.post(
+                "/api/global-context", json={"text": additions["text"]}, headers=owner
+            )
+        assert r.status_code == 200, f"restore additions: {r.status_code} {r.text}"
+        r = hctx.client.patch("/api/settings", json={"developer_mode": True}, headers=owner)
+        assert r.status_code == 200, f"restore developer mode: {r.status_code} {r.text}"
+        r = hctx.client.get(doc, headers=owner)
+        assert r.json()["developer_mode_required"] is False, r.json()
+        r = hctx.client.post(doc + "/reset", headers=owner)
+        assert r.status_code == 200, f"reset: {r.status_code} {r.text}"
 
 
 def test_theme_background_and_mode_round_trip(hctx: HCtx) -> None:

@@ -30,6 +30,8 @@ type bootDocSpec struct {
 	// Shown but never editable (owner's ruling: 「以前 global context 是固定內容
 	// 我們也是會顯示 只是不給改」).
 	ReadOnly bool
+
+	DeveloperModeRequired bool
 }
 
 type bootDocReg struct {
@@ -216,6 +218,8 @@ func (s *apiServer) bootDocSpecFor(kind, key string) (bootDocSpec, bool) {
 		Split:    reg.Split,
 		Join:     reg.Join,
 		ReadOnly: reg.ReadOnly,
+
+		DeveloperModeRequired: !s.developerModeSnapshot(),
 	}, true
 }
 
@@ -276,6 +280,8 @@ func (s *apiServer) foldBootDocDTO(spec bootDocSpec) (*bootDocDTO, error) {
 		IsDefault:     isDefault,
 		HasSeed:       hasSeed,
 		ReadOnly:      spec.ReadOnly,
+
+		DeveloperModeRequired: spec.DeveloperModeRequired,
 	}, nil
 }
 
@@ -440,6 +446,10 @@ func (s *apiServer) replaceBootDoc(w http.ResponseWriter, r *http.Request, spec 
 		writeError(w, http.StatusMethodNotAllowed, bootDocReadOnlyRefusal(spec))
 		return
 	}
+	if spec.DeveloperModeRequired {
+		writeError(w, http.StatusConflict, bootDocDeveloperModeRefusal(spec))
+		return
+	}
 	current, err := s.foldBootDocDTO(spec)
 	if err != nil {
 		internalError(w, err)
@@ -528,6 +538,10 @@ func (s *apiServer) resetBootDoc(w http.ResponseWriter, r *http.Request, spec bo
 	// global_context frame) for a document that can never leave the default.
 	if spec.ReadOnly {
 		writeError(w, http.StatusMethodNotAllowed, bootDocReadOnlyRefusal(spec))
+		return
+	}
+	if spec.DeveloperModeRequired {
+		writeError(w, http.StatusConflict, bootDocDeveloperModeRefusal(spec))
 		return
 	}
 	seedMD, hasSeed, err := s.root.seedBlockMD(spec.SeedFile)
@@ -648,6 +662,11 @@ func bootDocReadOnlyRefusal(spec bootDocSpec) string {
 	return "the " + spec.DocName + " is a read-only document — it is shown so you can " +
 		"see what agents are told, but no caller may edit it and there is no version " +
 		"of it other than the shipped one; nothing was written"
+}
+
+func bootDocDeveloperModeRefusal(spec bootDocSpec) string {
+	return "the " + spec.DocName + " is locked while developer mode is off — " +
+		"turn on developer mode in system settings first; nothing was written"
 }
 
 // 404 rather than 400 on purpose, unlike the document-history siblings: here

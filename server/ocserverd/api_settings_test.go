@@ -79,6 +79,7 @@ func apiTestShippedSettings() map[string]any {
 		"updater_auto_update":                  false,
 		"updater_check_interval_secs":          300,
 		"updater_announce_features":            true,
+		"developer_mode":                       false,
 		"org_name":                             "",
 		"owner_name":                           "",
 		"push_contact_email":                   "",
@@ -801,11 +802,11 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		apiWantBody(t, data, want)
 	})
 
-	t.Run("under a restart on the same database, the patched login, disk-usage and update-check intervals, auto-update turned on, the due-soon lead, the seasonal-theme opt-out and the theme schedule sorted by start are still reported", func(t *testing.T) {
+	t.Run("under a restart on the same database, the patched login, disk-usage and update-check intervals, auto-update and developer mode turned on, the due-soon lead, the seasonal-theme opt-out and the theme schedule sorted by start are still reported", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
-			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60,"updater_auto_update":true,"task_due_soon_lead_minutes":43200,"display_seasonal_theme":false,
+			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60,"updater_auto_update":true,"developer_mode":true,"task_due_soon_lead_minutes":43200,"display_seasonal_theme":false,
 			"display_theme_schedule":[{"start":"18:30","theme":"dusk"},{"start":"00:00","theme":"office"},{"start":"07:05","theme":"office-light"}]}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -816,6 +817,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		patched["disk_usage_interval_secs"] = 600
 		patched["updater_check_interval_secs"] = 60
 		patched["updater_auto_update"] = true
+		patched["developer_mode"] = true
 		patched["task_due_soon_lead_minutes"] = 43200
 		patched["display_seasonal_theme"] = false
 		patched["display_theme_schedule"] = []any{
@@ -836,6 +838,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["disk_usage_interval_secs"] = 600
 		want["updater_check_interval_secs"] = 60
 		want["updater_auto_update"] = true
+		want["developer_mode"] = true
 		want["task_due_soon_lead_minutes"] = 43200
 		want["display_seasonal_theme"] = false
 		want["display_theme_schedule"] = []any{
@@ -882,6 +885,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{
 			"updater_receive_beta":true,
 			"updater_auto_update":true,
+			"developer_mode":true,
 			"org_name":"  Studio Nine  ",
 			"owner_name":"  Eva  ",
 			"push_contact_email":"  eva@example.com  ",
@@ -899,6 +903,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want := apiTestShippedSettings()
 		want["updater_receive_beta"] = true
 		want["updater_auto_update"] = true
+		want["developer_mode"] = true
 		want["org_name"] = "Studio Nine"
 		want["owner_name"] = "Eva"
 		want["push_contact_email"] = "eva@example.com"
@@ -1359,6 +1364,21 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+
+	t.Run("an admin_agent patch turning developer mode on answers 200 with it on and fans one owner-only settings delta", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", admin, `{"developer_mode":true}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		want := apiTestShippedSettings()
+		want["developer_mode"] = true
+		apiWantBody(t, data, want)
+		dashboard.wantFrames(apiTestSettingsFrame(1, "mira"))
 	})
 
 	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {

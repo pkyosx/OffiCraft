@@ -116,6 +116,7 @@ def ctx(
     fresh_member,
     fresh_machine,
     fresh_role,
+    developer_mode_on,
 ) -> Ctx:
     return Ctx(
         client=client,

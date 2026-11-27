@@ -1099,6 +1099,9 @@ type BootDocumentDTO struct {
 	// CapChars The size cap now in force on THIS document, in CHARACTERS. Blocks may share a cap with a sibling; this is the number that will judge THIS write. Served on the read face so an edit can be sized BEFORE it is written — the settings surface holding the cap is admin-only, so otherwise being refused is the only way to learn it.
 	CapChars *int `json:"cap_chars,omitempty"`
 
+	// DeveloperModeRequired True when this block is locked because developer mode is off: every write face (replace, reset, restoring a retained version) refuses it with 409 for every caller, the owner included, until developer mode is turned on in system settings. Reading is unaffected. Independent of read_only, which no setting lifts.
+	DeveloperModeRequired *bool `json:"developer_mode_required,omitempty"`
+
 	// HasSeed True when a FACTORY version of this block ships in this binary, i.e. there is something for the reset route to restore. It says nothing about whether what you are holding IS that factory text — is_default answers that. True in every shipped build; served rather than assumed so a build whose seeds were not staged cannot be offered a 還原 button that 404s.
 	HasSeed *bool `json:"has_seed,omitempty"`
 
@@ -4184,6 +4187,9 @@ type SettingsDTO struct {
 	// CodexNoticeRound The codex twin of notice_pct (T-a9d6): the compaction round at which the SOFT notice fires. A codex session hands over on compaction count, not on a percentage, so its pair is a pair of ROUNDS. Must be 1..10 and strictly below codex_compaction_threshold.
 	CodexNoticeRound int `json:"codex_notice_round"`
 
+	// DeveloperMode Developer mode. Off (the default) locks every boot-context block served by the boot-doc routes — edits, resets and restores of them are refused with 409 — while the owner's additions block (global context) stays editable.
+	DeveloperMode *bool `json:"developer_mode,omitempty"`
+
 	// DiskUsageIntervalSecs How often, in seconds (600 through 86400), each warden measures how much disk OffiCraft uses on its machine, and the server measures its database, backups and old database copies. One measurement walks the whole OffiCraft directory and takes tens of seconds of disk reads, hence the 10-minute floor. Wardens learn the value from their heartbeat reply.
 	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
 
@@ -4345,6 +4351,9 @@ type SettingsUpdateDTO struct {
 
 	// CodexNoticeRound The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.
 	CodexNoticeRound *int `json:"codex_notice_round,omitempty"`
+
+	// DeveloperMode Turn developer mode on/off.
+	DeveloperMode *bool `json:"developer_mode,omitempty"`
 
 	// DiskUsageIntervalSecs How often, in seconds, each warden measures how much disk OffiCraft uses on its machine. Must be 600 through 86400. Wardens pick a change up from their next heartbeat reply.
 	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
@@ -6979,6 +6988,8 @@ type ServerInterface interface {
 	// - `chat_budget_chars`: Chat-block budget of the wake snapshot (resume_summary, and the estimate peek_resume_summary_size reports).
 	// - `step_note_cap_chars`: Max length of one step note, checked on write: a stored note over a lowered cap stays readable, but any write that leaves it over the cap is refused.
 	// - `doc_cap_chars_*`: Length cap per document type: `duty` (Duty), `insight`, `manual_sop` (task manual sop_md), `system_interaction` (System interaction), `boot_sequence` (Boot steps; one knob for both runtimes, each text measured on its own), `offboard` (Stop). A stored document over a lowered cap accepts only edits that shrink it.
+	// - `developer_mode`: Off (the default) locks the boot-context documents: replacing, resetting or restoring them is a 409 for every caller; the owner's additions stay editable.
+	// - `disk_usage_interval_secs`: How often each warden measures OffiCraft disk usage; wardens apply a change at their next heartbeat.
 	// - `display_language`: Cockpit language, and the language every member writes to the owner in from its next boot; "" resets it to unset.
 	// - `display_theme`: Cockpit theme: "" (unset), a built-in id (office, office-light, modern-office-desk-day / -dusk / -night), or an existing custom theme id.
 	// - `display_theme_schedule`: Replaces the time-of-day theme schedule wholesale. Each entry `{start: "HH:MM", theme}` shows `theme` from `start` (viewer-local) until the next entry's start, wrapping past midnight; themes as for display_theme. It overrides display_theme on screen without changing it. [] turns it off; null or omitted leaves it unchanged. Deleting a custom theme drops its entries, and the whole schedule if fewer than 2 remain.
@@ -6996,6 +7007,9 @@ type ServerInterface interface {
 	// - `lore_cap_chars_role`: lore characters carried in each member's boot document; `everyone` entries count inside this budget, merged with the member's own into one list (pinned first, then newest effective first).
 	// - `lore_cap_chars_manual`: lore characters get_task_manual carries; separate from lore_cap_chars_role, never summed.
 	// - `lore_cap_chars_title`, `lore_cap_chars_body`: Max title / body length of one lore entry when it is written or edited; lowering it leaves stored entries as they are, and an over-cap field can still be edited as long as it comes out shorter than what is stored.
+	// - `onboarding_dismissed`: true hides the first-run onboarding banner on every device; false shows it again.
+	// - `task_due_soon_lead_minutes`: Minutes before its due date a task without its own lead counts as due soon.
+	// - `updater_check_interval_secs`: How often the server re-reads GitHub releases in the background; a manual check always reads fresh.
 	// (PATCH /api/settings)
 	HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, r *http.Request)
 	// List shared documents, sorted by name. Metadata only: read the content with get_shared_doc.

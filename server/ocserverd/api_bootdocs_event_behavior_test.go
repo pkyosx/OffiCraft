@@ -30,6 +30,9 @@ import (
 // addressed in api_bootdocs_generic_t3201_test.go. Keeping the split means a
 // guard on the document's own rules cannot be satisfied by a routing change, or
 // lost to one. ───────────────────────────────────────────────────────────────
+//
+// Developer mode is on: these cases are about the documents' own rules, not
+// the lock in front of them.
 
 func newEventProcServer(t *testing.T) *apiServer {
 	t.Helper()
@@ -42,7 +45,16 @@ func newEventProcServer(t *testing.T) *apiServer {
 	if err := seedOutOfBox(dal); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	return newAPIServer(dal, NewHub(), singleKeyring([]byte(interopSecret)), 3600, "../..")
+	if err := dal.PutSetting(settingDeveloperMode, "true"); err != nil {
+		t.Fatalf("developer mode: %v", err)
+	}
+	auth, err := loadAuthSettings(dal, defaultConfig(), func(string) {})
+	if err != nil {
+		t.Fatalf("loadAuthSettings: %v", err)
+	}
+	s := newAPIServer(dal, NewHub(), singleKeyring([]byte(interopSecret)), 3600, "../..")
+	s.adoptSettings(auth)
+	return s
 }
 
 // seedOf reads a spec's shipped seed, failing the test if it is not there.
