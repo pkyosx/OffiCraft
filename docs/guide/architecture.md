@@ -19,7 +19,7 @@ OffiCraft 由一個 server（主程式）加上每台機器各一個 warden（�
 | 程式 | 在哪裡跑 | 做什麼 |
 | --- | --- | --- |
 | **ocserverd**（server） | 安裝 OffiCraft 的那台機器 | 保存身分、聊天、請示卡、任務、傳承、密鑰與設定，資料存在本機的 SQLite 資料庫（整個資料庫存成一個檔案的資料庫軟體）。提供 REST、SSE、MCP 三種介面，並內嵌控制台網頁。只接受本機連線（`127.0.0.1`），這一點不能改。每 30 秒比對一次「每位成員應該在線還是停止」與實際狀態，需要時對 warden 下指令。 |
-| **warden** | 每台機器各一個，常駐背景 | 只執行 server 的指令：在這台機器上啟動、停止成員，回報這台機器的狀態（CPU、記憶體、磁碟、Claude／Codex 版本與登入狀態），並讓自己和 ocagent 保持最新版本。warden 不自己決定要啟動誰，也不是 AI。 |
+| **warden** | 每台機器各一個，常駐背景 | 只執行 server 的指令：在這台機器上啟動、停止成員，回報這台機器的狀態（CPU、記憶體、磁碟、Claude／Codex 版本與登入狀態，以及向 Anthropic 查到的 Claude 帳號與用量），並讓自己和 ocagent 保持最新版本。warden 不自己決定要啟動誰，也不是 AI。 |
 | **ocagent** | 每位成員的工作階段裡 | 成員和 server 之間的工具：維持到 server 的 SSE 長連線並把通知送進成員的對話、上傳與下載附件、取用密鑰、回報記憶用量與運作狀態、回報模型呼叫成功或失敗。 |
 
 warden 在 macOS 上由一支叫 `officraft` 的小程式啟動。`officraft` 本身不會被自動更新替換，所以 macOS 的權限設定（例如存取檔案的授權）在每次更新後都會維持有效；macOS 跳出權限詢問時，看到的名稱就是 `officraft`。
@@ -31,7 +31,7 @@ warden 在 macOS 上由一支叫 `officraft` 的小程式啟動。`officraft` �
 - **Claude Code 成員**：tmux 裡跑的是你機器上的 `claude`。warden 啟動時會讓 Claude Code 載入 OffiCraft 通知模組，通知模組先送出開機指令，再啟動 `ocagent listen`，之後把 server 推來的每則通知當成一則提示送進成員的主對話。你在 Claude Code 上設定的 skill、plugin、MCP（都是 Claude Code 的擴充功能）照樣有效。
 - **Codex 成員**：tmux 裡跑的是 warden 提供的 Codex 程序，它在背景執行 `codex app-server`，並同時執行 `ocagent listen`，把收到的通知轉成 Codex 的一輪對話。成員是否在線只看 `ocagent listen` 的連線，跟有沒有人接上畫面無關。
 
-兩種成員都使用那台機器上已登入的 Claude 或 Codex 帳號。成員的身分、角色、記憶不存在工作階段裡，而是存在 server 上，所以工作階段隨時可以結束，再開一個新的工作階段接續。
+兩種成員都使用那台機器上已登入的 Claude 或 Codex 帳號。Claude 成員啟動時，warden 拿它會用的那份登入向 Anthropic 查出是哪個帳號，這位成員的用量與估計花費就一直記在這個帳號上，直到它重新啟動；帳號的用量數字也是 warden 這樣查來的，不是成員自己回報的。成員的身分、角色、記憶不存在工作階段裡，而是存在 server 上，所以工作階段隨時可以結束，再開一個新的工作階段接續。
 
 ## 成員的權限設定
 
