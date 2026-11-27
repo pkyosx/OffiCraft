@@ -667,6 +667,7 @@ const (
 	taskEventCapCharsDefault = 37500
 	// Constant for the same reason as taskEventCapCharsDefault.
 	userLanguageCapCharsDefault = 37500
+	termGlossaryCapCharsDefault = 37500
 )
 
 // minDocCapChars / maxDocCapChars bound all eight adjustable document caps. The

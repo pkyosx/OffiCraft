@@ -63,9 +63,8 @@ type apiTestBootDocRow struct {
 	split    bool
 	join     string
 	readOnly bool
-	enSeed   string
 
-	noDeveloperModeLock bool
+	developerModeRequiredWhileOff bool
 }
 
 var apiTestBootDocRows = []apiTestBootDocRow{
@@ -73,50 +72,58 @@ var apiTestBootDocRows = []apiTestBootDocRow{
 		kind: "system_interaction", keys: []string{"global"},
 		seeds: []string{"system_interaction.md"}, docNames: []string{"system interaction block"},
 		capChars: 150000, vars: nil, split: false, join: "", readOnly: false,
+		developerModeRequiredWhileOff: true,
 	}, {
 		kind: "user_language", keys: []string{"global"},
 		seeds: []string{"user_language_zh.md"}, docNames: []string{"User Language document"},
-		capChars: 37500, vars: nil, split: false, join: "", readOnly: false, enSeed: "user_language_en.md",
-		noDeveloperModeLock: true,
+		capChars: 37500, vars: nil, split: false, join: "", readOnly: false,
 	}, {
 		kind: "term_glossary", keys: []string{"global"},
-		seeds: []string{"term_glossary.md"}, docNames: []string{"glossary"},
+		seeds: []string{"term_glossary.md"}, docNames: []string{"Term glossary"},
 		capChars: 37500, vars: nil, split: false, join: "", readOnly: true,
 	}, {
 		kind: "boot_sequence", keys: []string{"claude", "codex"},
 		seeds:    []string{"boot_sequence.md", "boot_sequence_codex.md"},
 		docNames: []string{"boot steps (claude)", "boot steps (codex)"},
 		capChars: 37500, vars: nil, split: false, join: "", readOnly: false,
+		developerModeRequiredWhileOff: true,
 	}, {
 		kind: "offboard", keys: []string{"global"},
 		seeds: []string{"offboard.md"}, docNames: []string{"Stop document"},
 		capChars: 37500, vars: []string{}, split: false, join: "", readOnly: false,
+		developerModeRequiredWhileOff: true,
 	}, {
 		kind: "accelerated_stop", keys: []string{"global"},
 		seeds: []string{"accelerated_stop.md"}, docNames: []string{"accelerated stop sequence"},
 		capChars: 37500, vars: []string{"deadline"}, split: true, join: "\n", readOnly: false,
+		developerModeRequiredWhileOff: true,
 	}, {
 		kind: "task_closeout", keys: []string{"global"},
 		seeds: []string{"task_closeout.md"}, docNames: []string{"task close-out procedure"},
 		capChars: 37500, vars: []string{"task_no", "closed_by"}, split: true, join: "\n", readOnly: false,
+		developerModeRequiredWhileOff: true,
 	}, {
 		kind: "task_reassign_predecessor", keys: []string{"global"},
 		seeds:    []string{"task_reassign_predecessor.md"},
 		docNames: []string{"task reassignment document (to the predecessor)"},
 		capChars: 37500, vars: []string{"task_no"}, split: true, join: "\n\n", readOnly: false,
+		developerModeRequiredWhileOff: true,
 	}, {
 		kind: "task_takeover_with_predecessor", keys: []string{"global"},
 		seeds:    []string{"task_takeover_with_predecessor.md"},
 		docNames: []string{"task reassignment document (to the successor)"},
 		capChars: 37500, vars: []string{"task_no", "predecessor"}, split: true, join: "\n\n", readOnly: false,
+		developerModeRequiredWhileOff: true,
 	}, {
 		kind: "task_unblocked", keys: []string{"global"},
 		seeds: []string{"task_unblocked.md"}, docNames: []string{"dependency-released notice"},
 		capChars: 37500, vars: []string{"blocked_task_no"}, split: true, join: "\n\n", readOnly: false,
+		developerModeRequiredWhileOff: true,
 	}, {
 		kind: "task_ready_for_done", keys: []string{"global"},
 		seeds: []string{"task_ready_for_done.md"}, docNames: []string{"ready-for-done notice"},
 		capChars: 37500, vars: []string{"task_no", "visit_no"}, split: true, join: "\n\n", readOnly: false,
+		developerModeRequiredWhileOff: true,
 	},
 }
 
@@ -144,10 +151,6 @@ func TestBootDocRegFor(t *testing.T) {
 			if reg.Split != want.split || reg.Join != want.join || reg.ReadOnly != want.readOnly {
 				t.Fatalf("%s Split/Join/ReadOnly = %v/%q/%v, want %v/%q/%v",
 					want.kind, reg.Split, reg.Join, reg.ReadOnly, want.split, want.join, want.readOnly)
-			}
-			if reg.EnSeed != want.enSeed || reg.NoDeveloperModeLock != want.noDeveloperModeLock {
-				t.Fatalf("%s EnSeed/NoDeveloperModeLock = %q/%v, want %q/%v",
-					want.kind, reg.EnSeed, reg.NoDeveloperModeLock, want.enSeed, want.noDeveloperModeLock)
 			}
 			if got := reg.Cap(api); got != want.capChars {
 				t.Fatalf("%s Cap = %d, want %d", want.kind, got, want.capChars)
@@ -245,9 +248,9 @@ func TestBootDocSpecFor(t *testing.T) {
 		unlocked, _, _, _ := newAPITestServerInDeveloperMode(t)
 
 		for _, server := range []struct {
-			api                   *apiServer
-			developerModeRequired bool
-		}{{locked, true}, {unlocked, false}} {
+			api           *apiServer
+			developerMode bool
+		}{{locked, false}, {unlocked, true}} {
 			for _, row := range apiTestBootDocRows {
 				for i, key := range row.keys {
 					got, ok := server.api.bootDocSpecFor(row.kind, key)
@@ -258,7 +261,9 @@ func TestBootDocSpecFor(t *testing.T) {
 						Kind: row.kind, Key: key, SeedFile: row.seeds[i], Cap: row.capChars,
 						DocName: row.docNames[i], Vars: row.vars,
 						Split: row.split, Join: row.join, ReadOnly: row.readOnly,
-						DeveloperModeRequired: server.developerModeRequired && !row.noDeveloperModeLock && !row.readOnly,
+					}
+					if !server.developerMode {
+						want.DeveloperModeRequired = row.developerModeRequiredWhileOff
 					}
 					if !reflect.DeepEqual(got, want) {
 						t.Fatalf("bootDocSpecFor(%q, %q) = %#v, want %#v", row.kind, key, got, want)
@@ -2399,7 +2404,7 @@ func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		for _, row := range apiTestBootDocRows {
-			if row.noDeveloperModeLock || row.readOnly {
+			if !row.developerModeRequiredWhileOff {
 				continue
 			}
 			for i, key := range row.keys {
@@ -2471,7 +2476,7 @@ func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
 			if status != 405 {
 				t.Fatalf("%s: want 405, got %d (%v)", name, status, data)
 			}
-			apiWantError(t, data, "method_not_allowed", "the glossary is a read-only document — it is shown so you can "+
+			apiWantError(t, data, "method_not_allowed", "the Term glossary is a read-only document — it is shown so you can "+
 				"see what agents are told, but no caller may edit it and there is no version "+
 				"of it other than the shipped one; nothing was written")
 			_, after := apiJSON(t, h, "GET", "/api/boot-docs/term_glossary/global", owner, "")

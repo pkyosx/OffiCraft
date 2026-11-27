@@ -824,10 +824,8 @@ export type DocumentKind =
   | "offboard"
   // T-3201: the six lifecycle procedures that used to be Go string literals.
   // All singletons keyed "global".
-  // ⚠️ T-6f44 (owner's decision 2): none of these is read-only any more. The
-  // reason they were locked was recorded as 「以前 global context 是固定內容 我們
-  // 也是會顯示 只是不給改」 — precedent, not a property of the text. Read-only is
-  // still a property of the DOCUMENT that arrives on its own read.
+  // ⚠️ Whether a document is read-only arrives on the document's own read, not
+  // from its kind.
   | "accelerated_stop"
   | "task_closeout"
   | "task_reassign_predecessor"

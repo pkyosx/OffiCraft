@@ -81,11 +81,9 @@ func eventProcKinds() []string {
 }
 
 // readOnlyProbeSpec is a spec the registry does not contain: one real document's
-// spec with ReadOnly flipped on. It exists because decision 2 left the ReadOnly
-// MECHANISM with no user, and a refusal nothing exercises is a refusal that gets
-// deleted by the next person who greps for callers. Every handler-level test
-// below drives this instead of a registry kind, so what is measured is the gate
-// itself, independent of which shipped documents are behind it.
+// spec with ReadOnly flipped on. Every handler-level test below drives this
+// instead of a registry kind, so what is measured is the gate itself,
+// independent of which shipped documents are read-only.
 func readOnlyProbeSpec(t *testing.T, s *apiServer) bootDocSpec {
 	t.Helper()
 	spec := s.mustBootDocSpec(docKindTaskUnblocked, bootDocSingletonKey)

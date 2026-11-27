@@ -1105,7 +1105,7 @@ type BootDocumentDTO struct {
 	// CapChars The size cap now in force on THIS document, in CHARACTERS. Blocks may share a cap with a sibling; this is the number that will judge THIS write. Served on the read face so an edit can be sized BEFORE it is written — the settings surface holding the cap is admin-only, so otherwise being refused is the only way to learn it.
 	CapChars *int `json:"cap_chars,omitempty"`
 
-	// DeveloperModeRequired True when this block is locked because developer mode is off: every write face (replace, reset, restoring a retained version) refuses it with 409 for every caller, the owner included, until developer mode is turned on in system settings. Reading is unaffected. Never true for ``user_language``, which the owner edits like User additions. Independent of read_only, which no setting lifts.
+	// DeveloperModeRequired True when this block is locked because developer mode is off: every write face (replace, reset, restoring a retained version) refuses it with 409 for every caller, the owner included, until developer mode is turned on in system settings. Reading is unaffected. Never true for ``user_language``, which the owner edits like User additions, nor for a read_only block, whose writes answer 405 whatever the setting.
 	DeveloperModeRequired *bool `json:"developer_mode_required,omitempty"`
 
 	// HasSeed True when a FACTORY version of this block ships in this binary, i.e. there is something for the reset route to restore. It says nothing about whether what you are holding IS that factory text — is_default answers that. True in every shipped build; served rather than assumed so a build whose seeds were not staged cannot be offered a 還原 button that 404s.

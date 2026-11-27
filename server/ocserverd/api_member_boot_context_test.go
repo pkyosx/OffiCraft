@@ -141,24 +141,6 @@ func TestHandleGetMemberBootContextApiMembersMemberIdBootContextGet(t *testing.T
 		}
 		zhContext := "# SYSTEM INTERACTION\n\n# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\nWrite to the user in Traditional Chinese (Taiwan) even when the user writes in another language.\n\nThe user sees OffiCraft in Chinese. Call OffiCraft features by the Chinese names on their screen below; when the user uses one of these names, it means the English term in the same row.\n\n" + apiTestUserLanguageGlossary + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
 		enContext := "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\nThe user sees OffiCraft in English. If the user writes one of the names in the Chinese column, it means the English term in the same row.\n\n" + apiTestUserLanguageGlossary + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
-		for _, want := range []string{
-			"\n\nThe user sees OffiCraft in Chinese. Call OffiCraft features by the Chinese names on their screen below; when the user uses one of these names, it means the English term in the same row.\n\n| English (this document) | Chinese on screen |\n| --- | --- |\n| Office | 辦公室 |\n",
-			"\n| Reply card／Ask | 請示卡／請示 |\n",
-			"\n| Lore | 傳承 |\n",
-		} {
-			if !strings.Contains(zhContext, want) {
-				t.Fatalf("zh context lacks %q:\n%s", want, zhContext)
-			}
-		}
-		for _, want := range []string{
-			"Do not use other languages.\n\nThe user sees OffiCraft in English. If the user writes one of the names in the Chinese column, it means the English term in the same row.\n\n| English (this document) | Chinese on screen |\n| --- | --- |\n| Office | 辦公室 |\n",
-			"\n| Reply card／Ask | 請示卡／請示 |\n",
-			"\n| Lore | 傳承 |\n",
-		} {
-			if !strings.Contains(enContext, want) {
-				t.Fatalf("en context lacks %q:\n%s", want, enContext)
-			}
-		}
 		for _, step := range []struct{ name, settings, want string }{
 			{name: "never set", want: zhContext},
 			{name: "en", settings: `{"display_language":"en"}`, want: enContext},

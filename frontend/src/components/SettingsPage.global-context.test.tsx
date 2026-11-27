@@ -69,7 +69,7 @@ describe("SettingsPage · global-context 4 blocks", () => {
     expect(getByText(s.globalSection)).toBeTruthy();
   });
 
-  it("while developer mode is off, only 使用者自訂 says it is editable, and the lock line's link opens 系統更新與備份", async () => {
+  it("while developer mode is off, only 使用者語言 and 使用者自訂 say they are editable, and the lock line's link opens 系統更新與備份", async () => {
     const utils = await openRolesLog();
     await utils.findByTestId("boot-docs-locked-note");
     const sub = (testId: string) =>
@@ -77,7 +77,7 @@ describe("SettingsPage · global-context 4 blocks", () => {
     expect(sub("boot-doc-entry-custom")).toBe("每位成員開機時都會讀到的自訂內容 · 可編輯");
     expect(sub("boot-doc-entry-system_interaction")).toBe("每位成員開機時都會讀到的系統運作說明");
     expect(sub("boot-doc-entry-task_closeout")).toBe("任務被判定結束時給 agent 的收尾指示");
-    expect(sub("boot-doc-entry-user_language")).toBe("成員跟你說話用的語言 · 沒改過時跟著顯示語言");
+    expect(sub("boot-doc-entry-user_language")).toBe("成員跟你說話用的語言 · 沒改過時跟著顯示語言 · 可編輯");
 
     fireEvent.click(utils.getByRole("button", { name: "系統設定" }));
     expect(

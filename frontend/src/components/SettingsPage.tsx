@@ -2921,7 +2921,7 @@ function GlobalContextSection({
               key={kind}
               kind={kind}
               row={row}
-              editable={false}
+              editable
               onOpen={() => !row.index && onOpenBootDoc(kind, row.docKey)}
             />
           ))}

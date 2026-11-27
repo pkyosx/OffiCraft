@@ -835,7 +835,7 @@ export function __setBootDocReadOnly(keys: readonly string[]): void {
 const BOOT_DOC_NAMES: Record<string, string> = {
   "system_interaction/global": "system interaction block",
   "user_language/global": "User Language document",
-  "term_glossary/global": "glossary",
+  "term_glossary/global": "Term glossary",
   "boot_sequence/claude": "boot steps (claude)",
   "boot_sequence/codex": "boot steps (codex)",
   "offboard/global": "Stop document",
@@ -9156,6 +9156,22 @@ export function __injectMockArtifactVersions(
 ): void {
   artifactVersions.set(artifactId, structuredClone(versions));
   emitTopic("task");
+}
+
+// Test-only hook: retain one revision of a document directly, the way a row
+// written by an older server would sit in document_history. Answers its id.
+export function __injectMockDocumentRevision(
+  kind: DocumentKind,
+  key: string,
+  content: Record<string, string>,
+): number {
+  const slot = historySlot(kind, key);
+  const id = nextDocumentHistoryId++;
+  documentHistories.set(slot, [
+    { id, content, created_ts: Date.now() / 1000, actor_id: MOCK_OWNER_ID },
+    ...(documentHistories.get(slot) ?? []),
+  ]);
+  return id;
 }
 
 // Test-only hook: land one live telemetry session row, the way an agent's

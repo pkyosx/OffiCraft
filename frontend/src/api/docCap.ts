@@ -81,7 +81,8 @@ export const TASK_EVENT_CAP_CHARS_DEFAULT = 37500;
 
 export const BOOT_DOC_CAP_CHARS_DEFAULTS: Record<BootDocKind, number> = {
   system_interaction: 150000,
-  // Constants on the server too (userLanguageCapCharsDefault).
+  // Constants on the server too (userLanguageCapCharsDefault,
+  // termGlossaryCapCharsDefault).
   user_language: 37500,
   term_glossary: 37500,
   boot_sequence: 37500,

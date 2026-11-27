@@ -1184,6 +1184,38 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 		}
 	})
 
+	t.Run("under en, restoring a User Language revision that holds the Chinese default answers the English default", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		path := "/api/boot-docs/user_language/global"
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"en"}`)
+		apiJSON(t, h, "POST", path, owner, `{"body":"Reply in Klingon."}`)
+		zhDefault, err := json.Marshal(map[string]string{"text": apiTestUserLanguageZh + "\n", "tombstoned": "false"})
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if _, err := d.wdb.Exec(`INSERT INTO document_history
+			(document_kind, document_key, content_json, created_ts, actor_id)
+			VALUES (?, ?, ?, ?, ?)`,
+			"user_language", "global", string(zhDefault), 1700000001.0, "owner"); err != nil {
+			t.Fatalf("seed a revision holding the Chinese default: %v", err)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/document-history/user_language/global/1/restore", owner, ""); status != 200 {
+			t.Fatalf("restore: want 200, got %d (%v)", status, data)
+		}
+		status, data := apiJSON(t, h, "GET", path, owner, "")
+		if status != 200 {
+			t.Fatalf("read: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars": 236, "cap_chars": 37500,
+			"kind": "user_language", "key": "global", "owner_id": "owner",
+			"text": apiTestUserLanguageEn + "\n", "body": apiTestUserLanguageEn + "\n",
+			"read_only_head": "", "schema_version": 3, "is_default": true, "has_seed": true,
+			"read_only": false, "developer_mode_required": false,
+		})
+	})
+
 	t.Run("restoring the glossary answers 405 with developer mode on and off", func(t *testing.T) {
 		for name, newServer := range map[string]func(*testing.T) (*apiServer, http.Handler, *DAL, string){
 			"developer mode off": newAPITestServer, "developer mode on": newAPITestServerInDeveloperMode,

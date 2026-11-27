@@ -5548,7 +5548,7 @@ export interface components {
             cap_chars: number;
             /**
              * Developer Mode Required
-             * @description True when this block is locked because developer mode is off: every write face (replace, reset, restoring a retained version) refuses it with 409 for every caller, the owner included, until developer mode is turned on in system settings. Reading is unaffected. Never true for ``user_language``, which the owner edits like User additions. Independent of read_only, which no setting lifts.
+             * @description True when this block is locked because developer mode is off: every write face (replace, reset, restoring a retained version) refuses it with 409 for every caller, the owner included, until developer mode is turned on in system settings. Reading is unaffected. Never true for ``user_language``, which the owner edits like User additions, nor for a read_only block, whose writes answer 405 whatever the setting.
              * @default false
              */
             developer_mode_required: boolean;

@@ -19,6 +19,7 @@ import {
   __injectMockOutsourceWorker,
   __injectMockMember,
   __setBootDocReadOnly,
+  __injectMockDocumentRevision,
 } from "./mock";
 import { ApiError } from "./errors";
 import type { BootDocKind } from "../types";
@@ -30,7 +31,6 @@ import {
 } from "./seeds";
 import { documentRevisions } from "../test/documentHistory";
 import { docJoinHeadBody, docSplitHeadBody } from "./docSplit";
-import termAliases from "../../../spec/term-aliases.json";
 
 /** What the mock STORES when `body` is saved into a document whose seed carries
  * a read-only head (T-3201): the shipped head, then the body. The wire carries
@@ -74,17 +74,11 @@ describe("mockApi · boot-context blocks", () => {
   });
 
   it("refuses every write to a read-only document with 405, and still serves its text", async () => {
-    // 🔴 NO SHIPPED DOCUMENT IS READ-ONLY ANY MORE (T-6f44, owner's decision 2),
-    // so this drives the refusal with a SYNTHETIC one. The rule it
-    // guards is unchanged and still reachable the day a document ships
-    // read-only: reading works — that is the whole reason these are documents
-    // rather than string literals — and BOTH write faces refuse. 405, not 403:
-    // no principal may edit them, so an authz answer would send an owner
-    // looking for a role to grant.
-    //
-    // That decision 2 actually took effect is pinned separately, by
-    // mock.boot-doc-registry.test.ts against the shared registry table — this
-    // test supplies its own list and so cannot notice.
+    // Drives the refusal with SYNTHETIC read-only documents, so the gate is
+    // measured independently of which shipped documents are read-only (those
+    // are pinned by mock.boot-doc-registry.test.ts). 405, not 403: no principal
+    // may edit them, so an authz answer would send an owner looking for a role
+    // to grant.
     __setBootDocReadOnly(["task_closeout/global", "task_unblocked/global"]);
     for (const kind of ["task_closeout", "task_unblocked"] as const) {
       const doc = await mockApi.getBootDoc(kind, "global");
@@ -480,16 +474,57 @@ describe("mockApi · 開機脈絡預覽", () => {
 });
 
 describe("mockApi · User Language block", () => {
-  const ZH =
-    "# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\nWrite to the user in Traditional Chinese (Taiwan) even when the user writes in another language.\n\n" +
-    "The user sees OffiCraft in Chinese. Call OffiCraft features by the Chinese names on their screen below; when the user uses one of these names, it means the English term in the same row.\n\n" +
-    "| English (this document) | Chinese on screen |\n| --- | --- |\n| Office | 辦公室 |\n| Reply card／Ask | 請示卡／請示 |" +
-    termAliases.slice(2).map((a) => `\n| ${a.en} | ${a.zh} |`).join("");
-  const EN =
-    "# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\n" +
-    "The user sees OffiCraft in English. If the user writes one of the names in the Chinese column, it means the English term in the same row.\n\n" +
-    "| English (this document) | Chinese on screen |\n| --- | --- |\n| Office | 辦公室 |\n| Reply card／Ask | 請示卡／請示 |" +
-    termAliases.slice(2).map((a) => `\n| ${a.en} | ${a.zh} |`).join("");
+  const GLOSSARY =
+    "| English (this document) | Chinese on screen |\n" +
+    "| --- | --- |\n" +
+    "| Office | 辦公室 |\n" +
+    "| Reply card／Ask | 請示卡／請示 |\n" +
+    "| Task | 任務 |\n" +
+    "| Task type | 任務類型 |\n" +
+    "| Step | 步驟 |\n" +
+    "| Task manuals | 任務手冊 |\n" +
+    "| Files | 檔案庫 |\n" +
+    "| Secrets | 密鑰 |\n" +
+    "| Lore | 傳承 |\n" +
+    "| Member lore | 成員傳承 |\n" +
+    "| Task lore | 任務傳承 |\n" +
+    "| Instruction conflict | 指示衝突 |\n" +
+    "| Instruction supplement | 指示補充 |\n" +
+    "| Owner decision | Owner 決策 |\n" +
+    "| Owner preference | Owner 偏好 |\n" +
+    "| Monitor | 監控 |\n" +
+    "| Settings | 設定 |\n" +
+    "| Global context | 全域情境 |\n" +
+    "| System interaction | 系統互動 |\n" +
+    "| User additions | 使用者自訂 |\n" +
+    "| Boot steps | 啟動步驟 |\n" +
+    "| Roles | 角色 |\n" +
+    "| Duty | 職責 |\n" +
+    "| Insight | 判準 |\n" +
+    "| General | 一般設定 |\n" +
+    "| System update & backup | 系統更新與備份 |\n" +
+    "| Theme | 主題 |\n" +
+    "| Preferences | 偏好設定 |\n" +
+    "| Member | 成員 |\n" +
+    "| Staff | 正職 |\n" +
+    "| Outsource | 外包 |\n" +
+    "| Assistant | 特助 |\n" +
+    "| Wake | 喚醒 |\n" +
+    "| Refocus | 重新聚焦 |\n" +
+    "| Stop | 停止 |\n" +
+    "| Accelerated stop | 加速停止 |\n" +
+    "| Machines | 機器 |\n" +
+    "| Webhook endpoints | 回呼端點 |\n" +
+    "| Signing keys | 簽章金鑰 |\n" +
+    "| User guide | 使用說明 |";
+  const ZH_DEFAULT =
+    "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\nWrite to the user in Traditional Chinese (Taiwan) even when the user writes in another language.\n\n" +
+    "The user sees OffiCraft in Chinese. Call OffiCraft features by the Chinese names on their screen below; when the user uses one of these names, it means the English term in the same row.";
+  const EN_DEFAULT =
+    "Use English for everything you write to the user, including reports. Do not use other languages.\n\n" +
+    "The user sees OffiCraft in English. If the user writes one of the names in the Chinese column, it means the English term in the same row.";
+  const ZH = `# User Language\n\n${ZH_DEFAULT}\n\n${GLOSSARY}`;
+  const EN = `# User Language\n\n${EN_DEFAULT}\n\n${GLOSSARY}`;
 
   function injectWorker(): void {
     __injectMockTask({
@@ -562,7 +597,7 @@ describe("mockApi · User Language block", () => {
     await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
     await mockApi.patchServerSettings({ developerMode: false });
     await mockApi.saveBootDoc("user_language", "global", "請用克林貢語回報。\n");
-    const block = `# User Language\n\n請用克林貢語回報。\n\n${ZH.slice(ZH.indexOf("| English"))}`;
+    const block = `# User Language\n\n請用克林貢語回報。\n\n${GLOSSARY}`;
     for (const displayLanguage of ["en", "zh"]) {
       await mockApi.patchServerSettings({ displayLanguage });
       const staff = `系統互動本文\n\n${block}\n\n# Role: Assistant\n\n`;
@@ -576,12 +611,26 @@ describe("mockApi · User Language block", () => {
     await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
     await mockApi.saveBootDoc("user_language", "global", "EDITED\n");
     await mockApi.patchServerSettings({ displayLanguage: "en" });
-    const zhDefault = ZH.slice("# User Language\n\n".length, ZH.indexOf("\n\n| English"));
-    await mockApi.saveBootDoc("user_language", "global", `${zhDefault}\n\n`);
+    await mockApi.saveBootDoc("user_language", "global", `${ZH_DEFAULT}\n\n`);
     const staff = `系統互動本文\n\n${EN}\n\n# Role: Assistant\n\n`;
     const worker = `系統互動本文\n\n${EN}\n\n# Claude Code Runtime\n\n`;
     expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
     expect((await mockApi.getBootDoc("user_language", "global")).isDefault).toBe(true);
+  });
+
+  it("under en, restoring a revision that holds the Chinese default gives the English default", async () => {
+    await mockApi.patchServerSettings({ displayLanguage: "en" });
+    await mockApi.saveBootDoc("user_language", "global", "EDITED\n");
+    const id = __injectMockDocumentRevision("user_language", "global", {
+      text: `${ZH_DEFAULT}\n`,
+      tombstoned: "false",
+    });
+    await mockApi.restoreDocumentHistory("user_language", "global", id);
+    expect(await mockApi.getBootDoc("user_language", "global")).toMatchObject({
+      text: "Use English for everything you write to the user, including reports. Do not use other languages.\n\n" +
+        "The user sees OffiCraft in English. If the user writes one of the names in the Chinese column, it means the English term in the same row.",
+      isDefault: true,
+    });
   });
 
   it("refuses a write to the glossary with 405", async () => {

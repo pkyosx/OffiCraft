@@ -92,8 +92,8 @@ var bootDocRegistry = []bootDocReg{{
 	Kind:     docKindTermGlossary,
 	Keys:     []string{bootDocSingletonKey},
 	SeedFor:  func(string) string { return termGlossarySeedMD },
-	DocName:  func(string) string { return "glossary" },
-	Cap:      func(s *apiServer) int { return s.userLanguageCap() },
+	DocName:  func(string) string { return "Term glossary" },
+	Cap:      func(s *apiServer) int { return s.termGlossaryCap() },
 	ReadOnly: true,
 }, {
 	Kind: docKindBootSequence,
