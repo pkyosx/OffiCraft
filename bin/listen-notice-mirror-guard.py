@@ -8,7 +8,7 @@ THE SPAWN ENVIRONMENT (T-278). `cli/ocwarden/spawn.go` declares OC_BASE, OC_ID,
 OC_TOKEN, OC_SESSION, OC_TMUX_SOCKET and OC_AGENT_HOME, which the warden exports
 into the member's launch line (OC_ID only on the codex line, codex_session.go),
 plus OC_CLAUDE_ACCOUNT (claude line only; renamed on one side, every
-claude session silently falls back to the machine's current login),
+claude session silently reports no account),
 and `cli/ocagent/listen.go` names what the member reads. Measured for all six:
 renaming one on one side together with that side's own test expectations leaves
 both modules green. The member then reads nothing under that name — no session

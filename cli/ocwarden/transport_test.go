@@ -933,20 +933,10 @@ func TestBuildSpawnDeps(t *testing.T) {
 	if deps.RepoRoot != resolveRepoRoot(os.Executable) {
 		t.Errorf("RepoRoot = %q, want the three-hop walk from the running executable", deps.RepoRoot)
 	}
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, ".claude.json"),
-		[]byte(`{"oauthAccount":{"accountUuid":"au-1","organizationUuid":"org-1"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if deps.ClaudeLogin == nil || deps.ClaudeLogin().ID != "au-1/org-1" {
-		t.Error("ClaudeLogin must read the login under the HOME the launch line pins")
-	}
 	for name, wired := range map[string]bool{
 		"Logf": deps.Logf != nil, "WriteFile": deps.WriteFile != nil, "MkdirAll": deps.MkdirAll != nil,
 		"Symlink": deps.Symlink != nil, "Remove": deps.Remove != nil, "Sleep": deps.Sleep != nil,
-		"CodexModels": deps.CodexModels != nil,
+		"CodexModels": deps.CodexModels != nil, "ClaudeAccounts": deps.ClaudeAccounts != nil,
 	} {
 		if !wired {
 			t.Errorf("buildSpawnDeps left %s unwired", name)
@@ -1127,7 +1117,7 @@ func TestBuildCommandDeps(t *testing.T) {
 
 	for name, wired := range map[string]bool{
 		"Spawn": deps.Spawn != nil, "Stop": deps.Stop != nil, "Teardown": deps.Teardown != nil,
-		"Exit": deps.Exit != nil, "Report": deps.Report != nil,
+		"Exit": deps.Exit != nil, "Report": deps.Report != nil, "ClaudeAccounts": deps.ClaudeAccounts != nil,
 	} {
 		if !wired {
 			t.Errorf("buildCommandDeps left %s unwired", name)

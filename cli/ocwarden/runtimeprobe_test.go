@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -16,11 +15,6 @@ func TestCollectRuntimeCapabilities(t *testing.T) {
 
 	versionArgv := codexBin + " --version"
 	yes, no := true, false
-	loginHome := t.TempDir()
-	if err := os.WriteFile(filepath.Join(loginHome, ".claude.json"),
-		[]byte(`{"oauthAccount":{"accountUuid":"au-1","organizationUuid":"org-1"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
 
 	cases := []struct {
 		name     string
@@ -93,26 +87,6 @@ func TestCollectRuntimeCapabilities(t *testing.T) {
 			name:   "under a logged-out auth status, claude reports logged_in false even with credentials present",
 			env:    map[string]string{"HOME": root, "OC_CLAUDE_BIN": claudeBin},
 			claude: map[string]any{"cred_file": true, "keychain": true},
-			login:  loginState{Claude: &no},
-			want: map[string]any{
-				"claude": map[string]any{"installed": true, "logged_in": false},
-				"codex":  map[string]any{"installed": false},
-			},
-		},
-		{
-			name:   "under a logged-in claude, the machine's current login is reported as the account a launch would bind",
-			env:    map[string]string{"HOME": loginHome, "OC_CLAUDE_BIN": claudeBin},
-			claude: map[string]any{"version": "2.1.287"},
-			login:  loginState{Claude: &yes},
-			want: map[string]any{
-				"claude": map[string]any{"installed": true, "version": "2.1.287", "logged_in": true, "below_notify_minimum": false, "account": "au-1/org-1"},
-				"codex":  map[string]any{"installed": false},
-			},
-		},
-		{
-			name:   "under a logged-out claude, no account is reported even with a login file left behind",
-			env:    map[string]string{"HOME": loginHome, "OC_CLAUDE_BIN": claudeBin},
-			claude: map[string]any{},
 			login:  loginState{Claude: &no},
 			want: map[string]any{
 				"claude": map[string]any{"installed": true, "logged_in": false},

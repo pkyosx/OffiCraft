@@ -1397,17 +1397,27 @@ func TestStart(t *testing.T) {
 		}
 	})
 
-	t.Run("a claude spawn binds the login of its launch moment into the session environment", func(t *testing.T) {
+	t.Run("a claude spawn binds the account the profile endpoint named for its launch credential, and a later machine re-login leaves that binding alone", func(t *testing.T) {
 		h := newSpawnHarness()
 		d := h.deps()
-		d.ClaudeLogin = func() claudeLoginAccount {
-			return claudeLoginAccount{ID: "au-1/org-1", Label: "kyle@x.io(OffiCraft)"}
-		}
+		measured := 0
+		d.ClaudeAccounts = newClaudeAccountReporter(func() (claudeAccountMeasurement, bool) {
+			measured++
+			if measured > 1 {
+				return claudeAccountMeasurement{Account: "au-1/org-2", Label: "kyle@x.io(Team)", Store: "keychain",
+					MeasuredAt: time.Unix(1795780300, 0)}, true
+			}
+			return claudeAccountMeasurement{Account: "au-1/org-1", Label: "kyle@x.io(OffiCraft)", Store: "keychain",
+				MeasuredAt: time.Unix(1795780000, 0), UnmeasuredReason: "usage_failed"}, true
+		}, nil)
 
 		if got := d.start(startParamsM1()); !got.OK {
 			t.Fatalf("outcome = %+v, want OK", got)
 		}
 
+		if measured != 1 {
+			t.Errorf("measured %d times, want once at the spawn", measured)
+		}
 		if !slices.Contains(h.removes, "/w/m1/.oc-claude-account") {
 			t.Errorf("removes = %v: the previous launch's binding must be cleared first", h.removes)
 		}
@@ -1420,18 +1430,65 @@ func TestStart(t *testing.T) {
 		if launch := h.runner.calls[3]; launch != "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 "+wantLaunch {
 			t.Errorf("launch =\n%s\nwant the golden line exporting the binding", launch)
 		}
+		if got := d.ClaudeAccounts.snapshot()["account"]; got != "au-1/org-1" {
+			t.Errorf("the heartbeat's login = %v, want the account the spawn just bound", got)
+		}
 
-		unbound := newSpawnHarness()
-		ud := unbound.deps()
-		ud.ClaudeLogin = func() claudeLoginAccount { return claudeLoginAccount{} }
-		if got := ud.start(startParamsM1()); !got.OK {
-			t.Fatalf("an unreadable login: outcome = %+v, want OK", got)
+		writes := len(h.writes)
+		d.ClaudeAccounts.measureNow()
+		if got := d.ClaudeAccounts.snapshot()["account"]; got != "au-1/org-2" {
+			t.Errorf("after the re-login the heartbeat's login = %v, want the new account", got)
 		}
-		if launch := unbound.runner.calls[3]; launch != "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 "+goldenLaunchM1 {
-			t.Errorf("an unreadable login launched\n%s\nwant the unbound golden line", launch)
+		if len(h.writes) != writes {
+			t.Errorf("a heartbeat measurement wrote %+v, want the running session's binding untouched", h.writes[writes:])
 		}
-		if want := "m1: no Claude login readable under the launch HOME; launching unbound"; !slices.Contains(unbound.logs, want) {
-			t.Errorf("logs = %q, want %q", unbound.logs, want)
+	})
+
+	t.Run("a claude spawn whose launch credential names no account launches unbound and says why", func(t *testing.T) {
+		h := newSpawnHarness()
+		d := h.deps()
+		d.ClaudeAccounts = newClaudeAccountReporter(func() (claudeAccountMeasurement, bool) {
+			return claudeAccountMeasurement{Store: "keychain", MeasuredAt: time.Unix(1795780000, 0), UnmeasuredReason: "profile_failed"}, true
+		}, nil)
+
+		if got := d.start(startParamsM1()); !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+
+		if launch := h.runner.calls[3]; launch != "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 "+goldenLaunchM1 {
+			t.Errorf("launched\n%s\nwant the unbound golden line", launch)
+		}
+		if want := "m1: no Claude account identified for the launch credential (profile_failed); launching unbound"; !slices.Contains(h.logs, want) {
+			t.Errorf("logs = %q, want %q", h.logs, want)
+		}
+		for _, w := range h.writes {
+			if w.path == "/w/m1/.oc-claude-account" {
+				t.Errorf("wrote a binding %q for an unidentified account", w.content)
+			}
+		}
+	})
+
+	t.Run("a claude spawn whose agent environment carries its own Claude credential launches unbound without measuring", func(t *testing.T) {
+		h := newSpawnHarness()
+		d := h.deps()
+		d.CaptureEnv = func() (string, error) { return "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-env\x00", nil }
+		d.ClaudeAccounts = newClaudeAccountReporter(func() (claudeAccountMeasurement, bool) {
+			t.Error("measured the stored login for a session that will use its environment's credential")
+			return claudeAccountMeasurement{}, false
+		}, nil)
+
+		if got := d.start(startParamsM1()); !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+
+		want := "m1: the agent environment sets CLAUDE_CODE_OAUTH_TOKEN, which Claude Code uses instead of the stored login; launching unbound"
+		if !slices.Contains(h.logs, want) {
+			t.Errorf("logs = %q, want %q", h.logs, want)
+		}
+		for _, line := range h.logs {
+			if strings.Contains(line, "sk-ant-oat01-env") {
+				t.Errorf("logged the environment's credential: %q", line)
+			}
 		}
 	})
 
@@ -2597,10 +2654,10 @@ func TestStart(t *testing.T) {
 			t.Error("a full model id was looked up in the Codex model list")
 			return nil, nil
 		}
-		d.ClaudeLogin = func() claudeLoginAccount {
-			t.Error("a codex spawn read the Claude login")
-			return claudeLoginAccount{}
-		}
+		d.ClaudeAccounts = newClaudeAccountReporter(func() (claudeAccountMeasurement, bool) {
+			t.Error("a codex spawn measured the Claude login")
+			return claudeAccountMeasurement{}, false
+		}, nil)
 
 		got := d.start(p)
 		if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {

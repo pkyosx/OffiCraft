@@ -1,85 +1,428 @@
 package main
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
+	"time"
 )
 
 const claudeAccountFileName = ".oc-claude-account"
 
-// claudeLoginAccount is the account key and label exactly as cli/ocagent
-// contextreport.go readClaudeAccount / readClaudeAccountLabel derive them: the
-// station matches account cards, aliases and spend by this key, so a session
-// bound here must name its account the way an unbound session's reports do.
+// ⚠️ The station's claudeAccountFreshSecs (server/ocserverd) is derived from
+// this interval; raising it alone makes every account's pace verdict and the
+// "still on its old account" note vanish between measurements.
+const claudeAccountInterval = 5 * time.Minute
+
+const (
+	anthropicAPIBase   = "https://api.anthropic.com"
+	claudeOAuthBeta    = "oauth-2025-04-20"
+	claudeOAuthTimeout = 10 * time.Second
+)
+
+// The reasons are a closed vocabulary the station validates.
+const (
+	claudeUnmeasuredNoCredential  = "no_credential"
+	claudeUnmeasuredTokenExpired  = "token_expired"
+	claudeUnmeasuredProfileFailed = "profile_failed"
+	claudeUnmeasuredUsageFailed   = "usage_failed"
+)
+
+// claudeLoginAccount is what a claude spawn binds into the session's launch
+// environment (OC_CLAUDE_ACCOUNT); cli/ocagent reads the same two keys.
 type claudeLoginAccount struct {
 	ID    string `json:"account"`
 	Label string `json:"account_label,omitempty"`
 }
 
-// Real installs split fields across the two .claude.json files, so each field
-// resolves independently, first file first.
-func readClaudeLoginAccount(home string, readFile func(string) ([]byte, error)) claudeLoginAccount {
-	if home == "" {
-		return claudeLoginAccount{}
-	}
-	var accountUUID, userID, org, email, displayName, orgName string
-	firstNonEmpty := func(dst *string, v any) {
-		if s, ok := v.(string); ok && *dst == "" {
-			*dst = strings.TrimSpace(s)
-		}
-	}
-	for _, path := range []string{
-		filepath.Join(home, ".claude", ".claude.json"),
-		filepath.Join(home, ".claude.json"),
-	} {
-		raw, err := readFile(path)
-		if err != nil {
-			continue
-		}
-		var d map[string]any
-		if json.Unmarshal(raw, &d) != nil {
-			continue
-		}
-		if uid, ok := d["userID"]; ok && uid != nil && userID == "" {
-			userID = strings.TrimSpace(fmt.Sprint(uid))
-		}
-		oauth, _ := d["oauthAccount"].(map[string]any)
-		firstNonEmpty(&accountUUID, oauth["accountUuid"])
-		firstNonEmpty(&org, oauth["organizationUuid"])
-		firstNonEmpty(&email, oauth["emailAddress"])
-		firstNonEmpty(&displayName, oauth["displayName"])
-		firstNonEmpty(&orgName, oauth["organizationName"])
-	}
-	id := accountUUID
-	if id == "" {
-		id = userID
-	}
-	if id == "" {
-		return claudeLoginAccount{}
-	}
-	if org != "" {
-		id += "/" + org
-	}
-	label := email
-	if label == "" {
-		label = displayName
-	}
-	if label != "" && orgName != "" {
-		label += "(" + orgName + ")"
-	}
-	return claudeLoginAccount{ID: id, Label: label}
+// claudeCredential holds the live access token in memory for the two calls.
+// ⚠️ Never format it into a log line, an error or a report: nothing in this
+// file copies the token out of it, and the tests check the heartbeat and the
+// log for it.
+type claudeCredential struct {
+	accessToken      string
+	expiresAtMs      float64
+	subscriptionType string
+	store            string
 }
 
-// bindClaudeAccount records the login at launch as the account this claude
-// session is billed to for its whole life: a running session keeps the
-// credentials it started with until it is relaunched. The returned file is read
-// into the launch environment; "" when no login is readable, and the member's
-// reports then fall back to the machine's current login.
-func (d SpawnDeps) bindClaudeAccount(memberID, workdir string) string {
-	if d.ClaudeLogin == nil {
+// claudeCredentialSource reads the credential the way Claude Code does for a
+// member this warden launches: same HOME, same config dir, same user, and the
+// warden runs in the members' own (GUI) session, where the login keychain is
+// readable. On macOS the keychain item wins over the plaintext file: a machine
+// can hold both, for different logins, and members are billed to the keychain
+// one.
+type claudeCredentialSource struct {
+	goos     string
+	home     claudeHome
+	user     string
+	readFile func(string) ([]byte, error)
+	runner   CmdRunner
+}
+
+func (s claudeCredentialSource) configDir() string {
+	if s.home.ConfigDir != "" {
+		return s.home.ConfigDir
+	}
+	return filepath.Join(s.home.Home, ".claude")
+}
+
+// Claude Code suffixes the item with a hash of the config dir when
+// CLAUDE_CONFIG_DIR is set, which the launch line does exactly when
+// ConfigDir is.
+func (s claudeCredentialSource) keychainService() string {
+	service := claudeKeychainService
+	if s.home.ConfigDir != "" {
+		sum := sha256.Sum256([]byte(s.home.ConfigDir))
+		service += "-" + hex.EncodeToString(sum[:])[:8]
+	}
+	return service
+}
+
+func (s claudeCredentialSource) read() (claudeCredential, bool) {
+	if s.home.Home == "" {
+		return claudeCredential{}, false
+	}
+	if strings.HasPrefix(s.goos, "darwin") && s.runner != nil && s.user != "" {
+		secret, err := s.runner.Run("security", "find-generic-password", "-a", s.user, "-s", s.keychainService(), "-w")
+		if err == nil {
+			if cred, ok := parseClaudeCredential([]byte(secret), "keychain"); ok {
+				return cred, true
+			}
+		}
+	}
+	raw, err := s.readFile(filepath.Join(s.configDir(), ".credentials.json"))
+	if err != nil {
+		return claudeCredential{}, false
+	}
+	return parseClaudeCredential(raw, "file")
+}
+
+func parseClaudeCredential(raw []byte, store string) (claudeCredential, bool) {
+	var stored struct {
+		ClaudeAiOauth struct {
+			AccessToken      string  `json:"accessToken"`
+			ExpiresAt        float64 `json:"expiresAt"`
+			SubscriptionType string  `json:"subscriptionType"`
+		} `json:"claudeAiOauth"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(string(raw))), &stored) != nil {
+		return claudeCredential{}, false
+	}
+	oauth := stored.ClaudeAiOauth
+	if strings.TrimSpace(oauth.AccessToken) == "" {
+		return claudeCredential{}, false
+	}
+	return claudeCredential{
+		accessToken:      strings.TrimSpace(oauth.AccessToken),
+		expiresAtMs:      oauth.ExpiresAt,
+		subscriptionType: strings.TrimSpace(oauth.SubscriptionType),
+		store:            store,
+	}, true
+}
+
+// claudeAccountMeasurement is one answer from Anthropic about the login a
+// member launched now would use. Detail is for the warden's own log only.
+type claudeAccountMeasurement struct {
+	Account          string
+	Label            string
+	SubscriptionType string
+	Store            string
+	MeasuredAt       time.Time
+	FiveHour         map[string]any
+	SevenDay         map[string]any
+	UnmeasuredReason string
+	Detail           string
+}
+
+func (m claudeAccountMeasurement) report() map[string]any {
+	out := map[string]any{"measured_at": float64(m.MeasuredAt.UnixNano()) / 1e9}
+	for key, value := range map[string]string{
+		"account":           m.Account,
+		"account_label":     m.Label,
+		"subscription_type": m.SubscriptionType,
+		"store":             m.Store,
+		"unmeasured_reason": m.UnmeasuredReason,
+	} {
+		if value != "" {
+			out[key] = value
+		}
+	}
+	if m.FiveHour != nil {
+		out["five_hour"] = m.FiveHour
+	}
+	if m.SevenDay != nil {
+		out["seven_day"] = m.SevenDay
+	}
+	return out
+}
+
+func (m claudeAccountMeasurement) binding() claudeLoginAccount {
+	return claudeLoginAccount{ID: m.Account, Label: m.Label}
+}
+
+type claudeAccountMeter struct {
+	source    claudeCredentialSource
+	installed func() bool
+	client    *http.Client
+	base      string
+	now       func() time.Time
+}
+
+func newClaudeAccountMeter(env func(string) string, home claudeHome, runner CmdRunner, goos string) claudeAccountMeter {
+	return claudeAccountMeter{
+		source: claudeCredentialSource{
+			goos:     goos,
+			home:     home,
+			user:     claudeKeychainUser(env),
+			readFile: os.ReadFile,
+			runner:   runner,
+		},
+		installed: func() bool { return resolveClaudeBin(env) != "" },
+		client: &http.Client{
+			Timeout: claudeOAuthTimeout,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		base: anthropicAPIBase,
+		now:  time.Now,
+	}
+}
+
+var claudeKeychainUserShape = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+// Claude Code names the keychain account after $USER, falling back to the OS
+// user name, and to a fixed name when either has other characters.
+func claudeKeychainUser(env func(string) string) string {
+	name := strings.TrimSpace(env("USER"))
+	if name == "" {
+		if u, err := user.Current(); err == nil {
+			name = u.Username
+		}
+	}
+	if !claudeKeychainUserShape.MatchString(name) {
+		return "claude-code-user"
+	}
+	return name
+}
+
+// measure answers ok=false on a host without claude: there is no login to
+// speak of, and "unknown" there would read as a fault.
+func (m claudeAccountMeter) measure() (claudeAccountMeasurement, bool) {
+	if m.installed != nil && !m.installed() {
+		return claudeAccountMeasurement{}, false
+	}
+	out := claudeAccountMeasurement{MeasuredAt: m.now()}
+	cred, ok := m.source.read()
+	if !ok {
+		out.UnmeasuredReason = claudeUnmeasuredNoCredential
+		return out, true
+	}
+	out.Store, out.SubscriptionType = cred.store, cred.subscriptionType
+	if cred.expiresAtMs > 0 && float64(out.MeasuredAt.UnixMilli()) >= cred.expiresAtMs {
+		out.UnmeasuredReason = claudeUnmeasuredTokenExpired
+		return out, true
+	}
+	var profile struct {
+		Account struct {
+			UUID        string `json:"uuid"`
+			Email       string `json:"email"`
+			DisplayName string `json:"display_name"`
+		} `json:"account"`
+		Organization struct {
+			UUID string `json:"uuid"`
+			Name string `json:"name"`
+		} `json:"organization"`
+	}
+	if detail := m.get(cred, "/api/oauth/profile", &profile); detail != "" {
+		out.UnmeasuredReason, out.Detail = claudeUnmeasuredProfileFailed, detail
+		return out, true
+	}
+	account := strings.TrimSpace(profile.Account.UUID)
+	if account == "" {
+		out.UnmeasuredReason, out.Detail = claudeUnmeasuredProfileFailed, "profile has no account uuid"
+		return out, true
+	}
+	if org := strings.TrimSpace(profile.Organization.UUID); org != "" {
+		account += "/" + org
+	}
+	out.Account = account
+	out.Label = claudeAccountLabel(profile.Account.Email, profile.Account.DisplayName, profile.Organization.Name)
+
+	var usage map[string]json.RawMessage
+	if detail := m.get(cred, "/api/oauth/usage", &usage); detail != "" {
+		out.UnmeasuredReason, out.Detail = claudeUnmeasuredUsageFailed, detail
+		return out, true
+	}
+	out.FiveHour = claudeUsageWindow(usage["five_hour"])
+	out.SevenDay = claudeUsageWindow(usage["seven_day"])
+	return out, true
+}
+
+// get answers "" on success, else a description that never contains the
+// token: only the path, the status, or the error class.
+func (m claudeAccountMeter) get(cred claudeCredential, path string, into any) string {
+	ctx, cancel := context.WithTimeout(context.Background(), claudeOAuthTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.base+path, nil)
+	if err != nil {
+		return path + ": cannot build the request"
+	}
+	req.Header.Set("Authorization", "Bearer "+cred.accessToken)
+	req.Header.Set("anthropic-beta", claudeOAuthBeta)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := m.client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return path + ": timed out"
+		}
+		return path + ": request failed"
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Sprintf("%s: HTTP %d", path, resp.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil || json.Unmarshal(raw, into) != nil {
+		return path + ": unreadable answer"
+	}
+	return ""
+}
+
+func claudeAccountLabel(email, displayName, orgName string) string {
+	base := strings.TrimSpace(email)
+	if base == "" {
+		base = strings.TrimSpace(displayName)
+	}
+	if base == "" {
+		return ""
+	}
+	if org := strings.TrimSpace(orgName); org != "" {
+		return base + "(" + org + ")"
+	}
+	return base
+}
+
+// The usage endpoint answers {utilization: percent|null, resets_at: ISO
+// time|null}; the station reads windows shaped like a session's status-line
+// rate_limits. A window without a number is left out, never zeroed.
+func claudeUsageWindow(raw json.RawMessage) map[string]any {
+	var window struct {
+		Utilization *float64 `json:"utilization"`
+		ResetsAt    *string  `json:"resets_at"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &window) != nil || window.Utilization == nil {
+		return nil
+	}
+	out := map[string]any{"used_percentage": *window.Utilization}
+	if window.ResetsAt != nil {
+		if at, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(*window.ResetsAt)); err == nil {
+			out["resets_at"] = float64(at.Unix())
+		}
+	}
+	return out
+}
+
+// claudeAccountReporter keeps the latest measurement for the heartbeat; a
+// spawn measures through it too, so the machine's reported login is the one
+// the newest member was bound to.
+type claudeAccountReporter struct {
+	meter func() (claudeAccountMeasurement, bool)
+	logf  func(string, ...any)
+
+	mu       sync.Mutex
+	latest   map[string]any
+	lastNote string
+}
+
+func newClaudeAccountReporter(meter func() (claudeAccountMeasurement, bool), logf func(string, ...any)) *claudeAccountReporter {
+	return &claudeAccountReporter{meter: meter, logf: logf}
+}
+
+func (r *claudeAccountReporter) measureNow() claudeAccountMeasurement {
+	if r == nil || r.meter == nil {
+		return claudeAccountMeasurement{}
+	}
+	m, ok := r.meter()
+	note := ""
+	switch {
+	case !ok:
+	case m.UnmeasuredReason == "":
+		note = fmt.Sprintf("claude account: %s (from the %s credential)", m.Account, m.Store)
+	default:
+		note = fmt.Sprintf("claude account unmeasured: %s", m.UnmeasuredReason)
+		if m.Account != "" {
+			note += " for " + m.Account
+		}
+		if m.Detail != "" {
+			note += " (" + m.Detail + ")"
+		}
+	}
+	r.mu.Lock()
+	if ok {
+		r.latest = m.report()
+	} else {
+		r.latest = nil
+	}
+	changed := note != r.lastNote
+	r.lastNote = note
+	r.mu.Unlock()
+	if changed && note != "" && r.logf != nil {
+		r.logf("%s", note)
+	}
+	return m
+}
+
+func (r *claudeAccountReporter) snapshot() map[string]any {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.latest
+}
+
+func (r *claudeAccountReporter) run(ctx context.Context, sleep func(context.Context, time.Duration) bool) {
+	for ctx.Err() == nil {
+		r.measureNow()
+		if !sleep(ctx, claudeAccountInterval) {
+			return
+		}
+	}
+}
+
+// claudeAccountPoster adds the latest measurement to every heartbeat, so a
+// restarted station has it again within one heartbeat.
+func claudeAccountPoster(post Poster, snapshot func() map[string]any) Poster {
+	return func(path string, payload map[string]any) (int, map[string]any) {
+		if path == telemetryPath {
+			if report := snapshot(); report != nil {
+				payload["claude_account"] = report
+			}
+		}
+		return post(path, payload)
+	}
+}
+
+// bindClaudeAccount records the account the profile endpoint named for the
+// credential this claude session will read, as its account for its whole
+// life: a running session keeps the credentials it started with until it is
+// relaunched. The returned file is read into the launch environment; "" when
+// no account was identified, and the member then reports none.
+func (d SpawnDeps) bindClaudeAccount(memberID, workdir string, envPairs []agentEnvPair) string {
+	if d.ClaudeAccounts == nil {
 		return ""
 	}
 	path := filepath.Join(workdir, claudeAccountFileName)
@@ -87,12 +430,20 @@ func (d SpawnDeps) bindClaudeAccount(memberID, workdir string) string {
 		d.logf("%s: could not clear the previous launch's Claude account (%v); launching unbound", memberID, err)
 		return ""
 	}
-	account := d.ClaudeLogin()
-	if account.ID == "" {
-		d.logf("%s: no Claude login readable under the launch HOME; launching unbound", memberID)
+	if key := claudeCredentialEnvKey(envPairs); key != "" {
+		d.logf("%s: the agent environment sets %s, which Claude Code uses instead of the stored login; launching unbound", memberID, key)
 		return ""
 	}
-	raw, err := json.Marshal(account)
+	m := d.ClaudeAccounts.measureNow()
+	if m.Account == "" {
+		reason := m.UnmeasuredReason
+		if reason == "" {
+			reason = "claude not installed"
+		}
+		d.logf("%s: no Claude account identified for the launch credential (%s); launching unbound", memberID, reason)
+		return ""
+	}
+	raw, err := json.Marshal(m.binding())
 	if err != nil {
 		return ""
 	}
@@ -101,4 +452,15 @@ func (d SpawnDeps) bindClaudeAccount(memberID, workdir string) string {
 		return ""
 	}
 	return path
+}
+
+func claudeCredentialEnvKey(pairs []agentEnvPair) string {
+	for _, pair := range pairs {
+		for _, key := range claudeCredEnvKeys {
+			if pair.Key == key && strings.TrimSpace(pair.Value) != "" {
+				return key
+			}
+		}
+	}
+	return ""
 }

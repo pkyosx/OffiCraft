@@ -429,9 +429,9 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 			return claudeAcceptsPromptFile(withRunTimeout(runner, claudePromptFileProbeBudget), claudeBin, promptFile)
 		},
 		ClaudeHome: claudeHome,
-		ClaudeLogin: func() claudeLoginAccount {
-			return readClaudeLoginAccount(claudeHome.Home, os.ReadFile)
-		},
+		ClaudeAccounts: newClaudeAccountReporter(
+			newClaudeAccountMeter(env, claudeHome, runner, runtime.GOOS).measure,
+			func(format string, a ...any) { fmt.Fprintf(os.Stderr, "[ocwarden] "+format+"\n", a...) }),
 		WardenBin:   wardenBin,
 		CodexModels: listCodexModels,
 		RepoRoot:    resolveRepoRoot(os.Executable),
@@ -479,6 +479,7 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 	claudeJSONPath := spawnDeps.ClaudeHome.ClaudeJSONPath()
 	listenPIDs := ocagentPIDsByCwdFor(runtime.GOOS, runner, "/proc")
 	return CommandDeps{
+		ClaudeAccounts: spawnDeps.ClaudeAccounts,
 		Spawn: func(p StartParams) SpawnOutcome {
 			workdir := agentWorkdir(spawnDeps.Home, p.MemberID)
 			// 🔴 Resolved per spawn, by the same functions the heartbeat and the

@@ -1,9 +1,6 @@
 package main
 
-import (
-	"os"
-	"strings"
-)
+import "strings"
 
 // collectRuntimeCapabilities reports launch readiness without exposing any
 // credential material. logged_in comes from the interval login check; a nil
@@ -21,13 +18,6 @@ func collectRuntimeCapabilities(env func(string) string, runner CmdRunner,
 	}
 	if claudeBin != "" && login.Claude != nil {
 		claudeCap["logged_in"] = *login.Claude
-	}
-	// The account a member launched now would be bound to; the station compares
-	// it with each running member's bound account.
-	if claudeBin != "" && (login.Claude == nil || *login.Claude) {
-		if account := readClaudeLoginAccount(env("HOME"), os.ReadFile).ID; account != "" {
-			claudeCap["account"] = account
-		}
 	}
 	out["claude"] = claudeCap
 

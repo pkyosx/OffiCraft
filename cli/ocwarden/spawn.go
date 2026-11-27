@@ -658,10 +658,10 @@ type SpawnDeps struct {
 	// ClaudeHome feeds both the launch line and Pretrust's file, which keeps the
 	// write and the read on the same claude.json.
 	ClaudeHome claudeHome
-	// ClaudeLogin reads the machine's current Claude login, which a claude spawn
-	// binds to the session; nil launches unbound.
-	ClaudeLogin func() claudeLoginAccount
-	WardenBin   string
+	// ClaudeAccounts measures the login a claude spawn will read, which the
+	// spawn binds to the session; nil launches unbound.
+	ClaudeAccounts *claudeAccountReporter
+	WardenBin      string
 	// LoginCheck runs the runtime's login check now (the same one the heartbeat
 	// reports) and returns its verdict; nil verdict = unknown, nil func = no check.
 	LoginCheck func(runtime string) *bool
@@ -895,7 +895,8 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		d.logf("agent env: %s overrides the interactive shell for: %s",
 			d.EnvFile, strings.Join(names, " "))
 	}
-	if pairs := mergeAgentEnv(interactive, fileEnv); len(pairs) > 0 {
+	agentEnv := mergeAgentEnv(interactive, fileEnv)
+	if pairs := agentEnv; len(pairs) > 0 {
 		if err := d.WriteFile(renderPath, renderAgentEnvFile(pairs), 0o600); err != nil {
 			d.logf("agent env: could not write %s (%v); spawning without extra env", renderPath, err)
 		} else {
@@ -913,7 +914,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			return SpawnOutcome{OK: false, Reason: refusal}
 		}
 		pluginDir = filepath.Join(workdir, notifyModDirName)
-		accountFile = d.bindClaudeAccount(p.MemberID, workdir)
+		accountFile = d.bindClaudeAccount(p.MemberID, workdir, agentEnv)
 	}
 
 	command := ""
