@@ -658,13 +658,14 @@ button.lore-section__name--link:hover {
 .lore-row--dimmed .lore-row__body,
 .lore-row--dimmed .lore-row__author,
 .lore-row--dimmed .lore-row__effective-ts,
-.lore-row--dimmed .lore-row__retire {
+.lore-row--dimmed .lore-row__retire,
+.lore-row--dimmed .lore-row__folded-title {
   color: var(--color-text-muted);
   opacity: 0.55;
 }
 
 /* Folded: one line, no strike-through and no coloured edge (owner
- * c-1301314e3efa); only the title is greyed, as on the opened card. */
+ * c-1301314e3efa); a dropped entry greys only its title, as on the opened card. */
 .lore-row.lore-row--folded {
   flex-direction: row;
   align-items: center;
@@ -683,8 +684,7 @@ button.lore-section__name--link:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 14px;
-  color: var(--color-text-muted);
-  opacity: 0.55;
+  color: var(--color-text);
 }
 .lore-row__fold {
   flex: none;
@@ -707,6 +707,10 @@ button.lore-row__fold:hover {
 button.lore-row__fold:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+.lore-row__fold--held {
+  width: 20px;
+  height: 20px;
 }
 .lore-row__fold--open svg {
   transform: rotate(90deg);

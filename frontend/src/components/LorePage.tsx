@@ -1185,27 +1185,22 @@ function LoreView({
     if (loadMore(currentDef)) r.pages += 1;
   }, [currentDef, currentData, highlightId, highlightLoaded, filterKey, loadMore]);
 
-  // A dropped entry shows as one row until opened. Opening is remembered per
-  // entry for the life of the page, so a re-read that keeps it dropped keeps it
-  // open; a highlighted entry opens itself.
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  // A dropped entry starts folded to one row, every other entry open; a fold or
+  // open is remembered per entry for the life of the page, so a re-read that
+  // keeps it dropped keeps it as the reader left it. A highlighted entry opens
+  // itself.
+  const [openOverride, setOpenOverride] = useState<Map<string, boolean>>(() => new Map());
   const focusAfterToggle = useRef<{ id: string; open: boolean } | null>(null);
-  function setEntryExpanded(id: string, open: boolean) {
-    if (expanded.has(id) === open) return;
+  function setEntryOpen(id: string, open: boolean) {
+    if (openOverride.get(id) === open) return;
     focusAfterToggle.current = { id, open };
-    setExpanded((prev) => {
-      if (prev.has(id) === open) return prev;
-      const next = new Set(prev);
-      if (open) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+    setOpenOverride((prev) => (prev.get(id) === open ? prev : new Map(prev).set(id, open)));
   }
   useEffect(() => {
     if (highlightId === "") return;
-    setExpanded((prev) => (prev.has(highlightId) ? prev : new Set(prev).add(highlightId)));
+    setOpenOverride((prev) => (prev.get(highlightId) === true ? prev : new Map(prev).set(highlightId, true)));
   }, [highlightId]);
-  const highlightExpanded = expanded.has(highlightId);
+  const highlightExpanded = openOverride.get(highlightId) === true;
   const scrolledToRef = useRef("");
   useEffect(() => {
     if (!highlightLoaded) {
@@ -1230,7 +1225,7 @@ function LoreView({
       ? row?.querySelector<HTMLElement>('[data-testid="lore-collapse"]')
       : row;
     target?.focus({ preventScroll: true });
-  }, [expanded]);
+  }, [openOverride]);
 
   // ── render helpers ──────────────────────────────────────────────────────
   // The section's own boot document as one bar. A member's 所有人 and own
@@ -1322,14 +1317,16 @@ function LoreView({
         {sd.entries.map((stored) => {
           const ch = staged.get(stored.id);
           const entry = withStaged(stored, ch);
-          const foldable = stored.dropped === true && !ch;
-          if (foldable && !expanded.has(entry.id)) {
+          const dropped = stored.dropped === true;
+          const foldable = !ch;
+          if (foldable && !(openOverride.get(entry.id) ?? !dropped)) {
             return (
-              <LoreDroppedRow
+              <LoreFoldedRow
                 key={entry.id}
                 entry={entry}
+                dropped={dropped}
                 highlighted={entry.id === highlightId}
-                onExpand={() => setEntryExpanded(entry.id, true)}
+                onExpand={() => setEntryOpen(entry.id, true)}
               />
             );
           }
@@ -1337,8 +1334,8 @@ function LoreView({
             <LoreRow
                   key={entry.id}
                   entry={entry}
-                  dimmed={stored.dropped === true}
-                  onCollapse={foldable ? () => setEntryExpanded(entry.id, false) : null}
+                  dimmed={dropped}
+                  onCollapse={foldable ? () => setEntryOpen(entry.id, false) : null}
                   author={resolveAuthor(entry.authorId)}
                   avatar={authorAvatar(entry.authorId)}
                   scope={resolveScope(entry)}
@@ -1795,8 +1792,8 @@ function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string
   }
 }
 
-/** ONE 傳承 row. The body always shows in full; the only chevron is the one
- * that folds an opened dropped entry back to its LoreDroppedRow. */
+/** ONE 傳承 row, open: the body in full, and a chevron that folds it back to
+ * its LoreFoldedRow. */
 function LoreRow({
   entry,
   dimmed,
@@ -1820,9 +1817,9 @@ function LoreRow({
 }: {
   entry: LoreEntryView;
   dimmed: boolean;
-  /** Folds an opened dropped entry back to its one-line row; null ⇒ this card
-   * does not fold (it is read, or it carries a staged change). It does not fold
-   * either while its editor is open or its message box holds unsent input. */
+  /** Folds the card to its one-line row; null ⇒ this card does not fold (it
+   * carries a staged change). It does not fold either while its editor is open
+   * or its message box holds unsent input. */
   onCollapse: (() => void) | null;
   author: AuthorIdentity;
   avatar: { src?: string; kind: AvatarKind } | null;
@@ -2201,18 +2198,22 @@ function LoreRow({
             <PencilIcon size={14} />
             <span>{t.lore.actionEdit}</span>
           </button>
-          {collapse && (
+          {collapse ? (
             <button
               type="button"
               className="lore-row__fold lore-row__fold--open"
               data-testid="lore-collapse"
               aria-expanded={true}
-              aria-label={t.lore.collapseDropped}
-              title={t.lore.collapseDropped}
+              aria-label={t.lore.collapseEntry}
+              title={t.lore.collapseEntry}
               onClick={collapse}
             >
               <ChevronRightIcon size={16} />
             </button>
+          ) : (
+            // Holds the chevron's width: staging a change must not rewrap the
+            // tags and change the card's height.
+            <span className="lore-row__fold lore-row__fold--held" aria-hidden="true" />
           )}
         </div>
       </div>
@@ -2243,9 +2244,7 @@ function LoreRow({
               characters that are now syntax are read as syntax. This follows chat
               (one behaviour for one kind of text). The renderer's inline set is
               only `**bold**`, `` `code` `` and links; `_` is not syntax, so a body
-              carrying `note_size_chars` is unaffected.
-
-              The body is always shown in full (owner: no fold on the card). */}
+              carrying `note_size_chars` is unaffected. */}
           <div className="lore-row__body" data-testid="lore-body">
             <Markdown source={entry.body} className="lore-row__body-md doc-md" breaks />
           </div>
@@ -2277,25 +2276,30 @@ function LoreRow({
   );
 }
 
-/** A dropped entry, folded: id, title and 讀不到 on one line. Any click, Enter
- * or Space opens the full card in its place. The id is drawn, not a copy
- * button, so the whole row stays one control. */
-function LoreDroppedRow({
+/** An entry, folded: id, title and one tag (讀不到 on a dropped entry, its
+ * type otherwise) on one line. Any click, Enter or Space opens the full card in
+ * its place. The id and tag are drawn, not buttons, so the whole row stays one
+ * control. */
+function LoreFoldedRow({
   entry,
+  dropped,
   highlighted,
   onExpand,
 }: {
   entry: LoreEntryView;
+  dropped: boolean;
   highlighted: boolean;
   onExpand: () => void;
 }) {
   const { t } = useI18n();
   return (
     <div
-      className={`lore-row lore-row--folded${highlighted ? " lore-row--highlight" : ""}`}
+      className={`lore-row lore-row--folded${dropped ? " lore-row--dimmed" : ""}${
+        highlighted ? " lore-row--highlight" : ""
+      }`}
       data-testid="lore-row"
       data-entry-id={entry.id}
-      data-dimmed="true"
+      data-dimmed={dropped ? "true" : "false"}
       data-folded="true"
       role="button"
       tabIndex={0}
@@ -2314,10 +2318,20 @@ function LoreDroppedRow({
       <span className="lore-row__folded-title" data-testid="lore-folded-title">
         {entry.title}
       </span>
-      <span className="lore-badge lore-badge--dropped" data-testid="lore-dropped-tag">
-        {t.lore.droppedTag}
-      </span>
-      <span className="lore-row__fold" aria-hidden="true">
+      {dropped ? (
+        <span className="lore-badge lore-badge--dropped" data-testid="lore-dropped-tag">
+          {t.lore.droppedTag}
+        </span>
+      ) : (
+        <span
+          className="lore-badge lore-badge--lore-type"
+          data-testid="lore-folded-type"
+          data-lore-type={entry.loreType}
+        >
+          {loreTypeLabel(t, entry.loreType)}
+        </span>
+      )}
+      <span className="lore-row__fold" aria-hidden="true" title={t.lore.expandEntry}>
         <ChevronRightIcon size={16} />
       </span>
     </div>

@@ -167,7 +167,9 @@ export const zh = {
     legendCapLead: "上限 ",
     // 讀不到的條目縮成一列
     droppedTag: "讀不到",
-    collapseDropped: "收合",
+    // 條目卡片收合成一列、再展開
+    collapseEntry: "收合",
+    expandEntry: "展開",
     // 卡片右上的動作
     actionEdit: "編輯",
     // 就地編輯

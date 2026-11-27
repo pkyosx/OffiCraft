@@ -1,10 +1,11 @@
 // 傳承 directory cards, section pages and row heads at phone and desktop width:
 // the directory's group headings read on one line with their chevron and
 // 全部收合 leaves no sideways scroll (its touch box included),
-// the tags (id → type → state → scope) wrap as whole pills, the head's one
-// action (編輯, the app-wide .doc-btn--edit) stays inside the head without
-// overlapping them, no card has a clamped body, the 撰寫人／生效期
-// label/value grid stays inside the card, a folded 讀不到 row holds one line, the message box's 📎, input and 送出 sit on one row
+// the tags (id → type → state → scope) wrap as whole pills, the head's
+// actions (編輯, the app-wide .doc-btn--edit, and the 收合 chevron) stay inside
+// the head without overlapping them, no open card has a clamped body, the 撰寫人／生效期
+// label/value grid stays inside the card, a folded row (讀不到 or folded by its
+// 收合) holds one line, the message box's 📎, input and 送出 sit on one row
 // inside the card with room to type, the section head's title, bar and legend stay
 // inside it, the 適用範圍 menu opens inside the viewport, the inline editor fits,
 // the unsaved-changes bar holds one line on the screen's bottom edge without
@@ -218,17 +219,23 @@ function assertHeadContained(width: number, row: RowGeom) {
   if (input) expect.soft(input.box.right - input.box.left, `${tag} message input too narrow`).toBeGreaterThanOrEqual(150);
   const send = row.composerItems.find((c) => c.id === "lore-msg-send");
   if (send) expect.soft(send.box.bottom - send.box.top, `${tag} 送出 wraps`).toBeLessThanOrEqual(40);
-  // No fold: the body shows in full and the row is not a toggle.
+  // Open: the body shows in full and the row itself is not a toggle.
   expect.soft(row.bodyOverflows, `${tag} body missing or clipped`).toBe(false);
   expect.soft(row.toggle, `${tag} row is a toggle`).toBe(false);
   expect.soft(row.actions, `${tag} actions missing`).not.toBeNull();
-  // One 編輯 at every width, the app's own edit button: pencil + label, and
-  // the 30px .doc-btn box (proves settings.css styles it, not a bare <button>).
+  // 編輯 at every width, the app's own edit button: pencil + label, and the
+  // 30px .doc-btn box (proves settings.css styles it, not a bare <button>);
+  // then the 收合 chevron, no taller than 編輯.
   expect
     .soft(row.actionButtons.map((b) => [b.text, b.cls, b.svg]), `${tag} actions`)
-    .toEqual([["編輯", "doc-btn doc-btn--edit", true]]);
+    .toEqual([
+      ["編輯", "doc-btn doc-btn--edit", true],
+      ["收合", "lore-row__fold lore-row__fold--open", true],
+    ]);
+  const editHeight = row.actionButtons[0]?.height ?? 0;
+  expect.soft(Math.round(editHeight), `${tag} 編輯 height`).toBe(30);
   for (const b of row.actionButtons) {
-    expect.soft(Math.round(b.height), `${tag} "${b.text}" height`).toBe(30);
+    expect.soft(b.height, `${tag} "${b.text}" taller than 編輯`).toBeLessThanOrEqual(editHeight + 1);
     expect.soft(inside(b.box, row.head), `${tag} "${b.text}" outside the head`).toBe(true);
     if (row.row) expect.soft(inside(b.box, row.row), `${tag} "${b.text}" outside the card`).toBe(true);
     for (const badge of row.badges) {
@@ -472,6 +479,69 @@ for (const width of [390, 1440]) {
     for (const b of row.actionButtons)
       expect.soft(inside(b.box, row.head!), `[${width}px] ${id} "${b.text}" outside the head`).toBe(true);
     expect.soft(row.metaItems.length, `[${width}px] ${id} meta items`).toBe(4);
+    assertNoHScroll(width, g);
+  });
+
+  test(`a read card's 收合 folds it to id, title, type and chevron on one line inside the card, the cards below move up, and a click opens it again @${width}px`, async ({ mount, page }) => {
+    const cmp = await mountAt(mount, page, width, false, MIRA);
+    const open = cmp.locator('[data-testid="lore-row"]:not([data-folded]):not([data-dimmed="true"])');
+    const card = open.first();
+    const id = (await card.getAttribute("data-entry-id"))!;
+    const row = cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"]`);
+    const next = row.locator("xpath=following-sibling::*[1]");
+    const before = await page.evaluate(
+      ([rowSel]) => {
+        const el = document.querySelector(rowSel)!;
+        const b = el.getBoundingClientRect();
+        const n = el.nextElementSibling!.getBoundingClientRect();
+        return { height: b.height, nextTop: n.top };
+      },
+      [`[data-testid="lore-row"][data-entry-id="${id}"]`],
+    );
+    await row.locator('[data-testid="lore-collapse"]').click();
+    await expect(row).toHaveAttribute("data-folded", "true");
+    const f = await page.evaluate(
+      ([rowSel]) => {
+        const el = document.querySelector(rowSel)!;
+        const r = (e: Element) => {
+          const b = e.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        };
+        const title = el.querySelector('[data-testid="lore-folded-title"]');
+        return {
+          row: r(el),
+          nextTop: el.nextElementSibling!.getBoundingClientRect().top,
+          parts: [...el.children].map((c) => ({ id: c.getAttribute("data-testid") ?? c.className.toString(), box: r(c) })),
+          titleOverflow: title ? getComputedStyle(title).textOverflow : null,
+          titleWhiteSpace: title ? getComputedStyle(title).whiteSpace : null,
+        };
+      },
+      [`[data-testid="lore-row"][data-entry-id="${id}"]`],
+    );
+    const tag = `[${width}px] folded ${id}`;
+    expect
+      .soft(f.parts.map((p) => p.id), `${tag} parts`)
+      .toEqual(["lore-entry-id", "lore-folded-title", "lore-folded-type", "lore-row__fold"]);
+    const mids = f.parts.map((p) => (p.box.top + p.box.bottom) / 2);
+    expect.soft(Math.max(...mids) - Math.min(...mids), `${tag} not one line`).toBeLessThanOrEqual(4);
+    for (const p of f.parts) expect.soft(inside(p.box, f.row), `${tag} "${p.id}" outside the row`).toBe(true);
+    f.parts.forEach((p, i) => {
+      const n = f.parts[i + 1];
+      if (n) expect.soft(p.box.right, `${tag} "${p.id}" runs into "${n.id}"`).toBeLessThanOrEqual(n.box.left + 1);
+    });
+    expect.soft([f.titleOverflow, f.titleWhiteSpace], `${tag} title clipping`).toEqual(["ellipsis", "nowrap"]);
+    expect.soft(f.parts[3]?.box.right ?? 0, `${tag} chevron at the right edge`).toBeGreaterThan(f.row.right - 40);
+    expect.soft(f.row.bottom - f.row.top, `${tag} not shorter than the open card`).toBeLessThan(before.height / 2);
+    expect.soft(f.nextTop, `${tag} the card below did not move up`).toBeLessThan(before.nextTop - 1);
+    assertNoHScroll(width, await pageAndLoreOver(page));
+    await expect(next).toBeVisible();
+
+    await row.click();
+    await expect(row).not.toHaveAttribute("data-folded", "true");
+    await expect(row.locator('[data-testid="lore-collapse"]')).toBeFocused();
+    const g = await measure(page);
+    const reopened = g.rows.find((r) => r.id === id)!;
+    assertHeadContained(width, reopened);
     assertNoHScroll(width, g);
   });
 

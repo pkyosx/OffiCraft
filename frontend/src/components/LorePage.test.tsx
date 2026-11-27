@@ -624,7 +624,7 @@ describe("LorePage — 條目編號", () => {
     fireEvent.click(badge);
     await waitFor(() => expect(copied).toEqual(["L-7"]));
 
-    // The card has no fold; a click on the id copies and does nothing else.
+    // The open card is not a toggle; a click on the id copies and does nothing else.
     expect(container.querySelector('[data-testid="lore-row"]')!.hasAttribute("aria-expanded")).toBe(false);
   });
 });
@@ -919,26 +919,63 @@ describe("LorePage — 卡片底下的撰寫人與生效期", () => {
 
 });
 
-describe("LorePage — 卡片不折疊", () => {
-  it("shows the whole body with no chevron, no clamp and no toggle, and a click changes nothing", async () => {
-    stubList(page([mkEntry({ id: "L-7", authorId: "mira", body: "第一行\n第二行\n第三行\n第四行" })]));
+describe("LorePage — 卡片收合", () => {
+  it("an entry the server reads opens with its whole body and 收合 beside 編輯; 收合 folds only that card to one row of id, title, type and chevron, and a click or Enter opens it again", async () => {
+    stubList(
+      page([
+        mkEntry({ id: "L-7", authorId: "mira", body: "第一行\n第二行\n第三行\n第四行", loreType: "owner_decision" }),
+        mkEntry({ id: "L-8", authorId: "mira" }),
+      ]),
+    );
     const { container } = await renderOpen();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(2));
     const row = rowById(container, "L-7");
-    const body = row.querySelector<HTMLElement>('[data-testid="lore-body"]')!;
-    const snapshot = () => [row.getAttribute("role"), row.hasAttribute("aria-expanded"), body.className];
-    expect(snapshot()).toEqual([null, false, "lore-row__body"]);
-    expect(
-      Array.from(row.querySelector(".lore-row__head")!.children).map((c) => c.className),
-    ).toEqual(["lore-row__badges", "lore-row__actions"]);
-    expect(body.textContent).toContain("第四行");
-    // Out of the tab order; focusable only from code (a highlighted entry).
+    expect(row.dataset.folded).toBeUndefined();
+    expect(row.getAttribute("role")).toBeNull();
     expect(row.getAttribute("tabindex")).toBe("-1");
-    expect(row.querySelector('[data-testid="lore-author-row"]')).not.toBeNull();
-    expect(row.querySelector('[data-testid="lore-effective"]')).not.toBeNull();
-    fireEvent.click(body);
-    fireEvent.keyDown(row, { key: "Enter" });
-    expect(snapshot()).toEqual([null, false, "lore-row__body"]);
+    expect(row.querySelector('[data-testid="lore-body"]')!.textContent).toBe("第一行第二行第三行第四行");
+    const collapse = row.querySelector<HTMLElement>('[data-testid="lore-collapse"]')!;
+    expect([collapse.getAttribute("aria-expanded"), collapse.getAttribute("aria-label"), collapse.title]).toEqual([
+      "true",
+      "收合",
+      "收合",
+    ]);
+
+    fireEvent.click(collapse);
+    const folded = rowById(container, "L-7");
+    expect(folded.dataset.folded).toBe("true");
+    expect(folded.dataset.dimmed).toBe("false");
+    expect([folded.getAttribute("role"), folded.getAttribute("tabindex"), folded.getAttribute("aria-expanded")]).toEqual([
+      "button",
+      "0",
+      "false",
+    ]);
+    expect(
+      Array.from(folded.children).map((el) => [el.getAttribute("data-testid") ?? el.className, el.textContent]),
+    ).toEqual([
+      ["lore-entry-id", "#L-7"],
+      ["lore-folded-title", "標題 L-7"],
+      ["lore-folded-type", "Owner 決策"],
+      ["lore-row__fold", ""],
+    ]);
+    expect(folded.querySelector<HTMLElement>(".lore-row__fold")!.title).toBe("展開");
+    expect(folded.querySelector('[data-testid="lore-body"]')).toBeNull();
+    expect(document.activeElement).toBe(folded);
+    expect(renderedIds(container)).toEqual(["L-7", "L-8"]);
+    expect(rowById(container, "L-8").dataset.folded).toBeUndefined();
+    expect(rowById(container, "L-8").querySelector('[data-testid="lore-body"]')!.textContent).toBe("內容 L-8");
+
+    fireEvent.click(folded);
+    const reopened = rowById(container, "L-7");
+    expect(reopened.dataset.folded).toBeUndefined();
+    expect(reopened.querySelector('[data-testid="lore-body"]')!.textContent).toBe("第一行第二行第三行第四行");
+    expect(document.activeElement).toBe(reopened.querySelector('[data-testid="lore-collapse"]'));
+
+    fireEvent.click(rowById(container, "L-8").querySelector('[data-testid="lore-collapse"]')!);
+    expect(rowById(container, "L-8").dataset.folded).toBe("true");
+    fireEvent.keyDown(rowById(container, "L-8"), { key: "Enter" });
+    expect(rowById(container, "L-8").dataset.folded).toBeUndefined();
+    expect(rowById(container, "L-7").dataset.folded).toBeUndefined();
   });
 });
 
@@ -2864,26 +2901,30 @@ describe("LorePage — 類型選單", () => {
   });
 });
 
-/** The head's only action is 編輯, drawn as every other 編輯 in the app
- * (settings.css .doc-btn--edit: pencil + label), at every width. */
-function expectOnlyEditAction(row: HTMLElement) {
+/** The head's actions are 編輯, drawn as every other 編輯 in the app
+ * (settings.css .doc-btn--edit: pencil + label), then the 收合 chevron, at
+ * every width. */
+function expectHeadActions(row: HTMLElement) {
   const actions = row.querySelector<HTMLElement>(".lore-row__actions")!;
   const buttons = Array.from(actions.querySelectorAll("button"));
-  expect(buttons.map((b) => [b.getAttribute("data-testid"), b.className, b.textContent])).toEqual([
-    ["lore-edit", "doc-btn doc-btn--edit", "編輯"],
+  expect(
+    buttons.map((b) => [b.getAttribute("data-testid"), b.className, b.textContent, b.getAttribute("aria-label")]),
+  ).toEqual([
+    ["lore-edit", "doc-btn doc-btn--edit", "編輯", null],
+    ["lore-collapse", "lore-row__fold lore-row__fold--open", "", "收合"],
   ]);
-  expect(buttons[0].querySelector("svg")).not.toBeNull();
+  expect(buttons.map((b) => b.querySelector("svg") !== null)).toEqual([true, true]);
 }
 
-describe("LorePage — 卡片右上只有編輯", () => {
-  it("on a desktop the head carries one 編輯 button and it opens the editor", async () => {
+describe("LorePage — 卡片右上的動作", () => {
+  it("on a desktop the head carries 編輯 and 收合, and 編輯 opens the editor", async () => {
     stubList(
       page([mkEntry({ id: "L-1", scopeKind: "agent", scopeKey: "mira", scopeOptions: ["agent", "everyone"] })]),
     );
     const { container } = await renderOpen({ canSetScope: true });
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
     const row = rowById(container, "L-1");
-    expectOnlyEditAction(row);
+    expectHeadActions(row);
     fireEvent.click(row.querySelector('[data-testid="lore-edit"]')!);
     expect(row.querySelector('[data-testid="lore-editor"]')).not.toBeNull();
   });
@@ -2910,12 +2951,12 @@ describe("LorePage — 手機寬度", () => {
     delete (window as unknown as { matchMedia?: unknown }).matchMedia;
   });
 
-  it("shows the same single 編輯 button as a desktop, no 「⋯」 menu, and 編輯 opens the editor", async () => {
+  it("shows the same 編輯 and 收合 as a desktop, no 「⋯」 menu, and 編輯 opens the editor", async () => {
     stubList(page([mkEntry({ id: "L-1" })]));
     const { container } = await renderOpen({ canSetScope: true });
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
     const row = rowById(container, "L-1");
-    expectOnlyEditAction(row);
+    expectHeadActions(row);
     fireEvent.click(row.querySelector('[data-testid="lore-edit"]')!);
     expect(row.querySelector('[data-testid="lore-editor"]')).not.toBeNull();
   });

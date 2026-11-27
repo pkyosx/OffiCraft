@@ -205,7 +205,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Block, or the ellipsis never applies and a long name runs out of its cell. */
 .shared-docs__name {
+  display: block;
   font-weight: 600;
 }
 .shared-docs__file-description {
@@ -236,6 +238,60 @@
 .shared-docs__updated-open:hover {
   color: var(--color-accent);
   text-decoration: underline;
+}
+
+/* Phone: each row is a block of its own (file + actions, then ID and 最後修改)
+ * instead of a 760px table scrolled sideways to its ID column. */
+@media (max-width: 720px) {
+  .shared-docs__table {
+    display: block;
+    min-width: 0;
+  }
+  .shared-docs__table thead {
+    display: none;
+  }
+  .shared-docs__table tbody {
+    display: block;
+  }
+  .shared-docs__row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "file file actions"
+      "id updated updated";
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 6px;
+    padding: 10px 2px;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 4%, transparent);
+  }
+  .shared-docs__row:last-child {
+    border-bottom: none;
+  }
+  .shared-docs__table td {
+    display: block;
+    width: auto;
+    min-width: 0;
+    padding: 0;
+    border-bottom: none;
+  }
+  .shared-docs__table td.shared-docs__col-file {
+    grid-area: file;
+  }
+  .shared-docs__table td.shared-docs__col-actions {
+    grid-area: actions;
+  }
+  .shared-docs__table td.shared-docs__col-id {
+    grid-area: id;
+  }
+  .shared-docs__table td.shared-docs__updated {
+    grid-area: updated;
+    font-size: 12px;
+  }
+  .shared-docs__kind {
+    width: 32px;
+    height: 32px;
+  }
 }
 
 /* ── one document ── */
