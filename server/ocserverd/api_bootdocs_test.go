@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -62,6 +63,9 @@ type apiTestBootDocRow struct {
 	split    bool
 	join     string
 	readOnly bool
+	enSeed   string
+
+	noDeveloperModeLock bool
 }
 
 var apiTestBootDocRows = []apiTestBootDocRow{
@@ -69,6 +73,15 @@ var apiTestBootDocRows = []apiTestBootDocRow{
 		kind: "system_interaction", keys: []string{"global"},
 		seeds: []string{"system_interaction.md"}, docNames: []string{"system interaction block"},
 		capChars: 150000, vars: nil, split: false, join: "", readOnly: false,
+	}, {
+		kind: "user_language", keys: []string{"global"},
+		seeds: []string{"user_language_zh.md"}, docNames: []string{"User Language document"},
+		capChars: 37500, vars: nil, split: false, join: "", readOnly: false, enSeed: "user_language_en.md",
+		noDeveloperModeLock: true,
+	}, {
+		kind: "term_glossary", keys: []string{"global"},
+		seeds: []string{"term_glossary.md"}, docNames: []string{"glossary"},
+		capChars: 37500, vars: nil, split: false, join: "", readOnly: true,
 	}, {
 		kind: "boot_sequence", keys: []string{"claude", "codex"},
 		seeds:    []string{"boot_sequence.md", "boot_sequence_codex.md"},
@@ -131,6 +144,10 @@ func TestBootDocRegFor(t *testing.T) {
 			if reg.Split != want.split || reg.Join != want.join || reg.ReadOnly != want.readOnly {
 				t.Fatalf("%s Split/Join/ReadOnly = %v/%q/%v, want %v/%q/%v",
 					want.kind, reg.Split, reg.Join, reg.ReadOnly, want.split, want.join, want.readOnly)
+			}
+			if reg.EnSeed != want.enSeed || reg.NoDeveloperModeLock != want.noDeveloperModeLock {
+				t.Fatalf("%s EnSeed/NoDeveloperModeLock = %q/%v, want %q/%v",
+					want.kind, reg.EnSeed, reg.NoDeveloperModeLock, want.enSeed, want.noDeveloperModeLock)
 			}
 			if got := reg.Cap(api); got != want.capChars {
 				t.Fatalf("%s Cap = %d, want %d", want.kind, got, want.capChars)
@@ -223,7 +240,7 @@ func TestMustBootDocSpec(t *testing.T) {
 }
 
 func TestBootDocSpecFor(t *testing.T) {
-	t.Run("every (kind, key) pair the registry serves resolves to the seed, cap, name and split rules that pair declares, locked until the owner turns developer mode on", func(t *testing.T) {
+	t.Run("every (kind, key) pair the registry serves resolves to the seed, cap, name and split rules that pair declares, locked until the owner turns developer mode on unless it is User Language or read-only", func(t *testing.T) {
 		locked, _, _, _ := newAPITestServer(t)
 		unlocked, _, _, _ := newAPITestServerInDeveloperMode(t)
 
@@ -241,7 +258,7 @@ func TestBootDocSpecFor(t *testing.T) {
 						Kind: row.kind, Key: key, SeedFile: row.seeds[i], Cap: row.capChars,
 						DocName: row.docNames[i], Vars: row.vars,
 						Split: row.split, Join: row.join, ReadOnly: row.readOnly,
-						DeveloperModeRequired: server.developerModeRequired,
+						DeveloperModeRequired: server.developerModeRequired && !row.noDeveloperModeLock && !row.readOnly,
 					}
 					if !reflect.DeepEqual(got, want) {
 						t.Fatalf("bootDocSpecFor(%q, %q) = %#v, want %#v", row.kind, key, got, want)
@@ -2169,6 +2186,96 @@ func TestHandleGetBootDocApiBootDocsKindKeyGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
+	t.Run("an unedited User Language document answers the default for the display language, editable with developer mode off", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		get := func(lang, text string) {
+			t.Helper()
+			status, data := apiJSON(t, h, "GET", "/api/boot-docs/user_language/global", owner, "")
+			if status != 200 {
+				t.Fatalf("%q: want 200, got %d (%v)", lang, status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"size_chars":              utf8.RuneCountInString(text),
+				"cap_chars":               37500,
+				"kind":                    "user_language",
+				"key":                     "global",
+				"text":                    text,
+				"read_only_head":          "",
+				"body":                    text,
+				"owner_id":                "owner",
+				"schema_version":          3,
+				"is_default":              true,
+				"has_seed":                true,
+				"read_only":               false,
+				"developer_mode_required": false,
+			})
+		}
+		get("", apiTestUserLanguageZh+"\n")
+		for _, lang := range []string{"zh", "en"} {
+			if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"`+lang+`"}`); status != 200 {
+				t.Fatalf("PATCH %q: %d %v", lang, status, data)
+			}
+			want := apiTestUserLanguageZh + "\n"
+			if lang == "en" {
+				want = apiTestUserLanguageEn + "\n"
+			}
+			get(lang, want)
+		}
+	})
+
+	t.Run("an edited User Language document answers the edit under both languages, and the Chinese default saved under en answers the English default", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		want := func(lang, text string, isDefault bool) {
+			t.Helper()
+			if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"`+lang+`"}`); status != 200 {
+				t.Fatalf("PATCH %q: %d %v", lang, status, data)
+			}
+			status, data := apiJSON(t, h, "GET", "/api/boot-docs/user_language/global", owner, "")
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			m := data
+			if m["text"] != text || m["is_default"] != isDefault {
+				t.Fatalf("%q: text/is_default = %q/%v, want %q/%v", lang, m["text"], m["is_default"], text, isDefault)
+			}
+		}
+		apiJSON(t, h, "POST", "/api/boot-docs/user_language/global", owner, `{"body":"Reply in Klingon."}`)
+		want("zh", "Reply in Klingon.", false)
+		want("en", "Reply in Klingon.", false)
+		apiJSON(t, h, "POST", "/api/boot-docs/user_language/global", owner,
+			`{"body":`+strconv.Quote(apiTestUserLanguageZh)+`}`)
+		want("en", apiTestUserLanguageEn+"\n", true)
+		want("zh", apiTestUserLanguageZh+"\n", true)
+	})
+
+	t.Run("the glossary answers its shipped table as read-only, with or without developer mode", func(t *testing.T) {
+		for name, newServer := range map[string]func(*testing.T) (*apiServer, http.Handler, *DAL, string){
+			"developer mode off": newAPITestServer, "developer mode on": newAPITestServerInDeveloperMode,
+		} {
+			_, h, _, owner := newServer(t)
+			status, data := apiJSON(t, h, "GET", "/api/boot-docs/term_glossary/global", owner, "")
+			if status != 200 {
+				t.Fatalf("%s: want 200, got %d (%v)", name, status, data)
+			}
+			text := apiTestUserLanguageGlossary + "\n"
+			apiWantBody(t, data, map[string]any{
+				"size_chars":              utf8.RuneCountInString(text),
+				"cap_chars":               37500,
+				"kind":                    "term_glossary",
+				"key":                     "global",
+				"text":                    text,
+				"read_only_head":          "",
+				"body":                    text,
+				"owner_id":                "owner",
+				"schema_version":          3,
+				"is_default":              true,
+				"has_seed":                true,
+				"read_only":               true,
+				"developer_mode_required": false,
+			})
+		}
+	})
+
 	t.Run("an edited document answers the overlay still joined under the shipped head", func(t *testing.T) {
 		_, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
@@ -2286,12 +2393,15 @@ func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
 		bystander.wantFrames()
 	})
 
-	t.Run("while developer mode is off every served document answers 409 to the owner and to an admin agent, and writes and fans nothing", func(t *testing.T) {
+	t.Run("while developer mode is off every editable document but User Language answers 409 to the owner and to an admin agent, and writes and fans nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		admin := apiTestAgentToken(t, api, "mira", "")
 		dashboard := apiTestListen(t, api, "")
 
 		for _, row := range apiTestBootDocRows {
+			if row.noDeveloperModeLock || row.readOnly {
+				continue
+			}
 			for i, key := range row.keys {
 				path := "/api/boot-docs/" + row.kind + "/" + key
 				_, before := apiJSON(t, h, "GET", path, owner, "")
@@ -2310,6 +2420,66 @@ func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
 			}
 		}
 		dashboard.wantFrames()
+	})
+
+	t.Run("with developer mode off the User Language document takes a write from the owner and from an admin agent", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+		for _, caller := range []string{owner, admin} {
+			status, data := apiJSON(t, h, "POST", "/api/boot-docs/user_language/global", caller, `{"body":"Reply in Klingon."}`)
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"kind":       "user_language",
+				"key":        "global",
+				"is_default": false,
+				"size_chars": 17,
+				"cap_chars":  37500,
+				"sha256":     "c57c95e458c58341f81685b12c0491c985a1010a81da3996f6634b82ec6211d8",
+			})
+		}
+	})
+
+	t.Run("a write of a shipped User Language default answers the receipt of the default for the display language", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/user_language/global", owner, `{"body":"Reply in Klingon."}`)
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"en"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/boot-docs/user_language/global", owner,
+			`{"body":`+strconv.Quote(apiTestUserLanguageZh)+`}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"kind":       "user_language",
+			"key":        "global",
+			"is_default": true,
+			"size_chars": 236,
+			"cap_chars":  37500,
+			"sha256":     "c64c87301f2e21f188adcd92c194d39465d9f9acb793987e9b1aa6758dc504c6",
+		})
+	})
+
+	t.Run("the glossary answers 405 to the owner with developer mode on and off, and writes and fans nothing", func(t *testing.T) {
+		for name, newServer := range map[string]func(*testing.T) (*apiServer, http.Handler, *DAL, string){
+			"developer mode off": newAPITestServer, "developer mode on": newAPITestServerInDeveloperMode,
+		} {
+			api, h, _, owner := newServer(t)
+			dashboard := apiTestListen(t, api, "")
+			status, data := apiJSON(t, h, "POST", "/api/boot-docs/term_glossary/global", owner, `{"body":"| a | b |","allow_shrink":true}`)
+			if status != 405 {
+				t.Fatalf("%s: want 405, got %d (%v)", name, status, data)
+			}
+			apiWantError(t, data, "method_not_allowed", "the glossary is a read-only document — it is shown so you can "+
+				"see what agents are told, but no caller may edit it and there is no version "+
+				"of it other than the shipped one; nothing was written")
+			_, after := apiJSON(t, h, "GET", "/api/boot-docs/term_glossary/global", owner, "")
+			if after["is_default"] != true {
+				t.Fatalf("%s: the glossary changed under a refused write: %v", name, after)
+			}
+			dashboard.wantFrames()
+		}
 	})
 
 	t.Run("once the owner turns developer mode on, the write it refused lands", func(t *testing.T) {
@@ -2407,6 +2577,37 @@ func TestHandleResetBootDocApiBootDocsKindKeyResetPost(t *testing.T) {
 			"trigger": "owner",
 		})
 		bystander.wantFrames()
+	})
+
+	t.Run("with developer mode off, resetting the edited User Language document answers the default for the display language", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/user_language/global", owner, `{"body":"Reply in Klingon."}`)
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"en"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/boot-docs/user_language/global/reset", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"kind":       "user_language",
+			"key":        "global",
+			"is_default": true,
+			"size_chars": 236,
+			"cap_chars":  37500,
+			"sha256":     "c64c87301f2e21f188adcd92c194d39465d9f9acb793987e9b1aa6758dc504c6",
+		})
+	})
+
+	t.Run("resetting the glossary answers 405 with developer mode on and off", func(t *testing.T) {
+		for name, newServer := range map[string]func(*testing.T) (*apiServer, http.Handler, *DAL, string){
+			"developer mode off": newAPITestServer, "developer mode on": newAPITestServerInDeveloperMode,
+		} {
+			_, h, _, owner := newServer(t)
+			status, data := apiJSON(t, h, "POST", "/api/boot-docs/term_glossary/global/reset", owner, "")
+			if status != 405 {
+				t.Fatalf("%s: want 405, got %d (%v)", name, status, data)
+			}
+		}
 	})
 
 	t.Run("while developer mode is off, resetting an edited document answers 409 to the owner and to an admin agent, and the edit stays", func(t *testing.T) {

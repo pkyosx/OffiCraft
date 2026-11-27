@@ -700,12 +700,18 @@ The boot context is these blocks, in this order, joined into one document:
 
 1. **系統互動** — the shared system-interaction file seed;
 2. **使用者語言** (`# User Language`) — which language the member writes to the owner in,
-   chosen by the `display.language` setting: `en` gets the English instruction, anything
-   else (`zh`, or `""` = never set) gets the Traditional Chinese one. Either is followed by
-   a table mapping the Chinese screen names of OffiCraft features to the English names the
-   boot documents use (`spec/term-aliases.json`). It is never dropped.
-   It is read when the fold is assembled, so a change reaches each member at its next boot;
-   a running session is not notified;
+   the `user_language/global` boot document (folded: owner edit ⊕ seed). Its seed depends on
+   the `display.language` setting: `en` gets the English default, anything else (`zh`, or
+   `""` = never set) the Traditional Chinese one. An edit is used whatever the setting; a
+   write whose text equals either default (ignoring leading and trailing whitespace) is
+   stored as a reset, so the document follows the setting again. It is editable with
+   developer mode off. It is followed by the read-only `term_glossary/global` document, a
+   table mapping the English names the boot documents use to the Chinese screen names of
+   OffiCraft features (generated from the same rows as `spec/term-aliases.json`; only a
+   release changes it). A document whose folded text is blank is left out; the block is
+   dropped only when both are blank.
+   It is read when the fold is assembled, so a language change or an edit reaches each
+   member at its next boot; a running session is not notified;
 3. **使用者自訂** — the owner's additive block;
 4. **角色定義** (`# Role:`) — what this role does;
 5. **判準** (`# Insight`) — how this role weighs things;

@@ -438,8 +438,8 @@ _TERM_ALIASES = json.loads(
 assert _TERM_ALIASES and all(set(a) == {"zh", "en"} for a in _TERM_ALIASES), (
     "spec/term-aliases.json is empty or malformed"
 )
-_TERM_ALIASES_TABLE = "| Chinese on screen | English (this document) |\n| --- | --- |" + "".join(
-    f"\n| {a['zh']} | {a['en']} |" for a in _TERM_ALIASES
+_TERM_ALIASES_TABLE = "| English (this document) | Chinese on screen |\n| --- | --- |" + "".join(
+    f"\n| {a['en']} | {a['zh']} |" for a in _TERM_ALIASES
 )
 _USER_LANGUAGE_ZH = (
     "# User Language\n\n"
@@ -453,14 +453,15 @@ _USER_LANGUAGE_EN = (
     "# User Language\n\n"
     "Use English for everything you write to the user, including reports. "
     "Do not use other languages.\n\n"
-    "The user sees OffiCraft in English. If the user writes one of the Chinese "
-    "screen names in the left column, it means the English term in the same row.\n\n"
+    "The user sees OffiCraft in English. If the user writes one of the names "
+    "in the Chinese column, it means the English term in the same row.\n\n"
     + _TERM_ALIASES_TABLE
 )
 
 
 def _user_language_block(display_language: str) -> str:
-    # "" (never set) and "zh" share the Traditional Chinese text.
+    # The shipped user_language default: "" (never set) and "zh" share the
+    # Traditional Chinese text. Every test that edits the document resets it.
     return _USER_LANGUAGE_EN if display_language == "en" else _USER_LANGUAGE_ZH
 
 
@@ -668,9 +669,11 @@ def test_member_boot_context_preview_equals_the_member_boot_fold_verbatim(
 def test_boot_fold_user_language_follows_display_language(
     client, owner_token
 ) -> None:
-    """§2.2 block 2: the 使用者語言 block sits between 系統互動 and 使用者自訂,
-    and switches with display_language at the next assembly — "" (never set)
-    and "zh" give the Chinese text, "en" the English one."""
+    """§2.2 block 2: the 使用者語言 block sits between 系統互動 and 使用者自訂.
+    While user_language is unedited it switches with display_language at the
+    next assembly — "" (never set) and "zh" give the Chinese default, "en" the
+    English one; an edit is used under every language; the glossary is
+    read-only."""
     original = client.get("/api/settings", headers=_auth(owner_token)).json()[
         "display_language"
     ]
@@ -703,7 +706,32 @@ def test_boot_fold_user_language_follows_display_language(
             )
             assert context.count("# User Language") == 1, context
             assert context == _expected_context(client, owner_token, role_key, marker)
+        r = client.post(
+            "/api/boot-docs/user_language/global",
+            json={"body": "Reply in Klingon."},
+            headers=_auth(owner_token),
+        )
+        assert r.status_code == 200, r.text
+        for lang in ("en", "zh"):
+            r = client.patch(
+                "/api/settings",
+                json={"display_language": lang},
+                headers=_auth(owner_token),
+            )
+            assert r.status_code == 200, r.text
+            context, _ = _bootstrap_context(client, owner_token)
+            assert context.startswith(
+                f"{sys_block}\n\n# User Language\n\nReply in Klingon.\n\n"
+                f"{_TERM_ALIASES_TABLE}\n\n# User additions\n\n{marker}\n\n"
+            ), f"display_language={lang!r}: the edited User Language is not the block"
+        r = client.post(
+            "/api/boot-docs/term_glossary/global",
+            json={"body": "| a | b |", "allow_shrink": True},
+            headers=_auth(owner_token),
+        )
+        assert r.status_code == 405, r.text
     finally:
+        client.post("/api/boot-docs/user_language/global/reset", headers=_auth(owner_token))
         client.patch(
             "/api/settings",
             json={"display_language": original},

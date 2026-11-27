@@ -32,13 +32,19 @@ From top to bottom:
 
 All the documents sent to members are on this page; after you save, members read the new content the next time.
 
-The card on its own at the top is **User additions**. Every member reads it when it starts, it has no character limit, and you can edit it at any time. The other documents are locked while developer mode is off: below the card is the line "To edit the documents below, turn on developer mode in system settings first.", and "system settings" takes you to System update & backup. While locked, the document rows are not marked "editable"; you can open a document and read it in full, but there is no edit button, and in its place it says "To edit this, turn on developer mode in system settings first." Once developer mode is on, the line disappears and every document can be edited.
+The two cards at the top, **User Language** and then **User additions**, can be edited at any time, developer mode or not:
+
+- **User Language** tells members which language to write to you in. Every member reads it when it starts, before User additions; its character limit is 37500. Until you edit it, it follows the display language: Chinese (or not set) gives the Chinese default, English gives the English default. Once you edit it, members read your text whatever the display language. If you sync it to default, or save text that matches either default, it follows the display language again.
+- **User additions** has no character limit; every member reads it when it starts.
+
+The other documents are locked while developer mode is off: below the card is the line "To edit the documents below, turn on developer mode in system settings first.", and "system settings" takes you to System update & backup. While locked, the document rows are not marked "editable"; you can open a document and read it in full, but there is no edit button, and in its place it says "To edit this, turn on developer mode in system settings first." Once developer mode is on, the line disappears and every document can be edited.
 
 The other documents come in three groups:
 
 | Group | Document | When members read it | Character limit |
 | --- | --- | --- | --- |
 | BOOT | System interaction | When each member starts | 150000 |
+| BOOT | Term glossary | When each member starts, right after User Language | — |
 | BOOT | Boot steps (Claude Code) | Claude Code members follow it when they start | 37500 |
 | BOOT | Boot steps (Codex CLI) | Codex members follow it when they start | 37500 |
 | STOP | Stop | When a member is stopped | 37500 |
@@ -49,7 +55,8 @@ The other documents come in three groups:
 | TASK EVENTS | The task blocking yours is released | When a task it depends on is released | 37500 |
 | TASK EVENTS | Your task is ready to be closed | Each time a task becomes ready to close | 37500 |
 
-- "Boot steps" is a single row in the list; open it and switch between the two documents with "Standard / Codex".
+- "Boot steps" is a single row in the list; open it to see one row per document, "Boot steps (Claude Code)" and "Boot steps (Codex CLI)", each opening its own page.
+- "Term glossary" lists the English and Chinese names of OffiCraft features side by side. Nobody can edit it, even with developer mode on; it changes only with a new release.
 - The character limits are factory values, and these fields are not on the General page. For a document with a limit, the card's title bar shows "current characters / limit".
 - Some documents begin with a read-only section written by the program (for example the member's name or the deadline), marked "Read-only (written by the program, not editable)"; you can only change the paragraphs after the read-only section. Saving replaces the editable part with the contents of the editor.
 - A document with default content is marked "In sync with default" or "Modified" on its card.
@@ -128,7 +135,7 @@ For how to write a manual and choose identity keys and gates, see [Having AI fol
 
 Every Global context document, Duty, Insight, and task manual SOP has a version history:
 
-- System interaction, Boot steps, Stop, Accelerated stop, and the 5 task event documents each keep the last 10 changes; other documents (User additions, Duty, Insight, SOPs, and so on) keep the last 3. This counts saves, not time: a few small edits in a row push out the older versions, and versions pushed out cannot be recovered.
+- System interaction, User Language, Boot steps, Stop, Accelerated stop, and the 5 task event documents each keep the last 10 changes; other documents (User additions, Duty, Insight, SOPs, and so on) keep the last 3. This counts saves, not time: a few small edits in a row push out the older versions, and versions pushed out cannot be recovered.
 - It opens from edit mode: after you press "Edit", the button row gains a "Version history" button.
 - Each row in the list shows when that version was replaced and who changed it. Click a row to open that version, and switch between "Version content" and "Changes vs current"; the comparison uses what is stored on the server and does not include unsaved changes in the editor.
 - "Restore this version" asks you to confirm first, then overwrites the current content; the current content is saved as a new version, so you can go back again after restoring.

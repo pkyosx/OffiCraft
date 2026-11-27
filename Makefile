@@ -958,11 +958,11 @@ drift-message-keys: build-frontend-deps
 	@$(call REGEN_PAIR_GATE,message-key whitelist,gen:msgkeys,frontend/src/i18n/messageKeys.generated.ts,server/ocserverd/message_keys_gen.go); \
 	$(DONE)
 
-# The zh User Language block's screen-name table reads rows GENERATED from
-# i18n/termAliases.ts and the zh/en dictionaries.
+# The shipped glossary (seeds/term_glossary.md) is
+# GENERATED from i18n/termAliases.ts and the zh/en dictionaries.
 drift-term-aliases: build-frontend-deps
 	@echo "[drift-term-aliases] regenerate from i18n/termAliases.ts + locales + diff committed"
-	@$(call REGEN_PAIR_GATE,term-alias table,gen:termaliases,spec/term-aliases.json,server/ocserverd/term_aliases_gen.go); \
+	@$(call REGEN_PAIR_GATE,term-alias table,gen:termaliases,spec/term-aliases.json,seeds/term_glossary.md); \
 	$(DONE)
 
 # themeFonts.source.json is the single font contract; the theme-bundle `fonts`

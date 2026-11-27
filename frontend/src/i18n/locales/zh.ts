@@ -2570,6 +2570,10 @@ export const zh = {
     dutyHeading: "職責（Duty）",
     dutyNote:
       "其他成員看這段，判斷什麼事要找這個角色；會出現在每位成員開機看到的名冊上。",
+    userLanguageName: "使用者語言",
+    userLanguageSub: "成員跟你說話用的語言 · 沒改過時跟著顯示語言",
+    termGlossaryName: "名詞對照表",
+    termGlossarySub: "功能的英文與中文名稱對照 · 隨版本更新，不能編輯",
     // 兩份**不同**的文件，分別開自己的頁：只有 Codex 那一份要求成員在開機
     // 那一輪結束時把控制權交回旁邊的程序，兩份不能互換，
     // 所以清單上不併成一列、詳情頁也不並排。
@@ -2616,6 +2620,8 @@ export const zh = {
     bootDocNoteHistoryLead: "版本紀錄只保留最近 ",
     bootDocNoteHistoryTail:
       " 版，而且是以「存檔次數」計、不是以時間計——連按幾次小修就會把較舊的版本沖掉。「同步預設內容」不受影響，永遠在。",
+    bootDocSaveConfirmUserLanguage:
+      "要儲存這份使用者語言文件嗎？之後開機的每一位成員都會讀到這份內容。",
     bootDocSaveConfirmBoot:
       "要儲存這份啟動步驟嗎？寫壞會讓之後開機的成員無法上線，而且不會有任何錯誤訊息。存檔前請確認看過預覽；出事就到版本紀錄打開「預設內容」，按「同步預設內容」。",
     bootDocSaveConfirmSystem:
@@ -2628,6 +2634,7 @@ export const zh = {
     docExpand: "展開這份文件",
     docCollapse: "收合這份文件",
     historyBootSystemTitle: "系統互動的版本紀錄",
+    historyUserLanguageTitle: "使用者語言的版本紀錄",
     historyBootClaudeTitle: "啟動步驟（Claude Code）的版本紀錄",
     historyBootCodexTitle: "啟動步驟（Codex CLI）的版本紀錄",
     historyBootOffboardTitle: "停止的版本紀錄",

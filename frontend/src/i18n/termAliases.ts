@@ -1,8 +1,9 @@
 // The OffiCraft feature names a member's boot context maps between the Chinese
-// screen and its English documents (the zh User Language block). Each concept
+// screen and its English documents (the term_glossary document). Each concept
 // names dictionary KEYS, never strings: scripts/gen-term-aliases.mjs resolves
-// them in zh.ts and en.ts and writes server/ocserverd/term_aliases_gen.go and
-// spec/term-aliases.json. Regenerate with `npm run gen:termaliases`.
+// them in zh.ts and en.ts and writes seeds/term_glossary.md and
+// spec/term-aliases.json. Regenerate with
+// `npm run gen:termaliases`.
 //
 // A name is a key whose string is the label itself, or — for a concept the
 // screen only shows inside a longer label — the name plus the key whose zh and

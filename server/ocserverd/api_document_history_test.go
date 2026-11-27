@@ -495,6 +495,28 @@ func TestHandleListDocumentHistoryApiDocumentHistoryKindKeyGet(t *testing.T) {
 		}})
 	})
 
+	t.Run("the User Language document written twice with developer mode off lists the revision it replaced", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/user_language/global", owner, `{"body":"Reply in Klingon."}`)
+		apiJSON(t, h, "POST", "/api/boot-docs/user_language/global", owner, `{"body":"Reply in Elvish."}`)
+
+		rec := apiRequest(t, h, "GET", "/api/document-history/user_language/global", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "user_language", got, []any{map[string]any{
+			"id":          1,
+			"created_ts":  apiAnyNumber,
+			"actor_id":    "owner",
+			"tombstoned":  false,
+			"field_chars": map[string]any{"text": 17},
+		}})
+	})
+
 	t.Run("a tombstone revision retained by an older server is not listed", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		seedLegacyTombstoneRevision(t, d)
@@ -1147,6 +1169,31 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 			"developer_mode_required": true,
 		})
 		dashboard.wantFrames()
+	})
+
+	t.Run("with developer mode off the owner restores a User Language revision", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		path := "/api/boot-docs/user_language/global"
+		apiJSON(t, h, "POST", path, owner, `{"body":"Reply in Klingon."}`)
+		apiJSON(t, h, "POST", path, owner, `{"body":"Reply in Elvish."}`)
+		if status, data := apiJSON(t, h, "POST", "/api/document-history/user_language/global/1/restore", owner, ""); status != 200 {
+			t.Fatalf("restore an edit: want 200, got %d (%v)", status, data)
+		}
+		if _, doc := apiJSON(t, h, "GET", path, owner, ""); doc["text"] != "Reply in Klingon." || doc["is_default"] != false {
+			t.Fatalf("after restoring an edit: %v", doc)
+		}
+	})
+
+	t.Run("restoring the glossary answers 405 with developer mode on and off", func(t *testing.T) {
+		for name, newServer := range map[string]func(*testing.T) (*apiServer, http.Handler, *DAL, string){
+			"developer mode off": newAPITestServer, "developer mode on": newAPITestServerInDeveloperMode,
+		} {
+			_, h, _, owner := newServer(t)
+			status, data := apiJSON(t, h, "POST", "/api/document-history/term_glossary/global/1/restore", owner, "")
+			if status != 405 {
+				t.Fatalf("%s: want 405, got %d (%v)", name, status, data)
+			}
+		}
 	})
 
 	t.Run("while developer mode is off, a plain agent restoring a boot document's revision answers 403, not 409, the document stays and nothing fans", func(t *testing.T) {

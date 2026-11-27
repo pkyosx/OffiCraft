@@ -634,7 +634,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length-cap setting blocks this path, so once developer mode is on it is the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only. While developer mode (a system setting) is off, every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.
+         * Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length-cap setting blocks this path, so once developer mode is on it is the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only. While developer mode (a system setting) is off, every caller gets a 409, except on ``user_language``. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.
          * @description - Restores one boot-context block to the FACTORY text of this build; idempotent. Owner or admin only.
          *     - No length cap here, so no cap setting can block the way back — the recovery route after an edit that stopped agents booting.
          *     - The discarded overlay is kept in history, so the reset is itself recoverable.
@@ -1330,7 +1330,7 @@ export interface paths {
         put?: never;
         /**
          * Restore a retained document version as a new write: the version's text is written back as an edit, so the document is no longer default (``is_default`` false). An id that list_document_history does not list, including a tombstone version retained by an older server, answers 404. For ``kind`` ``lore_entry`` (key = the lore entry id) a restore needs the same reach as edit_lore_entry — the entry's author or an admin, and admin-only while the entry is pinned — and the restored title and body follow the same shrink-only cap rule as an edit: a changed field over the current cap that does not come out shorter than what is stored is a 400 that changes nothing.
-         * @description While developer mode is off, restoring a version of a boot document is a 409 for every caller allowed to restore it; User additions (global_context) versions are never locked.
+         * @description While developer mode is off, restoring a version of a boot document is a 409 for every caller allowed to restore it; User additions (global_context) and User Language (user_language) versions are never locked.
          */
         post: operations["handle_restore_document_history_api_document_history__kind___key___id__restore_post"];
         delete?: never;
@@ -5518,7 +5518,7 @@ export interface components {
          *     IT IS AN ENUM SO THAT ADDING ONE COSTS A VISIBLE EDIT EVERYWHERE IT IS SHOWN (owner's ruling, 2026-08-23: 「加上 enum 並且前端自己寫死，我接受新增 enum 的人要去改前端的 code 找到他對應顯示的位置」). This list replaced a listing endpoint that answered the same question at runtime: the endpoint could not go stale, but it also could not make a cockpit that had never heard of a new document fail — it just showed nothing. A closed set does: the cockpit indexes its own row table BY this enum, so a value added here without a place to show it does not compile.
          * @enum {string}
          */
-        BootDocKind: "system_interaction" | "boot_sequence" | "offboard" | "accelerated_stop" | "task_closeout" | "task_reassign_predecessor" | "task_takeover_with_predecessor" | "task_unblocked" | "task_ready_for_done";
+        BootDocKind: "system_interaction" | "user_language" | "term_glossary" | "boot_sequence" | "offboard" | "accelerated_stop" | "task_closeout" | "task_reassign_predecessor" | "task_takeover_with_predecessor" | "task_unblocked" | "task_ready_for_done";
         /**
          * BootDocumentDTO
          * @description ONE editable block of the boot context, addressed by ``kind``/``key``.
@@ -5548,7 +5548,7 @@ export interface components {
             cap_chars: number;
             /**
              * Developer Mode Required
-             * @description True when this block is locked because developer mode is off: every write face (replace, reset, restoring a retained version) refuses it with 409 for every caller, the owner included, until developer mode is turned on in system settings. Reading is unaffected. Independent of read_only, which no setting lifts.
+             * @description True when this block is locked because developer mode is off: every write face (replace, reset, restoring a retained version) refuses it with 409 for every caller, the owner included, until developer mode is turned on in system settings. Reading is unaffected. Never true for ``user_language``, which the owner edits like User additions. Independent of read_only, which no setting lifts.
              * @default false
              */
             developer_mode_required: boolean;
@@ -5560,7 +5560,7 @@ export interface components {
             has_seed: boolean;
             /**
              * Is Default
-             * @description True while nobody has edited this block (or it has been reset), i.e. the text you are reading is the shipped seed. False means you are reading somebody's edit.
+             * @description True while nobody has edited this block (or it has been reset), i.e. the text you are reading is the shipped seed. False means you are reading somebody's edit. ``user_language`` has two shipped seeds, Traditional Chinese and English: while it is default it reads the one ``display.language`` picks (``en`` → English, anything else → Chinese), and saving or restoring a text equal to either seed (ignoring leading and trailing whitespace) returns it to the default.
              * @default true
              */
             is_default: boolean;
@@ -7434,7 +7434,7 @@ export interface components {
         };
         /**
          * MemberBootContextDTO
-         * @description A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (``everyone`` entries and the member's own merged into one list — pinned first, then newest ``effective_ts`` first — under one ``lore_cap_chars_role`` budget), the User Language block (the language instruction set by ``display.language``: English when it is ``en``, Traditional Chinese otherwise; either way followed by the Chinese↔English feature-name table), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
+         * @description A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (``everyone`` entries and the member's own merged into one list — pinned first, then newest ``effective_ts`` first — under one ``lore_cap_chars_role`` budget), the User Language block (the ``user_language`` boot document — the owner's edit, or while unedited the shipped default for ``display.language``: English when it is ``en``, Traditional Chinese otherwise — followed by the read-only ``term_glossary`` document, the Chinese↔English feature-name table), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
          */
         MemberBootContextDTO: {
             /** Context */
@@ -10297,7 +10297,7 @@ export interface components {
             developer_mode: boolean;
             /**
              * Display Language
-             * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), carries the Chinese↔English feature-name table in both, and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
+             * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: while the `user_language` boot document is unedited, the boot context's User Language block carries its English default when this is `en` and its Traditional Chinese default otherwise ("" included); an edited `user_language` is used whatever this is. It is followed by the read-only `term_glossary` document (the Chinese↔English feature-name table), and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
              * @default
              */
             display_language: string;

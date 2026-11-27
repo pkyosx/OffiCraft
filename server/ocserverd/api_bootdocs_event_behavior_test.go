@@ -5,11 +5,9 @@ package main
 // read-only flag no write face may pass, and the variable validation on the
 // write face.
 //
-// ⚠️ T-6f44 (owner's decision 2): this header used to say "the read-only PAIR".
-// There is no pair any more — no shipped document is read-only. The flag and
-// its 405 stay for the day one ships locked again; what pins the fact is
-// TestBootDocRegistry_NoDocumentIsReadOnly, and what pins the door actually
-// opening is TestReplaceBootDoc_EveryShippedKindAcceptsAnEditThroughTheRoute.
+// Which documents are read-only is pinned per entry by TestBootDocRegFor; what
+// pins the door actually opening for the rest is
+// TestReplaceBootDoc_EveryShippedKindAcceptsAnEditThroughTheRoute.
 //
 // The registry-driven cases below deliberately iterate bootDocRegistry rather
 // than a second hand-written list. Adding a boot document used to mean editing
@@ -82,47 +80,17 @@ func eventProcKinds() []string {
 	}
 }
 
-// 🔴 THERE ARE NO READ-ONLY DOCUMENTS ANY MORE (T-6f44, owner's decision 2).
-// It reads the
-// REGISTRY now rather than a literal list, so it answers empty because the
-// registry says so — and every test below that consumes it says out loud what it
-// does when the answer is empty, instead of passing vacuously.
-func readOnlyEventProcKinds() []string {
-	var kinds []string
-	for _, reg := range bootDocRegistry {
-		if reg.ReadOnly {
-			kinds = append(kinds, reg.Kind)
-		}
-	}
-	return kinds
-}
-
 // readOnlyProbeSpec is a spec the registry does not contain: one real document's
 // spec with ReadOnly flipped on. It exists because decision 2 left the ReadOnly
 // MECHANISM with no user, and a refusal nothing exercises is a refusal that gets
 // deleted by the next person who greps for callers. Every handler-level test
 // below drives this instead of a registry kind, so what is measured is the gate
-// itself; TestBootDocRegistry_NoDocumentIsReadOnly measures the separate claim
-// that no shipped document is behind it.
+// itself, independent of which shipped documents are behind it.
 func readOnlyProbeSpec(t *testing.T, s *apiServer) bootDocSpec {
 	t.Helper()
 	spec := s.mustBootDocSpec(docKindTaskUnblocked, bootDocSingletonKey)
 	spec.ReadOnly = true
 	return spec
-}
-
-// 🔴 THE OWNER'S DECISION 2, PINNED AS ITSELF: every event document is editable.
-// The reason some were locked was recorded as precedent (「以前 global context 是
-// 固定內容 我們也是會顯示 只是不給改」), not as anything about their text. The
-// half that stays locked on all of them is the read-only HEAD.
-//
-// This is also the assertion that makes the empty readOnlyEventProcKinds() above
-// a statement rather than a hole.
-func TestBootDocRegistry_NoDocumentIsReadOnly(t *testing.T) {
-	if kinds := readOnlyEventProcKinds(); len(kinds) > 0 {
-		t.Errorf("these kinds are still read-only: %v — decision 2 made all of them editable, "+
-			"and bin/tests/fixtures/boot-doc-registry.tsv has to agree in the same commit", kinds)
-	}
 }
 
 // ── the registry answers for every kind on every face ────────────────────────
@@ -314,11 +282,7 @@ func TestReplaceBootDoc_PreT3201KindsAreNotVariableValidated(t *testing.T) {
 
 // ── the read faces stay open ─────────────────────────────────────────────────
 
-// 🔴 WIDENED FROM THE TWO READ-ONLY KINDS TO ALL TEN (T-6f44). It used to sweep
-// readOnlyEventProcKinds(), which is now empty — leaving it there would have been
-// a test that asserts nothing while still reporting PASS. The claim it was making
-// (a document with no overlay serves its SHIPPED text, marked is_default) is true
-// of every kind and worth keeping on every kind.
+// A document with no overlay serves its SHIPPED text, marked is_default.
 func TestFoldBootDocDTO_ReadOnlyKindServesItsSeed(t *testing.T) {
 	s := newEventProcServer(t)
 	for _, kind := range eventProcKinds() {
@@ -414,36 +378,29 @@ func TestDocumentHistoryList_UnknownKeyForANewKindIsRefused(t *testing.T) {
 	}
 }
 
-// 🔴 DECISION 2 IS A BEHAVIOUR CHANGE, AND THIS IS THE FACE IT CHANGED. Two
-// documents went from "every write face answers 405" to "an admin may edit
-// them", and until this test nothing in the tree drove that write THROUGH THE
-// ROUTE for the two kinds it moved — the read-only flag was pinned
-// (TestBootDocRegistry_NoDocumentIsReadOnly), restore was pinned as non-405
-// (below), but the edit itself was asserted nowhere. A flag that says "editable"
-// and a door that actually opens are two claims, and this ticket exists because
-// one of those gaps shipped once already.
-//
-// Registry-wide on purpose rather than aimed at the two: the claim worth
-// keeping is "every shipped document is editable", and a test naming the two
-// would go green the day an eleventh ships locked by accident.
-func TestReplaceBootDoc_EveryShippedKindAcceptsAnEditThroughTheRoute(t *testing.T) {
+// A flag that says "editable" and a door that actually opens are two claims,
+// so every editable document's write is driven THROUGH THE ROUTE and read back.
+// Registry-wide on purpose: a test naming a few would go green the day another
+// ships locked by accident.
+func TestReplaceBootDoc_EveryEditableKindAcceptsAnEditThroughTheRoute(t *testing.T) {
 	f := newBootDocFixture(t)
 	for _, reg := range bootDocRegistry {
+		if reg.ReadOnly {
+			continue
+		}
 		for _, key := range reg.Keys {
 			t.Run(reg.Kind+"/"+key, func(t *testing.T) {
 				// The probe is deliberately plain text; split-head variables are
 				// rendered only when a notice is sent, while the body is preserved.
-				const probe = "T-6f44 probe: this document is editable."
+				const probe = "probe: this document is editable."
 				status, body := f.do(t, http.MethodPost,
 					"/api/boot-docs/"+reg.Kind+"/"+key, f.admin,
 					map[string]string{"body": probe})
 				if status != http.StatusOK {
-					t.Fatalf("replace answered %d (%s) — every document is editable "+
-						"since decision 2", status, body)
+					t.Fatalf("replace answered %d (%s)", status, body)
 				}
-				// The write has to be READ BACK, not just accepted: a 200 that
-				// stored nothing is exactly what the two locked documents used
-				// to look like from the cockpit's side.
+				// A 200 that stored nothing looks, from the cockpit, exactly like a
+				// locked document.
 				status, body = f.do(t, http.MethodGet,
 					"/api/boot-docs/"+reg.Kind+"/"+key, f.admin, nil)
 				if status != http.StatusOK {
@@ -471,25 +428,15 @@ func TestReplaceBootDoc_EveryShippedKindAcceptsAnEditThroughTheRoute(t *testing.
 // THIRD write face"; that number drifted twice while nothing turned red (see
 // docs/design/boot-documents.md §七, which now forbids writing one). To learn
 // how many write faces there are, count the callers of putBootDocumentOn.
-// ⚠️ INVERTED BY T-6f44, AND THIS IS A REAL LOSS OF COVERAGE — stated rather
-// than hidden. This asserted that restore answers 405 for a read-only kind. With
-// decision 2 there is no read-only kind left, and restore is reached through the
-// ROUTE, so it cannot be driven with the synthetic spec the handler-level tests
-// use. What is asserted instead is the claim that actually matters now: restore
-// does NOT answer 405 for any shipped document, i.e. every one of the ten really
-// is restorable. The 405 branch on this door (documentHistoryAllowed) is
-// therefore reachable by no test in this tree — if a read-only document is ever
-// added back, this test must go back to the refusal form.
-func TestDocumentHistoryRestore_NoRegisteredKindIsRefusedAsReadOnly(t *testing.T) {
+func TestDocumentHistoryRestore_RefusesExactlyTheReadOnlyKindsAsReadOnly(t *testing.T) {
 	f := newBootDocFixture(t)
 	for _, reg := range bootDocRegistry {
 		for _, key := range reg.Keys {
 			t.Run(reg.Kind+"/"+key, func(t *testing.T) {
 				status, body := f.do(t, http.MethodPost,
 					"/api/document-history/"+reg.Kind+"/"+key+"/1/restore", f.admin, nil)
-				if status == http.StatusMethodNotAllowed {
-					t.Errorf("restore answered 405 read-only (%s) — every document is "+
-						"editable since decision 2", body)
+				if got := status == http.StatusMethodNotAllowed; got != reg.ReadOnly {
+					t.Errorf("restore answered %d (%s), read-only %v", status, body, reg.ReadOnly)
 				}
 			})
 		}

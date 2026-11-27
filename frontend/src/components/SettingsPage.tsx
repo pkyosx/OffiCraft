@@ -210,6 +210,8 @@ import {
   BellIcon,
   UnknownIcon,
   BriefcaseIcon,
+  ChatBubbleIcon,
+  BookIcon,
 } from "./icons";
 
 /** WHICH GROUP a boot document's list row sits in — the owner's own reading of
@@ -220,12 +222,17 @@ import {
  * back with the other task events, where it always belonged by subject. A group was never the right place to
  * say "you may not edit this": whether a document may be edited is the
  * SERVER's answer, arrives on the document's own read (`readOnly`), and is what
- * BootDocPage acts on. A row's group only decides where it is printed. */
-type BootDocGroup = "launch" | "stop" | "task";
+ * BootDocPage acts on. A row's group only decides where it is printed.
+ *
+ * `user` is not one of the three: its rows sit unlabelled at the top beside
+ * 使用者自訂, outside the developer-mode lock (owner: 「可以改的放使用者自訂」). */
+type BootDocGroup = "user" | "launch" | "stop" | "task";
 
-const BOOT_DOC_GROUP_ORDER: BootDocGroup[] = ["launch", "stop", "task"];
+type BootDocLockedGroup = Exclude<BootDocGroup, "user">;
 
-const BOOT_DOC_GROUP_LABEL: Record<BootDocGroup, SettingsTextKey> = {
+const BOOT_DOC_GROUP_ORDER: BootDocLockedGroup[] = ["launch", "stop", "task"];
+
+const BOOT_DOC_GROUP_LABEL: Record<BootDocLockedGroup, SettingsTextKey> = {
   launch: "globalSection",
   stop: "stopSection",
   task: "taskEventSection",
@@ -279,12 +286,31 @@ export const BOOT_DOC_ROWS: Record<
         }
       | {
           index?: false;
+          readOnly?: false;
           docKey: string;
           historyKey: SettingsTextKey;
           confirmKey: SettingsTextKey;
         }
+      | {
+          /** Mirrors the server's `read_only` (pinned to the shared table by
+           * mock.boot-doc-registry.test.ts) so the list row does not offer an
+           * edit; the document page still acts on the server's answer. */
+          index?: false;
+          readOnly: true;
+          docKey: string;
+        }
     )
 > = {
+  user_language: {
+    group: "user",
+    nameKey: "userLanguageName",
+    subKey: "userLanguageSub",
+    Icon: ChatBubbleIcon,
+    tone: "violet",
+    docKey: "global",
+    historyKey: "historyUserLanguageTitle",
+    confirmKey: "bootDocSaveConfirmUserLanguage",
+  },
   system_interaction: {
     group: "launch",
     nameKey: "systemName",
@@ -294,6 +320,15 @@ export const BOOT_DOC_ROWS: Record<
     docKey: "global",
     historyKey: "historyBootSystemTitle",
     confirmKey: "bootDocSaveConfirmSystem",
+  },
+  term_glossary: {
+    group: "launch",
+    nameKey: "termGlossaryName",
+    subKey: "termGlossarySub",
+    Icon: BookIcon,
+    tone: "blue",
+    docKey: "global",
+    readOnly: true,
   },
   boot_sequence: {
     group: "launch",
@@ -805,8 +840,8 @@ export function SettingsPage({
         kind={view.docKind}
         docKey={view.docKey}
         title={t.settings[row.nameKey]}
-        historyTitle={t.settings[row.historyKey]}
-        confirmSaveBody={t.settings[row.confirmKey]}
+        historyTitle={row.readOnly ? "" : t.settings[row.historyKey]}
+        confirmSaveBody={row.readOnly ? "" : t.settings[row.confirmKey]}
         crumbs={[
           crumbRoot,
           crumbGlobalContext,
@@ -2880,6 +2915,16 @@ function GlobalContextSection({
 
       <div>
         <div className="set-entries">
+          {/* Boot assembly order: User Language is read before 使用者自訂. */}
+          {bootDocRowsIn("user").map(([kind, row]) => (
+            <BootDocEntry
+              key={kind}
+              kind={kind}
+              row={row}
+              editable={false}
+              onOpen={() => !row.index && onOpenBootDoc(kind, row.docKey)}
+            />
+          ))}
           <button
             type="button"
             className="set-entry"
@@ -2926,7 +2971,7 @@ function GlobalContextSection({
                 key={kind}
                 kind={kind}
                 row={row}
-                editable={developerMode === true}
+                editable={developerMode === true && (row.index || !row.readOnly)}
                 onOpen={() =>
                   row.index ? onOpenBootIndex() : onOpenBootDoc(kind, row.docKey)
                 }

@@ -75,7 +75,9 @@ describe("T-a241 · 全域情境 as its own settings section", () => {
   it("全域情境 holds the whole 事件程序文件 zone, 使用者自訂 included", async () => {
     const { getByTestId, getByText } = await openGlobalContext();
     for (const kind of [
+      "user_language",
       "system_interaction",
+      "term_glossary",
       "boot_sequence",
       "offboard",
       "accelerated_stop",

@@ -29,6 +29,9 @@ import SEED_TASK_REASSIGN_PREDECESSOR_RAW from "../../../seeds/task_reassign_pre
 import SEED_TASK_TAKEOVER_WITH_PREDECESSOR_RAW from "../../../seeds/task_takeover_with_predecessor.md?raw";
 import SEED_TASK_UNBLOCKED_RAW from "../../../seeds/task_unblocked.md?raw";
 import SEED_TASK_READY_FOR_DONE_RAW from "../../../seeds/task_ready_for_done.md?raw";
+import SEED_USER_LANGUAGE_ZH_RAW from "../../../seeds/user_language_zh.md?raw";
+import SEED_USER_LANGUAGE_EN_RAW from "../../../seeds/user_language_en.md?raw";
+import SEED_TERM_GLOSSARY_RAW from "../../../seeds/term_glossary.md?raw";
 
 /** The out-of-box owner id (mirrors the server seed). */
 export const MOCK_OWNER_ID = "owner";
@@ -81,6 +84,13 @@ export const SEED_TASK_TAKEOVER_WITH_PREDECESSOR_MD = foldOwnerId(
 );
 export const SEED_TASK_UNBLOCKED_MD = foldOwnerId(SEED_TASK_UNBLOCKED_RAW);
 export const SEED_TASK_READY_FOR_DONE_MD = foldOwnerId(SEED_TASK_READY_FOR_DONE_RAW);
+
+/** The User Language document's two shipped defaults (display_language picks
+ * one while it is unedited), and the read-only glossary that
+ * scripts/gen-term-aliases.mjs generates. */
+export const SEED_USER_LANGUAGE_ZH_MD = foldOwnerId(SEED_USER_LANGUAGE_ZH_RAW);
+export const SEED_USER_LANGUAGE_EN_MD = foldOwnerId(SEED_USER_LANGUAGE_EN_RAW);
+export const SEED_TERM_GLOSSARY_MD = foldOwnerId(SEED_TERM_GLOSSARY_RAW);
 
 /** seeds/insight_assistant.md — the assistant's FACTORY judgement calls (T-e1e3).
  * 🔴 PER-ROLE, and there is deliberately no `SEED_INSIGHT_MD`: one shared file

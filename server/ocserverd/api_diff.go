@@ -199,7 +199,7 @@ func (s *apiServer) currentDocumentContent(kind, key string) (map[string]string,
 			return nil, false, err
 		}
 		return one("text", folded.Text, nil)
-	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
+	case docKindSystemInteraction, docKindUserLanguage, docKindTermGlossary, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
 		docKindTaskTakeoverWithPredecessor, docKindTaskUnblocked,
 		docKindTaskReadyForDone:

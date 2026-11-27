@@ -483,13 +483,13 @@ describe("mockApi · User Language block", () => {
   const ZH =
     "# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\nWrite to the user in Traditional Chinese (Taiwan) even when the user writes in another language.\n\n" +
     "The user sees OffiCraft in Chinese. Call OffiCraft features by the Chinese names on their screen below; when the user uses one of these names, it means the English term in the same row.\n\n" +
-    "| Chinese on screen | English (this document) |\n| --- | --- |\n| 辦公室 | Office |\n| 請示卡／請示 | Reply card／Ask |" +
-    termAliases.slice(2).map((a) => `\n| ${a.zh} | ${a.en} |`).join("");
+    "| English (this document) | Chinese on screen |\n| --- | --- |\n| Office | 辦公室 |\n| Reply card／Ask | 請示卡／請示 |" +
+    termAliases.slice(2).map((a) => `\n| ${a.en} | ${a.zh} |`).join("");
   const EN =
     "# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\n" +
-    "The user sees OffiCraft in English. If the user writes one of the Chinese screen names in the left column, it means the English term in the same row.\n\n" +
-    "| Chinese on screen | English (this document) |\n| --- | --- |\n| 辦公室 | Office |\n| 請示卡／請示 | Reply card／Ask |" +
-    termAliases.slice(2).map((a) => `\n| ${a.zh} | ${a.en} |`).join("");
+    "The user sees OffiCraft in English. If the user writes one of the names in the Chinese column, it means the English term in the same row.\n\n" +
+    "| English (this document) | Chinese on screen |\n| --- | --- |\n| Office | 辦公室 |\n| Reply card／Ask | 請示卡／請示 |" +
+    termAliases.slice(2).map((a) => `\n| ${a.en} | ${a.zh} |`).join("");
 
   function injectWorker(): void {
     __injectMockTask({
@@ -555,6 +555,39 @@ describe("mockApi · User Language block", () => {
     const staff = `系統互動本文\n\n${EN}\n\n# Role: Assistant\n\n`;
     const worker = `系統互動本文\n\n${EN}\n\n# Claude Code Runtime\n\n`;
     expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
+  });
+
+  it("an edited User Language document reaches the next preview under both languages", async () => {
+    injectWorker();
+    await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
+    await mockApi.patchServerSettings({ developerMode: false });
+    await mockApi.saveBootDoc("user_language", "global", "請用克林貢語回報。\n");
+    const block = `# User Language\n\n請用克林貢語回報。\n\n${ZH.slice(ZH.indexOf("| English"))}`;
+    for (const displayLanguage of ["en", "zh"]) {
+      await mockApi.patchServerSettings({ displayLanguage });
+      const staff = `系統互動本文\n\n${block}\n\n# Role: Assistant\n\n`;
+      const worker = `系統互動本文\n\n${block}\n\n# Claude Code Runtime\n\n`;
+      expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
+    }
+  });
+
+  it("saving the Chinese default while the language is en gives the English block", async () => {
+    injectWorker();
+    await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
+    await mockApi.saveBootDoc("user_language", "global", "EDITED\n");
+    await mockApi.patchServerSettings({ displayLanguage: "en" });
+    const zhDefault = ZH.slice("# User Language\n\n".length, ZH.indexOf("\n\n| English"));
+    await mockApi.saveBootDoc("user_language", "global", `${zhDefault}\n\n`);
+    const staff = `系統互動本文\n\n${EN}\n\n# Role: Assistant\n\n`;
+    const worker = `系統互動本文\n\n${EN}\n\n# Claude Code Runtime\n\n`;
+    expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
+    expect((await mockApi.getBootDoc("user_language", "global")).isDefault).toBe(true);
+  });
+
+  it("refuses a write to the glossary with 405", async () => {
+    await expect(
+      mockApi.saveBootDoc("term_glossary", "global", "| a | b |\n")
+    ).rejects.toMatchObject({ status: 405 });
   });
 });
 

@@ -4184,6 +4184,8 @@
             "description": "The first half of the address, and one of the values this ENUM lists — also the document-history kind this block's retained versions are filed under. The enum IS the list: a kind outside it is not served, and a kind that ships is added to it in the same change, so there is nothing to look up and nothing to go stale.",
             "enum": [
               "system_interaction",
+              "user_language",
+              "term_glossary",
               "boot_sequence",
               "offboard",
               "accelerated_stop",
@@ -4205,7 +4207,7 @@
       "name": "get_boot_doc"
     },
     {
-      "description": "Replace the EDITABLE HALF of one boot-context block ({kind, key, body}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. The stored result is judged against that block's own cap. A read-only block refuses with 405 for every caller. The read-only head is NOT sent and cannot be: the server joins the shipped head back on, so no caller has any way to write it. Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.",
+      "description": "Replace the EDITABLE HALF of one boot-context block ({kind, key, body}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. The stored result is judged against that block's own cap. A read-only block refuses with 405 for every caller. The read-only head is NOT sent and cannot be: the server joins the shipped head back on, so no caller has any way to write it. Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409 — except ``user_language``, which is never locked. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "allow_shrink": {
@@ -4223,6 +4225,8 @@
             "description": "The first half of the address, and one of the values this ENUM lists — also the document-history kind this block's retained versions are filed under. The enum IS the list: a kind outside it is not served, and a kind that ships is added to it in the same change, so there is nothing to look up and nothing to go stale.",
             "enum": [
               "system_interaction",
+              "user_language",
+              "term_glossary",
               "boot_sequence",
               "offboard",
               "accelerated_stop",
@@ -4245,7 +4249,7 @@
       "name": "replace_boot_doc"
     },
     {
-      "description": "Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length-cap setting blocks this path, so once developer mode is on it is the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.",
+      "description": "Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length-cap setting blocks this path, so once developer mode is on it is the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409 — except ``user_language``, which is never locked. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "key": {
@@ -4256,6 +4260,8 @@
             "description": "The first half of the address, and one of the values this ENUM lists — also the document-history kind this block's retained versions are filed under. The enum IS the list: a kind outside it is not served, and a kind that ships is added to it in the same change, so there is nothing to look up and nothing to go stale.",
             "enum": [
               "system_interaction",
+              "user_language",
+              "term_glossary",
               "boot_sequence",
               "offboard",
               "accelerated_stop",

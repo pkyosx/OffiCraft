@@ -64,6 +64,8 @@ const (
 	TaskReassignPredecessor     BootDocKind = "task_reassign_predecessor"
 	TaskTakeoverWithPredecessor BootDocKind = "task_takeover_with_predecessor"
 	TaskUnblocked               BootDocKind = "task_unblocked"
+	TermGlossary                BootDocKind = "term_glossary"
+	UserLanguage                BootDocKind = "user_language"
 )
 
 // Valid indicates whether the value is a known member of the BootDocKind enum.
@@ -86,6 +88,10 @@ func (e BootDocKind) Valid() bool {
 	case TaskTakeoverWithPredecessor:
 		return true
 	case TaskUnblocked:
+		return true
+	case TermGlossary:
+		return true
+	case UserLanguage:
 		return true
 	default:
 		return false
@@ -1099,13 +1105,13 @@ type BootDocumentDTO struct {
 	// CapChars The size cap now in force on THIS document, in CHARACTERS. Blocks may share a cap with a sibling; this is the number that will judge THIS write. Served on the read face so an edit can be sized BEFORE it is written — the settings surface holding the cap is admin-only, so otherwise being refused is the only way to learn it.
 	CapChars *int `json:"cap_chars,omitempty"`
 
-	// DeveloperModeRequired True when this block is locked because developer mode is off: every write face (replace, reset, restoring a retained version) refuses it with 409 for every caller, the owner included, until developer mode is turned on in system settings. Reading is unaffected. Independent of read_only, which no setting lifts.
+	// DeveloperModeRequired True when this block is locked because developer mode is off: every write face (replace, reset, restoring a retained version) refuses it with 409 for every caller, the owner included, until developer mode is turned on in system settings. Reading is unaffected. Never true for ``user_language``, which the owner edits like User additions. Independent of read_only, which no setting lifts.
 	DeveloperModeRequired *bool `json:"developer_mode_required,omitempty"`
 
 	// HasSeed True when a FACTORY version of this block ships in this binary, i.e. there is something for the reset route to restore. It says nothing about whether what you are holding IS that factory text — is_default answers that. True in every shipped build; served rather than assumed so a build whose seeds were not staged cannot be offered a 還原 button that 404s.
 	HasSeed *bool `json:"has_seed,omitempty"`
 
-	// IsDefault True while nobody has edited this block (or it has been reset), i.e. the text you are reading is the shipped seed. False means you are reading somebody's edit.
+	// IsDefault True while nobody has edited this block (or it has been reset), i.e. the text you are reading is the shipped seed. False means you are reading somebody's edit. ``user_language`` has two shipped seeds, Traditional Chinese and English: while it is default it reads the one ``display.language`` picks (``en`` → English, anything else → Chinese), and saving or restoring a text equal to either seed (ignoring leading and trailing whitespace) returns it to the default.
 	IsDefault *bool `json:"is_default,omitempty"`
 
 	// Key The second half of the address. Most kinds serve exactly one key; a kind that serves more does so because the documents genuinely differ, so the key is never a formality — an unknown one is a 404 that names the keys that exist.
@@ -2523,7 +2529,7 @@ type MemberAvatarDTO struct {
 	Mime      *string `json:"mime,omitempty"`
 }
 
-// MemberBootContextDTO A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (“everyone“ entries and the member's own merged into one list — pinned first, then newest “effective_ts“ first — under one “lore_cap_chars_role“ budget), the User Language block (the language instruction set by “display.language“: English when it is “en“, Traditional Chinese otherwise; either way followed by the Chinese↔English feature-name table), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
+// MemberBootContextDTO A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (“everyone“ entries and the member's own merged into one list — pinned first, then newest “effective_ts“ first — under one “lore_cap_chars_role“ budget), the User Language block (the “user_language“ boot document — the owner's edit, or while unedited the shipped default for “display.language“: English when it is “en“, Traditional Chinese otherwise — followed by the read-only “term_glossary“ document, the Chinese↔English feature-name table), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
 type MemberBootContextDTO struct {
 	Context string `json:"context"`
 }
@@ -4193,7 +4199,7 @@ type SettingsDTO struct {
 	// DiskUsageIntervalSecs How often, in seconds (600 through 86400), each warden measures how much disk OffiCraft uses on its machine, and the server measures its database, backups and old database copies. One measurement walks the whole OffiCraft directory and takes tens of seconds of disk reads, hence the 10-minute floor. Wardens learn the value from their heartbeat reply.
 	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
 
-	// DisplayLanguage The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), carries the Chinese↔English feature-name table in both, and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
+	// DisplayLanguage The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: while the `user_language` boot document is unedited, the boot context's User Language block carries its English default when this is `en` and its Traditional Chinese default otherwise ("" included); an edited `user_language` is used whatever this is. It is followed by the read-only `term_glossary` document (the Chinese↔English feature-name table), and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
 	// DisplaySeasonalTheme Whether the cockpit takes the built-in seasonal theme while its window is open (a holiday theme shipped with the release, e.g. Halloween; its dates ship with it and are not configurable). true (the default) = show it; false = keep display_theme through the window. Outside every window this has no effect. Same dual-layer contract as display_wide.
@@ -6487,7 +6493,7 @@ type ServerInterface interface {
 	// Replace the EDITABLE HALF of one boot-context block ({kind, key, body}) — text every agent reads at boot, or is sent when a lifecycle event happens to it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. The stored result is judged against that block's own cap. A read-only block refuses with 405 for every caller. The read-only head is NOT sent and cannot be: the server joins the shipped head back on, so no caller has any way to write it. Owner or admin assistant only. Answers with a bounded receipt (“kind“, “key“, “is_default“, “size_chars“, “cap_chars“, “sha256“), not the document — call “get_boot_doc“ when you need the rest.
 	// (POST /api/boot-docs/{kind}/{key})
 	HandleReplaceBootDocApiBootDocsKindKeyPost(w http.ResponseWriter, r *http.Request, kind BootDocKind, key string)
-	// Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length-cap setting blocks this path, so once developer mode is on it is the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only. While developer mode (a system setting) is off, every caller gets a 409. Answers with a bounded receipt (“kind“, “key“, “is_default“, “size_chars“, “cap_chars“, “sha256“), not the document — call “get_boot_doc“ when you need the rest.
+	// Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length-cap setting blocks this path, so once developer mode is on it is the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only. While developer mode (a system setting) is off, every caller gets a 409, except on “user_language“. Answers with a bounded receipt (“kind“, “key“, “is_default“, “size_chars“, “cap_chars“, “sha256“), not the document — call “get_boot_doc“ when you need the rest.
 	// (POST /api/boot-docs/{kind}/{key}/reset)
 	HandleResetBootDocApiBootDocsKindKeyResetPost(w http.ResponseWriter, r *http.Request, kind BootDocKind, key string)
 	// Read one runtime's Boot steps block — the boot checklist that ends that runtime's boot context. runtime_key is 'claude' or 'codex'; they are separate documents because the two runtimes' Boot steps documents are not interchangeable (only the codex one ends its boot turn by handing control back to the sidecar that holds its connection), so any other value is a 404 rather than a silent fallback to claude. Folded: the owner's edit when one exists, otherwise the shipped factory seed. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.

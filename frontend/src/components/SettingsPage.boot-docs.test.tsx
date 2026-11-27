@@ -116,11 +116,8 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     ).toBe(s.acceleratedStopName);
   });
 
-  // 🔴 NO SHIPPED DOCUMENT IS READ-ONLY ANY MORE (定稿 決定 2, 2026-08-24), so
-  // this drives the refusal path with a SYNTHETIC one. The alternative was to
-  // delete these assertions, which would have retired a live path into code
-  // nothing exercises — reachable again the day a document ships read-only,
-  // which is exactly the day nobody would notice it had rotted.
+  // A SYNTHETIC read-only document with a read-only head, which the shipped
+  // read-only glossary does not have.
   it("renders a read-only document and offers no way to change it", async () => {
     __setBootDocReadOnly(["task_unblocked/global"]);
     const utils = await openRolesLog();
@@ -173,6 +170,18 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     fireEvent.click(utils.getByTestId("boot-doc-entry-task_unblocked"));
     expect(await utils.findByTestId("doc-card-edit")).toBeTruthy();
   });
+
+  for (const developerMode of [true, false]) {
+    it(`shows the glossary read-only with developer mode ${developerMode ? "on" : "off"}`, async () => {
+      await api.patchServerSettings({ developerMode });
+      const utils = await openRolesLog();
+      fireEvent.click(utils.getByTestId("boot-doc-entry-term_glossary"));
+      await utils.findByText(s.bootDocReadOnlyNote);
+      expect(utils.getByRole("cell", { name: "辦公室" })).toBeTruthy();
+      expect(utils.queryByTestId("doc-card-edit")).toBeNull();
+      expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
+    });
+  }
 
   it("keeps the editor for the documents the server does allow", async () => {
     // The paired control: without it, a page that hid the editor from EVERY

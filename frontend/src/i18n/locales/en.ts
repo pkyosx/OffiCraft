@@ -2528,6 +2528,12 @@ export const en: Dict = {
     dutyHeading: "Duty",
     dutyNote:
       "Other members read this to decide what to bring to this role; it appears on the roster every member sees at boot.",
+    userLanguageName: "User Language",
+    userLanguageSub:
+      "The language members write to you in · follows the display language until you edit it",
+    termGlossaryName: "Term glossary",
+    termGlossarySub:
+      "English and Chinese feature names side by side · updated with each release, not editable",
     bootName: "Boot steps",
     bootSub: "What an AI follows while starting up · one per runtime",
     bootRuntimeClaude: "Standard",
@@ -2568,6 +2574,8 @@ export const en: Dict = {
     bootDocNoteHistoryLead: "Version history keeps the last ",
     bootDocNoteHistoryTail:
       " versions, counted in SAVES rather than in time — a run of small saves pushes the older ones out. Sync to default is never affected and is always available.",
+    bootDocSaveConfirmUserLanguage:
+      "Save this User Language document? Every member that boots after the save reads this content.",
     bootDocSaveConfirmBoot:
       "Save these boot steps? Broken boot steps stop members booting after this from coming online, with no error message anywhere. Check the preview before saving; if it does go wrong, open Default content in the version history and press Sync to default.",
     bootDocSaveConfirmSystem:
@@ -2581,6 +2589,7 @@ export const en: Dict = {
     docExpand: "Expand this document",
     docCollapse: "Collapse this document",
     historyBootSystemTitle: "System interaction · version history",
+    historyUserLanguageTitle: "User Language · version history",
     historyBootClaudeTitle: "Boot steps (Claude Code) · version history",
     historyBootCodexTitle: "Boot steps (Codex CLI) · version history",
     historyBootOffboardTitle: "Stop · version history",

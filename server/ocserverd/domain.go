@@ -665,6 +665,8 @@ const (
 	// taskEventCapCharsDefault is a constant, not yet a `doc.cap_chars.*`
 	// setting: making it one changes the wire contract, which awaits the owner.
 	taskEventCapCharsDefault = 37500
+	// Constant for the same reason as taskEventCapCharsDefault.
+	userLanguageCapCharsDefault = 37500
 )
 
 // minDocCapChars / maxDocCapChars bound all eight adjustable document caps. The

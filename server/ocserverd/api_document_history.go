@@ -161,7 +161,7 @@ func (s *apiServer) documentHistoryAllowed(w http.ResponseWriter, r *http.Reques
 		return false
 	}
 	switch kind {
-	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
+	case docKindSystemInteraction, docKindUserLanguage, docKindTermGlossary, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
 		docKindTaskTakeoverWithPredecessor, docKindTaskUnblocked,
 		docKindTaskReadyForDone:
@@ -304,7 +304,7 @@ func (s *apiServer) documentSeedContent(kind, key string) (map[string]string, bo
 			return nil, false, nil
 		}
 		return map[string]string{"definition_md": seedMD, "tombstoned": "true"}, true, nil
-	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
+	case docKindSystemInteraction, docKindUserLanguage, docKindTermGlossary, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
 		docKindTaskTakeoverWithPredecessor, docKindTaskUnblocked,
 		docKindTaskReadyForDone:
@@ -405,7 +405,7 @@ func (s *apiServer) publishDocumentHistoryRestore(r *http.Request, kind, key str
 		// DB changed, and every other surface shows the old text until a manual
 		// reload. A test exists solely because nothing else would go red.
 		s.hub.Publish("insight", "patch", "insight", wireOwnerID+"::"+key, nil, audienceOwnerOnly(), requestTrigger(r))
-	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
+	case docKindSystemInteraction, docKindUserLanguage, docKindTermGlossary, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
 		docKindTaskTakeoverWithPredecessor, docKindTaskUnblocked,
 		docKindTaskReadyForDone:
@@ -511,7 +511,7 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		return s.dal.SaveWithDocumentHistory(kind, key, actor, insightSnapshotIn(key), func(ex sqlExecer) error {
 			return putInsightOn(ex, Insight{RoleKey: key, Text: content["text"]})
 		})
-	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
+	case docKindSystemInteraction, docKindUserLanguage, docKindTermGlossary, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
 		docKindTaskTakeoverWithPredecessor, docKindTaskUnblocked,
 		docKindTaskReadyForDone:
@@ -538,11 +538,12 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		if DocCapBlocked(spec.Cap, current.Text, restored) {
 			return errDocumentHistoryCap
 		}
+		row, _, err := s.bootDocRowFor(spec, restored)
+		if err != nil {
+			return err
+		}
 		return s.dal.SaveWithDocumentHistory(kind, key, actor, bootDocSnapshotIn(kind, key), func(ex sqlExecer) error {
-			return putBootDocumentOn(ex, BootDocument{
-				Kind: kind, Key: key,
-				Text: restored,
-			})
+			return putBootDocumentOn(ex, row)
 		})
 	case docKindTaskManualSop:
 		return s.restoreTaskManualField(key, taskManualHistoryStreams(key, actor, true),

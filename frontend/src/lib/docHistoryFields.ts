@@ -35,6 +35,8 @@ export const DOC_FIELD_ORDER: Record<DocumentKind, readonly string[]> = {
   // rides alongside on both (they are overlay kinds with a factory version to
   // fall back to) and is a flag, not content, so it is not listed.
   system_interaction: ["text"],
+  user_language: ["text"],
+  term_glossary: ["text"],
   boot_sequence: ["text"],
   // T-c9c0. Same overlay shape, same single field.
   offboard: ["text"],

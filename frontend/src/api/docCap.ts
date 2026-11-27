@@ -81,6 +81,9 @@ export const TASK_EVENT_CAP_CHARS_DEFAULT = 37500;
 
 export const BOOT_DOC_CAP_CHARS_DEFAULTS: Record<BootDocKind, number> = {
   system_interaction: 150000,
+  // Constants on the server too (userLanguageCapCharsDefault).
+  user_language: 37500,
+  term_glossary: 37500,
   boot_sequence: 37500,
   // T-c9c0. Sized with the boot sequences rather than the handbook: the
   // 〈停止〉 seed is a short ordered checklist an agent works under time
@@ -273,6 +276,8 @@ export const CAPPED_FIELDS: Record<DocumentKind, readonly string[]> = {
   // against their own `doc.cap_chars.*` setting — so `capForKind` answers for
   // them and this pair marks for real.
   system_interaction: ["text"],
+  user_language: ["text"],
+  term_glossary: ["text"],
   boot_sequence: ["text"],
   // T-c9c0, same rule: capped on restore, on `text`, against
   // `doc.cap_chars.offboard`.
@@ -401,5 +406,8 @@ export function capForKind(
     case "task_unblocked":
     case "task_ready_for_done":
       return caps.taskEvent;
+    case "user_language":
+    case "term_glossary":
+      return BOOT_DOC_CAP_CHARS_DEFAULTS.user_language;
   }
 }

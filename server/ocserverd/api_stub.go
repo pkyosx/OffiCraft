@@ -500,6 +500,10 @@ func (s *apiServer) taskEventCap() int {
 	return taskEventCapCharsDefault
 }
 
+func (s *apiServer) userLanguageCap() int {
+	return userLanguageCapCharsDefault
+}
+
 // ⚠️ loreRoleCap IS THE MEMBER BUDGET (scopes collapsed to two, rc-a43100fd0486
 // [0]); the name and its settings key stay because renaming a live key is the
 // owner's call. It and loreManualCap are independent and NEVER ADDED.

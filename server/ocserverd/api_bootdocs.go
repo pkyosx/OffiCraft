@@ -48,6 +48,15 @@ type bootDocReg struct {
 	Split    bool
 	Join     string
 	ReadOnly bool
+
+	// When set, the shipped default follows display.language: this seed for
+	// "en", SeedFor's otherwise. A write whose text equals either seed is stored
+	// as following the default (owner's ruling: back at a default text, it
+	// follows the UI language again).
+	EnSeed string
+	// Editable with developer mode off, like User additions (owner's ruling:
+	// 「可以改的放使用者自訂」).
+	NoDeveloperModeLock bool
 }
 
 // 🔴 Split and the seed's docBodyMarker must change together
@@ -57,8 +66,7 @@ type bootDocReg struct {
 //
 // ⚠️ read_only is mirrored in bin/tests/fixtures/boot-doc-registry.tsv, which
 // only the cockpit's mock.boot-doc-registry.test.ts compares. On this side
-// TestBootDocRegistry_NoDocumentIsReadOnly fails on any read-only entry without
-// reading that table.
+// TestBootDocRegFor pins each entry's ReadOnly without reading that table.
 //
 // Join is a blank line where the body opens on a list or paragraph, so the
 // head's statement of fact does not fold into the first instruction.
@@ -70,6 +78,23 @@ var bootDocRegistry = []bootDocReg{{
 	Cap:     func(s *apiServer) int { return s.systemInteractionCap() },
 	// Vars stays nil: an owner-edited body may quote JSON (`{"id": "…"}`) that the
 	// {name} syntax cannot tell from a variable.
+}, {
+	Kind:    docKindUserLanguage,
+	Keys:    []string{bootDocSingletonKey},
+	SeedFor: func(string) string { return userLanguageSeedZh },
+	EnSeed:  userLanguageSeedEn,
+	DocName: func(string) string { return "User Language document" },
+	Cap:     func(s *apiServer) int { return s.userLanguageCap() },
+
+	NoDeveloperModeLock: true,
+}, {
+	// Generated from the cockpit's dictionaries, so only a release changes it.
+	Kind:     docKindTermGlossary,
+	Keys:     []string{bootDocSingletonKey},
+	SeedFor:  func(string) string { return termGlossarySeedMD },
+	DocName:  func(string) string { return "glossary" },
+	Cap:      func(s *apiServer) int { return s.userLanguageCap() },
+	ReadOnly: true,
 }, {
 	Kind: docKindBootSequence,
 	Keys: []string{bootSequenceKeyClaude, bootSequenceKeyCodex},
@@ -208,10 +233,14 @@ func (s *apiServer) bootDocSpecFor(kind, key string) (bootDocSpec, bool) {
 	if !ok || !reg.serves(key) {
 		return bootDocSpec{}, false
 	}
+	seedFile := reg.SeedFor(key)
+	if reg.EnSeed != "" && s.displayLanguageSnapshot() == "en" {
+		seedFile = reg.EnSeed
+	}
 	return bootDocSpec{
 		Kind:     reg.Kind,
 		Key:      key,
-		SeedFile: reg.SeedFor(key),
+		SeedFile: seedFile,
 		Cap:      reg.Cap(s),
 		DocName:  reg.DocName(key),
 		Vars:     reg.Vars,
@@ -219,7 +248,9 @@ func (s *apiServer) bootDocSpecFor(kind, key string) (bootDocSpec, bool) {
 		Join:     reg.Join,
 		ReadOnly: reg.ReadOnly,
 
-		DeveloperModeRequired: !s.developerModeSnapshot(),
+		// A read-only document stays locked whatever the setting, so it does not
+		// point the owner at developer mode.
+		DeveloperModeRequired: !reg.ReadOnly && !reg.NoDeveloperModeLock && !s.developerModeSnapshot(),
 	}, true
 }
 
@@ -474,8 +505,12 @@ func (s *apiServer) replaceBootDoc(w http.ResponseWriter, r *http.Request, spec 
 		writeError(w, http.StatusBadRequest, docCapRefusal(spec.Cap, spec.DocName, current.Text, next))
 		return
 	}
-	if _, err := s.writeBootDoc(r, spec, current,
-		BootDocument{Kind: spec.Kind, Key: spec.Key, Text: next, Tombstoned: false}, next); err != nil {
+	row, nextText, err := s.bootDocRowFor(spec, next)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if _, err := s.writeBootDoc(r, spec, current, row, nextText); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -516,6 +551,32 @@ func (s *apiServer) bootDocStoredText(spec bootDocSpec, body string) (string, er
 			" is declared split but its seed carries no " + docBodyMarker + " line")
 	}
 	return DocJoinHeadBody(seedHead, body), nil
+}
+
+// bootDocRowFor is the row a write of `text` stores, and the text it then
+// reads as: the text itself, or a reset when the kind's default follows
+// display.language and `text` is one of its shipped defaults.
+func (s *apiServer) bootDocRowFor(spec bootDocSpec, text string) (BootDocument, string, error) {
+	row := BootDocument{Kind: spec.Kind, Key: spec.Key, Text: text}
+	reg, _ := bootDocRegFor(spec.Kind)
+	if reg.EnSeed == "" {
+		return row, text, nil
+	}
+	for _, seedFile := range []string{reg.SeedFor(spec.Key), reg.EnSeed} {
+		seedMD, hasSeed, err := s.root.seedBlockMD(seedFile)
+		if err != nil {
+			return BootDocument{}, "", err
+		}
+		if hasSeed && strings.TrimSpace(seedMD) == strings.TrimSpace(text) {
+			current, _, err := s.root.seedBlockMD(spec.SeedFile)
+			if err != nil {
+				return BootDocument{}, "", err
+			}
+			row.Text, row.Tombstoned = "", true
+			return row, current, nil
+		}
+	}
+	return row, text, nil
 }
 
 // DELIBERATELY LENIENT on a no-marker row (all body), matching DocRendered;

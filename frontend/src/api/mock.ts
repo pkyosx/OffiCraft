@@ -13,7 +13,6 @@ import {
   effectiveLeadMinutes,
 } from "../lib/dueDate";
 import { REPLY_SNOOZE_MAX_SECONDS } from "../lib/replySnooze";
-import termAliases from "../../../spec/term-aliases.json";
 import type {
   Member,
   MonitoringView,
@@ -258,6 +257,9 @@ import {
   SEED_TASK_TAKEOVER_WITH_PREDECESSOR_MD,
   SEED_TASK_UNBLOCKED_MD,
   SEED_TASK_READY_FOR_DONE_MD,
+  SEED_USER_LANGUAGE_ZH_MD,
+  SEED_USER_LANGUAGE_EN_MD,
+  SEED_TERM_GLOSSARY_MD,
 } from "./seeds";
 import { mockApiError } from "./errorCodes";
 import { CHAT_SEARCH_PAGE_SIZE } from "./adapter";
@@ -784,6 +786,9 @@ let globalContextOverlay: WireGlobalContext | null = null;
 // key's OWN seed, never to the other's text.
 const BOOT_DOC_SEEDS: Record<string, string> = {
   "system_interaction/global": SEED_SYSTEM_INTERACTION_MD.trim(),
+  // The Chinese default; bootDocSeed swaps in the English one for "en".
+  "user_language/global": SEED_USER_LANGUAGE_ZH_MD.trim(),
+  "term_glossary/global": SEED_TERM_GLOSSARY_MD.trim(),
   "boot_sequence/claude": SEED_BOOT_SEQUENCE_MD.trim(),
   "boot_sequence/codex": SEED_BOOT_SEQUENCE_CODEX_MD.trim(),
   // T-c9c0 — a singleton keyed "global", like system_interaction.
@@ -804,34 +809,22 @@ const BOOT_DOC_SEEDS: Record<string, string> = {
   "task_ready_for_done/global": SEED_TASK_READY_FOR_DONE_MD.trim(),
 };
 
-/** The documents the server SHOWS but refuses every write to.
- *
- * 🔴 EMPTY SINCE T-6f44, AND KEPT RATHER THAN DELETED. The owner ruled on
- * 2026-08-24 that the documents that used to be in here become editable like
- * the rest. His earlier ruling (「以前 global context 是固定內容 我們也是會顯示
- * 只是不給改」) was 照舊, a carry-over from when the boot context was fixed
- * text, NOT a statement about these documents' content.
- *
- * The set stays because the 405 machinery it drives is still real and still
- * reachable: a future document may ship read-only, and an empty set is how the
- * mock says "none today" without the cockpit's refusal path becoming code that
- * cannot be exercised at all. bootDocRegistry (server) is the truth source;
- * this mirrors it so demo mode cannot validate a screen the real server
- * refuses. */
-let BOOT_DOC_READ_ONLY: ReadonlySet<string> = new Set<string>();
+/** The documents the server SHOWS but refuses every write to — mirrors
+ * bootDocRegistry's ReadOnly, so demo mode cannot validate a screen the real
+ * server refuses. */
+const SHIPPED_BOOT_DOC_READ_ONLY: ReadonlySet<string> = new Set([
+  "term_glossary/global",
+]);
+let BOOT_DOC_READ_ONLY: ReadonlySet<string> = SHIPPED_BOOT_DOC_READ_ONLY;
 
-/** TEST-ONLY: make a document read-only for one test.
- *
- * 🔴 WHY THIS SEAM EXISTS. Since T-6f44 no SHIPPED document is read-only, so
- * every assertion about how a read-only document renders — the body without an
- * editor, the note, the absent version list — lost the only subject it could
- * be written against. Deleting those assertions would have retired a live
- * refusal path into code nothing exercises: the machinery is still reachable
- * the day a document ships read-only again, and that is precisely the day
- * nobody would notice it had rotted.
- *
- * Reset to empty by __resetMock, so a test that forgets to clean up cannot
- * leak a read-only document into the next one. */
+/** Writable with developer mode off, like 使用者自訂 (bootDocRegistry's
+ * NoDeveloperModeLock). */
+const BOOT_DOC_UNLOCKED: ReadonlySet<string> = new Set(["user_language/global"]);
+
+/** TEST-ONLY: replace the read-only set for one test, so a test can drive the
+ * read-only rendering on a document of its choosing. Reset to the shipped set
+ * by __resetMock, so a test that forgets to clean up cannot leak into the next
+ * one. */
 export function __setBootDocReadOnly(keys: readonly string[]): void {
   BOOT_DOC_READ_ONLY = new Set(keys);
 }
@@ -841,6 +834,8 @@ export function __setBootDocReadOnly(keys: readonly string[]): void {
  * rejection and a caller reading the listing see the same words. */
 const BOOT_DOC_NAMES: Record<string, string> = {
   "system_interaction/global": "system interaction block",
+  "user_language/global": "User Language document",
+  "term_glossary/global": "glossary",
   "boot_sequence/claude": "boot steps (claude)",
   "boot_sequence/codex": "boot steps (codex)",
   "offboard/global": "Stop document",
@@ -867,7 +862,25 @@ const BOOT_DOC_TOPIC = "global_context";
  * document — which is what makes an unknown runtime key a 404 rather than a
  * silently empty page. */
 function bootDocSeed(kind: BootDocKind, key: string): string | null {
+  if (
+    `${kind}/${key}` === "user_language/global" &&
+    mockServerSettings.display_language === "en"
+  ) {
+    return SEED_USER_LANGUAGE_EN_MD.trim();
+  }
   return BOOT_DOC_SEEDS[`${kind}/${key}`] ?? null;
+}
+
+/** True when a write of `text` returns the document to its default: the User
+ * Language document's default follows display_language, so either shipped
+ * default counts (the server's bootDocRowFor). */
+function isUserLanguageDefaultText(kind: string, key: string, text: string): boolean {
+  if (`${kind}/${key}` !== "user_language/global") return false;
+  const trimmed = text.trim();
+  return (
+    trimmed === SEED_USER_LANGUAGE_ZH_MD.trim() ||
+    trimmed === SEED_USER_LANGUAGE_EN_MD.trim()
+  );
 }
 
 function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
@@ -907,7 +920,10 @@ function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
     // block added later without a seed must be able to say so.
     has_seed: true,
     read_only: BOOT_DOC_READ_ONLY.has(`${kind}/${key}`),
-    developer_mode_required: !mockServerSettings.developer_mode,
+    developer_mode_required:
+      !BOOT_DOC_READ_ONLY.has(`${kind}/${key}`) &&
+      !BOOT_DOC_UNLOCKED.has(`${kind}/${key}`) &&
+      !mockServerSettings.developer_mode,
   };
 }
 
@@ -930,6 +946,9 @@ function bootDocCap(kind: BootDocKind): number {
     case "task_unblocked":
     case "task_ready_for_done":
       return TASK_EVENT_CAP_CHARS_DEFAULT;
+    case "user_language":
+    case "term_glossary":
+      return BOOT_DOC_CAP_CHARS_DEFAULTS.user_language;
   }
 }
 
@@ -954,6 +973,7 @@ function refuseReadOnlyBootDoc(
 function refuseLockedBootDoc(kind: string, key: string, call: string): void {
   if (mockServerSettings.developer_mode) return;
   if (BOOT_DOC_SEEDS[`${kind}/${key}`] === undefined) return;
+  if (BOOT_DOC_UNLOCKED.has(`${kind}/${key}`)) return;
   throw mockApiError(
     `http 409 for ${call}`,
     409,
@@ -2434,6 +2454,8 @@ function snapshotDocument(
       return { title: e.title, body: e.body };
     }
     case "system_interaction":
+    case "user_language":
+    case "term_glossary":
     case "boot_sequence":
     case "offboard":
     // T-3201: the six lifecycle documents are the SAME overlay shape. The two
@@ -2586,9 +2608,15 @@ function applyDocumentHistory(
       return;
     }
     case "system_interaction":
+    case "user_language":
     case "boot_sequence":
     case "offboard": {
       if (bootDocSeed(kind, key) === null) return;
+      if (isUserLanguageDefaultText(kind, key, content.text ?? "")) {
+        bootDocOverlays.delete(`${kind}/${key}`);
+        emitTopic(BOOT_DOC_TOPIC);
+        return;
+      }
       bootDocOverlays.set(`${kind}/${key}`, content.text ?? "");
       emitTopic(BOOT_DOC_TOPIC);
       return;
@@ -2870,36 +2898,14 @@ function docSizeFields(text: string, cap: "duty" | "insight" | "manualSop") {
 }
 let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
 
-/** The User Language block both boot folds staple between 系統互動 and Owner
- * Additions — mirrors the server's userLanguageBlock (assets.go) byte for byte.
- * Read at assembly time from display_language: "en" gets English; anything
- * else, "" (never set) included, gets the Traditional Chinese text. Both carry
- * the screen-name table. */
-function mockUserLanguageBlock(lang: string): string {
-  if (lang === "en") {
-    return (
-      "# User Language\n\n" +
-      "Use English for everything you write to the user, including reports. Do not use other languages.\n\n" +
-      "The user sees OffiCraft in English. If the user writes one of the Chinese screen names " +
-      "in the left column, it means the English term in the same row.\n\n" +
-      mockTermAliasesTable()
-    );
-  }
-  return (
-    "# User Language\n\n" +
-    "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\nWrite to the user in Traditional Chinese (Taiwan) even when the user writes in another language.\n\n" +
-    "The user sees OffiCraft in Chinese. " +
-    "Call OffiCraft features by the Chinese names on their screen below; when the user " +
-    "uses one of these names, it means the English term in the same row.\n\n" +
-    mockTermAliasesTable()
-  );
-}
-
-function mockTermAliasesTable(): string {
-  return (
-    "| Chinese on screen | English (this document) |\n| --- | --- |" +
-    termAliases.map((a) => `\n| ${a.zh} | ${a.en} |`).join("")
-  );
+/** The User Language block both boot folds staple between 系統互動 and User
+ * additions — mirrors the server's userLanguageBlock (assets.go): the folded
+ * user_language document, then the glossary; "" when both are blank. */
+function mockUserLanguageBlock(): string {
+  const parts = (["user_language", "term_glossary"] as const)
+    .map((kind) => foldBootDoc(kind, "global").text.trim())
+    .filter((text) => text !== "");
+  return parts.length === 0 ? "" : `# User Language\n\n${parts.join("\n\n")}`;
 }
 
 const MOCK_CLAIM_TOKEN = "mock-claim-token";
@@ -6284,10 +6290,9 @@ const mockApiImpl = {
     // FOLDED, like the staff preview and like the server, and for the
     // worker's OWN runtime: buildWorkerBootContext branches on it, so this does
     // too.
-    const parts = [
-      foldBootDoc("system_interaction", "global").text.trim(),
-      mockUserLanguageBlock(mockServerSettings.display_language),
-    ];
+    const parts = [foldBootDoc("system_interaction", "global").text.trim()];
+    const userLanguage = mockUserLanguageBlock();
+    if (userLanguage) parts.push(userLanguage);
     if (userText.trim()) {
       parts.push(`# User additions\n\n${userText.trim()}`);
     }
@@ -8393,6 +8398,13 @@ const mockApiImpl = {
     // is how the version worth going back to disappears. Nothing is written at
     // all in that case, so `is_default` is not flipped either: re-saving a
     // document that is still the factory text must not make it stop saying so.
+    if (isUserLanguageDefaultText(kind, key, text)) {
+      if (before.is_default) return;
+      recordDocumentHistory(kind, key);
+      bootDocOverlays.delete(`${kind}/${key}`);
+      emitTopic(BOOT_DOC_TOPIC);
+      return;
+    }
     if (before.text === text) return;
     recordDocumentHistory(kind, key);
     bootDocOverlays.set(`${kind}/${key}`, text);
@@ -8650,10 +8662,9 @@ const mockApiImpl = {
       throw mockApiError(`http 404 for GET ${path}`, 404, `role '${role}' not found`);
     }
     const userText = foldGlobalContext().text;
-    const parts = [
-      foldBootDoc("system_interaction", "global").text.trim(),
-      mockUserLanguageBlock(mockServerSettings.display_language),
-    ];
+    const parts = [foldBootDoc("system_interaction", "global").text.trim()];
+    const userLanguage = mockUserLanguageBlock();
+    if (userLanguage) parts.push(userLanguage);
     if (userText.trim()) {
       parts.push(`# User additions\n\n${userText.trim()}`);
     }
@@ -9003,7 +9014,7 @@ export function __resetMock(): void {
   mockBinStatus.clear();
   mockBinStatus.set("warden-mbp5", "stale");
   globalContextOverlay = null;
-  BOOT_DOC_READ_ONLY = new Set<string>();
+  BOOT_DOC_READ_ONLY = SHIPPED_BOOT_DOC_READ_ONLY;
   bootDocOverlays.clear();
   roleOverlays.clear();
   customRoles.clear();

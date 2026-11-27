@@ -3037,10 +3037,8 @@ HAPPY: dict[str, Happy] = {
     # that never got named routes (T-3201) ───────────────────────────────────
     # The write rows aim at accelerated_stop because it is the STOP-side document
     # with a read-only head, so one row exercises both halves of the split.
-    # ⚠️ This used to say "because it is EDITABLE: two of the ten refuse every
-    # caller with 405" — since T-6f44's decision 2 NONE of the ten is read-only,
-    # so that reason no longer picks anything out. The 405 branch still exists in
-    # the server, it just has no shipped document behind it any more.
+    # term_glossary is the read-only one (405 for every caller), so it is not
+    # the write target here.
     "GET /api/boot-docs/{kind}/{key}": Happy(
         path="/api/boot-docs/task_closeout/global",
         check=lambda _c, r: _boot_doc_read("task_closeout", "global")(_c, r),

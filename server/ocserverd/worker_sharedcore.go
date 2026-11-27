@@ -10,7 +10,14 @@ func (s *apiServer) workerSharedHead() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	parts := []string{strings.TrimSpace(sys), userLanguageBlock(s.displayLanguageSnapshot())}
+	userLanguage, err := s.userLanguageBlock()
+	if err != nil {
+		return "", err
+	}
+	parts := []string{strings.TrimSpace(sys)}
+	if userLanguage != "" {
+		parts = append(parts, userLanguage)
+	}
 
 	userCtx, err := s.foldUserContextDTO()
 	if err != nil {

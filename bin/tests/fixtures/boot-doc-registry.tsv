@@ -55,6 +55,8 @@
 # rather than a list of what exists.
 kind	key	read_only	has_head
 system_interaction	global	false	false
+user_language	global	false	false
+term_glossary	global	true	false
 boot_sequence	claude	false	false
 boot_sequence	codex	false	false
 offboard	global	false	false

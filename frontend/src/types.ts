@@ -815,6 +815,8 @@ export type DocumentKind =
   // codex one hands control back to the sidecar, so their steps are numbered one
   // apart and nothing may copy one over the other.
   | "system_interaction"
+  | "user_language"
+  | "term_glossary"
   | "boot_sequence"
   // T-c9c0: the 〈停止〉 document. A SINGLETON keyed "global" like
   // system_interaction — being collected is the same procedure whatever
@@ -825,8 +827,7 @@ export type DocumentKind =
   // ⚠️ T-6f44 (owner's decision 2): none of these is read-only any more. The
   // reason they were locked was recorded as 「以前 global context 是固定內容 我們
   // 也是會顯示 只是不給改」 — precedent, not a property of the text. Read-only is
-  // still a property of the DOCUMENT that arrives on its own read rather than a
-  // list the cockpit keeps; today no shipped document sets it.
+  // still a property of the DOCUMENT that arrives on its own read.
   | "accelerated_stop"
   | "task_closeout"
   | "task_reassign_predecessor"
@@ -855,6 +856,8 @@ export type DocumentKind =
  * never shows is the failure it exists to make loud. */
 export type BootDocKind =
   | "system_interaction"
+  | "user_language"
+  | "term_glossary"
   | "boot_sequence"
   | "offboard"
   | "accelerated_stop"

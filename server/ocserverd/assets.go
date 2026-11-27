@@ -415,7 +415,14 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 	// Staff and outsource boot contexts are the SAME slots in the same order:
 	// 系統互動, 使用者語言, 使用者自訂 (skipped when blank), persona (staff only),
 	// 啟動步驟 (recency-authoritative tail). Only the persona slot differs.
-	parts := []string{strings.TrimSpace(sysSeed), userLanguageBlock(s.displayLanguageSnapshot())}
+	userLanguage, err := s.userLanguageBlock()
+	if err != nil {
+		return nil, err
+	}
+	parts := []string{strings.TrimSpace(sysSeed)}
+	if userLanguage != "" {
+		parts = append(parts, userLanguage)
+	}
 	if strings.TrimSpace(userCtx.Text) != "" {
 		parts = append(parts,
 			userAdditionsTitle+"\n\n"+strings.TrimSpace(userCtx.Text))
@@ -562,39 +569,35 @@ func materializeBinary(dir, name string, data []byte) (string, error) {
 // (outsource) uses it too, so staff and contractors boot under one heading.
 const userAdditionsTitle = "# User additions"
 
+const (
+	docKindUserLanguage    = "user_language"
+	userLanguageSeedZh     = "user_language_zh.md"
+	userLanguageSeedEn     = "user_language_en.md"
+	docKindTermGlossary    = "term_glossary"
+	termGlossarySeedMD     = "term_glossary.md"
+	userLanguageBlockTitle = "# User Language"
+)
+
 // userLanguageBlock is the 使用者語言 block both boot folds staple between
-// 系統互動 and 使用者自訂. Read at assembly time, so a display.language change
-// reaches each member at its next boot and never a running session. Anything
-// other than "en" — including "" (never set) — gets the Traditional Chinese
-// text: that is the studio's language when the owner has not chosen one. Both
-// languages carry the Chinese↔English feature-name table.
-func userLanguageBlock(lang string) string {
-	if lang == "en" {
-		return "# User Language\n\n" +
-			"Use English for everything you write to the user, including reports. Do not use other languages.\n\n" +
-			"The user sees OffiCraft in English. If the user writes one of the Chinese screen names " +
-			"in the left column, it means the English term in the same row.\n\n" +
-			termAliasesTable()
+// 系統互動 and 使用者自訂: the user_language document followed by the glossary.
+// Read at assembly time, so a language change or an edit reaches each member at
+// its next boot and never a running session. "" when both are blank.
+func (s *apiServer) userLanguageBlock() (string, error) {
+	parts := []string{}
+	for _, kind := range []string{docKindUserLanguage, docKindTermGlossary} {
+		spec := s.mustBootDocSpec(kind, bootDocSingletonKey)
+		dto, err := s.foldBootDocDTO(spec)
+		if err != nil {
+			return "", err
+		}
+		if text := strings.TrimSpace(DocRendered(dto.Text, spec.Join)); text != "" {
+			parts = append(parts, text)
+		}
 	}
-	return "# User Language\n\n" +
-		"除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\nWrite to the user in Traditional Chinese (Taiwan) even when the user writes in another language.\n\n" +
-		"The user sees OffiCraft in Chinese. " +
-		"Call OffiCraft features by the Chinese names on their screen below; when the user " +
-		"uses one of these names, it means the English term in the same row.\n\n" +
-		termAliasesTable()
-}
-
-type termAlias struct{ zh, en string }
-
-// termAliasesTable maps the Chinese screen names (termAliases, generated from
-// the frontend dictionaries) to the English names the boot documents use.
-func termAliasesTable() string {
-	var b strings.Builder
-	b.WriteString("| Chinese on screen | English (this document) |\n| --- | --- |")
-	for _, a := range termAliases {
-		b.WriteString("\n| " + a.zh + " | " + a.en + " |")
+	if len(parts) == 0 {
+		return "", nil
 	}
-	return b.String()
+	return userLanguageBlockTitle + "\n\n" + strings.Join(parts, "\n\n"), nil
 }
 
 // Named so "the one document of this kind" is not a magic "global" that reads
