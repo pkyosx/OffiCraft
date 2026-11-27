@@ -44,7 +44,7 @@ This page lists what each term in the console and the user guide means, and whic
 - **Reply card**: a card a member opens when it needs your decision. One card is one question, with background and options; it appears in the Ask tab and in chat. See [Assigning work and answering reply cards](daily.md).
 - **Later**: moves an unanswered reply card into "Snoozed"; at the time you pick, it returns to Ask on its own. The card still counts as unanswered, and the member who opened it is not notified.
 - **Secret reply card**: a reply card in which a member asks you for a secret value. Only the member who opened the card can retrieve the value you enter; it is deleted automatically some time after it is retrieved, or if no one ever retrieves it. See [Give members your account keys (secrets)](secrets.md).
-- **Suggested replies**: preset sentences below the input box that you can drop in with one tap. The chat has one set for each member, plus one set shared by all members; reply cards, task messages, and lore messages each have their own set too, and so does every task manual. A reply card's reply box lists, in order, the set from the manual of the task the card belongs to, the set for the member who opened the card, and the reply-card set; a task card's message box lists the task manual's set first, then the task-message set; an outsource member's chat lists the set from the manual of its task first, then the member's own set and the shared set. See [Settings and parameters](settings.md).
+- **Suggested replies**: preset sentences below the input box that you can drop in with one tap. The chat has one set for each member, plus one set shared by all members; reply cards, task messages, and lore messages each have their own set too, and so does every task manual. A reply card's reply box lists, in order, the set from the manual of the task the card belongs to, the set for the member who opened the card, and the reply-card set; a task card's message box lists the task manual's set first, then the task-message set; an outsource member's chat lists the set from the manual of its task first, then the member's own set and the shared set. See [Settings](settings.md).
 - **Deleting a message**: you can delete an ordinary chat message you sent within the last 24 hours; its place then shows "This message was deleted".
 - **Single choice / multiple choice**: a card whose options are numbered is single choice, and tapping an option sends it; a card whose options have tick boxes is multiple choice, and you send it after ticking.
 - **AI pick**: the label on the option the member recommends.
@@ -87,10 +87,10 @@ This page lists what each term in the console and the user guide means, and whic
 - **Member lore / Task lore / Everyone**: the scope a lore entry applies to: one member, one task manual, or all members.
 - **Lore type**: Instruction conflict, Instruction supplement, Owner decision, Owner preference, Other.
 - **Pinned / Active / Retired**: the states of a lore entry. Entries below the cap line on the Lore tab cannot be read by members.
-- **Global context**: documents every member reads, in three groups: start-up (BOOT), shut-down (STOP), and task events (TASK), under Settings › Global context. See [Settings and parameters](settings.md).
+- **Global context**: documents every member reads, in three groups: start-up (BOOT), shut-down (STOP), and task events (TASK), under Settings › Global context. See [Settings](settings.md).
 - **User additions**: the document in Global context kept for you to write to all members.
 - **Default content / Sync to default**: the factory content of a document; Sync to default changes the document back to its factory content.
-- **Version history**: documents in Settings keep their last few edits, which you can compare or restore. See [Settings and parameters](settings.md).
+- **Version history**: documents in Settings keep their last few edits, which you can compare or restore. See [Settings](settings.md).
 - **Secrets**: secret values handed to members, such as account passwords and API keys; one of the main tabs. Values are stored encrypted, and members fetch them from the server when they need them. See [Give members your account keys (secrets)](secrets.md).
 - **vault.key**: the key file used to encrypt secrets, in the same folder as the database. Database backups do not include it; if you move a backup to another computer to restore it without this file, the secrets cannot be read. See [Protect your studio](security.md).
 - **Scheduled message**: a message sent to a member automatically at the frequency, time of day, and time zone you set, configured in the member details. See [Doing something on a schedule (Scheduled messages)](schedule.md).
@@ -113,8 +113,8 @@ This page lists what each term in the console and the user guide means, and whic
 - **Switch by time of day**: changes the theme automatically at the times you set, based on your device's local time. See [Themes (look and wording)](theme.md).
 - **Seasonal theme**: a theme applied automatically during holidays; some also switch to different versions by time of day. It can be turned off with "Show seasonal theme" in the theme settings.
 - **Background animation**: whether the theme background plays an animation. The options are Auto, Play, and Still, saved only on this device; with "Auto", phones and tablets show a still image. See [Themes (look and wording)](theme.md).
-- **General**: the system parameters in Settings (thresholds, size caps, intervals, number of backups kept, and so on). See [Settings and parameters](settings.md).
-- **System update & backup**: the Settings page for checking for updates, upgrading, automatic updates, the update check interval, backup health, and signing keys. See [Settings and parameters](settings.md).
+- **General**: the system parameters in Settings (thresholds, size caps, intervals, number of backups kept, and so on). See [Settings](settings.md).
+- **System update & backup**: the Settings page for checking for updates, upgrading, automatic updates, the update check interval, backup health, and signing keys. See [Settings](settings.md).
 - **Receive beta versions**: also includes pre-release versions when checking for updates.
 - **Backup health**: shows whether scheduled backups are working (Backups are healthy, Backups are failing, Cannot tell). See [Troubleshooting and FAQ](troubleshooting.md).
 
@@ -135,5 +135,5 @@ This page lists what each term in the console and the user guide means, and whic
 
 - [Architecture and how it works](architecture.md)
 - [Interface reference](interface.md)
-- [Settings and parameters](settings.md)
+- [Settings](settings.md)
 - [Troubleshooting and FAQ](troubleshooting.md)

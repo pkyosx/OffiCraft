@@ -1,4 +1,4 @@
-# Settings and parameters
+# Settings
 
 After reading this page, you will know what each of the six settings subpages covers, the range and default of every field on the General page, and which settings are not on the settings page and where to find them.
 
