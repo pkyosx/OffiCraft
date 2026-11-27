@@ -9119,14 +9119,57 @@
           },
           "key_id": {
             "type": "string"
+          },
+          "still_used_by": {
+            "description": "Machines and members whose current credential this key may have signed, so the settings page can say who would be cut off by removing it. Always empty for the signing key. An entry with `confirmed=false` is one the station cannot attribute to any key (a machine that has not connected since keys were tracked, or a member started before its signing key was recorded); it is listed under every non-signing key, because removing any of them might cut it off.",
+            "items": {
+              "$ref": "#/components/schemas/SigningKeyHolderDTO"
+            },
+            "type": "array"
           }
         },
         "required": [
           "created_ts",
           "is_signing",
-          "key_id"
+          "key_id",
+          "still_used_by"
         ],
         "title": "SigningKeyDTO",
+        "type": "object"
+      },
+      "SigningKeyHolderDTO": {
+        "additionalProperties": false,
+        "description": "One machine or member still holding a credential signed by a non-signing key. A machine's key is the one it last connected its event stream with; a member's is the one its credential was signed with when it last started. A member moves to the current key only by restarting.",
+        "properties": {
+          "confirmed": {
+            "description": "false when the station cannot tell which key signed this holder's credential.",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "machine",
+              "member"
+            ],
+            "type": "string"
+          },
+          "member_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "online": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirmed",
+          "kind",
+          "member_id",
+          "name",
+          "online"
+        ],
+        "title": "SigningKeyHolderDTO",
         "type": "object"
       },
       "SigningKeysDTO": {
@@ -14852,7 +14895,7 @@
     },
     "/api/auth/signing-keys/rotate": {
       "post": {
-        "description": "- Hands signing over to a NEW key; the outgoing key stays in the ring and keeps verifying.\n- Tokens already in circulation and existing share links keep working; new ones carry the new key.\n- Takes effect on the NEXT request — no restart. A second server on the same database keeps its old ring until it restarts.\n- Nothing is revoked here; revocation is the separate remove route.\n- Owner only.",
+        "description": "- Hands signing over to a NEW key; the outgoing key stays in the ring and keeps verifying.\n- Tokens already in circulation and existing share links keep working; new ones carry the new key.\n- Takes effect on the NEXT request — no restart. A second server on the same database keeps its old ring until it restarts.\n- Every machine online at that moment is asked to replace its credential right away, so connected machines move to the new key within seconds; an offline machine moves when it next connects. Members move only when they restart.\n- Nothing is revoked here; revocation is the separate remove route.\n- Owner only.",
         "operationId": "handle_signing_key_rotate_api_auth_signing_keys_rotate_post",
         "responses": {
           "200": {
@@ -14904,7 +14947,7 @@
     },
     "/api/auth/signing-keys/{key_id}/remove": {
       "post": {
-        "description": "Remove a retired signing key — THIS is the revocation, and it has no undo (owner-gated).\n\nThe moment this returns, every token signed by that key is refused, and every attachment share link produced under it stops working: a share `?sig=` is an HMAC under a key derived from the signing key, so it is governed by the ring too (owner ruling, card rc-cf9c27c07442). There is no grace period and holders are not notified — which is why the timing is a person's decision and never a timer's.\n\n⚠️ Warden credentials expire again since T-fc53, but \"wait for the old tokens to expire\" is still not the strategy: a credential lives up to the full `auth.warden_credential_lifetime_secs` (30 days by default) and machines installed before that change carry no `exp` at all. The question to answer before calling this is whether every machine has come back ON THE CURRENT KEY (`token_key_current` on GET /api/machines), not how many days have passed and not merely whether it reconnected: a machine that reconnected while still holding a credential this key signed drops off the moment this returns.\n\nThe key that is currently SIGNING cannot be removed (409) — rotate first, then remove the one that stepped down. An unknown `key_id` is a 404.",
+        "description": "Remove a retired signing key — THIS is the revocation, and it has no undo (owner-gated).\n\nThe moment this returns, every token signed by that key is refused, and every attachment share link produced under it stops working: a share `?sig=` is an HMAC under a key derived from the signing key, so it is governed by the ring too (owner ruling, card rc-cf9c27c07442). There is no grace period and holders are not notified — which is why the timing is a person's decision and never a timer's.\n\n⚠️ Warden credentials expire again since T-fc53, but \"wait for the old tokens to expire\" is still not the strategy: a credential lives up to the full `auth.warden_credential_lifetime_secs` (30 days by default) and machines installed before that change carry no `exp` at all. The question to answer before calling this is whether every machine has come back ON THE CURRENT KEY (`token_key_current` on GET /api/machines), not how many days have passed and not merely whether it reconnected: a machine that reconnected while still holding a credential this key signed drops off the moment this returns. Members are cut off too unless they restarted after the rotation. The key's `still_used_by` on GET /api/auth/signing-keys lists both; removal is NOT refused while it is non-empty, because revoking a leaked key must stay possible even when a machine never comes back.\n\nThe key that is currently SIGNING cannot be removed (409) — rotate first, then remove the one that stepped down. An unknown `key_id` is a 404.",
         "operationId": "handle_signing_key_remove_api_auth_signing_keys_key_id_remove_post",
         "parameters": [
           {
