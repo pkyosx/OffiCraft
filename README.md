@@ -197,7 +197,7 @@ Read these when you want to hand off repetitive, scheduled, or externally trigge
 Read these to look up a field, parameter, or term, or to learn how things work underneath.
 
 - [Interface reference](docs/guide/interface.md) — every tab and field.
-- [Settings and parameters](docs/guide/settings.md) — the six settings pages and the range of each parameter.
+- [Settings](docs/guide/settings.md) — the six settings pages and the range of each setting on the General page.
 - [Themes (look and wording)](docs/guide/theme.md) — change the look, switch by time of day, background animation, custom and imported/exported themes, seasonal themes.
 - [Architecture and how it works](docs/guide/architecture.md) — how the server, machines, and members divide the work.
 - [Glossary](docs/guide/glossary.md) — the terms OffiCraft uses.

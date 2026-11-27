@@ -401,5 +401,5 @@ bin/ocserver uninstall --dry-run   # only lists what it would do, changes nothin
 
 - [Your first office](quickstart.md)
 - [Protect your studio](security.md)
-- [Settings and parameters](settings.md)
+- [Settings](settings.md)
 - [Troubleshooting and FAQ](troubleshooting.md)

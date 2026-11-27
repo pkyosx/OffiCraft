@@ -22,7 +22,7 @@ Deleting a secret **cannot be undone**. Any later attempt by a member to fetch i
 
 ## When a member needs a secret that is not in the list
 
-The member opens a Secret reply card to ask you for it. You fill in the value on the card; after you send it, it is not shown again, and only the member who opened the card can fetch it. You can also reply with a message below the card, which ends the card. The content is deleted after a while; for how long, see "Parameters" in [Settings and parameters](settings.md).
+The member opens a Secret reply card to ask you for it. You fill in the value on the card; after you send it, it is not shown again, and only the member who opened the card can fetch it. You can also reply with a message below the card, which ends the card. The content is deleted after a while; for how long, see "General" in [Settings](settings.md).
 
 ## Take vault.key with you when you change computers
 

@@ -96,7 +96,7 @@ If the time on Last operation is earlier than when you pressed the button this t
 
 The member's machine is not signed in to the AI runtime the member needs. You sign in from "Sign in" in the version-number menu of that machine's Claude or Codex column, under Monitor › Machines. After signing in, the member has to be woken again before it starts.
 
-The warden checks the sign-in status regularly, at the intervals set by "Login check interval" and "Logged-out recheck interval" in Settings › Parameters.
+The warden checks the sign-in status regularly, at the intervals set by "Login check interval" and "Logged-out recheck interval" in Settings › General.
 
 ### The machine has only Codex, and Mira or a new member will not start
 
@@ -141,7 +141,7 @@ Running the install again does not affect existing data.
 Check that machine's status under Monitor › Machines:
 
 - **Offline**: the machine is shut down or cannot reach the server. Each machine's warden runs independently, so one offline machine only affects the members on it.
-- **Offline for a long time, and still not back after reconnecting to the network**: the machine credential may have expired. Each machine's credential lasts for "Machine credential lifetime" in Settings › Parameters (30 days by default), and the warden renews it automatically before it expires. If the machine was shut down long enough to miss the renewal, reinstall that machine. "Install" in the machine's name menu ("Reinstall" while it is online) produces the install command to run on that machine.
+- **Offline for a long time, and still not back after reconnecting to the network**: the machine credential may have expired. Each machine's credential lasts for "Machine credential lifetime" in Settings › General (30 days by default), and the warden renews it automatically before it expires. If the machine was shut down long enough to miss the renewal, reinstall that machine. "Install" in the machine's name menu ("Reinstall" while it is online) produces the install command to run on that machine.
 - **The machine column has an exclamation mark saying "Not in effect"**: stop every member on this machine, then wake them again one by one, and it recovers.
 
 ### Nobody ever takes the outsource work
@@ -231,7 +231,7 @@ There are two ways to make a complete backup:
 - **Without stopping**: `~/.officraft/bin/ocserverd backup` produces a single file containing all the data in `~/.officraft/server/data/backups/`. Before running, it prints the config file and database path it uses; `database` is the database actually being backed up.
 - **Copy after stopping**: after the server stops, copy all three files together, or copy the whole `data` folder.
 
-Automatic backups go into the same `backups/` folder, named `officraft-<UTC time>-<kind>.db`, where the kind is `scheduled`, `premigration` (before an upgrade), or `manual`. Routine backups and pre-upgrade backups each keep "Backups kept" copies (Settings › Parameters; default 5, range 1–20), and any beyond that are deleted at the next backup.
+Automatic backups go into the same `backups/` folder, named `officraft-<UTC time>-<kind>.db`, where the kind is `scheduled`, `premigration` (before an upgrade), or `manual`. Routine backups and pre-upgrade backups each keep "Backups kept" copies (Settings › General; default 5, range 1–20), and any beyond that are deleted at the next backup.
 
 ### Take vault.key with you when you change computers
 
