@@ -134,20 +134,20 @@ func TestCmdActivityReport(t *testing.T) {
 
 		want := []capturedPost{
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001},` +
-				`{"id":"b2","parent_id":null,"name":"general-purpose","description":"","started_ts":1002}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"b2","parent_id":null,"name":"general-purpose","description":"read cli/","started_ts":1002}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001,"kind":"subagent"},` +
+				`{"id":"b2","parent_id":null,"name":"general-purpose","description":"","started_ts":1002,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"b2","parent_id":null,"name":"general-purpose","description":"read cli/","started_ts":1002,"kind":"subagent"}],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
 			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1005}],"waits":[]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1006}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1005,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1006,"kind":"subagent"}],"waits":[]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
 		if got, want := readFileString(t, statePath(cfg)),
-			`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1006}],`+
+			`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1006,"kind":"subagent"}],`+
 				`"waits":[],"stopped":{"b2":true}}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
 		}
@@ -176,18 +176,16 @@ func TestCmdActivityReport(t *testing.T) {
 
 		want := []capturedPost{
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002},` +
-				`{"id":"b2","parent_id":"a1","name":"general-purpose","description":"read cli/","started_ts":1005}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002},` +
-				`{"id":"b2","parent_id":"a1","name":"general-purpose","description":"read cli/ (renamed)","started_ts":1005}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002},` +
-				`{"id":"b2","parent_id":"a1","name":"general-purpose","description":"read cli/ (renamed)","started_ts":1005}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1009}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"main_state":"waiting_for_subagents","subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002,"kind":"subagent","state":"waiting_for_subagents"},{"id":"b2","parent_id":"a1","name":"general-purpose","description":"read cli/","started_ts":1005,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002,"kind":"subagent"},{"id":"b2","parent_id":"a1","name":"general-purpose","description":"read cli/ (renamed)","started_ts":1005,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002,"kind":"subagent","state":"waiting_for_subagents"},{"id":"b2","parent_id":"a1","name":"general-purpose","description":"read cli/ (renamed)","started_ts":1005,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002,"kind":"subagent","state":"waiting_for_subagents"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1009,"kind":"subagent"}],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
 		}
+
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
@@ -222,25 +220,18 @@ func TestCmdActivityReport(t *testing.T) {
 
 		want := []capturedPost{
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002},` +
-				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1004}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002},` +
-				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1004}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002},` +
-				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1004},` +
-				`{"id":"C","parent_id":"B","name":"general-purpose","description":"C task","started_ts":1007}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002},` +
-				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1004},` +
-				`{"id":"C","parent_id":"B","name":"general-purpose","description":"C task","started_ts":1007}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002},` +
-				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1004}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002},` +
-				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1010}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1012}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"main_state":"waiting_for_subagents","subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"main_state":"waiting_for_subagents","subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002,"kind":"subagent","state":"waiting_for_subagents"},{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1004,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"main_state":"waiting_for_subagents","subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002,"kind":"subagent","state":"waiting_for_subagents"},{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1004,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"main_state":"waiting_for_subagents","subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002,"kind":"subagent","state":"waiting_for_subagents"},{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1004,"kind":"subagent","state":"waiting_for_subagents"},{"id":"C","parent_id":"B","name":"general-purpose","description":"C task","started_ts":1007,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"main_state":"waiting_for_subagents","subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002,"kind":"subagent","state":"waiting_for_subagents"},{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1004,"kind":"subagent","state":"waiting_for_subagents"},{"id":"C","parent_id":"B","name":"general-purpose","description":"C task","started_ts":1007,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"main_state":"waiting_for_subagents","subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002,"kind":"subagent","state":"waiting_for_subagents"},{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1004,"kind":"subagent","state":"waiting_for_subagents"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"main_state":"waiting_for_subagents","subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002,"kind":"subagent","state":"waiting_for_subagents"},{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1010,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"main_state":"waiting_for_subagents","subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002,"kind":"subagent","state":"waiting_for_subagents"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"main_state":"waiting_for_subagents","subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1012,"kind":"subagent"}],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
 		}
+
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
@@ -269,13 +260,13 @@ func TestCmdActivityReport(t *testing.T) {
 			step{1013, activityHook("Stop", `"background_tasks":[],"session_crons":[]`)})
 
 		want := []capturedPost{
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1001},` +
-				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1002},` +
-				`{"id":"C","parent_id":"B","name":"general-purpose","description":"C task","started_ts":1003}],"waits":[]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1001},` +
-				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1002}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1012,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1001},` +
-				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1002}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1001,"kind":"subagent"},` +
+				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1002,"kind":"subagent"},` +
+				`{"id":"C","parent_id":"B","name":"general-purpose","description":"C task","started_ts":1003,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1001,"kind":"subagent"},` +
+				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1002,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1012,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1001,"kind":"subagent"},` +
+				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1002,"kind":"subagent"}],"waits":[]}`),
 			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
@@ -283,7 +274,7 @@ func TestCmdActivityReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a working teammate and the foreground children under it stay listed across the main Stop, a standing-by teammate is not shown until it starts again, and a teammate gone from the list goes with its children", func(t *testing.T) {
+	t.Run("a working teammate and the foreground children under it stay listed across the main Stop, the teammate reads as waiting while a foreground child runs, a standing-by teammate is listed as standing by until it starts again, and a teammate gone from the list goes with its children", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 		tasks := func(extra ...string) string {
@@ -315,29 +306,35 @@ func TestCmdActivityReport(t *testing.T) {
 			step{1050, activityHook("Stop", `"background_tasks":[{"id":"bzbqsru8v","type":"shell","status":"running","description":"sleep 400"},`+
 				`{"id":"t0","type":"teammate","status":"running","description":"spawned before this session"}],"session_crons":[]`)})
 
-		impl := func(started string) string {
-			return `{"id":"aimpl-937342692ba02f94","parent_id":null,"name":"impl","description":"implement phase 1","started_ts":` + started + `}`
+		impl := func(started, kind string, waiting bool) string {
+			tail := ""
+			if waiting {
+				tail = `,"state":"waiting_for_subagents"`
+			}
+			return `{"id":"aimpl-937342692ba02f94","parent_id":null,"name":"impl","description":"implement phase 1","started_ts":` +
+				started + `,"kind":"` + kind + `"` + tail + `}`
 		}
-		w1 := `{"id":"w1","parent_id":"aimpl-937342692ba02f94","name":"gf-builder:unit-tester","description":"write the tests","started_ts":1005}`
-		w2 := `{"id":"w2","parent_id":"aimpl-937342692ba02f94","name":"gf-builder:implementer","description":"write the code","started_ts":1007}`
+		w1 := `{"id":"w1","parent_id":"aimpl-937342692ba02f94","name":"gf-builder:unit-tester","description":"write the tests","started_ts":1005,"kind":"subagent"}`
+		w2 := `{"id":"w2","parent_id":"aimpl-937342692ba02f94","name":"gf-builder:implementer","description":"write the code","started_ts":1007,"kind":"subagent"}`
 		shell := `{"kind":"shell","description":"sleep 400","next_ts":null,"recurring":false}`
-		t0 := `{"id":"t0","parent_id":null,"name":"teammate","description":"spawned before this session","started_ts":1010}`
+		t0 := `{"id":"t0","parent_id":null,"name":"teammate","description":"spawned before this session","started_ts":1010,"kind":"teammate"}`
+		standby := `{"id":"aimpl-937342692ba02f94","parent_id":null,"name":"impl","description":"implement phase 1","started_ts":1022,"kind":"teammate","state":"standing_by"}`
 		want := []capturedPost{
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002") + `],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002") + `],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002") + `,` + w1 + `],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002") + `,` + w1 + `,` + w2 + `],"waits":[]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002") + `,` + w1 + `,` + w2 + `,` + t0 + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002") + `,` + w2 + `,` + t0 + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002") + `,` + t0 + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":true,"busy_since":1030,"subagents":[` + t0 + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `,` + impl("1040") + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `,` + impl("1040") + `],"waits":[` + shell + `]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `,` + impl("1040") + `,` +
-				`{"id":"w3","parent_id":"aimpl-937342692ba02f94","name":"gf-builder:unit-tester","description":"rerun the tests","started_ts":1043}],"waits":[` + shell + `]}`),
+			sent(`{"busy":true,"busy_since":1000,"main_state":"waiting_for_subagents","subagents":[` + impl("1002", "subagent", false) + `],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002", "teammate", false) + `],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002", "teammate", true) + `,` + w1 + `],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[` + impl("1002", "teammate", true) + `,` + w1 + `,` + w2 + `],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002", "teammate", true) + `,` + w1 + `,` + w2 + `,` + t0 + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002", "teammate", true) + `,` + w2 + `,` + t0 + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + impl("1002", "teammate", false) + `,` + t0 + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `,` + standby + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":true,"busy_since":1030,"subagents":[` + t0 + `,` + standby + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `,` + standby + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `,` + impl("1040", "teammate", false) + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `,` + impl("1040", "teammate", false) + `],"waits":[` + shell + `]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `,` + impl("1040", "teammate", true) + `,` +
+				`{"id":"w3","parent_id":"aimpl-937342692ba02f94","name":"gf-builder:unit-tester","description":"rerun the tests","started_ts":1043,"kind":"subagent"}],"waits":[` + shell + `]}`),
 			sent(`{"busy":false,"busy_since":null,"subagents":[` + t0 + `],"waits":[` + shell + `]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
@@ -345,11 +342,210 @@ func TestCmdActivityReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a foreground sub-agent takes the oldest pending Agent call, and its late PostToolUse sends nothing", func(t *testing.T) {
+	t.Run("a worker a teammate asks for across the main Stop still goes under the teammate, a new teammate with a gone teammate's description does not bring the gone one back, and a sub-agent first seen in the list takes its name when it starts", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+		review := `"background_tasks":[{"id":"t1","type":"teammate","status":"running","description":"review"}],"session_crons":[]`
+
+		drive(t, cfg, srv.Client(),
+			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
+			step{1001, agentPreToolUse("", "review")},
+			step{1002, activityHook("SubagentStart", `"agent_id":"old","agent_type":"reviewer"`)},
+			step{1003, agentPostToolUse("", "review", `{"status":"teammate_spawned","agentId":"old"}`)},
+			step{1004, activityHook("SubagentStop", `"agent_id":"old","agent_type":"reviewer",`+review)},
+			step{1005, activityHook("Stop", `"background_tasks":[],"session_crons":[]`)},
+			step{1010, activityHook("UserPromptSubmit", `"prompt":"again"`)},
+			step{1011, agentPreToolUse("", "review")},
+			step{1012, activityHook("SubagentStart", `"agent_id":"new","agent_type":"reviewer"`)},
+			step{1013, agentPostToolUse("", "review", `{"status":"teammate_spawned","agentId":"new"}`)},
+			step{1014, agentPreToolUse("new", "write tests")},
+			step{1015, activityHook("Stop", review)},
+			step{1016, activityHook("SubagentStart", `"agent_id":"w","agent_type":"gf-builder:unit-tester"`)},
+			step{1020, activityHook("Stop", `"background_tasks":[{"id":"t1","type":"teammate","status":"running","description":"review"},`+
+				`{"id":"x","type":"subagent","status":"running","description":"found in the list"}],"session_crons":[]`)},
+			step{1021, activityHook("SubagentStart", `"agent_id":"x","agent_type":"Explore"`)})
+
+		newRow := `{"id":"new","parent_id":null,"name":"reviewer","description":"review","started_ts":1012,"kind":"teammate","state":"waiting_for_subagents"}`
+		w := `{"id":"w","parent_id":"new","name":"gf-builder:unit-tester","description":"write tests","started_ts":1016,"kind":"subagent"}`
+		got := *posts
+		want := []capturedPost{
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + newRow + `,` + w + `],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + newRow + `,` + w +
+				`,{"id":"x","parent_id":null,"name":"unknown","description":"found in the list","started_ts":1020,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + newRow + `,` + w +
+				`,{"id":"x","parent_id":null,"name":"Explore","description":"found in the list","started_ts":1021,"kind":"subagent"}],"waits":[]}`),
+		}
+		if len(got) < len(want) || !reflect.DeepEqual(got[len(got)-len(want):], want) {
+			t.Errorf("sent\n  %+v\nwant the last to be\n  %+v", got, want)
+		}
+	})
+
+	t.Run("two live teammates with one description keep both: the standing-by one stays listed while the new one works, is not forgotten by a hook without a background_tasks list, and is a teammate again when it starts", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+		two := `"background_tasks":[{"id":"t1","type":"teammate","status":"running","description":"review"},` +
+			`{"id":"t2","type":"teammate","status":"running","description":"review"}],"session_crons":[]`
+
+		drive(t, cfg, srv.Client(),
+			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
+			step{1001, agentPreToolUse("", "review")},
+			step{1002, activityHook("SubagentStart", `"agent_id":"a","agent_type":"reviewer"`)},
+			step{1003, agentPostToolUse("", "review", `{"status":"teammate_spawned","agentId":"a"}`)},
+			step{1004, activityHook("SubagentStop", `"agent_id":"a","agent_type":"reviewer","background_tasks":[{"id":"t1","type":"teammate","status":"running","description":"review"}],"session_crons":[]`)},
+			step{1004, activityHook("SubagentStop", `"agent_id":"z","agent_type":"Explore"`)},
+			step{1005, agentPreToolUse("", "review")},
+			step{1006, activityHook("SubagentStart", `"agent_id":"b","agent_type":"reviewer"`)},
+			step{1007, agentPostToolUse("", "review", `{"status":"teammate_spawned","agentId":"b"}`)},
+			step{1008, activityHook("Stop", two)},
+			step{1010, activityHook("SubagentStart", `"agent_id":"a","agent_type":"reviewer"`)},
+			step{1011, activityHook("Stop", two)})
+
+		a := func(started, tail string) string {
+			return `{"id":"a","parent_id":null,"name":"reviewer","description":"review","started_ts":` + started + `,"kind":"teammate"` + tail + `}`
+		}
+		b := `{"id":"b","parent_id":null,"name":"reviewer","description":"review","started_ts":1006,"kind":"teammate"}`
+		got := *posts
+		want := []capturedPost{
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + b + `,` + a("1008", `,"state":"standing_by"`) + `],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + b + `,` + a("1010", "") + `],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + b + `,` + a("1010", "") + `],"waits":[]}`),
+		}
+		if len(got) < len(want) || !reflect.DeepEqual(got[len(got)-len(want):], want) {
+			t.Errorf("sent\n  %+v\nwant the last to be\n  %+v", got, want)
+		}
+	})
+
+	t.Run("with one live teammate task for a description, a working teammate with that description takes it and an older standing-by one is forgotten", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+		one := `"background_tasks":[{"id":"t1","type":"teammate","status":"running","description":"review"}],"session_crons":[]`
+
+		drive(t, cfg, srv.Client(),
+			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
+			step{1001, agentPreToolUse("", "review")},
+			step{1002, activityHook("SubagentStart", `"agent_id":"a","agent_type":"reviewer"`)},
+			step{1003, agentPostToolUse("", "review", `{"status":"teammate_spawned","agentId":"a"}`)},
+			step{1004, activityHook("SubagentStop", `"agent_id":"a","agent_type":"reviewer",`+one)},
+			step{1005, agentPreToolUse("", "review")},
+			step{1006, activityHook("SubagentStart", `"agent_id":"b","agent_type":"reviewer"`)},
+			step{1007, agentPostToolUse("", "review", `{"status":"teammate_spawned","agentId":"b"}`)},
+			step{1008, activityHook("Stop", one)},
+			step{1009, activityHook("SubagentStop", `"agent_id":"b","agent_type":"reviewer",`+one)},
+			step{1010, activityHook("SubagentStart", `"agent_id":"a","agent_type":"reviewer"`)})
+
+		got := *posts
+		want := []capturedPost{
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"b","parent_id":null,"name":"reviewer","description":"review","started_ts":1006,"kind":"teammate"}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"b","parent_id":null,"name":"reviewer","description":"review","started_ts":1009,"kind":"teammate","state":"standing_by"}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"b","parent_id":null,"name":"reviewer","description":"review","started_ts":1009,"kind":"teammate","state":"standing_by"},` +
+				`{"id":"a","parent_id":null,"name":"reviewer","description":"","started_ts":1010,"kind":"subagent"}],"waits":[]}`),
+		}
+		if len(got) < len(want) || !reflect.DeepEqual(got[len(got)-len(want):], want) {
+			t.Errorf("sent\n  %+v\nwant the last to be\n  %+v", got, want)
+		}
+	})
+
+	t.Run("with one live teammate task for a description and two standing-by teammates with it, the newer one is listed and the older one forgotten", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+		one := `"background_tasks":[{"id":"t1","type":"teammate","status":"running","description":"review"}],"session_crons":[]`
+
+		drive(t, cfg, srv.Client(),
+			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
+			step{1001, agentPreToolUse("", "review")},
+			step{1002, activityHook("SubagentStart", `"agent_id":"a","agent_type":"reviewer"`)},
+			step{1003, agentPostToolUse("", "review", `{"status":"teammate_spawned","agentId":"a"}`)},
+			step{1004, agentPreToolUse("", "review")},
+			step{1005, activityHook("SubagentStart", `"agent_id":"b","agent_type":"reviewer"`)},
+			step{1006, agentPostToolUse("", "review", `{"status":"teammate_spawned","agentId":"b"}`)},
+			step{1007, activityHook("SubagentStop", `"agent_id":"b","agent_type":"reviewer","background_tasks":[{"id":"t1","type":"teammate","status":"running","description":"review"},`+
+				`{"id":"t2","type":"teammate","status":"running","description":"review"}],"session_crons":[]`)},
+			step{1008, activityHook("SubagentStop", `"agent_id":"a","agent_type":"reviewer",`+one)})
+
+		got := *posts
+		want := sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"b","parent_id":null,"name":"reviewer","description":"review","started_ts":1007,"kind":"teammate","state":"standing_by"}],"waits":[]}`)
+		if len(got) == 0 || !reflect.DeepEqual(got[len(got)-1], want) {
+			t.Errorf("sent\n  %+v\nwant the last to be\n  %+v", got, want)
+		}
+	})
+
+	t.Run("a teammate whose PostToolUse comes before its start and before its task is listed is still a teammate when it starts", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 
 		drive(t, cfg, srv.Client(),
+			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
+			step{1001, agentPreToolUse("", "review")},
+			step{1002, agentPostToolUse("", "review", `{"status":"teammate_spawned","agentId":"a"}`)},
+			step{1003, activityHook("Stop", `"background_tasks":[],"session_crons":[]`)},
+			step{1004, activityHook("SubagentStart", `"agent_id":"a","agent_type":"reviewer"`)})
+
+		got := *posts
+		want := sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a","parent_id":null,"name":"reviewer","description":"review","started_ts":1004,"kind":"teammate"}],"waits":[]}`)
+		if len(got) == 0 || !reflect.DeepEqual(got[len(got)-1], want) {
+			t.Errorf("sent\n  %+v\nwant the last to be\n  %+v", got, want)
+		}
+	})
+
+	t.Run("a sub-agent that stops to wait on its child keeps the Agent call it just made, so the next child is paired with it", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+		running := `"background_tasks":[{"id":"A","type":"subagent","status":"running","description":"A task"}],"session_crons":[]`
+
+		drive(t, cfg, srv.Client(),
+			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
+			step{1001, agentPreToolUse("", "A task")},
+			step{1002, activityHook("SubagentStart", `"agent_id":"A","agent_type":"general-purpose"`)},
+			step{1003, agentPostToolUse("", "A task", `{"status":"async_launched","agentId":"A"}`)},
+			step{1004, agentPreToolUse("A", "C task")},
+			step{1005, activityHook("SubagentStart", `"agent_id":"C","agent_type":"general-purpose"`)},
+			step{1006, agentPostToolUse("A", "C task", `{"status":"async_launched","agentId":"C"}`)},
+			step{1007, agentPreToolUse("A", "B task")},
+			step{1008, activityHook("SubagentStop", `"agent_id":"A","agent_type":"general-purpose",`+running)},
+			step{1009, activityHook("SubagentStart", `"agent_id":"B","agent_type":"Explore"`)})
+
+		got := *posts
+		want := sent(`{"busy":true,"busy_since":1000,"subagents":[` +
+			`{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002,"kind":"subagent","state":"waiting_for_subagents"},` +
+			`{"id":"C","parent_id":"A","name":"general-purpose","description":"C task","started_ts":1005,"kind":"subagent"},` +
+			`{"id":"B","parent_id":"A","name":"Explore","description":"B task","started_ts":1009,"kind":"subagent"}],"waits":[]}`)
+		if len(got) == 0 || !reflect.DeepEqual(got[len(got)-1], want) {
+			t.Errorf("sent\n  %+v\nwant the last to be\n  %+v", got, want)
+		}
+	})
+
+	t.Run("an Agent call a teammate made that never started is dropped when the teammate stops, so the main agent's next sub-agent is not paired with it", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+		review := `"background_tasks":[{"id":"t1","type":"teammate","status":"running","description":"review"}],"session_crons":[]`
+
+		drive(t, cfg, srv.Client(),
+			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
+			step{1001, agentPreToolUse("", "review")},
+			step{1002, activityHook("SubagentStart", `"agent_id":"tm","agent_type":"reviewer"`)},
+			step{1003, agentPostToolUse("", "review", `{"status":"teammate_spawned","agentId":"tm"}`)},
+			step{1004, agentPreToolUse("tm", "denied call")},
+			step{1005, activityHook("Stop", review)},
+			step{1006, activityHook("SubagentStop", `"agent_id":"tm","agent_type":"reviewer",`+review)},
+			step{1010, activityHook("UserPromptSubmit", `"prompt":"next"`)},
+			step{1011, agentPreToolUse("", "main task")},
+			step{1012, activityHook("SubagentStart", `"agent_id":"m","agent_type":"Explore"`)})
+
+		got := *posts
+		want := sent(`{"busy":true,"busy_since":1010,"main_state":"waiting_for_subagents","subagents":[` +
+			`{"id":"tm","parent_id":null,"name":"reviewer","description":"review","started_ts":1006,"kind":"teammate","state":"standing_by"},` +
+			`{"id":"m","parent_id":null,"name":"Explore","description":"main task","started_ts":1012,"kind":"subagent"}],"waits":[]}`)
+		if len(got) == 0 || !reflect.DeepEqual(got[len(got)-1], want) {
+			t.Errorf("sent\n  %+v\nwant the last to be\n  %+v", got, want)
+		}
+	})
+
+	t.Run("a foreground sub-agent takes the oldest pending Agent call, the main agent reads as waiting while it runs, and its late PostToolUse sends nothing", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+
+		drive(t, cfg, srv.Client(),
+			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
 			step{1001, agentPreToolUse("", "first")},
 			step{1002, agentPreToolUse("", "second")},
 			step{1003, activityHook("SubagentStart", `"agent_id":"f1","agent_type":"Plan"`)},
@@ -357,14 +553,15 @@ func TestCmdActivityReport(t *testing.T) {
 			step{1005, agentPostToolUse("", "first", `{"status":"completed","agentId":"f1","content":[{"type":"text","text":"done"}]}`)})
 
 		want := []capturedPost{
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"f1","parent_id":null,"name":"Plan","description":"first","started_ts":1003}],"waits":[]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"main_state":"waiting_for_subagents","subagents":[{"id":"f1","parent_id":null,"name":"Plan","description":"first","started_ts":1003,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
-		if got, want := readFileString(t, statePath(cfg)), `{"busy":false,"busy_since":null,"subagents":[],"waits":[],`+
-			`"stopped":{"f1":true},"spawns":{"f1":{"parent_id":null,"description":"first"}},`+
+		if got, want := readFileString(t, statePath(cfg)), `{"busy":true,"busy_since":1000,"subagents":[],"waits":[],`+
+			`"stopped":{"f1":true},"spawns":{"f1":{"parent_id":null,"description":"first","name":"Plan","spawned_ts":1005}},`+
 			`"pending":[{"parent_id":null,"description":"second"}]}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
 		}
@@ -381,11 +578,11 @@ func TestCmdActivityReport(t *testing.T) {
 			step{1004, activityHook("SubagentStart", `"agent_id":"b2","agent_type":"Explore"`)},
 			step{1005, activityHook("SubagentStart", `"agent_id":"c3","agent_type":"Plan"`)})
 
-		b2 := `{"id":"b2","parent_id":"a1","name":"Explore","description":"deep dive","started_ts":1004}`
+		b2 := `{"id":"b2","parent_id":"a1","name":"Explore","description":"deep dive","started_ts":1004,"kind":"subagent"}`
 		want := []capturedPost{
 			sent(`{"busy":false,"busy_since":null,"subagents":[` + b2 + `],"waits":[]}`),
 			sent(`{"busy":false,"busy_since":null,"subagents":[` + b2 + `,` +
-				`{"id":"c3","parent_id":null,"name":"Plan","description":"other","started_ts":1005}],"waits":[]}`),
+				`{"id":"c3","parent_id":null,"name":"Plan","description":"other","started_ts":1005,"kind":"subagent"}],"waits":[]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
@@ -406,9 +603,9 @@ func TestCmdActivityReport(t *testing.T) {
 			step{1011, activityHook("SubagentStart", `"agent_id":"z9","agent_type":"Plan"`)})
 
 		want := []capturedPost{
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1010}],"waits":[]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1010},` +
-				`{"id":"z9","parent_id":null,"name":"Plan","description":"","started_ts":1011}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1010,"kind":"subagent"}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1010,"kind":"subagent"},` +
+				`{"id":"z9","parent_id":null,"name":"Plan","description":"","started_ts":1011,"kind":"subagent"}],"waits":[]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
@@ -430,7 +627,7 @@ func TestCmdActivityReport(t *testing.T) {
 			step{1003, activityHook("SubagentStart", `"agent_id":"a1","agent_type":"Explore"`)})
 
 		if got, want := (*posts)[1], sent(`{"busy":false,"busy_since":null,`+
-			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1003}],"waits":[]}`); got != want {
+			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1003,"kind":"subagent"}],"waits":[]}`); got != want {
 			t.Errorf("sent %+v, want %+v", got, want)
 		}
 	})
@@ -492,18 +689,18 @@ func TestCmdActivityReport(t *testing.T) {
 			`{"id":"e1","type":"","status":"running","description":"untyped"}],`+
 			`"session_crons":[{"id":"c1","schedule":"*/5 * * * *","recurring":true,"prompt":"check CI"}]`)})
 
-		agents := `{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001},` +
-			`{"id":"never-started","parent_id":null,"name":"unknown","description":"unseen","started_ts":1010},` +
-			`{"id":"typed-unseen","parent_id":null,"name":"Explore","description":"unseen explore","started_ts":1010}`
-		working := `{"id":"t1","parent_id":null,"name":"teammate","description":"review the PR","started_ts":1010},` +
-			`{"id":"w1","parent_id":null,"name":"workflow","description":"release workflow","started_ts":1010},` +
-			`{"id":"w2","parent_id":null,"name":"workflow","description":"nightly","started_ts":1010},` +
-			`{"id":"r1","parent_id":null,"name":"cloud session","description":"ultrareview of #750","started_ts":1010},` +
-			`{"id":"d1","parent_id":null,"name":"dream","description":"consolidating memory","started_ts":1010},` +
-			`{"id":"x1","parent_id":null,"name":"auto-mode scan","description":"scanning the transcript","started_ts":1010},` +
-			`{"id":"n1","parent_id":null,"name":"hologram","description":"a task type from a later Claude Code","started_ts":1010},` +
-			`{"id":"n2","parent_id":null,"name":"a task type whose name runs well past forty characters","description":"long type","started_ts":1010},` +
-			`{"id":"e1","parent_id":null,"name":"unknown","description":"untyped","started_ts":1010}`
+		a1 := `{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001`
+		unseen := `{"id":"never-started","parent_id":null,"name":"unknown","description":"unseen","started_ts":1010,"kind":"subagent"},` +
+			`{"id":"typed-unseen","parent_id":null,"name":"Explore","description":"unseen explore","started_ts":1010,"kind":"subagent"}`
+		working := `{"id":"t1","parent_id":null,"name":"teammate","description":"review the PR","started_ts":1010,"kind":"teammate"},` +
+			`{"id":"w1","parent_id":null,"name":"workflow","description":"release workflow","started_ts":1010,"kind":"workflow"},` +
+			`{"id":"w2","parent_id":null,"name":"workflow","description":"nightly","started_ts":1010,"kind":"workflow"},` +
+			`{"id":"r1","parent_id":null,"name":"cloud session","description":"ultrareview of #750","started_ts":1010,"kind":"cloud session"},` +
+			`{"id":"d1","parent_id":null,"name":"dream","description":"consolidating memory","started_ts":1010,"kind":"dream"},` +
+			`{"id":"x1","parent_id":null,"name":"auto-mode scan","description":"scanning the transcript","started_ts":1010,"kind":"auto-mode scan"},` +
+			`{"id":"n1","parent_id":null,"name":"hologram","description":"a task type from a later Claude Code","started_ts":1010,"kind":"hologram"},` +
+			`{"id":"n2","parent_id":null,"name":"a task type whose name runs well past forty characters","description":"long type","started_ts":1010,"kind":"a task type whose name runs well past forty characters"},` +
+			`{"id":"e1","parent_id":null,"name":"unknown","description":"untyped","started_ts":1010,"kind":"unknown"}`
 		waits := `"waits":[{"kind":"shell","description":"npm test","next_ts":null,"recurring":false},` +
 			`{"kind":"monitor","description":"watch the deploy log","next_ts":null,"recurring":false},` +
 			`{"kind":"monitor","description":"watch the queue","next_ts":null,"recurring":false},` +
@@ -513,11 +710,11 @@ func TestCmdActivityReport(t *testing.T) {
 			`{"kind":"MCP task","description":"docs·export","next_ts":null,"recurring":false},` +
 			`{"kind":"code","description":"local script","next_ts":null,"recurring":false},` +
 			`{"kind":"schedule","description":"check CI","next_ts":1200,"recurring":true}]`
-		want := []capturedPost{sent(`{"busy":false,"busy_since":null,"subagents":[` + agents + `,` + working + `],` + waits + `}`)}
+		want := []capturedPost{sent(`{"busy":false,"busy_since":null,"subagents":[` + a1 + `,"kind":"subagent"},` + unseen + `,` + working + `],` + waits + `}`)}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
-		if got, want := readFileString(t, statePath(cfg)), `{"busy":false,"busy_since":null,"subagents":[`+agents+`],`+
+		if got, want := readFileString(t, statePath(cfg)), `{"busy":false,"busy_since":null,"subagents":[`+a1+`},`+unseen+`],`+
 			waits+`,"stopped":{"a1-child":true,"gone":true},"working":[`+working+`]}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
 		}
@@ -609,7 +806,7 @@ func TestCmdActivityReport(t *testing.T) {
 			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
 			step{1010, activityHook("SubagentStart", `"agent_id":"a1","agent_type":"Explore"`)})
 		if got, want := readFileString(t, statePath(cfg)), `{"busy":true,"busy_since":1000,`+
-			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1010}],"waits":[],"unsent":true}`+"\n"; got != want {
+			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1010,"kind":"subagent"}],"waits":[],"unsent":true}`+"\n"; got != want {
 			t.Errorf("state file after the skipped report = %q, want %q", got, want)
 		}
 		client.err, client.status, client.body = nil, 200, `{}`
@@ -718,7 +915,7 @@ func TestCmdActivityReport(t *testing.T) {
 		<-hookDone
 
 		want := []capturedPost{sent(`{"busy":true,"busy_since":999,` +
-			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1010}],"waits":[]}`)}
+			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1010,"kind":"subagent"}],"waits":[]}`)}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
@@ -773,9 +970,9 @@ func TestNewActivityBody(t *testing.T) {
 		state := activityState{Busy: true, BusySince: ptrFloat(1)}
 		for i := 0; i < 52; i++ {
 			state.Subagents = append(state.Subagents, activitySubagent{
-				ID: strings.Repeat("i", 81), ParentID: ptrString(strings.Repeat("p", 81)), Name: strings.Repeat("名", 81), Description: strings.Repeat("述", 201), StartedTs: float64(100 - i),
+				ID: strings.Repeat("i", 81), ParentID: ptrString(strings.Repeat("p", 81)), Name: strings.Repeat("名", 81), Description: strings.Repeat("述", 201), StartedTs: float64(100 - i), Kind: strings.Repeat("種", 81),
 			})
-			state.Waits = append(state.Waits, activityWait{Kind: "schedule", Description: strings.Repeat("w", 201), NextTs: ptrFloat(7), Recurring: true})
+			state.Waits = append(state.Waits, activityWait{Kind: strings.Repeat("k", 81), Description: strings.Repeat("w", 201), NextTs: ptrFloat(7), Recurring: true})
 		}
 
 		got := newActivityBody(state)
@@ -783,12 +980,12 @@ func TestNewActivityBody(t *testing.T) {
 		var wantSubs []activitySubagentBody
 		for i := 0; i < 50; i++ {
 			wantSubs = append(wantSubs, activitySubagentBody{
-				ID: strings.Repeat("i", 80), ParentID: ptrString(strings.Repeat("p", 80)), Name: strings.Repeat("名", 80), Description: strings.Repeat("述", 200), StartedTs: float64(49 + i),
+				ID: strings.Repeat("i", 80), ParentID: ptrString(strings.Repeat("p", 80)), Name: strings.Repeat("名", 80), Description: strings.Repeat("述", 200), StartedTs: float64(49 + i), Kind: strings.Repeat("種", 80),
 			})
 		}
 		var wantWaits []activityWait
 		for i := 0; i < 50; i++ {
-			wantWaits = append(wantWaits, activityWait{Kind: "schedule", Description: strings.Repeat("w", 200), NextTs: ptrFloat(7), Recurring: true})
+			wantWaits = append(wantWaits, activityWait{Kind: strings.Repeat("k", 80), Description: strings.Repeat("w", 200), NextTs: ptrFloat(7), Recurring: true})
 		}
 		want := activityBody{Busy: true, BusySince: ptrFloat(1), Subagents: wantSubs, Waits: wantWaits}
 		if !reflect.DeepEqual(got, want) {
@@ -809,7 +1006,7 @@ func TestReannounceActivity(t *testing.T) {
 		reannounceActivity(srv.Client(), cfg, 2000)
 
 		want := []capturedPost{{path: "/api/agent/activity", auth: "Bearer t", body: `{"busy":false,"busy_since":null,` +
-			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1001}],` +
+			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1001,"kind":"subagent"}],` +
 			`"waits":[{"kind":"shell","description":"npm test","next_ts":null,"recurring":false}]}`}}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)

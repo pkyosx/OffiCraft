@@ -285,12 +285,15 @@ export function toMemberActivity(
   return {
     state: w.state,
     busySince: w.busy_since ?? null,
+    mainState: w.main_state ?? "idle",
     subagents: (w.subagents ?? []).map((s) => ({
       id: s.id,
       parentId: s.parent_id ?? null,
       name: s.name,
       description: s.description ?? "",
       startedTs: s.started_ts,
+      kind: s.kind ?? "",
+      state: s.state ?? "working",
     })),
     waits: (w.waits ?? []).map((x) => ({
       kind: x.kind,

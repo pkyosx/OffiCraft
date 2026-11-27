@@ -2402,7 +2402,7 @@ func activitySubagentItem(id, name string, started float64) map[string]any {
 }
 
 func activityChildItem(id string, parent any, name string, started float64) map[string]any {
-	return map[string]any{"id": id, "parent_id": parent, "name": name, "description": "", "started_ts": started}
+	return map[string]any{"id": id, "parent_id": parent, "name": name, "description": "", "started_ts": started, "kind": "subagent"}
 }
 
 func TestCodexSessionTrackActivity(t *testing.T) {

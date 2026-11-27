@@ -169,10 +169,11 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 		apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, `{
-			"busy": true, "busy_since": 1000,
+			"busy": true, "busy_since": 1000, "main_state": "waiting_for_subagents",
 			"subagents": [
 				{"id": "a-2", "parent_id": "a-1", "name": "general-purpose", "started_ts": 1300},
-				{"id": "a-1", "name": "Explore", "description": "find the route table", "started_ts": 1200}
+				{"id": "a-1", "name": "Explore", "description": "find the route table", "started_ts": 1200, "kind": "teammate", "state": "waiting_for_subagents"},
+				{"id": "a-3", "name": "impl", "description": "implement phase 1", "started_ts": 1400, "kind": "teammate", "state": "standing_by"}
 			],
 			"waits": [
 				{"kind": "schedule", "description": "check CI", "next_ts": 1900, "recurring": true},
@@ -195,10 +196,11 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 		apiWantBody(t, data, apiTestOnlineKipRow(map[string]any{
 			"activity": map[string]any{
 				"state":      "busy",
-				"busy_since": 1000,
+				"busy_since": 1000, "main_state": "waiting_for_subagents",
 				"subagents": []any{
-					map[string]any{"id": "a-1", "parent_id": nil, "name": "Explore", "description": "find the route table", "started_ts": 1200},
-					map[string]any{"id": "a-2", "parent_id": "a-1", "name": "general-purpose", "description": "", "started_ts": 1300},
+					map[string]any{"id": "a-1", "parent_id": nil, "name": "Explore", "description": "find the route table", "started_ts": 1200, "kind": "teammate", "state": "waiting_for_subagents"},
+					map[string]any{"id": "a-2", "parent_id": "a-1", "name": "general-purpose", "description": "", "started_ts": 1300, "kind": "", "state": "working"},
+					map[string]any{"id": "a-3", "parent_id": nil, "name": "impl", "description": "implement phase 1", "started_ts": 1400, "kind": "teammate", "state": "standing_by"},
 				},
 				"waits": []any{
 					map[string]any{"kind": "schedule", "description": "check CI", "next_ts": 1900, "recurring": true},
@@ -218,11 +220,38 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 		want       map[string]any
 	}{
 		{
-			name: "only sub-agents running reads busy with no busy_since",
-			body: `{"busy": false, "busy_since": 900, "subagents": [{"id": "a-1", "name": "Explore", "started_ts": 1200}]}`,
+			name: "only sub-agents running reads busy with no busy_since and the main agent not waiting",
+			body: `{"busy": false, "busy_since": 900, "main_state": "waiting_for_subagents", "subagents": [{"id": "a-1", "name": "Explore", "started_ts": 1200}]}`,
 			want: map[string]any{
-				"state": "busy", "busy_since": nil,
-				"subagents": []any{map[string]any{"id": "a-1", "parent_id": nil, "name": "Explore", "description": "", "started_ts": 1200}},
+				"state": "busy", "busy_since": nil, "main_state": "idle",
+				"subagents": []any{map[string]any{"id": "a-1", "parent_id": nil, "name": "Explore", "description": "", "started_ts": 1200, "kind": "", "state": "working"}},
+				"waits":     []any{},
+			},
+		},
+		{
+			name: "only agents standing by and a wait reads waiting",
+			body: `{"busy": false, "subagents": [{"id": "a-1", "name": "impl", "started_ts": 1200, "kind": "teammate", "state": "standing_by"}], "waits": [{"kind": "shell", "description": "npm test"}]}`,
+			want: map[string]any{
+				"state": "waiting", "busy_since": nil, "main_state": "idle",
+				"subagents": []any{map[string]any{"id": "a-1", "parent_id": nil, "name": "impl", "description": "", "started_ts": 1200, "kind": "teammate", "state": "standing_by"}},
+				"waits":     []any{map[string]any{"kind": "shell", "description": "npm test", "next_ts": nil, "recurring": false}},
+			},
+		},
+		{
+			name: "an entry and a main agent in states no reader knows are kept as sent and read busy",
+			body: `{"busy": true, "busy_since": 1000, "main_state": "a later main state", "subagents": [{"id": "a-1", "name": "impl", "started_ts": 1200, "state": "a later state"}]}`,
+			want: map[string]any{
+				"state": "busy", "busy_since": 1000, "main_state": "a later main state",
+				"subagents": []any{map[string]any{"id": "a-1", "parent_id": nil, "name": "impl", "description": "", "started_ts": 1200, "kind": "", "state": "a later state"}},
+				"waits":     []any{},
+			},
+		},
+		{
+			name: "only agents standing by reads idle",
+			body: `{"busy": false, "subagents": [{"id": "a-1", "name": "impl", "started_ts": 1200, "kind": "teammate", "state": "standing_by"}]}`,
+			want: map[string]any{
+				"state": "idle", "busy_since": nil, "main_state": "idle",
+				"subagents": []any{map[string]any{"id": "a-1", "parent_id": nil, "name": "impl", "description": "", "started_ts": 1200, "kind": "teammate", "state": "standing_by"}},
 				"waits":     []any{},
 			},
 		},
@@ -230,7 +259,7 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			name: "nothing running but a wait reads waiting",
 			body: `{"busy": false, "subagents": [], "waits": [{"kind": "shell", "description": "npm test"}]}`,
 			want: map[string]any{
-				"state": "waiting", "busy_since": nil, "subagents": []any{},
+				"state": "waiting", "busy_since": nil, "main_state": "idle", "subagents": []any{},
 				"waits": []any{map[string]any{"kind": "shell", "description": "npm test", "next_ts": nil, "recurring": false}},
 			},
 		},
@@ -238,7 +267,7 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			name: "nothing running and nothing waited on reads idle",
 			body: `{"busy": false, "subagents": []}`,
 			want: map[string]any{
-				"state": "idle", "busy_since": nil, "subagents": []any{}, "waits": []any{},
+				"state": "idle", "busy_since": nil, "main_state": "idle", "subagents": []any{}, "waits": []any{},
 			},
 		},
 	} {
@@ -284,7 +313,7 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			t.Fatalf("read back: want 200, got %d (%v)", status, data)
 		}
 		apiWantValue(t, "activity", data["activity"], any(map[string]any{
-			"state": "busy", "busy_since": firstTS, "subagents": []any{},
+			"state": "busy", "busy_since": firstTS, "main_state": "working", "subagents": []any{},
 			"waits": []any{map[string]any{"kind": "schedule", "description": "", "next_ts": nil, "recurring": false}},
 			"ts":    secondTS,
 		}))
@@ -300,7 +329,7 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			t.Fatalf("read back: want 200, got %d (%v)", status, data)
 		}
 		apiWantValue(t, "activity once the start is reported", data["activity"], any(map[string]any{
-			"state": "busy", "busy_since": 5000, "subagents": []any{}, "waits": []any{}, "ts": thirdTS,
+			"state": "busy", "busy_since": 5000, "main_state": "working", "subagents": []any{}, "waits": []any{}, "ts": thirdTS,
 		}))
 	})
 
@@ -324,7 +353,7 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			t.Fatalf("read back: want 200, got %d (%v)", status, data)
 		}
 		apiWantValue(t, "activity", data["activity"], any(map[string]any{
-			"state": "busy", "busy_since": turnTS, "subagents": []any{}, "waits": []any{}, "ts": turnTS,
+			"state": "busy", "busy_since": turnTS, "main_state": "working", "subagents": []any{}, "waits": []any{}, "ts": turnTS,
 		}))
 	})
 
@@ -351,7 +380,7 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 		}
 		apiWantValue(t, "presence", data["presence"], any("online"))
 		apiWantValue(t, "activity", data["activity"], any(map[string]any{
-			"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": receiptTS,
+			"state": "busy", "busy_since": 1000, "main_state": "working", "subagents": []any{}, "waits": []any{}, "ts": receiptTS,
 		}))
 	})
 
@@ -426,7 +455,7 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			t.Fatalf("read back: want 200, got %d (%v)", status, data)
 		}
 		apiWantValue(t, "activity", data["activity"], any(map[string]any{
-			"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": newerTS,
+			"state": "busy", "busy_since": 1000, "main_state": "working", "subagents": []any{}, "waits": []any{}, "ts": newerTS,
 		}))
 	})
 

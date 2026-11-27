@@ -42,6 +42,10 @@ export interface ActivitySubagent {
   description: string;
   /** Epoch seconds, by the member machine's clock. */
   startedTs: number;
+  /** The runtime's name for what this is (「subagent」, 「teammate」, 「workflow」, …); "" when not sent. */
+  kind?: string;
+  /** 「working」, 「waiting_for_subagents」, 「standing_by」, or a later runtime's value, shown as working. */
+  state?: string;
 }
 
 export interface ActivityWait {
@@ -59,6 +63,8 @@ export interface MemberActivity {
   /** Epoch seconds the main agent's current turn started; null while the main
    * agent is not in a turn. */
   busySince: number | null;
+  /** 「idle」 outside a turn; in one 「working」, 「waiting_for_subagents」 or a later runtime's value. */
+  mainState?: string;
   subagents: ActivitySubagent[];
   waits: ActivityWait[];
 }

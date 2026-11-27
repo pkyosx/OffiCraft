@@ -85,6 +85,9 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "memberActivitySummary", [act({ busySince: T - 180, waits: [WAIT_BG] })], "主代理工作中，正在等 1 個背景檢查或排程"],
     ["en", "memberActivitySummary", [act({ busySince: T - 180, waits: [WAIT_BG] })], "Main agent working, waiting on 1 background check or schedule"],
     ["zh", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2) })], "2 個子代理工作中"],
+    ["zh", "memberActivitySummary", [act({ busySince: T - 180, subagents: [SUBS_4[0], { ...SUBS_4[1], state: "standing_by" }] })], "主代理工作中，另有 1 個子代理工作中"],
+    ["en", "memberActivitySummary", [act({ subagents: [{ ...SUBS_4[0], state: "standing_by" }], waits: [WAIT_BG] })], "Waiting on 1 background check or schedule"],
+    ["zh", "memberActivitySummary", [act({ state: "idle", subagents: [{ ...SUBS_4[0], state: "standing_by" }] })], "閒置"],
     ["en", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2) })], "2 sub-agents working"],
     ["en", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 1) })], "1 sub-agent working"],
     ["zh", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 1) })], "1 個子代理工作中"],
@@ -99,21 +102,23 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "memberActivityDuration", [T - 40, T], "40 秒"],
     ["zh", "memberActivityDuration", [T - 125, T], "2 分鐘"],
     ["en", "memberActivityDuration", [T - 40, T], "40 sec"],
-    ["zh", "memberActivityWaitTag", [WAIT_BG, NOW], "shell"],
-    ["en", "memberActivityWaitTag", [WAIT_BG, NOW], "shell"],
-    ["zh", "memberActivityWaitTag", [WAIT_MON, NOW], "monitor"],
-    ["zh", "memberActivityWaitTag", [waitOf("MCP task"), NOW], "MCP task"],
-    ["zh", "memberActivityWaitTag", [waitOf("constructor"), NOW], "constructor"],
-    ["zh", "memberActivityWaitTag", [cron(NEXT, false), NOW], "排程 · 下次 12:15"],
-    ["zh", "memberActivityWaitTag", [cron(NEXT, true), NOW], "排程 · 下次 12:15 · 重複"],
-    ["zh", "memberActivityWaitTag", [cron(at(2026, 10, 4, 23, 59), false), NOW], "排程 · 下次 23:59"],
-    ["zh", "memberActivityWaitTag", [cron(at(2026, 10, 5, 0, 0), false), NOW], "排程 · 下次 10/5 00:00"],
-    ["zh", "memberActivityWaitTag", [cron(at(2026, 10, 11, 9, 5), true), NOW], "排程 · 下次 10/11 09:05 · 重複"],
-    ["zh", "memberActivityWaitTag", [cron(at(2027, 1, 2, 9, 5), true), NOW], "排程 · 下次 2027/1/2 09:05 · 重複"],
-    ["zh", "memberActivityWaitTag", [cron(null, false), NOW], "排程"],
-    ["zh", "memberActivityWaitTag", [cron(null, true), NOW], "排程 · 重複"],
-    ["en", "memberActivityWaitTag", [cron(NEXT, true), NOW], "schedule · next 12:15 · repeats"],
-    ["en", "memberActivityWaitTag", [cron(at(2026, 10, 5, 9, 5), true), NOW], "schedule · next 10/5 09:05 · repeats"],
+    ["zh", "memberActivityWaitKind", [WAIT_BG], "shell"],
+    ["en", "memberActivityWaitKind", [WAIT_BG], "shell"],
+    ["zh", "memberActivityWaitKind", [WAIT_MON], "monitor"],
+    ["zh", "memberActivityWaitKind", [waitOf("MCP task")], "MCP task"],
+    ["zh", "memberActivityWaitKind", [cron(NEXT, true)], "排程"],
+    ["en", "memberActivityWaitKind", [cron(NEXT, true)], "schedule"],
+    ["zh", "memberActivityWaitWhen", [WAIT_BG, NOW], ""],
+    ["zh", "memberActivityWaitWhen", [cron(null, false), NOW], ""],
+    ["zh", "memberActivityWaitWhen", [cron(NEXT, false), NOW], "下次 12:15"],
+    ["zh", "memberActivityWaitWhen", [cron(NEXT, true), NOW], "下次 12:15 · 重複"],
+    ["zh", "memberActivityWaitWhen", [cron(at(2026, 10, 4, 23, 59), false), NOW], "下次 23:59"],
+    ["zh", "memberActivityWaitWhen", [cron(at(2026, 10, 5, 0, 0), false), NOW], "下次 10/5 00:00"],
+    ["zh", "memberActivityWaitWhen", [cron(at(2026, 10, 11, 9, 5), true), NOW], "下次 10/11 09:05 · 重複"],
+    ["zh", "memberActivityWaitWhen", [cron(at(2027, 1, 2, 9, 5), true), NOW], "下次 2027/1/2 09:05 · 重複"],
+    ["zh", "memberActivityWaitWhen", [cron(null, true), NOW], "重複"],
+    ["en", "memberActivityWaitWhen", [cron(NEXT, true), NOW], "next 12:15 · repeats"],
+    ["en", "memberActivityWaitWhen", [cron(at(2026, 10, 5, 9, 5), true), NOW], "next 10/5 09:05 · repeats"],
     ["en", "memberActivitySummary", [act({ state: "idle" })], "Idle"],
     // The 429 credential brake. Pinned in BOTH languages because the space
     // after the number is language-specific and is the opposite of `sp`: zh
@@ -632,7 +637,8 @@ describe("makeMessages", () => {
     );
     expect(m.memberActivitySince(T - 180, T)).toBe("已過 3 刻");
     expect(m.memberActivityDuration(T - 120, T)).toBe("2 刻");
-    expect(m.memberActivityWaitTag(cron(NEXT, true), NOW)).toBe("排程鐘聲 · 下次鐘響 12:15 · 輪迴");
+    expect(m.memberActivityWaitKind(cron(NEXT, true))).toBe("排程鐘聲");
+    expect(m.memberActivityWaitWhen(cron(NEXT, true), NOW)).toBe("下次鐘響 12:15 · 輪迴");
   });
 
   it("names the monitor's own labels in the sign-in hint, so re-wording them reaches it", () => {

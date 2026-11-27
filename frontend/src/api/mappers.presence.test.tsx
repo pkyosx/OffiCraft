@@ -227,9 +227,11 @@ describe("toMemberActivity", () => {
     const wire: WireMember["activity"] = {
       state: "busy",
       busy_since: 1_700_000_000,
+      main_state: "waiting_for_subagents",
       subagents: [
-        { id: "a1", parent_id: null, name: "Explore", description: "掃描程式碼", started_ts: 1_700_000_100 },
-        { id: "a2", parent_id: "a1", name: "Plan", description: "", started_ts: 1_700_000_150 },
+        { id: "a1", parent_id: null, name: "impl", description: "掃描程式碼", started_ts: 1_700_000_100, kind: "teammate", state: "waiting_for_subagents" },
+        { id: "a2", parent_id: "a1", name: "Plan", description: "", started_ts: 1_700_000_150, kind: "", state: "working" },
+        { id: "a3", parent_id: null, name: "impl2", description: "", started_ts: 1_700_000_200, kind: "teammate", state: "standing_by" },
       ],
       waits: [
         { kind: "shell", description: "npm test", next_ts: null, recurring: false },
@@ -240,9 +242,11 @@ describe("toMemberActivity", () => {
     const want = {
       state: "busy",
       busySince: 1_700_000_000,
+      mainState: "waiting_for_subagents",
       subagents: [
-        { id: "a1", parentId: null, name: "Explore", description: "掃描程式碼", startedTs: 1_700_000_100 },
-        { id: "a2", parentId: "a1", name: "Plan", description: "", startedTs: 1_700_000_150 },
+        { id: "a1", parentId: null, name: "impl", description: "掃描程式碼", startedTs: 1_700_000_100, kind: "teammate", state: "waiting_for_subagents" },
+        { id: "a2", parentId: "a1", name: "Plan", description: "", startedTs: 1_700_000_150, kind: "", state: "working" },
+        { id: "a3", parentId: null, name: "impl2", description: "", startedTs: 1_700_000_200, kind: "teammate", state: "standing_by" },
       ],
       waits: [
         { kind: "shell", description: "npm test", nextTs: null, recurring: false },
@@ -269,7 +273,8 @@ describe("toMemberActivity", () => {
         activity: {
           state: "busy",
           busy_since: null,
-          subagents: [{ id: "p", parent_id: null, name: "Plan", description: "", started_ts: 5 }],
+          main_state: "idle",
+          subagents: [{ id: "p", parent_id: null, name: "Plan", description: "", started_ts: 5, kind: "", state: "working" }],
           waits: [],
           ts: 6,
         },

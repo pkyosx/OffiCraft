@@ -770,7 +770,10 @@ type AgentActivityIngestDTO struct {
 	// BusySince Epoch seconds the main agent's current turn started, by the reporting machine's clock. Ignored when ``busy`` is false; when omitted under ``busy`` the station dates the turn by its first report.
 	BusySince *float64 `json:"busy_since,omitempty"`
 
-	// Subagents Every sub-agent running right now, all nesting levels together, plus every other agent or background task the runtime reports that does not only wait on a program (a Claude Code ``workflow``, ``cloud session``, a type no reader knows yet, …).
+	// MainState What the main agent is doing in its open turn: ``working``, or ``waiting_for_subagents`` (not working itself, waiting for a sub-agent it started in the foreground to finish). Ignored when ``busy`` is false. Not checked: a value no reader knows is stored as sent and shown as working; empty reads as ``working``.
+	MainState *string `json:"main_state,omitempty"`
+
+	// Subagents Every sub-agent running right now, all nesting levels together, plus every other agent or background task the runtime reports that does not only wait on a program (a Claude Code ``workflow``, ``cloud session``, a type no reader knows yet, …), and every agent standing by (``state`` ``standing_by``).
 	Subagents []AgentActivitySubagentDTO `json:"subagents"`
 
 	// Waits What the session is waiting on that will wake it again: background tasks that only run a program (Claude Code's ``shell``, ``monitor``, ``MCP task``, ``code``; a Codex background terminal) and scheduled prompts. Empty when the runtime does not expose them.
@@ -794,6 +797,9 @@ type AgentActivitySubagentDTO struct {
 	// Id The runtime's id for this sub-agent (Claude Code agent_id, Codex thread id); unique within the report.
 	Id string `json:"id"`
 
+	// Kind The runtime's own name for what this entry is (Claude Code's ``subagent``, ``teammate``, ``workflow``, …; ``subagent`` for a Codex thread). Not checked, and shown as sent; empty when the reporter does not say.
+	Kind *string `json:"kind,omitempty"`
+
 	// Name The sub-agent's type (Claude Code, e.g. ``Explore``), the name its parent gave it (Codex), or for a background task the runtime's name for its type; ``unknown`` when the runtime gives none.
 	Name string `json:"name"`
 
@@ -802,6 +808,9 @@ type AgentActivitySubagentDTO struct {
 
 	// StartedTs Epoch seconds it started, by the reporting machine's clock.
 	StartedTs float64 `json:"started_ts"`
+
+	// State What this entry is doing: ``working``; ``waiting_for_subagents`` (not working itself, waiting for a sub-agent it started to finish); or ``standing_by`` (finished its work and waits to be messaged again, a Claude Code ``teammate`` on standby; ``started_ts`` is then when it was first seen standing by). Every state but ``standing_by`` counts toward the member's ``busy``. Not checked: a value no reader knows is stored as sent, shown as working and counted as busy; empty reads as ``working``.
+	State *string `json:"state,omitempty"`
 }
 
 // AgentActivityWaitDTO One thing a session is waiting on. Shown to the owner as it is sent.
@@ -2480,13 +2489,16 @@ type MemberActivateReceiptDTO struct {
 	LastOpReason *string `json:"last_op_reason,omitempty"`
 }
 
-// MemberActivityDTO A member session's working state, derived from its latest activity report: “busy“ while the main agent is handling a turn or any sub-agent (every nesting level counted) is running; “waiting“ when neither is running but the session is waiting on background tasks or scheduled prompts that will wake it; “idle“ otherwise.
+// MemberActivityDTO A member session's working state, derived from its latest activity report: “busy“ while the main agent is handling a turn or any sub-agent (every nesting level counted) whose “state“ is not “standing_by“ is listed; “waiting“ when neither is running but the session is waiting on background tasks or scheduled prompts that will wake it; “idle“ otherwise.
 type MemberActivityDTO struct {
 	// BusySince Epoch seconds the main agent's current turn started: the reporter's clock, or the station's (the turn's first report) when the reporter sent none. Null exactly when the main agent is not handling a turn, which under ``busy`` means only sub-agents are running.
-	BusySince *float64               `json:"busy_since,omitempty"`
+	BusySince *float64 `json:"busy_since,omitempty"`
+
+	// MainState ``idle`` while the main agent is not in a turn (``busy_since`` null); otherwise the reported ``main_state``, ``working`` when none was sent.
+	MainState *string                `json:"main_state,omitempty"`
 	State     MemberActivityDTOState `json:"state"`
 
-	// Subagents Every sub-agent running right now, all nesting levels together, plus every other agent or background task the runtime reports that does not only wait on a program (a Claude Code ``workflow``, ``cloud session``, a type no reader knows yet, …).
+	// Subagents Every sub-agent running right now, all nesting levels together, plus every other agent or background task the runtime reports that does not only wait on a program (a Claude Code ``workflow``, ``cloud session``, a type no reader knows yet, …), and every agent standing by (``state`` ``standing_by``).
 	Subagents []AgentActivitySubagentDTO `json:"subagents"`
 
 	// Ts The server's stamp on the report this state came from, in epoch seconds.

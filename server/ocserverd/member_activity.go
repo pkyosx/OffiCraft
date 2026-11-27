@@ -107,13 +107,14 @@ func (s *activityStore) GetWaking(id string, floor, wakingSince float64) (member
 	return memberActivityDTO{}, false
 }
 
-func deriveMemberActivity(busy bool, busySince *float64, subagents []activitySubagentDTO,
+func deriveMemberActivity(busy bool, busySince *float64, mainState string, subagents []activitySubagentDTO,
 	waits []activityWaitDTO, ts float64,
 ) memberActivityDTO {
 	sorted := append([]activitySubagentDTO{}, subagents...)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].StartedTS < sorted[j].StartedTS })
 	a := memberActivityDTO{
 		State:     "idle",
+		MainState: "idle",
 		Subagents: sorted,
 		Waits:     append([]activityWaitDTO{}, waits...),
 		TS:        ts,
@@ -121,6 +122,7 @@ func deriveMemberActivity(busy bool, busySince *float64, subagents []activitySub
 	// A null busy_since under busy reads as "only sub-agents running" on the
 	// wire, so a main turn without a reported start is dated by the report.
 	if busy {
+		a.MainState = orWorking(mainState)
 		a.BusySince = busySince
 		if a.BusySince == nil {
 			stamped := ts
@@ -128,12 +130,30 @@ func deriveMemberActivity(busy bool, busySince *float64, subagents []activitySub
 		}
 	}
 	switch {
-	case busy || len(sorted) > 0:
+	case busy || anyActive(sorted):
 		a.State = "busy"
 	case len(waits) > 0:
 		a.State = "waiting"
 	}
 	return a
+}
+
+const activityStandingBy = "standing_by"
+
+func orWorking(state string) string {
+	if state == "" {
+		return "working"
+	}
+	return state
+}
+
+func anyActive(subagents []activitySubagentDTO) bool {
+	for _, sa := range subagents {
+		if sa.State != activityStandingBy {
+			return true
+		}
+	}
+	return false
 }
 
 // ownerActivity answers what MemberDTO.activity carries for this read: the

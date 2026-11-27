@@ -295,16 +295,24 @@ function MemberActivityDialog({
   );
 }
 
+/** Drawn with the coffee cup; any other state, one a later runtime adds
+ * included, is drawn as working. */
+const isResting = (state: string | undefined) =>
+  state === "waiting_for_subagents" || state === "standing_by";
+
 function SubagentNode({ node, now }: { node: ActivityTreeNode; now: number }) {
   const { msg } = useI18n();
   const s = node.subagent;
   return (
     <li className="mp-activity__node">
       <div className="mp-activity__row">
-        <ActivityWorkingIcon />
+        {isResting(s.state) ? <ActivityStateIcon state="idle" /> : <ActivityWorkingIcon />}
         <span className="mp-activity__label">
-          <span className="mp-activity__text">{s.description || s.name}</span>
-          {s.description && <span className="mp-activity__chip">{s.name}</span>}
+          {s.kind && <span className="mp-activity__kind">{s.kind}</span>}
+          {(s.description || s.name !== s.kind) && (
+            <span className="mp-activity__text">{s.description || s.name}</span>
+          )}
+          {s.description && s.name !== s.kind && <span className="mp-activity__name">{s.name}</span>}
         </span>
         <span className="mp-activity__aside">{msg.memberActivityDuration(s.startedTs, now)}</span>
       </div>
@@ -363,7 +371,7 @@ function MemberActivityTree({ activity: a }: { activity: MemberActivity }) {
     <ul className="mp-activity__tree">
       <li className="mp-activity__node">
         <div className="mp-activity__row mp-activity__row--main">
-          <ActivityStateIcon state={a.busySince !== null ? "busy" : "idle"} />
+          <ActivityStateIcon state={a.busySince !== null && !isResting(a.mainState) ? "busy" : "idle"} />
           <span className="mp-activity__label">
             <span className="mp-activity__text">{t.activity.mainAgent}</span>
           </span>
@@ -374,21 +382,21 @@ function MemberActivityTree({ activity: a }: { activity: MemberActivity }) {
             {tree.map((n) => (
               <SubagentNode key={n.subagent.id} node={n} now={now} />
             ))}
-            {a.waits.map((w, i) => (
-              <li key={i} className="mp-activity__node">
-                <div className="mp-activity__row mp-activity__row--wait">
-                  <ActivityStateIcon state="waiting" />
-                  <span className="mp-activity__label">
-                    <span className="mp-activity__text">
-                      {w.description || msg.memberActivityWaitTag(w, now)}
+            {a.waits.map((w, i) => {
+              const when = msg.memberActivityWaitWhen(w, now);
+              return (
+                <li key={i} className="mp-activity__node">
+                  <div className="mp-activity__row mp-activity__row--wait">
+                    <ActivityStateIcon state="waiting" />
+                    <span className="mp-activity__label">
+                      <span className="mp-activity__kind">{msg.memberActivityWaitKind(w)}</span>
+                      {w.description && <span className="mp-activity__text">{w.description}</span>}
                     </span>
-                  </span>
-                  {w.description && (
-                    <span className="mp-activity__aside">{msg.memberActivityWaitTag(w, now)}</span>
-                  )}
-                </div>
-              </li>
-            ))}
+                    {when && <span className="mp-activity__aside">{when}</span>}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </li>

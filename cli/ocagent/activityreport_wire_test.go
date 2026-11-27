@@ -65,7 +65,7 @@ func TestActivityReportUplinkBodies(t *testing.T) {
 	hook := check("hook", before)
 
 	want := `{"busy":true,"busy_since":1000,` +
-		`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001}],` +
+		`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001,"kind":"subagent"}],` +
 		`"waits":[{"kind":"shell","description":"npm test","next_ts":null,"recurring":false},` +
 		`{"kind":"schedule","description":"check CI","next_ts":4500,"recurring":true}]}`
 	if hook.body != want {
