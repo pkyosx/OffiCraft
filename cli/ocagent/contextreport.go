@@ -83,9 +83,6 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 	_ = warnMissingBase(cfg, "context-report", errOut)
 
 	if cfg.Token != "" && cfg.MemberID != "" {
-		// Before the throttle: windows that first appear on a throttled tick must
-		// still be paired with the login of that moment, not of the next sent one.
-		account := measuredClaudeAccount(claudeAccountPath(cfg), rateLimitsFingerprint(payload), env)
 		stamp := reportStampPath(cfg)
 		backoffFile := reportBackoffPath(cfg)
 		backoff := readReportBackoff(backoffFile)
@@ -97,6 +94,7 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 			// Sent even when no usage was measured: runtime/account/machine must still
 			// reach monitoring, or it keeps showing a stale account for a live session.
 			rl, cost, tokens := buildTelemetry(payload)
+			account := sessionClaudeAccount(env)
 			body := telemetryBody{
 				Runtime:      "claude",
 				RateLimits:   rl,
@@ -480,93 +478,22 @@ func machineID(env func(string) string) string {
 }
 
 type claudeAccount struct {
-	ID         string `json:"account"`
-	Label      string `json:"account_label"`
-	RateLimits string `json:"rate_limits"`
-	Login      string `json:"login"`
+	ID    string `json:"account"`
+	Label string `json:"account_label"`
 }
 
-func claudeAccountPath(cfg Config) string {
-	return filepath.Join(filepath.Dir(reportStampPath(cfg)), "claude_account.json")
-}
-
-// statusLine rate_limits are the headers of this session's LAST API response,
-// kept in memory, while the login file is machine-wide. A session keeps calling
-// on the credentials it already holds for a while after a re-login and moves to
-// the new ones at a time nothing tells us. So while the windows still share a
-// reset time with the record, they stay on the recorded account.
-//
-// ⚠️ Only a report that agrees with the login file may write the record. Two
-// accounts can open a window in the same 10-minute slot and report an
-// identical resets_at; writing the new account's windows under the old one
-// would make every later report share a reset time with the record, and the
-// session would stay on the old account (usage and spend) indefinitely.
-func measuredClaudeAccount(path, rateLimits string, env func(string) string) claudeAccount {
-	current := claudeAccount{ID: readClaudeAccount(env), Label: readClaudeAccountLabel(env), RateLimits: rateLimits}
-	if recorded, ok := recordedClaudeAccount(path); ok && current.ID != recorded.ID && shareResetTime(recorded.RateLimits, rateLimits) {
-		return claudeAccount{ID: recorded.ID, Label: recorded.Label, RateLimits: rateLimits}
+// A running session keeps calling on the account that was logged in when it
+// started, whatever the machine logs into later, so the warden binds that
+// account into the launch environment. A session started by a warden that does
+// not bind one (or could not read the login at launch) falls back to the
+// machine's current login, which is wrong after a re-login until the session
+// is relaunched.
+func sessionClaudeAccount(env func(string) string) claudeAccount {
+	var bound claudeAccount
+	if json.Unmarshal([]byte(env(claudeAccountEnv)), &bound) == nil && strings.TrimSpace(bound.ID) != "" {
+		return claudeAccount{ID: strings.TrimSpace(bound.ID), Label: strings.TrimSpace(bound.Label)}
 	}
-	if current.ID != "" {
-		current.Login = current.ID
-		if raw, err := json.Marshal(current); err == nil && os.MkdirAll(filepath.Dir(path), 0o755) == nil {
-			_ = os.WriteFile(path, raw, 0o644)
-		}
-	}
-	return current
-}
-
-// A record whose account is not the login it was written under (or that
-// predates the login field) may hold another account's windows, so it is not
-// evidence of anything.
-func recordedClaudeAccount(path string) (claudeAccount, bool) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return claudeAccount{}, false
-	}
-	var recorded claudeAccount
-	if json.Unmarshal(raw, &recorded) != nil || recorded.ID == "" || recorded.Login != recorded.ID {
-		return claudeAccount{}, false
-	}
-	return recorded, true
-}
-
-func shareResetTime(fingerprintA, fingerprintB string) bool {
-	resetsAt := func(fingerprint string) map[string]float64 {
-		var windows map[string]struct {
-			ResetsAt *float64 `json:"resets_at"`
-		}
-		_ = json.Unmarshal([]byte(fingerprint), &windows)
-		out := map[string]float64{}
-		for key, window := range windows {
-			if window.ResetsAt != nil {
-				out[key] = *window.ResetsAt
-			}
-		}
-		return out
-	}
-	b := resetsAt(fingerprintB)
-	for key, resetAt := range resetsAt(fingerprintA) {
-		if other, ok := b[key]; ok && other == resetAt {
-			return true
-		}
-	}
-	return false
-}
-
-func rateLimitsFingerprint(payload string) string {
-	obj, ok := safeJSON(payload).(map[string]any)
-	if !ok {
-		return ""
-	}
-	rl, ok := obj["rate_limits"].(map[string]any)
-	if !ok || len(rl) == 0 {
-		return ""
-	}
-	raw, err := json.Marshal(rl)
-	if err != nil {
-		return ""
-	}
-	return string(raw)
+	return claudeAccount{ID: readClaudeAccount(env), Label: readClaudeAccountLabel(env)}
 }
 
 // The monitoring attribution key must stay stable across machines and

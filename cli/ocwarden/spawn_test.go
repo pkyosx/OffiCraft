@@ -665,7 +665,7 @@ func TestBuildLaunchCommand(t *testing.T) {
 func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	home := claudeHome{Home: "/Users/wardenowner"}
 	want := `cd /w/m1; [ -f /w/m1/.oc-env ] && . /w/m1/.oc-env; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
-		`export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+		`export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" OC_CLAUDE_ACCOUNT="$(/bin/cat /w/m1/.oc-claude-account)" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft-lab ` +
 		`OC_AGENT_HOME=/w HOME=/Users/wardenowner; ` +
 		`export PATH=/w/m1:"$PATH"; ` +
@@ -674,13 +674,13 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		`--settings '{"hooks":{}}'`
 	got := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft-lab", "", "medium",
-		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}}, "/w/m1/.oc-env", home, "")
+		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}}, "/w/m1/.oc-env", home, "", "/w/m1/.oc-claude-account")
 	if got != want {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
 
 	plain := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
-		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "", home, "")
+		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "", home, "", "")
 	if plain != buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", home) {
 		t.Errorf("no extra env must be byte-identical to the plain line, got\n%s", plain)
@@ -688,7 +688,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 
 	spaced := buildLaunchCommandWithEnv("/opt/my claude/claude", "/w/a b", "/w/a b/officraft-mcp.json", claudeSystemPromptInline("it's me"),
 		"/w/a b/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/a b/.oc-env",
-		claudeHome{Home: "/Users/warden owner"}, "")
+		claudeHome{Home: "/Users/warden owner"}, "", "")
 	wantSpaced := `cd '/w/a b'; [ -f '/w/a b/.oc-env' ] && . '/w/a b/.oc-env'; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
 		`export OC_TOKEN="$(/bin/cat '/w/a b/.oc-token')" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
@@ -703,7 +703,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	t.Run("a redirected config home is exported instead of unset", func(t *testing.T) {
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
-			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "")
+			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "", "")
 		if !strings.Contains(line, "CLAUDE_CONFIG_DIR=/tmp/box") {
 			t.Errorf("a stated config dir must be exported:\n%s", line)
 		}
@@ -718,7 +718,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		// silently erased by it, and every other assertion here still passes.
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
-			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "")
+			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "", "")
 		source := strings.Index(line, ". /w/m1/.oc-env")
 		pinHome := strings.Index(line, "HOME=/Users/wardenowner")
 		pinDir := strings.Index(line, "CLAUDE_CONFIG_DIR=/tmp/box")
@@ -730,7 +730,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		}
 		unsetLine := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
-			claudeHome{Home: "/Users/wardenowner"}, "")
+			claudeHome{Home: "/Users/wardenowner"}, "", "")
 		if src, un := strings.Index(unsetLine, ". /w/m1/.oc-env"), strings.Index(unsetLine, "unset CLAUDE_CONFIG_DIR"); src < 0 || un < 0 || src > un {
 			t.Errorf("the unset must follow the source (source=%d unset=%d):\n%s", src, un, unsetLine)
 		}
@@ -761,7 +761,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		}
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", workdir, "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/dev/null", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, render,
-			claudeHome{Home: "/Users/wardenowner"}, "")
+			claudeHome{Home: "/Users/wardenowner"}, "", "")
 		execAt := strings.Index(line, "; exec ")
 		if execAt < 0 {
 			t.Fatalf("launch line has no exec clause:\n%s", line)
@@ -779,7 +779,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	t.Run("a pin cannot be overridden by an extra env pair of the same name", func(t *testing.T) {
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/officraft-mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "",
-			[][2]string{{"HOME", "/Volumes/scratch/home"}}, "", claudeHome{Home: "/Users/wardenowner"}, "")
+			[][2]string{{"HOME", "/Volumes/scratch/home"}}, "", claudeHome{Home: "/Users/wardenowner"}, "", "")
 		early := strings.Index(line, "HOME=/Volumes/scratch/home")
 		late := strings.Index(line, "HOME=/Users/wardenowner")
 		if late < 0 || (early >= 0 && early > late) {
@@ -1394,6 +1394,44 @@ func TestStart(t *testing.T) {
 		}
 		if want := []string{flagAbsentAttempt1}; !reflect.DeepEqual(h.logs, want) {
 			t.Errorf("logs = %q, want %q", h.logs, want)
+		}
+	})
+
+	t.Run("a claude spawn binds the login of its launch moment into the session environment", func(t *testing.T) {
+		h := newSpawnHarness()
+		d := h.deps()
+		d.ClaudeLogin = func() claudeLoginAccount {
+			return claudeLoginAccount{ID: "au-1/org-1", Label: "kyle@x.io(OffiCraft)"}
+		}
+
+		if got := d.start(startParamsM1()); !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+
+		if !slices.Contains(h.removes, "/w/m1/.oc-claude-account") {
+			t.Errorf("removes = %v: the previous launch's binding must be cleared first", h.removes)
+		}
+		want := writtenFile{"/w/m1/.oc-claude-account", `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)"}`, 0o600}
+		if !slices.Contains(h.writes, want) {
+			t.Errorf("writes =\n%+v\nwant one of them %+v", h.writes, want)
+		}
+		wantLaunch := strings.Replace(goldenLaunchM1, `OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" `,
+			`OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" OC_CLAUDE_ACCOUNT="$(/bin/cat /w/m1/.oc-claude-account)" `, 1)
+		if launch := h.runner.calls[3]; launch != "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 "+wantLaunch {
+			t.Errorf("launch =\n%s\nwant the golden line exporting the binding", launch)
+		}
+
+		unbound := newSpawnHarness()
+		ud := unbound.deps()
+		ud.ClaudeLogin = func() claudeLoginAccount { return claudeLoginAccount{} }
+		if got := ud.start(startParamsM1()); !got.OK {
+			t.Fatalf("an unreadable login: outcome = %+v, want OK", got)
+		}
+		if launch := unbound.runner.calls[3]; launch != "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 "+goldenLaunchM1 {
+			t.Errorf("an unreadable login launched\n%s\nwant the unbound golden line", launch)
+		}
+		if want := "m1: no Claude login readable under the launch HOME; launching unbound"; !slices.Contains(unbound.logs, want) {
+			t.Errorf("logs = %q, want %q", unbound.logs, want)
 		}
 	})
 
@@ -2558,6 +2596,10 @@ func TestStart(t *testing.T) {
 		d.CodexModels = func(string) ([]codexModelEntry, error) {
 			t.Error("a full model id was looked up in the Codex model list")
 			return nil, nil
+		}
+		d.ClaudeLogin = func() claudeLoginAccount {
+			t.Error("a codex spawn read the Claude login")
+			return claudeLoginAccount{}
 		}
 
 		got := d.start(p)

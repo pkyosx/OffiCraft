@@ -253,20 +253,19 @@ func TestCmdContextReport(t *testing.T) {
 		}
 	})
 
-	t.Run("windows measured before a re-login stay on the account that measured them", func(t *testing.T) {
-		const maxWindow = `{"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":1791990000},` +
-			`"seven_day":{"used_percentage":41,"resets_at":1792648800}}}`
-		const enterpriseWindow = `{"rate_limits":{"seven_day":{"used_percentage":3,"resets_at":1793000000}}}`
+	t.Run("a session reports the account bound at its launch across a machine re-login, and after relaunch the new one", func(t *testing.T) {
 		const maxLogin = `{"oauthAccount":{"accountUuid":"au-max","organizationUuid":"org-max",` +
 			`"emailAddress":"seth@x.io","organizationName":"Max"}}`
 		const enterpriseLogin = `{"oauthAccount":{"accountUuid":"au-ent","organizationUuid":"org-ent",` +
 			`"emailAddress":"seth@x.io","organizationName":"Enterprise"}}`
+		const boundMax = `{"account":"au-max/org-max","account_label":"seth@x.io(Max)"}`
+		const boundEnterprise = `{"account":"au-ent/org-ent","account_label":"seth@x.io(Enterprise)"}`
 		home := writeClaudeJSON(t, maxLogin)
-		env := testEnv(map[string]string{"HOME": home})
 		agentsRoot := t.TempDir()
-		report := func(member string, now float64, payload string) []string {
+		report := func(member, bound string, now float64, payload string) []string {
 			t.Helper()
 			cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: member, AgentsRoot: agentsRoot}
+			env := testEnv(map[string]string{"HOME": home, claudeAccountEnv: bound})
 			client := &fakeHTTP{status: 200, body: "{}"}
 			var out, errOut bytes.Buffer
 			cmdContextReport(client, cfg, env, now, strings.NewReader(payload), &out, &errOut)
@@ -276,139 +275,74 @@ func TestCmdContextReport(t *testing.T) {
 			return []string{`POST /api/monitoring/telemetry {"runtime":"claude",` + window +
 				`,"account":"` + account + `","account_label":"` + label + `","machine":"m-server-self"}`}
 		}
+
+		const maxWindow = `{"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":1791990000},` +
+			`"seven_day":{"used_percentage":41,"resets_at":1792648800}}}`
 		maxRL := `"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":1791990000},` +
 			`"seven_day":{"used_percentage":41,"resets_at":1792648800}}`
-		entRL := `"rate_limits":{"seven_day":{"used_percentage":3,"resets_at":1793000000}}`
-
-		if got, want := report("family-game", 1000, maxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
+		if got, want := report("family-game", boundMax, 1000, maxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
 			t.Fatalf("before the re-login sent\n  %q\nwant\n  %q", got, want)
-		}
-		if got, want := report("direct-switch", 1000, maxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
-			t.Fatalf("another member before the re-login sent\n  %q\nwant\n  %q", got, want)
 		}
 		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"), []byte(enterpriseLogin), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
 		idleMaxWindow := strings.Replace(maxWindow, "{", `{"cost":{"total_duration_ms":90000},`, 1)
-		if got, want := report("family-game", 1100, idleMaxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
+		if got, want := report("family-game", boundMax, 1100, idleMaxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
 			t.Errorf("an idle session after the re-login sent\n  %q\nwant\n  %q", got, want)
 		}
-		const maxCallAfterRelogin = `{"cost":{"total_cost_usd":1.5},` +
-			`"rate_limits":{"five_hour":{"used_percentage":7,"resets_at":1792000000},` +
-			`"seven_day":{"used_percentage":99,"resets_at":1792648800}}}`
-		maxAfterReloginRL := `"rate_limits":{"five_hour":{"used_percentage":7,"resets_at":1792000000},` +
-			`"seven_day":{"used_percentage":99,"resets_at":1792648800}},"cost":1.5`
-		if got, want := report("family-game", 1150, maxCallAfterRelogin), telemetry(maxAfterReloginRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
-			t.Errorf("a call still on the previous credentials sent\n  %q\nwant\n  %q", got, want)
-		}
-		const enterpriseSameSlotWindow = `{"cost":{"total_cost_usd":2.5},` +
+		const sameSlotWindow = `{"cost":{"total_cost_usd":2.5},` +
 			`"rate_limits":{"five_hour":{"used_percentage":3,"resets_at":1792000000},` +
 			`"seven_day":{"used_percentage":1,"resets_at":1792015200}}}`
-		entSameSlotRL := `"rate_limits":{"five_hour":{"used_percentage":3,"resets_at":1792000000},` +
+		sameSlotRL := `"rate_limits":{"five_hour":{"used_percentage":3,"resets_at":1792000000},` +
 			`"seven_day":{"used_percentage":1,"resets_at":1792015200}},"cost":2.5`
-		if got, want := report("family-game", 1200, enterpriseSameSlotWindow), telemetry(entSameSlotRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
-			t.Errorf("the same session after its next call, its new 5h window opened in the same slot as the previous account's, sent\n  %q\nwant\n  %q", got, want)
-		}
-		const enterpriseLaterWindow = `{"cost":{"total_cost_usd":3},` +
-			`"rate_limits":{"five_hour":{"used_percentage":2,"resets_at":1792018000},` +
-			`"seven_day":{"used_percentage":2,"resets_at":1792015200}}}`
-		entLaterRL := `"rate_limits":{"five_hour":{"used_percentage":2,"resets_at":1792018000},` +
-			`"seven_day":{"used_percentage":2,"resets_at":1792015200}},"cost":3`
-		if got, want := report("family-game", 1300, enterpriseLaterWindow), telemetry(entLaterRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
-			t.Errorf("the same session after its 5h window rolled over sent\n  %q\nwant\n  %q", got, want)
-		}
-		if got, want := report("direct-switch", 1200, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
-			t.Errorf("a session whose next call shares no reset time with its record sent\n  %q\nwant\n  %q", got, want)
-		}
-		if got, want := report("new-member", 1300, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
-			t.Errorf("a member started after the re-login sent\n  %q\nwant\n  %q", got, want)
+		if got, want := report("family-game", boundMax, 1200, sameSlotWindow), telemetry(sameSlotRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
+			t.Errorf("the same session's next call after the re-login sent\n  %q\nwant\n  %q", got, want)
 		}
 
-		upgraded := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "upgraded", AgentsRoot: agentsRoot}
-		recordWithoutLogin := `{"account":"au-max/org-max","account_label":"seth@x.io(Max)",` +
-			`"rate_limits":"{\"seven_day\":{\"resets_at\":1793000000,\"used_percentage\":3}}"}`
-		if err := os.MkdirAll(filepath.Dir(claudeAccountPath(upgraded)), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(claudeAccountPath(upgraded), []byte(recordWithoutLogin), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if got, want := report("upgraded", 1300, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
-			t.Errorf("a member whose record predates the login field sent\n  %q\nwant\n  %q", got, want)
+		const relaunchedWindow = `{"cost":{"total_cost_usd":0.5},` +
+			`"rate_limits":{"five_hour":{"used_percentage":3,"resets_at":1792000000},` +
+			`"seven_day":{"used_percentage":1,"resets_at":1792015200}}}`
+		relaunchedRL := `"rate_limits":{"five_hour":{"used_percentage":3,"resets_at":1792000000},` +
+			`"seven_day":{"used_percentage":1,"resets_at":1792015200}},"cost":0.5`
+		if got, want := report("family-game", boundEnterprise, 1300, relaunchedWindow), telemetry(relaunchedRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
+			t.Errorf("the member relaunched after the re-login sent\n  %q\nwant\n  %q", got, want)
 		}
 	})
 
-	t.Run("windows first seen inside the throttle window keep the login of that moment", func(t *testing.T) {
-		const oldWindow = `{"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}}}`
-		const newWindow = `{"rate_limits":{"seven_day":{"used_percentage":12,"resets_at":1792648800}}}`
-		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-max"}}`)
-		env := testEnv(map[string]string{"HOME": home})
-		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: t.TempDir()}
-		var out, errOut bytes.Buffer
-		cmdContextReport(&fakeHTTP{status: 200, body: "{}"}, cfg, env, 1000, strings.NewReader(oldWindow), &out, &errOut)
-		throttled := &fakeHTTP{status: 200, body: "{}"}
-		cmdContextReport(throttled, cfg, env, 1010, strings.NewReader(newWindow), &out, &errOut)
-		if throttled.seen != nil {
-			t.Fatalf("sent %q inside the throttle window, want nothing", throttled.seen)
-		}
-		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"),
-			[]byte(`{"oauthAccount":{"accountUuid":"au-ent"}}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		client := &fakeHTTP{status: 200, body: "{}"}
-
-		cmdContextReport(client, cfg, env, 1100, strings.NewReader(newWindow), &out, &errOut)
-
-		want := []string{`POST /api/monitoring/telemetry {"runtime":"claude",` +
-			`"rate_limits":{"seven_day":{"used_percentage":12,"resets_at":1792648800}},` +
-			`"account":"au-max","machine":"m-server-self"}`}
-		if !reflect.DeepEqual(client.seen, want) {
-			t.Errorf("sent %q, want %q", client.seen, want)
-		}
-	})
-
-	t.Run("a session with no measured windows reports the current login", func(t *testing.T) {
-		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-old"}}`)
-		env := testEnv(map[string]string{"HOME": home})
-		agentsRoot := t.TempDir()
-		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: agentsRoot}
-		var out, errOut bytes.Buffer
-		cmdContextReport(&fakeHTTP{status: 200, body: "{}"}, cfg, env, 1000, strings.NewReader(`{}`), &out, &errOut)
-		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"),
-			[]byte(`{"oauthAccount":{"accountUuid":"au-new"}}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		client := &fakeHTTP{status: 200, body: "{}"}
-
-		cmdContextReport(client, cfg, env, 1100, strings.NewReader(`{}`), &out, &errOut)
-
-		want := []string{`POST /api/monitoring/telemetry {"runtime":"claude","account":"au-new","machine":"m-server-self"}`}
-		if !reflect.DeepEqual(client.seen, want) {
-			t.Errorf("sent %q, want %q", client.seen, want)
-		}
-	})
-
-	t.Run("a login unreadable when the windows were measured is read again on the next report", func(t *testing.T) {
+	t.Run("a session launched without a bound account reports the machine's login of each report", func(t *testing.T) {
 		const window = `{"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}}}`
 		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-1"`)
-		env := testEnv(map[string]string{"HOME": home})
 		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: t.TempDir()}
-		var out, errOut bytes.Buffer
-		cmdContextReport(&fakeHTTP{status: 200, body: "{}"}, cfg, env, 1000, strings.NewReader(window), &out, &errOut)
+		send := func(env func(string) string, now float64) []string {
+			client := &fakeHTTP{status: 200, body: "{}"}
+			var out, errOut bytes.Buffer
+			cmdContextReport(client, cfg, env, now, strings.NewReader(window), &out, &errOut)
+			return client.seen
+		}
+		sent := func(account string) []string {
+			return []string{`POST /api/monitoring/telemetry {"runtime":"claude",` +
+				`"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}},` + account +
+				`"machine":"m-server-self"}`}
+		}
+
+		if got, want := send(testEnv(map[string]string{"HOME": home}), 1000), sent(""); !reflect.DeepEqual(got, want) {
+			t.Errorf("with the login unreadable sent %q, want %q", got, want)
+		}
 		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"),
 			[]byte(`{"oauthAccount":{"accountUuid":"au-1"}}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		client := &fakeHTTP{status: 200, body: "{}"}
-
-		cmdContextReport(client, cfg, env, 1100, strings.NewReader(window), &out, &errOut)
-
-		want := []string{`POST /api/monitoring/telemetry {"runtime":"claude",` +
-			`"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}},` +
-			`"account":"au-1","machine":"m-server-self"}`}
-		if !reflect.DeepEqual(client.seen, want) {
-			t.Errorf("sent %q, want %q", client.seen, want)
+		if got, want := send(testEnv(map[string]string{"HOME": home}), 1100), sent(`"account":"au-1",`); !reflect.DeepEqual(got, want) {
+			t.Errorf("once the login is readable sent %q, want %q", got, want)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"),
+			[]byte(`{"oauthAccount":{"accountUuid":"au-2"}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		malformedBinding := testEnv(map[string]string{"HOME": home, claudeAccountEnv: `{"account":`})
+		if got, want := send(malformedBinding, 1200), sent(`"account":"au-2",`); !reflect.DeepEqual(got, want) {
+			t.Errorf("after a re-login with an unparseable binding sent %q, want %q", got, want)
 		}
 	})
 

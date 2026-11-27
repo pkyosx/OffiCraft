@@ -411,6 +411,7 @@ var spawnSleep = time.Sleep
 func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socket, ns string) SpawnDeps {
 	wardenBin, _ := os.Executable()
 	listenPIDs := ocagentPIDsByCwdFor(runtime.GOOS, runner, "/proc")
+	claudeHome := resolvedClaudeHome(env, stderrLogf)
 	return SpawnDeps{
 		Runner:    runner,
 		Base:      cfg.Base,
@@ -427,7 +428,10 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		ClaudeTakesPromptFile: func(claudeBin, promptFile string) (bool, string) {
 			return claudeAcceptsPromptFile(withRunTimeout(runner, claudePromptFileProbeBudget), claudeBin, promptFile)
 		},
-		ClaudeHome:  resolvedClaudeHome(env, stderrLogf),
+		ClaudeHome: claudeHome,
+		ClaudeLogin: func() claudeLoginAccount {
+			return readClaudeLoginAccount(claudeHome.Home, os.ReadFile)
+		},
 		WardenBin:   wardenBin,
 		CodexModels: listCodexModels,
 		RepoRoot:    resolveRepoRoot(os.Executable),
