@@ -148,8 +148,9 @@ func reportStopSuccess(client httpClient, cfg Config, env func(string) string, s
 	}
 }
 
-// The station re-tags the member's windows with whatever account this report
-// names, so it must be the session's own account, as context-report sends.
+// The station pairs this member, and so its reached limit and its spend, with
+// whatever account this report names, so it must be the session's own account,
+// as context-report sends.
 func newModelCallBody(cfg Config, env func(string) string, report modelCallReport) modelCallBody {
 	account := sessionClaudeAccount(env)
 	return modelCallBody{
