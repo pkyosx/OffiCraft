@@ -32,6 +32,7 @@ import { codeForStatus } from "../api/errorCodes";
 import { zh } from "../i18n/locales/zh";
 import { formatAbsolute } from "../lib/dateFormat";
 import { clearLocale, useEnglishLocale } from "../test/effortOptions";
+import { LORE_DIR_COLLAPSED_KEY, openEveryLoreDirGroup } from "../test/loreDirectory";
 import type {
   ChatAttachmentInput,
   LoreBudgetTargetView,
@@ -138,6 +139,7 @@ beforeEach(() => {
   history.replaceState(null, "", window.location.pathname);
   __resetMock();
   clearLocale();
+  openEveryLoreDirGroup();
 });
 
 afterEach(() => {
@@ -1850,6 +1852,18 @@ function headerTexts(container: HTMLElement): string[] {
   );
 }
 
+/** Each directory group as [heading, open, its cards' section keys]. */
+function dirGroups(container: HTMLElement): [string, boolean, string[]][] {
+  return Array.from(container.querySelectorAll<HTMLElement>(".lore__group")).map((g) => {
+    const heading = g.querySelector<HTMLElement>("button.chat-groups__heading")!;
+    return [
+      heading.textContent ?? "",
+      heading.getAttribute("aria-expanded") === "true",
+      Array.from(g.querySelectorAll('[data-testid="lore-target"]')).map((el) => el.getAttribute("data-section") ?? ""),
+    ];
+  });
+}
+
 /** Click a directory row; the section page replaces the directory. */
 function openSection(container: HTMLElement, key: string) {
   const target = container.querySelector<HTMLElement>(`[data-testid="lore-target"][data-section="${key}"]`);
@@ -1889,9 +1903,12 @@ describe("LorePage — 目錄與段落頁", () => {
         "PR 審查8 筆全部讀得到3,210 / 10,000 字",
       ]),
     );
-    expect(
-      Array.from(container.querySelectorAll(".lore__group-title")).map((el) => el.textContent),
-    ).toEqual(["所有人 · 1", "成員 · 2", "任務手冊 · 1"]);
+    expect(dirGroups(container)).toEqual([
+      ["所有人 · 1", true, ["everyone:"]],
+      ["正職成員 · 1", true, ["agent:mira"]],
+      ["外包成員 · 1", true, ["agent:ow-7d8ad859dd9b"]],
+      ["任務手冊 · 1", true, ["manual:review-pr"]],
+    ]);
     // The bar is used / cap of the target's own cap; 所有人 has no cap of its own, so no bar.
     expect(
       Array.from(container.querySelectorAll('[data-testid="lore-target"]')).map(
@@ -1911,7 +1928,7 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it("a directory card's bar stops at full when a lowered cap leaves the target over it, and a zero cap shows only the size", async () => {
+  it("a directory card's bar stops at full when a lowered cap leaves the target over it, and a zero cap shows only the size; 全部收合 folds only the groups shown and then reads 全部展開", async () => {
     stubTargets();
     vi.spyOn(api, "listLoreBudgets").mockResolvedValue([
       { scopeKind: "agent", scopeKey: "mira", capChars: 1000, usedChars: 1300, entryCount: 3, droppedCount: 1 },
@@ -1921,10 +1938,113 @@ describe("LorePage — 目錄與段落頁", () => {
     const { container } = renderPage();
 
     await waitFor(() => expect(headerTexts(container)).toHaveLength(2));
+    expect(dirGroups(container).map(([title]) => title)).toEqual(["正職成員 · 1", "任務手冊 · 1"]);
     const cards = Array.from(container.querySelectorAll('[data-testid="lore-target"]'));
     expect((cards[0].querySelector(".lore-dir-card__bar-fill") as HTMLElement).style.width).toBe("100%");
     expect(cards[1].querySelector(".lore-dir-card__bar-fill")).toBeNull();
     expect(cards[1].querySelector('[data-testid="lore-section-usage"]')!.textContent).toBe("320 字");
+
+    const button = container.querySelector<HTMLElement>('[data-testid="lore-collapse-all"]')!;
+    fireEvent.click(button);
+
+    expect(dirGroups(container).map(([, open]) => open)).toEqual([false, false]);
+    expect(button.getAttribute("aria-label")).toBe("全部展開");
+    expect(JSON.parse(localStorage.getItem(LORE_DIR_COLLAPSED_KEY)!)).toEqual(["staff", "manual"]);
+  });
+
+  it("a first visit opens only 所有人, with 正職成員, 外包成員 and 任務手冊 folded", async () => {
+    localStorage.removeItem(LORE_DIR_COLLAPSED_KEY);
+    stubTargets();
+    stubList(page([]));
+    const { container } = renderPage();
+
+    await waitFor(() => expect(dirGroups(container)).toHaveLength(4));
+    expect(dirGroups(container)).toEqual([
+      ["所有人 · 1", true, ["everyone:"]],
+      ["正職成員 · 1", false, []],
+      ["外包成員 · 1", false, []],
+      ["任務手冊 · 1", false, []],
+    ]);
+    expect(container.querySelector('[data-testid="lore-collapse-all"]')!.getAttribute("aria-label")).toBe("全部收合");
+  });
+
+  it("a group folded or opened from its heading stays that way on the next visit", async () => {
+    localStorage.removeItem(LORE_DIR_COLLAPSED_KEY);
+    stubTargets();
+    stubList(page([]));
+    const first = renderPage();
+    await waitFor(() => expect(dirGroups(first.container)).toHaveLength(4));
+
+    fireEvent.click(first.container.querySelector('[data-testid="lore-group-heading-outsource"]')!);
+    fireEvent.click(first.container.querySelector('[data-testid="lore-group-heading-everyone"]')!);
+
+    expect(dirGroups(first.container).map(([, open]) => open)).toEqual([false, false, true, false]);
+    expect(first.container.querySelectorAll('[data-testid="lore-target"]')).toHaveLength(1);
+    expect(JSON.parse(localStorage.getItem(LORE_DIR_COLLAPSED_KEY)!)).toEqual(["everyone", "staff", "manual"]);
+    first.unmount();
+
+    const again = renderPage();
+    await waitFor(() => expect(dirGroups(again.container)).toHaveLength(4));
+    expect(dirGroups(again.container)).toEqual([
+      ["所有人 · 1", false, []],
+      ["正職成員 · 1", false, []],
+      ["外包成員 · 1", true, ["agent:ow-7d8ad859dd9b"]],
+      ["任務手冊 · 1", false, []],
+    ]);
+  });
+
+  it("全部收合 folds every group, then 全部展開 opens them all, and both are remembered", async () => {
+    localStorage.removeItem(LORE_DIR_COLLAPSED_KEY);
+    stubTargets();
+    stubList(page([]));
+    const { container } = renderPage();
+    await waitFor(() => expect(dirGroups(container)).toHaveLength(4));
+    const button = container.querySelector<HTMLElement>('[data-testid="lore-collapse-all"]')!;
+
+    fireEvent.click(button);
+
+    expect(dirGroups(container).map(([, open]) => open)).toEqual([false, false, false, false]);
+    expect(headerTexts(container)).toEqual([]);
+    expect(button.getAttribute("aria-label")).toBe("全部展開");
+    expect(JSON.parse(localStorage.getItem(LORE_DIR_COLLAPSED_KEY)!)).toEqual(["everyone", "staff", "outsource", "manual"]);
+
+    fireEvent.click(button);
+
+    expect(dirGroups(container).map(([, open]) => open)).toEqual([true, true, true, true]);
+    expect(headerTexts(container)).toHaveLength(4);
+    expect(button.getAttribute("aria-label")).toBe("全部收合");
+    expect(JSON.parse(localStorage.getItem(LORE_DIR_COLLAPSED_KEY)!)).toEqual([]);
+  });
+
+  it("with storage refusing every read and write, the directory opens on the first-visit folding, still folds, and keeps it across a trip to a section page", async () => {
+    const denied = () => {
+      throw new Error("denied");
+    };
+    vi.spyOn(window.localStorage, "getItem").mockImplementation(denied);
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(denied);
+    stubTargets();
+    stubList(page([]));
+    const { container } = renderPage();
+    await waitFor(() => expect(dirGroups(container)).toHaveLength(4));
+    expect(dirGroups(container).map(([, open]) => open)).toEqual([true, false, false, false]);
+
+    const thrown: unknown[] = [];
+    const onError = (e: ErrorEvent) => thrown.push(e.error);
+    window.addEventListener("error", onError);
+    try {
+      fireEvent.click(container.querySelector('[data-testid="lore-group-heading-staff"]')!);
+    } finally {
+      window.removeEventListener("error", onError);
+    }
+
+    expect(thrown).toEqual([]);
+    expect(dirGroups(container)[1]).toEqual(["正職成員 · 1", true, ["agent:mira"]]);
+
+    openSection(container, "agent:mira");
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-back"]')).not.toBeNull());
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+    await waitFor(() => expect(dirGroups(container)).toHaveLength(4));
+    expect(dirGroups(container).map(([, open]) => open)).toEqual([true, true, false, false]);
   });
 
   it("a manual section's head shows its chars, its cap and only its own count, and its name opens that manual", async () => {

@@ -54,7 +54,7 @@ Each lore entry has a scope, which decides who reads it:
 
 When a member writes a principle that applies to everyone, you can change that entry's scope to "Everyone" on the "Lore" tab, so other members do not each have to learn it again. Only you and the Assistant can change the scope.
 
-The "Lore" tab is divided into sections by who reads the entries: one section for "Everyone", one for each member, and one for each task manual. When you open the tab, you first see a directory of these sections; click a section to see its entries. Each section lists exactly the lore that member reads when it boots (or that is read with that manual).
+The "Lore" tab is divided into sections by who reads the entries: one section for "Everyone", one for each member, and one for each task manual. When you open the tab, you first see a directory of these sections; click a section to see its entries. Each section lists exactly the lore that member reads when it boots (or that is read with that manual). The directory is divided into four groups, "Everyone", "Staff members", "Outsource members" and "Task manual", and clicking a group name collapses or expands that group; the first time you open it only "Everyone" is expanded, and after that it stays the way you last left it, remembered in this browser.
 
 For what staff and outsource members each read when they boot, see "What members read when they boot" in [Architecture and how it works](architecture.md).
 

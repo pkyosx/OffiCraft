@@ -8,6 +8,7 @@ import { __resetHashRouteForTests } from "../lib/hashRoute";
 import { LorePage } from "./LorePage";
 import { __resetMock } from "../api/mock";
 import { __resetWorkerCodenameCache } from "../hooks/useWorkerCodenames";
+import { openEveryLoreDirGroup } from "../test/loreDirectory";
 import { api } from "../api";
 import type {
   LoreEntryPageView,
@@ -107,6 +108,7 @@ beforeEach(() => {
   history.replaceState(null, "", window.location.pathname);
   __resetMock();
   __resetWorkerCodenameCache();
+  openEveryLoreDirGroup();
 });
 
 afterEach(() => {

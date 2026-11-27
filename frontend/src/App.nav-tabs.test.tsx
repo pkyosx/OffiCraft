@@ -135,6 +135,13 @@ describe("主導覽分頁", () => {
   it("a #lore deep link opens the Lore directory, and Mira's section page opens to the owner's scope menu on each entry", async () => {
     history.replaceState(null, "", window.location.pathname + "#lore");
     renderApp();
+    const staff = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-testid="lore-group-heading-staff"]');
+      if (!el) throw new Error("no 正職成員 heading yet");
+      return el;
+    });
+    expect(staff.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(staff);
     fireEvent.click(
       await waitFor(() => {
         const el = document.querySelector<HTMLElement>(

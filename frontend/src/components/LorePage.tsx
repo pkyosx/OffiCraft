@@ -82,6 +82,7 @@ import {
   type LoreSectionKind,
 } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
+import { HeadingBody } from "./ChatGroupHeading";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { FilterPanel } from "./FilterPanel";
@@ -95,6 +96,8 @@ import {
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChevronsDownUpIcon,
+  ChevronsUpDownIcon,
   PaperclipIcon,
   PencilIcon,
   RotateCcwIcon,
@@ -110,6 +113,7 @@ import "./card-composer.css";
 // The body renders through <Markdown>'s `.doc-md` skin from settings.css;
 // imported here rather than relied on transitively (css-layout-traps.md).
 import "./settings.css";
+import "./chat-groups.css";
 
 /** 捲到底一次載這麼多. A page shorter than this is the last one. */
 const PAGE = 30;
@@ -126,6 +130,37 @@ const STATE_ACTIONS: readonly LoreEntryState[] = ["retired", "active", "pinned"]
 
 /** What the 狀態 filter starts on: retired entries stay hidden until ticked. */
 const DEFAULT_STATES: readonly LoreEntryState[] = ["pinned", "active"];
+
+type DirGroupKind = "everyone" | "staff" | "outsource" | "manual";
+const DIR_GROUPS: readonly DirGroupKind[] = ["everyone", "staff", "outsource", "manual"];
+/** A first visit opens only 所有人. */
+const DIR_DEFAULT_COLLAPSED: readonly DirGroupKind[] = ["staff", "outsource", "manual"];
+const DIR_COLLAPSED_KEY = "oc_lore_dir_collapsed";
+
+/** The folded directory groups, kept in this browser as the list of folded
+ * kinds; nothing saved yet means the first-visit default. */
+function readDirCollapsed(): ReadonlySet<DirGroupKind> {
+  try {
+    const raw = window.localStorage.getItem(DIR_COLLAPSED_KEY);
+    if (raw !== null) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return new Set(DIR_GROUPS.filter((k) => parsed.includes(k)));
+      }
+    }
+  } catch {
+    /* storage unavailable or garbled — fall back to the default */
+  }
+  return new Set(DIR_DEFAULT_COLLAPSED);
+}
+
+function writeDirCollapsed(collapsed: ReadonlySet<DirGroupKind>): void {
+  try {
+    window.localStorage.setItem(DIR_COLLAPSED_KEY, JSON.stringify(DIR_GROUPS.filter((k) => collapsed.has(k))));
+  } catch {
+    /* storage unavailable — the folding still holds for this visit */
+  }
+}
 
 /** How one author id resolves against the LIVE roster. `peerId === ""` means
  * "not reachable": the entry then has no message box. */
@@ -331,6 +366,13 @@ export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
   // the section they were set on, so a section change starts them over by
   // remounting rather than by resetting each.
   const sectionKey = sec ? sectionKeyOf(sec.kind, sec.key) : null;
+  // Held above the per-section remount so a trip to a section page and back
+  // keeps the folding even when storage refuses it.
+  const [dirCollapsed, setDirCollapsed] = useState(readDirCollapsed);
+  const changeDirCollapsed = useCallback((next: ReadonlySet<DirGroupKind>) => {
+    setDirCollapsed(next);
+    writeDirCollapsed(next);
+  }, []);
   // 🔴 The view gets its route from here and never reads the hash itself: a
   // second subscriber could see a new section before this key changes, load
   // it into the old mount, and have those rows thrown away by the remount.
@@ -345,6 +387,8 @@ export function LorePage({ canSetScope }: { canSetScope?: boolean } = {}) {
       budgets={budgets}
       budgetsError={budgetsError}
       refreshBudgets={refreshBudgets}
+      dirCollapsed={dirCollapsed}
+      onDirCollapsedChange={changeDirCollapsed}
     />
   );
 }
@@ -358,6 +402,8 @@ function LoreView({
   budgets,
   budgetsError,
   refreshBudgets,
+  dirCollapsed,
+  onDirCollapsedChange,
 }: {
   sectionKey: string | null;
   highlightId: string;
@@ -367,6 +413,8 @@ function LoreView({
   budgets: LoreBudgetTargetView[] | null;
   budgetsError: boolean;
   refreshBudgets: () => Promise<void>;
+  dirCollapsed: ReadonlySet<DirGroupKind>;
+  onDirCollapsedChange: (next: ReadonlySet<DirGroupKind>) => void;
 }) {
   const { t, msg } = useI18n();
   const { members, membersLoading, membersError, workers, manuals, entryCaps } = shared;
@@ -1429,12 +1477,26 @@ function LoreView({
   );
 
   if (sectionKey === null) {
-    const groups: { kind: LoreScopeKind; label: string; defs: SectionDef[] }[] = [
+    const groups: { kind: DirGroupKind; label: string; defs: SectionDef[] }[] = [
       { kind: "everyone", label: t.lore.kindEveryone, defs: [] },
-      { kind: "agent", label: t.lore.kindMember, defs: [] },
+      { kind: "staff", label: t.lore.kindStaff, defs: [] },
+      { kind: "outsource", label: t.lore.kindOutsource, defs: [] },
       { kind: "manual", label: t.lore.kindManual, defs: [] },
     ];
-    for (const d of defs) groups.find((g) => g.kind === d.kind)?.defs.push(d);
+    const groupOf = (d: SectionDef): DirGroupKind => {
+      if (d.kind !== "agent") return d.kind === "everyone" ? "everyone" : "manual";
+      return avatarKindForMember({ id: d.scopeKey }) === "outsource" ? "outsource" : "staff";
+    };
+    for (const d of defs) groups.find((g) => g.kind === groupOf(d))?.defs.push(d);
+    const shown = groups.filter((g) => g.defs.length > 0);
+    const anyExpanded = shown.some((g) => !dirCollapsed.has(g.kind));
+    const collapseLabel = anyExpanded ? t.office.groups.collapseAll : t.office.groups.expandAll;
+    const toggleGroup = (kind: DirGroupKind) => {
+      const next = new Set(dirCollapsed);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      onDirCollapsedChange(next);
+    };
     return (
       <div className="lore" ref={scrollRef} data-testid="lore-page">
         {errors}
@@ -1452,15 +1514,39 @@ function LoreView({
               {dirNote}
             </span>
           )}
+          <button
+            type="button"
+            className="chat-groups__tool chat-groups__tool--icon lore__collapse-all"
+            aria-label={collapseLabel}
+            title={collapseLabel}
+            disabled={shown.length === 0}
+            data-testid="lore-collapse-all"
+            onClick={() => {
+              const next = new Set(dirCollapsed);
+              for (const g of shown) {
+                if (anyExpanded) next.add(g.kind);
+                else next.delete(g.kind);
+              }
+              onDirCollapsedChange(next);
+            }}
+          >
+            {anyExpanded ? <ChevronsDownUpIcon size={16} /> : <ChevronsUpDownIcon size={16} />}
+          </button>
         </div>
-        {groups.map((g) =>
-          g.defs.length === 0 ? null : (
+        {shown.map((g) => {
+          const collapsed = dirCollapsed.has(g.kind);
+          return (
             <div className="lore__group" key={g.kind} data-testid={`lore-group-${g.kind}`}>
-              <div className="lore__group-title">
-                {g.label}
-                <span className="lore__group-count"> · {g.defs.length}</span>
-              </div>
-              {g.defs.map((def) => (
+              <button
+                type="button"
+                className="chat-groups__heading"
+                aria-expanded={!collapsed}
+                data-testid={`lore-group-heading-${g.kind}`}
+                onClick={() => toggleGroup(g.kind)}
+              >
+                <HeadingBody label={msg.groupHeading(g.label, g.defs.length)} collapsed={collapsed} unread={0} />
+              </button>
+              {!collapsed && g.defs.map((def) => (
                 <a
                   key={def.key}
                   className="lore-dir-card lore-target"
@@ -1488,8 +1574,8 @@ function LoreView({
                 </a>
               ))}
             </div>
-          )
-        )}
+          );
+        })}
       </div>
     );
   }
