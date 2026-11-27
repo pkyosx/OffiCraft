@@ -486,7 +486,10 @@ describe("mockApi · User Language block", () => {
     "| Chinese on screen | English (this document) |\n| --- | --- |\n| 辦公室 | Office |\n| 請示卡／請示 | Reply card／Ask |" +
     termAliases.slice(2).map((a) => `\n| ${a.zh} | ${a.en} |`).join("");
   const EN =
-    "# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.";
+    "# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\n" +
+    "The user sees OffiCraft in English. If the user writes one of the Chinese screen names in the left column, it means the English term in the same row.\n\n" +
+    "| Chinese on screen | English (this document) |\n| --- | --- |\n| 辦公室 | Office |\n| 請示卡／請示 | Reply card／Ask |" +
+    termAliases.slice(2).map((a) => `\n| ${a.zh} | ${a.en} |`).join("");
 
   function injectWorker(): void {
     __injectMockTask({

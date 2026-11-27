@@ -7434,7 +7434,7 @@ export interface components {
         };
         /**
          * MemberBootContextDTO
-         * @description A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (``everyone`` entries and the member's own merged into one list — pinned first, then newest ``effective_ts`` first — under one ``lore_cap_chars_role`` budget), the User Language block (the language instruction set by ``display.language``: English when it is ``en``, Traditional Chinese otherwise), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
+         * @description A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (``everyone`` entries and the member's own merged into one list — pinned first, then newest ``effective_ts`` first — under one ``lore_cap_chars_role`` budget), the User Language block (the language instruction set by ``display.language``: English when it is ``en``, Traditional Chinese otherwise; either way followed by the Chinese↔English feature-name table), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
          */
         MemberBootContextDTO: {
             /** Context */
@@ -10297,7 +10297,7 @@ export interface components {
             developer_mode: boolean;
             /**
              * Display Language
-             * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
+             * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), carries the Chinese↔English feature-name table in both, and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
              * @default
              */
             display_language: string;

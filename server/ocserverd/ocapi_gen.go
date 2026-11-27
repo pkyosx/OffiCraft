@@ -2523,7 +2523,7 @@ type MemberAvatarDTO struct {
 	Mime      *string `json:"mime,omitempty"`
 }
 
-// MemberBootContextDTO A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (“everyone“ entries and the member's own merged into one list — pinned first, then newest “effective_ts“ first — under one “lore_cap_chars_role“ budget), the User Language block (the language instruction set by “display.language“: English when it is “en“, Traditional Chinese otherwise), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
+// MemberBootContextDTO A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (“everyone“ entries and the member's own merged into one list — pinned first, then newest “effective_ts“ first — under one “lore_cap_chars_role“ budget), the User Language block (the language instruction set by “display.language“: English when it is “en“, Traditional Chinese otherwise; either way followed by the Chinese↔English feature-name table), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
 type MemberBootContextDTO struct {
 	Context string `json:"context"`
 }
@@ -4193,7 +4193,7 @@ type SettingsDTO struct {
 	// DiskUsageIntervalSecs How often, in seconds (600 through 86400), each warden measures how much disk OffiCraft uses on its machine, and the server measures its database, backups and old database copies. One measurement walks the whole OffiCraft directory and takes tens of seconds of disk reads, hence the 10-minute floor. Wardens learn the value from their heartbeat reply.
 	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
 
-	// DisplayLanguage The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
+	// DisplayLanguage The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), carries the Chinese↔English feature-name table in both, and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
 	// DisplaySeasonalTheme Whether the cockpit takes the built-in seasonal theme while its window is open (a holiday theme shipped with the release, e.g. Halloween; its dates ship with it and are not configurable). true (the default) = show it; false = keep display_theme through the window. Outside every window this has no effect. Same dual-layer contract as display_wide.

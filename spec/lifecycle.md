@@ -701,9 +701,9 @@ The boot context is these blocks, in this order, joined into one document:
 1. **系統互動** — the shared system-interaction file seed;
 2. **使用者語言** (`# User Language`) — which language the member writes to the owner in,
    chosen by the `display.language` setting: `en` gets the English instruction, anything
-   else (`zh`, or `""` = never set) gets the Traditional Chinese one, followed by a table
-   mapping the Chinese screen names of OffiCraft features to the English names the boot
-   documents use (`spec/term-aliases.json`). It is never dropped.
+   else (`zh`, or `""` = never set) gets the Traditional Chinese one. Either is followed by
+   a table mapping the Chinese screen names of OffiCraft features to the English names the
+   boot documents use (`spec/term-aliases.json`). It is never dropped.
    It is read when the fold is assembled, so a change reaches each member at its next boot;
    a running session is not notified;
 3. **使用者自訂** — the owner's additive block;

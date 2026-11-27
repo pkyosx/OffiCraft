@@ -97,7 +97,7 @@ Every time a member boots (including a new session started after a handover), th
 
 | Content | Written by | Read automatically at boot by | Managed in |
 | --- | --- | --- | --- |
-| **User language** | The interface language you choose | Every member, both staff and outsource: if you choose English, members are told to reply to you in English; otherwise (including if you never chose one) in Traditional Chinese, along with a Chinese–English table of the feature names on screen | Avatar menu › Preferences › Language |
+| **User language** | The interface language you choose | Every member, both staff and outsource: if you choose English, members are told to reply to you in English; otherwise (including if you never chose one) in Traditional Chinese. Either way they also get a Chinese–English table of the feature names on screen | Avatar menu › Preferences › Language |
 | **User additions** | You | Every member, both staff and outsource | Settings › Global context › User additions |
 | **Duty** | You or the Assistant Mira | Staff members in that role | Settings › Roles |
 | **Insight** | The members in that role, the Assistant, or you | Staff members in that role | Settings › Roles › the role's page |

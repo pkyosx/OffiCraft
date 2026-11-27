@@ -2873,13 +2873,16 @@ let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
 /** The User Language block both boot folds staple between 系統互動 and Owner
  * Additions — mirrors the server's userLanguageBlock (assets.go) byte for byte.
  * Read at assembly time from display_language: "en" gets English; anything
- * else, "" (never set) included, gets the Traditional Chinese text and the
- * screen-name table. */
+ * else, "" (never set) included, gets the Traditional Chinese text. Both carry
+ * the screen-name table. */
 function mockUserLanguageBlock(lang: string): string {
   if (lang === "en") {
     return (
       "# User Language\n\n" +
-      "Use English for everything you write to the user, including reports. Do not use other languages."
+      "Use English for everything you write to the user, including reports. Do not use other languages.\n\n" +
+      "The user sees OffiCraft in English. If the user writes one of the Chinese screen names " +
+      "in the left column, it means the English term in the same row.\n\n" +
+      mockTermAliasesTable()
     );
   }
   return (
@@ -2888,6 +2891,12 @@ function mockUserLanguageBlock(lang: string): string {
     "The user sees OffiCraft in Chinese. " +
     "Call OffiCraft features by the Chinese names on their screen below; when the user " +
     "uses one of these names, it means the English term in the same row.\n\n" +
+    mockTermAliasesTable()
+  );
+}
+
+function mockTermAliasesTable(): string {
+  return (
     "| Chinese on screen | English (this document) |\n| --- | --- |" +
     termAliases.map((a) => `\n| ${a.zh} | ${a.en} |`).join("")
   );
