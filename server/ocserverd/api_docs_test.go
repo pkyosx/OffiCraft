@@ -167,7 +167,7 @@ func apiGuideIndex() []map[string]any {
 		{"slug": "lore", "title": "Making members remember what you taught them (Lore)"},
 		{"slug": "secrets", "title": "Give members your account keys (secrets)"},
 		{"slug": "members", "title": "Adding members and hiring outsource"},
-		{"slug": "interface", "title": "介面說明"},
+		{"slug": "interface", "title": "Interface reference"},
 		{"slug": "settings", "title": "設定與參數"},
 		{"slug": "theme", "title": "Themes (look and wording)"},
 		{"slug": "architecture", "title": "架構與運作原理"},
