@@ -19,16 +19,21 @@ func accountLabelOverlay(telemetry map[string]map[string]any, isOwner bool) map[
 		return labels
 	}
 	labelTS := map[string]float64{}
-	for _, entry := range telemetry {
-		account, _ := entry["account"].(string)
-		label, _ := entry["account_label"].(string)
+	offer := func(account, label string, ts float64) {
 		if account == "" || label == "" {
-			continue
+			return
 		}
-		ts, _ := entry["ts"].(float64)
 		if prior, seen := labelTS[account]; !seen || ts > prior {
 			labelTS[account] = ts
 			labels[account] = label
+		}
+	}
+	for _, entry := range telemetry {
+		ts, _ := entry["ts"].(float64)
+		offer(stringOf(entry["account"]), stringOf(entry["account_label"]), ts)
+		if login, isObj := entry["claude_account"].(map[string]any); isObj {
+			measuredAt, _ := login["measured_at"].(float64)
+			offer(stringOf(login["account"]), stringOf(login["account_label"]), measuredAt)
 		}
 	}
 	return labels

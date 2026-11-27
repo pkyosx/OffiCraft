@@ -594,9 +594,9 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		body.Effort == nil && body.Runtime == nil && body.Runtimes == nil &&
 		body.SelfUpdate == nil && body.CommandResult == nil && body.WardenShape == nil &&
 		body.CutoverEffect == nil && body.ModelCall == nil && body.DiskUsage == nil &&
-		body.Platform == nil {
+		body.Platform == nil && body.ClaudeAccount == nil {
 		writeError(w, http.StatusBadRequest,
-			"rate_limits, tokens, hardware, binaries, claude, cost, effort, runtime, runtimes, "+
+			"rate_limits, tokens, hardware, binaries, claude, claude_account, cost, effort, runtime, runtimes, "+
 				"self_update, command_result, warden_shape, cutover_effect, model_call, disk_usage or platform is required")
 		return
 	}
@@ -640,6 +640,11 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		return
 	}
 	claude := declaredObject(body.Claude)
+	claudeAccount, refusal := validClaudeAccountReport(declaredObject(body.ClaudeAccount), nowSecs())
+	if refusal != "" {
+		writeError(w, http.StatusBadRequest, refusal)
+		return
+	}
 	runtimes := declaredObject(body.Runtimes)
 	for name, raw := range runtimes {
 		if !ValidRuntime(name) {
@@ -666,12 +671,6 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		if v, exists := capability["version"]; exists && v != nil {
 			if _, valid := v.(string); !valid {
 				writeError(w, http.StatusBadRequest, "runtimes."+name+".version must be a string or null")
-				return
-			}
-		}
-		if v, exists := capability["account"]; exists && v != nil {
-			if _, valid := v.(string); !valid {
-				writeError(w, http.StatusBadRequest, "runtimes."+name+".account must be a string or null")
 				return
 			}
 		}
@@ -765,7 +764,6 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	}
 	if body.RateLimits != nil {
 		entry["rate_limits"] = rateLimits
-		entry["rate_limits_ts"] = nowSecs()
 	}
 	if body.Tokens != nil {
 		entry["tokens"] = tokens
@@ -795,6 +793,10 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	}
 	if body.Claude != nil {
 		entry["claude"] = claude
+	}
+	if claudeAccount != nil {
+		entry["claude_account"] = claudeAccount
+		s.accountQuotas.Record(stringOf(claudeAccount["account"]), accountQuotaOf(claudeAccount))
 	}
 	loginFlipped := false
 	if body.Runtimes != nil {
@@ -844,10 +846,6 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	}
 	pairingBefore := modelCallPairingOf(entry)
 	applyAccountReport(entry, body.Account, body.AccountLabel, runtime)
-	if body.RateLimits != nil {
-		account, _ := entry["account"].(string)
-		s.accountRateLimits.Record(agentID, account, rateLimits, rateLimitStampOf(entry), nowSecs())
-	}
 	// The account accumulator is fed HERE and nowhere else (T-53, owner ruling
 	// rc-5c5d7c7c6dcd), and AFTER applyAccountReport so the increase is credited
 	// to the account this report proved.
@@ -994,14 +992,13 @@ func entryNum(entry map[string]any, key string) *float64 {
 
 // Three 30s heartbeat cadences: two may be lost without a healthy machine
 // flickering to "no data". Deliberately NOT tied to presence.
-//
-// ⚠️ It also gates the rate-limit pace verdict and which report an account's
-// window is picked from, and rate_limits for claude comes from cli/ocagent's
-// contextreport (reportThrottleSecs 30.0), not the warden (reportThrottle 30s):
-// two 30s constants in different Go modules with nothing linking them. Raising
-// either would silently withhold verdicts and let stale reports win with the
-// suite green — if you touch either throttle, come back here.
 const telemetryFreshSecs = 90.0
+
+// ⚠️ Tied to the warden's claudeAccountInterval (cli/ocwarden, 5 min) with
+// nothing linking the two: two intervals plus a heartbeat. Lowering this below
+// the interval silently withholds every account's pace verdict and the
+// "still on its old account" note between measurements, with the suite green.
+const claudeAccountFreshSecs = 2*5*60 + telemetryFreshSecs
 
 func runtimeCapabilitiesStampOf(entry map[string]any) float64 {
 	ts, _ := entry["runtimes_ts"].(float64)
@@ -1022,22 +1019,130 @@ func runtimeCapabilitiesStale(entry map[string]any, reported bool, now float64) 
 	return &stale
 }
 
-// claudeLoginSupersedes: the session's Claude account differs from the one
-// its machine's warden last reported logged in, while that report is fresh.
-func claudeLoginSupersedes(machine, session map[string]any, now float64) bool {
-	if stale := runtimeCapabilitiesStale(machine, false, now); stale == nil || *stale {
-		return false
+var claudeAccountUnmeasuredReasons = map[string]bool{
+	"no_credential":  true,
+	"token_expired":  true,
+	"profile_failed": true,
+	"usage_failed":   true,
+}
+
+// validClaudeAccountReport checks a warden's claude_account and answers the
+// copy to store, with measured_at capped at now (and set to now when absent).
+// Unknown keys are dropped rather than refused, like the other declared blocks.
+func validClaudeAccountReport(raw map[string]any, now float64) (map[string]any, string) {
+	if raw == nil {
+		return nil, ""
 	}
-	runtimes, _ := machine["runtimes"].(map[string]any)
-	claude, _ := runtimes[RuntimeClaude].(map[string]any)
-	login, _ := claude["account"].(string)
+	out := map[string]any{}
+	for _, key := range []string{"account", "account_label", "store", "subscription_type", "unmeasured_reason"} {
+		v, exists := raw[key]
+		if !exists || v == nil {
+			continue
+		}
+		text, isStr := v.(string)
+		if !isStr {
+			return nil, "claude_account." + key + " must be a string or null"
+		}
+		if text = strings.TrimSpace(text); text != "" {
+			out[key] = text
+		}
+	}
+	if store, _ := out["store"].(string); store != "" && store != "keychain" && store != "file" {
+		return nil, "claude_account.store must be 'keychain', 'file' or null"
+	}
+	if reason, _ := out["unmeasured_reason"].(string); reason != "" && !claudeAccountUnmeasuredReasons[reason] {
+		return nil, "claude_account.unmeasured_reason must be 'no_credential', 'token_expired', 'profile_failed' or 'usage_failed'"
+	}
+	measuredAt := now
+	if v, exists := raw["measured_at"]; exists && v != nil {
+		n, isNum := v.(float64)
+		if !isNum {
+			return nil, "claude_account.measured_at must be a number or null"
+		}
+		measuredAt = math.Min(n, now)
+	}
+	out["measured_at"] = measuredAt
+	for _, key := range []string{"five_hour", "seven_day"} {
+		v, exists := raw[key]
+		if !exists || v == nil {
+			continue
+		}
+		window, isObj := v.(map[string]any)
+		if !isObj {
+			return nil, "claude_account." + key + " must be an object or null"
+		}
+		out[key] = window
+	}
+	return out, ""
+}
+
+func accountQuotaOf(report map[string]any) accountQuota {
+	q := accountQuota{windows: map[string]any{}, unmeasuredReason: stringOf(report["unmeasured_reason"])}
+	q.measuredAt, _ = report["measured_at"].(float64)
+	for key := range WindowSeconds {
+		if window, isObj := report[key].(map[string]any); isObj {
+			q.windows[key] = window
+		}
+	}
+	return q
+}
+
+// freshClaudeLogin is the account the machine's latest login measurement
+// named, or "" when there is none, it named none, or it is too old to say.
+func freshClaudeLogin(machine map[string]any, now float64) string {
+	report, _ := machine["claude_account"].(map[string]any)
+	measuredAt, _ := report["measured_at"].(float64)
+	if measuredAt <= 0 || now-measuredAt > claudeAccountFreshSecs {
+		return ""
+	}
+	return stringOf(report["account"])
+}
+
+func claudeLoginSupersedes(machine, session map[string]any, now float64) bool {
+	login := freshClaudeLogin(machine, now)
 	account := telemetryAccount(session, RuntimeClaude)
 	return login != "" && account != "" && login != account
 }
 
-func rateLimitStampOf(entry map[string]any) float64 {
-	ts, _ := entry["rate_limits_ts"].(float64)
-	return ts
+func machineClaudeLogin(machine map[string]any, displayName func(string) string) *MonitoringClaudeLoginDTO {
+	report, isObj := machine["claude_account"].(map[string]any)
+	if !isObj {
+		return nil
+	}
+	account := stringOf(report["account"])
+	login := &MonitoringClaudeLoginDTO{
+		Account:          account,
+		Store:            stringOf(report["store"]),
+		UnmeasuredReason: stringOf(report["unmeasured_reason"]),
+	}
+	if account != "" {
+		login.DisplayName = displayName(account)
+	}
+	if measuredAt, ok := report["measured_at"].(float64); ok {
+		login.MeasuredAt = &measuredAt
+	}
+	return login
+}
+
+// accountQuotaWindows shapes an account's latest measurement. A failed one
+// serves no numbers: the account card says it is unmeasured instead.
+func accountQuotaWindows(q accountQuota, measured bool, now float64) (map[string]*PaceWindow, *string) {
+	if !measured {
+		return ShapeWindows(nil, now, nil, claudeAccountFreshSecs), nil
+	}
+	if q.unmeasuredReason != "" {
+		reason := q.unmeasuredReason
+		return ShapeWindows(nil, now, nil, claudeAccountFreshSecs), &reason
+	}
+	usable := map[string]any{}
+	stamps := map[string]float64{}
+	for key, windowSecs := range WindowSeconds {
+		if window, _, ok := usableRateLimitWindow(q.windows[key], windowSecs, now); ok {
+			usable[key] = window
+			stamps[key] = q.measuredAt
+		}
+	}
+	return ShapeWindows(usable, now, stamps, claudeAccountFreshSecs), nil
 }
 
 func usableRateLimitWindow(raw any, windowSecs, now float64) (map[string]any, float64, bool) {
@@ -1054,46 +1159,6 @@ func usableRateLimitWindow(raw any, windowSecs, now float64) (map[string]any, fl
 		return nil, 0, false
 	}
 	return window, *resetAt, true
-}
-
-type rateLimitCandidate struct {
-	window     map[string]any
-	resetAt    float64
-	measuredAt float64
-}
-
-// Every reading of an account was taken on that account: a Claude session
-// reports the account it launched on. A later reset is a later period, and
-// within one period usage only grows, so the latest reset and then the highest
-// usage is the newest reading. The report stamp cannot order them: an idle
-// session re-sends its last call's headers on every status-line tick.
-func pickRateLimitWindow(candidates []rateLimitCandidate) rateLimitCandidate {
-	return pickBy(candidates, func(c, picked rateLimitCandidate) bool {
-		if c.resetAt != picked.resetAt {
-			return c.resetAt > picked.resetAt
-		}
-		if used, pickedUsed := usedPercentOf(c.window), usedPercentOf(picked.window); used != pickedUsed {
-			return used > pickedUsed
-		}
-		return c.measuredAt > picked.measuredAt
-	})
-}
-
-func usedPercentOf(window map[string]any) float64 {
-	if used := teleNum(window["used_percentage"]); used != nil {
-		return *used
-	}
-	return -1
-}
-
-func pickBy(pool []rateLimitCandidate, beats func(c, picked rateLimitCandidate) bool) rateLimitCandidate {
-	picked := pool[0]
-	for _, c := range pool[1:] {
-		if beats(c, picked) {
-			picked = c
-		}
-	}
-	return picked
 }
 
 func hardwareStampOf(entry map[string]any) float64 {
@@ -1332,6 +1397,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 			RuntimeCapabilities: s.machineRuntimeCapabilities(host),
 			WardenShape:         s.machineWardenShape(host),
 			CutoverEffect:       s.machineCutoverEffect(host),
+			ClaudeLogin:         machineClaudeLogin(telemetry[host], resolveSessionAccount),
 			// Honest-empty, never null: the spec types this as a plain array.
 			HardwareInvalid: []string{},
 			DiskUsage: machineDiskUsage(entryObj(telemetry[host], "disk_usage"),
@@ -1381,46 +1447,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 			acctHosts[account][host] = true
 		}
 	}
-	rlCandidates := map[string]map[string][]rateLimitCandidate{}
-	for _, a := range actors {
-		entry := tele(a.id)
-		account := telemetryAccount(entry, a.runtime)
-		if account == "" {
-			continue
-		}
-		if rl, isObj := entry["rate_limits"].(map[string]any); isObj {
-			if rlCandidates[account] == nil {
-				rlCandidates[account] = map[string][]rateLimitCandidate{}
-			}
-			for windowKey, windowSecs := range WindowSeconds {
-				window, resetAt, usable := usableRateLimitWindow(rl[windowKey], windowSecs, now)
-				if !usable {
-					continue
-				}
-				rlCandidates[account][windowKey] = append(rlCandidates[account][windowKey],
-					rateLimitCandidate{window: window, resetAt: resetAt, measuredAt: rateLimitStampOf(entry)})
-			}
-		}
-	}
-	for account, byWindow := range s.accountRateLimits.LeftBehind(telemetry, now) {
-		if rlCandidates[account] == nil {
-			rlCandidates[account] = map[string][]rateLimitCandidate{}
-		}
-		for windowKey, candidates := range byWindow {
-			rlCandidates[account][windowKey] = append(rlCandidates[account][windowKey], candidates...)
-		}
-	}
-	freshRL := map[string]map[string]any{}
-	rlTS := map[string]map[string]float64{}
-	for account, byWindow := range rlCandidates {
-		freshRL[account] = map[string]any{}
-		rlTS[account] = map[string]float64{}
-		for windowKey, candidates := range byWindow {
-			picked := pickRateLimitWindow(candidates)
-			freshRL[account][windowKey] = picked.window
-			rlTS[account][windowKey] = picked.measuredAt
-		}
-	}
+	quotas := s.accountQuotas.Snapshot()
 	acctCost := map[string]float64{}
 	acctHasCost := map[string]bool{}
 	// The account figure is the account's OWN accumulator, not a fold over
@@ -1443,7 +1470,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	for account := range acctHosts {
 		accountKeys[account] = true
 	}
-	for account := range freshRL {
+	for account := range quotas {
 		accountKeys[account] = true
 	}
 	for account := range acctCost {
@@ -1472,7 +1499,8 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	sort.Strings(sortedAccounts)
 	accounts := []monitoringAccountDTO{}
 	for _, account := range sortedAccounts {
-		windows := ShapeWindows(anyOrNil(freshRL[account]), now, rlTS[account], telemetryFreshSecs)
+		quota, measured := quotas[account]
+		windows, unmeasured := accountQuotaWindows(quota, measured, now)
 		hostLabels := []string{}
 		for host := range acctHosts[account] {
 			hostLabels = append(hostLabels, resolveDisplay(machineNames, host))
@@ -1493,14 +1521,15 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 			displayName = account
 		}
 		accounts = append(accounts, monitoringAccountDTO{
-			Account:      account,
-			AccountLabel: accountLabel,
-			DisplayName:  displayName,
-			Machine:      strings.Join(hostLabels, ", "),
-			Cost:         cost,
-			FiveHour:     windows["five_hour"],
-			SevenDay:     windows["seven_day"],
-			LimitReached: calls.limit(account),
+			Account:          account,
+			AccountLabel:     accountLabel,
+			DisplayName:      displayName,
+			Machine:          strings.Join(hostLabels, ", "),
+			Cost:             cost,
+			FiveHour:         windows["five_hour"],
+			SevenDay:         windows["seven_day"],
+			LimitReached:     calls.limit(account),
+			UnmeasuredReason: unmeasured,
 		})
 	}
 
@@ -1509,14 +1538,6 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		Machines: machines,
 		Accounts: accounts,
 	})
-}
-
-// A typed nil inside `any` is not nil to ShapeWindows' type switch.
-func anyOrNil(m map[string]any) any {
-	if m == nil {
-		return nil
-	}
-	return m
 }
 
 // round4 mirrors Python round(x, 4) (banker's rounding).

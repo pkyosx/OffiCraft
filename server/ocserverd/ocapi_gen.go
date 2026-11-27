@@ -911,7 +911,10 @@ type AgentTelemetryIngestDTO struct {
 	Binaries     interface{} `json:"binaries,omitempty"`
 
 	// Claude Warden heartbeats only — the host's local claude CLI probe (T-97ee). Sub-fields (all optional, presence-only, NEVER a secret value): ``version`` string (the resolved claude binary's ``--version`` first token; absent = claude unresolved / probe failed), ``cred_file`` bool (``~/.claude/.credentials.json`` exists), ``sub_readable`` bool (that file exists AND ``claudeAiOauth.subscriptionType`` is non-blank — the exact readability ocagent's account key derivation needs), ``keychain`` bool (macOS login-keychain item ``Claude Code-credentials`` present; absent on non-darwin). The shape is DECLARED (T-90be) so a rename on either side fails CI; see ``hardware`` for why it is NOT closed.
-	Claude        *map[string]interface{} `json:"claude,omitempty"`
+	Claude *map[string]interface{} `json:"claude,omitempty"`
+
+	// ClaudeAccount Warden heartbeats only — the Claude login a member launched on this machine now would use, measured by asking Anthropic. The warden runs in the members' own session context and reads the credential the way Claude Code does for a member there (macOS: the login-keychain item ``Claude Code-credentials`` first, then ``<config dir>/.credentials.json``; elsewhere the file only), then calls ``GET /api/oauth/profile`` and ``GET /api/oauth/usage`` with it. Measured every few minutes and at each claude spawn, then repeated verbatim on every heartbeat until the next measurement. It never carries a token, and the warden neither refreshes a token nor writes any credential store. On any failure ``unmeasured_reason`` says why and the numbers are absent: nothing is estimated. NOT closed (see ``hardware``).
+	ClaudeAccount *map[string]interface{} `json:"claude_account,omitempty"`
 	CommandResult interface{}             `json:"command_result,omitempty"`
 	Cost          interface{}             `json:"cost,omitempty"`
 
@@ -933,13 +936,15 @@ type AgentTelemetryIngestDTO struct {
 	ModelCall *ModelCallReportDTO `json:"model_call,omitempty"`
 
 	// Platform Warden heartbeats only — the platform this warden binary was built for, ``<GOOS>/<GOARCH>`` (e.g. ``linux/amd64``). The server compares ``binaries`` against its embedded prebuilts FOR THIS PLATFORM; a warden build that omits it is compared against the server's own platform, which is what every such build was downloaded as. A platform the server carries no prebuilts for leaves ``bin_status`` unknown (null). Permissive like the other scalars here: a value not shaped ``<os>/<arch>`` is a flat 400, never a 422.
-	Platform   interface{} `json:"platform,omitempty"`
+	Platform interface{} `json:"platform,omitempty"`
+
+	// RateLimits A session's status-line ``rate_limits``. Stored with the session's telemetry; account usage rows do not read it (they come from ``claude_account``).
 	RateLimits interface{} `json:"rate_limits,omitempty"`
 
 	// Runtime Optional session runtime: ``claude`` or ``codex``. Omitted leaves previously stored telemetry untouched.
 	Runtime interface{} `json:"runtime,omitempty"`
 
-	// Runtimes Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, ``claude`` also ``below_notify_minimum`` bool/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials (``claude.account`` is an account key, not a credential). The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
+	// Runtimes Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, ``claude`` also ``below_notify_minimum`` bool/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
 	Runtimes   *map[string]interface{} `json:"runtimes,omitempty"`
 	SelfUpdate interface{}             `json:"self_update,omitempty"`
 	Tokens     interface{}             `json:"tokens,omitempty"`
@@ -2769,16 +2774,7 @@ type ModelCallWarningDTOKind string
 // ModelCallWarningDTORuntime defines model for ModelCallWarningDTO.Runtime.
 type ModelCallWarningDTORuntime string
 
-// MonitoringAccountDTO One account's usage. One row per account that reports telemetry carrying an
-// “account“ tag: each “five_hour“/“seven_day“ window is selected
-// independently from that account's valid “rate_limits“ reports, including
-// the last reading of a member that has since moved to another account, kept
-// until that window resets: the later “resets_at“ wins, then the higher
-// “used_percentage“, then the later rate-limit sample time. Every report of an
-// account was measured on that account (a Claude session reports the account it
-// launched on), a later reset is a later period, and usage only grows within a
-// period; the sample time cannot order them because an idle session re-sends its
-// last call's headers on every report. The window
+// MonitoringAccountDTO One account's usage. One row per account that a member reports as its “account“ or that a machine measured as its Claude login (“claude_account“ on warden heartbeats). “five_hour“/“seven_day“ come ONLY from those machine measurements, i.e. what Anthropic's usage endpoint answered for this account's own credential, never from members' reported “rate_limits“ and never merged across readings: the most recent measurement of the account is served as it is. An account no machine is logged into any more keeps its last measurement (its “measured_at“ says how old) until each window resets; another account's numbers never replace it. When the most recent measurement of the account failed, both windows are null and “unmeasured_reason“ says why. The window
 // is then shaped
 // into pacing data. A missing, invalid, expired, or implausibly future reset time
 // leaves that window honest-None. “cost“ is the account's own accumulated spend, kept independently of its members' individual totals. It is not the sum of its sessions. Removing a member or clearing an individual member's cost does not reduce the account total; new spend continues to accumulate for the account. The
@@ -2794,7 +2790,7 @@ type ModelCallWarningDTORuntime string
 //
 // Each shaped window additionally carries “measured_at“ — the epoch second the winning report's “used_percentage“ was taken. It is not decoration: “used_pct“ is a SNAPSHOT that freezes the moment the last agent on that account goes away, while “elapsed_pct“ is recomputed from the request's “now“ every single time, so without the stamp a days-old figure and a live one render byte-identically. The stamp is PER WINDOW because the two windows are selected independently — a fresh 5h window must never vouch for a frozen 7d one. Honest-null when nothing stamped the sample; NEVER back-filled with the serving time.
 //
-// For the same reason “pace“ is withheld (null) once a snapshot has gone unrefreshed past the telemetry freshness window, or is of unknown age: the verdict compares a frozen number against a moving clock, so it would appear and clear itself purely as time passes, with no new data and nothing the owner could do about it. The NUMBER is still served — only the present-tense judgement is withheld.
+// For the same reason “pace“ is withheld (null) once a snapshot has gone unrefreshed past the machine measurement freshness window (a little over two measurement intervals), or is of unknown age: the verdict compares a frozen number against a moving clock, so it would appear and clear itself purely as time passes, with no new data and nothing the owner could do about it. The NUMBER is still served — only the present-tense judgement is withheld.
 type MonitoringAccountDTO struct {
 	Account string `json:"account"`
 
@@ -2808,6 +2804,27 @@ type MonitoringAccountDTO struct {
 	LimitReached *ModelCallFailureDTO    `json:"limit_reached,omitempty"`
 	Machine      *string                 `json:"machine,omitempty"`
 	SevenDay     *map[string]interface{} `json:"seven_day,omitempty"`
+
+	// UnmeasuredReason Present when the most recent machine measurement of this account failed after the account was identified: ``usage_failed``. The windows are then null; no earlier or estimated figure is shown in their place. Absent otherwise.
+	UnmeasuredReason *string `json:"unmeasured_reason,omitempty"`
+}
+
+// MonitoringClaudeLoginDTO A machine's measured Claude login, as its warden reported it. Never a credential.
+type MonitoringClaudeLoginDTO struct {
+	// Account The account key, ``<account uuid>/<organization uuid>``; "" when the profile could not be read. Matches ``MonitoringAccountDTO.account``.
+	Account string `json:"account"`
+
+	// DisplayName The account's readable name, resolved like the session row's ``account`` (owner alias, then the owner-only label); "" when neither exists or the account is unknown.
+	DisplayName string `json:"display_name"`
+
+	// MeasuredAt Epoch seconds of the measurement.
+	MeasuredAt *float64 `json:"measured_at"`
+
+	// Store ``keychain`` or ``file``: where the measured credential was read; "" when neither held one.
+	Store string `json:"store"`
+
+	// UnmeasuredReason Why the measurement has no numbers (see ``AgentTelemetryIngestDTO.claude_account.unmeasured_reason``); "" on a full measurement.
+	UnmeasuredReason string `json:"unmeasured_reason"`
 }
 
 // MonitoringDTO Monitoring telemetry envelope (§3.8, three sections). “sessions“ +
@@ -2838,6 +2855,9 @@ type MonitoringMachineDTO struct {
 
 	// ClaudeCredSource Same server-synthesized claude credential-source verdict the machine registry row carries (``file`` | ``keychain`` | ``both`` | ``none`` | null unknown) — see ``MachineDTO.claude_cred_source``.
 	ClaudeCredSource *string `json:"claude_cred_source,omitempty"`
+
+	// ClaudeLogin The Claude login this machine's warden last measured (``claude_account`` on its heartbeat): the account a member launched here now would use. Absent when the warden never reported one.
+	ClaudeLogin *MonitoringClaudeLoginDTO `json:"claude_login,omitempty"`
 
 	// ClaudeSubReadable Same ``subscriptionType`` readability the machine registry row carries (null unknown) — see ``MachineDTO.claude_sub_readable``.
 	ClaudeSubReadable *bool `json:"claude_sub_readable,omitempty"`
@@ -2888,7 +2908,7 @@ type MonitoringMachineDTO struct {
 type MonitoringSessionDTO struct {
 	Account *string `json:"account,omitempty"`
 
-	// AccountSuperseded True while this session is online and its machine's warden reports (within the telemetry freshness window) a Claude login other than ``account``: a running Claude session keeps the account it launched on until it is relaunched, so its usage and spend stay on ``account`` until then. Absent (false) otherwise, including when either side is unknown.
+	// AccountSuperseded True while this session is online and its machine's most recent Claude login measurement (``claude_account``, taken within the measurement freshness window) names an account other than this session's: the warden binds a Claude session to the account the profile endpoint named for its credential at launch, and a running session keeps that account until it is relaunched, so its spend stays on ``account`` until then. Absent (false) otherwise, including when either side is unknown.
 	AccountSuperseded *bool    `json:"account_superseded,omitempty"`
 	BankedCost        *float64 `json:"banked_cost,omitempty"`
 

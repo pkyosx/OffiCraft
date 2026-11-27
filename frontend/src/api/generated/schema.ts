@@ -5128,6 +5128,58 @@ export interface components {
             } & {
                 [key: string]: unknown;
             };
+            /**
+             * Claude Account
+             * @description Warden heartbeats only — the Claude login a member launched on this machine now would use, measured by asking Anthropic. The warden runs in the members' own session context and reads the credential the way Claude Code does for a member there (macOS: the login-keychain item ``Claude Code-credentials`` first, then ``<config dir>/.credentials.json``; elsewhere the file only), then calls ``GET /api/oauth/profile`` and ``GET /api/oauth/usage`` with it. Measured every few minutes and at each claude spawn, then repeated verbatim on every heartbeat until the next measurement. It never carries a token, and the warden neither refreshes a token nor writes any credential store. On any failure ``unmeasured_reason`` says why and the numbers are absent: nothing is estimated. NOT closed (see ``hardware``).
+             */
+            claude_account?: {
+                /**
+                 * Account
+                 * @description ``<account uuid>/<organization uuid>`` from the profile endpoint: the same key members report as ``account``. Absent when the profile could not be read.
+                 */
+                account?: string | null;
+                /**
+                 * Account Label
+                 * @description ``<email>(<organization name>)`` from the profile endpoint.
+                 */
+                account_label?: string | null;
+                /**
+                 * Five Hour
+                 * @description ``{used_percentage, resets_at}`` as the usage endpoint answered it (``utilization`` → ``used_percentage``, ``resets_at`` converted to epoch seconds); absent when the endpoint gave no number for this window.
+                 */
+                five_hour?: {
+                    [key: string]: unknown;
+                } | null;
+                /**
+                 * Measured At
+                 * @description Epoch seconds the measurement was taken (the warden's clock); the server caps it at its own receive time.
+                 */
+                measured_at?: number | null;
+                /**
+                 * Seven Day
+                 * @description ``{used_percentage, resets_at}`` as the usage endpoint answered it (``utilization`` → ``used_percentage``, ``resets_at`` converted to epoch seconds); absent when the endpoint gave no number for this window.
+                 */
+                seven_day?: {
+                    [key: string]: unknown;
+                } | null;
+                /**
+                 * Store
+                 * @description Which credential store the measured token came from: ``keychain`` or ``file``. Absent when neither held a usable credential.
+                 */
+                store?: string | null;
+                /**
+                 * Subscription Type
+                 * @description ``claudeAiOauth.subscriptionType`` of that credential.
+                 */
+                subscription_type?: string | null;
+                /**
+                 * Unmeasured Reason
+                 * @description Why the numbers are absent: ``no_credential`` (neither store holds a readable login), ``token_expired`` (the stored access token has expired; the warden does not refresh it), ``profile_failed`` (the profile call failed, so the account is unknown), ``usage_failed`` (the account is known but the usage call failed). Absent on a full measurement. A value outside this list is a 400.
+                 */
+                unmeasured_reason?: string | null;
+            } & {
+                [key: string]: unknown;
+            };
             /** Command Result */
             command_result?: unknown;
             /** Cost */
@@ -5228,7 +5280,10 @@ export interface components {
              * @description Warden heartbeats only — the platform this warden binary was built for, ``<GOOS>/<GOARCH>`` (e.g. ``linux/amd64``). The server compares ``binaries`` against its embedded prebuilts FOR THIS PLATFORM; a warden build that omits it is compared against the server's own platform, which is what every such build was downloaded as. A platform the server carries no prebuilts for leaves ``bin_status`` unknown (null). Permissive like the other scalars here: a value not shaped ``<os>/<arch>`` is a flat 400, never a 422.
              */
             platform?: unknown;
-            /** Rate Limits */
+            /**
+             * Rate Limits
+             * @description A session's status-line ``rate_limits``. Stored with the session's telemetry; account usage rows do not read it (they come from ``claude_account``).
+             */
             rate_limits?: unknown;
             /**
              * Runtime Key
@@ -5237,7 +5292,7 @@ export interface components {
             runtime?: unknown;
             /**
              * Runtimes
-             * @description Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, ``claude`` also ``below_notify_minimum`` bool/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials (``claude.account`` is an account key, not a credential). The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
+             * @description Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, ``claude`` also ``below_notify_minimum`` bool/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
              */
             runtimes?: {
                 /**
@@ -5245,11 +5300,6 @@ export interface components {
                  * @description Claude readiness. ``installed`` and ``version`` are transcribed from the ``claude`` probe (runtimeprobe.go); ``logged_in`` comes from ``claude auth status``.
                  */
                 claude?: {
-                    /**
-                     * Account
-                     * @description The Claude account a member launched on this machine now would be bound to: the login in the warden's ``$HOME`` .claude.json, keyed exactly like the ``account`` a member reports (``<accountUuid or userID>/<organizationUuid>``). Absent when no login is readable or ``logged_in`` is false. The station compares it with each running member's account for ``MonitoringSessionDTO.account_superseded``; it is not transcribed to ``RuntimeCapabilityDTO``.
-                     */
-                    account?: string | null;
                     /**
                      * Below Notify Minimum
                      * @description The warden compares the version it read against the minimum Claude Code version the notification mod needs, which only the warden holds: true when older, false when at or above it; absent when the version is unknown. Transcribed to `RuntimeCapabilityDTO.below_notify_minimum`.
@@ -7904,16 +7954,7 @@ export interface components {
         };
         /**
          * MonitoringAccountDTO
-         * @description One account's usage. One row per account that reports telemetry carrying an
-         *     ``account`` tag: each ``five_hour``/``seven_day`` window is selected
-         *     independently from that account's valid ``rate_limits`` reports, including
-         *     the last reading of a member that has since moved to another account, kept
-         *     until that window resets: the later ``resets_at`` wins, then the higher
-         *     ``used_percentage``, then the later rate-limit sample time. Every report of an
-         *     account was measured on that account (a Claude session reports the account it
-         *     launched on), a later reset is a later period, and usage only grows within a
-         *     period; the sample time cannot order them because an idle session re-sends its
-         *     last call's headers on every report. The window
+         * @description One account's usage. One row per account that a member reports as its ``account`` or that a machine measured as its Claude login (``claude_account`` on warden heartbeats). ``five_hour``/``seven_day`` come ONLY from those machine measurements, i.e. what Anthropic's usage endpoint answered for this account's own credential, never from members' reported ``rate_limits`` and never merged across readings: the most recent measurement of the account is served as it is. An account no machine is logged into any more keeps its last measurement (its ``measured_at`` says how old) until each window resets; another account's numbers never replace it. When the most recent measurement of the account failed, both windows are null and ``unmeasured_reason`` says why. The window
          *     is then shaped
          *     into pacing data. A missing, invalid, expired, or implausibly future reset time
          *     leaves that window honest-None. ``cost`` is the account's own accumulated spend, kept independently of its members' individual totals. It is not the sum of its sessions. Removing a member or clearing an individual member's cost does not reduce the account total; new spend continues to accumulate for the account. The
@@ -7929,7 +7970,7 @@ export interface components {
          *
          *     Each shaped window additionally carries ``measured_at`` — the epoch second the winning report's ``used_percentage`` was taken. It is not decoration: ``used_pct`` is a SNAPSHOT that freezes the moment the last agent on that account goes away, while ``elapsed_pct`` is recomputed from the request's ``now`` every single time, so without the stamp a days-old figure and a live one render byte-identically. The stamp is PER WINDOW because the two windows are selected independently — a fresh 5h window must never vouch for a frozen 7d one. Honest-null when nothing stamped the sample; NEVER back-filled with the serving time.
          *
-         *     For the same reason ``pace`` is withheld (null) once a snapshot has gone unrefreshed past the telemetry freshness window, or is of unknown age: the verdict compares a frozen number against a moving clock, so it would appear and clear itself purely as time passes, with no new data and nothing the owner could do about it. The NUMBER is still served — only the present-tense judgement is withheld.
+         *     For the same reason ``pace`` is withheld (null) once a snapshot has gone unrefreshed past the machine measurement freshness window (a little over two measurement intervals), or is of unknown age: the verdict compares a frozen number against a moving clock, so it would appear and clear itself purely as time passes, with no new data and nothing the owner could do about it. The NUMBER is still served — only the present-tense judgement is withheld.
          */
         MonitoringAccountDTO: {
             /** Account */
@@ -7966,6 +8007,46 @@ export interface components {
             seven_day?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Unmeasured Reason
+             * @description Present when the most recent machine measurement of this account failed after the account was identified: ``usage_failed``. The windows are then null; no earlier or estimated figure is shown in their place. Absent otherwise.
+             */
+            unmeasured_reason?: string;
+        };
+        /**
+         * MonitoringClaudeLoginDTO
+         * @description A machine's measured Claude login, as its warden reported it. Never a credential.
+         */
+        MonitoringClaudeLoginDTO: {
+            /**
+             * Account
+             * @description The account key, ``<account uuid>/<organization uuid>``; "" when the profile could not be read. Matches ``MonitoringAccountDTO.account``.
+             * @default
+             */
+            account: string;
+            /**
+             * Display Name
+             * @description The account's readable name, resolved like the session row's ``account`` (owner alias, then the owner-only label); "" when neither exists or the account is unknown.
+             * @default
+             */
+            display_name: string;
+            /**
+             * Measured At
+             * @description Epoch seconds of the measurement.
+             */
+            measured_at: number | null;
+            /**
+             * Store
+             * @description ``keychain`` or ``file``: where the measured credential was read; "" when neither held one.
+             * @default
+             */
+            store: string;
+            /**
+             * Unmeasured Reason
+             * @description Why the measurement has no numbers (see ``AgentTelemetryIngestDTO.claude_account.unmeasured_reason``); "" on a full measurement.
+             * @default
+             */
+            unmeasured_reason: string;
         };
         /**
          * MonitoringDTO
@@ -8008,6 +8089,8 @@ export interface components {
             battery_pct?: number | null;
             /** Bin Status */
             bin_status?: string | null;
+            /** @description The Claude login this machine's warden last measured (``claude_account`` on its heartbeat): the account a member launched here now would use. Absent when the warden never reported one. */
+            claude_login?: components["schemas"]["MonitoringClaudeLoginDTO"] | null;
             /**
              * Claude Cred Source
              * @description Same server-synthesized claude credential-source verdict the machine registry row carries (``file`` | ``keychain`` | ``both`` | ``none`` | null unknown) — see ``MachineDTO.claude_cred_source``.
@@ -8098,7 +8181,7 @@ export interface components {
             account: string;
             /**
              * Account Superseded
-             * @description True while this session is online and its machine's warden reports (within the telemetry freshness window) a Claude login other than ``account``: a running Claude session keeps the account it launched on until it is relaunched, so its usage and spend stay on ``account`` until then. Absent (false) otherwise, including when either side is unknown.
+             * @description True while this session is online and its machine's most recent Claude login measurement (``claude_account``, taken within the measurement freshness window) names an account other than this session's: the warden binds a Claude session to the account the profile endpoint named for its credential at launch, and a running session keeps that account until it is relaunched, so its spend stays on ``account`` until then. Absent (false) otherwise, including when either side is unknown.
              */
             account_superseded?: boolean;
             /** Banked Cost */
