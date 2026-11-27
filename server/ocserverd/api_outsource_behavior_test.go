@@ -124,7 +124,7 @@ func TestListOutsourceWorkers_AccountLabelOwnerGate(t *testing.T) {
 	})
 
 	rows := listWorkersAs(t, api, wireOwnerID)
-	if rows[0].Account == nil || *rows[0].Account != "eva@corp (Corp)" {
+	if rows[0].Account == nil || *rows[0].Account != "eva@corp(Corp)" {
 		t.Fatalf("owner must see the reported label, got %v", rows[0].Account)
 	}
 
@@ -1375,8 +1375,7 @@ func TestOutsourceWorker_RuntimeAccountNeverBorrowsAnotherRuntime(t *testing.T) 
 // reported bug lived on the DETAIL page, so the single-worker GET — not just the
 // list — must route the Claude account through the shared resolveAccountDisplay
 // fold. Its raw telemetry key is the real `<accountUuid>/<organizationUuid>` shape
-// (the account the warden's profile measurement names, cli/ocwarden
-// claudeaccount.go). This locks
+// (readClaudeAccount, cli/ocagent/contextreport.go). This locks
 // the detail path so a regression that stopped resolving ONLY the single GET
 // (which every list-only account test would still pass) can never re-expose it.
 func TestGetOutsourceWorker_AccountResolvedOnDetailPath(t *testing.T) {
@@ -1384,7 +1383,7 @@ func TestGetOutsourceWorker_AccountResolvedOnDetailPath(t *testing.T) {
 	api.noOutsource = true // manual tick — deterministic single worker
 	workerID := assignOneWorker(t, api)
 
-	// A session reports its account as the
+	// The warden reports a session's account as readClaudeAccount's
 	// `<accountUuid>/<organizationUuid>` composite. We use an OBVIOUSLY-synthetic
 	// stand-in carrying the repo's `-raw-key` marker (matching the sibling
 	// list tests) — a real 64-hex literal trips the CI gitleaks generic-api-key

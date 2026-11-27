@@ -572,9 +572,6 @@ export interface MonSessionView {
   effort: string;
   machine: string;
   account: string;
-  /** The machine now logs into another Claude account; this running session
-   * stays on `account` until it is refocused. */
-  accountSuperseded?: boolean;
   /** REPORTED runtime; "" until something reports one (T-7f28). */
   runtime: "claude" | "codex" | "";
   /** presence tri-state mapped 1:1 onto the member status. */
@@ -651,9 +648,6 @@ export interface MonMachineView {
   claudeSubReadable: boolean | null;
   /** null = nothing measured for this machine since the server started. */
   diskUsage: MachineDiskUsageView | null;
-  /** The Claude login this machine's warden last measured; null = none
-   * reported. */
-  claudeLogin?: MonClaudeLoginView | null;
 }
 
 /** OffiCraft's disk usage on one machine. Sizes are bytes; a null field was not
@@ -726,26 +720,6 @@ export interface MonAccountView {
   } | null;
   /** The usage-limit refusal in force on this account; null = none. */
   limitReached: { code: string; resetsAt: number | null; ts: number } | null;
-  /** Why the latest machine measurement of this account has no numbers;
-   * null = it has them. The windows are then null too. */
-  unmeasuredReason?: ClaudeUnmeasuredReason | null;
-}
-
-/** The closed `unmeasured_reason` vocabulary of a machine's Claude login
- * measurement. */
-export type ClaudeUnmeasuredReason =
-  | "no_credential"
-  | "token_expired"
-  | "profile_failed"
-  | "usage_failed";
-
-/** A machine's measured Claude login (`claude_login`). */
-export interface MonClaudeLoginView {
-  account: string;
-  displayName: string;
-  store: string;
-  measuredAt: number | null;
-  unmeasuredReason: ClaudeUnmeasuredReason | null;
 }
 
 /** Monitoring telemetry envelope (three sections). */

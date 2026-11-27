@@ -2227,13 +2227,6 @@ export const zh = {
       context: "記憶用量",
       estCost: "估計$",
     },
-    accountSupersededHint: "仍用舊帳號，重新聚焦後換新帳號",
-    claudeUnmeasured: {
-      no_credential: "用量未知：這台機器沒有存著可用的 Claude 登入",
-      token_expired: "用量未知：存著的登入已過期",
-      profile_failed: "用量未知：Anthropic 沒有回答這個登入是哪個帳號",
-      usage_failed: "用量未知：Anthropic 沒有回答這個帳號的用量",
-    },
     // machine lifecycle: onboard (新增機器 / 上線) + teardown (拆除)
     machine: {
       actionsMenu: (name: string) => `機器操作（${name}）`,

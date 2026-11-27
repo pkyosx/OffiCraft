@@ -65,7 +65,7 @@ const stopInput = `{"session_id":"11111111-1111-4111-8111-111111111111","transcr
 func TestCmdModelCallReport(t *testing.T) {
 	accountHome := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-1","emailAddress":"kyle@x.io",`+
 		`"organizationName":"OffiCraft","organizationUuid":"org-1"}}`)
-	env := testEnv(map[string]string{"HOME": accountHome, "OC_HOST": "lab-1", claudeAccountEnv: `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)"}`})
+	env := testEnv(map[string]string{"HOME": accountHome, "OC_HOST": "lab-1"})
 	newCfg := func(t *testing.T, base string) Config {
 		return Config{BaseConfigured: true, Base: base, Token: "t", MemberID: "Kyle", AgentsRoot: t.TempDir()}
 	}
@@ -353,16 +353,19 @@ func TestCmdModelCallReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a report after a machine re-login names the account bound at the session's launch, and an unbound session names none", func(t *testing.T) {
+	t.Run("a report after a re-login names the account the session's windows were measured on", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
-		var errOut bytes.Buffer
-		reloggedHome := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-2","organizationUuid":"org-2"}}`)
+		var out, errOut bytes.Buffer
+		cmdContextReport(&fakeHTTP{status: 200, body: "{}"}, cfg, env, 1000,
+			strings.NewReader(`{"rate_limits":{"seven_day":{"used_percentage":99,"resets_at":1794769200}}}`), &out, &errOut)
+		reloggedEnv := testEnv(map[string]string{
+			"HOME":    writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-2","organizationUuid":"org-2"}}`),
+			"OC_HOST": "lab-1",
+		})
 
-		cmdModelCallReport(srv.Client(), cfg, testEnv(map[string]string{
-			"HOME": reloggedHome, "OC_HOST": "lab-1",
-			claudeAccountEnv: `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)"}`,
-		}), 1100, strings.NewReader(stopFailureInput("server_error", fixturePath(t, "sample-other-errors.jsonl"))), &errOut)
+		cmdModelCallReport(srv.Client(), cfg, reloggedEnv, 1100,
+			strings.NewReader(stopFailureInput("server_error", fixturePath(t, "sample-other-errors.jsonl"))), &errOut)
 
 		want := `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
 			`"machine":"lab-1","model_call":{"last_failure":{"ts":1100,"kind":"server","code":"server_error","resets_at":null}}}`
@@ -370,13 +373,18 @@ func TestCmdModelCallReport(t *testing.T) {
 			t.Errorf("sent %+v, want one body %s", *posts, want)
 		}
 
-		cmdModelCallReport(srv.Client(), cfg, testEnv(map[string]string{"HOME": reloggedHome, "OC_HOST": "lab-1"}), 1200,
+		recordWithoutLogin := `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
+			`"rate_limits":"{\"seven_day\":{\"resets_at\":1794769200,\"used_percentage\":99}}"}`
+		if err := os.WriteFile(claudeAccountPath(cfg), []byte(recordWithoutLogin), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmdModelCallReport(srv.Client(), cfg, reloggedEnv, 1200,
 			strings.NewReader(stopFailureInput("server_error", fixturePath(t, "sample-other-errors.jsonl"))), &errOut)
 
-		wantUnbound := `{"runtime":"claude","machine":"lab-1",` +
+		wantFromLogin := `{"runtime":"claude","account":"au-2/org-2","machine":"lab-1",` +
 			`"model_call":{"last_failure":{"ts":1200,"kind":"server","code":"server_error","resets_at":null}}}`
-		if len(*posts) != 2 || (*posts)[1].body != wantUnbound {
-			t.Errorf("from a session launched without a bound account sent %+v, want second body %s with no account, not the one ~/.claude.json names", *posts, wantUnbound)
+		if len(*posts) != 2 || (*posts)[1].body != wantFromLogin {
+			t.Errorf("with a record that predates the login field sent %+v, want second body %s", *posts, wantFromLogin)
 		}
 	})
 

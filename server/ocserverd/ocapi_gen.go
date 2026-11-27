@@ -884,7 +884,7 @@ type AgentRuntime string
 // AgentTelemetryIngestDTO Inbound warden/agent telemetry report (“POST /api/monitoring/telemetry“).
 //
 // The reporter pushes what the model can't reliably read about itself: the
-// session's status-line “rate_limits“ (5h/7d windows), its own “tokens“,
+// account-wide “rate_limits“ (5h/7d windows), this session's own “tokens“,
 // the host “hardware“ snapshot (cpu/ram/battery/ac), the harness-computed
 // cumulative “cost“, the session “runtime“, and the “model“ / “effort“ pair the
 // session is LIVE running under (reported state, never the launch configuration —
@@ -892,8 +892,7 @@ type AgentRuntime string
 // carry “binaries“ plus provider-neutral “runtimes“ capability probes; the
 // server compares binary fingerprints against its embedded prebuilts and uses
 // runtime readiness for placement. “machine“ / “account“ are merge tags
-// (spend is per-account; hardware is per-host). Account usage comes from the
-// warden's “claude_account“ measurement, not from any session's “rate_limits“. Fields are permissive so a bad
+// (quota is per-account; hardware is per-host). Fields are permissive so a bad
 // body is a flat 400 (not a Pydantic 422); at least one telemetry field must be
 // present. EXCEPTION (T-90be): “hardware“ / “claude“ / “runtimes“ now declare
 // their nested shape and are typed as objects, so a non-object THERE is a
@@ -911,11 +910,8 @@ type AgentTelemetryIngestDTO struct {
 	AccountLabel interface{} `json:"account_label,omitempty"`
 	Binaries     interface{} `json:"binaries,omitempty"`
 
-	// Claude Warden heartbeats only — the host's local claude CLI probe (T-97ee). Sub-fields (all optional, presence-only, NEVER a secret value): ``version`` string (the resolved claude binary's ``--version`` first token; absent = claude unresolved / probe failed), ``cred_file`` bool (``~/.claude/.credentials.json`` exists), ``sub_readable`` bool (that file exists AND ``claudeAiOauth.subscriptionType`` is non-blank), ``keychain`` bool (macOS login-keychain item ``Claude Code-credentials`` present; absent on non-darwin). The shape is DECLARED (T-90be) so a rename on either side fails CI; see ``hardware`` for why it is NOT closed.
-	Claude *map[string]interface{} `json:"claude,omitempty"`
-
-	// ClaudeAccount Warden heartbeats only — the Claude login a member launched on this machine now would use, measured by asking Anthropic. The warden runs in the members' own session context and reads the credential the way Claude Code does for a member there (macOS: the login-keychain item ``Claude Code-credentials`` first, then ``<config dir>/.credentials.json``; elsewhere the file only), then calls ``GET /api/oauth/profile`` and ``GET /api/oauth/usage`` with it. Measured every few minutes and at each claude spawn, then repeated verbatim on every heartbeat until the next measurement. It never carries a token, and the warden neither refreshes a token nor writes any credential store. On any failure ``unmeasured_reason`` says why and the numbers are absent: nothing is estimated. NOT closed (see ``hardware``).
-	ClaudeAccount *map[string]interface{} `json:"claude_account,omitempty"`
+	// Claude Warden heartbeats only — the host's local claude CLI probe (T-97ee). Sub-fields (all optional, presence-only, NEVER a secret value): ``version`` string (the resolved claude binary's ``--version`` first token; absent = claude unresolved / probe failed), ``cred_file`` bool (``~/.claude/.credentials.json`` exists), ``sub_readable`` bool (that file exists AND ``claudeAiOauth.subscriptionType`` is non-blank — the exact readability ocagent's account key derivation needs), ``keychain`` bool (macOS login-keychain item ``Claude Code-credentials`` present; absent on non-darwin). The shape is DECLARED (T-90be) so a rename on either side fails CI; see ``hardware`` for why it is NOT closed.
+	Claude        *map[string]interface{} `json:"claude,omitempty"`
 	CommandResult interface{}             `json:"command_result,omitempty"`
 	Cost          interface{}             `json:"cost,omitempty"`
 
@@ -937,9 +933,7 @@ type AgentTelemetryIngestDTO struct {
 	ModelCall *ModelCallReportDTO `json:"model_call,omitempty"`
 
 	// Platform Warden heartbeats only — the platform this warden binary was built for, ``<GOOS>/<GOARCH>`` (e.g. ``linux/amd64``). The server compares ``binaries`` against its embedded prebuilts FOR THIS PLATFORM; a warden build that omits it is compared against the server's own platform, which is what every such build was downloaded as. A platform the server carries no prebuilts for leaves ``bin_status`` unknown (null). Permissive like the other scalars here: a value not shaped ``<os>/<arch>`` is a flat 400, never a 422.
-	Platform interface{} `json:"platform,omitempty"`
-
-	// RateLimits A session's status-line ``rate_limits``. Stored with the session's telemetry; account usage rows do not read it (they come from ``claude_account``).
+	Platform   interface{} `json:"platform,omitempty"`
 	RateLimits interface{} `json:"rate_limits,omitempty"`
 
 	// Runtime Optional session runtime: ``claude`` or ``codex``. Omitted leaves previously stored telemetry untouched.
@@ -2775,7 +2769,13 @@ type ModelCallWarningDTOKind string
 // ModelCallWarningDTORuntime defines model for ModelCallWarningDTO.Runtime.
 type ModelCallWarningDTORuntime string
 
-// MonitoringAccountDTO One account's usage. One row per account that a member reports as its “account“ or that a machine measured as its Claude login (“claude_account“ on warden heartbeats). “five_hour“/“seven_day“ come ONLY from those machine measurements, i.e. what Anthropic's usage endpoint answered for this account's own credential, never from members' reported “rate_limits“ and never merged across readings: the most recent measurement of the account is served as it is. An account no machine is logged into any more keeps its last measurement (its “measured_at“ says how old) until each window resets; another account's numbers never replace it. When the most recent measurement of the account failed, both windows are null and “unmeasured_reason“ says why. The window
+// MonitoringAccountDTO One account's usage. One row per account that reports telemetry carrying an
+// “account“ tag: each “five_hour“/“seven_day“ window is selected
+// independently from that account's valid “rate_limits“ reports: reports
+// sampled within the telemetry freshness window come first, and among them the
+// later “resets_at“ wins (ties use the report's rate-limit sample time); when
+// no report is fresh, the most recently sampled one wins (ties use the later
+// “resets_at“). The window
 // is then shaped
 // into pacing data. A missing, invalid, expired, or implausibly future reset time
 // leaves that window honest-None. “cost“ is the account's own accumulated spend, kept independently of its members' individual totals. It is not the sum of its sessions. Removing a member or clearing an individual member's cost does not reduce the account total; new spend continues to accumulate for the account. The
@@ -2791,7 +2791,7 @@ type ModelCallWarningDTORuntime string
 //
 // Each shaped window additionally carries “measured_at“ — the epoch second the winning report's “used_percentage“ was taken. It is not decoration: “used_pct“ is a SNAPSHOT that freezes the moment the last agent on that account goes away, while “elapsed_pct“ is recomputed from the request's “now“ every single time, so without the stamp a days-old figure and a live one render byte-identically. The stamp is PER WINDOW because the two windows are selected independently — a fresh 5h window must never vouch for a frozen 7d one. Honest-null when nothing stamped the sample; NEVER back-filled with the serving time.
 //
-// For the same reason “pace“ is withheld (null) once a snapshot has gone unrefreshed past the machine measurement freshness window (a little over two measurement intervals), or is of unknown age: the verdict compares a frozen number against a moving clock, so it would appear and clear itself purely as time passes, with no new data and nothing the owner could do about it. The NUMBER is still served — only the present-tense judgement is withheld.
+// For the same reason “pace“ is withheld (null) once a snapshot has gone unrefreshed past the telemetry freshness window, or is of unknown age: the verdict compares a frozen number against a moving clock, so it would appear and clear itself purely as time passes, with no new data and nothing the owner could do about it. The NUMBER is still served — only the present-tense judgement is withheld.
 type MonitoringAccountDTO struct {
 	Account string `json:"account"`
 
@@ -2805,27 +2805,6 @@ type MonitoringAccountDTO struct {
 	LimitReached *ModelCallFailureDTO    `json:"limit_reached,omitempty"`
 	Machine      *string                 `json:"machine,omitempty"`
 	SevenDay     *map[string]interface{} `json:"seven_day,omitempty"`
-
-	// UnmeasuredReason Present when the most recent machine measurement of this account failed after the account was identified: ``usage_failed``. The windows are then null; no earlier or estimated figure is shown in their place. Absent otherwise.
-	UnmeasuredReason *string `json:"unmeasured_reason,omitempty"`
-}
-
-// MonitoringClaudeLoginDTO A machine's measured Claude login, as its warden reported it. Never a credential.
-type MonitoringClaudeLoginDTO struct {
-	// Account The account key, ``<account uuid>/<organization uuid>``; "" when the profile could not be read. Matches ``MonitoringAccountDTO.account``.
-	Account string `json:"account"`
-
-	// DisplayName The account's readable name, resolved like the session row's ``account`` (owner alias, then the owner-only label); "" when neither exists or the account is unknown.
-	DisplayName string `json:"display_name"`
-
-	// MeasuredAt Epoch seconds of the measurement.
-	MeasuredAt *float64 `json:"measured_at"`
-
-	// Store ``keychain`` or ``file``: where the measured credential was read; "" when neither held one.
-	Store string `json:"store"`
-
-	// UnmeasuredReason Why the measurement has no numbers (see ``AgentTelemetryIngestDTO.claude_account.unmeasured_reason``); "" on a full measurement.
-	UnmeasuredReason string `json:"unmeasured_reason"`
 }
 
 // MonitoringDTO Monitoring telemetry envelope (§3.8, three sections). “sessions“ +
@@ -2856,9 +2835,6 @@ type MonitoringMachineDTO struct {
 
 	// ClaudeCredSource Same server-synthesized claude credential-source verdict the machine registry row carries (``file`` | ``keychain`` | ``both`` | ``none`` | null unknown) — see ``MachineDTO.claude_cred_source``.
 	ClaudeCredSource *string `json:"claude_cred_source,omitempty"`
-
-	// ClaudeLogin The Claude login this machine's warden last measured (``claude_account`` on its heartbeat): the account a member launched here now would use. Absent when the warden never reported one.
-	ClaudeLogin *MonitoringClaudeLoginDTO `json:"claude_login,omitempty"`
 
 	// ClaudeSubReadable Same ``subscriptionType`` readability the machine registry row carries (null unknown) — see ``MachineDTO.claude_sub_readable``.
 	ClaudeSubReadable *bool `json:"claude_sub_readable,omitempty"`
@@ -2907,11 +2883,8 @@ type MonitoringMachineDTO struct {
 // from), honest-empty until a source reports one — mirrors the “account“ tag
 // the accounts[] fold groups by, so the per-member detail row can show it.
 type MonitoringSessionDTO struct {
-	Account *string `json:"account,omitempty"`
-
-	// AccountSuperseded True while this session is online and its machine's most recent Claude login measurement (``claude_account``, taken within the measurement freshness window) names an account other than this session's: the warden binds a Claude session to the account the profile endpoint named for its credential at launch, and a running session keeps that account until it is relaunched, so its spend stays on ``account`` until then. Absent (false) otherwise, including when either side is unknown.
-	AccountSuperseded *bool    `json:"account_superseded,omitempty"`
-	BankedCost        *float64 `json:"banked_cost,omitempty"`
+	Account    *string  `json:"account,omitempty"`
+	BankedCost *float64 `json:"banked_cost,omitempty"`
 
 	// CompactionCount Codex App Server compactions in this live session; null for Claude or before the first Codex report.
 	CompactionCount *int     `json:"compaction_count,omitempty"`
@@ -6868,7 +6841,7 @@ type ServerInterface interface {
 	// - `account`: Which billing account this session is drawing on. It is READ ONLY IN COMPANY WITH runtime, and the failure is worse than a dropped field: send a perfectly valid account WITHOUT runtime and the server does not merely ignore it, it CLEARS the account pairing already recorded for this entry and returns 200. A previously correct display therefore goes blank because of a report that carried the right value. A non-string value is dropped silently to empty by the same path. Always send runtime alongside account.
 	// - `account_label`: Human-readable label for the account. It rides the same path as account - read only in company with runtime, dropped silently when the value is not a string - and it is HARDER to notice going wrong than account is, because the ingest response does not echo it back at all. There is no field in the reply to compare against what you sent, so a dropped label is invisible from the call site; the only way to see it is to read the monitoring view afterwards.
 	// - `binaries`: Warden heartbeats only — the content fingerprint of the binaries this host is ACTUALLY running: an object keyed by binary name (ocwarden, ocagent, officraft) whose values are that live file's sha256 12-hex prefix. The server diffs them against the build it has embedded for the platform the heartbeat reports to derive the machine's bin_status (current / stale / absent = honest unknown), so a heartbeat that omits this leaves the machine's upgrade state unknowable rather than current. Deliberately a content hash, not a version number.
-	// - `claude`: Warden heartbeats only — the host's local claude CLI probe. Presence-only, NEVER a secret value. All sub-fields optional: version (string — the resolved claude binary's --version first token; absent = unresolved or probe failed), cred_file (bool — ~/.claude/.credentials.json exists), sub_readable (bool — that file exists AND its claudeAiOauth.subscriptionType is non-blank), keychain (bool — macOS login-keychain item present; ABSENT, not false, on non-darwin where the probe cannot answer). Send it so the roster can tell whether this host can actually run Claude.
+	// - `claude`: Warden heartbeats only — the host's local claude CLI probe. Presence-only, NEVER a secret value. All sub-fields optional: version (string — the resolved claude binary's --version first token; absent = unresolved or probe failed), cred_file (bool — ~/.claude/.credentials.json exists), sub_readable (bool — that file exists AND its claudeAiOauth.subscriptionType is non-blank, the exact readability the account-key derivation needs), keychain (bool — macOS login-keychain item present; ABSENT, not false, on non-darwin where the probe cannot answer). Send it so the roster can tell whether this host can actually run Claude.
 	// - `command_result`: Receipt for a command this reporter was asked to run. The only check is that the value is an object. Everything inside is best-effort: an unknown member id, an unknown worker, or a receipt that matches no outstanding command is written to the server's stderr and then swallowed, and the call answers 200 either way. A 200 here means the report was accepted, NOT that it was matched to anything - if you need to know the result was recorded, read the state it should have changed.
 	// - `cost`: Accumulated cost for this session. The ONLY check is that the value is a number - there is no sign check, no unit check and no upper or lower bound, so a negative figure, a value in the wrong currency, or one off by a factor of a thousand is stored verbatim and answers 200. It becomes what the monitoring view reports, so the number is trusted exactly as far as the caller computing it.
 	// - `effort`: The reasoning-effort level this session is actually running at. The ONLY check is that the value is a string: unlike hire_member and update_member, which validate against the known effort levels, this path deliberately does NOT, so any string at all is accepted and overwrites the recorded effort. A typo is not refused, it is displayed - the monitoring view will report whatever you sent as though it were a real level.

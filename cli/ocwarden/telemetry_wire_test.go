@@ -21,11 +21,7 @@ func realHeartbeat(t *testing.T) map[string]any {
 		result := runOnce(Config{Base: base, Token: "tok", ID: "m-1"},
 			func() map[string]any { return collectHardware(runner, "darwin") },
 			func() string { return readMachineName(runner) },
-			claudeAccountPoster(httpPoster(&http.Client{Timeout: 5 * time.Second}, base, "tok"), claudeAccountMeasurement{
-				Account: "893ef8f2/0cea9af2", Label: "seth@x.io(Personal)", SubscriptionType: "max", Store: "keychain",
-				MeasuredAt: time.Unix(1795780000, 0), UnmeasuredReason: "usage_failed",
-				FiveHour: map[string]any{"used_percentage": 7.0, "resets_at": 1795788000.0},
-			}.heartbeatReport),
+			httpPoster(&http.Client{Timeout: 5 * time.Second}, base, "tok"),
 			func() map[string]string { return map[string]string{"ocwarden": "abc123abc123"} },
 			func() map[string]any {
 				return map[string]any{"version": "2.1.211", "cred_file": true,
@@ -213,11 +209,6 @@ func TestWardenTelemetryUplinkBodies(t *testing.T) {
 		},
 		"warden_shape":   "anchor",
 		"cutover_effect": "unproven",
-		"claude_account": map[string]any{
-			"account": "893ef8f2/0cea9af2", "account_label": "seth@x.io(Personal)", "subscription_type": "max",
-			"store": "keychain", "measured_at": float64(1795780000), "unmeasured_reason": "usage_failed",
-			"five_hour": map[string]any{"used_percentage": 7.0, "resets_at": float64(1795788000)},
-		},
 		"disk_usage": map[string]any{
 			"measured_at": float64(1790000107),
 			"took_secs":   107.3,
