@@ -93,7 +93,8 @@ const (
 	tmuxSocketEnv = "OC_TMUX_SOCKET"
 	agentHomeEnv  = "OC_AGENT_HOME"
 	// Set on claude launch lines only.
-	claudeAccountEnv = "OC_CLAUDE_ACCOUNT"
+	claudeAccountEnv     = "OC_CLAUDE_ACCOUNT"
+	claudeAccountFileEnv = "OC_CLAUDE_ACCOUNT_FILE"
 
 	chatTopic      = "chat"
 	memberTopic    = "member"

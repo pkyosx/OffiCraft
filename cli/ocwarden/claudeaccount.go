@@ -360,7 +360,8 @@ func claudeUsageWindow(raw json.RawMessage) map[string]any {
 
 // claudeAccountReporter keeps the latest measurement for the heartbeat; a
 // spawn measures through it too, so the machine's reported login is the one
-// the newest member was bound to.
+// the newest member was bound to. It also binds the claude launches that
+// started unbound to the first later measurement that names an account.
 type claudeAccountReporter struct {
 	meter func() (claudeAccountMeasurement, bool)
 	logf  func(string, ...any)
@@ -368,6 +369,17 @@ type claudeAccountReporter struct {
 	mu       sync.Mutex
 	latest   map[string]any
 	lastNote string
+
+	// bindMu is held across a late binding's write, so a spawn's forget
+	// returns only once no write for the previous launch can still land.
+	bindMu  sync.Mutex
+	unbound map[string]unboundClaudeLaunch
+}
+
+type unboundClaudeLaunch struct {
+	path  string
+	write func(path, content string, mode os.FileMode) error
+	logf  func(string, ...any)
 }
 
 func newClaudeAccountReporter(meter func() (claudeAccountMeasurement, bool), logf func(string, ...any)) *claudeAccountReporter {
@@ -405,7 +417,52 @@ func (r *claudeAccountReporter) measureNow() claudeAccountMeasurement {
 	if changed && note != "" && r.logf != nil {
 		r.logf("%s", note)
 	}
+	if ok && m.Account != "" {
+		r.bindUnbound(m)
+	}
 	return m
+}
+
+// awaitAccount records a claude launch that started unbound. An access token
+// past its life is the usual cause, and nothing here refreshes it; the
+// member's own claude does as soon as it runs, so a later measurement of the
+// same stored login names the account that member is billed to.
+func (r *claudeAccountReporter) awaitAccount(memberID string, launch unboundClaudeLaunch) {
+	r.bindMu.Lock()
+	defer r.bindMu.Unlock()
+	if r.unbound == nil {
+		r.unbound = map[string]unboundClaudeLaunch{}
+	}
+	r.unbound[memberID] = launch
+}
+
+// forget drops the member's previous launch, which a new spawn replaces.
+func (r *claudeAccountReporter) forget(memberID string) {
+	r.bindMu.Lock()
+	defer r.bindMu.Unlock()
+	delete(r.unbound, memberID)
+}
+
+// Each launch is bound at most once; a launch that was bound at spawn is never
+// in the set, so a later login on the machine cannot move it.
+func (r *claudeAccountReporter) bindUnbound(m claudeAccountMeasurement) {
+	r.bindMu.Lock()
+	defer r.bindMu.Unlock()
+	if len(r.unbound) == 0 {
+		return
+	}
+	raw, err := json.Marshal(m.binding())
+	if err != nil {
+		return
+	}
+	for memberID, launch := range r.unbound {
+		delete(r.unbound, memberID)
+		if err := launch.write(launch.path, string(raw), 0o600); err != nil {
+			launch.logf("%s: could not write the Claude account binding (%v); the session stays unbound", memberID, err)
+			continue
+		}
+		launch.logf("%s: launched unbound; now bound to %s, measured after it started (its earlier spend stays unattributed)", memberID, m.Account)
+	}
 }
 
 func (r *claudeAccountReporter) snapshot() map[string]any {
@@ -439,23 +496,32 @@ func claudeAccountPoster(post Poster, snapshot func() map[string]any) Poster {
 	}
 }
 
+// claudeAccountLaunch is what a claude launch line exports: File always when
+// set, and the account read from it when the spawn bound one.
+type claudeAccountLaunch struct {
+	File  string
+	Bound bool
+}
+
 // bindClaudeAccount records the account the profile endpoint named for the
 // credential this claude session will read, as its account for its whole
 // life: a running session keeps the credentials it started with until it is
-// relaunched. The returned file is read into the launch environment; "" when
-// no account was identified, and the member then reports none.
-func (d SpawnDeps) bindClaudeAccount(memberID, workdir string, envPairs []agentEnvPair) string {
+// relaunched. When no account was identified the session launches unbound and
+// the file is written by the first later measurement that names one
+// (awaitAccount). A zero result means the session reports no account at all.
+func (d SpawnDeps) bindClaudeAccount(memberID, workdir string, envPairs []agentEnvPair) claudeAccountLaunch {
 	if d.ClaudeAccounts == nil {
-		return ""
+		return claudeAccountLaunch{}
 	}
+	d.ClaudeAccounts.forget(memberID)
 	path := filepath.Join(workdir, claudeAccountFileName)
 	if err := d.Remove(path); err != nil && !os.IsNotExist(err) {
 		d.logf("%s: could not clear the previous launch's Claude account (%v); launching unbound", memberID, err)
-		return ""
+		return claudeAccountLaunch{}
 	}
 	if key := claudeCredentialEnvKey(envPairs); key != "" {
 		d.logf("%s: the agent environment sets %s, which Claude Code uses instead of the stored login; launching unbound", memberID, key)
-		return ""
+		return claudeAccountLaunch{}
 	}
 	m := d.ClaudeAccounts.measureNow()
 	if m.Account == "" {
@@ -463,18 +529,19 @@ func (d SpawnDeps) bindClaudeAccount(memberID, workdir string, envPairs []agentE
 		if reason == "" {
 			reason = "claude not installed"
 		}
-		d.logf("%s: no Claude account identified for the launch credential (%s); launching unbound", memberID, reason)
-		return ""
+		d.logf("%s: no Claude account identified for the launch credential (%s); launching unbound until a measurement names one", memberID, reason)
+		d.ClaudeAccounts.awaitAccount(memberID, unboundClaudeLaunch{path: path, write: d.WriteFile, logf: d.logf})
+		return claudeAccountLaunch{File: path}
 	}
 	raw, err := json.Marshal(m.binding())
 	if err != nil {
-		return ""
+		return claudeAccountLaunch{}
 	}
 	if err := d.WriteFile(path, string(raw), 0o600); err != nil {
 		d.logf("%s: could not write the Claude account binding (%v); launching unbound", memberID, err)
-		return ""
+		return claudeAccountLaunch{}
 	}
-	return path
+	return claudeAccountLaunch{File: path, Bound: true}
 }
 
 func claudeCredentialEnvKey(pairs []agentEnvPair) string {

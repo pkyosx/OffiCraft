@@ -485,14 +485,30 @@ type claudeAccount struct {
 // A running session keeps calling on the account its credential belonged to
 // when it started, whatever the machine logs into later, so the warden binds
 // that account (as Anthropic's profile endpoint named it) into the launch
-// environment. Without a binding the account is unknown and nothing is sent:
+// environment. A session that launched unbound reads the warden's binding
+// file instead, which the warden writes once, when a later measurement names
+// the account. Without either the account is unknown and nothing is sent:
 // ~/.claude.json names whichever login wrote it last, not this session's.
 func sessionClaudeAccount(env func(string) string) claudeAccount {
-	var bound claudeAccount
-	if json.Unmarshal([]byte(env(claudeAccountEnv)), &bound) != nil || strings.TrimSpace(bound.ID) == "" {
-		return claudeAccount{}
+	if bound, ok := parseClaudeAccountBinding(env(claudeAccountEnv)); ok {
+		return bound
 	}
-	return claudeAccount{ID: strings.TrimSpace(bound.ID), Label: strings.TrimSpace(bound.Label)}
+	if path := env(claudeAccountFileEnv); path != "" {
+		if raw, err := os.ReadFile(path); err == nil {
+			if bound, ok := parseClaudeAccountBinding(string(raw)); ok {
+				return bound
+			}
+		}
+	}
+	return claudeAccount{}
+}
+
+func parseClaudeAccountBinding(raw string) (claudeAccount, bool) {
+	var bound claudeAccount
+	if json.Unmarshal([]byte(raw), &bound) != nil || strings.TrimSpace(bound.ID) == "" {
+		return claudeAccount{}, false
+	}
+	return claudeAccount{ID: strings.TrimSpace(bound.ID), Label: strings.TrimSpace(bound.Label)}, true
 }
 
 func buildTelemetry(payload string) (rl *rateLimits, cost *float64, tokens *tokensBody) {

@@ -310,7 +310,7 @@ func TestCmdContextReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a session launched without a usable bound account reports no account, whatever ~/.claude.json names", func(t *testing.T) {
+	t.Run("a session launched without a usable bound account reports no account, whatever ~/.claude.json names, until the warden's binding file names one", func(t *testing.T) {
 		const window = `{"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}}}`
 		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-1","organizationUuid":"org-1",`+
 			`"emailAddress":"seth@x.io","organizationName":"GoFreight"}}`)
@@ -322,14 +322,28 @@ func TestCmdContextReport(t *testing.T) {
 		want := []string{`POST /api/monitoring/telemetry {"runtime":"claude",` +
 			`"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}},"machine":"m-server-self"}`}
 
-		for i, binding := range []string{"", `{"account":`, `{"account":" ","account_label":"seth@x.io(GoFreight)"}`} {
+		bindingFile := filepath.Join(t.TempDir(), ".oc-claude-account")
+		send := func(binding string, now float64) []string {
 			client := &fakeHTTP{status: 200, body: "{}"}
 			var out, errOut bytes.Buffer
-			cmdContextReport(client, cfg, testEnv(map[string]string{"HOME": home, claudeAccountEnv: binding}),
-				float64(1000+100*i), strings.NewReader(window), &out, &errOut)
-			if !reflect.DeepEqual(client.seen, want) {
-				t.Errorf("with binding %q sent %q, want %q", binding, client.seen, want)
+			cmdContextReport(client, cfg, testEnv(map[string]string{"HOME": home, claudeAccountEnv: binding, claudeAccountFileEnv: bindingFile}),
+				now, strings.NewReader(window), &out, &errOut)
+			return client.seen
+		}
+		for i, binding := range []string{"", `{"account":`, `{"account":" ","account_label":"seth@x.io(GoFreight)"}`} {
+			if got := send(binding, float64(1000+100*i)); !reflect.DeepEqual(got, want) {
+				t.Errorf("with binding %q and no binding file sent %q, want %q", binding, got, want)
 			}
+		}
+
+		if err := os.WriteFile(bindingFile, []byte(`{"account":"au-max/org-max","account_label":"seth@x.io(Max)"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		wantBound := []string{`POST /api/monitoring/telemetry {"runtime":"claude",` +
+			`"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}},` +
+			`"account":"au-max/org-max","account_label":"seth@x.io(Max)","machine":"m-server-self"}`}
+		if got := send("", 2000); !reflect.DeepEqual(got, wantBound) {
+			t.Errorf("after the warden wrote the binding file sent %q, want %q", got, wantBound)
 		}
 	})
 
