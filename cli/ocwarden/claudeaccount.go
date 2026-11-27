@@ -536,7 +536,8 @@ type claudeAccountLaunch struct {
 // credential this claude session will read, as its account for its whole
 // life: a running session keeps the credentials it started with until it is
 // relaunched. When no account was identified the session launches unbound and
-// the file may be written later (bindUnbound). A zero result means the session reports no account at all.
+// the file may be written later (bindUnbound). A zero result means the session
+// reports no account at all.
 func (d SpawnDeps) bindClaudeAccount(memberID, workdir string, envPairs []agentEnvPair) claudeAccountLaunch {
 	if d.ClaudeAccounts == nil {
 		return claudeAccountLaunch{}

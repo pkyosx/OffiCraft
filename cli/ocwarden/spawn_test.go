@@ -1451,15 +1451,30 @@ func TestStart(t *testing.T) {
 		d := h.deps()
 		loginA := claudeAccountMeasurement{Account: "au-1/org-1", Label: "kyle@x.io(OffiCraft)", Store: "keychain", MeasuredAt: time.Unix(1795780300, 0)}
 		expired := claudeAccountMeasurement{Store: "keychain", MeasuredAt: time.Unix(1795780000, 0), UnmeasuredReason: "token_expired"}
+		spawned, overlapEntered, overlapDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
 		meters := []func() claudeAccountMeasurement{
 			func() claudeAccountMeasurement { return loginA },
 			func() claudeAccountMeasurement {
 				if got := d.start(startParamsM1()); !got.OK {
 					t.Fatalf("outcome = %+v, want OK", got)
 				}
+				close(spawned)
+				<-overlapDone
 				return loginA
 			},
-			func() claudeAccountMeasurement { return expired },
+			func() claudeAccountMeasurement {
+				go func() {
+					defer close(overlapDone)
+					d.ClaudeAccounts.measureNow()
+				}()
+				<-overlapEntered
+				return expired
+			},
+			func() claudeAccountMeasurement {
+				close(overlapEntered)
+				<-spawned
+				return loginA
+			},
 			func() claudeAccountMeasurement { return expired },
 			func() claudeAccountMeasurement { return loginA },
 			func() claudeAccountMeasurement {
@@ -1493,7 +1508,7 @@ func TestStart(t *testing.T) {
 			t.Errorf("logs = %q, want %q", h.logs, want)
 		}
 		if got := bindings(); len(got) != 0 {
-			t.Errorf("a measurement started before the spawn wrote the binding %+v", got)
+			t.Errorf("a measurement started before the spawn, or during its own measurement, wrote the binding %+v", got)
 		}
 
 		d.ClaudeAccounts.measureNow()
