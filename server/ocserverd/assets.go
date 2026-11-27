@@ -566,14 +566,32 @@ const userAdditionsTitle = "# User additions"
 // 系統互動 and 使用者自訂. Read at assembly time, so a display.language change
 // reaches each member at its next boot and never a running session. Anything
 // other than "en" — including "" (never set) — gets the Traditional Chinese
-// text: that is the studio's language when the owner has not chosen one.
+// text: that is the studio's language when the owner has not chosen one, and
+// only that text carries the Chinese↔English feature-name table.
 func userLanguageBlock(lang string) string {
 	if lang == "en" {
 		return "# User Language\n\n" +
 			"Use English for everything you write to the user, including reports. Do not use other languages."
 	}
 	return "# User Language\n\n" +
-		"除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。"
+		"除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\n" +
+		termAliasesTable()
+}
+
+type termAlias struct{ zh, en string }
+
+// termAliasesTable maps the Chinese screen names (termAliases, generated from
+// the frontend dictionaries) to the English names the boot documents use.
+func termAliasesTable() string {
+	var b strings.Builder
+	b.WriteString("The user sees OffiCraft in Chinese. When you speak Chinese to the user, " +
+		"call OffiCraft features by the Chinese names on their screen below; when the user " +
+		"uses one of these names, it means the English term in the same row.\n\n" +
+		"| Chinese on screen | English (this document) |\n| --- | --- |")
+	for _, a := range termAliases {
+		b.WriteString("\n| " + a.zh + " | " + a.en + " |")
+	}
+	return b.String()
 }
 
 // Named so "the one document of this kind" is not a magic "global" that reads

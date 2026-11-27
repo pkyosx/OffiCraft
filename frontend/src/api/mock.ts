@@ -13,6 +13,7 @@ import {
   effectiveLeadMinutes,
 } from "../lib/dueDate";
 import { REPLY_SNOOZE_MAX_SECONDS } from "../lib/replySnooze";
+import termAliases from "../../../spec/term-aliases.json";
 import type {
   Member,
   MonitoringView,
@@ -2747,7 +2748,8 @@ let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
 /** The User Language block both boot folds staple between 系統互動 and Owner
  * Additions — mirrors the server's userLanguageBlock (assets.go) byte for byte.
  * Read at assembly time from display_language: "en" gets English; anything
- * else, "" (never set) included, gets the Traditional Chinese text. */
+ * else, "" (never set) included, gets the Traditional Chinese text and the
+ * screen-name table. */
 function mockUserLanguageBlock(lang: string): string {
   if (lang === "en") {
     return (
@@ -2757,7 +2759,12 @@ function mockUserLanguageBlock(lang: string): string {
   }
   return (
     "# User Language\n\n" +
-    "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。"
+    "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\n" +
+    "The user sees OffiCraft in Chinese. When you speak Chinese to the user, " +
+    "call OffiCraft features by the Chinese names on their screen below; when the user " +
+    "uses one of these names, it means the English term in the same row.\n\n" +
+    "| Chinese on screen | English (this document) |\n| --- | --- |" +
+    termAliases.map((a) => `\n| ${a.zh} | ${a.en} |`).join("")
   );
 }
 

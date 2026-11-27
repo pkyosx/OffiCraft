@@ -85,6 +85,7 @@ frontend-checks     lint-chat-area-key
 drift-checks        drift-builtin-themes
 drift-checks        drift-theme-tokens
 drift-checks        drift-message-keys
+drift-checks        drift-term-aliases
 drift-checks        drift-fonts
 frontend-checks     test-frontend-unit
 frontend-ct         test-frontend-ct

@@ -429,9 +429,22 @@ def _expected_lore_block(client, owner_token, member_id: str) -> str:
     return out
 
 
+# The generated zh↔en screen-name rows (frontend/scripts/gen-term-aliases.mjs);
+# read fail-loud like the other generated wire assets.
+_TERM_ALIASES = json.loads(
+    (HERE.parent / "spec" / "term-aliases.json").read_text(encoding="utf-8")
+)
+assert _TERM_ALIASES and all(set(a) == {"zh", "en"} for a in _TERM_ALIASES), (
+    "spec/term-aliases.json is empty or malformed"
+)
 _USER_LANGUAGE_ZH = (
     "# User Language\n\n"
-    "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。"
+    "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\n"
+    "The user sees OffiCraft in Chinese. When you speak Chinese to the user, "
+    "call OffiCraft features by the Chinese names on their screen below; when the user "
+    "uses one of these names, it means the English term in the same row.\n\n"
+    "| Chinese on screen | English (this document) |\n| --- | --- |"
+    + "".join(f"\n| {a['zh']} | {a['en']} |" for a in _TERM_ALIASES)
 )
 _USER_LANGUAGE_EN = (
     "# User Language\n\n"
