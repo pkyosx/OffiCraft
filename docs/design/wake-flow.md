@@ -22,7 +22,7 @@
 | 狀態語意（intent vs observed、online 憑什麼） | `docs/design/state-model.md` |
 | 使用者視角的「它在幹嘛」 | `docs/guide/architecture.md` |
 | 座艙怎麼把這些狀態畫出來 | `frontend/.claude/rules/presence-and-badges.md` |
-| agent 開機到底照什麼做 | **設定 › 全域情境 › 啟動步驟**（owner 可編輯的權威版，出廠版在 `seeds/`） |
+| agent 開機到底照什麼做 | **設定 › 全域情境 › 啟動步驟**（權威版；開發者模式打開時 owner 可編輯，出廠版在 `seeds/`） |
 
 ---
 

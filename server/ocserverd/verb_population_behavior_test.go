@@ -240,10 +240,10 @@ func liveCostPresent(api *apiServer, subjectID string) bool {
 // substring in Go to transcribe: winddownNoticeText (api_bootdocs.go:572-604)
 // picks a DOCUMENT — s.offboardSpec() for soft, s.acceleratedStopSpec() for
 // final — and the words come out of the seeded 〈停止〉 / 〈加速停止〉 documents,
-// which the owner can edit at runtime (api_bootdocs.go's whole point, T-3201:
-// 「the owner went looking for the words an agent is sent and could not find
-// them」). A literal copied out of a seed file is not a literal transcribed
-// from an assignment: the owner rewording one sentence of 〈加速停止〉 would
+// which are editable at runtime with developer mode on (api_bootdocs.go's whole
+// point: 「the owner went looking for the words an agent is sent and could not
+// find them」). A literal copied out of a seed file is not a literal
+// transcribed from an assignment: the owner rewording one sentence of 〈加速停止〉 would
 // redden this matrix for a reason that is not a behaviour change on either
 // handler. So the column asks the question that IS decided in Go — does a
 // notice ride this frame at all (offboardKindOf's `carries`, api_members.go:227)

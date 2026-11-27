@@ -531,8 +531,9 @@ func bootDocBodyOf(spec bootDocSpec, text string) string {
 	return body
 }
 
-// 🔴 NO CAP IS CHECKED HERE: this is the path that has to work when a bad edit
-// has stopped agents booting, and nobody is online to ask.
+// 🔴 NO CAP IS CHECKED HERE: once developer mode is on, this is the path that
+// has to work when a bad edit has stopped agents booting, and nobody is online
+// to ask. A cap setting must never be what blocks it.
 func (s *apiServer) resetBootDoc(w http.ResponseWriter, r *http.Request, spec bootDocSpec) {
 	// 405, not 200: reset is a WRITE (tombstone, history revision,
 	// global_context frame) for a document that can never leave the default.

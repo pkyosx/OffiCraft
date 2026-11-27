@@ -49,8 +49,8 @@ describe("SettingsPage · global-context 4 blocks", () => {
     const iBootGroup = text.indexOf(s.globalSection);
     const iSystem = text.indexOf(s.systemName);
     const iBoot = text.indexOf(s.bootName);
-    // 〈停止〉 follows 啟動步驟 (T-c9c0): the list runs an agent's life end to
-    // end, 開機 → 下線.
+    // 〈停止〉 follows 啟動步驟: the list runs an agent's life end to end,
+    // 開機 → 下線.
     const iOffboard = text.indexOf(s.offboardName);
     expect(iCustom).toBeGreaterThanOrEqual(0);
     expect(iLock).toBeGreaterThan(iCustom);
