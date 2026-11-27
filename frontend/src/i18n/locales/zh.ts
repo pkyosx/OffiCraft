@@ -1965,7 +1965,7 @@ export const zh = {
       answeredCardSteps: "卡在已回答卡上的步驟（請先讀卡，不代表已完成）",
       // T-91 — 開機快照任務列新增的反向相依標籤。轉派中那一格刻意不另開 key：
       // 座艙已經有 tasks.lockReassigning，這裡直接沿用，不要造一個會跟它走岔的同義詞。
-      blockingLabel: "正在等這張的票：",
+      blockingLabel: "正在等這個任務的任務：",
       // 抬頭:這份快照是什麼時候拍的。它是把底下每一個 ts_display 讀成
       // 「多久以前」的唯一錨點——讀的人(不論是 agent 還是 owner)沒有
       // 一個可信的時鐘可以拿來對。

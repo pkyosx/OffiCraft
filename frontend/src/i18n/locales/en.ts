@@ -814,7 +814,7 @@ export const en: Dict = {
       bringInTitleMid: "” outsource members into “",
       bringInTitleTail: "”?",
       bringInMoveTicked: "Move the ticked ones",
-      bringInDecline: "Apply to new workers only",
+      bringInDecline: "Apply to new outsource members only",
       roleDescription: "draggable chat",
       groupRoleDescription: "draggable group",
       optionsLead: "Group options: ",
@@ -946,7 +946,7 @@ export const en: Dict = {
     copyCommand: "Copy command",
     copied: "Copied",
     terminalHint:
-      "Paste this in your own terminal to attach to this worker's session.",
+      "Paste this in your own terminal to attach to this outsource member's session.",
     terminalUnavailable:
       "This server version does not support the attach command — please update the server.",
     // Initial-prompt preview (boot-context): a worker never stores its verbatim
@@ -1931,7 +1931,7 @@ export const en: Dict = {
       // handover hold: the cockpit already words that badge once, as
       // `tasks.lockReassigning`, and the resume panel reuses it rather than
       // minting a synonym that could later disagree with it.
-      blockingLabel: "Tickets waiting on this one:",
+      blockingLabel: "Tasks waiting on this one:",
       generatedAtLabel: "This snapshot was taken at",
       // 🔴 THE PER-MESSAGE MARK IS A MARK, NOT A SENTENCE. It used to be
       // "This message is folded — 46 characters kept on the server (re-read it
@@ -2590,7 +2590,7 @@ export const en: Dict = {
     historyTaskTakeoverWithPredecessorTitle:
       "Task reassignment · to the successor · version history",
     historyTaskUnblockedTitle:
-      "The ticket blocking your task is released · version history",
+      "The task blocking yours is released · version history",
     historyTaskReadyForDoneTitle:
       "Your task is ready to be closed · version history",
     defaultBadge: "Default",
@@ -2890,7 +2890,7 @@ export const en: Dict = {
     assigneeMachineOffline: "Offline",
     assigneeMachineUnset: "No machine chosen",
     assigneeMachineNote:
-      "Workers of this type wake on the chosen machine and nowhere else. While no machine is chosen, or the chosen one is offline, none is woken \u2014 the reason is shown on the worker.",
+      "Outsource members of this type wake on the chosen machine and nowhere else. While no machine is chosen, or the chosen one is offline, none is woken \u2014 the reason is shown on the outsource member.",
     assigneeCopies: "Hire count",
     assigneeCopiesDecrease: "Decrease",
     assigneeCopiesIncrease: "Increase",
