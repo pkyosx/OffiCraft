@@ -960,12 +960,13 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mint a share link to one attachment, valid for a chosen number of days or until revoked.
+         * Mint a share link to one attachment, valid until a chosen time or until revoked.
          * @description - Each call mints a NEW link with its own expiry; earlier links to the same blob are untouched.
          *     - Whoever holds the link reads that ONE blob without signing in, until it expires or is revoked.
-         *     - `expires_in_days` omitted (or no body) means 7 days; null means it never expires.
+         *     - `expires_ts` omitted (or no body) means 7 days from now; null means it never expires.
          *     - Returns a server-relative `url`, shown only here: the server keeps a hash of its credential, never the URL.
          *     - 404 for an unknown blob id.
+         *     - 422 when `expires_ts` is not later than now or is more than 365 days ahead, or the body is malformed.
          */
         post: operations["handle_create_chat_attachment_share_link_api_chat_attachments__attachment_id__share_link_post"];
         delete?: never;
@@ -1172,13 +1173,13 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mint the external link to one before/after comparison, valid for a chosen number of days or until revoked.
+         * Mint the external link to one before/after comparison, valid until a chosen time or until revoked.
          * @description - Each call mints a NEW link for one before/after comparison with its own expiry.
-         *     - `expires_in_days` omitted means 7 days; null means it never expires.
+         *     - `expires_ts` omitted means 7 days from now; null means it never expires.
          *     - Each side is an attachment id (`att-...`) or `doc:<kind>/<key>/<at>/<field>`, where `<at>` is current, seed or a revision id.
          *     - Only shape is checked, not existence: a side may stop resolving later, reported then as `gone`.
          *     - Returns a server-relative `url`, shown only here: the server keeps a hash of its credential, never the URL.
-         *     - 422 for an unsayable address.
+         *     - 422 for an unsayable address, an `expires_ts` not later than now or more than 365 days ahead, or a malformed body.
          */
         post: operations["handle_create_diff_share_link_api_diff_share_link_post"];
         delete?: never;
@@ -4783,10 +4784,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List every share link still in force (no URLs).
-         * @description - Every share link still in force, ordered by `created_ts`: what it opens, who minted it, when it expires.
+         * List share links still in force, all or one target's (no URLs).
+         * @description - Share links still in force, ordered by `created_ts`: what each opens, who minted it, when it expires.
+         *     - No query: every link. `attachment_id`: only links to that attachment. `before` + `after`: only links to that comparison, whatever labels they were minted with.
+         *     - A filter is a plain match against the stored target: one that matches nothing answers 200 with an empty list, not 404. An empty value counts as not given.
          *     - Expired and revoked links are not listed. Neither are preview links.
          *     - No URL or credential is returned; a lost URL cannot be recovered, only replaced by minting a new link.
+         *     - 422 when only one of `before` / `after` is given, or `attachment_id` is combined with them.
          *     - Owner or admin agent.
          */
         get: operations["handle_list_share_links_api_share_links_get"];
@@ -5929,15 +5933,14 @@ export interface components {
         };
         /**
          * ChatAttachmentShareLinkCreateDTO
-         * @description Body of `POST /api/chat/attachments/{attachment_id}/share-link`. The body may be omitted entirely.
+         * @description Body of `POST /api/chat/attachments/{attachment_id}/share-link`. The body may be omitted entirely (the link then expires 7 days from now). The page turns its presets and a custom date into the absolute ``expires_ts``.
          */
         ChatAttachmentShareLinkCreateDTO: {
             /**
-             * Expires In Days
-             * @description Days until the link stops opening, 1–365. null: it never expires and stays valid until revoked. Omitted: 7.
-             * @default 7
+             * Expires Ts
+             * @description Epoch seconds from which the link stops opening, later than now and at most 365 days (31536000 seconds) ahead. ``null``: it never expires and stays valid until revoked. Omitted: 7 days from now.
              */
-            expires_in_days: number | null;
+            expires_ts?: number | null;
         };
         /**
          * ChatAttachmentUploadDTO
@@ -6529,11 +6532,10 @@ export interface components {
              */
             before: string;
             /**
-             * Expires In Days
-             * @description Days until the link stops opening, 1–365. null: it never expires and stays valid until revoked. Omitted: 7.
-             * @default 7
+             * Expires Ts
+             * @description Epoch seconds from which the link stops opening, later than now and at most 365 days (31536000 seconds) ahead. ``null``: it never expires and stays valid until revoked. Omitted: 7 days from now.
              */
-            expires_in_days: number | null;
+            expires_ts?: number | null;
             /**
              * Label After
              * @default
@@ -10946,7 +10948,7 @@ export interface components {
             created_ts: number;
             /**
              * Expires Ts
-             * @description Epoch seconds from which the link answers 410; null when it never expires.
+             * @description Epoch seconds from which the link answers 410, as fixed when it was minted; ``null`` = it never expires and stays valid until revoked.
              */
             expires_ts: number | null;
             /**
@@ -10972,7 +10974,7 @@ export interface components {
         };
         /**
          * ShareLinksDTO
-         * @description Every share link still in force, ordered by `created_ts`. Expired and revoked links are not listed.
+         * @description Share links still in force, ordered by `created_ts`: all of them, or only one target's when `GET /api/share-links` was filtered. Expired and revoked links are not listed.
          */
         ShareLinksDTO: {
             /** Share Links */
@@ -24680,7 +24682,14 @@ export interface operations {
     };
     handle_list_share_links_api_share_links_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Only links to this attachment. */
+                attachment_id?: string | null;
+                /** @description With `after`: only links to the comparison with exactly these two sides. Labels are not matched. */
+                before?: string | null;
+                /** @description With `before`; see `before`. */
+                after?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;

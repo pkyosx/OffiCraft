@@ -1388,22 +1388,19 @@
       },
       "ChatAttachmentShareLinkCreateDTO": {
         "additionalProperties": false,
-        "description": "Body of `POST /api/chat/attachments/{attachment_id}/share-link`. The body may be omitted entirely.",
+        "description": "Body of `POST /api/chat/attachments/{attachment_id}/share-link`. The body may be omitted entirely (the link then expires 7 days from now). The page turns its presets and a custom date into the absolute ``expires_ts``.",
         "properties": {
-          "expires_in_days": {
+          "expires_ts": {
             "anyOf": [
               {
-                "maximum": 365,
-                "minimum": 1,
-                "type": "integer"
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "default": 7,
-            "description": "Days until the link stops opening, 1–365. null: it never expires and stays valid until revoked. Omitted: 7.",
-            "title": "Expires In Days"
+            "description": "Epoch seconds from which the link stops opening, later than now and at most 365 days (31536000 seconds) ahead. ``null``: it never expires and stays valid until revoked. Omitted: 7 days from now.",
+            "title": "Expires Ts"
           }
         },
         "title": "ChatAttachmentShareLinkCreateDTO",
@@ -2168,20 +2165,17 @@
             "title": "Before",
             "type": "string"
           },
-          "expires_in_days": {
+          "expires_ts": {
             "anyOf": [
               {
-                "maximum": 365,
-                "minimum": 1,
-                "type": "integer"
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "default": 7,
-            "description": "Days until the link stops opening, 1–365. null: it never expires and stays valid until revoked. Omitted: 7.",
-            "title": "Expires In Days"
+            "description": "Epoch seconds from which the link stops opening, later than now and at most 365 days (31536000 seconds) ahead. ``null``: it never expires and stays valid until revoked. Omitted: 7 days from now.",
+            "title": "Expires Ts"
           },
           "label_after": {
             "default": "",
@@ -9255,7 +9249,7 @@
                 "type": "null"
               }
             ],
-            "description": "Epoch seconds from which the link answers 410; null when it never expires.",
+            "description": "Epoch seconds from which the link answers 410, as fixed when it was minted; ``null`` = it never expires and stays valid until revoked.",
             "title": "Expires Ts"
           },
           "id": {
@@ -9314,7 +9308,7 @@
       },
       "ShareLinksDTO": {
         "additionalProperties": false,
-        "description": "Every share link still in force, ordered by `created_ts`. Expired and revoked links are not listed.",
+        "description": "Share links still in force, ordered by `created_ts`: all of them, or only one target's when `GET /api/share-links` was filtered. Expired and revoked links are not listed.",
         "properties": {
           "share_links": {
             "items": {
@@ -16507,7 +16501,7 @@
     },
     "/api/chat/attachments/{attachment_id}/share-link": {
       "post": {
-        "description": "- Each call mints a NEW link with its own expiry; earlier links to the same blob are untouched.\n- Whoever holds the link reads that ONE blob without signing in, until it expires or is revoked.\n- `expires_in_days` omitted (or no body) means 7 days; null means it never expires.\n- Returns a server-relative `url`, shown only here: the server keeps a hash of its credential, never the URL.\n- 404 for an unknown blob id.",
+        "description": "- Each call mints a NEW link with its own expiry; earlier links to the same blob are untouched.\n- Whoever holds the link reads that ONE blob without signing in, until it expires or is revoked.\n- `expires_ts` omitted (or no body) means 7 days from now; null means it never expires.\n- Returns a server-relative `url`, shown only here: the server keeps a hash of its credential, never the URL.\n- 404 for an unknown blob id.\n- 422 when `expires_ts` is not later than now or is more than 365 days ahead, or the body is malformed.",
         "operationId": "handle_create_chat_attachment_share_link_api_chat_attachments__attachment_id__share_link_post",
         "parameters": [
           {
@@ -16572,12 +16566,12 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Mint a share link to one attachment, valid for a chosen number of days or until revoked.",
+        "summary": "Mint a share link to one attachment, valid until a chosen time or until revoked.",
         "x-mcp": {
-          "description": "Mint a link that lets anyone holding it read this ONE attachment without signing in. Returns {url, share_link}. `url` is a SERVER-RELATIVE path — prefix it with the origin you reach this server on — and is shown only in this response: it cannot be listed or fetched again, so keep it before passing it on. Without `expires_in_days` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link with its own expiry; list_share_links and revoke_share_link manage them. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.",
+          "description": "Mint a link that lets anyone holding it read this ONE attachment without signing in. Returns {url, share_link}. `url` is a SERVER-RELATIVE path — prefix it with the origin you reach this server on — and is shown only in this response: it cannot be listed or fetched again, so keep it before passing it on. Without `expires_ts` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link with its own expiry; list_share_links and revoke_share_link manage them. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Mint a link that lets anyone holding it read this ONE attachment without signing in. Returns {url, share_link}. `url` is a SERVER-RELATIVE path \\u2014 prefix it with the origin you reach this server on \\u2014 and is shown only in this response: it cannot be listed or fetched again, so keep it before passing it on. Without `expires_in_days` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link with its own expiry; list_share_links and revoke_share_link manage them. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"attachment_id\": {\n            \"type\": \"string\"\n          },\n          \"expires_in_days\": {\n            \"anyOf\": [\n              {\n                \"maximum\": 365,\n                \"minimum\": 1,\n                \"type\": \"integer\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"description\": \"Days until the link stops opening, 1-365. null = never expires (until someone revokes it). Omit for 7.\"\n          }\n        },\n        \"required\": [\n          \"attachment_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_chat_attachment_share_link\"\n    }"
+            "descriptor": "{\n      \"description\": \"Mint a link that lets anyone holding it read this ONE attachment without signing in. Returns {url, share_link}. `url` is a SERVER-RELATIVE path \\u2014 prefix it with the origin you reach this server on \\u2014 and is shown only in this response: it cannot be listed or fetched again, so keep it before passing it on. Without `expires_ts` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link with its own expiry; list_share_links and revoke_share_link manage them. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"attachment_id\": {\n            \"type\": \"string\"\n          },\n          \"expires_ts\": {\n            \"anyOf\": [\n              {\n                \"type\": \"number\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"description\": \"Epoch seconds when the link stops opening. null = never expires (until someone revokes it). Omit for 7 days from now.\"\n          }\n        },\n        \"required\": [\n          \"attachment_id\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_chat_attachment_share_link\"\n    }"
           },
           "name": "get_chat_attachment_share_link",
           "order": 27
@@ -17169,7 +17163,7 @@
     },
     "/api/diff/share-link": {
       "post": {
-        "description": "- Each call mints a NEW link for one before/after comparison with its own expiry.\n- `expires_in_days` omitted means 7 days; null means it never expires.\n- Each side is an attachment id (`att-...`) or `doc:<kind>/<key>/<at>/<field>`, where `<at>` is current, seed or a revision id.\n- Only shape is checked, not existence: a side may stop resolving later, reported then as `gone`.\n- Returns a server-relative `url`, shown only here: the server keeps a hash of its credential, never the URL.\n- 422 for an unsayable address.",
+        "description": "- Each call mints a NEW link for one before/after comparison with its own expiry.\n- `expires_ts` omitted means 7 days from now; null means it never expires.\n- Each side is an attachment id (`att-...`) or `doc:<kind>/<key>/<at>/<field>`, where `<at>` is current, seed or a revision id.\n- Only shape is checked, not existence: a side may stop resolving later, reported then as `gone`.\n- Returns a server-relative `url`, shown only here: the server keeps a hash of its credential, never the URL.\n- 422 for an unsayable address, an `expires_ts` not later than now or more than 365 days ahead, or a malformed body.",
         "operationId": "handle_create_diff_share_link_api_diff_share_link_post",
         "requestBody": {
           "content": {
@@ -17223,12 +17217,12 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "Mint the external link to one before/after comparison, valid for a chosen number of days or until revoked.",
+        "summary": "Mint the external link to one before/after comparison, valid until a chosen time or until revoked.",
         "x-mcp": {
-          "description": "Mint the EXTERNAL link to one before/after comparison, for a reader who has no account. Returns {url, share_link}. `url` is a SERVER-RELATIVE path — prefix it with the origin you reach this server on — and is shown only in this response: it cannot be listed or fetched again. Without `expires_in_days` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link; list_share_links and revoke_share_link manage them. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=…&after=… page with no `link`, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. A side is a stored attachment id (att-…) or doc:<kind>/<key>/<at>/<field> — `ocagent diff --help` is the authority on the spelling.",
+          "description": "Mint the EXTERNAL link to one before/after comparison, for a reader who has no account. Returns {url, share_link}. `url` is a SERVER-RELATIVE path — prefix it with the origin you reach this server on — and is shown only in this response: it cannot be listed or fetched again. Without `expires_ts` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link; list_share_links and revoke_share_link manage them. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=…&after=… page with no `link`, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. A side is a stored attachment id (att-…) or doc:<kind>/<key>/<at>/<field> — `ocagent diff --help` is the authority on the spelling.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"Mint the EXTERNAL link to one before/after comparison, for a reader who has no account. Returns {url, share_link}. `url` is a SERVER-RELATIVE path \\u2014 prefix it with the origin you reach this server on \\u2014 and is shown only in this response: it cannot be listed or fetched again. Without `expires_in_days` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link; list_share_links and revoke_share_link manage them. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=\\u2026&after=\\u2026 page with no `link`, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. A side is a stored attachment id (att-\\u2026) or doc:<kind>/<key>/<at>/<field> \\u2014 `ocagent diff --help` is the authority on the spelling.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"after\": {\n            \"description\": \"The AFTER side's address. Same two spellings as `before`.\",\n            \"type\": \"string\"\n          },\n          \"before\": {\n            \"description\": \"The BEFORE side's address: a stored attachment id (att- plus 12 hex digits) or doc:<kind>/<key>/<at>/<field>. Judged for SHAPE only \\u2014 an address that no longer resolves is not refused here, it comes back as that side's `gone` marker when the link is opened.\",\n            \"type\": \"string\"\n          },\n          \"expires_in_days\": {\n            \"anyOf\": [\n              {\n                \"maximum\": 365,\n                \"minimum\": 1,\n                \"type\": \"integer\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"description\": \"Days until the link stops opening, 1-365. null = never expires (until someone revokes it). Omit for 7.\"\n          },\n          \"label_after\": {\n            \"description\": \"Column heading for the after side. Omit it for a document side: the screen names that one in the reader's own language, and a label written here overrides it in one language for everyone.\",\n            \"type\": \"string\"\n          },\n          \"label_before\": {\n            \"description\": \"Column heading for the before side. Omit it for a document side, for the same reason as `label_after`.\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"before\",\n          \"after\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_diff_share_link\"\n    }"
+            "descriptor": "{\n      \"description\": \"Mint the EXTERNAL link to one before/after comparison, for a reader who has no account. Returns {url, share_link}. `url` is a SERVER-RELATIVE path \\u2014 prefix it with the origin you reach this server on \\u2014 and is shown only in this response: it cannot be listed or fetched again. Without `expires_ts` the link lasts 7 days; null makes it permanent until revoked. Every call mints a separate link; list_share_links and revoke_share_link manage them. YOU USUALLY DO NOT NEED THIS: the INTERNAL link is the same /diff?before=\\u2026&after=\\u2026 page with no `link`, any signed-in reader opens it, and `ocagent diff` prints it without asking the server anything. A side is a stored attachment id (att-\\u2026) or doc:<kind>/<key>/<at>/<field> \\u2014 `ocagent diff --help` is the authority on the spelling.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"after\": {\n            \"description\": \"The AFTER side's address. Same two spellings as `before`.\",\n            \"type\": \"string\"\n          },\n          \"before\": {\n            \"description\": \"The BEFORE side's address: a stored attachment id (att- plus 12 hex digits) or doc:<kind>/<key>/<at>/<field>. Judged for SHAPE only \\u2014 an address that no longer resolves is not refused here, it comes back as that side's `gone` marker when the link is opened.\",\n            \"type\": \"string\"\n          },\n          \"expires_ts\": {\n            \"anyOf\": [\n              {\n                \"type\": \"number\"\n              },\n              {\n                \"type\": \"null\"\n              }\n            ],\n            \"description\": \"Epoch seconds when the link stops opening. null = never expires (until someone revokes it). Omit for 7 days from now.\"\n          },\n          \"label_after\": {\n            \"description\": \"Column heading for the after side. Omit it for a document side: the screen names that one in the reader's own language, and a label written here overrides it in one language for everyone.\",\n            \"type\": \"string\"\n          },\n          \"label_before\": {\n            \"description\": \"Column heading for the before side. Omit it for a document side, for the same reason as `label_after`.\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"before\",\n          \"after\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_diff_share_link\"\n    }"
           },
           "name": "get_diff_share_link",
           "order": 33
@@ -29386,8 +29380,61 @@
     },
     "/api/share-links": {
       "get": {
-        "description": "- Every share link still in force, ordered by `created_ts`: what it opens, who minted it, when it expires.\n- Expired and revoked links are not listed. Neither are preview links.\n- No URL or credential is returned; a lost URL cannot be recovered, only replaced by minting a new link.\n- Owner or admin agent.",
+        "description": "- Share links still in force, ordered by `created_ts`: what each opens, who minted it, when it expires.\n- No query: every link. `attachment_id`: only links to that attachment. `before` + `after`: only links to that comparison, whatever labels they were minted with.\n- A filter is a plain match against the stored target: one that matches nothing answers 200 with an empty list, not 404. An empty value counts as not given.\n- Expired and revoked links are not listed. Neither are preview links.\n- No URL or credential is returned; a lost URL cannot be recovered, only replaced by minting a new link.\n- 422 when only one of `before` / `after` is given, or `attachment_id` is combined with them.\n- Owner or admin agent.",
         "operationId": "handle_list_share_links_api_share_links_get",
+        "parameters": [
+          {
+            "description": "Only links to this attachment.",
+            "in": "query",
+            "name": "attachment_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Attachment Id"
+            }
+          },
+          {
+            "description": "With `after`: only links to the comparison with exactly these two sides. Labels are not matched.",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "description": "With `before`; see `before`.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -29430,12 +29477,12 @@
             "description": "Server error (unified error envelope)."
           }
         },
-        "summary": "List every share link still in force (no URLs).",
+        "summary": "List share links still in force, all or one target's (no URLs).",
         "x-mcp": {
-          "description": "List every share link still in force (owner/admin agent): what each opens, who minted it, and when it expires (`expires_ts` null = never). The URLs themselves are never returned.",
+          "description": "List share links still in force (owner/admin agent): what each opens, who minted it, and when it expires (`expires_ts` null = never). Pass attachment_id for one attachment's links, or before + after for one comparison's links (labels are ignored); pass nothing for all. The URLs themselves are never returned.",
           "include": true,
           "legacy": {
-            "descriptor": "{\n      \"description\": \"List every share link still in force (owner/admin agent): what each opens, who minted it, and when it expires (`expires_ts` null = never). The URLs themselves are never returned.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"list_share_links\"\n    }"
+            "descriptor": "{\n      \"description\": \"List share links still in force (owner/admin agent): what each opens, who minted it, and when it expires (`expires_ts` null = never). Pass attachment_id for one attachment's links, or before + after for one comparison's links (labels are ignored); pass nothing for all. The URLs themselves are never returned.\",\n      \"inputSchema\": {\n        \"properties\": {\n          \"after\": {\n            \"type\": \"string\"\n          },\n          \"attachment_id\": {\n            \"type\": \"string\"\n          },\n          \"before\": {\n            \"description\": \"With after: one comparison's links, whatever their labels.\",\n            \"type\": \"string\"\n          }\n        },\n        \"type\": \"object\"\n      },\n      \"name\": \"list_share_links\"\n    }"
           },
           "name": "list_share_links",
           "order": 136
