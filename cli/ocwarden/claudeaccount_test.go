@@ -58,11 +58,12 @@ func TestClaudeCredentialSourceRead(t *testing.T) {
 		}
 	})
 
-	t.Run("on macOS with no keychain item or an unreadable one, the plaintext file is read", func(t *testing.T) {
+	t.Run("on macOS with no keychain item or one that is not JSON, the plaintext file is read", func(t *testing.T) {
 		for name, keychain := range map[string]wardenRun{
-			"no item":          {err: errors.New("exit status 44: security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.")},
-			"not a credential": {out: "c0ffee\n"},
-			"no access token":  {out: `{"claudeAiOauth":{"subscriptionType":"max"}}`},
+			"no item":  {err: errors.New("exit status 44: security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.")},
+			"not JSON": {out: "c0ffee\n"},
+			"empty":    {out: "\n"},
+			"null":     {out: "null\n"},
 		} {
 			t.Run(name, func(t *testing.T) {
 				home := t.TempDir()
@@ -74,6 +75,30 @@ func TestClaudeCredentialSourceRead(t *testing.T) {
 
 				if !ok || cred.store != "file" || cred.accessToken != fileToken {
 					t.Errorf("read = (store %q, ok %v), want the file login", cred.store, ok)
+				}
+			})
+		}
+	})
+
+	t.Run("on macOS a keychain item that is JSON but holds no access token is no credential, and the file is not read", func(t *testing.T) {
+		for name, item := range map[string]string{
+			"no access token":   `{"claudeAiOauth":{"subscriptionType":"max"}}`,
+			"login in overflow": `{"keychainOverflow":{"slot":"a","key":"k"},"mcpOAuth":{}}`,
+			"empty object":      `{}`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				home := t.TempDir()
+				writeCredentialFile(t, filepath.Join(home, ".claude"), storedCredential(fileToken, "team", future))
+				runner := &wardenRunner{script: map[string]wardenRun{keychainItem: {out: item + "\n"}}}
+				var read []string
+				source := claudeCredentialSource{goos: "darwin", home: claudeHome{Home: home}, user: "seth", runner: runner,
+					readFile: func(path string) ([]byte, error) { read = append(read, path); return os.ReadFile(path) }}
+
+				cred, ok := source.read()
+
+				if ok || cred != (claudeCredential{store: "keychain"}) || len(read) != 0 {
+					t.Errorf("read = (store %q, file token %v, ok %v) after reading files %q, want no credential from the keychain and no file read",
+						cred.store, cred.accessToken == fileToken, ok, read)
 				}
 			})
 		}
@@ -95,17 +120,30 @@ func TestClaudeCredentialSourceRead(t *testing.T) {
 		}
 	})
 
-	t.Run("under a redirected config dir, the item suffixed with that dir's hash and the file inside it are read", func(t *testing.T) {
-		home, box := t.TempDir(), t.TempDir()
-		writeCredentialFile(t, filepath.Join(home, ".claude"), storedCredential("sk-ant-oat01-home-login", "max", future))
-		writeCredentialFile(t, box, storedCredential(fileToken, "team", future))
-		source := claudeCredentialSource{goos: "darwin", home: claudeHome{Home: home, ConfigDir: box}, user: "seth",
-			readFile: os.ReadFile, runner: &wardenRunner{fallback: wardenRun{err: errors.New("exit status 44")}}}
-
-		if got := source.keychainService(); !strings.HasPrefix(got, "Claude Code-credentials-") || len(got) != len("Claude Code-credentials-")+8 {
-			t.Errorf("keychainService = %q, want the item suffixed with 8 hex digits", got)
+	t.Run("under a redirected config dir, the item named after that dir's hash and the file inside it are read", func(t *testing.T) {
+		const configDir = "/Users/seth/.claude-work"
+		const suffixedItem = "security find-generic-password -a seth -s Claude Code-credentials-ff652f75 -w"
+		files := map[string]string{
+			"/Users/seth/.claude/.credentials.json":      storedCredential("sk-ant-oat01-home-login", "max", future),
+			"/Users/seth/.claude-work/.credentials.json": storedCredential(fileToken, "team", future),
 		}
-		cred, ok := source.read()
+		readFile := func(path string) ([]byte, error) {
+			if body, ok := files[path]; ok {
+				return []byte(body), nil
+			}
+			return nil, os.ErrNotExist
+		}
+		home := claudeHome{Home: "/Users/seth", ConfigDir: configDir}
+
+		runner := &wardenRunner{script: map[string]wardenRun{suffixedItem: {out: storedCredential(keychainToken, "max", future)}}}
+		cred, ok := claudeCredentialSource{goos: "darwin", home: home, user: "seth", readFile: readFile, runner: runner}.read()
+		if !ok || cred.store != "keychain" || cred.accessToken != keychainToken || !slices.Equal(runner.calls, []string{suffixedItem}) {
+			t.Errorf("read = (store %q, keychain token %v, ok %v) after %q, want the keychain item %q",
+				cred.store, cred.accessToken == keychainToken, ok, runner.calls, suffixedItem)
+		}
+
+		missing := &wardenRunner{fallback: wardenRun{err: errors.New("exit status 44")}}
+		cred, ok = claudeCredentialSource{goos: "darwin", home: home, user: "seth", readFile: readFile, runner: missing}.read()
 		if !ok || cred.store != "file" || cred.accessToken != fileToken {
 			t.Errorf("read = (store %q, ok %v), want the file in the redirected dir", cred.store, ok)
 		}
@@ -234,13 +272,24 @@ func TestClaudeAccountMeterMeasure(t *testing.T) {
 		}
 	})
 
-	t.Run("no stored login is reported unmeasured", func(t *testing.T) {
-		stub := &anthropicStub{profile: answer(personalProfile), usage: answer(personalUsage)}
+	t.Run("no stored login is reported unmeasured, naming the store that answered without one", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			credential string
+			want       claudeAccountMeasurement
+		}{
+			"no store": {"", claudeAccountMeasurement{MeasuredAt: now, UnmeasuredReason: "no_credential"}},
+			"a store without a login": {`{"claudeAiOauth":{}}`, claudeAccountMeasurement{MeasuredAt: now, Store: "file",
+				UnmeasuredReason: "no_credential", Detail: "the file credential holds no Claude login access token"}},
+		} {
+			t.Run(name, func(t *testing.T) {
+				stub := &anthropicStub{profile: answer(personalProfile), usage: answer(personalUsage)}
 
-		got, ok := meterFor(t, stub, "").measureLogin()
+				got, ok := meterFor(t, stub, tc.credential).measureLogin()
 
-		if want := (claudeAccountMeasurement{MeasuredAt: now, UnmeasuredReason: "no_credential"}); !ok || !reflect.DeepEqual(got, want) {
-			t.Errorf("measure = %+v, want %+v", got, want)
+				if !ok || !reflect.DeepEqual(got, tc.want) || len(stub.requests) != 0 {
+					t.Errorf("measure = %+v after requests %q, want %+v and no request", got, stub.requests, tc.want)
+				}
+			})
 		}
 	})
 

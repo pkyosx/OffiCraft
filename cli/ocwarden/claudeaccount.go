@@ -65,6 +65,10 @@ type claudeCredential struct {
 // readable. On macOS the keychain item wins over the plaintext file: a machine
 // can hold both, for different logins, and members are billed to the keychain
 // one.
+// ⚠️ Claude Code reads the file only when the keychain answers nothing it can
+// parse. A keychain item that parses but holds no login (its login moved to an
+// encrypted overflow item, say) leaves the session without a usable login from
+// the file either, so it must read as no credential here, not as the file's.
 type claudeCredentialSource struct {
 	goos     string
 	home     claudeHome
@@ -92,6 +96,8 @@ func (s claudeCredentialSource) keychainService() string {
 	return service
 }
 
+// read answers ok=false with cred.store naming the store that answered without
+// a usable login, or "" when neither store answered.
 func (s claudeCredentialSource) read() (claudeCredential, bool) {
 	if s.home.Home == "" {
 		return claudeCredential{}, false
@@ -99,8 +105,8 @@ func (s claudeCredentialSource) read() (claudeCredential, bool) {
 	if strings.HasPrefix(s.goos, "darwin") && s.runner != nil && s.user != "" {
 		secret, err := s.runner.Run("security", "find-generic-password", "-a", s.user, "-s", s.keychainService(), "-w")
 		if err == nil {
-			if cred, ok := parseClaudeCredential([]byte(secret), "keychain"); ok {
-				return cred, true
+			if stored, parsed := parseClaudeStoredLogin([]byte(secret)); parsed {
+				return stored.credential("keychain")
 			}
 		}
 	}
@@ -108,23 +114,34 @@ func (s claudeCredentialSource) read() (claudeCredential, bool) {
 	if err != nil {
 		return claudeCredential{}, false
 	}
-	return parseClaudeCredential(raw, "file")
+	stored, parsed := parseClaudeStoredLogin(raw)
+	if !parsed {
+		return claudeCredential{}, false
+	}
+	return stored.credential("file")
 }
 
-func parseClaudeCredential(raw []byte, store string) (claudeCredential, bool) {
-	var stored struct {
-		ClaudeAiOauth struct {
-			AccessToken      string  `json:"accessToken"`
-			ExpiresAt        float64 `json:"expiresAt"`
-			SubscriptionType string  `json:"subscriptionType"`
-		} `json:"claudeAiOauth"`
+type claudeStoredLogin struct {
+	ClaudeAiOauth *struct {
+		AccessToken      string  `json:"accessToken"`
+		ExpiresAt        float64 `json:"expiresAt"`
+		SubscriptionType string  `json:"subscriptionType"`
+	} `json:"claudeAiOauth"`
+}
+
+// parsed is false for anything but a JSON object, as Claude Code's own parse.
+func parseClaudeStoredLogin(raw []byte) (claudeStoredLogin, bool) {
+	var stored *claudeStoredLogin
+	if json.Unmarshal([]byte(strings.TrimSpace(string(raw))), &stored) != nil || stored == nil {
+		return claudeStoredLogin{}, false
 	}
-	if json.Unmarshal([]byte(strings.TrimSpace(string(raw))), &stored) != nil {
-		return claudeCredential{}, false
-	}
-	oauth := stored.ClaudeAiOauth
-	if strings.TrimSpace(oauth.AccessToken) == "" {
-		return claudeCredential{}, false
+	return *stored, true
+}
+
+func (c claudeStoredLogin) credential(store string) (claudeCredential, bool) {
+	oauth := c.ClaudeAiOauth
+	if oauth == nil || strings.TrimSpace(oauth.AccessToken) == "" {
+		return claudeCredential{store: store}, false
 	}
 	return claudeCredential{
 		accessToken:      strings.TrimSpace(oauth.AccessToken),
@@ -229,7 +246,10 @@ func (m claudeAccountMeter) measureLogin() (claudeAccountMeasurement, bool) {
 	out := claudeAccountMeasurement{MeasuredAt: m.now()}
 	cred, ok := m.source.read()
 	if !ok {
-		out.UnmeasuredReason = claudeUnmeasuredNoCredential
+		out.Store, out.UnmeasuredReason = cred.store, claudeUnmeasuredNoCredential
+		if cred.store != "" {
+			out.Detail = "the " + cred.store + " credential holds no Claude login access token"
+		}
 		return out, true
 	}
 	out.Store, out.SubscriptionType = cred.store, cred.subscriptionType

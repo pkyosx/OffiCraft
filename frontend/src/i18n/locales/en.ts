@@ -2168,7 +2168,7 @@ export const en: Dict = {
     },
     accountSupersededHint: "Still on its old account — switches after Refocus",
     claudeUnmeasured: {
-      no_credential: "Usage unknown: no Claude login is stored on this machine",
+      no_credential: "Usage unknown: no usable Claude login is stored on this machine",
       token_expired: "Usage unknown: the stored login has expired",
       profile_failed: "Usage unknown: Anthropic did not say which account this login is",
       usage_failed: "Usage unknown: Anthropic did not return this account's usage",

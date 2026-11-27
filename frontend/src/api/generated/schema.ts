@@ -5174,7 +5174,7 @@ export interface components {
                 subscription_type?: string | null;
                 /**
                  * Unmeasured Reason
-                 * @description Why the numbers are absent: ``no_credential`` (neither store holds a readable login), ``token_expired`` (the stored access token has expired; the warden does not refresh it), ``profile_failed`` (the profile call failed, so the account is unknown), ``usage_failed`` (the account is known but the usage call failed). Absent on a full measurement. A value outside this list is a 400.
+                 * @description Why the numbers are absent: ``no_credential`` (no store holds a usable login; on macOS a keychain item that parses but holds no access token counts as none, and the file is then not read either, as in Claude Code), ``token_expired`` (the stored access token has expired; the warden does not refresh it), ``profile_failed`` (the profile call failed, so the account is unknown), ``usage_failed`` (the account is known but the usage call failed). Absent on a full measurement. A value outside this list is a 400.
                  */
                 unmeasured_reason?: string | null;
             } & {
