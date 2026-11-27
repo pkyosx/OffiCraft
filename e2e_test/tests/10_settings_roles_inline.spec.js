@@ -39,10 +39,10 @@
 // has not actually been checked yet.
 // ─────────────────────────────────────────────────────────────────────────────
 // e2e_test/tests/10_settings_roles_inline.spec.js
-// B10 · 角色誌/監控 inline create rows + role rename/reset gating (M2-2 batch:
+// B10 · 角色/監控 inline create rows + role rename/reset gating (M2-2 batch:
 // 8d947d1 / 23d8063 / cee768f / 49d1930 / 3f88128).
 //
-//   • 角色誌「新增角色定義」: the add entry grows a single-field inline row
+//   • 角色「新增角色」: the add entry grows a single-field inline row
 //     (name only); the server names the founding member itself and mints both
 //     ids; Esc collapses without creating.
 //   • CUSTOM role detail: the 角色名 gets the pencil InlineEdit (rename rides
@@ -79,14 +79,14 @@ async function openSettings(page) {
 }
 
 test.describe('B10 · settings roles + monitor — inline create rows & gating', () => {
-  test('角色誌: inline create → server-named founding member; rename custom / lock seed; reset seed-only', async ({
+  test('角色: inline create → server-named founding member; rename custom / lock seed; reset seed-only', async ({
     page,
   }) => {
     const request = page.request;
     const token = await ownerToken(request);
     await bootAuthedSpa(page, token);
     await openSettings(page);
-    await page.locator('.set-entry', { hasText: '角色誌' }).click();
+    await page.locator('.set-entry', { hasText: '角色' }).click();
 
     // ── negative first: Esc collapses the inline row without creating ──
     await page.locator('.add-entry').click();
@@ -167,8 +167,8 @@ test.describe('B10 · settings roles + monitor — inline create rows & gating',
     // roster follows (single truth role.name): the founding member's card in
     // the office roster reads the NEW role name.
     // T-8f6e removed the ‹返回 back row — navigate up via the shared breadcrumb
-    // (nav.crumbs; the 角色誌 parent segment jumps back to the roles list).
-    await page.locator('nav.crumbs .crumbs__seg', { hasText: '角色誌' }).click();
+    // (nav.crumbs; the 角色 parent segment jumps back to the roles list).
+    await page.locator('nav.crumbs .crumbs__seg', { hasText: '角色' }).click();
     await expect(
       page.locator('.set-entry', { hasText: ROLE_RENAMED }),
       'the roles list must show the renamed role',
@@ -188,7 +188,7 @@ test.describe('B10 · settings roles + monitor — inline create rows & gating',
     // the preview from the row (owner-approved, card rc-a86771f4476f), so that
     // text is no longer on this page at all.
     await openSettings(page);
-    await page.locator('.set-entry', { hasText: '角色誌' }).click();
+    await page.locator('.set-entry', { hasText: '角色' }).click();
     await page.locator('.set-entry', { hasText: '特助' }).first().click();
     await expect(page.locator('.settings__title--doc')).toBeVisible();
     await expect(
