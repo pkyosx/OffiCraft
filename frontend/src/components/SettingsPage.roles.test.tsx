@@ -33,9 +33,7 @@ async function openRolesLog() {
     </I18nProvider>
   );
   fireEvent.click(utils.getByText(s.roles));
-  // T-a241: the boot / lifecycle documents are their own section now, so this
-  // page's own heading — 角色定義 — is what says the roles list has landed.
-  await utils.findByText(s.roleDefsSection);
+  await utils.findByText(`+ ${s.addRole}`);
   return utils;
 }
 
@@ -75,10 +73,10 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
         <SettingsPage initialRoles />
       </I18nProvider>
     );
-    // No manual navigation: the roles list (its 角色定義 heading + 新增角色 row)
+    // No manual navigation: the roles list (its 新增角色 row)
     // renders on mount, ready for the owner to add a role. T-a241: the system
     // block is not on this page any more — 全域情境 holds it.
-    await utils.findByText(s.roleDefsSection);
+    await utils.findByText(`+ ${s.addRole}`);
     expect(utils.getByText(`+ ${s.addRole}`)).toBeTruthy();
     expect(displayedRoleRowText(utils.container)).toEqual(["特助"]);
   });
@@ -120,7 +118,7 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
         <SettingsPage initialRoleKey="ghost-role" />
       </I18nProvider>
     );
-    await utils.findByText(s.roleDefsSection);
+    await utils.findByText(`+ ${s.addRole}`);
     expect(utils.getByText(`+ ${s.addRole}`)).toBeTruthy();
   });
 
@@ -131,7 +129,7 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
         <SettingsPage initialRoles />
       </I18nProvider>
     );
-    await utils.findByText(s.roleDefsSection);
+    await utils.findByText(`+ ${s.addRole}`);
     expect(displayedRoleRowText(utils.container)).toEqual(["特助"]);
     fireEvent.click(utils.getByText(zh.office.role.assistant));
     expect((await utils.findByTestId("doc-card-status-badge")).textContent).toBe(

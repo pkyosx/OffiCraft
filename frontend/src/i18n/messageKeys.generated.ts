@@ -1455,7 +1455,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.receiveBetaSub",
   "settings.renameRole",
   "settings.reset",
-  "settings.roleDefsSection",
   "settings.roles",
   "settings.rounds",
   "settings.runtimeLoginCheckInterval",

@@ -2998,10 +2998,6 @@ function RolesLog({
        * bounced to login) never masquerades as an empty role journal. */}
       {error && <div className="set-error">{t.settings.loadError}</div>}
 
-      {/* Role definitions — the whole page since T-a241. The boot / lifecycle
-        * documents that used to head it (and 使用者自訂 with them) are their own
-        * section now: see GlobalContextSection. */}
-      <div className="set-group-label">{t.settings.roleDefsSection}</div>
       <div className="set-entries">
         {roles.map((r) => {
           return (

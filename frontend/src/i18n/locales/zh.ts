@@ -2438,8 +2438,8 @@ export const zh = {
     // 全域情境 (T-a241) — 事件程序文件那一區從「角色誌」抽出來，成為〈設定〉底下
     // 自己一塊，排在「系統更新與備份」與「角色誌」之間。角色誌只剩角色定義。
     globalContext: "全域情境",
-    roles: "角色誌",
-    params: "參數調整",
+    roles: "角色",
+    params: "一般設定",
     // ── 主題管理 (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "主題",
     themeTabAppearance: "外觀",
@@ -2569,7 +2569,6 @@ export const zh = {
     systemSub: "每位成員開機時都會讀到的系統運作說明 · 可編輯",
     customName: "使用者自訂",
     customSub: "每位成員開機時都會讀到的自訂內容 · 可編輯",
-    roleDefsSection: "角色定義",
     dutyHeading: "職責（Duty）",
     dutyNote:
       "其他成員看這段，判斷什麼事要找這個角色；會出現在每位成員開機看到的名冊上。",
@@ -2763,7 +2762,7 @@ export const zh = {
     deleteRoleError: "刪除失敗，請稍後重試",
     // ── 參數調整(伺服器參數;原本住在頭像選單的偏好設定,owner 2026-07-12
     // 搬到設定頁,讓參數集中一處。文案沿用搬家前的 profile.* 白話命名)──
-    paramsLoadError: "載入參數失敗，請稍後重試",
+    paramsLoadError: "載入設定失敗，請稍後重試",
     paramsSaveError: "沒存成，請再試一次",
     sessionTtl: "登入有效期",
     sessionTtlSub: "登入後多久需要重新輸入密碼",

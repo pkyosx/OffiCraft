@@ -1456,7 +1456,6 @@ var messageKeys = map[string]bool{
 	"settings.receiveBetaSub":                          true,
 	"settings.renameRole":                              true,
 	"settings.reset":                                   true,
-	"settings.roleDefsSection":                         true,
 	"settings.roles":                                   true,
 	"settings.rounds":                                  true,
 	"settings.runtimeLoginCheckInterval":               true,

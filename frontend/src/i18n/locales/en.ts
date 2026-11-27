@@ -2413,8 +2413,8 @@ export const en: Dict = {
     // Global context (T-a241): the boot / lifecycle documents are their own
     // Settings section now, no longer inside the role journal.
     globalContext: "Global context",
-    roles: "Role journal",
-    params: "Parameters",
+    roles: "Roles",
+    params: "General",
     // ── theme management (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "Theme",
     themeTabAppearance: "Appearance",
@@ -2540,7 +2540,6 @@ export const en: Dict = {
     systemSub: "How the system works, read by every member at boot · editable",
     customName: "User additions",
     customSub: "Custom content read by every member at boot · editable",
-    roleDefsSection: "Role definitions",
     dutyHeading: "Duty",
     dutyNote:
       "Other members read this to decide what to bring to this role; it appears on the roster every member sees at boot.",
@@ -2704,7 +2703,7 @@ export const en: Dict = {
     deleteRoleConfirmAction: "Delete role",
     deleteRoleOnline: "A member is online — cannot delete",
     deleteRoleError: "Delete failed. Please try again.",
-    paramsLoadError: "Failed to load parameters. Please try again.",
+    paramsLoadError: "Failed to load settings. Please try again.",
     paramsSaveError: "Didn't save — try again",
     sessionTtl: "Session length",
     sessionTtlSub: "How long before you have to sign in again",

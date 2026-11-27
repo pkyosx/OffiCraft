@@ -81,9 +81,7 @@ describe("SettingsPage · unified breadcrumb header (T-8f6e)", () => {
   it("角色誌: 設定 › 角色誌 + title, no back button", async () => {
     const utils = renderSettings();
     fireEvent.click(utils.getByText(s.roles));
-    // T-a241: 系統互動 is on 全域情境 now, so this page's own 角色定義 heading is
-    // what says the roles list has landed.
-    await utils.findByText(s.roleDefsSection);
+    await utils.findByText(`+ ${s.addRole}`);
     expectHeader(utils, [s.title, s.roles]);
     expect(utils.getByRole("heading", { name: s.roles })).toBeTruthy();
   });
@@ -91,7 +89,7 @@ describe("SettingsPage · unified breadcrumb header (T-8f6e)", () => {
   it("角色詳情: 設定 › 角色誌 › <role>, no back button", async () => {
     const utils = renderSettings();
     fireEvent.click(utils.getByText(s.roles));
-    await utils.findByText(s.roleDefsSection);
+    await utils.findByText(`+ ${s.addRole}`);
     fireEvent.click(utils.getByText(zh.office.role.assistant));
     await utils.findAllByText(s.edit);
     expectHeader(utils, [s.title, s.roles, zh.office.role.assistant]);
@@ -209,12 +207,12 @@ describe("SettingsPage · crumb jumps write the hash (lib/hashRoute)", () => {
   it("角色誌 crumb: back to the roles list, hash → #settings/roles", async () => {
     const utils = renderSettings();
     fireEvent.click(utils.getByText(s.roles));
-    await utils.findByText(s.roleDefsSection);
+    await utils.findByText(`+ ${s.addRole}`);
     fireEvent.click(utils.getByText(zh.office.role.assistant));
     await utils.findAllByText(s.edit);
 
     fireEvent.click(utils.getByRole("button", { name: s.roles }));
-    await utils.findByText(s.roleDefsSection); // the roles list is back
+    await utils.findByText(`+ ${s.addRole}`); // the roles list is back
     expect(window.location.hash).toBe("#settings/roles");
   });
 });
