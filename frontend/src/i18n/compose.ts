@@ -92,8 +92,9 @@ export interface Messages {
   loreDirectorySectionGone: (id: string) => string;
   loreHighlightMissing: (id: string) => string;
   loreHighlightLoadFailed: (id: string) => string;
-  loreLegendSegment: (name: string, count: number, fitted: number, chars: number) => string;
-  loreLegendLeft: (cap: number, left: number) => string;
+  loreLegendNumber: (n: number) => string;
+  loreLegendCap: (cap: number) => string;
+  loreLegendFit: (fitted: number, count: number) => string;
   loreScopeChanged: (entryId: string, scope: string) => string;
   loreStagedChanges: (n: number) => string;
   loreStagedFailed: (failed: { id: string; reason: string }[]) => string;
@@ -483,15 +484,11 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     loreDirectorySectionGone: (id) => `${t.lore.dirSectionGoneLead}${id}${t.lore.dirSectionGoneTail}`,
     loreHighlightMissing: (id) => `${t.lore.highlightMissingLead}${id}${t.lore.highlightMissingTail}`,
     loreHighlightLoadFailed: (id) => `${t.lore.highlightFailedLead}${id}${t.lore.highlightFailedTail}`,
-    loreLegendSegment: (name, count, fitted, chars) => {
-      const l = t.lore;
-      const read = fitted < count ? `${l.legendReadLead}${num(fitted)}${l.legendReadTail}` : "";
-      return `${name} ${num(count)}${l.legendCountUnit}${read}${l.legendSep}${num(chars)}${l.charsTail}`;
-    },
+    loreLegendNumber: (n) => num(n),
+    loreLegendCap: (cap) => `${t.lore.legendCapLead}${num(cap)}`,
+    loreLegendFit: (fitted, count) => `${num(fitted)}/${num(count)}`,
     loreScopeChanged: (entryId, scope) =>
       `${entryId}${t.lore.scopeChangedMid}${scope}${t.lore.scopeChangedTail}`,
-    loreLegendLeft: (cap, left) =>
-      `${t.lore.legendCapLead}${num(cap)}${t.lore.charsTail}${t.lore.legendLeftMid}${num(left)}${t.lore.legendLeftTail}`,
     loreStagedChanges: (n) =>
       `${num(n)}${n === 1 ? t.lore.stagedChangesTailOne : t.lore.stagedChangesTailMany}`,
     loreStagedRevertTo: (stored) => `${t.lore.stagedRevertToLead}${stored}${t.lore.stagedRevertToTail}`,

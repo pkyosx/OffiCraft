@@ -28,6 +28,7 @@ import { codeForStatus } from "../api/errorCodes";
 // The action-error copy is asserted by VALUE, not by "is non-empty": an error
 // line saying the wrong sentence is a line that passed a non-empty check.
 import { zh } from "../i18n/locales/zh";
+import { formatAbsolute } from "../lib/dateFormat";
 import { clearLocale, useEnglishLocale } from "../test/effortOptions";
 import type {
   ChatAttachmentInput,
@@ -172,6 +173,66 @@ describe("LorePage — 變灰", () => {
       ["low", "true"],
       ["r1", "false"],
     ]);
+  });
+
+  it("a dropped entry is one row of id, grey title and 讀不到; a click or Enter opens the full card in place and its chevron folds it back", async () => {
+    stubList(page(entries, { capChars: 10000, firstDroppedId: "mid" }));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
+
+    const folded = (id: string) => rowById(container, id).dataset.folded === "true";
+    expect(renderedIds(container).filter(folded)).toEqual(["mid", "low"]);
+    const mid = rowById(container, "mid");
+    expect(mid.getAttribute("role")).toBe("button");
+    expect(mid.getAttribute("tabindex")).toBe("0");
+    expect(mid.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      Array.from(mid.children).map((el) => el.getAttribute("data-testid") ?? el.className),
+    ).toEqual(["lore-entry-id", "lore-folded-title", "lore-dropped-tag", "lore-row__fold"]);
+    expect(mid.querySelector('[data-testid="lore-entry-id"]')!.textContent).toBe("#mid");
+    expect(mid.querySelector('[data-testid="lore-folded-title"]')!.textContent).toBe("短");
+    expect(mid.querySelector('[data-testid="lore-dropped-tag"]')!.textContent).toBe("讀不到");
+    expect(mid.querySelector('[data-testid="lore-body"]')).toBeNull();
+
+    fireEvent.click(mid);
+    const opened = rowById(container, "mid");
+    expect(opened.dataset.folded).toBeUndefined();
+    expect(opened.dataset.dimmed).toBe("true");
+    expect(opened.querySelector('[data-testid="lore-body"]')!.textContent).toBe("短");
+    const collapse = opened.querySelector<HTMLElement>('[data-testid="lore-collapse"]')!;
+    expect(collapse.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(collapse);
+    expect(renderedIds(container)).toEqual(["p1", "top", "mid", "low", "r1"]);
+    expect(folded("low")).toBe(true);
+
+    fireEvent.click(collapse);
+    expect(folded("mid")).toBe(true);
+    expect(document.activeElement).toBe(rowById(container, "mid"));
+
+    fireEvent.keyDown(rowById(container, "low"), { key: "Enter" });
+    expect(folded("low")).toBe(false);
+    expect(rowById(container, "low").querySelector('[data-testid="lore-collapse"]')).not.toBeNull();
+    fireEvent.keyDown(rowById(container, "mid"), { key: " " });
+    expect(folded("mid")).toBe(false);
+  });
+
+  it("an opened dropped entry with a staged change stays open, frame and ↺ showing, until the change is undone", async () => {
+    stubList(page(entries, { capChars: 10000, firstDroppedId: "mid" }));
+    const { container } = await renderOpen();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
+
+    fireEvent.click(rowById(container, "mid"));
+    const row = rowById(container, "mid");
+    fireEvent.click(row.querySelector('[data-testid="lore-state"]')!);
+    fireEvent.click(row.querySelector('[data-testid="lore-state-pinned"]')!);
+
+    const staged = rowById(container, "mid");
+    expect(staged.dataset.staged).toBe("true");
+    expect(staged.querySelector('[data-testid="lore-revert-state"]')).not.toBeNull();
+    expect(staged.querySelector('[data-testid="lore-collapse"]')).toBeNull();
+
+    fireEvent.click(staged.querySelector('[data-testid="lore-revert-state"]')!);
+    expect(rowById(container, "mid").querySelector('[data-testid="lore-collapse"]')).not.toBeNull();
   });
 
   it("greys nothing when no entry carries dropped (the request did not converge on one target)", async () => {
@@ -769,8 +830,8 @@ describe("LorePage — 順序跟任務頁一致", () => {
 
 // ────────────────────────────────────────────────────────────────────────────
 // 卡片版面 (owner 2026-09-08).
-describe("LorePage — 卡片底下一行小字", () => {
-  it("shows 撰寫人 · 生效期 on one line, and the message box is the last thing on the card", async () => {
+describe("LorePage — 卡片底下的撰寫人與生效期", () => {
+  it("shows 撰寫人 with the author pill and 生效期 with the time as two label/value rows, and the message box is the last thing on the card", async () => {
     stubList(
       page([
         mkEntry({ id: "L-7", authorId: "mira", title: "標題", body: "四個字的", effectiveTs: 1788400000 }),
@@ -781,11 +842,15 @@ describe("LorePage — 卡片底下一行小字", () => {
     const row = rowById(container, "L-7");
     const meta = row.querySelector<HTMLElement>(".lore-row__meta")!;
     expect(Array.from(meta.children).map((el) => el.getAttribute("data-testid") ?? el.textContent)).toEqual([
+      "撰寫人",
       "lore-author-row",
-      "·",
+      "生效期",
       "lore-effective",
     ]);
     expect(meta.querySelector('[data-testid="lore-author"]')!.textContent).toBe("Mira");
+    expect(meta.querySelector('[data-testid="lore-effective"]')!.textContent).toBe(
+      formatAbsolute(1788400000, Date.now() / 1000),
+    );
     expect(row.lastElementChild!.getAttribute("data-testid")).toBe("lore-message-box");
   });
 
@@ -1051,7 +1116,7 @@ describe("LorePage — 可變動作面", () => {
     expect(unsavedIds(container)).toEqual(["L-1"]);
   });
 
-  it("儲存變更 sends every staged change once, then re-reads the whole section in the server's order and greys what the new answer marks dropped", async () => {
+  it("儲存變更 sends every staged change once, then re-reads the whole section in the server's order, folds what the new answer newly marks dropped and keeps an opened one open", async () => {
     const w = spyWrites();
     const before = page(
       [
@@ -1083,13 +1148,18 @@ describe("LorePage — 可變動作面", () => {
 
     chooseState(container, "P-1", "active");
     chooseType(container, "A-1", "owner_decision");
-    expect(
-      renderedIds(container).map((id) => [id, rowById(container, id).getAttribute("data-dimmed")]),
-    ).toEqual([
-      ["P-1", "false"],
-      ["A-1", "false"],
-      ["A-2", "false"],
-      ["A-3", "true"],
+    fireEvent.click(rowById(container, "A-3"));
+    const look = () =>
+      renderedIds(container).map((id) => [
+        id,
+        rowById(container, id).getAttribute("data-dimmed"),
+        rowById(container, id).getAttribute("data-folded") === "true",
+      ]);
+    expect(look()).toEqual([
+      ["P-1", "false", false],
+      ["A-1", "false", false],
+      ["A-2", "false", false],
+      ["A-3", "true", false],
     ]);
     saved = true;
     clickSave(container);
@@ -1099,13 +1169,11 @@ describe("LorePage — 可變動作面", () => {
     expect(w.edit.mock.calls).toEqual([["A-1", { loreType: "owner_decision" }]]);
     expect(w.scope).not.toHaveBeenCalled();
     expect(list.mock.calls.map((c) => c[0])).toEqual([MIRA_OPTS, MIRA_OPTS]);
-    expect(
-      renderedIds(container).map((id) => [id, rowById(container, id).getAttribute("data-dimmed")]),
-    ).toEqual([
-      ["A-1", "false"],
-      ["A-2", "false"],
-      ["P-1", "true"],
-      ["A-3", "true"],
+    expect(look()).toEqual([
+      ["A-1", "false", false],
+      ["A-2", "false", false],
+      ["P-1", "true", true],
+      ["A-3", "true", false],
     ]);
     expect(unsavedIds(container)).toEqual([]);
     expect(bar(container)).toBeNull();
@@ -1798,13 +1866,21 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(cards[1].querySelector('[data-testid="lore-section-usage"]')!.textContent).toBe("320 字");
   });
 
-  it("a manual section's name opens that manual", async () => {
+  it("a manual section's head shows its chars, its cap and only its own count, and its name opens that manual", async () => {
     stubTargets();
-    stubList(page([mkEntry({ id: "L-8", scopeKind: "manual", scopeKey: "review-pr" })], { capChars: 10000, firstDroppedId: "" }));
+    stubList({
+      ...page([mkEntry({ id: "L-8", scopeKind: "manual", scopeKey: "review-pr" })], { capChars: 1150, firstDroppedId: "" }),
+      usedChars: 1131,
+      budgetSegments: [{ scopeKind: "manual", entryCount: 5, chars: 1400, fittedCount: 3, fittedChars: 1131 }],
+    });
     const { container } = renderPage();
     await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
     openSection(container, "manual:review-pr");
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-8"]));
+    const head = container.querySelector<HTMLElement>('[data-testid="lore-section-head"]')!;
+    expect(head.querySelector('[data-testid="lore-section-used"]')!.textContent).toBe("1,131 字");
+    expect(head.querySelector('[data-testid="lore-section-cap"]')!.textContent).toBe("上限 1,150");
+    expect(head.querySelector('[data-testid="lore-section-summary"]')!.textContent).toBe("PR 審查 3/5");
     fireEvent.click(container.querySelector('[data-testid="lore-section-name"]')!);
     expect(window.location.hash).toBe("#settings/manuals/review-pr");
   });
@@ -1883,27 +1959,24 @@ describe("LorePage — 目錄與段落頁", () => {
     ]);
     expect(head.querySelector<HTMLElement>('[data-testid="lore-bar-everyone"]')!.style.width).toBe("60%");
     expect(head.querySelector<HTMLElement>('[data-testid="lore-bar-own"]')!.style.width).toBe("34%");
-    expect(
-      Array.from(head.querySelectorAll('[data-testid="lore-section-summary"] > *')).map((el) => el.textContent),
-    ).toEqual([
-      "所有人 14 筆，讀得到 12 筆 6,000 字",
-      "Mira 11 筆，讀得到 7 筆 3,400 字",
-      "上限 10,000 字，剩 600 字",
-    ]);
+    expect(head.querySelector('[data-testid="lore-section-used"]')!.textContent).toBe("9,400 字");
+    expect(head.querySelector('[data-testid="lore-section-used"] b')!.textContent).toBe("9,400");
+    expect(head.querySelector('[data-testid="lore-section-cap"]')!.textContent).toBe("上限 10,000");
+    expect(head.querySelector('[data-testid="lore-section-summary"]')!.textContent).toBe("所有人 12/14 · Mira 7/11");
     expect(container.querySelector('[data-testid="lore-everyone-ref"]')).toBeNull();
     expect(
       renderedIds(body).map((id) => [
         id,
-        rowById(body, id).querySelector('[data-testid="lore-scope-name"]')!.textContent,
+        rowById(body, id).querySelector('[data-testid="lore-scope-name"]')?.textContent ?? null,
         rowById(body, id).dataset.dimmed,
       ]),
     ).toEqual([
       ["L-198", "Mira", "false"],
       ["L-240", "所有人", "false"],
       ["L-231", "Mira", "false"],
-      ["L-219", "所有人", "true"],
-      ["L-212", "Mira", "true"],
-      ["L-205", "所有人", "true"],
+      ["L-219", null, "true"],
+      ["L-212", null, "true"],
+      ["L-205", null, "true"],
     ]);
   });
 
@@ -1969,13 +2042,8 @@ describe("LorePage — 目錄與段落頁", () => {
       return el;
     });
     const head = container.querySelector<HTMLElement>('[data-testid="lore-section-head"]')!;
-    expect(
-      Array.from(head.querySelectorAll('[data-testid="lore-section-summary"] > *')).map((el) => el.textContent),
-    ).toEqual([
-      "所有人 20 筆，讀得到 14 筆 9,800 字",
-      "Mira 2 筆，讀得到 0 筆 0 字",
-      "上限 10,000 字，剩 200 字",
-    ]);
+    expect(head.querySelector('[data-testid="lore-section-usage-row"]')!.textContent).toBe("9,800 字上限 10,000");
+    expect(head.querySelector('[data-testid="lore-section-summary"]')!.textContent).toBe("所有人 14/20 · Mira 0/2");
     expect(head.querySelector<HTMLElement>('[data-testid="lore-bar-everyone"]')!.style.width).toBe("98%");
     expect(head.querySelector<HTMLElement>('[data-testid="lore-bar-own"]')!.style.width).toBe("0%");
     expect(renderedIds(body).map((id) => [id, rowById(body, id).dataset.dimmed])).toEqual([
@@ -2035,12 +2103,12 @@ describe("LorePage — 目錄與段落頁", () => {
     );
   });
 
-  it("an id typed on the directory opens that entry's section page with the entry highlighted", async () => {
+  it("an id typed on the directory opens that entry's section page with the entry highlighted, as a full card even when it cannot be read", async () => {
     stubTargets();
     const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
       o?.scopeKeys === undefined
         ? page([mkEntry({ id: "L-212", scopeKind: "agent", scopeKey: "mira" })])
-        : miraPage([mkEntry({ id: "L-198" }), mkEntry({ id: "L-212" })]),
+        : miraPage([mkEntry({ id: "L-198", dropped: true }), mkEntry({ id: "L-212", dropped: true })]),
     );
     const { container } = renderPage();
     await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
@@ -2054,7 +2122,10 @@ describe("LorePage — 目錄與段落頁", () => {
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-198", "L-212"]));
     const row = rowById(container, "L-212");
     expect(row.classList.contains("lore-row--highlight")).toBe(true);
+    expect(row.dataset.folded).toBeUndefined();
+    expect(row.querySelector('[data-testid="lore-collapse"]')).not.toBeNull();
     expect(rowById(container, "L-198").classList.contains("lore-row--highlight")).toBe(false);
+    expect(rowById(container, "L-198").dataset.folded).toBe("true");
     await waitFor(() => expect(document.activeElement).toBe(row));
   });
 
@@ -2371,6 +2442,7 @@ describe("LorePage — 就地編輯", () => {
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(3));
 
+    fireEvent.click(rowById(container, "L-3"));
     fireEvent.click(rowById(container, "L-3").querySelector('[data-testid="lore-edit"]')!);
     const editor = rowById(container, "L-3").querySelector<HTMLElement>('[data-testid="lore-editor"]')!;
     expect(
@@ -2890,6 +2962,8 @@ describe("LorePage — 晚到的回應", () => {
     });
     const { container } = await renderOpen();
     await waitFor(() => expect(rowById(container, "L-1").dataset.dimmed).toBe("true"));
+    fireEvent.click(rowById(container, "L-1"));
+    fireEvent.click(rowById(container, "L-2"));
 
     fireEvent.click(rowById(container, "L-1").querySelector('[data-testid="lore-edit"]')!);
     fireEvent.change(rowById(container, "L-1").querySelector('[data-testid="lore-edit-body"]')!, { target: { value: "改過" } });

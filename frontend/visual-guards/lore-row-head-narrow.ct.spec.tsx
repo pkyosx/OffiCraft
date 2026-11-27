@@ -1,8 +1,8 @@
 // 傳承 directory cards, section pages and row heads at phone and desktop width:
 // the tags (id → type → state → scope) wrap as whole pills, the head's one
 // action (編輯, the app-wide .doc-btn--edit) stays inside the head without
-// overlapping them, no card has a clamped body, the 撰寫人 · 生效期
-// line stays inside the card, the message box's 📎, input and 送出 sit on one row
+// overlapping them, no card has a clamped body, the 撰寫人／生效期
+// label/value grid stays inside the card, a folded 讀不到 row holds one line, the message box's 📎, input and 送出 sit on one row
 // inside the card with room to type, the section head's title, bar and legend stay
 // inside it, the 適用範圍 menu opens inside the viewport, the inline editor fits,
 // the unsaved-changes bar holds one line on the screen's bottom edge without
@@ -21,6 +21,7 @@ import { LoreRowHeadStory } from "./stories/LoreRowHeadStory";
 type Box = { left: number; right: number; top: number; bottom: number };
 type RowGeom = {
   id: string;
+  folded: boolean;
   head: Box | null;
   row: Box | null;
   actions: Box | null;
@@ -68,7 +69,7 @@ async function measureEverySection(cmp: any, page: any) {
     await expect(cmp.locator('[data-testid="lore-section-head"]')).toBeVisible();
     await expect(cmp.locator('[data-testid="lore-section-body"]')).not.toContainText("載入中");
     const g = await measure(page);
-    rows.push(...g.rows);
+    rows.push(...g.rows.filter((r) => !r.folded));
     worstOver = {
       pageOver: Math.max(worstOver.pageOver, g.pageOver),
       loreOver: g.loreOver === -2 ? -2 : Math.max(worstOver.loreOver, g.loreOver),
@@ -98,6 +99,7 @@ async function measure(page: any): Promise<{
         const badges = row.querySelector(".lore-row__badges");
         return {
           id: row.getAttribute("data-entry-id") ?? "",
+          folded: row.getAttribute("data-folded") === "true",
           head: r(row.querySelector(".lore-row__head")),
           row: r(row),
           actions: r(row.querySelector(".lore-row__actions")),
@@ -144,7 +146,7 @@ async function measure(page: any): Promise<{
         head: r(head)!,
         children: [
           ...head.querySelectorAll(
-            ":scope > *, .lore-dir-card__head > *, .lore-dir-card__badges > *, .lore-dir-card__usage > *, .lore-dir-card__legend > *, .lore-section__title > *",
+            ":scope > *, .lore-dir-card__head > *, .lore-dir-card__badges > *, .lore-dir-card__usage > *, .lore-section__usage > *, .lore-section__legend > *, .lore-section__title > *",
           ),
         ].map((c) => ({
           cls: (c.className || c.tagName).toString(),
@@ -184,11 +186,20 @@ function assertHeadContained(width: number, row: RowGeom) {
       .soft(b.box.left, `${tag} "${b.cls}" left edge before the head`)
       .toBeGreaterThanOrEqual(row.head.left - 1);
   }
-  expect.soft(row.meta, `${tag} meta line missing`).not.toBeNull();
-  expect.soft(row.metaItems.length, `${tag} meta items`).toBe(3);
+  expect.soft(row.meta, `${tag} meta grid missing`).not.toBeNull();
+  // 撰寫人, its pill, 生效期, the time: two label/value rows.
+  expect.soft(row.metaItems.length, `${tag} meta items`).toBe(4);
   if (row.row)
     for (const m of row.metaItems)
       expect.soft(inside(m, row.row), `${tag} meta item outside the card`).toBe(true);
+  const mid = (b: Box) => (b.top + b.bottom) / 2;
+  if (row.metaItems.length === 4) {
+    const [authorLabel, author, effLabel, eff] = row.metaItems;
+    expect.soft(Math.abs(mid(authorLabel) - mid(author)), `${tag} 撰寫人 beside its pill`).toBeLessThanOrEqual(4);
+    expect.soft(Math.abs(mid(effLabel) - mid(eff)), `${tag} 生效期 beside its time`).toBeLessThanOrEqual(4);
+    expect.soft(effLabel.top, `${tag} 生效期 on the row under 撰寫人`).toBeGreaterThanOrEqual(author.bottom - 1);
+    expect.soft(Math.abs(author.left - eff.left), `${tag} values share one column`).toBeLessThanOrEqual(1);
+  }
   expect.soft(row.composer, `${tag} message box missing`).not.toBeNull();
   expect
     .soft(row.composerItems.map((c) => c.id), `${tag} message box parts`)
@@ -273,10 +284,6 @@ for (const width of [390, 1440]) {
         expect
           .soft(Math.max(...tops) - Math.min(...tops), `${tag} badges not on one line`)
           .toBeLessThanOrEqual(4);
-        const metaTops = row.metaItems.map((m) => (m.top + m.bottom) / 2);
-        expect
-          .soft(Math.max(...metaTops) - Math.min(...metaTops), `${tag} meta not on one line`)
-          .toBeLessThanOrEqual(4);
       }
     }
   });
@@ -351,6 +358,93 @@ for (const width of [390, 1440]) {
     expect.soft(g.right, `[${width}px] menu right edge`).toBeLessThanOrEqual(g.vw);
     expect.soft(g.left, `[${width}px] menu inside the card`).toBeGreaterThanOrEqual(g.cardLeft - 1);
     expect.soft(g.right, `[${width}px] menu inside the card`).toBeLessThanOrEqual(g.cardRight + 1);
+    assertNoHScroll(width, await pageAndLoreOver(page));
+  });
+}
+
+for (const width of [390, 1440]) {
+  test(`a folded 讀不到 row holds id, title, tag and chevron on one line inside the card, and opens into a full card @${width}px`, async ({ mount, page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const cmp = await mount(<LoreRowHeadStory roleCap={100} hash={MIRA} />);
+    const folded = cmp.locator('[data-testid="lore-row"][data-folded="true"]');
+    await expect(folded.first()).toBeVisible();
+    const rows = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="lore-row"][data-folded="true"]')].map((row) => {
+        const r = (el: Element) => {
+          const b = el.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        };
+        const title = row.querySelector('[data-testid="lore-folded-title"]') as HTMLElement | null;
+        return {
+          id: row.getAttribute("data-entry-id") ?? "",
+          row: r(row),
+          parts: [...row.children].map((c) => ({ cls: c.className.toString(), box: r(c) })),
+          titleClipped: title ? getComputedStyle(title).textOverflow : null,
+        };
+      }),
+    );
+    expect(rows.length, `[${width}px] folded rows`).toBeGreaterThanOrEqual(1);
+    for (const f of rows) {
+      const tag = `[${width}px] folded ${f.id}`;
+      expect.soft(f.parts.length, `${tag} parts`).toBe(4);
+      const mids = f.parts.map((p) => (p.box.top + p.box.bottom) / 2);
+      expect.soft(Math.max(...mids) - Math.min(...mids), `${tag} not one line`).toBeLessThanOrEqual(4);
+      for (const p of f.parts) expect.soft(inside(p.box, f.row), `${tag} "${p.cls}" outside the row`).toBe(true);
+      expect.soft(f.titleClipped, `${tag} title ellipsis`).toBe("ellipsis");
+      expect.soft(f.parts[3]?.box.right ?? 0, `${tag} chevron at the right edge`).toBeGreaterThan(f.row.right - 40);
+    }
+    assertNoHScroll(width, await pageAndLoreOver(page));
+
+    const id = rows[0].id;
+    await cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"]`).click();
+    const opened = cmp.locator(`[data-testid="lore-row"][data-entry-id="${id}"]`);
+    await expect(opened.locator('[data-testid="lore-collapse"]')).toBeVisible();
+    const g = await measure(page);
+    const row = g.rows.find((r) => r.id === id)!;
+    expect.soft(row.folded, `[${width}px] ${id} still folded`).toBe(false);
+    for (const b of row.actionButtons)
+      expect.soft(inside(b.box, row.head!), `[${width}px] ${id} "${b.text}" outside the head`).toBe(true);
+    expect.soft(row.metaItems.length, `[${width}px] ${id} meta items`).toBe(4);
+    assertNoHScroll(width, g);
+  });
+
+  test(`the member section head's char/cap row and per-source counts each hold one line inside the head @${width}px`, async ({ mount, page }) => {
+    await mountAt(mount, page, width, false, MIRA);
+    const g = await page.evaluate(() => {
+      const head = document.querySelector('[data-testid="lore-section-head"]')!;
+      const r = (el: Element | null) => {
+        if (!el) return null;
+        const b = el.getBoundingClientRect();
+        return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+      };
+      // Spread of the vertical centres of every box inside: one line keeps them within a few px.
+      const spread = (el: Element | null) => {
+        if (!el) return Infinity;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const mids = [...range.getClientRects()].filter((x) => x.width > 0).map((x) => (x.top + x.bottom) / 2);
+        return mids.length === 0 ? Infinity : Math.max(...mids) - Math.min(...mids);
+      };
+      const usage = head.querySelector('[data-testid="lore-section-usage-row"]');
+      const legend = head.querySelector('[data-testid="lore-section-summary"]');
+      return {
+        head: r(head)!,
+        used: r(head.querySelector('[data-testid="lore-section-used"]')),
+        cap: r(head.querySelector('[data-testid="lore-section-cap"]')),
+        usage: r(usage),
+        legend: r(legend),
+        legendText: legend?.textContent ?? "",
+        usageSpread: spread(usage),
+        legendSpread: spread(legend),
+      };
+    });
+    expect(g.used && g.cap && g.legend, `[${width}px] head rows`).toBeTruthy();
+    expect.soft(g.legendText, `[${width}px] legend`).toMatch(/^所有人 \d+\/\d+ · Mira \d+\/\d+$/);
+    expect.soft(g.usageSpread, `[${width}px] chars and cap on one line`).toBeLessThanOrEqual(4);
+    expect.soft(g.legendSpread, `[${width}px] per-source counts on one line`).toBeLessThanOrEqual(4);
+    expect.soft(Math.abs(g.used!.left - g.head.left), `[${width}px] chars on the left`).toBeLessThanOrEqual(1);
+    expect.soft(Math.abs(g.cap!.right - g.head.right), `[${width}px] cap on the right`).toBeLessThanOrEqual(1);
+    for (const b of [g.usage!, g.legend!]) expect.soft(inside(b, g.head), `[${width}px] row outside the head`).toBe(true);
     assertNoHScroll(width, await pageAndLoreOver(page));
   });
 }

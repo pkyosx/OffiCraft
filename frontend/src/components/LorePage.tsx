@@ -6,10 +6,11 @@
 // 🔴 EVERY BUDGET NUMBER IS THE SERVER'S. The section headers read
 // `listLoreBudgets`, a section page's sentence reads the
 // `capChars`/`usedChars`/`budgetSegments` its own list page answered, and a
-// card is greyed out exactly when the server marked it `dropped`. Adding up
-// title+body lengths, or greying by position, would be a second copy of the
-// server's picking walk, wrong on every page after the first, after any
-// filter, and for a member whose 所有人 entries interleave with its own.
+// card is folded (and greyed once opened) exactly when the server marked it
+// `dropped`. Adding up title+body lengths, or greying by position, would be a
+// second copy of the server's picking walk, wrong on every page after the
+// first, after any filter, and for a member whose 所有人 entries interleave
+// with its own.
 //
 // 🔴 THE FILTER TRAVELS WITH THE PAGE REQUEST, never as a `.filter()` over
 // downloaded rows; a client-side filter is right only for the rows that
@@ -1152,6 +1153,36 @@ function LoreView({
     el?.focus({ preventScroll: true });
   }, [highlightLoaded, highlightId]);
 
+  // A dropped entry shows as one row until opened. Opening is remembered per
+  // entry for the life of the page, so a re-read that keeps it dropped keeps it
+  // open; a highlighted entry opens itself.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const focusAfterToggle = useRef<{ id: string; open: boolean } | null>(null);
+  function setEntryExpanded(id: string, open: boolean) {
+    focusAfterToggle.current = { id, open };
+    setExpanded((prev) => {
+      if (prev.has(id) === open) return prev;
+      const next = new Set(prev);
+      if (open) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+  useEffect(() => {
+    if (highlightId === "") return;
+    setExpanded((prev) => (prev.has(highlightId) ? prev : new Set(prev).add(highlightId)));
+  }, [highlightId]);
+  useEffect(() => {
+    const f = focusAfterToggle.current;
+    if (!f) return;
+    focusAfterToggle.current = null;
+    const row = rowElement(scrollRef.current, f.id);
+    const target = f.open
+      ? row?.querySelector<HTMLElement>('[data-testid="lore-collapse"]')
+      : row;
+    target?.focus({ preventScroll: true });
+  }, [expanded]);
+
   // ── render helpers ──────────────────────────────────────────────────────
   // The section's own boot document as one bar. A member's 所有人 and own
   // entries interleave in boot order; the bar only stacks the two shares.
@@ -1183,29 +1214,30 @@ function LoreView({
             style={{ width: pct(own?.fittedChars ?? 0) }}
           />
         </div>
-        <div className="lore-dir-card__legend" data-testid="lore-section-summary">
-          {everyoneSeg && (
-            <span className="lore-dir-card__legend-item">
-              <i className="lore-dir-card__swatch lore-dir-card__swatch--everyone" aria-hidden="true" />
-              {msg.loreLegendSegment(
-                t.lore.kindEveryone,
-                everyoneSeg.entryCount,
-                everyoneSeg.fittedCount,
-                everyoneSeg.fittedChars
-              )}
-            </span>
-          )}
-          <span className="lore-dir-card__legend-item">
-            <i className="lore-dir-card__swatch" aria-hidden="true" />
-            {msg.loreLegendSegment(
-              sectionName(def),
-              own?.entryCount ?? 0,
-              own?.fittedCount ?? 0,
-              own?.fittedChars ?? 0
-            )}
+        <div className="lore-section__usage" data-testid="lore-section-usage-row">
+          <span data-testid="lore-section-used">
+            <b className="lore-section__used-num">{msg.loreLegendNumber(cap.usedChars)}</b>
+            {t.lore.charsTail}
           </span>
-          <span className="lore-dir-card__legend-item">
-            {msg.loreLegendLeft(cap.capChars, Math.max(0, cap.capChars - cap.usedChars))}
+          <span data-testid="lore-section-cap">{msg.loreLegendCap(cap.capChars)}</span>
+        </div>
+        <div className="lore-section__legend" data-testid="lore-section-summary">
+          {everyoneSeg && (
+            <>
+              <span className="lore-section__legend-item" data-testid="lore-legend-everyone">
+                <i className="lore-dir-card__swatch lore-dir-card__swatch--everyone" aria-hidden="true" />
+                <span className="lore-section__legend-name">{t.lore.kindEveryone}</span>{" "}
+                {msg.loreLegendFit(everyoneSeg.fittedCount, everyoneSeg.entryCount)}
+              </span>
+              <span className="lore-section__legend-sep" aria-hidden="true">
+                {" · "}
+              </span>
+            </>
+          )}
+          <span className="lore-section__legend-item" data-testid="lore-legend-own">
+            <i className="lore-dir-card__swatch" aria-hidden="true" />
+            <span className="lore-section__legend-name">{sectionName(def)}</span>{" "}
+            {msg.loreLegendFit(own?.fittedCount ?? 0, own?.entryCount ?? 0)}
           </span>
         </div>
       </>
@@ -1241,11 +1273,23 @@ function LoreView({
         {sd.entries.map((stored) => {
           const ch = staged.get(stored.id);
           const entry = withStaged(stored, ch);
+          const foldable = stored.dropped === true && !ch;
+          if (foldable && !expanded.has(entry.id)) {
+            return (
+              <LoreDroppedRow
+                key={entry.id}
+                entry={entry}
+                highlighted={entry.id === highlightId}
+                onExpand={() => setEntryExpanded(entry.id, true)}
+              />
+            );
+          }
           return (
             <LoreRow
                   key={entry.id}
                   entry={entry}
                   dimmed={stored.dropped === true}
+                  onCollapse={foldable ? () => setEntryExpanded(entry.id, false) : null}
                   author={resolveAuthor(entry.authorId)}
                   avatar={authorAvatar(entry.authorId)}
                   scope={resolveScope(entry)}
@@ -1668,10 +1712,12 @@ function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string
   }
 }
 
-/** ONE 傳承 row. The body always shows in full: no fold, no chevron. */
+/** ONE 傳承 row. The body always shows in full; the only chevron is the one
+ * that folds an opened dropped entry back to its LoreDroppedRow. */
 function LoreRow({
   entry,
   dimmed,
+  onCollapse,
   author,
   avatar,
   scope,
@@ -1691,6 +1737,9 @@ function LoreRow({
 }: {
   entry: LoreEntryView;
   dimmed: boolean;
+  /** Folds an opened dropped entry back to its one-line row; null ⇒ this card
+   * does not fold (it is read, or it carries a staged change). */
+  onCollapse: (() => void) | null;
   author: AuthorIdentity;
   avatar: { src?: string; kind: AvatarKind } | null;
   /** 屬於, already resolved (resolveScope). `manualKey` non-empty offers the
@@ -2064,6 +2113,19 @@ function LoreRow({
             <PencilIcon size={14} />
             <span>{t.lore.actionEdit}</span>
           </button>
+          {onCollapse && (
+            <button
+              type="button"
+              className="lore-row__fold lore-row__fold--open"
+              data-testid="lore-collapse"
+              aria-expanded={true}
+              aria-label={t.lore.collapseDropped}
+              title={t.lore.collapseDropped}
+              onClick={onCollapse}
+            >
+              <ChevronRightIcon size={16} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -2103,13 +2165,10 @@ function LoreRow({
       )}
 
       <div className="lore-row__meta">
+        <span className="lore-row__meta-label">{t.lore.authorLabel}</span>
         <LoreAuthorChip author={author} avatar={avatar} />
-        <span className="lore-row__meta-dot" aria-hidden="true">·</span>
-        <span
-          className="lore-row__effective-ts"
-          data-testid="lore-effective"
-          title={t.lore.effectiveLabel}
-        >
+        <span className="lore-row__meta-label">{t.lore.effectiveLabel}</span>
+        <span className="lore-row__effective-ts" data-testid="lore-effective">
           {formatAbsolute(entry.effectiveTs, Date.now() / 1000)}
         </span>
       </div>
@@ -2121,6 +2180,53 @@ function LoreRow({
       )}
       <LoreMessageBox entryId={entry.id} recipient={recipient} />
     </article>
+  );
+}
+
+/** A dropped entry, folded: id, title and 讀不到 on one line. Any click, Enter
+ * or Space opens the full card in its place. The id is drawn, not a copy
+ * button, so the whole row stays one control. */
+function LoreDroppedRow({
+  entry,
+  highlighted,
+  onExpand,
+}: {
+  entry: LoreEntryView;
+  highlighted: boolean;
+  onExpand: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div
+      className={`lore-row lore-row--folded${highlighted ? " lore-row--highlight" : ""}`}
+      data-testid="lore-row"
+      data-entry-id={entry.id}
+      data-dimmed="true"
+      data-folded="true"
+      role="button"
+      tabIndex={0}
+      aria-expanded={false}
+      onClick={onExpand}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onExpand();
+        }
+      }}
+    >
+      <span className="lore-row__id-badge" data-testid="lore-entry-id">
+        <BookIcon size={13} />#{entry.id}
+      </span>
+      <span className="lore-row__folded-title" data-testid="lore-folded-title">
+        {entry.title}
+      </span>
+      <span className="lore-badge lore-badge--dropped" data-testid="lore-dropped-tag">
+        {t.lore.droppedTag}
+      </span>
+      <span className="lore-row__fold" aria-hidden="true">
+        <ChevronRightIcon size={16} />
+      </span>
+    </div>
   );
 }
 

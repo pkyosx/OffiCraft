@@ -13,6 +13,8 @@
  *   .lore-row__status(-chip) ← .task-card__status / button.task-card__status-chip
  *   .lore-row__menu-pop      ← .task-card__menu-pop
  *   .lore-row__menu-item     ← .task-card__menu-item (+ --active = accent/700)
+ *   .lore-row__meta / __meta-label
+ *                            ← .task-card__meta / __meta-label
  *   .lore-row__chip          ← .task-card__chip
  *   .lore-dir-card           ← .task-card
  *   .lore-dir-card__usage / __bar / __bar-fill / __usage-text
@@ -182,8 +184,9 @@ button.lore-dir-card__name--link:hover {
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
 }
-/* 任務卡's dot marks a state; a count is not one. */
-.lore-dir-card__badges .lore-badge::before {
+/* 任務卡's dot marks a state; a count is not one, nor is 讀不到. */
+.lore-dir-card__badges .lore-badge::before,
+.lore-row--folded .lore-badge::before {
   display: none;
 }
 /* Unlike 任務卡 (tasks.css stacks bar and text at ≤720px), the bar stays beside
@@ -231,21 +234,6 @@ button.lore-dir-card__name--link:hover {
 .lore-dir-card__seg-everyone,
 .lore-dir-card__swatch.lore-dir-card__swatch--everyone {
   background: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
-}
-.lore-dir-card__legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-.lore-dir-card__legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 .lore-dir-card__swatch {
   flex: none;
@@ -326,6 +314,44 @@ button.lore-section__name--link:hover {
 .lore-section__dropped {
   color: var(--color-danger);
   white-space: nowrap;
+}
+/* Under the bar: used chars on the left, the cap on the right; then one
+ * swatch · name · fitted/total per source. */
+.lore-section__usage {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.lore-section__used-num {
+  font-weight: 700;
+  color: var(--color-text);
+}
+.lore-section__legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+}
+.lore-section__legend-item {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.lore-section__legend-item .lore-dir-card__swatch {
+  margin-right: 5px;
+}
+.lore-section__legend-name {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* ── the 適用範圍 notice, pinned to the bottom of the scrollport ── */
@@ -622,6 +648,55 @@ button.lore-section__name--link:hover {
   opacity: 0.55;
 }
 
+/* Folded: one line, no strike-through and no coloured edge (owner
+ * c-1301314e3efa); only the title is greyed, as on the opened card. */
+.lore-row.lore-row--folded {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding-block: 10px;
+  min-width: 0;
+  cursor: pointer;
+}
+.lore-row--folded .lore-row__id-badge {
+  cursor: inherit;
+}
+.lore-row__folded-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  opacity: 0.55;
+}
+.lore-row__fold {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+button.lore-row__fold {
+  margin: 0;
+  padding: 2px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
+  cursor: pointer;
+}
+button.lore-row__fold:hover {
+  color: var(--color-accent);
+}
+button.lore-row__fold:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.lore-row__fold--open svg {
+  transform: rotate(90deg);
+}
+
 /* ── status badge (copy of .task-badge) ── */
 .lore-badge {
   flex: none;
@@ -790,20 +865,23 @@ button.lore-badge--lore-type:hover:not(:disabled) {
   font-weight: 700;
 }
 
-/* ── 撰寫人 · 生效期 on one muted line ── */
+/* ── 撰寫人 / 生效期: 任務卡's label/value grid ── */
 .lore-row__meta {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
   align-items: center;
-  gap: 4px 8px;
+  gap: 7px 12px;
   min-width: 0;
-  font-size: 12px;
-  color: var(--color-text-muted);
+  font-size: 12.5px;
+  color: var(--color-text);
 }
-.lore-row__meta-dot {
-  flex: none;
+.lore-row__meta-label {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  opacity: 0.75;
 }
 .lore-row__chip {
+  justify-self: start;
   max-width: 100%;
   display: inline-flex;
   align-items: center;

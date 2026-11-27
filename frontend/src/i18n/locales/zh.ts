@@ -111,6 +111,7 @@ export const zh = {
     openManualLabel: "開啟任務手冊",
     copyEntryIdLabel: "複製條目編號",
     authorUnknown: "—",
+    authorLabel: "撰寫人",
     effectiveLabel: "生效期",
     retireReasonLabel: "失效理由",
     // 適用範圍徽章與選單
@@ -162,13 +163,10 @@ export const zh = {
     sectionLoadError: "這一段載入失敗，收合再展開可以重試",
     sectionEmpty: "這一段沒有要顯示的傳承",
     // 段落頁上方用量條下的說明
-    legendCountUnit: " 筆",
-    legendReadLead: "，讀得到 ",
-    legendReadTail: " 筆",
-    legendSep: " ",
     legendCapLead: "上限 ",
-    legendLeftMid: "，剩 ",
-    legendLeftTail: " 字",
+    // 讀不到的條目縮成一列
+    droppedTag: "讀不到",
+    collapseDropped: "收合",
     // 卡片右上的動作
     actionEdit: "編輯",
     // 就地編輯
