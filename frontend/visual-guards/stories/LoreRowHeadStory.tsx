@@ -15,15 +15,21 @@ const LONG_MANUAL_NAME =
   "跨租戶出貨追蹤資料對帳與異常通報流程（海運、空運、陸運三段承運商回傳格式差異整理與補件）" +
   "以及月底結算前的應收應付逐筆核對、匯率差額說明與客戶端對帳單重新產出";
 
+const ALL_OPEN: string[] = [];
+
 export function LoreRowHeadStory({
   longManual = false,
   hash = "",
   roleCap,
+  dirCollapsed = ALL_OPEN,
 }: {
   longManual?: boolean;
   hash?: string;
   /** Lower the member cap so the directory has a target with entries it cannot read. */
   roleCap?: number;
+  /** The directory groups saved as folded; null is a first visit. Every group
+   * open by default, so a spec can reach every card. */
+  dirCollapsed?: string[] | null;
 }) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -53,10 +59,12 @@ export function LoreRowHeadStory({
         });
       }
       if (roleCap !== undefined) await mockApi.patchServerSettings({ loreCapCharsRole: roleCap });
+      if (dirCollapsed === null) localStorage.removeItem("oc_lore_dir_collapsed");
+      else localStorage.setItem("oc_lore_dir_collapsed", JSON.stringify(dirCollapsed));
       history.replaceState(null, "", window.location.pathname + hash);
       setReady(true);
     })();
-  }, [longManual, hash, roleCap]);
+  }, [longManual, hash, roleCap, dirCollapsed]);
   if (!ready) return null;
   return (
     <I18nProvider>

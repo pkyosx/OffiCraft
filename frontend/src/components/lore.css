@@ -22,7 +22,8 @@
  *   .lore__group-title       ← replies.css .replies__section-title
  *
  * The one exception is the message box: owner wants it to BE the 任務卡's box,
- * so both cards share card-composer.css rather than a copy.
+ * so both cards share card-composer.css rather than a copy. The directory's
+ * group headings and 全部收合 likewise ARE the office chat groups' (chat-groups.css).
  *
  * Colours are theme tokens only — no literals.
  *
@@ -71,6 +72,18 @@ a.lore__back:focus-visible {
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
   min-width: 0;
+}
+/* 全部收合 is chat-groups.css's toolbar icon, pushed to the row's right end. */
+.lore__collapse-all {
+  margin-left: auto;
+}
+/* The office's 44px tap box reaches 8px past the button's right edge; here
+ * that edge is the scrollport's, so the box grows leftward instead or the
+ * page scrolls sideways on a phone. */
+@media (max-width: 720px), (hover: none) {
+  .lore__collapse-all::after {
+    inset: -8px 0 -8px -16px;
+  }
 }
 a.lore-target {
   text-decoration: none;

@@ -1,4 +1,6 @@
 // 傳承 directory cards, section pages and row heads at phone and desktop width:
+// the directory's group headings read on one line with their chevron and
+// 全部收合 leaves no sideways scroll (its touch box included),
 // the tags (id → type → state → scope) wrap as whole pills, the head's one
 // action (編輯, the app-wide .doc-btn--edit) stays inside the head without
 // overlapping them, no card has a clamped body, the 撰寫人／生效期
@@ -268,6 +270,71 @@ for (const width of [390, 1440]) {
     assertSectionHeadsContained(width, g.sections);
     expect(g.rows.length, `[${width}px] the directory shows no cards`).toBe(0);
   });
+
+  for (const [visit, dirCollapsed] of [
+    ["a first visit", null],
+    ["every group open", []],
+  ] as const) {
+    test(`on ${visit} the directory's group headings read on one line and 全部收合 leaves no sideways scroll @${width}px`, async ({ mount, page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      const cmp = await mount(<LoreRowHeadStory dirCollapsed={dirCollapsed === null ? null : [...dirCollapsed]} />);
+      await expect(cmp.locator('[data-testid="lore-collapse-all"]')).toBeVisible();
+      const g = await page.evaluate(() => {
+        const box = (el: Element | null) => {
+          if (!el) return null;
+          const b = el.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        };
+        const se = document.scrollingElement!;
+        const lore = document.querySelector(".lore") as HTMLElement | null;
+        return {
+          pageOver: se.scrollWidth - se.clientWidth,
+          loreOver: lore ? lore.scrollWidth - lore.clientWidth : -2,
+          lore: box(lore),
+          button: box(document.querySelector('[data-testid="lore-collapse-all"]')),
+          headings: [...document.querySelectorAll('[data-testid^="lore-group-heading-"]')].map((h) => {
+            const label = h.querySelector(".chat-groups__heading-label");
+            const range = document.createRange();
+            if (label) range.selectNodeContents(label);
+            return {
+              text: label?.textContent ?? "",
+              lines: label ? new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size : 0,
+              fontSize: label ? parseFloat(getComputedStyle(label).fontSize) : 0,
+              heading: box(h)!,
+              label: box(label),
+              chevron: box(h.querySelector(".chat-groups__chevron")),
+            };
+          }),
+        };
+      });
+      console.log(`[lore ${width}] ${visit} directory groups`, JSON.stringify(g));
+      assertNoHScroll(width, g);
+      expect(g.button, `[${width}px] 全部收合`).not.toBeNull();
+      expect(g.lore, `[${width}px] .lore`).not.toBeNull();
+      if (g.button && g.lore) {
+        expect.soft(g.button.right, `[${width}px] 全部收合 inside .lore`).toBeLessThanOrEqual(g.lore.right + 1);
+        expect.soft(g.button.right - g.button.left, `[${width}px] 全部收合 width`).toBeGreaterThanOrEqual(28);
+      }
+      expect(g.headings.map((h) => h.text), `[${width}px] group headings`).toEqual([
+        expect.stringMatching(/^所有人 · \d+$/),
+        expect.stringMatching(/^正職成員 · \d+$/),
+        expect.stringMatching(/^外包成員 · \d+$/),
+        expect.stringMatching(/^任務手冊 · \d+$/),
+      ]);
+      for (const h of g.headings) {
+        const tag = `[${width}px] "${h.text}"`;
+        expect.soft(h.lines, `${tag} wraps`).toBe(1);
+        expect.soft(h.fontSize, `${tag} font size`).toBeGreaterThanOrEqual(13);
+        expect.soft(h.label && h.label.right - h.label.left > 0, `${tag} label has width`).toBe(true);
+        expect.soft(h.chevron, `${tag} chevron`).not.toBeNull();
+        if (h.label && h.chevron && g.lore) {
+          expect.soft(h.chevron.left, `${tag} chevron after the label`).toBeGreaterThanOrEqual(h.label.right - 1);
+          expect.soft(h.chevron.right, `${tag} chevron inside .lore`).toBeLessThanOrEqual(g.lore.right + 1);
+        }
+        if (g.lore) expect.soft(h.heading.right, `${tag} heading inside .lore`).toBeLessThanOrEqual(g.lore.right + 1);
+      }
+    });
+  }
 
   test(`every section page keeps each card's badges, actions and meta line inside it @${width}px`, async ({ mount, page }) => {
     const cmp = await mountAt(mount, page, width, false, "");

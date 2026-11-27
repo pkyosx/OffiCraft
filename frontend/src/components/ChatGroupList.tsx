@@ -33,7 +33,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { useI18n } from "../i18n";
 import { layoutTab, moveMember, tabGroups } from "../lib/chatGroups";
 import type { ChatGroup, ChatTab } from "../lib/chatGroups";
-import { ChevronDownIcon, MoreIcon } from "./icons";
+import { HeadingBody } from "./ChatGroupHeading";
+import { MoreIcon } from "./icons";
 import "./chat-groups.css";
 
 // A mouse drag starts once the pressed pointer moves, so a still click still
@@ -123,20 +124,6 @@ function SortableRow({
           return true;
         },
       })}
-    </>
-  );
-}
-
-function HeadingBody({ label, collapsed, unread }: { label: string; collapsed: boolean; unread: number }) {
-  return (
-    <>
-      <span className="chat-groups__heading-label">{label}</span>
-      <ChevronDownIcon size={14} className="chat-groups__chevron" />
-      <span className="member-card__unread-slot chat-groups__pill-slot">
-        {collapsed && unread > 0 && (
-          <span className="member-card__unread chat-groups__heading-unread">{unread > 99 ? "99+" : unread}</span>
-        )}
-      </span>
     </>
   );
 }
