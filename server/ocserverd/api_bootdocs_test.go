@@ -1294,7 +1294,7 @@ func TestResetBootDoc(t *testing.T) {
 	})
 
 	t.Run("a read-only document is refused rather than answered with a no-op success", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/boot-docs/task_reassign_predecessor/global", owner, `{"body":"F1"}`)
 		var req *http.Request
 		taskTestUnderCaller(t, api, d, owner, func(r *http.Request) { req = r })
