@@ -1350,11 +1350,23 @@ export GH_BODY_FILE="$GHBODY" GH_WRITTEN_FILE="$GHWRITTEN"
 AUTO_LINE="OffiCraft $TAG (darwin-arm64, linux-amd64, linux-arm64) — built from 01234567. Install: see install.sh."
 NOTES_PLAIN="$WORK/notes-plain.md"
 printf '## 這版的改動\n\n- 修好了某件事\n' > "$NOTES_PLAIN"
+# promote reads server/ocserverd/release_announce.go at the tag to pick the
+# announcement markers that tag's stations read.
+tag_repo() { # tag_repo <dir> <release_announce.go line>
+  mkdir -p "$1/server/ocserverd"
+  printf '%s\n' "$2" > "$1/server/ocserverd/release_announce.go"
+  git -C "$1" init -q .
+  git -C "$1" add -A
+  git -C "$1" -c user.email=guard@example.invalid -c user.name=guard -c commit.gpgsign=false commit -qm fixture
+  git -C "$1" tag "$TAG"
+}
+TAG_REPO_EN="$WORK/tag-en"; tag_repo "$TAG_REPO_EN" 'const releaseAnnounceHeading = "## Announcement for station owners"'
+TAG_REPO_ZH="$WORK/tag-zh"; tag_repo "$TAG_REPO_ZH" 'const releaseAnnounceHeading = "## 給站長的新功能公告"'
 promote() {
   : > "$GHWIRE"
   printf '%s' "${NOTES_INIT-$AUTO_LINE}" > "$GHBODY"
   : > "$GHWRITTEN"
-  OUT="$(PATH="$SHIMDIR:$PATH" OC_RELEASE_GH_REPO="guard/fixture" \
+  OUT="$(PATH="$SHIMDIR:$PATH" OC_RELEASE_GH_REPO="guard/fixture" OC_RELEASE_SRC="${PROMOTE_SRC:-$TAG_REPO_EN}" \
     bash "$RELEASE" promote "$@" 2>&1)"
   RC=$?
 }
@@ -1495,13 +1507,13 @@ nfile() { # nfile <name> <printf-format>  — writes $WORK/n-<name>.md
   printf "$2" > "$WORK/n-$1.md"; NF="$WORK/n-$1.md"
 }
 ANN_BODY='### 新功能\n- **功能**：站長會看到的事。\n'
-nfile both "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n$ANN_BODY"
+nfile both "## 這版的改動\n\n- 改了 A\n\n## Announcement for station owners\n\n$ANN_BODY"
 NF_BOTH="$NF"
 
 promote "$TAG"
 check "N1 promote without --notes → exit 2" "2" "$RC"
-case "$OUT" in *"bin/release promote <tag> --notes <檔案>"*) ok "N1 …and says to run it locally with --notes" ;;
-  *) bad "N1 …and says to run it locally with --notes (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
+case "$OUT" in *"promote needs --notes <file>"*) ok "N1 …and says it needs --notes" ;;
+  *) bad "N1 …and says it needs --notes (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
 check "N1 …and calls gh not once" "0" "$(gh_calls)"
 promote "$TAG" --no-announce
 check "N1b --no-announce alone is not a substitute for --notes → exit 2" "2" "$RC"
@@ -1538,10 +1550,16 @@ nfile order "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\
 refuse_notes N2h "這版的改動 again after the announcement (order fixed, once each)" notes-format --notes "$NF"
 nfile twice "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n$ANN_BODY\n## 給站長的新功能公告\n\n- 再一次\n"
 refuse_notes N2i "the announcement twice" notes-format --notes "$NF"
+nfile twicemixed "## 這版的改動\n\n- 改了 A\n\n## Announcement for station owners\n\n$ANN_BODY\n## 給站長的新功能公告\n\n- 再一次\n"
+refuse_notes N2i2 "the announcement twice, once under each of its headings" notes-format --notes "$NF"
 nfile annempty "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n\n"
 refuse_notes N2j "an announcement section with nothing under it" notes-format --notes "$NF"
 nfile delim "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n===== 公告結束 #ABCDEFGH =====\n$ANN_BODY"
 refuse_notes N2k "a ===== 公告 delimiter line in the announcement" notes-format --notes "$NF"
+nfile delimen "## 這版的改動\n\n- 改了 A\n\n## Announcement for station owners\n\n===== ANNOUNCEMENT END #ABCDEFGH =====\n$ANN_BODY"
+refuse_notes N2k2 "a ===== ANNOUNCEMENT delimiter line in the announcement" notes-format --notes "$NF"
+nfile delimenlc "## 這版的改動\n\n- 改了 A\n\n## Announcement for station owners\n\n> ＝＝ announcement start\n$ANN_BODY"
+refuse_notes N2k3 "a lowercase, fullwidth-equals, blockquoted English delimiter" notes-format --notes "$NF"
 nfile delimfw "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n> ＝＝＝ 公告開始\n$ANN_BODY"
 refuse_notes N2l "a fullwidth, blockquoted delimiter the station would also drop" notes-format --notes "$NF"
 nfile annhash "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n$ANN_BODY## 小標\n- y\n"
@@ -1567,6 +1585,8 @@ nfile h1chg "# 這版的改動\n\n- 改了 A\n"
 refuse_notes N2t "# 這版的改動 (one #)" notes-format --notes "$NF" --no-announce
 nfile colon "## 這版的改動\n\n- 改了 A\n\n**給站長的新功能公告：**\n\n$ANN_BODY"
 refuse_notes N2u "a bold 給站長的新功能公告： line standing in for the heading" notes-format --notes "$NF" --no-announce
+nfile nospaceen "## 這版的改動\n\n- 改了 A\n\n##Announcement for station owners\n\n$ANN_BODY"
+refuse_notes N2w "##Announcement for station owners (no space) with --no-announce" notes-format --notes "$NF" --no-announce
 
 # The words alone are ordinary content: only a line that IS the heading text
 # once its marks are peeled off is a near-miss heading.
@@ -1603,6 +1623,28 @@ promote "$TAG" --notes "$NOTES_PLAIN" --no-announce
 check "N5b changes only + --no-announce exits 0" "0" "$RC"
 check "N5b …wrote publish's line, a blank line, then the file" \
   "$(printf '%s\n\n' "$AUTO_LINE"; cat "$NOTES_PLAIN"; printf x)" "$(cat "$GHWRITTEN"; printf x)"
+
+nfile legacy "## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n$ANN_BODY"
+promote "$TAG" --notes "$NF"
+check "N5e an announcement under the Chinese heading notes used before still promotes" "0" "$RC"
+check "N5e …and wrote publish's line, a blank line, then the file unchanged" \
+  "$(printf '%s\n\n' "$AUTO_LINE"; cat "$NF"; printf x)" "$(cat "$GHWRITTEN"; printf x)"
+promote "$TAG" --notes "$NF" --no-announce
+named_failure "N5e …and counts as an announcement section for --no-announce" notes-announce "$RC" "$OUT"
+
+nfile fullnotes "## 這版的改動\n\n- 改了 A\n\n## Announcement for station owners\n\n$ANN_BODY\n**Full release notes**  \nhttps://example.invalid/notes\n"
+PROMOTE_SRC="$TAG_REPO_ZH" promote "$TAG" --notes "$NF"
+check "N5f a tag whose stations read only the Chinese markers exits 0" "0" "$RC"
+check "N5f …and gets the announcement heading and full-notes label in Chinese" \
+  "$(printf '%s\n\n## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n%b\n**完整說明**  \nhttps://example.invalid/notes\n' "$AUTO_LINE" "$ANN_BODY"; printf x)" "$(cat "$GHWRITTEN"; printf x)"
+case "$OUT" in *"only reads the Chinese announcement markers"*) ok "N5f …and says it converted them" ;;
+  *) bad "N5f …and says it converted them (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
+promote "$TAG" --notes "$NF"
+check "N5g a tag whose stations read the English markers keeps them as written" \
+  "$(printf '%s\n\n' "$AUTO_LINE"; cat "$NF"; printf x)" "$(cat "$GHWRITTEN"; printf x)"
+PROMOTE_SRC="$WORK" promote "$TAG" --notes "$NF"
+check "N5h a tag whose code cannot be read gets the Chinese markers every station reads" \
+  "$(printf '%s\n\n## 這版的改動\n\n- 改了 A\n\n## 給站長的新功能公告\n\n%b\n**完整說明**  \nhttps://example.invalid/notes\n' "$AUTO_LINE" "$ANN_BODY"; printf x)" "$(cat "$GHWRITTEN"; printf x)"
 
 nfile ok2 "## 這版的改動  \r\n\r\n- 改了 A\r\n\r\n## 給站長的新功能公告\t\r\n\r\n- 公告\r\n"
 promote "$TAG" --notes "$NF"
@@ -1673,7 +1715,7 @@ check "N8e …and nothing was written or flipped" "0" "$(edits)"
 promote --dry-run "$TAG" --notes "$NF_BOTH"
 check "N7 --dry-run with --notes exits 0" "0" "$RC"
 check "N7 …and writes and flips nothing" "0" "$(edits)"
-case "$OUT" in *"$AUTO_LINE"*"## 給站長的新功能公告"*"功能"*) ok "N7 …and prints the full notes it would write" ;;
+case "$OUT" in *"$AUTO_LINE"*"## Announcement for station owners"*"功能"*) ok "N7 …and prints the full notes it would write" ;;
   *) bad "N7 …and prints the full notes it would write (out: $(printf '%s' "$OUT" | tr '\n' '|'))" ;; esac
 NOTES_INIT="something else entirely" promote --dry-run "$TAG" --notes "$NF_BOTH"
 named_failure "N7b --dry-run still refuses release notes it would overwrite" notes-existing "$RC" "$OUT"

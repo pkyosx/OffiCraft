@@ -128,7 +128,6 @@ for (const width of [320, 375, 390, 1040]) {
       // should be fails too.
       if (expectHead) push("read-only head", ".doc-card__readonly-head");
       push("doc card head", ".doc-card__head");
-      push("doc card note", ".doc-card__note");
       push("doc card body", ".doc-card__body");
       push("doc card", ".doc-card");
       push("settings surface", ".settings");

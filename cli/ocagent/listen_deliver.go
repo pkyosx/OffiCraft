@@ -119,12 +119,12 @@ var chatHeaderMessageID = regexp.MustCompile(`^\[ocagent\] chat from \S+.*? \((#
 func oversizedEventNotice(event string) string {
 	header, _, _ := strings.Cut(event, "\n")
 	preview := previewLine(header, oversizedNoticeHeaderRunes)
-	what := "全文"
+	what := "the full text"
 	if m := chatHeaderMessageID.FindStringSubmatch(header); m != nil && !strings.Contains(preview, m[1]) {
-		what = " " + m[1] + " 的全文"
+		what = "the full text of " + m[1]
 	}
 	return preview + fmt.Sprintf(
-		" [這則通知約 %d 行／%d 字，超過送進畫面的上限 %d KiB，正文沒有送進來 — 請用 %s 讀%s]",
+		" [this notice is about %d lines / %d characters, over the %d KiB limit for delivery to the screen, so its body was not delivered — use %s to read %s]",
 		strings.Count(event, "\n")+1, utf8.RuneCountInString(event), deliveryMaxBytes>>10, fullReadToolFor(header), what)
 }
 

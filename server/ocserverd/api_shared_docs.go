@@ -27,19 +27,15 @@ func (s *apiServer) publishSharedDoc(id, op, trigger string) {
 
 func sharedDocTextOrError(w http.ResponseWriter, field, value string, max int) bool {
 	if n := utf8.RuneCountInString(value); n > max {
-		writeError(w, http.StatusBadRequest, "shared doc "+field+" is "+
+		writeError(w, http.StatusBadRequest, "file "+field+" is "+
 			strconv.Itoa(n)+" chars, over the "+strconv.Itoa(max)+"-char limit")
 		return false
 	}
 	return true
 }
 
-// sharedDocKindPhrase is "a file", "an image" or "a link".
 func sharedDocKindPhrase(kind string) string {
-	if kind == ArtifactKindImage {
-		return "an " + kind
-	}
-	return "a " + kind
+	return "a file of kind '" + kind + "'"
 }
 
 func sharedDocNothingToReplace(kind string) string {
@@ -48,12 +44,12 @@ func sharedDocNothingToReplace(kind string) string {
 		field = "url"
 	}
 	return "nothing to replace: send " + field + " for " + sharedDocKindPhrase(kind) +
-		" shared doc, a name, or a description"
+		", a name, or a description"
 }
 
 func sharedDocKindRefusal(kind, field string) string {
-	return sharedDocKindPhrase(kind) + " shared doc does not take " + field +
-		": its kind is fixed, so create a new shared doc instead"
+	return sharedDocKindPhrase(kind) + " does not take " + field +
+		": its kind is fixed, so create a new file instead"
 }
 
 // sharedDocContentOrError resolves the content fields of a create or replace for
@@ -69,7 +65,7 @@ func (s *apiServer) sharedDocContentOrError(
 			return "", nil, false
 		}
 		if url == "" {
-			writeError(w, http.StatusBadRequest, "url is required for a link shared doc")
+			writeError(w, http.StatusBadRequest, "url is required for "+sharedDocKindPhrase(kind))
 			return "", nil, false
 		}
 		if refusal := artifactLinkURLRefusal(url); refusal != "" {
@@ -85,7 +81,7 @@ func (s *apiServer) sharedDocContentOrError(
 	}
 	if attID == "" {
 		writeError(w, http.StatusBadRequest,
-			"attachment_id is required for "+sharedDocKindPhrase(kind)+" shared doc")
+			"attachment_id is required for "+sharedDocKindPhrase(kind))
 		return "", nil, false
 	}
 	if isMemberAvatarAttachmentID(attID) {

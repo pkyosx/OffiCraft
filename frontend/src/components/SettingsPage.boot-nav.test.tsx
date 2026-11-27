@@ -23,6 +23,7 @@ import { render, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
+import { api } from "../api";
 import { __resetMock } from "../api/mock";
 
 const s = zh.settings;
@@ -40,8 +41,13 @@ async function openBootIndex() {
   return utils;
 }
 
-beforeEach(() => {
+function entrySub(row: HTMLElement) {
+  return row.querySelector(".set-entry__sub")?.textContent;
+}
+
+beforeEach(async () => {
   __resetMock();
+  await api.patchServerSettings({ developerMode: true });
 });
 
 describe("SettingsPage · 啟動步驟 index", () => {
@@ -57,6 +63,12 @@ describe("SettingsPage · 啟動步驟 index", () => {
     expect(getByText(s.bootCodexName)).toBeTruthy();
     expect(getByTestId("boot-entry-claude")).toBeTruthy();
     expect(getByTestId("boot-entry-codex")).toBeTruthy();
+    expect(entrySub(getByTestId("boot-entry-claude"))).toBe(
+      s.bootClaudeSub + s.bootDocEditableSuffix
+    );
+    expect(entrySub(getByTestId("boot-entry-codex"))).toBe(
+      s.bootCodexSub + s.bootDocEditableSuffix
+    );
 
     // The index holds no document at all — not a collapsed one, none. This is
     // strictly stronger than the collapsed page it replaced: there is no state
@@ -65,6 +77,13 @@ describe("SettingsPage · 啟動步驟 index", () => {
     expect(
       container.querySelectorAll('[data-testid="doc-card-edit"]').length
     ).toBe(0);
+  });
+
+  it("while developer mode is off, neither runtime row says it is editable", async () => {
+    await api.patchServerSettings({ developerMode: false });
+    const { getByTestId } = await openBootIndex();
+    expect(entrySub(getByTestId("boot-entry-claude"))).toBe(s.bootClaudeSub);
+    expect(entrySub(getByTestId("boot-entry-codex"))).toBe(s.bootCodexSub);
   });
 
   it("opens ONE runtime's page, and the other is not on it", async () => {

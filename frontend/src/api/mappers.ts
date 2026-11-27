@@ -1491,6 +1491,7 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     updaterCheckIntervalSecs: w.updater_check_interval_secs ?? 300,
     // ⚠️ `?? true`, unlike the two toggles above: a never-set server reads ON.
     updaterAnnounceFeatures: w.updater_announce_features ?? true,
+    developerMode: w.developer_mode ?? false,
     // Studio name (T-d693; schema-optional for DTO-compat — the Go wire always
     // emits it). "" = never set; the topbar substitutes the localized default.
     orgName: w.org_name ?? "",
@@ -1863,6 +1864,7 @@ export function toBootDoc(w: WireBootDoc): BootDocView {
     isDefault: w.is_default,
     hasSeed: w.has_seed,
     readOnly: w.read_only,
+    developerModeRequired: w.developer_mode_required ?? false,
   };
 }
 

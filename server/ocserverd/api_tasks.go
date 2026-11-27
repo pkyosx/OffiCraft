@@ -383,7 +383,7 @@ func taskCallerOf(member memberLookup, r *http.Request) (taskCaller, error) {
 
 func authorizeTaskCreate(c taskCaller, willOutsource bool, manualAssigneeMemberID, executorID string) (int, string) {
 	if c.isOutsource() {
-		return http.StatusForbidden, "outsource workers may not create tasks"
+		return http.StatusForbidden, "outsource members may not create tasks"
 	}
 	// Before the willOutsource exit on purpose: a typed task whose manual names
 	// member X is X-only even when sent to outsource (no admin exemption).
@@ -400,7 +400,7 @@ func authorizeTaskCreate(c taskCaller, willOutsource bool, manualAssigneeMemberI
 	}
 	if !c.isAdminCapable() && c.actorID != executorID {
 		return http.StatusForbidden,
-			"an ad-hoc task may only name yourself as executor (or be dispatched to an outsource worker)"
+			"an ad-hoc task may only name yourself as executor (or be dispatched to an outsource member)"
 	}
 	return 0, ""
 }
@@ -526,12 +526,12 @@ func labelWithID(label, id string) string {
 	if label == id {
 		return label
 	}
-	return label + "（" + id + "）"
+	return label + " (" + id + ")"
 }
 
 // readyForDoneReceiptNote is wire (ready_for_done_note) and owner-fixed wording;
 // it is deliberately a constant, not text read from a boot doc.
-const readyForDoneReceiptNote = "這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。請依系統的收尾指示完成收尾後再結案。"
+const readyForDoneReceiptNote = "This report completed every step of the task, so the task now stands ready to close (ready_for_done). Finish the close-out by following the system's close-out instructions, then close the task."
 
 func readyForDoneNote(arrived bool) string {
 	if arrived {
@@ -1356,7 +1356,7 @@ func callerMayTerminateTask(member memberLookup, r *http.Request, t Task) (bool,
 		return false, taskActorRefusal
 	}
 	if c.isOutsource() {
-		return false, "an outsource worker may not terminate its own task; ask the owner or an admin agent"
+		return false, "an outsource member may not terminate its own task; ask the owner or an admin"
 	}
 	return true, ""
 }
@@ -1378,7 +1378,7 @@ func (s *apiServer) HandleMarkTaskDoneApiTasksTaskIdMarkDonePost(w http.Response
 				return refuseInTx(http.StatusConflict,
 					"task '"+t.ID+"' is in '"+t.Status+"', not '"+TaskStatusReadyForDone+
 						"' — every step has to be reported done before the task can be "+
-						"closed as done (or ask the owner or an admin agent for "+
+						"closed as done (or ask the owner or an admin for "+
 						"force_task_done)")
 			}
 			return nil
@@ -1483,7 +1483,7 @@ func dueTSFromWire(due *float64) (float64, bool) {
 	return *due, true
 }
 
-var taskDueSoonLeadMinutesRangeMsg = "due_soon_lead_minutes " + dueSoonLeadMinutesRangeMsg + ", or null to follow the workspace setting"
+var taskDueSoonLeadMinutesRangeMsg = "due_soon_lead_minutes " + dueSoonLeadMinutesRangeMsg + ", or null to follow the Due-soon lead time setting (Settings › General)"
 
 const taskDueSoonLeadNeedsDueMsg = "due_soon_lead_minutes needs a due_ts: a task without a due date has no lead"
 
@@ -1688,7 +1688,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		return
 	}
 	if caller.isOutsource() {
-		writeError(w, http.StatusForbidden, "outsource workers may not reassign tasks")
+		writeError(w, http.StatusForbidden, "outsource members may not reassign tasks")
 		return
 	}
 	if TaskIsTerminal(t.Status) {
@@ -1708,7 +1708,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 	case TaskExecutorStaff:
 		if !caller.isAdminCapable() {
 			writeError(w, http.StatusForbidden,
-				"only the owner or an admin agent may reassign a task to another member; 發包 to an outsource worker instead")
+				"only the owner or an admin may reassign a task to another member; hand it to an outsource member instead")
 			return
 		}
 		memberID := trimmedOrEmpty(body.Target.MemberId)
@@ -1792,7 +1792,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		}
 		if gate.Decision == gateDeny {
 			writeError(w, http.StatusForbidden,
-				"not permitted to 發包 to an outsource worker: "+gate.Reason)
+				"not permitted to hand a task to an outsource member: "+gate.Reason)
 			return
 		}
 	}
@@ -2055,7 +2055,7 @@ func (s *apiServer) executorLabel(kind, id string) string {
 		}
 	case TaskExecutorOutsource:
 		if w, err := s.dal.GetOutsourceWorker(id); err == nil && w != nil && w.Codename != "" {
-			return "外包 " + w.Codename
+			return "Outsource " + w.Codename
 		}
 	}
 	return id
@@ -2374,7 +2374,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 	if err != nil {
 		if errors.Is(err, errOutsourceGateDenied) {
 			writeError(w, http.StatusForbidden,
-				"not permitted to 發包 to an outsource worker: "+gateDenied)
+				"not permitted to hand a task to an outsource member: "+gateDenied)
 			return
 		}
 		internalError(w, err)

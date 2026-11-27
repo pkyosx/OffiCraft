@@ -358,8 +358,8 @@ func TestTaskTypeDisplayNames(t *testing.T) {
 	if got["crate"] != "裝箱" {
 		t.Fatalf("display name for crate: want 裝箱, got %q", got["crate"])
 	}
-	if got["builtin-role-design"] != "建立／修改角色" {
-		t.Fatalf("display name for an unedited built-in: want 建立／修改角色, got %q", got["builtin-role-design"])
+	if got["builtin-role-design"] != "Create / edit role" {
+		t.Fatalf("display name for an unedited built-in: want Create / edit role, got %q", got["builtin-role-design"])
 	}
 	if _, ok := got["raw-key"]; ok {
 		t.Fatalf("blank display name should be omitted: %v", got)
@@ -403,6 +403,60 @@ func TestHandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(t *testin
 		}
 		apiWantBody(t, data, map[string]any{"context": apiAnyString})
 		dashboard.wantFrames()
+	})
+
+	t.Run("the User Language block follows display.language, and a change reaches the next preview", func(t *testing.T) {
+		api, h, d, owner := newAPITestServerInDeveloperMode(t)
+		api.noOutsource = true
+		memberPreviewSeed(t, d)
+		if status, data := apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"# SYSTEM INTERACTION"}`); status != 200 {
+			t.Fatalf("replace system interaction: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"OWNER ADDITIONS"}`); status != 200 {
+			t.Fatalf("replace owner additions: %d %v", status, data)
+		}
+		workerID := assignOneWorker(t, api)
+		zhContext := "# SYSTEM INTERACTION\n\n" + apiTestUserLanguageBlockZh + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
+		enContext := "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports.\n\n" + apiTestUserLanguageGlossary + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
+		for _, step := range []struct{ name, settings, want string }{
+			{name: "never set", want: zhContext},
+			{name: "en", settings: `{"display_language":"en"}`, want: enContext},
+			{name: "zh", settings: `{"display_language":"zh"}`, want: zhContext},
+			{name: "en again", settings: `{"display_language":"en"}`, want: enContext},
+			{name: "cleared", settings: `{"display_language":""}`, want: zhContext},
+		} {
+			t.Run(step.name, func(t *testing.T) {
+				if step.settings != "" {
+					if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, step.settings); status != 200 {
+						t.Fatalf("PATCH %s: %d %v", step.settings, status, data)
+					}
+				}
+				status, data := apiJSON(t, h, "GET", "/api/outsource-workers/"+workerID+"/boot-context", owner, "")
+				if status != 200 {
+					t.Fatalf("want 200, got %d (%v)", status, data)
+				}
+				apiWantBody(t, data, map[string]any{"context": step.want})
+			})
+		}
+	})
+
+	t.Run("without owner additions the User Language block sits directly before the lore", func(t *testing.T) {
+		api, h, d, owner := newAPITestServerInDeveloperMode(t)
+		api.noOutsource = true
+		memberPreviewSeed(t, d)
+		if status, data := apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"# SYSTEM INTERACTION"}`); status != 200 {
+			t.Fatalf("replace system interaction: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"en"}`); status != 200 {
+			t.Fatalf("PATCH display_language: %d %v", status, data)
+		}
+		workerID := assignOneWorker(t, api)
+
+		status, data := apiJSON(t, h, "GET", "/api/outsource-workers/"+workerID+"/boot-context", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"context": "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports.\n\n" + apiTestUserLanguageGlossary + "\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"})
 	})
 
 	t.Run("a released worker still previews, because its rows are the audit trail", func(t *testing.T) {
@@ -775,7 +829,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 			"status": "active", "desired_state": "offline", "desired_machine_id": "m-box",
 			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the relocate was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		}))
 
 		status, data = apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, "")
@@ -889,8 +943,8 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus requires the worker to be online; this worker is stopping or "+
-				"stopped — press 喚醒 to bring it back")
+			"refocus requires the outsource member to be online; this outsource member is stopping or "+
+				"stopped — press Wake to bring it back")
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		dashboard.wantFrames()
 		apiTestWantEqual(t, "row after the refused refocus", apiTestWorkerRecord(t, d, "ow-abc123"), before)
@@ -1047,8 +1101,8 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus requires the worker to be online; this worker is stopping or "+
-				"stopped — press 喚醒 to bring it back")
+			"refocus requires the outsource member to be online; this outsource member is stopping or "+
+				"stopped — press Wake to bring it back")
 		dashboard.wantFrames()
 		apiTestWantEqual(t, "row after the refused refocus", apiTestWorkerRecord(t, d, "ow-abc123"), before)
 	})
@@ -1075,8 +1129,8 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus requires the worker to be online; this worker is stopping or "+
-				"stopped — press 喚醒 to bring it back")
+			"refocus requires the outsource member to be online; this outsource member is stopping or "+
+				"stopped — press Wake to bring it back")
 		apiTestWantWorker(t, h, owner, "ow-abc123", held)
 		dashboard.wantFrames()
 	})
@@ -1128,7 +1182,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus requires the worker to be online (no live session to hand over)")
+			"refocus requires the outsource member to be online (no live session to hand over)")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{"desired_state": "online"}))
 		dashboard.wantFrames()
 	})
@@ -1157,8 +1211,8 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus is 停止 and this worker is already further along the wind-down "+
-				"ladder (下線 → 加速 → 強制); a later stage is never replaced by an earlier one")
+			"refocus is a Stop and this outsource member is already further along the wind-down "+
+				"ladder (Stop → Accelerated stop → Force stop); a later stage is never replaced by an earlier one")
 		apiTestWantWorker(t, h, owner, "ow-abc123", accelerated)
 		dashboard.wantFrames()
 	})
@@ -1456,8 +1510,8 @@ func TestHandleAcceleratedStopMember_Worker(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 has nothing to escalate — this member was already force-stopped "+
-				"(強制停止): its session was cut off and no wind-down is open")
+			"Accelerated stop has nothing to escalate — this member was already force-stopped "+
+				"(Force stop): its session was cut off and no wind-down is open")
 		contractor.wantFrames()
 		after := apiTestMemberRow(t, d, "ow-abc123")
 		if after.RefocusOp != "" || after.StoppingSince != forced.StoppingSince || forced.StoppingSince <= 0 {
@@ -1477,8 +1531,8 @@ func TestHandleAcceleratedStopMember_Worker(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 escalates a wind-down that is already open — this member has not "+
-				"been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first")
+			"Accelerated stop escalates a wind-down that is already open — this member has not "+
+				"been asked to stop. Press Stop (deactivate) or Refocus first")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online",
 		}))
@@ -1495,7 +1549,7 @@ func TestHandleAcceleratedStopMember_Worker(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 requires a live session — there is nothing to accelerate on a "+
+			"Accelerated stop requires a live session — there is nothing to accelerate on a "+
 				"member that is not connected")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, nil))
 		dashboard.wantFrames()
@@ -1984,16 +2038,16 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		apiWantBody(t, data, map[string]any{
 			"id": "ow-abc123", "activation_pending": true,
 			"last_op_reason": "no_machine_selected: no machine is selected for this " +
-				"worker — pick one on the worker (改機器) or on the task type's 手冊 " +
-				"assignee; there is no automatic placement",
+				"outsource member — pick one on the outsource member (Change machine) or in the task " +
+				"manual's Assigned executor; there is no automatic placement",
 		})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "desired_state": "online",
 			"forced_stop_at": apiAnyNumber, "forced_stop_live": false,
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "no_machine_selected: no machine is selected for this " +
-				"worker — pick one on the worker (改機器) or on the task type's 手冊 " +
-				"assignee; there is no automatic placement",
+				"outsource member — pick one on the outsource member (Change machine) or in the task " +
+				"manual's Assigned executor; there is no automatic placement",
 		}))
 		dashboard.wantFrames(
 			apiTestWorkerStateDelta(3, "active", "online", "server"),
@@ -2015,18 +2069,18 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		}
 		apiWantBody(t, data, map[string]any{
 			"id": "ow-abc123",
-			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
-				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
-				"重新聚焦 already under way on it, are untouched. To end the current " +
-				"session and start a fresh one, press 強制停止 first, then 喚醒",
+			"last_op_reason": "session_alive: it was already running — Wake left that " +
+				"session alone and dispatched nothing. Its work, and any Accelerated stop or " +
+				"Refocus already under way on it, are untouched. To end the current " +
+				"session and start a fresh one, press Force stop first, then Wake",
 		})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online", "desired_state": "online",
 			"last_op": "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
-			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
-				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
-				"重新聚焦 already under way on it, are untouched. To end the current " +
-				"session and start a fresh one, press 強制停止 first, then 喚醒",
+			"last_op_reason": "session_alive: it was already running — Wake left that " +
+				"session alone and dispatched nothing. Its work, and any Accelerated stop or " +
+				"Refocus already under way on it, are untouched. To end the current " +
+				"session and start a fresh one, press Force stop first, then Wake",
 		}))
 		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "online", "owner"))
 		contractor.wantFrames(apiTestWorkerStateDelta(2, "active", "online", "owner"))
@@ -2049,10 +2103,10 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online", "desired_state": "online",
 			"last_op": "start", "last_op_ok": true, "last_op_at": stamped.LastOpAt,
-			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
-				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
-				"重新聚焦 already under way on it, are untouched. To end the current " +
-				"session and start a fresh one, press 強制停止 first, then 喚醒",
+			"last_op_reason": "session_alive: it was already running — Wake left that " +
+				"session alone and dispatched nothing. Its work, and any Accelerated stop or " +
+				"Refocus already under way on it, are untouched. To end the current " +
+				"session and start a fresh one, press Force stop first, then Wake",
 		}))
 	})
 
@@ -2113,10 +2167,10 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 			"refocus_since": apiAnyNumber, "refocus_op": "accelerated_stop",
 			"refocus_deadline": apiAnyNumber,
 			"last_op":          "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
-			"last_op_reason": "session_alive: it was already running — 喚醒 left that " +
-				"session alone and dispatched nothing. Its work, and any 加速停止 or " +
-				"重新聚焦 already under way on it, are untouched. To end the current " +
-				"session and start a fresh one, press 強制停止 first, then 喚醒",
+			"last_op_reason": "session_alive: it was already running — Wake left that " +
+				"session alone and dispatched nothing. Its work, and any Accelerated stop or " +
+				"Refocus already under way on it, are untouched. To end the current " +
+				"session and start a fresh one, press Force stop first, then Wake",
 		}))
 	})
 
@@ -2238,7 +2292,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 			"model":   "opus",
 			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the runtime/model was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		}))
 
 		status, data = apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, "")
@@ -2577,7 +2631,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 			"model":   "opus",
 			"last_op": "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the runtime/model was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		}))
 	})
 

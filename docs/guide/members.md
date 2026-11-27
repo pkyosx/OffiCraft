@@ -1,107 +1,107 @@
-# 增加成員與發外包
+# Adding members and hiring outsource
 
-這頁說明正職與外包的差別、成員詳情上的設定與動作、成員狀態圖示各代表什麼意思，以及外包是怎麼被找來工作的。
+This page explains the difference between staff members and outsource members, the settings and actions in the member details, what each member status icon means, and how outsource members are brought in to work.
 
-## 正職與外包
+## Staff and Outsource
 
-辦公室分頁左側的「辦公室成員」有兩個頁籤：「正職」和「外包」。出廠時工作室裡只有你和特助 Mira。
+"Office members" on the left side of the Office tab has two tabs: "Staff" and "Outsource". When OffiCraft is first installed, the studio has only you and the Assistant, Mira.
 
-| | 正職 | 外包 |
+| | Staff | Outsource |
 | --- | --- | --- |
-| 身分 | 有名字、有角色，例如出廠就有的特助 Mira | 沒有角色，以代號稱呼，例如「外包 · O-7」 |
-| 存在多久 | 常駐，一直留在工作室 | 只為一張任務存在，任務結案後離開 |
-| 怎麼產生 | 你新增一個角色 | 任務手冊或轉派指定交給外包，或正職成員把工作發包出去時，系統自動找一位外包 |
-| 記得什麼 | 你寫給所有成員的使用者自訂、自己角色的說明，以及自己累積的經驗 | 你寫給所有成員的使用者自訂，以及這類任務的任務手冊與累積的經驗 |
-| 能做什麼 | 可以建立任務，也可以把工作發包給外包 | 只做交付給自己的那張任務，不能建立任務，也不能再發包 |
+| Identity | Has a name and a role, for example the Assistant Mira, who is there from the start | Has no role and is referred to by a code name, for example "Outsource · O-7" |
+| How long it exists | Permanent; stays in the studio | Exists for one task only and leaves after the task is closed |
+| How it is created | You add a role | When a task manual or a reassignment specifies an outsource member, or when a staff member contracts work out to one, the system finds an outsource member automatically |
+| What it remembers | The User additions you wrote for all members, the description of its own role, and the experience it has built up | The User additions you wrote for all members, plus the task manual and the experience built up for this kind of task |
+| What it can do | Can create tasks and can contract work out to outsource members | Only does the one task given to it; cannot create tasks and cannot contract work out further |
 
-正職和外包都在背景工作，你關掉瀏覽器也不會停下來。
+Staff members and outsource members both work in the background. They do not stop when you close the browser.
 
-**該加正職還是交給外包**：正職負責一個長期的職責範圍，例如固定負責客服信件，其他成員遇到這個範圍的事，會找這位正職處理。外包只負責一張任務明確的交付範圍。反覆出現、照固定做法做的工作，通常寫成任務手冊交給外包；外包留下的經驗會寫成任務傳承，下一位做同類任務的成員讀得到。
+**Adding a staff member or using an outsource member**: a staff member is responsible for a long-term area of work, for example handling customer support email. When other members come across something in that area, they go to that staff member. An outsource member is responsible only for what one task clearly defines. Work that comes up again and again and is done the same way each time is usually written as a task manual and given to outsource members. The experience an outsource member leaves behind is written as task lore, which the next member who does the same kind of task can read.
 
-## 角色與正職
+## Roles and staff members
 
-一位正職對應一個角色，新增正職就是在 **設定 › 角色誌** 新增一個角色，並寫好角色定義：這個角色負責什麼、哪些事不能做，見 [讓成員記住你教過的事（傳承）](lore.md)。辦公室分頁「正職」頁籤的「招攬新成員」會帶你到同一個地方。新成員建立時是離線的，要喚醒後才會開始工作。角色名稱和成員的顯示名稱，之後都可以改。
+Each staff member corresponds to one role. To add a staff member, you add a role in **Settings › Roles** and write its Duty: what this role is responsible for and what it must not do. See [Making members remember what you taught them (Lore)](lore.md). "Recruit a member" on the "Staff" tab of the Office tab takes you to the same place. A new member is offline when it is created and starts working only after it is woken. The role name and the member's display name can both be changed later.
 
-**刪除角色**：該角色的正職成員會標記為已離開，聊天紀錄保留為唯讀；**角色定義與判準會永久刪除，無法復原**。有成員在線上時無法刪除，要先停止成員。
+**Deleting a role**: the staff member of that role is marked as having left, and its chat history is kept as read-only. **The role's Duty and Insight are deleted permanently and cannot be recovered.** A role cannot be deleted while its member is online; stop the member first.
 
-新增、改名與刪除角色，你和特助都能做。
+Both you and the Assistant can add, rename, and delete roles.
 
-## 成員詳情
+## Member details
 
-在「辦公室」點成員的頭像，會打開成員詳情。
+In "Office", click a member's avatar to open the member details.
 
-**喚醒時的四項設定**：
+**The four settings used when waking a member**:
 
-- **AI 執行環境**：用 Claude Code 還是 Codex。
-- **模型**：較強的模型做得比較好，也比較花錢。
-- **思考強度**：越高想得越久，也越花錢。
-- **機器**：有好幾台機器時，在哪一台上執行。
+- **AI runtime**: whether to use Claude Code or Codex.
+- **Model**: a stronger model does better work and also costs more.
+- **Effort**: the higher it is, the longer the member thinks, and the more it costs.
+- **Machine**: when you have several machines, which one the member runs on.
 
-**動作**：
+**Actions**:
 
-- **喚醒**：讓離線的成員開始工作。成員正在工作時，這顆按鈕變成「更改」；改了設定之後，成員會先把手上的事情收尾，再用新的設定繼續，不會做到一半被打斷。
-- **停止**：成員先把手上的事收尾，再停下來，正常收尾沒有時限。要快一點停下來，可以改用「加速停止」（給收尾一個期限）或「強制停止」（立刻結束）。**強制停止會跳過收尾，進行中還沒存的工作會遺失**，只在不得已時使用。
-- **重新聚焦**：讓線上的成員把手上的進度寫成交接，結束目前的工作階段，再開一個新的工作階段從交接接著做。AI 在一個工作階段裡能記住的內容有限，記得越多，回應越容易變差；換一個新的工作階段，手上的任務不受影響。成員的記憶快用滿時，系統也會自動這樣做。
-- **頭像**：成員詳情或外包詳情都可以更換頭像，只有你能修改。
+- **Wake**: makes an offline member start working. While the member is working, this button becomes "Change". After you change the settings, the member first wraps up what it is doing and then continues with the new settings. It is not interrupted halfway through.
+- **Stop**: the member first wraps up what it is doing and then stops. A normal wrap-up has no time limit. To stop sooner, use "Accelerated stop" (gives the wrap-up a deadline) or "Force stop" (ends immediately). **Force stop skips the wrap-up, and work in progress that has not been saved is lost.** Use it only when there is no other choice.
+- **Refocus**: makes an online member write its current progress as a handover, end its current session, and start a new session that continues from the handover. An AI can keep only a limited amount in mind within one session, and the more it holds, the more likely its responses are to get worse. Starting a new session does not affect the tasks the member is working on. The system also does this automatically when a member's memory is almost full.
+- **Avatar**: the avatar can be changed in both the member details and the outsource details. Only you can change it.
 
-喚醒或停止沒有成功時，原因寫在成員詳情的「最近操作」，處理方式見 [常見問題與排解](troubleshooting.md)。各項設定的說明見 [介面說明](interface.md) 的「辦公室」。
+When waking or stopping does not succeed, the reason is shown under "Last operation" in the member details. For what to do, see [Troubleshooting and FAQ](troubleshooting.md). For a description of each setting, see "Office" in [Interface reference](interface.md).
 
-## 看懂成員的狀態
+## Reading a member's status
 
-成員頭像右下角的**圓點**表示成員有沒有上線：
+The **dot** at the bottom right of a member's avatar shows whether the member is online:
 
-| 狀態 | 意思 |
+| Status | Meaning |
 | --- | --- |
-| 離線 | 沒有在執行 |
-| 喚醒中 | 正在啟動 |
-| 線上 | 可以對話 |
-| 停止中 | 正在收尾 |
-| 已停止 | 已停下 |
+| Offline | Not running |
+| Waking | Starting up |
+| Online | Ready to chat |
+| Stopping | Wrapping up |
+| Stopped | Has stopped |
 
-成員名字前面的**圖示**表示成員現在在做什麼：
+The **icon** in front of a member's name shows what the member is doing now:
 
-| 圖示 | 狀態 |
+| Icon | Status |
 | --- | --- |
-| 星星 | 工作中 |
-| 沙漏 | 等待中，例如在等背景執行的指令或排程 |
-| 咖啡杯 | 閒置 |
-| 圓圈問號 | 狀態未知：成員在線上，但還沒回報狀態 |
-| 月亮 | 離線或已停止 |
+| Star | Working |
+| Hourglass | Waiting, for example for a command running in the background or for a schedule |
+| Coffee cup | Idle |
+| Question mark in a circle | Status unknown: the member is online but has not reported its status yet |
+| Moon | Offline or stopped |
 
-名字旁出現**驚嘆號**時，表示這位成員現在沒辦法正常使用 AI 模型。點驚嘆號會顯示原因：
+An **exclamation mark** next to the name means this member cannot use the AI model normally right now. Click the exclamation mark to see the reason:
 
-- **未登入 Claude**／**未登入 Codex**、**登入失效**：到「監控」分頁的機器資訊，替那台機器重新登入 Claude 或 Codex。
-- **已達用量上限**：帳號的用量用完了，等重置時間到就會恢復。
-- **伺服器異常**、**模型呼叫失敗**：AI 模型服務那一邊出錯。
+- **signed out of Claude** / **signed out of Codex**, **sign-in expired**: go to the machine information on the "Monitor" tab and sign that machine in to Claude or Codex again.
+- **usage limit reached**: the account's usage has run out. It recovers when the reset time comes.
+- **server error**, **model call failed**: an error on the side of the AI model service.
 
-成員離線時，仍然可以在聊天框留言，成員上線後就會讀到。狀態怎麼判定，見 [架構與運作原理](architecture.md) 的「成員的狀態怎麼判定」。
+While a member is offline, you can still leave a message in the chat box. The member reads it after coming online. For how the status is determined, see "How member status is determined" in [Architecture and how it works](architecture.md).
 
-## 外包
+## Outsource
 
-外包不用你一個一個找。下列三種情況，系統會自動找外包來做：
+You do not need to find outsource members one by one. In the three cases below, the system finds an outsource member automatically:
 
-- 任務手冊的「負責成員」選了外包。手冊上同時設定外包用的 AI 執行環境、模型、機器，以及「雇用數量」：這一類任務同時最多幾位外包在做。手冊的負責成員只有你和特助能設定，見 [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md)。
-- 你在任務卡「負責人」旁選「轉派…」，把一張任務轉給外包，見 [追蹤任務進度](tasks.md)。
-- 正職成員把工作發包給外包，不論這件工作有沒有任務手冊。
+- The "Assigned executor" of a task manual is set to Outsource. The manual also sets the AI runtime, model, and machine the outsource members use, and the "Hire count": the maximum number of outsource members working on this kind of task at the same time. Only you and the Assistant can set a manual's assigned executor. See [Having AI follow an SOP for repeated work (Task manuals)](sop.md).
+- You choose "Reassign…" next to "Assignee" on a task card to hand a task to an outsource member. See [Tracking task progress](tasks.md).
+- A staff member contracts work out to an outsource member, whether or not that work has a task manual.
 
-**「機器」一定要選。** 外包只會在選定的機器上工作。沒選機器，或選的機器離線、沒有裝所選的 AI 執行環境時，外包一律不會開始，也不會改到其他機器，原因會顯示在該外包上。
+**"Machine" must be chosen.** An outsource member works only on the chosen machine. If no machine is chosen, or the chosen machine is offline or does not have the chosen AI runtime installed, the outsource member does not start at all and does not move to another machine. The reason is shown on that outsource member.
 
-**整間工作室的外包上限**在辦公室分頁「外包」頁籤的「招攬新成員」設定，手冊上的雇用數量也受這個上限限制：
+**The outsource cap for the whole studio** is set in "Recruit a member" on the "Outsource" tab of the Office tab. The hire count in a task manual is also limited by this cap:
 
-- **最多雇用 N**：整間工作室同時最多 N 位外包在工作。滿了就排隊，有空位時自動接下一張。
-- **無限**：不設上限。
-- **0**：暫停指派。正在做的外包會繼續做完，但不再找新的外包。
+- **Max hires N**: at most N outsource members work in the whole studio at the same time. When the cap is reached, tasks wait in a queue, and the next one is picked up automatically when a place opens.
+- **Unlimited**: no cap.
+- **0**: pauses assignment. Outsource members already working finish their tasks, but no new outsource members are brought in.
 
-外包用的也是你的 Claude 或 Codex 帳號，用量算在你的帳號上。**外包上限是控制同時用量的主要方式。**
+Outsource members also use your Claude or Codex account, and their usage counts against your account. **The outsource cap is the main way to control how much is used at the same time.**
 
-任務結案後，外包會離開名單。外包的聊天紀錄仍然保留，可以唯讀查看。
+After a task is closed, its outsource member leaves the list. The outsource member's chat history is kept and can be viewed as read-only.
 
-## 相關文件
+## Related pages
 
-- [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md)
-- [讓成員記住你教過的事（傳承）](lore.md)
-- [定時做某件事（定期訊息）](schedule.md)
-- [讓外部事件自動送給成員（回呼端點）](webhook.md)
-- [交代工作與回覆請示卡](daily.md)
-- [介面說明](interface.md)
-- [常見問題與排解](troubleshooting.md)
+- [Having AI follow an SOP for repeated work (Task manuals)](sop.md)
+- [Making members remember what you taught them (Lore)](lore.md)
+- [Doing something on a schedule (Scheduled messages)](schedule.md)
+- [Send outside events to members automatically (webhooks)](webhook.md)
+- [Assigning work and answering reply cards](daily.md)
+- [Interface reference](interface.md)
+- [Troubleshooting and FAQ](troubleshooting.md)

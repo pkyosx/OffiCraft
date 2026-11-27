@@ -168,10 +168,10 @@ describe("MemberDetailPanel 最近操作 failure reason", () => {
     const line = getByTestId("mp-lastop-reason");
     expect(line.className).toBe("mp-lastop__reason mp-lastop__reason--note");
     expect(line.textContent).toBe(
-      "session_alive: it was already running — 喚醒 left that session alone and " +
-        "dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under way on " +
+      "session_alive: it was already running — Wake left that session alone and " +
+        "dispatched nothing. Its work, and any Accelerated stop or Refocus already under way on " +
         "it, are untouched. To end the current session and start a fresh one, press " +
-        "強制停止 first, then 喚醒",
+        "Force stop first, then Wake",
     );
   });
 

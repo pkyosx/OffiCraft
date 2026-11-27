@@ -114,7 +114,10 @@ export function BootDocPage({
   // off, or hiding one from a document the owner is now allowed to fix.
   // `false` until the read lands: DocCard's edit button is disabled while
   // `doc` is null anyway, so nothing editable is ever reachable in that gap.
-  const readOnly = doc?.readOnly ?? false;
+  // Locked by developer mode is a separate fact from `readOnly`, but on this
+  // page it looks the same: no editor, so no reset or history either.
+  const locked = doc?.developerModeRequired ?? false;
+  const readOnly = (doc?.readOnly ?? false) || locked;
 
   return (
     <DocCard
@@ -150,9 +153,8 @@ export function BootDocPage({
       // real budget of zero.
       usage={doc ? { size: doc.sizeChars, cap: doc.capChars } : undefined}
       // 「儲存＝整份取代」 is a fact about SAVING, so a document nobody may save
-      // does not owe it; what it owes instead is why it has no editor.
+      // does not owe it.
       replaceNote={readOnly ? undefined : t.settings.docReplaceNote}
-      note={readOnly ? t.settings.bootDocReadOnlyNote : undefined}
       // A no-op save would flip the document out of 預設 for ever, and these
       // are the documents where "is this still the factory version" is the
       // question people ask about them.

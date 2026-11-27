@@ -23,8 +23,8 @@ func apiDocSizes(t *testing.T, h http.Handler, credential string) map[string]any
 func apiSeededAssistantRow() map[string]any {
 	return map[string]any{
 		"role_key": "assistant",
-		"duty":     map[string]any{"size_chars": 169, "cap_chars": 1000},
-		"insight":  map[string]any{"size_chars": 1152, "cap_chars": 15000},
+		"duty":     map[string]any{"size_chars": 539, "cap_chars": 2500},
+		"insight":  map[string]any{"size_chars": 3959, "cap_chars": 37500},
 	}
 }
 
@@ -33,16 +33,16 @@ func apiSeededAssistantRow() map[string]any {
 func apiBuiltinManualSizeRows(capChars int) []any {
 	return []any{
 		map[string]any{
-			"type_key": "builtin-task-manual-design",
-			"sop":      map[string]any{"size_chars": 3872, "cap_chars": capChars},
+			"type_key": "builtin-remote-access",
+			"sop":      map[string]any{"size_chars": 15049, "cap_chars": capChars},
 		},
 		map[string]any{
 			"type_key": "builtin-role-design",
-			"sop":      map[string]any{"size_chars": 2803, "cap_chars": capChars},
+			"sop":      map[string]any{"size_chars": 9061, "cap_chars": capChars},
 		},
 		map[string]any{
-			"type_key": "builtin-remote-access",
-			"sop":      map[string]any{"size_chars": 5389, "cap_chars": capChars},
+			"type_key": "builtin-task-manual-design",
+			"sop":      map[string]any{"size_chars": 12335, "cap_chars": capChars},
 		},
 	}
 }
@@ -54,7 +54,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 
 		apiWantBody(t, apiDocSizes(t, h, owner), map[string]any{
 			"roles":        []any{apiSeededAssistantRow()},
-			"task_manuals": apiBuiltinManualSizeRows(15000),
+			"task_manuals": apiBuiltinManualSizeRows(37500),
 		})
 		dashboard.wantFrames()
 	})
@@ -77,26 +77,26 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 				apiSeededAssistantRow(),
 				map[string]any{
 					"role_key": roleKey,
-					"duty":     map[string]any{"size_chars": 155, "cap_chars": 1000},
-					"insight":  map[string]any{"size_chars": 0, "cap_chars": 15000},
+					"duty":     map[string]any{"size_chars": 445, "cap_chars": 2500},
+					"insight":  map[string]any{"size_chars": 0, "cap_chars": 37500},
 				},
 			},
 			"task_manuals": []any{
 				map[string]any{
-					"type_key": "builtin-task-manual-design",
-					"sop":      map[string]any{"size_chars": 3872, "cap_chars": 15000},
+					"type_key": "builtin-remote-access",
+					"sop":      map[string]any{"size_chars": 15049, "cap_chars": 37500},
 				},
 				map[string]any{
 					"type_key": "builtin-role-design",
-					"sop":      map[string]any{"size_chars": 2803, "cap_chars": 15000},
+					"sop":      map[string]any{"size_chars": 9061, "cap_chars": 37500},
+				},
+				map[string]any{
+					"type_key": "builtin-task-manual-design",
+					"sop":      map[string]any{"size_chars": 12335, "cap_chars": 37500},
 				},
 				map[string]any{
 					"type_key": "crate",
-					"sop":      map[string]any{"size_chars": 0, "cap_chars": 15000},
-				},
-				map[string]any{
-					"type_key": "builtin-remote-access",
-					"sop":      map[string]any{"size_chars": 5389, "cap_chars": 15000},
+					"sop":      map[string]any{"size_chars": 0, "cap_chars": 37500},
 				},
 			},
 		})
@@ -114,10 +114,10 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 		apiWantBody(t, apiDocSizes(t, h, owner), map[string]any{
 			"roles": []any{map[string]any{
 				"role_key": "assistant",
-				"duty":     map[string]any{"size_chars": 169, "cap_chars": 1000},
-				"insight":  map[string]any{"size_chars": 13, "cap_chars": 15000},
+				"duty":     map[string]any{"size_chars": 539, "cap_chars": 2500},
+				"insight":  map[string]any{"size_chars": 13, "cap_chars": 37500},
 			}},
-			"task_manuals": apiBuiltinManualSizeRows(15000),
+			"task_manuals": apiBuiltinManualSizeRows(37500),
 		})
 		dashboard.wantFrames()
 	})
@@ -136,25 +136,25 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 		apiWantBody(t, apiDocSizes(t, h, owner), map[string]any{
 			"roles": []any{map[string]any{
 				"role_key": "assistant",
-				"duty":     map[string]any{"size_chars": 169, "cap_chars": 1000},
-				"insight":  map[string]any{"size_chars": 1152, "cap_chars": 20000},
+				"duty":     map[string]any{"size_chars": 539, "cap_chars": 2500},
+				"insight":  map[string]any{"size_chars": 3959, "cap_chars": 20000},
 			}},
 			"task_manuals": []any{
 				map[string]any{
-					"type_key": "builtin-task-manual-design",
-					"sop":      map[string]any{"size_chars": 3872, "cap_chars": 30000},
+					"type_key": "builtin-remote-access",
+					"sop":      map[string]any{"size_chars": 15049, "cap_chars": 30000},
 				},
 				map[string]any{
 					"type_key": "builtin-role-design",
-					"sop":      map[string]any{"size_chars": 2803, "cap_chars": 30000},
+					"sop":      map[string]any{"size_chars": 9061, "cap_chars": 30000},
+				},
+				map[string]any{
+					"type_key": "builtin-task-manual-design",
+					"sop":      map[string]any{"size_chars": 12335, "cap_chars": 30000},
 				},
 				map[string]any{
 					"type_key": "crate",
 					"sop":      map[string]any{"size_chars": 0, "cap_chars": 30000},
-				},
-				map[string]any{
-					"type_key": "builtin-remote-access",
-					"sop":      map[string]any{"size_chars": 5389, "cap_chars": 30000},
 				},
 			},
 		})
@@ -166,7 +166,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 
 		apiWantBody(t, apiDocSizes(t, h, housekeeper), map[string]any{
 			"roles":        []any{apiSeededAssistantRow()},
-			"task_manuals": apiBuiltinManualSizeRows(15000),
+			"task_manuals": apiBuiltinManualSizeRows(37500),
 		})
 	})
 
@@ -191,7 +191,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"roles":        []any{apiSeededAssistantRow()},
-			"task_manuals": apiBuiltinManualSizeRows(15000),
+			"task_manuals": apiBuiltinManualSizeRows(37500),
 		})
 	})
 }

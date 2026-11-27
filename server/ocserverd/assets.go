@@ -209,22 +209,22 @@ type builtinTaskManual struct {
 var builtinTaskManuals = []builtinTaskManual{
 	{
 		TypeKey:     "builtin-role-design",
-		DisplayName: "建立／修改角色",
-		Purpose:     "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+		DisplayName: "Create / edit role",
+		Purpose:     "Create a new role, or adjust an existing role's Duty and Insight.",
 		Fields:      []ManualField{},
 		Assignee:    map[string]any{"kind": TaskExecutorStaff, "member_id": seedMiraID},
 	},
 	{
 		TypeKey:     "builtin-task-manual-design",
-		DisplayName: "建立／修改任務手冊",
-		Purpose:     "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
+		DisplayName: "Create / edit task manual",
+		Purpose:     "Create a new task manual, or adjust an existing task manual's content and assigned member.",
 		Fields:      []ManualField{{Name: "manual_name", Required: true, IsKey: true}},
 		Assignee:    map[string]any{},
 	},
 	{
 		TypeKey:     "builtin-remote-access",
-		DisplayName: "開放遠端連線",
-		Purpose:     "幫 Owner 開啟或調整遠端連線，讓手機或其他電腦能用 HTTPS 網址連到控制台，包括第一次開啟，以及之後更換轉發方式或網址。",
+		DisplayName: "Allow remote connections",
+		Purpose:     "Help the Owner turn on or adjust remote connections so a phone or another computer can reach the console at an HTTPS URL — including turning it on for the first time, and later changing the forwarding method or the URL.",
 		Fields:      []ManualField{},
 		Assignee:    map[string]any{"kind": TaskExecutorStaff, "member_id": seedMiraID},
 	},
@@ -413,9 +413,16 @@ func (s *apiServer) buildBootContext(role string, member *Member) (*bootContext,
 		roleTitle = roleDTO.Key
 	}
 	// Staff and outsource boot contexts are the SAME slots in the same order:
-	// 系統互動, 使用者自訂 (skipped when blank), persona (staff only), 啟動步驟
-	// (recency-authoritative tail). Only the persona slot differs.
+	// 系統互動, 使用者語言, 使用者自訂 (skipped when blank), persona (staff only),
+	// 啟動步驟 (recency-authoritative tail). Only the persona slot differs.
+	userLanguage, err := s.userLanguageBlock()
+	if err != nil {
+		return nil, err
+	}
 	parts := []string{strings.TrimSpace(sysSeed)}
+	if userLanguage != "" {
+		parts = append(parts, userLanguage)
+	}
 	if strings.TrimSpace(userCtx.Text) != "" {
 		parts = append(parts,
 			userAdditionsTitle+"\n\n"+strings.TrimSpace(userCtx.Text))
@@ -560,7 +567,38 @@ func materializeBinary(dir, name string, data []byte) (string, error) {
 
 // 🔴 The ONE title the 使用者自訂 block is served under; workerSharedHead
 // (outsource) uses it too, so staff and contractors boot under one heading.
-const userAdditionsTitle = "# 使用者自訂（Owner Additions）"
+const userAdditionsTitle = "# User additions"
+
+const (
+	docKindUserLanguage    = "user_language"
+	userLanguageSeedZh     = "user_language_zh.md"
+	userLanguageSeedEn     = "user_language_en.md"
+	docKindTermGlossary    = "term_glossary"
+	termGlossarySeedMD     = "term_glossary.md"
+	userLanguageBlockTitle = "# User Language"
+)
+
+// userLanguageBlock is the 使用者語言 block both boot folds staple between
+// 系統互動 and 使用者自訂: the user_language document followed by the glossary.
+// Read at assembly time, so a language change or an edit reaches each member at
+// its next boot and never a running session. "" when both are blank.
+func (s *apiServer) userLanguageBlock() (string, error) {
+	parts := []string{}
+	for _, kind := range []string{docKindUserLanguage, docKindTermGlossary} {
+		spec := s.mustBootDocSpec(kind, bootDocSingletonKey)
+		dto, err := s.foldBootDocDTO(spec)
+		if err != nil {
+			return "", err
+		}
+		if text := strings.TrimSpace(DocRendered(dto.Text, spec.Join)); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return userLanguageBlockTitle + "\n\n" + strings.Join(parts, "\n\n"), nil
+}
 
 // Named so "the one document of this kind" is not a magic "global" that reads
 // like the 全域脈絡 document it is not.

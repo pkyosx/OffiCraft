@@ -406,10 +406,10 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
     const line = await findByTestId("worker-detail-lastop-reason");
     expect(line.className).toBe("mp-lastop__reason mp-lastop__reason--note");
     expect(line.textContent).toBe(
-      "session_alive: it was already running — 喚醒 left that session alone and " +
-        "dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under way on " +
+      "session_alive: it was already running — Wake left that session alone and " +
+        "dispatched nothing. Its work, and any Accelerated stop or Refocus already under way on " +
         "it, are untouched. To end the current session and start a fresh one, press " +
-        "強制停止 first, then 喚醒",
+        "Force stop first, then Wake",
     );
     expect(container.querySelector(".mp-lastop__head--ok")).not.toBeNull();
     expect(container.querySelector(".mp-lastop__head--fail")).toBeNull();
@@ -458,11 +458,11 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
     ],
     [
       "codex_not_logged_in: machine 'm-server-self' is not logged in to codex",
-      "伺服器這一台 未登入 Codex",
+      "This server 未登入 Codex",
     ],
     [
       "claude_not_logged_in: machine 'm-server-self' is not logged in to claude",
-      "伺服器這一台 未登入 Claude",
+      "This server 未登入 Claude",
     ],
   ])("離線 on a Codex model family, old-warden or not-logged-in refusal: the reason is worded in the viewer's language (%s)", async (reason, shown) => {
     __injectMockTask(mkTask({ id: "t-1" }));
@@ -498,7 +498,7 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
     );
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     const line = await findByTestId("worker-detail-lastop-reason");
-    await waitFor(() => expect(line.textContent).toBe("伺服器這一台 未登入 Codex"));
+    await waitFor(() => expect(line.textContent).toBe("This server 未登入 Codex"));
   });
 
   it("運行中: presence online reads the online label", async () => {
@@ -1918,9 +1918,7 @@ describe("WorkerDetailPanel — initial-prompt preview (T-ba6b)", () => {
     );
     // seeds.ts 直接 import 真正的 seeds/boot_sequence.md（?raw），沒有第二份
     // 拷貝可以走鐘，所以這一行釘的是那份 seed 的 H1 逐字位元組。
-    // rc-e12733548e4b 之後是新名（啟動程序 → 啟動步驟），與 seed 同一顆
-    // commit 換掉。
-    expect(body.textContent ?? "").toContain("啟動步驟");
+    expect(body.textContent ?? "").toContain("Boot Steps");
     // T-4595: a worker's boot context is the staff fold minus the persona slot,
     // with no identity block, no task and no manual — so the codename and the
     // bound task title must not appear in the preview.
@@ -2311,7 +2309,7 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
   it.each([
     ["online", "warden-mbp5", "warden-mbp5", "Warden · mbp5", null],
     ["waking", "warden-mbp5", "m-server-self", "Warden · mbp5", null],
-    ["online", "m-server-self", "m-server-self", "伺服器這一台", "→ 要換到 Warden · mbp5"],
+    ["online", "m-server-self", "m-server-self", "This server", "→ 要換到 Warden · mbp5"],
   ] as const)(
     "a %s worker pinned to warden-mbp5 (no alias), dispatched to %s, last landed on %s: 機器 reads %s, moving-to hint %s",
     async (presence, runningOn, landedOn, cell, movingTo) => {

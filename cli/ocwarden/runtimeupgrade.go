@@ -116,14 +116,14 @@ func (r *upgradeRelay) fail(rep upgradeReport, reason string) {
 // command reader's.
 func (r *upgradeRelay) Start(upgradeID, runtime string) {
 	if runtime != "claude" {
-		r.fail(upgradeReport{UpgradeID: upgradeID}, fmt.Sprintf("這個 warden 只能升級 Claude Code，不能升級 %q", runtime))
+		r.fail(upgradeReport{UpgradeID: upgradeID}, fmt.Sprintf("this warden can upgrade only Claude Code, not %q", runtime))
 		return
 	}
 	r.mu.Lock()
 	if cur := r.current; cur != nil {
 		r.mu.Unlock()
 		if cur.id != upgradeID {
-			r.fail(upgradeReport{UpgradeID: upgradeID}, "這台機器已經有另一個 Claude Code 升級在進行，請等它結束再試")
+			r.fail(upgradeReport{UpgradeID: upgradeID}, "another Claude Code upgrade is already in progress on this machine; wait for it to finish and try again")
 		}
 		return
 	}
@@ -143,13 +143,13 @@ func (r *upgradeRelay) run(run *upgradeRun) {
 	rep := upgradeReport{UpgradeID: run.id}
 	bin := r.resolveBin()
 	if bin == "" {
-		r.fail(rep, "這台機器沒有安裝 Claude Code")
+		r.fail(rep, "Claude Code is not installed on this machine")
 		return
 	}
 	r.prober.prepareLaunchEnv()
 	from, err := r.claudeVersion(bin, run.id)
 	if err != nil {
-		r.fail(rep, "讀不到升級前的 Claude Code 版本（claude --version："+err.Error()+"），沒有執行升級")
+		r.fail(rep, "could not read the Claude Code version before the upgrade (claude --version: "+err.Error()+"); the upgrade was not run")
 		return
 	}
 	if r.wasAbandoned(run) {
@@ -179,7 +179,7 @@ func (r *upgradeRelay) run(run *upgradeRun) {
 	case procReason != "":
 		r.fail(rep, procReason)
 	case verr != nil:
-		r.fail(rep, "claude update 結束了，但讀不到升級後的 Claude Code 版本（claude --version："+verr.Error()+"）")
+		r.fail(rep, "claude update finished, but the Claude Code version after the upgrade could not be read (claude --version: "+verr.Error()+")")
 	default:
 		r.conclude(rep, output)
 	}
@@ -190,7 +190,7 @@ func (r *upgradeRelay) conclude(rep upgradeReport, output []string) {
 	had, okFrom := parseDottedVersion(rep.FromVersion)
 	switch {
 	case !okTo || !okFrom:
-		r.fail(rep, fmt.Sprintf("看不懂 Claude Code 回報的版本（升級前 %s、升級後 %s），無法判斷有沒有升級", rep.FromVersion, rep.ToVersion))
+		r.fail(rep, fmt.Sprintf("could not parse the version Claude Code reported (before the upgrade %s, after %s), so whether it upgraded cannot be told", rep.FromVersion, rep.ToVersion))
 	case compareCodexModelVersions(have, had) > 0:
 		rep.State = "succeeded"
 		r.log("%s: succeeded %s -> %s", rep.UpgradeID, rep.FromVersion, rep.ToVersion)
@@ -200,10 +200,10 @@ func (r *upgradeRelay) conclude(rep upgradeReport, output []string) {
 			r.fail(rep, reason)
 			return
 		}
-		r.fail(rep, "版本沒有變（仍是 "+rep.ToVersion+"）：可能已經是最新版，"+
-			"或 claude update 升級的不是成員使用的那一份 Claude Code")
+		r.fail(rep, "the version did not change (still "+rep.ToVersion+"): it may already be the latest, "+
+			"or claude update upgraded a different copy of Claude Code than the one members use")
 	default:
-		r.fail(rep, "升級後的版本 "+rep.ToVersion+" 比升級前的 "+rep.FromVersion+" 舊")
+		r.fail(rep, "the version after the upgrade, "+rep.ToVersion+", is older than the one before it, "+rep.FromVersion)
 	}
 }
 
@@ -217,7 +217,7 @@ func (r *upgradeRelay) runUpdate(run *upgradeRun, bin string) (string, []string)
 		if rendered != "" {
 			_ = r.remove(rendered)
 		}
-		return "claude update 無法啟動：" + err.Error(), nil
+		return "claude update could not start: " + err.Error(), nil
 	}
 	// Nobody can answer a prompt; a closed stdin makes one end instead of wait.
 	_ = proc.stdin.Close()
@@ -271,12 +271,12 @@ func (r *upgradeRelay) runUpdate(run *upgradeRun, bin string) (string, []string)
 	switch {
 	case timedOut:
 		r.log("%s: claude update killed at its %s cap", run.id, r.cap)
-		return fmt.Sprintf("claude update 超過 %s 沒有結束，已中止", r.cap), output
+		return fmt.Sprintf("claude update did not finish within %s and was aborted", r.cap), output
 	case waitErr != nil:
 		r.log("%s: claude update exited (%v)", run.id, waitErr)
-		reason := "claude update 執行失敗（" + waitErr.Error() + "）"
+		reason := "claude update failed (" + waitErr.Error() + ")"
 		if len(output) > 0 {
-			reason += "：" + clipRunes(output[len(output)-1], upgradeReasonMaxRunes)
+			reason += ": " + clipRunes(output[len(output)-1], upgradeReasonMaxRunes)
 		}
 		return reason, output
 	}
@@ -342,16 +342,16 @@ func homebrewUnchangedReason(output []string, current string) (string, bool) {
 		return "", false
 	}
 	lagging := func(v string) string {
-		return "這台的 Claude Code 由 Homebrew 的一般版管理，目前最新只到 " + v +
-			"，低於收通知需要的 " + notifyModMinClaudeVersion + "；請在這台機器改裝 latest 版：`" + latestCmd + "`"
+		return "this machine's Claude Code is managed by Homebrew's regular cask, whose newest version is only " + v +
+			", below the " + notifyModMinClaudeVersion + " needed to receive notifications; on this machine switch to the latest cask: `" + latestCmd + "`"
 	}
 	if target != "" {
 		if below, known := claudeBelowNotifyMinimum(target); known {
 			if below {
 				return lagging(target), true
 			}
-			return "這台的 Claude Code 由 Homebrew 管理，調度台無法直接升級；請在這台機器執行 `" +
-				upgradeCmd + "`（可升到 " + target + "）", true
+			return "this machine's Claude Code is managed by Homebrew, so the control panel cannot upgrade it directly; on this machine run `" +
+				upgradeCmd + "` (it can upgrade to " + target + ")", true
 		}
 	}
 	if upToDate && target == "" {
@@ -359,10 +359,10 @@ func homebrewUnchangedReason(output []string, current string) (string, bool) {
 			if below {
 				return lagging(current), true
 			}
-			return "這台的 Claude Code 由 Homebrew 管理，已是 Homebrew 上的最新版（" + current + "）", true
+			return "this machine's Claude Code is managed by Homebrew and is already the newest version on Homebrew (" + current + ")", true
 		}
 	}
-	return "這台的 Claude Code 由 Homebrew 管理，調度台無法直接升級；請在這台機器用 Homebrew 升級", true
+	return "this machine's Claude Code is managed by Homebrew, so the control panel cannot upgrade it directly; upgrade it with Homebrew on this machine", true
 }
 
 func (r *upgradeRelay) wasAbandoned(run *upgradeRun) bool {
@@ -375,7 +375,7 @@ func (r *upgradeRelay) wasAbandoned(run *upgradeRun) bool {
 // member's claude runs under.
 func (r *upgradeRelay) claudeVersion(bin, upgradeID string) (string, error) {
 	if r.prober.keep == nil {
-		return "", errors.New("這個 warden 沒有可以執行版本查詢的執行器")
+		return "", errors.New("this warden has no runner that can run the version query")
 	}
 	script, rendered := r.prober.claudeCommand(bin, loginRenderPrefix+upgradeID, "--version", claudeCommandOpts{})
 	out, err := r.prober.keep.RunKeepStdout(r.prober.shell(), "-c", script)
@@ -387,7 +387,7 @@ func (r *upgradeRelay) claudeVersion(bin, upgradeID string) (string, error) {
 	}
 	fields := strings.Fields(out)
 	if len(fields) == 0 {
-		return "", errors.New("沒有輸出")
+		return "", errors.New("no output")
 	}
 	return fields[0], nil
 }
@@ -417,7 +417,7 @@ func (r *upgradeRelay) Abandon() {
 		proc.kill()
 	}
 	r.progress(upgradeReport{UpgradeID: run.id, State: "failed",
-		Reason: "warden 為了更新自己而重新啟動，升級被中止；請重新開始升級"})
+		Reason: "the warden restarted to update itself, so the upgrade was aborted; start the upgrade again"})
 	select {
 	case <-run.done:
 	case <-time.After(5 * time.Second):

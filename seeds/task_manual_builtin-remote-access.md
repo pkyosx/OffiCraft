@@ -1,235 +1,235 @@
-# 背景
+# Background
 
-控制台僅接受來自執行控制台之電腦本機（`127.0.0.1`）的連線。若需從手機或其他裝置存取控制台，須在該電腦上設定轉發，將外部 HTTPS 連線轉送至控制台使用的本機埠號。
+The console only accepts local connections (`127.0.0.1`) on the computer it runs on. To reach it from a phone or another device, forwarding must be set up on that computer to relay external HTTPS connections to the console's local port.
 
-本任務範圍僅包含：
+The scope of this task is limited to:
 
-- 安裝與設定轉發工具。
-- 設定轉發服務於開機後自動執行。
-- 驗證轉發後的網址可正常開啟控制台。
-- 必要時將既有工作室機器切換至新的控制台網址。
+- Installing and configuring the forwarding tool.
+- Setting the forwarding service to run automatically after boot.
+- Verifying that the forwarded URL opens the console.
+- When necessary, moving existing studio machines to the new console URL.
 
-本任務不包含：
+This task does not include:
 
-- 修改控制台設定。
-- 修改路由器或防火牆設定。
-- 代替使用者登入任何帳號。
+- Changing console settings.
+- Changing router or firewall settings.
+- Logging in to any account for the user.
 
-凡需要管理員權限（例如 `sudo`、輸入電腦密碼），或需要由使用者本人登入帳號的操作，一律開啟 action Reply Card。卡片須說明需要執行的操作及預期結果，由使用者自行完成。收到回覆後，讀回執行結果並繼續後續步驟。
+Any operation that needs administrator privileges (for example `sudo` or the computer's password), or that requires the user to log in to an account personally, always goes through an action reply card. The card must explain the operation and the expected result; the user completes it themselves. After the reply, read back the result and continue.
 
-不得要求使用者提供密碼或其他帳號憑證。
+You must not ask the user for passwords or other account credentials.
 
-可使用以下三種轉發方式：
+The following three forwarding methods are available:
 
-- **cloudflared**：於執行控制台的電腦上建立固定的公開 HTTPS 網址。連線裝置不需安裝額外 App。此方式使用使用者自己的網域，因此使用者須具備 Cloudflare 帳號，以及由 Cloudflare 管理的網域。
-- **Tailscale Funnel**：使用 Tailscale 提供的公開 `ts.net` 網址，不需自行準備網域。連線裝置不需安裝 Tailscale；執行控制台的電腦須安裝 Tailscale 並完成帳號登入。
-- **Tailscale（限帳號內裝置）**：僅允許登入同一 Tailscale 帳號的裝置連線。執行控制台的電腦及所有需要連線的裝置皆須安裝 Tailscale，並登入同一帳號。
+- **cloudflared**: creates a fixed public HTTPS URL on the console computer. Connecting devices need no extra app. It uses the user's own domain, so the user must have a Cloudflare account and a domain managed by Cloudflare.
+- **Tailscale Funnel**: uses a public `ts.net` URL from Tailscale; no domain is needed. Connecting devices do not need Tailscale; the console computer must have Tailscale installed and logged in to an account.
+- **Tailscale (devices in the account only)**: only devices logged in to the same Tailscale account can connect. The console computer and every device that needs to connect must have Tailscale installed and logged in to that same account.
 
 # SOP
 
-## 1. 安全檢查
+## 1. Security check
 
-使用 `get_login_protection` 確認兩步驟驗證是否已啟用。
+Use `get_login_protection` to check whether two-factor authentication is enabled.
 
-若尚未啟用，開啟 decision Reply Card。開卡時須說明：
+If it is not enabled, open a decision reply card. When opening the card, you must explain:
 
-- 目前控制台尚未啟用兩步驟驗證。
-- 開啟遠端連線後，控制台登入頁可從其他裝置存取；可登入控制台的人能與 AI 成員互動並透過成員操作電腦，因此建議先啟用兩步驟驗證。
-- 通行密鑰不能取代兩步驟驗證；即使已設定通行密鑰，登入頁仍可使用密碼登入。
+- Two-factor authentication is not currently enabled on the console.
+- Once remote access is open, the console login page is reachable from other devices; anyone who can log in can interact with AI members and operate the computer through them, so enabling two-factor authentication first is recommended.
+- A passkey cannot replace two-factor authentication; even with a passkey set up, the login page still accepts password login.
 
-請使用者決定：
+Ask the user to decide:
 
-- 先啟用兩步驟驗證，再繼續。
-- 維持目前的登入保護，繼續開啟遠端連線。
-- 不開啟遠端連線。
+- Enable two-factor authentication first, then continue.
+- Keep the current login protection and continue opening remote access.
+- Do not open remote access.
 
-若使用者選擇先啟用兩步驟驗證，請使用者至「控制台右上角頭像 › 帳號安全」完成設定。收到回覆後，再次使用 `get_login_protection` 確認兩步驟驗證已啟用，再繼續執行。
+If the user chooses to enable two-factor authentication first, ask them to set it up at "avatar at the top right of the console › Account security". After the reply, use `get_login_protection` again to confirm it is enabled before continuing.
 
-若使用者確認維持目前的登入保護並繼續，依其決定執行，不因兩步驟驗證未啟用而停止任務。
+If the user confirms keeping the current login protection and continuing, act on that decision; do not stop the task because two-factor authentication is off.
 
-若使用者選擇不開啟遠端連線，不設定新的轉發，記錄使用者的決定後結束任務。
+If the user chooses not to open remote access, do not set up new forwarding; record the user's decision and end the task.
 
-若控制台已有對外轉發但兩步驟驗證尚未啟用，開卡時須一併說明控制台目前已可從外部存取，並請使用者決定維持現況、啟用兩步驟驗證或關閉既有轉發。
+If the console already has external forwarding but two-factor authentication is not enabled, the card must also explain that the console is already reachable from outside, and ask the user to decide whether to keep the current state, enable two-factor authentication, or shut down the existing forwarding.
 
-**完成條件**
+**Completion condition**
 
-- 已確認目前的兩步驟驗證狀態。
-- 若兩步驟驗證未啟用，使用者已透過 Reply Card 決定是否繼續開啟或維持遠端連線。
+- The current two-factor authentication status has been confirmed.
+- If two-factor authentication is not enabled, the user has decided through a reply card whether to proceed with opening or keeping remote access.
 
-## 2. 確認轉發方式
+## 2. Confirm the forwarding method
 
-### 2.1 確認執行位置
+### 2.1 Confirm where you are running
 
-確認目前成員執行於控制台所在的電腦。
+Confirm that the current member is running on the console computer.
 
-自身伺服器網址（`OC_BASE`）為 `127.0.0.1` 或 `localhost` 時，視為執行於控制台所在電腦，並從該網址取得控制台埠號。
+When your own server URL (`OC_BASE`) is `127.0.0.1` or `localhost`, treat it as running on the console computer, and take the console port from that URL.
 
-若不符合，停止執行並開啟 Reply Card，請使用者將任務改派給執行於控制台所在電腦的成員。
+If not, stop and open a reply card asking the user to reassign the task to a member running on the console computer.
 
-### 2.2 確認目前的轉發
+### 2.2 Confirm the current forwarding
 
-確認目前是否已有指向控制台的轉發。若有，辨識其轉發方式、網址及啟動方式，並確認：
+Check whether forwarding to the console already exists. If so, identify its method, URL, and how it is started, and confirm:
 
-- 是否指向目前的控制台埠號。
-- 網址是否可持續使用，而非臨時網址。
-- 是否已設定為開機後自動執行。
-- 是否同時供其他服務使用，變更設定是否可能影響既有服務。
+- Whether it points to the current console port.
+- Whether the URL can be used persistently rather than being a temporary URL.
+- Whether it is already set to run automatically after boot.
+- Whether it also serves other services, and whether changing its settings could affect existing services.
 
-此步驟僅確認現況，不自行沿用、修改或關閉既有轉發。是否沿用由使用者於第 2.4 步決定。
+This step only confirms the current state; do not reuse, modify, or shut down existing forwarding on your own. The user decides whether to reuse it in step 2.4.
 
-以下情況須特別確認：
+The following situations need special attention:
 
-- **cloudflared**：`trycloudflare.com` 為臨時網址，不列為可沿用的轉發。判斷 cloudflared 是否供其他網址使用，以及是否已設定為開機自動執行時，須檢查實際啟動設定，不以是否執行過 `cloudflared service install` 作為判斷依據。
-- **Tailscale**：確認目前使用的是 Funnel 或僅限 Tailscale 帳號內裝置的轉發，以及目前的存取範圍。
+- **cloudflared**: `trycloudflare.com` is a temporary URL and is not listed as reusable forwarding. When judging whether cloudflared serves other URLs and whether it runs automatically at boot, you must check the actual startup configuration; do not judge by whether `cloudflared service install` was ever run.
+- **Tailscale**: confirm whether Funnel or forwarding limited to devices in the Tailscale account is in use, and the current access scope.
 
-不得為了重新設定而先關閉或覆蓋既有轉發。既有轉發可能仍供其他機器或服務使用，須待新的連線方式完成驗證及必要的遷移後再停用。
+You must not shut down or overwrite existing forwarding to reconfigure. Existing forwarding may still be used by other machines or services; disable it only after the new connection method is verified and any necessary migration is done.
 
-### 2.3 確認其他機器
+### 2.3 Confirm other machines
 
-使用 `list_machines` 確認工作室中的其他機器。
+Use `list_machines` to check the studio's other machines.
 
-若其他機器透過目前的轉發網址連線，變更或關閉該轉發可能使這些機器及其上的成員中斷連線。記錄受影響的機器，並於下一步讓使用者決定轉發方式時一併說明。
+If other machines connect through the current forwarding URL, changing or shutting it down may disconnect those machines and their members. Record the affected machines, and explain them when the user decides on the forwarding method in the next step.
 
-### 2.4 確認轉發方式
+### 2.4 Confirm the forwarding method
 
-開啟 decision Reply Card，根據前面確認的現況，請使用者決定本次要使用的轉發方式。
+Open a decision reply card and, based on the state confirmed above, ask the user to decide which forwarding method to use this time.
 
-若目前已有符合需求且可持續使用的轉發，提供「沿用目前的轉發」選項，並說明其網址、存取範圍，以及是否有其他機器正在使用。
+If existing forwarding meets the need and can be used persistently, offer a "Keep the current forwarding" option, and explain its URL, access scope, and whether other machines use it.
 
-其餘選項依使用者自身情況描述，不要求使用者事先理解轉發工具：
+Describe the remaining options by the user's own situation, without requiring them to understand forwarding tools in advance:
 
-- **已有 Cloudflare 帳號與自己的網域**：使用 cloudflared。同一張卡請使用者提供要使用的網域。
-- **沒有 Cloudflare 帳號或自己的網域，希望直接從外部連線（建議）**：使用 Tailscale Funnel。網址由 Tailscale 提供，不需自行準備網域，任何知道網址的人皆可存取登入頁。
-- **沒有 Cloudflare 帳號或自己的網域，而且只希望自己的裝置可以連線**：使用 Tailscale 的私人轉發。每台需要連線的裝置都須安裝 Tailscale 並登入同一帳號。
+- **I already have a Cloudflare account and my own domain**: use cloudflared. On the same card, ask the user for the domain to use.
+- **I have no Cloudflare account or own domain, and want to connect directly from outside (recommended)**: use Tailscale Funnel. The URL is provided by Tailscale, no domain needs to be prepared, and anyone who knows the URL can reach the login page.
+- **I have no Cloudflare account or own domain, and only want my own devices to be able to connect**: use Tailscale's private forwarding. Every device that needs to connect must have Tailscale installed and be logged in to the same account.
 
-若某種方式因目前環境不適用，不列為選項，並於 Reply Card 說明原因。
+If a method does not fit the current environment, do not list it; explain why on the reply card.
 
-若 cloudflared 已供其他網址或服務使用，不直接修改其既有設定來加入控制台。若無法確認變更不會影響既有服務，不提供 Cloudflare 選項。
+If cloudflared already serves other URLs or services, do not modify its existing configuration to add the console. If you cannot confirm the change will not affect existing services, do not offer the Cloudflare option.
 
-若變更轉發會影響其他工作室機器，Reply Card 須一併說明受影響的機器。
+If changing the forwarding would affect other studio machines, the reply card must also explain which machines are affected.
 
-**完成條件**
+**Completion condition**
 
-- 已取得控制台埠號。
-- 已確認目前是否存在轉發及其狀態。
-- 已確認其他工作室機器是否受到影響。
-- 使用者已透過 Reply Card 確認本次要使用的轉發方式。
-- 使用 cloudflared 時，已取得要使用的網域。
+- The console port has been obtained.
+- Whether forwarding currently exists, and its state, has been confirmed.
+- Whether other studio machines are affected has been confirmed.
+- The user has confirmed through a reply card the forwarding method to use this time.
+- When using cloudflared, the domain to use has been obtained.
 
-## 3. 設定並驗證轉發
+## 3. Set up and verify the forwarding
 
-依第 2 步確認的轉發方式處理。
+Proceed according to the forwarding method confirmed in step 2.
 
-若使用者選擇沿用目前的轉發，不重新建立或修改轉發；確認其開機自動執行設定後，直接驗證轉發網址。
+If the user chose to keep the current forwarding, do not recreate or modify it; confirm its run-at-boot setting, then verify the forwarding URL directly.
 
-若需要設定新的轉發：
+If new forwarding needs to be set up:
 
-1. 安裝必要的轉發工具。
-2. 完成必要的帳號登入。
-3. 建立指向控制台本機埠號的轉發。
-4. 設定為開機後自動執行。
-5. 從執行控制台的電腦存取轉發網址，確認回應為控制台登入頁，而非錯誤頁或其他服務。
+1. Install the necessary forwarding tool.
+2. Complete the necessary account logins.
+3. Create forwarding that points to the console's local port.
+4. Set it to run automatically after boot.
+5. Open the forwarding URL from the console computer, and confirm the response is the console login page, not an error page or another service.
 
-需要管理員權限或帳號登入的操作，依本手冊前述規則開啟 action Reply Card，由使用者執行後再繼續。
+For operations that need administrator privileges or an account login, open an action reply card per the rules above, and continue after the user performs them.
 
-設定新的轉發時，既有轉發須保持運作。不得為了建立新設定而先停用既有轉發。
+When setting up new forwarding, existing forwarding must stay running. You must not disable existing forwarding to create the new setup.
 
 ### cloudflared
 
-若使用 cloudflared：
+If using cloudflared:
 
-- macOS 安裝開機服務時不得使用 `sudo`，避免服務安裝於錯誤層級而無法讀取使用者的設定檔。
-- Linux 使用 `sudo` 安裝服務時，須以 `--config` 指定設定檔的完整路徑。
-- 不以服務處於執行狀態作為成功依據，必須實際透過轉發網址確認控制台登入頁可正常開啟。
+- On macOS, you must not use `sudo` when installing the boot service; otherwise it is installed at the wrong level and cannot read the user's configuration file.
+- On Linux, when installing the service with `sudo`, you must specify the full path of the configuration file with `--config`.
+- Do not take the service being in a running state as proof of success; you must actually confirm through the forwarding URL that the console login page opens normally.
 
 ### Tailscale
 
-macOS 的 `tailscale` 指令不在 PATH 中；Tailscale App 未開啟時，指令會持續等待，不會結束也不會顯示錯誤。
+On macOS the `tailscale` command is not on PATH; when the Tailscale app is not open, the command keeps waiting — it neither exits nor shows an error.
 
 ### Tailscale Funnel
 
-若使用 Tailscale Funnel，從控制台電腦成功開啟轉發網址，不代表已確認可從公開網路存取。
+If using Tailscale Funnel, opening the forwarding URL from the console computer does not confirm it is reachable from the public internet.
 
-此項目不由 AI 自行驗證，於第 4 步透過 action Reply Card 請使用者使用未連接 Tailscale 的手機，透過行動網路開啟轉發網址並回報結果。
+The AI does not verify this itself; in step 4, use an action reply card to ask the user to open the forwarding URL over a mobile network on a phone not connected to Tailscale, and report the result.
 
-### 驗證失敗
+### Verification failure
 
-若驗證失敗，依實際錯誤排查並修正。
+If verification fails, troubleshoot and fix based on the actual error.
 
-若無法排除，保留既有可用的轉發，不自行停用，並開啟 Reply Card 說明目前狀態與錯誤，由使用者決定後續處理方式。
+If it cannot be resolved, keep the existing working forwarding — do not disable it yourself — and open a reply card explaining the current state and the error for the user to decide how to proceed.
 
-**完成條件**
+**Completion condition**
 
-- 已完成 AI 可執行的轉發設定檢查，並確認轉發網址可讀回控制台登入頁。
-- 轉發已設定為開機後自動執行。
-- 已記錄最終轉發網址。
-- 需要由外部裝置確認的連線結果，留待第 4 步由使用者驗收。
+- The forwarding checks the AI can perform are done, and the forwarding URL is confirmed to return the console login page.
+- The forwarding is set to run automatically after boot.
+- The final forwarding URL has been recorded.
+- Connection results that need confirmation from an external device are left for the user's acceptance in step 4.
 
-## 4. 使用者驗收
+## 4. User acceptance
 
-開啟 action Reply Card，請使用者從實際使用的裝置驗證遠端連線。Reply Card 一次提供完成驗收所需的資訊：
+Open an action reply card asking the user to verify remote access from the device they will actually use. The card provides everything needed for acceptance at once:
 
-- **轉發網址**：提供最終轉發網址，請使用者開啟並完成登入。若已啟用兩步驟驗證，一併確認兩步驟驗證可正常完成。
-- **連線方式**：依本次使用的轉發方式提供操作：
-  - Tailscale（限帳號內裝置）：於手機安裝 Tailscale App，登入與控制台電腦相同的帳號，再開啟轉發網址。
-  - Tailscale Funnel：手機關閉 Tailscale，使用行動網路開啟轉發網址。
-  - cloudflared：直接開啟轉發網址。
-- **選用設定**：告知使用者以下設定不影響本次驗收，可依需要自行設定：
-  - 通行密鑰：之後可使用 Face ID 或指紋登入。通行密鑰僅適用於新增時使用的網址，因此須透過目前的轉發網址新增。
-  - 加入主畫面：可將控制台加入手機主畫面，以類似獨立 App 的方式開啟。
-  - 推播通知：可接收新訊息或 Reply Card 通知。iPhone 須先將控制台加入主畫面才能使用。
-- **使用限制**：提醒使用者，執行控制台的電腦關機或進入睡眠後，其他裝置將無法連線；使用 cloudflared 或 Tailscale Funnel 時，登入頁及回呼端點會公開於網際網路。
+- **Forwarding URL**: provide the final forwarding URL and ask the user to open it and log in. If two-factor authentication is enabled, also confirm that two-factor authentication completes normally.
+- **How to connect**: provide the steps for the forwarding method used this time:
+  - Tailscale (devices in the account only): install the Tailscale app on the phone, log in to the same account as the console computer, then open the forwarding URL.
+  - Tailscale Funnel: turn off Tailscale on the phone and open the forwarding URL over a mobile network.
+  - cloudflared: open the forwarding URL directly.
+- **Optional settings**: tell the user these do not affect this acceptance and can be set up as needed:
+  - Passkey: log in with Face ID or a fingerprint later. A passkey only works for the URL it was added on, so add it through the current forwarding URL.
+  - Add to Home Screen: add the console to the phone's home screen to open it like a standalone app.
+  - Push notifications: receive notifications for new messages or reply cards. On iPhone, the console must first be added to the home screen.
+- **Limitations**: remind the user that once the console computer shuts down or sleeps, other devices cannot connect; with cloudflared or Tailscale Funnel, the login page and callback endpoints are exposed to the internet.
 
-請使用者完成登入後回覆結果。選用設定不要求完成，也不影響本步驟的完成判定。
+Ask the user to reply with the result after logging in. Optional settings are not required and do not affect whether this step is complete.
 
-收到使用者回覆後，確認使用者已透過最終轉發網址完成登入。若使用者回報無法連線或登入，依實際結果排查，不將 Reply Card 回覆本身視為驗收成功。
+After the user replies, confirm they have logged in through the final forwarding URL. If they report being unable to connect or log in, troubleshoot based on the actual result; do not treat the reply card reply itself as successful acceptance.
 
-若有其他工作室機器需要改用此網址，使用者驗收成功後，另開 action Reply Card 處理機器遷移。卡片須：
+If other studio machines need to switch to this URL, after acceptance succeeds, open a separate action reply card for the machine migration. The card must:
 
-- 列出需要改用新網址的機器。
-- 請使用者透過新網址登入控制台，至「監控 › 機器資訊」，對需要更新的機器選擇「重新安裝」。
-- 請使用者將取得的安裝指令於對應機器執行。
-- 明確說明不得使用「新增機器」，避免產生重複的機器紀錄。
+- List the machines that need to switch to the new URL.
+- Ask the user to log in through the new URL, go to "Monitor › Machines", and choose "Reinstall" for each machine that needs updating.
+- Ask the user to run the resulting install command on the corresponding machine.
+- State explicitly that "Add machine / onboard" must not be used, to avoid creating duplicate machine records.
 
-收到使用者完成回覆後，讀回機器狀態，確認需要遷移的機器皆已重新上線，再重新啟動其上的成員。
+After the user replies that it is done, read back the machine status, confirm all machines needing migration are back online, then restart the members on them.
 
-**完成條件**
+**Completion condition**
 
-- 使用者已透過最終轉發網址完成登入。
-- 若有其他需要改用此網址的工作室機器，皆已透過新網址重新上線。
+- The user has logged in through the final forwarding URL.
+- Any other studio machines that needed to switch to this URL are back online through the new URL.
 
-## 5. 完成轉換
+## 5. Complete the switchover
 
-若本次沿用原有轉發，無須執行此步驟。
+If the original forwarding was kept this time, this step is not needed.
 
-若本次改用新的轉發方式或網址，第 4 步完成後，確認所有需要遷移的工作室機器皆已透過新網址重新上線，再處理舊轉發。
+If a new forwarding method or URL was adopted, after step 4, confirm all studio machines needing migration are back online through the new URL, then deal with the old forwarding.
 
-停用舊轉發前，確認：
+Before disabling the old forwarding, confirm:
 
-- 新網址仍可正常開啟控制台。
-- 使用者已可透過新網址登入。
-- 所有受影響的工作室機器皆已透過新網址上線。
+- The new URL still opens the console normally.
+- The user can log in through the new URL.
+- All affected studio machines are online through the new URL.
 
-上述條件未全部成立前，不得停用舊轉發。
+Until all of the above conditions hold, you must not disable the old forwarding.
 
-停用舊轉發時，僅移除本次不再需要的轉發，不得連帶清除仍在使用的其他設定。
+When disabling the old forwarding, remove only the forwarding this change has made unnecessary; you must not also clear other settings still in use.
 
-若使用 Tailscale，須特別注意 Funnel 與私人 `serve` 設定可能共存。`tailscale funnel ... off` 會連同私人轉發一起清除；只需停用 Funnel、保留私人轉發時，改為重新執行 `tailscale serve --bg <控制台埠號>`。
+If using Tailscale, note that Funnel and a private `serve` configuration may coexist. `tailscale funnel ... off` also clears the private forwarding; to disable only Funnel and keep the private forwarding, re-run `tailscale serve --bg <console port>` instead.
 
-完成後確認：
+After finishing, confirm:
 
-- 舊網址已無法再連線。由 Funnel 改為限帳號內裝置時網址不變，改為確認 Funnel 已關閉、私人轉發仍在。
-- 新網址仍可正常登入。
-- 其他工作室機器仍保持上線。
+- The old URL can no longer connect. When switching from Funnel to devices in the account only, the URL stays the same; instead confirm that Funnel is off and the private forwarding is still in place.
+- The new URL can still log in normally.
+- Other studio machines remain online.
 
-若網址已變更，提醒使用者：
+If the URL has changed, remind the user:
 
-- 原網址建立的通行密鑰須於新網址重新新增。
-- Slack、GitHub 等外部服務若使用原網址作為回呼端點，須改為新網址。
-- 原有手機主畫面捷徑及推播通知若綁定舊網址，須以新網址重新設定。
+- Passkeys created on the original URL must be added again on the new URL.
+- If external services such as Slack or GitHub use the original URL as a callback endpoint, they must be changed to the new URL.
+- Home-screen shortcuts and push notifications on the phone that are tied to the old URL must be set up again with the new URL.
 
-**完成條件**
+**Completion condition**
 
-- 新網址仍可正常登入。
-- 所有受影響的工作室機器皆保持上線。
-- 舊轉發已停用，且未影響其他仍在使用的轉發或服務。
+- The new URL can still log in normally.
+- All affected studio machines remain online.
+- The old forwarding has been disabled without affecting other forwarding or services still in use.

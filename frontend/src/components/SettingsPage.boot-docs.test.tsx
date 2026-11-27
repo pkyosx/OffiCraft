@@ -11,10 +11,11 @@
 // half, that no document is missing from the list at all.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
+import { api } from "../api";
 import { __resetMock, __setBootDocReadOnly } from "../api/mock";
 
 const s = zh.settings;
@@ -30,8 +31,9 @@ async function openRolesLog() {
   return utils;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   __resetMock();
+  await api.patchServerSettings({ developerMode: true });
 });
 
 describe("SettingsPage · boot / lifecycle documents", () => {
@@ -99,7 +101,7 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     // The two share a cap and sit in the same group; opening one must not land
     // on the other, and only an EXACT title match can tell them apart:
     // 「加速停止」contains 「停止」 as a substring, and the accelerated seed's own
-    // H1 is literally 「# 加速停止」 — so a substring check on the title AND a
+    // H1 is literally 「# Accelerated Stop」 — so a substring check on the title AND a
     // body-text search both pass on either page. Hence the strict equality
     // against s.acceleratedStopName below.
     // ⚠️ The previous version of this comment justified the same assertion by
@@ -114,11 +116,8 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     ).toBe(s.acceleratedStopName);
   });
 
-  // 🔴 NO SHIPPED DOCUMENT IS READ-ONLY ANY MORE (定稿 決定 2, 2026-08-24), so
-  // this drives the refusal path with a SYNTHETIC one. The alternative was to
-  // delete these assertions, which would have retired a live path into code
-  // nothing exercises — reachable again the day a document ships read-only,
-  // which is exactly the day nobody would notice it had rotted.
+  // A SYNTHETIC read-only document with a read-only head, which the shipped
+  // read-only glossary does not have.
   it("renders a read-only document and offers no way to change it", async () => {
     __setBootDocReadOnly(["task_unblocked/global"]);
     const utils = await openRolesLog();
@@ -126,18 +125,18 @@ describe("SettingsPage · boot / lifecycle documents", () => {
 
     // The BODY is there — the whole reason it is a document rather than a
     // string literal is that the owner can read what an agent is told.
-    await utils.findByTestId("doc-card-note");
     // ⚠️ ONE BODY, and the selector says so: a boot-context document renders a
     // SECOND `.doc-md` for its read-only head (T-3201), so counting every one
     // on the page would count two and the assertion would have to be relaxed
     // to a number that no longer means "one document".
-    expect(
-      utils.container.querySelectorAll(".doc-card__body > .doc-md").length
-    ).toBe(1);
+    await waitFor(() =>
+      expect(
+        utils.container.querySelectorAll(".doc-card__body > .doc-md").length
+      ).toBe(1)
+    );
     expect(
       utils.container.querySelectorAll(".doc-card__readonly-head .doc-md").length
     ).toBe(1);
-    expect(utils.getByText(s.bootDocReadOnlyNote)).toBeTruthy();
 
     // …and nothing that could change it: no editor entry, and therefore no
     // version list and no 還原出廠版 (both live inside edit mode).
@@ -159,13 +158,26 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     expect(await utils.findByTestId("doc-card-edit")).toBeTruthy();
   });
 
+  for (const developerMode of [true, false]) {
+    it(`shows the glossary read-only with developer mode ${developerMode ? "on" : "off"}`, async () => {
+      await api.patchServerSettings({ developerMode });
+      const utils = await openRolesLog();
+      fireEvent.click(utils.getByTestId("boot-doc-entry-term_glossary"));
+      await utils.findByText(
+        "If the user writes one of the Chinese screen names in this table, it means the English term in the same row."
+      );
+      expect(utils.getByRole("cell", { name: "辦公室" })).toBeTruthy();
+      expect(utils.queryByTestId("doc-card-edit")).toBeNull();
+      expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
+    });
+  }
+
   it("keeps the editor for the documents the server does allow", async () => {
     // The paired control: without it, a page that hid the editor from EVERY
     // document would pass the assertion above.
     const utils = await openRolesLog();
     fireEvent.click(utils.getByTestId("boot-doc-entry-task_takeover_with_predecessor"));
     await utils.findByTestId("doc-card-edit");
-    expect(utils.queryByTestId("doc-card-note")).toBeNull();
     expect(utils.getByTestId("doc-card-replace-note")).toBeTruthy();
   });
 });

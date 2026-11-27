@@ -60,18 +60,18 @@ func apiTestShippedSettings() map[string]any {
 		"runtime_login_recheck_interval_secs":  30,
 		"disk_usage_interval_secs":             3600,
 		"warden_credential_lifetime_secs":      2592000,
-		"doc_cap_chars_duty":                   1000,
-		"doc_cap_chars_insight":                15000,
-		"doc_cap_chars_manual_sop":             15000,
-		"doc_cap_chars_system_interaction":     60000,
-		"doc_cap_chars_boot_sequence":          15000,
-		"doc_cap_chars_offboard":               15000,
-		"lore_cap_chars_role":                  10000,
-		"lore_cap_chars_manual":                10000,
-		"lore_cap_chars_title":                 80,
-		"lore_cap_chars_body":                  500,
+		"doc_cap_chars_duty":                   2500,
+		"doc_cap_chars_insight":                37500,
+		"doc_cap_chars_manual_sop":             37500,
+		"doc_cap_chars_system_interaction":     150000,
+		"doc_cap_chars_boot_sequence":          37500,
+		"doc_cap_chars_offboard":               37500,
+		"lore_cap_chars_role":                  25000,
+		"lore_cap_chars_manual":                25000,
+		"lore_cap_chars_title":                 200,
+		"lore_cap_chars_body":                  1250,
 		"chat_budget_chars":                    6000,
-		"step_note_cap_chars":                  10000,
+		"step_note_cap_chars":                  25000,
 		"secret_card_unretrieved_ttl_secs":     86400,
 		"secret_card_retrieved_retention_secs": 600,
 		"backup_retain":                        5,
@@ -79,6 +79,7 @@ func apiTestShippedSettings() map[string]any {
 		"updater_auto_update":                  false,
 		"updater_check_interval_secs":          300,
 		"updater_announce_features":            true,
+		"developer_mode":                       false,
 		"org_name":                             "",
 		"owner_name":                           "",
 		"push_contact_email":                   "",
@@ -801,11 +802,11 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		apiWantBody(t, data, want)
 	})
 
-	t.Run("under a restart on the same database, the patched login, disk-usage and update-check intervals, auto-update turned on, the due-soon lead, the seasonal-theme opt-out and the theme schedule sorted by start are still reported", func(t *testing.T) {
+	t.Run("under a restart on the same database, the patched login, disk-usage and update-check intervals, auto-update and developer mode turned on, the due-soon lead, the seasonal-theme opt-out and the theme schedule sorted by start are still reported", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
-			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60,"updater_auto_update":true,"task_due_soon_lead_minutes":43200,"display_seasonal_theme":false,
+			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60,"updater_auto_update":true,"developer_mode":true,"task_due_soon_lead_minutes":43200,"display_seasonal_theme":false,
 			"display_theme_schedule":[{"start":"18:30","theme":"dusk"},{"start":"00:00","theme":"office"},{"start":"07:05","theme":"office-light"}]}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -816,6 +817,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		patched["disk_usage_interval_secs"] = 600
 		patched["updater_check_interval_secs"] = 60
 		patched["updater_auto_update"] = true
+		patched["developer_mode"] = true
 		patched["task_due_soon_lead_minutes"] = 43200
 		patched["display_seasonal_theme"] = false
 		patched["display_theme_schedule"] = []any{
@@ -836,6 +838,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["disk_usage_interval_secs"] = 600
 		want["updater_check_interval_secs"] = 60
 		want["updater_auto_update"] = true
+		want["developer_mode"] = true
 		want["task_due_soon_lead_minutes"] = 43200
 		want["display_seasonal_theme"] = false
 		want["display_theme_schedule"] = []any{
@@ -882,6 +885,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{
 			"updater_receive_beta":true,
 			"updater_auto_update":true,
+			"developer_mode":true,
 			"org_name":"  Studio Nine  ",
 			"owner_name":"  Eva  ",
 			"push_contact_email":"  eva@example.com  ",
@@ -899,6 +903,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want := apiTestShippedSettings()
 		want["updater_receive_beta"] = true
 		want["updater_auto_update"] = true
+		want["developer_mode"] = true
 		want["org_name"] = "Studio Nine"
 		want["owner_name"] = "Eva"
 		want["push_contact_email"] = "eva@example.com"
@@ -1184,7 +1189,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error", "doc_cap_chars_insight must be between 100 and 100000 characters — "+
+		apiWantError(t, data, "validation_error", "doc_cap_chars_insight must be between 100 and 250000 characters — "+
 			"a lowered cap binds the next write only; stored content over it is never truncated and still reads back")
 	})
 
@@ -1263,7 +1268,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		}
 	})
 
-	t.Run("a display_theme_schedule breaking a rule answers 422 naming it, writes nothing and fans no settings delta", func(t *testing.T) {
+	t.Run("a display_theme_schedule breaking a rule answers 422 naming it, writes nothing, leaves developer mode off and fans no settings delta", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
 		dashboard := apiTestListen(t, api, "")
@@ -1285,15 +1290,18 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
-					`{"org_name":"Harbor Yard","display_theme_schedule":`+tc.schedule+`}`)
+					`{"org_name":"Harbor Yard","developer_mode":true,"display_theme_schedule":`+tc.schedule+`}`)
 				if status != 422 {
 					t.Fatalf("want 422, got %d (%v)", status, data)
 				}
 				apiWantError(t, data, "validation_error", tc.want)
 				windowWantSetting(t, d, "display.theme_schedule", ptrTo(deskDefaultSchedule00120))
 				windowWantSetting(t, d, "org.name", nil)
+				windowWantSetting(t, d, settingDeveloperMode, nil)
 			})
 		}
+		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
+		apiWantBody(t, served, apiTestShippedSettings())
 		dashboard.wantFrames()
 	})
 
@@ -1330,14 +1338,17 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		apiWantError(t, data, "validation_error", "suggested_replies_task_message must be at most 20 entries")
 	})
 
-	t.Run("dismissing an onboarding banner that is not there answers 409", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+	t.Run("dismissing an onboarding banner that is not there answers 409 and rolls back the developer_mode sent with it", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
 
-		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"onboarding_dismissed":true}`)
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"developer_mode":true,"onboarding_dismissed":true}`)
 		if status != 409 {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict", "no onboarding banner is up to dismiss — the first-run report is absent or not in a failed state")
+		windowWantSetting(t, d, settingDeveloperMode, nil)
+		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
+		apiWantBody(t, served, apiTestShippedSettings())
 	})
 
 	t.Run("a body that is not JSON answers 422", func(t *testing.T) {
@@ -1359,6 +1370,21 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+
+	t.Run("an admin_agent patch turning developer mode on answers 200 with it on and fans one owner-only settings delta", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "PATCH", "/api/settings", admin, `{"developer_mode":true}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		want := apiTestShippedSettings()
+		want["developer_mode"] = true
+		apiWantBody(t, data, want)
+		dashboard.wantFrames(apiTestSettingsFrame(1, "mira"))
 	})
 
 	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
@@ -1474,18 +1500,18 @@ func TestSettingsView(t *testing.T) {
 		RuntimeLoginRecheckIntervalSecs:  30,
 		DiskUsageIntervalSecs:            3600,
 		WardenCredentialLifetimeSecs:     2592000,
-		DocCapCharsDuty:                  1000,
-		DocCapCharsInsight:               15000,
-		DocCapCharsManualSop:             15000,
-		DocCapCharsSystemInteraction:     60000,
-		DocCapCharsBootSequence:          15000,
-		DocCapCharsOffboard:              15000,
-		LoreCapCharsRole:                 10000,
-		LoreCapCharsManual:               10000,
-		LoreCapCharsTitle:                80,
-		LoreCapCharsBody:                 500,
+		DocCapCharsDuty:                  2500,
+		DocCapCharsInsight:               37500,
+		DocCapCharsManualSop:             37500,
+		DocCapCharsSystemInteraction:     150000,
+		DocCapCharsBootSequence:          37500,
+		DocCapCharsOffboard:              37500,
+		LoreCapCharsRole:                 25000,
+		LoreCapCharsManual:               25000,
+		LoreCapCharsTitle:                200,
+		LoreCapCharsBody:                 1250,
 		ChatBudgetChars:                  6000,
-		StepNoteCapChars:                 10000,
+		StepNoteCapChars:                 25000,
 		SecretCardUnretrievedTTLSecs:     86400,
 		SecretCardRetrievedRetentionSecs: 600,
 		BackupRetain:                     5,

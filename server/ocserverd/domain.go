@@ -489,15 +489,15 @@ func UnreadCounts(messages []ChatMessage, receipts []ChatRead, reader string) ma
 	return counts
 }
 
-const CustomRoleTemplateMD = `# 角色定義
+const CustomRoleTemplateMD = `# Duty
 
-## 你是誰
+## Who you are
 
-（待填：這個角色的身分與定位——用一兩句話說明「你是誰」、在辦公室裡站什麼位置、面對 owner 與其他成員時以什麼視角說話。）
+(To fill in: this role's identity and position — in one or two sentences, say "who you are", where you stand in the office, and from what point of view you speak to the owner and the other members.)
 
-## 你做什麼
+## What you do
 
-（待填：這個角色的職責與工作方式——負責哪些事、怎麼做事、輸出長什麼樣、與 owner 及其他成員怎麼協作、什麼事不歸你管。）
+(To fill in: this role's duties and way of working — what it is responsible for, how it works, what its output looks like, how it works with the owner and the other members, and what is not its business.)
 `
 
 // FoldedRoleDef.IsSeed means a file seed exists: such a role is resettable, not
@@ -638,35 +638,46 @@ func LessonsShrinkBlocked(before, after string) bool {
 	return len(before) >= lessonsShrinkGuardMinChars && len(after)*10 < len(before)
 }
 
-// contextDocMaxCharsDefault is only the default of a `doc.cap_chars.*` setting
-// (the effective cap always arrives as a parameter), shared by insight and a
-// task manual's sop_md. Caps count runes, not bytes, deliberately: the owner
-// picked the numbers from SQLite length() character counts, and len() on
-// mostly-Chinese text would be more than twice as strict.
-const contextDocMaxCharsDefault = 15000
+// contextDocMaxCharsDefault (insight) and manualSopCapCharsDefault are only the
+// defaults of `doc.cap_chars.*` settings (the effective cap always arrives as a
+// parameter). Both are 37500 since the owner raised every document cap 2.5x;
+// they stay two names because they are two settings. A default applies only while the setting has no row, so changing
+// one never moves a station whose owner has saved that knob. Caps count runes,
+// not bytes, deliberately: the owner picked the numbers from SQLite length()
+// character counts, and len() on mostly-Chinese text would be more than twice
+// as strict.
+const (
+	contextDocMaxCharsDefault = 37500
+	manualSopCapCharsDefault  = 37500
+)
 
 // dutyCapCharsDefault: the factory Duty seed is structurally exempt, because
 // reset_role tombstones and folds back to the file seed with no cap check.
-const dutyCapCharsDefault = 1000
+const dutyCapCharsDefault = 2500
 
 // Boot-context caps are sized against the seeds they ship with (a long handbook
 // vs short checklists). bootSequenceCapCharsDefault is one knob for both
 // runtimes' texts.
 const (
-	systemInteractionCapCharsDefault = 60000
-	bootSequenceCapCharsDefault      = 15000
-	offboardCapCharsDefault          = 15000
+	systemInteractionCapCharsDefault = 150000
+	bootSequenceCapCharsDefault      = 37500
+	offboardCapCharsDefault          = 37500
 	// taskEventCapCharsDefault is a constant, not yet a `doc.cap_chars.*`
 	// setting: making it one changes the wire contract, which awaits the owner.
-	taskEventCapCharsDefault = 15000
+	taskEventCapCharsDefault = 37500
+	// Constant for the same reason as taskEventCapCharsDefault.
+	userLanguageCapCharsDefault = 37500
+	termGlossaryCapCharsDefault = 37500
 )
 
 // minDocCapChars / maxDocCapChars bound all eight adjustable document caps. The
 // shared floor sits below the defaults so caps can be lowered (owner
-// rc-5b66ba099e28); it is 100 rather than 0 because 0 means "no room".
+// rc-5b66ba099e28); it is 100 rather than 0 because 0 means "no room". The
+// ceiling must stay above every default (system interaction's is the largest),
+// or a station could lower that cap and never set it back.
 const (
 	minDocCapChars = 100
-	maxDocCapChars = 100000
+	maxDocCapChars = 250000
 )
 
 // Wake-snapshot chat block budget (`chat.budget_chars`, spent by
@@ -684,7 +695,7 @@ const (
 // chatBodyMaxChars' other users: chat bodies and the task handover note keep
 // 4000 (owner rc-c8cc527bfed3).
 const (
-	stepNoteCapCharsDefault = 10000
+	stepNoteCapCharsDefault = 25000
 	minStepNoteCapChars     = 1000
 	maxStepNoteCapChars     = 100000
 )
@@ -1195,16 +1206,16 @@ func ValidLoreType(s string) bool {
 // renaming would change a key the owner has already set. The member and manual
 // budgets are spent by different readers and are never summed.
 const (
-	loreRoleCapCharsDefault   = 10000
-	loreManualCapCharsDefault = 10000
-	loreTitleCapCharsDefault  = 80
-	loreBodyCapCharsDefault   = 500
+	loreRoleCapCharsDefault   = 25000
+	loreManualCapCharsDefault = 25000
+	loreTitleCapCharsDefault  = 200
+	loreBodyCapCharsDefault   = 1250
 )
 
 // Lore cap floors are non-zero because 0 means "no room" (selectLoreForScope).
 const (
 	minLoreFoldCapChars  = 100
-	maxLoreFoldCapChars  = maxDocCapChars
+	maxLoreFoldCapChars  = 100000
 	minLoreEntryCapChars = 10
 	maxLoreEntryCapChars = 10000
 )

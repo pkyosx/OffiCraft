@@ -110,9 +110,9 @@ func TestReadHooksModulesFlag(t *testing.T) {
 func TestNotifyModNotLoadedReason(t *testing.T) {
 	t.Run("under a restart, the reason names both cached flag values", func(t *testing.T) {
 		got := notifyModNotLoadedReason([]hooksModulesFlag{{Value: "false"}, {Value: "true"}})
-		want := "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。" +
-			"已自動重啟 Claude Code 一次仍沒載入；啟動前快取的開關：第 1 次 false、第 2 次 true。" +
-			"常見原因：工作目錄未信任、disableAllHooks、--safe-mode、受管設定擋掉 --plugin-dir。"
+		want := "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped. " +
+			"Claude Code was restarted once automatically and the module still did not load; the switch cached before launch: attempt 1 false, attempt 2 true. " +
+			"Common causes: working directory not trusted, disableAllHooks, --safe-mode, managed settings blocking --plugin-dir."
 		if got != want {
 			t.Errorf("reason =\n%q\nwant\n%q", got, want)
 		}
@@ -120,8 +120,8 @@ func TestNotifyModNotLoadedReason(t *testing.T) {
 
 	t.Run("under one attempt, the reason has no restart sentence", func(t *testing.T) {
 		got := notifyModNotLoadedReason([]hooksModulesFlag{{Value: "false"}})
-		want := "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。" +
-			"常見原因：工作目錄未信任、disableAllHooks、--safe-mode、受管設定擋掉 --plugin-dir。"
+		want := "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped. " +
+			"Common causes: working directory not trusted, disableAllHooks, --safe-mode, managed settings blocking --plugin-dir."
 		if got != want {
 			t.Errorf("reason =\n%q\nwant\n%q", got, want)
 		}

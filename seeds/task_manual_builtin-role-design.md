@@ -1,145 +1,145 @@
-# 角色基本定義
+# Basic definition of a role
 
-一個角色包含以下內容：
+A role consists of the following:
 
-## 角色名
+## Role name
 
-一個簡短名稱，讓其他成員能快速辨識這個角色負責的工作。
+A short name that lets other members quickly recognize what work this role is responsible for.
 
-## 角色定義
+## Duty
 
-寫給其他成員看，用來判斷**什麼事情應該找這個角色**。
+Written for other members, to judge **what matters should go to this role**.
 
-使用以下結構：
-
-```text
-# <角色名>
-
-<一句話說明這個角色是誰，以及主要負責的範圍。>
-
-- **<職責>**：<什麼情況找我，我會負責什麼。>
-- **<職責>**：<什麼情況找我，我會負責什麼。>
-```
-
-角色需要掌握的系統、領域或知識，直接寫進對應職責；容易與其他角色混淆的職責，應從內容中看得出彼此分工。
-
-只保留其他成員判斷是否該找這個角色所需的資訊，不放執行步驟、判斷細節或個別情境的處理方式。
-
-**角色定義應描述長期適用的職責與分工，不記錄會隨現況變動的資訊。** 不以特定成員、其他角色或任務手冊的名稱描述分工與職責邊界。需要判斷其他工作應由誰處理時，應在實際分派工作時依當下的設定與定義判斷。
-
-## 判準（Insight）
-
-寫給這個角色自己看，用來補充**執行工作時需要長期遵循的判斷原則**。
-
-只有角色需要額外的協作方式、判斷原則或取捨原則時才寫；沒有需要補充的內容就不寫，不為了完整格式硬湊。
-
-使用以下結構：
+Use the following structure:
 
 ```text
-# <職責或判準主題>
+# <Role name>
 
-<合作方式、判斷原則與必要的理由。>
+<One sentence on who this role is and the main scope it is responsible for.>
+
+- **<Responsibility>**: <When to come to me, and what I will be responsible for.>
+- **<Responsibility>**: <When to come to me, and what I will be responsible for.>
 ```
 
-判準寫「怎麼判斷與為什麼」，不寫工具怎麼操作或工作怎麼一步一步執行；這類內容應放在任務手冊或工具說明。
+Write the systems, domains, or knowledge the role needs to master directly into the corresponding responsibility; for responsibilities easily confused with other roles, the division of labor should be evident from the content.
+
+Keep only the information other members need to judge whether to come to this role; do not include execution steps, judgment details, or how to handle individual situations.
+
+**The Duty should describe long-term responsibilities and division of labor, and does not record information that changes with the current situation.** It does not describe the division of labor or the boundaries of responsibility by the names of specific members, other roles, or task manuals. When you need to judge who should handle some other work, judge it at the time the work is actually assigned, based on the settings and definitions at that time.
+
+## Insight
+
+Written for the role itself, to supplement **the judgment principles it must follow over the long term when doing its work**.
+
+Write it only when the role needs additional ways of collaborating, judgment principles, or trade-off principles; if there is nothing to add, do not write it — do not pad it out just to fill the format.
+
+Use the following structure:
+
+```text
+# <Responsibility or Insight topic>
+
+<Ways of working together, judgment principles, and the necessary reasons.>
+```
+
+Insight states "how to judge and why"; it does not state how tools are operated or how work is executed step by step — that kind of content belongs in task manuals or tool descriptions.
 
 ---
 
 # SOP
 
-## 1. 釐清意圖
+## 1. Clarify intent
 
-先根據任務說明與 Owner 已提供的資訊，確認建立或修改角色的目的，以及希望這個角色負責的範圍。
+First, based on the task description and the information the Owner has already provided, confirm the purpose of creating or modifying the role, and the scope this role is expected to be responsible for.
 
-資訊已足以開始設計時，不需再次開卡確認；只有缺少會影響角色範圍或設計的重要資訊時，才開 Reply Card 詢問 Owner，不重複詢問已經提供過的內容。
+When the information is already enough to start designing, there is no need to open another card to confirm; open a reply card to ask the Owner only when important information that affects the role's scope or design is missing, and do not ask again about content already provided.
 
-**完成條件**：已能明確說明建立或修改這個角色的目的與預期負責範圍。
+**Completion condition**: you can clearly state the purpose of creating or modifying this role and the scope it is expected to be responsible for.
 
-## 2. 處理角色定義
+## 2. Handle the Duty
 
-檢查目前是否已有相同或相近職責的角色，了解現有分工，再根據 Owner 確認的方向整理角色定義。
+Check whether there are already roles with the same or similar responsibilities, understand the existing division of labor, then draft the Duty according to the direction the Owner confirmed.
 
-角色定義應讓其他成員只看這段內容，就能判斷什麼事情應該找這個角色。
+The Duty should let other members judge what matters should go to this role from this content alone.
 
-若與既有角色的職責接近，應釐清彼此的適用範圍。
+If its responsibilities are close to an existing role's, clarify the scope of application of each.
 
-若新增或調整角色可能影響既有角色的職責邊界，開 Reply Card 請 Owner 確認如何處理：
+If adding or adjusting the role may affect the boundaries of responsibility of existing roles, open a reply card asking the Owner to confirm how to handle it:
 
-- 不調整既有角色。
-- 在本次任務同步調整。
-- 另外建立角色調整任務。
+- Do not adjust the existing roles.
+- Adjust them in this task as well.
+- Create a separate role-adjustment task.
 
-若只是為了維持角色間一致性所需的小幅邊界調整，建議可在本次任務一併處理；若會實質改變其他角色的定位、主要職責或判準，則建議另外建立角色調整任務，不在本次任務中擴大修改範圍。
+If it is only a small boundary adjustment needed to keep the roles consistent with each other, recommend handling it in this task as well; if it would substantively change another role's positioning, main responsibilities, or Insight, recommend creating a separate role-adjustment task rather than expanding the scope of changes in this task.
 
-修改既有角色時，保留未受這次需求影響且仍然正確的內容，不為了重寫而重寫。
+When modifying an existing role, keep content that is unaffected by this request and still correct; do not rewrite for the sake of rewriting.
 
-若仍有會影響角色職責或分工的重要資訊無法判斷，開 Reply Card 向 Owner 確認。
+If there is still important information affecting the role's responsibilities or division of labor that you cannot judge, open a reply card to confirm with the Owner.
 
-**完成條件**：角色定義草稿已完成，職責與邊界清楚；可能受到影響的既有角色也已依 Owner 決定處理。
+**Completion condition**: the Duty draft is complete, with clear responsibilities and boundaries; existing roles that may be affected have also been handled per the Owner's decision.
 
-## 3. 處理判準
+## 3. Handle the Insight
 
-根據角色定義，依「判準（Insight）」的內容規則建立或調整判準，確認是否有需要由這個角色長期遵循、且無法只靠角色定義表達的協作方式、判斷原則或取捨原則。
+Based on the Duty, create or adjust the Insight according to the content rules of "Insight", and confirm whether there are ways of collaborating, judgment principles, or trade-off principles that this role must follow over the long term and that cannot be expressed through the Duty alone.
 
-先查看現有判準與 Owner 過去對這個角色的相關裁定，保留仍然正確且不受此次需求影響的內容，只新增或修改這次需要的部分。若現有判準已足以支援角色定義，則不需要修改。
+First look at the existing Insight and the Owner's past rulings about this role, keep content that is still correct and unaffected by this request, and only add or modify the parts needed this time. If the existing Insight already adequately supports the Duty, no change is needed.
 
-若缺少的資訊會影響角色的協作方式、判斷原則或取捨，先從既有資料尋找答案；仍無法判斷時，開 Reply Card 請 Owner 決定。
+If missing information would affect the role's ways of collaborating, judgment principles, or trade-offs, first look for the answer in existing material; if you still cannot judge, open a reply card asking the Owner to decide.
 
-另外開 Reply Card 確認 Owner 是否有希望這個角色在判斷或處理問題時優先參考的特定知識來源；若有，將「什麼情況應參考哪些資訊」整理進判準。
+Additionally, open a reply card to confirm whether the Owner has specific knowledge sources this role should consult first when judging or handling problems; if so, organize "in what situations to consult which information" into the Insight.
 
-沒有需要補充的內容就不新增判準，不為了完整而硬湊。
+If there is nothing to add, do not add Insight — do not pad it out for completeness.
 
-**完成條件**：需要的判準已整理完成，且內容只包含角色層級的協作、判斷、取捨與知識參考原則。
+**Completion condition**: the needed Insight is organized, and its content contains only role-level principles for collaboration, judgment, trade-offs, and knowledge references.
 
-## 4. Review 完整角色
+## 4. Review the complete role
 
-建立一個**未參與前面設計的獨立 sub-agent**，提供本手冊的角色定義與判準規則，以及整理完成的完整角色內容進行 Review。
+Create an **independent sub-agent that did not take part in the design so far**, and give it this manual's rules for the Duty and Insight, along with the complete organized role content, for review.
 
-至少確認：
+At minimum, check:
 
-- 只看角色定義，其他成員是否能判斷什麼事情應該找這個角色。
-- 與其他角色的職責邊界是否清楚，沒有明顯重疊或矛盾。
-- 角色定義是否只保留分派工作需要的資訊，沒有混入執行步驟或判斷細節。
-- 判準是否只包含角色層級的協作、判斷、取捨與知識參考原則，沒有混入工作流程或工具操作。
-- 是否引用特定成員、其他角色或任務手冊的名稱來描述分工與職責邊界。
-- 是否存在重複、矛盾或不必要的內容。
+- From the Duty alone, can other members judge what matters should go to this role?
+- Are the boundaries of responsibility with other roles clear, without obvious overlap or contradiction?
+- Does the Duty keep only the information needed for assigning work, without mixing in execution steps or judgment details?
+- Does the Insight contain only role-level principles for collaboration, judgment, trade-offs, and knowledge references, without mixing in workflows or tool operation?
+- Does it cite the names of specific members, other roles, or task manuals to describe the division of labor and boundaries of responsibility?
+- Is there any duplicated, contradictory, or unnecessary content?
 
-Reviewer 發現問題時，修改後重新 Review；若問題需要 Owner 決定，開 Reply Card 向 Owner 確認後再調整。
+When the Reviewer finds problems, revise and review again; if a problem needs an Owner decision, open a reply card to confirm with the Owner, then adjust.
 
-**完成條件**：Reviewer 確認完整角色內容符合角色定義與判準的規則，且足以實際使用。
+**Completion condition**: the Reviewer confirms that the complete role content meets the rules for the Duty and Insight, and is sufficient for actual use.
 
-## 5. Owner 核可
+## 5. Owner approval
 
-Review 通過後，開 Reply Card 請 Owner 核可最終內容。
+After the review passes, open a reply card asking the Owner to approve the final content.
 
-建立新角色時，提供完整的角色名稱、角色定義與判準。
+When creating a new role, provide the complete role name, Duty, and Insight.
 
-修改既有角色時，使用 `ocagent diff <before> <after>` 產生差異連結，讓 Owner 能直接確認這次修改的內容，並提供修改後的完整版本供參考。
+When modifying an existing role, use `ocagent diff <before> <after>` to generate a diff link so the Owner can directly check what this change modifies, and provide the complete revised version for reference.
 
-若 Owner 要求的修改會實質改變角色職責、分工或判準，修改後重新進行 Review；只有文字、格式等不影響內容意義的調整，不需要重新 Review。
+If changes the Owner asks for would substantively change the role's responsibilities, division of labor, or Insight, review again after revising; adjustments that do not affect the meaning of the content, such as wording or formatting, do not need another review.
 
-**完成條件**：Owner 已核可最終角色內容。
+**Completion condition**: the Owner has approved the final role content.
 
-## 6. 寫入與讀回
+## 6. Write and read back
 
-將 Owner 核可的版本寫入站上。
+Write the Owner-approved version to the site.
 
-若無法完成寫入，不自行改變核可內容或採用其他做法，開 Reply Card 向 Owner 確認。
+If the write cannot be completed, do not change the approved content on your own or take another approach; open a reply card to confirm with the Owner.
 
-寫入後重新讀取角色內容，確認角色名稱、角色定義與判準皆與 Owner 核可版本一致。
+After writing, read the role content back and confirm the role name, Duty, and Insight all match the Owner-approved version.
 
-**完成條件**：角色已成功寫入，且讀回內容與 Owner 核可版本一致。
+**Completion condition**: the role has been written successfully, and the content read back matches the Owner-approved version.
 
-## 7. 啟用成員
+## 7. Activate the member
 
-建立新角色並確認寫入無誤後，開一張 Reply Card 請 Owner 決定是否要直接喚醒對應成員，並在同一張卡提供機器、模型與 effort 的配置選項。
+After creating a new role and confirming it was written correctly, open one reply card asking the Owner to decide whether to wake the corresponding member right away, and on the same card provide configuration options for machine, model, and effort.
 
-若 Owner 選擇喚醒，依其選擇的配置啟動；若選擇暫不喚醒，則不啟動成員。
+If the Owner chooses to wake it, start it with the configuration they chose; if they choose not to wake it for now, do not start the member.
 
-修改既有角色時，除非這次修改本身涉及成員啟用狀態，否則不執行這一步。
+When modifying an existing role, do not perform this step unless the change itself involves the member's activation state.
 
-**完成條件**：Owner 已決定是否喚醒成員；需要喚醒時，成員已依 Owner 選擇的配置啟動。
+**Completion condition**: the Owner has decided whether to wake the member; when waking is needed, the member has been started with the configuration the Owner chose.
 
-# 完成標準
+# Completion standard
 
-角色內容已依 Owner 核可版本寫入並讀回一致；建立新角色時，也已完成是否喚醒對應成員的確認與處理。
+The role content has been written according to the Owner-approved version and reads back identically; when creating a new role, whether to wake the corresponding member has also been confirmed and handled.

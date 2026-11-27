@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-const apiTestAssistantSeedDefinitionMD = "# 助理\n\nOwner 的助理，工作室的預設對口。\n\n- **不知道該找誰**：先找我，我會判斷並安排後續。\n- **OffiCraft 怎麼運作**：怎麼使用、規則是什麼、某個操作在哪裡，都可以問我。\n- **你做不到的操作**：我的權限比一般成員大，權限之內的我可以代你執行；只有 Owner 能決定的，我整理好開一張卡送到他面前。\n"
+const apiTestAssistantSeedDefinitionMD = "# Assistant\n\nThe Owner's assistant and the studio's default point of contact.\n\n- **Not sure whom to ask**: come to me first; I will assess it and arrange the follow-up.\n- **How OffiCraft works**: how to use it, what the rules are, where an operation lives — you can ask me about any of it.\n- **Operations you cannot perform**: my permissions are broader than a regular member's; within my permissions I can perform them on your behalf. For anything only the Owner can decide, I will organize it and open a card that goes in front of them.\n"
 
-const apiTestCustomRoleTemplateMD = "# 角色定義\n\n## 你是誰\n\n（待填：這個角色的身分與定位——用一兩句話說明「你是誰」、在辦公室裡站什麼位置、面對 owner 與其他成員時以什麼視角說話。）\n\n## 你做什麼\n\n（待填：這個角色的職責與工作方式——負責哪些事、怎麼做事、輸出長什麼樣、與 owner 及其他成員怎麼協作、什麼事不歸你管。）\n"
+const apiTestCustomRoleTemplateMD = "# Duty\n\n## Who you are\n\n(To fill in: this role's identity and position — in one or two sentences, say \"who you are\", where you stand in the office, and from what point of view you speak to the owner and the other members.)\n\n## What you do\n\n(To fill in: this role's duties and way of working — what it is responsible for, how it works, what its output looks like, how it works with the owner and the other members, and what is not its business.)\n"
 
 func TestHistoryJSON(t *testing.T) {
 	t.Run("a supported value is encoded as its JSON object", func(t *testing.T) {
@@ -359,8 +359,8 @@ func TestHandleListRolesApiRolesGet(t *testing.T) {
 		}
 		apiWantValue(t, "body", got, []any{
 			map[string]any{
-				"size_chars":     169,
-				"cap_chars":      1000,
+				"size_chars":     539,
+				"cap_chars":      2500,
 				"key":            "assistant",
 				"name":           "Assistant",
 				"owner_id":       "owner",
@@ -370,7 +370,7 @@ func TestHandleListRolesApiRolesGet(t *testing.T) {
 			},
 			map[string]any{
 				"size_chars":     21,
-				"cap_chars":      1000,
+				"cap_chars":      2500,
 				"key":            "r-design",
 				"name":           "Design",
 				"owner_id":       "owner",
@@ -403,7 +403,7 @@ func TestHandleListRolesApiRolesGet(t *testing.T) {
 		apiWantValue(t, "body", got, []any{
 			map[string]any{
 				"size_chars":     6,
-				"cap_chars":      1000,
+				"cap_chars":      2500,
 				"key":            "assistant",
 				"name":           "Assistant",
 				"owner_id":       "owner",
@@ -413,7 +413,7 @@ func TestHandleListRolesApiRolesGet(t *testing.T) {
 			},
 			map[string]any{
 				"size_chars":     21,
-				"cap_chars":      1000,
+				"cap_chars":      2500,
 				"key":            "r-design",
 				"name":           "Design",
 				"owner_id":       "owner",
@@ -449,7 +449,7 @@ func TestHandleGetRoleApiRolesRoleGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"size_chars":     21,
-			"cap_chars":      1000,
+			"cap_chars":      2500,
 			"key":            "r-design",
 			"name":           "Design",
 			"definition_md":  "# Duty\nDesign things.",
@@ -469,8 +469,8 @@ func TestHandleGetRoleApiRolesRoleGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     169,
-			"cap_chars":      1000,
+			"size_chars":     539,
+			"cap_chars":      2500,
 			"key":            "assistant",
 			"name":           "Assistant",
 			"definition_md":  apiTestAssistantSeedDefinitionMD,
@@ -580,8 +580,8 @@ func TestHandleCreateRoleApiRolesPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     155,
-			"cap_chars":      1000,
+			"size_chars":     445,
+			"cap_chars":      2500,
 			"key":            roleKey,
 			"name":           "Design",
 			"definition_md":  apiTestCustomRoleTemplateMD,
@@ -719,7 +719,7 @@ func TestHandleUpdateRoleApiRolesRolePost(t *testing.T) {
 			"is_default": false,
 			"is_seed":    false,
 			"size_chars": 21,
-			"cap_chars":  1000,
+			"cap_chars":  2500,
 			"sha256":     "724db319a7b3d260d62d6fbe709d8c12cbbf7ff023b99d9efb162cec188b5ff0",
 		})
 		dashboard.wantFrames(map[string]any{
@@ -752,9 +752,9 @@ func TestHandleUpdateRoleApiRolesRolePost(t *testing.T) {
 			"name":       "Assistant",
 			"is_default": false,
 			"is_seed":    true,
-			"size_chars": 169,
-			"cap_chars":  1000,
-			"sha256":     "8e4957c5da2787a69e5d3470fafcc3badbf5b6e2f863d3eb0cfb29a8988c2425",
+			"size_chars": 539,
+			"cap_chars":  2500,
+			"sha256":     "23df4086409eb0fc4647322f2adc960e9d30d286b13f49c4f53e55e113da8c25",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   1,
@@ -780,12 +780,12 @@ func TestHandleUpdateRoleApiRolesRolePost(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/roles/r-design", owner,
-			`{"definition_md":"`+strings.Repeat("x", 1001)+`"}`)
+			`{"definition_md":"`+strings.Repeat("x", 2501)+`"}`)
 		if status != 400 {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
-			"the role definition doc you are writing is 1001 chars, over the 1000-char cap, "+
+			"the Duty you are writing is 2501 chars, over the 2500-char cap, "+
 				"and is not shorter than the 21 chars already stored — nothing was written. "+
 				"What is already stored is never truncated, but every update must land at or "+
 				"under the cap, or at least come out SHORTER than what is there now. Drop stale "+
@@ -891,9 +891,9 @@ func TestHandleResetRoleApiRolesRoleResetPost(t *testing.T) {
 			"name":       "Assistant",
 			"is_default": true,
 			"is_seed":    true,
-			"size_chars": 169,
-			"cap_chars":  1000,
-			"sha256":     "8e4957c5da2787a69e5d3470fafcc3badbf5b6e2f863d3eb0cfb29a8988c2425",
+			"size_chars": 539,
+			"cap_chars":  2500,
+			"sha256":     "23df4086409eb0fc4647322f2adc960e9d30d286b13f49c4f53e55e113da8c25",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -924,9 +924,9 @@ func TestHandleResetRoleApiRolesRoleResetPost(t *testing.T) {
 			"name":       "Assistant",
 			"is_default": true,
 			"is_seed":    true,
-			"size_chars": 169,
-			"cap_chars":  1000,
-			"sha256":     "8e4957c5da2787a69e5d3470fafcc3badbf5b6e2f863d3eb0cfb29a8988c2425",
+			"size_chars": 539,
+			"cap_chars":  2500,
+			"sha256":     "23df4086409eb0fc4647322f2adc960e9d30d286b13f49c4f53e55e113da8c25",
 		})
 	})
 

@@ -109,12 +109,12 @@ func codexPersonaInstruction(personaFile, persona, model string) string {
 		"Never use request_user_input for normal questions; create an OffiCraft reply card instead. "
 	if strings.TrimSpace(model) == "" {
 		instruction += "The OffiCraft launch model setting is blank, so the machine's Codex default applies. " +
-			"If your role's boot sequence calls report_waking, omit its optional model argument; " +
+			"If your role's boot steps call report_waking, omit its optional model argument; " +
 			"never guess or persist a model name."
 	} else {
 		instruction += "The explicit OffiCraft launch model is " + model +
-			". If your role's boot sequence calls report_waking, pass that exact value as its model argument. " +
-			"Follow your role-specific boot sequence when it says not to call report_waking."
+			". If your role's boot steps call report_waking, pass that exact value as its model argument. " +
+			"Follow your role-specific boot steps when they say not to call report_waking."
 	}
 	return instruction + "\n---\n" + persona
 }
@@ -465,7 +465,7 @@ func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
 	}
 	detail := strings.TrimSpace(fmt.Sprintf("%v", problem["message"]))
 	if d.method == "turn/steer" {
-		s.activity("turn/steer 被拒（%s）— 改開新的一輪重送同一段內容", detail)
+		s.activity("turn/steer refused (%s) — starting a new turn to resend the same content", detail)
 		d.method = "turn/start"
 		if s.starting {
 			s.queueTurn(d)
@@ -474,8 +474,8 @@ func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
 		}
 		return
 	}
-	s.activity("⚠️ 送不進去（%s）：%s — 這段內容沒有進到 agent 的對話，"+
-		"agent 不會知道有人說過這句話", detail, codexDeliveryLabel(d.text))
+	s.activity("⚠️ could not deliver (%s): %s — this content did not reach the member's conversation; "+
+		"the member will not know anyone said it", detail, codexDeliveryLabel(d.text))
 	if d.batch != nil {
 		d.batch.failed = true
 	}
@@ -519,7 +519,7 @@ func (s *codexSession) confirmStartedTurn() {
 
 func (s *codexSession) confirmDelivered(d *codexDelivery) {
 	delete(s.v2ParentNotices, d.text)
-	s.activity("已送進對話：%s", codexDeliveryLabel(d.text))
+	s.activity("delivered to the conversation: %s", codexDeliveryLabel(d.text))
 	s.settleBatch(d.batch)
 }
 
@@ -564,7 +564,7 @@ func (s *codexSession) settleBatch(group *codexBatch) {
 		verb = "nack"
 	}
 	if group.failed {
-		s.activity("批次 %s 沒能送進對話 — 已告訴 listener 不要標已讀，下一輪會重印", group.token)
+		s.activity("batch %s could not be delivered to the conversation — told the listener not to mark it read; the next round will reprint it", group.token)
 	}
 	if s.ackTo == nil {
 		return
@@ -981,9 +981,9 @@ func (s *codexSession) wakeIdleParent(child string) {
 }
 
 func codexIdleV2ParentNotice(parentPath, childPath string) string {
-	return "[OffiCraft sidecar] sub-agent " + parentPath + " 叫起的 sub-agent " + childPath +
-		" 已經結束，結果送到了 " + parentPath + "，但 " + parentPath + " 目前閒置、不會自己讀到；" +
-		"需要它接著處理時，請用 followup_task 叫 " + parentPath + " 繼續。"
+	return "[OffiCraft sidecar] sub-agent " + childPath + ", started by sub-agent " + parentPath +
+		", has finished and its result was sent to " + parentPath + ", but " + parentPath + " is idle right now and will not read it on its own; " +
+		"when it needs to carry on from there, use followup_task to tell " + parentPath + " to continue."
 }
 
 func (s *codexSession) resolveSubagentWake(id int, thread string, msg appServerMessage) {
@@ -993,7 +993,7 @@ func (s *codexSession) resolveSubagentWake(id int, thread string, msg appServerM
 		return
 	}
 	delete(s.wakingSubagents, thread)
-	s.activity("⚠️ 叫不醒 sub-agent %s（%v）— 它底下 sub-agent 的結果要等它下次有一輪時才會看到",
+	s.activity("⚠️ could not wake sub-agent %s (%v) — it will see the results of the sub-agents under it only on its next turn",
 		thread, problem["message"])
 }
 
@@ -1235,7 +1235,7 @@ func codexOpenYourOwnCardMessage(question map[string]any) string {
 		"question is about, or null if it is not about a task (add about_task_id to name a task " +
 		"you do not execute)."
 	if secret, _ := question["isSecret"].(bool); secret {
-		message += " 這是秘密資料請求；開 `secret` 類型的請示卡，不要把秘密貼進一般卡片或訊息。"
+		message += " This is a request for secret data: open a reply card of type `secret`, and do not paste the secret into an ordinary card or message."
 	}
 	return message
 }
@@ -1401,10 +1401,10 @@ func actionableCodexListenerLine(line string) bool {
 // and the first connected line opens this wake instead of being forwarded —
 // so the post-SSE boot steps would never run. The text names the STEP rather
 // than copying the owner's boot document, which moves.
-const codexPostBootWake = "[OffiCraft sidecar] 你的事件流（SSE）已經接上了。" +
-	"請接著做開機說明裡「接上 SSE 之後」的那些步驟（盤點你手上還沒結束的任務並開始推進）。"
+const codexPostBootWake = "[OffiCraft sidecar] Your event stream (SSE) is now connected. " +
+	"Continue with the steps in your boot instructions that come after SSE is connected (take stock of the tasks in your hands that are not finished yet, and start moving them forward)."
 
-const codexSubagentFinishedWake = "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"
+const codexSubagentFinishedWake = "[OffiCraft sidecar] A sub-agent you started has finished, and its result is already in the conversation; continue your work from its result."
 
 func runCodexSession(argv []string, env func(string) string, out io.Writer) int {
 	fs := flag.NewFlagSet("ocwarden codex-session", flag.ContinueOnError)
@@ -1508,7 +1508,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 		return 1
 	}
 	s.activity("thread ready · booting agent")
-	s.startTurn("開始。", nil)
+	s.startTurn("Start.", nil)
 
 	listenerLines := make(chan string, 32)
 	listenerStarted := false

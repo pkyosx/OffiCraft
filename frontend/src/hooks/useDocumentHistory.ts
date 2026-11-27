@@ -64,6 +64,8 @@ const TOPIC_OF: Record<DocumentKind, string> = {
   // write to one block makes the other two re-read, which is a wasted request,
   // not a wrong screen.
   system_interaction: "global_context",
+  user_language: "global_context",
+  term_glossary: "global_context",
   boot_sequence: "global_context",
   offboard: "global_context",
   // T-3201: the six lifecycle documents ride the same existing topic, for the

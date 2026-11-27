@@ -177,12 +177,12 @@ export function locateImage(root: ParentNode, src: string): HTMLImageElement[] {
 function quoteLines(c: DocComment): string[] {
   if (c.kind === "image") {
     const label = c.alt.trim() || imageShortName(c.src);
-    return [`   > 圖片：[${escapeLinkText(label)}](${linkTarget(c.src)})`];
+    return [`   > Image: [${escapeLinkText(label)}](${linkTarget(c.src)})`];
   }
   if (c.kind === "anchor") {
-    return [`   > 位置：${escapePageText(c.label)}（#${escapePageText(c.anchorId)}）`];
+    return [`   > Location: ${escapePageText(c.label)} (#${escapePageText(c.anchorId)})`];
   }
-  if (c.kind === "document") return ["   > 整份文件"];
+  if (c.kind === "document") return ["   > Whole document"];
   // The page's script, not the owner's selection, decides what that text is.
   const line = c.page ? (l: string) => escapeBlockMarker(escapePageText(l)) : (l: string) => l;
   return excerptLines(c.excerpt).map((l) => (l === "" ? "   >" : `   > ${line(l)}`));
@@ -198,11 +198,11 @@ export function formatDocCommentMessage(input: {
   comments: DocComment[];
 }): string {
   const head = [
-    `**文件註解**：[${escapeLinkText(input.filename)}](/api/chat/attachment/${input.attachmentId})`,
+    `**Document comment**: [${escapeLinkText(input.filename)}](/api/chat/attachment/${input.attachmentId})`,
   ];
   if (input.task) {
     head.push(
-      `任務 [${input.task.taskNo}](/#tasks/${input.task.id}) 產物「${input.task.artifactName}」`,
+      `Task [${input.task.taskNo}](/#tasks/${input.task.id}) artifact "${input.task.artifactName}"`,
     );
   }
   // Each item's body is indented under its marker: the renderer reads a list
@@ -212,9 +212,9 @@ export function formatDocCommentMessage(input: {
     const quote = quoteLines(c);
     const commentLines = c.comment.trim().split(/\r?\n/);
     const comment = commentLines.map((l, j) =>
-      j === 0 ? `   註解：${l}` : l === "" ? "" : `   ${escapeBlockMarker(l)}`,
+      j === 0 ? `   Comment: ${l}` : l === "" ? "" : `   ${escapeBlockMarker(l)}`,
     );
-    return [`${i + 1}. 原文：`, ...quote, "", ...comment].join("\n");
+    return [`${i + 1}. Original:`, ...quote, "", ...comment].join("\n");
   });
   return [head.join("\n"), ...items].join("\n\n");
 }

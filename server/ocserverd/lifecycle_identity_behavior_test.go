@@ -1185,7 +1185,7 @@ var identityGateLedger = map[string]string{
 		"WRITE RECEIPT fold. It reads the value foldBootDocDTO (listed above) " +
 		"already put on the DTO; the receipt reports the document's address, " +
 		"and nothing about it asks who the caller is.",
-	"api_bootdocs.go :: replaceBootDoc :: Kind: spec.Kind": "" +
+	"api_bootdocs.go :: bootDocRowFor :: Kind: spec.Kind": "" +
 		"NOT an identity gate — the same document-kind vocabulary, at the write path.",
 	"api_bootdocs.go :: resetBootDoc :: Kind: spec.Kind": "" +
 		"NOT an identity gate — the same document-kind vocabulary, at the reset path.",

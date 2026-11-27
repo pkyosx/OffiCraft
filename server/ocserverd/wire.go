@@ -138,6 +138,8 @@ type settingsDTO struct {
 
 	UpdaterAnnounceFeatures bool `json:"updater_announce_features"`
 
+	DeveloperMode bool `json:"developer_mode"`
+
 	OrgName string `json:"org_name"`
 
 	OwnerName string `json:"owner_name"`
@@ -788,6 +790,8 @@ type bootDocDTO struct {
 	// ReadOnly: every write face refuses this document (405); the cockpit needs to
 	// know before it renders an editor. Not omitempty.
 	ReadOnly bool `json:"read_only"`
+
+	DeveloperModeRequired bool `json:"developer_mode_required"`
 }
 
 type roleDefDTO struct {

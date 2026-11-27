@@ -19,6 +19,7 @@ import {
   __injectMockOutsourceWorker,
   __injectMockMember,
   __setBootDocReadOnly,
+  __injectMockDocumentRevision,
 } from "./mock";
 import { ApiError } from "./errors";
 import type { BootDocKind } from "../types";
@@ -46,8 +47,9 @@ function bodyOf(seed: string): string {
   return split ? body : seed.trim();
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   __resetMock();
+  await mockApi.patchServerSettings({ developerMode: true });
 });
 
 describe("mockApi · boot-context blocks", () => {
@@ -72,17 +74,11 @@ describe("mockApi · boot-context blocks", () => {
   });
 
   it("refuses every write to a read-only document with 405, and still serves its text", async () => {
-    // 🔴 NO SHIPPED DOCUMENT IS READ-ONLY ANY MORE (T-6f44, owner's decision 2),
-    // so this drives the refusal with a SYNTHETIC one. The rule it
-    // guards is unchanged and still reachable the day a document ships
-    // read-only: reading works — that is the whole reason these are documents
-    // rather than string literals — and BOTH write faces refuse. 405, not 403:
-    // no principal may edit them, so an authz answer would send an owner
-    // looking for a role to grant.
-    //
-    // That decision 2 actually took effect is pinned separately, by
-    // mock.boot-doc-registry.test.ts against the shared registry table — this
-    // test supplies its own list and so cannot notice.
+    // Drives the refusal with SYNTHETIC read-only documents, so the gate is
+    // measured independently of which shipped documents are read-only (those
+    // are pinned by mock.boot-doc-registry.test.ts). 405, not 403: no principal
+    // may edit them, so an authz answer would send an owner looking for a role
+    // to grant.
     __setBootDocReadOnly(["task_closeout/global", "task_unblocked/global"]);
     for (const kind of ["task_closeout", "task_unblocked"] as const) {
       const doc = await mockApi.getBootDoc(kind, "global");
@@ -125,6 +121,40 @@ describe("mockApi · boot-context blocks", () => {
         isDefault: true,
       });
     }
+  });
+
+  it("while developer mode is off every boot-document write face answers 409 and changes nothing, and 使用者自訂 still saves", async () => {
+    await mockApi.saveBootDoc("task_closeout", "global", "v1");
+    await mockApi.saveBootDoc("task_closeout", "global", "v2");
+    const [version] = await mockApi.listDocumentHistory("task_closeout", "global");
+    await mockApi.patchServerSettings({ developerMode: false });
+    const before = await mockApi.getBootDoc("task_closeout", "global");
+    expect(before.developerModeRequired).toBe(true);
+
+    const locked = {
+      status: 409,
+      serverMessage:
+        "the task close-out procedure is locked while developer mode is off — " +
+        "turn on developer mode in system settings first; nothing was written",
+    };
+    await expect(
+      mockApi.saveBootDoc("task_closeout", "global", "v3")
+    ).rejects.toMatchObject(locked);
+    await expect(
+      mockApi.resetBootDoc("task_closeout", "global")
+    ).rejects.toMatchObject(locked);
+    await expect(
+      mockApi.restoreDocumentHistory("task_closeout", "global", version.id)
+    ).rejects.toMatchObject(locked);
+    expect(await mockApi.getBootDoc("task_closeout", "global")).toEqual(before);
+
+    await mockApi.saveGlobalContext("多用 emoji 回覆 owner");
+    expect((await mockApi.getGlobalContext()).text).toBe("多用 emoji 回覆 owner");
+
+    await mockApi.patchServerSettings({ developerMode: true });
+    expect(
+      (await mockApi.getBootDoc("task_closeout", "global")).developerModeRequired
+    ).toBe(false);
   });
 
   it("404s a kind nobody registered, the same way an unknown key is a 404", async () => {
@@ -400,6 +430,210 @@ describe("mockApi · 開機脈絡預覽", () => {
     expect(ctx).not.toContain("claude 版");
     expect(ctx).not.toContain(SEED_BOOT_SEQUENCE_CODEX_MD.trim());
   });
+
+  it("puts the owner's global context under the server's # User additions heading, staff and outsource alike", async () => {
+    __injectMockTask({
+      id: "t-oa",
+      taskNo: "T-oa",
+      title: "外包任務",
+      typeKey: "",
+      description: "",
+      status: "in_progress",
+      priority: "mid",
+      executorKind: "outsource",
+      executorId: "ow-oa",
+      creatorId: "",
+      dedupeKey: "",
+      deps: [],
+      waitingReason: "",
+      duplicateOf: "",
+      createdTs: 0,
+      updatedTs: 0,
+      closedTs: null,
+      progressDone: 0,
+      progressTotal: 0,
+      steps: [],
+    });
+    __injectMockOutsourceWorker({
+      id: "ow-oa",
+      codename: "O-2",
+      model: "Opus",
+      effort: "high",
+      runtime: "claude",
+      taskId: "t-oa",
+    });
+    await mockApi.saveGlobalContext("owner 寫的全域脈絡\n");
+
+    for (const ctx of [
+      await mockApi.getMemberBootContext("mira"),
+      await mockApi.getWorkerBootContext("ow-oa"),
+    ]) {
+      expect(ctx).toContain("\n\n# User additions\n\nowner 寫的全域脈絡\n\n");
+    }
+  });
+});
+
+describe("mockApi · User Language block", () => {
+  const GLOSSARY =
+    "If the user writes one of the Chinese screen names in this table, it means the English term in the same row.\n\n" +
+    "| English (this document) | Chinese on screen |\n" +
+    "| --- | --- |\n" +
+    "| Office | 辦公室 |\n" +
+    "| Reply card／Ask | 請示卡／請示 |\n" +
+    "| Task | 任務 |\n" +
+    "| Task type | 任務類型 |\n" +
+    "| Step | 步驟 |\n" +
+    "| Task manuals | 任務手冊 |\n" +
+    "| Files | 檔案庫 |\n" +
+    "| Secrets | 密鑰 |\n" +
+    "| Lore | 傳承 |\n" +
+    "| Member lore | 成員傳承 |\n" +
+    "| Task lore | 任務傳承 |\n" +
+    "| Instruction conflict | 指示衝突 |\n" +
+    "| Instruction supplement | 指示補充 |\n" +
+    "| Owner decision | Owner 決策 |\n" +
+    "| Owner preference | Owner 偏好 |\n" +
+    "| Monitor | 監控 |\n" +
+    "| Settings | 設定 |\n" +
+    "| Global context | 全域情境 |\n" +
+    "| System interaction | 系統互動 |\n" +
+    "| User additions | 使用者自訂 |\n" +
+    "| Boot steps | 啟動步驟 |\n" +
+    "| Roles | 角色 |\n" +
+    "| Duty | 職責 |\n" +
+    "| Insight | 判準 |\n" +
+    "| General | 一般設定 |\n" +
+    "| System update & backup | 系統更新與備份 |\n" +
+    "| Theme | 主題 |\n" +
+    "| Preferences | 偏好設定 |\n" +
+    "| Member | 成員 |\n" +
+    "| Staff | 正職 |\n" +
+    "| Outsource | 外包 |\n" +
+    "| Assistant | 特助 |\n" +
+    "| Wake | 喚醒 |\n" +
+    "| Refocus | 重新聚焦 |\n" +
+    "| Stop | 停止 |\n" +
+    "| Accelerated stop | 加速停止 |\n" +
+    "| Machines | 機器 |\n" +
+    "| Webhook endpoints | 回呼端點 |\n" +
+    "| Signing keys | 簽章金鑰 |\n" +
+    "| User guide | 使用說明 |";
+  const ZH_DEFAULT = "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。";
+  const EN_DEFAULT = "Use English for everything you write to the user, including reports.";
+  const ZH = `# User Language\n\n${ZH_DEFAULT}\n\n${GLOSSARY}`;
+  const EN = `# User Language\n\n${EN_DEFAULT}\n\n${GLOSSARY}`;
+
+  function injectWorker(): void {
+    __injectMockTask({
+      id: "t-ul",
+      taskNo: "T-ul",
+      title: "外包任務",
+      typeKey: "",
+      description: "",
+      status: "in_progress",
+      priority: "mid",
+      executorKind: "outsource",
+      executorId: "ow-ul",
+      creatorId: "",
+      dedupeKey: "",
+      deps: [],
+      waitingReason: "",
+      duplicateOf: "",
+      createdTs: 0,
+      updatedTs: 0,
+      closedTs: null,
+      progressDone: 0,
+      progressTotal: 0,
+      steps: [],
+    });
+    __injectMockOutsourceWorker({
+      id: "ow-ul",
+      codename: "O-3",
+      model: "Opus",
+      effort: "high",
+      runtime: "claude",
+      taskId: "t-ul",
+    });
+  }
+
+  async function heads(lengths: [number, number]): Promise<[string, string]> {
+    const staff = await mockApi.getMemberBootContext("mira");
+    const worker = await mockApi.getWorkerBootContext("ow-ul");
+    return [staff.slice(0, lengths[0]), worker.slice(0, lengths[1])];
+  }
+
+  it("an unset display language gets the Traditional Chinese block, right after the system interaction and before User additions, staff and outsource alike", async () => {
+    injectWorker();
+    await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
+    await mockApi.saveGlobalContext("owner 寫的全域脈絡\n");
+    const staff = `系統互動本文\n\n${ZH}\n\n# User additions\n\nowner 寫的全域脈絡\n\n# Role: Assistant\n\n`;
+    const worker = `系統互動本文\n\n${ZH}\n\n# User additions\n\nowner 寫的全域脈絡\n\n# Claude Code Runtime\n\n`;
+    expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
+  });
+
+  it("display language zh gets the Traditional Chinese block", async () => {
+    injectWorker();
+    await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
+    await mockApi.patchServerSettings({ displayLanguage: "zh" });
+    const staff = `系統互動本文\n\n${ZH}\n\n# Role: Assistant\n\n`;
+    const worker = `系統互動本文\n\n${ZH}\n\n# Claude Code Runtime\n\n`;
+    expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
+  });
+
+  it("display language en gets the English block, and with no owner text the next block follows it directly", async () => {
+    injectWorker();
+    await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
+    await mockApi.patchServerSettings({ displayLanguage: "en" });
+    const staff = `系統互動本文\n\n${EN}\n\n# Role: Assistant\n\n`;
+    const worker = `系統互動本文\n\n${EN}\n\n# Claude Code Runtime\n\n`;
+    expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
+  });
+
+  it("an edited User Language document reaches the next preview under both languages", async () => {
+    injectWorker();
+    await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
+    await mockApi.patchServerSettings({ developerMode: false });
+    await mockApi.saveBootDoc("user_language", "global", "請用克林貢語回報。\n");
+    const block = `# User Language\n\n請用克林貢語回報。\n\n${GLOSSARY}`;
+    for (const displayLanguage of ["en", "zh"]) {
+      await mockApi.patchServerSettings({ displayLanguage });
+      const staff = `系統互動本文\n\n${block}\n\n# Role: Assistant\n\n`;
+      const worker = `系統互動本文\n\n${block}\n\n# Claude Code Runtime\n\n`;
+      expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
+    }
+  });
+
+  it("saving the Chinese default while the language is en gives the English block", async () => {
+    injectWorker();
+    await mockApi.saveBootDoc("system_interaction", "global", "系統互動本文\n");
+    await mockApi.saveBootDoc("user_language", "global", "EDITED\n");
+    await mockApi.patchServerSettings({ displayLanguage: "en" });
+    await mockApi.saveBootDoc("user_language", "global", `${ZH_DEFAULT}\n\n`);
+    const staff = `系統互動本文\n\n${EN}\n\n# Role: Assistant\n\n`;
+    const worker = `系統互動本文\n\n${EN}\n\n# Claude Code Runtime\n\n`;
+    expect(await heads([staff.length, worker.length])).toEqual([staff, worker]);
+    expect((await mockApi.getBootDoc("user_language", "global")).isDefault).toBe(true);
+  });
+
+  it("under en, restoring a revision that holds the Chinese default gives the English default", async () => {
+    await mockApi.patchServerSettings({ displayLanguage: "en" });
+    await mockApi.saveBootDoc("user_language", "global", "EDITED\n");
+    const id = __injectMockDocumentRevision("user_language", "global", {
+      text: `${ZH_DEFAULT}\n`,
+      tombstoned: "false",
+    });
+    await mockApi.restoreDocumentHistory("user_language", "global", id);
+    expect(await mockApi.getBootDoc("user_language", "global")).toMatchObject({
+      text: "Use English for everything you write to the user, including reports.",
+      isDefault: true,
+    });
+  });
+
+  it("refuses a write to the glossary with 405", async () => {
+    await expect(
+      mockApi.saveBootDoc("term_glossary", "global", "| a | b |\n")
+    ).rejects.toMatchObject({ status: 405 });
+  });
 });
 
 describe("mockApi · getMemberBootContext", () => {
@@ -409,9 +643,9 @@ describe("mockApi · getMemberBootContext", () => {
 
     const ctx = await mockApi.getMemberBootContext("mira");
 
-    const lore = ctx.indexOf("\n\n# 傳承\n\n");
+    const lore = ctx.indexOf("\n\n# Lore\n\n");
     const everyone = ctx.indexOf("## L-7 回報前先讀一次自己寫的東西");
-    const pinned = ctx.indexOf("## L-1 成功回應不代表資料完整（置頂）");
+    const pinned = ctx.indexOf("## L-1 成功回應不代表資料完整 (pinned)");
     const active = ctx.indexOf("## L-2 零命中的預設解讀是查法寫錯了");
     expect(lore).toBeGreaterThan(ctx.indexOf("# Role: "));
     expect(pinned).toBeGreaterThan(lore);
@@ -436,7 +670,7 @@ describe("mockApi · getMemberBootContext", () => {
 
     const ctx = await mockApi.getMemberBootContext("codex-staff");
 
-    expect(ctx).toContain("# 傳承\n\n## L-7 回報前先讀一次自己寫的東西");
+    expect(ctx).toContain("# Lore\n\n## L-7 回報前先讀一次自己寫的東西");
     expect(ctx).not.toContain("成功回應不代表資料完整");
     expect(ctx.endsWith("\n\ncodex 版\n")).toBe(true);
     expect(ctx).not.toContain("claude 版");
@@ -449,7 +683,7 @@ describe("mockApi · getMemberBootContext", () => {
 
     const role = ctx.indexOf("# Role: ");
     const insight = ctx.indexOf("\n\n# Insight (assistant)\n\n");
-    const lore = ctx.indexOf("\n\n# 傳承\n\n");
+    const lore = ctx.indexOf("\n\n# Lore\n\n");
     const bootSteps = ctx.indexOf("\n\nclaude 版\n");
     expect(role).toBeGreaterThan(-1);
     expect(insight).toBeGreaterThan(role);
@@ -464,7 +698,7 @@ describe("mockApi · getMemberBootContext", () => {
 
     const ctx = await mockApi.getMemberBootContext("mira");
 
-    expect(ctx).toContain("\n\n# 傳承\n\n## L-1 成功回應不代表資料完整（置頂）\n\n");
+    expect(ctx).toContain("\n\n# Lore\n\n## L-1 成功回應不代表資料完整 (pinned)\n\n");
     expect(ctx).not.toContain("回報前先讀一次自己寫的東西");
     expect(ctx).not.toContain("零命中的預設解讀是查法寫錯了");
   });

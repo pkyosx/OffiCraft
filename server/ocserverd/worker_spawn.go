@@ -49,7 +49,7 @@ const (
 )
 
 // buildWorkerBootContext is the staff boot context minus the role content
-// (owner-ruled): 系統互動 and 使用者自訂 byte-identical to staff's, then the 傳承
+// (owner-ruled): 系統互動, 使用者語言 and 使用者自訂 byte-identical to staff's, then the 傳承
 // block (everyone scope, then this member's own entries, one budget — owner card
 // rc-3c24fdc61ed3), then the runtime's 啟動步驟 seed LAST (recency-authoritative).
 // Nothing is written FOR outsource readers. The bound task, the type manual and
@@ -100,8 +100,8 @@ func (s *apiServer) pickWorkerWarden(w OutsourceWorker, preferred string, now fl
 // resolved); the reason is what the owner reads on the cockpit.
 func (s *apiServer) resolveWorkerPlacement(w OutsourceWorker, preferred string, now float64) (string, string) {
 	if preferred == "" {
-		return "", placementReasonNoMachine + ": no machine is selected for this worker — " +
-			"pick one on the worker (改機器) or on the task type's 手冊 assignee; " +
+		return "", placementReasonNoMachine + ": no machine is selected for this outsource member — " +
+			"pick one on the outsource member (Change machine) or in the task manual's Assigned executor; " +
 			"there is no automatic placement"
 	}
 	unavailable := func(detail string) (string, string) {
@@ -211,9 +211,9 @@ var spawnBlockedReasonCodes = []string{
 }
 
 const sessionAliveWakeReceipt = spawnReasonSessionAlive + ": it was already " +
-	"running — 喚醒 left that session alone and dispatched nothing. Its work, and " +
-	"any 加速停止 or 重新聚焦 already under way on it, are untouched. To end the " +
-	"current session and start a fresh one, press 強制停止 first, then 喚醒"
+	"running — Wake left that session alone and dispatched nothing. Its work, and " +
+	"any Accelerated stop or Refocus already under way on it, are untouched. To end the " +
+	"current session and start a fresh one, press Force stop first, then Wake"
 
 // stampSessionAliveWakeReceipt is the one writer of that receipt, staff and outsource alike. It is a
 // success with a note, not a refusal: leaving a running session alone is what 喚醒 is meant to do.
@@ -225,8 +225,8 @@ func stampSessionAliveWakeReceipt(m *Member, now float64) {
 const sessionAliveWakeNote = " — the start window then lapsed, but that is NOT a " +
 	"runtime failure: the previous session is still running and the warden refused " +
 	"to stomp it, so nothing new was ever started. Do not go looking for a broken " +
-	"runtime on that machine; deal with the live session — press 強制停止 to " +
-	"end it, then 喚醒."
+	"runtime on that machine; deal with the live session — press Force stop to " +
+	"end it, then Wake."
 
 // wakeTimeoutOverWardenReceipt keeps a warden's clobber or machine-setup refusal
 // from being overwritten by a wake_timeout stamp (clearWorkerPlacementBlock
@@ -832,7 +832,7 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 	}
 	if !armed {
 		outsourceLog("%s %s (%s): wind-down NOT re-opened — this worker is stopped, "+
-			"released, its wind-down is already collected, or it is further along the ladder (下線 → 加速 → 強制) at %q; "+
+			"released, its wind-down is already collected, or it is further along the ladder (Stop → Accelerated stop → Force stop) at %q; "+
 			"the change is saved and what is open keeps its own deadline",
 			op, w.ID, w.Codename, fresh.RefocusOp)
 		return false

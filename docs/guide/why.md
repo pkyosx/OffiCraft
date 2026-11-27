@@ -1,156 +1,156 @@
-# 為什麼是 OffiCraft
+# Why OffiCraft
 
-讀完這頁，你能判斷 OffiCraft 適不適合你，並知道接下來該讀哪一頁。
+After reading this page, you can decide whether OffiCraft suits you, and you will know which page to read next.
 
-**Craft your own AI office.** OffiCraft 是一間開在你自己電腦上的 AI 工作室。你請 AI 成員進來工作：正職成員長期負責一個領域，外包為一件事加入、做完就離開。你把整件事交給成員去做，在網頁控制台上看成員做到哪裡。需要你決定的事，成員會開一張請示卡，等你回覆。
+**Craft your own AI office.** OffiCraft is an AI studio that runs on your own computer. You bring AI members in to work: a staff member is responsible for one area over the long term, and an outsource member joins for one piece of work and leaves when it is done. You hand a whole piece of work to a member and follow the member's progress in the web console. When something needs your decision, the member opens a reply card and waits for your answer.
 
-每位成員背後，是你電腦上的一個 Claude Code 或 Codex 工作階段（session）。工作階段的記憶（context）快滿時，OffiCraft 會讓成員整理記憶、換一個新的工作階段接著做，手上的任務不受影響。
+Behind each member is a Claude Code or Codex session on your computer. When a session's memory (context) is nearly full, OffiCraft has the member summarize what it needs to remember and continue in a new session. The member's tasks are not affected.
 
 ---
 
-## 這適合你，如果…
+## OffiCraft suits you if…
 
-- 你同時開著好幾個終端機，各跑一個 Claude Code，已經分不清哪個在做什麼。
-- 你想把整件事交出去，自己只做決定：成員自己拆步驟做完，需要你拍板的事才停下來問你，而不是自己決定完才告訴你。
-- 你想讓工作室自己運轉：重複的事照任務手冊做，固定時間的事用定期訊息交代。
-- 你希望教過一次的事，成員以後都記得：你糾正過的地方與你的偏好會記成傳承，成員開工時就讀得到，換一位成員接手也一樣。
-- 你有不只一台電腦，想讓每一台都替同一間工作室做事。
+- You have several terminals open, each running Claude Code, and you can no longer tell which one is doing what.
+- You want to hand off a whole piece of work and only make the decisions yourself: the member breaks the work into steps and finishes it, and stops to ask you only when something needs your decision, instead of deciding first and telling you afterwards.
+- You want the studio to run on its own: repeated work follows a task manual, and work at set times is given through scheduled messages.
+- You want members to remember what you taught them once: your corrections and preferences are recorded as lore, which members read when they start work, including a different member who takes over.
+- You have more than one computer and want each of them to work for the same studio.
 
-## OffiCraft 不是什麼
+## What OffiCraft is not
 
 | | |
 | --- | --- |
-| **不是寫 AI 程式的開發框架。** | OffiCraft 不教你怎麼寫 AI 程式，OffiCraft 管的是一群 AI 成員怎麼分工、交接、回報。 |
-| **不是雲端服務。** | 不用註冊帳號，工作室的資料存在你的電腦上。 |
-| **不是團隊協作工具。** | 一間工作室只有一位主人，也就是你。控制台上你顯示為「CEO（你）」。 |
-| **不是聊天機器人。** | 成員有職位、有長期記憶、有正在進行的任務，不只是一個對話框。 |
+| **Not a framework for writing AI programs.** | OffiCraft does not teach you how to write AI programs. OffiCraft manages how a group of AI members divide the work, hand it over, and report back. |
+| **Not a cloud service.** | There is no account to sign up for. The studio's data is stored on your computer. |
+| **Not a team collaboration tool.** | A studio has only one owner: you. In the console you are shown as "CEO (You)". |
+| **Not a chatbot.** | Members have roles, long-term memory, and tasks in progress. A member is more than a chat window. |
 
 ---
 
-## 一天的樣子
+## A typical day
 
-| | 你 | 成員 |
+| | You | Members |
 | --- | --- | --- |
-| **早上** | 在聊天裡交代「整理這個月的客戶意見，寫成一份重點報告」 | 先開一張請示卡，請你確認任務的範圍與完成條件；你確認後建立任務，拆成幾個步驟，每個步驟寫明怎樣算做完 |
-| **中午** | 去忙別的 | 做到某一步需要你決定方向，就開一張請示卡，那一步停下來等你 |
-| **晚上** | 打開「請示」分頁，看問題與選項，點一下；成員請你驗收時，看過成果再回覆 | 照你的決定把剩下的步驟做完，把成果放到任務卡上，再開一張請示卡請你驗收；你驗收通過後結案 |
+| **Morning** | In chat, you say "Go through this month's customer feedback and write a report of the key points" | The member first opens a reply card asking you to confirm the task's scope and acceptance criteria. After you confirm, the member creates a task and breaks it into several steps, each stating what counts as done |
+| **Noon** | You work on something else | When a step needs your decision on direction, the member opens a reply card, and that step stops and waits for you |
+| **Evening** | You open the "Ask" tab, read the question and the options, and click one. When a member asks you to review the result, you look at it before replying | The member finishes the remaining steps based on your decision, attaches the result to the task card, and opens another reply card asking you to review it. After you approve it, the task is closed |
 
 ---
 
-## 你會得到什麼
+## What you get
 
-OffiCraft 的功能分成三類：交代與追蹤工作、讓工作室自己運轉、管理工作室。
+OffiCraft's features fall into three groups: giving and tracking work, letting the studio run on its own, and managing the studio.
 
-### 交代與追蹤工作
+### Giving and tracking work
 
-| 功能 | 做什麼 |
+| Feature | What it does |
 | --- | --- |
-| **成員** | 替你做事的 AI 同事。正職成員長期負責一個領域，有職位與跨對話保留的記憶；外包為一件事加入，做完就離開。關掉瀏覽器，成員照樣在工作。 |
-| **聊天** | 交代工作、@ 某位成員、上傳截圖與文件。在成員交來的文件上選一段文字寫註解，送回給成員修改；改了哪裡，用比較連結看前後差異。 |
-| **任務** | 把一件事拆成多個步驟，每個步驟寫明完成定義。你隨時看得到做到哪一步、在等什麼；全部步驟做完後，由負責的成員收尾並結案。 |
-| **請示卡** | 把需要你決定的事整理成一張帶選項的卡片，在「請示」分頁等你回覆。卡上標「AI 建議」的選項是成員推薦的做法。 |
-| **成員協作** | 每位成員知道同事是誰、負責什麼，需要時直接請同事幫忙，不必經過你轉達。 |
+| **Members** | AI colleagues who work for you. A staff member is responsible for one area over the long term and has a role and memory that is kept across conversations. An outsource member joins for one piece of work and leaves when it is done. Members keep working after you close the browser. |
+| **Chat** | Give work, @ a member, and upload screenshots and documents. In a document a member delivered, you can select text, write a comment, and send it back to the member to revise. A compare link shows what changed between versions. |
+| **Tasks** | A piece of work broken into several steps, each with a definition of done. You can always see which step the task is on and what it is waiting for. After all steps are done, the responsible member wraps up and closes the task. |
+| **Reply cards** | A card with options that sets out something you need to decide. It waits for your answer in the "Ask" tab. An option marked "AI pick" is the approach the member recommends. |
+| **Member collaboration** | Each member knows who their colleagues are and what each is responsible for, and asks a colleague for help directly when needed, without going through you. |
 
-### 讓工作室自己運轉
+### Letting the studio run on its own
 
-| 功能 | 做什麼 |
+| Feature | What it does |
 | --- | --- |
-| **任務手冊** | 把固定流程寫成手冊。交代一件事，成員會找到對應的手冊，照手冊的步驟做，交給手冊指定的成員或外包。 |
-| **定期訊息** | 在固定時刻把預先寫好的交代送給成員，例如「每天早上整理昨天的進度」。 |
-| **回呼端點（webhook）** | 把其他服務送來的通知交給負責的成員處理，例如 Slack 有新訊息。成員依端點的用途說明判斷，超出用途的要求不執行，無法判斷時開請示卡問你。 |
-| **傳承** | 把你糾正過的地方、你的偏好、成員做事學到的判斷記下來。接手的成員或換了模型的成員，開工時就讀得到。 |
+| **Task manuals** | A fixed process written down as a manual. When you give a piece of work, the member finds the matching manual, follows its steps, and hands the work to the member or outsource member the manual names. |
+| **Scheduled messages** | At set times, a message you wrote in advance is sent to a member, for example "Every morning, summarize yesterday's progress". |
+| **Webhook endpoints** | Notifications sent by other services are passed to the responsible member, for example a new Slack message. The member decides what to do based on the endpoint's purpose, does not carry out requests outside that purpose, and opens a reply card to ask you when it cannot decide. |
+| **Lore** | Records your corrections, your preferences, and the judgment members learn while working. A member who takes over, or a member whose model was changed, reads it when starting work. |
 
-### 管理工作室
+### Managing the studio
 
-| 功能 | 做什麼 |
+| Feature | What it does |
 | --- | --- |
-| **多台機器** | 控制台會給你一行安裝指令。在另一台電腦上執行後，那台電腦就加入同一間工作室，成員可以派到那台電腦上工作。 |
-| **Claude Code 與 Codex** | 成員用的就是你電腦上的 Claude Code 或 Codex，沿用你原本的登入與設定；Claude Code 的 skill、plugin、MCP 都照常可用。 |
-| **密鑰** | 把金鑰、token 這類機密存在「密鑰」分頁。存進去之後畫面上不再顯示原值，成員需要時再取用。 |
-| **監控** | 列出每位成員在哪台機器、用哪個模型、估計花了多少，以及每個帳號在 5 小時窗與 7 天窗的用量。 |
-| **登入保護** | 控制台要登入，可以加上兩步驟驗證或改用通行密鑰。 |
-| **手機版面** | 控制台可以加到手機主畫面、接收推播通知。通勤時也能回請示卡、看進度。 |
+| **Multiple machines** | The console gives you a one-line install command. After you run it on another computer, that computer joins the same studio, and members can be assigned to work on it. |
+| **Claude Code and Codex** | Members use the Claude Code or Codex on your computer, with your existing login and settings. Claude Code skills, plugins, and MCP all work as usual. |
+| **Secrets** | Store keys, tokens, and other confidential values in the "Secrets" tab. Once stored, the original value is no longer shown on screen; members retrieve it when they need it. |
+| **Monitoring** | Lists which machine each member is on, which model it uses, and its estimated cost, plus each account's usage in the 5-hour window and the 7-day window. |
+| **Login protection** | The console requires a login. You can add two-factor authentication or use passkeys instead. |
+| **Mobile layout** | You can add the console to your phone's home screen and receive push notifications, so you can answer reply cards and check progress on the go. |
 
 ---
 
-## OffiCraft 怎麼運作
+## How OffiCraft works
 
 ```
-你（CEO）
- └─ 成員 ── 背後是一個 Claude Code 或 Codex 工作階段
-      └─ 任務 ── 拆成多個步驟，每個步驟有完成定義
-           └─ 需要你決定 ──> 開一張請示卡 ──> 你回覆 ──> 繼續
+You (CEO)
+ └─ Member ── backed by a Claude Code or Codex session
+      └─ Task ── broken into steps, each with a definition of done
+           └─ Needs your decision ──> opens a reply card ──> you reply ──> work continues
 ```
 
-| 名詞 | 是什麼 |
+| Term | What it is |
 | --- | --- |
-| **你（CEO）** | 工作室的主人，整間工作室只有一位。 |
-| **成員** | 工作室裡的 AI 同事，分成長期負責一個領域的正職，和為一件事加入、做完就離開的外包。每位成員背後是一個 Claude Code 或 Codex 工作階段，記憶快滿時會自動換一個新的工作階段接著做。 |
-| **角色** | 正職成員的職位。每個角色有自己的角色定義與判準，換人接手時，這些記憶跟著角色走。 |
-| **任務** | 一件要追蹤到結案的事，拆成帶完成定義的多個步驟。 |
-| **請示卡** | 成員需要你決定時開的卡片。成員會停在那一步等你回覆，不會替你決定。 |
-| **控制台** | 你操作工作室的網頁，分頁有辦公室、請示、任務、密鑰、檔案庫、傳承、監控；右上角的齒輪進入設定，使用說明也在設定裡。 |
+| **You (CEO)** | The owner of the studio. There is only one per studio. |
+| **Member** | An AI colleague in the studio. There are staff members, who are responsible for one area over the long term, and outsource members, who join for one piece of work and leave when it is done. Behind each member is a Claude Code or Codex session; when its memory is nearly full, the member automatically continues in a new session. |
+| **Role** | A staff member's position. Each role has its own Duty and Insight (judgement calls). When a different member takes over, this memory stays with the role. |
+| **Task** | A piece of work to track until it is closed, broken into several steps, each with a definition of done. |
+| **Reply card** | A card a member opens when it needs your decision. The member stops at that step and waits for your answer; it does not decide for you. |
+| **Console** | The web page you use to run the studio. Its tabs are Office, Ask, Task, Secrets, Files, Lore, and Monitor. The gear icon in the top right opens Settings, and the User guide is also in Settings. |
 
-剛裝好時，工作室裡只有兩個人：你，和你的助理 **Mira**。
+Right after installation, the studio has only two people: you, and your Assistant, **Mira**.
 
-想知道 OffiCraft 在你的電腦上實際跑了哪些程式，見 [架構與運作原理](architecture.md)。
-
----
-
-## 使用前要知道的限制
-
-- **成員不經確認就能操作你的電腦。** 成員在背景工作，旁邊沒有人能按「允許」，所以 Claude Code 和 Codex 都設成跳過權限確認、直接執行。代價是成員在你的電腦上能做的事很多；約束成員的是成員讀到的工作守則，以及「需要你決定的事要開請示卡」這條規則，不是系統的權限控管。**請先接受這一點再安裝。** 實際的設定方式見 [架構與運作原理](architecture.md) 的「成員的權限設定」。
-- **支援 Apple Silicon（M 系列晶片）的 Mac、x86_64 與 arm64 的 Linux，以及透過 WSL2 的 Windows。** WSL2 是 Windows 內建、在 Windows 裡執行 Linux 的功能；不支援直接在 Windows 上執行。其他電腦在安裝時會直接被拒絕。見 [安裝、升級與移除](install.md)。
-- **每台要讓成員工作的電腦，都要裝 `tmux`，以及 Claude Code 或 Codex 至少一種。** `tmux` 是讓程式在背景持續執行的終端機工具。版本需求見 [安裝、升級與移除](install.md)。
-- **成員用的是你自己的 Claude 或 Codex 帳號用量。** 對話內容照常送到 Anthropic 或 OpenAI。
-- **有幾項功能會連到外部服務。** 檢查更新會讀 GitHub 上的 release 頁；開啟推播通知時，通知會經過瀏覽器廠商的推播服務，你填的通知信箱也會提供給該服務。
+To see which programs OffiCraft actually runs on your computer, see [Architecture and how it works](architecture.md).
 
 ---
 
-## 接下來看哪一份
+## Limitations to know before you start
 
-使用說明分成五組，不必全部讀完，需要什麼看什麼。
+- **Members can operate your computer without asking for confirmation.** Members work in the background with no one present to click "Allow", so Claude Code and Codex are both set to skip permission prompts and run commands directly. As a result, members can do a lot on your computer. What limits members is the work rules they read and the rule that anything needing your decision requires a reply card, not the system's permission controls. **Accept this before you install.** For the actual settings, see "Member permission settings" in [Architecture and how it works](architecture.md).
+- **Supported: Macs with Apple Silicon (M-series chips), Linux on x86_64 and arm64, and Windows through WSL2.** WSL2 is a built-in Windows feature that runs Linux inside Windows. Running directly on Windows is not supported. The installer refuses any other computer. See [Install, upgrade, and uninstall](install.md).
+- **Every computer that members work on needs `tmux` and at least one of Claude Code or Codex.** `tmux` is a terminal tool that keeps programs running in the background. For version requirements, see [Install, upgrade, and uninstall](install.md).
+- **Members use your own Claude or Codex account's usage.** Conversations are sent to Anthropic or OpenAI as usual.
+- **A few features connect to outside services.** Checking for updates reads the release page on GitHub. When push notifications are on, notifications pass through the browser vendor's push service, and the notification email you enter is also given to that service.
 
-**開始使用**
+---
 
-第一次接觸 OffiCraft、準備安裝，或剛裝好想走一遍時讀。
+## What to read next
 
-- [安裝、升級與移除](install.md) — 前置需求、安裝、升級、移除，以及加入或移除其他機器。
-- [你的第一個辦公室](quickstart.md) — 十分鐘走完設密碼、交出第一件事、回覆第一張請示卡。
-- [保護你的工作室](security.md) — 從手機或外面連進來之前，該設好的密碼、兩步驟驗證與通行密鑰。
+The user guide is split into five groups. You do not need to read all of it; read what you need.
 
-**日常使用**
+**Getting started**
 
-每天交代工作、回覆請示卡、看進度與用量時讀。
+Read these when you are new to OffiCraft, getting ready to install, or have just installed and want to try it out.
 
-- [交代工作與回覆請示卡](daily.md) — 聊天、附件、@ 成員、把成員分群組、回覆請示卡，以及在成員交來的文件上寫註解。
-- [追蹤任務進度](tasks.md) — 看懂任務的狀態、步驟與關卡，驗收成果或強制結案。
-- [管理 AI 帳號與用量](usage.md) — 在「監控」分頁看每個帳號的用量、估計花費與每位成員用的帳號與模型，替機器登入帳號、升級 Claude Code。
-- [在手機上用](mobile.md) — 從手機連上控制台、加到主畫面、開推播通知。
+- [Install, upgrade, and uninstall](install.md) — Prerequisites, installing, upgrading, uninstalling, and adding or removing other machines.
+- [Your first office](quickstart.md) — Ten minutes to set a password, hand off your first piece of work, and answer your first reply card.
+- [Protect your studio](security.md) — The password, two-factor authentication, and passkeys to set up before you connect from your phone or from outside.
 
-**讓工作室自己運轉**
+**Daily use**
 
-想把重複、定時或從外部來的工作交出去，或想增加成員時讀。
+Read these for giving work, answering reply cards, and checking progress and usage every day.
 
-- [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md) — 寫任務手冊，決定哪些步驟要停下來等你。
-- [定時做某件事（定期訊息）](schedule.md) — 設定期訊息，讓成員在固定時刻收到預先寫好的交代（成員要在線上才會處理）。
-- [讓外部事件自動送給成員（回呼端點）](webhook.md) — 建回呼端點，把其他服務送來的通知（例如 Slack 的新訊息）交給負責的成員。
-- [讓成員記住你教過的事（傳承）](lore.md) — 寫下你是誰、哪些事不能碰（使用者自訂）、各角色職責，以及成員學到的經驗（傳承）。
-- [把帳號金鑰交給成員用（密鑰）](secrets.md) — 存密鑰，讓成員取用而不必貼進聊天。
-- [增加成員與發外包](members.md) — 新增正職、發外包、喚醒與停止成員、換模型與機器、看懂狀態圖示，以及判斷該外包還是加常駐成員。
+- [Assigning work and answering reply cards](daily.md) — Chat, attachments, @ a member, grouping members, answering reply cards, and commenting on documents members deliver.
+- [Tracking task progress](tasks.md) — Understanding a task's status, steps, and gates, reviewing results, and force-closing a task.
+- [Manage AI accounts and usage](usage.md) — In the "Monitor" tab, see each account's usage, estimated cost, and the account and model each member uses; log a machine in to an account; upgrade Claude Code.
+- [Use it on your phone](mobile.md) — Connect to the console from your phone, add it to your home screen, and turn on push notifications.
 
-**查詢與參考**
+**Letting the studio run on its own**
 
-想查某個欄位、參數或名詞，或想知道底層怎麼運作時讀。
+Read these when you want to hand off repeated, timed, or externally triggered work, or want to add members.
 
-- [介面說明](interface.md) — 每個分頁與欄位的對照。
-- [設定與參數](settings.md) — 設定的六個子頁與每格參數的範圍。
-- [主題（外觀與用語）](theme.md) — 換外觀、依時段切換、背景動畫、自訂與匯入匯出主題、應景主題。
-- [架構與運作原理](architecture.md) — server、機器與成員怎麼分工。
-- [名詞表](glossary.md) — OffiCraft 用到的名詞。
+- [Having AI follow an SOP for repeated work (Task manuals)](sop.md) — Write task manuals and decide which steps stop and wait for you.
+- [Doing something on a schedule (Scheduled messages)](schedule.md) — Set up scheduled messages so that a member receives a message you wrote in advance at set times (the member must be online to handle it).
+- [Send outside events to members automatically (webhooks)](webhook.md) — Create webhook endpoints that pass notifications from other services (for example, new Slack messages) to the responsible member.
+- [Making members remember what you taught them (Lore)](lore.md) — Write down who you are, what must not be touched (user-defined), each role's responsibilities, and what members have learned (lore).
+- [Give members your account keys (secrets)](secrets.md) — Store secrets so members can use them without your pasting them into chat.
+- [Adding members and hiring outsource](members.md) — Add staff members, hire outsource members, wake and stop members, change models and machines, understand status icons, and decide whether to use outsource or add a permanent member.
 
-**遇到問題**
+**Lookup and reference**
 
-安裝或使用時遇到問題，或要自己備份、還原資料庫時讀。
+Read these when you want to look up a field, a setting, or a term, or want to know how things work underneath.
 
-- [常見問題與排解](troubleshooting.md) — 安裝失敗、成員起不來、連不上、升級沒生效，以及備份與還原。
+- [Interface reference](interface.md) — A guide to every tab and field.
+- [Settings](settings.md) — The six Settings subpages and the range of every parameter.
+- [Themes (look and wording)](theme.md) — Change the look, switch by time of day, background animations, custom themes and importing/exporting them, and seasonal themes.
+- [Architecture and how it works](architecture.md) — How the server, machines, and members divide the work.
+- [Glossary](glossary.md) — Terms used in OffiCraft.
+
+**When something goes wrong**
+
+Read this when you run into a problem installing or using OffiCraft, or need to back up or restore the database yourself.
+
+- [Troubleshooting and FAQ](troubleshooting.md) — Failed installs, members that do not start, connection problems, upgrades that did not take effect, and backup and restore.

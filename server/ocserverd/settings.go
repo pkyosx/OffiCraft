@@ -143,9 +143,10 @@ const (
 	settingUpdaterCheckIntervalSecs = "updater.check_interval_secs"
 	// An absent row reads true (release_announce.go).
 	settingUpdaterAnnounceFeatures = "updater.announce_features"
-	// org.name reaches every agent via get_global_context; owner.name and
-	// display.* never enter an agent read path. "" = never set: the frontend
-	// falls back to its localized default / cached value.
+	// org.name reaches every agent via get_global_context; display.language
+	// reaches every member's boot context (userLanguageBlock); owner.name and the
+	// other display.* never enter an agent read path. "" = never set: the
+	// frontend falls back to its localized default / cached value.
 	settingOrgName = "org.name"
 
 	settingOwnerName = "owner.name"
@@ -161,6 +162,8 @@ const (
 	settingDisplayLanguage = "display.language"
 
 	settingDisplayWide = "display.wide"
+
+	settingDeveloperMode = "doc.developer_mode"
 
 	settingDisplaySeasonalTheme = "display.seasonal_theme"
 
@@ -307,6 +310,7 @@ type authSettings struct {
 	displayTheme                     string
 	displayLanguage                  string
 	displayWide                      bool
+	developerMode                    bool
 	displaySeasonalTheme             bool
 	displayThemeSchedule             []ThemeScheduleEntryDTO
 
@@ -755,7 +759,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		return out, err
 	}
 	if err := loadCap(settingDocCapCharsManualSop, minDocCapChars, maxDocCapChars,
-		&out.docCapCharsManualSop, contextDocMaxCharsDefault); err != nil {
+		&out.docCapCharsManualSop, manualSopCapCharsDefault); err != nil {
 		return out, err
 	}
 	if err := loadCap(settingDocCapCharsSystemInteraction, minDocCapChars, maxDocCapChars,
@@ -875,6 +879,9 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		return out, err
 	}
 	if err := getBool(settingDisplayWide, &out.displayWide); err != nil {
+		return out, err
+	}
+	if err := getBool(settingDeveloperMode, &out.developerMode); err != nil {
 		return out, err
 	}
 	if err := getBool(settingDisplaySeasonalTheme, &out.displaySeasonalTheme); err != nil {

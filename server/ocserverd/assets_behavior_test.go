@@ -101,8 +101,8 @@ func TestBuildBootContextSelectsRuntimeBootSequence(t *testing.T) {
 		want    string
 		absent  string
 	}{
-		{"claude", RuntimeClaude, "# Claude Code 執行環境", "# Codex App Server 執行環境"},
-		{"codex", RuntimeCodex, "# Codex App Server 執行環境", "# Claude Code 執行環境"},
+		{"claude", RuntimeClaude, "# Claude Code Runtime", "# Codex App Server Runtime"},
+		{"codex", RuntimeCodex, "# Codex App Server Runtime", "# Claude Code Runtime"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			boot, err := s.buildBootContext("assistant", &Member{Runtime: tc.runtime})
@@ -270,7 +270,7 @@ func TestNoShippedSeedHardcodesTheMembersDisplayName(t *testing.T) {
 	}
 	// Positive control for the Contains probe below: this assertion really can
 	// see inside a staged seed's bytes.
-	if !strings.Contains(seen["role_def_assistant.md"], "助理") {
+	if !strings.Contains(seen["role_def_assistant.md"], "# Assistant") {
 		t.Fatalf("fixture — the staged role definition does not read like a duty document: %s",
 			seedExcerpt("role_def_assistant.md", seen["role_def_assistant.md"]))
 	}

@@ -115,7 +115,7 @@ REGEN_PAIR_GATE = $(P) \
   test-frontend-unit \
   test-frontend-ct test-conformance \
   scan-tracked-paths scan-secrets scan-tcc-anchor \
-  drift-ocapi drift-schema-ts drift-builtin-themes drift-theme-tokens drift-message-keys drift-fonts \
+  drift-ocapi drift-schema-ts drift-builtin-themes drift-theme-tokens drift-message-keys drift-term-aliases drift-fonts \
   drift-mcp-catalog \
   drift-sse-topics \
   drift-migration-lock check-released-migrations
@@ -956,6 +956,13 @@ drift-theme-tokens: build-frontend-deps
 drift-message-keys: build-frontend-deps
 	@echo "[drift-message-keys] regenerate from locales/en.ts + diff committed (T-16a1 P3)"
 	@$(call REGEN_PAIR_GATE,message-key whitelist,gen:msgkeys,frontend/src/i18n/messageKeys.generated.ts,server/ocserverd/message_keys_gen.go); \
+	$(DONE)
+
+# The shipped glossary (seeds/term_glossary.md) is
+# GENERATED from i18n/termAliases.ts and the zh/en dictionaries.
+drift-term-aliases: build-frontend-deps
+	@echo "[drift-term-aliases] regenerate from i18n/termAliases.ts + locales + diff committed"
+	@$(call REGEN_PAIR_GATE,term-alias table,gen:termaliases,spec/term-aliases.json,seeds/term_glossary.md); \
 	$(DONE)
 
 # themeFonts.source.json is the single font contract; the theme-bundle `fonts`

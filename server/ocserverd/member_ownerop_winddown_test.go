@@ -446,7 +446,7 @@ func TestApplyWorkerStoppedOwnerOp(t *testing.T) {
 			OutsourceWorker{ID: "ow-queue", Codename: "Contractor", Status: WorkerStatusActive,
 				DesiredState: DesiredStateOffline,
 				LastOp:       "start", LastOpOK: &queuedOK,
-				LastOpReason: "held_down: the relocate was saved; this member stays stopped — press 喚醒 when you want it to run",
+				LastOpReason: "held_down: the relocate was saved; this member stays stopped — press Wake when you want it to run",
 				LastOpAt:     1234.5},
 		},
 		{

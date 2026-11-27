@@ -48,7 +48,7 @@ func decisionOf(t *testing.T, stdout string) string {
 		t.Errorf("refusal text diverged:\n got %q\nwant %q",
 			got.HookSpecificOutput.PermissionDecisionReason, guardBashRefusal)
 	}
-	if !strings.Contains(stdout, "<完整路徑>") {
+	if !strings.Contains(stdout, "<full path>") {
 		t.Errorf("the decision document escaped the refusal instead of emitting it as written: %q", stdout)
 	}
 	return got.HookSpecificOutput.PermissionDecision
@@ -224,16 +224,16 @@ func TestGuardBash_RefusalIsAStatementAboutTheEnvironmentNotARequest(t *testing.
 	// about the environment the same member rewrote the path and finished. This
 	// pins the two halves that carry that distinction, so softening the string
 	// back into a request is red rather than a silent regression.
-	if !strings.Contains(guardBashRefusal, "本環境沒有人可以回答") {
+	if !strings.Contains(guardBashRefusal, "nobody in this environment can answer") {
 		t.Error("the refusal no longer says WHY the environment forbids this; " +
 			"without it the text reads as one more request the member may decline")
 	}
-	if !strings.Contains(guardBashRefusal, "不是建議") {
+	if !strings.Contains(guardBashRefusal, "not a suggestion") {
 		t.Error("the refusal no longer states that it is not a suggestion; " +
 			"that clause is what stops the member treating tool output as an instruction to weigh")
 	}
 	// It also has to say what to do instead, or the member has a refusal and no exit.
-	if !strings.Contains(guardBashRefusal, "rm -r <完整路徑>") {
+	if !strings.Contains(guardBashRefusal, "rm -r <full path>") {
 		t.Error("the refusal no longer names a way forward")
 	}
 	// The way forward must not be a shape that stalls too. This text used to
@@ -241,7 +241,7 @@ func TestGuardBash_RefusalIsAStatementAboutTheEnvironmentNotARequest(t *testing.
 	// complies writes `cd "$D" && rm -rf ./*`, which this guard allows — see the
 	// allow table in TestGuardBash_AllowsEverythingElse. The guard was handing the
 	// member the stall it exists to prevent.
-	if !strings.Contains(guardBashRefusal, "一樣會停住") {
+	if !strings.Contains(guardBashRefusal, "stops the same way") {
 		t.Error("the refusal no longer warns that the cd-plus-relative-glob rewrite " +
 			"stalls as well; without that warning this text sends the member into " +
 			"a shape this guard does not catch")

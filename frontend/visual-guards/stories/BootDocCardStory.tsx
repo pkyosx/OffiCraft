@@ -51,7 +51,8 @@ export function BootDocCardStory() {
   useEffect(() => {
     let alive = true;
     void api
-      .saveBootDoc("boot_sequence", "claude", DOC)
+      .patchServerSettings({ developerMode: true })
+      .then(() => api.saveBootDoc("boot_sequence", "claude", DOC))
       .then(() => alive && setReady(true));
     return () => {
       alive = false;

@@ -2,9 +2,11 @@ package main
 
 import (
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -171,7 +173,7 @@ func TestSeedInsightMD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seedInsightMD(assistant): %v", err)
 	}
-	if !hasSeed || !strings.Contains(text, "# 接案窗口") {
+	if !hasSeed || !strings.Contains(text, "# Intake Point of Contact") {
 		t.Fatalf("seedInsightMD(assistant) = (%q, %v), want the embedded assistant insight", text, hasSeed)
 	}
 	if strings.Contains(text, ownerPlaceholder) {
@@ -352,6 +354,150 @@ func TestBootSequenceSeedForKey(t *testing.T) {
 	}
 }
 
+// The User Language defaults and glossary exactly as this build ships them, written out so
+// the assembled block is compared with bytes, not with what the code computes.
+const (
+	apiTestUserLanguageZh = "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。"
+	apiTestUserLanguageEn = "Use English for everything you write to the user, including reports."
+)
+
+const apiTestUserLanguageGlossary = "If the user writes one of the Chinese screen names in this table, it means the English term in the same row.\n\n" +
+	"| English (this document) | Chinese on screen |\n" +
+	"| --- | --- |\n" +
+	"| Office | 辦公室 |\n" +
+	"| Reply card／Ask | 請示卡／請示 |\n" +
+	"| Task | 任務 |\n" +
+	"| Task type | 任務類型 |\n" +
+	"| Step | 步驟 |\n" +
+	"| Task manuals | 任務手冊 |\n" +
+	"| Files | 檔案庫 |\n" +
+	"| Secrets | 密鑰 |\n" +
+	"| Lore | 傳承 |\n" +
+	"| Member lore | 成員傳承 |\n" +
+	"| Task lore | 任務傳承 |\n" +
+	"| Instruction conflict | 指示衝突 |\n" +
+	"| Instruction supplement | 指示補充 |\n" +
+	"| Owner decision | Owner 決策 |\n" +
+	"| Owner preference | Owner 偏好 |\n" +
+	"| Monitor | 監控 |\n" +
+	"| Settings | 設定 |\n" +
+	"| Global context | 全域情境 |\n" +
+	"| System interaction | 系統互動 |\n" +
+	"| User additions | 使用者自訂 |\n" +
+	"| Boot steps | 啟動步驟 |\n" +
+	"| Roles | 角色 |\n" +
+	"| Duty | 職責 |\n" +
+	"| Insight | 判準 |\n" +
+	"| General | 一般設定 |\n" +
+	"| System update & backup | 系統更新與備份 |\n" +
+	"| Theme | 主題 |\n" +
+	"| Preferences | 偏好設定 |\n" +
+	"| Member | 成員 |\n" +
+	"| Staff | 正職 |\n" +
+	"| Outsource | 外包 |\n" +
+	"| Assistant | 特助 |\n" +
+	"| Wake | 喚醒 |\n" +
+	"| Refocus | 重新聚焦 |\n" +
+	"| Stop | 停止 |\n" +
+	"| Accelerated stop | 加速停止 |\n" +
+	"| Machines | 機器 |\n" +
+	"| Webhook endpoints | 回呼端點 |\n" +
+	"| Signing keys | 簽章金鑰 |\n" +
+	"| User guide | 使用說明 |"
+
+const (
+	apiTestUserLanguageBlockZh = "# User Language\n\n" + apiTestUserLanguageZh + "\n\n" + apiTestUserLanguageGlossary
+	apiTestUserLanguageBlockEn = "# User Language\n\n" + apiTestUserLanguageEn + "\n\n" + apiTestUserLanguageGlossary
+)
+
+func TestUserLanguageBlock(t *testing.T) {
+	block := func(t *testing.T, api *apiServer) string {
+		t.Helper()
+		got, err := api.userLanguageBlock()
+		if err != nil {
+			t.Fatalf("userLanguageBlock: %v", err)
+		}
+		return got
+	}
+	setLanguage := func(t *testing.T, h http.Handler, owner, lang string) {
+		t.Helper()
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"`+lang+`"}`); status != 200 {
+			t.Fatalf("PATCH display_language %q: %d %v", lang, status, data)
+		}
+	}
+	write := func(t *testing.T, h http.Handler, owner, body string) {
+		t.Helper()
+		if status, data := apiJSON(t, h, "POST", "/api/boot-docs/user_language/global", owner,
+			`{"body":`+strconv.Quote(body)+`,"allow_shrink":true}`); status != 200 {
+			t.Fatalf("replace user_language/global: %d %v", status, data)
+		}
+	}
+
+	t.Run("an unedited document assembles the Chinese default when the language is unset or zh, and the English default for en", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if got := block(t, api); got != apiTestUserLanguageBlockZh {
+			t.Fatalf("unset:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockZh)
+		}
+		setLanguage(t, h, owner, "zh")
+		if got := block(t, api); got != apiTestUserLanguageBlockZh {
+			t.Fatalf("zh:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockZh)
+		}
+		setLanguage(t, h, owner, "en")
+		if got := block(t, api); got != apiTestUserLanguageBlockEn {
+			t.Fatalf("en:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockEn)
+		}
+	})
+
+	t.Run("an edit saved with developer mode off is the block under every language", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		write(t, h, owner, "Reply in Klingon.\n")
+		want := "# User Language\n\nReply in Klingon.\n\n" + apiTestUserLanguageGlossary
+		for _, lang := range []string{"en", "zh", ""} {
+			setLanguage(t, h, owner, lang)
+			if got := block(t, api); got != want {
+				t.Fatalf("display_language %q:\n%s\nwant:\n%s", lang, got, want)
+			}
+		}
+	})
+
+	t.Run("saving the Chinese default while the language is en reads as the English default", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		write(t, h, owner, "EDITED")
+		setLanguage(t, h, owner, "en")
+		write(t, h, owner, "\n"+apiTestUserLanguageZh+"\n\n")
+		if got := block(t, api); got != apiTestUserLanguageBlockEn {
+			t.Fatalf("en:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockEn)
+		}
+		setLanguage(t, h, owner, "zh")
+		if got := block(t, api); got != apiTestUserLanguageBlockZh {
+			t.Fatalf("zh:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockZh)
+		}
+	})
+
+	t.Run("a reset with developer mode off follows the language again", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		write(t, h, owner, "EDITED")
+		if status, data := apiJSON(t, h, "POST", "/api/boot-docs/user_language/global/reset", owner, ""); status != 200 {
+			t.Fatalf("reset: %d %v", status, data)
+		}
+		if got := block(t, api); got != apiTestUserLanguageBlockZh {
+			t.Fatalf("zh after reset:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockZh)
+		}
+		setLanguage(t, h, owner, "en")
+		if got := block(t, api); got != apiTestUserLanguageBlockEn {
+			t.Fatalf("en after reset:\n%s\nwant:\n%s", got, apiTestUserLanguageBlockEn)
+		}
+	})
+
+	t.Run("an emptied document leaves the glossary under the heading", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		write(t, h, owner, "")
+		if got, want := block(t, api), "# User Language\n\n"+apiTestUserLanguageGlossary; got != want {
+			t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+		}
+	})
+}
+
 func TestBuildBootContext(t *testing.T) {
 	api, _, d, _ := newAPITestServer(t)
 	readSeed := func(name string) string {
@@ -363,7 +509,10 @@ func TestBuildBootContext(t *testing.T) {
 		return strings.ReplaceAll(string(data), ownerPlaceholder, wireOwnerID)
 	}
 	wantContext := func(userText string) string {
-		parts := []string{strings.TrimSpace(readSeed(systemInteractionSeedMD))}
+		parts := []string{
+			strings.TrimSpace(readSeed(systemInteractionSeedMD)),
+			apiTestUserLanguageBlockZh,
+		}
 		if strings.TrimSpace(userText) != "" {
 			parts = append(parts, userAdditionsTitle+"\n\n"+strings.TrimSpace(userText))
 		}

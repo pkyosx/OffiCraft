@@ -120,8 +120,8 @@ func TestBuildWorkerBootContext_FullAssembly(t *testing.T) {
 		"# Global Context", // slot 1 — the 系統互動 seed's own H1
 		// 釘的是 seed 的 H1 逐字位元組（見 worker_sharedcore_test.go 的
 		// bootSequenceH1）。rc-e12733548e4b 之後是新名。
-		"# 啟動步驟（Boot Sequence", // slot 4 — the shared boot sequence
-		"# Claude Code 執行環境",   // that runtime's 執行環境 section, leading slot 4
+		bootSequenceH1,          // slot 4 — the shared boot sequence
+		"# Claude Code Runtime", // that runtime's 執行環境 section, leading slot 4
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("boot context missing the shared block %q", want)
@@ -161,10 +161,10 @@ func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testi
 		wantEnvH1      string
 		otherRuntimeH1 string
 	}{
-		{"codex", RuntimeCodex, "# Codex App Server 執行環境",
-			"# Claude Code 執行環境"},
-		{"claude", RuntimeClaude, "# Claude Code 執行環境",
-			"# Codex App Server 執行環境"},
+		{"codex", RuntimeCodex, "# Codex App Server Runtime",
+			"# Claude Code Runtime"},
+		{"claude", RuntimeClaude, "# Claude Code Runtime",
+			"# Codex App Server Runtime"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newWorkerTestServer(t)
@@ -501,7 +501,7 @@ func TestNotifyWorkerSpawn_DispatchesMemberStart_AndPaces(t *testing.T) {
 	// the spawn path.
 	// 釘的是 seed 的 H1 逐字位元組；rc-e12733548e4b 之後是新名，與 seed 同一顆
 	// commit 換掉。
-	for _, want := range []string{"# Global Context", "# 啟動步驟（Boot Sequence"} {
+	for _, want := range []string{"# Global Context", bootSequenceH1} {
 		if !strings.Contains(persona, want) {
 			t.Errorf("persona_context is missing the shared block %q", want)
 		}
@@ -1499,8 +1499,8 @@ func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
 		"came online within the start window — check that claude runs and is logged in on that " +
 		"machine (warden log: ocwarden.out.log)"
 	const noCredential = "claude_not_logged_in: `claude auth status` reports logged out on this host."
-	const tooOld = "notify_claude_too_old: 這台機器的 Claude Code 是 2.1.200，低於 2.1.287，Claude 成員無法上線。" +
-		"請到監控頁的機器分頁升級這台機器的 Claude Code。"
+	const tooOld = "notify_claude_too_old: Claude Code on this machine is 2.1.200, below 2.1.287" +
+		", so Claude members cannot come online. Upgrade this machine's Claude Code under Monitor › Machines."
 	for _, c := range []struct {
 		name, refusal, want string
 		// machine clock offset of the refusal's stamp from the start, in seconds
@@ -1521,14 +1521,14 @@ func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
 		{name: "any other refusal: the lapse replaces it with the wake-timeout receipt",
 			refusal: "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH", want: lapsed},
 		{name: "notify mod not loaded: the lapse replaces it with the wake-timeout receipt",
-			refusal: "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。", want: lapsed},
+			refusal: "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped.", want: lapsed},
 		{name: "not logged in, but of an earlier start: the lapse of this start is a wake timeout",
 			refusal: noCredential, want: lapsed, earlier: true},
 		{name: "not logged in, but the server has since lost the start's time: the lapse is a wake timeout",
 			refusal: noCredential, restarted: true,
 			want: "wake_timeout: the start window elapsed with no session, and this server no longer has a " +
 				"record of which machine the START was sent to (the spawn ledger is in-memory and a server " +
-				"restart clears it) — use 更改 to place it again"},
+				"restart clears it) — use Change to place it again"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := newWorkerTestServer(t)

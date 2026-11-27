@@ -688,7 +688,7 @@ describe("ChatGroupPanel", () => {
     expect(autoJoinRows()).toEqual([["Create / edit role", "false"]]);
     fireEvent.click(screen.getByTestId("chat-group-autojoin-builtin-role-design"));
     expect(within(screen.getByTestId("chat-groups-bring-in")).getByRole("heading").textContent).toBe(
-      "Move the current “Create / edit role” outsource workers into “Design”?",
+      "Move the current “Create / edit role” outsource members into “Design”?",
     );
   });
 });

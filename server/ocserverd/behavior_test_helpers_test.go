@@ -17,7 +17,7 @@ import (
 	"unicode/utf8"
 )
 
-const bootSequenceH1 = "# 啟動步驟（Boot Sequence"
+const bootSequenceH1 = "# Boot Steps"
 
 // resumeCtxServer seeds the named roster used by resume-context behavior tests.
 func resumeCtxServer(t *testing.T) *apiServer {
@@ -842,6 +842,10 @@ func newBootDocFixture(t *testing.T) bootDocFixture {
 		url:   srv.URL,
 		owner: mint("owner", "owner"),
 		admin: mint("mira", "agent"),
+	}
+	if status, body := f.do(t, http.MethodPatch, "/api/settings", f.owner,
+		map[string]bool{"developer_mode": true}); status != http.StatusOK {
+		t.Fatalf("turning developer mode on: %d %s", status, body)
 	}
 	if got := classifyMember(&Member{ID: "mira", RoleKey: adminRoleKey}); got != principalAdminAgent {
 		t.Fatalf("fixture premise: seeded mira must classify as %q, got %q", principalAdminAgent, got)

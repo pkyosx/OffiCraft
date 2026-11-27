@@ -1065,7 +1065,7 @@ func TestHandleListMachinesApiMachinesGet(t *testing.T) {
 func apiTestServerSelfMachineRow(online bool) map[string]any {
 	return map[string]any{
 		"machine_id":           "m-server-self",
-		"display_name":         "伺服器這一台",
+		"display_name":         "This server",
 		"online":               online,
 		"is_self":              true,
 		"bin_status":           nil,
@@ -1970,7 +1970,7 @@ func TestHandleBootstrapHereApiMachinesMachineIdBootstrapHerePost(t *testing.T) 
 				"deleted": false,
 				"payload": map[string]any{
 					"id":            ServerSelfHost,
-					"name":          "伺服器這一台",
+					"name":          "This server",
 					"status":        "active",
 					"desired_state": "offline",
 					"owner_id":      "owner",
@@ -2868,7 +2868,7 @@ func TestHandleUpdateMachineApiMachinesMachineIdPatch(t *testing.T) {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", "display_name is required")
-		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "伺服器這一台")
+		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "This server")
 	})
 
 	t.Run("a display name that is only whitespace answers 422 and leaves the roster name alone", func(t *testing.T) {
@@ -2879,7 +2879,7 @@ func TestHandleUpdateMachineApiMachinesMachineIdPatch(t *testing.T) {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", "display_name cannot be blank")
-		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "伺服器這一台")
+		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "This server")
 	})
 
 	t.Run("a body carrying a field the shape does not declare answers 422 and leaves the roster name alone", func(t *testing.T) {
@@ -2890,7 +2890,7 @@ func TestHandleUpdateMachineApiMachinesMachineIdPatch(t *testing.T) {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", `invalid request body: json: unknown field "note"`)
-		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "伺服器這一台")
+		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "This server")
 	})
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {
@@ -2901,7 +2901,7 @@ func TestHandleUpdateMachineApiMachinesMachineIdPatch(t *testing.T) {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
-		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "伺服器這一台")
+		apiTestWantMachineDisplayName(t, h, owner, ServerSelfHost, "This server")
 	})
 }
 
@@ -3057,7 +3057,7 @@ fi
 if ! CLAIM_RESPONSE="$(curl -fsS -X POST "https://example.com/api/machines/claim" \
   -H 'Content-Type: application/json' --data '{"code":"one-time-claim-code-placeholder"}')"; then
   echo "Error: this install link has expired or was already used." >&2
-  echo "Fix: go back to the 「安裝機器」 (Install machine) window and press the regenerate icon (↻) next to the command; if you do not see that icon, close the window and open it again (Monitor › Machines (監控 › 機器資訊), Install from this machine's menu) to get a new command, then run it." >&2
+  echo "Fix: go back to the 'Install machine' window and press the refresh icon (↻, 'Regenerate command') next to the command; if you do not see that icon, close the window and open it again (Monitor › Machines, 'Install' in this machine's menu) to get a new command, then run it." >&2
   echo "修正：回到「安裝機器」視窗按指令旁的重新產生圖示（↻）；如果沒有看到這個圖示，關掉視窗後到「監控 › 機器資訊」的機器選單按「安裝」重新開啟，取得新指令後再執行。" >&2
   exit 1
 fi
@@ -3065,7 +3065,7 @@ fi
 OC_TOKEN="$(printf '%s' "$CLAIM_RESPONSE" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
 if [ -z "$OC_TOKEN" ]; then
   echo "Error: this install link has expired or was already used." >&2
-  echo "Fix: go back to the 「安裝機器」 (Install machine) window and press the regenerate icon (↻) next to the command; if you do not see that icon, close the window and open it again (Monitor › Machines (監控 › 機器資訊), Install from this machine's menu) to get a new command, then run it." >&2
+  echo "Fix: go back to the 'Install machine' window and press the refresh icon (↻, 'Regenerate command') next to the command; if you do not see that icon, close the window and open it again (Monitor › Machines, 'Install' in this machine's menu) to get a new command, then run it." >&2
   echo "修正：回到「安裝機器」視窗按指令旁的重新產生圖示（↻）；如果沒有看到這個圖示，關掉視窗後到「監控 › 機器資訊」的機器選單按「安裝」重新開啟，取得新指令後再執行。" >&2
   exit 1
 fi
@@ -3425,7 +3425,7 @@ fi
 if ! CLAIM_RESPONSE="$(curl -fsS -X POST "http://localhost:8848/api/machines/claim" \
   -H 'Content-Type: application/json' --data '{"code":"one-time-claim-code-placeholder"}')"; then
   echo "Error: this install link has expired or was already used." >&2
-  echo "Fix: go back to the 「安裝機器」 (Install machine) window and press the regenerate icon (↻) next to the command; if you do not see that icon, close the window and open it again (Monitor › Machines (監控 › 機器資訊), Install from this machine's menu) to get a new command, then run it." >&2
+  echo "Fix: go back to the 'Install machine' window and press the refresh icon (↻, 'Regenerate command') next to the command; if you do not see that icon, close the window and open it again (Monitor › Machines, 'Install' in this machine's menu) to get a new command, then run it." >&2
   echo "修正：回到「安裝機器」視窗按指令旁的重新產生圖示（↻）；如果沒有看到這個圖示，關掉視窗後到「監控 › 機器資訊」的機器選單按「安裝」重新開啟，取得新指令後再執行。" >&2
   exit 1
 fi
@@ -3433,7 +3433,7 @@ fi
 OC_TOKEN="$(printf '%s' "$CLAIM_RESPONSE" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
 if [ -z "$OC_TOKEN" ]; then
   echo "Error: this install link has expired or was already used." >&2
-  echo "Fix: go back to the 「安裝機器」 (Install machine) window and press the regenerate icon (↻) next to the command; if you do not see that icon, close the window and open it again (Monitor › Machines (監控 › 機器資訊), Install from this machine's menu) to get a new command, then run it." >&2
+  echo "Fix: go back to the 'Install machine' window and press the refresh icon (↻, 'Regenerate command') next to the command; if you do not see that icon, close the window and open it again (Monitor › Machines, 'Install' in this machine's menu) to get a new command, then run it." >&2
   echo "修正：回到「安裝機器」視窗按指令旁的重新產生圖示（↻）；如果沒有看到這個圖示，關掉視窗後到「監控 › 機器資訊」的機器選單按「安裝」重新開啟，取得新指令後再執行。" >&2
   exit 1
 fi

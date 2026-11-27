@@ -257,6 +257,9 @@ import {
   SEED_TASK_TAKEOVER_WITH_PREDECESSOR_MD,
   SEED_TASK_UNBLOCKED_MD,
   SEED_TASK_READY_FOR_DONE_MD,
+  SEED_USER_LANGUAGE_ZH_MD,
+  SEED_USER_LANGUAGE_EN_MD,
+  SEED_TERM_GLOSSARY_MD,
 } from "./seeds";
 import { mockApiError } from "./errorCodes";
 import { CHAT_SEARCH_PAGE_SIZE } from "./adapter";
@@ -328,7 +331,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
   {
     id: MOCK_SERVER_SELF_ID,
     terminal_attach_command: mockTerminalAttachCommand(MOCK_SERVER_SELF_ID),
-    name: "伺服器這一台",
+    name: "This server",
     kind: "warden",
     role_key: "",
     role_name: "",
@@ -783,6 +786,9 @@ let globalContextOverlay: WireGlobalContext | null = null;
 // key's OWN seed, never to the other's text.
 const BOOT_DOC_SEEDS: Record<string, string> = {
   "system_interaction/global": SEED_SYSTEM_INTERACTION_MD.trim(),
+  // The Chinese default; bootDocSeed swaps in the English one for "en".
+  "user_language/global": SEED_USER_LANGUAGE_ZH_MD.trim(),
+  "term_glossary/global": SEED_TERM_GLOSSARY_MD.trim(),
   "boot_sequence/claude": SEED_BOOT_SEQUENCE_MD.trim(),
   "boot_sequence/codex": SEED_BOOT_SEQUENCE_CODEX_MD.trim(),
   // T-c9c0 — a singleton keyed "global", like system_interaction.
@@ -803,34 +809,22 @@ const BOOT_DOC_SEEDS: Record<string, string> = {
   "task_ready_for_done/global": SEED_TASK_READY_FOR_DONE_MD.trim(),
 };
 
-/** The documents the server SHOWS but refuses every write to.
- *
- * 🔴 EMPTY SINCE T-6f44, AND KEPT RATHER THAN DELETED. The owner ruled on
- * 2026-08-24 that the documents that used to be in here become editable like
- * the rest. His earlier ruling (「以前 global context 是固定內容 我們也是會顯示
- * 只是不給改」) was 照舊, a carry-over from when the boot context was fixed
- * text, NOT a statement about these documents' content.
- *
- * The set stays because the 405 machinery it drives is still real and still
- * reachable: a future document may ship read-only, and an empty set is how the
- * mock says "none today" without the cockpit's refusal path becoming code that
- * cannot be exercised at all. bootDocRegistry (server) is the truth source;
- * this mirrors it so demo mode cannot validate a screen the real server
- * refuses. */
-let BOOT_DOC_READ_ONLY: ReadonlySet<string> = new Set<string>();
+/** The documents the server SHOWS but refuses every write to — mirrors
+ * bootDocRegistry's ReadOnly, so demo mode cannot validate a screen the real
+ * server refuses. */
+const SHIPPED_BOOT_DOC_READ_ONLY: ReadonlySet<string> = new Set([
+  "term_glossary/global",
+]);
+let BOOT_DOC_READ_ONLY: ReadonlySet<string> = SHIPPED_BOOT_DOC_READ_ONLY;
 
-/** TEST-ONLY: make a document read-only for one test.
- *
- * 🔴 WHY THIS SEAM EXISTS. Since T-6f44 no SHIPPED document is read-only, so
- * every assertion about how a read-only document renders — the body without an
- * editor, the note, the absent version list — lost the only subject it could
- * be written against. Deleting those assertions would have retired a live
- * refusal path into code nothing exercises: the machinery is still reachable
- * the day a document ships read-only again, and that is precisely the day
- * nobody would notice it had rotted.
- *
- * Reset to empty by __resetMock, so a test that forgets to clean up cannot
- * leak a read-only document into the next one. */
+/** Writable with developer mode off, like 使用者自訂 (bootDocRegistry's
+ * NoDeveloperModeLock). */
+const BOOT_DOC_UNLOCKED: ReadonlySet<string> = new Set(["user_language/global"]);
+
+/** TEST-ONLY: replace the read-only set for one test, so a test can drive the
+ * read-only rendering on a document of its choosing. Reset to the shipped set
+ * by __resetMock, so a test that forgets to clean up cannot leak into the next
+ * one. */
 export function __setBootDocReadOnly(keys: readonly string[]): void {
   BOOT_DOC_READ_ONLY = new Set(keys);
 }
@@ -840,6 +834,8 @@ export function __setBootDocReadOnly(keys: readonly string[]): void {
  * rejection and a caller reading the listing see the same words. */
 const BOOT_DOC_NAMES: Record<string, string> = {
   "system_interaction/global": "system interaction block",
+  "user_language/global": "User Language document",
+  "term_glossary/global": "Term glossary",
   "boot_sequence/claude": "boot steps (claude)",
   "boot_sequence/codex": "boot steps (codex)",
   "offboard/global": "Stop document",
@@ -866,7 +862,25 @@ const BOOT_DOC_TOPIC = "global_context";
  * document — which is what makes an unknown runtime key a 404 rather than a
  * silently empty page. */
 function bootDocSeed(kind: BootDocKind, key: string): string | null {
+  if (
+    `${kind}/${key}` === "user_language/global" &&
+    mockServerSettings.display_language === "en"
+  ) {
+    return SEED_USER_LANGUAGE_EN_MD.trim();
+  }
   return BOOT_DOC_SEEDS[`${kind}/${key}`] ?? null;
+}
+
+/** True when a write of `text` returns the document to its default: the User
+ * Language document's default follows display_language, so either shipped
+ * default counts (the server's bootDocRowFor). */
+function isUserLanguageDefaultText(kind: string, key: string, text: string): boolean {
+  if (`${kind}/${key}` !== "user_language/global") return false;
+  const trimmed = text.trim();
+  return (
+    trimmed === SEED_USER_LANGUAGE_ZH_MD.trim() ||
+    trimmed === SEED_USER_LANGUAGE_EN_MD.trim()
+  );
 }
 
 function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
@@ -896,7 +910,7 @@ function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
     size_chars: [...text].length,
     // The LIVE setting, not the shipped default: the server enforces this
     // read's `cap_chars` against `doc.cap_chars.<kind>`, so a mock pinned to
-    // the default would keep answering 60000/15000 after the owner moved the
+    // the default would keep answering 150000/37500 after the owner moved the
     // knob — and the page sizes its edits against exactly this number.
     cap_chars: bootDocCap(kind),
     is_default: overlay === undefined,
@@ -906,6 +920,10 @@ function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
     // block added later without a seed must be able to say so.
     has_seed: true,
     read_only: BOOT_DOC_READ_ONLY.has(`${kind}/${key}`),
+    developer_mode_required:
+      !BOOT_DOC_READ_ONLY.has(`${kind}/${key}`) &&
+      !BOOT_DOC_UNLOCKED.has(`${kind}/${key}`) &&
+      !mockServerSettings.developer_mode,
   };
 }
 
@@ -928,6 +946,9 @@ function bootDocCap(kind: BootDocKind): number {
     case "task_unblocked":
     case "task_ready_for_done":
       return TASK_EVENT_CAP_CHARS_DEFAULT;
+    case "user_language":
+    case "term_glossary":
+      return BOOT_DOC_CAP_CHARS_DEFAULTS.user_language;
   }
 }
 
@@ -945,6 +966,19 @@ function refuseReadOnlyBootDoc(
     `the ${BOOT_DOC_NAMES[`${kind}/${key}`] ?? kind} is a read-only document — ` +
       "it is shown so you can see what agents are told, but no caller may edit " +
       "it and there is no version of it other than the shipped one; nothing was written"
+  );
+}
+
+/** The 409 every boot-document write face answers while developer mode is off. */
+function refuseLockedBootDoc(kind: string, key: string, call: string): void {
+  if (mockServerSettings.developer_mode) return;
+  if (BOOT_DOC_SEEDS[`${kind}/${key}`] === undefined) return;
+  if (BOOT_DOC_UNLOCKED.has(`${kind}/${key}`)) return;
+  throw mockApiError(
+    `http 409 for ${call}`,
+    409,
+    `the ${BOOT_DOC_NAMES[`${kind}/${key}`] ?? kind} is locked while developer mode is off — ` +
+      "turn on developer mode in system settings first; nothing was written"
   );
 }
 
@@ -1001,19 +1035,18 @@ function pickMockMemberName(): string {
     if (!taken.has(candidate.toLowerCase())) return candidate;
   }
 }
-// Mirrors the server custom-role template (server/ocserverd/domain.go; the 兩 section
-// 待填說明 scaffold a fresh custom role starts from).
-const CUSTOM_ROLE_TEMPLATE_MD = `# 角色定義
+// Mirrors the server custom-role template (server/ocserverd/domain.go
+// CustomRoleTemplateMD, byte for byte; the two-section "To fill in" scaffold a
+// fresh custom role starts from).
+const CUSTOM_ROLE_TEMPLATE_MD = `# Duty
 
-## 你是誰
+## Who you are
 
-（待填：這個角色的身分與定位——用一兩句話說明「你是誰」、在辦公室裡站什麼位置、\
-面對 owner 與其他成員時以什麼視角說話。）
+(To fill in: this role's identity and position — in one or two sentences, say "who you are", where you stand in the office, and from what point of view you speak to the owner and the other members.)
 
-## 你做什麼
+## What you do
 
-（待填：這個角色的職責與工作方式——負責哪些事、怎麼做事、輸出長什麼樣、\
-與 owner 及其他成員怎麼協作、什麼事不歸你管。）
+(To fill in: this role's duties and way of working — what it is responsible for, how it works, what its output looks like, how it works with the owner and the other members, and what is not its business.)
 `;
 // Insight OVERLAY (T-3809), keyed by the BARE `role_key`. An absent entry folds
 // against INSIGHT_SEEDS below (T-e1e3).
@@ -1140,11 +1173,26 @@ type StoredTaskManual = Omit<
   "sopMdChars" | "sopMdCapChars"
 >;
 
+// Names and purposes mirror the server's builtinTaskManuals. The seed order
+// here does not matter: listing goes through
+// `sortedTaskManuals`, which sorts the way the server's ListTaskManuals does.
 const MOCK_TASK_MANUAL_SEEDS: readonly StoredTaskManual[] = [
   {
+    typeKey: "builtin-remote-access",
+    displayName: "Allow remote connections",
+    purpose:
+      "Help the Owner turn on or adjust remote connections so a phone or another computer can reach the console at an HTTPS URL — including turning it on for the first time, and later changing the forwarding method or the URL.",
+    fields: [],
+    sopMd: "# 開放遠端連線\n\n（mock 內建手冊）\n",
+    assignee: { kind: "staff", memberId: "mira" },
+    updatedTs: 0,
+    isSeed: true,
+    isDefault: true,
+  },
+  {
     typeKey: "builtin-role-design",
-    displayName: "建立／修改角色",
-    purpose: "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+    displayName: "Create / edit role",
+    purpose: "Create a new role, or adjust an existing role's Duty and Insight.",
     fields: [],
     sopMd: "# 角色基本定義\n\n（mock 內建手冊）\n",
     assignee: { kind: "staff", memberId: "mira" },
@@ -1154,23 +1202,11 @@ const MOCK_TASK_MANUAL_SEEDS: readonly StoredTaskManual[] = [
   },
   {
     typeKey: "builtin-task-manual-design",
-    displayName: "建立／修改任務手冊",
-    purpose: "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
+    displayName: "Create / edit task manual",
+    purpose: "Create a new task manual, or adjust an existing task manual's content and assigned member.",
     fields: [{ name: "manual_name", required: true, isKey: true }],
     sopMd: "# 任務手冊基本定義\n\n（mock 內建手冊）\n",
     assignee: null,
-    updatedTs: 0,
-    isSeed: true,
-    isDefault: true,
-  },
-  {
-    typeKey: "builtin-remote-access",
-    displayName: "開放遠端連線",
-    purpose:
-      "幫 Owner 開啟或調整遠端連線，讓手機或其他電腦能用 HTTPS 網址連到控制台，包括第一次開啟，以及之後更換轉發方式或網址。",
-    fields: [],
-    sopMd: "# 開放遠端連線\n\n（mock 內建手冊）\n",
-    assignee: { kind: "staff", memberId: "mira" },
     updatedTs: 0,
     isSeed: true,
     isDefault: true,
@@ -1182,6 +1218,35 @@ function taskManualSeed(typeKey: string): StoredTaskManual | undefined {
 }
 
 let taskManuals: StoredTaskManual[] = structuredClone([...MOCK_TASK_MANUAL_SEEDS]);
+
+/** SQLite's NOCASE: folds ASCII A-Z only; everything else compares by code
+ * point (UTF-8 byte order), not by JS's UTF-16 code-unit order. */
+function compareNoCase(a: string, b: string): number {
+  const fold = (s: string) =>
+    Array.from(s, (ch) => {
+      const c = ch.codePointAt(0)!;
+      return c >= 65 && c <= 90 ? c + 32 : c;
+    });
+  const x = fold(a);
+  const y = fold(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    if (x[i] !== y[i]) return x[i] - y[i];
+  }
+  return x.length - y.length;
+}
+
+/** The manuals in the server's list order — DAL.ListTaskManuals:
+ * `ORDER BY (CASE WHEN display_name = '' THEN type_key ELSE display_name END)
+ * COLLATE NOCASE, type_key`. Created and renamed manuals land where the server
+ * would put them, not at the end of the store. */
+function sortedTaskManuals(): StoredTaskManual[] {
+  const sortName = (m: StoredTaskManual) => m.displayName || m.typeKey;
+  return [...taskManuals].sort(
+    (a, b) =>
+      compareNoCase(sortName(a), sortName(b)) ||
+      (a.typeKey < b.typeKey ? -1 : a.typeKey > b.typeKey ? 1 : 0),
+  );
+}
 
 /** Stored manual → the shape the wire answers with, size and cap measured NOW.
  * The SOP is measured against its OWN cap, so mock mode cannot disagree with
@@ -1220,7 +1285,7 @@ function withManualSizes(m: StoredTaskManual): TaskManualView {
 // marker-stripping and "an alert must not look like an ordinary quote" have a
 // fixture (the latter is only decidable in a real browser — see the CT spec).
 /** 傳承 fixture (T-33). Enough rows, and enough LENGTH, that the default
- * 10,000-character member budget is not trivially satisfied — a fixture whose
+ * 25,000-character member budget is not trivially satisfied — a fixture whose
  * every row fits can never show a greyed-out row that cannot be read, so the
  * cockpit would be built against a case that never occurs.
  *
@@ -1398,8 +1463,8 @@ const LORE_TYPE_LIST =
   "instruction_conflict, instruction_supplement, owner_decision, owner_preference or other";
 const LORE_TYPE_MISSING =
   "lore_type is required — nothing was written. Set it to the entry's type: " +
-  "instruction_conflict (指示衝突), instruction_supplement (指示補充), owner_decision (Owner 決策), " +
-  "owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title.";
+  "instruction_conflict (instruction conflict), instruction_supplement (instruction supplement), owner_decision (owner decision), " +
+  "owner_preference (owner preference) or other. Put the type in lore_type, not as a prefix in the title.";
 
 /** The FIXED display order (spec §6): 置頂 → 生效中 → 已失效, newest effective
  * first inside each group, `seq` as the tie-break so two entries sharing an
@@ -2389,6 +2454,8 @@ function snapshotDocument(
       return { title: e.title, body: e.body };
     }
     case "system_interaction":
+    case "user_language":
+    case "term_glossary":
     case "boot_sequence":
     case "offboard":
     // T-3201: the six lifecycle documents are the SAME overlay shape. The two
@@ -2541,9 +2608,15 @@ function applyDocumentHistory(
       return;
     }
     case "system_interaction":
+    case "user_language":
     case "boot_sequence":
     case "offboard": {
       if (bootDocSeed(kind, key) === null) return;
+      if (isUserLanguageDefaultText(kind, key, content.text ?? "")) {
+        bootDocOverlays.delete(`${kind}/${key}`);
+        emitTopic(BOOT_DOC_TOPIC);
+        return;
+      }
       bootDocOverlays.set(`${kind}/${key}`, content.text ?? "");
       emitTopic(BOOT_DOC_TOPIC);
       return;
@@ -2582,10 +2655,10 @@ function acceleratedStopStamps(windingDownToOffline: boolean): {
 }
 
 const MOCK_SESSION_ALIVE_RECEIPT =
-  "session_alive: it was already running — 喚醒 left that session alone and " +
-  "dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under way on " +
+  "session_alive: it was already running — Wake left that session alone and " +
+  "dispatched nothing. Its work, and any Accelerated stop or Refocus already under way on " +
   "it, are untouched. To end the current session and start a fresh one, press " +
-  "強制停止 first, then 喚醒";
+  "Force stop first, then Wake";
 
 function findWire(id: string): WireMember {
   const w = wireMembers.find((m) => m.id === id);
@@ -2750,6 +2823,8 @@ const DEFAULT_MOCK_SETTINGS = {
   updater_check_interval_secs: 300,
   // ON out of the box, like a never-set server.
   updater_announce_features: true,
+  // OFF out of the box, like a never-set server: the boot documents are locked.
+  developer_mode: false,
   // Studio name (T-d693) — "" out of the box, mirroring the server (the topbar
   // shows the localized default until the owner names the studio).
   org_name: "",
@@ -2822,6 +2897,17 @@ function docSizeFields(text: string, cap: "duty" | "insight" | "manualSop") {
   };
 }
 let mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
+
+/** The User Language block both boot folds staple between 系統互動 and User
+ * additions — mirrors the server's userLanguageBlock (assets.go): the folded
+ * user_language document, then the glossary; "" when both are blank. */
+function mockUserLanguageBlock(): string {
+  const parts = (["user_language", "term_glossary"] as const)
+    .map((kind) => foldBootDoc(kind, "global").text.trim())
+    .filter((text) => text !== "");
+  return parts.length === 0 ? "" : `# User Language\n\n${parts.join("\n\n")}`;
+}
+
 const MOCK_CLAIM_TOKEN = "mock-claim-token";
 const TOKEN_TTL_CHOICES = new Set([43200, 86400, 604800, 2592000]);
 
@@ -3377,7 +3463,7 @@ function mockHex12(): string {
 function mockSharedDocOrThrow(method: string, path: string, id: string): WireSharedDoc {
   const row = mockSharedDocs.find((d) => d.id === id);
   if (!row) {
-    throw mockApiError(`http 404 for ${method} ${path}`, 404, `shared doc '${id}' not found`);
+    throw mockApiError(`http 404 for ${method} ${path}`, 404, `file '${id}' not found`);
   }
   return row;
 }
@@ -3388,7 +3474,7 @@ function mockSharedDocNameOrThrow(method: string, path: string, name: string) {
     throw mockApiError(
       `http 400 for ${method} ${path}`,
       400,
-      `shared doc name is ${n} chars, over the 128-char limit`,
+      `file name is ${n} chars, over the 128-char limit`,
     );
   }
 }
@@ -3694,7 +3780,7 @@ const mockApiImpl = {
       throw mockApiError(
         "http 409 for POST /api/members/{id}/accelerated-stop",
         409,
-        "加速停止 escalates a wind-down that is already open — this member has not been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first",
+        MOCK_ACCELERATED_STOP_NEEDS_OPEN_WIND_DOWN,
       );
     }
     w.refocus_op = "accelerated_stop";
@@ -3724,7 +3810,7 @@ const mockApiImpl = {
         throw mockApiError(
           `http 422 for PATCH /api/members/${id}`,
           422,
-          "an outsource worker's codename is task-bound and cannot be renamed",
+          "an outsource member's codename is task-bound and cannot be renamed",
         );
       }
       await mockApiImpl.patchOutsourceMember(id, {
@@ -4665,7 +4751,7 @@ const mockApiImpl = {
       id: noticeId,
       from: "system",
       to: m.to,
-      body: `Owner 刪除了訊息 #${id}，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=${id} 讀回。`,
+      body: `Owner deleted message #${id} (void). If unread, ignore it. Need the original? Use get_chat ids=${id}.`,
       ts: now,
       attachments: [],
       replyCardId: null,
@@ -5593,7 +5679,7 @@ const mockApiImpl = {
       throw mockApiError(
         `http 422 for POST /api/tasks/${id}/due`,
         422,
-        "due_soon_lead_minutes must be between 1 and 43200 minutes (30 days), or null to follow the workspace setting"
+        "due_soon_lead_minutes must be between 1 and 43200 minutes (30 days), or null to follow the Due-soon lead time setting (Settings › General)"
       );
     }
     if (dueTs === null && leadMinutes != null) {
@@ -5752,7 +5838,7 @@ const mockApiImpl = {
         // 本體取自〈轉派・給前任〉文件（含 owner 的修改），首行與本體之間空一行，
         // 同 server 的 taskNoticeText。
         body: (
-          `[${t.taskNo}] 此任務已轉派給新的接手人。` +
+          `[${t.taskNo}] This task has been reassigned to a new assignee.` +
           "\n\n" +
           foldBootDoc("task_reassign_predecessor", "global").body
         ).trim(),
@@ -5770,9 +5856,9 @@ const mockApiImpl = {
       if (oldExecutor) {
         const label =
           oldKind === "outsource"
-            ? `外包 ${outsourceWorkers.find((w) => w.id === oldExecutor)?.codename ?? oldExecutor}`
+            ? `Outsource ${outsourceWorkers.find((w) => w.id === oldExecutor)?.codename ?? oldExecutor}`
             : wireMembers.find((m) => m.id === oldExecutor)?.name || oldExecutor;
-        predecessor = label === oldExecutor ? label : `${label}（${oldExecutor}）`;
+        predecessor = label === oldExecutor ? label : `${label} (${oldExecutor})`;
       }
       chatLog.push({
         id: `mock-reassign-new-${stamp}`,
@@ -5782,8 +5868,8 @@ const mockApiImpl = {
         // 換成 server 的 takeoverNoPredecessorHead。
         body: (
           (predecessor
-            ? `[${t.taskNo}] 你接手了這張任務，你的前任是 ${predecessor}。`
-            : `[${t.taskNo}] 你接手了這張任務，這張任務沒有前任。`) +
+            ? `[${t.taskNo}] You are taking over this task; your predecessor is ${predecessor}.`
+            : `[${t.taskNo}] You are taking over this task; it has no predecessor.`) +
           "\n\n" +
           foldBootDoc("task_takeover_with_predecessor", "global").body
         ).trim(),
@@ -5990,13 +6076,13 @@ const mockApiImpl = {
     if (w.desiredState === "offline") {
       throw mockApiError(
         `http 409 for POST /api/members/${id}/refocus`,
-        409, "worker is stopped — 喚醒 it before refocusing"
+        409, "refocus requires the outsource member to be online; this outsource member is stopping or stopped — press Wake to bring it back"
       );
     }
     if (w.presence !== "online") {
       throw mockApiError(
         `http 409 for POST /api/members/${id}/refocus`,
-        409, "refocus requires the worker to be online"
+        409, "refocus requires the outsource member to be online"
       );
     }
     w.refocusSince = Date.now() / 1000;
@@ -6053,14 +6139,14 @@ const mockApiImpl = {
       throw mockApiError(
         `http 409 for POST /api/members/${id}/accelerated-stop`,
         409,
-        "加速停止 requires a live session — there is nothing to accelerate on a member that is not connected"
+        MOCK_ACCELERATED_STOP_NEEDS_LIVE_SESSION
       );
     }
     if (!windingDown) {
       throw mockApiError(
         `http 409 for POST /api/members/${id}/accelerated-stop`,
         409,
-        "加速停止 escalates a wind-down that is already open — this member has not been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first"
+        MOCK_ACCELERATED_STOP_NEEDS_OPEN_WIND_DOWN
       );
     }
     w.refocusOp = "accelerated_stop";
@@ -6178,7 +6264,8 @@ const mockApiImpl = {
     // 🔴 T-4595 rewrote this. It used to assemble 外包工作守則 → 你的身分 →
     // 你的任務 → 任務手冊, and NONE of those exist any more: a worker's boot
     // context is the STAFF fold (getMemberBootContext) MINUS the persona slot —
-    // 系統互動 + 使用者自訂 + the boot sequence for the worker's OWN runtime,
+    // 系統互動 + User Language + 使用者自訂 + the boot sequence for the
+    // worker's OWN runtime,
     // with not one word written for outsource readers. A mock that keeps the
     // old shape is worse than no mock: the cockpit's tests go green against a
     // fake server that still ships a document the real one deleted.
@@ -6204,8 +6291,10 @@ const mockApiImpl = {
     // worker's OWN runtime: buildWorkerBootContext branches on it, so this does
     // too.
     const parts = [foldBootDoc("system_interaction", "global").text.trim()];
+    const userLanguage = mockUserLanguageBlock();
+    if (userLanguage) parts.push(userLanguage);
     if (userText.trim()) {
-      parts.push(`# 使用者自訂（Owner Additions）\n\n${userText.trim()}`);
+      parts.push(`# User additions\n\n${userText.trim()}`);
     }
     parts.push(
       foldBootDoc(
@@ -6219,7 +6308,7 @@ const mockApiImpl = {
   async listTaskTypes(): Promise<TaskTypeView[]> {
     // The LIGHT narrowing of the manuals store (same source of truth as the
     // manual editor — mirrors the http adapter reading the same endpoint).
-    return taskManuals.map((m) => ({
+    return sortedTaskManuals().map((m) => ({
       typeKey: m.typeKey,
       displayName: m.displayName,
       purpose: m.purpose,
@@ -6230,7 +6319,7 @@ const mockApiImpl = {
     // T-1170: the DIRECTORY. The long document is DROPPED here, the way
     // the server drops it — a mock that kept serving it would let the
     // manual sub-page keep reading a list row and stay green.
-    return taskManuals.map((m) => {
+    return sortedTaskManuals().map((m) => {
       const { sopMd: _sop, ...row } = withManualSizes(m);
       return structuredClone(row);
     });
@@ -7176,11 +7265,10 @@ const mockApiImpl = {
     }
     if (!newContent && input.name === undefined && input.description === undefined) {
       const field = row.kind === "link" ? "url" : "attachment_id";
-      const kind = row.kind === "image" ? "an image" : `a ${row.kind}`;
       throw mockApiError(
         `http 400 for POST ${path}`,
         400,
-        `nothing to replace: send ${field} for ${kind} shared doc, a name, or a description`,
+        `nothing to replace: send ${field} for a file of kind '${row.kind}', a name, or a description`,
       );
     }
     if (!newContent && name === row.name && description === row.description) {
@@ -7219,7 +7307,7 @@ const mockApiImpl = {
       throw mockApiError(
         `http 404 for POST ${path}`,
         404,
-        `version ${versionId} is not a retained version of shared doc '${id}'`,
+        `version ${versionId} is not a retained version of file '${id}'`,
       );
     }
     mockSharedDocVersions[id] = [
@@ -7751,12 +7839,12 @@ const mockApiImpl = {
     ] as const) {
       if (
         field !== undefined &&
-        (field < DOC_CAP_CHARS_MIN || field > 100000)
+        (field < DOC_CAP_CHARS_MIN || field > 250000)
       ) {
         throw mockApiError(
           "http 422 for PATCH /api/settings",
           422,
-          `${wire} must be between ${DOC_CAP_CHARS_MIN} and 100000 characters — a lowered cap binds the next write only; stored content over it is never truncated and still reads back`
+          `${wire} must be between ${DOC_CAP_CHARS_MIN} and 250000 characters — a lowered cap binds the next write only; stored content over it is never truncated and still reads back`
         );
       }
     }
@@ -8041,6 +8129,9 @@ const mockApiImpl = {
     if (patch.updaterAutoUpdate !== undefined) {
       mockServerSettings.updater_auto_update = patch.updaterAutoUpdate;
     }
+    if (patch.developerMode !== undefined) {
+      mockServerSettings.developer_mode = patch.developerMode;
+    }
     if (patch.updaterCheckIntervalSecs !== undefined) {
       mockServerSettings.updater_check_interval_secs = patch.updaterCheckIntervalSecs;
     }
@@ -8272,6 +8363,7 @@ const mockApiImpl = {
     // authz would send an owner looking for a role to grant. The message is the
     // server's own bootDocReadOnlyRefusal, shortened to the same claim.
     refuseReadOnlyBootDoc(kind, key, "");
+    refuseLockedBootDoc(kind, key, `POST /api/boot-docs/${kind}/${key}`);
     // 🔴 THE HEAD IS PUT BACK HERE, exactly as replaceBootDoc does it. The mock
     // takes a BODY because the wire does; storing the body alone would make the
     // demo mode the one place a headless document can still be created — the
@@ -8306,6 +8398,13 @@ const mockApiImpl = {
     // is how the version worth going back to disappears. Nothing is written at
     // all in that case, so `is_default` is not flipped either: re-saving a
     // document that is still the factory text must not make it stop saying so.
+    if (isUserLanguageDefaultText(kind, key, text)) {
+      if (before.is_default) return;
+      recordDocumentHistory(kind, key);
+      bootDocOverlays.delete(`${kind}/${key}`);
+      emitTopic(BOOT_DOC_TOPIC);
+      return;
+    }
     if (before.text === text) return;
     recordDocumentHistory(kind, key);
     bootDocOverlays.set(`${kind}/${key}`, text);
@@ -8322,6 +8421,7 @@ const mockApiImpl = {
     // its worst.
     foldBootDoc(kind, key);
     refuseReadOnlyBootDoc(kind, key, "/reset");
+    refuseLockedBootDoc(kind, key, `POST /api/boot-docs/${kind}/${key}/reset`);
     recordDocumentHistory(kind, key);
     bootDocOverlays.delete(`${kind}/${key}`);
     emitTopic(BOOT_DOC_TOPIC);
@@ -8538,7 +8638,8 @@ const mockApiImpl = {
 
   async getMemberBootContext(memberId: string): Promise<string> {
     // Mirrors the server's buildBootContext slot order (spec/lifecycle.md
-    // §2.2): 系統互動 (FOLDED) → 使用者自訂 (skipped when blank) → `# Role:` →
+    // §2.2): 系統互動 (FOLDED) → `# User Language` (display_language) →
+    // 使用者自訂 (skipped when blank) → `# Role:` →
     // `# Insight (role)` (skipped when the folded TEXT is blank — never gate on
     // is_default/has_seed, which would emit an orphan header) → that member's
     // 傳承 → 啟動步驟 for its OWN runtime (FOLDED, recency-authoritative tail).
@@ -8562,8 +8663,10 @@ const mockApiImpl = {
     }
     const userText = foldGlobalContext().text;
     const parts = [foldBootDoc("system_interaction", "global").text.trim()];
+    const userLanguage = mockUserLanguageBlock();
+    if (userLanguage) parts.push(userLanguage);
     if (userText.trim()) {
-      parts.push(`# 使用者自訂（Owner Additions）\n\n${userText.trim()}`);
+      parts.push(`# User additions\n\n${userText.trim()}`);
     }
     parts.push(
       `# Role: ${roleDef.name || roleDef.key}\n\n${roleDef.definition_md.trim()}`,
@@ -8576,11 +8679,11 @@ const mockApiImpl = {
     const selected = mockLoreWalk("agent", member.id).fitted;
     if (selected.length > 0) {
       const lines = selected.map((entry) => {
-        const pinned = entry.state === "pinned" ? "（置頂）" : "";
+        const pinned = entry.state === "pinned" ? " (pinned)" : "";
         const body = entry.body.trim();
         return `## ${entry.id} ${entry.title.trim()}${pinned}${body ? `\n\n${body}` : ""}`;
       });
-      parts.push(`# 傳承\n\n${lines.join("\n\n")}`);
+      parts.push(`# Lore\n\n${lines.join("\n\n")}`);
     }
     parts.push(
       foldBootDoc(
@@ -8814,6 +8917,11 @@ const mockApiImpl = {
       kind,
       `POST /api/document-history/${kind}/${key}/${id}/restore`
     );
+    refuseLockedBootDoc(
+      kind,
+      key,
+      `POST /api/document-history/${kind}/${key}/${id}/restore`
+    );
     const slot = historySlot(kind, key);
     const found = (documentHistories.get(slot) ?? []).find((h) => h.id === id);
     if (!found) {
@@ -8872,9 +8980,15 @@ function afterMockForcedDisconnect(stillDown: () => boolean, land: () => void): 
   }, MOCK_FORCED_STOP_DISCONNECT_MS);
 }
 
-/** Verbatim the server's acceleratedStopAlreadyForcedMsg. */
+/** Verbatim the server's acceleratedStopAlreadyForcedMsg (member_stop.go). */
 const MOCK_ACCELERATED_STOP_ALREADY_FORCED =
-  "加速停止 has nothing to escalate — this member was already force-stopped (強制停止): its session was cut off and no wind-down is open";
+  "Accelerated stop has nothing to escalate — this member was already force-stopped (Force stop): its session was cut off and no wind-down is open";
+/** Verbatim the server's acceleratedStopNeedsAnOpenWindDownMsg (member_stop.go). */
+const MOCK_ACCELERATED_STOP_NEEDS_OPEN_WIND_DOWN =
+  "Accelerated stop escalates a wind-down that is already open — this member has not been asked to stop. Press Stop (deactivate) or Refocus first";
+/** Verbatim the server's acceleratedStopNeedsALiveSessionMsg (member_stop.go). */
+const MOCK_ACCELERATED_STOP_NEEDS_LIVE_SESSION =
+  "Accelerated stop requires a live session — there is nothing to accelerate on a member that is not connected";
 
 /** Test seam: a server whose owner never chose a theme and has no schedule —
  * what a station looked like before the desk default. */
@@ -8900,7 +9014,7 @@ export function __resetMock(): void {
   mockBinStatus.clear();
   mockBinStatus.set("warden-mbp5", "stale");
   globalContextOverlay = null;
-  BOOT_DOC_READ_ONLY = new Set<string>();
+  BOOT_DOC_READ_ONLY = SHIPPED_BOOT_DOC_READ_ONLY;
   bootDocOverlays.clear();
   roleOverlays.clear();
   customRoles.clear();
@@ -9042,6 +9156,22 @@ export function __injectMockArtifactVersions(
 ): void {
   artifactVersions.set(artifactId, structuredClone(versions));
   emitTopic("task");
+}
+
+// Test-only hook: retain one revision of a document directly, the way a row
+// written by an older server would sit in document_history. Answers its id.
+export function __injectMockDocumentRevision(
+  kind: DocumentKind,
+  key: string,
+  content: Record<string, string>,
+): number {
+  const slot = historySlot(kind, key);
+  const id = nextDocumentHistoryId++;
+  documentHistories.set(slot, [
+    { id, content, created_ts: Date.now() / 1000, actor_id: MOCK_OWNER_ID },
+    ...(documentHistories.get(slot) ?? []),
+  ]);
+  return id;
 }
 
 // Test-only hook: land one live telemetry session row, the way an agent's

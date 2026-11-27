@@ -812,10 +812,10 @@ export const en: Dict = {
       dropHere: "Drag members here",
       moveToNew: "New group…",
       bringInTitleLead: "Move the current “",
-      bringInTitleMid: "” outsource workers into “",
+      bringInTitleMid: "” outsource members into “",
       bringInTitleTail: "”?",
       bringInMoveTicked: "Move the ticked ones",
-      bringInDecline: "Apply to new workers only",
+      bringInDecline: "Apply to new outsource members only",
       roleDescription: "draggable chat",
       groupRoleDescription: "draggable group",
       optionsLead: "Group options: ",
@@ -863,21 +863,21 @@ export const en: Dict = {
       paused: "Assignment paused",
       capTitle: "Outsource cap",
       capHint:
-        "Cap how many outsource workers can be hired at once; unlimited removes the cap.",
+        "Cap how many outsource members can be hired at once; unlimited removes the cap.",
       capMaxLabel: "Max hires",
       capUnlimited: "Unlimited",
       capDecrease: "Decrease",
       capIncrease: "Increase",
       capSave: "Done",
       capError: "Didn't save. Please try again.",
-      loadError: "Failed to load outsource workers. Please try again.",
+      loadError: "Failed to load outsource members. Please try again.",
       viewDetail: "Outsource details",
       openTask: "Open task details",
       // The ONE home for the "released" sentence — read by BOTH entries (chat
       // and the detail panel). Deliberately entry-neutral; see zh.ts.
       releasedTitle: "Outsource · released",
       releasedSub:
-        "This outsource worker was released when its task closed; what you see here is a read-only record.",
+        "This outsource member was released when its task closed; what you see here is a read-only record.",
     },
   },
   activity: {
@@ -926,7 +926,7 @@ export const en: Dict = {
     estimatedCost: "est. $",
     // T-7526: the four presence words retired with the 狀態 cell — see zh.ts.
     // ── T-32e1/T-f190 lifecycle ops (aligned with the member detail panel) ──
-    refocusSubmittedNote: "Refocus sent · worker respawning…",
+    refocusSubmittedNote: "Refocus sent · member tidying up its memory…",
     // ⚠️ No `restart` leaf: the wake word is the member panel's
     // `lifecycle.action.spawn` on both panels — see zh.ts.
     stop: "Stop",
@@ -947,7 +947,7 @@ export const en: Dict = {
     copyCommand: "Copy command",
     copied: "Copied",
     terminalHint:
-      "Paste this in your own terminal to attach to this worker's session.",
+      "Paste this in your own terminal to attach to this outsource member's session.",
     terminalUnavailable:
       "This server version does not support the attach command — please update the server.",
     // Initial-prompt preview (boot-context): a worker never stores its verbatim
@@ -1208,6 +1208,7 @@ export const en: Dict = {
     language: "Language",
     langZh: "中文",
     langEn: "English",
+    languageSub: "Also the language members use with you (from their next start).",
     pushContactEmail: "Notification email",
     pushContactEmailSub: "Notifications are not sent until this is set. The address is shared with the browser's push service, so use one that can be public.",
     pushContactEmailPlaceholder: "name@company.com",
@@ -1737,7 +1738,7 @@ export const en: Dict = {
     insightEmpty:
       "This role has no Insight yet.",
     insightShared:
-      "Every member can read this Insight; only this role itself and an admin can change it.",
+      "Judgement principles this role keeps for its own work. Only this role's members read them at boot; other members don't read them by default.",
     insightSaveError: "Failed to save insight",
     // ── Webhook endpoints (M4) ──
     webhook: {
@@ -1931,7 +1932,7 @@ export const en: Dict = {
       // handover hold: the cockpit already words that badge once, as
       // `tasks.lockReassigning`, and the resume panel reuses it rather than
       // minting a synonym that could later disagree with it.
-      blockingLabel: "Tickets waiting on this one:",
+      blockingLabel: "Tasks waiting on this one:",
       generatedAtLabel: "This snapshot was taken at",
       // 🔴 THE PER-MESSAGE MARK IS A MARK, NOT A SENTENCE. It used to be
       // "This message is folded — 46 characters kept on the server (re-read it
@@ -2387,8 +2388,8 @@ export const en: Dict = {
     // Global context (T-a241): the boot / lifecycle documents are their own
     // Settings section now, no longer inside the role journal.
     globalContext: "Global context",
-    roles: "Role journal",
-    params: "Parameters",
+    roles: "Roles",
+    params: "General",
     // ── theme management (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "Theme",
     themeTabAppearance: "Appearance",
@@ -2509,56 +2510,68 @@ export const en: Dict = {
     updateAvailable: "A newer version is available",
     upgrade: "Update to latest",
     catalogHash: "MCP catalog hash",
+    developerMode: "Developer mode",
+    developerModeSub:
+      "When on, the boot documents in Global context can be edited. User Language and User additions are always editable.",
     globalSection: "BOOT",
     systemName: "System interaction",
-    systemSub: "How the system works, read by every member at boot · editable",
+    systemSub: "How the system works, read by every member at boot",
     customName: "User additions",
     customSub: "Custom content read by every member at boot · editable",
-    roleDefsSection: "Role definitions",
+    bootDocEditableSuffix: " · editable",
+    dutyHeading: "Duty",
+    dutyNote:
+      "Other members read this to decide what to bring to this role; it appears on the roster every member sees at boot.",
+    userLanguageName: "User Language",
+    userLanguageSub:
+      "The language members write to you in · follows the display language until you edit it",
+    termGlossaryName: "Term glossary",
+    termGlossarySub:
+      "English and Chinese feature names side by side · updated with each release, not editable",
     bootName: "Boot steps",
-    bootSub: "What an AI follows while starting up · one per runtime · editable",
+    bootSub: "What an AI follows while starting up · one per runtime",
     bootRuntimeClaude: "Standard",
     bootRuntimeCodex: "Codex",
     bootClaudeName: "Boot steps (Claude Code)",
-    bootClaudeSub: "Boot SOP for the Claude Code runtime · editable",
+    bootClaudeSub: "Boot SOP for the Claude Code runtime",
     bootCodexName: "Boot steps (Codex CLI)",
-    bootCodexSub: "Boot SOP for the Codex App Server runtime · editable",
+    bootCodexSub: "Boot SOP for the Codex App Server runtime",
     offboardName: "Stop",
     offboardSub:
-      "Wrap-up instructions a member receives when it is stopped · editable",
+      "Wrap-up instructions a member receives when it is stopped",
     stopSection: "STOP",
     taskEventSection: "TASK EVENTS",
     acceleratedStopName: "Accelerated stop",
     acceleratedStopSub:
-      "What an agent is told when it is asked to wrap up early · carries a deadline · editable",
+      "What a member is told when it is asked to wrap up early · carries a deadline",
     taskCloseoutName: "Task close-out",
     taskCloseoutSub:
-      "What an agent is told when one of its tasks is judged finished · editable",
+      "What a member is told when one of its tasks is judged finished",
     taskReassignPredecessorName: "Task reassignment · to the predecessor",
     taskReassignPredecessorSub:
-      "What an agent is told when a task it held is handed to somebody else · editable",
+      "What a member is told when a task it held is handed to somebody else",
     taskTakeoverWithPredecessorName: "Task reassignment · to the successor",
     taskTakeoverWithPredecessorSub:
-      "What an agent is told when it takes over a task (the same document with or without a predecessor) · editable",
-    taskUnblockedName: "The ticket blocking your task is released",
+      "What a member is told when it takes over a task (the same document with or without a predecessor)",
+    taskUnblockedName: "The task blocking yours is released",
     taskUnblockedSub:
-      "What an agent is told when the task blocking it is released · editable",
+      "What a member is told when the task blocking it is released",
     taskReadyForDoneName: "Your task is ready to be closed",
     taskReadyForDoneSub:
-      "What an agent is told each time its task becomes ready to close · editable",
-    bootDocReadOnlyNote:
-      "This document is shown so you can see exactly what agents are told. Nobody may edit it, and it has no version other than the default content.",
+      "What a member is told each time its task becomes ready to close",
     bootDocSaveConfirmAcceleratedStop:
-      "Save this accelerated-stop procedure? Every agent asked to wrap up early reads this content, and reads it with only a short window left — it has to be finishable in that time.",
+      "Save this accelerated-stop procedure? Every member asked to wrap up early reads this content, and reads it with only a short window left — it has to be finishable in that time.",
     bootDocSaveConfirmTaskEvent:
-      "Save this task-event procedure? Every agent notified of this event from now on reads this content.",
+      "Save this task-event procedure? Every member notified of this event from now on reads this content.",
     bootDocNoteHistoryLead: "Version history keeps the last ",
     bootDocNoteHistoryTail:
       " versions, counted in SAVES rather than in time — a run of small saves pushes the older ones out. Sync to default is never affected and is always available.",
+    bootDocSaveConfirmUserLanguage:
+      "Save this User Language document? Every member that boots after the save reads this content.",
     bootDocSaveConfirmBoot:
       "Save these boot steps? Broken boot steps stop members booting after this from coming online, with no error message anywhere. Check the preview before saving; if it does go wrong, open Default content in the version history and press Sync to default.",
     bootDocSaveConfirmSystem:
-      "Save this system-interaction document? Every agent that boots after the save reads this content.",
+      "Save this system-interaction document? Every member that boots after the save reads this content.",
     bootDocSaveConfirmOffboard:
       "Save this Stop document? Every member stopped after this reads it, with nobody to ask and no time limit; the time-limited case reads the Accelerated stop document instead.",
     bootDocSaveConfirmAction: "Save",
@@ -2568,6 +2581,7 @@ export const en: Dict = {
     docExpand: "Expand this document",
     docCollapse: "Collapse this document",
     historyBootSystemTitle: "System interaction · version history",
+    historyUserLanguageTitle: "User Language · version history",
     historyBootClaudeTitle: "Boot steps (Claude Code) · version history",
     historyBootCodexTitle: "Boot steps (Codex CLI) · version history",
     historyBootOffboardTitle: "Stop · version history",
@@ -2578,7 +2592,7 @@ export const en: Dict = {
     historyTaskTakeoverWithPredecessorTitle:
       "Task reassignment · to the successor · version history",
     historyTaskUnblockedTitle:
-      "The ticket blocking your task is released · version history",
+      "The task blocking yours is released · version history",
     historyTaskReadyForDoneTitle:
       "Your task is ready to be closed · version history",
     defaultBadge: "Default",
@@ -2644,7 +2658,7 @@ export const en: Dict = {
     historyVersionUnreadable:
       "This version's content cannot be read right now, so it cannot be shown or compared.",
     historyClose: "Close",
-    historyRoleDefTitle: "Role definition · version history",
+    historyRoleDefTitle: "Duty · version history",
     historyInsightTitle: "Insight · version history",
     historyGlobalTitle: "Global context · version history",
     historySopTitle: "SOP version history",
@@ -2655,15 +2669,15 @@ export const en: Dict = {
     historyField: {
       text: "Content",
       name: "Name",
-      definition_md: "Role definition",
+      definition_md: "Duty",
       purpose: "Purpose",
       fields: "Fields",
       sop_md: "SOP",
       title: "Title",
       body: "Body",
     },
-    loadError: "Failed to load role definitions. Please try again.",
-    addRole: "Add role definition",
+    loadError: "Failed to load settings. Please try again.",
+    addRole: "Add role",
     addRoleName: "Role name",
     renameRole: "Rename role",
     addRoleSubmit: "Create",
@@ -2673,16 +2687,16 @@ export const en: Dict = {
     deleteRole: "Delete",
     deleteRoleConfirmLead: 'Delete role "',
     deleteRoleConfirmTail:
-      '"? Its staff members will be marked as departed and their chats kept as read-only history; the role definition and Insight will be deleted permanently.',
+      '"? Its staff members will be marked as departed and their chats kept as read-only history; its Duty and Insight will be deleted permanently.',
     deleteRoleConfirmAction: "Delete role",
     deleteRoleOnline: "A member is online — cannot delete",
     deleteRoleError: "Delete failed. Please try again.",
-    paramsLoadError: "Failed to load parameters. Please try again.",
+    paramsLoadError: "Failed to load settings. Please try again.",
     paramsSaveError: "Didn't save — try again",
     sessionTtl: "Session length",
     sessionTtlSub: "How long before you have to sign in again",
     agentTokenTtl: "Member login lifetime",
-    agentTokenTtlSub: "How long newly started members and outsource workers stay logged in before they must log in again",
+    agentTokenTtlSub: "How long newly started staff and outsource members stay logged in before they must log in again",
     ttl12h: "12 hours",
     ttl24h: "24 hours",
     ttl7d: "7 days",
@@ -2729,13 +2743,13 @@ export const en: Dict = {
     // they no longer share one ruler.
     docCapDuty: "Duty size cap",
     docCapDutySub:
-      "Maximum characters in a role's role definition (100–100000). Lowering it truncates nothing already saved; it only affects later saves.",
+      "Maximum characters in a role's Duty (100–250000). Lowering it truncates nothing already saved; it only affects later saves.",
     docCapInsight: "Insight size cap",
     docCapInsightSub:
-      "Maximum characters in a role's Insight (100–100000). Lowering it truncates nothing already saved; it only affects later saves.",
+      "Maximum characters in a role's Insight (100–250000). Lowering it truncates nothing already saved; it only affects later saves.",
     docCapManualSop: "Task manual SOP size cap",
     docCapManualSopSub:
-      "Maximum characters in a task manual's SOP (100–100000). Lowering it truncates nothing already saved; it only affects later saves.",
+      "Maximum characters in a task manual's SOP (100–250000). Lowering it truncates nothing already saved; it only affects later saves.",
     // T-c9b4: the wake snapshot's chat budget. Deliberately not folded into the
     // doc-cap wording above — both directions are now legal on both sides (owner
     // 2026-09-07 dropped every doc-cap floor to 100), but the numbers differ, and
@@ -2823,8 +2837,8 @@ export const en: Dict = {
       "Not saved — the previous value has been restored; try again",
     manuals: "Task manuals",
     manualsLoadError: "Failed to load task manuals. Please try again.",
-    manualsEmpty: "No task types yet — add the first one below",
-    addManual: "Add type",
+    manualsEmpty: "No task manuals yet — add the first one below",
+    addManual: "Add task manual",
     addManualName: "Display name (e.g. Review PR)",
     addManualSubmit: "Create",
     addManualCancel: "Cancel",
@@ -2878,7 +2892,7 @@ export const en: Dict = {
     assigneeMachineOffline: "Offline",
     assigneeMachineUnset: "No machine chosen",
     assigneeMachineNote:
-      "Workers of this type wake on the chosen machine and nowhere else. While no machine is chosen, or the chosen one is offline, none is woken \u2014 the reason is shown on the worker.",
+      "Outsource members of this type wake on the chosen machine and nowhere else. While no machine is chosen, or the chosen one is offline, none is woken \u2014 the reason is shown on the outsource member.",
     assigneeCopies: "Hire count",
     assigneeCopiesDecrease: "Decrease",
     assigneeCopiesIncrease: "Increase",
@@ -2888,7 +2902,7 @@ export const en: Dict = {
     manualPlanningSection: "Task planning",
     manualDefEntrySub: "What it is, what info it needs, how to do it",
     manualSuggestedRepliesSection: "Suggested replies",
-    manualSuggestedRepliesSub: "Sentences you can drop in with one tap when answering a reply card about this kind of task, messaging on one, or chatting with the outsource worker on one.",
+    manualSuggestedRepliesSub: "Sentences you can drop in with one tap when answering a reply card about this kind of task, messaging on one, or chatting with the outsource member on one.",
     manualSuggestedRepliesEmpty: "This task type has no sentences of its own yet.",
     manualSuggestedRepliesLoadError: "The suggested replies failed to load.",
     manualSuggestedRepliesRetry: "Reload",

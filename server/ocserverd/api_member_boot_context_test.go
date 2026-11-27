@@ -121,14 +121,64 @@ func TestHandleGetMemberBootContextApiMembersMemberIdBootContextGet(t *testing.T
 			ownAt := strings.Index(context, "OWN LORE OF m-writer")
 			// Both entries share effective_ts 1, so the later-minted own entry
 			// (higher seq) comes first in the merged list.
-			if !strings.Contains(context, "\n\n# 傳承\n\n") || ownAt < 0 || everyoneAt < ownAt {
-				t.Fatalf("want a 傳承 block with the member's own entry (higher seq) before the everyone one: %s", context)
+			if !strings.Contains(context, "\n\n# Lore\n\n") || ownAt < 0 || everyoneAt < ownAt {
+				t.Fatalf("want a Lore block with the member's own entry (higher seq) before the everyone one: %s", context)
 			}
 			if !strings.HasSuffix(context, "\n\n"+tc.wantBoot+"\n") || strings.Contains(context, tc.otherBoot) {
 				t.Fatalf("want %q as the last block and no %q: %s", tc.wantBoot, tc.otherBoot, context)
 			}
 		})
 	}
+
+	t.Run("the User Language block follows display.language, and a change reaches the next preview", func(t *testing.T) {
+		_, h, d, owner := newAPITestServerInDeveloperMode(t)
+		memberPreviewSeed(t, d, Member{ID: "m-writer", Name: "Writer", RoleKey: memberPreviewRoleKey, Runtime: RuntimeClaude})
+		if status, data := apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"# SYSTEM INTERACTION"}`); status != 200 {
+			t.Fatalf("replace system interaction: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"OWNER ADDITIONS"}`); status != 200 {
+			t.Fatalf("replace owner additions: %d %v", status, data)
+		}
+		zhContext := "# SYSTEM INTERACTION\n\n# User Language\n\n除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。\n\n" + apiTestUserLanguageGlossary + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
+		enContext := "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports.\n\n" + apiTestUserLanguageGlossary + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
+		for _, step := range []struct{ name, settings, want string }{
+			{name: "never set", want: zhContext},
+			{name: "en", settings: `{"display_language":"en"}`, want: enContext},
+			{name: "zh", settings: `{"display_language":"zh"}`, want: zhContext},
+			{name: "en again", settings: `{"display_language":"en"}`, want: enContext},
+			{name: "cleared", settings: `{"display_language":""}`, want: zhContext},
+		} {
+			t.Run(step.name, func(t *testing.T) {
+				if step.settings != "" {
+					if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, step.settings); status != 200 {
+						t.Fatalf("PATCH %s: %d %v", step.settings, status, data)
+					}
+				}
+				status, data := apiJSON(t, h, "GET", "/api/members/m-writer/boot-context", owner, "")
+				if status != 200 {
+					t.Fatalf("want 200, got %d (%v)", status, data)
+				}
+				apiWantBody(t, data, map[string]any{"context": step.want})
+			})
+		}
+	})
+
+	t.Run("without owner additions the User Language block sits directly before the role", func(t *testing.T) {
+		_, h, d, owner := newAPITestServerInDeveloperMode(t)
+		memberPreviewSeed(t, d, Member{ID: "m-writer", Name: "Writer", RoleKey: memberPreviewRoleKey, Runtime: RuntimeClaude})
+		if status, data := apiJSON(t, h, "POST", "/api/system-interaction", owner, `{"body":"# SYSTEM INTERACTION"}`); status != 200 {
+			t.Fatalf("replace system interaction: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"en"}`); status != 200 {
+			t.Fatalf("PATCH display_language: %d %v", status, data)
+		}
+
+		status, data := apiJSON(t, h, "GET", "/api/members/m-writer/boot-context", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"context": "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports.\n\n" + apiTestUserLanguageGlossary + "\n\n# Role: Preview Writer\n\n# Preview role instructions\n\n# Lore\n\n## L-2 own\n\nOWN LORE OF m-writer\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"})
+	})
 
 	t.Run("two staff members of one role each preview their own 傳承 and not the other's", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)

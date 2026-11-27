@@ -1,649 +1,648 @@
-# 介面說明
+# Interface reference
 
-讀完這頁，你能在控制台上認出每個分頁、每個區塊和欄位的名稱與用途，並查到操作時的細節與例外情況；要照步驟操作時，每一段都附上講操作的那一頁。
+After reading this page, you can recognize the name and purpose of every tab, section and field in the console, and look up the details and exceptions that apply when you use them. When you want step-by-step instructions, each section links to the page that covers them.
 
-這頁的畫面與用語以預設的時段主題、中文介面為準。自訂主題可以換掉介面用語，換了之後畫面上的字會跟這頁不同，詳見 [主題（外觀與用語）](theme.md)。
+The screens and wording on this page follow the default time-of-day theme and the English interface. A custom theme can replace the interface wording; after that, the text on screen will differ from this page. See [Themes (look and wording)](theme.md).
 
-## 整體版面
+## Overall layout
 
-![OffiCraft 控制台](assets/cockpit-office.png)
+![OffiCraft console](assets/cockpit-office.png)
 
-控制台由三部分組成：頂列、分頁列、目前分頁的內容。設定不是分頁，是按齒輪後蓋在畫面上的一層。
+The console has three parts: the top bar, the tab bar, and the content of the current tab. Settings is not a tab; it is a layer that opens over the screen when you press the gear.
 
-## 頂列
+## Top bar
 
-由左到右：
+From left to right:
 
-- **工作室 Logo** — 點了回到辦公室分頁。
-- **工作室名稱** — 旁邊的筆圖示可以改名。
-- **重新整理** — 重新載入整個頁面。
-- **通知按鈕（開啟通知）** — 鈴鐺圖示。鈴鐺上有斜線代表這台裝置還沒開啟推播通知，按下去開啟；沒有斜線代表已開啟，再按一次是「關閉通知」。
-- **齒輪** — 打開設定：系統更新與備份、全域情境、角色誌、任務手冊、參數調整、主題六個子頁，以及使用說明。
-- **頭像** — 打開頭像選單：個人檔案、偏好設定、通知信箱、帳號安全與登出。
+- **Studio logo** — click it to go back to the Office tab.
+- **Studio name** — the pencil icon next to it lets you rename it.
+- **Reload** — reloads the whole page.
+- **Notification button ("Turn on notifications")** — a bell icon. A slash through the bell means push notifications are not yet turned on for this device; press it to turn them on. No slash means they are on; pressing it again turns them off ("Turn off notifications").
+- **Gear** — opens Settings: six sub-pages ("System update & backup", "Global context", "Roles", "Task manuals", "General", "Theme") and the "User guide".
+- **Avatar** — opens the avatar menu: "Profile", "Preferences", "Notification email", "Account security" and "Log out".
 
-目前的版本號不在頂列，在「設定 › 系統更新與備份」。
+The current version number is not in the top bar; it is in "Settings › System update & backup".
 
-即時連線中斷時，分頁列上方會出現「即時更新已中斷」橫幅，附一顆「重新整理」按鈕。橫幅出現期間，畫面上的內容可能不是最新的。
+When the live connection drops, a "Live updates disconnected" banner appears above the tab bar, with a "Reload" button. While the banner is shown, the content on screen may not be up to date.
 
-站台換成新版本後，已經開著的控制台會在分頁列上方出現「控制台有新版本」橫幅，附一顆「重新整理」按鈕。重新整理之前畫面仍是舊版，部分畫面（例如應景主題換到下一個時段）可能無法正常顯示。不在前景的控制台（被切到其他分頁、瀏覽器視窗縮到最小、手機切到其他 App 或螢幕鎖定）會自己重新整理；在前景的控制台一律只顯示橫幅，電腦上視窗只是被其他視窗擋住時也一樣；有打到一半、還沒送出的文字或附件，或訊息正在送出時，不會自己重新整理，只顯示橫幅。自己按「重新整理」時，還沒送出的內容會消失。
+After the site switches to a new version, a console that is already open shows the "A new version of the console is available" banner above the tab bar, with a "Reload" button. Until you reload, the screen is still the old version, and some screens (for example, a seasonal theme switching to the next time slot) may not display correctly. A console that is not in the foreground (switched to another tab, browser window minimized, phone switched to another app, or screen locked) reloads by itself. A console in the foreground always only shows the banner, including when, on a computer, its window is only covered by other windows. If there is half-typed text or an attachment not yet sent, or a message is being sent, it does not reload by itself and only shows the banner. When you press "Reload" yourself, any content not yet sent is lost.
 
-**推播通知的細節**：
+**Push notification details**:
 
-- 開啟前要先在頭像選單填好「通知信箱」。沒填時無法開啟，畫面會寫「請先在個人選單的「通知信箱」填入通知信箱。」
-- 瀏覽器不支援推播、或通知權限已被封鎖時，鈴鐺不顯示。通知權限被封鎖時，要在瀏覽器或系統設定裡重新允許 OffiCraft 的通知，鈴鐺才會出現。
-- iPhone、iPad 需要 iOS／iPadOS 16.4 以上，而且必須先加到主畫面、從主畫面打開後才能開啟通知。
-- 每台裝置要各自開啟一次。
-- 通知只用來提醒。控制台沒有離線模式，沒有網路時無法使用。
+- Before turning them on, you must first fill in "Notification email" in the avatar menu. Without it, you cannot turn them on, and the screen says "Add a notification email from the Profile menu first."
+- If the browser does not support push, or notification permission has been blocked, the bell is not shown. If notification permission is blocked, you must allow OffiCraft notifications again in the browser or system settings before the bell appears.
+- iPhone and iPad need iOS/iPadOS 16.4 or later, and you must first add the console to the Home Screen and open it from the Home Screen before you can turn on notifications.
+- You need to turn them on once on each device.
+- Notifications are only reminders. The console has no offline mode and cannot be used without a network connection.
 
-手機上的設定步驟見 [在手機上用](mobile.md)。
+For the setup steps on a phone, see [Use it on your phone](mobile.md).
 
-## 分頁列
+## Tab bar
 
-七個分頁，由左到右：
+Seven tabs, from left to right:
 
-| 分頁 | 徽章 | 用途 |
+| Tab | Badge | Purpose |
 | --- | --- | --- |
-| 辦公室 | 聊天未讀總數 | 成員名單與聊天 |
-| 請示 | 等你回覆的請示卡數 | 成員開給你的請示卡 |
-| 任務 | 未結案的任務數；有任務已逾期時旁邊多一個紅色警示圖示，只有快到期時為橘黃色，滑鼠移上去會顯示例如「已逾期 1 · 即將到期 2 · 進行中 5」 | 任務看板 |
-| 密鑰 | 無 | 給成員使用的帳號金鑰 |
-| 檔案庫 | 無 | 不屬於任何任務、所有成員都能讀取與更新的參考檔案 |
-| 傳承 | 無 | 成員與任務手冊累積的傳承條目 |
-| 監控 | 無 | 帳號用量、機器、AI 會話 |
+| Office | Total unread chat messages | Member list and chat |
+| Ask | Number of reply cards waiting for your answer | Reply cards members open for you |
+| Task | Number of tasks not yet closed; when any task is overdue, a red warning icon appears next to it, and when tasks are only close to their due date it is orange-yellow. Hovering the mouse over it shows, for example, "1 overdue · 2 due soon · 5 open" | Task board |
+| Secrets | None | Account keys for members to use |
+| Files | None | Reference files that do not belong to any task and that all members can read and update |
+| Lore | None | Lore entries accumulated by members and task manuals |
+| Monitor | None | Account usage, machines, AI sessions |
 
-## 辦公室
-
-左側是「辦公室成員」，右側是聊天室。手機上一次只顯示一邊，按「返回成員」回到名單。
+## Office
+
+On the left is "Office members"; on the right is the chat. On a phone, only one side is shown at a time; press "Back to members" to return to the list.
 
-**成員名單**
+**Member list**
 
-- **正職／外包** — 名單頂端的兩個頁籤。正職頁籤寫人數；外包頁籤寫人數與同時雇用上限（例如「1 人 · 上限 3」），上限設為 0 時寫「已暫停指派」。
-- **成員列** — 頭像、名字、角色（外包顯示代號與目前任務的標題，沒有進行中任務時寫「無當前任務」），右側是這位成員的未讀數。
-- **狀態圓點** — 頭像右下角的圓點：離線、喚醒中、線上、停止中、已停止。滑過或點一下圓點會顯示狀態文字。
-- **驚嘆號** — 名字下方、角色前面的警示，原因有兩類：機器回報「未登入 Claude／未登入 Codex」，或這位成員最近一次模型呼叫失敗（登入失效、已達用量上限並寫出重置時間、伺服器異常、模型呼叫失敗附代碼）。點驚嘆號會列出每個原因，並指引到「監控 › 機器資訊」登入。
-- **招攬新成員** — 名單最下方的按鈕。在正職頁籤按下，跳到「設定 › 角色誌」新增角色；在外包頁籤按下，打開「外包上限設定」（最多雇用幾位，或選「無限」）。
+- **Staff / Outsource** — the two tabs at the top of the list. The Staff tab shows the number of people; the Outsource tab shows the number of people and the limit on how many can be hired at once (for example, "1 person · cap 3"). When the limit is set to 0, it shows "Assignment paused".
+- **Member row** — avatar, name, role (outsource members show their code name and the title of their current task; with no task in progress it shows "No active task"), and on the right, this member's unread count.
+- **Status dot** — the dot at the bottom-right of the avatar: Offline, Waking, Online, Stopping, Stopped. Hovering over or clicking the dot shows the status text.
+- **Exclamation mark** — a warning below the name, in front of the role. There are two kinds of reasons: the machine reports "signed out of Claude" / "signed out of Codex", or this member's most recent model call failed (sign-in expired, usage limit reached with the reset time, server error, model call failed with a code). Clicking the exclamation mark lists each reason and points you to "Monitor › Machines" to sign in.
+- **Recruit a member** — the button at the bottom of the list. Pressed on the Staff tab, it goes to "Settings › Roles" to add a role; pressed on the Outsource tab, it opens "Outsource cap" (the maximum number to hire, or choose "Unlimited").
 
-**群組與篩選**
+**Groups and filters**
 
-正職和外包兩個頁籤各自有群組。
+The Staff and Outsource tabs each have their own groups.
 
-- **工具列** — 頁籤下方。左邊是「篩選」，右邊是「全部收合」（或「全部展開」）與「新增群組」。新群組出現在最上面；同一個頁籤不能有同名的群組。
-- **群組標題** — 寫「群組名稱 · 人數」，點標題收合或展開。收起時顯示這個群組的未讀合計。空的群組顯示「把成員拖曳到這裡」。
-- **群組選項「⋯」** — 群組標題右側：「重新命名」、「刪除群組」，外包群組另有「自動加入…」。刪除群組後，群組裡的成員回到「未分組」。電腦上按右鍵不會出現選單；用鍵盤時，選單鍵或 Shift+F10 開啟群組選項。點選單外面只會關閉選單。
-- **拖曳** — 用滑鼠按住成員列或群組標題直接移動就能拖曳；只點一下成員仍是打開聊天，點群組標題仍是收合或展開。手機等觸控螢幕上要先長按，等成員列或群組標題浮起再拖；還沒浮起就滑動是捲動清單。拖群組標題調整群組順序；拖成員可以在群組內調整順序、移到別的群組，拖到「未分組」就移出群組。篩選中不能拖曳。用鍵盤時，按空白鍵拿起，用上下方向鍵移動，再按空白鍵放下，按 Esc 取消。
-- **未分組** — 不在任何群組的成員排在最下面，照這個頁籤原本的順序排列，不能手動調整。還沒建立任何群組時不顯示「未分組」標題，清單和原本一樣。
-- **自動加入** — 外包群組的「自動加入…」視窗列出任務類型。勾選的任務類型設定完成後，新外包的任務類型符合時，會自動放進這個群組。一個任務類型只能屬於一個群組，在別的群組勾選同一個任務類型，就會從原本的群組移過去。勾選時，若已經有符合的外包不在這個群組（在「未分組」或其他群組），會跳出視窗逐一列出，預設全部勾選，兩個選項是「搬進勾選的」與「都不搬，只套用到之後的新外包」。
-- **篩選** — 可以用「搜尋名稱…」，以及「未讀」、「連線」（離線、喚醒中、線上、停止中、已停止）、「狀態」（工作中、等待中、閒置）三區的勾選項篩選成員，每一項旁邊顯示目前的人數。同一區勾多項時，符合其中一項就顯示；勾了不同區時，要每一區都符合才顯示。勾選項記在這個瀏覽器，搜尋文字不會記住。
-- **存在哪裡** — 群組、群組順序、成員所屬的群組與自動加入的設定存在伺服器上，換裝置打開相同，其他開著的頁面也會即時更新。群組收合或展開只記在這個瀏覽器。正職成員被刪除、外包的任務結束時，這位成員的群組紀錄一起清掉。
-- **影響範圍** — 分組只影響這份成員清單；@ 提到成員時跳出的清單，順序不變。
+- **Toolbar** — below the tabs. On the left is "Filter"; on the right are "Collapse all" (or "Expand all") and "New group". A new group appears at the top; groups in the same tab cannot have the same name.
+- **Group heading** — shows "group name · member count"; click the heading to collapse or expand the group. When collapsed, it shows the group's total unread count. An empty group shows "Drag members here".
+- **Group options "⋯"** — on the right of the group heading: "Rename" and "Delete group", plus "Auto-join…" for outsource groups. After a group is deleted, its members go back to "Ungrouped". On a computer, right-clicking does not open a menu; with a keyboard, the menu key or Shift+F10 opens the group options. Clicking outside the menu only closes the menu.
+- **Dragging** — with a mouse, press and hold a member row or group heading and move it to drag; a single click on a member still opens the chat, and a click on a group heading still collapses or expands it. On a touch screen such as a phone, you must first long-press and wait for the member row or group heading to lift before dragging; swiping before it lifts scrolls the list. Drag a group heading to change the group order; drag a member to reorder it within the group or move it to another group, and drag it to "Ungrouped" to remove it from a group. You cannot drag while a filter is active. With a keyboard, press Space to pick up, move with the up and down arrow keys, press Space again to drop, and press Esc to cancel.
+- **Ungrouped** — members not in any group are listed at the bottom, in the tab's original order, which cannot be changed manually. When no group has been created yet, the "Ungrouped" heading is not shown and the list looks the same as before.
+- **Auto-join** — the "Auto-join…" window of an outsource group lists task types. Once the ticked task types are saved, a new outsource member whose task type matches is placed in this group automatically. A task type can belong to only one group; ticking the same task type in another group moves it from its original group. When you tick a type and there are already matching outsource members that are not in this group (in "Ungrouped" or another group), a window opens listing them one by one, all ticked by default, with two options: "Move the ticked ones" and "Apply to new outsource members only".
+- **Filter** — you can filter members with "Search names…" and the checkboxes in three sections: "Unread", "Connection" (Offline, Waking, Online, Stopping, Stopped) and "Status" (Working, Waiting, Idle). Each item shows the current number of members next to it. When you tick several items in the same section, a member matching any one of them is shown; when you tick items in different sections, a member must match every section to be shown. The ticked items are remembered in this browser; the search text is not.
+- **Where it is stored** — groups, group order, which group each member belongs to, and the auto-join settings are stored on the server, so they are the same when you open the console on another device, and other open pages update in real time. Whether a group is collapsed or expanded is remembered only in this browser. When a staff member is deleted, or an outsource member's task ends, that member's group record is cleared as well.
+- **What it affects** — grouping only affects this member list; the order of the list that appears when you @ mention a member does not change.
 
-**外包名單**
+**Outsource list**
 
-外包頁籤裡，未分組的外包依任務建立時間由新到舊排列。每一列顯示：
+In the Outsource tab, ungrouped outsource members are listed by task creation time, newest first. Each row shows:
 
-- 頭像與在線圓點、運作狀態圖示、代號。
-- 驚嘆號警示（有的話）、任務編號、任務類型。點任務編號會跳到那張任務。
-- 任務標題；沒有進行中的任務時顯示「無當前任務」。
-- 未讀訊息數。
+- Avatar and presence dot, activity status icon, code name.
+- Exclamation-mark warning (if any), task number, task type. Clicking the task number jumps to that task.
+- Task title; with no task in progress it shows "No active task".
+- Number of unread messages.
 
-點一列打開和這位外包的聊天，點頭像打開外包詳情。
+Click a row to open the chat with this outsource member; click the avatar to open "Outsource details".
 
-任務結案後，外包會釋出並從名單消失。外包的聊天紀錄仍保留，從舊訊息或舊連結打開時會顯示「外包 · 已釋出」與「此外包成員已結案釋出,這裡是唯讀的歷史紀錄」，不再有喚醒或停止等操作。
+After a task is closed, the outsource member is released and disappears from the list. The outsource member's chat history is kept; when opened from an old message or an old link, it shows "Outsource · released" and "This outsource member was released when its task closed; what you see here is a read-only record.", and actions such as wake or stop are no longer available.
 
-**聊天室**
+**Chat**
 
-- **聊天室標頭** — 對象的名字、狀態，以及工作狀態圖示（工作中、等待中、閒置；在線但還沒回報時顯示「狀態未知」）。點工作狀態可「查看運行狀況」。標頭右側的圖示依序是：這位成員還沒回的請示卡、查看這位成員未完成的任務、開啟這個角色的定義設定、建議回覆、搜尋這段對話、檔案與圖片。第一顆正職與外包都有，紅色數字是這位成員開、還在等你回的請示卡張數（「稍後再看」的卡不算），沒有時不顯示數字；按下去打開請示頁，開卡人選好這位成員，只顯示「請示」那一段。
-- **訊息區** — 日期分隔線、「以下為尚未閱讀的訊息」分隔線、成員之間的對話、嵌在訊息裡的請示卡。往上捲讀舊訊息時會出現「回到最新訊息」，按下回到最底下。
-- **成員之間的對話** — 成員之間互傳的訊息也會出現在聊天室裡，連續的幾則會收合成一列「N 則成員間對話 · 展開」。按下去展開，按「收合成員間對話」再收起來。
-- **輸入框** — 左邊是「附加檔案」，右邊是「送出」。電腦上按 Enter 也會送出，Shift+Enter 換行；手機上 Enter 是換行，要按「送出」。也可以直接貼上截圖。單張圖片上限 20 MB；一則訊息能附的檔案數有上限，超過時畫面會寫出上限。
-- **對象離線時** — 輸入框上方寫「目前離線中 — 訊息會排隊，或立即喚醒上線」並附「喚醒」按鈕。直接留言的話，成員上線後就會讀到。
-- **檔案與圖片** — 這個聊天室所有附件，分「圖片／檔案」兩頁，可以「依上傳者篩選」。
-- **搜尋這段對話** — 按標頭的放大鏡，標頭下方會出現搜尋列，在你和這位成員之間的訊息內文裡找關鍵字，範圍包括還沒載入的舊訊息；請示卡會比對標題、問題內容和你打的回覆文字（只點選項的回覆沒有文字可比對）；成員之間的對話與附件不在搜尋範圍內，英文字母不分大小寫。按 Enter 才會查詢，查到後跳到最新的一筆，並顯示「第幾筆／共幾筆」；上、下箭頭會跳到較舊、較新的一筆。對話裡的關鍵字會標上底色，目前這一筆的訊息加上外框。搜尋列右邊的對話圖示會打開所有結果的清單，點一筆就跳過去；手機上點了之後清單會自動關掉。最右邊的 X 結束搜尋。跳到結果不會把中間的訊息算成已讀。沒有符合的訊息時顯示「找不到」。
-- **訊息的動作** — 電腦上，滑鼠移到一則訊息上（或用鍵盤移到它的按鈕上），訊息右上緣會浮出一排小按鈕：對方的訊息是「回覆這則」「複製訊息」「放大閱讀」，你自己的訊息是「回覆這則」「複製訊息」「刪除」，請示卡是「回覆這則」「複製訊息」。移開就收起來，訊息的文字不會跟著移動。用手指按（觸控）時，長按訊息或請示卡會跳出一個從畫面下方升起的選單，列出同樣的動作，外加「選取文字」；按著的那則訊息會加上外框，點選單上方變暗的地方就關掉。只能觸控的手機與平板沒有那排小按鈕，同時有滑鼠與觸控螢幕的裝置兩種都能用。
-- **刪除訊息** — 你自己 24 小時內送出的一般聊天訊息，訊息的動作裡有「刪除」。刪除後對方會收到通知，原位置顯示「此訊息已刪除」，點一下仍可看原文；刪除無法復原。成員可能在刪除前已經照原文開始做事。任務訊息與請示卡不能刪除。
-- **複製訊息** — 有文字的訊息，訊息的動作裡有「複製訊息」，按下去會把整則訊息的原始文字複製起來：保留 Markdown 格式，提及成員變成 `@名字`，不含附件與被引用的訊息。請示卡複製的是它的問題：標題、空一行、問題內容，不含選項、回答與附件。用滑鼠按時，成功後複製按鈕會短暫變成 ✓；用手指長按從選單複製時，選單收起就表示複製好了，不會另外顯示什麼。沒複製成功時訊息上方顯示「複製失敗」。只有附件的訊息與已刪除的訊息沒有這個動作。
-- **建議回覆** — 聊天室標頭的按鈕，替這位成員設定可一鍵帶入的句子，正職與外包都一樣。句子排在輸入框下面，點一下只填入輸入框，由你按送出。「設定 › 參數調整」的「聊天室建議回覆」是所有成員共用的一份，排在成員專屬的句子之後，相同的句子只顯示一次。外包成員手上的任務有類型時，那個任務手冊的建議回覆排在最前面；正職成員沒有這一份。這位成員開的請示卡，回覆框也列成員專屬的句子，排在卡片所屬任務的任務手冊建議回覆之後、「請示卡建議回覆」之前。成員離開名冊時，專屬的句子會一起刪除。
+- **Chat header** — the other party's name and status, plus the activity status icon (Working, Waiting, Idle; when online but nothing has been reported yet, it shows "Status unknown"). Click the activity status to "see runtime details". The icons on the right of the header are, in order: "Asks from this member still waiting on you", "See this member's unfinished tasks", "Open this role's definition settings", "Suggested replies", "Search this conversation", and "Files & images". Staff and outsource members both have the first one. Its red number is how many reply cards this member opened that are still waiting for your answer (cards set to "Later" are not counted); when there are none, no number is shown. Pressing it opens the Ask page with "Opener" set to this member, showing only the "Ask" section.
+- **Message area** — date dividers, the "Unread messages below" divider, conversations between members, and reply cards embedded in messages. When you scroll up to read older messages, "Jump to the latest message" appears; press it to go back to the bottom.
+- **Conversations between members** — messages that members send to each other also appear in the chat. Several in a row are collapsed into one line, "N messages between agents · expand". Press it to expand; press "Collapse agent-to-agent messages" to collapse them again.
+- **Input box** — on the left is "Attach a file"; on the right is "Send". On a computer, Enter also sends and Shift+Enter starts a new line; on a phone, Enter starts a new line and you must press "Send". You can also paste a screenshot directly. Each image can be up to 20 MB; the number of files you can attach to one message is limited, and when you exceed it the screen states the limit.
+- **When the other party is offline** — above the input box it says "is offline — your message will queue, or wake them now" with a "Wake" button. If you just leave a message, the member reads it after coming online.
+- **Files & images** — all attachments in this chat, split into two pages, "Images" and "Files", which you can "Filter by uploader".
+- **Search this conversation** — press the magnifying glass in the header and a search bar appears below the header. It looks for the keyword in the text of messages between you and this member, including older messages not yet loaded. For reply cards, it matches the title, the question text and the reply text you typed (a reply made only by clicking an option has no text to match). Conversations between members and attachments are not searched. English letters are not case-sensitive. The search runs only when you press Enter; when matches are found it jumps to the newest one and shows "current match / total". The up and down arrows jump to the older and newer match. Keywords in the conversation are highlighted, and the message of the current match gets an outline. The conversation icon on the right of the search bar opens a list of all results; click one to jump to it. On a phone, the list closes automatically after you click. The X at the far right ends the search. Jumping to a result does not mark the messages in between as read. When no message matches, it shows "No messages containing “…”".
+- **Message actions** — on a computer, when you move the mouse over a message (or move to its buttons with the keyboard), a row of small buttons appears at the top-right edge of the message: for the other party's messages, "Reply", "Copy message" and "Open full view"; for your own messages, "Reply", "Copy message" and "Delete"; for reply cards, "Reply" and "Copy message". They disappear when you move away, and the message text does not shift. When you press with a finger (touch), long-pressing a message or reply card opens a menu that rises from the bottom of the screen, listing the same actions plus "Select text". The message you are pressing gets an outline; tap the darkened area above the menu to close it. Touch-only phones and tablets do not have the row of small buttons; devices with both a mouse and a touch screen can use both.
+- **Deleting a message** — for ordinary chat messages you sent within the last 24 hours, the message actions include "Delete". After deletion, the other party is notified and the original position shows "This message was deleted"; clicking it still shows the original text. Deletion cannot be undone. The member may already have started working on the original text before you deleted it. Task messages and reply cards cannot be deleted.
+- **Copy message** — for messages with text, the message actions include "Copy message", which copies the whole message's original text: Markdown formatting is kept, member mentions become `@name`, and attachments and quoted messages are not included. For a reply card, it copies the question: the title, a blank line, and the question text, without options, answers or attachments. When you press it with a mouse, the copy button briefly changes to ✓ on success; when you copy from the menu after a long press with a finger, the menu closing means the copy is done, and nothing else is shown. If the copy fails, "Copy failed" appears above the message. Messages with only attachments and deleted messages do not have this action.
+- **Suggested replies** — a button in the chat header that sets sentences for this member that you can insert with one click; it works the same for staff and outsource members. The sentences are listed below the input box; clicking one only fills it into the input box, and you press Send. The "Chat suggestions" in "Settings › General" is one list shared by all members and is listed after the member's own sentences; identical sentences are shown only once. When an outsource member's task has a type, that task manual's suggested replies are listed first; staff members do not have this list. For reply cards this member opens, the reply box also lists the member's own sentences, after the suggested replies of the task manual for the card's task and before "Reply-card suggestions". When a member leaves the roster, their own sentences are deleted too.
 
-**回覆某一則訊息或其中一段**
+**Replying to a message or part of it**
 
-- **回覆這則** — 在訊息的動作裡按「回覆這則」，輸入框上方會出現引用列（「正在回覆 名字」）。送出後，你的訊息上方會顯示「引用 名字」，點一下引用列（看原訊息）會在覆蓋層顯示被引用的訊息全文；覆蓋層右上角的「跳到原訊息」會關掉覆蓋層，回到那則訊息在聊天串中的位置，原訊息在別人的聊天室時會切到那間聊天室。原訊息已刪除時沒有「跳到原訊息」。按「取消回覆」可以撤掉引用。
-- **回覆這段** — 在一則訊息裡選取一段文字，旁邊會出現「回覆這段」，按下去只引用你選取的文字；選取範圍可以跨過提及的成員與連結。用手指長按是叫出訊息的動作，要先按「選取文字」進入**選取模式**：其他訊息變模糊、按不到，只有這則保持清楚；一般訊息的文字會先整段選起來，請示卡會先展開、由你自己選；選取模式只拿來選字、複製和回覆，點這則裡的連結、提及、附件、圖片或引用都不會打開任何東西（在 iPhone 上長按連結或圖片也不會跳出開啟的預覽），點請示卡也不會收合；拉選取範圍調整要的那一段。這時下方的輸入框、離線提示等會先收起來，最下方只剩一排「取消」「複製」「回覆」（結束選取模式後輸入框原樣回來，打到一半的字還在）：「複製」複製你選取的那一段（按鈕上會短暫出現 ✓，仍留在選取模式），「回覆」引用那一段並結束選取模式；選取模式裡的請示卡只顯示標題和問題內容，所屬任務那一列、「標為過期」、附件、選項與回答框先收起來（結束選取模式後就回來），標題和內容都可以選進去、整張全選也可以，選到被引用的那則訊息時「複製」「回覆」都按不了，等待中的請示卡是放進那張卡的回答框；已回覆或已過期的請示卡只能複製，「回覆」按不了；還沒選到字時這兩顆按不了。聊天串在那排的上緣就結束，訊息不會跑到那排底下；選的那則如果超出，會自動往上捲到那排上方，長訊息的最後一行也捲得到那排上方；從長訊息中間長按進來時，按著的那一行留在原處。選取範圍的結尾太靠近那排時，放開後聊天串會自動往上捲一點，讓選取的把手離開那排按鈕。按「取消」、Esc 或點模糊的地方就結束選取模式，請示卡回到進入前的樣子（原本收合的就收合）；用「回覆」引用到請示卡時，那張卡保持展開，好讓你在回答框接著打字。請示頁的卡片也是長按後按「選取文字」。選取的字數有上限，超過時會顯示「選取超過 N 字」。
+- **Reply** — press "Reply" in the message actions and a quote bar ("Replying to Name") appears above the input box. After you send, "Quoted message from Name" appears above your message; clicking the quote bar ("View the original message") shows the full quoted message in an overlay. "View in chat" at the top-right of the overlay closes the overlay and returns to that message's position in the chat thread; if the original message is in someone else's chat, it switches to that chat. When the original message has been deleted, there is no "View in chat". Press "Cancel reply" to remove the quote.
+- **Reply to this part** — select part of the text in a message and "Reply to this part" appears next to it; pressing it quotes only the text you selected. The selection can span mentioned members and links. A long press with a finger brings up the message actions, so you must first press "Select text" to enter **selection mode**: other messages are blurred and cannot be pressed, and only this one stays clear. For an ordinary message, the whole text is selected first; a reply card is expanded first and you select the text yourself. Selection mode is only for selecting, copying and replying: tapping a link, mention, attachment, image or quote in this message does not open anything (on iPhone, long-pressing a link or image does not show the open preview either), and tapping a reply card does not collapse it. Drag the selection to adjust it to the part you want. Meanwhile the input box, the offline notice and so on below are hidden, and only a row of "Cancel", "Copy" and "Reply" remains at the bottom (after you leave selection mode, the input box comes back as it was, with any half-typed text still there). "Copy" copies the part you selected (the button briefly shows ✓, and you stay in selection mode); "Reply" quotes that part and ends selection mode. A reply card in selection mode shows only its title and question text; its task line, "Mark expired", attachments, options and answer box are hidden (they come back after you leave selection mode). Both the title and the text can be selected, and the whole card can be selected too. When the selection includes the quoted message, "Copy" and "Reply" cannot be pressed. For a waiting reply card, the quote goes into that card's answer box; an answered or expired reply card can only be copied, and "Reply" cannot be pressed. Before any text is selected, neither button can be pressed. The chat thread ends at the top edge of that row, so messages do not go underneath it; if the selected message extends past it, it scrolls up automatically to above the row, and the last line of a long message can also be scrolled to above the row. When you enter by long-pressing in the middle of a long message, the line you pressed stays in place. If the end of the selection is too close to the row, the chat thread scrolls up a little after you let go, so the selection handle moves away from the row of buttons. Press "Cancel", press Esc, or tap the blurred area to end selection mode; the reply card returns to how it was before you entered (if it was collapsed, it is collapsed again). When you use "Reply" to quote from a reply card, that card stays expanded so you can keep typing in its answer box. For cards on the Ask page, you also long-press and then press "Select text". The number of characters you can select is limited; when you go over it, "Selection is over N characters" is shown.
 
-### @ 提及成員
+### @ mentioning members
 
-在聊天輸入框、任務卡的訊息框或請示卡的回覆框打 `@`，會出現「提及成員」清單：
+When you type `@` in the chat input box, a task card's message box or a reply card's reply box, the "Mention a member" list appears:
 
-- 正職顯示名字與角色；外包顯示「外包 · 代號」，有任務時一併顯示任務編號與標題。
-- 可以用名字、角色、任務編號或任務標題篩選。用上下鍵移動，Enter、Tab 或點一下選取，Esc 關閉清單。
-- 框裡對得到成員的 `@名字` 會加上底色，送出後就是可以點的名字；沒有底色的 `@` 字樣照原文送出。
-- 加上底色的名字是一個整體：在名字後面按 Backspace、或在名字前面按 Delete，會整個名字一起刪掉；按左右鍵會一次跨過整個名字。
-- 送出後，點訊息裡的名字會打開那位成員的詳細資料。從「請示」或「任務」分頁點進去時，返回按鈕寫「返回請示」或「返回任務」，按下會回到那一頁並只顯示原本那張卡，卡片保持展開；清空頁面上的編號篩選，就回到完整清單。
+- Staff members show their name and role; outsource members show "Outsource · code name", together with the task number and title when they have a task.
+- You can filter by name, role, task number or task title. Move with the up and down keys, select with Enter, Tab or a click, and close the list with Esc.
+- In the box, an `@name` that matches a member is highlighted, and after sending it becomes a clickable name; `@` text that is not highlighted is sent as typed.
+- A highlighted name is treated as one unit: pressing Backspace after the name, or Delete before it, deletes the whole name; pressing the left or right key moves past the whole name at once.
+- After sending, clicking a name in the message opens that member's details. When you came in from the "Ask" or "Task" tab, the back button says "Back to Ask" or "Back to Task"; pressing it returns to that page and shows only the original card, which stays expanded. Clearing the number filter on the page returns you to the full list.
 
-提及只是在訊息裡標出一個人。被提到的成員不會收到通知，訊息也只會送給目前聊天室的成員。
+A mention only marks a person in the message. The mentioned member is not notified, and the message is only sent to the members of the current chat.
 
-### 成員詳情
+### Member details
 
-點成員列上的頭像打開「成員詳情」；外包打開的是「外包詳情」。外包詳情有和成員詳情相同的喚醒、更改、停止、重新聚焦與頭像操作，也能看到機器、記憶用量、估計$、最近操作和終端 · TMUX 指令。欄位：
+Click the avatar on a member's row to open "Member details"; for an outsource member it opens "Outsource details". "Outsource details" has the same wake, change, stop, refocus and avatar actions as "Member details", and also shows the machine, memory used, estimated $, last operation and the "Terminal · TMUX" command. Fields:
 
-- **頭像、名字** — 「更換頭像」「移除頭像」；「改名」。
-- **喚醒／停止** — 同一顆按鈕依狀態變成喚醒、停止、加速停止、強制停止；強制停止前會先確認。
-- **模型、AI 執行環境、EFFORT · 思考強度** — 這位成員最近一次開機時回報的值，沒有回報過就是「—」。模型顯示實際使用的完整型號。
-- **Claude Account／Codex Account** — 這位成員用的帳號。
-- **最後一次模型呼叫成功** — 寫成「X 前」。
-- **機器** — 成員跑在哪台機器；正在搬移時寫「→ 要換到 機器名稱」，換完後標示消失。
-- **運行狀況** — 主代理、子代理與背景等待的細節。
-- **記憶用量** — 成員目前的記憶使用比例；Codex 成員另寫記憶壓縮次數。
-- **重新聚焦** — 只在線上可按，讓成員把手上的進度寫成交接、結束目前的工作階段，再開一個新的工作階段從交接接著做，任務不受影響。成員記憶快滿時系統也會自動做同樣的事，門檻在 設定 › 參數調整。
-- **最近操作** — 最近一次喚醒或停止的結果，可「查看記錄」。啟動失敗的原因（例如「機器名稱 未登入 Claude」）也寫在這裡。
-- **估計$** — 累計估計花費，可「歸零」，歸零後救不回來。
-- **終端 · TMUX** — 「複製指令」，貼到你自己的終端機即可接上這位成員的 session。
-- **初始 PROMPT** — 依目前設定重新組出來的開機內容，可能和成員實際開機時收到的不同。
-- **判準(Insight)** — 這個角色的判準，見 [讓成員記住你教過的事（傳承）](lore.md) 的「角色誌」。
-- **回呼端點 · WEBHOOK** — 見本頁的「回呼端點」。
-- **定期訊息 · SCHEDULE** — 見本頁的「定期訊息」。
-- **RESUME SUMMARY** — 成員下次被喚醒時會拿到的喚醒快照。
+- **Avatar, name** — "Change avatar", "Remove avatar"; "Rename".
+- **Wake / Stop** — one button that changes with the member's status to Wake, Stop, Accelerated stop or Force stop; Force stop asks you to confirm first.
+- **Model, AI runtime, EFFORT · Thinking** — the values this member reported the last time it started; "—" if it has never reported them. Model shows the full name of the model actually in use.
+- **Claude Account / Codex Account** — the account this member uses.
+- **Last successful model call** — shown as "X ago".
+- **Machine** — the machine the member runs on; while it is moving, this shows "→ Moving to <machine name>", and the label disappears once the move is done.
+- **Runtime** — details on the main agent, sub-agents and background waits.
+- **Memory used** — how much of its memory the member is using now; for Codex members, the number of memory compactions is also shown.
+- **Refocus** — available only when the member is online. The member writes its progress into a handover, ends its current session, and starts a new session that continues from the handover. Its tasks are not affected. When a member's memory is nearly full, the system does the same thing automatically; the threshold is in Settings › General.
+- **Last operation** — the result of the most recent wake or stop, with "View log". Reasons a start failed (for example "<machine name> is not logged in to Claude") are also shown here.
+- **est. $** — accumulated estimated spend. You can "Reset" it; once reset, it cannot be recovered.
+- **Terminal · TMUX** — "Copy command", then paste it into your own terminal to attach to this member's session.
+- **Initial prompt** — the startup content rebuilt from the current settings. It may differ from what the member actually received when it started.
+- **WEBHOOK ENDPOINTS** — see "Webhook endpoints" on this page.
+- **SCHEDULED MESSAGES** — see "Scheduled messages" on this page.
+- **RESUME SUMMARY** — the wake snapshot the member will receive the next time it is woken.
 
-操作失敗時，按鈕下方會顯示「操作失敗，請稍後重試」。
+If an action fails, "Action failed, please retry" appears below the button.
 
-**啟動設定（喚醒與更改）**
+**Launch settings (Wake and Change)**
 
-在成員詳情按「喚醒」，會先打開一份啟動設定，確認後才啟動。四個欄位一開始都是該成員目前的設定：
+When you click "Wake" in "Member details", a launch settings form opens first; the member starts only after you confirm. All four fields start with the member's current settings:
 
-- **AI 執行環境**：Claude Code 或 Codex。
-- **模型**：Claude Code 有 fable、opus、sonnet、haiku 快選；Codex 有 astra、sol、terra、luna 四個型號系列快選。也可以在輸入框直接打完整的型號名稱，會照原樣使用；留空則使用該機器的預設模型。
-- **EFFORT · 思考強度**：低／中／高／極高／最高。
-- **機器**：要在哪台機器上執行。
+- **AI runtime**: Claude Code or Codex.
+- **Model**: Claude Code has quick picks for fable, opus, sonnet and haiku; Codex has quick picks for four model families: astra, sol, terra and luna. You can also type a full model name in the input box, and it is used exactly as typed; leave it empty to use the machine's default model.
+- **EFFORT · Thinking**: Low / Medium / High / X-High / Max.
+- **Machine**: the machine to run on.
 
-Codex 選型號系列時，成員每次開機會用該機器的 Codex 認得的該系列最新型號，所以換機器或 Codex 升級後，實際型號可能不同。該機器的 Codex 沒有該系列時，成員不會啟動，「最近操作」會寫出那台 Codex 的版本和可用型號。
+When you pick a Codex model family, each time the member starts it uses the newest model in that family that the machine's Codex recognizes. So after a machine change or a Codex upgrade, the actual model may be different. If the machine's Codex has no model in that family, the member does not start, and "Last operation" shows that Codex's version and its available models.
 
-同一個設定在不同畫面的名稱不同：成員詳情與啟動設定裡叫「思考強度」，任務手冊的負責成員設定叫「投入程度」，外包詳情與任務卡上叫「投入度」（例如「高投入」）。
+The same setting has different labels on different screens: in "Member details" and the launch settings it is "EFFORT · Thinking"; in a task manual's "Assigned executor" setting, in "Outsource details" and on task cards it is "Effort" (for example "high effort").
 
-新增的正職和出廠的 Mira 一開始沒有選定 AI 執行環境。啟動設定裡顯示的「Claude Code」只是預設顯示值，原封不動送出不會存下來；實際用哪一種，在成員第一次被派到機器上時決定，見 [架構與運作原理](architecture.md) 的「成員用 Claude Code 還是 Codex」。只有在啟動設定裡明確選過的執行環境才會存下來。
+Newly added staff members and the built-in Mira start with no AI runtime selected. The "Claude Code" shown in the launch settings is only a default display value; submitting it unchanged does not save it. Which runtime is actually used is decided the first time the member is sent to a machine; see "Whether a member uses Claude Code or Codex" in [Architecture and how it works](architecture.md). Only a runtime you explicitly picked in the launch settings is saved.
 
-成員喚醒中、線上或停止中時，「喚醒」的位置換成「更改」，打開的是同一份啟動設定。按下後會發生什麼，設定框下方會依當時狀態說明：
+While the member is waking, online or stopping, "Wake" is replaced by "Change", which opens the same launch settings. Below the form, a note explains what will happen when you confirm, based on the member's current status:
 
-- **線上**：成員先把手上的事收尾，再用新設定重新開起來。收尾期間成員詳情顯示「正在收尾以套用你的改動」。
-- **停止中**：存下新設定，成員停下後會用新設定重新開起來。
-- **喚醒中**：換了機器會移到新機器、用新設定重新開起來；只換型號、執行環境或思考強度，下次開起來才生效。
+- **Online**: the member wraps up what it is doing, then starts again with the new settings. While it wraps up, "Member details" shows "Winding down to apply your change".
+- **Stopping**: the new settings are saved, and the member starts again with them after it has stopped.
+- **Waking**: if you changed the machine, the member moves to the new machine and starts again with the new settings; if you changed only the model, runtime or effort, the change takes effect the next time it starts.
 
-成員已停止時按「喚醒」，會用確認後的設定直接開起來。
+When the member is stopped, clicking "Wake" starts it directly with the settings you confirmed.
 
-**停止按鈕的三個階段**
+**The three stages of the Stop button**
 
-「停止 → 加速停止 → 強制停止」是同一顆按鈕：
+"Stop → Accelerated stop → Force stop" is one button:
 
-- 「停止」請成員正常收尾後停下，沒有時限。按下後成員進入收尾，按鈕變成「加速停止」。
-- 「加速停止」給收尾一個明確的期限並通知成員，期限秒數在 設定 › 參數調整 的「加速停止秒數」。成員的記憶用量到達「第一次通知」時（Claude 成員看記憶用量的比例，Codex 成員看記憶壓縮次數），系統會自動開始收尾，這時按鈕同樣變成「加速停止」。
-- 收尾有了期限後，按鈕變成「強制停止」。記憶用量到達「最後通牒」時，收尾已經有期限，按鈕直接變成「強制停止」。按下會先確認：「跳過正常收尾，進行中未存的工作會遺失」。
-- 按鈕剛換階段時有短暫時間不能按，避免連按兩下直接跳到下一階。
+- "Stop" asks the member to wrap up normally and then stop, with no time limit. After you click it, the member starts wrapping up and the button changes to "Accelerated stop".
+- "Accelerated stop" gives the wrap-up a fixed deadline and tells the member. The number of seconds is "Accelerated stop deadline" in Settings › General. When the member's memory used reaches "Claude first notice" (for Claude members, the memory-used percentage) or "Codex first notice" (for Codex members, the number of memory compactions), the system starts the wrap-up automatically, and the button also changes to "Accelerated stop".
+- Once the wrap-up has a deadline, the button changes to "Force stop". When memory used reaches "Claude final call" or "Codex final round", the wrap-up already has a deadline, so the button changes straight to "Force stop". Clicking it asks you to confirm: "skipping the graceful shutdown. Any unsaved work in progress is lost."
+- Right after the button changes stage, it cannot be clicked for a short time, so a double click does not jump straight to the next stage.
 
-**運作狀態與警示**
+**Activity status and warnings**
 
-成員在線上時，點運作狀態圖示會打開「運行狀況」。「目前狀態」會寫出例如「主代理工作中，另有 2 個子代理工作中，正在等 1 個背景檢查或排程」，並列出主代理、各子代理已工作多久，以及正在等的背景指令、監看（成員用 Monitor 盯著的指令輸出或外部事件；Claude Code 自己開的背景監看，例如發佈 Artifact 頁面後等留言的那種，也會列在這裡）與排程。主代理是成員本身；子代理是成員自己開出來分擔工作的 AI 助手。
+When a member is online, clicking its activity status icon opens "Runtime". "Current status" shows text such as "Main agent working, plus 2 sub-agents working, waiting on 1 background check or schedule", and lists how long the main agent and each sub-agent have been working, as well as the background commands, monitors (command output or external events the member is watching with Monitor; background monitors that Claude Code opens itself, such as the one that waits for comments after an Artifact page is published, are also listed here) and schedules it is waiting on. The main agent is the member itself; sub-agents are AI helpers the member starts itself to share the work.
 
-驚嘆號的原因：
+Reasons for the exclamation mark:
 
-- **未登入 Claude**／**未登入 Codex**：該機器的執行環境沒有登入。
-- **登入失效**：登入過期，需要重新登入。
-- **已達用量上限**：帳號用量用完；知道重置時間時會一併顯示。
-- **伺服器異常**、**模型呼叫失敗**：模型服務端的錯誤。
+- **signed out of Claude** / **signed out of Codex**: the runtime on that machine is not signed in.
+- **sign-in expired**: the sign-in has expired and you need to sign in again.
+- **usage limit reached**: the account's usage has run out; the reset time is shown too when it is known.
+- **server error**, **model call failed**: an error on the model service side.
 
-模型呼叫失敗造成的驚嘆號會一直顯示，直到這位成員之後有一次呼叫成功、用量上限的重置時間過去，或成員改用其他 AI 執行環境或帳號。用量上限是整個帳號共用的：同一個帳號的每位成員都會出現「已達用量上限」，同帳號任何一位成員之後呼叫成功，所有人的這個原因就一起消失；回報上限的成員換到其他帳號時，原帳號其他成員身上的「已達用量上限」仍然保留。
+An exclamation mark caused by a failed model call stays until this member later makes a successful call, the usage limit's reset time passes, or the member switches to another AI runtime or account. The usage limit is shared by the whole account: every member on the same account shows "usage limit reached", and as soon as any member on that account makes a successful call, this reason disappears for all of them. If the member that reported the limit moves to another account, the other members on the original account still show "usage limit reached".
 
-登入類原因的提示會指向「監控 › 機器資訊」；那裡 Claude 與 Codex 欄的版本號選單裡有「登入」。
+The hint for sign-in reasons points to "Monitor › Machines"; there, the version menu in the Claude and Codex columns has "Sign in".
 
-使用主題時，圖示樣式可能不同，狀態的意思不變。
+When you use a theme, the icon style may look different; the meaning of each status is the same.
 
-**頭像**
+**Avatar**
 
-只有你能修改頭像，成員不能改自己或別人的頭像。支援 PNG、JPEG、WEBP，檔案不可超過 64 KiB。頭像會出現在名單、聊天、任務、請示卡、詳情與監控頁。沒有個人頭像或圖片載入失敗時，依序改用主題設定的頭像、內建圖示。頭像綁定成員本身，成員改名不影響。
+Only you can change avatars; members cannot change their own avatar or anyone else's. PNG, JPEG and WEBP are supported, and the file must be 64 KiB or smaller. Avatars appear in the member list, chat, tasks, reply cards, details panels and the Monitor page. If a member has no avatar of its own or the image fails to load, the avatar set by the theme is used, and then the built-in icon. An avatar belongs to the member itself, so renaming the member does not affect it.
 
-### 定期訊息
+### Scheduled messages
 
-成員詳情與外包詳情都有「定期訊息 · SCHEDULE」卡。卡上列出這位成員所有的定期訊息；還沒有時顯示「尚未設定定期訊息」。你和特助 Mira 能設定定期訊息，一般成員無法設定。
+Both "Member details" and "Outsource details" have a "SCHEDULED MESSAGES" card. The card lists all of this member's scheduled messages; when there are none yet, it shows "No scheduled messages yet". You and the Assistant Mira can set up scheduled messages; other members cannot.
 
-**新增時的欄位**
+**Fields when adding one**
 
-- **名稱**：選填，沒填時列上顯示「(未命名)」。
-- **訊息內容**：到時間要送出的訊息。
-- **頻率**：每天、每週、每月或自訂。
-- **時刻**：依頻率出現需要的欄位。每天：時、分。每週：星期幾，加上時、分。每月：幾號（1 到 31），加上時、分。自訂：幾月、幾號、幾點、幾分四組勾選。
-- **時區**：IANA 時區名稱，例如 `Asia/Taipei`。新表單預設為 `Asia/Taipei`。時區一定要填真實地點的名稱，排程才會依該地點的時間送出。
+- **Name**: optional. If left empty, the row shows "(unnamed)".
+- **Message**: the message to send when the time comes.
+- **Repeats**: Daily, Weekly, Monthly or Custom.
+- **Time**: the fields shown depend on the frequency. Daily: hour and minute. Weekly: day of week, plus hour and minute. Monthly: day of month (1 to 31), plus hour and minute. Custom: four groups of checkboxes for month, day, hour and minute.
+- **Timezone**: an IANA timezone name, for example `Asia/Taipei`. A new form defaults to `Asia/Taipei`. The timezone must be the name of a real place; only then are messages sent by that place's local time.
 
-**自訂頻率**
+**Custom frequency**
 
-自訂頻率是「幾月」「幾號」「幾點」「幾分」四組勾選的交集：四組同時符合的每一個時刻都會送一次。自訂是唯一可以一天送很多次的頻率。
+A custom frequency is the intersection of the four checkbox groups "Which months", "Which days", "Which hours" and "Which minutes": a message is sent at every moment that matches all four groups. Custom is the only frequency that can send many times a day.
 
-- 每組都可以按「全選」或「清除」。
-- 四組都至少要選一項。空著的那一組不代表「全部」，排程也存不進去。
-- 「幾分」列出 0、5、10 到 55，共十二格。
-- 例：月、號、點全選，分勾 0、20、40，就是每 20 分鐘送一次。
-- 例：月勾 3、6、9、12，號勾 1，點勾 9，分勾 0，就是每季第一天 09:00 送一次。
+- Each group has "Select all" and "Clear".
+- Each of the four groups needs at least one selection. An empty group does not mean "all", and the schedule cannot be saved.
+- "Which minutes" lists 0, 5, 10 up to 55: twelve boxes in total.
+- Example: select all months, days and hours, and tick minutes 0, 20 and 40: the message is sent every 20 minutes.
+- Example: tick months 3, 6, 9 and 12, day 1, hour 9 and minute 0: the message is sent at 09:00 on the first day of each quarter.
 
-列上會顯示四組勾選的摘要，用「 · 」隔開；分鐘是等間隔時寫成「每 20 分鐘」這種形式，十二個月全選時不顯示月份那一段。
+The row shows a summary of the four groups, separated by " · ". When the minutes are evenly spaced, they are written in the form "Every 20 minutes"; when all twelve months are selected, the month part is not shown.
 
-**遇到不存在的日期或時刻**
+**Dates or times that do not exist**
 
-- **每月選 29、30、31 號**：沒有那一天的月份整個跳過，不會改在月底送出。選 31 號的話，二月永遠不會送。表單上選到這幾天時會顯示同樣的提醒。自訂頻率的「幾號」也一樣。
-- **夏令時間往前撥、設定的時刻當天不存在**：每天、每週、每月三種頻率會在當地第一個存在的時刻送出，例如設定 02:30、當天 02:00 直接跳到 03:00，那一次在 03:00 送出；下一次回到原本設定的時刻。自訂頻率則不同：落在被跳過那一段的時刻當天不送。
-- **夏令時間往回撥、同一個時刻出現兩次**：只送一次。
+- **Monthly on the 29th, 30th or 31st**: months that do not have that day are skipped entirely; the message is not moved to the end of the month. If you pick the 31st, it is never sent in February. The form shows the same reminder when you pick one of these days. The same applies to "Which days" in a custom frequency.
+- **Clocks go forward for daylight saving time and the set time does not exist that day**: for Daily, Weekly and Monthly, the message is sent at the first local time that exists. For example, if it is set for 02:30 and on that day the clock jumps from 02:00 straight to 03:00, that message is sent at 03:00; the next one goes back to the original time. Custom is different: times that fall in the skipped period are not sent that day.
+- **Clocks go back for daylight saving time and the same time occurs twice**: the message is sent only once.
 
-**送出與補送的規則**
+**Rules for sending and catching up**
 
-- 建立當下已經過去的時刻不會補送。例如上午 10:00 建立一條每天 09:00 的定期訊息，第一次送出是隔天 09:00。
-- 系統每分鐘檢查一次，同一個時刻只送一次，系統重新啟動也不會重送。
-- 系統停機期間錯過的時刻不會逐一補送；恢復後只補送最近錯過的那一次。
-- 停用期間錯過的時刻不會逐一補送；重新啟用時，若有錯過的時刻，只會補送最近錯過的那一次。
-- 編輯時改了時間相關的欄位，剛跨過的時刻不會補送。例如中午把每天 09:00 改成 08:00，當天不會補送 08:00 那一則。改頻率時，原本自訂頻率的勾選會保留，改回自訂時還在。
-- 刪掉再重建是一條新的排程，跟編輯原本那一條不同。
-- 成員在線上時立即收到。成員離線或已停止時，定期訊息不會喚醒成員，訊息會留著，等成員下次上線時讀到。
-- 成員已經不存在時不會送出。外包釋出後，外包名下的定期訊息不會再送出。
+- Times that have already passed when you create the scheduled message are not sent. For example, if you create a daily 09:00 scheduled message at 10:00 a.m., it is first sent at 09:00 the next day.
+- The system checks once a minute. Each time is sent only once, and a system restart does not send it again.
+- Times missed while the system was down are not sent one by one afterwards; after it recovers, only the most recent missed one is sent.
+- Times missed while the scheduled message was disabled are not sent one by one afterwards; when you enable it again, if any times were missed, only the most recent missed one is sent.
+- If you edit a time-related field, a time that the edit has just moved past is not sent. For example, if at noon you change a daily 09:00 to 08:00, the 08:00 message is not sent that day. When you change the frequency, your custom frequency selections are kept and are still there if you switch back to Custom.
+- Deleting a scheduled message and creating it again makes a new schedule, which is not the same as editing the original one.
+- If the member is online, it receives the message immediately. If the member is offline or stopped, the scheduled message does not wake it; the message is kept, and the member reads it the next time it comes online.
+- Nothing is sent if the member no longer exists. After an outsource member is released, the scheduled messages under it are no longer sent.
 
-訊息內容很長時，列上只顯示前幾行，按「顯示完整內容」展開，按「收合」收回。收合只影響畫面顯示，送出的內容不會少。
+If the message is long, the row shows only the first few lines. Click "Show the whole message" to expand it and "Show less" to collapse it. Collapsing only affects what is shown on screen; nothing is left out of the message that is sent.
 
-定期訊息適合用在哪裡，見 [定時做某件事（定期訊息）](schedule.md)。
+For what scheduled messages are good for, see [Doing something on a schedule (Scheduled messages)](schedule.md).
 
-### 回呼端點
+### Webhook endpoints
 
-成員詳情與外包詳情都有「回呼端點 · WEBHOOK」卡。卡上列出這位成員所有的回呼端點；還沒有時顯示「尚未設定回呼端點」。
+Both "Member details" and "Outsource details" have a "WEBHOOK ENDPOINTS" card. The card lists all of this member's webhook endpoints; when there are none yet, it shows "No webhook endpoints yet".
 
-**平台類型**
+**Platform type**
 
-- **通用（僅 URL token）**：只靠網址裡的 token 辨識，不驗證簽章。任何拿到網址的人都能送內容進來。
-- **Slack**：系統會驗證 Slack 的簽章，並自動回應 Slack 設定網址時送來的驗證請求。
-- **GitHub**：系統會驗證 GitHub 的簽章。
+- **Generic (URL token only)**: identified only by the token in the URL; no signature is checked. Anyone who has the URL can send content in.
+- **Slack**: the system checks Slack's signature and automatically answers the verification request Slack sends when you set the URL.
+- **GitHub**: the system checks GitHub's signature.
 
-建立失敗時，畫面會寫「建立回呼失敗（端點 ID 需為英數／_／-，且不可重複）」：通常是端點 ID 含有不允許的字元，或與這位成員現有的端點 ID 重複。
+If creating an endpoint fails, the screen shows "Failed to create webhook (endpoint ID must be alphanumeric / _ / - and unique)". Usually the endpoint ID contains a character that is not allowed, or it is the same as an endpoint ID this member already has.
 
-**網址**
+**URL**
 
-每個端點列上顯示網址的前半段，token 以圓點遮住。按「複製」會複製完整網址，格式是：
+Each endpoint row shows the first part of the URL, with the token hidden behind dots. Clicking "Copy" copies the full URL, in this format:
 
 ```text
-https://<你開啟控制台的位址>/in?t=<token>
+https://<address you opened the console at>/in?t=<token>
 ```
 
-網址用的是你當下開啟控制台的位址。網址裡的 token 就是通用類型唯一的憑證。
+The URL uses the address you opened the console at when you copied it. The token in the URL is the only credential for the generic type.
 
-- Slack 第一次設定網址時會送一個驗證請求，系統會自動回應，最近請求裡記為「驗證握手」。
-- GitHub 建立 webhook 後送出的測試事件，最近請求裡記為「PING」，不會送給成員。
-- 系統回應外部服務時不透露端點是否存在：不論請求是送達、被丟棄，還是 token 根本不存在，外部服務收到的回應都相同（請求內容超過 1 MiB，以及 Slack 的驗證握手除外）。
-- 請求內容超過 1 MiB 時，系統會整筆拒收並回應外部服務 413，不會截斷後轉送；最近請求裡記為「丟棄 · oversize」。
+- The first time you set the URL in Slack, Slack sends a verification request. The system answers it automatically, and it is recorded in recent requests as "Challenge".
+- The test event GitHub sends after you create a webhook is recorded in recent requests as "PING" and is not sent to the member.
+- When the system responds to an external service, it does not reveal whether the endpoint exists: whether the request was delivered, dropped, or the token does not exist at all, the external service gets the same response (except for request bodies over 1 MiB and Slack's verification handshake).
+- If a request body is over 1 MiB, the system rejects the whole request and responds to the external service with 413; it does not truncate and forward it. It is recorded in recent requests as "Dropped · oversize".
 
-**簽章密鑰**
+**Signing Secret**
 
-簽章密鑰存入後不會再顯示。「輪替密鑰」存下新密鑰後立即生效，之後用舊密鑰簽章的請求會被丟棄，原因是「驗簽失敗」。通用類型沒有簽章密鑰，也沒有「輪替密鑰」。
+Once a Signing Secret is saved, it is not shown again. "Rotate secret" saves a new secret and it takes effect immediately; after that, requests signed with the old secret are dropped with the reason "signature failed". The generic type has no Signing Secret and no "Rotate secret".
 
-**事件統計**
+**Event stats**
 
-- 還沒收到任何請求時，顯示「尚未收到請求」。
-- **最後收到**：最近一次收到請求是多久以前。
-- **丟棄**：被丟棄的請求數量，以及最近一次被丟棄的原因：
-  - **驗簽失敗**：簽章不符，通常是兩邊的簽章密鑰不一致。
-  - **停用中被打**：端點停用時收到的請求。
-  - **成員已不存在**：這個端點所屬的成員已經不在了。
-  - **oversize**：請求內容超過 1 MiB。這個原因畫面上直接顯示英文代碼。
-- **最近請求**：最近 5 筆請求，最新的在最前面。每一筆標示結果：「已送達」、「丟棄」（附原因）、「驗證握手」或「PING」。點開一筆可以看這筆請求的「HEADERS」與「BODY」；內容太長時只保留前段，並標示「已截斷」。
+- Before any request has been received, it shows "No calls received yet".
+- **Last received**: how long ago the most recent request was received.
+- **Dropped**: the number of dropped requests, and the reason the most recent one was dropped:
+  - **signature failed**: the signature does not match, usually because the two sides have different Signing Secrets.
+  - **hit while disabled**: a request received while the endpoint was disabled.
+  - **member gone**: the member this endpoint belongs to no longer exists.
+  - **oversize**: the request body is over 1 MiB. This reason is shown on screen as the raw code `oversize`.
+- **Recent requests**: the last 5 requests, newest first. Each one is marked with its result: "Delivered", "Dropped" (with the reason), "Challenge" or "PING". Click one to see its "HEADERS" and "BODY"; if the content is too long, only the beginning is kept and it is marked "truncated".
 
-回呼端點適合用在哪裡、成員收到後怎麼處理，見 [讓外部事件自動送給成員（回呼端點）](webhook.md)；成員的新增、外包、模型與機器的選法見 [增加成員與發外包](members.md)。
+For what webhook endpoints are good for and how members handle what they receive, see [Send outside events to members automatically (webhooks)](webhook.md); for how to add members, use outsource members, and choose models and machines, see [Adding members and hiring outsource](members.md).
 
-## 請示
+## Ask
 
-- **請示** — 等你回覆的請示卡。卡上寫開卡的成員、「已等你」多久。還沒回覆的卡片不受 24 小時的限制，放多久都會留在這裡。
-- **已延後** — 按了「稍後再看」的卡，時間到會自動回到「請示」。可以在這裡回覆、標為過期或「取消延後」。
-- **近期已處理** — 已回覆或已標為過期的卡，清單只列最近 24 小時；更早的卡用編號篩選還找得到。已回覆的卡可以「重新決定」。
-- **收起與展開** — 點「請示」「已延後」「近期已處理」的標題就收起或展開。一進頁面只有「請示」是展開的；用編號篩選時三段一律展開。
-- **篩選列** — 「請示卡編號」欄位，以及開卡人、任務優先序、任務到期三個下拉。編號欄位按 Enter 或點到欄位外才生效。
-- **只看待回覆** — 從聊天室標頭的「這位成員還沒回的請示卡」進來時，篩選列多一顆「只看待回覆 ✕」，頁面只顯示「請示」那一段，「已延後」與「近期已處理」不顯示；重新整理後仍然生效。按 ✕ 回到完整的請示頁，開卡人仍選著那位成員；按「清除篩選」連開卡人一起清掉。
-- **顯示方式** — 切換「請示」一段的排序：開卡時間新到舊（預設）、舊到新、任務優先序高到低、任務期限早到晚。
-- **卡片** — 屬於某張任務的卡，最上方有一條任務列，寫任務編號、優先序、期限、任務名稱，最右邊的向右箭頭是「查看任務」。卡上另有 單選或多選選項（多選時寫「已選 N 項」）、「AI 建議」標籤、「輸入回覆…」文字框、建議回覆句子、「引用原文」、「複製訊息」、「跳到原訊息」、「稍後再看」、「標為過期」、「查看當初選項」。綁在任務步驟上的卡標「審批」。
-- **卡片上方的按鈕列** — 都是圖示，滑鼠停在上面會顯示名字：複製訊息（複製圖示）、跳到原訊息（外部連結箭頭）、稍後再看（時鐘；已延後的卡是取消延後，帶回轉箭頭的時鐘）、標為過期（封存箱）。聊天室裡請示卡的「標為過期」和看原訊息時的「跳到原訊息」也是同樣的圖示。手機、平板等只能觸控的裝置上卡片不顯示這排按鈕，改從長按卡片的選單操作（見下面「用手指操作」）。等待時間在每種裝置上都是卡片第一行最右邊的一個小膠囊（有按鈕列時在按鈕列右邊）：沙漏加上一個單位的時間（例如 5m、3h、2d），已延後的卡是時鐘加上回來的日期（例如 10/22），滑鼠停在上面會顯示完整的「已等你 3 小時 12 分」或回來的日期時間；近期已處理的卡在同一個位置寫「已回覆」或「已過期」和時間。名字和角色（外包是它正在做的任務）在手機上各只顯示一行，太長時以「…」截斷，滑鼠停在上面看得到全文，點頭像可以看到完整的資料。
-- **複製訊息** — 卡片上方按鈕列最前面的複製圖示，複製卡片的問題：標題、空一行、問題內容，提及成員變成 `@名字`，不含選項、回答與附件；卡片收合時也能複製。成功後按鈕短暫變成 ✓，沒複製成功時旁邊顯示「複製失敗」。
-- **用手指操作** — 長按卡片會跳出跟聊天室一樣、從畫面下方升起的選單：先是「跳到原訊息」，還沒回覆的卡接著是「稍後再看」（已延後的卡是「取消延後」）與「標為過期」，最後是「複製訊息」和「選取文字」，跟卡片上方的按鈕做一樣的事（回答直接用卡片上的回答框，所以這裡沒有「回覆這則」）。長按不會打開或收起卡片。「選取文字」進入跟聊天室一樣的選取模式：卡片打開，只顯示標題和問題內容，頁面其他地方變模糊、按不到，卡裡的連結和提及點了不會打開；最下方一排「取消」「複製」「回覆」，「回覆」把選取的那段放進這張卡的回答框。按「取消」、Esc 或點卡片以外的地方結束，卡片回到進入前的樣子。
-- **找不到卡時** — 「沒有符合篩選條件的請示」表示編號不存在或不在範圍內；「暫時無法確認這個編號是否存在，請稍後重試。」表示查詢失敗，不代表卡不存在。
+- **Ask** — Reply cards waiting for your answer. Each card shows the member who opened it and how long it has been "Waiting". Cards you have not answered are not subject to the 24-hour limit; they stay here no matter how long they wait.
+- **Snoozed** — Cards you pressed "Later" on. When the time comes, they return to "Ask" automatically. Here you can answer them, mark them expired, or press "Bring back now".
+- **Recently handled** — Cards you have answered or marked expired. The list shows only the last 24 hours; older cards can still be found by filtering on their ID. Answered cards can be changed with "Change my decision".
+- **Collapse and expand** — Click the "Ask", "Snoozed" or "Recently handled" heading to collapse or expand that section. When you open the page, only "Ask" is expanded; when you filter by ID, all three sections are always expanded.
+- **Filter bar** — A "Reply-card id" field and three drop-downs: opener, task priority and task due date. The ID field takes effect only when you press Enter or click outside the field.
+- **Waiting only** — When you arrive from "Asks from this member still waiting on you" in a chat header, the filter bar has an extra "Waiting only ✕" button, and the page shows only the "Ask" section; "Snoozed" and "Recently handled" are hidden. This still applies after you reload the page. Press ✕ to return to the full Ask page with that member still selected as the opener; press "Clear filters" to clear the opener as well.
+- **Display** — Changes the sort order of the "Ask" section: opened newest first (default), oldest first, task priority high to low, task due date soonest first.
+- **Card** — A card that belongs to a task has a task bar at the top showing the task number, priority, due date and task name; the right-pointing arrow at the far right is "View task". The card also has single-choice or multiple-choice options (multiple choice shows "Selected N"), the "AI pick" tag, the "Type a reply…" text box, suggested reply sentences, "Quoted", "Copy message", "View in chat", "Later", "Mark expired" and "View original options". Cards tied to a task step are marked "Approval".
+- **Button row at the top of the card** — All buttons are icons; hover over one to see its name: Copy message (copy icon), View in chat (external-link arrow), Later (clock; on a snoozed card it is Bring back now, a clock with a return arrow), Mark expired (archive box). "Mark expired" on reply cards in chat and "View in chat" when viewing the original message use the same icons. On touch-only devices such as phones and tablets, the card does not show this button row; you use the menu that opens when you long-press the card instead (see "Using touch" below). On every device, the waiting time is a small pill at the far right of the card's first line (to the right of the button row when the button row is shown): an hourglass plus a time in one unit (for example 5m, 3h, 2d). On a snoozed card it is a clock plus the return date (for example 10/22). Hover over it to see the full "Waiting 3 hours 12 minutes" or the return date and time. On a recently handled card, the same spot shows "Answered" or "Expired" with the time. On a phone, the name and the role (for an outsource member, the task it is working on) each show on one line only and are cut off with "…" when too long; hover over them to see the full text, and click the avatar to see the full details.
+- **Copy message** — The copy icon at the start of the button row copies the card's question: the title, a blank line, then the question text. Mentioned members become `@name`. Options, answers and attachments are not included. You can copy even when the card is collapsed. On success the button briefly turns into ✓; if copying fails, "Copy failed" appears next to it.
+- **Using touch** — Long-pressing a card opens the same menu that rises from the bottom of the screen as in chat: first "View in chat"; for an unanswered card, then "Later" ("Bring back now" on a snoozed card) and "Mark expired"; and last "Copy message" and "Select text". These do the same things as the buttons at the top of the card. (You answer in the card's own answer box, so there is no "Reply" here.) Long-pressing does not open or collapse the card. "Select text" enters the same selection mode as in chat: the card opens and shows only the title and the question text, the rest of the page is blurred and cannot be clicked, and links and mentions in the card do not open when tapped. At the bottom is a row of "Cancel", "Copy" and "Reply"; "Reply" puts the selected passage into this card's answer box. Press "Cancel", press Esc, or tap outside the card to finish; the card returns to how it was before.
+- **When a card cannot be found** — "No asks match the current filter" means the ID does not exist or is outside the range. "Could not confirm whether this id exists right now. Please try again." means the lookup failed; it does not mean the card does not exist.
 
-**請示卡出現的地方**
+**Where reply cards appear**
 
-請示卡會出現在三個地方，在任何一處回覆都一樣：
+Reply cards appear in three places. Answering in any one of them has the same effect:
 
-- 「請示」分頁。分頁上的數字是還在等你回覆的卡片數，不算已延後的卡。
-- 成員的聊天室裡，夾在訊息之間。聊天室裡的請示卡預設收合成一列，前面標著「待回覆」「已延後」「已回覆」或「已過期」；「已延後」是按了「稍後再看」、時間還沒到的卡，時間到或取消延後就自己變回「待回覆」。點收合列展開；展開後點卡片的空白處就收合回去。
-- 任務卡上的「請示」區塊，等待中的卡標「等你回覆」，延後中的卡標「已延後」；按「在聊天室回覆」會跳到聊天室裡的同一張卡。
+- The "Ask" tab. The number on the tab is the count of cards still waiting for your answer, not counting snoozed cards.
+- In a member's chat, between messages. In chat, reply cards are collapsed into a single row by default, labeled "Pending", "Snoozed", "Answered" or "Expired". "Snoozed" is a card you pressed "Later" on whose time has not come yet; when the time comes, or when you bring it back, it changes back to "Pending" by itself. Click the collapsed row to expand it; once expanded, click an empty area of the card to collapse it again.
+- The "Ask" section on a task card. A waiting card is marked "Your call" and a snoozed card is marked "Snoozed". Pressing "Reply in chat" takes you to the same card in chat.
 
-卡片和任務有關時，上方有任務列：請示分頁寫任務編號、優先序、期限與任務名稱，聊天室裡的卡只寫任務名稱；兩處最右邊都有向右箭頭「查看任務」，任務名稱太長時以「…」截斷，不會把箭頭擠到下一行；手機上期限單獨一行，在任務那一行下面。「跳到原訊息」會帶你到聊天室裡開卡的訊息。
+When a card relates to a task, it has a task bar at the top: on the Ask tab it shows the task number, priority, due date and task name; in chat it shows only the task name. In both places the right-pointing arrow at the far right is "View task". When the task name is too long it is cut off with "…" and does not push the arrow to the next line; on a phone, the due date is on its own line below the task line. "View in chat" takes you to the message in chat where the card was opened.
 
-**作答的細節**
+**Answering in detail**
 
-- **單選卡**：選項前面是序號 1、2、3、4，最多 4 個選項。點一下選項就直接送出，送出後無法撤回；要改答案只能用「重新決定」。
-- **多選卡**：選項前面是勾選框，最多 20 個選項。可以勾好幾項，畫面會寫「已選 N 項」，勾好再按送出。打開時已經先勾好標著「AI 建議」的選項。
-- 在單選卡上先打字再點選項，打的字會跟選項一起送出。
-- **只回答卡片上的某一段**：在卡片的問題內容裡選取文字時會出現「回覆這段」（用手指時先長按卡片、按「選取文字」，選好後按最下方的「回覆」），按下後回覆框上方顯示「引用原文」和選取的文字，之後送出的選項或文字會連同引用一起送出。成員會知道你的回答針對的是被引用的文字。「取消引用」撤掉引用。
-- **重新決定**：重新選一個選項，或直接打字改寫回覆。新的回答會取代舊的回答，成員會收到通知。「查看當初選項」可以看回當時的選項。
-- **標為過期**：「請示」分頁和聊天室裡的卡片都能標為過期。標為過期不算回答，也無法復原；成員會收到通知，如果問題還在，成員會重新開一張卡。
+- **Single-choice card**: options are numbered 1, 2, 3, 4, with at most 4 options. Clicking an option sends it right away, and you cannot take it back; to change your answer, use "Change my decision".
+- **Multiple-choice card**: options have checkboxes, with at most 20 options. You can check several; the screen shows "Selected N". Check what you want, then press send. When the card opens, the options tagged "AI pick" are already checked.
+- On a single-choice card, if you type text first and then click an option, the text is sent together with the option.
+- **Answering only one part of a card**: when you select text in the card's question, "Reply to this part" appears (with touch, long-press the card first, press "Select text", select the text, then press "Reply" at the bottom). After you press it, "Quoted" and the selected text appear above the reply box, and the option or text you send next is sent together with the quote. The member knows your answer refers to the quoted text. "Remove the quote" removes the quote.
+- **Change my decision**: choose a different option, or type a new reply. The new answer replaces the old one, and the member is notified. "View original options" shows the options as they were.
+- **Mark expired**: cards on the "Ask" tab and in chat can both be marked expired. Marking a card expired does not count as an answer and cannot be undone. The member is notified, and if the question still matters, the member opens a new card.
 
-回覆請示卡的做法見 [交代工作與回覆請示卡](daily.md)。
+For how to answer reply cards, see [Assigning work and answering reply cards](daily.md).
 
-## 檔案的閱讀視窗
+## The file viewer
 
-聊天附件、任務產物、檔案庫的檔案與它們的舊版本，在每個地方都用同一種方式顯示：
+Chat attachments, task artifacts, files in Files, and their earlier versions are shown the same way everywhere:
 
-- **Markdown**（`.md`）排版後顯示，文件裡獨立成行的圖片也會顯示。
-- **JSON** 與 **XML** 自動縮排；檔案本身格式有誤時，上方說明無法排版，下面照原樣顯示。
-- **CSV** 排成表格，第一列當表頭；格式有誤或檔案太大時，照原樣顯示。
-- **YAML**、純文字、log 與程式碼照原樣顯示，不重排、不改註解。
-- **網頁**（`.html`）直接顯示成頁面。
-- **圖片**直接顯示；在閱讀視窗裡可以放大與拖曳。
-- **PDF** 直接顯示在畫面裡，「在新頁面顯示」與下載都還在；無法顯示時說明原因並提供下載。
-- **影片**（`.mp4`、`.webm`、`.mov`）直接播放，有播放、進度條與音量；影片下方可以選播放速度 0.5×、1×、1.25×、1.5×、2×，每次打開都從 1× 開始。瀏覽器無法播放的格式提供下載。
-- 瀏覽器只能下載的其他檔案提供下載。
+- **Markdown** (`.md`) is shown formatted, including images that sit on their own line in the document.
+- **JSON** and **XML** are indented automatically. If the file itself is malformed, a note at the top says it cannot be formatted, and the file is shown as stored below it.
+- **CSV** is laid out as a table, with the first row as the header. If it is malformed or too large, it is shown as stored.
+- **YAML**, plain text, logs and code are shown as stored, with no reformatting and no changes to comments.
+- **Web pages** (`.html`) are shown as pages.
+- **Images** are shown directly; in the viewer you can zoom and drag them.
+- **PDF** is shown directly on screen, and "Open in a new tab" and download are still available. If it cannot be shown, the reason is given and a download is offered.
+- **Videos** (`.mp4`, `.webm`, `.mov`) play directly, with play, a progress bar and volume. Below the video you can choose a playback speed of 0.5×, 1×, 1.25×, 1.5× or 2×; it starts at 1× every time you open it. Formats the browser cannot play are offered as a download.
+- Other files that the browser can only download are offered as a download.
 
-## 文件註解
+## Document comments
 
-從聊天附件、任務產物或訊息裡的連結打開文字檔（`.md`、`.txt`、`.json`、`.yaml`、`.csv` 等）或 `.html` 文件時，標題列有一顆「註解」按鈕。`.html` 文件（網頁）直接顯示在閱讀視窗裡，標題列的「在新頁面顯示」可以另開一頁看。
+When you open a text file (`.md`, `.txt`, `.json`, `.yaml`, `.csv`, etc.) or an `.html` document from a chat attachment, a task artifact or a link in a message, the title bar has a "Comments" button. An `.html` document (web page) is shown directly in the viewer; "Open in a new tab" in the title bar opens it on a separate page.
 
-- 按「註解」後，畫面旁邊（手機上是下方）會出現「文件註解」清單，最上面是「對整份文件加註解」，寫下不針對某一段的意見。
-- 可以選取一段文字，或在 `.md` 文件裡點一張圖片，按「加註解」。每一則註解都能編輯或刪除。
-- 被註解的文字會標上底色，旁邊有「N 則註解」的標記；點標記會捲到清單上對應的註解，點清單上的原文會捲回文件裡的原文。
-- `.html` 文件（網頁）帶有成員貼上的註解程式時，跟 `.md` 文件一樣可以選取任何一段文字（連結的字也可以）按「加註解」；註解模式下拖曳選取連結的字不會打開連結；網頁上被註解的文字不會標底色，清單上的原文也不能點回網頁。成員在網頁上標了可註解的位置時，滑過那些位置會出現外框，點一下就開始寫那個位置的註解（位置裡的展開標題、按鈕、輸入框與可編輯的文字照常運作，點它們不會開始寫註解）；清單上寫成「位置：名稱」，點它網頁會捲到那個位置。沒有註解程式的網頁只能用「對整份文件加註解」。
-- 按「送出給 AI」後，所有註解會合成一則聊天訊息，開頭是這份文件的連結，接著逐則列出原文與你的意見。
+- After you press "Comments", a "Document comments" list appears beside the document (below it on a phone). At the top is "Comment on the whole document", for remarks that are not about a specific passage.
+- You can select a passage of text, or click an image in an `.md` document, and press "Add comment". Every comment can be edited or deleted.
+- Commented text is highlighted, with an "N comments" marker beside it. Clicking the marker scrolls to the matching comment in the list; clicking the quoted text in the list scrolls back to it in the document.
+- When an `.html` document (web page) includes the comment script a member pasted in, you can select any passage of text, as with an `.md` document (link text too), and press "Add comment". In comment mode, dragging to select link text does not open the link. On a web page, commented text is not highlighted, and the quoted text in the list cannot be clicked to go back to the page. When a member has marked places on the page that can take comments, an outline appears when you hover over them, and one click starts a comment on that place (expandable headings, buttons, input boxes and editable text inside the place work as usual; clicking them does not start a comment). In the list such a comment is shown as "Place: name", and clicking it scrolls the page to that place. A web page without the comment script can only use "Comment on the whole document".
+- When you press "Send to AI", all comments are combined into one chat message: first a link to the document, then each quoted passage with your remark, one by one.
 
-送出鈕上方的「送給：」寫著要送給哪一位成員：
+"To:" above the send button shows which member the comments go to:
 
-- 在某位成員的聊天室裡打開的文件，送給該聊天室的成員。
-- 從請示卡裡打開的文件，送給開卡的成員。
-- 從任務卡或任務產物打開的文件，送給任務的負責人。
+- A document opened in a member's chat goes to that chat's member.
+- A document opened from a reply card goes to the member who opened the card.
+- A document opened from a task card or a task artifact goes to the task's assignee.
 
-對方已經不在名冊上，或任務還沒有負責人時，無法送出，畫面會寫出原因。還沒送出的註解存在這台裝置的瀏覽器裡，關掉文件再打開還在；換一台裝置就看不到。
+If that member is no longer on the roster, or the task has no assignee yet, you cannot send, and the screen says why. Comments you have not sent are kept in this device's browser; they are still there after you close and reopen the document, but you will not see them on another device.
 
-## 比較頁
+## Comparison page
 
-成員給你的比較連結以 `/diff?` 開頭。點開會在原頁顯示前後兩份的差異：
+Comparison links that members give you start with `/diff?`. Opening one shows the differences between the two versions on the same page:
 
-- 「比對方式」可以切換「單欄」或「兩欄對照」，內容整份顯示，不摺疊。
-- 兩側的標題寫著該側的內容來源：「版本 #N」是版本紀錄裡的某一版；「預設內容」是系統隨附的內容；「目前存檔內容（讀取於 …，之後會不一樣）」表示該側是讀取當下的內容，之後再打開可能不同。
-- 點標題可以單獨看該側的原文，按「回到比較」回來。
-- 某一側的東西已經被刪除時，畫面會寫「這個比較有一側已經不在了」。
-- 比較連結預設要登入才看得到。「複製對外連結」複製出來的連結不用登入就能打開，沒有期限，也無法單獨收回。讓對外連結失效的方法見 [保護你的工作室](security.md) 的「簽章金鑰」。
+- "Comparison layout" switches between "Single column" and "Side by side". The whole content is shown, with nothing folded.
+- The heading of each side shows where that side's content comes from: "Revision #N" is a version from the version history; "Default content" is the content that ships with the system; "Current saved content (read … — changes over time)" means that side is the content as it was when read, and it may be different when you open it again later.
+- Click a heading to view that side's original on its own, and press "Back to comparison" to return.
+- When the item on one side has been deleted, the screen says "One side of this comparison is no longer there".
+- By default, you must be signed in to view a comparison link. A link copied with "Copy external link" opens without signing in, never expires, and cannot be revoked on its own. For how to make external links stop working, see "Signing keys" in [Protect your studio](security.md).
 
-## 用網址打開某一張任務或請示卡
+## Opening a task or reply card by URL
 
-在網址後面加上編號，頁面就只顯示該編號的任務或請示卡：
+Add an ID to the end of the URL, and the page shows only the task or reply card with that ID:
 
-- 任務：`/#tasks/任務編號`
-- 請示卡：`/#replies/card/請示卡編號`
+- Task: `/#tasks/<task ID>`
+- Reply card: `/#replies/card/<reply-card ID>`
 
-成員在聊天裡給你的任務或請示卡連結就是這種寫法，點了直接打開該任務或請示卡。打開後，頁面上方的「任務編號」或「請示卡編號」欄位會填好編號，清空欄位再按 Enter 就回到完整清單。編號不存在時，任務頁顯示「沒有符合篩選條件的任務」，請示頁顯示「沒有符合篩選條件的請示」；連不上伺服器時，畫面會寫「暫時無法確認…是否存在，請稍後再試」或載入失敗，不會說成找不到。
+Task and reply-card links that members give you in chat use this format; clicking one opens that task or reply card directly. Once it is open, the "Task ID" or "Reply-card id" field at the top of the page is filled with the ID; clear the field and press Enter to return to the full list. If the ID does not exist, the Task page shows "No tasks match the current filters" and the Ask page shows "No asks match the current filter". If the server cannot be reached, the screen says "Could not confirm whether … exists right now. Please try again shortly." or shows a loading error; it does not say the item was not found.
 
-## 任務
+## Task
 
-- **任務列表** — 未結案的在前，已結案的在後。一次先列 50 張，捲到接近底部會再載入 50 張，底下短暫出現「載入中…」。
-- **篩選列** — 「任務編號」欄位、「所有負責人」「所有類型」「狀態」「所有到期」四個下拉、「清除篩選」。下拉選了就生效；編號欄位按 Enter 或點到欄位外才生效。
-  - 「狀態」預設只勾選還沒結案的狀態，按鈕上寫「未結案」；選單最上面的「未結案」「已結案」兩列可以一次勾選或取消一整組狀態。因為狀態預設就有篩選，欄位後面一開始就有「清除篩選」，按下去會清掉全部條件，包括狀態，已完成與已終止的任務也會列出來。
-  - 「所有到期」可以勾選「已逾期」「快到期」，只列出符合的未結案任務。
-- **顯示方式** — 篩選列最右邊，裡面的「分組依據」可選不分組、到期狀態、優先權、負責人、類型、狀態。選「到期狀態」時，任務分成「已逾期」「即將到期」「之後到期」「沒有到期日」幾組，組內依到期日由早到晚排列；已結案的任務也依到期日分組。每一組都可以收合，預設只展開第一組。分組依據會記在這個瀏覽器上。
-- **找不到任務時** — 「沒有符合篩選條件的任務」表示確實沒有符合的任務；「暫時無法確認「T-…」是否存在，請稍後再試。」表示查詢失敗。
+- **Task list** — Open tasks come first, closed tasks after. 50 tasks are listed at first; when you scroll near the bottom, 50 more load, and "Loading…" briefly appears at the bottom.
+- **Filter bar** — A "Task ID" field, four drop-downs ("Everyone", "All types", "Statuses" and "Any due date"), and "Clear filters". A drop-down takes effect as soon as you choose; the ID field takes effect only when you press Enter or click outside the field.
+  - "Statuses" checks only the not-yet-closed statuses by default, and the button reads "Open". The "Open" and "Closed" rows at the top of the menu check or uncheck a whole group of statuses at once. Because statuses are filtered by default, "Clear filters" is shown after the fields from the start. Pressing it clears every condition, including status, so done and terminated tasks are listed as well.
+  - "Any due date" lets you check "Overdue" and "Due soon" to list only the open tasks that match.
+- **Display** — At the far right of the filter bar. Its "Group by" can be None, Due state, Priority, Assignee, Type or Status. With "Due state", tasks are split into the groups "Overdue", "Due soon", "Due later" and "No due date", sorted within each group by due date, soonest first; closed tasks are grouped by due date too. Each group can be collapsed; by default only the first group is expanded. The grouping is remembered in this browser.
+- **When a task cannot be found** — "No tasks match the current filters" means there really is no matching task. "Could not confirm whether "T-…" exists right now. Please try again shortly." means the lookup failed.
 
-**建立任務前的確認卡**
+**The confirmation card before a task is created**
 
-成員開任務前，會先查有哪些任務手冊適用，再開請示卡請你確認任務名稱、要解決的問題、任務類型、完成條件（AC）、由誰執行，以及執行的機器、模型與投入程度。沒有合適的手冊時，這張請示卡上的任務類型寫 ad-hoc，建立後在任務卡上顯示為「自由代辦」。任務手冊設了識別鍵時，識別鍵的值相同、而且還沒結案的同類任務不會再開第二張。
+Before a member opens a task, it first checks which task manuals apply, then opens a reply card asking you to confirm the task name, the problem to solve, the task type, the acceptance criteria (AC), who will do it, and the machine, model and effort level to run it with. When no manual fits, the task type on this reply card reads ad-hoc, and once the task is created the task card shows "Ad-hoc". When a task manual sets an identity key, a second open task of the same type with the same identity key value is not created.
 
-**任務卡上的欄位**
+**Fields on the task card**
 
-- **任務編號** — 點一下可以「複製任務編號」。
-- **任務類型** — 旁邊的「開啟任務類型設定」連到這個類型的任務手冊。沒有手冊的任務寫「自由代辦」。
-- **負責人** — 現在做這張任務的成員；負責人是外包時多一個標籤，寫代號、模型與投入程度（低投入、中投入、高投入、極高投入、最高投入）。還沒有負責人時寫「未指派」。
-- **建立者** — 開這張任務的成員；和負責人是同一位時不顯示。
-- **前任** — 任務被轉派前的上一位負責人；從沒轉派過時不顯示。
-- **識別鍵** — 任務手冊指定、用來判斷是不是同一件事的欄位；是網址時可以點。
-- **狀態** — 尚未執行、進行中、等我回覆、等待外部、可結案、已完成、終止、重複。
-- **轉派中** — 轉派後、新負責人接手或任務結案前的標記，不是狀態。所以一張任務可以同時是「進行中」和「轉派中」。
-- **優先權** — 高、中、低、凍結。
-- **到期日** — 在「建立者」下面一列，顯示日期，有指定時間時加上時間，後面接「· 還有 5 天」或「· 已逾期 2 天」；剩不到一天時改用小時，不到一小時時改用分鐘。快到期為橘黃色，已逾期為紅色。已結案的任務只顯示日期。還沒設定時寫「未設定」。
-- **步驟 完成數/總數 · 已歷時** — 進度與已經花的時間。
-- **工作流程** — 步驟清單、每一步的狀態、DoD、步驟備註（「展開備註」）、依賴。
-- **請示** — 嵌在任務裡的請示卡，可「在聊天室回覆」。
-- **產物** — 「查看產物」，可看版本與差異。
-- **狀態標籤** — 點任務卡上的狀態文字（滑鼠移上去顯示「狀態操作」）會打開選單：「查看等我回覆卡」「查看等待外部節點」（有的話）、標記重複、終止、強制結案。
-- **轉派** — 「負責人」旁的交換圖示（滑鼠移上去顯示「轉派…」）。
-- **訊息框** — 卡上的訊息框把訊息傳給負責人。框下的建議回覆先列這個任務手冊的句子，再列「任務訊息建議回覆」。點負責人、建立者或前任的名字（滑鼠移上去分別顯示「傳訊息給負責人」「傳訊息給建立者」「傳訊息給前任」）會打開和那位成員的聊天室。
+- **Task number** — Click it to "Copy task number".
+- **Task type** — "Open task-type settings" next to it links to this type's task manual. A task without a manual shows "Ad-hoc".
+- **Assignee** — The member currently working on the task. When the assignee is an outsource member, there is an extra tag showing its code name, model and effort level (low effort, mid effort, high effort, extra-high effort, max effort). When there is no assignee yet, it shows "Unassigned".
+- **Creator** — The member who opened the task; not shown when it is the same as the assignee.
+- **Handed over from** — The previous assignee before the task was reassigned; not shown if it has never been reassigned.
+- **Identity key** — A field the task manual designates to tell whether two tasks are about the same thing; clickable when it is a URL.
+- **Status** — Not started, In progress, Awaiting my reply, Waiting on external, Ready to close, Done, Terminated, Duplicate.
+- **Reassigning** — A marker shown after a reassignment until the new assignee takes over or the task closes. It is not a status, so a task can be "In progress" and "Reassigning" at the same time.
+- **Priority** — High, Mid, Low, Frozen.
+- **Due date** — On the line below "Creator". Shows the date, plus the time when one is set, followed by "· 5 days left" or "· Overdue 2 days". With less than a day left it switches to hours, and with less than an hour to minutes. Due soon is shown in orange-yellow, overdue in red. Closed tasks show only the date. When none is set, it shows "Not set".
+- **Step done/total · Elapsed** — Progress and the time spent so far.
+- **Workflow** — The list of steps, each step's status, DoD, step notes ("Show note"), and dependencies.
+- **Ask** — Reply cards embedded in the task; you can "Reply in chat".
+- **Artifacts** — "View artifacts", where you can see versions and diffs.
+- **Status tag** — Clicking the status text on the task card (hover to see "Status actions") opens a menu: "Show the waiting reply card", "Show the waiting-external step" (when there is one), Mark duplicate, Terminate, Force close.
+- **Reassign** — The swap icon next to "Assignee" (hover to see "Reassign…").
+- **Message box** — The message box on the card sends a message to the assignee. The suggested replies below the box list this task manual's sentences first, then the "Task-message suggestions". Clicking the name of the assignee, creator or previous assignee (hover to see "Message the assignee", "Message the creator" or "Message the predecessor") opens your chat with that member.
 
-**設定到期日**
+**Setting the due date**
 
-點到期日（滑鼠移上去顯示「設定到期日」）會打開一個小框，可以選日期、時間（「不指定時間」表示當天結束前都不算逾期）和「快到期提醒」（數字加上天、小時或分鐘，再接「前」）。「快到期提醒」留空時沿用全站設定，數字欄位會以淡灰字顯示全站設定的值；全站設定在 設定 › 參數調整。按 ✓「套用」、按 Enter 或點到小框外就儲存；按 ✗「取消」或 Esc 不儲存。日期旁的 ✕「清除到期日」會清空日期，儲存後就拿掉到期日。
+Clicking the due date (hover to see "Set due date") opens a small box where you can choose the date, the time ("No time" means the task is not overdue until the end of that day) and "Due soon from" (a number plus days, hours or minutes, then "before"). When "Due soon from" is left empty, the site-wide "Due-soon lead time" is used, and the number field shows that value in light gray; the site-wide setting is in Settings › General. Press ✓ "Apply", press Enter, or click outside the box to save; press ✗ "Cancel" or Esc to discard. The ✕ "Clear due date" next to the date empties the date, and saving removes the due date.
 
-能改到期日的人和優先權相同：你、特助 Mira 和負責人；已結案的任務不能改。成員開任務時也可以一併設定到期日，之後同樣能修改或清除。
+The people who can change the due date are the same as for priority: you, the Assistant Mira, and the assignee. Closed tasks cannot be changed. A member can also set a due date when opening a task, and it can be changed or cleared later in the same way.
 
-**狀態的細節**
+**Status in detail**
 
-- 前五種狀態（尚未執行、進行中、等我回覆、等待外部、可結案）由步驟自動推算；後三種只有結案動作會產生。
-- **等我回覆**：一張任務可以同時有好幾張請示卡在等你，只要還有一張沒回覆，任務就維持等我回覆。回覆後，任務回到依步驟推算出的狀態，可能是進行中、等待外部或可結案。
-- **等待外部**：只用在事情不在成員手上時。等 CI 跑完、等測試結果屬於成員自己的工作，算進行中。成員把步驟設成等待外部時會寫下等待原因，顯示在該步驟上。
-- **可結案**：卡上會寫「所有步驟都完成了,正在等負責人收尾。」收尾期間如果新增步驟，任務會回到進行中。
+- The first five statuses (Not started, In progress, Awaiting my reply, Waiting on external, Ready to close) are worked out automatically from the steps; the last three are produced only by closing actions.
+- **Awaiting my reply**: a task can have several reply cards waiting for you at once. As long as one of them is unanswered, the task stays at Awaiting my reply. Once you answer, the task returns to the status worked out from its steps, which may be In progress, Waiting on external or Ready to close.
+- **Waiting on external**: used only when the matter is out of the member's hands. Waiting for CI to finish or for test results is part of the member's own work and counts as In progress. When a member sets a step to Waiting on external, it writes down the reason, which is shown on that step.
+- **Ready to close**: the card says "Every step is done — this task is waiting for its assignee to wrap it up." If a step is added during wrap-up, the task goes back to In progress.
 
-**步驟的細節**
+**Steps in detail**
 
-- 步驟的狀態有：待辦、進行中、完成、等我回覆、等待外部、已取代。
-- DoD 必須填寫，空白的計畫送不出去。
-- **同時進行**：互不相關的步驟可以並行，卡上標示「同時進行 · N 項並行」。
-- **備註**：負責人在步驟上留的進度紀錄。成員換手時，接手的成員也是從這裡知道做到哪裡。任務結案後備註就不能再寫。
-- **依賴**：任務被另一張任務擋住時，卡上顯示「等 T-xx」，按「跳到 T-xx」看擋住這張任務的那一張任務。依賴只是標示，不會改變狀態。
-- 負責人可以在途中新增、刪除單一步驟或調整順序，不影響其他步驟的備註與請示卡。負責人整份重新規劃時：已完成的步驟保留；還沒完成、但綁的請示卡已經回覆或標為過期的步驟，新計畫裡有同名步驟就保留，沒有的話改為「已取代」，保留當時的問答紀錄；其他還沒完成的步驟會被移除，步驟上的備註也一起移除。
-- 「已取代」的步驟不計入「步驟 完成數/總數」，所以重新規劃不會讓進度數字突然增加或倒退。成員不能直接把步驟設成已取代。
+- Step statuses are: To do, In progress, Done, Awaiting my reply, Waiting on external, Superseded.
+- DoD is required; a plan with a blank DoD cannot be submitted.
+- **In parallel**: unrelated steps can run in parallel; the card shows "In parallel · N items".
+- **Notes**: progress records the assignee leaves on a step. When members hand over, the member taking over also learns from here how far the work has got. Once the task is closed, notes can no longer be written.
+- **Dependencies**: when a task is blocked by another task, the card shows "Waiting on T-xx"; press "Open T-xx" to see the task that is blocking this one. A dependency is only a label; it does not change the status.
+- The assignee can add or delete a single step or change the order along the way, without affecting other steps' notes and reply cards. When the assignee replans the whole thing: completed steps are kept; unfinished steps whose reply card has already been answered or marked expired are kept if the new plan has a step with the same name, and otherwise become "Superseded", keeping the question-and-answer record from that time; all other unfinished steps are removed, together with their notes.
+- "Superseded" steps are not counted in "Step done/total", so replanning does not make the progress numbers suddenly jump or go backward. A member cannot set a step to Superseded directly.
 
-**關卡與請示卡的細節**
+**Gates and reply cards in detail**
 
-- 計畫送出時，任務卡會在關卡步驟上預告「等我回覆」。設為關卡或開過請示卡的步驟會標「審批」。
-- 任何還沒完成的步驟，成員遇到需要你決定的事，都可以當場開一張請示卡；這不會讓該步驟變成關卡，但該步驟上一樣會標「審批」。任務在進行中、等我回覆或等待外部時都能開卡；步驟已經完成或任務已經結案時則不能。
-- 成員針對別人負責的任務開卡時，卡片不會綁在步驟上，任務也不會因此停下；你回覆後，被問到的任務的負責人會收到通知。
+- When the plan is submitted, the task card shows "Awaiting my reply" in advance on gate steps. Steps that are set as gates or have had a reply card opened are marked "Approval".
+- On any unfinished step, when a member runs into something you need to decide, it can open a reply card on the spot. This does not turn the step into a gate, but the step is marked "Approval" all the same. Cards can be opened while the task is In progress, Awaiting my reply or Waiting on external; not once the step is done or the task is closed.
+- When a member opens a card about a task someone else is responsible for, the card is not tied to a step, and the task does not stop because of it; after you answer, the assignee of the task in question is notified.
 
-**誰能做哪些操作**
+**Who can do what**
 
-- **凍結與解凍**：你、特助 Mira 和負責人。成員要恢復一張被凍結的任務前，會先開卡徵求你同意。
-- **終止**：任務結案為終止，無法恢復，負責人會收到通知並收尾。
-- **標記重複**：在搜尋框輸入原票的任務編號或標題的一部分（會搜尋全部任務，包括已結案的），從結果裡選出原票。任務結案為重複，無法恢復，卡上顯示「重複於」並可「跳到原票」。成員發現自己的任務和別張重複時也會這樣做。
-- **轉派**：任務會進入轉派中，前後兩位負責人都會收到交接通知。
-- **強制結案**：只有你和特助能做，任何未結案的任務都可以。結案後卡上顯示「強制結案」與理由（沒填時寫「未填理由」），無法復原。
-- **產物**：「移除產物」會保留目前的檔案，但舊版本會永久刪除。任務結案後，產物就不能再新增或更換。
+- **Freeze and unfreeze**: you, the Assistant Mira, and the assignee. Before a member resumes a frozen task, it first opens a card asking for your approval.
+- **Terminate**: the task closes as Terminated and cannot be resumed; the assignee is notified and wraps it up.
+- **Mark duplicate**: in the search box, type the original task's number or part of its title (all tasks are searched, including closed ones), and pick the original from the results. The task closes as Duplicate and cannot be resumed; the card shows "Duplicate of" and you can "Jump to the original". Members do the same when they find that their task duplicates another one.
+- **Reassign**: the task becomes Reassigning, and both the previous and the new assignee receive a handover notice.
+- **Force close**: only you and the Assistant can do this, on any open task. After closing, the card shows "Force-closed by" and the reason ("No reason given" if none was entered). This cannot be undone.
+- **Artifacts**: "Remove artifact" keeps the current file but permanently deletes its earlier versions. Once the task is closed, artifacts can no longer be added or replaced.
 
-任務的狀態、步驟、關卡與結案方式見 [追蹤任務進度](tasks.md)。
+For task statuses, steps, gates and ways of closing, see [Tracking task progress](tasks.md).
 
-## 傳承
+## Lore
 
-傳承分頁依「誰會讀到」分段：「所有人」、每位成員、每本任務手冊，各一段。每一段列出的，就是那位成員開機時（或成員讀那本任務手冊時）會讀到的傳承。
+The Lore tab is divided into sections by who reads the entries: one section for "Everyone", one for each member, and one for each task manual. Each section lists exactly the lore that member reads when it starts (or that a member reads with that task manual).
 
-- **目錄** — 打開分頁先看到目錄，每一段一張卡片、一列一張，依序分在「所有人」「正職成員」「外包成員」「任務手冊」四組下；組名旁寫有幾段（例如「正職成員 · 4」），沒有任何一段的組不顯示。每張卡片寫名稱（成員帶頭像）、筆數、紅字的「N 筆讀不到」或「全部讀得到」，下面一條用量條和已用字數與上限（例如「9,800 / 10,000 字」）。「所有人」那張只寫已用字數和「每位成員都會讀」，沒有用量條，因為「所有人」的傳承算在每位成員自己的上限裡。筆數只算置頂與生效中的條目；成員那張連「所有人」的條目一起算，跟進到那一段列出的條目數一致。點一張卡片進那一段的頁面。
-- **收合與展開** — 點組名收合那一組，組名後的箭頭從「▾」變成「›」，再點一次展開；可以同時展開好幾組。搜尋框同一列最右邊的按鈕是「全部收合」，所有組都收合時變成「全部展開」。第一次打開目錄只展開「所有人」，其他三組收合；之後照你上次留下的樣子，記在這個瀏覽器裡，換瀏覽器或裝置時回到第一次的樣子。
-- **找條目編號** — 目錄上方的搜尋框輸入「212」或「L-212」，會直接進那一筆所在的段落，並把那一筆框起來、捲到畫面上；那一筆已失效時，段落的狀態篩選會自動多勾「已失效」。那一筆所在的段落已經不在了（成員已離開或手冊已刪除）時，目錄上會寫出來，不會進入段落。這個框只找編號；要用標題找，先進到一段裡，用那一段的篩選列。
-- **段落頁** — 最上面的「傳承目錄」回到目錄。每一段有自己的網址（例如 `#lore/agent/成員 ID`），可以貼給別人直接打開那一段。段落頁由上到下是「傳承目錄」、篩選列、段落標題和用量條，再下面是條目。換到另一段時，篩選回到預設。
-- **段落標題** — 一行小字：名稱、「· N 筆」，有讀不到的條目時後面接紅字「M 筆讀不到」。下面一條分段用量條：成員的段落先畫「所有人」的傳承（淡色），再畫這位成員自己讀得到的傳承（深色）；兩邊在條目清單裡是交錯排列的，這條只是把兩邊的字數分開畫。用量條下面兩行：第一行左邊是已用字數（例如「**1,139** 字」），右邊是「上限 1,150」；第二行是每個來源讀得到幾筆、共幾筆，例如「所有人 7/9 · Kyle 2/5」，前面的色塊跟用量條同色。任務手冊的段落只寫手冊自己那一項。兩邊交錯，所以「所有人」有讀不到的條目時，這位成員自己較新的條目仍可能讀得到。成員的段落也逐筆列出「所有人」的條目，跟這位成員自己的條目混在一起。「所有人」那一段沒有自己的上限（它算在每位成員的上限裡），標題下只寫已用字數和「每位成員都會讀」，沒有用量條。任務手冊那一段的標題裡，手冊名稱可以點，點了開那本任務手冊。
-- **條目順序** — 照成員讀的順序：置頂的在前，其餘依生效期由新到舊；成員的段落裡，「所有人」的條目和這位成員自己的條目一起照這個順序排。順序不能手動調整。往下捲會再載入更多條目。
-- **讀不到的條目** — 成員讀不到的條目縮成一列：條目編號、灰色的標題、紅字「讀不到」和最右邊的「›」。點這一列（或用鍵盤移到它再按 Enter 或空白鍵）會在原位置展開成完整的卡片，標題、內容和撰寫人、生效期轉灰；狀態徽章和按鈕維持原本的顏色，照樣可以點。展開後卡片右上「編輯」旁有一個朝下的箭頭，按了收回成一列。有還沒儲存的變更時，那張卡片維持展開。成員的段落裡，被擠到讀不到的「所有人」條目也一樣縮成一列。這些條目仍然保存著，只是成員讀不到。用篩選或搜尋找出來的條目，讀不到的照樣縮成一列；從目錄搜尋編號找到的那一筆會直接展開。已失效的條目維持已失效的樣子。段落標題與用量條的數字一律以整段計算，不受篩選影響。
-- **篩選列** — 在段落頁裡，只篩這一段：編號或標題（輸入「212」或「L-212」找那一筆；輸入其他文字找標題含有這段文字的條目，不搜內容）、類型、狀態，可以多選組合；「清除篩選」回到預設篩選。段落本身就是某位成員、某本任務手冊或所有人，所以沒有撰寫人篩選。狀態預設只勾置頂與生效中，已失效的條目要在狀態勾了「已失效」才會列出。沒有任何符合的條目時寫「沒有符合篩選條件的傳承」。
-- **條目** — 每一筆由類型、標題和內容組成。條目上由左到右是條目編號（點了「複製條目編號」）、類型標籤、狀態徽章（置頂、生效中或已失效）、範圍標籤（「所有人」、成員的名字或任務手冊的名稱；你和特助點了可以改適用範圍，其他人只看得到），右上角只有「編輯」；下面是標題、完整的內容，再下面兩列：「撰寫人」和撰寫人的頭像與名字、「生效期」和時間，失效理由有填時另起一行；撰寫人還在名冊上時，卡片最底下是訊息框，送出的訊息傳給撰寫人；你寫的條目、或撰寫人已離開時，沒有訊息框。內容一律完整顯示，沒有收合。
-- **改狀態、類型、適用範圍** — 在條目上選了新的值，還不會存：條目先顯示新的值，外框變成虛線，被改的標籤也變成虛線框，右上角多一個小圓形 ↺。改過的條目跟沒改過的一樣高，下面的條目不會被推動。選回原本的值，那一項就不算變更；一項都不剩時虛線和 ↺ 都會消失。
-- **↺（還原一項）** — 滑鼠移到 ↺ 上，會顯示要改回的原本的值，例如「還原為「生效中」」。點 ↺（電腦或手機都一樣）就把那一項改回原值，同一筆的其他變更和其他條目不受影響。點標籤本身仍是打開選單改值。
-- **還沒儲存時** — 畫面底部固定一條工具列，捲動時一直看得到：左邊「N 項變更還沒儲存」，右邊「全部捨棄」和「儲存變更」。條目的順序、哪幾筆讀不到、筆數與字數還是儲存前的狀態，儲存後才重新計算並重新排列。可以接著改其他條目，改好再按一次「儲存變更」全部存起來；按「全部捨棄」則全部回到原本的值。捲到最底時，最後一筆條目會停在工具列上方，不會被擋住。
-- **儲存變更之後** — 整段照新的結果重新排列：條目順序、讀不到的條目、段落標題和目錄上的數字，都跟重新整理後看到的一樣；新變成讀不到的條目縮成一列，原本就讀不到、你展開過的維持展開。例如取消置頂的條目會移到它依生效期該在的位置；設為失效的條目在狀態篩選沒勾「已失效」時就不再列出。改了適用範圍的條目，下方會出現「L-212 的適用範圍改成「所有人」」這樣的一行，幾秒後消失；改到另一段的條目不再列在這一段。有條目沒存成功時，工具列寫「沒有成功：L-212（原因）」，那幾筆維持虛線外框，可以再按一次「儲存變更」。儲存中條目上的標籤、↺ 和工具列的按鈕暫時不能按，「儲存變更」寫「儲存中…」。
-- **編輯標題、內容** — 按「儲存」就存好，不用再按「儲存變更」；存完整段同樣照新的結果重新排列，其他還沒儲存的條目維持原樣。版本紀錄的「還原這個版本」也一樣。
-- **還沒儲存就離開** — 有還沒儲存的變更時，回到目錄、換到其他分頁或按瀏覽器的上一頁，會先問你要不要離開，選擇留下時條目的值都還在；儲存中不能離開這一段，工具列會寫「儲存中，完成後才能離開」。關閉或重新整理頁面時，瀏覽器會跳出離開提示；控制台有新版本時也不會自動重新整理這一頁。
-- **手機** — 版面與電腦相同，右上角一樣是「編輯」；標籤放不下一行時換到下一行。
+- **Directory** — Opening the tab shows the directory first: one card per section, one card per row, grouped, in order, under four groups: "Everyone", "Staff members", "Outsource members" and "Task manual"; each group name shows the number of sections next to it (for example "Staff members · 4"), and a group with no sections is not shown. Each card shows the name (members have their avatar), the number of entries, "N not read" in red or "All read", and below that a usage bar with the characters used and the cap (for example "24,500 / 25,000 chars"). The "Everyone" card shows only the characters used and "read by every member", with no usage bar, because "Everyone" lore counts toward each member's own cap. Entry counts include only pinned and active entries; a member's card also counts the "Everyone" entries, so it matches the number of entries listed in that section. Click a card to open that section's page.
+- **Collapse and expand** — Click a group name to collapse that group; the arrow after the group name changes from "▾" to "›", and clicking again expands it. Several groups can be expanded at the same time. The button at the far right of the search box's row is "Collapse all", and it becomes "Expand all" when every group is collapsed. The first time you open the directory, only "Everyone" is expanded and the other three groups are collapsed; after that it stays the way you last left it, remembered in this browser, and on another browser or device it goes back to how it looked the first time.
+- **Find an entry ID** — Typing "212" or "L-212" in the search box above the directory goes straight to the section that holds that entry, outlines the entry and scrolls it into view; if the entry is retired, the section's state filter automatically adds "Retired". If the entry's section no longer exists (the member left or the manual was deleted), the directory says so and does not open a section. This box only finds IDs; to search by title, open a section first and use that section's filter bar.
+- **Section page** — "Lore directory" at the top returns to the directory. Each section has its own URL (for example `#lore/agent/<member ID>`), which you can send to someone so they open that section directly. From top to bottom, a section page has "Lore directory", the filter bar, the section heading and usage bar, and then the entries. Switching to another section resets the filters to their defaults.
+- **Section heading** — One line of small text: the name, "· N entries", and, when some entries are not read, "M not read" in red. Below it is a segmented usage bar: a member's section first draws the "Everyone" lore (light color), then the lore of this member that is read (dark color); the two are interleaved in the entry list, and the bar only draws their character counts separately. Two lines sit below the usage bar: the first shows the characters used on the left (for example "**24,890** chars") and "Cap 25,000" on the right; the second shows how many entries from each source are read out of the total, for example "Everyone 7/9 · Kyle 2/5", each preceded by a color block matching the usage bar. A task manual's section shows only the manual's own item. Because the two sources are interleaved, a member's newer entries can still be read even when some "Everyone" entries are not read. A member's section also lists the "Everyone" entries one by one, mixed in with this member's own entries. The "Everyone" section has no cap of its own (it counts toward each member's cap), so its heading shows only the characters used and "read by every member", with no usage bar. In a task manual's section heading, the manual's name is clickable and opens that task manual.
+- **Entry order** — The order in which members read them: pinned entries first, then the rest by effective time, newest first; in a member's section, the "Everyone" entries and this member's own entries are sorted together in this order. The order cannot be changed by hand. Scrolling down loads more entries.
+- **Entries that are not read** — An entry that members cannot read is collapsed to one row: the entry ID, the title in gray, "Not read" in red and "›" at the far right. Clicking the row (or moving to it with the keyboard and pressing Enter or Space) expands it in place into the full card, with the title, body, author and effective time in gray; the state badge and buttons keep their usual colors and can still be clicked. Once expanded, a downward arrow next to "Edit" at the top right of the card collapses it back to one row. A card with unsaved changes stays expanded. In a member's section, "Everyone" entries pushed out of what members read are also collapsed to one row. These entries are still stored; members just cannot read them. Entries found with the filters or the search are still collapsed to one row when they are not read; the entry found by searching its ID in the directory opens expanded. Retired entries keep their retired look. The numbers in the section heading and usage bar are always counted over the whole section and are not affected by the filters.
+- **Filter bar** — On a section page, it filters only that section: ID or title (type "212" or "L-212" to find that entry; type any other text to find entries whose title contains it — bodies are not searched), type, and state, which can be combined with multiple choices; "Clear filters" returns to the default filters. A section already is one member, one task manual or Everyone, so there is no author filter. By default the state filter ticks only Pinned and Active; retired entries are listed only after you tick "Retired" in the state filter. When no entry matches, it says "No lore matches these filters".
+- **Entry** — Each entry consists of a type, a title and a body. From left to right, an entry shows the entry ID (click it to "Copy entry id"), the type tag, the state badge (Pinned, Active or Retired) and the scope tag ("Everyone", the member's name or the task manual's name; you and the Assistant can click it to change the scope, everyone else can only see it); the top right has only "Edit". Below are the title and the full body, then two rows: "Author" with the author's avatar and name, and "Effective" with the time; when a retire reason was entered, it is on a separate line. While the author is still on the roster, the bottom of the card has a message box, and messages you send go to the author; on entries you wrote, or when the author has left, there is no message box. The body is always shown in full and is never collapsed.
+- **Change state, type or scope** — Picking a new value on an entry does not save it yet: the entry shows the new value, its border becomes dashed, the changed tag also gets a dashed outline, and a small round ↺ appears at the top right. A changed entry keeps the same height as before, so the entries below it do not move. Picking the original value again means that item no longer counts as a change; when no changes are left, the dashed lines and ↺ disappear.
+- **↺ (revert one item)** — Hovering over ↺ shows the original value it will go back to, for example "Revert to “Active”". Clicking ↺ (the same on a computer or a phone) puts that one item back to its original value; other changes on the same entry and other entries are not affected. Clicking the tag itself still opens the menu to change the value.
+- **Before saving** — A toolbar stays fixed at the bottom of the screen and remains visible while you scroll: "N unsaved changes" on the left, "Discard all" and "Save changes" on the right. The order of entries, which entries are not read, and the entry and character counts still reflect the state before saving; they are recalculated and re-sorted only after saving. You can go on changing other entries and then press "Save changes" once to save them all; "Discard all" puts everything back to the original values. When you scroll to the bottom, the last entry stops above the toolbar instead of being hidden by it.
+- **After "Save changes"** — The whole section is re-sorted by the new result: the entry order, the entries that are not read, the section heading and the numbers in the directory all match what you would see after reloading the page; entries that are newly not read collapse to one row, and entries that were already not read and that you expanded stay expanded. For example, an entry that is unpinned moves to the position its effective time gives it; an entry set to Retired is no longer listed when "Retired" is not ticked in the state filter. Below an entry whose scope was changed, a line such as "L-212 now applies to Everyone" appears and disappears after a few seconds; an entry moved to another section is no longer listed in this one. If some entries were not saved, the toolbar says "Did not go through: L-212 (reason)", those entries keep their dashed border, and you can press "Save changes" again. While saving, the tags and ↺ on entries and the toolbar buttons cannot be pressed, and "Save changes" reads "Saving…".
+- **Edit the title or body** — Pressing "Save" saves it; you do not need to press "Save changes" as well. After saving, the whole section is likewise re-sorted by the new result, and other unsaved entries are left as they are. "Restore this version" in the version history works the same way.
+- **Leaving before saving** — With unsaved changes, going back to the directory, switching to another tab or pressing the browser's Back button first asks whether you want to leave; if you choose to stay, the entries keep their values. While saving, you cannot leave the section, and the toolbar says "Saving — you can leave once it is done". When you close or reload the page, the browser shows a leave prompt; and when the console has a new version, this page is not reloaded automatically.
+- **Phone** — The layout is the same as on a computer, with "Edit" at the top right as well; tags that do not fit on one line wrap to the next line.
 
-**類型標籤**
+**Type tags**
 
-| 類型 | 什麼時候寫 |
+| Type | When to write it |
 | --- | --- |
-| **指示衝突** | 成員實際做過後發現 SOP、系統文件或操作指示和正確做法不一致，照原指示做會出錯。原指示修正後，這筆應設為失效。 |
-| **指示補充** | 原指示沒有錯，但缺少會影響結果的條件、例外或步驟。原指示補齊後，這筆應設為失效。 |
-| **Owner 決策** | 你的判斷和成員原本預期不同，成員確認了背後的考量，而該考量之後的類似情況也適用。 |
-| **Owner 偏好** | 你明確表達、預期長期適用的偏好，例如回報方式、交付格式。單次要求不算。 |
-| **其他** | 不屬於以上四類的條目。早期沒有標類型的傳承也歸在這一類。 |
+| **Instruction conflict** | After actually doing the work, a member finds that an SOP, a system document or an operating instruction does not match the correct way to do it, and following the original instruction would cause errors. Once the original instruction is fixed, this entry should be retired. |
+| **Instruction supplement** | The original instruction is not wrong, but it is missing a condition, exception or step that affects the result. Once the original instruction is completed, this entry should be retired. |
+| **Owner decision** | Your judgement differed from what the member expected, the member confirmed the reasoning behind it, and that reasoning also applies to similar situations later. |
+| **Owner preference** | A preference you stated clearly and expect to apply long-term, such as how to report or the format of deliverables. One-off requests do not count. |
+| **Other** | Entries that fit none of the four types above. Early lore entries without a type also fall into this type. |
 
-點條目的類型標籤會打開「變更類型」選單，列出這五種，目前的類型以強調色標出；選另一種後條目外框變成虛線，按畫面底部工具列的「儲存變更」才會改掉。能改類型的人跟能修改條目的人相同。
+Clicking an entry's type tag opens the "Change type" menu, which lists these five types with the current type highlighted in the accent color; after you pick another type, the entry's border becomes dashed, and the type changes only when you press "Save changes" in the toolbar at the bottom of the screen. The people who can change the type are the same as those who can edit the entry.
 
-**適用範圍**
+**Scope**
 
-- 成員寫入時沒有指定任務，或指定的任務沒有任務類型，條目掛在撰寫人名下（成員傳承）。指定了一張有任務類型的任務，條目掛在該手冊下（任務傳承）。
-- 「所有人」的傳承和每位成員自己的成員傳承共用同一個字數上限。
-- 點條目上的範圍標籤會打開「適用範圍」選單（只有你和特助能點）。選項有「任務：手冊名稱」、「建立者：撰寫人名字」和「所有人」，其中標「預設」的是寫入時的原始範圍，標「目前」的是現在的範圍。來源任務沒有類型的條目沒有「任務」選項；撰寫人已不在名冊上的條目沒有「建立者」選項。任務傳承的選單最下面有「開啟任務手冊」，可以直接打開該手冊。
-- 改範圍只有你和特助能做，改了之後在成員下次開機或下次讀手冊時生效。
+- If a member writes an entry without naming a task, or names a task that has no task type, the entry belongs to the author (member lore). If it names a task that has a task type, the entry belongs to that task manual (task lore).
+- "Everyone" lore and each member's own member lore share the same character cap.
+- Clicking the scope tag on an entry opens the "Scope" menu (only you and the Assistant can click it). The options are "Task: <manual name>", "Author: <author name>" and "Everyone"; the one tagged "Default" is the original scope when the entry was written, and the one tagged "Current" is the scope now. Entries whose source task has no type have no "Task" option; entries whose author is no longer on the roster have no "Author" option. For task lore, the bottom of the menu has "Open task manual", which opens that manual directly.
+- Only you and the Assistant can change the scope. The change takes effect the next time the member starts or reads the manual.
 
-**字數上限怎麼算**
+**How the character cap is counted**
 
-系統依「置頂優先，其餘依生效期由新到舊」的順序一筆一筆放進成員讀的內容，放到第一筆放不下就停止。之後較舊的條目都不會被讀到，也不會有錯誤訊息。各上限的預設值與範圍見 [設定與參數](settings.md) 的「參數調整」。
+The system adds entries one by one to what the member reads, in the order "pinned first, then the rest by effective time, newest first", and stops at the first entry that does not fit. Older entries after that point are not read, and no error message is shown. For the default value and range of each cap, see "General" in [Settings](settings.md).
 
-**狀態與操作**
+**States and actions**
 
-點條目的狀態徽章會打開「變更狀態」選單，選項是失效、生效、置頂。
+Clicking an entry's state badge opens the "Change state" menu, with the options Retire, Activate and Pin.
 
-- **置頂**：只有你和特助能置頂或取消置頂。
-- **已失效**：成員把條目設為失效時會附上理由，條目上顯示為「失效理由」。已失效的條目可以再設回生效。
-- **提到最新**：成員可以把一筆的生效期改成現在，讓那一筆排到置頂條目之後的第一位，原本的建立時間不變。傳承分頁上沒有這個按鈕。
-- 成員也能對自己寫的條目做失效、生效、提到最新與修改；你和特助可以對任何一筆操作。條目置頂後，失效、生效與修改只有你和特助能做。
-- **訊息框**：條目卡片最底下的訊息框，跟任務卡的訊息框一樣，可以附檔案，框下是「傳承訊息建議回覆」。送出的訊息開頭帶著這一筆的條目編號，例如「[LoreID=L-212] 」。訊息傳給撰寫人（正職或外包），置頂的條目也一樣；你寫的條目，或撰寫人已不在名冊上時，卡片上沒有訊息框。輸入框裡的提示字寫出這則訊息會傳給誰。條目上的撰寫人名字只是名牌，不能點。
+- **Pinned**: only you and the Assistant can pin or unpin an entry.
+- **Retired**: when a member retires an entry, it gives a reason, which is shown on the entry as "Retire reason". A retired entry can be activated again.
+- **Bump to latest**: a member can change an entry's effective time to now, which moves the entry to the first position after the pinned entries; the original creation time does not change. The Lore tab has no button for this.
+- Members can also retire, activate, bump to latest and edit entries they wrote themselves; you and the Assistant can do this to any entry. Once an entry is pinned, only you and the Assistant can retire, activate or edit it.
+- **Message box**: the message box at the bottom of an entry card works like the message box on a task card. You can attach files, and below the box are the "Lore-message suggestions". A message you send begins with this entry's ID, for example "[LoreID=L-212] ". The message goes to the author (staff or outsource), pinned entries included; on entries you wrote, or when the author is no longer on the roster, the card has no message box. The placeholder text in the input box says who the message will go to. The author name on an entry is only a label and cannot be clicked.
 
-**編輯**
+**Edit**
 
-按「編輯」後，條目的標題和內容變成輸入框，可以改這兩欄。類型不在編輯框裡改，點條目上的類型標籤改。
+After you press "Edit", the entry's title and body become input boxes, and you can change these two fields. The type is not changed in the edit box; click the type tag on the entry to change it.
 
-- 標題空白，或改過的一欄超過字數上限又沒有比原本短時，「儲存」按不下去，輸入框下方寫出原因。
-- 儲存後，那一段的已用字數與哪幾筆讀不到會跟著更新。
-- 修改不會改變條目的編號、適用範圍、狀態和生效期，所以條目的位置不變。
-- **版本紀錄**：在編輯框的按鈕列，跟設定裡文件的版本紀錄是同一個視窗。改標題或內容時，修改前的標題與內容會留下來，每一筆保留最近 3 次；以存檔次數計，被沖掉的版本救不回來。只改類型不留版本。「還原這個版本」會覆蓋目前的標題與內容，類型不變；能還原的人和能修改的人相同。
+- When the title is blank, or a changed field is over its character cap and is not shorter than before, "Save" cannot be pressed, and the reason is shown below the input box.
+- After saving, the section's characters used and which entries are not read are updated accordingly.
+- Editing does not change the entry's ID, scope, state or effective time, so the entry stays in the same position.
+- **Version history**: in the edit box's button row; it is the same window as the version history of documents in Settings. When you change the title or body, the title and body from before the change are kept; each entry keeps its last 3 versions, counted by saves, and versions that are pushed out cannot be recovered. Changing only the type keeps no version. "Restore this version" overwrites the current title and body and does not change the type; the people who can restore are the same as those who can edit.
 
-傳承的用法見 [讓成員記住你教過的事（傳承）](lore.md)。
+For how to use lore, see [Making members remember what you taught them (Lore)](lore.md).
 
-## 檔案庫
+## Files
 
-檔案庫裡的檔案不屬於任何任務，所有成員都能讀取與更新。成員以檔案 ID（`sd-` 開頭）讀取，任務手冊或任務可以用這個 ID 指向它；內容換成新版本後 ID 不變。
+Files in "Files" do not belong to any task, and every member can read and update them. Members read a file by its file ID (starting with `sd-`), and a task manual or a task can point to it by that ID. The ID stays the same when the content is replaced with a new version.
 
-- **＋ 新增** — 清單右上角的按鈕，按下去出現「上傳檔案」「新增連結」兩項。「上傳檔案」開啟選檔視窗，選好檔案後跳出一個小視窗，填名稱（預設為檔名，不含副檔名）與說明，按「儲存」才上傳並成為清單上新的一列，按「取消」什麼都不會新增；「新增連結」跳出同樣的小視窗，依序填網址、名稱與說明，按「儲存」新增、按「取消」什麼都不會新增；名稱留空時取網址的網站與最後一段（例如 `docs.google.com/edit`），最長 128 字。網址不對或被拒絕時，原因顯示在小視窗裡。說明可以留空，之後用清單上名稱旁的鉛筆改。建立後，它是檔案、圖片或連結就固定不變。
-- **清單** — 點 ID 會複製檔案 ID。類型圖示：迴紋針是檔案，箭頭是連結，相片圖示是圖片。點名稱打開內容：連結在新分頁打開，其他檔案在清單上方的閱讀視窗打開，文字檔的閱讀視窗標題列有「編輯」，在同一個視窗裡以純文字編輯，存檔後成為新的版本（檔案太大、無法在網頁上編輯時，改為說明請下載修改後上傳新版本）。名稱旁的鉛筆可以改名稱與說明，連結還可以改網址。點「最後修改」在清單上方打開這一份的版本紀錄（跟檔案頁的「版本紀錄」是同一個視窗），還原後清單跟著更新。網址 `/#shared-docs/<檔案 ID>` 直接打開這一份的檔案頁。
-- **操作** — 每一列同樣位置都是「上傳新版本」「永久刪除」兩個按鈕，這種檔案用不到的按鈕會變淡，滑過去會說明原因：
-  - **上傳新版本**：直接開啟選檔視窗，選好的檔案成為這一份的新版本。圖片只能換成圖片，其他檔案也不能換成圖片，不合的檔案會被擋下並在清單上方說明；連結請用「編輯」改網址。上傳失敗時，原因也顯示在清單上方。
-- **檔案頁** — 上方是名稱（旁邊的鉛筆可以改名）、說明（點一下可以修改）與最後修改的人和時間；下方是內容，顯示方式與上面「檔案的閱讀視窗」一節相同（PDF 下方有「在新頁面顯示」與下載）；連結顯示網址。改名或改說明不會產生新版本，也不會擠掉保留的舊版本。
-  - **編輯**：所有文字檔都有（Markdown、純文字、JSON、YAML、CSV、HTML、程式碼等），以純文字編輯，存檔後成為新的版本；HTML 編輯的是原始碼，閱讀時仍顯示成網頁。
-  - **上傳新版本**：換成另一個檔案（連結是另一個網址），成為新的版本；跟清單上一樣，圖片與非圖片不能互換。
-  - **版本紀錄**：跟設定裡文件的版本紀錄是同一個視窗。先列出保留的舊版本與修改的人和時間，點一版打開它：預設顯示那一版的內容（顯示方式同上），文字檔可以在右上角切到「與目前的差異」逐行比較；圖片顯示那一版的圖片與檔名；連結列出那一版的網址與目前的網址。「返回版本列表」回到清單；「還原這個版本」先確認，確認後那一版的內容成為目前版本，名稱與說明維持現在的，原本的目前版本移進版本紀錄。
+- **+ Add** — The button at the top right of the list. Pressing it shows two items: "Upload file" and "Add link". "Upload file" opens the file picker. After you pick a file, a small dialog appears where you fill in the name (defaults to the file name without its extension) and a description. The file is uploaded and becomes a new row in the list only when you press "Save"; pressing "Cancel" adds nothing. "Add link" opens the same small dialog, where you fill in the URL, name and description in that order. Press "Save" to add it, or "Cancel" to add nothing. If the name is left blank, it is taken from the URL's site and last path segment (for example `docs.google.com/edit`), up to 128 characters. If the URL is invalid or rejected, the reason is shown in the small dialog. The description can be left blank and changed later with the pencil next to the name in the list. Once created, an item stays a file, an image or a link; its type cannot change.
+- **List** — Clicking the ID copies the file ID. Type icons: a paper clip is a file, an arrow is a link, a photo icon is an image. Click the name to open the content: a link opens in a new tab, and other files open in the viewer above the list. For text files, the viewer's title bar has "Edit", which lets you edit the file as plain text in the same window; saving creates a new version. (If the file is too large to edit on the web, the viewer instead tells you to download it, edit it, and upload a new version.) The pencil next to the name lets you change the name and description, and for a link also the URL. Clicking "Last modified" opens this item's version history above the list (the same window as "Versions" on the file page); after a restore, the list updates. The URL `/#shared-docs/<file ID>` opens this item's file page directly.
+- **Actions** — Every row has the same two buttons in the same position: "Upload new version" and "Delete permanently". A button that does not apply to this kind of file is dimmed, and hovering over it explains why:
+  - **Upload new version**: opens the file picker directly, and the file you pick becomes this item's new version. An image can only be replaced by an image, and other files cannot be replaced by an image. A file that does not match is blocked, and the reason is shown above the list. To change a link's URL, use "Edit". If an upload fails, the reason is also shown above the list.
+- **File page** — At the top are the name (the pencil next to it renames it), the description (click it to change it), and who last modified it and when. Below is the content, shown the same way as described in "The file viewer" section above (a PDF has "Open in a new tab" and a download option below it). A link shows its URL. Renaming or changing the description does not create a new version and does not push out any of the kept old versions.
+  - **Edit**: available for all text files (Markdown, plain text, JSON, YAML, CSV, HTML, code and so on). You edit as plain text, and saving creates a new version. For HTML you edit the source code; when reading, it is still shown as a web page.
+  - **Upload new version**: replaces the content with another file (for a link, another URL), creating a new version. As in the list, images and non-images cannot replace each other.
+  - **Versions**: the same window as the version history of documents in Settings. It first lists the kept old versions with who made each change and when. Click a version to open it. By default it shows that version's content (shown the same way as above); for text files you can switch to "Changes vs current" at the top right for a line-by-line comparison. For an image it shows that version's image and file name. For a link it lists that version's URL and the current URL. "Back to the version list" returns to the list. "Restore this version" asks for confirmation first; after you confirm, that version's content becomes the current version, the name and description stay as they are now, and the previous current version moves into the version history.
 
-**舊版本只保留最近幾個**，再存新版本時，最舊的那一版會被永久丟棄。
+**Only the most recent few old versions are kept.** When a new version is saved, the oldest one is permanently discarded.
 
-**清單上的垃圾桶（永久刪除）無法復原**：只有你看得到這個按鈕。檔案與所有版本都會刪除；任務手冊或任務裡引用這個 ID 的地方不會自動更新，之後會找不到這個檔案。
+**The trash can in the list (Delete permanently) cannot be undone**: only you can see this button. The file and all its versions are deleted. Places in task manuals or tasks that reference this ID are not updated automatically, and will no longer find the file.
 
-## 密鑰
+## Secrets
 
-- **密鑰卡片** — 名稱、密鑰 ID（點了「複製密鑰 ID」）、備註（沒填就不顯示）、最後更新、最後存取（從沒被取用過時寫「尚未使用」），右上角是編輯與刪除。
-- **新增密鑰** — 名稱、值、備註三個欄位。
+- **Secret card** — Name, secret ID (click it to "Copy secret ID"), note (not shown if empty), "Updated", and "Last accessed" (shows "Never used" if the secret has never been retrieved). Edit and delete are at the top right.
+- **Add secret** — Three fields: name, value and note.
 
-**欄位的規則**
+**Field rules**
 
-- **密鑰 ID**：`sec-` 開頭的固定編號，由系統產生。成員取用時以 ID 指定。
-- **名稱**：給人看的標籤，可以重複，最多 128 字。
-- **值**：機密本身，最多 65536 字。存入後控制台不會再顯示，你在控制台和 API 上都讀不回值。
-- **備註**：寫給成員看的使用注意事項，選填。
-- **修改時**：值欄留空＝保留原本的值；要換值就把新值完整填一次。修改不會重設最後存取時間。
-- **最後存取**：成員最後一次成功取得值的時間。成員只查看清單或單筆資訊時不取值，不會更新最後存取。
+- **Secret ID**: a fixed ID starting with `sec-`, generated by the system. Members specify a secret by its ID when retrieving it.
+- **Name**: a label for people to read. Names can repeat; up to 128 characters.
+- **Value**: the secret itself, up to 65536 characters. Once saved, the console never shows it again; you cannot read the value back from either the console or the API.
+- **Note**: usage notes written for members. Optional.
+- **When editing**: leaving the value field blank keeps the existing value; to change the value, enter the full new value. Editing does not reset the last accessed time.
+- **Last accessed**: the last time a member successfully retrieved the value. When a member only views the list or a single secret's information, the value is not retrieved and the last accessed time is not updated.
 
-**Secret 請示卡**
+**Secret reply card**
 
-成員需要清單裡沒有的值時開的卡。輸入框的內容預設遮住，按眼睛圖示才會顯示；送出後不會再顯示，也只有開卡成員能取得。卡片收合時和其他請示卡一樣顯示已回覆或已過期，展開後顯示已提供、已取得或已失效。也可以在卡片下方的回覆框回覆訊息，回覆後這張卡就結束。
+A card a member opens when it needs a value that is not in the list. What you type in the input box is masked by default; press the eye icon to show it. After you submit, it is never shown again, and only the member that opened the card can retrieve it. When the card is collapsed, it shows answered or expired like other reply cards; when expanded, it shows "Provided", "Retrieved" or "No longer valid". You can also reply with a message in the reply box below the card; once you reply, the card is closed.
 
-成員取用密鑰的方式見 [架構與運作原理](architecture.md) 的「成員怎麼取用密鑰」；密鑰的新增與交代方式見 [把帳號金鑰交給成員用（密鑰）](secrets.md)。
+For how members retrieve secrets, see "How members fetch secrets" in [Architecture and how it works](architecture.md). For how to add secrets and hand them to members, see [Give members your account keys (secrets)](secrets.md).
 
-## 監控
+## Monitor
 
-**帳號資訊**
+**Accounts**
 
-- **5 小時窗、7 天窗** — 用量與時間的比例。
-- **過熱** — 7 天窗的用量相對時間進度過快時，標紅點並寫「過熱」；只標在還有成員回報的帳號上。
-- **量於 X 前** — 用量數字是多久以前量的。
-- **已達上限** — 帳號達到用量上限時出現，附重置時間（今天、明天或日期）。
-- **估計** — 累計估計花費，可「歸零」，歸零後救不回來。
-- **帳號詳情** — Email、組織、回報標籤原文、使用機器、估計成本；可「帳號改名」。
+- **5-hour window, 7-day window** — Usage compared with how much of the window has elapsed.
+- **Overheated** — When usage in the 7-day window is running too fast compared with how much time has passed, a red dot and "overheated" are shown. This only appears on accounts that still have members reporting.
+- **Measured X ago** — How long ago the usage figure was measured.
+- **Limit reached** — Appears when the account has reached its usage limit, with the reset time (today, tomorrow or a date).
+- **est.** — Accumulated estimated spend. It can be "Reset"; once reset, it cannot be recovered.
+- **Account details** — Email, organization, raw reported label, machines, estimated cost. You can "Rename account" here.
 
-**機器資訊**
+**Machines**
 
-- **機器** — 連線圓點、機器名稱、id；機器上的成員還在舊環境裡執行時，最後多一個「未生效」驚嘆號。點機器名稱打開選單：詳情、改名稱、安裝（線上時寫重新安裝）、解除安裝、刪除。
-- **狀態、Claude、Codex、帳號、CPU、RAM、電量、電源** — 機器回報的資料。Claude 與 Codex 欄的版本號可以點，選單裡有「登入」；Claude 欄另有「升級 Claude Code」。
-- **磁碟** — OffiCraft 在這台機器上用掉的空間；點數字展開分項：資料庫、資料庫自動備份、成員 workspace、日誌、升級殘留、舊資料庫副本、其他、硬碟剩餘／總容量。還沒量過時寫「尚未量測」。這裡只量測，不會刪除任何東西。
+- **Machine** — Connection dot, machine name and ID. When members on the machine are still running in the old environment, a "Not in effect" exclamation mark is added at the end. Click the machine name to open a menu: "Details", "Rename", "Install" ("Reinstall" when online), "Uninstall", "Delete".
+- **Status, Claude, Codex, Account, CPU, RAM, Battery, Power** — Data reported by the machine. The version numbers in the Claude and Codex columns can be clicked, and the menu includes "Sign in"; the Claude column also has "Upgrade Claude Code".
+- **Disk** — Space OffiCraft uses on this machine. Click the number to expand the breakdown: "Database", "Automatic database backups", "Member workspaces", "Logs", "Upgrade leftovers", "Old database copies", "Other", "Disk free / total". Shows "Not measured" if it has not been measured yet. This only measures; it does not delete anything.
 
-**AI 會話**
+**AI Sessions**
 
-- 成員、機器、帳號、模型、記憶用量、估計$。外包成員多一個外包標記。
+- Member, Machine, Account, Model, Memory used, est. $. Outsource members have an extra outsource badge.
 
-機器的安裝與 Claude、Codex 登入見 [安裝、升級與移除](install.md)；警示的排解見 [常見問題與排解](troubleshooting.md)。
+For installing machines and signing in to Claude and Codex, see [Install, upgrade, and uninstall](install.md). For resolving warnings, see [Troubleshooting and FAQ](troubleshooting.md).
 
-## 設定
+## Settings
 
-按頂列的齒輪打開，蓋在目前的分頁上；點任何一個分頁就回到那個分頁。首頁是七個入口，首頁本身沒有頂端的路徑；點進去後用頂端的路徑回上一層：
+Open it with the gear in the top bar. It opens over the current tab; click any tab to go back to that tab. The home page has seven entries, and the home page itself has no path at the top. After you go into an entry, use the path at the top to go back up a level:
 
-- **系統更新與備份** — 目前版本、檢查更新、更新設定（接收 Beta 版本、自動更新、更新檢查間隔）、備份健康、簽章金鑰。
-- **全域情境** — 送給成員的文件，分上線、下線、任務事件三組。
-- **角色誌** — 每個角色的角色定義與判準(Insight)。
-- **任務手冊** — 每一類任務的手冊，分內建與自訂。
-- **參數調整** — 伺服器層級的參數。
-- **主題** — 選用主題、依時段切換、背景動畫、顯示應景主題，以及新增、匯入、匯出、編輯、刪除主題。
-- **使用說明** — 你正在讀的這些說明頁。打開是說明頁清單，點一頁打開；頁頂路徑是「設定 › 使用說明 › 這一頁的標題」，「使用說明」回到清單。
+- **System update & backup** — Current version, "Check for updates", update settings ("Receive beta versions", "Automatic updates", "Update check interval"), "Backup health", "Signing keys".
+- **Global context** — Documents sent to members: "User Language" and "User additions" at the top, and the rest in three groups, BOOT, STOP and TASK EVENTS. While "Developer mode" (in General) is off, every document except "User Language" and "User additions" is locked.
+- **Roles** — Each role's Duty and Insight.
+- **Task manuals** — The manual for each kind of task, split into built-in and custom.
+- **General** — Site-wide settings, ending with "Developer mode".
+- **Theme** — Choose a theme, "Switch by time of day", "Background animation", "Show seasonal theme", plus adding, importing, exporting, editing and deleting themes.
+- **User guide** — The guide pages you are reading now. It opens to a list of guide pages; click one to open it. The path at the top of the page is "Settings › User guide › the title of this page", and "User guide" goes back to the list.
 
-每一頁的內容與每一格參數見 [設定與參數](settings.md)；主題見 [主題（外觀與用語）](theme.md)。
+For the contents of each page and every setting, see [Settings](settings.md). For themes, see [Themes (look and wording)](theme.md).
 
-## 頭像選單
+## Avatar menu
 
-- **個人檔案** — 你的名字，可以「改名」。
-- **偏好設定** — 主題（打開主題設定：選用主題、依時段切換、背景動畫、顯示應景主題）、語言（中文／English）、版面（窄版／寬版）。
-- **通知信箱** — 推播通知需要的信箱。這個信箱會提供給瀏覽器廠商經營的推播服務，不會只留在你的伺服器上。
-- **帳號安全** — 修改密碼、兩步驟驗證、通行密鑰，見本頁的「帳號安全與登入」與 [保護你的工作室](security.md)。
-- **登出**
+- **Profile** — Your name, which you can "Rename".
+- **Preferences** — "Theme" (opens the theme settings: choose a theme, "Switch by time of day", "Background animation", "Show seasonal theme"), "Language" (中文 / English), "Layout" ("Narrow" / "Wide").
+- **Notification email** — The email address push notifications need. This address is given to the push services run by browser vendors; it does not stay only on your server.
+- **Account security** — "Change password", "Two-factor authentication", "Passkeys". See "Account security and sign-in" on this page and [Protect your studio](security.md).
+- **Log out**
 
-## 帳號安全與登入
+## Account security and sign-in
 
-**登入密碼**
+**Sign-in password**
 
-- 密碼至少 8 個字。
-- 改密碼後，其他裝置與分頁上已登入的控制台都會被登出；你改密碼時正在操作的分頁維持登入。改密碼不影響已註冊的通行密鑰，也不影響成員與機器的連線。
-- 每次登入失敗，系統都會等約 3 秒才回應；密碼正確時立即放行。同一時間最多處理 4 個登入請求，額滿時畫面會顯示「目前同時處理的登入太多，請於 N 秒後再試。」。登入失敗不累計次數，不會把帳號鎖住。
-- 開啟兩步驟驗證後，如果有人密碼輸入正確、但驗證碼錯誤，代表密碼可能已經外流。系統會傳訊息給助理 Mira，請 Mira 提醒你改密碼；同一段時間內只會傳一則，並附上累計次數。
+- The password must be at least 8 characters.
+- After you change the password, consoles signed in on other devices and tabs are all signed out; the tab you changed the password in stays signed in. Changing the password does not affect registered passkeys, or the connections of members and machines.
+- After every failed sign-in, the system waits about 3 seconds before responding; a correct password is let through immediately. At most 4 sign-in requests are handled at the same time. When that limit is reached, the screen shows "Too many logins in flight. Try again in N s." Failed sign-ins are not counted and do not lock the account.
+- With two-factor authentication on, if someone enters the correct password but a wrong code, the password may have leaked. The system sends a message to the Assistant Mira, asking Mira to remind you to change your password. Only one message is sent within a given period, and it includes the running count.
 
-**兩步驟驗證**
+**Two-factor authentication**
 
-- **為這台伺服器開放兩步驟驗證** — 按過之後，畫面才會出現「設定兩步驟驗證」。開放本身不會開啟兩步驟驗證。
-- **設定兩步驟驗證** — 顯示 QR code、一組「設定金鑰」，以及「用驗證器 App 開啟」連結。三者都是把同一組金鑰交給驗證器 App（手機上產生登入驗證碼的 App），用其中一種即可。
-- QR code 在你的瀏覽器裡產生，設定金鑰不會送到任何第三方。
-- **關閉兩步驟驗證**：需要輸入密碼與目前的驗證碼。
-- 「關閉這台伺服器的此功能」不等於關閉兩步驟驗證：只會收起設定入口，而且這顆按鈕只在還沒開啟兩步驟驗證時出現。已經開啟的兩步驟驗證，登入時仍然要輸入驗證碼。
+- **Enable two-factor for this server** — Only after you press this does "Set up two-factor" appear on the screen. Enabling it does not by itself turn on two-factor authentication.
+- **Set up two-factor** — Shows a QR code, a "Setup key", and an "Open in authenticator app" link. All three give the same key to the authenticator app (the app on your phone that generates sign-in codes); use any one of them.
+- The QR code is generated in your browser, and the setup key is not sent to any third party.
+- **Turn off two-factor**: requires your password and a current code.
+- "Disable the feature for this server" is not the same as turning off two-factor authentication: it only hides the setup option, and this button only appears while two-factor authentication is not yet on. If two-factor authentication is already on, you still have to enter a code when signing in.
 
-**通行密鑰**
+**Passkeys**
 
-- 新增時要再輸入一次密碼，是為了讓拿到你登入狀態的其他人無法偷偷加入自己的通行密鑰。
-- 瀏覽器版本需要 Chrome／Edge 129、Firefox 119、Safari 18.4 以上。版本太舊時，畫面會提示「此瀏覽器版本不支援通行密鑰，請更新瀏覽器」。
-- 清單上每一把通行密鑰都會顯示「綁定網址」，不是目前網址的會標示「此網址無法使用」。看到不認得的綁定網址，直接刪除。
-- 「可能被複製，建議刪除」：有人用這把通行密鑰登入時，回報的使用次數比上一次還小，看起來像被複製過，那次登入已被拒絕。
-- 「最後使用」：這把通行密鑰最後一次登入的時間，從沒用過時顯示「尚未使用」。
-- 刪除一把通行密鑰後，立即無法再用那一把登入；已經用那一把登入的分頁會維持登入，直到登入有效期到期或你改密碼。
+- Adding one asks for your password again, so that someone else who gets hold of your signed-in session cannot quietly add their own passkey.
+- Requires Chrome / Edge 129, Firefox 119, Safari 18.4 or later. If the browser version is too old, the screen shows "This browser version does not support passkeys; please update the browser".
+- Every passkey in the list shows "Bound to". Ones that are not bound to the current address are marked "Not usable at this address". If you see a "Bound to" address you do not recognize, delete that passkey.
+- "May have been copied; deleting it is advised": when someone signed in with this passkey, the usage count it reported was lower than the previous one, which suggests it has been copied. That sign-in was rejected.
+- "Last used": the last time this passkey was used to sign in. Shows "Not used yet" if it has never been used.
+- After you delete a passkey, it can no longer be used to sign in, effective immediately. Tabs already signed in with it stay signed in until the sign-in expires or you change the password.
 
-設定步驟見 [保護你的工作室](security.md)。
+For setup steps, see [Protect your studio](security.md).
 
-## 訊息與文件支援的 Markdown
+## Markdown supported in messages and documents
 
-聊天訊息、請示卡、任務說明與步驟、角色定義、任務手冊和這份使用說明，都用同一套排版。支援以下寫法，其他寫法會原樣顯示成文字：
+Chat messages, reply cards, task descriptions and steps, Duty documents, task manuals and this user guide all use the same formatting. The following syntax is supported; anything else is shown as plain text:
 
-- 標題：`#` 到 `######`（`#` 後面要有空白）。
-- 清單：`- `、`* ` 開頭的項目，`1. ` 開頭的編號清單；項目底下縮排的內容會歸在該項目之下。
-- 引用：`> `。引用的第一行寫 `> [!NOTE]`（或 `TIP`、`IMPORTANT`、`WARNING`、`CAUTION`）會變成提示框。
-- 程式碼：`` `行內` `` 與用 ``` 圍起來的區塊。
-- 表格：標題列加上 `|---|` 分隔列。
-- 分隔線：單獨一行三個以上的 `-`、`*` 或 `_`。
-- 粗體：`**粗體**`。
-- 連結：`[文字](網址)`，網址可以是 http、https、mailto，或以一條斜線開頭的站內路徑（例如 `/#tasks/T-12`）。直接貼上的 http／https 網址和 `/diff?` 比較連結也會自動變成連結。
-- 在符號前加反斜線（例如 `\>`）會讓那個符號顯示成一般文字。
+- Headings: `#` to `######` (there must be a space after `#`).
+- Lists: items starting with `- ` or `* `, and numbered lists starting with `1. `. Indented content under an item belongs to that item.
+- Quotes: `> `. If the first line of a quote is `> [!NOTE]` (or `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`), it becomes a callout box.
+- Code: `` `inline` `` and blocks fenced with ```.
+- Tables: a header row followed by a `|---|` separator row.
+- Horizontal rule: a line containing only three or more `-`, `*` or `_`.
+- Bold: `**bold**`.
+- Links: `[text](URL)`. The URL can be http, https, mailto, or an in-site path starting with a single slash (for example `/#tasks/T-12`). Pasted http / https URLs and `/diff?` comparison links also become links automatically.
+- A backslash before a symbol (for example `\>`) makes that symbol display as plain text.
 
-不支援：`+ ` 開頭的清單、`*斜體*`、`~~刪除線~~`、`1) ` 這種括號編號。
+Not supported: lists starting with `+ `, `*italic*`, `~~strikethrough~~`, and numbering with a parenthesis like `1) `.
 
-聊天訊息裡按一次換行就是換行；其他地方要空一行才會分段。
+In chat messages, a single line break is a line break; everywhere else you need a blank line to start a new paragraph.
 
-## 相關文件
+## Related documents
 
-- [交代工作與回覆請示卡](daily.md)
-- [設定與參數](settings.md)
-- [追蹤任務進度](tasks.md)
-- [名詞表](glossary.md)
-- [常見問題與排解](troubleshooting.md)
+- [Assigning work and answering reply cards](daily.md)
+- [Settings](settings.md)
+- [Tracking task progress](tasks.md)
+- [Glossary](glossary.md)
+- [Troubleshooting and FAQ](troubleshooting.md)

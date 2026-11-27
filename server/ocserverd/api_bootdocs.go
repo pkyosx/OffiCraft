@@ -30,6 +30,8 @@ type bootDocSpec struct {
 	// Shown but never editable (owner's ruling: 「以前 global context 是固定內容
 	// 我們也是會顯示 只是不給改」).
 	ReadOnly bool
+
+	DeveloperModeRequired bool
 }
 
 type bootDocReg struct {
@@ -46,6 +48,15 @@ type bootDocReg struct {
 	Split    bool
 	Join     string
 	ReadOnly bool
+
+	// When set, the shipped default follows display.language: this seed for
+	// "en", SeedFor's otherwise. A write whose text equals either seed is stored
+	// as following the default (owner's ruling: back at a default text, it
+	// follows the UI language again).
+	EnSeed string
+	// Editable with developer mode off, like User additions (owner's ruling:
+	// 「可以改的放使用者自訂」).
+	NoDeveloperModeLock bool
 }
 
 // 🔴 Split and the seed's docBodyMarker must change together
@@ -55,8 +66,7 @@ type bootDocReg struct {
 //
 // ⚠️ read_only is mirrored in bin/tests/fixtures/boot-doc-registry.tsv, which
 // only the cockpit's mock.boot-doc-registry.test.ts compares. On this side
-// TestBootDocRegistry_NoDocumentIsReadOnly fails on any read-only entry without
-// reading that table.
+// TestBootDocRegFor pins each entry's ReadOnly without reading that table.
 //
 // Join is a blank line where the body opens on a list or paragraph, so the
 // head's statement of fact does not fold into the first instruction.
@@ -68,6 +78,23 @@ var bootDocRegistry = []bootDocReg{{
 	Cap:     func(s *apiServer) int { return s.systemInteractionCap() },
 	// Vars stays nil: an owner-edited body may quote JSON (`{"id": "…"}`) that the
 	// {name} syntax cannot tell from a variable.
+}, {
+	Kind:    docKindUserLanguage,
+	Keys:    []string{bootDocSingletonKey},
+	SeedFor: func(string) string { return userLanguageSeedZh },
+	EnSeed:  userLanguageSeedEn,
+	DocName: func(string) string { return "User Language document" },
+	Cap:     func(s *apiServer) int { return s.userLanguageCap() },
+
+	NoDeveloperModeLock: true,
+}, {
+	// Generated from the cockpit's dictionaries, so only a release changes it.
+	Kind:     docKindTermGlossary,
+	Keys:     []string{bootDocSingletonKey},
+	SeedFor:  func(string) string { return termGlossarySeedMD },
+	DocName:  func(string) string { return "Term glossary" },
+	Cap:      func(s *apiServer) int { return s.termGlossaryCap() },
+	ReadOnly: true,
 }, {
 	Kind: docKindBootSequence,
 	Keys: []string{bootSequenceKeyClaude, bootSequenceKeyCodex},
@@ -206,16 +233,24 @@ func (s *apiServer) bootDocSpecFor(kind, key string) (bootDocSpec, bool) {
 	if !ok || !reg.serves(key) {
 		return bootDocSpec{}, false
 	}
+	seedFile := reg.SeedFor(key)
+	if reg.EnSeed != "" && s.displayLanguageSnapshot() == "en" {
+		seedFile = reg.EnSeed
+	}
 	return bootDocSpec{
 		Kind:     reg.Kind,
 		Key:      key,
-		SeedFile: reg.SeedFor(key),
+		SeedFile: seedFile,
 		Cap:      reg.Cap(s),
 		DocName:  reg.DocName(key),
 		Vars:     reg.Vars,
 		Split:    reg.Split,
 		Join:     reg.Join,
 		ReadOnly: reg.ReadOnly,
+
+		// A read-only document stays locked whatever the setting, so it does not
+		// point the owner at developer mode.
+		DeveloperModeRequired: !reg.ReadOnly && !reg.NoDeveloperModeLock && !s.developerModeSnapshot(),
 	}, true
 }
 
@@ -276,6 +311,8 @@ func (s *apiServer) foldBootDocDTO(spec bootDocSpec) (*bootDocDTO, error) {
 		IsDefault:     isDefault,
 		HasSeed:       hasSeed,
 		ReadOnly:      spec.ReadOnly,
+
+		DeveloperModeRequired: spec.DeveloperModeRequired,
 	}, nil
 }
 
@@ -320,7 +357,7 @@ func (s *apiServer) taskNoticeText(kind string, values map[string]string) string
 		s.eventNoticeText(s.mustBootDocSpec(kind, bootDocSingletonKey), values))
 }
 
-const takeoverNoPredecessorHead = "[{task_no}] 你接手了這張任務，這張任務沒有前任。"
+const takeoverNoPredecessorHead = "[{task_no}] You are taking over this task; it has no predecessor."
 
 func (s *apiServer) takeoverNoticeText(taskNo, predecessor string) string {
 	values := map[string]string{"task_no": taskNo, "predecessor": predecessor}
@@ -440,6 +477,10 @@ func (s *apiServer) replaceBootDoc(w http.ResponseWriter, r *http.Request, spec 
 		writeError(w, http.StatusMethodNotAllowed, bootDocReadOnlyRefusal(spec))
 		return
 	}
+	if spec.DeveloperModeRequired {
+		writeError(w, http.StatusConflict, bootDocDeveloperModeRefusal(spec))
+		return
+	}
 	current, err := s.foldBootDocDTO(spec)
 	if err != nil {
 		internalError(w, err)
@@ -464,8 +505,12 @@ func (s *apiServer) replaceBootDoc(w http.ResponseWriter, r *http.Request, spec 
 		writeError(w, http.StatusBadRequest, docCapRefusal(spec.Cap, spec.DocName, current.Text, next))
 		return
 	}
-	if _, err := s.writeBootDoc(r, spec, current,
-		BootDocument{Kind: spec.Kind, Key: spec.Key, Text: next, Tombstoned: false}, next); err != nil {
+	row, nextText, err := s.bootDocRowFor(spec, next)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if _, err := s.writeBootDoc(r, spec, current, row, nextText); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -508,6 +553,32 @@ func (s *apiServer) bootDocStoredText(spec bootDocSpec, body string) (string, er
 	return DocJoinHeadBody(seedHead, body), nil
 }
 
+// bootDocRowFor is the row a write of `text` stores, and the text it then
+// reads as: the text itself, or a reset when the kind's default follows
+// display.language and `text` is one of its shipped defaults.
+func (s *apiServer) bootDocRowFor(spec bootDocSpec, text string) (BootDocument, string, error) {
+	row := BootDocument{Kind: spec.Kind, Key: spec.Key, Text: text}
+	reg, _ := bootDocRegFor(spec.Kind)
+	if reg.EnSeed == "" {
+		return row, text, nil
+	}
+	for _, seedFile := range []string{reg.SeedFor(spec.Key), reg.EnSeed} {
+		seedMD, hasSeed, err := s.root.seedBlockMD(seedFile)
+		if err != nil {
+			return BootDocument{}, "", err
+		}
+		if hasSeed && strings.TrimSpace(seedMD) == strings.TrimSpace(text) {
+			current, _, err := s.root.seedBlockMD(spec.SeedFile)
+			if err != nil {
+				return BootDocument{}, "", err
+			}
+			row.Text, row.Tombstoned = "", true
+			return row, current, nil
+		}
+	}
+	return row, text, nil
+}
+
 // DELIBERATELY LENIENT on a no-marker row (all body), matching DocRendered;
 // the strict reading is eventNoticeText's.
 func bootDocBodyOf(spec bootDocSpec, text string) string {
@@ -521,13 +592,18 @@ func bootDocBodyOf(spec bootDocSpec, text string) string {
 	return body
 }
 
-// 🔴 NO CAP IS CHECKED HERE: this is the path that has to work when a bad edit
-// has stopped agents booting, and nobody is online to ask.
+// 🔴 NO CAP IS CHECKED HERE: once developer mode is on, this is the path that
+// has to work when a bad edit has stopped agents booting, and nobody is online
+// to ask. A cap setting must never be what blocks it.
 func (s *apiServer) resetBootDoc(w http.ResponseWriter, r *http.Request, spec bootDocSpec) {
 	// 405, not 200: reset is a WRITE (tombstone, history revision,
 	// global_context frame) for a document that can never leave the default.
 	if spec.ReadOnly {
 		writeError(w, http.StatusMethodNotAllowed, bootDocReadOnlyRefusal(spec))
+		return
+	}
+	if spec.DeveloperModeRequired {
+		writeError(w, http.StatusConflict, bootDocDeveloperModeRefusal(spec))
 		return
 	}
 	seedMD, hasSeed, err := s.root.seedBlockMD(spec.SeedFile)
@@ -640,7 +716,7 @@ func (s *apiServer) HandleResetBootSequenceApiBootSequenceRuntimeKeyResetPost(w 
 
 func writeUnknownBootSequence(w http.ResponseWriter, runtimeKey string) {
 	writeError(w, http.StatusNotFound,
-		"no boot sequence for runtime '"+runtimeKey+"' — the runtimes with their own boot sequence are '"+
+		"no boot steps for runtime '"+runtimeKey+"' — the runtimes with their own boot steps are '"+
 			bootSequenceKeyClaude+"' and '"+bootSequenceKeyCodex+"'")
 }
 
@@ -648,6 +724,11 @@ func bootDocReadOnlyRefusal(spec bootDocSpec) string {
 	return "the " + spec.DocName + " is a read-only document — it is shown so you can " +
 		"see what agents are told, but no caller may edit it and there is no version " +
 		"of it other than the shipped one; nothing was written"
+}
+
+func bootDocDeveloperModeRefusal(spec bootDocSpec) string {
+	return "the " + spec.DocName + " is locked while developer mode is off — " +
+		"turn on developer mode in system settings first; nothing was written"
 }
 
 // 404 rather than 400 on purpose, unlike the document-history siblings: here

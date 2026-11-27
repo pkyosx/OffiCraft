@@ -215,15 +215,15 @@ func TestCodexPersonaInstruction(t *testing.T) {
 		"Never use request_user_input for normal questions; create an OffiCraft reply card instead. "
 	const persona = "# 身分\n第一行\n\n# 啟動步驟（Boot Sequence）\n最後一行 `$HOME` \"q\" \\ $(x)\n"
 
-	explicit := head + "The explicit OffiCraft launch model is gpt-5-codex. If your role's boot sequence calls " +
+	explicit := head + "The explicit OffiCraft launch model is gpt-5-codex. If your role's boot steps call " +
 		"report_waking, pass that exact value as its model argument. Follow your role-specific " +
-		"boot sequence when it says not to call report_waking.\n---\n" + persona
+		"boot steps when they say not to call report_waking.\n---\n" + persona
 	if got := codexPersonaInstruction("/w/PERSONA.md", persona, "gpt-5-codex"); got != explicit {
 		t.Errorf("codexPersonaInstruction with an explicit model =\n%q\nwant\n%q", got, explicit)
 	}
 
 	blank := head + "The OffiCraft launch model setting is blank, so the machine's Codex default " +
-		"applies. If your role's boot sequence calls report_waking, omit its optional model " +
+		"applies. If your role's boot steps call report_waking, omit its optional model " +
 		"argument; never guess or persist a model name.\n---\n" + persona
 	if got := codexPersonaInstruction("/w/PERSONA.md", persona, ""); got != blank {
 		t.Errorf("codexPersonaInstruction with a blank model =\n%q\nwant\n%q", got, blank)
@@ -681,7 +681,7 @@ func TestCodexOpenYourOwnCardMessage(t *testing.T) {
 		{
 			name:     "a credential ask carries the do-not-paste warning",
 			question: map[string]any{"id": "q1", "isSecret": true},
-			want:     refusal + " 這是秘密資料請求；開 `secret` 類型的請示卡，不要把秘密貼進一般卡片或訊息。",
+			want:     refusal + " This is a request for secret data: open a reply card of type `secret`, and do not paste the secret into an ordinary card or message.",
 		},
 	}
 	for _, tc := range cases {
@@ -858,7 +858,7 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 
 		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{}})
 
-		if got, want := s.paneLines(t), []string{"已送進對話：[chat] owner: 早安"}; !reflect.DeepEqual(got, want) {
+		if got, want := s.paneLines(t), []string{"delivered to the conversation: [chat] owner: 早安"}; !reflect.DeepEqual(got, want) {
 			t.Errorf("the pane shows %q, want %q", got, want)
 		}
 		if got, want := s.acks.String(), "ack b-1\n"; got != want {
@@ -953,9 +953,9 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 			t.Errorf("a refused turn/start re-sent %q, want no retry", s.in.String())
 		}
 		wantPane := []string{
-			"⚠️ 送不進去（thread is busy）：" + strings.Repeat("あ", 80) + "… — 這段內容沒有進到 agent 的對話，" +
-				"agent 不會知道有人說過這句話",
-			"批次 b-1 沒能送進對話 — 已告訴 listener 不要標已讀，下一輪會重印",
+			"⚠️ could not deliver (thread is busy): " + strings.Repeat("あ", 80) + "… — this content did not reach the member's conversation; " +
+				"the member will not know anyone said it",
+			"batch b-1 could not be delivered to the conversation — told the listener not to mark it read; the next round will reprint it",
 		}
 		if got := s.paneLines(t); !reflect.DeepEqual(got, wantPane) {
 			t.Errorf("the pane shows %q, want %q", got, wantPane)
@@ -1076,14 +1076,14 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 			return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
 				"threadId": "th_mid",
 				"input": []any{map[string]any{"type": "text",
-					"text": "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"}},
+					"text": "[OffiCraft sidecar] A sub-agent you started has finished, and its result is already in the conversation; continue your work from its result."}},
 			}}
 		}
 		if got, want := s.sent(t), []map[string]any{wake(1)}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("sent %v, want no retry of %v", got, want)
 		}
 		if got, want := s.paneLines(t), []string{
-			"⚠️ 叫不醒 sub-agent th_mid（thread not found: th_mid）— 它底下 sub-agent 的結果要等它下次有一輪時才會看到",
+			"⚠️ could not wake sub-agent th_mid (thread not found: th_mid) — it will see the results of the sub-agents under it only on its next turn",
 		}; !reflect.DeepEqual(got, want) {
 			t.Errorf("the pane shows %q, want %q", got, want)
 		}
@@ -1110,7 +1110,7 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 		want := []map[string]any{{"id": float64(1), "method": "turn/start", "params": map[string]any{
 			"threadId": "th_mid",
 			"input": []any{map[string]any{"type": "text",
-				"text": "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"}},
+				"text": "[OffiCraft sidecar] A sub-agent you started has finished, and its result is already in the conversation; continue your work from its result."}},
 		}}}
 		if got := s.sent(t); !reflect.DeepEqual(got, want) {
 			t.Errorf("sent %v, want %v", got, want)
@@ -1124,9 +1124,9 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 
 		s.resolveResponse(1, appServerMessage{"id": float64(1), "error": map[string]any{"message": "thread is busy"}})
 
-		const text = "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"
+		const text = "[OffiCraft sidecar] A sub-agent you started has finished, and its result is already in the conversation; continue your work from its result."
 		if got, want := s.paneLines(t), []string{
-			"⚠️ 送不進去（thread is busy）：" + text + " — 這段內容沒有進到 agent 的對話，agent 不會知道有人說過這句話",
+			"⚠️ could not deliver (thread is busy): " + string([]rune(text)[:80]) + "… — this content did not reach the member's conversation; the member will not know anyone said it",
 		}; !reflect.DeepEqual(got, want) {
 			t.Errorf("the pane shows %q, want %q", got, want)
 		}
@@ -1164,8 +1164,8 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 		s.resolveResponse(1, appServerMessage{"id": float64(1), "error": map[string]any{"message": "thread is busy"}})
 
 		if got, want := s.paneLines(t), []string{
-			"⚠️ 送不進去（thread is busy）：[OffiCraft sidecar] sub-agent /root/mid 叫起的 sub-agent /root/mid/grand 已經結束，結果送到了…" +
-				" — 這段內容沒有進到 agent 的對話，agent 不會知道有人說過這句話",
+			"⚠️ could not deliver (thread is busy): [OffiCraft sidecar] sub-agent /root/mid/grand, started by sub-agent /root/mid, h…" +
+				" — this content did not reach the member's conversation; the member will not know anyone said it",
 		}; !reflect.DeepEqual(got, want) {
 			t.Errorf("the pane shows %q, want %q", got, want)
 		}
@@ -1179,10 +1179,10 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 			}}
 		}
 		want := []map[string]any{
-			notice(1, "[OffiCraft sidecar] sub-agent /root/mid 叫起的 sub-agent /root/mid/grand 已經結束，"+
-				"結果送到了 /root/mid，但 /root/mid 目前閒置、不會自己讀到；需要它接著處理時，請用 followup_task 叫 /root/mid 繼續。"),
-			notice(2, "[OffiCraft sidecar] sub-agent /root/mid 叫起的 sub-agent /root/mid/grand2 已經結束，"+
-				"結果送到了 /root/mid，但 /root/mid 目前閒置、不會自己讀到；需要它接著處理時，請用 followup_task 叫 /root/mid 繼續。"),
+			notice(1, "[OffiCraft sidecar] sub-agent /root/mid/grand, started by sub-agent /root/mid, has finished and its result was sent to /root/mid, "+
+				"but /root/mid is idle right now and will not read it on its own; when it needs to carry on from there, use followup_task to tell /root/mid to continue."),
+			notice(2, "[OffiCraft sidecar] sub-agent /root/mid/grand2, started by sub-agent /root/mid, has finished and its result was sent to /root/mid, "+
+				"but /root/mid is idle right now and will not read it on its own; when it needs to carry on from there, use followup_task to tell /root/mid to continue."),
 		}
 		if got := s.sent(t); !reflect.DeepEqual(got, want) {
 			t.Errorf("sent %v, want %v", got, want)
@@ -1206,7 +1206,7 @@ func TestCodexSessionConfirmStartedTurn(t *testing.T) {
 		s.active, s.turnID = true, "t_new"
 		s.confirmStartedTurn()
 
-		if got, want := s.paneLines(t), []string{"已送進對話：older", "turn steered by OffiCraft event"}; !reflect.DeepEqual(got, want) {
+		if got, want := s.paneLines(t), []string{"delivered to the conversation: older", "turn steered by OffiCraft event"}; !reflect.DeepEqual(got, want) {
 			t.Errorf("the pane shows %q, want %q", got, want)
 		}
 		if _, still := s.pending[2]; still {
@@ -1354,7 +1354,7 @@ func TestCodexSessionSettleBatch(t *testing.T) {
 		if !group.answered {
 			t.Error("the group is not marked answered, so a later settle would write a second verdict")
 		}
-		wantPane := []string{"批次 b-1 沒能送進對話 — 已告訴 listener 不要標已讀，下一輪會重印"}
+		wantPane := []string{"batch b-1 could not be delivered to the conversation — told the listener not to mark it read; the next round will reprint it"}
 		if got := s.paneLines(t); !reflect.DeepEqual(got, wantPane) {
 			t.Errorf("the pane shows %q, want %q", got, wantPane)
 		}
@@ -2000,7 +2000,7 @@ func TestCodexSessionHandleTurnStarted(t *testing.T) {
 		if len(s.pending) != 0 {
 			t.Errorf("pending = %v, want the turn/start confirmed", s.pending)
 		}
-		if got, want := s.paneLines(t), []string{"已送進對話：hello"}; !reflect.DeepEqual(got, want) {
+		if got, want := s.paneLines(t), []string{"delivered to the conversation: hello"}; !reflect.DeepEqual(got, want) {
 			t.Errorf("the pane shows %q, want %q", got, want)
 		}
 	})
@@ -2042,7 +2042,7 @@ func TestCodexSessionHandleTurnCompleted(t *testing.T) {
 		}
 	})
 
-	const finishedWake = "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"
+	const finishedWake = "[OffiCraft sidecar] A sub-agent you started has finished, and its result is already in the conversation; continue your work from its result."
 	mainWake := func(id float64) map[string]any {
 		return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
 			"threadId": "th_1", "effort": "medium",
@@ -2210,8 +2210,8 @@ func TestCodexSessionHandleTurnCompleted(t *testing.T) {
 		}
 	})
 
-	const idleParentNotice = "[OffiCraft sidecar] sub-agent /root/mid 叫起的 sub-agent /root/mid/grand 已經結束，" +
-		"結果送到了 /root/mid，但 /root/mid 目前閒置、不會自己讀到；需要它接著處理時，請用 followup_task 叫 /root/mid 繼續。"
+	const idleParentNotice = "[OffiCraft sidecar] sub-agent /root/mid/grand, started by sub-agent /root/mid, has finished and its result was sent to /root/mid, " +
+		"but /root/mid is idle right now and will not read it on its own; when it needs to carry on from there, use followup_task to tell /root/mid to continue."
 	noticeStart := func(id float64) map[string]any {
 		return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
 			"threadId": "th_1", "effort": "medium",
@@ -2711,7 +2711,7 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 			return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
 				"threadId": "th_mid",
 				"input": []any{map[string]any{"type": "text",
-					"text": "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"}},
+					"text": "[OffiCraft sidecar] A sub-agent you started has finished, and its result is already in the conversation; continue your work from its result."}},
 			}}
 		}
 		s.handleTurnCompleted(grandDone)
@@ -3710,7 +3710,7 @@ func TestRunCodexSession(t *testing.T) {
 			}
 			texts = append(texts, input[0].(map[string]any)["text"].(string))
 		}
-		want := []string{"開始。", "[OffiCraft sidecar] 你的事件流（SSE）已經接上了。請接著做開機說明裡「接上 SSE 之後」的那些步驟（盤點你手上還沒結束的任務並開始推進）。", "[ocagent] chat from owner: single", "[ocagent] chat from mira: first\n\n    last \"q\"", "[ocagent] recycle: stop\n[ocagent] recycle: finish"}
+		want := []string{"Start.", "[OffiCraft sidecar] Your event stream (SSE) is now connected. Continue with the steps in your boot instructions that come after SSE is connected (take stock of the tasks in your hands that are not finished yet, and start moving them forward).", "[ocagent] chat from owner: single", "[ocagent] chat from mira: first\n\n    last \"q\"", "[ocagent] recycle: stop\n[ocagent] recycle: finish"}
 		if !reflect.DeepEqual(texts, want) {
 			t.Fatalf("texts=%q, want=%q; out=%q", texts, want, out.String())
 		}
@@ -3866,12 +3866,12 @@ func TestRunCodexSession(t *testing.T) {
 		want := []map[string]any{
 			{"id": float64(4), "method": "turn/start", "params": map[string]any{
 				"threadId": "th_1", "effort": "medium",
-				"input": []any{map[string]any{"type": "text", "text": "開始。"}},
+				"input": []any{map[string]any{"type": "text", "text": "Start."}},
 			}},
 			{"id": float64(5), "method": "turn/start", "params": map[string]any{
 				"threadId": "th_1", "effort": "medium",
 				"input": []any{map[string]any{"type": "text",
-					"text": "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"}},
+					"text": "[OffiCraft sidecar] A sub-agent you started has finished, and its result is already in the conversation; continue your work from its result."}},
 			}},
 		}
 		if !reflect.DeepEqual(got, want) {

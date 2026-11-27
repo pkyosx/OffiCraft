@@ -171,7 +171,7 @@ describe("mock setLoreEntryScope", () => {
       entries: [{ ...L7, dropped: false }],
       limit: 30,
       offset: 0,
-      capChars: 10000,
+      capChars: 25000,
       firstDroppedId: "",
       usedChars: 53,
       firstDroppedChars: 0,
@@ -323,8 +323,8 @@ describe("mock lore_type", () => {
       code: "validation_error",
       serverMessage:
         "lore_type is required — nothing was written. Set it to the entry's type: " +
-        "instruction_conflict (指示衝突), instruction_supplement (指示補充), owner_decision (Owner 決策), " +
-        "owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title.",
+        "instruction_conflict (instruction conflict), instruction_supplement (instruction supplement), owner_decision (owner decision), " +
+        "owner_preference (owner preference) or other. Put the type in lore_type, not as a prefix in the title.",
       retryAfter: null,
     });
     expect(
@@ -332,8 +332,8 @@ describe("mock lore_type", () => {
         .serverMessage,
     ).toBe(
       "lore_type is required — nothing was written. Set it to the entry's type: " +
-        "instruction_conflict (指示衝突), instruction_supplement (指示補充), owner_decision (Owner 決策), " +
-        "owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title.",
+        "instruction_conflict (instruction conflict), instruction_supplement (instruction supplement), owner_decision (owner decision), " +
+        "owner_preference (owner preference) or other. Put the type in lore_type, not as a prefix in the title.",
     );
     const written = (await api.listLoreEntries()).entries.filter((e) => e.seq > 7);
     expect(written.map((e) => [e.id, e.title, e.loreType])).toEqual([["L-8", "有標籤", "owner_decision"]]);
@@ -346,7 +346,7 @@ describe("mock listLoreBudgets", () => {
     api = await freshMock();
   });
 
-  const target = (scopeKind: string, scopeKey: string, usedChars: number, entryCount: number, droppedCount = 0, capChars = 10000) => ({
+  const target = (scopeKind: string, scopeKey: string, usedChars: number, entryCount: number, droppedCount = 0, capChars = 25000) => ({
     scopeKind,
     scopeKey,
     capChars,
@@ -360,9 +360,9 @@ describe("mock listLoreBudgets", () => {
       target("everyone", "", 53, 1),
       target("agent", "mira", 297, 3),
       target("agent", "ow-7d8ad859dd9b", 112, 2),
+      target("manual", "builtin-remote-access", 0, 0),
       target("manual", "builtin-role-design", 0, 0),
       target("manual", "builtin-task-manual-design", 0, 0),
-      target("manual", "builtin-remote-access", 0, 0),
     ]);
   });
 
@@ -410,9 +410,9 @@ describe("mock editLoreEntry", () => {
       status: 400,
       serverMessage: "title must not be blank",
     });
-    expect(await refusal(api.editLoreEntry("L-2", { body: "長".repeat(501) }))).toMatchObject({
+    expect(await refusal(api.editLoreEntry("L-2", { body: "長".repeat(1251) }))).toMatchObject({
       status: 400,
-      serverMessage: "body is over the 500-character cap",
+      serverMessage: "body is over the 1250-character cap",
     });
     expect(
       await refusal(api.editLoreEntry("L-2", { loreType: "nope" as never })),

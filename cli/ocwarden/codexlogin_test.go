@@ -261,9 +261,9 @@ func TestCodexLoginRelay(t *testing.T) {
 	})
 
 	for _, tc := range []struct{ store, reason string }{
-		{"keyring", "這台機器的 Codex 把登入存在系統鑰匙圈，OffiCraft 目前不支援"},
-		{"auto", "這台機器的 Codex 把登入存在系統鑰匙圈，OffiCraft 目前不支援"},
-		{"ephemeral", `這台機器的 Codex 設定 cli_auth_credentials_store = "ephemeral"，不把登入存成檔案，OffiCraft 目前不支援`},
+		{"keyring", "Codex on this machine stores its login in the system keyring, which OffiCraft does not support yet"},
+		{"auto", "Codex on this machine stores its login in the system keyring, which OffiCraft does not support yet"},
+		{"ephemeral", `Codex on this machine is set to cli_auth_credentials_store = "ephemeral", which does not store the login as a file; OffiCraft does not support that yet`},
 	} {
 		t.Run("under a "+tc.store+" credential store, the relay reports failed without running codex or staging a home", func(t *testing.T) {
 			h, codexHome := newCodexHarness(t)

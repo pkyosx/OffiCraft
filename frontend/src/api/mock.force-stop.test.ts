@@ -95,7 +95,23 @@ describe("mock forceStopMember (staff)", () => {
       status: 409,
       code: "conflict",
       serverMessage:
-        "加速停止 has nothing to escalate — this member was already force-stopped (強制停止): its session was cut off and no wind-down is open",
+        "Accelerated stop has nothing to escalate — this member was already force-stopped (Force stop): its session was cut off and no wind-down is open",
+    });
+  });
+
+  it("加速停止 on a member that was never asked to stop answers the server's English 409", async () => {
+    __injectMockMember({
+      id: "kip",
+      kind: "staff",
+      presence: "online",
+      desired_state: "online",
+      forced_stop_live: false,
+    });
+
+    await expect(mockApi.acceleratedStopMember("kip")).rejects.toMatchObject({
+      status: 409,
+      serverMessage:
+        "Accelerated stop escalates a wind-down that is already open — this member has not been asked to stop. Press Stop (deactivate) or Refocus first",
     });
   });
 
@@ -168,6 +184,43 @@ describe("mock forceStopOutsourceMember", () => {
     }).toEqual({ presence: "waking", desiredState: "online", forcedStopLive: false });
   });
 
+  it("加速停止 on a worker with no live session answers the server's English 409", async () => {
+    __injectMockOutsourceWorker({
+      id: "ow-3",
+      codename: "O-3",
+      model: "opus",
+      effort: "medium",
+      status: "active",
+      taskId: "t-3",
+      taskTitle: "",
+      taskStatus: "in_progress",
+      createdTs: 1_790_000_000,
+      presence: "stopped",
+      desiredState: "offline",
+      refocusOp: "",
+      forcedStopLive: false,
+      machine: "",
+      desiredMachineId: "",
+      account: null,
+      contextPct: null,
+      cost: null,
+      bankedCost: null,
+      lastOp: "",
+      lastOpOk: null,
+      lastOpLog: "",
+      lastOpReason: "",
+      lastOpAt: null,
+      creatorId: "",
+      delegatedBy: "",
+    });
+
+    await expect(mockApi.acceleratedStopMember("ow-3")).rejects.toMatchObject({
+      status: 409,
+      serverMessage:
+        "Accelerated stop requires a live session — there is nothing to accelerate on a member that is not connected",
+    });
+  });
+
   it("holds a connected worker in stopping with forced_stop_live, then drops it, and a wake clears it", async () => {
     __injectMockOutsourceWorker({
       id: "ow-1",
@@ -219,7 +272,7 @@ describe("mock forceStopOutsourceMember", () => {
       status: 409,
       code: "conflict",
       serverMessage:
-        "加速停止 has nothing to escalate — this member was already force-stopped (強制停止): its session was cut off and no wind-down is open",
+        "Accelerated stop has nothing to escalate — this member was already force-stopped (Force stop): its session was cut off and no wind-down is open",
     });
 
     vi.advanceTimersByTime(MOCK_FORCED_STOP_DISCONNECT_MS);

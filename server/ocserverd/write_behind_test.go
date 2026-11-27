@@ -785,7 +785,7 @@ func TestAStaffReconcileStampDoesNotUndoAWriteThatLandedAfterItsRead(t *testing.
 			behind:  `UPDATE member SET desired_machine_id = 'm-other' WHERE id = 'kip'`,
 			want: func(t *testing.T, got Member) {
 				const want = "machine_unavailable: machine 'm-other' is not an active machine — " +
-					"choose another one (改機器); no other machine is substituted"
+					"choose another one (Change machine); no other machine is substituted"
 				if got.LastOp != "start" || got.LastOpReason != want {
 					t.Fatalf("receipt: last_op %q reason %q; want start, %q", got.LastOp, got.LastOpReason, want)
 				}

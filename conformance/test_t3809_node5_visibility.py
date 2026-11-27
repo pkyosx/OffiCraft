@@ -9,7 +9,7 @@ The behaviour pinned here (T-3809 node 5, `ts-89bc8e76657a`):
     are READABLE (owner ruling 2026-08-02, `rc-dc171587220c`, option 1, verbatim
     「包含 Insight：這一輪不關任何讀取」);
   * the SAME identity writes Insight once — refused 403, and the message is
-    verbatim `an agent may only write its own role's insight`. The wording is
+    verbatim `a member may only write its own role's Insight`. The wording is
     the assertion, not decoration: a gate shared with another document would
     hard-code that other document's name into its 403, answering a refused
     insight write by sending the reader to the wrong document;
@@ -43,7 +43,7 @@ import pytest
 
 from conftest import _auth, hire_member, mint_member_token
 
-FORBIDDEN_MSG = "an agent may only write its own role's insight"
+FORBIDDEN_MSG = "a member may only write its own role's Insight"
 
 
 def _log(step: str, method: str, path: str, identity: str, r: httpx.Response):

@@ -1,274 +1,274 @@
-# 常見問題與排解
+# Troubleshooting and FAQ
 
-這頁依畫面上看到的症狀列出原因與處理的地方，涵蓋安裝、登入、成員起不來、回呼端點收不到事件、沒動靜或停不下來、備份還原、升級與移除。每一項依序寫你會看到什麼、原因是什麼、在哪裡處理。
+This page lists causes and where to fix them, organized by the symptom you see on screen. It covers installing, signing in, members that will not start, webhook endpoints that receive no events, members that do nothing or will not stop, backup and restore, upgrading, and removal. Each entry gives, in order, what you see, what causes it, and where to fix it.
 
-## 安裝
+## Installing
 
-### 安裝腳本說這台電腦不支援
+### The install script says this computer is not supported
 
-OffiCraft 支援三種電腦：Apple Silicon 的 Mac（darwin/arm64）、x86_64 的 Linux（amd64）、arm64 的 Linux（aarch64）。Intel Mac 與其他處理器架構的 Linux 會在安裝一開始、下載任何東西之前被拒絕。
+OffiCraft supports three kinds of computer: Apple Silicon Macs (darwin/arm64), x86_64 Linux (amd64), and arm64 Linux (aarch64). Intel Macs and Linux on other processor architectures are refused at the very start of the install, before anything is downloaded.
 
-直接在 Windows 上執行也不支援。Windows 要先裝 WSL2 與 Ubuntu，再在 Ubuntu 裡安裝，步驟見 [安裝、升級與移除](install.md) 的「Windows（WSL2）」。
+Running directly on Windows is not supported either. On Windows, first install WSL2 and Ubuntu, then install inside Ubuntu. For the steps, see "Windows (WSL2)" in [Install, upgrade, and uninstall](install.md).
 
-### 安裝腳本說 systemd 沒有在執行
+### The install script says systemd is not running
 
-Linux 上的 OffiCraft 以 systemd 的使用者服務在背景執行（systemd 是 Linux 用來啟動、停止背景服務的系統元件）。systemd 沒有在執行時，安裝腳本會停下，不安裝任何東西。
+On Linux, OffiCraft runs in the background as systemd user services (systemd is the Linux system component that starts and stops background services). When systemd is not running, the install script stops without installing anything.
 
-這個情形最常出現在 Windows 的 WSL2，因為 WSL2 預設不啟動 systemd。打開 systemd 的方式見 [安裝、升級與移除](install.md) 的「Windows（WSL2）」：在 `/etc/wsl.conf` 加入 `[boot]` 與 `systemd=true`，從 Windows 執行 `wsl.exe --shutdown`，重新打開 Ubuntu 視窗後再執行安裝。WSL 版本低於 0.67.6 時不支援 systemd，要先用 `wsl --update` 更新。
+This happens most often on Windows WSL2, because WSL2 does not start systemd by default. For how to turn systemd on, see "Windows (WSL2)" in [Install, upgrade, and uninstall](install.md): add `[boot]` and `systemd=true` to `/etc/wsl.conf`, run `wsl.exe --shutdown` from Windows, reopen the Ubuntu window, and run the install again. WSL versions earlier than 0.67.6 do not support systemd; update first with `wsl --update`.
 
-在 Ubuntu 視窗裡執行 `ps -p 1 -o comm=`，印出 `systemd` 代表 systemd 正在執行。
+Running `ps -p 1 -o comm=` in the Ubuntu window prints `systemd` when systemd is running.
 
-### 安裝腳本說缺少 tmux 或 agent runtime
+### The install script says tmux or an agent runtime is missing
 
-安裝腳本在動到機器之前會先檢查 `tmux`，以及 `claude`（Claude Code）或 `codex`（Codex）至少一種。缺 `tmux` 時會先自動安裝（macOS 用 Homebrew，Linux 與 WSL2 用 `apt-get`）。macOS 沒有 Homebrew、Linux 沒有 `apt-get`、自動安裝失敗，或缺 Claude Code 與 Codex 時，會在動到任何 OffiCraft 檔案之前停下，終端機會印出補裝的指令；這時 `tmux` 可能已經先被自動裝好。Claude Code 與 Codex 的安裝方式在 [安裝、升級與移除](install.md) 的「步驟 1：安裝並登入 Claude Code 或 Codex」，補上後重新執行安裝指令即可。只裝其中一種也可以，但裝的那一種必須已經登入，成員才能啟動。Windows（WSL2）上，Claude Code 或 Codex 要裝在 WSL2 的 Ubuntu 裡；裝在 Windows 那一邊的不算。
+Before touching the machine, the install script checks for `tmux` and for at least one of `claude` (Claude Code) or `codex` (Codex). If `tmux` is missing, it installs it automatically first (Homebrew on macOS, `apt-get` on Linux and WSL2). If macOS has no Homebrew, Linux has no `apt-get`, the automatic install fails, or both Claude Code and Codex are missing, the script stops before touching any OffiCraft files and prints the commands to install what is missing in the terminal; by then `tmux` may already have been installed automatically. How to install Claude Code and Codex is in "Step 1: Install and sign in to Claude Code or Codex" in [Install, upgrade, and uninstall](install.md). Once it is installed, run the install command again. Installing only one of the two is fine, but the one you install must already be signed in for members to start. On Windows (WSL2), Claude Code or Codex must be installed inside WSL2's Ubuntu; a copy installed on the Windows side does not count.
 
-### 7755 埠被占用
+### Port 7755 is in use
 
-server 預設使用 7755 埠（埠是電腦上區分不同連線服務的編號）。7755 埠被其他程式占用時，安裝腳本會列出占用的程式並停下；此時程式已經裝好、資料庫也已準備好，只是 server 沒有啟動。關掉占用的程式，或讓 server 改用其他埠，再重新執行安裝，都能解決。
+By default the server uses port 7755 (a port is the number a computer uses to tell different network services apart). If another program is using port 7755, the install script lists that program and stops. At that point the program is installed and the database is ready; only the server has not started. Either close the program using the port, or have the server use a different port, then run the install again.
 
-server 使用的埠寫在 `oc.toml` 的 `[server]` 段落，例如：
+The server's port is set in the `[server]` section of `oc.toml`, for example:
 
 ```toml
 [server]
 port = 7756
 ```
 
-安裝腳本只從 `$OC_CONFIG` 指定的檔案或執行安裝的資料夾中的 `oc.toml` 讀取 `[server].port`，不讀其他環境變數。server 之後每次啟動都會讀同一份 `oc.toml`，**這份檔案被移走或刪除後，server 就讀不到改過的埠**。server 已經在執行時改埠，安裝腳本會停下並列出前後差異，要加上 `--relocate` 重新執行才會套用。
+The install script reads `[server].port` only from the file named by `$OC_CONFIG` or from `oc.toml` in the folder you run the install from; it reads no other environment variables. The server reads the same `oc.toml` every time it starts afterwards, so **if that file is moved or deleted, the server can no longer see the changed port**. If you change the port while the server is already running, the install script stops and lists the differences; it only applies the change when you run it again with `--relocate`.
 
-換埠之後，控制台網址變成 `http://localhost:<新的埠>`。其他安裝選項見 [安裝、升級與移除](install.md) 的「進階：安裝選項」。
+After changing the port, the console address becomes `http://localhost:<new port>`. For other install options, see "Advanced: install options" in [Install, upgrade, and uninstall](install.md).
 
-### 設定管理密碼的啟用碼弄丟了
+### Lost the claim code for setting the admin password
 
-啟用碼只能用一次，設好密碼後就失效。
+The claim code works only once and stops working after you set a password.
 
-- 已經設過密碼：登入只需要密碼，不再需要啟用碼。
-- 還沒設密碼：在 server 那台機器執行 `~/.officraft/bin/ocserverd claim-token` 會印出目前的啟用碼。設過密碼之後，`claim-token` 不再印出啟用碼。
+- If you have already set a password: signing in only needs the password, not the claim code.
+- If you have not set a password yet: running `~/.officraft/bin/ocserverd claim-token` on the server machine prints the current claim code. After a password is set, `claim-token` no longer prints a claim code.
 
-### 控制台上方出現「自動設定沒有全部完成」
+### "Automatic setup did not finish" appears at the top of the console
 
-設好密碼後，server 會自動安裝這台機器的 warden 並喚醒特助 Mira。其中一步失敗時，控制台上方會出現「自動設定沒有全部完成」橫幅，寫出是哪一步、原因，並可以「顯示詳細記錄」。
+After you set your password, the server automatically installs this machine's warden and wakes the Assistant, Mira. If one of those steps fails, an "Automatic setup did not finish" banner appears at the top of the console, naming the step and the reason, with "Show details".
 
-- 「安裝這台機器」失敗：失敗原因在詳細記錄中。原因排除後，監控 › 機器資訊 中這台機器名稱選單的「安裝」會重做這一步。
-- 自動設定被中斷（例如 server 剛好重新啟動）：監控 › 機器資訊 的「安裝」會補做機器安裝；Mira 要另外喚醒。
-- 寫著「初始設定沒有完成」：重新啟動 server 後會再做一次初始設定。
+- "Install this machine" failed: the reason is in the details. Once the cause is fixed, "Install" in this machine's name menu under Monitor › Machines redoes this step.
+- Automatic setup was interrupted (for example, the server happened to restart): "Install" under Monitor › Machines finishes installing the machine; Mira has to be woken separately.
+- It says "The initial setup did not finish": restarting the server runs the initial setup again.
 
-## 登入
+## Signing in
 
-### 忘記密碼、驗證器遺失或通行密鑰無法使用
+### Forgot your password, lost your authenticator, or a passkey stops working
 
-這三種情況都用裝 server 那台機器上的 `~/.officraft/bin/ocserverd` 復原指令處理。能在那台機器上執行指令，就證明你是工作室的主人，所以不需要其他驗證。重新啟動 server 的指令：
+All three are handled with the recovery commands of `~/.officraft/bin/ocserverd` on the machine the server is installed on. Being able to run commands on that machine proves you are the owner of the studio, so no other verification is needed. The command to restart the server:
 
 ```bash
 # macOS
 launchctl kickstart -k gui/$(id -u)/com.officraft.serve
-# Linux 與 Windows（WSL2）
+# Linux and Windows (WSL2)
 systemctl --user restart com.officraft.serve.service
 ```
 
-- **重設密碼**：`OC_NEW_PASSWORD='新密碼' ~/.officraft/bin/ocserverd set-password`。新密碼從環境變數 `OC_NEW_PASSWORD` 帶入，指令本身不接受參數；server 重新啟動之前，新密碼不會生效。
-- **關閉兩步驟驗證**：`~/.officraft/bin/ocserverd mfa-disable`。server 重新啟動之前，登入仍會要求驗證碼。
-- **刪除所有通行密鑰**：`~/.officraft/bin/ocserverd passkey-reset`。所有通行密鑰立即刪除，不需要重新啟動 server，之後用密碼登入。
+- **Reset your password**: `OC_NEW_PASSWORD='new password' ~/.officraft/bin/ocserverd set-password`. The new password is passed in through the `OC_NEW_PASSWORD` environment variable; the command itself takes no arguments. The new password does not take effect until the server restarts.
+- **Turn off two-factor authentication**: `~/.officraft/bin/ocserverd mfa-disable`. Until the server restarts, signing in still asks for a code.
+- **Delete all passkeys**: `~/.officraft/bin/ocserverd passkey-reset`. All passkeys are deleted immediately, without restarting the server; afterwards, sign in with your password.
 
-兩步驟驗證與通行密鑰各自的注意事項在 [保護你的工作室](security.md)。
+What to keep in mind about two-factor authentication and passkeys is in [Protect your studio](security.md).
 
-## 成員起不來
+## A member will not start
 
-### 先看哪裡
+### Where to look first
 
-成員起不來的原因記在三個地方：
+The reason a member will not start is recorded in three places:
 
-- **成員詳情的「最近操作」**：最後一次喚醒的結果與原因，是最準確的一行。
-- **監控 › 機器資訊**：成員所在的機器是否線上；Claude、Codex 欄顯示的是版本、「未安裝」、「未登入」還是「版本太舊」。
-- **那台機器上的 warden 紀錄**：`~/.officraft/warden/log/ocwarden.err.log`，記錄 warden 啟動成員時的詳細過程。macOS 與 Linux 的位置相同。
+- **"Last operation" in Member details**: the result and reason of the last wake. This is the most accurate line.
+- **Monitor › Machines**: whether the member's machine is online, and whether the Claude and Codex columns show a version, "not installed", "signed out", or "too old".
+- **The warden log on that machine**: `~/.officraft/warden/log/ocwarden.err.log` records in detail how the warden started the member. The location is the same on macOS and Linux.
 
-server 送出喚醒後，成員會先顯示「喚醒中」；大約兩分鐘內沒有連上，這次喚醒算失敗，原因寫進最近操作。
+After the server sends a wake, the member first shows "Waking". If it does not connect within about two minutes, the wake counts as failed and the reason is written to Last operation.
 
-### 跳出「這次沒有送出喚醒指令」
+### "No wake command went out this time" pops up
 
-這表示 server 這次沒有把喚醒指令送出去，背景會自動重試。常見原因有兩個：
+This means the server did not send out the wake command this time; it retries automatically in the background. There are two common reasons:
 
-- 目標機器沒有連線。機器是否在線顯示在「監控」。
-- 前一次喚醒還在重試中。重試的情形記在這位成員的「最近操作」。
+- The target machine is not connected. Whether a machine is online is shown in Monitor.
+- An earlier wake is still being retried. The retries are recorded in this member's "Last operation".
 
-最近操作的時間比你這次按下按鈕更早時，寫的是上一次喚醒的結果，不一定適用於這次。
+If the time on Last operation is earlier than when you pressed the button this time, it shows the result of the previous wake, which may not apply to this one.
 
-### 最近操作寫著「未登入 Claude」或「未登入 Codex」
+### Last operation says "signed out of Claude" or "signed out of Codex"
 
-成員所在的機器沒有登入它要用的 AI 執行環境。登入的入口在 監控 › 機器資訊，那台機器 Claude 或 Codex 欄的版本號選單中的「登入」。登入完成後，成員要再喚醒一次才會啟動。
+The member's machine is not signed in to the AI runtime the member needs. You sign in from "Sign in" in the version-number menu of that machine's Claude or Codex column, under Monitor › Machines. After signing in, the member has to be woken again before it starts.
 
-warden 會定期檢查登入狀態，間隔是 設定 › 參數調整 的「登入檢查間隔」與「未登入時重查間隔」。
+The warden checks the sign-in status regularly, at the intervals set by "Login check interval" and "Logged-out recheck interval" in Settings › General.
 
-### 機器只裝了 Codex，Mira 或新成員起不來
+### The machine has only Codex, and Mira or a new member will not start
 
-成員在機器上啟動時，會依那台機器回報的能力決定用 Claude Code 還是 Codex。以下情況成員會以 Claude Code 啟動，而那台機器上沒有 Claude Code：
+When a member starts on a machine, it decides between Claude Code and Codex based on the capabilities that machine reports. In the following cases the member starts with Claude Code, but that machine has no Claude Code:
 
-- `codex` 裝了但沒登入，所以不算可用。這次啟動不會把 Claude Code 存成成員的設定，登入 Codex 後再喚醒，成員就會改用 Codex。
-- 那台機器的 warden 還沒回報過能力。同樣不會存下來，warden 回報後再喚醒，成員就會用 Codex。
-- 成員的執行環境已經存成 Claude Code：有人在成員設定裡選了 Claude Code，或是從舊版升級上來的成員。
+- `codex` is installed but not signed in, so it does not count as available. This start does not save Claude Code as the member's setting; sign in to Codex and wake the member again, and it switches to Codex.
+- That machine's warden has not reported its capabilities yet. Again nothing is saved; once the warden reports and you wake the member again, it uses Codex.
+- The member's runtime has already been saved as Claude Code: someone chose Claude Code in the member's settings, or the member was carried over from an older version.
 
-第三種情況要在 監控 › 機器資訊 登入 Codex，並在成員詳情的「AI 執行環境」改成 Codex（成員在線上或喚醒中時，這項設定在「更改」按鈕裡；不在線上時在「喚醒」按鈕裡）。成員正在喚醒中時，新的執行環境要等下一次啟動才生效。之後在這台機器新增的成員會自動使用 Codex；**已經存成 Claude Code 的成員不會自動改**，每一位都要各自更改。
+For the third case, sign in to Codex under Monitor › Machines and change "AI runtime" to Codex in Member details (while the member is online or waking, this setting is behind the "Change" button; while it is not online, it is behind the "Wake" button). If the member is currently waking, the new runtime only takes effect at its next start. Members added to this machine afterwards use Codex automatically; **members already saved as Claude Code do not switch automatically**, and each one has to be changed separately.
 
-### 最近操作寫著 Codex 沒有某個系列的型號
+### Last operation says Codex has no model in some family
 
-成員設定的 Codex 型號系列在那台機器的 Codex 版本裡找不到，或那台機器上的 OffiCraft 程式太舊、還不認得型號系列。更新那台機器的 Codex 或 OffiCraft，或在成員詳情改設那台機器可用的型號，都能解決。
+The Codex model family set for the member cannot be found in that machine's Codex version, or the OffiCraft program on that machine is too old to recognize the model family. Either update Codex or OffiCraft on that machine, or change the member in Member details to a model that machine can use.
 
-### 最近操作寫著 notify_claude_too_old
+### Last operation says notify_claude_too_old
 
-那台機器的 Claude Code 版本太舊，無法載入 OffiCraft 通知模組，warden 沒有啟動成員。版本太舊的機器在 監控 › 機器資訊 的 Claude 欄會標「版本太舊」，同一欄版本號選單中的「升級 Claude Code」會升級它；升級後成員要再喚醒一次。
+The Claude Code version on that machine is too old to load the OffiCraft notification module, so the warden did not start the member. A machine whose version is too old is marked "too old" in the Claude column under Monitor › Machines, and "Upgrade Claude Code" in that column's version-number menu upgrades it. After upgrading, the member has to be woken again.
 
-### 最近操作寫著 notify_mod_not_loaded 或 wake_timeout
+### Last operation says notify_mod_not_loaded or wake_timeout
 
-Claude Code 啟動了，但 OffiCraft 通知模組沒有在時間內載入，成員因此沒有連上 server。warden 會先自動重新啟動 Claude Code 一次；還是失敗時，訊息後面會寫「已自動重啟 Claude Code 一次仍沒載入」。過一段時間後，最近操作會改顯示較籠統的 `wake_timeout`，原因只留在 warden 紀錄。
+Claude Code started, but the OffiCraft notification module did not load in time, so the member did not connect to the server. The warden first restarts Claude Code once automatically; if it still fails, the message also says "Claude Code was restarted once automatically and the module still did not load", followed by the switch value read before each launch. After a while, Last operation switches to the less specific `wake_timeout`, and the reason is kept only in the warden log.
 
-實際原因記在那台機器上：warden 紀錄 `~/.officraft/warden/log/ocwarden.err.log` 中含 `notify-mod` 的行，以及成員資料夾 `~/.officraft/agents/<成員 ID>/` 裡的兩個標記檔 `.officraft-mod-started`（模組開始執行時產生）與 `.officraft-mod-loaded`（模組啟動連線程式時產生）。各種紀錄的意思：
+The actual cause is recorded on that machine: lines containing `notify-mod` in the warden log `~/.officraft/warden/log/ocwarden.err.log`, and two marker files in the member's folder `~/.officraft/agents/<member ID>/`: `.officraft-mod-started` (created when the module starts running) and `.officraft-mod-loaded` (created when the module starts the connection program). What each record means:
 
-- 紀錄有 `.officraft-mod-started written ...s after launch`：模組有執行，但 Claude Code 啟動太慢。紀錄中以 `pane|` 開頭的幾行是當時成員畫面的最後幾行，看得出停在哪個對話框或錯誤。
-- 紀錄有 `.officraft-mod-started absent`：模組完全沒有執行。最常見的是 Claude Code 啟動時同步組織的 plugin 有變動，畫面顯示 `Plugins changed. Run /reload-plugins to activate.`；warden 會自動送一次 `/reload-plugins`。仍然失敗時，其他可能的原因是工作目錄沒有被 Claude Code 信任，或 Claude Code 設定停用了 hook 或 plugin（例如 `disableAllHooks`、`--safe-mode`、公司統一管理的設定）。
-- `.officraft-mod-loaded` 存在但成員仍不在線：模組啟動過連線程式，但連線程式後來結束了。`pgrep -fl 'ocagent listen'` 會列出它是否還在執行。
+- The log has `.officraft-mod-started written ...s after launch`: the module ran, but Claude Code was slow to start. The lines starting with `pane|` in the log are the last few lines of the member's screen at the time, showing which dialog or error it stopped at.
+- The log has `.officraft-mod-started absent`: the module did not run at all. The most common cause is that the organization's plugins synced when Claude Code started had changed, and the screen shows `Plugins changed. Run /reload-plugins to activate.`; the warden sends `/reload-plugins` once automatically. If it still fails, other possible causes are that the working directory is not trusted by Claude Code, or that Claude Code settings have turned hooks or plugins off (for example `disableAllHooks`, `--safe-mode`, or settings managed centrally by your company).
+- `.officraft-mod-loaded` exists but the member is still not online: the module did start the connection program, but the connection program later exited. `pgrep -fl 'ocagent listen'` shows whether it is still running.
 
-### Claude Code 或 Codex 用版本管理工具安裝，成員找不到它
+### Claude Code or Codex was installed with a version manager, and members cannot find it
 
-用 asdf、nvm、volta 等工具安裝的 `claude` 或 `codex`，背景服務可能找不到，因為背景服務只在少數固定的資料夾中尋找程式（PATH，也就是系統尋找程式的資料夾清單）。安裝腳本會記下安裝當下找到的路徑；安裝時找不到，就要在 server 那台機器重新執行安裝，並用 `OC_CLAUDE_BIN=/絕對路徑/claude` 或 `OC_CODEX_BIN=/絕對路徑/codex` 指定位置，例如：
+A `claude` or `codex` installed with tools such as asdf, nvm, or volta may not be found by background services, because background services only look for programs in a few fixed folders (the PATH, the list of folders the system searches for programs). The install script records the path it found at install time. If it found none, run the install again on the server machine, specifying the location with `OC_CLAUDE_BIN=/absolute/path/claude` or `OC_CODEX_BIN=/absolute/path/codex`, for example:
 
 ```bash
-curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | OC_CLAUDE_BIN=/絕對路徑/claude bash
+curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | OC_CLAUDE_BIN=/absolute/path/claude bash
 ```
 
-重新執行安裝不會影響既有資料。
+Running the install again does not affect existing data.
 
-### 整台機器的成員都起不來
+### No member on a whole machine will start
 
-原因看 監控 › 機器資訊 中那台機器的狀態：
+Check that machine's status under Monitor › Machines:
 
-- **離線**：那台機器關機或連不到 server。warden 每台獨立運作，一台離線只影響在那台上的成員。
-- **長時間離線、連上網路也沒恢復**：可能是機器憑證過期。每台機器的憑證有效期是 設定 › 參數調整 的「機器憑證壽命」（預設 30 天），warden 會在到期前自動換新；機器長時間關機而錯過換新時，要重新安裝那台機器。機器名稱選單中的「安裝」（線上時顯示「重新安裝」）會產生要在那台機器上執行的安裝指令。
-- **機器欄位有驚嘆號寫著「未生效」**：這台機器上的成員全部停止、再逐一喚醒後恢復。
+- **Offline**: the machine is shut down or cannot reach the server. Each machine's warden runs independently, so one offline machine only affects the members on it.
+- **Offline for a long time, and still not back after reconnecting to the network**: the machine credential may have expired. Each machine's credential lasts for "Machine credential lifetime" in Settings › General (30 days by default), and the warden renews it automatically before it expires. If the machine was shut down long enough to miss the renewal, reinstall that machine. "Install" in the machine's name menu ("Reinstall" while it is online) produces the install command to run on that machine.
+- **The machine column has an exclamation mark saying "Not in effect"**: stop every member on this machine, then wake them again one by one, and it recovers.
 
-### 外包一直沒有人接
+### Nobody ever takes the outsource work
 
-- 辦公室側欄「外包」頁籤顯示「已暫停指派」：外包上限是 0。上限在「外包」頁籤「招攬新成員」裡的「最多雇用」。
-- 任務手冊的負責成員是外包、但沒有選機器，或選的機器離線：外包只會在選定的機器上啟動。機器在 設定 › 任務手冊 中選定，選定的機器上線後外包才會啟動。
+- The "Outsource" tab in the Office sidebar shows "Assignment paused": the outsource limit is 0. The limit is "Max hires" under "Recruit a member" in the "Outsource" tab.
+- The task manual's assignee is outsource, but no machine is selected, or the selected machine is offline: outsource members only start on the selected machine. The machine is selected in Settings › Task manuals, and outsource members start once the selected machine is online.
 
-### Windows（WSL2）關掉終端機後，成員會不會離線
+### On Windows (WSL2), do members go offline when I close the terminal?
 
-不會。Windows 只在還有從 Windows 這一側啟動的 Linux 程式時，讓 WSL2 的 Ubuntu 繼續執行；Ubuntu 視窗算在內，systemd 的使用者服務不算。所以在 WSL2 上安裝時，OffiCraft 會在 Windows 的「啟動」資料夾放一個保持執行檔，並立刻執行一次。保持執行檔在背景啟動一個不做任何事、也不會結束的 Linux 程式（`sleep infinity`），畫面上不會多出視窗；有了 `sleep infinity`，所有 Ubuntu 視窗都關掉後，Ubuntu 與裡面的 warden、成員仍繼續執行。每次登入 Windows 時，「啟動」資料夾裡的保持執行檔會再執行一次。
+No. Windows only keeps WSL2's Ubuntu running while there is still a Linux program started from the Windows side; Ubuntu windows count, systemd user services do not. So when installing on WSL2, OffiCraft puts a keep-alive file in the Windows "Startup" folder and runs it once right away. The keep-alive file starts, in the background, a Linux program that does nothing and never exits (`sleep infinity`), without adding any window on screen. With `sleep infinity` running, Ubuntu and the warden and members inside it keep running after every Ubuntu window is closed. Each time you sign in to Windows, the keep-alive file in the "Startup" folder runs again.
 
-- **保持執行檔的檔名是 `OffiCraft keep WSL running (<名稱>).vbs`。** `<名稱>` 是裝 OffiCraft 的那一套 Linux 的名稱，例如 `Ubuntu`；在 PowerShell 執行 `wsl -l -v` 可以列出名稱。第二個工作室的 warden（用 `OC_NAMESPACE` 安裝）另有一個檔名是 `OffiCraft keep WSL running (<名稱>, <工作室名稱>).vbs` 的保持執行檔。按 Windows 鍵加 R，輸入 `shell:startup` 後按 Enter，會打開「啟動」資料夾。保持執行檔的內容只有一行，名稱是 `Ubuntu` 時如下：
+- **The keep-alive file is named `OffiCraft keep WSL running (<name>).vbs`.** `<name>` is the name of the Linux distribution OffiCraft is installed in, for example `Ubuntu`; running `wsl -l -v` in PowerShell lists the names. A second studio's warden (installed with `OC_NAMESPACE`) has its own keep-alive file named `OffiCraft keep WSL running (<name>, <studio name>).vbs`. Pressing the Windows key with R, typing `shell:startup`, and pressing Enter opens the "Startup" folder. The keep-alive file contains only one line; when the name is `Ubuntu`, it is:
 
   ```vb
   CreateObject("WScript.Shell").Run "wsl.exe -d Ubuntu --exec sleep infinity", 0, False
   ```
 
-- **安裝時印出 `WARN: WSL keep-alive not set up`，代表保持執行檔沒有設定好。** 常見原因是裝 OffiCraft 的 Linux 關掉了 Windows 互通功能（在 Linux 裡執行 Windows 程式的功能，由 `/etc/wsl.conf` 的 `[interop]` 設定）。這時所有 Ubuntu 視窗都關掉後，Windows 會把整套 Ubuntu 停掉，這台機器在「機器資訊」顯示離線；重新打開 Ubuntu 視窗後不需要其他操作，warden 隨 Ubuntu 自動啟動，原本在這台機器上的成員約半分鐘內重新上線。要在關掉視窗後讓成員繼續工作，在 Windows 的 PowerShell 執行 WARN 那一行印出的指令，名稱是 `Ubuntu` 時如下：
+- **If the install prints `WARN: WSL keep-alive not set up`, the keep-alive file was not set up.** A common cause is that the Linux distribution OffiCraft is installed in has Windows interop turned off (the ability to run Windows programs from Linux, set by `[interop]` in `/etc/wsl.conf`). In that case, once every Ubuntu window is closed, Windows stops the whole Ubuntu, and this machine shows as offline in "Machines". Reopening an Ubuntu window needs nothing else: the warden starts automatically with Ubuntu, and the members that were on this machine come back online in about half a minute. To keep members working after the windows are closed, run the command printed on the WARN line in Windows PowerShell; when the name is `Ubuntu`, it is:
 
   ```powershell
   Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--exec','sleep','infinity' -WindowStyle Hidden
   ```
 
-  PowerShell 指令啟動的 `sleep infinity` 只持續到 Windows 登出或重新開機。要每次登入 Windows 都自動啟動，用記事本建立內容是上面那一行 `CreateObject(…)` 的檔案，存成副檔名為 `.vbs` 的檔案放進「啟動」資料夾。
+  The `sleep infinity` started by the PowerShell command only lasts until you sign out of Windows or restart. To start it automatically every time you sign in to Windows, use Notepad to create a file containing the `CreateObject(…)` line above, save it with a `.vbs` extension, and put it in the "Startup" folder.
 
-- **停止的方式**：在 PowerShell 執行 `wsl --terminate <名稱>`，Ubuntu 會連同裡面的 OffiCraft 與成員一起停止。不要在登入 Windows 時自動執行，就把保持執行檔從「啟動」資料夾刪掉。用 `ocwarden teardown` 移除 warden 時，保持執行檔會一併刪除，已經在執行的 `sleep infinity` 持續到 Windows 登出或重新開機。
-- **電腦進入睡眠時，成員一樣會離線。** 要讓成員持續工作，這台電腦要保持喚醒。
+- **How to stop it**: run `wsl --terminate <name>` in PowerShell, and Ubuntu stops along with OffiCraft and the members inside it. To stop it from running automatically when you sign in to Windows, delete the keep-alive file from the "Startup" folder. Removing the warden with `ocwarden teardown` also deletes the keep-alive file; a `sleep infinity` that is already running lasts until you sign out of Windows or restart.
+- **Members still go offline when the computer sleeps.** For members to keep working, this computer has to stay awake.
 
-## 回呼端點
+## Webhook endpoints
 
-### 外部服務送了事件，成員卻沒收到
+### The outside service sent an event, but the member did not receive it
 
-外部服務那一邊顯示成功，不代表成員收到了：不論請求是送達、被丟棄，還是 token 根本不存在，外部服務收到的回應都相同（請求內容超過 1 MiB 時例外，外部服務會收到 413 錯誤；Slack 的驗證握手也會收到不同的回應）。丟棄原因記在成員詳情「回呼端點 · WEBHOOK」卡中該列的「事件統計」：
+The outside service showing success does not mean the member received it: whether the request was delivered, dropped, or sent to a token that does not exist, the outside service gets the same response (except when the request body is larger than 1 MiB, in which case the outside service gets a 413 error; Slack's verification handshake also gets a different response). The reason for a drop is recorded in "Event stats" on that endpoint's row in the "WEBHOOK ENDPOINTS" card in Member details:
 
-- **驗簽失敗**：Slack 或 GitHub 那一邊與這裡的簽章密鑰不一致。兩邊設成同一把密鑰後恢復。
-- **停用中被打**：端點是停用狀態，事件送到時被丟棄。「啟用中」開關打開後恢復。
-- **成員已不存在**：端點所屬的成員已經離開，端點要在其他成員身上重建。
-- **oversize**：請求內容超過 1 MiB，系統整筆拒收。
+- **signature failed**: the Signing Secret on the Slack or GitHub side does not match the one here. Setting both sides to the same secret fixes it.
+- **hit while disabled**: the endpoint was disabled, and the event was dropped when it arrived. Turning the "Enabled" switch on fixes it.
+- **member gone**: the member the endpoint belonged to has left; recreate the endpoint on another member.
+- **oversize**: the request body was larger than 1 MiB, and the system rejected it entirely.
 
-成員離線或已停止時，送達的事件會留著，等成員下次上線才讀到。各原因的完整說明見 [介面說明](interface.md) 的「回呼端點」。
+If the member is offline or stopped, delivered events wait until the member next comes online. For a full description of each reason, see "Webhook endpoints" in [Interface reference](interface.md).
 
-## 成員線上但沒動靜
+## A member is online but doing nothing
 
-成員的圓點是「線上」，卻遲遲沒有回應或進度。可能的原因有以下幾種：
+The member's dot shows "Online", but no reply or progress comes. Possible causes:
 
-- **名字旁有驚嘆號**：成員現在沒辦法正常使用 AI 模型，驚嘆號裡寫著原因：
-  - **已達用量上限**：帳號用量用完了，訊息會寫今天或明天幾點重置，重置後成員會繼續。用量顯示在 監控 › 帳號資訊。
-  - **登入失效**、**未登入 Claude／未登入 Codex**：那台機器的登入已經失效，在 監控 › 機器資訊 重新登入 Claude 或 Codex 後恢復。
-  - **伺服器異常**：模型服務那一邊的錯誤，通常稍後會自行恢復。
-  - **模型呼叫失敗（附代碼）**：失敗的詳情記在成員詳情的「最近操作」，代碼表示失敗的種類。
-- **運作狀態圖示**：「工作中」表示成員正在做事（可能是子代理在做，子代理是成員另外開出、替它處理一部分工作的 AI 工作者）；「等待中」表示在等背景執行的指令或排程；「閒置」表示成員沒有在做事。細節顯示在「運行狀況」。
-- **有請示卡在等你**：成員遇到需要你決定的事會開請示卡並停下，你回覆後才繼續；特助也可以代你回覆。同一張任務還有其他請示卡沒回時，任務會維持「等我回覆」。請示卡列在請示分頁。
-- **任務的狀態**：
-  - **等待外部**：在等權限、對方回覆或某個時間，不是成員本身的問題。
-  - **可結案**：所有步驟都完成了，等負責人結案。負責人沒有收尾時，任務卡上「可結案」標籤的選單中有「強制結案」；**強制結案無法復原**。
-  - **凍結**：優先權是凍結的任務會暫停推進。
+- **An exclamation mark next to the name**: the member cannot use its AI model normally right now, and the exclamation mark gives the reason:
+  - **usage limit reached**: the account's usage has run out. The message says at what time today or tomorrow it resets, and the member continues after the reset. Usage is shown under Monitor › Accounts.
+  - **sign-in expired**, **signed out of Claude / signed out of Codex**: that machine's sign-in is no longer valid. Signing in to Claude or Codex again under Monitor › Machines fixes it.
+  - **server error**: an error on the model service's side, which usually clears up on its own after a while.
+  - **model call failed (with a code)**: the details of the failure are in "Last operation" in Member details, and the code indicates the kind of failure.
+- **Activity status icon**: "Working" means the member is doing something (possibly through a sub-agent, an AI worker the member starts to handle part of its work); "Waiting" means it is waiting for a command running in the background or a schedule; "Idle" means the member is not doing anything. Details are shown in "Runtime".
+- **A reply card is waiting for you**: when a member hits something you need to decide, it opens a reply card and stops, continuing only after you reply; the Assistant can also reply for you. While other reply cards on the same task are still unanswered, the task stays at "Awaiting my reply". Reply cards are listed in the Ask tab.
+- **The task's status**:
+  - **Waiting on external**: waiting for a permission, someone else's reply, or a certain time. It is not a problem with the member itself.
+  - **Ready to close**: every step is done, and the task is waiting for its owner to close it. If the owner does not finish up, the menu on the task card's "Ready to close" label has "Force close"; **force closing cannot be undone**.
+  - **Frozen**: a task whose priority is Frozen stops moving forward.
 
-  任務狀態的意思見 [追蹤任務進度](tasks.md)。
-- **記憶用量很高**：記憶快滿時成員回應會變差。成員詳情的「重新聚焦」會讓線上的成員把進度寫成交接，換一個新的工作階段從交接接著做。見 [增加成員與發外包](members.md)。
+  For what each task status means, see [Tracking task progress](tasks.md).
+- **High memory use**: when a member's memory is nearly full, its replies get worse. "Refocus" in Member details has an online member write its progress into a handover and continue from that handover in a new working session. See [Adding members and hiring outsource](members.md).
 
-## 成員停不下來
+## A member will not stop
 
-### 成員停在「停止中」很久
+### A member stays at "Stopping" for a long time
 
-一般的停止沒有時間限制，server 會一直等成員自己收尾完成。成員詳情的「加速停止」會給收尾一個期限（預設 120 秒）；「強制停止」會立即結束成員，**未儲存的工作會遺失**。
+A normal stop has no time limit; the server keeps waiting for the member to finish wrapping up on its own. "Accelerated stop" in Member details gives the wrap-up a deadline (120 seconds by default); "Force stop" ends the member immediately, and **unsaved work is lost**.
 
-## 備份與還原
+## Backup and restore
 
-### 備份健康在哪裡看
+### Where to see backup health
 
-工作室每 6 小時自動備份一次資料庫。備份狀態在 設定 › 系統更新與備份 的「備份健康」：
+The studio backs up its database automatically every 6 hours. The backup status is in "Backup health" under Settings › System update & backup:
 
-| 狀態 | 意思 |
+| Status | Meaning |
 | --- | --- |
-| 備份正常 | 最近一次排程備份在期限內。 |
-| 備份異常 | 從來沒有備份過、最新的備份太舊（排程可能停了），或最近一次備份失敗；會寫出已經異常多久。 |
-| 無法判斷 | 還沒評估過，或控制台問不到 server。不代表沒問題，請當成需要確認。 |
+| Backups are healthy | The most recent scheduled backup is within its deadline. |
+| Backups are failing | There has never been a backup, the latest backup is too old (the schedule may have stopped), or the most recent backup failed. It says how long backups have been failing. |
+| Cannot tell | Not evaluated yet, or the console cannot reach the server. This does not mean everything is fine; treat it as needing a check. |
 
-只有排程備份會讓狀態變回正常。手動執行 `ocserverd backup` 或升級前的自動備份都不算；重新啟動 server 也不會讓異常消失。**備份健康不會主動通知你**，備份異常只會顯示在 設定 › 系統更新與備份。
+Only a scheduled backup returns the status to healthy. Running `ocserverd backup` by hand or the automatic backup before an upgrade does not count, and restarting the server does not clear the failing status either. **Backup health does not notify you**; failing backups are shown only under Settings › System update & backup.
 
-### 自己備份資料庫
+### Backing up the database yourself
 
-資料庫在 `~/.officraft/server/data/`，由 `officraft.db`、`officraft.db-wal`、`officraft.db-shm` 三個檔組成。**server 執行中時只複製 `officraft.db` 會少掉資料**：最近寫入的資料在 `-wal` 檔裡，只複製主檔的備份看起來正常，還原後卻會少掉最近的資料。
+The database is in `~/.officraft/server/data/` and consists of three files: `officraft.db`, `officraft.db-wal`, and `officraft.db-shm`. **Copying only `officraft.db` while the server is running loses data**: recently written data is in the `-wal` file, so a backup of only the main file looks fine but is missing the latest data after a restore.
 
-完整的備份有兩種：
+There are two ways to make a complete backup:
 
-- **不停機**：`~/.officraft/bin/ocserverd backup` 會產生一份已包含全部資料的單一檔案，放在 `~/.officraft/server/data/backups/`。執行前它會印出使用的設定檔與資料庫路徑，其中 `database` 是實際被備份的資料庫。
-- **停機後複製**：server 停止後，三個檔一起複製，或直接複製整個 `data` 資料夾。
+- **Without stopping**: `~/.officraft/bin/ocserverd backup` produces a single file containing all the data in `~/.officraft/server/data/backups/`. Before running, it prints the config file and database path it uses; `database` is the database actually being backed up.
+- **Copy after stopping**: after the server stops, copy all three files together, or copy the whole `data` folder.
 
-自動備份放在同一個 `backups/` 資料夾，檔名是 `officraft-<UTC 時間>-<種類>.db`，種類有 `scheduled`（排程）、`premigration`（升級前）、`manual`（手動）。日常備份與升級前備份各自保留「備份保留份數」份（設定 › 參數調整，預設 5，範圍 1–20），超過的會在下一次備份時刪除。
+Automatic backups go into the same `backups/` folder, named `officraft-<UTC time>-<kind>.db`, where the kind is `scheduled`, `premigration` (before an upgrade), or `manual`. Routine backups and pre-upgrade backups each keep "Backups kept" copies (Settings › General; default 5, range 1–20), and any beyond that are deleted at the next backup.
 
-### 換電腦時要帶走 vault.key
+### Take vault.key with you when you change computers
 
-資料庫備份（不論自動或手動）都不包含 `vault.key`，密鑰的值與 Secret 請示卡尚未刪除的內容都是用 `vault.key` 加密的。在同一台電腦上還原時，`vault.key` 還在原本的資料夾，不用處理；把備份搬到別台電腦還原時，要連同 `vault.key` 一起帶過去，否則還原後的密鑰無法讀取。詳細說明見 [保護你的工作室](security.md) 的「密鑰與 vault.key」。
+Database backups (automatic or manual) never include `vault.key`, and the secret values and the not-yet-deleted content of Secret reply cards are encrypted with `vault.key`. When restoring on the same computer, `vault.key` is still in its original folder and needs no attention. When moving a backup to another computer to restore it, take `vault.key` along; otherwise the secrets cannot be read after the restore. For details, see "Secrets and vault.key" in [Protect your studio](security.md).
 
-### 從備份還原
+### Restoring from a backup
 
-還原是在 server 停止時，用備份檔取代 `~/.officraft/server/data/` 中的資料庫：現有的 `officraft.db`、`officraft.db-wal`、`officraft.db-shm` 三個檔移到別處，再把備份檔複製成 `officraft.db`（例如 `cp backups/officraft-20261020-060000-scheduled.db officraft.db`）。同一個資料夾裡要有當時的 `vault.key`，少了它，還原後的密鑰無法讀取。
+Restoring means replacing the database in `~/.officraft/server/data/` with a backup file while the server is stopped: move the existing `officraft.db`, `officraft.db-wal`, and `officraft.db-shm` somewhere else, then copy the backup file to `officraft.db` (for example `cp backups/officraft-20261020-060000-scheduled.db officraft.db`). The same folder must contain the `vault.key` from that time; without it, the secrets cannot be read after the restore.
 
-停止與啟動 server 的指令，macOS：
+Commands to stop and start the server on macOS:
 
 ```bash
 launchctl bootout gui/$(id -u)/com.officraft.serve
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.officraft.serve.plist
 ```
 
-Linux 與 Windows（WSL2）：
+On Linux and Windows (WSL2):
 
 ```bash
 systemctl --user stop com.officraft.serve.service
 systemctl --user start com.officraft.serve.service
 ```
 
-## 升級
+## Upgrading
 
-### 升級沒有生效或檢查更新失敗
+### An upgrade did not take effect, or checking for updates failed
 
-出現「檢查更新失敗」時，多半是連不到 GitHub（OffiCraft 的更新發佈在 GitHub；網路或 proxy 問題都會造成），網路恢復後檢查更新就會成功。其他機器上的 warden 會在 server 升級後自行更新，通常在 15 分鐘內完成。升級的完整步驟與各項更新設定，見 [安裝、升級與移除](install.md) 的「升級」與「進階：升級的設定」。
+"The update check failed" usually means GitHub cannot be reached (OffiCraft updates are published on GitHub; network or proxy problems both cause it), and checking for updates succeeds once the network is back. Wardens on other machines update themselves after the server upgrades, usually within 15 minutes. For the full upgrade steps and each update setting, see "Upgrading" and "Advanced: upgrade settings" in [Install, upgrade, and uninstall](install.md).
 
-## 移除
+## Removal
 
-移除一台機器（解除安裝、刪除）或移除整個工作室的步驟，見 [安裝、升級與移除](install.md) 的「移除」與「從控制台移除一台機器」。
+For the steps to remove one machine (uninstall, delete) or the whole studio, see "Uninstalling" and "Removing a machine from the console" in [Install, upgrade, and uninstall](install.md).
 
-## 相關文件
+## Related pages
 
-- [安裝、升級與移除](install.md)
-- [保護你的工作室](security.md)
-- [增加成員與發外包](members.md)
-- [追蹤任務進度](tasks.md)
-- [架構與運作原理](architecture.md)
+- [Install, upgrade, and uninstall](install.md)
+- [Protect your studio](security.md)
+- [Adding members and hiring outsource](members.md)
+- [Tracking task progress](tasks.md)
+- [Architecture and how it works](architecture.md)

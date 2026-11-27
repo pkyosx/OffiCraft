@@ -804,10 +804,10 @@ func TestUnpinningIsAdminOnlyToo(t *testing.T) {
 			if status != http.StatusForbidden {
 				t.Fatalf("want 403, got %d (%v)", status, data)
 			}
-			apiWantError(t, data, "forbidden", "置頂／取消置頂 is an admin decision — a pinned entry "+
+			apiWantError(t, data, "forbidden", "Pin / unpin is an admin decision — a pinned entry "+
 				"sorts ahead of every other entry in its scope and therefore survives the "+
 				"cap at the expense of everyone else's, so who pins is not the writer's "+
-				"call. Ask the owner or an admin agent.")
+				"call. Ask the owner or an admin.")
 			windowWantLoreEntry(t, d, e.ID, LoreStatePinned, LoreScopeEveryone, "", 100)
 		})
 	}
@@ -831,9 +831,9 @@ func TestRetireAndBumpAreAuthorOnly(t *testing.T) {
 	// The refusal has to name every verb the author-only floor actually opens,
 	// 生效 included: a reader who is told only 失效 and 提到最新 concludes a
 	// retired entry of their own is beyond them, and nothing corrects that.
-	wantRefusal := `{"error":{"code":"forbidden","message":"you may only 失效, 生效, 提到最新 or 編輯 ` +
+	wantRefusal := `{"error":{"code":"forbidden","message":"you may only Retire, Activate, Bump to latest or Edit ` +
 		`an entry you WROTE — this one has a different author, and an entry is governed ` +
-		`by the member who wrote it. An admin agent or the owner can act on any entry."}}`
+		`by the member who wrote it. An admin or the owner can act on any entry."}}`
 	if got := rec.Body.String(); got != wantRefusal {
 		t.Fatalf("refusal body = %s, want %s", got, wantRefusal)
 	}
@@ -892,9 +892,9 @@ func TestRetireAndBumpAreAuthorOnly(t *testing.T) {
 			if status != http.StatusForbidden {
 				t.Fatalf("want 403, got %d (%v)", status, data)
 			}
-			apiWantError(t, data, "forbidden", "you may only 失效, 生效, 提到最新 or 編輯 an entry you WROTE — "+
+			apiWantError(t, data, "forbidden", "you may only Retire, Activate, Bump to latest or Edit an entry you WROTE — "+
 				"this one has a different author, and an entry is governed by the member "+
-				"who wrote it. An admin agent or the owner can act on any entry.")
+				"who wrote it. An admin or the owner can act on any entry.")
 			windowWantLoreEntry(t, d, e.ID, LoreStateActive, LoreScopeEveryone, "", 100)
 		})
 	}
@@ -915,8 +915,8 @@ func TestGovernanceRefusalsAreDistinguishable(t *testing.T) {
 	if pinRec.Body.String() == ownRec.Body.String() {
 		t.Fatalf("both refusals read identically: %s", pinRec.Body.String())
 	}
-	if !strings.Contains(pinRec.Body.String(), "置頂") {
-		t.Fatalf("the pin refusal does not name 置頂: %s", pinRec.Body.String())
+	if !strings.Contains(pinRec.Body.String(), "Pin / unpin") {
+		t.Fatalf("the pin refusal does not name Pin / unpin: %s", pinRec.Body.String())
 	}
 }
 
@@ -1338,8 +1338,8 @@ func TestWriteLoreTypeTag(t *testing.T) {
 			}
 			apiWantError(t, data, "validation_error",
 				"lore_type is required — nothing was written. Set it to the entry's type: "+
-					"instruction_conflict (指示衝突), instruction_supplement (指示補充), "+
-					"owner_decision (Owner 決策), owner_preference (Owner 偏好) or other (其他). "+
+					"instruction_conflict (instruction conflict), instruction_supplement (instruction supplement), "+
+					"owner_decision (owner decision), owner_preference (owner preference) or other. "+
 					"Put the type in lore_type, not as a prefix in the title.")
 			status, page := apiJSON(t, st.h, "GET", "/api/lore?author_ids=m-scope-admin", st.user, "")
 			if status != http.StatusOK {
@@ -1410,13 +1410,13 @@ func TestTaskManualLoreShowsTheTypeLabelAheadOfTheTitle(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("manual read: %d %v", status, data)
 	}
-	wantLore := "# 傳承" +
+	wantLore := "# Lore" +
 		"\n\n## L-6 己六\n\n內容" +
 		"\n\n## L-5 [工作原則] 戊五\n\n內容" +
-		"\n\n## L-4 [Owner 偏好] 丁四\n\n內容" +
-		"\n\n## L-3 [Owner 決策] 丙三\n\n內容" +
-		"\n\n## L-2 [指示補充] 乙二\n\n內容" +
-		"\n\n## L-1 [指示衝突] 甲一\n\n內容"
+		"\n\n## L-4 [Owner preference] 丁四\n\n內容" +
+		"\n\n## L-3 [Owner decision] 丙三\n\n內容" +
+		"\n\n## L-2 [Instruction supplement] 乙二\n\n內容" +
+		"\n\n## L-1 [Instruction conflict] 甲一\n\n內容"
 	if data["lore"] != wantLore {
 		t.Fatalf("lore =\n%v\nwant\n%s", data["lore"], wantLore)
 	}
@@ -1443,13 +1443,13 @@ func TestStaffBootDocumentShowsTheTypeLabelAheadOfTheTitle(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("boot-context: %d %v", status, data)
 	}
-	const wantBlock = "\n\n# 傳承" +
-		"\n\n## L-4 [指示衝突] 癸十\n\n內容" +
+	const wantBlock = "\n\n# Lore" +
+		"\n\n## L-4 [Instruction conflict] 癸十\n\n內容" +
 		"\n\n## L-3 壬九\n\n內容" +
 		"\n\n## L-2 [工作原則] 辛八\n\n內容" +
-		"\n\n## L-1 [Owner 決策] 庚七\n\n內容\n\n"
+		"\n\n## L-1 [Owner decision] 庚七\n\n內容\n\n"
 	doc, _ := data["context"].(string)
-	if strings.Count(doc, "# 傳承") != 1 || !strings.Contains(doc, wantBlock) {
+	if strings.Count(doc, "# Lore") != 1 || !strings.Contains(doc, wantBlock) {
 		t.Fatalf("boot document does not carry exactly this 傳承 block:\n%s\n--- doc ---\n%s", wantBlock, doc)
 	}
 }
@@ -1474,8 +1474,8 @@ func TestWriteLoreToolCallWithoutATypeHandsTheAgentTheFiveValues(t *testing.T) {
 	content, _ := result["content"].([]any)
 	first, _ := content[0].(map[string]any)
 	want := `{"error":{"code":"validation_error","message":"lore_type is required — nothing was written. ` +
-		`Set it to the entry's type: instruction_conflict (指示衝突), instruction_supplement (指示補充), ` +
-		`owner_decision (Owner 決策), owner_preference (Owner 偏好) or other (其他). ` +
+		`Set it to the entry's type: instruction_conflict (instruction conflict), instruction_supplement (instruction supplement), ` +
+		`owner_decision (owner decision), owner_preference (owner preference) or other. ` +
 		`Put the type in lore_type, not as a prefix in the title."}}`
 	if len(content) != 1 || first["type"] != "text" || first["text"] != want {
 		t.Fatalf("the agent must receive the whole refusal, got %v", content)
@@ -1585,9 +1585,9 @@ func TestListLoreBudgets(t *testing.T) {
 			budgetTarget("agent", "m-scope-user", 20, 20, 5, 1),
 			budgetTarget("agent", "mira", 20, 10, 2, 0),
 			budgetTarget("agent", "ow-budget-live", 20, 15, 3, 0),
-			budgetTarget("manual", "builtin-task-manual-design", 12, 0, 0, 0),
-			budgetTarget("manual", "builtin-role-design", 12, 0, 0, 0),
 			budgetTarget("manual", "builtin-remote-access", 12, 0, 0, 0),
+			budgetTarget("manual", "builtin-role-design", 12, 0, 0, 0),
+			budgetTarget("manual", "builtin-task-manual-design", 12, 0, 0, 0),
 			budgetTarget("manual", "tm-budget", 12, 10, 3, 1),
 		}})
 	})
@@ -1602,9 +1602,9 @@ func TestListLoreBudgets(t *testing.T) {
 			budgetTarget("agent", "m-scope-user", 7, 5, 5, 4),
 			budgetTarget("agent", "mira", 7, 5, 2, 1),
 			budgetTarget("agent", "ow-budget-live", 7, 5, 3, 2),
-			budgetTarget("manual", "builtin-task-manual-design", 12, 0, 0, 0),
-			budgetTarget("manual", "builtin-role-design", 12, 0, 0, 0),
 			budgetTarget("manual", "builtin-remote-access", 12, 0, 0, 0),
+			budgetTarget("manual", "builtin-role-design", 12, 0, 0, 0),
+			budgetTarget("manual", "builtin-task-manual-design", 12, 0, 0, 0),
 			budgetTarget("manual", "tm-budget", 12, 10, 3, 1),
 		}})
 		apiWantBody(t, droppedByTitle(t, "scope_kind=agent&scope_key=m-scope-user"), map[string]any{
@@ -1843,11 +1843,11 @@ func TestEditLoreEntry(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("boot-context: %d %v", status, data)
 		}
-		wantBlock := "\n\n# 傳承" +
+		wantBlock := "\n\n# Lore" +
 			"\n\n## " + newer.ID + " 新二\n\n內容" +
-			"\n\n## " + older.ID + " [Owner 決策] 改過\n\n改過的\n\n"
+			"\n\n## " + older.ID + " [Owner decision] 改過\n\n改過的\n\n"
 		doc, _ := data["context"].(string)
-		if strings.Count(doc, "# 傳承") != 1 || !strings.Contains(doc, wantBlock) {
+		if strings.Count(doc, "# Lore") != 1 || !strings.Contains(doc, wantBlock) {
 			t.Fatalf("boot document does not carry exactly this 傳承 block:\n%s\n--- doc ---\n%s", wantBlock, doc)
 		}
 	})
@@ -1868,7 +1868,7 @@ func TestEditLoreEntry(t *testing.T) {
 		apiWantError(t, data, "forbidden", "a pinned entry is edited only by an admin — it sorts "+
 			"ahead of every other entry in its scope and survives the cap at the expense of "+
 			"everyone else's, so while it is pinned its text is not the writer's call. Ask the "+
-			"owner or an admin agent.")
+			"owner or an admin.")
 		wantRow(t, row(e, "釘住", "內容", "other", "pinned", 100))
 
 		status, data = edit(t, st.admin, e.ID, `{"title":"管理改"}`)
@@ -1886,8 +1886,8 @@ func TestEditLoreEntry(t *testing.T) {
 			code, msg         string
 		}{
 			{"another plain agent", other, `{"title":"別人改"}`, http.StatusForbidden, "forbidden",
-				"you may only 失效, 生效, 提到最新 or 編輯 an entry you WROTE — this one has a different " +
-					"author, and an entry is governed by the member who wrote it. An admin agent or the " +
+				"you may only Retire, Activate, Bump to latest or Edit an entry you WROTE — this one has a different " +
+					"author, and an entry is governed by the member who wrote it. An admin or the " +
 					"owner can act on any entry."},
 			{"an empty body", st.user, `{}`, http.StatusBadRequest, "validation_error",
 				"send at least one of title, body or lore_type — nothing was changed"},

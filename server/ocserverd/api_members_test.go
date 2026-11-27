@@ -18,9 +18,9 @@ import (
 
 const apiTestPNGBytes = "\x89PNG\r\n\x1a\nfake"
 
-const apiTestOffboardNotice = "# 停止\n\n你收到這份說明，代表你已收到**一般停止指令**，現在需要停止目前的 session。這類停止沒有收尾倒數，應先完整完成交接與收尾，再結束 session。\n\n下線前，先整理手上的任務，確保需要保留的資料都已寫回遠端；重啟後可能會由另一台機器接手。\n\n* 正在執行的任務：將需要保留的 git commit 推送到 remote，並將需要保留的 artifact 上傳到 task，避免重要資料只留在本機。\n* 等待外部回應的任務：將等待對象、恢復條件與恢復後的第一個動作寫回任務，再處理其他要收尾的任務。若沒有其他任務可處理即可下線，不要留在線上等待。\n\n## 1. 開始下線\n\n* 回報 stopping：呼叫 MCP `report_stopping()`。\n* 記錄交接狀態：使用 `post_chat` 發給自己，記錄目前狀態、在途工作、阻塞點、下一步。\n\n## 2. 結束 Sub-agent\n\n* 等待完成：等待所有已啟動的 sub-agent 完成；下線期間不要再啟動新的 sub-agent。\n* 記錄結果：每個 sub-agent 完成後，立即將結果更新到對應 task step，並使用 `post_chat` 同步更新。\n\n## 3. 收尾\n\n1. 清除暫存：使用 `rm -r <完整路徑>` 移除本次工作產生的暫存檔案或資料夾，不要接終端機執行（Codex 的 tty 設為 false）。必須直接寫出完整路徑，不要使用變數。路徑不存在或刪不掉，把路徑記進回報，繼續收尾，不要停在這一步。\n2. 寫入傳承：若本次有值得留下的經驗，使用 MCP `write_lore_entry` 寫入傳承。是否需要寫及內容格式，以開機說明的「傳承」規則為準；沒有值得留下的經驗則不寫。\n3. 回報 stopped：呼叫 MCP `report_stopped()`，並依回應中的 `stop_effect` 處理：\n\n   * `collected`：停止程序已啟動。若之後仍持續存活或收到新工作，不要再次呼叫 `report_stopped()`；使用 `post_chat` 通知有權調整 `desired_state` 的人。\n   * `already_reported`：先前已回報停止，本次呼叫不會重新執行停止程序；依第一次 `report_stopped()` 的結果處理。\n"
+const apiTestOffboardNotice = "# Stop\n\nReceiving these instructions means you have received a **regular stop order** and must now stop your current session. This kind of stop has no wrap-up countdown, so fully complete the handover and wrap-up first, then end the session.\n\nBefore going offline, sort out the tasks in your hands and make sure all data that needs to be kept has been written back to the remote; after a restart, another machine may take over.\n\n* Tasks in progress: push the git commits that need to be kept to the remote, and upload the artifacts that need to be kept to the task, so important data does not stay only on this machine.\n* Tasks waiting on an external response: write back to the task who you are waiting on, the condition for resuming, and the first action after resuming, then handle the other tasks that need wrapping up. If there are no other tasks to handle, you may go offline; do not stay online waiting.\n\n## 1. Start going offline\n\n* Report stopping: call MCP `report_stopping()`.\n* Record the handover state: use `post_chat` to send yourself a message recording the current state, in-flight work, blockers, and next steps.\n\n## 2. End sub-agents\n\n* Wait for completion: wait for every sub-agent you started to finish; do not start any new sub-agent while going offline.\n* Record results: as each sub-agent finishes, immediately update its results into the corresponding task step, and post the same update with `post_chat`.\n\n## 3. Wrap up\n\n1. Clear temporary data: use `rm -r <full path>` to remove the temporary files or folders this work created; do not run it attached to a terminal (Codex's tty is set to false). You must write out the full path literally; do not use variables. If a path does not exist or cannot be deleted, record the path in your report and continue the wrap-up — do not stop at this step.\n2. Write Lore: if this session produced experience worth keeping, write it as Lore with MCP `write_lore_entry`. Whether to write it and in what format follows the \"Lore\" rules in the boot instructions; if there is no experience worth keeping, write nothing.\n3. Report stopped: call MCP `report_stopped()`, and handle it according to the `stop_effect` in the response:\n\n   * `collected`: the stop procedure has started. If you are still alive afterwards or receive new work, do not call `report_stopped()` again; use `post_chat` to notify someone with the authority to change `desired_state`.\n   * `already_reported`: a stop was already reported earlier; this call does not re-run the stop procedure. Act on the result of the first `report_stopped()`.\n"
 
-const apiTestAcceleratedNotice = "你的結束時刻是 1970-01-01T00:18:40Z。\n# 加速停止\n\n你收到這份說明，代表你已收到**加速停止指令**，現在需要在指定的結束時刻前停止目前的 session。超過結束時刻後會被直接終止，因此應先完成必要交接，再處理其他收尾。\n\n下線前，先整理手上的任務，確保需要保留的資料都已寫回遠端；重啟後可能會由另一台機器接手。\n\n* 正在執行的任務：將需要保留的 git commit 推送到 remote，並將需要保留的 artifact 上傳到 task，避免重要資料只留在本機。\n* 等待外部回應的任務：將等待對象、恢復條件與恢復後的第一個動作寫回任務，不要留在線上等待。\n\n## 1. 開始下線\n\n* 回報 stopping：呼叫 MCP `report_stopping()`。\n* 記錄交接狀態：使用 `post_chat` 發給自己，記錄目前狀態、在途工作、阻塞點、下一步，以及尚未完成的 sub-agent 工作。\n\n## 2. 結束 Sub-agent\n\n* 要求收尾：通知所有已啟動的 sub-agent 立即收尾，回傳目前成果、證據位置、剩餘工作與未檢查範圍後結束。\n* 記錄結果：每個 sub-agent 結束後，立即將結果更新到對應 task step，並使用 `post_chat` 同步更新。\n* 不等待逾時：若 sub-agent 無法及時結束，不要繼續等待；將已取得的進度與尚未完成的工作寫入對應 task step，繼續其他必要交接。\n\n## 3. 收尾\n\n1. 清除暫存：使用 `rm -r <完整路徑>` 移除本次工作產生的暫存檔案或資料夾，不要接終端機執行（Codex 的 tty 設為 false）。必須直接寫出完整路徑，不要使用變數。路徑不存在、刪不掉或時間不足，把路徑記進回報，繼續收尾，不要停在這一步。\n2. 寫入傳承：若本次有值得留下的經驗，使用 MCP `write_lore_entry` 寫入傳承。是否需要寫及內容格式，以開機說明的「傳承」規則為準；沒有值得留下的經驗則不寫。\n3. 回報 stopped：呼叫 MCP `report_stopped()`，並依回應中的 `stop_effect` 處理：\n\n   * `collected`：停止程序已啟動。若之後仍持續存活或收到新工作，不要再次呼叫 `report_stopped()`；使用 `post_chat` 通知有權調整 `desired_state` 的人。\n   * `already_reported`：先前已回報停止，本次呼叫不會重新執行停止程序；依第一次 `report_stopped()` 的結果處理。\n"
+const apiTestAcceleratedNotice = "Your end time is 1970-01-01T00:18:40Z.\n# Accelerated Stop\n\nReceiving these instructions means you have received an **accelerated stop order** and must now stop your current session before the specified end time. Past the end time you will be terminated outright, so complete the necessary handover first, then handle the rest of the wrap-up.\n\nBefore going offline, sort out the tasks in your hands and make sure all data that needs to be kept has been written back to the remote; after a restart, another machine may take over.\n\n* Tasks in progress: push the git commits that need to be kept to the remote, and upload the artifacts that need to be kept to the task, so important data does not stay only on this machine.\n* Tasks waiting on an external response: write back to the task who you are waiting on, the condition for resuming, and the first action after resuming; do not stay online waiting.\n\n## 1. Start going offline\n\n* Report stopping: call MCP `report_stopping()`.\n* Record the handover state: use `post_chat` to send yourself a message recording the current state, in-flight work, blockers, next steps, and any unfinished sub-agent work.\n\n## 2. End sub-agents\n\n* Ask them to wrap up: tell every sub-agent you started to wrap up immediately, return its current results, where the evidence is, the remaining work, and the scope it did not check, then exit.\n* Record results: as each sub-agent exits, immediately update its results into the corresponding task step, and post the same update with `post_chat`.\n* Do not wait out timeouts: if a sub-agent cannot exit in time, do not keep waiting; write the progress obtained so far and the unfinished work into the corresponding task step, and continue with the rest of the necessary handover.\n\n## 3. Wrap up\n\n1. Clear temporary data: use `rm -r <full path>` to remove the temporary files or folders this work created; do not run it attached to a terminal (Codex's tty is set to false). You must write out the full path literally; do not use variables. If a path does not exist, cannot be deleted, or there is not enough time, record the path in your report and continue the wrap-up — do not stop at this step.\n2. Write Lore: if this session produced experience worth keeping, write it as Lore with MCP `write_lore_entry`. Whether to write it and in what format follows the \"Lore\" rules in the boot instructions; if there is no experience worth keeping, write nothing.\n3. Report stopped: call MCP `report_stopped()`, and handle it according to the `stop_effect` in the response:\n\n   * `collected`: the stop procedure has started. If you are still alive afterwards or receive new work, do not call `report_stopped()` again; use `post_chat` to notify someone with the authority to change `desired_state`.\n   * `already_reported`: a stop was already reported earlier; this call does not re-run the stop procedure. Act on the result of the first `report_stopped()`.\n"
 
 // Sentinels for 〈停止〉 and 〈任務結案〉 so expected values can be written out by
 // hand. Comparing against the real documents would pass just as well for a build
@@ -695,7 +695,7 @@ func TestOffboardNoticeFor(t *testing.T) {
 	})
 
 	t.Run("an outsource member bound to a typed task answers the 停止 document alone", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServerInDeveloperMode(t)
 		w := apiTestTypedTaskWorker(t, api, h, d, owner, "delivery")
 
 		apiTestSentinelWindDownDocs(t, api)
@@ -706,7 +706,7 @@ func TestOffboardNoticeFor(t *testing.T) {
 	})
 
 	t.Run("an outsource member bound to a typed task answers the 加速停止 document alone", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
+		api, h, d, owner := newAPITestServerInDeveloperMode(t)
 		w := apiTestTypedTaskWorker(t, api, h, d, owner, "delivery")
 		w.DesiredState = DesiredStateOffline
 		w.StoppingSince = 1000
@@ -1083,7 +1083,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"model_call_warnings":        []any{},
 			},
 			map[string]any{
-				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
+				"id": "m-server-self", "avatar_url": "", "name": "This server",
 				"kind": "warden", "role_key": "", "role_name": "", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "medium",
@@ -1153,7 +1153,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"model_call_warnings":        []any{},
 			},
 			map[string]any{
-				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
+				"id": "m-server-self", "avatar_url": "", "name": "This server",
 				"kind": "warden", "role_key": "", "role_name": "", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "",
@@ -1204,7 +1204,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"model_call_warnings":        []any{},
 			},
 			map[string]any{
-				"id": "m-server-self", "avatar_url": "", "name": "伺服器這一台",
+				"id": "m-server-self", "avatar_url": "", "name": "This server",
 				"kind": "warden", "role_key": "", "role_name": "", "runtime": "claude",
 				"model": "", "actual_model": "", "actual_runtime": "",
 				"actual_effort": "", "actual_machine": "", "effort": "medium",
@@ -1496,7 +1496,7 @@ func TestHandleHireMemberApiMembersPost(t *testing.T) {
 		apiWantError(t, data, "validation_error",
 			"POST /api/members hires staff only; got kind 'warden'. "+
 				"A warden is born by onboarding its machine through POST /api/machines "+
-				"(the machine id becomes the warden's member id); an outsource worker is "+
+				"(the machine id becomes the warden's member id); an outsource member is "+
 				"minted by the outsource scheduler when a task is handed out. "+
 				"Neither can be created here")
 		dashboard.wantFrames()
@@ -1513,7 +1513,7 @@ func TestHandleHireMemberApiMembersPost(t *testing.T) {
 		apiWantError(t, data, "validation_error",
 			"POST /api/members hires staff only; got kind 'outsource'. "+
 				"A warden is born by onboarding its machine through POST /api/machines "+
-				"(the machine id becomes the warden's member id); an outsource worker is "+
+				"(the machine id becomes the warden's member id); an outsource member is "+
 				"minted by the outsource scheduler when a task is handed out. "+
 				"Neither can be created here")
 		dashboard.wantFrames()
@@ -1728,7 +1728,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 		woken := func(over map[string]any) map[string]any {
 			row := map[string]any{
 				"last_op": "start", "last_op_at": apiAnyNumber, "last_op_ok": false,
-				"last_op_reason": "warden_unreachable: 喚醒 was recorded, but nothing has been dispatched yet — the machine's warden did not take the start. It will be retried; if it stays here, check that machine",
+				"last_op_reason": "warden_unreachable: Wake was recorded, but nothing has been dispatched yet — the machine's warden did not take the start. It will be retried; if it stays here, check that machine",
 			}
 			for k, v := range over {
 				row[k] = v
@@ -1975,7 +1975,7 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
 			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the runtime/model was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		})
 
 		status, data = apiJSON(t, h, "POST", "/api/members/runner/activate", owner, `{}`)
@@ -2131,7 +2131,7 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
-			"an outsource worker's codename is task-bound and cannot be renamed")
+			"an outsource member's codename is task-bound and cannot be renamed")
 	})
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {
@@ -2541,7 +2541,7 @@ func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
 		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
 			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the relocate was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		})
 
 		status, data = apiJSON(t, h, "POST", "/api/members/runner/activate", owner, `{}`)
@@ -2604,7 +2604,7 @@ func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
 		apiTestWantLastOp(t, h, owner, "mira", map[string]any{
 			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the relocate was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		})
 	})
 
@@ -3487,8 +3487,8 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 has nothing to escalate — this member was already force-stopped "+
-				"(強制停止): its session was cut off and no wind-down is open")
+			"Accelerated stop has nothing to escalate — this member was already force-stopped "+
+				"(Force stop): its session was cut off and no wind-down is open")
 		dashboard.wantFrames()
 		m, err := d.GetMember("kip")
 		if err != nil || m == nil {
@@ -3512,7 +3512,7 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 requires a live session — there is nothing to accelerate on a "+
+			"Accelerated stop requires a live session — there is nothing to accelerate on a "+
 				"member that is not connected")
 		dashboard.wantFrames()
 		m, err := d.GetMember("kip")
@@ -3534,8 +3534,8 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"加速停止 escalates a wind-down that is already open — this member has not "+
-				"been asked to stop. Press 停止 (deactivate) or 重新聚焦 (refocus) first")
+			"Accelerated stop escalates a wind-down that is already open — this member has not "+
+				"been asked to stop. Press Stop (deactivate) or Refocus first")
 		dashboard.wantFrames()
 		self.wantFrames()
 		m, err := d.GetMember("kip")
@@ -3628,7 +3628,7 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		}
 		apiWantError(t, data, "conflict",
 			"refocus requires the member to be online; this member is stopping or "+
-				"stopped — press 喚醒 to bring it back")
+				"stopped — press Wake to bring it back")
 		wsWantWardenFrames(t, api, "m-box")
 		dashboard.wantFrames()
 		apiTestWantEqual(t, "row after the refused refocus", apiTestMemberRow(t, d, "runner"), before)
@@ -3790,7 +3790,7 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		}
 		apiWantError(t, data, "conflict",
 			"refocus requires the member to be online; this member is stopping or "+
-				"stopped — press 喚醒 to bring it back")
+				"stopped — press Wake to bring it back")
 		dashboard.wantFrames()
 		apiTestWantEqual(t, "row after the refused refocus", apiTestMemberRow(t, d, "kip"), before)
 	})
@@ -3810,7 +3810,7 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		}
 		apiWantError(t, data, "conflict",
 			"refocus requires the member to be online; this member is stopping or "+
-				"stopped — press 喚醒 to bring it back")
+				"stopped — press Wake to bring it back")
 		dashboard.wantFrames()
 		self.wantFrames()
 		apiTestWantEqual(t, "row after the refused refocus", apiTestMemberRow(t, d, "kip"), before)
@@ -3835,8 +3835,8 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus is 停止 and this member is already further along the "+
-				"wind-down ladder (下線 → 加速 → 強制); a later stage is never "+
+			"refocus is a Stop and this member is already further along the "+
+				"wind-down ladder (Stop → Accelerated stop → Force stop); a later stage is never "+
 				"replaced by an earlier one")
 		dashboard.wantFrames()
 		m, err := d.GetMember("kip")
@@ -4994,7 +4994,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			// unreachable-warden receipt on the row.
 			receipt: map[string]any{
 				"last_op": "start", "at": apiAnyNumber,
-				"reason": "warden_unreachable: 喚醒 was recorded, but nothing has been " +
+				"reason": "warden_unreachable: Wake was recorded, but nothing has been " +
 					"dispatched yet — the machine's warden did not take the start. It will " +
 					"be retried; if it stays here, check that machine",
 			},
@@ -5126,7 +5126,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			},
 			receipt: map[string]any{
 				"last_op": "start", "at": apiAnyNumber,
-				"reason": "warden_unreachable: 喚醒 was recorded, but nothing has been " +
+				"reason": "warden_unreachable: Wake was recorded, but nothing has been " +
 					"dispatched yet — the machine's warden did not take the start. It will " +
 					"be retried; if it stays here, check that machine",
 			},
@@ -5702,8 +5702,8 @@ func TestHandleRestartSelfApiSelfRefocusPost(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"restart_self is 停止 and you are already further along the "+
-				"wind-down ladder (下線 → 加速 → 強制); finish the close-out you "+
+			"restart_self is a Stop and you are already further along the "+
+				"wind-down ladder (Stop → Accelerated stop → Force stop); finish the close-out you "+
 				"were given instead")
 		dashboard.wantFrames()
 		m, err := d.GetMember("kip")

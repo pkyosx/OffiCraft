@@ -1,40 +1,40 @@
-# 在手機上用
+# Use it on your phone
 
-這頁說明手機怎麼連上控制台、手機上能用哪些功能，以及推播通知。
+This page explains how your phone connects to the console, which features you can use on your phone, and push notifications.
 
-![手機上的請示頁](assets/cockpit-mobile-ask.png)
+![The Ask page on a phone](assets/cockpit-mobile-ask.png)
 
-![手機上的辦公室頁](assets/cockpit-mobile-office.png)
+![The Office page on a phone](assets/cockpit-mobile-office.png)
 
-## 讓手機連得到控制台
+## Letting your phone reach the console
 
-控制台**只接受裝 OffiCraft 的那台電腦本身的連線**，這一點不能改。要從手機連，對 Mira 說「**我想從這台電腦以外的地方連到控制台**」，Mira 會設定轉發工具，最後給你手機用的網址。
+The console **only accepts connections from the computer OffiCraft is installed on**, and this cannot be changed. To connect from your phone, tell Mira "**I want to reach the console from somewhere other than this computer**". Mira sets up a forwarding tool and gives you the address to use on your phone.
 
-- **開放之前一定要開啟兩步驟驗證。** 拿到網址的人都打得開登入頁；通行密鑰不能取代兩步驟驗證，有通行密鑰時仍然可以只用密碼登入。
-- **電腦關機或睡眠時，手機連不到控制台。**
+- **Turn on two-factor authentication before opening access.** Anyone who has the address can open the sign-in page. A passkey does not replace two-factor authentication: even with a passkey, you can still sign in with only the password.
+- **Your phone cannot reach the console while the computer is shut down or asleep.**
 
-## 在手機上登入
+## Signing in on your phone
 
-手機和電腦一樣用密碼與兩步驟驗證登入，也可以新增通行密鑰，改用 Face ID 或指紋登入。**通行密鑰要在手機上、用轉發後的網址新增**；在電腦上用 `localhost` 網址新增的通行密鑰，手機上不能用。
+On your phone you sign in the same way as on the computer, with your password and two-factor authentication. You can also add a passkey and sign in with Face ID or a fingerprint instead. **Add the passkey on your phone, using the forwarded address.** A passkey added on the computer through a `localhost` address does not work on your phone.
 
-## 主畫面與推播通知
+## Home screen and push notifications
 
-- **加到主畫面**：用 Safari 的「分享 › 加入主畫面」或 Chrome 選單的「加到主畫面」，之後控制台會像獨立 App 一樣全螢幕開啟。
-- **推播通知**：有新訊息或需要你決定的請示時，這台裝置會收到通知，點通知會回到對應的聊天室或請示頁。在頭像選單填好「通知信箱」，再點頂端的鈴鐺圖示開啟。
+- **Add to Home Screen**: use "Share › Add to Home Screen" in Safari or "Add to Home screen" in the Chrome menu. After that, the console opens full screen like a standalone app.
+- **Push notifications**: when there is a new message or an ask that needs your decision, this device gets a notification. Tapping the notification takes you back to the matching chat or the Ask page. Fill in "Notification email" in the Profile menu, then tap the bell icon at the top to turn notifications on.
 
-要注意：
+Keep in mind:
 
-- **iPhone、iPad 要先加到主畫面**，從主畫面打開控制台後才能開啟通知，系統也要是 iOS／iPadOS 16.4 以上。
-- 每台裝置要各自開啟一次。
-- 通知信箱會提供給瀏覽器廠商經營的推播服務，不會只留在你的伺服器上。
+- **On iPhone and iPad, add the console to the Home Screen first.** You can only turn on notifications after opening the console from the Home Screen, and the system must be iOS/iPadOS 16.4 or later.
+- Each device has to turn notifications on separately.
+- Your notification email is given to the push service run by your browser's maker; it does not stay only on your server.
 
-## 手機上的畫面
+## The phone layout
 
-手機和電腦的功能相同，只是一次只顯示一個區塊：「辦公室」先顯示成員名單，點成員進入聊天室；「請示」可以直接回覆請示卡；「任務」看每張任務的狀態、步驟和備註。
+The phone has the same features as the computer, but shows one area at a time: "Office" first shows the member list, and tapping a member opens its chat; "Ask" lets you answer reply cards directly; "Task" shows each task's status, steps, and notes.
 
-## 相關文件
+## Related pages
 
-- [保護你的工作室](security.md)
-- [交代工作與回覆請示卡](daily.md)
-- [追蹤任務進度](tasks.md)
-- [常見問題與排解](troubleshooting.md)
+- [Protect your studio](security.md)
+- [Assigning work and answering reply cards](daily.md)
+- [Tracking task progress](tasks.md)
+- [Troubleshooting and FAQ](troubleshooting.md)

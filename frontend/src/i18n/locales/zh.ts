@@ -314,8 +314,9 @@ export const zh = {
     outsource: "外包",
     unassigned: "未指派",
     adhoc: "自由代辦",
-    // 這些值必須逐字等於 server 出貨的內建任務類型名稱（assets.go）：
-    // taskTypeLabel 只在存的名稱仍是出貨原名時才換成目前語系的這一格。
+    // 這些值是內建任務類型早期出貨的中文原名（舊站台的資料仍存這個）；
+    // 現在 server 出貨的是 en.ts 那一格的英文名稱（assets.go）。taskTypeLabel
+    // 只在存的名稱仍是其中一個出貨原名時才換成目前語系的這一格。
     builtinTypeName: {
       roleDesign: "建立／修改角色",
       taskManualDesign: "建立／修改任務手冊",
@@ -1299,6 +1300,7 @@ export const zh = {
     language: "語言",
     langZh: "中文",
     langEn: "English",
+    languageSub: "成員對你使用的語言也跟著換（成員下次開機生效）。",
     pushContactEmail: "通知信箱",
     pushContactEmailSub: "填寫後才會送出通知。這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。",
     pushContactEmailPlaceholder: "name@company.com",
@@ -1788,7 +1790,7 @@ export const zh = {
     insightEmpty:
       "這個角色還沒有判準。",
     insightShared:
-      "所有成員都看得到這份判準；只有這個角色本人和管理員可以修改。",
+      "寫給這個角色自己的判斷原則。只有這個角色的成員開機時會讀，其他成員預設不會讀。",
     insightSaveError: "儲存判準失敗",
     // ── 回呼端點 · WEBHOOK（M4）──
     webhook: {
@@ -1964,7 +1966,7 @@ export const zh = {
       answeredCardSteps: "卡在已回答卡上的步驟（請先讀卡，不代表已完成）",
       // T-91 — 開機快照任務列新增的反向相依標籤。轉派中那一格刻意不另開 key：
       // 座艙已經有 tasks.lockReassigning，這裡直接沿用，不要造一個會跟它走岔的同義詞。
-      blockingLabel: "正在等這張的票：",
+      blockingLabel: "正在等這個任務的任務：",
       // 抬頭:這份快照是什麼時候拍的。它是把底下每一個 ts_display 讀成
       // 「多久以前」的唯一錨點——讀的人(不論是 agent 還是 owner)沒有
       // 一個可信的時鐘可以拿來對。
@@ -2426,8 +2428,8 @@ export const zh = {
     // 全域情境 (T-a241) — 事件程序文件那一區從「角色誌」抽出來，成為〈設定〉底下
     // 自己一塊，排在「系統更新與備份」與「角色誌」之間。角色誌只剩角色定義。
     globalContext: "全域情境",
-    roles: "角色誌",
-    params: "參數調整",
+    roles: "角色",
+    params: "一般設定",
     // ── 主題管理 (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "主題",
     themeTabAppearance: "外觀",
@@ -2545,19 +2547,27 @@ export const zh = {
     updateAvailable: "有可用的新版本",
     upgrade: "升級到最新版",
     catalogHash: "MCP 目錄雜湊",
+    developerMode: "開發者模式",
+    developerModeSub: "打開後可以修改全域情境裡的開機文件。使用者語言與使用者自訂隨時都能修改。",
     // ── 角色誌 ──
     // 十份文件依 owner 的讀法分三組（定稿 2026-08-24）：上線 → 下線 → 任務事件。
-    // 「只顯示不給改」那一組不見了——分組是版面上的分群，不是「能不能改」的
-    // 真相來源（那是 server 的答案）。上線這組依 boot context 的組裝順序排：
-    // 系統互動 → 使用者自訂 → 啟動步驟（啟動步驟那一列開的是 claude / codex
-    // 兩份文件的索引）。
+    // 分組是版面上的分群，不是「能不能改」的真相來源（那是 server 的答案）。
+    // 使用者自訂單獨排在最上面，不在任何一組裡。上線這組依 boot context 的
+    // 組裝順序排：系統互動 → 啟動步驟（那一列開的是 claude / codex 兩份文件的索引）。
     // UI 不露檔名。
     globalSection: "上線（BOOT）",
     systemName: "系統互動",
-    systemSub: "每位成員開機時都會讀到的系統運作說明 · 可編輯",
+    systemSub: "每位成員開機時都會讀到的系統運作說明",
     customName: "使用者自訂",
     customSub: "每位成員開機時都會讀到的自訂內容 · 可編輯",
-    roleDefsSection: "角色定義",
+    bootDocEditableSuffix: " · 可編輯",
+    dutyHeading: "職責（Duty）",
+    dutyNote:
+      "其他成員看這段，判斷什麼事要找這個角色；會出現在每位成員開機看到的名冊上。",
+    userLanguageName: "使用者語言",
+    userLanguageSub: "成員跟你說話用的語言 · 沒改過時跟著顯示語言",
+    termGlossaryName: "名詞對照表",
+    termGlossarySub: "功能的英文與中文名稱對照 · 隨版本更新，不能編輯",
     // 兩份**不同**的文件，分別開自己的頁：只有 Codex 那一份要求成員在開機
     // 那一輪結束時把控制權交回旁邊的程序，兩份不能互換，
     // 所以清單上不併成一列、詳情頁也不並排。
@@ -2565,37 +2575,33 @@ export const zh = {
     // and its history list — the row no longer names a runtime because you
     // pick one after you are inside.
     bootName: "啟動步驟",
-    bootSub: "AI 開機時照著做的步驟 · 兩種執行環境各一份 · 可編輯",
+    bootSub: "AI 開機時照著做的步驟 · 兩種執行環境各一份",
     bootRuntimeClaude: "一般",
     bootRuntimeCodex: "Codex",
     bootClaudeName: "啟動步驟（Claude Code）",
-    bootClaudeSub: "Claude Code 執行環境的開機 SOP · 可編輯",
+    bootClaudeSub: "Claude Code 執行環境的開機 SOP",
     bootCodexName: "啟動步驟（Codex CLI）",
-    bootCodexSub: "Codex App Server 執行環境的開機 SOP · 可編輯",
+    bootCodexSub: "Codex App Server 執行環境的開機 SOP",
     // 〈停止〉（T-c9c0）——不進開機情境，是 server 要收掉這個 session 時
     // 夾帶給 agent 的收尾指示，所以在清單上自成一列，排在啟動步驟之後。
     offboardName: "停止",
-    offboardSub: "成員被停止時會收到的收尾指示 · 可編輯",
+    offboardSub: "成員被停止時會收到的收尾指示",
     // ── T-3201：其餘六份生命週期文件 ──
     // 分組標題。上線那組沿用既有的 globalSection；下線、任務是另外兩組。
     stopSection: "下線（STOP）",
     taskEventSection: "任務事件（TASK）",
     acceleratedStopName: "加速停止",
-    acceleratedStopSub: "被要求提前收工時給 agent 的指示 · 有截止時間 · 可編輯",
+    acceleratedStopSub: "被要求提前收工時給 agent 的指示 · 有截止時間",
     taskCloseoutName: "任務結案",
-    taskCloseoutSub: "任務被判定結束時給 agent 的收尾指示 · 可編輯",
+    taskCloseoutSub: "任務被判定結束時給 agent 的收尾指示",
     taskReassignPredecessorName: "任務轉派 · 給前任",
-    taskReassignPredecessorSub: "手上的任務被轉給別人時給 agent 的交接指示 · 可編輯",
+    taskReassignPredecessorSub: "手上的任務被轉給別人時給 agent 的交接指示",
     taskTakeoverWithPredecessorName: "任務轉派 · 給接手人",
-    taskTakeoverWithPredecessorSub: "接手任務時給 agent 的指示（有沒有前任都用這份）· 可編輯",
-    taskUnblockedName: "擋著你手上任務的票解開了",
-    taskUnblockedSub: "依賴的任務放行時給 agent 的通知 · 可編輯",
+    taskTakeoverWithPredecessorSub: "接手任務時給 agent 的指示（有沒有前任都用這份）",
+    taskUnblockedName: "擋住你任務的任務已解開",
+    taskUnblockedSub: "依賴的任務放行時給 agent 的通知",
     taskReadyForDoneName: "你手上的任務可以結案了",
-    taskReadyForDoneSub: "任務每次進到可結案時給 agent 的通知 · 可編輯",
-    // 唯讀文件的說明：說「這份是什麼」，不說「你沒有權限」——沒有任何人可以改，
-    // 講權限會讓人去找一個根本不存在的角色來授權。
-    bootDocReadOnlyNote:
-      "這份文件顯示在這裡，是為了讓你看得到 agent 到底被告知了什麼；它不給任何人編輯，也沒有預設內容以外的版本。",
+    taskReadyForDoneSub: "任務每次進到可結案時給 agent 的通知",
     bootDocSaveConfirmAcceleratedStop:
       "要儲存這份加速停止程序嗎？之後每一個被要求提前收工的 agent 都會讀到這份內容，而且是在只剩下一小段時間的情況下讀——寫得完才算數。",
     bootDocSaveConfirmTaskEvent:
@@ -2604,6 +2610,8 @@ export const zh = {
     bootDocNoteHistoryLead: "版本紀錄只保留最近 ",
     bootDocNoteHistoryTail:
       " 版，而且是以「存檔次數」計、不是以時間計——連按幾次小修就會把較舊的版本沖掉。「同步預設內容」不受影響，永遠在。",
+    bootDocSaveConfirmUserLanguage:
+      "要儲存這份使用者語言文件嗎？之後開機的每一位成員都會讀到這份內容。",
     bootDocSaveConfirmBoot:
       "要儲存這份啟動步驟嗎？寫壞會讓之後開機的成員無法上線，而且不會有任何錯誤訊息。存檔前請確認看過預覽；出事就到版本紀錄打開「預設內容」，按「同步預設內容」。",
     bootDocSaveConfirmSystem:
@@ -2616,6 +2624,7 @@ export const zh = {
     docExpand: "展開這份文件",
     docCollapse: "收合這份文件",
     historyBootSystemTitle: "系統互動的版本紀錄",
+    historyUserLanguageTitle: "使用者語言的版本紀錄",
     historyBootClaudeTitle: "啟動步驟（Claude Code）的版本紀錄",
     historyBootCodexTitle: "啟動步驟（Codex CLI）的版本紀錄",
     historyBootOffboardTitle: "停止的版本紀錄",
@@ -2625,7 +2634,7 @@ export const zh = {
     historyTaskTakeoverWithPredecessorTitle: "任務轉派 · 給接手人的版本紀錄",
     // T-6f44：這份**不再是唯讀的**（owner 的決定 2），所以它跟其他文件
     // 一樣真的會有版本紀錄。
-    historyTaskUnblockedTitle: "擋著你手上任務的票解開了的版本紀錄",
+    historyTaskUnblockedTitle: "擋住你任務的任務已解開的版本紀錄",
     historyTaskReadyForDoneTitle: "你手上的任務可以結案了的版本紀錄",
     // Keep the legacy key in the theme whitelist for saved packs; current cards
     // use the explicit factory-status keys below.
@@ -2710,7 +2719,7 @@ export const zh = {
     // 一頁上同時放著兩份可編輯長文時（角色誌＝角色定義＋判準），標題只寫
     // 「版本紀錄」看不出管的是哪一份——卡片得自己講清楚。owner 2026-07-31 實際
     // 在畫面上踩到這件事。
-    historyRoleDefTitle: "角色定義的版本紀錄",
+    historyRoleDefTitle: "職責的版本紀錄",
     historyInsightTitle: "判準(Insight)的版本紀錄",
     historyGlobalTitle: "全域情境的版本紀錄",
     // 任務定義頁：purpose／識別鍵已經不再留版本，卡片得說清楚它只代表 SOP。
@@ -2722,7 +2731,7 @@ export const zh = {
     historyField: {
       text: "內容",
       name: "名稱",
-      definition_md: "角色定義",
+      definition_md: "職責",
       purpose: "用途",
       fields: "欄位",
       sop_md: "SOP",
@@ -2732,9 +2741,9 @@ export const zh = {
     // doc filenames
     // Honest load-failure notice — shown when the role/global-context fetch
     // REJECTED, so a failed load never reads as "no roles defined".
-    loadError: "載入角色定義失敗，請稍後重試",
+    loadError: "載入設定失敗，請稍後重試",
     // ── 角色定義：新增／刪除（M2-2）──
-    addRole: "新增角色定義",
+    addRole: "新增角色",
     addRoleName: "角色名",
     renameRole: "重新命名角色",
     addRoleSubmit: "建立",
@@ -2744,13 +2753,13 @@ export const zh = {
     deleteRole: "刪除",
     deleteRoleConfirmLead: "確定刪除角色「",
     deleteRoleConfirmTail:
-      "」？該角色的正職成員會標記為已離開，聊天紀錄保留為唯讀歷史；角色定義與 Insight 會永久刪除，無法復原。",
+      "」？該角色的正職成員會標記為已離開，聊天紀錄保留為唯讀歷史；職責與 Insight 會永久刪除，無法復原。",
     deleteRoleConfirmAction: "確認刪除",
     deleteRoleOnline: "有成員在線上，無法刪除",
     deleteRoleError: "刪除失敗，請稍後重試",
     // ── 參數調整(伺服器參數;原本住在頭像選單的偏好設定,owner 2026-07-12
     // 搬到設定頁,讓參數集中一處。文案沿用搬家前的 profile.* 白話命名)──
-    paramsLoadError: "載入參數失敗，請稍後重試",
+    paramsLoadError: "載入設定失敗，請稍後重試",
     paramsSaveError: "沒存成，請再試一次",
     sessionTtl: "登入有效期",
     sessionTtlSub: "登入後多久需要重新輸入密碼",
@@ -2794,15 +2803,15 @@ export const zh = {
     rounds: "次",
     // T-ae38 起(T-30f1 又拆過一次):上限不再是一個。這些文件被刪掉的成本差很多
     // ——角色定義是常設說明、判準是逐次累積的權衡——所以不再共用同一把尺。
-    docCapDuty: "角色定義字數上限",
+    docCapDuty: "職責字數上限",
     docCapDutySub:
-      "一個角色的角色定義最多幾個字（100–100000）。調低不會截斷已存的內容，只影響之後的儲存。",
+      "一個角色的職責最多幾個字（100–250000）。調低不會截斷已存的內容，只影響之後的儲存。",
     docCapInsight: "Insight 字數上限",
     docCapInsightSub:
-      "一個角色的判準最多幾個字（100–100000）。調低不會截斷已存的內容，只影響之後的儲存。",
+      "一個角色的判準最多幾個字（100–250000）。調低不會截斷已存的內容，只影響之後的儲存。",
     docCapManualSop: "任務手冊 SOP 字數上限",
     docCapManualSopSub:
-      "任務手冊 SOP 最多幾個字（100–100000）。調低不會截斷已存的內容，只影響之後的儲存。",
+      "任務手冊 SOP 最多幾個字（100–250000）。調低不會截斷已存的內容，只影響之後的儲存。",
     // T-c9b4:喚醒快照的聊天區塊預算。刻意不跟上面那幾格共用一段說明——兩個方向
     // 都能調這件事現在兩邊一樣(owner 2026-09-07 把那幾格的下限一律改成 100),
     // 但上下限的數字不同,而且那幾格管的是存起來的文件、這一格管的是每次重新
@@ -2897,8 +2906,8 @@ export const zh = {
     // 不對使用者顯示內部檔名 — 手冊是內容，不是檔案）──
     manuals: "任務手冊",
     manualsLoadError: "載入任務手冊失敗，請稍後重試",
-    manualsEmpty: "還沒有任務類型 — 從下方新增第一個",
-    addManual: "新增類型",
+    manualsEmpty: "還沒有任務手冊 — 從下方新增第一個",
+    addManual: "新增任務手冊",
     addManualName: "顯示名稱（例：審查 PR）",
     addManualSubmit: "建立",
     addManualCancel: "取消",

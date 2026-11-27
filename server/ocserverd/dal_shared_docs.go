@@ -160,7 +160,7 @@ func sharedDocInTx(tx *writeTx, id string) (*SharedDoc, error) {
 }
 
 func sharedDocNotFound(id string) string {
-	return "shared doc '" + id + "' not found"
+	return "file '" + id + "' not found"
 }
 
 func retainSharedDocVersion(tx *writeTx, current SharedDoc) error {
@@ -272,7 +272,7 @@ func (d *DAL) RestoreSharedDocVersion(docID string, versionID int64, actor strin
 }
 
 func sharedDocVersionNotFound(docID string, versionID int64) string {
-	return "version " + strconv.FormatInt(versionID, 10) + " is not a retained version of shared doc '" + docID + "'"
+	return "version " + strconv.FormatInt(versionID, 10) + " is not a retained version of file '" + docID + "'"
 }
 
 func trimSharedDocHistory(tx *writeTx, docID string) error {

@@ -757,6 +757,7 @@ const documentHistoryKeepDefault = 3
 // event procedures; every other kind stays at the default on purpose.
 var documentHistoryKeepByKind = map[string]int{
 	docKindSystemInteraction:           10,
+	docKindUserLanguage:                10,
 	docKindBootSequence:                10,
 	docKindOffboard:                    10,
 	docKindAcceleratedStop:             10,

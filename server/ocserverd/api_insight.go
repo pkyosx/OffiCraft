@@ -57,7 +57,7 @@ func (s *apiServer) insightWriteAuthz(w http.ResponseWriter, r *http.Request, ro
 	}
 	if memberRole != roleKey {
 		writeError(w, http.StatusForbidden,
-			"an agent may only write its own role's insight")
+			"a member may only write its own role's Insight")
 		return false
 	}
 	return true

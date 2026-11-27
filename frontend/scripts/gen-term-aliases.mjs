@@ -1,0 +1,87 @@
+#!/usr/bin/env node
+// Resolves src/i18n/termAliases.ts against the zh/en dictionaries and writes
+// the glossary members read after their User Language document (an opening
+// line, then one row per concept):
+//
+//   * seeds/term_glossary.md — the term_glossary boot document, read-only on
+//     every station, so a release is the only way its text changes.
+//   * spec/term-aliases.json — the same rows, read by the conformance suite.
+//
+// Fails on a key that is not a string leaf in both locales, or a `foundIn` name
+// that its key's label does not contain. Pinned by `make drift-term-aliases`.
+//
+// Run: `npm run gen:termaliases` (or `node scripts/gen-term-aliases.mjs`).
+
+import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import * as esbuild from "esbuild";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(HERE, "..", "..");
+const I18N = join(ROOT, "frontend", "src", "i18n");
+const GLOSSARY_OUT = join(ROOT, "seeds", "term_glossary.md");
+const JSON_OUT = join(ROOT, "spec", "term-aliases.json");
+
+const tmpDir = mkdtempSync(join(tmpdir(), "gentermaliases-"));
+
+function fail(msg) {
+  console.error(`[gen-term-aliases] ${msg} — aborting`);
+  process.exit(1);
+}
+
+async function loadExport(tsPath, exportName) {
+  const { code } = await esbuild.transform(readFileSync(tsPath, "utf8"), {
+    loader: "ts",
+    format: "esm",
+  });
+  const tmpFile = join(tmpDir, `${exportName}.mjs`);
+  writeFileSync(tmpFile, code);
+  const value = (await import(pathToFileURL(tmpFile).href))[exportName];
+  if (!value || typeof value !== "object") fail(`${tsPath} did not export \`${exportName}\``);
+  return value;
+}
+
+const zh = await loadExport(join(I18N, "locales", "zh.ts"), "zh");
+const en = await loadExport(join(I18N, "locales", "en.ts"), "en");
+const concepts = await loadExport(join(I18N, "termAliases.ts"), "TERM_ALIASES");
+
+function leaf(dict, lang, key) {
+  const value = key.split(".").reduce((node, part) => (node && typeof node === "object" ? node[part] : undefined), dict);
+  if (typeof value !== "string" || value.trim() === "") fail(`"${key}" is not a string label in ${lang}.ts`);
+  return value;
+}
+
+function resolve(name) {
+  if (typeof name === "string") return { zh: leaf(zh, "zh", name), en: leaf(en, "en", name) };
+  const { zh: zhName, en: enName, foundIn } = name;
+  if (!leaf(zh, "zh", foundIn).includes(zhName)) fail(`zh "${foundIn}" does not contain "${zhName}"`);
+  if (!leaf(en, "en", foundIn).toLowerCase().includes(enName.toLowerCase())) {
+    fail(`en "${foundIn}" does not contain "${enName}"`);
+  }
+  return { zh: zhName, en: enName };
+}
+
+function cell(names) {
+  const joined = [...new Set(names)].join("／");
+  if (/[|\n]/.test(joined)) fail(`"${joined}" cannot sit in a Markdown table cell`);
+  return joined;
+}
+
+if (!Array.isArray(concepts) || concepts.length === 0) fail("TERM_ALIASES is empty");
+const rows = concepts.map((names) => {
+  if (!Array.isArray(names) || names.length === 0) fail("a TERM_ALIASES concept has no names");
+  const resolved = names.map(resolve);
+  return { zh: cell(resolved.map((r) => r.zh)), en: cell(resolved.map((r) => r.en)) };
+});
+
+const glossary =
+  "If the user writes one of the Chinese screen names in this table, it means the English term in the same row.\n\n" +
+  "| English (this document) | Chinese on screen |\n| --- | --- |" +
+  rows.map((r) => `\n| ${r.en} | ${r.zh} |`).join("") +
+  "\n";
+
+writeFileSync(GLOSSARY_OUT, glossary);
+writeFileSync(JSON_OUT, JSON.stringify(rows, null, 2) + "\n");
+console.log(`[gen-term-aliases] wrote ${rows.length} rows →\n  ${GLOSSARY_OUT}\n  ${JSON_OUT}`);

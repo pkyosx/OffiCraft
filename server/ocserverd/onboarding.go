@@ -381,7 +381,63 @@ func (s *apiServer) wakeAssistantStep(
 		Name: onboardingStepWakeAssistant, OK: true,
 		Reason: "the assistant is waking on this machine",
 	})
+	s.sendOnboardingLanguagePrompt()
 	return s.finishOnboarding(report, steps)
+}
+
+// settingOnboardingLanguagePrompt records that the language prompt went out,
+// so a second onboarding run (or a restart) never sends it again.
+const settingOnboardingLanguagePrompt = "onboarding.language_prompt_sent"
+
+// English because the station has no language yet and English is the default
+// wording; the card itself is bilingual.
+const onboardingLanguagePromptBody = "This station has just been set up, and the owner has not chosen a display language yet. Please do these three things, in order:\n" +
+	"1. Greet the owner in chat, in both Chinese and English.\n" +
+	"2. Then open a decision reply card asking which language the owner wants to use. Write the card in both Chinese and English, with exactly two options: \"中文\" and \"English\".\n" +
+	"3. When the owner answers, set the display language with update_settings: display_language \"zh\" for 中文, \"en\" for English."
+
+// sendOnboardingLanguagePrompt: the check, the message and the sent marker
+// commit in one transaction, so two runs cannot both send and a crash cannot
+// leave a sent message unmarked.
+func (s *apiServer) sendOnboardingLanguagePrompt() {
+	recipient, err := s.resolveChatRecipient(seedMiraID)
+	if err != nil {
+		onboardingLog("language prompt not sent — no assistant to receive it: %v", err)
+		return
+	}
+	msg := ChatMessage{
+		ID:        "c-" + newHexID(12),
+		Sender:    wireSystemSender,
+		Recipient: recipient,
+		Body:      onboardingLanguagePromptBody,
+		TS:        nowSecs(),
+	}
+	sent := false
+	if err := s.dal.inTx(func(tx *writeTx) error {
+		if marker, err := getSettingOn(tx, settingOnboardingLanguagePrompt); err != nil || marker != nil {
+			return err
+		}
+		if lang, err := getSettingOn(tx, settingDisplayLanguage); err != nil || (lang != nil && strings.TrimSpace(*lang) != "") {
+			return err
+		}
+		if err := putChatOn(tx, msg); err != nil {
+			return err
+		}
+		if err := putSettingOn(tx, settingOnboardingLanguagePrompt, strconv.FormatFloat(msg.TS, 'f', -1, 64)); err != nil {
+			return err
+		}
+		sent = true
+		return nil
+	}); err != nil {
+		onboardingLog("could not send the language prompt: %v", err)
+		return
+	}
+	if !sent {
+		return
+	}
+	s.hub.Publish("chat", "patch", "chat", wireOwnerID+"::"+msg.ID,
+		map[string]any{"id": msg.ID, "from": msg.Sender, "to": msg.Recipient},
+		audienceMembers(msg.Sender, msg.Recipient), triggerServer)
 }
 
 func (s *apiServer) finishOnboarding(report onboardingReportDTO, steps []onboardingStepDTO) onboardingReportDTO {
@@ -421,7 +477,7 @@ func (s *apiServer) recoverStaleOnboarding() {
 		Code: onboardingCodeInterrupted,
 		Reason: "automatic first-run setup was interrupted (the server restarted " +
 			"while it was still running), so it did not finish. Install this " +
-			"machine from 監控 › 機器 › 「安裝」, then bring the assistant online.",
+			"machine from Monitor › Machines › Install, then bring the assistant online.",
 	})
 	report.State = onboardingStateFailed
 	report.FinishedAt = nowSecs()

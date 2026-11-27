@@ -132,12 +132,12 @@ func TestAcceleratedStopDoc_HeadPlusBodyIsTodaysFinalNotice(t *testing.T) {
 	got := mustRender(t, spec, head,
 		map[string]string{"deadline": deadline}) + spec.Join + body
 
-	// 🔴 ONE SENTENCE, IN CHINESE, AND NO `Your deadline is` (T-6f44). {where}
+	// 🔴 ONE SENTENCE, AND NO `Your deadline is` wrapper (T-6f44). {where}
 	// went the way of 〈停止〉's; the English wrapper went with it. The deadline
 	// stays because it is the one fact the body cannot state — and the body no
 	// longer SNIFFS this line to decide hard-vs-soft, which is the change that
 	// had to land before this sentence could be touched at all.
-	want := "你的結束時刻是 " + deadline + "。\n" + body
+	want := "Your end time is " + deadline + ".\n" + body
 	if got != want {
 		t.Fatalf("the folded document is not today's final offboard notice:\n got %q\nwant %q", got, want)
 	}
@@ -203,8 +203,8 @@ func TestAcceleratedStopDoc_ShipsTheSameBodyAsTheOffboardDoc(t *testing.T) {
 	// outright which one it is, so identical bodies are now the BUG. Each is
 	// therefore pinned to its own sentence, here, in one place.
 	for _, probe := range []struct{ body, want, reject string }{
-		{offboardBody, "**一般停止指令**", "**加速停止指令**"},
-		{acceleratedBody, "**加速停止指令**", "**一般停止指令**"},
+		{offboardBody, "**regular stop order**", "**accelerated stop order**"},
+		{acceleratedBody, "**accelerated stop order**", "**regular stop order**"},
 	} {
 		if !strings.Contains(probe.body, probe.want) {
 			t.Errorf("this body no longer says which notice it is (%q missing):\n%s", probe.want, probe.body)
@@ -236,7 +236,7 @@ func TestTaskReassignPredecessorDoc_HeadPlusBodyIsTodaysChatNotice(t *testing.T)
 	// The chat notice plus the seed FILE's trailing newline — a document is a
 	// file and ends with one, a chat row is one message, so the send site trims
 	// what it posts the way buildBootContext trims every block it staples.
-	want := "[T-7e91] 此任務已轉派給新的接手人。\n\n" + "你收到這份說明，代表目前的任務需要交接給其他執行者。請停止推進並完成必要收尾，確保接手人能從遠端取得目前成果與完整脈絡：\n\n* 保存成果：將需要保留的 git commit 推送到 remote，需要保留的檔案以 `ocagent upload` 上傳後，把附件 id 寫進步驟備註，不要留下只有本機能取得的成果。\n* 寫入交接資訊：將目前進度、進行中的事項、需要注意的風險與下一步寫進任務的步驟備註；接手人認領之前都可以補寫，認領之後就無法再寫入。轉派前開出的 Reply Card 已自動過期；若仍有等待 Owner 決策或操作的事項，寫進步驟備註，由接手人認領後重新開卡。交接期間不要再開綁定這張任務的 Reply Card。\n* 處理 sub-agent：若有正在執行的 sub-agent，要求其收尾並將結果寫回對應 task step。\n\n完成以上事項後即完成交接。若接手人已在線上並主動聯繫，再補充確認；否則不需要等待或主動尋找接手人。" + "\n"
+	want := "[T-7e91] This task has been reassigned to a new assignee.\n\n" + "Receiving these instructions means the current task needs to be handed over to another executor. Stop moving it forward and complete the necessary wrap-up, so the new assignee can get the current results and the full context remotely:\n\n* Preserve results: push the git commits that need to be kept to the remote; upload the files that need to be kept with `ocagent upload` and write the attachment ids into the step notes. Do not leave results that only this machine can reach.\n* Write the handover: write the current progress, in-flight items, risks to watch, and next steps into the task's step notes; you can keep adding to them until the new assignee claims the task, after which they can no longer be written. Reply cards opened before the reassignment have expired automatically; if anything is still waiting on an Owner decision or action, write it into the step notes, and the new assignee will open a new card after claiming. During the handover, do not open any more reply cards bound to this task.\n* Handle sub-agents: if any sub-agent is running, ask it to wrap up and write its results back to the corresponding task step.\n\nOnce the above is done, the handover is complete. If the new assignee is online and reaches out, confirm any details then; otherwise there is no need to wait for or go looking for the new assignee." + "\n"
 	if got != want {
 		t.Fatalf("the folded document is not today's reassign notice:\n got %q\nwant %q", got, want)
 	}
@@ -273,7 +273,7 @@ func TestTaskUnblockedDoc_HeadIsTheBlockedTicketAloneAndTheBodyIsTheApprovedRewr
 	spec, head, body := splitSeed(t, s, docKindTaskUnblocked)
 
 	gotHead := mustRender(t, spec, head, map[string]string{"blocked_task_no": "T-0002"})
-	wantHead := "[T-0002] 擋著這張任務的前置任務已經結束，它不再擋著你。"
+	wantHead := "[T-0002] The prerequisite task that was blocking this task has finished; it no longer blocks you."
 	if gotHead != wantHead {
 		t.Fatalf("the read-only head is not the approved sentence:\n got %q\nwant %q", gotHead, wantHead)
 	}
@@ -286,9 +286,9 @@ func TestTaskUnblockedDoc_HeadIsTheBlockedTicketAloneAndTheBodyIsTheApprovedRewr
 		}
 	}
 
-	wantBody := "- **還沒開始**：請 get_task 讀內容、submit_plan 規劃步驟後開始執行。\n" +
-		"- **已經在進行中**：接著推進，不必重新規劃。\n" +
-		"- **優先權是凍結**：先問清楚為什麼被凍結，等能解凍的人解開再動。\n"
+	wantBody := "- **Not started yet**: read it with get_task, plan the steps with submit_plan, then start executing.\n" +
+		"- **Already in progress**: keep moving it forward; there is no need to re-plan.\n" +
+		"- **Priority is frozen**: first find out why it was frozen, and wait until someone who can unfreeze it does so before you act.\n"
 	if body != wantBody {
 		t.Fatalf("the body is not the approved three-branch rewrite:\n got %q\nwant %q", body, wantBody)
 	}
@@ -433,6 +433,15 @@ func TestEventNoticeText_SendsTheBodyTheOwnerEditedAndNotTheShippedSeed(t *testi
 			if strings.Contains(got, strings.TrimSpace(seedBody)) {
 				t.Fatalf("the shipped body is still in what was sent — the send site "+
 					"is reading the seed, not the fold:\n%s", got)
+			}
+
+			if err := s.dal.PutBootDocument(BootDocument{
+				Kind: spec.Kind, Key: spec.Key, Text: head + "\n\n" + docBodyLegacyMarker + "\n\n" + ownerBody,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if got := tc.send(s); got != want {
+				t.Fatalf("an edit stored with the Chinese marker of earlier seeds was not sent the same way:\n got %q\nwant %q", got, want)
 			}
 		})
 	}
@@ -684,12 +693,12 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 		// off the ticket (lock + reassigned_from), and the boot sequence's 轉派任務
 		// rule finds it at 開機盤點 for a successor that never receives this
 		// message — the outsource arm never does, because no worker id exists yet.
-		want: "[T-7e91] 你接手了這張任務，你的前任是 銀月（mira）。\n\n" +
-			"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
-			"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
-			"* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
-			"* **認領前只能讀**：呼叫 `claim_task` 之前，你只能讀取這張任務；前任在你認領前仍可寫入交接資訊。\n" +
-			"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。轉派前開出的 Reply Card 已自動過期，交接資訊中仍需要 Owner 決定的事項，由你重新開卡。\n",
+		want: "[T-7e91] You are taking over this task; your predecessor is 銀月（mira）.\n\n" +
+			"Receiving these instructions means there is a task you need to take over. Complete the following preparation, then claim it and start executing:\n\n" +
+			"* **Read the task**: use `get_task` to read the task; if it already has steps, also check the DoD of the current step, and use `get_task_step` to read the full note of every step whose `note_size_chars` is not 0. If you have not read the corresponding task manual yet, read it with `get_task_manual`.\n" +
+			"* **Confirm the handover**: if there is a `reassigned_from`, first read the `handover_note`, then use `post_chat` to confirm the current progress and in-flight items with your predecessor. Wait at most 5 minutes; if the predecessor is offline, unreachable, or has not replied in time, continue the takeover directly from the handover information on the task — do not stop here and wait.\n" +
+			"* **Read-only before claiming**: before you call `claim_task`, you may only read this task; your predecessor can still write handover information until you claim it.\n" +
+			"* **Claim and execute**: once preparation is done, call `claim_task` to claim the task, then continue planning or executing according to the task's current state. Reply cards opened before the reassignment have expired automatically; for items in the handover information that still need an Owner decision, open a new card yourself.\n",
 	}} {
 		t.Run(tc.kind, func(t *testing.T) {
 			s := newEventProcServer(t)
@@ -717,21 +726,21 @@ func TestTaskTakeoverDocs_HeadPlusBodyIsTodaysChatNoticeWithoutTheHandoverNote(t
 
 	t.Run("a staff successor with no predecessor gets the same body under a head that names none", func(t *testing.T) {
 		s := newEventProcServer(t)
-		want := "[T-7e91] 你接手了這張任務，這張任務沒有前任。\n\n" +
-			"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
-			"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
-			"* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
-			"* **認領前只能讀**：呼叫 `claim_task` 之前，你只能讀取這張任務；前任在你認領前仍可寫入交接資訊。\n" +
-			"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。轉派前開出的 Reply Card 已自動過期，交接資訊中仍需要 Owner 決定的事項，由你重新開卡。"
+		want := "[T-7e91] You are taking over this task; it has no predecessor.\n\n" +
+			"Receiving these instructions means there is a task you need to take over. Complete the following preparation, then claim it and start executing:\n\n" +
+			"* **Read the task**: use `get_task` to read the task; if it already has steps, also check the DoD of the current step, and use `get_task_step` to read the full note of every step whose `note_size_chars` is not 0. If you have not read the corresponding task manual yet, read it with `get_task_manual`.\n" +
+			"* **Confirm the handover**: if there is a `reassigned_from`, first read the `handover_note`, then use `post_chat` to confirm the current progress and in-flight items with your predecessor. Wait at most 5 minutes; if the predecessor is offline, unreachable, or has not replied in time, continue the takeover directly from the handover information on the task — do not stop here and wait.\n" +
+			"* **Read-only before claiming**: before you call `claim_task`, you may only read this task; your predecessor can still write handover information until you claim it.\n" +
+			"* **Claim and execute**: once preparation is done, call `claim_task` to claim the task, then continue planning or executing according to the task's current state. Reply cards opened before the reassignment have expired automatically; for items in the handover information that still need an Owner decision, open a new card yourself."
 		if got := s.takeoverNoticeText("T-7e91", ""); got != want {
 			t.Fatalf("notice without a predecessor:\n got %q\nwant %q", got, want)
 		}
-		wantWithPredecessor := "[T-7e91] 你接手了這張任務，你的前任是 銀月（mira）。\n\n" +
-			"你收到這份說明，代表有一張任務需要由你接手。完成以下準備後，認領並開始執行：\n\n" +
-			"* **讀取任務**：使用 `get_task` 讀取任務內容；已有步驟時，一併確認目前步驟的 DoD，並對 `note_size_chars` 非 0 的步驟使用 `get_task_step` 讀取完整備註。若尚未讀過對應的任務手冊，使用 `get_task_manual` 讀取。\n" +
-			"* **確認交接**：若有 `reassigned_from`，先讀取 `handover_note`，再使用 `post_chat` 向前任確認目前進度與進行中的事項。最多等待 5 分鐘；前任已離線、無法聯繫或逾時未回覆時，直接以任務上的交接資訊繼續接手，不要停在這裡等待。\n" +
-			"* **認領前只能讀**：呼叫 `claim_task` 之前，你只能讀取這張任務；前任在你認領前仍可寫入交接資訊。\n" +
-			"* **認領並執行**：完成準備後，呼叫 `claim_task` 認領任務，再依任務目前狀態繼續規劃或執行。轉派前開出的 Reply Card 已自動過期，交接資訊中仍需要 Owner 決定的事項，由你重新開卡。"
+		wantWithPredecessor := "[T-7e91] You are taking over this task; your predecessor is 銀月（mira）.\n\n" +
+			"Receiving these instructions means there is a task you need to take over. Complete the following preparation, then claim it and start executing:\n\n" +
+			"* **Read the task**: use `get_task` to read the task; if it already has steps, also check the DoD of the current step, and use `get_task_step` to read the full note of every step whose `note_size_chars` is not 0. If you have not read the corresponding task manual yet, read it with `get_task_manual`.\n" +
+			"* **Confirm the handover**: if there is a `reassigned_from`, first read the `handover_note`, then use `post_chat` to confirm the current progress and in-flight items with your predecessor. Wait at most 5 minutes; if the predecessor is offline, unreachable, or has not replied in time, continue the takeover directly from the handover information on the task — do not stop here and wait.\n" +
+			"* **Read-only before claiming**: before you call `claim_task`, you may only read this task; your predecessor can still write handover information until you claim it.\n" +
+			"* **Claim and execute**: once preparation is done, call `claim_task` to claim the task, then continue planning or executing according to the task's current state. Reply cards opened before the reassignment have expired automatically; for items in the handover information that still need an Owner decision, open a new card yourself."
 		if got := s.takeoverNoticeText("T-7e91", "銀月（mira）"); got != wantWithPredecessor {
 			t.Fatalf("notice with a predecessor:\n got %q\nwant %q", got, wantWithPredecessor)
 		}
@@ -771,12 +780,12 @@ func TestTaskCloseoutDoc_IsTheApprovedRewriteWithBothNamesMovedIntoTheHead(t *te
 	gotHead := mustRender(t, spec, head, map[string]string{
 		"task_no": "T-7d40", "closed_by": "owner",
 	})
-	wantHead := "任務 T-7d40 已結案，結案的人是 owner。"
+	wantHead := "Task T-7d40 has been closed; it was closed by owner."
 	if gotHead != wantHead {
 		t.Fatalf("the read-only head is not the approved sentence:\n got %q\nwant %q", gotHead, wantHead)
 	}
 
-	wantBody := "停下這個任務，移除你開啟的外部資源，並停止更新 task。\n"
+	wantBody := "Stop work on this task, remove the external resources you opened, and stop updating the task.\n"
 	if body != wantBody {
 		t.Fatalf("the body is not the approved rewrite:\n got %q\nwant %q", body, wantBody)
 	}
@@ -921,9 +930,9 @@ func TestBootContextDocs_RenderWithoutTheMarkerAndKeepTheirTitleLine(t *testing.
 		kind, key, wantHead string
 	}{
 		{docKindSystemInteraction, systemInteractionDocKey,
-			"# Global Context（AI 工作室 · 成員 boot context）"},
-		{docKindBootSequence, bootSequenceKeyClaude, "# Claude Code 執行環境"},
-		{docKindBootSequence, bootSequenceKeyCodex, "# Codex App Server 執行環境"},
+			"# Global Context (AI Studio · Member Boot Context)"},
+		{docKindBootSequence, bootSequenceKeyClaude, "# Claude Code Runtime"},
+		{docKindBootSequence, bootSequenceKeyCodex, "# Codex App Server Runtime"},
 	} {
 		t.Run(tc.kind+"/"+tc.key, func(t *testing.T) {
 			spec := s.mustBootDocSpec(tc.kind, tc.key)
@@ -1545,23 +1554,23 @@ func TestTheTwoStopProceduresDifferInEXACTLYTheLinesTheyAreMeantTo(t *testing.T)
 		softNeedle string
 		hardNeedle string
 	}{
-		{"the title names which document you are holding", "# 停止", "# 加速停止"},
+		{"the title names which document you are holding", "# Stop", "# Accelerated Stop"},
 		{"the opening states outright which kind of stop this is — the ruling that " +
 			"replaced sniffing another document's first line for `Your deadline is`",
-			"**一般停止指令**", "**加速停止指令**"},
+			"**regular stop order**", "**accelerated stop order**"},
 		{"with no clock a waiting task is written back and the agent moves on to its " +
 			"other tasks before going offline; with a clock it only writes it back",
-			"若沒有其他任務可處理即可下線", "寫回任務，不要留在線上等待。"},
+			"If there are no other tasks to handle, you may go offline", "the first action after resuming; do not stay online waiting."},
 		{"a cut-short wind-down also records the sub-agent work left unfinished",
-			"阻塞點、下一步。", "以及尚未完成的 sub-agent 工作"},
+			"blockers, and next steps.", "and any unfinished sub-agent work"},
 		{"§2: with a clock running you cannot wait for sub-agents to finish on their own",
-			"等待完成：", "要求收尾："},
+			"Wait for completion:", "Ask them to wrap up:"},
 		{"§2: a sub-agent that was told to stop ends rather than finishes",
-			"每個 sub-agent 完成後", "每個 sub-agent 結束後"},
+			"as each sub-agent finishes", "as each sub-agent exits"},
 		{"§2: with a clock running a sub-agent that does not stop in time is not waited for",
-			"", "不等待逾時："},
+			"", "Do not wait out timeouts:"},
 		{"§3: with a clock running there may be no time left to clean up",
-			"路徑不存在或刪不掉，把路徑記進回報", "路徑不存在、刪不掉或時間不足"},
+			"If a path does not exist or cannot be deleted, record the path", "cannot be deleted, or there is not enough time"},
 	}
 
 	softOnly, hardOnly := oneSidedLines(strings.Split(soft, "\n"), strings.Split(hard, "\n"))

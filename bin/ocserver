@@ -403,7 +403,7 @@ resolve_runtime_stamps() {
     # something this NOTE cannot deliver at that moment, and the person reading
     # it is standing at exactly the restart it applies to.
     log "NOTE: claude not resolved here — this host runs codex. Once this host has reported its runtimes (first warden heartbeat after a server start, ~30s), a member with no runtime chosen for it is placed on what this host reports, so the out-of-box assistant starts on codex; only a member you deliberately set to claude cannot start here. Before that first heartbeat a not-yet-resolved member is still dispatched as claude and will fail one spawn, then recover."
-    log "NOTE: to run claude members on this host: install claude, or export OC_CLAUDE_BIN=/absolute/path/to/claude and re-run 'ocserver install' (safe — idempotent). Otherwise set that member's 執行環境 to codex."
+    log "NOTE: to run claude members on this host: install claude, or export OC_CLAUDE_BIN=/absolute/path/to/claude and re-run 'ocserver install' (safe — idempotent). Otherwise set that member's \"AI runtime\" to codex."
   elif [[ -z "$codex_bin" ]]; then
     log "NOTE: codex not resolved here — claude members work, codex members on this host would hit runtime_bin_unresolved (export OC_CODEX_BIN=/absolute/path/to/codex and re-run to fix)."
   fi

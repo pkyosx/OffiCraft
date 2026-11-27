@@ -354,6 +354,7 @@ func (s *apiServer) adoptSettings(auth authSettings) {
 	s.displayTheme = auth.displayTheme
 	s.displayLanguage = auth.displayLanguage
 	s.displayWide = auth.displayWide
+	s.developerMode = auth.developerMode
 	s.displaySeasonalTheme = auth.displaySeasonalTheme
 	s.displayThemeSchedule = auth.displayThemeSchedule
 	s.suggestedRepliesReplyCard = auth.suggestedRepliesReplyCard
@@ -399,7 +400,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		taskDueSoonLeadMinutes:           defaultTaskDueSoonLeadMinutes,
 		docCapCharsDuty:                  dutyCapCharsDefault,
 		docCapCharsInsight:               contextDocMaxCharsDefault,
-		docCapCharsManualSop:             contextDocMaxCharsDefault,
+		docCapCharsManualSop:             manualSopCapCharsDefault,
 		docCapCharsSystemInteraction:     systemInteractionCapCharsDefault,
 		docCapCharsBootSequence:          bootSequenceCapCharsDefault,
 		docCapCharsOffboard:              offboardCapCharsDefault,

@@ -153,26 +153,26 @@ func apiDocList(t *testing.T, h http.Handler, credential string, want ...map[str
 // promises.
 func apiGuideIndex() []map[string]any {
 	return []map[string]any{
-		{"slug": "why", "title": "為什麼是 OffiCraft"},
-		{"slug": "install", "title": "安裝、升級與移除"},
-		{"slug": "quickstart", "title": "你的第一個辦公室"},
-		{"slug": "security", "title": "保護你的工作室"},
-		{"slug": "daily", "title": "交代工作與回覆請示卡"},
-		{"slug": "tasks", "title": "追蹤任務進度"},
-		{"slug": "usage", "title": "管理 AI 帳號與用量"},
-		{"slug": "mobile", "title": "在手機上用"},
-		{"slug": "sop", "title": "讓 AI 照 SOP 做重複的事（任務手冊）"},
-		{"slug": "schedule", "title": "定時做某件事（定期訊息）"},
-		{"slug": "webhook", "title": "讓外部事件自動送給成員（回呼端點）"},
-		{"slug": "lore", "title": "讓成員記住你教過的事（傳承）"},
-		{"slug": "secrets", "title": "把帳號金鑰交給成員用（密鑰）"},
-		{"slug": "members", "title": "增加成員與發外包"},
-		{"slug": "interface", "title": "介面說明"},
-		{"slug": "settings", "title": "設定與參數"},
-		{"slug": "theme", "title": "主題（外觀與用語）"},
-		{"slug": "architecture", "title": "架構與運作原理"},
-		{"slug": "glossary", "title": "名詞表"},
-		{"slug": "troubleshooting", "title": "常見問題與排解"},
+		{"slug": "why", "title": "Why OffiCraft"},
+		{"slug": "install", "title": "Install, upgrade, and uninstall"},
+		{"slug": "quickstart", "title": "Your first office"},
+		{"slug": "security", "title": "Protect your studio"},
+		{"slug": "daily", "title": "Assigning work and answering reply cards"},
+		{"slug": "tasks", "title": "Tracking task progress"},
+		{"slug": "usage", "title": "Manage AI accounts and usage"},
+		{"slug": "mobile", "title": "Use it on your phone"},
+		{"slug": "sop", "title": "Having AI follow an SOP for repeated work (Task manuals)"},
+		{"slug": "schedule", "title": "Doing something on a schedule (Scheduled messages)"},
+		{"slug": "webhook", "title": "Send outside events to members automatically (webhooks)"},
+		{"slug": "lore", "title": "Making members remember what you taught them (Lore)"},
+		{"slug": "secrets", "title": "Give members your account keys (secrets)"},
+		{"slug": "members", "title": "Adding members and hiring outsource"},
+		{"slug": "interface", "title": "Interface reference"},
+		{"slug": "settings", "title": "Settings"},
+		{"slug": "theme", "title": "Themes (look and wording)"},
+		{"slug": "architecture", "title": "Architecture and how it works"},
+		{"slug": "glossary", "title": "Glossary"},
+		{"slug": "troubleshooting", "title": "Troubleshooting and FAQ"},
 	}
 }
 
@@ -233,10 +233,10 @@ func TestHandleGetDocApiDocsSlugGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"slug": "why", "title": "為什麼是 OffiCraft", "markdown_md": apiAnyString,
+			"slug": "why", "title": "Why OffiCraft", "markdown_md": apiAnyString,
 		})
 		body, _ := data["markdown_md"].(string)
-		if !strings.HasPrefix(body, "# 為什麼是 OffiCraft\n") {
+		if !strings.HasPrefix(body, "# Why OffiCraft\n") {
 			t.Fatalf("the doc body does not open with its own heading: %.60q", body)
 		}
 		dashboard.wantFrames()
@@ -250,7 +250,7 @@ func TestHandleGetDocApiDocsSlugGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"slug": "glossary", "title": "名詞表", "markdown_md": apiAnyString,
+			"slug": "glossary", "title": "Glossary", "markdown_md": apiAnyString,
 		})
 	})
 
@@ -291,7 +291,7 @@ func TestHandleGetDocApiDocsSlugGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"slug": "why", "title": "為什麼是 OffiCraft", "markdown_md": apiAnyString,
+			"slug": "why", "title": "Why OffiCraft", "markdown_md": apiAnyString,
 		})
 	})
 
@@ -316,7 +316,7 @@ func TestHandleGetDocApiDocsSlugGet(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"slug":        "why",
-			"title":       "為什麼是 OffiCraft",
+			"title":       "Why OffiCraft",
 			"markdown_md": apiAnyString,
 		})
 	})

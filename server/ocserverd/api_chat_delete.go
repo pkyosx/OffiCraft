@@ -124,6 +124,5 @@ func chatDeleteNotice(deleted ChatMessage, now float64) ChatMessage {
 // Owner-chosen wording, delivered to members as-is: no boot document explains a
 // deleted message, so this text alone must tell them what to do.
 func chatDeleteNoticeBody(id string) string {
-	return "Owner 刪除了訊息 #" + id + "，該則內容已作廢。若沒讀過可以直接忽略；需要原文時，用 get_chat ids=" +
-		id + " 讀回。"
+	return "Owner deleted message #" + id + " (void). If unread, ignore it. Need the original? Use get_chat ids=" + id + "."
 }

@@ -352,8 +352,9 @@ def test_full_task_loop(client, owner_token, executor):
     assert final["closed_ts"] is None
     assert final["progress_done"] == 3 and final["progress_total"] == 3
     assert final["ready_for_done_note"] == (
-        "這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。"
-        "請依系統的收尾指示完成收尾後再結案。")
+        "This report completed every step of the task, so the task now stands ready to close "
+        "(ready_for_done). Finish the close-out by following the system's close-out instructions, "
+        "then close the task.")
     closed = _mark_done(client, executor.token, task["id"]).json()
     assert closed["status"] == "done" and closed["closed_ts"]
     # The badge counts open tasks only — the finished loop dropped off.
@@ -1313,7 +1314,7 @@ def test_manual_crud_and_delete_guard(client, owner_token, executor):
 
 
 _BUILTIN_TASK_MANUAL_DESIGN_SOP_SHA256 = (
-    "bb27fb16377af2f6dc457a06315faff8d12332142dff16a9545d73b1331fc004")
+    "96452eb475b085a37009dd00bb5974a5f140938207369ee80eafe08f8364be10")
 
 
 def test_builtin_manual_is_listed_resettable_and_undeletable(
@@ -1341,8 +1342,8 @@ def test_builtin_manual_is_listed_resettable_and_undeletable(
     assert r.status_code == 200, r.text
     assert (r.json()["is_seed"], r.json()["is_default"]) == (True, True), r.json()
     manual = client.get(f"/api/task-manuals/{builtin}", headers=h).json()
-    assert manual["purpose"] == "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。", manual
-    assert len(manual["sop_md"]) == 3872, manual["sop_md"][:80]
+    assert manual["purpose"] == "Create a new task manual, or adjust an existing task manual's content and assigned member.", manual
+    assert len(manual["sop_md"]) == 12335, manual["sop_md"][:80]
     assert hashlib.sha256(manual["sop_md"].encode()).hexdigest() == (
         _BUILTIN_TASK_MANUAL_DESIGN_SOP_SHA256), manual["sop_md"][:80]
     assert manual["is_default"] is True, manual
@@ -1378,7 +1379,7 @@ def test_builtin_manual_is_listed_resettable_and_undeletable(
     assert r.status_code == 403, r.text
     assert r.json()["error"] == {
         "code": "forbidden",
-        "message": "an ad-hoc task may only name yourself as executor (or be dispatched to an outsource worker)",
+        "message": "an ad-hoc task may only name yourself as executor (or be dispatched to an outsource member)",
     }, r.json()
 
     r = client.delete(f"/api/task-manuals/{builtin}", headers=h)
@@ -1922,7 +1923,7 @@ def test_create_reply_card_without_linked_task_names_both_legal_shapes(
         headers=_auth(token))
     assert r.status_code == 400, f"{r.status_code} {r.text}"
     msg = r.json()["error"]["message"]
-    for want in ("linked_task", "linked_task=null", "task_id", "step_id", "等我回覆"):
+    for want in ("linked_task", "linked_task=null", "task_id", "step_id", "waiting_owner"):
         assert want in msg, (want, msg)
 
     # Nothing minted, nothing moved.
@@ -1962,7 +1963,7 @@ def test_create_reply_card_with_task_id_but_no_step_id_is_refused(
                     headers=_auth(token))
     assert r.status_code == 400, f"{r.status_code} {r.text}"
     msg = r.json()["error"]["message"]
-    for want in ("step_id", "等我回覆", "linked_task=null"):
+    for want in ("step_id", "waiting_owner", "linked_task=null"):
         assert want in msg, (want, msg)
 
     # An explicitly blank step_id is the same offence, not a way round it.

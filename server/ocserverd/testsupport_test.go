@@ -214,6 +214,19 @@ func newAPITestServerOn(t *testing.T, d *DAL) (*apiServer, http.Handler, *DAL, s
 	return api, h, d, owner
 }
 
+// newAPITestServerInDeveloperMode is a claimed server whose owner turned
+// developer mode on, then restarted so the hub's SSE seq starts over and no
+// listener sees that settings delta.
+func newAPITestServerInDeveloperMode(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
+	t.Helper()
+	_, h, d, owner := newAPITestServer(t)
+	if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"developer_mode":true}`); status != 200 {
+		t.Fatalf("turning developer mode on: %d %v", status, data)
+	}
+	api, h, d, _ := apiTestStackOn(t, d, true)
+	return api, h, d, owner
+}
+
 // apiTestAgentToken is the session credential the spawn path hands a member —
 // minted through the production mint, not hand-assembled. machineID is the
 // boot-host placement claim the token carries; "" is the claim-less shape.

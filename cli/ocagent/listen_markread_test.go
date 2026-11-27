@@ -147,10 +147,10 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 		wantOut := "[ocagent] chat from alice (#a1, 1m ago): body-a1\n" +
 			"[ocagent] chat from bob (#b1, 1m ago): body-b1\n" +
 			"[ocagent] chat from alice (#a2, 1m ago): body-a2\n" +
-			"[ocagent] mark-read 沒送成功（peer=alice，HTTP 503）— 訊息已經印出來了，" +
-			"但是回條沒送成功，server 那邊就還算未讀：這一批下一次補印會再印一次，" +
-			"而且會一直重印到回條送成功為止，在那之前對方的已讀勾也不會亮。" +
-			"這個行程只會講這一次 —— 之後再看到同一批訊息重複出現，原因就是這一行。\n"
+			"[ocagent] mark-read failed (peer=alice, HTTP 503) — the messages were already printed, " +
+			"but the read receipt did not go through, so the server still counts them as unread: the next catch-up will print this batch again, " +
+			"and keeps reprinting it until a receipt goes through; until then the other side's read tick does not light up either. " +
+			"This process says this only once — if you later see the same batch of messages again, this line is the reason.\n"
 		if out.String() != wantOut {
 			t.Errorf("printed\n%q\nwant\n%q", out.String(), wantOut)
 		}
@@ -185,8 +185,8 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 		if printed != 0 {
 			t.Errorf("drainChat reported %d unread lines, want 0", printed)
 		}
-		wantOut := "[ocagent] chat: 補印一頁都沒撈到（HTTP 500）—— 這不是「沒有新訊息」，" +
-			"是這次沒問到。未讀原封不動，下一次補印會再試；等不及就用 get_chat 自己撈。\n"
+		wantOut := "[ocagent] chat: the catch-up fetch got no page at all (HTTP 500) — this is not \"no new messages\"; " +
+			"this time the question went unanswered. Unread messages are untouched and the next catch-up will try again; if you cannot wait, fetch them yourself with get_chat.\n"
 		if out.String() != wantOut {
 			t.Errorf("printed\n%q\nwant\n%q", out.String(), wantOut)
 		}

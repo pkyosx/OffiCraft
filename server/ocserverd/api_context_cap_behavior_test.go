@@ -90,7 +90,7 @@ func TestDocCap_FollowsTheLiveSetting(t *testing.T) {
 	}
 
 	// The owner raises the cap.
-	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":20000}`); status != http.StatusOK {
+	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":50000}`); status != http.StatusOK {
 		t.Fatalf("phase 2: raising the cap must be accepted, got %d: %v", status, data)
 	}
 
@@ -105,12 +105,12 @@ func TestDocCap_FollowsTheLiveSetting(t *testing.T) {
 	}
 
 	// And the NEW cap is the one now being enforced — not merely "no cap".
-	status, data = replaceInsight(t, srv, tok, capDoc(t, 20001), false)
+	status, data = replaceInsight(t, srv, tok, capDoc(t, 50001), false)
 	if status != http.StatusBadRequest {
 		t.Fatalf("phase 4: the raised cap must still be a cap, got %d: %v", status, data)
 	}
-	if msg := capErrMessage(data); !strings.Contains(msg, "20000") {
-		t.Fatalf("phase 4: the refusal must name the NEW cap (20000), got %q", msg)
+	if msg := capErrMessage(data); !strings.Contains(msg, "50000") {
+		t.Fatalf("phase 4: the refusal must name the NEW cap (50000), got %q", msg)
 	}
 }
 
@@ -121,17 +121,17 @@ func TestDocCap_FollowsTheLiveSetting(t *testing.T) {
 // agent shrinking toward a limit that no longer exists.
 func TestDocCap_RefusalQuotesTheLiveCapNotTheDefault(t *testing.T) {
 	srv, dal, tok := capDocServer(t)
-	seedInsightOverlay(t, dal, "assistant", capDoc(t, 30000))
+	seedInsightOverlay(t, dal, "assistant", capDoc(t, 60000))
 
-	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":25000}`); status != http.StatusOK {
+	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":50000}`); status != http.StatusOK {
 		t.Fatalf("raise the cap: %d %v", status, data)
 	}
 
-	// Over 25000 and NOT shorter than the 30000 stored → refused.
-	_, data := replaceInsight(t, srv, tok, capDoc(t, 30000), false)
+	// Over 50000 and NOT shorter than the 60000 stored → refused.
+	_, data := replaceInsight(t, srv, tok, capDoc(t, 60000), false)
 	msg := capErrMessage(data)
-	if !strings.Contains(msg, "25000") {
-		t.Fatalf("the refusal must quote the live cap 25000, got %q", msg)
+	if !strings.Contains(msg, "50000") {
+		t.Fatalf("the refusal must quote the live cap 50000, got %q", msg)
 	}
 	if strings.Contains(msg, strconv.Itoa(contextDocMaxCharsDefault)+"-char") {
 		t.Fatalf("the refusal still quotes the shipped default, not the live cap: %q", msg)
@@ -169,7 +169,7 @@ func TestUpdateSettingsDocCapCharsRange(t *testing.T) {
 			func(s *apiServer) int { return s.dutyCap() }},
 		{"doc_cap_chars_insight", settingDocCapCharsInsight, contextDocMaxCharsDefault,
 			func(s *apiServer) int { return s.insightCap() }},
-		{"doc_cap_chars_manual_sop", settingDocCapCharsManualSop, contextDocMaxCharsDefault,
+		{"doc_cap_chars_manual_sop", settingDocCapCharsManualSop, manualSopCapCharsDefault,
 			func(s *apiServer) int { return s.manualSopCap() }},
 		{"doc_cap_chars_system_interaction", settingDocCapCharsSystemInteraction, systemInteractionCapCharsDefault,
 			func(s *apiServer) int { return s.systemInteractionCap() }},
@@ -202,7 +202,7 @@ func TestUpdateSettingsDocCapCharsRange(t *testing.T) {
 				`{"` + k.field + `":` + below + `}`,
 				`{"` + k.field + `":0}`,
 				`{"` + k.field + `":-1}`,
-				`{"` + k.field + `":100001}`,
+				`{"` + k.field + `":250001}`,
 				`{"handover_pct":60,"` + k.field + `":` + below + `}`, // one bad field poisons the patch
 			} {
 				if status, _ := patchSettings(t, srv.URL, owner, body); status != 422 {
@@ -230,7 +230,7 @@ func TestUpdateSettingsDocCapCharsRange(t *testing.T) {
 			}
 
 			// Both ends of the range are accepted, durable, and live.
-			for _, n := range []string{strconv.Itoa(minDocCapChars), "100000", "42000"} {
+			for _, n := range []string{strconv.Itoa(minDocCapChars), "250000", "42000"} {
 				status, data := patchSettings(t, srv.URL, owner, `{"`+k.field+`":`+n+`}`)
 				if status != 200 {
 					t.Fatalf("PATCH %s=%s: want 200, got %d: %v", k.field, n, status, data)
@@ -277,13 +277,13 @@ func TestLoadAuthSettingsRejectsAnOutOfRangeDocCap(t *testing.T) {
 	shipped := map[string]int{
 		settingDocCapCharsDuty:              dutyCapCharsDefault,
 		settingDocCapCharsInsight:           contextDocMaxCharsDefault,
-		settingDocCapCharsManualSop:         contextDocMaxCharsDefault,
+		settingDocCapCharsManualSop:         manualSopCapCharsDefault,
 		settingDocCapCharsSystemInteraction: systemInteractionCapCharsDefault,
 		settingDocCapCharsBootSequence:      bootSequenceCapCharsDefault,
 		settingDocCapCharsOffboard:          offboardCapCharsDefault,
 	}
 	for key, def := range shipped {
-		for _, bad := range []string{strconv.Itoa(minDocCapChars - 1), "100001", "0", "-5", "lots"} {
+		for _, bad := range []string{strconv.Itoa(minDocCapChars - 1), "250001", "0", "-5", "lots"} {
 			d := newTestDAL(t)
 			if err := d.PutSetting(key, bad); err != nil {
 				t.Fatalf("PutSetting: %v", err)
@@ -339,11 +339,11 @@ func TestInsightReadReportsSizeAndCap(t *testing.T) {
 	}
 
 	// And it FOLLOWS the setting, like every other reader of the cap.
-	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":33000}`); status != 200 {
+	if status, data := patchSettings(t, srv.URL, tok, `{"doc_cap_chars_insight":43000}`); status != 200 {
 		t.Fatalf("raise the cap: %d %v", status, data)
 	}
 	_, data = doJSON(t, "GET", srv.URL+"/api/insight/assistant", tok, "")
-	if got, _ := data["cap_chars"].(float64); int(got) != 33000 {
+	if got, _ := data["cap_chars"].(float64); int(got) != 43000 {
 		t.Fatalf("cap_chars must track the setting, got %v", data["cap_chars"])
 	}
 }
@@ -375,7 +375,7 @@ func TestTaskManualReadReportsItsDocumentSize(t *testing.T) {
 		t.Fatalf("sop_md_chars: got %v want %d (bytes=%d)",
 			data["sop_md_chars"], utf8.RuneCountInString(sop), len(sop))
 	}
-	if got, _ := data["sop_md_cap_chars"].(float64); int(got) != contextDocMaxCharsDefault {
+	if got, _ := data["sop_md_cap_chars"].(float64); int(got) != manualSopCapCharsDefault {
 		t.Fatalf("sop_md_cap_chars must be the live cap: got %v", data["sop_md_cap_chars"])
 	}
 }
@@ -386,7 +386,7 @@ func TestTaskManualReadReportsItsDocumentSize(t *testing.T) {
 // list is exactly where "which manual is close to the cap" gets asked.
 func TestListViewOmitsTheTextButNotItsSize(t *testing.T) {
 	s := &apiServer{dal: newTestDAL(t), hub: NewHub(),
-		docCapCharsManualSop: contextDocMaxCharsDefault}
+		docCapCharsManualSop: manualSopCapCharsDefault}
 	sop := cjkDoc(t, 90)
 	if err := s.dal.PutTaskManual(TaskManual{
 		TypeKey: "tm-sized", DisplayName: "sized", Purpose: "p",
@@ -400,20 +400,21 @@ func TestListViewOmitsTheTextButNotItsSize(t *testing.T) {
 	for i, m := range list {
 		gotKeys[i] = m.TypeKey
 	}
-	if want := []string{"tm-sized", "builtin-task-manual-design", "builtin-role-design", "builtin-remote-access"}; !reflect.DeepEqual(gotKeys, want) {
+	if want := []string{"builtin-remote-access", "builtin-role-design", "builtin-task-manual-design", "tm-sized"}; !reflect.DeepEqual(gotKeys, want) {
 		t.Fatalf("listed type keys = %v, want %v", gotKeys, want)
 	}
-	got := list[0]
+	// tm-sized sorts last: "sized" comes after the built-ins' English names.
+	got := list[3]
 	// The narrowing still happened — otherwise this test would pass on the
 	// full projection and prove nothing about the listing.
-	if _, present := listManualRows(t, s)[0]["sop_md"]; present {
+	if _, present := listManualRows(t, s)[3]["sop_md"]; present {
 		t.Fatalf("listing must still omit %q", "sop_md")
 	}
 	if got.SopMDChars != utf8.RuneCountInString(sop) {
 		t.Fatalf("sop_md_chars must survive the narrowing: got %d want %d",
 			got.SopMDChars, utf8.RuneCountInString(sop))
 	}
-	if got.SopMDCapChars != contextDocMaxCharsDefault {
+	if got.SopMDCapChars != manualSopCapCharsDefault {
 		t.Fatalf("sop_md_cap_chars on the list view: got %d", got.SopMDCapChars)
 	}
 }

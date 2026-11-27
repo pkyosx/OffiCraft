@@ -246,7 +246,7 @@ func (s *apiServer) HandleUpdateRoleApiRolesRolePost(w http.ResponseWriter, r *h
 	cap := s.dutyCap()
 	if DocCapBlocked(cap, current.DefinitionMD, definitionMD) {
 		writeError(w, http.StatusBadRequest,
-			docCapRefusal(cap, "role definition doc", current.DefinitionMD, definitionMD))
+			docCapRefusal(cap, "Duty", current.DefinitionMD, definitionMD))
 		return
 	}
 	// The NAME is not versioned (owner ruling T-1f39): a rename-only write

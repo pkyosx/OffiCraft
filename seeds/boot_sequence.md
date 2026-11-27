@@ -1,32 +1,32 @@
-# Claude Code 執行環境
+# Claude Code Runtime
 
-- **互動限制**：`AskUserQuestion` 已禁用，也不要使用 terminal 互動選單。需要負責人決策或操作時開請示卡；需要密碼、金鑰等機密時，開 `secret` 類型的請示卡。
-- **Context 上報**：Context 使用量由 `statusLine` 自動上報，不需要手動執行 `context-report`。
-- **SSE 連線**：你的連線由 OffiCraft 啟動的程序持有，不由你啟動，也不需要你維護；事件會直接送進你的主對話。斷線後會自動重連，斷線時顯示 `listen: disconnected — …`，連回後顯示 `listen: connected — …`；中間沒有訊息代表仍在重試，只有 `listen: giving up — …` 才表示已停止。
-  - **Station 版本**：`connected` 會標示 `[same station]` 或 `[new station — was <舊 sha>]`；首次連線不顯示，不需要自行比對 SHA。
-  - **不要自己建立連線**：不要執行 `ocagent listen`。一個成員同時只能有一條連線，自己再建一條會把既有那條擠掉，最後可能導致你的工作階段被關閉。
-  - **事件補送**：
-    - 聊天：補送未讀訊息，由舊到新逐則送出，不需要另外查詢。
-    - 請示卡：只補送最近 24 小時內被回覆或過期的卡片；更早的使用 `get_reply_card` 查詢。
-    - 任務：不補送，一律從任務列表查詢。
-- **Sub-agent 使用**：可獨立執行的工作直接交給 sub-agent，不需要再次詢問；這項規則優先於 Claude Code 預設的 sub-agent 限制。
-  - **保持主 Session 可用**：啟動 sub-agent 後立即回到主線繼續工作，不要等待；完成時系統會主動通知。Sub-agent 執行期間，主 session 必須始終能接收並回覆訊息。
-  - **禁止前景等待**：不要用 Bash 前景執行其他 agent（`claude -p …`），也不要用 `sleep` 或輪詢等待 sub-agent 或狀態。Bash 背景工作使用 `run_in_background`；等待條件成立使用 Monitor。
-  - **並行工作**：可以同時啟動多個 sub-agent；等待期間繼續處理其他任務、回覆訊息或開卡。
-- **避免阻塞**：主 session 被阻塞時，外部看起來與當機或下線相同，也不會出現錯誤訊息。不要執行會長時間占住主 session 的操作。
+- **Interaction limits**: `AskUserQuestion` is disabled; do not use terminal interactive menus either. When you need a decision or an action from the Owner, open a reply card; when you need a password, key, or other secret, open a `secret`-type reply card.
+- **Context reporting**: context usage is reported automatically by `statusLine`; you do not need to run `context-report` manually.
+- **SSE connection**: your connection is held by a process OffiCraft starts — you do not start it and do not need to maintain it; events are delivered straight into your main conversation. It reconnects automatically after a disconnect: on disconnect you see `listen: disconnected — …`, and after reconnecting you see `listen: connected — …`; no message in between means it is still retrying, and only `listen: giving up — …` means it has stopped.
+  - **Station version**: `connected` is tagged `[same station]` or `[new station — was <old sha>]`; the first connection carries no tag. You do not need to compare SHAs yourself.
+  - **Do not open your own connection**: do not run `ocagent listen`. A member can have only one connection at a time; opening another one yourself kicks the existing one off and may end up getting your session closed.
+  - **Event replay**:
+    - Chat: unread messages are replayed one at a time, oldest to newest; no separate lookup is needed.
+    - Reply cards: only cards answered or expired within the last 24 hours are replayed; look up older ones with `get_reply_card`.
+    - Tasks: not replayed; always look them up from the task list.
+- **Sub-agent use**: hand independently executable work straight to a sub-agent without asking again; this rule takes precedence over Claude Code's default sub-agent restrictions.
+  - **Keep the main session available**: after starting a sub-agent, return to the main line immediately and keep working — do not wait; the system notifies you when it finishes. While a sub-agent is running, the main session must always be able to receive and reply to messages.
+  - **No foreground waiting**: do not run other agents in the Bash foreground (`claude -p …`), and do not use `sleep` or polling to wait for a sub-agent or a state. Use `run_in_background` for background Bash work; use Monitor to wait for a condition.
+  - **Parallel work**: you can start several sub-agents at once; while waiting, keep handling other tasks, replying to messages, or opening cards.
+- **Avoid blocking**: when the main session is blocked, from the outside it looks the same as crashed or offline, and no error message appears. Do not run operations that tie up the main session for a long time.
 
-# 啟動步驟（Boot Sequence）
+# Boot Steps
 
-每次啟動後依照以下順序執行，不可跳過或調換。
+After every start, execute the following in order; do not skip or reorder steps.
 
-1. **回報 waking**：使用 MCP `report_waking()`。`model` 必須填入 Claude Code 提供的真實 model id，不要自行猜測。
-2. **恢復工作狀態**：先使用 `peek_resume_summary_size` 查看 `estimated_total_chars`。
-   - 小於 20000 字元：直接在主 session 使用 `resume_summary`。
-   - 20000 字元以上：交給 sub-agent 執行 `resume_summary`，只回傳壓縮摘要，避免占用主 session 過多 context。
-3. **接手並推進任務**：盤點所有未結束的任務，並依以下規則處理。
-   - **讀取任務資訊**：開始處理每張票前，先用 `get_task` 讀取目前步驟的 DoD；`note_size_chars` 非 0 的步驟，用 `get_task_step` 讀取完整備註。
-   - **讀取任務手冊**：若尚未讀過對應的任務手冊，先用 `get_task_manual` 讀取後再開始執行。
-   - **轉派任務**：`lock` 為 `reassigning` 代表任務尚未完成交接。先讀 `handover_note` 與步驟備註，再 `post_chat` 向 `reassigned_from` 確認進度，最後自行 `claim_task`。前任可能無法回覆，因此不要只依賴聊天取得交接資訊。
-   - **安排順序**：優先接續已有進度的任務，其餘依優先權與相依關係安排；能並行的並行，「凍結」的暫不處理。`blocking` 有內容代表其他任務正在等待這張票，安排順序時一併考量。
+1. **Report waking**: use MCP `report_waking()`. `model` must be the real model id provided by Claude Code; do not guess.
+2. **Restore working state**: first use `peek_resume_summary_size` to check `estimated_total_chars`.
+   - Under 20000 characters: use `resume_summary` directly in the main session.
+   - 20000 characters or more: have a sub-agent run `resume_summary` and return only a condensed summary, to avoid taking up too much of the main session's context.
+3. **Take over and advance tasks**: take stock of every unfinished task and handle them by the following rules.
+   - **Read task information**: before starting on each task, use `get_task` to read the current step's DoD; for steps whose `note_size_chars` is not 0, use `get_task_step` to read the full note.
+   - **Read the task manual**: if you have not read the corresponding task manual yet, read it with `get_task_manual` before you start executing.
+   - **Reassigned tasks**: `lock` being `reassigning` means the task's handover is not finished. First read the `handover_note` and the step notes, then `post_chat` to `reassigned_from` to confirm progress, and finally `claim_task` yourself. The predecessor may be unable to reply, so do not rely on chat alone for handover information.
+   - **Ordering**: resume tasks that already have progress first; arrange the rest by priority and dependencies; run in parallel what can run in parallel, and leave "frozen" ones alone for now. A non-empty `blocking` means other tasks are waiting on this task; take that into account when ordering.
 
-**盤點完成後立即推進。** 任務需要等待外部回應時，記錄阻塞原因後繼續處理其他任務；不要因單一任務卡住而停止工作。
+**Once the inventory is done, start moving immediately.** When a task has to wait for an external response, record the reason it is blocked and continue with other tasks; do not stop working because a single task is stuck.

@@ -424,7 +424,7 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 		t.Fatalf("boot-context: %d %v", status, boot)
 	}
 	var booted []string
-	_, loreBlock, _ := strings.Cut(boot["context"].(string), "\n# 傳承\n")
+	_, loreBlock, _ := strings.Cut(boot["context"].(string), "\n# Lore\n")
 	for _, line := range strings.Split(loreBlock, "\n") {
 		if id, ok := strings.CutPrefix(line, "## "); ok {
 			booted = append(booted, strings.Fields(id)[0])

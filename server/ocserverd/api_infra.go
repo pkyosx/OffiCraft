@@ -358,7 +358,7 @@ func (s *apiServer) sseStopGateRefusal(memberID string, credentialIat float64) s
 		}
 		return "member '" + m.ID + "' has a stop in effect (desired_state=offline) — " +
 			"SSE refused (a stopped member must not re-project online; " +
-			"喚醒 it to reconnect)"
+			"Wake it to reconnect)"
 	}
 	return ""
 }

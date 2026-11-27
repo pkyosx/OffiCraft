@@ -29,10 +29,11 @@
 // not prove the cockpit hears an `insight` SSE delta. The server test proves the
 // frame is published; nothing automated joins the two ends.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
+import { en } from "../i18n/locales/en";
 import { SettingsPage } from "./SettingsPage";
 import { __resetMock, mockApi } from "../api/mock";
 import { DOC_CAP_CHARS_DEFAULTS } from "../api/docCap";
@@ -44,16 +45,20 @@ beforeEach(() => {
   __resetMock();
 });
 
+afterEach(() => {
+  window.localStorage.removeItem("oc.language");
+});
+
 /** Walk to one role's page the way an owner does: 設定 › 角色誌 › <role>. */
-async function openRolePage(roleLabel: string) {
+async function openRolePage(roleLabel: string, dict: typeof zh | typeof en = zh) {
   const utils = render(
     <I18nProvider>
       <SettingsPage />
     </I18nProvider>
   );
-  fireEvent.click(utils.getByText(s.roles));
+  fireEvent.click(utils.getByText(dict.settings.roles));
   fireEvent.click(await utils.findByText(roleLabel));
-  await utils.findAllByText(s.edit);
+  await utils.findAllByText(dict.settings.edit);
   return utils;
 }
 
@@ -71,8 +76,15 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     // Beside, not instead of: the role-definition card must still be there. A
     // page that replaced rather than appended would satisfy every assertion
     // above.
-    const duty = utils.container.querySelector(".doc-card");
+    const duty = utils.container.querySelector(".doc-card") as HTMLElement | null;
     expect(duty).toBeTruthy();
+    const dutyHead = duty!.querySelector(".doc-card__head") as HTMLElement;
+    expect(within(dutyHead).getByText("職責（Duty）")).toBeTruthy();
+    expect(
+      within(duty!).getByText(
+        "其他成員看這段，判斷什麼事要找這個角色；會出現在每位成員開機看到的名冊上。"
+      )
+    ).toBeTruthy();
     // Insight goes AFTER Duty (Duty → Insight, owner ruling 2026-08-03).
     expect(
       card!.compareDocumentPosition(duty!) & Node.DOCUMENT_POSITION_PRECEDING
@@ -186,15 +198,36 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     expect(size?.textContent?.replace(/\s+/g, " ").trim()).toBe(`2 / ${raised}`);
   });
 
-  it("says out loud that Insight is separate, NOT private", async () => {
-    // The delivery sentence. READ is unrestricted by owner ruling, and a card
-    // that implies a confidentiality boundary this system does not keep is
-    // worse than no card at all.
+  it("says only this role reads Insight at boot, without calling it private", async () => {
+    // READ is unrestricted by owner ruling: the sentence says who reads it by
+    // default, never that others cannot.
     const utils = await openRolePage(zh.office.role.assistant);
     const note = within(insightCard(utils)!).getByText(mp.insightShared);
     expect(note.textContent).toBe(
-      "所有成員都看得到這份判準；只有這個角色本人和管理員可以修改。"
+      "寫給這個角色自己的判斷原則。只有這個角色的成員開機時會讀，其他成員預設不會讀。"
     );
+  });
+
+  it("names each card and says what belongs in it in English", async () => {
+    window.localStorage.setItem("oc.language", "en");
+    const utils = await openRolePage(en.office.role.assistant, en);
+
+    const duty = utils.container.querySelector(".doc-card") as HTMLElement;
+    const dutyHead = duty.querySelector(".doc-card__head") as HTMLElement;
+    expect(within(dutyHead).getByText("Duty")).toBeTruthy();
+    expect(
+      within(duty).getByText(
+        "Other members read this to decide what to bring to this role; it appears on the roster every member sees at boot."
+      )
+    ).toBeTruthy();
+
+    const card = insightCard(utils)!;
+    expect(within(card).getByText("Insight (judgement calls)")).toBeTruthy();
+    expect(
+      within(card).getByText(
+        "Judgement principles this role keeps for its own work. Only this role's members read them at boot; other members don't read them by default."
+      )
+    ).toBeTruthy();
   });
 
   it("carries a version-history entry keyed on the BARE role_key", async () => {

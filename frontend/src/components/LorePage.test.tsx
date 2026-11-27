@@ -2659,7 +2659,7 @@ describe("LorePage — 就地編輯", () => {
 
   it("an entry already over a lowered cap saves a shorter or untouched field and refuses one that grows", async () => {
     const edit = vi.spyOn(api, "editLoreEntry").mockResolvedValue(undefined);
-    const longBody = "長".repeat(600);
+    const longBody = "長".repeat(1300);
     stubList(page([mkEntry({ id: "L-2", title: "AAAA", body: longBody })], cap));
     const { container } = await renderOpen();
     await waitFor(() => expect(renderedIds(container)).toEqual(["L-2"]));
@@ -2675,11 +2675,11 @@ describe("LorePage — 就地編輯", () => {
     expect(save.disabled).toBe(true);
     expect(editor.querySelector('[data-testid="lore-edit-error"]')!.textContent).toBe("超過字數上限");
 
-    fireEvent.change(editor.querySelector('[data-testid="lore-edit-body"]')!, { target: { value: "長".repeat(550) } });
+    fireEvent.change(editor.querySelector('[data-testid="lore-edit-body"]')!, { target: { value: "長".repeat(1280) } });
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
     await waitFor(() => expect(edit).toHaveBeenCalled());
-    expect(edit.mock.calls).toEqual([["L-2", { title: "BBBB", body: "長".repeat(550) }]]);
+    expect(edit.mock.calls).toEqual([["L-2", { title: "BBBB", body: "長".repeat(1280) }]]);
   });
 
   it("when the save goes through but the re-read fails, the card shows the new title and body and the page asks for a reload", async () => {

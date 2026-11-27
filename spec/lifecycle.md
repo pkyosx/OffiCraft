@@ -676,7 +676,7 @@ change. Whether the observation was made is a fact about a deployment, not about
 implementation, and this spec cannot assert it — it is recorded here so that the condition
 is not lost by having been satisfied on paper.
 
-## 2. Boot context — the three-block assembly
+## 2. Boot context — the assembly
 
 The single shared fold both boot paths use (`POST /api/bootstrap` and the reconcile START
 payload) — they MUST produce byte-identical context for the same inputs.
@@ -699,19 +699,32 @@ The user-custom block folds from the owner's user-context row; absent/tombstoned
 The boot context is these blocks, in this order, joined into one document:
 
 1. **系統互動** — the shared system-interaction file seed;
-2. **使用者自訂** — the owner's additive block;
-3. **角色定義** (`# Role:`) — what this role does;
-4. **判準** (`# Insight`) — how this role weighs things;
-5. **傳承** — for a member fold, the `everyone` entries followed by that member's
+2. **使用者語言** (`# User Language`) — which language the member writes to the owner in,
+   the `user_language/global` boot document (folded: owner edit ⊕ seed). Its seed depends on
+   the `display.language` setting: `en` gets the English default, anything else (`zh`, or
+   `""` = never set) the Traditional Chinese one. An edit is used whatever the setting; a
+   write whose text equals either default (ignoring leading and trailing whitespace) is
+   stored as a reset, so the document follows the setting again. It is editable with
+   developer mode off. It is followed by the read-only `term_glossary/global` document, a
+   table mapping the English names the boot documents use to the Chinese screen names of
+   OffiCraft features (generated from the same rows as `spec/term-aliases.json`; only a
+   release changes it). A document whose folded text is blank is left out; the block is
+   dropped only when both are blank.
+   It is read when the fold is assembled, so a language change or an edit reaches each
+   member at its next boot; a running session is not notified;
+3. **使用者自訂** — the owner's additive block;
+4. **角色定義** (`# Role:`) — what this role does;
+5. **判準** (`# Insight`) — how this role weighs things;
+6. **傳承** — for a member fold, the `everyone` entries followed by that member's
    own `agent` entries, under one `lore_cap_chars_role` budget. A fold with no member
    (`POST /api/bootstrap` with only a `role`) has no member id to key by and omits the
    whole block, `everyone` included; it never reads lore by role.
-6. **啟動步驟** — the boot-sequence file seed, selected by the READER'S OWN runtime
+7. **啟動步驟** — the boot-sequence file seed, selected by the READER'S OWN runtime
    (`claude | codex`, blank folding to `claude`), and carrying that runtime's 執行環境
    section. It is LAST — the recency-authoritative tail — and nothing may be appended
    after it.
 
-Blocks 3-4 are the persona. Three blocks are dropped entirely when they fold blank —
+Blocks 4-5 are the persona. Three blocks are dropped entirely when they fold blank —
 使用者自訂, 判準 and 傳承 — so a role that has never written a 判準 simply has no such section,
 rather than an empty heading.
 
@@ -724,8 +737,8 @@ goes stale in silence — this very section did exactly that when 判準 was add
 fold and the list here was not updated.
 
 An outsource worker's boot context is this same document **with the persona removed** —
-it has no role, so it carries no 角色定義 and no 判準 — in this same order,
-with no outsource-specific document of any kind. 使用者自訂 used to sit at the end of the
+it has no role, so it carries no 角色定義 and no 判準 — in this same order (使用者語言
+included, byte-identical to staff's), with no outsource-specific document of any kind. 使用者自訂 used to sit at the end of the
 persona, just before 啟動步驟; T-4595 moved it above the persona so that the staff and outsource
 assemblies would line up, leaving the persona as their only difference.
 

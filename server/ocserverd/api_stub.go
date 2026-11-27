@@ -136,6 +136,8 @@ type apiServer struct {
 
 	displayWide bool
 
+	developerMode bool
+
 	displaySeasonalTheme bool
 	// displayThemeSchedule and suggestedReplies* are REPLACED wholesale on a
 	// patch, never mutated in place, so a reader holding a slice under
@@ -498,6 +500,14 @@ func (s *apiServer) taskEventCap() int {
 	return taskEventCapCharsDefault
 }
 
+func (s *apiServer) userLanguageCap() int {
+	return userLanguageCapCharsDefault
+}
+
+func (s *apiServer) termGlossaryCap() int {
+	return termGlossaryCapCharsDefault
+}
+
 // ⚠️ loreRoleCap IS THE MEMBER BUDGET (scopes collapsed to two, rc-a43100fd0486
 // [0]); the name and its settings key stay because renaming a live key is the
 // owner's call. It and loreManualCap are independent and NEVER ADDED.
@@ -592,6 +602,12 @@ func (s *apiServer) displayWideSnapshot() bool {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.displayWide
+}
+
+func (s *apiServer) developerModeSnapshot() bool {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.developerMode
 }
 
 func (s *apiServer) displaySeasonalThemeSnapshot() bool {

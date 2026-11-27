@@ -95,14 +95,14 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		switch {
 		case actor == "":
 			writeError(w, http.StatusBadRequest,
-				"this request carries no verified member identity, so there is no 開機檔 "+
-					"to file a 傳承 entry under.")
+				"this request carries no verified member identity, so there is no boot document "+
+					"to file a lore entry under.")
 			return
 		case m == nil:
 			writeError(w, http.StatusBadRequest,
-				"you have no roster row, so there is no 開機檔 of your own to write into. "+
-					"A 傳承 entry is filed under the writer's own boot document or under a "+
-					"typed task's manual; pass a typed task's task_id to write 任務傳承 instead.")
+				"you have no roster row, so there is no boot document of your own to write into. "+
+					"A lore entry is filed under the writer's own boot document or under a "+
+					"typed task's manual; pass a typed task's task_id to write task lore instead.")
 			return
 		default:
 			scopeKind, scopeKey = LoreScopeAgent, m.ID
@@ -139,15 +139,15 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		CreatedTs: entry.CreatedTS,
 	}
 	if untypedTask {
-		dto.ScopeNote = "任務 " + taskID + " 沒有類型，所以這一筆寫進了你自己的開機檔（" +
-			scopeKind + " / " + scopeKey + "），不是任何一本任務手冊。"
+		dto.ScopeNote = "Task " + taskID + " has no type, so this entry was written into your own boot document (" +
+			scopeKind + " / " + scopeKey + "), not into any task manual."
 	}
 	writeJSON(w, http.StatusOK, dto)
 }
 
 const loreTypeMissingMsg = "lore_type is required — nothing was written. Set it to the entry's type: " +
-	"instruction_conflict (指示衝突), instruction_supplement (指示補充), owner_decision (Owner 決策), " +
-	"owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title."
+	"instruction_conflict (instruction conflict), instruction_supplement (instruction supplement), owner_decision (owner decision), " +
+	"owner_preference (owner preference) or other. Put the type in lore_type, not as a prefix in the title."
 
 func loreOverCapMsg(field string, got, capChars int) string {
 	return field + " is " + strconv.Itoa(got) + " characters, over the " + strconv.Itoa(capChars) +
@@ -171,17 +171,17 @@ func (s *apiServer) loreTextOverCap(title, text string) string {
 }
 
 const (
-	loreGovernanceRefusalPin = "置頂／取消置頂 is an admin decision — a pinned entry " +
+	loreGovernanceRefusalPin = "Pin / unpin is an admin decision — a pinned entry " +
 		"sorts ahead of every other entry in its scope and therefore survives the " +
 		"cap at the expense of everyone else's, so who pins is not the writer's " +
-		"call. Ask the owner or an admin agent."
+		"call. Ask the owner or an admin."
 	loreEditRefusalPinned = "a pinned entry is edited only by an admin — it sorts ahead of " +
 		"every other entry in its scope and survives the cap at the expense of everyone " +
 		"else's, so while it is pinned its text is not the writer's call. Ask the owner " +
-		"or an admin agent."
-	loreGovernanceRefusalOwn = "you may only 失效, 生效, 提到最新 or 編輯 an entry you WROTE — " +
+		"or an admin."
+	loreGovernanceRefusalOwn = "you may only Retire, Activate, Bump to latest or Edit an entry you WROTE — " +
 		"this one has a different author, and an entry is governed by the member " +
-		"who wrote it. An admin agent or the owner can act on any entry."
+		"who wrote it. An admin or the owner can act on any entry."
 )
 
 // 🔴 Does NOT cover pinning: pin has a higher floor (owner:「置頂只有你跟 admin」),

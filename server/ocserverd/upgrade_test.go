@@ -1446,7 +1446,7 @@ func TestHandleUpgradeApiUpdateUpgradePost(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"no newer release is known — the running build is the latest published on GitHub (use 檢查更新 to re-check)")
+			"no newer release is known — the running build is the latest published on GitHub (use Check for updates to re-check)")
 		dashboard.wantFrames()
 	})
 
@@ -1562,7 +1562,7 @@ func TestHandleUpgradeApiUpdateUpgradePost(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"no newer release is known — the running build is the latest published on GitHub (use 檢查更新 to re-check)")
+			"no newer release is known — the running build is the latest published on GitHub (use Check for updates to re-check)")
 	})
 
 	t.Run("an ignored request body does not change the latest-release conflict", func(t *testing.T) {
@@ -1573,6 +1573,6 @@ func TestHandleUpgradeApiUpdateUpgradePost(t *testing.T) {
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"no newer release is known — the running build is the latest published on GitHub (use 檢查更新 to re-check)")
+			"no newer release is known — the running build is the latest published on GitHub (use Check for updates to re-check)")
 	})
 }

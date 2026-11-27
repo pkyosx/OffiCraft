@@ -1107,7 +1107,7 @@ func TestDecideUp(t *testing.T) {
 			},
 			ReasonCode: spawnReasonCircuitOpen + ": too many failed starts in a row, so the " +
 				"server has stopped retrying this member for now — it will try again by " +
-				"itself; fix what is failing on its machine, or 停止 and 喚醒 to start over",
+				"itself; fix what is failing on its machine, or Stop and Wake to start over",
 		})
 		backoff := reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone, BackoffUntil: now + 5}
 		reconcileTestWantDecision(t, decideUp(reconcileTestUpObs(), backoff, cfg, now), reconcileDecision{
@@ -1204,7 +1204,7 @@ func TestDecideDown(t *testing.T) {
 		inside.StoppingSince = now - 119
 		reconcileTestWantDecision(t, decideDown(inside, newReconcileState(), cfg, now), reconcileDecision{
 			Command: reconcileCmdNone, MemberID: "kip",
-			Reason: "stopping: 加速停止 — within the grace the owner opened; collection is " +
+			Reason: "stopping: accelerated stop — within the grace the owner opened; collection is " +
 				"the agent's stopped report, or this deadline",
 			State: reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone},
 		})
@@ -1212,7 +1212,7 @@ func TestDecideDown(t *testing.T) {
 		lapsed.StoppingSince = now - 120
 		reconcileTestWantDecision(t, decideDown(lapsed, newReconcileState(), cfg, now), reconcileDecision{
 			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindWinddown,
-			Reason: "robust stop: 加速停止 grace elapsed, still online",
+			Reason: "robust stop: accelerated stop grace elapsed, still online",
 			State: reconcileState{
 				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now,
 			},
@@ -1654,7 +1654,7 @@ func TestWakeTimeoutReason(t *testing.T) {
 		got := api.wakeTimeoutReason("wake_timeout", wakeTimeoutNeverCameUp, "m-cx", "")
 		want := "wake_timeout: the START was dispatched to machine 'm-cx' but the agent never " +
 			"came online within the start window — that machine reports no Claude Code " +
-			"installed, so the agent cannot boot there. Fix any one: set its 執行環境 to " +
+			"installed, so the agent cannot boot there. Fix any one: set its AI runtime to " +
 			"Codex (that machine has it ready); or install Claude Code on that machine " +
 			"(warden log: ocwarden.out.log)"
 		if got != want {
@@ -1716,7 +1716,7 @@ func TestWakeTimeoutReason(t *testing.T) {
 			{"a start whose machine the server forgot", "wake_timeout", wakeTimeoutTargetForgotten, "",
 				"wake_timeout: the start window elapsed with no session, and this server no " +
 					"longer has a record of which machine the START was sent to (the spawn " +
-					"ledger is in-memory and a server restart clears it) — use 更改 to place " +
+					"ledger is in-memory and a server restart clears it) — use Change to place " +
 					"it again"},
 		} {
 			if got := api.wakeTimeoutReason(c.code, c.cause, c.machine, ""); got != c.want {
@@ -1806,10 +1806,10 @@ func TestResolveEmptyRuntimeForPlacement(t *testing.T) {
 			"logged_in:false — Claude is signed out there (a warden older than v0.5.211-beta.1 " +
 			"sends the same shape when it merely found no credential evidence). Declining to " +
 			"auto-resolve this member to codex, because persisting that choice is irreversible " +
-			"and signing Claude back in on that machine fixes the cause. Leaving 執行環境 unset " +
+			"and signing Claude back in on that machine fixes the cause. Leaving the AI runtime unset " +
 			"(claude): the machine checks Claude's login again when the start arrives and refuses " +
 			"it there if Claude is still signed out. To choose deliberately instead: sign Claude in " +
-			"on that machine, or set this member's 執行環境 by hand.\n"
+			"on that machine, or set this member's AI runtime by hand.\n"
 		if out != want {
 			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
 		}
@@ -1845,9 +1845,9 @@ func TestStampMemberPlacementBlocked(t *testing.T) {
 			want string
 		}{
 			{"unplaced", placementReasonNoMachine + ": no machine is selected for this member — " +
-				"choose one (改機器) before waking it; there is no automatic placement"},
+				"choose one (Change machine) before waking it; there is no automatic placement"},
 			{"misplaced", placementReasonUnavailable + ": machine 'm-gone' is not an active machine — " +
-				"choose another one (改機器); no other machine is substituted"},
+				"choose another one (Change machine); no other machine is substituted"},
 		} {
 			before := reconcileTestRow(t, d, c.id)
 			m := before
@@ -1889,7 +1889,7 @@ func TestStampMemberPlacementBlocked(t *testing.T) {
 		api.stampMemberPlacementBlocked(&snapshot, reconcileTestNow)
 		got := reconcileTestRow(t, d, "relocated")
 		want := placementReasonUnavailable + ": machine 'm-later' is not an active machine — " +
-			"choose another one (改機器); no other machine is substituted"
+			"choose another one (Change machine); no other machine is substituted"
 		if got.LastOpReason != want {
 			t.Fatalf("reason:\n got %q\nwant %q", got.LastOpReason, want)
 		}
@@ -2116,8 +2116,8 @@ func TestStampWakeObservability(t *testing.T) {
 		const lapsed = "wake_timeout: the START was dispatched to machine 'm-box' but the agent never came " +
 			"online within the start window — check that claude runs and is logged in on " +
 			"that machine (warden log: ocwarden.out.log)"
-		const tooOld = "notify_claude_too_old: 這台機器的 Claude Code 是 2.1.200，低於 2.1.287，Claude 成員無法上線。" +
-			"請到監控頁的機器分頁升級這台機器的 Claude Code。"
+		const tooOld = "notify_claude_too_old: Claude Code on this machine is 2.1.200, below 2.1.287" +
+			", so Claude members cannot come online. Upgrade this machine's Claude Code under Monitor › Machines."
 		for _, c := range []struct {
 			name, refusal, want string
 		}{
@@ -2127,7 +2127,7 @@ func TestStampWakeObservability(t *testing.T) {
 				"codex_not_logged_in: machine 'm-box' is not logged in to codex"},
 			{"claude code too old", tooOld, tooOld},
 			{"another refusal", "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH", lapsed},
-			{"notify mod not loaded", "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。", lapsed},
+			{"notify mod not loaded", "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped.", lapsed},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				api, d := reconcileTestServer(t)
@@ -2402,7 +2402,7 @@ func TestReconcileOne(t *testing.T) {
 		want.LastOpOK = reconcileTestFalse()
 		want.LastOpAt = reconcileTestNow
 		want.LastOpReason = placementReasonNoMachine + ": no machine is selected for this member — " +
-			"choose one (改機器) before waking it; there is no automatic placement"
+			"choose one (Change machine) before waking it; there is no automatic placement"
 		reconcileTestWantRow(t, d, "nowhere", want)
 	})
 
@@ -2839,8 +2839,8 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 	t.Run("under a warden's machine-setup refusal of the START, the ticks past the start window and through back-off still show that refusal", func(t *testing.T) {
 		const loggedOut = "claude_not_logged_in: machine 'm-box' is not logged in to claude"
 		const noCredential = "claude_not_logged_in: `claude auth status` reports logged out on this host."
-		const tooOld = "notify_claude_too_old: 這台機器的 Claude Code 是 2.1.200，低於 2.1.287，Claude 成員無法上線。" +
-			"請到監控頁的機器分頁升級這台機器的 Claude Code。"
+		const tooOld = "notify_claude_too_old: Claude Code on this machine is 2.1.200, below 2.1.287" +
+			", so Claude members cannot come online. Upgrade this machine's Claude Code under Monitor › Machines."
 		const lapsed = "wake_timeout: the START was dispatched to machine 'm-box' but the agent never came " +
 			"online within the start window — check that claude runs and is logged in on " +
 			"that machine (warden log: ocwarden.out.log)"
@@ -2857,7 +2857,7 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 			{name: "claude code too old, but of an earlier start: the lapse of this start is a wake timeout",
 				refusal: tooOld, want: lapsed, earlier: true},
 			{name: "notify mod not loaded: the lapse replaces it with the wake-timeout receipt",
-				refusal: "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。", want: lapsed},
+				refusal: "notify_mod_not_loaded: the notification module did not load, so the member cannot receive OffiCraft messages; bringing it online was stopped.", want: lapsed},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				api, d := reconcileTestServer(t)
@@ -3306,7 +3306,7 @@ func TestStampTokenExpiryWinddown(t *testing.T) {
 		reconcileTestOnline(t, api, "expiring", "m-box")
 		before := reconcileTestRow(t, d, "expiring")
 		out := hubTestStderr(t, func() { api.stampTokenExpiryWinddown([]Member{before}, reconcileTestNow) })
-		want := "[reconcile] recycle: token-expiry 停止 for expiring (token estimated to expire " +
+		want := "[reconcile] recycle: token-expiry stop for expiring (token estimated to expire " +
 			"at 1700001800, lead 3600s)\n"
 		if out != want {
 			t.Fatalf("stderr:\n got %q\nwant %q", out, want)

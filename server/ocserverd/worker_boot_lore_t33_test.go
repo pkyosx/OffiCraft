@@ -132,7 +132,7 @@ func cutSlot3(t *testing.T, doc, startAnchor string, minSpan int) (string, int) 
 			startAnchor, n)
 	}
 	start := strings.Index(doc, startAnchor)
-	end := strings.Index(doc, "# Claude Code 執行環境")
+	end := strings.Index(doc, "# Claude Code Runtime")
 	if start < 0 || end < 0 || start >= end {
 		t.Fatalf("cannot locate slot 3 (start %q=%d, slot 4=%d) — the assembly moved "+
 			"and this guard must be re-derived, not deleted", startAnchor, start, end)
@@ -226,9 +226,9 @@ func TestMemberBootDocumentsCarryEveryoneLore(t *testing.T) {
 	t.Run("staff and outsource boots merge everyone entries with their own by effective time in one section", func(t *testing.T) {
 		staffDoc, workerDoc, _ := workerBootLoreFixture(t)
 		for _, tc := range []struct{ name, doc, want string }{
-			{"staff", staffDoc, "# 傳承\n\n## L-1 STAFF-SCOPED-MARKER\n\nbody of STAFF-SCOPED-MARKER" +
+			{"staff", staffDoc, "# Lore\n\n## L-1 STAFF-SCOPED-MARKER\n\nbody of STAFF-SCOPED-MARKER" +
 				"\n\n## L-3 EVERYONE-SCOPED-MARKER\n\nbody of EVERYONE-SCOPED-MARKER"},
-			{"outsource", workerDoc, "# 傳承\n\n## L-2 WORKER-SCOPED-MARKER\n\nbody of WORKER-SCOPED-MARKER" +
+			{"outsource", workerDoc, "# Lore\n\n## L-2 WORKER-SCOPED-MARKER\n\nbody of WORKER-SCOPED-MARKER" +
 				"\n\n## L-3 EVERYONE-SCOPED-MARKER\n\nbody of EVERYONE-SCOPED-MARKER"},
 		} {
 			if got := loreBlockOf(tc.doc); got != tc.want {
@@ -249,8 +249,8 @@ func TestMemberBootDocumentsCarryEveryoneLore(t *testing.T) {
 		seedLore(t, s.dal, LoreScopeAgent, seedMiraID, "MIRA-OWN", LoreStateActive, 100)
 		seedLore(t, s.dal, LoreScopeAgent, workerID, "WORKER-OWN", LoreStateActive, 100)
 		const everyone = "\n\n## L-1 EVERYONE-OLD\n\nbody of EVERYONE-OLD"
-		const miraOwn = "# 傳承\n\n## L-2 MIRA-OWN\n\nbody of MIRA-OWN"
-		const workerOwn = "# 傳承\n\n## L-3 WORKER-OWN\n\nbody of WORKER-OWN"
+		const miraOwn = "# Lore\n\n## L-2 MIRA-OWN\n\nbody of MIRA-OWN"
+		const workerOwn = "# Lore\n\n## L-3 WORKER-OWN\n\nbody of WORKER-OWN"
 
 		for _, tc := range []struct {
 			cap                int

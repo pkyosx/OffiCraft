@@ -807,6 +807,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		v := *body.DisplayWide
 		put(settingDisplayWide, strconv.FormatBool(v), func() { s.displayWide = v })
 	}
+	if body.DeveloperMode != nil && *body.DeveloperMode != s.developerMode {
+		v := *body.DeveloperMode
+		put(settingDeveloperMode, strconv.FormatBool(v), func() { s.developerMode = v })
+	}
 	if body.DisplaySeasonalTheme != nil && *body.DisplaySeasonalTheme != s.displaySeasonalTheme {
 		v := *body.DisplaySeasonalTheme
 		put(settingDisplaySeasonalTheme, strconv.FormatBool(v), func() { s.displaySeasonalTheme = v })
@@ -942,6 +946,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		DisplayTheme:                     s.displayTheme,
 		DisplayLanguage:                  s.displayLanguage,
 		DisplayWide:                      s.displayWide,
+		DeveloperMode:                    s.developerMode,
 		DisplaySeasonalTheme:             s.displaySeasonalTheme,
 		DisplayThemeSchedule:             append([]ThemeScheduleEntryDTO{}, s.displayThemeSchedule...),
 		// Never null on the wire (spec types these as arrays); copied so no response

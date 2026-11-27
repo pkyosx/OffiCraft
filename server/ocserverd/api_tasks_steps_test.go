@@ -519,7 +519,7 @@ func TestHandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(t *testing.T) {
 		}
 		if got, want := rec.Body.String(), `{"task_id":"`+task.ID+
 			`","steps_total":1,"progress_done":1,"progress_total":1,`+
-			`"ready_for_done_note":"這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。請依系統的收尾指示完成收尾後再結案。"}`; got != want {
+			`"ready_for_done_note":"This report completed every step of the task, so the task now stands ready to close (ready_for_done). Finish the close-out by following the system's close-out instructions, then close the task."}`; got != want {
 			t.Fatalf("receipt:\n got %s\nwant %s", got, want)
 		}
 		v2 := getTaskView(t, api, task.ID)

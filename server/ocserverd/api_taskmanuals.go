@@ -212,8 +212,8 @@ func (s *apiServer) callerMaySetAssignee(r *http.Request) bool {
 	return principalAtLeast(s.principalOfRequest(r), principalAdminAgent)
 }
 
-const assigneeGovernanceMsg = "assignee is owner/admin-agent governance — " +
-	"a plain agent may not set who executes a task type"
+const assigneeGovernanceMsg = "assignee is owner/admin governance — " +
+	"a plain member may not set who executes a task type"
 
 func (s *apiServer) HandleListTaskManualsApiTaskManualsGet(w http.ResponseWriter, r *http.Request) {
 	manuals, err := s.foldTaskManuals()

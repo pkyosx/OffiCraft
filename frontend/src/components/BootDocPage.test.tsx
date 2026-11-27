@@ -128,8 +128,9 @@ async function typeWholeDoc(
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   __resetMock();
+  await api.patchServerSettings({ developerMode: true });
 });
 
 afterEach(() => {
@@ -137,6 +138,29 @@ afterEach(() => {
 });
 
 describe("BootDocPage", () => {
+  it("while developer mode is off a modified document shows no edit button and keeps its badge", async () => {
+    await api.saveBootDoc("system_interaction", "global", "S1");
+    await api.patchServerSettings({ developerMode: false });
+    const utils = renderSystem();
+
+    await waitFor(() =>
+      expect(utils.getByTestId("doc-card-status-badge").textContent).toBe("已修改")
+    );
+    expect(utils.queryByTestId("doc-card-edit")).toBeNull();
+    expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
+  });
+
+  it("an open document locks and unlocks as developer mode is switched elsewhere", async () => {
+    const utils = renderSystem();
+    await utils.findByTestId("doc-card-edit");
+
+    await api.patchServerSettings({ developerMode: false });
+    await waitFor(() => expect(utils.queryByTestId("doc-card-edit")).toBeNull());
+
+    await api.patchServerSettings({ developerMode: true });
+    await utils.findByTestId("doc-card-edit");
+  });
+
   it("save calls the REPLACE endpoint and renders the new content back", async () => {
     const save = vi.spyOn(api, "saveBootDoc");
     const utils = renderClaude();
@@ -368,7 +392,7 @@ describe("BootDocPage", () => {
     // codex document is untouched AND it is a different document — its own
     // text, not the claude one it sits next to in the settings list.
     const codex = renderCodex();
-    await codex.findAllByText(/Codex App Server 執行環境/);
+    await codex.findAllByText(/Codex App Server Runtime/);
     expect(codex.container.textContent).not.toContain("只改 claude 這一份");
     expect(await api.getBootDoc("boot_sequence", "codex")).toMatchObject({
       text: SEED_BOOT_SEQUENCE_CODEX_MD.trim(),

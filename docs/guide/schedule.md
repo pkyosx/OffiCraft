@@ -1,36 +1,36 @@
-# 定時做某件事（定期訊息）
+# Doing something on a schedule (Scheduled messages)
 
-這頁說明定期訊息是什麼，以及每則定期訊息的設定各自代表什麼意思。
+This page explains what a scheduled message is and what each setting of a scheduled message means.
 
-## 定期訊息
+## Scheduled messages
 
-定期訊息是設在某一位成員身上的排程。時間一到，你寫好的訊息會原封不動送給這位成員，就像你在聊天裡傳了一則訊息，成員收到後照訊息內容去做。適合每天、每週固定要做的例行工作，例如每天早上整理前一天的客戶來信、每週一寫上週的進度摘要。
+A scheduled message is a schedule set on one member. When the time comes, the message you wrote is sent to that member exactly as written, as if you had sent it in chat, and the member does what the message says. Scheduled messages suit routine work done every day or every week, for example summarizing the previous day's customer emails every morning, or writing a summary of last week's progress every Monday.
 
-定期訊息在成員詳情的「定期訊息」卡設定。只有你和特助 Mira 能設定，成員不會自己替自己排定期訊息。
+Scheduled messages are set up in the "SCHEDULED MESSAGES" card in "Member details". Only you and the Assistant, Mira, can set them up. Members do not schedule messages for themselves.
 
-## 每則定期訊息有什麼
+## What each scheduled message has
 
-- **名稱**：給你自己辨認用，選填。
-- **訊息內容**：時間到時送給成員的訊息。要寫成成員讀了就能做的指示，例如「整理昨天收到的客戶來信，列出還沒回覆的信件給我」。做法很長、每次都一樣時，先寫成任務手冊，訊息只寫「照每日來信整理的手冊做今天的整理」，見 [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md)。
-- **頻率**：每天、每週、每月或自訂。自訂可以指定幾月、幾號、幾點、幾分的組合，例如每季第一天早上 9 點，或每 20 分鐘一次。
-- **時區**：排程依這個時區的當地時間送出。新增時預設是台北時間（`Asia/Taipei`），你在其他時區就要改成你所在地。
-- **啟用中／已停用**：停用後不再送出，設定都保留，重新啟用就恢復。
-- **上次送出**：最近一次送出的時間，用來確認定期訊息有沒有照時間送出。
+- **Name**: For your own reference. Optional.
+- **Message**: The message sent to the member when the time comes. Write it as an instruction the member can act on after reading it, for example "Go through the customer emails received yesterday and list the ones that have not been answered yet." If the procedure is long and the same every time, write it as a task manual first and have the message only say "Do today's email summary following the daily email summary manual". See [Having AI follow an SOP for repeated work (Task manuals)](sop.md).
+- **Repeats**: Daily, Weekly, Monthly, or Custom. Custom lets you specify a combination of months, days, hours, and minutes, for example 9 AM on the first day of each quarter, or once every 20 minutes.
+- **Timezone**: The message is sent according to local time in this time zone. New scheduled messages default to Taipei time (`Asia/Taipei`). If you are in a different time zone, change it to yours.
+- **Enabled / Disabled**: A disabled scheduled message is no longer sent. All its settings are kept, and enabling it again resumes sending.
+- **Last sent**: The time of the most recent send. Use it to check whether the scheduled message is being sent on time.
 
-刪除定期訊息**無法復原**。
+Deleting a scheduled message **cannot be undone**.
 
-## 要注意的情況
+## Situations to watch for
 
-- **成員要在線上，才會在時間到時處理。** 成員離線或已停止時，定期訊息不會喚醒成員；訊息會留著，等成員下次上線才讀到。
-- **例行工作請設在正職成員上。** 外包只為一張任務存在，任務結案、外包離開後，外包名下的定期訊息就不會再送出。
-- **錯過的時間不會逐一補送。** 系統停機或定期訊息停用期間錯過的時間，恢復後只補送最近錯過的那一次。
-- **每月選 29、30、31 號時，沒有那一天的月份整個跳過**，不會改在月底送出。
+- **The member must be online to handle the message when the time comes.** If the member is offline or stopped, the scheduled message does not wake the member. The message stays and the member reads it the next time it comes online.
+- **Set routine work on staff members.** An outsource member exists for a single task only. After the task is closed and the outsource member leaves, scheduled messages under that outsource member are no longer sent.
+- **Missed times are not each sent later.** For times missed while the system was down or the scheduled message was disabled, only the most recent missed send is made once things resume.
+- **If you choose the 29th, 30th, or 31st for a monthly schedule, months without that day are skipped entirely.** The message is not sent at the end of the month instead.
 
-各欄位與送出規則的完整說明見 [介面說明](interface.md) 的「定期訊息」。
+For the full description of each field and the sending rules, see "Scheduled messages" in [Interface reference](interface.md).
 
-## 相關文件
+## Related pages
 
-- [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md)
-- [讓外部事件自動送給成員（回呼端點）](webhook.md)
-- [增加成員與發外包](members.md)
-- [介面說明](interface.md)
+- [Having AI follow an SOP for repeated work (Task manuals)](sop.md)
+- [Send outside events to members automatically (webhooks)](webhook.md)
+- [Adding members and hiring outsource](members.md)
+- [Interface reference](interface.md)

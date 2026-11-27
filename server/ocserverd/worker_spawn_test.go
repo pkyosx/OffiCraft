@@ -180,7 +180,7 @@ func TestBuildWorkerBootContext(t *testing.T) {
 			t.Fatalf("buildWorkerBootContext: %v", err)
 		}
 		head, tail, found := strings.Cut(after,
-			"# 使用者自訂（Owner Additions）\n\nStudio rule: never touch the bonded rack\n\n")
+			"# User additions\n\nStudio rule: never touch the bonded rack\n\n")
 		if !found {
 			t.Fatalf("the owner's block is not in the assembled context (%d chars)", len(after))
 		}
@@ -225,8 +225,8 @@ func TestResolveWorkerPlacement(t *testing.T) {
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 
 		id, why := api.resolveWorkerPlacement(w, "", 1000)
-		wantPlacement(t, id, why, "", "no_machine_selected: no machine is selected for this worker — "+
-			"pick one on the worker (改機器) or on the task type's 手冊 assignee; "+
+		wantPlacement(t, id, why, "", "no_machine_selected: no machine is selected for this outsource member — "+
+			"pick one on the outsource member (Change machine) or in the task manual's Assigned executor; "+
 			"there is no automatic placement")
 	})
 
@@ -384,8 +384,8 @@ func TestResolveStickyWorkerPlacement(t *testing.T) {
 		wantPlacement(t, id, why, ServerSelfHost, "")
 
 		id, why = api.resolveStickyWorkerPlacement(w, "", 1000)
-		wantPlacement(t, id, why, "", "no_machine_selected: no machine is selected for this worker — "+
-			"pick one on the worker (改機器) or on the task type's 手冊 assignee; "+
+		wantPlacement(t, id, why, "", "no_machine_selected: no machine is selected for this outsource member — "+
+			"pick one on the outsource member (Change machine) or in the task manual's Assigned executor; "+
 			"there is no automatic placement")
 	})
 }
@@ -395,8 +395,8 @@ func TestWakeTimeoutOverWardenReceipt(t *testing.T) {
 	const composed = wardenRefusal + " — the start window then lapsed, but that is NOT a " +
 		"runtime failure: the previous session is still running and the warden refused " +
 		"to stomp it, so nothing new was ever started. Do not go looking for a broken " +
-		"runtime on that machine; deal with the live session — press 強制停止 to " +
-		"end it, then 喚醒."
+		"runtime on that machine; deal with the live session — press Force stop to " +
+		"end it, then Wake."
 
 	t.Run("a wake_timeout landing on a start row that carries the warden's refusal is composed onto it, keeping the warden's line in front", func(t *testing.T) {
 		row := OutsourceWorker{LastOp: "start", LastOpReason: wardenRefusal}
@@ -534,7 +534,7 @@ func TestStampWorkerPlacementBlocked(t *testing.T) {
 			"window then lapsed, but that is NOT a runtime failure: the previous session is " +
 			"still running and the warden refused to stomp it, so nothing new was ever " +
 			"started. Do not go looking for a broken runtime on that machine; deal with the " +
-			"live session — press 強制停止 to end it, then 喚醒."
+			"live session — press Force stop to end it, then Wake."
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"last_op": "start", "last_op_ok": false, "last_op_at": 500,
 			"last_op_reason": composed,
@@ -1004,8 +1004,8 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 		apiWantValue(t, "spawn observation", any(float64(len(api.workerSpawnAt))), any(0))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
-			"last_op_reason": "no_machine_selected: no machine is selected for this worker — " +
-				"pick one on the worker (改機器) or on the task type's 手冊 assignee; " +
+			"last_op_reason": "no_machine_selected: no machine is selected for this outsource member — " +
+				"pick one on the outsource member (Change machine) or in the task manual's Assigned executor; " +
 				"there is no automatic placement",
 		}))
 	})
@@ -1574,7 +1574,7 @@ func TestRespawnWorkerForOwnerOp(t *testing.T) {
 			"machine": "m-server-self",
 			"last_op": "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the relocate was saved; this member stays stopped — " +
-				"press 喚醒 when you want it to run",
+				"press Wake when you want it to run",
 		}))
 	})
 
@@ -1855,8 +1855,8 @@ func TestHandOverWorkerNow(t *testing.T) {
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status":  "active",
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
-			"last_op_reason": "no_machine_selected: no machine is selected for this worker — " +
-				"pick one on the worker (改機器) or on the task type's 手冊 assignee; " +
+			"last_op_reason": "no_machine_selected: no machine is selected for this outsource member — " +
+				"pick one on the outsource member (Change machine) or in the task manual's Assigned executor; " +
 				"there is no automatic placement",
 		}))
 	})
@@ -1946,7 +1946,7 @@ func TestHandOverWorkerNow(t *testing.T) {
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "circuit_open: too many failed starts in a row, so the server " +
 				"has stopped retrying this member for now — it will try again by itself; fix " +
-				"what is failing on its machine, or 停止 and 喚醒 to start over",
+				"what is failing on its machine, or Stop and Wake to start over",
 		}))
 	})
 
@@ -3237,7 +3237,7 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
 			"last_op_reason": "wake_timeout: the start window elapsed with no session, and " +
 				"this server no longer has a record of which machine the START was sent to " +
-				"(the spawn ledger is in-memory and a server restart clears it) — use 更改 " +
+				"(the spawn ledger is in-memory and a server restart clears it) — use Change " +
 				"to place it again",
 		}))
 	})
@@ -3304,7 +3304,7 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 			"last_op_reason": "wake_timeout: the START was dispatched to machine " +
 				"'m-server-self' but the agent never came online within the start window — " +
 				"that machine reports no Claude Code installed, so the agent cannot boot " +
-				"there. Fix any one: set its 執行環境 to Codex (that machine has it ready); " +
+				"there. Fix any one: set its AI runtime to Codex (that machine has it ready); " +
 				"or install Claude Code on that machine (warden log: ocwarden.out.log)",
 		}))
 	})
@@ -3698,8 +3698,8 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		apiWantValue(t, "fsm phase", any(state.Phase), any("offline"))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
-			"last_op_reason": "no_machine_selected: no machine is selected for this worker — " +
-				"pick one on the worker (改機器) or on the task type's 手冊 assignee; " +
+			"last_op_reason": "no_machine_selected: no machine is selected for this outsource member — " +
+				"pick one on the outsource member (Change machine) or in the task manual's Assigned executor; " +
 				"there is no automatic placement",
 		}))
 	})

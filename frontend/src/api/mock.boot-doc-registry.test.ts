@@ -112,6 +112,14 @@ describe("boot-document registry ⇄ settings rows", () => {
     }
   });
 
+  it("marks a settings row read-only exactly when the shared table does", () => {
+    for (const row of TABLE) {
+      const settingsRow = BOOT_DOC_ROWS[row.kind];
+      expect({ kind: row.kind, readOnly: !settingsRow.index && settingsRow.readOnly === true })
+        .toEqual({ kind: row.kind, readOnly: row.readOnly });
+    }
+  });
+
   it("addresses each single-key document by the key the server serves it under", () => {
     // A row's `docKey` is what the settings page opens the document WITH, so a
     // row pointing at a key the server does not serve is a 404 the owner meets

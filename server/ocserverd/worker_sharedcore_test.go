@@ -16,7 +16,7 @@ func TestWorkerSharedHead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workerSharedHead(default): %v", err)
 	}
-	if !strings.HasPrefix(base, "# Global Context（AI 工作室 · 成員 boot context）") {
+	if !strings.HasPrefix(base, "# Global Context (AI Studio · Member Boot Context)") {
 		t.Fatalf("worker shared head does not begin with the shared system-interaction block: %q", base[:min(len(base), 80)])
 	}
 	if strings.Contains(base, userAdditionsTitle) {
@@ -40,7 +40,7 @@ func TestWorkerSharedHead(t *testing.T) {
 }
 
 func TestWorkerBootSequence(t *testing.T) {
-	api, h, _, owner := newAPITestServer(t)
+	api, h, _, owner := newAPITestServerInDeveloperMode(t)
 	status, data := apiJSON(t, h, "POST", "/api/boot-sequence/claude", owner, `{"body":"Claude steps"}`)
 	if status != http.StatusOK {
 		t.Fatalf("replace claude boot sequence: %d (%v)", status, data)

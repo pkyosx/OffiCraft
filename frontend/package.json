@@ -12,6 +12,7 @@
     "gen:tokens": "node scripts/gen-theme-tokens.mjs",
     "gen:fonts": "node scripts/gen-theme-fonts.mjs",
     "gen:msgkeys": "node scripts/gen-message-keys.mjs",
+    "gen:termaliases": "node scripts/gen-term-aliases.mjs",
     "lint:tokens": "node scripts/check-css-tokens.mjs",
     "lint:token-roles": "node scripts/check-token-roles.mjs",
     "lint:async-landing": "node scripts/check-async-landing-points.mjs",

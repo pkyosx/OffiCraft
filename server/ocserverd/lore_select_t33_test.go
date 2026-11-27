@@ -413,11 +413,11 @@ func TestRenderLoreBlockShowsTheTypeLabelAheadOfTheTitle(t *testing.T) {
 		{ID: "L-5", Title: "[工作原則] 戊", Body: "五", State: LoreStateActive, LoreType: LoreTypeOther},
 		{ID: "L-6", Title: "己", Body: "六", State: LoreStateActive, LoreType: LoreTypeOther},
 	}})
-	const want = "# 傳承" +
-		"\n\n## L-1 [指示衝突] 甲\n\n一" +
-		"\n\n## L-2 [指示補充] 乙（置頂）\n\n二" +
-		"\n\n## L-3 [Owner 決策] 丙\n\n三" +
-		"\n\n## L-4 [Owner 偏好] 丁\n\n四" +
+	const want = "# Lore" +
+		"\n\n## L-1 [Instruction conflict] 甲\n\n一" +
+		"\n\n## L-2 [Instruction supplement] 乙 (pinned)\n\n二" +
+		"\n\n## L-3 [Owner decision] 丙\n\n三" +
+		"\n\n## L-4 [Owner preference] 丁\n\n四" +
 		"\n\n## L-5 [工作原則] 戊\n\n五" +
 		"\n\n## L-6 己\n\n六"
 	if got != want {

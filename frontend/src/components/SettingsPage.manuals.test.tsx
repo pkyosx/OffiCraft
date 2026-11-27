@@ -2,7 +2,7 @@
 //   1. The settings landing carries the 任務手冊 entry (與角色誌並列); the
 //      built-in manuals are listed under 內建 (not deletable), custom ones
 //      under 自訂, which appears only once one exists.
-//   2. 新增類型 (T-fa76): the inline row takes a DISPLAY NAME; the system
+//   2. 新增任務手冊 (T-fa76): the inline row takes a DISPLAY NAME; the system
 //      mints the tm- type_key (never the user's text) and the list row shows
 //      the display name — the key stays out of the UI.
 //   3. The detail is a HUB: 負責成員 summary card + the 任務規劃 entry card —
@@ -136,9 +136,11 @@ describe("設定 › 任務手冊 — list", () => {
     const builtin = (await findByTestId("manual-group-builtin"))
       .parentElement as HTMLElement;
     expect(builtin.getAttribute("role")).toBe("group");
+    // The server stores the built-ins under English names and lists them in
+    // that (English) name order; the Chinese UI still labels them in Chinese.
     expect(
       [...builtin.querySelectorAll(".set-entry__name")].map((n) => n.textContent)
-    ).toEqual(["建立／修改角色", "建立／修改任務手冊", "開放遠端連線"]);
+    ).toEqual(["開放遠端連線", "建立／修改角色", "建立／修改任務手冊"]);
     expect(builtin.querySelector(".manual-group__head")?.textContent).toBe("內建");
     for (const key of ["builtin-role-design", "builtin-task-manual-design", "builtin-remote-access"]) {
       const del = within(builtin).getByTestId(`manual-delete-${key}`);
@@ -155,9 +157,12 @@ describe("設定 › 任務手冊 — list", () => {
     await api.updateTaskManual("builtin-role-design", { displayName: "Hire a role" });
     const { findByTestId, findByLabelText, container } = await renderManualsList();
     const builtin = (await findByTestId("manual-group-builtin")).parentElement as HTMLElement;
+    // The list comes back in the server's order — by stored display name,
+    // case-insensitive — so the renamed manual sorts under H, after both
+    // "Create / edit" ones.
     expect(
       [...builtin.querySelectorAll(".set-entry__name")].map((n) => n.textContent)
-    ).toEqual(["Hire a role", "Create / edit task manual", "Allow remote connections"]);
+    ).toEqual(["Allow remote connections", "Create / edit task manual", "Hire a role"]);
 
     fireEvent.click(await findByTestId("manual-open-builtin-task-manual-design"));
     const title = container.querySelector("h1.settings__title") as HTMLElement;
@@ -165,15 +170,25 @@ describe("設定 › 任務手冊 — list", () => {
     expect(container.querySelector("nav.crumbs")?.textContent).toContain("Create / edit task manual");
     fireEvent.click(await findByLabelText(en.settings.manualDisplayName));
     expect((container.querySelector("input.inline-edit__input") as HTMLInputElement).value).toBe(
-      "建立／修改任務手冊"
+      "Create / edit task manual"
     );
+  });
+
+  it("on a station that still stores a built-in under its old Chinese name, reads it in the UI's language", async () => {
+    await api.updateTaskManual("builtin-role-design", { displayName: "建立／修改角色" });
+    useEnglishLocale();
+    const { findByTestId } = await renderManualsList();
+    const builtin = (await findByTestId("manual-group-builtin")).parentElement as HTMLElement;
+    const names = [...builtin.querySelectorAll(".set-entry__name")].map((n) => n.textContent);
+    expect(names).toContain("Create / edit role");
+    expect(names).not.toContain("建立／修改角色");
   });
 
   it("says the list is empty, with no group headings, when the server lists nothing", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([]);
     const { findByTestId, queryByTestId } = await renderManualsList();
     const empty = await findByTestId("manuals-empty");
-    expect(empty.textContent).toContain("還沒有任務類型");
+    expect(empty.textContent).toContain("還沒有任務手冊");
     expect(queryByTestId("manual-group-builtin")).toBeNull();
     expect(queryByTestId("manual-group-custom")).toBeNull();
   });
@@ -266,9 +281,9 @@ describe("設定 › 任務手冊 — list", () => {
     );
     expect(queryByTestId("manual-group-custom")).toBeNull();
     expect((await api.listTaskManuals()).map((m) => m.typeKey)).toEqual([
+      "builtin-remote-access",
       "builtin-role-design",
       "builtin-task-manual-design",
-      "builtin-remote-access",
     ]);
   });
 });

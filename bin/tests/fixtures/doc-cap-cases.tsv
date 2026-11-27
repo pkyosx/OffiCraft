@@ -41,7 +41,7 @@
 #
 # cap<TAB><n> below is read by docCap.test.ts, so the threshold is not a third
 # copy on the TS side.
-# cap	15000
+# cap	37500
 #
 # COLUMNS  case<TAB>before_runes<TAB>after_runes<TAB>blocked<TAB>fill
 #
@@ -57,16 +57,16 @@
 case	before_runes	after_runes	blocked	fill
 empty-both	0	0	false	a
 first-write-small	0	1	false	a
-under-cap	0	14999	false	a
-at-cap-exactly	0	15000	false	a
-first-write-over-cap	0	15001	true	a
-over-cap-growing	14000	15001	true	a
-over-cap-equal	15001	15001	true	a
-over-cap-one-more	15001	15002	true	a
-over-cap-shrinking	17000	15001	false	a
-over-cap-shrinking-to-cap	17000	15000	false	a
-cjk-under-cap-in-runes-over-in-bytes	0	9000	false	情
-cjk-over-cap	0	15001	true	情
-astral-under-cap-in-runes-over-in-utf16	0	9000	false	🙂
-astral-over-cap	0	15001	true	🙂
-astral-over-cap-shrinking	12000	10001	false	🙂
+under-cap	0	37499	false	a
+at-cap-exactly	0	37500	false	a
+first-write-over-cap	0	37501	true	a
+over-cap-growing	35000	37501	true	a
+over-cap-equal	37501	37501	true	a
+over-cap-one-more	37501	37502	true	a
+over-cap-shrinking	42500	37501	false	a
+over-cap-shrinking-to-cap	42500	37500	false	a
+cjk-under-cap-in-runes-over-in-bytes	0	22500	false	情
+cjk-over-cap	0	37501	true	情
+astral-under-cap-in-runes-over-in-utf16	0	22500	false	🙂
+astral-over-cap	0	37501	true	🙂
+astral-over-cap-shrinking	30000	25001	false	🙂

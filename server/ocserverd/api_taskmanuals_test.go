@@ -111,7 +111,7 @@ func TestWriteTaskManual(t *testing.T) {
 			"lore":             "",
 			"lore_chars":       0,
 			"sop_md_chars":     9,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       42.5,
 			"is_seed":          false,
 			"is_default":       false,
@@ -163,7 +163,7 @@ func TestWriteTaskManualReceipt(t *testing.T) {
 				"is_default":       false,
 				"is_seed":          false,
 				"sop_md_chars":     9,
-				"sop_md_cap_chars": 15000,
+				"sop_md_cap_chars": 37500,
 				"sop_md_sha256":    "4463e39266c9a31c7dea3dc806c1567c97c34ed1d69af09aaedf4a302bc78aad",
 			},
 		},
@@ -328,12 +328,12 @@ func apiTestTaskManualList(t *testing.T, h http.Handler, token string) []any {
 func apiTestBuiltinTaskManualRows(capChars int) []any {
 	return []any{
 		map[string]any{
-			"type_key":         "builtin-task-manual-design",
-			"display_name":     "建立／修改任務手冊",
-			"purpose":          "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
-			"fields":           []any{map[string]any{"name": "manual_name", "required": true, "is_key": true}},
-			"assignee":         map[string]any{},
-			"sop_md_chars":     3872,
+			"type_key":         "builtin-remote-access",
+			"display_name":     "Allow remote connections",
+			"purpose":          "Help the Owner turn on or adjust remote connections so a phone or another computer can reach the console at an HTTPS URL — including turning it on for the first time, and later changing the forwarding method or the URL.",
+			"fields":           []any{},
+			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
+			"sop_md_chars":     15049,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
 			"is_seed":          true,
@@ -341,23 +341,23 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 		},
 		map[string]any{
 			"type_key":         "builtin-role-design",
-			"display_name":     "建立／修改角色",
-			"purpose":          "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+			"display_name":     "Create / edit role",
+			"purpose":          "Create a new role, or adjust an existing role's Duty and Insight.",
 			"fields":           []any{},
 			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
-			"sop_md_chars":     2803,
+			"sop_md_chars":     9061,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
 			"is_seed":          true,
 			"is_default":       true,
 		},
 		map[string]any{
-			"type_key":         "builtin-remote-access",
-			"display_name":     "開放遠端連線",
-			"purpose":          "幫 Owner 開啟或調整遠端連線，讓手機或其他電腦能用 HTTPS 網址連到控制台，包括第一次開啟，以及之後更換轉發方式或網址。",
-			"fields":           []any{},
-			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
-			"sop_md_chars":     5389,
+			"type_key":         "builtin-task-manual-design",
+			"display_name":     "Create / edit task manual",
+			"purpose":          "Create a new task manual, or adjust an existing task manual's content and assigned member.",
+			"fields":           []any{map[string]any{"name": "manual_name", "required": true, "is_key": true}},
+			"assignee":         map[string]any{},
+			"sop_md_chars":     12335,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
 			"is_seed":          true,
@@ -367,9 +367,9 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 }
 
 const (
-	apiTestRoleDesignSopChars        = 2803
-	apiTestRoleDesignSopSha256       = "0142aa3cd2d0ea730455350b006a10b35b542eed70b1fd0bd8705e90eb9177de"
-	apiTestTaskManualDesignSopSha256 = "bb27fb16377af2f6dc457a06315faff8d12332142dff16a9545d73b1331fc004"
+	apiTestRoleDesignSopChars        = 9061
+	apiTestRoleDesignSopSha256       = "92304673056702d6e4b57db8ae9f704342b3f5cd24820bc3b1a095d827694ae8"
+	apiTestTaskManualDesignSopSha256 = "96452eb475b085a37009dd00bb5974a5f140938207369ee80eafe08f8364be10"
 )
 
 // apiTestWantRoleDesignManual reads builtin-role-design back. The shipped SOP is
@@ -440,14 +440,14 @@ func apiTestShipBuiltinAssignee(t *testing.T, typeKey string, assignee map[strin
 func apiTestShippedRoleDesignManual() map[string]any {
 	return map[string]any{
 		"type_key":         "builtin-role-design",
-		"display_name":     "建立／修改角色",
-		"purpose":          "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+		"display_name":     "Create / edit role",
+		"purpose":          "Create a new role, or adjust an existing role's Duty and Insight.",
 		"fields":           []any{},
 		"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
 		"lore":             "",
 		"lore_chars":       0,
 		"sop_md_chars":     apiTestRoleDesignSopChars,
-		"sop_md_cap_chars": 15000,
+		"sop_md_cap_chars": 37500,
 		"updated_ts":       apiAnyNumber,
 		"is_seed":          true,
 		"is_default":       true,
@@ -477,7 +477,7 @@ func TestHandleListTaskManualsApiTaskManualsGet(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		got := apiTestTaskManualList(t, h, owner)
-		apiWantValue(t, "body", any(got), any(apiTestBuiltinTaskManualRows(15000)))
+		apiWantValue(t, "body", any(got), any(apiTestBuiltinTaskManualRows(37500)))
 		dashboard.wantFrames()
 	})
 
@@ -485,23 +485,24 @@ func TestHandleListTaskManualsApiTaskManualsGet(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design", owner, `{"display_name":"角色設計","sop_md":"改寫"}`)
 
-		edited := apiTestBuiltinTaskManualRows(15000)
-		edited[1] = map[string]any{
+		// 角色設計 sorts after both English built-in names, so the edited row moves to the end.
+		shipped := apiTestBuiltinTaskManualRows(37500)
+		edited := []any{shipped[0], shipped[2], map[string]any{
 			"type_key":         "builtin-role-design",
 			"display_name":     "角色設計",
-			"purpose":          "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+			"purpose":          "Create a new role, or adjust an existing role's Duty and Insight.",
 			"fields":           []any{},
 			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
 			"sop_md_chars":     2,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 			"is_seed":          true,
 			"is_default":       false,
-		}
+		}}
 		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(edited))
 
 		apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design/reset", owner, "")
-		reset := apiTestBuiltinTaskManualRows(15000)
+		reset := apiTestBuiltinTaskManualRows(37500)
 		reset[1].(map[string]any)["updated_ts"] = apiAnyNumber
 		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(reset))
 	})
@@ -516,7 +517,7 @@ func TestHandleListTaskManualsApiTaskManualsGet(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		got := apiTestTaskManualList(t, h, owner)
-		apiWantValue(t, "body", any(got), any(append([]any{
+		apiWantValue(t, "body", any(got), any(append(apiTestBuiltinTaskManualRows(37500), []any{
 			map[string]any{
 				"type_key":         "tm-ship",
 				"display_name":     "tm-ship",
@@ -524,7 +525,7 @@ func TestHandleListTaskManualsApiTaskManualsGet(t *testing.T) {
 				"fields":           []any{},
 				"assignee":         map[string]any{},
 				"sop_md_chars":     0,
-				"sop_md_cap_chars": 15000,
+				"sop_md_cap_chars": 37500,
 				"updated_ts":       apiAnyNumber,
 				"is_seed":          false,
 				"is_default":       false,
@@ -536,12 +537,12 @@ func TestHandleListTaskManualsApiTaskManualsGet(t *testing.T) {
 				"fields":           []any{},
 				"assignee":         map[string]any{},
 				"sop_md_chars":     9,
-				"sop_md_cap_chars": 15000,
+				"sop_md_cap_chars": 37500,
 				"updated_ts":       apiAnyNumber,
 				"is_seed":          false,
 				"is_default":       false,
 			},
-		}, apiTestBuiltinTaskManualRows(15000)...)))
+		}...)))
 		dashboard.wantFrames()
 	})
 
@@ -600,7 +601,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -628,7 +629,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 		dashboard.wantFrames(apiTestTaskManualFrame(1, "tm-quote", apiTestPlainAgentID))
@@ -654,7 +655,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -670,7 +671,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		}
 		apiWantError(t, data, "validation_error", "display_name must not be blank")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(37500)))
 	})
 
 	t.Run("an admin agent's assignee is stored on the new type", func(t *testing.T) {
@@ -687,7 +688,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{"kind": "staff", "member_id": "kip"},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -703,9 +704,9 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "forbidden",
-			"assignee is owner/admin-agent governance — a plain agent may not set who executes a task type")
+			"assignee is owner/admin governance — a plain member may not set who executes a task type")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(37500)))
 	})
 
 	t.Run("an assignee spelled with the retired member kind answers 400 naming the rename", func(t *testing.T) {
@@ -721,7 +722,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		apiWantError(t, data, "validation_error",
 			"assignee kind: task executor kind \"member\" was renamed to \"staff\" (T-101); the closed set is {\"staff\", \"outsource\"}")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(37500)))
 	})
 
 	t.Run("an outsource assignee pinned to a machine nobody onboarded answers 404 and mints nothing", func(t *testing.T) {
@@ -736,7 +737,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		}
 		apiWantError(t, data, "not_found", "machine 'm-ghost' not found")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(37500)))
 	})
 
 	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
@@ -750,7 +751,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(37500)))
 	})
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {
@@ -763,7 +764,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(37500)))
 	})
 
 	for _, shape := range windowDALShapes {
@@ -793,7 +794,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 				"sop_md":           "",
 				"assignee":         map[string]any{},
 				"sop_md_chars":     0,
-				"sop_md_cap_chars": 15000,
+				"sop_md_cap_chars": 37500,
 				"updated_ts":       1700000000,
 			})
 		})
@@ -831,16 +832,16 @@ func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
 
 		apiTestWantTaskManualDesign(t, h, agent, map[string]any{
 			"type_key":     "builtin-task-manual-design",
-			"display_name": "建立／修改任務手冊",
-			"purpose":      "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
+			"display_name": "Create / edit task manual",
+			"purpose":      "Create a new task manual, or adjust an existing task manual's content and assigned member.",
 			"fields": []any{
 				map[string]any{"name": "manual_name", "required": true, "is_key": true},
 			},
 			"assignee":         map[string]any{},
 			"lore":             "",
 			"lore_chars":       0,
-			"sop_md_chars":     3872,
-			"sop_md_cap_chars": 15000,
+			"sop_md_chars":     12335,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       0,
 			"is_seed":          true,
 			"is_default":       true,
@@ -871,7 +872,7 @@ func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
 			"lore":             "",
 			"lore_chars":       0,
 			"sop_md_chars":     9,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 			"is_seed":          false,
 			"is_default":       false,
@@ -941,7 +942,7 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 			"is_default":       false,
 			"is_seed":          false,
 			"sop_md_chars":     9,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"sop_md_sha256":    "4463e39266c9a31c7dea3dc806c1567c97c34ed1d69af09aaedf4a302bc78aad",
 		})
 		dashboard.wantFrames(apiTestTaskManualFrame(2, "tm-quote", apiTestPlainAgentID))
@@ -956,7 +957,7 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 			"sop_md":           "# SOP\n步驟一",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     9,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -981,7 +982,7 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -1007,7 +1008,7 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -1033,7 +1034,7 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -1050,7 +1051,7 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "forbidden",
-			"assignee is owner/admin-agent governance — a plain agent may not set who executes a task type")
+			"assignee is owner/admin governance — a plain member may not set who executes a task type")
 		dashboard.wantFrames()
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
 			"type_key":         "tm-quote",
@@ -1060,7 +1061,7 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -1099,7 +1100,7 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -1124,7 +1125,7 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -1142,7 +1143,7 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 		apiWantError(t, data, "forbidden",
 			"task manual 'builtin-role-design' is built-in and cannot be deleted — reset it instead")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(37500)))
 	})
 
 	t.Run("a type nobody is running answers the delete receipt and fans the owner's manual delta", func(t *testing.T) {
@@ -1160,7 +1161,7 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 		apiWantBody(t, data, map[string]any{"type_key": "tm-quote", "deleted": true})
 		dashboard.wantFrames(apiTestTaskManualFrame(2, "tm-quote", "mira"))
 		asker.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(37500)))
 	})
 
 	t.Run("a type with owner suggested replies loses them with the manual, the owner gets both deltas, and another type keeps its list", func(t *testing.T) {
@@ -1212,7 +1213,7 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -1250,7 +1251,7 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -1267,7 +1268,7 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(append([]any{
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(append(apiTestBuiltinTaskManualRows(37500), []any{
 			map[string]any{
 				"type_key":         "tm-quote",
 				"display_name":     "報價",
@@ -1275,12 +1276,12 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 				"fields":           []any{},
 				"assignee":         map[string]any{},
 				"sop_md_chars":     0,
-				"sop_md_cap_chars": 15000,
+				"sop_md_cap_chars": 37500,
 				"updated_ts":       apiAnyNumber,
 				"is_seed":          false,
 				"is_default":       false,
 			},
-		}, apiTestBuiltinTaskManualRows(15000)...)))
+		}...)))
 	})
 }
 
@@ -1291,7 +1292,7 @@ func TestHandleResetTaskManualApiTaskManualsTypeKeyResetPost(t *testing.T) {
 		"is_default":       true,
 		"is_seed":          true,
 		"sop_md_chars":     apiTestRoleDesignSopChars,
-		"sop_md_cap_chars": 15000,
+		"sop_md_cap_chars": 37500,
 		"sop_md_sha256":    apiTestRoleDesignSopSha256,
 	}
 
@@ -1376,7 +1377,7 @@ func TestHandleResetTaskManualApiTaskManualsTypeKeyResetPost(t *testing.T) {
 			"sop_md":           "",
 			"assignee":         map[string]any{},
 			"sop_md_chars":     0,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	})
@@ -1434,7 +1435,7 @@ func TestHandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(t *testing.T) {
 			"sop_md":           text,
 			"assignee":         map[string]any{},
 			"sop_md_chars":     chars,
-			"sop_md_cap_chars": 15000,
+			"sop_md_cap_chars": 37500,
 			"updated_ts":       apiAnyNumber,
 		})
 	}
@@ -1453,7 +1454,7 @@ func TestHandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(t *testing.T) {
 			"type_key":      "tm-quote",
 			"applied_edits": 1,
 			"size_chars":    13,
-			"cap_chars":     15000,
+			"cap_chars":     37500,
 			"sha256":        "7ef2731f09d79ff3529d190b13e2853e39d01ce10beab4ab44ff4f22856f8172",
 		})
 		dashboard.wantFrames(apiTestTaskManualFrame(3, "tm-quote", apiTestPlainAgentID))
@@ -1474,7 +1475,7 @@ func TestHandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(t *testing.T) {
 			"type_key":      "tm-quote",
 			"applied_edits": 1,
 			"size_chars":    13,
-			"cap_chars":     15000,
+			"cap_chars":     37500,
 			"sha256":        "7ef2731f09d79ff3529d190b13e2853e39d01ce10beab4ab44ff4f22856f8172",
 		})
 		dashboard.wantFrames(apiTestTaskManualFrame(3, "tm-quote", apiTestPlainAgentID))
@@ -1537,7 +1538,7 @@ func TestHandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(t *testing.T) {
 			"type_key":      "tm-quote",
 			"applied_edits": 2,
 			"size_chars":    9,
-			"cap_chars":     15000,
+			"cap_chars":     37500,
 			"sha256":        "4463e39266c9a31c7dea3dc806c1567c97c34ed1d69af09aaedf4a302bc78aad",
 		})
 		dashboard.wantFrames()

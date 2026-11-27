@@ -2,8 +2,8 @@
 # Reminds maintainers to re-read owner-facing restatements when the canonical
 # authority-conflict rule changes (T-c19c).
 #
-# The operational rule lives in the "遇到來源衝突時" paragraph of the "何時開卡"
-# section of seeds/system_interaction.md. CI metadata used to be embedded in
+# The operational rule lives in the "When sources conflict," paragraph of the
+# "When to open a card" section of seeds/system_interaction.md. CI metadata used to be embedded in
 # that seed and in the restatements as HTML comments. Those comments were visible in
 # the cockpit and in agent boot context, so the reminder now lives here, in the
 # test plane, instead.
@@ -19,12 +19,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SELF_REL="bin/tests/rule-defer-guard.sh"
 SEED="$ROOT/seeds/system_interaction.md"
-RULE_START="遇到來源衝突時"
+RULE_START="When sources conflict,"
 RULE_END="#### "
 
 # Update this only after a human has re-read every listed restatement against
 # the changed canonical paragraph.
-REVIEWED_RULE_HASH="5fbfa2d0afaec6d1bdd641d0e19070fe7d14577ef3d6b833d7dbc6fb5f988ab5"
+REVIEWED_RULE_HASH="e734e674cdd3ec48bb4155c055988ad303cab4a5dd526278c3ce71fd03fcfc7d"
 
 required_sites=(
   "AGENTS.md"
@@ -70,7 +70,7 @@ if [[ "$CURRENT_RULE_HASH" == "$REVIEWED_RULE_HASH" ]]; then
   ok "canonical rule digest is reviewed ($CURRENT_RULE_HASH)"
 else
   bad "canonical rule digest changed (current $CURRENT_RULE_HASH, reviewed $REVIEWED_RULE_HASH)"
-  bad "re-read every listed restatement against the 「遇到來源衝突時」 paragraph of seeds/system_interaction.md, then update REVIEWED_RULE_HASH in $SELF_REL"
+  bad "re-read every listed restatement against the 'When sources conflict,' paragraph of seeds/system_interaction.md, then update REVIEWED_RULE_HASH in $SELF_REL"
 fi
 
 for site in "${required_sites[@]}"; do

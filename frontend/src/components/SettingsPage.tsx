@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { taskTypeLabel } from "../lib/taskTypeLabel";
 import type { Dict } from "../i18n/locales/zh";
@@ -116,7 +116,7 @@ const DOC_CAP_ORDER: DocCapField[] = [
  *
  * 🔴 A SEPARATE TABLE FROM `DOC_CAP_FIELDS`, AND THE RANGES ARE WHY — the same
  * ruling that gave the chat budget and the step-note cap their own rows. That
- * table carries one shared floor of `DOC_CAP_CHARS_MIN` and a ceiling of 100000;
+ * table carries one shared floor of `DOC_CAP_CHARS_MIN` and a ceiling of 250000;
  * these four sit in two ranges of their own, neither of them that one. Both
  * tables go DOWN as well as up: a doc cap binds the next write against a STORED
  * document (owner 2026-09-07), and an over-cap 傳承 field stays as stored and
@@ -209,6 +209,9 @@ import {
   CheckIcon,
   BellIcon,
   UnknownIcon,
+  BriefcaseIcon,
+  ChatBubbleIcon,
+  BookIcon,
 } from "./icons";
 
 /** WHICH GROUP a boot document's list row sits in — the owner's own reading of
@@ -219,12 +222,17 @@ import {
  * back with the other task events, where it always belonged by subject. A group was never the right place to
  * say "you may not edit this": whether a document may be edited is the
  * SERVER's answer, arrives on the document's own read (`readOnly`), and is what
- * BootDocPage acts on. A row's group only decides where it is printed. */
-type BootDocGroup = "launch" | "stop" | "task";
+ * BootDocPage acts on. A row's group only decides where it is printed.
+ *
+ * `user` is not one of the three: its rows sit unlabelled at the top beside
+ * 使用者自訂, outside the developer-mode lock (owner: 「可以改的放使用者自訂」). */
+type BootDocGroup = "user" | "launch" | "stop" | "task";
 
-const BOOT_DOC_GROUP_ORDER: BootDocGroup[] = ["launch", "stop", "task"];
+type BootDocLockedGroup = Exclude<BootDocGroup, "user">;
 
-const BOOT_DOC_GROUP_LABEL: Record<BootDocGroup, SettingsTextKey> = {
+const BOOT_DOC_GROUP_ORDER: BootDocLockedGroup[] = ["launch", "stop", "task"];
+
+const BOOT_DOC_GROUP_LABEL: Record<BootDocLockedGroup, SettingsTextKey> = {
   launch: "globalSection",
   stop: "stopSection",
   task: "taskEventSection",
@@ -278,12 +286,31 @@ export const BOOT_DOC_ROWS: Record<
         }
       | {
           index?: false;
+          readOnly?: false;
           docKey: string;
           historyKey: SettingsTextKey;
           confirmKey: SettingsTextKey;
         }
+      | {
+          /** Mirrors the server's `read_only` (pinned to the shared table by
+           * mock.boot-doc-registry.test.ts) so the list row does not offer an
+           * edit; the document page still acts on the server's answer. */
+          index?: false;
+          readOnly: true;
+          docKey: string;
+        }
     )
 > = {
+  user_language: {
+    group: "user",
+    nameKey: "userLanguageName",
+    subKey: "userLanguageSub",
+    Icon: ChatBubbleIcon,
+    tone: "violet",
+    docKey: "global",
+    historyKey: "historyUserLanguageTitle",
+    confirmKey: "bootDocSaveConfirmUserLanguage",
+  },
   system_interaction: {
     group: "launch",
     nameKey: "systemName",
@@ -293,6 +320,15 @@ export const BOOT_DOC_ROWS: Record<
     docKey: "global",
     historyKey: "historyBootSystemTitle",
     confirmKey: "bootDocSaveConfirmSystem",
+  },
+  term_glossary: {
+    group: "launch",
+    nameKey: "termGlossaryName",
+    subKey: "termGlossarySub",
+    Icon: BookIcon,
+    tone: "blue",
+    docKey: "global",
+    readOnly: true,
   },
   boot_sequence: {
     group: "launch",
@@ -382,10 +418,12 @@ export const BOOT_DOC_ROWS: Record<
 function BootDocEntry({
   kind,
   row,
+  editable,
   onOpen,
 }: {
   kind: BootDocKind;
   row: (typeof BOOT_DOC_ROWS)[BootDocKind];
+  editable: boolean;
   onOpen: () => void;
 }) {
   const { t } = useI18n();
@@ -402,7 +440,10 @@ function BootDocEntry({
       </span>
       <span className="set-entry__body">
         <span className="set-entry__name">{t.settings[row.nameKey]}</span>
-        <span className="set-entry__sub">{t.settings[row.subKey]}</span>
+        <span className="set-entry__sub">
+          {t.settings[row.subKey]}
+          {editable && t.settings.bootDocEditableSuffix}
+        </span>
       </span>
       <ChevronRightIcon size={18} className="set-entry__chev" />
     </button>
@@ -614,6 +655,7 @@ export function SettingsPage({
         onOpenBootDoc={(docKind, docKey) =>
           setView({ kind: "bootDoc", docKind, docKey })
         }
+        developerMode={params.settings?.developerMode}
       />
     );
   }
@@ -797,8 +839,8 @@ export function SettingsPage({
         kind={view.docKind}
         docKey={view.docKey}
         title={t.settings[row.nameKey]}
-        historyTitle={t.settings[row.historyKey]}
-        confirmSaveBody={t.settings[row.confirmKey]}
+        historyTitle={row.readOnly ? "" : t.settings[row.historyKey]}
+        confirmSaveBody={row.readOnly ? "" : t.settings[row.confirmKey]}
         crumbs={[
           crumbRoot,
           crumbGlobalContext,
@@ -897,7 +939,10 @@ export function SettingsPage({
             </span>
             <span className="set-entry__body">
               <span className="set-entry__name">{t.settings.bootClaudeName}</span>
-              <span className="set-entry__sub">{t.settings.bootClaudeSub}</span>
+              <span className="set-entry__sub">
+                {t.settings.bootClaudeSub}
+                {params.settings?.developerMode && t.settings.bootDocEditableSuffix}
+              </span>
             </span>
             <ChevronRightIcon size={18} className="set-entry__chev" />
           </button>
@@ -912,7 +957,10 @@ export function SettingsPage({
             </span>
             <span className="set-entry__body">
               <span className="set-entry__name">{t.settings.bootCodexName}</span>
-              <span className="set-entry__sub">{t.settings.bootCodexSub}</span>
+              <span className="set-entry__sub">
+                {t.settings.bootCodexSub}
+                {params.settings?.developerMode && t.settings.bootDocEditableSuffix}
+              </span>
             </span>
             <ChevronRightIcon size={18} className="set-entry__chev" />
           </button>
@@ -1039,6 +1087,11 @@ export function SettingsPage({
           ) : undefined
         }
         crumbs={[crumbRoot, crumbRoles, { label: roleTitle }]}
+        heading={{
+          label: t.settings.dutyHeading,
+          icon: <BriefcaseIcon size={15} />,
+        }}
+        note={t.settings.dutyNote}
         // The Duty doc has had a cap since T-ae38, and this is the only place
         // an owner or an agent sees how close it is to it. Omitted while the
         // role has not loaded — an invented 0/0 would read as a real budget.
@@ -1476,11 +1529,11 @@ function ServerParams({
 
   // One shared floor since owner 2026-09-07 (card rc-5b66ba099e28, option [1]),
   // so each of these knobs goes DOWN as well as up — the local guard mirrors the
-  // server's 422 range exactly, which is now DOC_CAP_CHARS_MIN..100000 for all
+  // server's 422 range exactly, which is now DOC_CAP_CHARS_MIN..250000 for all
   // of them. It was each segment's own shipped default until that ruling.
   // T-c9b4: the wake snapshot's chat budget. Deliberately its OWN row and its
   // own commit rather than a sixth entry in DOC_CAP_FIELDS — that table's range
-  // is DOC_CAP_CHARS_MIN..100000 and neither bound is true here. Both tables now
+  // is DOC_CAP_CHARS_MIN..250000 and neither bound is true here. Both tables now
   // go DOWN as well as up (owner 2026-09-07), but for different reasons: a doc
   // cap binds the next write against a STORED document, while this block is
   // repacked on every read, so a smaller budget just returns fewer messages. Its
@@ -1503,7 +1556,7 @@ function ServerParams({
 
   // T-119: the step-note cap. Its own row and its own commit for the same
   // reason as the chat budget — its range is its own (STEP_NOTE_CAP_CHARS_MIN..
-  // MAX), not DOC_CAP_FIELDS' DOC_CAP_CHARS_MIN..100000. Lowering it costs
+  // MAX), not DOC_CAP_FIELDS' DOC_CAP_CHARS_MIN..250000. Lowering it costs
   // nothing already stored: the cap is checked only on write.
   function commitStepNoteCap() {
     if (!settings || stepNoteCapDraft === null) return;
@@ -1557,7 +1610,7 @@ function ServerParams({
 
   // T-33: the four 傳承 caps. One commit for all four because the row that is
   // being committed carries its own range — unlike commitDocCap, whose ceiling
-  // is a literal 100000 shared by every row it serves.
+  // is a literal 250000 shared by every row it serves.
   function commitLoreCap(field: LoreCapField) {
     const draft = loreCapDrafts[field];
     if (!settings || draft === undefined) return;
@@ -1610,7 +1663,7 @@ function ServerParams({
         delete next[field];
         return next;
       });
-    if (!Number.isInteger(n) || n < DOC_CAP_FIELDS[field].min || n > 100000) {
+    if (!Number.isInteger(n) || n < DOC_CAP_FIELDS[field].min || n > 250000) {
       setRangeError(true);
       clear();
       return;
@@ -1900,7 +1953,7 @@ function ServerParams({
                   <div className="param-row__sub">{t.settings[spec.subKey]}</div>
                 </div>
                 <div className="param-pct">
-                  <input id={spec.inputId} className="param-input" type="number" min={spec.min} max={100000}
+                  <input id={spec.inputId} className="param-input" type="number" min={spec.min} max={250000}
                     aria-label={label}
                     value={docCapDrafts[field] ?? String(settings[field])}
                     onChange={(e) => { setRangeError(false); onClearSaveError(); setDocCapDrafts((d) => ({ ...d, [field]: e.target.value })); }}
@@ -2085,6 +2138,28 @@ function ServerParams({
             onTouch={() => { setRangeError(false); onClearSaveError(); }}
             onCommit={(next) => { void onSave({ suggestedRepliesChat: next }); }}
           />
+
+          <div className="param-row">
+            <div className="param-row__body">
+              <span className="param-row__name">{t.settings.developerMode}</span>
+              <div className="param-row__sub">{t.settings.developerModeSub}</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.developerMode}
+              aria-label={t.settings.developerMode}
+              className={`set-toggle${settings.developerMode ? " set-toggle--on" : ""}`}
+              onClick={() => {
+                setRangeError(false);
+                onClearSaveError();
+                void onSave({ developerMode: !settings.developerMode });
+              }}
+              data-testid="settings-developer-mode"
+            >
+              <span className="set-toggle__knob" />
+            </button>
+          </div>
 
           {secretRangeError && (
             <div className="set-error param-error" data-testid="secret-card-range-error">
@@ -2783,11 +2858,10 @@ function BackupHealthCard() {
  *
  * 🔴 使用者自訂 CAME ALONG, AND IT IS STILL NOT A BOOT DOCUMENT. It is the
  * additive block behind /api/global-context — its own route, no cap, its own
- * allow_shrink — and it is deliberately absent from BOOT_DOC_ROWS. It is
- * printed here because the boot context ASSEMBLES it between 系統互動 and
- * 啟動步驟, which is the same reason it sat there before the move. Folding it
+ * allow_shrink — and it is deliberately absent from BOOT_DOC_ROWS. Folding it
  * into the table as an eleventh row would give it a cap and a document kind it
- * does not have.
+ * does not have. It heads the page on its own because it is the one document
+ * here that developer mode does not lock.
  */
 function GlobalContextSection({
   error,
@@ -2795,6 +2869,7 @@ function GlobalContextSection({
   onOpenCustom,
   onOpenBootIndex,
   onOpenBootDoc,
+  developerMode,
 }: {
   /** A rejected /api/global-context read — reported honestly rather than
    * rendered as an empty 使用者自訂. */
@@ -2810,6 +2885,9 @@ function GlobalContextSection({
   onOpenBootIndex: () => void;
   /** Every other boot/lifecycle document, addressed rather than named. */
   onOpenBootDoc: (kind: BootDocKind, docKey: string) => void;
+  /** `undefined` while settings are loading or failed to load: the "editable"
+   * suffix is not shown then. */
+  developerMode: boolean | undefined;
 }) {
   const { t } = useI18n();
   return (
@@ -2821,11 +2899,39 @@ function GlobalContextSection({
 
       {error && <div className="set-error">{t.settings.loadError}</div>}
 
-      {/* The list itself: the boot / lifecycle documents, printed from
-       * BOOT_DOC_ROWS —
-       * the one table that says which of them the cockpit shows. Groups run in
-       * the owner's own reading order (定稿 2026-08-24): 上線 → 下線 → 任務.
-       * No filenames — these are content, not files. */}
+      <div>
+        <div className="set-entries">
+          {/* Boot assembly order: User Language is read before 使用者自訂. */}
+          {bootDocRowsIn("user").map(([kind, row]) => (
+            <BootDocEntry
+              key={kind}
+              kind={kind}
+              row={row}
+              editable
+              onOpen={() => !row.index && onOpenBootDoc(kind, row.docKey)}
+            />
+          ))}
+          <button
+            type="button"
+            className="set-entry"
+            data-testid="boot-doc-entry-custom"
+            onClick={onOpenCustom}
+          >
+            <span className="set-entry__icon set-entry__icon--violet">
+              <PencilIcon size={18} />
+            </span>
+            <span className="set-entry__body">
+              <span className="set-entry__name">{t.settings.customName}</span>
+              <span className="set-entry__sub">{t.settings.customSub}</span>
+            </span>
+            <ChevronRightIcon size={18} className="set-entry__chev" />
+          </button>
+        </div>
+      </div>
+
+      {/* The boot / lifecycle documents, printed from BOOT_DOC_ROWS — the one
+       * table that says which of them the cockpit shows. Groups run in the
+       * owner's own reading order (定稿 2026-08-24): 上線 → 下線 → 任務. */}
       {BOOT_DOC_GROUP_ORDER.map((group) => (
         <div key={group}>
           <div className="set-group-label">
@@ -2833,47 +2939,20 @@ function GlobalContextSection({
           </div>
           <div className="set-entries">
             {bootDocRowsIn(group).map(([kind, row]) => (
-              <Fragment key={kind}>
-                <BootDocEntry
-                  kind={kind}
-                  row={row}
-                  onOpen={() =>
-                    row.index
-                      ? onOpenBootIndex()
-                      : onOpenBootDoc(kind, row.docKey)
-                  }
-                />
-                {/* 使用者自訂 sits between 系統互動 and 啟動步驟, where the boot
-                  * context assembles it. It is NOT a boot document — no cap, its
-                  * own allow_shrink, its own route — so it is deliberately absent
-                  * from BOOT_DOC_ROWS, and this is the one row the list prints
-                  * that the table does not own. */}
-                {kind === "system_interaction" && (
-                  <button
-                    type="button"
-                    className="set-entry"
-                    data-testid="boot-doc-entry-custom"
-                    onClick={onOpenCustom}
-                  >
-                    <span className="set-entry__icon set-entry__icon--violet">
-                      <PencilIcon size={18} />
-                    </span>
-                    <span className="set-entry__body">
-                      <span className="set-entry__name">
-                        {t.settings.customName}
-                      </span>
-                      <span className="set-entry__sub">
-                        {t.settings.customSub}
-                      </span>
-                    </span>
-                    <ChevronRightIcon size={18} className="set-entry__chev" />
-                  </button>
-                )}
-              </Fragment>
+              <BootDocEntry
+                key={kind}
+                kind={kind}
+                row={row}
+                editable={developerMode === true && (row.index || !row.readOnly)}
+                onOpen={() =>
+                  row.index ? onOpenBootIndex() : onOpenBootDoc(kind, row.docKey)
+                }
+              />
             ))}
           </div>
         </div>
-      ))}    </div>
+      ))}
+    </div>
   );
 }
 
@@ -2992,10 +3071,6 @@ function RolesLog({
        * bounced to login) never masquerades as an empty role journal. */}
       {error && <div className="set-error">{t.settings.loadError}</div>}
 
-      {/* Role definitions — the whole page since T-a241. The boot / lifecycle
-        * documents that used to head it (and 使用者自訂 with them) are their own
-        * section now: see GlobalContextSection. */}
-      <div className="set-group-label">{t.settings.roleDefsSection}</div>
       <div className="set-entries">
         {roles.map((r) => {
           return (

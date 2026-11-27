@@ -154,20 +154,20 @@ func TestHandleCreateSharedDocApiSharedDocsPost(t *testing.T) {
 		{"an unknown kind answers 400", `{"kind":"folder","name":"x"}`, "validation_error", "kind must be one of file, image, link", 400},
 		{"a blank name answers 400", `{"kind":"link","name":"  ","url":"https://e.com"}`, "validation_error", "name is required", 400},
 		{"a name over 128 chars answers 400", `{"kind":"link","name":"` + strings.Repeat("n", 129) + `","url":"https://e.com"}`,
-			"validation_error", "shared doc name is 129 chars, over the 128-char limit", 400},
+			"validation_error", "file name is 129 chars, over the 128-char limit", 400},
 		{"a description over 1024 chars answers 400", `{"kind":"link","name":"x","description":"` + strings.Repeat("d", 1025) + `","url":"https://e.com"}`,
-			"validation_error", "shared doc description is 1025 chars, over the 1024-char limit", 400},
+			"validation_error", "file description is 1025 chars, over the 1024-char limit", 400},
 		{"a link with an attachment id answers 400", `{"kind":"link","name":"x","url":"https://e.com","attachment_id":"att-1"}`,
-			"validation_error", "a link shared doc does not take attachment_id: its kind is fixed, so create a new shared doc instead", 400},
-		{"a link without a url answers 400", `{"kind":"link","name":"x"}`, "validation_error", "url is required for a link shared doc", 400},
+			"validation_error", "a file of kind 'link' does not take attachment_id: its kind is fixed, so create a new file instead", 400},
+		{"a link without a url answers 400", `{"kind":"link","name":"x"}`, "validation_error", "url is required for a file of kind 'link'", 400},
 		{"a link to a non-http url answers 400", `{"kind":"link","name":"x","url":"ftp://e.com"}`,
 			"validation_error", "url must start with https:// or http://", 400},
 		{"a file with a url answers 400", `{"kind":"file","name":"x","url":"https://e.com"}`,
-			"validation_error", "a file shared doc does not take url: its kind is fixed, so create a new shared doc instead", 400},
+			"validation_error", "a file of kind 'file' does not take url: its kind is fixed, so create a new file instead", 400},
 		{"an image without an attachment id answers 400", `{"kind":"image","name":"x"}`,
-			"validation_error", "attachment_id is required for an image shared doc", 400},
+			"validation_error", "attachment_id is required for a file of kind 'image'", 400},
 		{"a file without an attachment id answers 400", `{"kind":"file","name":"x"}`,
-			"validation_error", "attachment_id is required for a file shared doc", 400},
+			"validation_error", "attachment_id is required for a file of kind 'file'", 400},
 		{"a member avatar answers 400", `{"kind":"image","name":"x","attachment_id":"ava-0123456789ab"}`,
 			"validation_error", "attachment 'ava-0123456789ab' is reserved for a member avatar", 400},
 		{"an attachment not in the store answers 400", `{"kind":"file","name":"x","attachment_id":"att-000000000000"}`,
@@ -279,7 +279,7 @@ func TestHandleGetSharedDocApiSharedDocsDocIdGet(t *testing.T) {
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "shared doc 'sd-000000000000' not found")
+		apiWantError(t, data, "not_found", "file 'sd-000000000000' not found")
 	})
 }
 
@@ -434,7 +434,7 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
-			"nothing to replace: send url for a link shared doc, a name, or a description")
+			"nothing to replace: send url for a file of kind 'link', a name, or a description")
 	})
 
 	t.Run("name and description are kept when omitted, a blank description clears it", func(t *testing.T) {
@@ -459,9 +459,9 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 		status                    int
 	}{
 		{"a url on a file document answers 400", `{"url":"https://e.com"}`, "validation_error",
-			"a file shared doc does not take url: its kind is fixed, so create a new shared doc instead", 400},
+			"a file of kind 'file' does not take url: its kind is fixed, so create a new file instead", 400},
 		{"nothing to change answers 400", `{}`, "validation_error",
-			"nothing to replace: send attachment_id for a file shared doc, a name, or a description", 400},
+			"nothing to replace: send attachment_id for a file of kind 'file', a name, or a description", 400},
 		{"a name and description equal to the current ones answer 400", `{"name":" Runbook ","description":""}`, "validation_error",
 			"nothing to replace: the name and description sent are the current ones", 400},
 		{"a blank name answers 400", `{"name":" ","attachment_id":"att-000000000000"}`, "validation_error",
@@ -491,7 +491,7 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error",
-			"a link shared doc does not take attachment_id: its kind is fixed, so create a new shared doc instead")
+			"a file of kind 'link' does not take attachment_id: its kind is fixed, so create a new file instead")
 	})
 
 	t.Run("an unknown id answers 404", func(t *testing.T) {
@@ -500,7 +500,7 @@ func TestHandleReplaceSharedDocApiSharedDocsDocIdReplacePost(t *testing.T) {
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "shared doc 'sd-000000000000' not found")
+		apiWantError(t, data, "not_found", "file 'sd-000000000000' not found")
 	})
 }
 
@@ -528,7 +528,7 @@ func TestHandleListSharedDocVersionsApiSharedDocsDocIdVersionsGet(t *testing.T) 
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "shared doc 'sd-000000000000' not found")
+		apiWantError(t, data, "not_found", "file 'sd-000000000000' not found")
 	})
 }
 
@@ -566,7 +566,7 @@ func TestHandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestore
 		if status != 404 {
 			t.Fatalf("a restored version id stops resolving: want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "version 1 is not a retained version of shared doc '"+id+"'")
+		apiWantError(t, data, "not_found", "version 1 is not a retained version of file '"+id+"'")
 	})
 
 	t.Run("an unknown document answers 404", func(t *testing.T) {
@@ -575,7 +575,7 @@ func TestHandleRestoreSharedDocVersionApiSharedDocsDocIdVersionsVersionIdRestore
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "shared doc 'sd-000000000000' not found")
+		apiWantError(t, data, "not_found", "file 'sd-000000000000' not found")
 	})
 }
 
@@ -596,7 +596,7 @@ func TestHandleDeleteSharedDocApiSharedDocsDocIdDelete(t *testing.T) {
 		if status != 404 {
 			t.Fatalf("want 404 after delete, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "shared doc '"+id+"' not found")
+		apiWantError(t, data, "not_found", "file '"+id+"' not found")
 	})
 
 	t.Run("a member cannot delete", func(t *testing.T) {
@@ -620,6 +620,6 @@ func TestHandleDeleteSharedDocApiSharedDocsDocIdDelete(t *testing.T) {
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "shared doc 'sd-000000000000' not found")
+		apiWantError(t, data, "not_found", "file 'sd-000000000000' not found")
 	})
 }

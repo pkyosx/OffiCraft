@@ -191,13 +191,13 @@ func (s *apiServer) forceStopMember(m Member, trigger string) (Member, error) {
 }
 
 const (
-	acceleratedStopNeedsAnOpenWindDownMsg = "加速停止 escalates a wind-down that is " +
-		"already open — this member has not been asked to stop. Press 停止 (deactivate) " +
-		"or 重新聚焦 (refocus) first"
-	acceleratedStopNeedsALiveSessionMsg = "加速停止 requires a live session — there is " +
+	acceleratedStopNeedsAnOpenWindDownMsg = "Accelerated stop escalates a wind-down that is " +
+		"already open — this member has not been asked to stop. Press Stop (deactivate) " +
+		"or Refocus first"
+	acceleratedStopNeedsALiveSessionMsg = "Accelerated stop requires a live session — there is " +
 		"nothing to accelerate on a member that is not connected"
-	acceleratedStopAlreadyForcedMsg = "加速停止 has nothing to escalate — this member was " +
-		"already force-stopped (強制停止): its session was cut off and no wind-down is open"
+	acceleratedStopAlreadyForcedMsg = "Accelerated stop has nothing to escalate — this member was " +
+		"already force-stopped (Force stop): its session was cut off and no wind-down is open"
 )
 
 // accelerateStopMember is the middle rung of 停止 → 加速停止 → 強制停止 (owner
@@ -239,7 +239,7 @@ func (s *apiServer) accelerateStopMember(m Member, trigger string) (Member, erro
 	s.publishMemberPatch(saved, trigger)
 	unlockRows()
 	pop.reconcileNow(saved.ID)
-	reconcileLog("加速停止: %s on the %s arm (collect at %.0f or on the stopped report)",
+	reconcileLog("accelerated stop: %s on the %s arm (collect at %.0f or on the stopped report)",
 		saved.ID, saved.DesiredState, winddownDeadlineOf(saved, s.reconcileConfigLive()))
 	return saved, nil
 }

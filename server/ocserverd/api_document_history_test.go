@@ -495,6 +495,28 @@ func TestHandleListDocumentHistoryApiDocumentHistoryKindKeyGet(t *testing.T) {
 		}})
 	})
 
+	t.Run("the User Language document written twice with developer mode off lists the revision it replaced", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/boot-docs/user_language/global", owner, `{"body":"Reply in Klingon."}`)
+		apiJSON(t, h, "POST", "/api/boot-docs/user_language/global", owner, `{"body":"Reply in Elvish."}`)
+
+		rec := apiRequest(t, h, "GET", "/api/document-history/user_language/global", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "user_language", got, []any{map[string]any{
+			"id":          1,
+			"created_ts":  apiAnyNumber,
+			"actor_id":    "owner",
+			"tombstoned":  false,
+			"field_chars": map[string]any{"text": 17},
+		}})
+	})
+
 	t.Run("a tombstone revision retained by an older server is not listed", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		seedLegacyTombstoneRevision(t, d)
@@ -743,7 +765,7 @@ func TestDocumentSeedContent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("documentSeedContent: %v", err)
 		}
-		wantText := "# 接案窗口\n\n接到請求時，先釐清處理方式、任務安排與任務類型。需要 Owner 裁定時，開卡向 Owner 確認以下事項，並在同一張卡一次帶齊：\n\n1. **處理方式與執行者**\n\n   **由特助維持統一窗口**\n   若選擇由特助維持統一窗口，特助作為單一對口，負責接收與整理需求、將需求交給執行者、追蹤處理進度並回傳結果。特助向執行者說明，本案的對接窗口是特助，不是 Owner（負責人）；執行者將進度與問題回報特助，需要 Owner 裁定時由特助整理後開卡確認，執行者不直接向 Owner 溝通；請求方持續向特助對接。\n\n   **直接轉交給執行者**\n   若選擇直接轉交，窗口向指定的執行者明確交代需求範圍與下一步後退出處理鏈；後續由執行者與請求方直接對接並處理。\n\n2. **建立任務與任務類型**\n   若要建立任務，卡上至少提供：\n   - **問題與預期結果：** 要解決的問題、影響程度與發生可能性，以及問題解決後預期的情境。\n   - **預計解法與範圍：** 預計如何解決、這次要處理的工作範圍，以及可能遺留的問題或新產生的風險。\n   - **任務類型：** 符合的候選任務類型及其適用範圍，供請求方選擇；若沒有合適類型，標明差距並交由 Owner 確認，不自行套用相近類型。\n   - **任務優先權：** 根據問題的影響程度、發生可能性與其他時程因素，提出建議的處理優先權。\n   - **執行安排：** 預期執行者、執行機器、runtime／model、effort。\n\n待 Owner 裁定的項目直接標明，交由 Owner 確認。\n\n需要開放遠端連線時（使用者想從這台電腦以外的地方連到控制台），照內建任務手冊「開放遠端連線」建立任務，並依手冊的步驟執行。\n\n# 操作導覽窗口\n\n## 取得並回答使用說明\n\n- 先按問題找來源：功能、規則與設定查控制台說明文件；MCP 操作看當前工具的說明與 schema；CLI 指令先看 `ocagent <子命令> --help`；任務流程查任務手冊。\n- 讀完後再回答，必要時對照目前系統的實際資料；說清楚適用條件、操作路徑與目前有效性。\n- 找不到說明，或說明與實況不一致時，明確說出不確定與差異，不自行補出規則、欄位或權限。\n\n## 代為執行受限操作\n\n- 先確認操作目標、對象、範圍、理由與完成條件。\n- 特助的權限比一般成員大；Owner 交辦的 OffiCraft 操作也包含在代為執行範圍內。請求明確、責任清楚且在權限內時，代為執行並回報實際結果。\n- 需要 Owner 決定、核可或授權時，整理必要資訊後開一張卡交 Owner 裁定，不代替 Owner 做決定；內容不清楚或超出權限範圍時，先補齊資訊或確認。\n"
+		wantText := "# Intake Point of Contact\n\nWhen you receive a request, first clarify how it will be handled, how the task will be arranged, and the task type. When an Owner ruling is needed, open a card to confirm the following with the Owner, and bring all of it on the same card at once:\n\n1. **Handling approach and executor**\n\n   **The Assistant stays the single point of contact**\n   If the Assistant is chosen to stay the single point of contact, the Assistant acts as the sole contact: it receives and organizes the request, hands it to the executor, tracks progress, and relays the results back. The Assistant tells the executor that the point of contact for this matter is the Assistant, not the Owner (the person in charge); the executor reports progress and problems to the Assistant, and when an Owner ruling is needed the Assistant organizes it and opens a card to confirm — the executor does not communicate with the Owner directly; the requester keeps dealing with the Assistant.\n\n   **Hand off directly to the executor**\n   If a direct handoff is chosen, the point of contact clearly explains the scope of the request and the next step to the designated executor, then leaves the handling chain; from then on the executor and the requester deal with each other directly and handle it.\n\n2. **Creating the task and the task type**\n   If a task is to be created, the card must provide at least:\n   - **Problem and expected outcome:** the problem to solve, its impact and likelihood, and the expected situation once it is solved.\n   - **Planned solution and scope:** how it is expected to be solved, the scope of work this time, and any problems that may remain or new risks that may arise.\n   - **Task type:** the candidate task types that fit and their scope of application, for the requester to choose from; if no type fits, state the gap and leave it to the Owner to confirm — do not apply a similar type on your own.\n   - **Task priority:** a suggested priority based on the problem's impact, likelihood, and other scheduling factors.\n   - **Execution arrangement:** expected executor, execution machine, runtime / model, effort.\n\nMark the items awaiting an Owner ruling explicitly and leave them to the Owner to confirm.\n\nWhen remote access needs to be opened (the Owner wants to reach the console from somewhere other than this computer), create a task with the built-in task manual \"Allow remote connections\" and execute it following the manual's steps.\n\n# Operations Guide Point of Contact\n\n## Finding and answering usage questions\n\n- First find the source that matches the question: for features, rules, and settings, check the console's user guide; for MCP operations, read the current tool's description and schema; for CLI commands, start with `ocagent <subcommand> --help`; for task workflows, check the task manual.\n- Answer only after reading, and check against the system's actual current data when needed; state clearly the conditions that apply, the path to perform the operation, and whether it is currently in effect.\n- When you cannot find documentation, or the documentation does not match reality, say plainly what is uncertain and what differs; do not make up rules, fields, or permissions.\n\n## Performing restricted operations on someone's behalf\n\n- First confirm the operation's goal, target, scope, reason, and completion condition.\n- The Assistant's permissions are broader than a regular member's; OffiCraft operations the Owner delegates are also within the scope of what it performs on others' behalf. When the request is clear, the responsibility is clear, and it is within permissions, perform it on their behalf and report the actual result.\n- When an Owner decision, approval, or authorization is needed, organize the necessary information and open a card for the Owner to rule on — do not make the decision in the Owner's place; when the content is unclear or beyond your permissions, first fill in the information or confirm.\n"
 		want := map[string]string{"text": wantText, "tombstoned": "true"}
 		if !reflect.DeepEqual(got, want) || !hasSeed {
 			t.Fatalf("documentSeedContent = %#v, %v; want %#v, true", got, hasSeed, want)
@@ -757,9 +779,9 @@ func TestDocumentSeedContent(t *testing.T) {
 			runes   int
 			sha256  string
 		}{
-			{"builtin-role-design", 2803, "0142aa3cd2d0ea730455350b006a10b35b542eed70b1fd0bd8705e90eb9177de"},
-			{"builtin-task-manual-design", 3872, "bb27fb16377af2f6dc457a06315faff8d12332142dff16a9545d73b1331fc004"},
-			{"builtin-remote-access", 5389, "00be9421f7f3d45d09a7b95c423e7ade14ed06f564f6d4877a5df2f9cc268796"},
+			{"builtin-role-design", 9061, "92304673056702d6e4b57db8ae9f704342b3f5cd24820bc3b1a095d827694ae8"},
+			{"builtin-task-manual-design", 12335, "96452eb475b085a37009dd00bb5974a5f140938207369ee80eafe08f8364be10"},
+			{"builtin-remote-access", 15049, "9d1123fb31d4be7b368b85701977e75f9bc87703743d72d7d2c4c74d22aaecac"},
 		} {
 			got, hasSeed, err := api.documentSeedContent(docKindTaskManualSop, tc.typeKey)
 			if err != nil || !hasSeed {
@@ -886,9 +908,9 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 		if status != 403 {
 			t.Fatalf("another agent: want 403, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "forbidden", "you may only 失效, 生效, 提到最新 or 編輯 an entry you WROTE — "+
+		apiWantError(t, data, "forbidden", "you may only Retire, Activate, Bump to latest or Edit an entry you WROTE — "+
 			"this one has a different author, and an entry is governed by the member who wrote it. "+
-			"An admin agent or the owner can act on any entry.")
+			"An admin or the owner can act on any entry.")
 		if status, data := apiJSON(t, st.h, "PATCH", "/api/lore/"+e.ID, other, `{"title":"別人改"}`); status != 403 {
 			t.Fatalf("another agent editing: want 403, got %d (%v)", status, data)
 		}
@@ -905,7 +927,7 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 		if status != 200 {
 			t.Fatalf("boot-context: %d %v", status, data)
 		}
-		wantBlock := "\n\n# 傳承\n\n## " + e.ID + " 原本標題\n\n內容\n\n"
+		wantBlock := "\n\n# Lore\n\n## " + e.ID + " 原本標題\n\n內容\n\n"
 		if doc, _ := data["context"].(string); !strings.Contains(doc, wantBlock) || strings.Contains(doc, "後來標題") {
 			t.Fatalf("boot document does not carry the restored entry:\n%s\n--- doc ---\n%s", wantBlock, doc)
 		}
@@ -1083,7 +1105,7 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 	// screen showing the old text.
 	for _, kind := range eventProcKinds() {
 		t.Run("restoring "+kind+" writes the revision back and fans the boot-doc delta", func(t *testing.T) {
-			api, h, _, owner := newAPITestServer(t)
+			api, h, _, owner := newAPITestServerInDeveloperMode(t)
 			path := "/api/boot-docs/" + kind + "/" + bootDocSingletonKey
 			apiJSON(t, h, "POST", path, owner, `{"body":"v1 body"}`)
 			apiJSON(t, h, "POST", path, owner, `{"body":"v2 body"}`)
@@ -1118,6 +1140,120 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 			})
 		})
 	}
+
+	t.Run("while developer mode is off, restoring a boot document's revision answers 409 to the owner and to an admin agent, and the document stays", func(t *testing.T) {
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
+		admin := apiTestAgentToken(t, api, "mira", "")
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"old notice"}`)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"new notice"}`)
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"developer_mode":false}`)
+		dashboard := apiTestListen(t, api, "")
+
+		for _, caller := range []string{owner, admin} {
+			status, data := apiJSON(t, h, "POST", "/api/document-history/offboard/global/1/restore", caller, "")
+			if status != 409 {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict",
+				"the Stop document is locked while developer mode is off — turn on developer mode in system settings first; nothing was written")
+		}
+		status, data := apiJSON(t, h, "GET", "/api/offboard", owner, "")
+		if status != 200 {
+			t.Fatalf("read offboard: %d %v", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"kind": "offboard", "key": "global", "owner_id": "owner",
+			"text": "new notice", "body": "new notice", "size_chars": 10,
+			"cap_chars": 37500, "has_seed": true, "is_default": false,
+			"read_only": false, "read_only_head": "", "schema_version": 3,
+			"developer_mode_required": true,
+		})
+		dashboard.wantFrames()
+	})
+
+	t.Run("with developer mode off the owner restores a User Language revision", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		path := "/api/boot-docs/user_language/global"
+		apiJSON(t, h, "POST", path, owner, `{"body":"Reply in Klingon."}`)
+		apiJSON(t, h, "POST", path, owner, `{"body":"Reply in Elvish."}`)
+		if status, data := apiJSON(t, h, "POST", "/api/document-history/user_language/global/1/restore", owner, ""); status != 200 {
+			t.Fatalf("restore an edit: want 200, got %d (%v)", status, data)
+		}
+		if _, doc := apiJSON(t, h, "GET", path, owner, ""); doc["text"] != "Reply in Klingon." || doc["is_default"] != false {
+			t.Fatalf("after restoring an edit: %v", doc)
+		}
+	})
+
+	t.Run("under en, restoring a User Language revision that holds the Chinese default answers the English default", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		path := "/api/boot-docs/user_language/global"
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_language":"en"}`)
+		apiJSON(t, h, "POST", path, owner, `{"body":"Reply in Klingon."}`)
+		zhDefault, err := json.Marshal(map[string]string{"text": apiTestUserLanguageZh + "\n", "tombstoned": "false"})
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if _, err := d.wdb.Exec(`INSERT INTO document_history
+			(document_kind, document_key, content_json, created_ts, actor_id)
+			VALUES (?, ?, ?, ?, ?)`,
+			"user_language", "global", string(zhDefault), 1700000001.0, "owner"); err != nil {
+			t.Fatalf("seed a revision holding the Chinese default: %v", err)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/document-history/user_language/global/1/restore", owner, ""); status != 200 {
+			t.Fatalf("restore: want 200, got %d (%v)", status, data)
+		}
+		status, data := apiJSON(t, h, "GET", path, owner, "")
+		if status != 200 {
+			t.Fatalf("read: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"size_chars": 69, "cap_chars": 37500,
+			"kind": "user_language", "key": "global", "owner_id": "owner",
+			"text": apiTestUserLanguageEn + "\n", "body": apiTestUserLanguageEn + "\n",
+			"read_only_head": "", "schema_version": 3, "is_default": true, "has_seed": true,
+			"read_only": false, "developer_mode_required": false,
+		})
+	})
+
+	t.Run("restoring the glossary answers 405 with developer mode on and off", func(t *testing.T) {
+		for name, newServer := range map[string]func(*testing.T) (*apiServer, http.Handler, *DAL, string){
+			"developer mode off": newAPITestServer, "developer mode on": newAPITestServerInDeveloperMode,
+		} {
+			_, h, _, owner := newServer(t)
+			status, data := apiJSON(t, h, "POST", "/api/document-history/term_glossary/global/1/restore", owner, "")
+			if status != 405 {
+				t.Fatalf("%s: want 405, got %d (%v)", name, status, data)
+			}
+		}
+	})
+
+	t.Run("while developer mode is off, a plain agent restoring a boot document's revision answers 403, not 409, the document stays and nothing fans", func(t *testing.T) {
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"old notice"}`)
+		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"new notice"}`)
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"developer_mode":false}`)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/offboard/global/1/restore", agent, "")
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "restoring this document requires admin capability")
+		status, data = apiJSON(t, h, "GET", "/api/offboard", owner, "")
+		if status != 200 {
+			t.Fatalf("read offboard: %d %v", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"kind": "offboard", "key": "global", "owner_id": "owner",
+			"text": "new notice", "body": "new notice", "size_chars": 10,
+			"cap_chars": 37500, "has_seed": true, "is_default": false,
+			"read_only": false, "read_only_head": "", "schema_version": 3,
+			"developer_mode_required": true,
+		})
+		dashboard.wantFrames()
+	})
 
 	t.Run("restoring a role definition revision fans the owner-only role_def delta", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
@@ -1196,7 +1332,7 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{
 			RoleKey: "r-design", Name: "Design",
-			DefinitionMD: strings.Repeat("x", 1500),
+			DefinitionMD: strings.Repeat("x", 3000),
 		}); err != nil {
 			t.Fatalf("PutRoleDef: %v", err)
 		}
@@ -1252,7 +1388,7 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 		if status != 403 {
 			t.Fatalf("want 403, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "forbidden", "an agent may only write its own role's insight")
+		apiWantError(t, data, "forbidden", "a member may only write its own role's Insight")
 		dashboard.wantFrames()
 	})
 
@@ -1430,7 +1566,7 @@ func TestTaskDescriptionRestoreAuthz(t *testing.T) {
 
 func TestRestoreDocumentHistory(t *testing.T) {
 	t.Run("restoring an offboard revision stores the old body under the shipped head and fans a boot delta", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+		api, h, _, owner := newAPITestServerInDeveloperMode(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"old notice"}`)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"new notice"}`)
 		dashboard := apiTestListen(t, api, "")
@@ -1460,8 +1596,9 @@ func TestRestoreDocumentHistory(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"kind": "offboard", "key": "global", "owner_id": "owner",
 			"text": "old notice", "body": "old notice", "size_chars": 10,
-			"cap_chars": 15000, "has_seed": true, "is_default": false,
+			"cap_chars": 37500, "has_seed": true, "is_default": false,
 			"read_only": false, "read_only_head": "", "schema_version": 3,
+			"developer_mode_required": false,
 		})
 	})
 }
@@ -1497,7 +1634,7 @@ func TestRestoreTaskManualField(t *testing.T) {
 			"fields": []any{map[string]any{"name": "客戶", "required": true, "is_key": true}},
 			"sop_md": "SOP 舊版", "assignee": map[string]any{},
 			"lore": "", "lore_chars": 0,
-			"sop_md_chars": 6, "sop_md_cap_chars": 15000,
+			"sop_md_chars": 6, "sop_md_cap_chars": 37500,
 			"updated_ts": apiAnyNumber, "is_seed": false, "is_default": false,
 		})
 	})
@@ -1521,12 +1658,12 @@ func TestRestoreTaskManualField(t *testing.T) {
 			t.Fatalf("read task manual: %d %v", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"type_key": "builtin-role-design", "display_name": "建立／修改角色",
-			"purpose": "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+			"type_key": "builtin-role-design", "display_name": "Create / edit role",
+			"purpose": "Create a new role, or adjust an existing role's Duty and Insight.",
 			"fields":  []any{},
 			"sop_md":  "第一次改寫", "assignee": map[string]any{"kind": "staff", "member_id": "mira"},
 			"lore": "", "lore_chars": 0,
-			"sop_md_chars": 5, "sop_md_cap_chars": 15000,
+			"sop_md_chars": 5, "sop_md_cap_chars": 37500,
 			"updated_ts": apiAnyNumber, "is_seed": true, "is_default": false,
 		})
 	})

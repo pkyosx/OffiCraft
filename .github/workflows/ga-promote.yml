@@ -4,7 +4,7 @@
 # 🔴 THIS BUTTON ALWAYS FAILS: A GA IS PROMOTED LOCALLY
 # ─────────────────────────────────────────────────────────────────────────────
 # Every GA must carry a release notes file ("## 這版的改動", optionally
-# "## 給站長的新功能公告"), and a dispatch input cannot carry a file. The promote
+# "## Announcement for station owners"), and a dispatch input cannot carry a file. The promote
 # step therefore calls bin/release WITHOUT --notes, bin/release refuses, and the
 # run goes red printing the command to run on a machine instead:
 #
@@ -54,7 +54,7 @@
 #
 #     Anyone who already upgraded in the window stays upgraded, and a station
 #     running it that checked for updates while it was Latest has already
-#     relayed its 給站長的新功能公告 to its owner — neither can be taken back.
+#     relayed its station-owner announcement to its owner — neither can be taken back.
 #     There is no downgrade path in the updater.
 #
 # (2) FLIP THE WRONG TAG BACK TO A PRERELEASE, so the release list says what it is:
@@ -89,7 +89,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing verified prerelease tag, e.g. v0.5.256. This button can NOT promote it: a GA needs its release notes file (「## 這版的改動」, optionally 「## 給站長的新功能公告」), which a dispatch input cannot carry. Run bin/release promote <tag> --notes <file> locally instead (docs/dev/README.md).'
+        description: 'Existing verified prerelease tag, e.g. v0.5.256. This button can NOT promote it: a GA needs its release notes file (「## 這版的改動」, optionally 「## Announcement for station owners」), which a dispatch input cannot carry. Run bin/release promote <tag> --notes <file> locally instead (docs/dev/README.md).'
         required: true
         type: string
 

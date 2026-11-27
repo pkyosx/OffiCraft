@@ -399,7 +399,7 @@ func (s *apiServer) runOutsourceTick(now float64) {
 				continue
 			}
 			if gate.Decision == gateDeny {
-				outsourceLog("assign %s: 發包 denied for creator %q — left queued",
+				outsourceLog("assign %s: outsourcing denied for creator %q — left queued",
 					t.ID, t.CreatorID)
 				continue
 			}

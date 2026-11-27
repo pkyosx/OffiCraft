@@ -70,6 +70,17 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest.fixture(scope="session")
+def developer_mode_on(client: httpx.Client, owner_token: str) -> None:
+    """Boot documents refuse every write with 409 while developer mode is off
+    (the shipped default), so the rows that measure their floors and happy
+    faces need it on."""
+    r = client.patch(
+        "/api/settings", json={"developer_mode": True}, headers=_auth(owner_token)
+    )
+    assert r.status_code == 200, f"developer mode: {r.status_code} {r.text}"
+
+
 @dataclass(frozen=True)
 class AgentIdentity:
     """One minted agent: roster member id + its scope="agent" JWT."""

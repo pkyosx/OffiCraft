@@ -221,7 +221,7 @@ func TestWorkerWindDownLadder_RestartSelfMayNotUndoAnAcceleratedStopEither(t *te
 	after, _ := api.dal.GetOutsourceWorker(workerID)
 	if after.RefocusOp != refocusOpAcceleratedStop {
 		t.Fatalf("the ladder ran BACKWARDS via restart_self: refocus_op %q → %q. "+
-			"restart_self is 停止 and an agent may not talk its way out of the "+
+			"restart_self is a Stop and an agent may not talk its way out of the "+
 			"加速停止 it was given", before.RefocusOp, after.RefocusOp)
 	}
 	if got := refocusDeadlineOf(after.RefocusSince, cfg, after.RefocusOp); got != deadlineBefore {

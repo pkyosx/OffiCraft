@@ -60,7 +60,7 @@ async function confirmSettings() {
  * — the member is pinned to SEED_WARDEN, so picking this one is what makes the
  * unified submit actually dispatch a relocate. */
 const SELF_MACHINE = "m-server-self";
-const SELF_MACHINE_NAME = "伺服器這一台";
+const SELF_MACHINE_NAME = "This server";
 
 /** Drive a live member's 更改 → pick the other machine → confirm, and wait for
  * the relocate verdict to settle. `pending` stages whether the mock reports the

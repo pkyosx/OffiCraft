@@ -398,7 +398,7 @@ describe("SharedDocsPage", () => {
     fireEvent.change(getByTestId("shared-doc-info-description"), { target: { value: " 每次發版前更新 " } });
     fireEvent.click(getByTestId("shared-doc-info-save"));
     expect((await waitFor(() => getByTestId("shared-doc-info-error"))).textContent).toBe(
-      "shared doc name is 130 chars, over the 128-char limit",
+      "file name is 130 chars, over the 128-char limit",
     );
     expect((getByTestId("shared-doc-info-name") as HTMLInputElement).value).toBe(tooLong);
     expect(rows(container)).toHaveLength(2);

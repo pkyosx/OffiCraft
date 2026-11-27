@@ -1,0 +1,162 @@
+[
+  {
+    "zh": "辦公室",
+    "en": "Office"
+  },
+  {
+    "zh": "請示卡／請示",
+    "en": "Reply card／Ask"
+  },
+  {
+    "zh": "任務",
+    "en": "Task"
+  },
+  {
+    "zh": "任務類型",
+    "en": "Task type"
+  },
+  {
+    "zh": "步驟",
+    "en": "Step"
+  },
+  {
+    "zh": "任務手冊",
+    "en": "Task manuals"
+  },
+  {
+    "zh": "檔案庫",
+    "en": "Files"
+  },
+  {
+    "zh": "密鑰",
+    "en": "Secrets"
+  },
+  {
+    "zh": "傳承",
+    "en": "Lore"
+  },
+  {
+    "zh": "成員傳承",
+    "en": "Member lore"
+  },
+  {
+    "zh": "任務傳承",
+    "en": "Task lore"
+  },
+  {
+    "zh": "指示衝突",
+    "en": "Instruction conflict"
+  },
+  {
+    "zh": "指示補充",
+    "en": "Instruction supplement"
+  },
+  {
+    "zh": "Owner 決策",
+    "en": "Owner decision"
+  },
+  {
+    "zh": "Owner 偏好",
+    "en": "Owner preference"
+  },
+  {
+    "zh": "監控",
+    "en": "Monitor"
+  },
+  {
+    "zh": "設定",
+    "en": "Settings"
+  },
+  {
+    "zh": "全域情境",
+    "en": "Global context"
+  },
+  {
+    "zh": "系統互動",
+    "en": "System interaction"
+  },
+  {
+    "zh": "使用者自訂",
+    "en": "User additions"
+  },
+  {
+    "zh": "啟動步驟",
+    "en": "Boot steps"
+  },
+  {
+    "zh": "角色",
+    "en": "Roles"
+  },
+  {
+    "zh": "職責",
+    "en": "Duty"
+  },
+  {
+    "zh": "判準",
+    "en": "Insight"
+  },
+  {
+    "zh": "一般設定",
+    "en": "General"
+  },
+  {
+    "zh": "系統更新與備份",
+    "en": "System update & backup"
+  },
+  {
+    "zh": "主題",
+    "en": "Theme"
+  },
+  {
+    "zh": "偏好設定",
+    "en": "Preferences"
+  },
+  {
+    "zh": "成員",
+    "en": "Member"
+  },
+  {
+    "zh": "正職",
+    "en": "Staff"
+  },
+  {
+    "zh": "外包",
+    "en": "Outsource"
+  },
+  {
+    "zh": "特助",
+    "en": "Assistant"
+  },
+  {
+    "zh": "喚醒",
+    "en": "Wake"
+  },
+  {
+    "zh": "重新聚焦",
+    "en": "Refocus"
+  },
+  {
+    "zh": "停止",
+    "en": "Stop"
+  },
+  {
+    "zh": "加速停止",
+    "en": "Accelerated stop"
+  },
+  {
+    "zh": "機器",
+    "en": "Machines"
+  },
+  {
+    "zh": "回呼端點",
+    "en": "Webhook endpoints"
+  },
+  {
+    "zh": "簽章金鑰",
+    "en": "Signing keys"
+  },
+  {
+    "zh": "使用說明",
+    "en": "User guide"
+  }
+]

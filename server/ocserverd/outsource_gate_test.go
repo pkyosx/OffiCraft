@@ -18,7 +18,7 @@ func TestOutsourceSpawnGate(t *testing.T) {
 		{name: "assistant", principal: "admin_agent", want: gateAdmitSpawn},
 		{name: "authenticated member", principal: "agent", member: &Member{ID: "kip"}, want: gateAdmitSpawn},
 		{name: "unknown member identity", principal: "agent", want: gateDeny,
-			reason: "unauthenticated initiator (no member identity) may not 發包"},
+			reason: "unauthenticated initiator (no member identity) may not outsource work"},
 	}
 
 	principals := map[string]principalClass{
