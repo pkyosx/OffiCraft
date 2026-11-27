@@ -591,17 +591,20 @@ type agentActivityReceiptDTO struct {
 type memberActivityDTO struct {
 	State     string                `json:"state"`
 	BusySince *float64              `json:"busy_since"`
+	MainState string                `json:"main_state"`
 	Subagents []activitySubagentDTO `json:"subagents"`
 	Waits     []activityWaitDTO     `json:"waits"`
 	TS        float64               `json:"ts"`
 }
 
 type activitySubagentDTO struct {
-	ID          string  `json:"id"`
-	ParentID    *string `json:"parent_id"`
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
-	StartedTS   float64 `json:"started_ts"`
+	ID           string  `json:"id"`
+	ParentID     *string `json:"parent_id"`
+	Name         string  `json:"name"`
+	Description  string  `json:"description"`
+	StartedTS    float64 `json:"started_ts"`
+	SubagentKind string  `json:"kind"`
+	State        string  `json:"state"`
 }
 
 type activityWaitDTO struct {

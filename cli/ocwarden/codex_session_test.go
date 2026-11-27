@@ -2386,7 +2386,7 @@ func activitySnapshot(busySince any, subagents ...any) map[string]any {
 func activityWithWaits(snapshot map[string]any, commands ...string) map[string]any {
 	waits := []any{}
 	for _, command := range commands {
-		waits = append(waits, map[string]any{"kind": "background_command", "description": command, "next_ts": nil, "recurring": false})
+		waits = append(waits, map[string]any{"kind": "shell", "description": command, "next_ts": nil, "recurring": false})
 	}
 	snapshot["waits"] = waits
 	return snapshot
@@ -2402,7 +2402,7 @@ func activitySubagentItem(id, name string, started float64) map[string]any {
 }
 
 func activityChildItem(id string, parent any, name string, started float64) map[string]any {
-	return map[string]any{"id": id, "parent_id": parent, "name": name, "description": "", "started_ts": started}
+	return map[string]any{"id": id, "parent_id": parent, "name": name, "description": "", "started_ts": started, "kind": "subagent"}
 }
 
 func TestCodexSessionTrackActivity(t *testing.T) {

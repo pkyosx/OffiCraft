@@ -152,7 +152,7 @@ func TestCodexUplinkBodies(t *testing.T) {
 			body: map[string]any{
 				"busy": true, "busy_since": float64(1720000350),
 				"subagents": []any{map[string]any{"id": "th_sub", "parent_id": "th_outer", "name": "scout",
-					"description": "", "started_ts": float64(1720000400)}},
+					"description": "", "started_ts": float64(1720000400), "kind": "subagent"}},
 				"waits": []any{},
 			},
 		},

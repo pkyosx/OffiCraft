@@ -79,16 +79,19 @@ const (
 type agentActivityIngestBody struct {
 	Busy      *bool                          `json:"busy"`
 	BusySince *float64                       `json:"busy_since"`
+	MainState *string                        `json:"main_state"`
 	Subagents *[]agentActivityIngestSubagent `json:"subagents"`
 	Waits     *[]agentActivityIngestWait     `json:"waits"`
 }
 
 type agentActivityIngestSubagent struct {
-	ID          *string  `json:"id"`
-	ParentID    *string  `json:"parent_id"`
-	Name        *string  `json:"name"`
-	Description *string  `json:"description"`
-	StartedTs   *float64 `json:"started_ts"`
+	ID           *string  `json:"id"`
+	ParentID     *string  `json:"parent_id"`
+	Name         *string  `json:"name"`
+	Description  *string  `json:"description"`
+	StartedTs    *float64 `json:"started_ts"`
+	SubagentKind *string  `json:"kind"`
+	State        *string  `json:"state"`
 }
 
 type agentActivityIngestWait struct {
@@ -112,7 +115,7 @@ func (s *apiServer) HandleIngestAgentActivityApiAgentActivityPost(w http.Respons
 	}
 	agentID := currentActor(r)
 	now := nowSecs()
-	activity := deriveMemberActivity(*body.Busy, body.BusySince, subagents, waits, now)
+	activity := deriveMemberActivity(*body.Busy, body.BusySince, strOrEmpty(body.MainState), subagents, waits, now)
 	if s.activity.Swap(agentID, activity, callerIat(r), *body.Busy && body.BusySince == nil) {
 		if m, err := s.dal.GetMember(agentID); err == nil && m != nil {
 			s.publishMemberOwnerOnly(*m, requestTrigger(r))
@@ -183,6 +186,7 @@ func validateAgentActivity(body agentActivityIngestBody) (
 		subagents = append(subagents, activitySubagentDTO{
 			ID: *sa.ID, ParentID: sa.ParentID,
 			Name: *sa.Name, Description: description, StartedTS: *sa.StartedTs,
+			SubagentKind: strOrEmpty(sa.SubagentKind), State: orWorking(strOrEmpty(sa.State)),
 		})
 	}
 	waits := []activityWaitDTO{}
@@ -195,10 +199,6 @@ func validateAgentActivity(body agentActivityIngestBody) (
 			at := fmt.Sprintf("waits[%d]", i)
 			if wt.WaitKind == nil {
 				return nil, nil, http.StatusUnprocessableEntity, "field required: " + at + ".kind"
-			}
-			if !AgentActivityWaitDTOKind(*wt.WaitKind).Valid() {
-				return nil, nil, http.StatusBadRequest, fmt.Sprintf(
-					"%s.kind must be background_command, monitor or schedule, got %q", at, *wt.WaitKind)
 			}
 			description := strOrEmpty(wt.Description)
 			if n := utf8.RuneCountInString(description); n > activityDescriptionMax {

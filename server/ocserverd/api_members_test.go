@@ -1260,7 +1260,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 		}{
 			{"owner", owner, map[string]any{
 				"kip": map[string]any{
-					"state": "waiting", "busy_since": nil, "subagents": []any{},
+					"state": "waiting", "busy_since": nil, "main_state": "idle", "subagents": []any{},
 					"waits": []any{map[string]any{"kind": "schedule", "description": "nightly", "next_ts": 2000, "recurring": true}},
 					"ts":    reportTS,
 				},
@@ -1701,7 +1701,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			t.Fatalf("owner read: want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, apiTestOnlineKipRow(map[string]any{"activity": map[string]any{
-			"state": "idle", "busy_since": nil, "subagents": []any{}, "waits": []any{}, "ts": reportTS,
+			"state": "idle", "busy_since": nil, "main_state": "idle", "subagents": []any{}, "waits": []any{}, "ts": reportTS,
 		}}))
 	})
 
@@ -1746,7 +1746,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			t.Fatalf("waking: %d %v", status, data)
 		}
 		reportTS := report("waking")
-		activity := map[string]any{"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": reportTS}
+		activity := map[string]any{"state": "busy", "busy_since": 1000, "main_state": "working", "subagents": []any{}, "waits": []any{}, "ts": reportTS}
 		read("waking", owner, woken(map[string]any{"presence": "waking", "desired_state": "online", "activity": activity}))
 
 		session := apiTestListen(t, api, "kip")
@@ -1839,7 +1839,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			readActivity("after an aborted boot's report", nil)
 
 			ts := post("new report", next, "/api/agent/activity", `{"busy": true, "busy_since": 1000, "subagents": []}`)
-			want := any(map[string]any{"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": ts})
+			want := any(map[string]any{"state": "busy", "busy_since": 1000, "main_state": "working", "subagents": []any{}, "waits": []any{}, "ts": ts})
 			readActivity("before the new session reports waking", want)
 
 			if kind.name == "outsource" {
@@ -4255,7 +4255,7 @@ func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
 					return
 				}
 				apiWantValue(t, "activity", activity, any(map[string]any{
-					"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": reportTS,
+					"state": "busy", "busy_since": 1000, "main_state": "working", "subagents": []any{}, "waits": []any{}, "ts": reportTS,
 				}))
 			})
 		}

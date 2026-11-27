@@ -812,7 +812,7 @@ func (s *codexSession) activityWaits() []any {
 			description = string(runes[:codexActivityDescriptionMax])
 		}
 		waits = append(waits, map[string]any{
-			"kind": "background_command", "description": description, "next_ts": nil, "recurring": false,
+			"kind": "shell", "description": description, "next_ts": nil, "recurring": false,
 		})
 	}
 	return waits
@@ -846,7 +846,7 @@ func (s *codexSession) activityBody() map[string]any {
 			parent = p
 		}
 		subagents = append(subagents, map[string]any{
-			"id": id, "parent_id": parent, "name": name, "description": "", "started_ts": s.runningSubagents[id],
+			"id": id, "parent_id": parent, "name": name, "description": "", "started_ts": s.runningSubagents[id], "kind": "subagent",
 		})
 	}
 	var busySince any

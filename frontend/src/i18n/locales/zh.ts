@@ -976,8 +976,6 @@ export const zh = {
     nextLead: "下次",
     recurring: "重複",
     waitKind: {
-      background_command: "背景指令",
-      monitor: "監看",
       schedule: "排程",
     },
   },

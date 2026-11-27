@@ -428,7 +428,7 @@ describe("MemberCard activity icon", () => {
           state,
           busySince: state === "busy" ? Date.now() / 1000 + 5 : null,
           subagents: [],
-          waits: state === "waiting" ? [{ kind: "background_command", description: "", nextTs: null, recurring: false }] : [],
+          waits: state === "waiting" ? [{ kind: "shell", description: "", nextTs: null, recurring: false }] : [],
         },
         onChat,
         "Mira",
@@ -502,7 +502,7 @@ describe("MemberCard activity icon", () => {
         "主代理已 3 分鐘",
         "查 CI 結果ci-watch45 秒",
         "讀 loglog-reader12 秒",
-        "每 10 秒檢查 CI排程 · 重複",
+        "排程每 10 秒檢查 CI重複",
       ]);
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "關閉" }));
     });

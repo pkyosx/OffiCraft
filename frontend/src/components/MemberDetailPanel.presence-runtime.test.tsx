@@ -249,13 +249,18 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
           activity: {
             state: "busy",
             busySince: now - 600,
+            mainState: "waiting_for_subagents",
             subagents: [
-              { id: "a1", parentId: null, name: "Explore", description: "盤點 Backlog 票", startedTs: now - 120 },
-              { id: "a2", parentId: "a1", name: "general-purpose", description: "讀取錯誤紀錄", startedTs: now - 40 },
+              { id: "a1", parentId: null, name: "impl", description: "盤點 Backlog 票", startedTs: now - 120, kind: "teammate", state: "waiting_for_subagents" },
+              { id: "a2", parentId: "a1", name: "general-purpose", description: "讀取錯誤紀錄", startedTs: now - 40, kind: "subagent", state: "working" },
+              { id: "wf", parentId: null, name: "workflow", description: "review-changes", startedTs: now - 20, kind: "workflow" },
+              { id: "sb", parentId: null, name: "impl2", description: "實作第二階段", startedTs: now - 60, kind: "teammate", state: "standing_by" },
+              { id: "nx", parentId: null, name: "impl3", description: "新狀態", startedTs: now - 10, kind: "teammate", state: "a later state" },
+              { id: "dr", parentId: null, name: "dream", description: "", startedTs: now - 5, kind: "dream", state: "idle" },
               { id: "p", parentId: "gone", name: "Plan", description: "", startedTs: now - 300 },
             ],
             waits: [
-              { kind: "background_command", description: "每 30 秒檢查 CI", nextTs: null, recurring: false },
+              { kind: "shell", description: "每 30 秒檢查 CI", nextTs: null, recurring: false },
               { kind: "monitor", description: "盯部署紀錄", nextTs: null, recurring: false },
               { kind: "schedule", description: "檢查 PR 審查結果", nextTs: nextRun, recurring: true },
             ],
@@ -279,13 +284,17 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
       expect(card.querySelector(".mp-activity__state")).toBeNull();
       expect(card.querySelector(".mp-activity__summary")).toBeNull();
       expect(treeRows(card)).toEqual([
-        [0, "working", "主代理", "已 10 分鐘"],
+        [0, "idle", "主代理", "已 10 分鐘"],
         [1, "working", "Plan", "5 分鐘"],
-        [1, "working", "盤點 Backlog 票Explore", "2 分鐘"],
-        [2, "working", "讀取錯誤紀錄general-purpose", "40 秒"],
-        [1, "waiting", "每 30 秒檢查 CI", "背景指令"],
-        [1, "waiting", "盯部署紀錄", "監看"],
-        [1, "waiting", "檢查 PR 審查結果", "排程 · 下次 12:15 · 重複"],
+        [1, "idle", "teammate盤點 Backlog 票impl", "2 分鐘"],
+        [2, "working", "subagent讀取錯誤紀錄general-purpose", "40 秒"],
+        [1, "idle", "teammate實作第二階段impl2", "1 分鐘"],
+        [1, "working", "workflowreview-changes", "20 秒"],
+        [1, "working", "teammate新狀態impl3", "10 秒"],
+        [1, "working", "dream", "5 秒"],
+        [1, "waiting", "shell每 30 秒檢查 CI", ""],
+        [1, "waiting", "monitor盯部署紀錄", ""],
+        [1, "waiting", "排程檢查 PR 審查結果", "下次 12:15 · 重複"],
       ]);
       expect(container.querySelectorAll(".mp-activity")).toHaveLength(1);
     } finally {

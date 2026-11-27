@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -48,6 +49,12 @@ type activitySubagent struct {
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
 	StartedTs   float64 `json:"started_ts"`
+	Kind        string  `json:"kind,omitempty"`
+	// Stopped its turn while a sub-agent it started runs on.
+	WaitingOnChild bool `json:"waiting_on_child,omitempty"`
+	// Its Agent call has not returned: a foreground child blocks its parent.
+	Foreground bool `json:"foreground,omitempty"`
+	StandingBy bool `json:"standing_by,omitempty"`
 }
 
 type activityWait struct {
@@ -62,6 +69,12 @@ type activityWait struct {
 type activitySpawn struct {
 	ParentID    *string `json:"parent_id"`
 	Description string  `json:"description"`
+	// background_tasks lists a teammate under a task id of its own, never its
+	// agent id, so it can only be matched there by this description.
+	Teammate bool `json:"teammate,omitempty"`
+	// Its agent_type from SubagentStart, the name a standing-by teammate is shown under.
+	Name      string  `json:"name,omitempty"`
+	SpawnedTs float64 `json:"spawned_ts,omitempty"`
 }
 
 type activityState struct {
@@ -84,6 +97,10 @@ type activityState struct {
 	// SubagentStart takes the oldest; concurrent spawns from different parents
 	// can be paired wrongly.
 	Pending []activitySpawn `json:"pending,omitempty"`
+	// Background tasks of a type that is not known to only wait, shown as
+	// working, and known teammates standing by; rebuilt from every
+	// background_tasks list.
+	Working []activitySubagent `json:"working,omitempty"`
 }
 
 type activitySubagentBody struct {
@@ -92,11 +109,15 @@ type activitySubagentBody struct {
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
 	StartedTs   float64 `json:"started_ts"`
+	Kind        string  `json:"kind"`
+	// Omitted while working, which the station reads an empty state as.
+	State string `json:"state,omitempty"`
 }
 
 type activityBody struct {
 	Busy      bool                   `json:"busy"`
 	BusySince *float64               `json:"busy_since"`
+	MainState string                 `json:"main_state,omitempty"`
 	Subagents []activitySubagentBody `json:"subagents"`
 	Waits     []activityWait         `json:"waits"`
 }
@@ -115,6 +136,10 @@ type activityHookInput struct {
 		Type        string `json:"type"`
 		Status      string `json:"status"`
 		Description string `json:"description"`
+		AgentType   string `json:"agent_type"`
+		Name        string `json:"name"`
+		Server      string `json:"server"`
+		Tool        string `json:"tool"`
 	} `json:"background_tasks"`
 	SessionCrons []struct {
 		Schedule  string `json:"schedule"`
@@ -226,13 +251,26 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) (cha
 	case "Stop", "StopFailure":
 		s.Busy, s.BusySince = false, nil
 		running := map[string]bool{}
+		teammates := map[string]bool{}
 		for _, task := range in.BackgroundTasks {
-			if task.Type == "subagent" && task.Status == "running" {
+			switch {
+			case !isLiveTask(task.Status):
+			case task.Type == "subagent":
 				running[task.ID] = true
+			case task.Type == "teammate":
+				teammates[task.Description] = true
 			}
 		}
-		s.Subagents = keepWithAncestors(s.Subagents, func(sub activitySubagent) bool { return running[sub.ID] })
-		s.Pending = nil
+		// A foreground child of a background sub-agent or a teammate is never
+		// in background_tasks; its own SubagentStop removes it.
+		s.Subagents = keepLineage(s.Subagents, func(sub activitySubagent) bool {
+			return running[sub.ID] || (s.isTeammate(sub.ID) && teammates[sub.Description])
+		})
+		// A sub-agent's Agent calls outlive the main turn (a teammate spawns
+		// workers while the main agent is idle); they go at its own stop.
+		s.Pending = slices.DeleteFunc(s.Pending, func(p activitySpawn) bool {
+			return p.ParentID == nil || !listsSubagent(s.Subagents, *p.ParentID)
+		})
 		refreshActivityFromTasks(s, in, now)
 	case "PreToolUse":
 		if !isAgentTool(in.ToolName) {
@@ -246,30 +284,43 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) (cha
 		}
 		var response struct {
 			AgentID string `json:"agentId"`
+			Status  string `json:"status"`
 		}
 		if json.Unmarshal(in.ToolResponse, &response) != nil || response.AgentID == "" {
 			return false, false
 		}
-		return true, recordSpawn(s, response.AgentID, spawnOf(in))
+		spawn := spawnOf(in)
+		spawn.Teammate = response.Status == "teammate_spawned"
+		spawn.SpawnedTs = now
+		return true, recordSpawn(s, response.AgentID, spawn)
 	case "SubagentStart":
 		// The shown time is the current run's: every start restarts it,
 		// including a parent carrying on after it stopped to wait for its child
 		// (it stayed listed meanwhile).
 		for i := range s.Subagents {
 			if s.Subagents[i].ID == in.AgentID {
-				s.Subagents[i].StartedTs = now
+				s.Subagents[i].StartedTs, s.Subagents[i].WaitingOnChild = now, false
+				if s.Subagents[i].Name == "unknown" && in.AgentType != "" {
+					s.Subagents[i].Name = in.AgentType
+				}
 				return true, true
 			}
 		}
 		stopped := s.Stopped[in.AgentID]
 		delete(s.Stopped, in.AgentID)
+		s.Working = slices.DeleteFunc(s.Working, func(w activitySubagent) bool { return w.ID == in.AgentID })
 		spawn, known := s.Spawns[in.AgentID]
-		if !known && !stopped && len(s.Pending) > 0 {
+		fromPending := !known && !stopped && len(s.Pending) > 0
+		if fromPending {
 			spawn, s.Pending = s.Pending[0], s.Pending[1:]
+		}
+		if known || fromPending {
+			spawn.Name = in.AgentType
 			setSpawn(s, in.AgentID, spawn)
 		}
 		s.Subagents = append(s.Subagents, activitySubagent{ID: in.AgentID, ParentID: spawn.ParentID,
-			Name: in.AgentType, Description: spawn.Description, StartedTs: now})
+			Name: in.AgentType, Description: spawn.Description, StartedTs: now,
+			Kind: agentKind(spawn), Foreground: fromPending})
 	case "SubagentStop":
 		// Claude Code (seen in 2.1.308) also fires SubagentStop when a sub-agent
 		// ends its turn to wait for its own child, and SubagentStart when it
@@ -283,12 +334,37 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) (cha
 				s.Stopped[sub.ID] = true
 			}
 		}
+		for i := range kept {
+			if kept[i].ID == in.AgentID {
+				kept[i].WaitingOnChild = true
+			}
+		}
+		if !listsSubagent(kept, in.AgentID) {
+			s.Pending = slices.DeleteFunc(s.Pending, func(p activitySpawn) bool {
+				return p.ParentID != nil && *p.ParentID == in.AgentID
+			})
+		}
 		s.Subagents = kept
 		refreshActivityFromTasks(s, in, now)
 	default:
 		return false, false
 	}
 	return true, true
+}
+
+// Keeps the sub-agents keep accepts, every listed ancestor of one, and every
+// listed descendant of one.
+func keepLineage(subs []activitySubagent, keep func(activitySubagent) bool) []activitySubagent {
+	kept := keepWithAncestors(subs, keep)
+	for grew := true; grew; {
+		grew = false
+		for _, sub := range subs {
+			if sub.ParentID != nil && listsSubagent(kept, *sub.ParentID) && !listsSubagent(kept, sub.ID) {
+				kept, grew = append(kept, sub), true
+			}
+		}
+	}
+	return kept
 }
 
 // Keeps the sub-agents keep accepts plus every listed ancestor of one, so no
@@ -360,12 +436,14 @@ func setSpawn(s *activityState, id string, spawn activitySpawn) {
 // mapping waits in Spawns, and the PreToolUse entry for the same call is
 // dropped so a later SubagentStart cannot take it.
 func recordSpawn(s *activityState, id string, spawn activitySpawn) bool {
-	_, known := s.Spawns[id]
+	before, known := s.Spawns[id]
 	stopped := s.Stopped[id]
+	spawn.Name = before.Name
 	setSpawn(s, id, spawn)
 	for i := range s.Subagents {
 		if s.Subagents[i].ID == id {
 			s.Subagents[i].ParentID, s.Subagents[i].Description = spawn.ParentID, spawn.Description
+			s.Subagents[i].Kind, s.Subagents[i].Foreground = agentKind(spawn), false
 			return true
 		}
 	}
@@ -384,22 +462,48 @@ func sameParent(a, b *string) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
+func (s *activityState) isTeammate(id string) bool { return s.Spawns[id].Teammate }
+
+// Claude Code only lists tasks in one of these two states today.
+func isLiveTask(status string) bool { return status == "running" || status == "pending" }
+
+// Claude Code task types that run a program without the model. Any other type,
+// including one a later Claude Code adds, is shown as working so that it is
+// never missed (owner c-1dcafca28f9d).
+var waitingTaskTypes = map[string]bool{"shell": true, "monitor": true, "MCP task": true, "code": true}
+
 func refreshActivityFromTasks(s *activityState, in activityHookInput, now float64) {
 	s.Waits = nil
+	working := []activitySubagent{}
 	for _, task := range in.BackgroundTasks {
-		switch {
-		case task.Type == "subagent":
-			for i := range s.Subagents {
-				if s.Subagents[i].ID == task.ID {
-					s.Subagents[i].Description = task.Description
-				}
-			}
-		case task.Status == "running" && task.Type == "shell":
-			s.Waits = append(s.Waits, activityWait{Kind: "background_command", Description: task.Description})
-		case task.Status == "running" && task.Type == "monitor":
-			s.Waits = append(s.Waits, activityWait{Kind: "monitor", Description: task.Description})
+		if !isLiveTask(task.Status) {
+			continue
 		}
+		if task.Type == "subagent" {
+			if !s.updateSubagentDescription(task.ID, task.Description) && !s.Stopped[task.ID] {
+				s.Subagents = append(s.Subagents, activitySubagent{ID: task.ID,
+					Name: orUnknown(task.AgentType), Description: task.Description, StartedTs: now, Kind: "subagent"})
+			}
+			continue
+		}
+		if task.Type == "teammate" && s.knowsTeammate(task.Description) {
+			continue
+		}
+		description := task.Description
+		if description == "" {
+			description = task.Name
+		}
+		if description == "" && task.Server != "" {
+			description = task.Server + "·" + task.Tool
+		}
+		if !waitingTaskTypes[task.Type] {
+			working = append(working, activitySubagent{ID: task.ID, Name: orUnknown(task.Type),
+				Description: description, StartedTs: s.workingSince(task.ID, now), Kind: orUnknown(task.Type)})
+			continue
+		}
+		s.Waits = append(s.Waits, activityWait{Kind: task.Type, Description: description})
 	}
+	s.Working = append(working, s.standingBy(in, now)...)
 	for _, cron := range in.SessionCrons {
 		wait := activityWait{Kind: "schedule", Description: cron.Prompt, Recurring: cron.Recurring}
 		if next, ok := cronNextRun(cron.Schedule, time.Unix(0, int64(now*1e9)).In(cronLocation)); ok {
@@ -410,6 +514,133 @@ func refreshActivityFromTasks(s *activityState, in activityHookInput, now float6
 	}
 }
 
+// A known teammate not listed as a sub-agent while its task is live has
+// finished its work and waits to be messaged again. Teammates are matched to
+// their tasks by description only, so per description the newest spawns fill
+// the live tasks the working ones leave, and the older ones are gone and
+// forgotten. A hook without a background_tasks list forgets nothing.
+func (s *activityState) standingBy(in activityHookInput, now float64) []activitySubagent {
+	live := map[string]int{}
+	for _, task := range in.BackgroundTasks {
+		if task.Type == "teammate" && isLiveTask(task.Status) {
+			live[task.Description]++
+		}
+	}
+	idle := []string{}
+	for id, spawn := range s.Spawns {
+		// Never seen to start: its task may not be listed yet.
+		if !spawn.Teammate || spawn.Name == "" {
+			continue
+		}
+		if listsSubagent(s.Subagents, id) {
+			live[spawn.Description]--
+			continue
+		}
+		idle = append(idle, id)
+	}
+	sort.Slice(idle, func(i, j int) bool {
+		a, b := s.Spawns[idle[i]], s.Spawns[idle[j]]
+		if a.SpawnedTs != b.SpawnedTs {
+			return a.SpawnedTs > b.SpawnedTs
+		}
+		return idle[i] < idle[j]
+	})
+	standing := []activitySubagent{}
+	for _, id := range idle {
+		spawn := s.Spawns[id]
+		if live[spawn.Description] <= 0 {
+			if in.BackgroundTasks != nil {
+				delete(s.Spawns, id)
+			}
+			continue
+		}
+		live[spawn.Description]--
+		standing = append(standing, activitySubagent{ID: id, ParentID: spawn.ParentID, Name: orUnknown(spawn.Name),
+			Description: spawn.Description, StartedTs: s.workingSince(id, now), Kind: "teammate", StandingBy: true})
+	}
+	sort.Slice(standing, func(i, j int) bool { return standing[i].ID < standing[j].ID })
+	return standing
+}
+
+func (s *activityState) workingSince(id string, now float64) float64 {
+	for _, task := range s.Working {
+		if task.ID == id {
+			return task.StartedTs
+		}
+	}
+	return now
+}
+
+func agentKind(spawn activitySpawn) string {
+	if spawn.Teammate {
+		return "teammate"
+	}
+	return "subagent"
+}
+
+const (
+	stateWaitingForSubagents = "waiting_for_subagents"
+	stateStandingBy          = "standing_by"
+)
+
+func subagentState(subs []activitySubagent, sub activitySubagent) string {
+	switch {
+	case sub.StandingBy:
+		return stateStandingBy
+	case waitsForSubagents(subs, sub):
+		return stateWaitingForSubagents
+	}
+	return ""
+}
+
+func waitsForSubagents(subs []activitySubagent, sub activitySubagent) bool {
+	if sub.WaitingOnChild {
+		return true
+	}
+	for _, child := range subs {
+		if child.Foreground && child.ParentID != nil && *child.ParentID == sub.ID {
+			return true
+		}
+	}
+	return false
+}
+
+func mainWaitsForSubagents(subs []activitySubagent) bool {
+	for _, child := range subs {
+		if child.Foreground && child.ParentID == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func orUnknown(name string) string {
+	if name == "" {
+		return "unknown"
+	}
+	return name
+}
+
+func (s *activityState) updateSubagentDescription(id, description string) bool {
+	for i := range s.Subagents {
+		if s.Subagents[i].ID == id {
+			s.Subagents[i].Description = description
+			return true
+		}
+	}
+	return false
+}
+
+// A known teammate is either working, so listed as a sub-agent, or standing by.
+func (s *activityState) knowsTeammate(description string) bool {
+	for _, spawn := range s.Spawns {
+		if spawn.Teammate && spawn.Description == description {
+			return true
+		}
+	}
+	return false
+}
+
 func newActivityBody(s activityState) activityBody {
 	body := activityBody{
 		Busy:      s.Busy,
@@ -418,12 +649,19 @@ func newActivityBody(s activityState) activityBody {
 	}
 	if s.Busy {
 		body.BusySince = s.BusySince
+		if mainWaitsForSubagents(s.Subagents) {
+			body.MainState = stateWaitingForSubagents
+		}
 	}
-	subs := append([]activitySubagent(nil), s.Subagents...)
+	subs := append(append([]activitySubagent(nil), s.Subagents...), s.Working...)
 	sort.SliceStable(subs, func(i, j int) bool { return subs[i].StartedTs < subs[j].StartedTs })
 	for _, sub := range subs {
 		if len(body.Subagents) == activityListMax {
 			break
+		}
+		kind := sub.Kind
+		if kind == "" {
+			kind = "subagent"
 		}
 		body.Subagents = append(body.Subagents, activitySubagentBody{
 			ID:          truncateRunes(sub.ID, activityNameMax),
@@ -431,6 +669,8 @@ func newActivityBody(s activityState) activityBody {
 			Name:        truncateRunes(sub.Name, activityNameMax),
 			Description: truncateRunes(sub.Description, activityDescriptionMax),
 			StartedTs:   sub.StartedTs,
+			Kind:        truncateRunes(kind, activityNameMax),
+			State:       subagentState(subs, sub),
 		})
 	}
 	for _, wait := range s.Waits {
@@ -438,7 +678,7 @@ func newActivityBody(s activityState) activityBody {
 			break
 		}
 		body.Waits = append(body.Waits, activityWait{
-			Kind: wait.Kind, Description: truncateRunes(wait.Description, activityDescriptionMax),
+			Kind: truncateRunes(wait.Kind, activityNameMax), Description: truncateRunes(wait.Description, activityDescriptionMax),
 			NextTs: wait.NextTs, Recurring: wait.Recurring,
 		})
 	}

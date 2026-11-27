@@ -152,7 +152,7 @@ describe("OfficePage — chat groups", () => {
         `${i.querySelector(".chat-groups__menu-text")!.textContent} ${i.querySelector(".chat-groups__menu-count")?.textContent ?? ""}`.trim(),
       );
     const rows = () => Array.from(container.querySelectorAll("[data-chat-row]"), (r) => r.getAttribute("data-chat-row"));
-    const activity = (state: "busy" | "waiting" | "idle") => ({ state, busy_since: null, subagents: [], waits: [], ts: Date.now() / 1000 });
+    const activity = (state: "busy" | "waiting" | "idle") => ({ state, busy_since: null, main_state: "idle", subagents: [], waits: [], ts: Date.now() / 1000 });
     await waitFor(() =>
       expect(items()).toEqual(["有未讀 0", "線上 1", "喚醒中 0", "停止中 0", "已停止 0", "離線 2", "工作中 0", "等待中 0", "閒置 0"]),
     );

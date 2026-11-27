@@ -907,8 +907,6 @@ export const en: Dict = {
     nextLead: "next",
     recurring: "repeats",
     waitKind: {
-      background_command: "background command",
-      monitor: "monitor",
       schedule: "schedule",
     },
   },
