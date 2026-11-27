@@ -1,90 +1,90 @@
-# 讓 AI 照 SOP 做重複的事（任務手冊）
+# Having AI follow an SOP for repeated work (Task manuals)
 
-這頁說明任務手冊裡有哪些東西，以及各自代表什麼意思。
+This page explains what a task manual contains and what each part means.
 
-## 任務手冊
+## Task manuals
 
-任務手冊寫下一類反覆出現的工作該怎麼做。建好之後，同一類的任務都照手冊做，你不必每次重新交代。
+A task manual records how to do one kind of work that comes up again and again. Once a manual exists, every task of that kind follows it, so you do not have to explain the work again each time.
 
-成員收到一件事時，會比對現有的手冊，判斷這件事屬於哪一類。沒有合適的手冊時，成員一樣會把事情做完，只是每次從頭規劃，任務卡上的任務類型顯示「自由代辦」。
+When a member receives a request, the member compares it with the existing manuals to decide which kind of work it is. If no manual fits, the member still finishes the work, but plans it from scratch each time, and the task type on the task card shows "Ad-hoc".
 
-手冊在 **設定 › 任務手冊** 新增與管理，每本手冊有：
+You add and manage manuals in **Settings › Task manuals**. Each manual has:
 
-- **任務定義**：「這是什麼任務？」「需要哪些資訊？」「該怎麼做？」三個問題的回答。
-- **負責成員**：這類任務由誰來做。
-- **任務傳承**：成員做這類任務時累積下來的經驗。
+- **Task definition**: the answers to three questions: "What is this task?", "What information is needed?", and "How is it done?".
+- **Assigned executor**: who does this kind of task.
+- **Task lore**: experience that members have built up while doing this kind of task.
 
-## 這是什麼任務？
+## What is this task?
 
-成員用這一段判斷一件事該不該歸到這一類：這類任務處理什麼工作、要達成什麼結果，以及容易跟其他手冊混淆時，彼此的分界。**這一段寫得含糊，成員就容易分錯類。**
+Members use this section to decide whether a request belongs to this kind of task: what work this kind of task covers, what result it must reach, and, where it is easy to confuse with another manual, where the boundary between them lies. **If this section is vague, members are more likely to put work in the wrong kind.**
 
-## 需要哪些資訊？
+## What information is needed?
 
-做這類任務之前一定要有的資訊，每一項是一個欄位。欄位可以設成：
+The information that must be available before doing this kind of task. Each item is one field. A field can be set as:
 
-- **必填**：建任務時一定要有這項資訊。
-- **🔑 識別鍵**：用來防止同一件事開出兩張任務。識別鍵的值相同、而且同一類的舊任務還沒結案時，成員會沿用舊任務，不會再開一張。
+- **Required**: this information must be present when the task is created.
+- **🔑 Identity key**: used to prevent two tasks from being opened for the same piece of work. When the identity key values are the same and an older task of the same kind is not yet closed, the member continues the older task instead of opening another one.
 
-**識別鍵要選「這件事是什麼」，不要選「這次從哪裡進來」。** 例如整理會議紀錄的識別鍵只放會議名稱與日期；如果把「從哪一串對話進來」也設成識別鍵，同一場會議從另一串對話被提起時，就會開出第二張任務。
+**For the identity key, choose "what this work is", not "where this request came from this time".** For example, the identity key for writing up meeting minutes holds only the meeting name and date. If "which conversation thread it came from" is also set as an identity key, a second task is opened when the same meeting is brought up in a different thread.
 
-## 該怎麼做？
+## How is it done?
 
-這一段就是 SOP，也就是做這類工作的標準步驟。成員規劃每一張任務的步驟時，以 SOP 為藍本。SOP 裡寫明的下列內容，成員規劃時會照著做：
+This section is the SOP (standard operating procedure): the standard steps for doing this kind of work. When a member plans the steps of each task, the member uses the SOP as the template. If the SOP states the following, the member follows them when planning:
 
-- **完成定義（DoD）**：每一步怎樣算做完，要寫成做完之後看得到的結果，例如「會議紀錄已寄給全部與會者」，而不是「處理好會議紀錄」。
-- **關卡**：需要你決定或驗收的步驟，成員做到那一步會開請示卡，等你回覆才繼續。適合放在有代價、不能回頭的決定上，例如要不要寄出、要不要合併、要不要花錢。
-- **界線**：哪些事不能做、什麼情況要先問你。
+- **Definition of done (DoD)**: what counts as finished for each step. Write it as a result that can be seen once the step is done, for example "The meeting minutes have been sent to all attendees", not "Handle the meeting minutes".
+- **Gate**: a step that needs your decision or acceptance. When the member reaches that step, the member opens a reply card and waits for your reply before continuing. Gates suit decisions that have a cost and cannot be undone, for example whether to send something, whether to merge, or whether to spend money.
+- **Limits**: what must not be done, and in which situations the member must ask you first.
 
-SOP 存檔時會保留舊版本，可以還原，見 [設定與參數](settings.md) 的「版本紀錄」。成員發現 SOP 本身該改時，會先開請示卡，把原文和修改後的內容並列，**等你同意後才改**。
+When the SOP is saved, older versions are kept and can be restored. See "Version history" in [Settings](settings.md). When a member finds that the SOP itself should change, the member first opens a reply card that shows the original text and the changed text side by side, and **changes the SOP only after you agree**.
 
-## 負責成員
+## Assigned executor
 
-「負責成員」只有你和特助 Mira 能設定，有兩種選擇：
+Only you and the Assistant, Mira, can set the "Assigned executor". There are two options:
 
-- **指定成員**：這類任務都由一位正職成員負責。
-- **外包**：每一張任務各找一位外包來做，任務結案後外包就離開。要另外設定外包用的模型、機器和同時雇用幾位。
+- **Pick a member**: one staff member handles all tasks of this kind.
+- **Outsource**: each task gets its own outsource member, who leaves once the task is closed. You also set the model, the machine, and how many outsource members can be hired at the same time.
 
-**選外包時一定要選機器。** 沒選機器，或選的機器離線時，外包不會開始工作，也不會改到其他機器上做。
+**When you choose Outsource, you must choose a machine.** If no machine is chosen, or the chosen machine is offline, outsource members do not start working, and the work is not moved to another machine.
 
-外包和正職的差別，見 [增加成員與發外包](members.md)。
+For the difference between outsource members and staff members, see [Adding members and hiring outsource](members.md).
 
-## 任務傳承
+## Task lore
 
-成員做這類任務時學到、之後還用得到的經驗，會寫成任務傳承，掛在這本手冊底下。之後做這類任務的成員，不論正職還是外包，都會讀到。SOP 本身該改時，成員會開卡請你核可，不會用傳承代替。見 [讓成員記住你教過的事（傳承）](lore.md)。
+Experience that a member learns while doing this kind of task, and that will still be useful later, is written down as task lore and attached to this manual. Every member who later does this kind of task, whether a staff member or an outsource member, reads it. When the SOP itself should change, the member opens a card to ask for your approval and does not use lore in place of that change. See [Making members remember what you taught them (Lore)](lore.md).
 
-## 例子：整理會議紀錄並寄給與會者
+## Example: writing up meeting minutes and sending them to attendees
 
-**這是什麼任務？**
+**What is this task?**
 
-> 開完一場會之後，有人提供會議的錄音逐字稿或筆記，需要整理成一份會議紀錄並寄給與會者。目標是每位與會者看完就知道會議決定了什麼、自己接下來要做什麼，不是只把逐字稿轉寄出去。
+> After a meeting, someone provides a transcript of the meeting recording or notes, which need to be written up as meeting minutes and sent to the attendees. The goal is that each attendee, after reading them, knows what the meeting decided and what they need to do next, not just to forward the transcript.
 
-**需要哪些資訊？**
+**What information is needed?**
 
-| 欄位 | 設定 |
+| Field | Setting |
 | --- | --- |
-| 會議名稱 | 🔑 識別鍵（必填） |
-| 會議日期 | 🔑 識別鍵（必填） |
-| 逐字稿或筆記 | 必填 |
-| 與會者名單 | 必填 |
-| 從哪一串對話進來，有就填 | 選填 |
+| Meeting name | 🔑 Identity key (Required) |
+| Meeting date | 🔑 Identity key (Required) |
+| Transcript or notes | Required |
+| Attendee list | Required |
+| Which conversation thread it came from, if any | Optional |
 
-**該怎麼做？**
+**How is it done?**
 
 ```markdown
-1. 讀逐字稿或筆記，確認會議名稱、日期與與會者名單。
-2. 整理成會議紀錄：討論了什麼、決定了什麼、每一項待辦由誰負責、什麼時候完成。
-3. 關卡：把會議紀錄全文與收件人名單給 owner 確認，同意後才寄出。
-4. 把會議紀錄寄給全部與會者；若是從某串對話進來的，把寄出結果回在那串對話。
+1. Read the transcript or notes, and confirm the meeting name, date, and attendee list.
+2. Write up the meeting minutes: what was discussed, what was decided, who owns each action item, and when it is due.
+3. Gate: send the full meeting minutes and the recipient list to the owner for confirmation, and send them only after approval.
+4. Send the meeting minutes to all attendees. If the request came from a conversation thread, reply in that thread with the result of the sending.
 
-界線：
-- 不要寄給與會者名單以外的人。
-- 逐字稿聽不清楚、或看不出某項決定由誰負責時，開卡問，不要猜。
+Limits:
+- Do not send to anyone who is not on the attendee list.
+- If the transcript is unclear, or it is not clear who owns a decision, open a card to ask. Do not guess.
 ```
 
-## 相關文件
+## Related pages
 
-- [追蹤任務進度](tasks.md)
-- [交代工作與回覆請示卡](daily.md)
-- [讓成員記住你教過的事（傳承）](lore.md)
-- [增加成員與發外包](members.md)
-- [設定與參數](settings.md)
+- [Tracking task progress](tasks.md)
+- [Assigning work and answering reply cards](daily.md)
+- [Making members remember what you taught them (Lore)](lore.md)
+- [Adding members and hiring outsource](members.md)
+- [Settings](settings.md)

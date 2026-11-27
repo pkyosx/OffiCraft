@@ -1,71 +1,71 @@
-# 追蹤任務進度
+# Tracking task progress
 
-這頁說明任務裡有哪些東西，以及各自代表什麼意思。
+This page explains what a task contains and what each part means.
 
-## 任務
+## Tasks
 
-任務是一件分成多個步驟、有明確完成條件的工作。簡單的事成員會直接在聊天室回覆；想用任務追蹤，交代時直接說「建一張任務」。
+A task is a piece of work divided into several steps, with clear acceptance criteria. For simple requests, a member replies directly in the chat. If you want to track something as a task, say "create a task" when you give the work.
 
-- **完成條件（AC）**：整張任務做完時要達成、可以檢查的結果。
-- **任務類型**：任務照哪一本任務手冊做；沒有適用的手冊時顯示「自由代辦」。任務手冊見 [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md)。
-## 任務卡
+- **Acceptance criteria (AC)**: results that can be checked and that must be reached when the whole task is finished.
+- **Task type**: which task manual the task follows. If no manual applies, it shows "Ad-hoc". For task manuals, see [Having AI follow an SOP for repeated work (Task manuals)](sop.md).
+## Task cards
 
-![任務卡](assets/cockpit-task.png)
+![Task card](assets/cockpit-task.png)
 
-「任務」分頁列出所有任務，分頁上的數字是還沒結案的任務數。每張任務卡上有：
+The "Task" tab lists all tasks. The number on the tab is the number of tasks that are not yet closed. Each task card shows:
 
-- **狀態**：任務走到哪個階段，見下一節。
-- **負責人**：現在做這張任務的成員。
-- **優先權**：任務的先後順序；選「凍結」時，成員停止推進這張任務。
-- **到期日**：快到期或已逾期時會變色。
-- **步驟 完成數/總數**：做完幾步、總共幾步。
-- **訊息框**：直接傳訊息給負責人。
+- **Status**: which stage the task has reached. See the next section.
+- **Assignee**: the member currently working on the task.
+- **Priority**: the order in which tasks are handled. When "Frozen" is selected, the member stops moving this task forward.
+- **Due date**: changes color when the task is Due soon or Overdue.
+- **Step done/total**: how many steps are done and how many there are in total.
+- **Message box**: send a message directly to the assignee.
 
-各欄位的完整說明見 [介面說明](interface.md) 的「任務」。
+For a full description of each field, see "Task" in [Interface reference](interface.md).
 
-## 狀態
+## Status
 
-| 狀態 | 意思 |
+| Status | Meaning |
 | --- | --- |
-| 尚未執行 | 任務已建立，還沒開始做。 |
-| 進行中 | 成員正在推進。 |
-| 等我回覆 | 有一張綁在步驟上的請示卡在等你回覆，任務停在那一步。 |
-| 等待外部 | 在等第三方，例如權限還沒開、對方還沒回信、時間還沒到。 |
-| 可結案 | 所有步驟都完成了，正在等負責人收尾。 |
-| 已完成 | 已結案。 |
-| 終止 | 已結案，任務被中止，不再做。 |
-| 重複 | 已結案，任務和另一張任務是同一件事。 |
+| Not started | The task has been created but work has not started. |
+| In progress | The member is moving the task forward. |
+| Awaiting my reply | A reply card attached to a step is waiting for your reply, and the task is stopped at that step. |
+| Waiting on external | Waiting on a third party, for example access that has not been granted yet, an email that has not been answered yet, or a time that has not arrived yet. |
+| Ready to close | All steps are complete, and the task is waiting for the assignee to wrap it up. |
+| Done | Closed. |
+| Terminated | Closed. The task was stopped and will not be done. |
+| Duplicate | Closed. The task is the same piece of work as another task. |
 
-任務卡上出現「轉派中」，表示任務正在換負責人。
+When "Reassigning" appears on a task card, the task is being handed to a different assignee.
 
-## 步驟
+## Steps
 
-任務卡的「工作流程」列出負責人拆好的步驟：
+The "Workflow" on a task card lists the steps the assignee has broken the task into:
 
-- **完成定義（DoD）**：每個步驟做到什麼程度才算完成。
-- **關卡**：需要你決定、核可或驗收的步驟，一開始就標著「等我回覆」。走到關卡時，成員會開請示卡給你。
-- **備註**：負責人在步驟上記下的進度與結果。
+- **Definition of done (DoD)**: how far a step must go before it counts as complete.
+- **Gate**: a step that needs your decision, approval, or acceptance. It is marked "Awaiting my reply" from the start. When the task reaches a gate, the member opens a reply card for you.
+- **Note**: progress and results that the assignee records on the step.
 
-## 產物
+## Artifacts
 
-產物是負責人放在任務卡上、要給你看或驗收的成果，可以是檔案、圖片或連結。文字檔可以看每一版改了什麼。
+Artifacts are results the assignee places on the task card for you to review or accept. They can be files, images, or links. For text files, you can see what changed in each version.
 
-**移除產物會永久刪除舊版本**，目前的檔案則會保留。
+**Removing an artifact permanently deletes its older versions.** The current file is kept.
 
-## 結束或改變一張任務
+## Ending or changing a task
 
-- **已完成**：所有步驟完成、你驗收通過後，負責人結案。
-- **強制結案**：步驟還沒做完，但你決定不再繼續。**無法復原**。
-- **終止**：中止任務，不再做。**無法恢復**。
-- **標記重複**：用任務編號或標題搜尋並指出原本那張任務，這張任務結案為「重複」。**無法恢復**。
-- **凍結**：暫停任務，成員要恢復前會先開卡問你。
-- **轉派**：把任務交給另一位成員或外包。
+- **Done**: after all steps are complete and you have accepted the result, the assignee closes the task.
+- **Force close**: steps are not finished, but you decide not to continue. **This cannot be undone.**
+- **Terminate**: stop the task; it will not be done. **This cannot be undone.**
+- **Mark duplicate**: search by Task ID or title to point to the original task. This task is closed as "Duplicate". **This cannot be undone.**
+- **Frozen**: pause the task. Before resuming it, the member opens a card to ask you.
+- **Reassign**: hand the task to a different member or to an outsource member.
 
-強制結案、終止、標記重複都在任務卡的狀態標籤上；凍結在「優先權」；轉派在「負責人」旁。
+Force close, Terminate, and Mark duplicate are on the status tag of the task card. Frozen is under "Priority". Reassign is next to "Assignee".
 
-## 相關文件
+## Related pages
 
-- [交代工作與回覆請示卡](daily.md)
-- [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md)
-- [增加成員與發外包](members.md)
-- [名詞表](glossary.md)
+- [Assigning work and answering reply cards](daily.md)
+- [Having AI follow an SOP for repeated work (Task manuals)](sop.md)
+- [Adding members and hiring outsource](members.md)
+- [Glossary](glossary.md)

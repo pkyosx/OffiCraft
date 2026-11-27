@@ -1,86 +1,86 @@
-# 讓成員記住你教過的事（傳承）
+# Making members remember what you taught them (Lore)
 
-這頁說明成員開工時會讀到的幾種文件：你寫給所有成員的「使用者自訂」、每個角色的「角色誌」，以及成員從工作中學到的「傳承」，各自代表什麼意思。
+This page explains the documents members read when they start work: the "User additions" you write for all members, each role's documents under "Roles", and the "lore" members learn from their work, and what each of them means.
 
-## 使用者自訂
+## User additions
 
-「使用者自訂」是你寫給所有成員的一份文件，每一位成員每次開機都會整份讀到。一開始是空白的，是最值得先寫的一份文件。位置在 **設定 › 全域情境** 的「使用者自訂」。
+"User additions" is a document you write for all members. Every member reads all of it each time it boots. It starts out blank, and it is the first document worth writing. It is under "User additions" in **Settings › Global context**.
 
-適合寫進去的內容：
+Content that fits here:
 
-- 你是誰、這間工作室在做什麼。
-- 哪些資料、帳號或服務可以動，哪些絕對不能動。
-- 什麼事一定要先開請示卡問你，例如寄信給外部的人、更動正在使用中的服務、花錢。
-- 預算的大概範圍，以及你偏好的回報方式。
+- Who you are and what this studio does.
+- Which data, accounts, or services members may touch, and which they must never touch.
+- What members must always ask you about first by opening a reply card, for example sending email to people outside, changing a service that is in use, or spending money.
+- The rough budget range, and how you prefer to receive reports.
 
-使用者自訂每次開機都會整份送給成員，**寫得精簡比較好**。全域情境裡其他幾份文件的用途，見 [設定與參數](settings.md) 的「全域情境」。
+User additions are sent to members in full every time they boot, so **keep them short**. For what the other documents in Global context are for, see "Global context" in [Settings](settings.md).
 
-## 風險與成本的界線
+## Limits on risk and cost
 
-成員判斷事情時，最上層的原則是：**風險底線由你定**。在你能接受的範圍內，成員自己做；可能超支、可能造成無法挽回的損害（弄壞正在使用的服務、刪資料、洩漏機密），或要選一個難回頭的大方向時，成員會停下來開請示卡問你。
+When members make judgements, the top principle is: **you set the limits on risk**. Within the range you accept, members act on their own. When something could go over budget, could cause damage that cannot be undone (breaking a service that is in use, deleting data, leaking secrets), or means choosing a major direction that is hard to reverse, members stop and open a reply card to ask you.
 
-成員在背景工作，旁邊沒有人能按確認，所以 Claude Code 和 Codex 都設成跳過權限確認、直接執行。**成員在你的電腦上能做的事很多；約束成員的是成員讀到的守則，以及「該問就停下來開卡」的做法，不是系統的權限控管。** 請接受這一點之後再使用。所以界線要寫進使用者自訂；要付代價的步驟，在任務手冊裡設成關卡，見 [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md)。
+Members work in the background with no one beside them to click a confirmation, so both Claude Code and Codex are set to skip permission prompts and act directly. **Members can do a lot on your computer. What restrains them is the rules they read and the practice of stopping to open a reply card when they should ask, not the system's permission controls.** Use OffiCraft only after you accept this. This is why the limits belong in User additions, and why steps that cost something should be set as gates in a task manual; see [Having AI follow an SOP for repeated work (Task manuals)](sop.md).
 
-成員用的是你自己的 Claude 與 Codex 帳號，費用也算在你的帳號上，見 [管理 AI 帳號與用量](usage.md)。
+Members use your own Claude and Codex accounts, and the cost is charged to your accounts; see [Manage AI accounts and usage](usage.md).
 
-## 角色誌
+## Roles
 
-每個正職角色有兩份文件，在 **設定 › 角色誌**：
+Each staff role has two documents, under **Settings › Roles**:
 
-- **角色定義**：這個角色負責什麼、遵守哪些規矩、哪些事不歸這個角色管。你和特助 Mira 可以編輯。適合寫「什麼事應該找這個角色」和「這個角色不能做什麼」；一次性的事直接在聊天交代，反覆出現的工作寫成任務手冊。
-- **判準（Insight）**：這個角色在工作中反覆用到的取捨與界線，通常由該角色的成員自己寫。
+- **Duty**: what this role is responsible for, which rules it follows, and what is not this role's business. You and the Assistant, Mira, can edit it. It is the place to write "what should be brought to this role" and "what this role must not do". Give one-off things directly in chat, and write work that comes up again and again as a task manual.
+- **Insight**: the trade-offs and limits this role uses again and again in its work, usually written by the role's own member.
 
-改了之後，該角色的成員下次開機就會讀到新版本。
+After a change, the role's member reads the new version the next time it boots.
 
-## 傳承
+## Lore
 
-傳承是成員在工作中確認過、之後還會用到的判斷原則，每一筆只記一個原則。成員在任務結案、被停止，或判斷有值得留下的經驗時，會自己寫一筆；沒有值得留的就不寫。控制台上沒有讓你直接新增傳承的按鈕，想讓成員記住某件事，在聊天裡告訴成員，請成員寫成傳承。
+Lore is a set of judgement principles that members have confirmed in their work and will use again; each entry records only one principle. A member writes an entry on its own when a task closes, when it is stopped, or when it judges that some experience is worth keeping; when there is nothing worth keeping, it writes nothing. The console has no button for you to add lore directly. To have members remember something, tell a member in chat and ask it to write it as lore.
 
-成員自己判斷不寫成傳承的內容：一次性的任務資訊、某件案子或某個客戶的細節，以及可以從文件重新查到的內容。經驗反映的是「SOP 本身應該改」時，成員會開請示卡請你決定要不要改 SOP，不會用傳承代替。你的判斷跟成員原本預期的不同、原因又不明確時，成員會先開請示卡問你為什麼，不自行推測。
+Content members decide not to write as lore: one-off task information, details of a particular case or customer, and anything that can be looked up again in documents. When the experience shows that "the SOP itself should change", the member opens a reply card asking you whether to change the SOP, instead of writing lore in its place. When your judgement differs from what a member expected and the reason is unclear, the member first opens a reply card to ask you why, rather than guessing.
 
-傳承寫進去之後，標題、內容和類型都可以修改：你可以在「傳承」分頁按條目上的「編輯」改標題和內容，點條目上的類型標籤改類型；成員可以修改自己寫的條目，特助可以修改任何一筆。條目置頂時，只有你和特助能改。修改不會改變條目的編號、適用範圍、狀態和排列位置。改狀態、類型是點條目上的標籤，改適用範圍是點條目上的範圍標籤（只有你和特助能點）；選了之後條目外框變成虛線，被改的標籤右上角多一個 ↺（把滑鼠移上去看原本的值，點了只把那一項改回去），可以接著改好幾筆，再按畫面底部工具列的「儲存變更」一次存起來，存完整段會照新的結果重新排列。改標題和內容則是按「儲存」就存好。見 [介面說明](interface.md) 的「傳承」。
+After lore is written, its title, body, and type can all be changed: on the "Lore" tab, click "Edit" on an entry to change its title and body, and click the type tag on an entry to change its type. Members can change the entries they wrote, and the Assistant can change any entry. When an entry is pinned, only you and the Assistant can change it. Changes do not alter an entry's ID, scope, state, or position in the list. To change the state or type, click the tag on the entry; to change the scope, click the scope tag on the entry (only you and the Assistant can click it). After you make a choice, the entry's border becomes dashed and the changed tag gets a ↺ in its top-right corner (hover over it to see the original value; clicking it reverts only that one item). You can go on to change several entries and then click "Save changes" in the toolbar at the bottom of the screen to save them all at once; after saving, the whole section is re-sorted by the new result. Changes to the title and body are saved as soon as you click "Save". See "Lore" in [Interface reference](interface.md).
 
-撰寫人還在名冊上時，條目卡片最下面有訊息框，送出的訊息帶著那一筆的條目編號，傳給撰寫人，置頂的條目也一樣。你寫的條目、或撰寫人已離開時，卡片上沒有訊息框。
+While the author is still on the roster, the bottom of the entry card has a message box. A message sent there carries that entry's ID and goes to the author; this also applies to pinned entries. Entries you wrote, and entries whose author has left, have no message box on the card.
 
-**改長一筆傳承，會用掉更多字數上限，排在後面的條目可能因此讀不到，而且不會有錯誤訊息。** 存檔後，那一段上方的已用字數、各來源讀得到幾筆，以及縮成一列的讀不到條目都會跟著更新，可以在那裡確認哪些條目還讀得到。
+**Making a lore entry longer uses up more of the character cap, so entries further down the list may stop being read, and no error message is shown.** After saving, the characters used shown above that section, how many entries are read from each source, and the unread entries collapsed into single rows are all updated, so you can check there which entries are still read.
 
-## 傳承的適用範圍
+## Lore scope
 
-每一筆傳承有一個適用範圍，決定誰讀得到：
+Each lore entry has a scope, which decides who reads it:
 
-- **成員傳承**：只有寫下這一筆的成員讀得到。
-- **任務傳承**：掛在某一本任務手冊下，之後做這類任務的成員都讀得到。
-- **所有人**：每一位成員開機都讀得到。
+- **Member lore**: only the member who wrote the entry reads it.
+- **Task lore**: filed under a task manual; every member who later does that kind of task reads it.
+- **Everyone**: every member reads it when it boots.
 
-某位成員寫了一筆對大家都適用的原則時，可以在「傳承」分頁把那一筆的範圍改成「所有人」，其他成員就不必各自再學一次。只有你和特助能改範圍。
+When a member writes a principle that applies to everyone, you can change that entry's scope to "Everyone" on the "Lore" tab, so other members do not each have to learn it again. Only you and the Assistant can change the scope.
 
-「傳承」分頁照讀到的人分段：「所有人」一段、每位成員各一段、每本任務手冊各一段。打開分頁先看到這些段落的目錄，點一段進去才看到它的條目；每一段列出的就是那位成員開機時（或讀那本手冊時）會讀到的傳承。
+The "Lore" tab is divided into sections by who reads the entries: one section for "Everyone", one for each member, and one for each task manual. When you open the tab, you first see a directory of these sections; click a section to see its entries. Each section lists exactly the lore that member reads when it boots (or that is read with that manual).
 
-正職與外包開機時各讀到哪些內容，見 [架構與運作原理](architecture.md) 的「成員開機時讀到什麼」。
+For what staff and outsource members each read when they boot, see "What members read when they boot" in [Architecture and how it works](architecture.md).
 
-## 傳承的狀態與字數上限
+## Lore states and the character cap
 
-每一筆傳承有三種狀態：
+Each lore entry has one of three states:
 
-- **生效中**：一般狀態。
-- **置頂**：排在最前面，優先讀到；成員開機時，置頂的條目不論是「所有人」的還是自己的，都排在其他條目前面。只有你和特助能置頂。
-- **已失效**：成員不再讀到。可以再設回生效。
+- **Active**: the normal state.
+- **Pinned**: listed first and read first. When a member boots, pinned entries come before all other entries, whether they belong to "Everyone" or to the member itself. Only you and the Assistant can pin entries.
+- **Retired**: members no longer read it. It can be set back to active.
 
-**成員讀得到的傳承有字數上限。** 超過上限時，較舊的條目成員就讀不到，而且不會有錯誤訊息。每位成員開機時，「所有人」的傳承和自己的傳承合成一份清單：置頂的在前，其餘依生效期由新到舊，兩邊交錯排列；兩者共用同一個上限，從頭數到第一筆放不下為止。「所有人」的傳承變多或變長，每位成員自己較舊的傳承就放得更少。
+**The lore members read has a character cap.** When the cap is exceeded, members do not read the older entries, and no error message is shown. When each member boots, the "Everyone" lore and the member's own lore are combined into one list: pinned entries first, then the rest from newest to oldest by effective date, with the two sources interleaved. Both share the same cap, counted from the top until the first entry that does not fit. The more or the longer the "Everyone" lore becomes, the fewer of each member's own older entries fit.
 
-「傳承」分頁的目錄上，每一段一張卡片，寫出已用字數、上限（附一條用量條），以及有幾筆讀不到。進到一段後，段落標題下方有一條分段用量條，畫出「所有人」的傳承與這一段自己的傳承各占多少字數，下面寫已用字數與上限，以及每個來源讀得到幾筆（例如「所有人 7/12 · Nova 0/3」）；「所有人」那一段沒有用量條，標題下只寫已用字數和「每位成員都會讀」，因為「所有人」的傳承算在每位成員自己的上限裡；成員讀不到的條目縮成一列，寫著條目編號、標題和紅字「讀不到」，點一下展開成完整卡片；用篩選或搜尋找出來的條目也一樣。把條目設為失效、置頂、改短或改長、成員把條目提到最新，以及在 **設定 › 參數調整** 改字數上限，都可能改變哪幾筆讀不到。
+In the directory of the "Lore" tab, each section has a card showing the characters used, the cap (with a usage bar), and how many entries are not read. Inside a section, below the section title, a segmented usage bar shows how many characters the "Everyone" lore and the section's own lore each take up, followed by the characters used and the cap, and how many entries are read from each source (for example "Everyone 7/12 · Nova 0/3"). The "Everyone" section has no usage bar; below its title it shows only the characters used and "read by every member", because the "Everyone" lore counts toward each member's own cap. Entries members do not read are collapsed into a single row showing the entry ID, the title, and a red "Not read"; click the row to expand it into the full card. The same applies to entries found with filters or search. Retiring, pinning, shortening, or lengthening an entry, a member bumping an entry to the newest, and changing the character cap in **Settings › General** can all change which entries are not read.
 
-傳承分頁的完整說明見 [介面說明](interface.md) 的「傳承」。
+For the full description of the Lore tab, see "Lore" in [Interface reference](interface.md).
 
-## 版本紀錄
+## Version history
 
-使用者自訂、角色定義、判準和任務手冊的 SOP，每次存檔都會留下舊版本，改壞了可以比較差異並還原，見 [設定與參數](settings.md) 的「版本紀錄」。
+Each time User additions, a Duty, an Insight, or a task manual's SOP is saved, the older version is kept, so if a change breaks something you can compare the differences and restore it; see "Version history" in [Settings](settings.md).
 
-傳承的標題或內容被修改時，也會留下修改前的版本，每一筆保留最近 3 次。只改類型不留版本。入口在「傳承」分頁條目的編輯框裡，見 [介面說明](interface.md) 的「傳承」。
+When a lore entry's title or body is changed, the version before the change is also kept; the last 3 versions of each entry are kept. Changing only the type does not keep a version. The entry point is in the edit box of an entry on the "Lore" tab; see "Lore" in [Interface reference](interface.md).
 
-## 相關文件
+## Related pages
 
-- [讓 AI 照 SOP 做重複的事（任務手冊）](sop.md)
-- [增加成員與發外包](members.md)
-- [設定與參數](settings.md)
-- [名詞表](glossary.md)
+- [Having AI follow an SOP for repeated work (Task manuals)](sop.md)
+- [Adding members and hiring outsource](members.md)
+- [Settings](settings.md)
+- [Glossary](glossary.md)
