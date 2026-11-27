@@ -521,7 +521,7 @@ describe("mockApi · User Language block", () => {
 });
 
 describe("mockApi · getMemberBootContext", () => {
-  it("a staff member's preview carries the everyone entry, then its own live entries, then the Claude boot steps", async () => {
+  it("a staff member's preview carries its pinned entry, then the newer everyone entry, then its own active one, then the Claude boot steps", async () => {
     await mockApi.saveBootDoc("boot_sequence", "codex", "codex 版\n");
     await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
 
@@ -532,9 +532,9 @@ describe("mockApi · getMemberBootContext", () => {
     const pinned = ctx.indexOf("## L-1 成功回應不代表資料完整 (pinned)");
     const active = ctx.indexOf("## L-2 零命中的預設解讀是查法寫錯了");
     expect(lore).toBeGreaterThan(ctx.indexOf("# Role: "));
-    expect(everyone).toBeGreaterThan(lore);
-    expect(pinned).toBeGreaterThan(everyone);
-    expect(active).toBeGreaterThan(pinned);
+    expect(pinned).toBeGreaterThan(lore);
+    expect(everyone).toBeGreaterThan(pinned);
+    expect(active).toBeGreaterThan(everyone);
     expect(ctx).not.toContain("退出碼要落檔再讀");
     expect(ctx).not.toContain("交接路徑要寫絕對路徑");
     expect(ctx.endsWith("\n\nclaude 版\n")).toBe(true);
@@ -577,17 +577,13 @@ describe("mockApi · getMemberBootContext", () => {
   });
 
   it("a staff member whose second lore entry does not fit the role lore budget gets only the first entry, even when a later entry would fit", async () => {
-    await mockApi.patchServerSettings({ loreCapCharsRole: 150 });
+    await mockApi.patchServerSettings({ loreCapCharsRole: 247 });
     await mockApi.saveBootDoc("boot_sequence", "claude", "claude 版\n");
 
     const ctx = await mockApi.getMemberBootContext("mira");
 
-    expect(
-      ctx.endsWith(
-        "\n\n# Lore\n\n## L-7 回報前先讀一次自己寫的東西\n\n送出前從頭讀一遍：錯字、漏掉的編號、貼錯的路徑，都是讀的人要多花一輪來回的地方。\n\nclaude 版\n",
-      ),
-    ).toBe(true);
-    expect(ctx).not.toContain("成功回應不代表資料完整");
+    expect(ctx).toContain("\n\n# Lore\n\n## L-1 成功回應不代表資料完整 (pinned)\n\n");
+    expect(ctx).not.toContain("回報前先讀一次自己寫的東西");
     expect(ctx).not.toContain("零命中的預設解讀是查法寫錯了");
   });
 

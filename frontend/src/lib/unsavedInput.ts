@@ -49,3 +49,20 @@ export function trackUnsavedTextFields(doc: Document): {
     stop: () => doc.removeEventListener("focusin", onFocusIn, true),
   };
 }
+
+const unsavedWork = new Set<() => boolean>();
+
+/** Work held outside text fields (e.g. 傳承 changes staged before 儲存變更). While a
+ * registered check says true, the stale-build watch does not reload the page
+ * on its own. Returns the release. */
+export function registerUnsavedWork(check: () => boolean): () => void {
+  unsavedWork.add(check);
+  return () => {
+    unsavedWork.delete(check);
+  };
+}
+
+export function hasRegisteredUnsavedWork(): boolean {
+  for (const check of unsavedWork) if (check()) return true;
+  return false;
+}

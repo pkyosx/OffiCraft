@@ -266,6 +266,9 @@ export const CAPPED_FIELDS: Record<DocumentKind, readonly string[]> = {
   // edit route deliberately declines to introduce a ceiling only the edit door
   // would enforce — so its restore runs no cap either.
   task_title: [],
+  // Title and body have two different caps and this table can name only one
+  // number per kind, so the cockpit abstains rather than invent a refusal.
+  lore_entry: [],
   // T-791e. Both boot-context blocks are capped on their restore, on `text`,
   // against their own `doc.cap_chars.*` setting — so `capForKind` answers for
   // them and this pair marks for real.
@@ -369,6 +372,7 @@ export function capForKind(
     case "global_context":
     case "task_description":
     case "task_title":
+    case "lore_entry":
       return undefined;
     // T-791e. These abstained while the two blocks' caps existed only as the
     // number the server reports on the document's OWN read — there was no live

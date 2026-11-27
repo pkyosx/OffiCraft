@@ -1,15 +1,12 @@
 package main
 
 // dal_lore.go — T-33 傳承 (lore) over `lore_entry` + `lore_entry_seq`.
-//
-// 🔴 There is deliberately NO method that writes `title` or `body` on an existing
-// row (no UpdateLoreEntry): an entry is written once. A generic updater would
-// turn the no-edit rule into a convention instead of an absence.
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -120,8 +117,10 @@ func mintLoreNumber(tx *writeTx) (int, error) {
 			"lore_entry_seq reported 0 rows", loreMintRetryLimit)
 }
 
-func (d *DAL) GetLoreEntry(id string) (*LoreEntry, error) {
-	e, err := scanLoreEntry(d.rdb.QueryRow(
+func (d *DAL) GetLoreEntry(id string) (*LoreEntry, error) { return getLoreEntryOn(d.rdb, id) }
+
+func getLoreEntryOn(q sqlRowQuerier, id string) (*LoreEntry, error) {
+	e, err := scanLoreEntry(q.QueryRow(
 		`SELECT `+loreEntryColumns+` FROM lore_entry WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -132,8 +131,11 @@ func (d *DAL) GetLoreEntry(id string) (*LoreEntry, error) {
 	return &e, nil
 }
 
-// 🔴 THE LIVE ORDER IS PRODUCED HERE, IN SQL, AND NOWHERE ELSE: selectLoreEntries
-// (lore_select.go) consumes this sequence and only decides where to stop.
+// 🔴 THE LIVE ORDER IS PRODUCED HERE, IN SQL: selectLoreEntries (lore_select.go)
+// consumes this sequence and only decides where to stop. The same rule is
+// written twice more — loreLiveBefore (lore_select.go), which merges a member's
+// two scopes for the boot document, and ListLoreEntriesPage's ORDER BY, which
+// interleaves them on the member's cockpit list — change all three or none.
 func (d *DAL) ListLoreEntriesLive(scopeKind, scopeKey string) ([]LoreEntry, error) {
 	rows, err := d.rdb.Query(
 		`SELECT `+loreEntryColumns+` FROM lore_entry
@@ -159,7 +161,10 @@ type loreListFilter struct {
 	AuthorIDs  []string
 	EntryIDs   []string
 	LoreTypes  []string
+	TitleQ     string
 }
+
+var loreLikeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 func loreInClause(column string, vals []string) (string, []any) {
 	if len(vals) == 0 {
@@ -188,8 +193,19 @@ func (d *DAL) ListLoreEntriesPage(f loreListFilter, limit, offset int) ([]LoreEn
 		{"lore_type", f.LoreTypes},
 	} {
 		clause, clauseArgs := loreInClause(axis.column, axis.vals)
+		if axis.column == "scope_key" && clause != "" && slices.Contains(f.ScopeKinds, LoreScopeEveryone) {
+			// everyone entries have no key, so a key set narrows only the keyed
+			// scopes beside it: everyone + agent + one member is that member's
+			// boot list.
+			clause = " AND (scope_kind = ? OR" + strings.TrimPrefix(clause, " AND") + ")"
+			clauseArgs = append([]any{LoreScopeEveryone}, clauseArgs...)
+		}
 		query += clause
 		args = append(args, clauseArgs...)
+	}
+	if f.TitleQ != "" {
+		query += ` AND title LIKE ? ESCAPE '\'`
+		args = append(args, "%"+loreLikeEscaper.Replace(f.TitleQ)+"%")
 	}
 	query += ` ORDER BY CASE state WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END,
 		effective_ts DESC, seq DESC LIMIT ? OFFSET ?`
@@ -235,6 +251,20 @@ func (d *DAL) BumpLoreEntryEffective(id string, ts float64) (bool, error) {
 	res, err := d.wdb.Exec(
 		`UPDATE lore_entry SET effective_ts = ?, updated_ts = ? WHERE id = ?`,
 		ts, ts, id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// editLoreEntryTextOn leaves a nil field as it is. 🔴 effective_ts is not in
+// this statement: an edit must not move the entry's place in the selection order.
+func editLoreEntryTextOn(ex sqlExecer, id string, title, body, loreType *string, updatedTS float64) (bool, error) {
+	res, err := ex.Exec(
+		`UPDATE lore_entry SET title = COALESCE(?, title), body = COALESCE(?, body),
+		 lore_type = COALESCE(?, lore_type), updated_ts = ? WHERE id = ?`,
+		title, body, loreType, updatedTS, id)
 	if err != nil {
 		return false, err
 	}

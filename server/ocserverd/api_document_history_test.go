@@ -868,6 +868,123 @@ func TestHandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet(t *testing.T) {
 }
 
 func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *testing.T) {
+	t.Run("a lore entry is restored by its author, refused to other agents, admin-only while pinned, and the boot document carries the restored text", func(t *testing.T) {
+		st := newLoreScopeStack(t)
+		other := apiTestPrincipalToken(t, st.api, st.api.dal, principalAgent, "m-restore-other")
+		if err := st.api.dal.PutRoleDef(RoleDef{RoleKey: "researcher", Name: "Researcher", DefinitionMD: "# researcher"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		me := hireLoreStaff(t, st.api, "m-restore-me", "researcher")
+		mine := apiTestAgentToken(t, st.api, me, "")
+		e := seedLoreAt(t, st.api, LoreScopeAgent, me, me, "原本標題", LoreStateActive, 100)
+		if status, data := apiJSON(t, st.h, "PATCH", "/api/lore/"+e.ID, mine, `{"title":"後來標題","body":"後來內容"}`); status != 200 {
+			t.Fatalf("edit: %d %v", status, data)
+		}
+		restore := "/api/document-history/lore_entry/" + e.ID + "/1/restore"
+
+		status, data := apiJSON(t, st.h, "POST", restore, other, "")
+		if status != 403 {
+			t.Fatalf("another agent: want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "you may only Retire, Activate, Bump to latest or Edit an entry you WROTE — "+
+			"this one has a different author, and an entry is governed by the member who wrote it. "+
+			"An admin or the owner can act on any entry.")
+		if status, data := apiJSON(t, st.h, "PATCH", "/api/lore/"+e.ID, other, `{"title":"別人改"}`); status != 403 {
+			t.Fatalf("another agent editing: want 403, got %d (%v)", status, data)
+		}
+
+		status, data = apiJSON(t, st.h, "POST", restore, mine, "")
+		if status != 200 {
+			t.Fatalf("author restore: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": 1, "created_ts": apiAnyNumber, "actor_id": me,
+			"content": map[string]any{"title": "原本標題", "body": "內容"},
+		})
+		status, data = apiJSON(t, st.h, "GET", "/api/members/"+me+"/boot-context", st.owner, "")
+		if status != 200 {
+			t.Fatalf("boot-context: %d %v", status, data)
+		}
+		wantBlock := "\n\n# Lore\n\n## " + e.ID + " 原本標題\n\n內容\n\n"
+		if doc, _ := data["context"].(string); !strings.Contains(doc, wantBlock) || strings.Contains(doc, "後來標題") {
+			t.Fatalf("boot document does not carry the restored entry:\n%s\n--- doc ---\n%s", wantBlock, doc)
+		}
+		rec := apiRequest(t, st.h, "GET", "/api/document-history/lore_entry/"+e.ID, mine, "")
+		var history []any
+		if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil {
+			t.Fatalf("non-JSON history: %s", rec.Body.String())
+		}
+		apiWantValue(t, "history", any(history), []any{
+			map[string]any{"id": 2, "created_ts": apiAnyNumber, "actor_id": me,
+				"tombstoned": false, "field_chars": map[string]any{"title": 4, "body": 4}},
+			map[string]any{"id": 1, "created_ts": apiAnyNumber, "actor_id": me,
+				"tombstoned": false, "field_chars": map[string]any{"title": 4, "body": 2}},
+		})
+
+		st.api.loreCapCharsBody = 3
+		status, data = apiJSON(t, st.h, "POST", "/api/document-history/lore_entry/"+e.ID+"/2/restore", mine, "")
+		if status != 400 {
+			t.Fatalf("restoring a body that grows past a lowered cap: want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "restoring this version would violate the existing document size limit")
+		st.api.loreCapCharsBody = 500
+
+		if ok, err := st.api.dal.SetLoreEntryState(e.ID, LoreStatePinned, "", 200); err != nil || !ok {
+			t.Fatalf("pin: %v / %v", ok, err)
+		}
+		status, data = apiJSON(t, st.h, "POST", "/api/document-history/lore_entry/"+e.ID+"/2/restore", mine, "")
+		if status != 403 {
+			t.Fatalf("author on a pinned entry: want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", loreEditRefusalPinned)
+		status, data = apiJSON(t, st.h, "POST", "/api/document-history/lore_entry/"+e.ID+"/2/restore", st.admin, "")
+		if status != 200 {
+			t.Fatalf("admin on a pinned entry: want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "restored content", data["content"], map[string]any{"title": "後來標題", "body": "後來內容"})
+	})
+
+	t.Run("a lore version over a lowered cap restores when it is shorter than the stored text and an unchanged field is not judged", func(t *testing.T) {
+		st := newLoreScopeStack(t)
+		e := seedScopedLore(t, st.api, "m-scope-user", "", "一二三四五六七八")
+		for _, title := range []string{"一二三四五六", "一二三四五六七八九十"} {
+			if status, data := apiJSON(t, st.h, "PATCH", "/api/lore/"+e.ID, st.user, `{"title":"`+title+`"}`); status != 200 {
+				t.Fatalf("edit to %s: %d %v", title, status, data)
+			}
+		}
+		st.api.loreCapCharsTitle = 4
+		st.api.loreCapCharsBody = 1
+
+		status, data := apiJSON(t, st.h, "POST", "/api/document-history/lore_entry/"+e.ID+"/1/restore", st.user, "")
+		if status != 200 {
+			t.Fatalf("restoring an over-cap title shorter than the stored one: want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "restored content", data["content"], map[string]any{"title": "一二三四五六七八", "body": "內容"})
+
+		status, data = apiJSON(t, st.h, "POST", "/api/document-history/lore_entry/"+e.ID+"/3/restore", st.user, "")
+		if status != 400 {
+			t.Fatalf("restoring an over-cap title longer than the stored one: want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "restoring this version would violate the existing document size limit")
+	})
+
+	t.Run("a lore entry's versions are unreadable below the agent floor, and an unknown entry's restore is 404", func(t *testing.T) {
+		st := newLoreScopeStack(t)
+		warden := apiTestPrincipalToken(t, st.api, st.api.dal, principalMachine, "m-history-warden")
+		for _, path := range []string{"/api/document-history/lore_entry/L-1", "/api/document-history/lore_entry/L-1/1"} {
+			status, data := apiJSON(t, st.h, "GET", path, warden, "")
+			if status != 403 {
+				t.Fatalf("%s as a warden: want 403, got %d (%v)", path, status, data)
+			}
+			apiWantError(t, data, "forbidden", "principal not permitted")
+		}
+		status, data := apiJSON(t, st.h, "POST", "/api/document-history/lore_entry/L-9999/1/restore", st.admin, "")
+		if status != 404 {
+			t.Fatalf("unknown entry: want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "no such lore entry: L-9999")
+	})
+
 	t.Run("restoring the revision a reset retained writes its text back as an edit, not as the default", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)

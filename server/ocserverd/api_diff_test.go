@@ -312,6 +312,30 @@ func TestHandleGetDiffApiDiffGet(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
+	t.Run("a lore entry's retained version and its live text resolve field by field", func(t *testing.T) {
+		st := newLoreScopeStack(t)
+		e := seedScopedLore(t, st.api, "m-scope-user", "", "舊的標題")
+		if status, data := apiJSON(t, st.h, "PATCH", "/api/lore/"+e.ID, st.user, `{"title":"新的標題","body":"新的內容"}`); status != 200 {
+			t.Fatalf("edit: %d %v", status, data)
+		}
+		for _, field := range []struct{ name, before, after string }{
+			{"title", "舊的標題", "新的標題"},
+			{"body", "內容", "新的內容"},
+		} {
+			before := "doc:lore_entry/" + e.ID + "/1/" + field.name
+			after := "doc:lore_entry/" + e.ID + "/current/" + field.name
+			status, data := apiJSON(t, st.h, "GET",
+				"/api/diff?before="+url.QueryEscape(before)+"&after="+url.QueryEscape(after), st.user, "")
+			if status != 200 {
+				t.Fatalf("%s: want 200, got %d (%v)", field.name, status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"before": map[string]any{"address": before, "gone": false, "text": field.before},
+				"after":  map[string]any{"address": after, "gone": false, "text": field.after},
+			})
+		}
+	})
+
 	t.Run("an address that resolves to nothing marks only its own side gone and says why, while the other still draws", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		_, after := apiDiffSeededSides(t, h, owner)
@@ -731,6 +755,13 @@ func TestCurrentDocumentContent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PutTask: %v", err)
 	}
+	lore, err := d.CreateLoreEntryMintingID(LoreEntry{
+		ScopeKind: LoreScopeEveryone, Title: "傳承標題", Body: "傳承內容", AuthorID: "kip",
+		State: LoreStateActive, LoreType: LoreTypeOther, EffectiveTS: 1, CreatedTS: 1, UpdatedTS: 1,
+	})
+	if err != nil {
+		t.Fatalf("CreateLoreEntryMintingID: %v", err)
+	}
 
 	for _, tc := range []struct {
 		name       string
@@ -745,6 +776,8 @@ func TestCurrentDocumentContent(t *testing.T) {
 		{name: "a task manual returns its live SOP", kind: docKindTaskManualSop, key: "tm-current", want: map[string]string{"sop_md": "SOP text"}, wantExists: true},
 		{name: "a task returns its live title", kind: docKindTaskTitle, key: "T-current", want: map[string]string{"title": "task title"}, wantExists: true},
 		{name: "a task returns its live description", kind: docKindTaskDescription, key: "T-current", want: map[string]string{"description": "task description"}, wantExists: true},
+		{name: "a lore entry returns its live title and body", kind: docKindLoreEntry, key: lore.ID, want: map[string]string{"title": "傳承標題", "body": "傳承內容"}, wantExists: true},
+		{name: "an unknown lore entry is absent", kind: docKindLoreEntry, key: "L-9999", want: nil, wantExists: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, ok, err := api.currentDocumentContent(tc.kind, tc.key)

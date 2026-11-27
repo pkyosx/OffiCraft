@@ -11,8 +11,7 @@ package main
 // 🔴 WHY THE AXIS IS ON THE SERVER, which is what these tests actually pin.
 // This list is scroll-to-load (30 rows a batch). An id narrowed in the client
 // narrows only the batch already downloaded, so 「這個編號不存在」 and 「它在下一
-// 批，你還沒捲到」 become the same empty screen, and the 上限線 — drawn from the
-// server's own fold — lands beside rows the client has since removed. Every test
+// 批，你還沒捲到」 become the same empty screen. Every test
 // below therefore drives the HANDLER and asserts on the page it answers; none of
 // them filters a slice in Go.
 //
@@ -273,7 +272,12 @@ func TestLoreToolsAdvertiseTheirParameters(t *testing.T) {
 		{"list_lore_entries", "entry_ids", "an agent cannot ask for one 傳承 by its number, and there is no get_lore_entry tool to fall back to"},
 		{"list_lore_entries", "entry_id", "an agent cannot ask for one 傳承 by its number, and there is no get_lore_entry tool to fall back to"},
 		{"list_lore_entries", "lore_types", "an agent cannot filter 傳承 by type"},
+		{"list_lore_entries", "q", "an agent cannot find 傳承 by a word in its title"},
 		{"write_lore_entry", "lore_type", "the boot document tells agents to put the type in lore_type and not in the title, so an agent writing from the tool schema loses the type entirely"},
+		{"edit_lore_entry", "entry_id", "an agent cannot name the entry it means to correct"},
+		{"edit_lore_entry", "title", "an agent cannot correct an entry's title"},
+		{"edit_lore_entry", "body", "an agent cannot correct an entry's body"},
+		{"edit_lore_entry", "lore_type", "an agent cannot correct an entry's type"},
 	} {
 		t.Run(tc.tool+" has "+tc.param, func(t *testing.T) {
 			for _, tool := range catalog.Tools {

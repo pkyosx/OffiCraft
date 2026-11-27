@@ -27,6 +27,9 @@ const emptyPage = {
   offset: 0,
   cap_chars: 0,
   first_dropped_id: "",
+  used_chars: 0,
+  first_dropped_chars: 0,
+  budget_segments: [],
 };
 
 const fetchMock = vi.fn(async () => jsonResponse(emptyPage));
@@ -53,6 +56,8 @@ describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)
       scopeKeys: ["mira", "tm-review"],
       states: ["active", "pinned"],
       authorIds: ["mira", "nova"],
+      entryIds: ["L-12", "L-30"],
+      q: "審查 100%",
     });
     const u = lastUrl();
     expect(u.pathname).toBe("/api/lore");
@@ -62,6 +67,8 @@ describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)
     expect(u.searchParams.getAll("scope_keys")).toEqual(["mira", "tm-review"]);
     expect(u.searchParams.getAll("states")).toEqual(["active", "pinned"]);
     expect(u.searchParams.getAll("author_ids")).toEqual(["mira", "nova"]);
+    expect(u.searchParams.getAll("entry_ids")).toEqual(["L-12", "L-30"]);
+    expect(u.searchParams.getAll("q")).toEqual(["審查 100%"]);
     // Repeated, NOT comma-joined into one value — the server binds these as an
     // array and a single "agent,manual" would be one unknown kind, a 400.
     expect(u.search).toContain("scope_kinds=agent&scope_kinds=manual");
@@ -76,8 +83,10 @@ describe("httpApi.listLoreEntries · the multi-select sets go on the wire (T-33)
       scopeKeys: [],
       states: [],
       authorIds: [],
+      q: "  ",
     });
     const u = lastUrl();
+    expect(u.searchParams.has("q")).toBe(false);
     expect(u.searchParams.has("scope_kinds")).toBe(false);
     expect(u.searchParams.has("scope_keys")).toBe(false);
     expect(u.searchParams.has("states")).toBe(false);
@@ -220,5 +229,77 @@ describe("httpApi lore_type on the wire", () => {
       { title: "t", body: "b", lore_type: "owner_preference" },
       { title: "t", body: "b", lore_type: "other" },
     ]);
+  });
+});
+
+describe("httpApi lore budgets and edit", () => {
+  it("reads a page's used chars, the first dropped entry's size and the per-scope segments", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        ...emptyPage,
+        cap_chars: 10000,
+        first_dropped_id: "L-212",
+        used_chars: 9640,
+        first_dropped_chars: 520,
+        budget_segments: [
+          { scope_kind: "everyone", entry_count: 14, chars: 6240, fitted_count: 14, fitted_chars: 6240 },
+          { scope_kind: "agent", entry_count: 11, chars: 5380, fitted_count: 7, fitted_chars: 3400 },
+        ],
+      }),
+    );
+
+    expect(await httpApi.listLoreEntries({ scopeKinds: ["agent"], scopeKeys: ["m-1"] })).toEqual({
+      entries: [],
+      limit: 30,
+      offset: 0,
+      capChars: 10000,
+      firstDroppedId: "L-212",
+      usedChars: 9640,
+      firstDroppedChars: 520,
+      budgetSegments: [
+        { scopeKind: "everyone", entryCount: 14, chars: 6240, fittedCount: 14, fittedChars: 6240 },
+        { scopeKind: "agent", entryCount: 11, chars: 5380, fittedCount: 7, fittedChars: 3400 },
+      ],
+    });
+  });
+
+  it("reads every target's budget from GET /api/lore/budgets", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        targets: [
+          { scope_kind: "everyone", scope_key: "", cap_chars: 10000, used_chars: 6240, entry_count: 14, dropped_count: 0 },
+          { scope_kind: "agent", scope_key: "m-1", cap_chars: 10000, used_chars: 9640, entry_count: 11, dropped_count: 4 },
+          { scope_kind: "manual", scope_key: "review-pr", cap_chars: 8000, used_chars: 3210, entry_count: 8, dropped_count: 0 },
+        ],
+      }),
+    );
+
+    const targets = await httpApi.listLoreBudgets();
+
+    const req = (fetchMock.mock.calls as unknown as [Request][])[0][0];
+    expect([req.method, new URL(req.url).pathname]).toEqual(["GET", "/api/lore/budgets"]);
+    expect(targets).toEqual([
+      { scopeKind: "everyone", scopeKey: "", capChars: 10000, usedChars: 6240, entryCount: 14, droppedCount: 0 },
+      { scopeKind: "agent", scopeKey: "m-1", capChars: 10000, usedChars: 9640, entryCount: 11, droppedCount: 4 },
+      { scopeKind: "manual", scopeKey: "review-pr", capChars: 8000, usedChars: 3210, entryCount: 8, droppedCount: 0 },
+    ]);
+  });
+
+  it("an edit patches only the fields given, as snake_case, and resolves to nothing", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ id: "L-7", updated_ts: 1788500000 }));
+
+    const result = await httpApi.editLoreEntry("L-7", { body: "新內容", loreType: "owner_decision" });
+
+    const req = (fetchMock.mock.calls as unknown as [Request][])[0][0];
+    expect({
+      method: req.method,
+      path: new URL(req.url).pathname,
+      body: await req.text(),
+    }).toEqual({
+      method: "PATCH",
+      path: "/api/lore/L-7",
+      body: '{"body":"新內容","lore_type":"owner_decision"}',
+    });
+    expect(result).toBeUndefined();
   });
 });

@@ -410,7 +410,16 @@ var authzOutsideRouteTable = map[string]string{
 	// not on anything about the caller, so it is not an authorization decision at
 	// all. The consequence is still guarded by
 	// TestNeitherBootPathCarriesTheOtherScopesLore.
-	"api_lore.go :: HandleSetLoreEntryStateApiLoreEntryIdStatePost :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
+	"api_document_history.go :: documentHistoryAllowed :: principalAtLeast(s.principalOfRequest(r), principalAgent)": "" +
+		"one KIND of a shared route raises the read floor: the document-history reads sit on " +
+		"the machine floor for every other kind, but a lore_entry version is 傳承 text, which " +
+		"GET /api/lore serves only from the agent floor up. One Requires value per route " +
+		"cannot say that for one kind, and splitting lore history onto its own routes would " +
+		"fork the history surface the cockpit and diff links share.",
+	"api_lore.go :: loreAuthorReachRefusal :: principalAtLeast(s.principalOfRequest(r), principalAdminAgent)": "" +
+		"the reach the state door and the edit door (PATCH /api/lore/{entry_id}) share. " +
+		"The edit's own higher floor is the same pinned-is-admin-only rule: a pinned " +
+		"entry's text is the admin's call while it is pinned, the author's otherwise. " +
 		"ONE door (POST /api/lore/{entry_id}/state) performs three transitions with TWO " +
 		"floors: 置頂 and its undo are admin-only (owner: 「置頂只有你跟 admin」) because a " +
 		"pinned entry sorts ahead of everyone else's and so survives the fold's cap at " +
@@ -723,6 +732,8 @@ var nonCallerKindPredicates = map[string]string{
 		"the kind of the TARGET member selects the outsource activation implementation; it does not classify the authenticated caller.",
 	"api_members.go :: HandleGetMemberApiMembersMemberIdGet :: m.Kind == KindOutsource": "" +
 		"the kind of the member being READ selects the outsource detail projection; it is not an identity or privilege test on the caller.",
+	"api_lore.go :: HandleListLoreBudgetsApiLoreBudgetsGet :: m.Kind == KindWarden": "" +
+		"the kind of each roster row being LISTED as a budget target: a warden boots no document, so it has no 傳承 budget; the caller's privilege was already decided by the route floor.",
 	"api_members.go :: HandleGetMemberBootContextApiMembersMemberIdBootContextGet :: m.Kind == KindWarden": "" +
 		"the kind of the member being PREVIEWED: a machine has no staff boot context, so it answers 404 like an unknown id; the caller's privilege was already decided by the route floor.",
 	"api_members.go :: HandleHireMemberApiMembersPost :: kind != KindStaff": "" +

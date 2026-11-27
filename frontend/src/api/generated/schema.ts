@@ -1253,7 +1253,7 @@ export interface paths {
          *
          *     ADDRESSING: `kind` and `key` are validated by the same server-side gate that answers get_document_seed, so whatever that tool can address, this one can too, and the two can never silently disagree. A `kind` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it. Some kinds also police the shape of `key` before answering — a key this kind does not serve, or one that fails that kind's required shape, is refused with 400 naming the problem. Neither is something to guess at: ask and read the answer.
          *
-         *     COVERAGE: a syntactically valid `key` that simply has no retained versions yet is not an error — it returns an empty list, the honest 'nothing has been saved here', not a gap to work around.
+         *     COVERAGE: a syntactically valid `key` that simply has no retained versions yet is not an error — it returns an empty list, the honest 'nothing has been saved here', not a gap to work around. For ``kind`` ``lore_entry`` (key = the lore entry id) reading needs at least the agent floor; a warden is refused.
          */
         get: operations["handle_list_document_history_api_document_history__kind___key__get"];
         put?: never;
@@ -1304,7 +1304,7 @@ export interface paths {
          *
          *     THIS IS THE SECOND HALF OF A PAIR. list_document_history answers WHICH versions exist and how big each field of each one is, and carries no prose at all; this answers WHAT ONE OF THEM SAID. Name the ``id`` you read off that list. Asking for every version's text is the cost that pairing exists to remove, so fetch the one you actually mean to read.
          *
-         *     ADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers all three routes, so whatever that tool can address, this one can too, and they can never silently disagree. A ``kind`` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it; a ``key`` that fails its kind's required shape is refused with 400 naming the problem. An ``id`` that is not a retained version of THAT document is a 404 — including an id that belongs to some other document, which is why the address is the whole triple and not the id alone. A tombstone version retained by an older server is also a 404, exactly as it is absent from list_document_history.
+         *     ADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers all three routes, so whatever that tool can address, this one can too, and they can never silently disagree. A ``kind`` this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it; a ``key`` that fails its kind's required shape is refused with 400 naming the problem. An ``id`` that is not a retained version of THAT document is a 404 — including an id that belongs to some other document, which is why the address is the whole triple and not the id alone. A tombstone version retained by an older server is also a 404, exactly as it is absent from list_document_history. For ``kind`` ``lore_entry`` (key = the lore entry id) reading needs at least the agent floor; a warden is refused.
          */
         get: operations["handle_get_document_version_api_document_history__kind___key___id__get"];
         put?: never;
@@ -1324,7 +1324,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Restore a retained document version as a new write: the version's text is written back as an edit, so the document is no longer default (``is_default`` false). An id that list_document_history does not list, including a tombstone version retained by an older server, answers 404. */
+        /** Restore a retained document version as a new write: the version's text is written back as an edit, so the document is no longer default (``is_default`` false). An id that list_document_history does not list, including a tombstone version retained by an older server, answers 404. For ``kind`` ``lore_entry`` (key = the lore entry id) a restore needs the same reach as edit_lore_entry — the entry's author or an admin, and admin-only while the entry is pinned — and the restored title and body follow the same shrink-only cap rule as an edit: a changed field over the current cap that does not come out shorter than what is stored is a 400 that changes nothing. */
         post: operations["handle_restore_document_history_api_document_history__kind___key___id__restore_post"];
         delete?: never;
         options?: never;
@@ -2175,7 +2175,7 @@ export interface paths {
         };
         /**
          * Read a staff member's boot-context preview (owner/admin).
-         * @description Read a staff member's boot-context PREVIEW: the server assembles the boot text FOR THIS MEMBER with the same fold the staff start path uses (buildBootContext with this member, the text reconcile hands the warden), WITHOUT minting any token. Because it is assembled for the member, it carries the member's 傳承 block (the ``everyone`` entries first, then the member's own) and the Boot steps for the member's own runtime. Owner/admin cockpit read, the same floor as /api/bootstrap and the outsource member preview. 404 for an unknown member, a removed member, an outsource member (its preview is /api/outsource-workers/{id}/boot-context) or a machine; 404 when the member's Duty is gone. It does NOT include the header the warden prepends for its runtime at spawn. HONEST caveat the UI must carry: this is today's assembly, not a verbatim start-time record — nothing is stored.
+         * @description Read a staff member's boot-context PREVIEW: the server assembles the boot text FOR THIS MEMBER with the same fold the staff start path uses (buildBootContext with this member, the text reconcile hands the warden), WITHOUT minting any token. Because it is assembled for the member, it carries the member's lore block (the ``everyone`` entries and the member's own merged into one list: pinned first, then newest ``effective_ts`` first) and the Boot steps for the member's own runtime. Owner/admin cockpit read, the same floor as /api/bootstrap and the outsource member preview. 404 for an unknown member, a removed member, an outsource member (its preview is /api/outsource-workers/{id}/boot-context) or a machine; 404 when the member's Duty is gone. It does NOT include the header the warden prepends for its runtime at spawn. HONEST caveat the UI must carry: this is today's assembly, not a verbatim start-time record — nothing is stored.
          */
         get: operations["handle_get_member_boot_context_api_members__member_id__boot_context_get"];
         put?: never;
@@ -3366,9 +3366,9 @@ export interface paths {
          *     - `org_name`, `owner_name`: Studio name and owner nickname; "" restores the localized default.
          *     - `push_contact_email`: Web Push contact address; "" stops all Web Push delivery.
          *     - `suggested_replies_reply_card`, `suggested_replies_task_message`, `suggested_replies_lore_message`, `suggested_replies_chat`: Each replaces that reply box's whole suggestion list (no append). [] empties it; null or omitted leaves it unchanged.
-         *     - `lore_cap_chars_role`: lore characters carried in each member's boot document; `everyone` entries count inside this budget, ahead of the member's own.
+         *     - `lore_cap_chars_role`: lore characters carried in each member's boot document; `everyone` entries count inside this budget, merged with the member's own into one list (pinned first, then newest effective first).
          *     - `lore_cap_chars_manual`: lore characters get_task_manual carries; separate from lore_cap_chars_role, never summed.
-         *     - `lore_cap_chars_title`, `lore_cap_chars_body`: Max title / body length of one new lore entry; entries are immutable, so lowering never affects stored ones.
+         *     - `lore_cap_chars_title`, `lore_cap_chars_body`: Max title / body length of one lore entry when it is written or edited; lowering it leaves stored entries as they are, and an over-cap field can still be edited as long as it comes out shorter than what is stored.
          * @description - Owner or admin; only the fields you send change.
          *     - Changes are durable and take effect at the next use: `owner_token_ttl` from the next login, `agent_token_ttl` from the next spawn or reconcile, offboard points from the next context report.
          *     - The owner's other open browsers and devices re-read settings at once, so a `display_*` change shows there without a reload.
@@ -4600,21 +4600,21 @@ export interface paths {
          * List lore entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is. Nothing is narrowed by who is calling: with no author or scope filter, every caller sees every entry.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
-         *     - `scope_kinds`: REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``, ``everyone`` (Everyone — its entries carry an empty scope_key, so filter it without a scope_key); ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 'no matching data' and 'you made a typo' look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their lore had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the cap line: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
-         *     - `scope_keys`: REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the cap line: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
-         *     - `entry_ids`: REPEATABLE lore id set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the lore id search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 'the same as task', and the Tasks page resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 'scrolled to the end, nothing more' and 'there really is nothing more' the same picture and would draw the cap line in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 'do not narrow', never 'match nothing'). NOTE the cap line is unaffected: ``cap_chars`` / ``first_dropped_id`` still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional.
+         *     - `scope_kinds`: REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``, ``everyone`` (Everyone — its entries carry an empty scope_key, so while this set holds ``everyone`` a scope_key set does not filter them out: ``scope_kinds=everyone&scope_kinds=agent&scope_keys=<member id>`` is that member's whole boot list, Everyone and the member's own entries interleaved in this list's order); ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 'no matching data' and 'you made a typo' look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their lore had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the budget fields: ``cap_chars`` / ``first_dropped_id`` and each entry's ``dropped`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE, when it is ``everyone`` alone with no scope_key, and when it is ``everyone`` + ``agent`` with exactly ONE scope_key (that member's whole boot list) — a budget belongs to a scope, so any other page spanning two or more has no single one to report and answers 0 / "" with no ``dropped``. additive-optional.
+         *     - `scope_keys`: REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the budget fields: ``cap_chars`` / ``first_dropped_id`` and each entry's ``dropped`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE, when it is ``everyone`` alone with no scope_key, and when it is ``everyone`` + ``agent`` with exactly ONE scope_key (that member's whole boot list) — a budget belongs to a scope, so any other page spanning two or more has no single one to report and answers 0 / "" with no ``dropped``. additive-optional.
+         *     - `entry_ids`: REPEATABLE lore id set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the lore id search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 'the same as task', and the Tasks page resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 'scrolled to the end, nothing more' and 'there really is nothing more' the same picture. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 'do not narrow', never 'match nothing'). NOTE the budget fields are unaffected: ``cap_chars`` / ``first_dropped_id`` and each entry's ``dropped`` still depend only on the effective scope_kind and scope_key sets (see ``scope_kinds``) — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional.
          * @description List lore entries, filtered SERVER-SIDE and paged in the fixed order pinned -> active -> retired, newest first inside each group. The order is not configurable; the filter is. Nothing is narrowed by who is calling: with no author or scope filter, every caller sees every entry.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
-         *     - `scope_kinds`: REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``, ``everyone`` (Everyone — its entries carry an empty scope_key, so filter it without a scope_key); ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 'no matching data' and 'you made a typo' look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their lore had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the cap line: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
-         *     - `scope_keys`: REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the cap line: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional.
-         *     - `entry_ids`: REPEATABLE lore id set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the lore id search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 'the same as task', and the Tasks page resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 'scrolled to the end, nothing more' and 'there really is nothing more' the same picture and would draw the cap line in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 'do not narrow', never 'match nothing'). NOTE the cap line is unaffected: ``cap_chars`` / ``first_dropped_id`` still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional.
+         *     - `scope_kinds`: REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``, ``everyone`` (Everyone — its entries carry an empty scope_key, so while this set holds ``everyone`` a scope_key set does not filter them out: ``scope_kinds=everyone&scope_kinds=agent&scope_keys=<member id>`` is that member's whole boot list, Everyone and the member's own entries interleaved in this list's order); ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 'no matching data' and 'you made a typo' look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their lore had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the budget fields: ``cap_chars`` / ``first_dropped_id`` and each entry's ``dropped`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE, when it is ``everyone`` alone with no scope_key, and when it is ``everyone`` + ``agent`` with exactly ONE scope_key (that member's whole boot list) — a budget belongs to a scope, so any other page spanning two or more has no single one to report and answers 0 / "" with no ``dropped``. additive-optional.
+         *     - `scope_keys`: REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the budget fields: ``cap_chars`` / ``first_dropped_id`` and each entry's ``dropped`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE, when it is ``everyone`` alone with no scope_key, and when it is ``everyone`` + ``agent`` with exactly ONE scope_key (that member's whole boot list) — a budget belongs to a scope, so any other page spanning two or more has no single one to report and answers 0 / "" with no ``dropped``. additive-optional.
+         *     - `entry_ids`: REPEATABLE lore id set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the lore id search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 'the same as task', and the Tasks page resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 'scrolled to the end, nothing more' and 'there really is nothing more' the same picture. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 'do not narrow', never 'match nothing'). NOTE the budget fields are unaffected: ``cap_chars`` / ``first_dropped_id`` and each entry's ``dropped`` still depend only on the effective scope_kind and scope_key sets (see ``scope_kinds``) — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional.
          */
         get: operations["handle_list_lore_entries_api_lore_get"];
         put?: never;
         /**
-         * Write ONE lore entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (an ad-hoc task), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (Everyone): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.
-         * @description Write ONE lore entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (an ad-hoc task), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (Everyone): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.
+         * Write ONE lore entry (its title and body can be corrected later with ``edit_lore_entry``). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (an ad-hoc task), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (Everyone): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.
+         * @description Write ONE lore entry (its title and body can be corrected later with ``edit_lore_entry``). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (an ad-hoc task), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (Everyone): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.
          */
         post: operations["handle_write_lore_entry_api_lore_post"];
         delete?: never;
@@ -4683,6 +4683,46 @@ export interface paths {
          * @description Bump to latest: set one lore entry's ``effective_ts`` to now so it sorts to the front of its group. Only the entry's own AUTHOR may bump it (admin capability is unrestricted) -- a bump moves an entry ahead of other people's under a shared cap, so it spends somebody else's room. ``created_ts`` is NOT touched, which is what makes this reversible.
          */
         post: operations["handle_bump_lore_entry_api_lore__entry_id__bump_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lore/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edit one lore entry's ``title``, ``body`` or ``lore_type`` in place. Who: the entry's AUTHOR or an admin; a PINNED entry is admin-only, the same reach as set_lore_entry_state. A changed ``title`` or ``body`` must fit ``lore_cap_chars_title`` / ``lore_cap_chars_body``, the caps write_lore_entry uses — except that a field already longer than a lowered cap may be saved as long as it comes out SHORTER than what is stored (the shrink-only rule documents follow). A field left out, or sent unchanged, is not judged. A refusal is a 400 that changes nothing and states the cap in force. The id, scope, state and ``effective_ts`` do not change, so the entry keeps its place in the order — but a longer text spends more of the shared budget and can push later entries past the cap. When the title or body changes, the previous title and body are retained as a document version (kind ``lore_entry``, key = the entry id): list_document_history lists them.
+         * @description Edit one lore entry's ``title``, ``body`` or ``lore_type`` in place. Who: the entry's AUTHOR or an admin; a PINNED entry is admin-only, the same reach as set_lore_entry_state. A changed ``title`` or ``body`` must fit ``lore_cap_chars_title`` / ``lore_cap_chars_body``, the caps write_lore_entry uses — except that a field already longer than a lowered cap may be saved as long as it comes out SHORTER than what is stored (the shrink-only rule documents follow). A field left out, or sent unchanged, is not judged. A refusal is a 400 that changes nothing and states the cap in force. The id, scope, state and ``effective_ts`` do not change, so the entry keeps its place in the order — but a longer text spends more of the shared budget and can push later entries past the cap. When the title or body changes, the previous title and body are retained as a document version (kind ``lore_entry``, key = the entry id): list_document_history lists them.
+         */
+        patch: operations["handle_edit_lore_entry_api_lore__entry_id__patch"];
+        trace?: never;
+    };
+    "/api/lore/budgets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every boot-document target's lore budget in one read: ``everyone``, each member on the roster (staff and outsource; an ``agent`` target counts ``everyone`` merged with the member's own, as the boot document does) and each task manual. Computed by the same selection as ``first_dropped_id``, so it never disagrees with ``first_dropped_id`` or an entry's ``dropped``.
+         * @description Every boot-document target's lore budget in one read: ``everyone``, each member on the roster (staff and outsource; an ``agent`` target counts ``everyone`` merged with the member's own, as the boot document does) and each task manual. Computed by the same selection as ``first_dropped_id``, so it never disagrees with ``first_dropped_id`` or an entry's ``dropped``.
+         */
+        get: operations["handle_list_lore_budgets_api_lore_budgets_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7372,7 +7412,7 @@ export interface components {
         };
         /**
          * MemberBootContextDTO
-         * @description A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (``everyone`` entries first, then the member's own, under one ``lore_cap_chars_role`` budget), the User Language block (the language instruction set by ``display.language``: English when it is ``en``, Traditional Chinese otherwise), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
+         * @description A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (``everyone`` entries and the member's own merged into one list — pinned first, then newest ``effective_ts`` first — under one ``lore_cap_chars_role`` budget), the User Language block (the language instruction set by ``display.language``: English when it is ``en``, Traditional Chinese otherwise), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
          */
         MemberBootContextDTO: {
             /** Context */
@@ -10391,25 +10431,25 @@ export interface components {
             warden_credential_lifetime_secs: number;
             /**
              * Lore Cap Chars Role
-             * @description How many characters of 傳承 one member's boot document carries (T-33) — staff and outsource alike, spent by every boot of that member. ``everyone`` entries ride inside this same budget, ahead of the member's own (T-236). INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @description How many characters of lore one member's boot document carries (T-33) — staff and outsource alike, spent by every boot of that member. ``everyone`` entries ride inside this same budget, merged with the member's own into one list: pinned first, then newest ``effective_ts`` first. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; lowering a lore cap strands nothing already stored: an entry longer than a lowered title or body cap stays as it is, and an edit or restore of that field is accepted as long as it comes out shorter than what is stored — the same shrink-only rule documents follow. The adjustable range is 100..100000.
              * @default 25000
              */
             lore_cap_chars_role: number;
             /**
              * Lore Cap Chars Manual
-             * @description How many characters of 傳承 ``get_task_manual`` carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @description How many characters of lore ``get_task_manual`` carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; lowering a lore cap strands nothing already stored: an entry longer than a lowered title or body cap stays as it is, and an edit or restore of that field is accepted as long as it comes out shorter than what is stored — the same shrink-only rule documents follow. The adjustable range is 100..100000.
              * @default 25000
              */
             lore_cap_chars_manual: number;
             /**
              * Lore Cap Chars Title
-             * @description The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             * @description The longest ``title`` ONE lore entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; lowering a lore cap strands nothing already stored: an entry longer than a lowered title or body cap stays as it is, and an edit or restore of that field is accepted as long as it comes out shorter than what is stored — the same shrink-only rule documents follow. The adjustable range is 10..10000.
              * @default 200
              */
             lore_cap_chars_title: number;
             /**
              * Lore Cap Chars Body
-             * @description The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             * @description The longest ``body`` ONE lore entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; lowering a lore cap strands nothing already stored: an entry longer than a lowered title or body cap stays as it is, and an edit or restore of that field is accepted as long as it comes out shorter than what is stored — the same shrink-only rule documents follow. The adjustable range is 10..10000.
              * @default 1250
              */
             lore_cap_chars_body: number;
@@ -10649,22 +10689,22 @@ export interface components {
             warden_credential_lifetime_secs?: number | null;
             /**
              * Lore Cap Chars Role
-             * @description How many characters of 傳承 one member's boot document carries (T-33) — staff and outsource alike, spent by every boot of that member. ``everyone`` entries ride inside this same budget, ahead of the member's own (T-236). INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @description How many characters of lore one member's boot document carries (T-33) — staff and outsource alike, spent by every boot of that member. ``everyone`` entries ride inside this same budget, merged with the member's own into one list: pinned first, then newest ``effective_ts`` first. INDEPENDENT of ``lore_cap_chars_manual``; the two are never summed, because they are paid by different readers at different moments. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; lowering a lore cap strands nothing already stored: an entry longer than a lowered title or body cap stays as it is, and an edit or restore of that field is accepted as long as it comes out shorter than what is stored — the same shrink-only rule documents follow. The adjustable range is 100..100000.
              */
             lore_cap_chars_role?: number | null;
             /**
              * Lore Cap Chars Manual
-             * @description How many characters of 傳承 ``get_task_manual`` carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 100..100000.
+             * @description How many characters of lore ``get_task_manual`` carries for a type (T-33) — spent by whoever opens that manual, staff and outsource alike, since this fold enters no boot document. INDEPENDENT of ``lore_cap_chars_role``. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; lowering a lore cap strands nothing already stored: an entry longer than a lowered title or body cap stays as it is, and an edit or restore of that field is accepted as long as it comes out shorter than what is stored — the same shrink-only rule documents follow. The adjustable range is 100..100000.
              */
             lore_cap_chars_manual?: number | null;
             /**
              * Lore Cap Chars Title
-             * @description The longest ``title`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             * @description The longest ``title`` ONE lore entry may be written with, in characters (T-33). An over-cap write is refused whole — nothing partial is stored and nothing is truncated. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; lowering a lore cap strands nothing already stored: an entry longer than a lowered title or body cap stays as it is, and an edit or restore of that field is accepted as long as it comes out shorter than what is stored — the same shrink-only rule documents follow. The adjustable range is 10..10000.
              */
             lore_cap_chars_title?: number | null;
             /**
              * Lore Cap Chars Body
-             * @description The longest ``body`` ONE 傳承 entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; a 傳承 entry's title and body can never be edited, so a smaller cap cannot strand anything already stored — it binds the next write and nothing else. The adjustable range is 10..10000.
+             * @description The longest ``body`` ONE lore entry may be written with, in characters (T-33). An over-cap write is refused whole; half a lesson is not a shorter lesson. Unlike the ``doc_cap_chars_*`` knobs this one may be LOWERED as well as raised. Those floors equal their own shipped defaults because lowering one strands an existing legal document in shrink-only mode; lowering a lore cap strands nothing already stored: an entry longer than a lowered title or body cap stays as it is, and an edit or restore of that field is accepted as long as it comes out shorter than what is stored — the same shrink-only rule documents follow. The adjustable range is 10..10000.
              */
             lore_cap_chars_body?: number | null;
             /**
@@ -12792,7 +12832,7 @@ export interface components {
         };
         /**
          * WorkerBootContextDTO
-         * @description The outsource member's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of GET /api/members/{member_id}/boot-context. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (System interaction + User Language + User additions + the Boot steps for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry a lore block (T-33): the ``everyone`` (Everyone) entries first, then this worker's own (LoreScopeAgent keyed on the worker's member id), under one ``lore_cap_chars_role`` budget (T-236). The worker's own entries are the one part of this text that differs from worker to worker; the block changes when an entry in either scope is written, retired or bumped, or is moved into or out of them by ``set_lore_entry_scope``. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
+         * @description The outsource member's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of GET /api/members/{member_id}/boot-context. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (System interaction + User Language + User additions + the Boot steps for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry a lore block (T-33): the ``everyone`` (Everyone) entries and this worker's own (LoreScopeAgent keyed on the worker's member id) merged into one list — pinned first, then newest ``effective_ts`` first — under one ``lore_cap_chars_role`` budget. The worker's own entries are the one part of this text that differs from worker to worker; the block changes when an entry in either scope is written, retired or bumped, or is moved into or out of them by ``set_lore_entry_scope``. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
          */
         WorkerBootContextDTO: {
             /** Context */
@@ -12800,7 +12840,7 @@ export interface components {
         };
         /**
          * LoreEntryDTO
-         * @description One 傳承 entry (T-33). Its text is written once and NEVER edited: no route changes ``title`` or ``body``, so what you read here is what was written. The mutable surface is ``state`` (active / pinned / retired), ``retire_reason``, ``effective_ts`` and — admin-only, through ``set_lore_entry_scope`` (T-236) — the ``scope_kind`` / ``scope_key`` pair.
+         * @description One lore entry (T-33). ``title``, ``body`` and ``lore_type`` change only through ``edit_lore_entry``, which retains the previous title and body as document history (kind ``lore_entry``). The rest of the mutable surface is ``state`` (active / pinned / retired), ``retire_reason``, ``effective_ts`` and — admin-only, through ``set_lore_entry_scope`` (T-236) — the ``scope_kind`` / ``scope_key`` pair.
          *
          *     ``effective_ts`` vs ``created_ts``: ``created_ts`` is when the entry was written and never moves; ``effective_ts`` starts equal to it and is what ``bump_lore_entry`` sets to now. The fold's selection order reads ``effective_ts``, so bumping is how an old entry is brought back to the front — and because ``created_ts`` survives, the bump is reversible and explicable afterwards.
          *
@@ -12859,6 +12899,11 @@ export interface components {
              * @description ``active`` | ``pinned`` | ``retired`` — exactly one, always. ``pinned`` sorts ahead of every active entry so it survives the fold's cap; ``retired`` is excluded from both folds but is NOT deleted and can be moved back.
              */
             state: string;
+            /**
+             * Dropped
+             * @description Whether the selection behind ``first_dropped_id`` leaves this entry out of that boot document: true for a live entry the walk reached but did not load — the walk stops at the first entry that does not fit, so every live entry after it is out too — false for one it loads. Present only on a request ``first_dropped_id`` is answered for, and about that same whole document whatever the other filters and the page: for ``agent`` alone it is the member's merged list, so an ``everyone`` entry ahead can push this one out. Absent on a ``retired`` entry: no boot document reads one at any budget. additive-optional.
+             */
+            dropped?: boolean;
             /**
              * Lore Type
              * @description The entry's type tag: ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他); every entry carries exactly one. A write must name it; entries written before the tag existed whose title carried no type prefix are ``other``. The cockpit shows it ahead of the title and the boot document renders it ahead of the title (except ``other``, which the boot document does not show), so the title itself carries no type prefix.
@@ -13014,16 +13059,31 @@ export interface components {
             offset: number;
             /**
              * Cap Chars
-             * @description The fold budget in force for the ONE scope this request's filter converged on — ``lore_cap_chars_role`` for ``agent`` and ``everyone``, ``lore_cap_chars_manual`` for ``manual``. It is 0 unless ``scope_kind`` and ``scope_key`` BOTH name a single scope — or ``scope_kind`` is ``everyone`` alone with no ``scope_key``, since that scope's key is "" — because a budget belongs to a scope and a page spanning several has no single one to report.
+             * @description The fold budget in force for the ONE scope this request's filter converged on — ``lore_cap_chars_role`` for ``agent`` and ``everyone``, ``lore_cap_chars_manual`` for ``manual``. It is 0 unless ``scope_kind`` and ``scope_key`` BOTH name a single scope — or ``scope_kind`` is ``everyone`` alone with no ``scope_key``, since that scope's key is "", or ``everyone`` + ``agent`` with one ``scope_key``, a member's whole boot list — because a budget belongs to a scope and a page spanning several has no single one to report.
              */
             cap_chars: number;
             /**
              * First Dropped Id
-             * @description The id of the first entry that does NOT fit inside ``cap_chars`` — the entry the 上限線 is drawn above. It is "" when the whole scope fits, and "" when ``cap_chars`` is 0.
+             * @description The id of the first entry that does NOT fit inside ``cap_chars``. It is "" when the whole scope fits, and "" when ``cap_chars`` is 0.
              *
-             *     🔴 IT IS COMPUTED BY THE SAME SELECTION THE FOLDS RUN, over the WHOLE scope and not over this page: for an ``agent`` scope that is the member's boot selection (``everyone`` entries first, under the shared budget — so ``everyone`` entries can move this line), for ``everyone`` alone and for ``manual`` the scope by itself (T-236). A client cannot derive it: paging cuts the list before the budget is spent, and re-adding the title/body lengths in the client would be a SECOND copy of the picking rule that drifts from the real one without anything turning red. Read this field; do not recompute it.
+             *     🔴 IT IS COMPUTED BY THE SAME SELECTION THE FOLDS RUN, over the WHOLE scope and not over this page: for an ``agent`` scope that is the member's boot selection (``everyone`` entries merged with the member's own into one list, pinned first then newest ``effective_ts`` first, under the shared budget — so ``everyone`` entries can move it, while the id it names is always one of this scope's own entries), for ``everyone`` + ``agent`` with one ``scope_key`` the same selection's first drop over the member's whole list, whichever scope it is in, for ``everyone`` alone and for ``manual`` the scope by itself. A client cannot derive it: paging cuts the list before the budget is spent, and re-adding the title/body lengths in the client would be a SECOND copy of the picking rule that drifts from the real one without anything turning red. Read this field; do not recompute it.
              */
             first_dropped_id: string;
+            /**
+             * Used Chars
+             * @description Characters the selection behind ``first_dropped_id`` carries, counted as the cap is. 0 when ``cap_chars`` is 0.
+             */
+            used_chars: number;
+            /**
+             * First Dropped Chars
+             * @description The size of the entry ``first_dropped_id`` names, counted as the cap is. 0 when that id is "".
+             */
+            first_dropped_chars: number;
+            /**
+             * Budget Segments
+             * @description The same selection broken down by scope: ``everyone`` then ``agent`` for an ``agent`` scope or a member's whole list, otherwise the one scope. That is a fixed listing order, not the walk order — a member's two scopes interleave in the walk, so an ``agent`` segment can have fitted entries while the ``everyone`` segment has dropped ones, and the other way round. Like ``first_dropped_id`` it covers the WHOLE scope, whatever the other filters and the page. Empty when ``cap_chars`` is 0.
+             */
+            budget_segments: components["schemas"]["LoreBudgetSegmentDTO"][];
         };
         /**
          * LoreEntryWriteReceiptDTO
@@ -13099,6 +13159,119 @@ export interface components {
              * @description The SERVER's stamp for THIS write, epoch seconds. It moves on both doors and on every call, so it — not ``effective_ts`` — is what says the write happened at all.
              */
             updated_ts: number;
+        };
+        /**
+         * LoreBudgetSegmentDTO
+         * @description One scope's share of a boot-document budget.
+         */
+        LoreBudgetSegmentDTO: {
+            /**
+             * Scope Kind
+             * @description ``everyone`` | ``agent`` | ``manual``.
+             */
+            scope_kind: string;
+            /**
+             * Entry Count
+             * @description Live (pinned + active) entries of this scope.
+             */
+            entry_count: number;
+            /**
+             * Chars
+             * @description Their title + body characters, the unit the cap is measured in.
+             */
+            chars: number;
+            /**
+             * Fitted Count
+             * @description How many of them fit inside the cap.
+             */
+            fitted_count: number;
+            /**
+             * Fitted Chars
+             * @description The characters those fitted entries spend.
+             */
+            fitted_chars: number;
+        };
+        /**
+         * LoreEntryEditDTO
+         * @description The fields to change. An omitted or null field is left as it is; a body with none of the three is a 400.
+         */
+        LoreEntryEditDTO: {
+            /**
+             * Title
+             * @description The new title. Blank is a 400.
+             */
+            title?: string | null;
+            /**
+             * Body
+             * @description The new body.
+             */
+            body?: string | null;
+            /**
+             * Lore Type
+             * @description The new lore type, from the same vocabulary as ``write_lore_entry``.
+             */
+            lore_type?: string | null;
+        };
+        /**
+         * LoreEntryEditReceiptDTO
+         * @description Bounded receipt for ``PATCH /api/lore/{entry_id}``: the id and the server's stamp, not the text the caller sent.
+         */
+        LoreEntryEditReceiptDTO: {
+            /**
+             * Id
+             * @description The entry that was edited, echoed from the path.
+             */
+            id: string;
+            /**
+             * Updated Ts
+             * Format: double
+             * @description The server's stamp for this write, epoch seconds.
+             */
+            updated_ts: number;
+        };
+        /**
+         * LoreBudgetListDTO
+         * @description Every boot-document target's budget.
+         */
+        LoreBudgetListDTO: {
+            /** Targets */
+            targets: components["schemas"]["LoreBudgetTargetDTO"][];
+        };
+        /**
+         * LoreBudgetTargetDTO
+         * @description One target's budget: what ``GET /api/lore`` reports when its filter converges on this target.
+         */
+        LoreBudgetTargetDTO: {
+            /**
+             * Scope Kind
+             * @description ``everyone`` | ``agent`` | ``manual``.
+             */
+            scope_kind: string;
+            /**
+             * Scope Key
+             * @description The member id, the task type_key, or "" for ``everyone``.
+             */
+            scope_key: string;
+            /**
+             * Cap Chars
+             * @description The cap in force for this target.
+             */
+            cap_chars: number;
+            /**
+             * Used Chars
+             * @description Characters the fitted entries spend.
+             */
+            used_chars: number;
+            /**
+             * Entry Count
+             * @description Live (pinned + active) entries this target's boot document walks — for an ``agent`` target the member's own entries plus the ``everyone`` entries, the rows ``dropped_count`` is counted out of.
+             */
+            entry_count: number;
+            /**
+             * Dropped Count
+             * @description Live entries the selection walks that do not fit — for an ``agent`` target this can include ``everyone`` entries, since those share the member's budget.
+             */
+            dropped_count: number;
         };
         /**
          * SharedDocCreateDTO
@@ -23807,11 +23980,11 @@ export interface operations {
     handle_list_lore_entries_api_lore_get: {
         parameters: {
             query?: {
-                /** @description REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``, ``everyone`` (Everyone — its entries carry an empty scope_key, so filter it without a scope_key); ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 'no matching data' and 'you made a typo' look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their lore had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the cap line: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
+                /** @description REPEATABLE scope-kind set (``?scope_kinds=agent&scope_kinds=manual``). Accepted values: ``agent``, ``manual``, ``everyone`` (Everyone — its entries carry an empty scope_key, so while this set holds ``everyone`` a scope_key set does not filter them out: ``scope_kinds=everyone&scope_kinds=agent&scope_keys=<member id>`` is that member's whole boot list, Everyone and the member's own entries interleaved in this list's order); ANY other element is a 400 that NAMES the offending value — never a silently dropped one, because 'no matching data' and 'you made a typo' look identical on the wire. 🔴 ``role`` IS NOW ONE OF THOSE REFUSED VALUES. It was the third scope until 2026-09-07 (owner, card rc-a43100fd0486 [0]) and every client written before then knows it, so it is the one wrong value likely to arrive from a real caller — answering 200-with-no-rows would tell them their lore had been deleted rather than that their vocabulary is old. Refusing it does NOT hide the legacy rows the migration deliberately left at ``role``: those still come back on any page that does not constrain this axis. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the budget fields: ``cap_chars`` / ``first_dropped_id`` and each entry's ``dropped`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE, when it is ``everyone`` alone with no scope_key, and when it is ``everyone`` + ``agent`` with exactly ONE scope_key (that member's whole boot list) — a budget belongs to a scope, so any other page spanning two or more has no single one to report and answers 0 / "" with no ``dropped``. additive-optional. */
                 scope_kinds?: string[];
                 /** @description Single-value twin of ``scope_kinds``. Accepted values: ``agent``, ``manual``, ``everyone``; any other value — the retired ``role`` included — is a 400 that names it. Ignored when ``scope_kinds`` is sent (PLURAL WINS). */
                 scope_kind?: string | null;
-                /** @description REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the cap line: ``cap_chars`` / ``first_dropped_id`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE — a budget belongs to a scope, so a page spanning two or more has no single one to report and answers 0 / "". additive-optional. */
+                /** @description REPEATABLE scope-key set (``?scope_keys=m-1a2b&scope_keys=tm-review``) — the multi-select twin of ``scope_key``. The keys are free-form (a member id or a manual's type_key, depending on the kind beside them), so there is no closed set to check against and no 400: a key nobody carries answers 200 with no rows for that key. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. NOTE the budget fields: ``cap_chars`` / ``first_dropped_id`` and each entry's ``dropped`` are answered only when the EFFECTIVE scope_kind set holds exactly ONE value AND the effective scope_key set holds exactly ONE, when it is ``everyone`` alone with no scope_key, and when it is ``everyone`` + ``agent`` with exactly ONE scope_key (that member's whole boot list) — a budget belongs to a scope, so any other page spanning two or more has no single one to report and answers 0 / "" with no ``dropped``. additive-optional. */
                 scope_keys?: string[];
                 scope_key?: string | null;
                 /** @description REPEATABLE state set (``?states=active&states=pinned``) — the multi-select twin of ``state``, so the State filter can tick more than one row. Accepted values: ``active``, ``pinned``, ``retired``; ANY other element is a 400 that NAMES the offending value rather than being dropped, for the same reason the singular does it — an ignored typo returns an empty page that reads exactly like a real "there are none". 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional. */
@@ -23822,11 +23995,13 @@ export interface operations {
                 /** @description REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional. */
                 author_ids?: string[];
                 author_id?: string | null;
-                /** @description REPEATABLE lore id set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the lore id search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 'the same as task', and the Tasks page resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 'scrolled to the end, nothing more' and 'there really is nothing more' the same picture and would draw the cap line in the wrong place. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 'do not narrow', never 'match nothing'). NOTE the cap line is unaffected: ``cap_chars`` / ``first_dropped_id`` still depend only on the effective scope_kind and scope_key sets holding exactly one value each — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional. */
+                /** @description REPEATABLE lore id set (``?entry_ids=L-12&entry_ids=L-30``) — the multi-select twin of ``entry_id``, and the axis behind the lore id search box the design calls for (LORE_SPEC.md §6). 🔴 IT MATCHES THE WHOLE ID, EXACTLY — never a prefix and never a substring. Owner 2026-09-08 asked for it 'the same as task', and the Tasks page resolves a committed id by asking for THAT ONE id (``useTasks.ts:201`` ``api.getTask(anchorId)``) and pairs it to a row by equality (``TasksPage.tsx:458`` ``x.id === appliedId``); nothing there ever compares part of an id. A substring axis would also interact badly with paging: ``L-1`` would drag L-10…L-19 into a batch that limit/offset then cuts, pushing the entry actually asked for off the end. 🔴 IT IS APPLIED IN SQL, WITH THE PAGE — like every other axis here, and for the reason the whole filter exists: this list is scroll-to-load, so an id narrowed client-side would make 'scrolled to the end, nothing more' and 'there really is nothing more' the same picture. An id is an OPEN identifier space, so there is NO closed set to check and NO 400 — the same call ``scope_keys``/``author_ids`` make. An id no entry carries answers 200 with no rows, which is the true answer, and no ``L-`` + digits shape is enforced: it would refuse only the ids that could never match while still answering an empty page for ``L-99999``, the likelier miss. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis, which is IDENTICAL to not sending the parameter at all (an empty set is 'do not narrow', never 'match nothing'). NOTE the budget fields are unaffected: ``cap_chars`` / ``first_dropped_id`` and each entry's ``dropped`` still depend only on the effective scope_kind and scope_key sets (see ``scope_kinds``) — a budget belongs to a scope, and naming one entry does not name a scope. additive-optional. */
                 entry_ids?: string[];
                 entry_id?: string | null;
                 limit?: number | null;
                 offset?: number | null;
+                /** @description Substring of the entry title, matched case-insensitively for ASCII and applied in SQL with the page like every other filter. Blank means no constraint. It does not search the body. */
+                q?: string | null;
             };
             header?: never;
             path?: never;
@@ -24047,6 +24222,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoreEntryStateReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_edit_lore_entry_api_lore__entry_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoreEntryEditDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreEntryEditReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_lore_budgets_api_lore_budgets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoreBudgetListDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

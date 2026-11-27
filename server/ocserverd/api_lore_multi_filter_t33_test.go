@@ -27,7 +27,7 @@ package main
 //     because a refusal that says `state` when the caller sent `states` points
 //     them at a field they never filled in.
 //
-//  4. The 上限線 in BOTH directions, in one test. Asserting only that two scopes
+//  4. first_dropped_id in BOTH directions, in one test. Asserting only that two scopes
 //     answer 0/"" is passed by an implementation that never reports a cap at
 //     all; asserting only that one scope answers is passed by one that reports
 //     the role budget over any page whatsoever. The value on the converged side
@@ -37,6 +37,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -217,15 +219,15 @@ func TestBadPluralFilterValueIsRefusedNotIgnored(t *testing.T) {
 	}
 }
 
-// TestCapLineAnswersForOneScopeAndGoesQuietForSeveral — the 上限線 rule extended
+// TestCapLineAnswersForOneScopeAndGoesQuietForSeveral — the first_dropped_id rule extended
 // to the plural axes, BOTH DIRECTIONS IN ONE TEST.
 //
 // 🔴 Half of this test alone proves nothing. Checking only that two scopes give
 // 0/"" is passed by an implementation that never answers a cap at all; checking
 // only that one scope answers is passed by one that answers for any page. The
 // converged half also pins WHICH entry is first dropped — a cap_chars with an
-// arbitrary first_dropped_id beside it is a line in the wrong place, and a line
-// in the wrong place looks exactly like a line in the right place.
+// arbitrary first_dropped_id beside it names the wrong entry, and a wrong one
+// looks exactly like a right one.
 func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	s := loreTestServer(t)
 	me := hireLoreStaff(t, s, "m-lore-multi-4", defaultBootRole)
@@ -264,7 +266,7 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	if one.CapChars != 20 {
 		t.Fatalf("cap_chars = %d on a page that converged on ONE scope, want the "+
 			"cap actually in force (20). 0 means the plural axes never count as "+
-			"converging and the 上限線 is silently gone for every multi-select "+
+			"converging and the budget numbers are silently gone for every multi-select "+
 			"client.", one.CapChars)
 	}
 	if len(one.Entries) != 6 {
@@ -327,8 +329,8 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	}
 
 	// ── DIRECTION 3: everyone (所有人) is filtered WITHOUT a key, answers the
-	// member cap, and — walked ahead of every member's own entries under that
-	// same cap — moves the agent line above. ───────────────────────────────────
+	// member cap, and — merged with the member's own entries under that same
+	// cap, and NEWER than all of them here — moves the agent line above. ───────
 	s.loreCapCharsManual = 9000
 	h, err := buildHandler(specsFor(s), s.keys, s.dal.GetMember, s.authPasswordChangedAt)
 	if err != nil {
@@ -337,11 +339,13 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	token := apiTestAgentToken(t, s, me, "")
 	var everyoneRows []any
 	var oldest string
+	// Strictly newer than every own entry, so the everyone entries walk first.
+	base := int(one.Entries[0].EffectiveTs) + 1000
 	for i, ti := range []string{"壬一一", "壬二二", "壬三三", "壬四四", "壬五五"} {
 		e, err := s.dal.CreateLoreEntryMintingID(LoreEntry{
 			ScopeKind: LoreScopeEveryone, ScopeKey: "", Title: ti, Body: "內容",
 			AuthorID: me, State: LoreStateActive, LoreType: LoreTypeOther,
-			EffectiveTS: float64(200 + i), CreatedTS: float64(200 + i), UpdatedTS: float64(200 + i),
+			EffectiveTS: float64(base + i), CreatedTS: float64(base + i), UpdatedTS: float64(base + i),
 		})
 		if err != nil {
 			t.Fatalf("seed everyone %s: %v", ti, err)
@@ -352,9 +356,10 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 		everyoneRows = append([]any{map[string]any{
 			"id": e.ID, "seq": e.Seq, "scope_kind": "everyone", "scope_key": "",
 			"title": ti, "body": "內容", "author_id": me, "source_task_id": "",
-			"state": "active", "retire_reason": "", "effective_ts": 200 + i,
-			"created_ts": 200 + i, "updated_ts": 200 + i, "task_type_key": "",
+			"state": "active", "retire_reason": "", "effective_ts": base + i,
+			"created_ts": base + i, "updated_ts": base + i, "task_type_key": "",
 			"scope_options": []any{"agent", "everyone"}, "lore_type": "other",
+			"dropped": i == 0,
 		}}, everyoneRows...)
 	}
 	status, data := apiJSON(t, h, "GET", "/api/lore?scope_kinds=everyone", token, "")
@@ -364,6 +369,9 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	apiWantBody(t, data, map[string]any{
 		"entries": everyoneRows, "limit": 30, "offset": 0,
 		"cap_chars": 20, "first_dropped_id": oldest,
+		"used_chars": 20, "first_dropped_chars": 5,
+		"budget_segments": []any{map[string]any{"scope_kind": "everyone",
+			"entry_count": 5, "chars": 25, "fitted_count": 4, "fitted_chars": 20}},
 	})
 
 	status, data = apiJSON(t, h, "GET",
@@ -376,6 +384,82 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 			"cap: cap_chars=%v first_dropped_id=%v, want 20 and %s, the member's own "+
 			"newest entry",
 			data["cap_chars"], data["first_dropped_id"], one.Entries[0].Id)
+	}
+	delete(data, "entries")
+	apiWantBody(t, data, map[string]any{
+		"limit": 30, "offset": 0, "cap_chars": 20, "first_dropped_id": one.Entries[0].Id,
+		"used_chars": 20, "first_dropped_chars": 5,
+		"budget_segments": []any{
+			map[string]any{"scope_kind": "everyone",
+				"entry_count": 5, "chars": 25, "fitted_count": 4, "fitted_chars": 20},
+			map[string]any{"scope_kind": "agent",
+				"entry_count": 6, "chars": 30, "fitted_count": 0, "fitted_chars": 0},
+		},
+	})
+
+	// ── DIRECTION 4: everyone + agent + one key is that member's whole boot
+	// list — the two scopes interleaved, pinned first then newest effective,
+	// the higher seq first on a tie — and its line is the first drop of the
+	// whole list. ─────────────────────────────────────────────────────────────
+	mix := hireLoreStaff(t, s, "m-lore-multi-mix", defaultBootRole)
+	pinnedOwn := seedLoreAt(t, s, LoreScopeAgent, mix, mix, "我釘釘", LoreStatePinned, float64(base-10))
+	tiedOwn := seedLoreAt(t, s, LoreScopeAgent, mix, mix, "我丙丙", LoreStateActive, float64(base+4))
+	newerOwn := seedLoreAt(t, s, LoreScopeAgent, mix, mix, "我甲甲", LoreStateActive, float64(base)+3.5)
+	olderOwn := seedLoreAt(t, s, LoreScopeAgent, mix, mix, "我乙乙", LoreStateActive, float64(base)+1.5)
+	status, data = apiJSON(t, h, "GET",
+		"/api/lore?scope_kinds=everyone&scope_kinds=agent&scope_keys="+mix, token, "")
+	if status != http.StatusOK {
+		t.Fatalf("member list page: %d %v", status, data)
+	}
+	var titles, listed []string
+	for _, row := range data["entries"].([]any) {
+		titles = append(titles, row.(map[string]any)["title"].(string))
+		listed = append(listed, row.(map[string]any)["id"].(string))
+	}
+	if want := []string{"我釘釘", "我丙丙", "壬五五", "我甲甲", "壬四四", "壬三三", "我乙乙", "壬二二", "壬一一"}; !slices.Equal(titles, want) {
+		t.Fatalf("member list order = %v, want %v", titles, want)
+	}
+	status, boot := apiJSON(t, h, "GET", "/api/members/"+mix+"/boot-context", token, "")
+	if status != http.StatusOK {
+		t.Fatalf("boot-context: %d %v", status, boot)
+	}
+	var booted []string
+	_, loreBlock, _ := strings.Cut(boot["context"].(string), "\n# Lore\n")
+	for _, line := range strings.Split(loreBlock, "\n") {
+		if id, ok := strings.CutPrefix(line, "## "); ok {
+			booted = append(booted, strings.Fields(id)[0])
+		}
+	}
+	if want := listed[:4]; !slices.Equal(booted, want) {
+		t.Fatalf("boot document carries %v, want the member list's first four %v", booted, want)
+	}
+	if booted[1] != tiedOwn.ID {
+		t.Fatalf("boot document order %v: the own entry tied with 壬五五 on effective_ts "+
+			"has the higher seq and goes first", booted)
+	}
+	secondEveryone := data["entries"].([]any)[4].(map[string]any)["id"]
+	delete(data, "entries")
+	apiWantBody(t, data, map[string]any{
+		"limit": 30, "offset": 0, "cap_chars": 20, "used_chars": 20,
+		"first_dropped_id": secondEveryone, "first_dropped_chars": 5,
+		"budget_segments": []any{
+			map[string]any{"scope_kind": "everyone",
+				"entry_count": 5, "chars": 25, "fitted_count": 1, "fitted_chars": 5},
+			map[string]any{"scope_kind": "agent",
+				"entry_count": 4, "chars": 20, "fitted_count": 3, "fitted_chars": 15},
+		},
+	})
+
+	ownOnly := listLore(t, s, me, HandleListLoreEntriesApiLoreGetParams{
+		ScopeKinds: strsp(LoreScopeAgent), ScopeKeys: strsp(mix)})
+	var got []string
+	for _, e := range ownOnly.Entries {
+		got = append(got, e.Id)
+	}
+	if !slices.Equal(got, []string{pinnedOwn.ID, tiedOwn.ID, newerOwn.ID, olderOwn.ID}) ||
+		ownOnly.FirstDroppedId != olderOwn.ID || ownOnly.UsedChars != 20 {
+		t.Fatalf("agent-only page = %v first_dropped_id=%q used_chars=%d, want [%s %s %s %s], %s and 20",
+			got, ownOnly.FirstDroppedId, ownOnly.UsedChars, pinnedOwn.ID, tiedOwn.ID, newerOwn.ID, olderOwn.ID, olderOwn.ID)
 	}
 }
 
@@ -567,7 +651,8 @@ func TestLoreTypesFilter(t *testing.T) {
 			entries = append(entries, row(r))
 		}
 		return map[string]any{"entries": entries, "limit": 30, "offset": 0,
-			"cap_chars": 0, "first_dropped_id": ""}
+			"cap_chars": 0, "first_dropped_id": "",
+			"used_chars": 0, "first_dropped_chars": 0, "budget_segments": []any{}}
 	}
 
 	for _, tc := range []struct {
@@ -614,4 +699,66 @@ func TestLoreTypesFilter(t *testing.T) {
 					"owner_decision, owner_preference or other — got "+strconv.Quote(tc.bad))
 		})
 	}
+}
+
+func TestLoreTitleQFilter(t *testing.T) {
+	st := newLoreScopeStack(t)
+	const me = "m-scope-user"
+	for i, w := range []struct{ title, body string }{
+		{"a_b 標題", "內容"},
+		{"ab 標題", "內容"},
+		{"100% 完成", "內容"},
+		{"100 完成", "內容"},
+		{`C:\tmp 路徑`, "內容"},
+		{"C:tmp 路徑", "內容"},
+		{"關於傳承編號的規則", "內容"},
+		{"MixedCase Title", "內容"},
+		{"沒有關鍵字", "只有內文提到秘密字"},
+	} {
+		if _, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
+			ScopeKind: LoreScopeAgent, ScopeKey: me, Title: w.title, Body: w.body,
+			AuthorID: me, State: LoreStateActive, LoreType: LoreTypeOther,
+			EffectiveTS: float64(100 + i), CreatedTS: float64(100 + i), UpdatedTS: float64(100 + i),
+		}); err != nil {
+			t.Fatalf("seed %s: %v", w.title, err)
+		}
+	}
+	titles := func(t *testing.T, q, extra string) []string {
+		t.Helper()
+		status, data := apiJSON(t, st.h, "GET", "/api/lore?q="+url.QueryEscape(q)+extra, st.user, "")
+		if status != http.StatusOK {
+			t.Fatalf("q=%q: %d %v", q, status, data)
+		}
+		out := []string{}
+		for _, e := range data["entries"].([]any) {
+			out = append(out, e.(map[string]any)["title"].(string))
+		}
+		return out
+	}
+
+	for _, tc := range []struct {
+		name, q, extra string
+		want           []string
+	}{
+		{"an underscore matches only itself", "_", "", []string{"a_b 標題"}},
+		{"a percent sign matches only itself", "%", "", []string{"100% 完成"}},
+		{"a backslash matches only itself", `\`, "", []string{`C:\tmp 路徑`}},
+		{"a Chinese substring finds its entry", "傳承編號", "", []string{"關於傳承編號的規則"}},
+		{"ASCII letter case is ignored", "mixedcase", "", []string{"MixedCase Title"}},
+		{"the body is not searched", "秘密字", "", []string{}},
+		{"several matches keep the list order", "標題", "", []string{"ab 標題", "a_b 標題"}},
+		{"ANDed with another axis", "標題", "&lore_types=owner_decision", []string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := titles(t, tc.q, tc.extra); !slices.Equal(got, tc.want) {
+				t.Fatalf("q=%q%s served %q, want %q", tc.q, tc.extra, got, tc.want)
+			}
+		})
+	}
+
+	t.Run("a blank q is no constraint", func(t *testing.T) {
+		if got := titles(t, "  ", ""); len(got) != 9 {
+			t.Fatalf("q=blank served %d entries, want all 9: %v", len(got), got)
+		}
+	})
 }

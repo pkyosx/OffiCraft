@@ -1,6 +1,6 @@
 package main
 
-// api_lore_cutoff_t33_test.go — T-33 spec §6 上限線: GET /api/lore reports WHICH
+// api_lore_cutoff_t33_test.go — T-33 spec §5 first_dropped_id: GET /api/lore reports WHICH
 // entry the fold drops, and it reports it from the fold's own selector.
 //
 // 🔴 THE EXPECTATION IS THE ASSEMBLED BOOT DOCUMENT, not a second run of
@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -33,6 +34,19 @@ func listLore(t *testing.T, s *apiServer, sub string,
 		t.Fatalf("decode list: %v", err)
 	}
 	return out
+}
+
+// wantLoreBudget: segments must decode non-nil, since the wire answers [] and
+// never null.
+func wantLoreBudget(t *testing.T, page LoreEntryListDTO, used, firstDroppedChars int,
+	segments []LoreBudgetSegmentDTO) {
+	t.Helper()
+	if page.UsedChars != used || page.FirstDroppedChars != firstDroppedChars ||
+		page.BudgetSegments == nil || !reflect.DeepEqual(page.BudgetSegments, segments) {
+		t.Fatalf("used_chars=%d first_dropped_chars=%d budget_segments=%#v, want %d, %d, %#v",
+			page.UsedChars, page.FirstDroppedChars, page.BudgetSegments,
+			used, firstDroppedChars, segments)
+	}
 }
 
 func strp(s string) *string { return &s }
@@ -75,6 +89,10 @@ func TestListNamesTheEntryTheFoldActuallyDropped(t *testing.T) {
 			"first_dropped_id is empty — the line was computed over the PAGE " +
 			"instead of over the scope")
 	}
+	wantLoreBudget(t, page, 20, 5, []LoreBudgetSegmentDTO{
+		{ScopeKind: "everyone"},
+		{ScopeKind: "agent", EntryCount: 6, Chars: 30, FittedCount: 4, FittedChars: 20},
+	})
 
 	// Which titles those ids carry, and which entry sits immediately above the
 	// line, read off the full ordered list.
@@ -167,6 +185,9 @@ func TestListReportsTheManualCapForAManualScope(t *testing.T) {
 		t.Fatalf("six entries against the manual budget of 20 characters must " +
 			"drop one, but first_dropped_id is empty")
 	}
+	wantLoreBudget(t, page, 20, 5, []LoreBudgetSegmentDTO{
+		{ScopeKind: "manual", EntryCount: 6, Chars: 30, FittedCount: 4, FittedChars: 20},
+	})
 
 	// Ground truth for exit 2 is the manual read, not the boot document.
 	full := listLore(t, s, me, HandleListLoreEntriesApiLoreGetParams{
@@ -229,6 +250,7 @@ func TestListDrawsNoLineWhenTheFilterNamesNoSingleScope(t *testing.T) {
 				"not converge on one scope has no cap to report and no honest "+
 				"place to draw a line", tc.name, page.CapChars, page.FirstDroppedId)
 		}
+		wantLoreBudget(t, page, 0, 0, []LoreBudgetSegmentDTO{})
 	}
 }
 
@@ -255,17 +277,22 @@ func TestListReportsNoDropWhenEverythingFits(t *testing.T) {
 		t.Fatalf("two short entries against a cap of 10000 drop nothing, but "+
 			"first_dropped_id = %q", page.FirstDroppedId)
 	}
+	wantLoreBudget(t, page, 10, 0, []LoreBudgetSegmentDTO{
+		{ScopeKind: "everyone"},
+		{ScopeKind: "agent", EntryCount: 2, Chars: 10, FittedCount: 2, FittedChars: 10},
+	})
 }
 
 // TestTheListFaceGoesThroughTheOneSelectorToo extends the guard in
 // api_lore_t33_test.go to the third caller. The two folds were the two the spec
-// named; the 上限線 is a THIRD place the same rule is needed, and restating it
-// here rather than calling the selector is how the line starts pointing at a
-// different entry from the one the fold drops — silently, since both look right.
+// named; the list's first_dropped_id and dropped are a THIRD place the same rule
+// is needed, and restating it here rather than calling the selector is how they
+// start naming a different entry from the one the fold drops — silently, since
+// both look right.
 func TestTheListFaceGoesThroughTheOneSelectorToo(t *testing.T) {
 	src := readSourceForLoreGuard(t, "api_lore.go")
 	if !strings.Contains(src, "selectLoreForScope(") {
-		t.Fatalf("api_lore.go no longer calls selectLoreForScope — the 上限線 is " +
+		t.Fatalf("api_lore.go no longer calls selectLoreForScope — first_dropped_id is " +
 			"being computed from a second copy of the picking rule")
 	}
 }

@@ -117,51 +117,9 @@ export const MAX_THEME_COLORS = 200;
 export const MAX_CUSTOM_THEMES = 100;
 export const MAX_THEME_NAME_LEN = 80;
 
-// Wording overlay bounds (T-16a1 P3) — the character-for-character twin of the
-// Go constants in server/ocserverd/wording_bundle.go.
+// Wording overlay bound — the twin of maxWordingValueLen in
+// server/ocserverd/wording_bundle.go.
 export const MAX_WORDING_VALUE_LEN = 200;
-// The cap counts the RAW submitted entries, BEFORE unknown codes are pruned, so
-// it is not "how big may the whitelist get" — it is "how many raw entries may
-// one submission carry". The binding constraint is therefore that it must sit
-// ABOVE the whitelist length (src/i18n/messageKeys.generated.ts): a legitimate
-// pack that re-words EVERY message key submits exactly MESSAGE_KEYS.length
-// entries, and a cap at or below that number makes that pack refuse itself.
-//
-// 2000 — owner ruling 2026-08-31 on card rc-e5780adf4f1d, replacing the 1200
-// of 2026-08-11.
-//
-// ⚠️ THE 1200 RESTED ON A GROWTH RATE THAT WAS MEASURED WRONG, and the wrong
-// sentence is kept here rather than quietly overwritten. It read: 「1200
-// against a whitelist of ~1009: ~190 spare entries is a year-odd of headroom
-// at the ~10-keys-a-month growth actually measured」. The measured rate is
-// about 7 keys A DAY, not 10 a month — the whitelist went 1,009 (2026-08-11)
-// → 1,149 (2026-08-31), +140 in 20 days, roughly 20x the estimate. So the
-// 「a year-odd of headroom」 was gone inside those same 20 days, and T-36 is
-// what ran it out.
-//
-// PRECISELY WHAT WENT RED, because "ran out" is easy to misread: the cap 1200
-// was never EXCEEDED (the whitelist is far below it). What failed is the rule
-// that the cap keep a 50-entry spare ABOVE the whitelist,
-// cap >= len(messageKeys) + 50 (asserted by themeBundleCore.test.ts). T-36's
-// first two keys (chat.mdPreview.openInNewTab, chat.mdPreview.newTabStaticNote)
-// took the whitelist 1,149 → 1,151, so 1200 − 1151 = 49 < 50 and that rule
-// is the one that went red. T-36 ships THREE keys in total — the third,
-// chat.mdPreview.unavailableOpenInNewTab, landed after this cap was raised —
-// leaving the whitelist at 1,152. Whoever sizes this cap next needs to know the
-// old estimate was wrong, not merely what the number is today.
-//
-// At the measured rate 2000 buys about FOUR MONTHS: (2000 − 1152) = 848 spare
-// entries ÷ ~7/day ≈ 121 days. ASK THE OWNER AGAIN THEN — he chose that
-// cadence deliberately (「這次拉到 2000 就好，照實際速度大約再撐四個月，到時
-// 再問你一次」).
-//
-// 🔴 IT STAYS A HARD-CODED NUMBER. Making the cap track the whitelist length
-// automatically was on the same card as an option and the owner did NOT pick
-// it. Do not "improve" this into a computed value.
-//
-// Raise this together with its Go twin (maxWordingEntriesPerLang in
-// server/ocserverd/wording_bundle.go); nothing compares the two.
-export const MAX_WORDING_ENTRIES_PER_LANG = 2000;
 
 // Font overlay bound (T-16a1 P4) — the twin of maxFontValueLen in
 // server/ocserverd/font_bundle.go. A font value is a whole family stack; the

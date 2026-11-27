@@ -236,6 +236,26 @@ func TestHandleGetThemeApiThemesThemeIdGet(t *testing.T) {
 }
 
 func TestHandlePutThemeApiThemesThemeIdPut(t *testing.T) {
+	t.Run("a body exactly at the import size limit saves, and one byte over is refused 413 with nothing filed", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		small := `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`
+
+		status, data := apiJSON(t, h, "PUT", "/api/themes/dusk", owner,
+			small+strings.Repeat(" ", int(1<<22)-len(small)))
+		if status != 200 {
+			t.Fatalf("at the limit: want 200, got %d (%v)", status, data)
+		}
+
+		status, data = apiJSON(t, h, "PUT", "/api/themes/dawn", owner,
+			strings.Replace(small, "dusk", "dawn", 1)+strings.Repeat(" ", int(1<<22)-len(small)+1))
+		if status != 413 {
+			t.Fatalf("one byte over: want 413, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "client_error", "that bundle is larger than the 4194304-byte limit for a theme")
+		apiThemeAbsent(t, h, owner, "dawn")
+		apiThemeList(t, h, owner, map[string]any{"id": "dusk", "name": "Dusk"})
+	})
+
 	t.Run("a first write files the theme and the receipt says it was created", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")

@@ -83,6 +83,22 @@ export interface Messages {
   loreOpenManual: (manualName: string) => string;
   loreScopeManual: (manualName: string) => string;
   loreScopeAgent: (authorName: string) => string;
+  loreEntryCount: (n: number) => string;
+  loreChars: (n: number) => string;
+  loreDropped: (n: number) => string;
+  loreEveryoneUsed: (chars: number) => string;
+  loreDirUsage: (used: number, cap: number) => string;
+  loreDirectoryNotFound: (id: string) => string;
+  loreDirectorySectionGone: (id: string) => string;
+  loreHighlightMissing: (id: string) => string;
+  loreHighlightLoadFailed: (id: string) => string;
+  loreLegendNumber: (n: number) => string;
+  loreLegendCap: (cap: number) => string;
+  loreLegendFit: (fitted: number, count: number) => string;
+  loreScopeChanged: (entryId: string, scope: string) => string;
+  loreStagedChanges: (n: number) => string;
+  loreStagedFailed: (failed: { id: string; reason: string }[]) => string;
+  loreStagedRevertTo: (stored: string) => string;
   // ── secrets ──
   secretCopyId: (secretId: string) => string;
   secretDeleteConfirmBody: (name: string) => string;
@@ -252,6 +268,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
   const diff = t.diff;
   // The list separator between two codes: a join, not vocabulary.
   const listSep = language === "zh" ? "、" : ", ";
+  const num = (n: number) => n.toLocaleString("en-US");
   /** How many numbers a scattered `custom` set prints before the rest is
    * carried by a count (owner ruling, T-49e7 round 2: 「最多列 4 個」). */
   const LIST_CAP = 4;
@@ -457,6 +474,29 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${t.lore.openManualLabel} ${manualName}`,
     loreScopeManual: (manualName) => `${t.lore.scopeManualLead}${manualName}`,
     loreScopeAgent: (authorName) => `${t.lore.scopeAgentLead}${authorName}`,
+    loreEntryCount: (n) =>
+      `${num(n)}${n === 1 ? t.lore.entryCountTailOne : t.lore.entryCountTailMany}`,
+    loreChars: (n) => `${num(n)}${t.lore.charsTail}`,
+    loreDropped: (n) => `${num(n)}${t.lore.droppedTail}`,
+    loreEveryoneUsed: (chars) => `${num(chars)}${t.lore.charsTail}${t.lore.everyoneReadByAll}`,
+    loreDirUsage: (used, cap) => `${num(used)} / ${num(cap)}${t.lore.charsTail}`,
+    loreDirectoryNotFound: (id) => `${t.lore.dirNotFoundLead}${id}${t.lore.dirNotFoundTail}`,
+    loreDirectorySectionGone: (id) => `${t.lore.dirSectionGoneLead}${id}${t.lore.dirSectionGoneTail}`,
+    loreHighlightMissing: (id) => `${t.lore.highlightMissingLead}${id}${t.lore.highlightMissingTail}`,
+    loreHighlightLoadFailed: (id) => `${t.lore.highlightFailedLead}${id}${t.lore.highlightFailedTail}`,
+    loreLegendNumber: (n) => num(n),
+    loreLegendCap: (cap) => `${t.lore.legendCapLead}${num(cap)}`,
+    loreLegendFit: (fitted, count) => `${num(fitted)}/${num(count)}`,
+    loreScopeChanged: (entryId, scope) =>
+      `${entryId}${t.lore.scopeChangedMid}${scope}${t.lore.scopeChangedTail}`,
+    loreStagedChanges: (n) =>
+      `${num(n)}${n === 1 ? t.lore.stagedChangesTailOne : t.lore.stagedChangesTailMany}`,
+    loreStagedRevertTo: (stored) => `${t.lore.stagedRevertToLead}${stored}${t.lore.stagedRevertToTail}`,
+    loreStagedFailed: (failed) =>
+      t.lore.stagedFailedLead +
+      failed
+        .map((f) => (f.reason ? `${f.id}${t.lore.stagedReasonOpen}${f.reason}${t.lore.stagedReasonClose}` : f.id))
+        .join(listSep),
     secretCopyId: (secretId) => `${t.secrets.copyIdLabel} ${secretId}`,
     secretDeleteConfirmBody: (name) =>
       `${t.secrets.deleteConfirmLead}${name}${t.secrets.deleteConfirmTail}`,

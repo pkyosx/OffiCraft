@@ -1,6 +1,7 @@
 // 主導覽分頁 — the tab strip itself.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { __resetHashRouteForTests } from "./lib/hashRoute";
 import { render, fireEvent, screen, waitFor, act } from "@testing-library/react";
 import { I18nProvider, useI18n } from "./i18n";
 import { zh } from "./i18n/locales/zh";
@@ -52,6 +53,10 @@ function tabLabels(): string[] {
 }
 
 describe("主導覽分頁", () => {
+  afterEach(() => {
+    __resetHashRouteForTests();
+  });
+
   beforeEach(() => {
     history.replaceState(null, "", window.location.pathname);
     localStorage.clear();
@@ -127,24 +132,35 @@ describe("主導覽分頁", () => {
     expect(active?.textContent).toBe(zh.nav.secrets);
   });
 
-  it("a #lore deep link opens the Lore page with the owner's scope menu on each entry", async () => {
+  it("a #lore deep link opens the Lore directory, and Mira's section page opens to the owner's scope menu on each entry", async () => {
     history.replaceState(null, "", window.location.pathname + "#lore");
     renderApp();
-    const badge = await waitFor(() => {
+    fireEvent.click(
+      await waitFor(() => {
+        const el = document.querySelector<HTMLElement>(
+          '[data-testid="lore-target"][data-section="agent:mira"]',
+        );
+        if (!el) throw new Error("no directory row for Mira yet");
+        return el;
+      }),
+    );
+    const action = await waitFor(() => {
       const el = document.querySelector<HTMLElement>(
-        '[data-testid="lore-row"][data-entry-id="L-2"] [data-testid="lore-scope-name"]',
+        '[data-testid="lore-row"][data-entry-id="L-2"] button[data-testid="lore-scope-name"]',
       );
-      if (!el) throw new Error("L-2 has no scope badge yet");
+      if (!el) throw new Error("L-2's scope tag is not a menu trigger yet");
       return el;
     });
-    expect(badge.tagName).toBe("BUTTON");
-    expect(badge.textContent).toBe("建立者：Mira");
+    expect(window.location.hash).toBe("#lore/agent/mira");
+    expect(action.textContent).toBe("Mira");
 
-    fireEvent.click(badge);
-    expect(
-      document.querySelector(
-        '[data-testid="lore-row"][data-entry-id="L-2"] [data-testid="lore-scope-options"]',
-      )?.textContent,
-    ).toBe("適用範圍建立者：Mira預設所有人");
+    fireEvent.click(action);
+    await waitFor(() =>
+      expect(
+        document.querySelector(
+          '[data-testid="lore-row"][data-entry-id="L-2"] [data-testid="lore-scope-options"]',
+        )?.textContent,
+      ).toBe("適用範圍建立者：Mira預設所有人"),
+    );
   });
 });

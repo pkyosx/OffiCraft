@@ -218,3 +218,13 @@ describe("toLoreEntry lore_type", () => {
     ]);
   });
 });
+
+describe("toLoreEntry dropped", () => {
+  it("true and false come through as dropped; a row without the field carries none", () => {
+    expect(
+      [{ dropped: true }, { dropped: false }, {}].map(
+        (extra) => toLoreEntry(wireEntry("agent", "ow-7d8ad859dd9b", extra)).dropped,
+      ),
+    ).toEqual([true, false, undefined]);
+  });
+});
