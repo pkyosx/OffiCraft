@@ -1980,7 +1980,7 @@ func TestAccrueAccountSpend(t *testing.T) {
 	})
 }
 
-func TestStartAccountSpendSession(t *testing.T) {
+func TestStartAccountSession(t *testing.T) {
 	t.Run("the next report after a session start is credited whole rather than as an increase", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -1989,7 +1989,7 @@ func TestStartAccountSpendSession(t *testing.T) {
 			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
 		}
 
-		api.startAccountSpendSession("kip")
+		api.startAccountSession("kip")
 
 		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent,
 			`{"cost":2.5,"account":"acct/x","runtime":"claude"}`); status != 200 {
@@ -2037,19 +2037,60 @@ func TestStartAccountSpendSession(t *testing.T) {
 		}
 	})
 
-	t.Run("an actor with no baseline to forget keeps its entry and its live figure exactly as they were", func(t *testing.T) {
+	t.Run("a relaunch that comes up unbound shows no account and credits nothing to the previous one, and a late binding is credited only what follows it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "kip", "")
+		report := func(body string) {
+			t.Helper()
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, body); status != 200 {
+				t.Fatalf("telemetry %s: want 200, got %d (%v)", body, status, data)
+			}
+		}
+		report(`{"cost":2.5,"account":"acct/x","account_label":"kip@x.io(X)","runtime":"claude"}`)
+		if status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, ""); status != 200 {
+			t.Fatalf("report waking: want 200, got %d (%v)", status, data)
+		}
+
+		report(`{"cost":1,"runtime":"claude"}`)
+
+		if got, shown := telemetryAccount(api.telemetry.Get("kip"), RuntimeClaude), apiTestSession(t, h, owner, "kip")["account"]; got != "" || shown != "" {
+			t.Errorf("the unbound session is paired with %q and shows %v, want no account", got, shown)
+		}
+		if row := apiTestAccount(t, h, owner, "acct/x"); row["cost"] != 2.5 {
+			t.Errorf("the previous launch's account card = %v, want its own 2.5 only", row["cost"])
+		}
+
+		report(`{"cost":1.5,"account":"acct/y","account_label":"kip@x.io(Y)","runtime":"claude"}`)
+
+		if got := apiTestSession(t, h, owner, "kip")["account"]; got != "kip@x.io(Y)" {
+			t.Errorf("after the late binding the session shows account %v, want kip@x.io(Y)", got)
+		}
+		if row := apiTestAccount(t, h, owner, "acct/y"); row["cost"] != 0.5 {
+			t.Errorf("the late-bound account card = %v, want only the 0.5 spent after the binding", row["cost"])
+		}
+		if row := apiTestAccount(t, h, owner, "acct/x"); row["cost"] != 2.5 {
+			t.Errorf("the previous launch's account card = %v, want 2.5", row["cost"])
+		}
+	})
+
+	t.Run("a session start forgets only the baseline and the account, keeping the live figure, and creates no entry", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "kip", "")
 		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, `{"cost":2.5}`); status != 200 {
 			t.Fatalf("telemetry: want 200, got %d (%v)", status, data)
 		}
-		before := api.telemetry.Get("kip")
+		want := map[string]any{}
+		for key, value := range api.telemetry.Get("kip") {
+			if key != accountSpendAccountedKey {
+				want[key] = value
+			}
+		}
 
-		api.startAccountSpendSession("kip")
-		api.startAccountSpendSession("ghost")
+		api.startAccountSession("kip")
+		api.startAccountSession("ghost")
 
-		if !reflect.DeepEqual(api.telemetry.Get("kip"), before) {
-			t.Fatalf("the entry must be untouched:\n got %v\nwant %v", api.telemetry.Get("kip"), before)
+		if got := api.telemetry.Get("kip"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("entry after the start:\n got %v\nwant %v", got, want)
 		}
 		if entry := api.telemetry.Get("ghost"); entry != nil {
 			t.Fatalf("no entry may be created, got %v", entry)

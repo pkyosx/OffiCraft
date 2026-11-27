@@ -1210,8 +1210,8 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 	}
 	s.activity.DeleteOlderThan(m.ID, callerIat(r))
 	// A new generation counts spend from zero, so its first cost is not read as an
-	// increase over the previous session's.
-	s.startAccountSpendSession(m.ID)
+	// increase over the previous session's, and names its own account or none.
+	s.startAccountSession(m.ID)
 	if m.Kind == KindOutsource {
 		// Marked before the funnel publishes, so a refetch on that patch sees it. A
 		// failed wake leaves it inert: the floor never reaches this iat.
