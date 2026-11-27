@@ -1931,7 +1931,7 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it("a directory card's bar stops at full when a lowered cap leaves the target over it, and a zero cap shows only the size", async () => {
+  it("a directory card's bar stops at full when a lowered cap leaves the target over it, and a zero cap shows only the size; 全部收合 folds only the groups shown and then reads 全部展開", async () => {
     stubTargets();
     vi.spyOn(api, "listLoreBudgets").mockResolvedValue([
       { scopeKind: "agent", scopeKey: "mira", capChars: 1000, usedChars: 1300, entryCount: 3, droppedCount: 1 },
@@ -1946,6 +1946,13 @@ describe("LorePage — 目錄與段落頁", () => {
     expect((cards[0].querySelector(".lore-dir-card__bar-fill") as HTMLElement).style.width).toBe("100%");
     expect(cards[1].querySelector(".lore-dir-card__bar-fill")).toBeNull();
     expect(cards[1].querySelector('[data-testid="lore-section-usage"]')!.textContent).toBe("320 字");
+
+    const button = container.querySelector<HTMLElement>('[data-testid="lore-collapse-all"]')!;
+    fireEvent.click(button);
+
+    expect(dirGroups(container).map(([, open]) => open)).toEqual([false, false]);
+    expect(button.getAttribute("aria-label")).toBe("全部展開");
+    expect(JSON.parse(localStorage.getItem(DIR_COLLAPSED_KEY)!)).toEqual(["staff", "manual"]);
   });
 
   it("a first visit opens only 所有人, with 正職成員, 外包成員 and 任務手冊 folded", async () => {
@@ -2012,7 +2019,7 @@ describe("LorePage — 目錄與段落頁", () => {
     expect(JSON.parse(localStorage.getItem(DIR_COLLAPSED_KEY)!)).toEqual([]);
   });
 
-  it("with storage refusing every read and write, the directory opens on the first-visit folding and still folds", async () => {
+  it("with storage refusing every read and write, the directory opens on the first-visit folding, still folds, and keeps it across a trip to a section page", async () => {
     const denied = () => {
       throw new Error("denied");
     };
@@ -2035,6 +2042,12 @@ describe("LorePage — 目錄與段落頁", () => {
 
     expect(thrown).toEqual([]);
     expect(dirGroups(container)[1]).toEqual(["正職成員 · 1", true, ["agent:mira"]]);
+
+    openSection(container, "agent:mira");
+    await waitFor(() => expect(container.querySelector('[data-testid="lore-back"]')).not.toBeNull());
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+    await waitFor(() => expect(dirGroups(container)).toHaveLength(4));
+    expect(dirGroups(container).map(([, open]) => open)).toEqual([true, true, false, false]);
   });
 
   it("a manual section's head shows its chars, its cap and only its own count, and its name opens that manual", async () => {

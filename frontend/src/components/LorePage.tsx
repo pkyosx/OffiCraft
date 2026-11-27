@@ -82,7 +82,7 @@ import {
   type LoreSectionKind,
 } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
-import { HeadingBody } from "./ChatGroupList";
+import { HeadingBody } from "./ChatGroupHeading";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { FilterPanel } from "./FilterPanel";
@@ -113,7 +113,6 @@ import "./card-composer.css";
 // The body renders through <Markdown>'s `.doc-md` skin from settings.css;
 // imported here rather than relied on transitively (css-layout-traps.md).
 import "./settings.css";
-// The directory's group headings and 全部收合 wear the office chat groups' look.
 import "./chat-groups.css";
 
 /** 捲到底一次載這麼多. A page shorter than this is the last one. */
@@ -1491,7 +1490,7 @@ function LoreView({
     for (const d of defs) groups.find((g) => g.kind === groupOf(d))?.defs.push(d);
     const shown = groups.filter((g) => g.defs.length > 0);
     const anyExpanded = shown.some((g) => !dirCollapsed.has(g.kind));
-    const collapseLabel = anyExpanded ? t.lore.collapseAll : t.lore.expandAll;
+    const collapseLabel = anyExpanded ? t.office.groups.collapseAll : t.office.groups.expandAll;
     const toggleGroup = (kind: DirGroupKind) => {
       const next = new Set(dirCollapsed);
       if (next.has(kind)) next.delete(kind);

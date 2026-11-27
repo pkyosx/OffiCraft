@@ -15,11 +15,13 @@ const LONG_MANUAL_NAME =
   "跨租戶出貨追蹤資料對帳與異常通報流程（海運、空運、陸運三段承運商回傳格式差異整理與補件）" +
   "以及月底結算前的應收應付逐筆核對、匯率差額說明與客戶端對帳單重新產出";
 
+const ALL_OPEN: string[] = [];
+
 export function LoreRowHeadStory({
   longManual = false,
   hash = "",
   roleCap,
-  dirCollapsed = [],
+  dirCollapsed = ALL_OPEN,
 }: {
   longManual?: boolean;
   hash?: string;

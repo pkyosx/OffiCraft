@@ -155,8 +155,6 @@ export const zh = {
     kindStaff: "正職成員",
     kindOutsource: "外包成員",
     kindManual: "任務手冊",
-    collapseAll: "全部收合",
-    expandAll: "全部展開",
     entryCountTailOne: " 筆",
     entryCountTailMany: " 筆",
     charsTail: " 字",

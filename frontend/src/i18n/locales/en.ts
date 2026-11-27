@@ -150,8 +150,6 @@ export const en: Dict = {
     kindStaff: "Staff members",
     kindOutsource: "Outsource members",
     kindManual: "Task manual",
-    collapseAll: "Collapse all",
-    expandAll: "Expand all",
     entryCountTailOne: " entry",
     entryCountTailMany: " entries",
     charsTail: " chars",
