@@ -5102,7 +5102,7 @@ export interface components {
             binaries?: unknown;
             /**
              * Claude
-             * @description Warden heartbeats only — the host's local claude CLI probe (T-97ee). Sub-fields (all optional, presence-only, NEVER a secret value): ``version`` string (the resolved claude binary's ``--version`` first token; absent = claude unresolved / probe failed), ``cred_file`` bool (``~/.claude/.credentials.json`` exists), ``sub_readable`` bool (that file exists AND ``claudeAiOauth.subscriptionType`` is non-blank — the exact readability ocagent's account key derivation needs), ``keychain`` bool (macOS login-keychain item ``Claude Code-credentials`` present; absent on non-darwin). The shape is DECLARED (T-90be) so a rename on either side fails CI; see ``hardware`` for why it is NOT closed.
+             * @description Warden heartbeats only — the host's local claude CLI probe (T-97ee). Sub-fields (all optional, presence-only, NEVER a secret value): ``version`` string (the resolved claude binary's ``--version`` first token; absent = claude unresolved / probe failed), ``cred_file`` bool (``~/.claude/.credentials.json`` exists), ``sub_readable`` bool (that file exists AND ``claudeAiOauth.subscriptionType`` is non-blank), ``keychain`` bool (macOS login-keychain item ``Claude Code-credentials`` present; absent on non-darwin). The shape is DECLARED (T-90be) so a rename on either side fails CI; see ``hardware`` for why it is NOT closed.
              */
             claude?: {
                 /**

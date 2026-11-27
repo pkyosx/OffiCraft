@@ -310,39 +310,26 @@ func TestCmdContextReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a session launched without a bound account reports the machine's login of each report", func(t *testing.T) {
+	t.Run("a session launched without a usable bound account reports no account, whatever ~/.claude.json names", func(t *testing.T) {
 		const window = `{"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}}}`
-		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-1"`)
+		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-1","organizationUuid":"org-1",`+
+			`"emailAddress":"seth@x.io","organizationName":"GoFreight"}}`)
+		if err := os.WriteFile(filepath.Join(home, ".claude.json"),
+			[]byte(`{"oauthAccount":{"accountUuid":"au-1","organizationUuid":"org-1"}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: t.TempDir()}
-		send := func(env func(string) string, now float64) []string {
+		want := []string{`POST /api/monitoring/telemetry {"runtime":"claude",` +
+			`"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}},"machine":"m-server-self"}`}
+
+		for i, binding := range []string{"", `{"account":`, `{"account":" ","account_label":"seth@x.io(GoFreight)"}`} {
 			client := &fakeHTTP{status: 200, body: "{}"}
 			var out, errOut bytes.Buffer
-			cmdContextReport(client, cfg, env, now, strings.NewReader(window), &out, &errOut)
-			return client.seen
-		}
-		sent := func(account string) []string {
-			return []string{`POST /api/monitoring/telemetry {"runtime":"claude",` +
-				`"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}},` + account +
-				`"machine":"m-server-self"}`}
-		}
-
-		if got, want := send(testEnv(map[string]string{"HOME": home}), 1000), sent(""); !reflect.DeepEqual(got, want) {
-			t.Errorf("with the login unreadable sent %q, want %q", got, want)
-		}
-		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"),
-			[]byte(`{"oauthAccount":{"accountUuid":"au-1"}}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if got, want := send(testEnv(map[string]string{"HOME": home}), 1100), sent(`"account":"au-1",`); !reflect.DeepEqual(got, want) {
-			t.Errorf("once the login is readable sent %q, want %q", got, want)
-		}
-		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"),
-			[]byte(`{"oauthAccount":{"accountUuid":"au-2"}}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		malformedBinding := testEnv(map[string]string{"HOME": home, claudeAccountEnv: `{"account":`})
-		if got, want := send(malformedBinding, 1200), sent(`"account":"au-2",`); !reflect.DeepEqual(got, want) {
-			t.Errorf("after a re-login with an unparseable binding sent %q, want %q", got, want)
+			cmdContextReport(client, cfg, testEnv(map[string]string{"HOME": home, claudeAccountEnv: binding}),
+				float64(1000+100*i), strings.NewReader(window), &out, &errOut)
+			if !reflect.DeepEqual(client.seen, want) {
+				t.Errorf("with binding %q sent %q, want %q", binding, client.seen, want)
+			}
 		}
 	})
 
@@ -985,153 +972,6 @@ func TestLocalHost(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := machineID(testEnv(tc.env)); got != tc.want {
 				t.Errorf("localHost = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-// writeHomeClaudeJSON writes the ~/.claude.json candidate (the sibling of the
-// ~/.claude/.claude.json one writeClaudeJSON writes) into an existing home.
-func writeHomeClaudeJSON(t *testing.T, home, body string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestReadClaudeAccount(t *testing.T) {
-	t.Run("the account uuid joins the org uuid", func(t *testing.T) {
-		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":" au-1 ",`+
-			`"organizationUuid":"org-1"}}`)
-		if got := readClaudeAccount(testEnv(map[string]string{"HOME": home})); got != "au-1/org-1" {
-			t.Errorf("readClaudeAccount = %q, want %q", got, "au-1/org-1")
-		}
-	})
-
-	t.Run("no org yields a bare account uuid, never a dangling slash", func(t *testing.T) {
-		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-1"}}`)
-		if got := readClaudeAccount(testEnv(map[string]string{"HOME": home})); got != "au-1" {
-			t.Errorf("readClaudeAccount = %q, want %q", got, "au-1")
-		}
-	})
-
-	t.Run("legacy config without an accountUuid falls back to userID", func(t *testing.T) {
-		home := writeClaudeJSON(t, `{"userID":"legacy-1"}`)
-		if got := readClaudeAccount(testEnv(map[string]string{"HOME": home})); got != "legacy-1" {
-			t.Errorf("readClaudeAccount = %q, want %q", got, "legacy-1")
-		}
-	})
-
-	t.Run("each dimension resolves independently across the two candidates", func(t *testing.T) {
-		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-1"}}`)
-		writeHomeClaudeJSON(t, home, `{"oauthAccount":{"organizationUuid":"org-2"}}`)
-		if got := readClaudeAccount(testEnv(map[string]string{"HOME": home})); got != "au-1/org-2" {
-			t.Errorf("readClaudeAccount = %q, want %q — real installs split the two fields "+
-				"across the two files", got, "au-1/org-2")
-		}
-	})
-
-	t.Run("no identity anywhere reports nothing", func(t *testing.T) {
-		if got := readClaudeAccount(testEnv(map[string]string{"HOME": t.TempDir()})); got != "" {
-			t.Errorf("readClaudeAccount = %q, want empty", got)
-		}
-	})
-
-	t.Run("an unparseable candidate is skipped, not fatal", func(t *testing.T) {
-		home := writeClaudeJSON(t, `{{{ not json`)
-		writeHomeClaudeJSON(t, home, `{"oauthAccount":{"accountUuid":"au-9","organizationUuid":"org-9"}}`)
-		if got := readClaudeAccount(testEnv(map[string]string{"HOME": home})); got != "au-9/org-9" {
-			t.Errorf("readClaudeAccount = %q, want %q", got, "au-9/org-9")
-		}
-	})
-}
-
-func TestReadClaudeAccountLabel(t *testing.T) {
-	t.Run("the email carries the label and the org is parenthesised", func(t *testing.T) {
-		home := writeClaudeJSON(t, `{"oauthAccount":{"emailAddress":"kyle@x.io",`+
-			`"displayName":"Kyle","organizationName":"OffiCraft"}}`)
-		want := "kyle@x.io(OffiCraft)"
-		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != want {
-			t.Errorf("readClaudeAccountLabel = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("no email falls back to the display name", func(t *testing.T) {
-		home := writeClaudeJSON(t, `{"oauthAccount":{"displayName":"Kyle","organizationName":"OffiCraft"}}`)
-		want := "Kyle(OffiCraft)"
-		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != want {
-			t.Errorf("readClaudeAccountLabel = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("no org drops the parenthesised suffix", func(t *testing.T) {
-		home := writeClaudeJSON(t, `{"oauthAccount":{"emailAddress":"kyle@x.io"}}`)
-		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != "kyle@x.io" {
-			t.Errorf("readClaudeAccountLabel = %q, want %q", got, "kyle@x.io")
-		}
-	})
-
-	t.Run("a non-string field never reaches an owner-facing label", func(t *testing.T) {
-		home := writeClaudeJSON(t, `{"oauthAccount":{"emailAddress":null,"organizationName":7,`+
-			`"displayName":"Kyle"}}`)
-		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != "Kyle" {
-			t.Errorf("readClaudeAccountLabel = %q, want %q", got, "Kyle")
-		}
-	})
-
-	t.Run("each field resolves independently across the two candidates", func(t *testing.T) {
-		home := writeClaudeJSON(t, `{"oauthAccount":{"emailAddress":"kyle@x.io"}}`)
-		writeHomeClaudeJSON(t, home, `{"oauthAccount":{"organizationName":"OffiCraft"}}`)
-		want := "kyle@x.io(OffiCraft)"
-		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != want {
-			t.Errorf("readClaudeAccountLabel = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("nothing readable reports nothing", func(t *testing.T) {
-		home := writeClaudeJSON(t, `{"userID":"legacy-1"}`)
-		if got := readClaudeAccountLabel(testEnv(map[string]string{"HOME": home})); got != "" {
-			t.Errorf("readClaudeAccountLabel = %q, want empty — the caller then OMITS the "+
-				"field rather than sending a fabricated blank", got)
-		}
-	})
-}
-
-func TestClaudeOrgUUID(t *testing.T) {
-	cases := []struct {
-		name string
-		d    map[string]any
-		want string
-	}{
-		{"a trimmed org uuid", map[string]any{"oauthAccount": map[string]any{"organizationUuid": " org-1 "}}, "org-1"},
-		{"a blank org uuid", map[string]any{"oauthAccount": map[string]any{"organizationUuid": "  "}}, ""},
-		{"a null org uuid", map[string]any{"oauthAccount": map[string]any{"organizationUuid": nil}}, ""},
-		{"a non-string org uuid", map[string]any{"oauthAccount": map[string]any{"organizationUuid": 7.0}}, ""},
-		{"no oauthAccount object", map[string]any{"userID": "u"}, ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := claudeOrgUUID(tc.d); got != tc.want {
-				t.Errorf("claudeOrgUUID = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestClaudeAccountUUID(t *testing.T) {
-	cases := []struct {
-		name string
-		d    map[string]any
-		want string
-	}{
-		{"a trimmed account uuid", map[string]any{"oauthAccount": map[string]any{"accountUuid": " au-1 "}}, "au-1"},
-		{"a non-string account uuid", map[string]any{"oauthAccount": map[string]any{"accountUuid": 7.0}}, ""},
-		{"no oauthAccount object", map[string]any{"userID": "u"}, ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := claudeAccountUUID(tc.d); got != tc.want {
-				t.Errorf("claudeAccountUUID = %q, want %q", got, tc.want)
 			}
 		})
 	}

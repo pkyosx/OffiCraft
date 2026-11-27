@@ -65,7 +65,7 @@ const stopInput = `{"session_id":"11111111-1111-4111-8111-111111111111","transcr
 func TestCmdModelCallReport(t *testing.T) {
 	accountHome := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-1","emailAddress":"kyle@x.io",`+
 		`"organizationName":"OffiCraft","organizationUuid":"org-1"}}`)
-	env := testEnv(map[string]string{"HOME": accountHome, "OC_HOST": "lab-1"})
+	env := testEnv(map[string]string{"HOME": accountHome, "OC_HOST": "lab-1", claudeAccountEnv: `{"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)"}`})
 	newCfg := func(t *testing.T, base string) Config {
 		return Config{BaseConfigured: true, Base: base, Token: "t", MemberID: "Kyle", AgentsRoot: t.TempDir()}
 	}
@@ -353,7 +353,7 @@ func TestCmdModelCallReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a report after a machine re-login names the account bound at the session's launch", func(t *testing.T) {
+	t.Run("a report after a machine re-login names the account bound at the session's launch, and an unbound session names none", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 		var errOut bytes.Buffer
@@ -373,10 +373,10 @@ func TestCmdModelCallReport(t *testing.T) {
 		cmdModelCallReport(srv.Client(), cfg, testEnv(map[string]string{"HOME": reloggedHome, "OC_HOST": "lab-1"}), 1200,
 			strings.NewReader(stopFailureInput("server_error", fixturePath(t, "sample-other-errors.jsonl"))), &errOut)
 
-		wantFromLogin := `{"runtime":"claude","account":"au-2/org-2","machine":"lab-1",` +
+		wantUnbound := `{"runtime":"claude","machine":"lab-1",` +
 			`"model_call":{"last_failure":{"ts":1200,"kind":"server","code":"server_error","resets_at":null}}}`
-		if len(*posts) != 2 || (*posts)[1].body != wantFromLogin {
-			t.Errorf("from a session launched without a bound account sent %+v, want second body %s", *posts, wantFromLogin)
+		if len(*posts) != 2 || (*posts)[1].body != wantUnbound {
+			t.Errorf("from a session launched without a bound account sent %+v, want second body %s with no account, not the one ~/.claude.json names", *posts, wantUnbound)
 		}
 	})
 

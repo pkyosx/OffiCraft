@@ -482,136 +482,17 @@ type claudeAccount struct {
 	Label string `json:"account_label"`
 }
 
-// A running session keeps calling on the account that was logged in when it
-// started, whatever the machine logs into later, so the warden binds that
-// account into the launch environment. A session started by a warden that does
-// not bind one (or could not read the login at launch) falls back to the
-// machine's current login, which is wrong after a re-login until the session
-// is relaunched.
+// A running session keeps calling on the account its credential belonged to
+// when it started, whatever the machine logs into later, so the warden binds
+// that account (as Anthropic's profile endpoint named it) into the launch
+// environment. Without a binding the account is unknown and nothing is sent:
+// ~/.claude.json names whichever login wrote it last, not this session's.
 func sessionClaudeAccount(env func(string) string) claudeAccount {
 	var bound claudeAccount
-	if json.Unmarshal([]byte(env(claudeAccountEnv)), &bound) == nil && strings.TrimSpace(bound.ID) != "" {
-		return claudeAccount{ID: strings.TrimSpace(bound.ID), Label: strings.TrimSpace(bound.Label)}
+	if json.Unmarshal([]byte(env(claudeAccountEnv)), &bound) != nil || strings.TrimSpace(bound.ID) == "" {
+		return claudeAccount{}
 	}
-	return claudeAccount{ID: readClaudeAccount(env), Label: readClaudeAccountLabel(env)}
-}
-
-// The monitoring attribution key must stay stable across machines and
-// credential storage, so subscriptionType is deliberately not part of it. Real
-// installs split fields across the two .claude.json files, so each resolves
-// independently.
-func readClaudeAccount(env func(string) string) string {
-	home := env("HOME")
-	if home == "" {
-		if h, err := os.UserHomeDir(); err == nil {
-			home = h
-		}
-	}
-	accountUUID, userID, org := "", "", ""
-	for _, path := range []string{
-		filepath.Join(home, ".claude", ".claude.json"),
-		filepath.Join(home, ".claude.json"),
-	} {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		var d map[string]any
-		if json.Unmarshal(raw, &d) != nil {
-			continue
-		}
-		if userID == "" {
-			if uid, ok := d["userID"]; ok && uid != nil {
-				userID = strings.TrimSpace(pyStr(uid))
-			}
-		}
-		if accountUUID == "" {
-			accountUUID = claudeAccountUUID(d)
-		}
-		if org == "" {
-			org = claudeOrgUUID(d)
-		}
-	}
-	identity := accountUUID
-	if identity == "" {
-		identity = userID
-	}
-	if identity == "" {
-		return ""
-	}
-	if org != "" {
-		return identity + "/" + org
-	}
-	return identity
-}
-
-func readClaudeAccountLabel(env func(string) string) string {
-	home := env("HOME")
-	if home == "" {
-		if h, err := os.UserHomeDir(); err == nil {
-			home = h
-		}
-	}
-	email, displayName, orgName := "", "", ""
-	for _, path := range []string{
-		filepath.Join(home, ".claude", ".claude.json"),
-		filepath.Join(home, ".claude.json"),
-	} {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		var d map[string]any
-		if json.Unmarshal(raw, &d) != nil {
-			continue
-		}
-		oauth, ok := d["oauthAccount"].(map[string]any)
-		if !ok {
-			continue
-		}
-		strField := func(key string) string {
-			s, _ := oauth[key].(string)
-			return strings.TrimSpace(s)
-		}
-		if email == "" {
-			email = strField("emailAddress")
-		}
-		if displayName == "" {
-			displayName = strField("displayName")
-		}
-		if orgName == "" {
-			orgName = strField("organizationName")
-		}
-	}
-	base := email
-	if base == "" {
-		base = displayName
-	}
-	if base == "" {
-		return ""
-	}
-	if orgName != "" {
-		return base + "(" + orgName + ")"
-	}
-	return base
-}
-
-func claudeOrgUUID(d map[string]any) string {
-	oauth, ok := d["oauthAccount"].(map[string]any)
-	if !ok {
-		return ""
-	}
-	org, _ := oauth["organizationUuid"].(string)
-	return strings.TrimSpace(org)
-}
-
-func claudeAccountUUID(d map[string]any) string {
-	oauth, ok := d["oauthAccount"].(map[string]any)
-	if !ok {
-		return ""
-	}
-	account, _ := oauth["accountUuid"].(string)
-	return strings.TrimSpace(account)
+	return claudeAccount{ID: strings.TrimSpace(bound.ID), Label: strings.TrimSpace(bound.Label)}
 }
 
 func buildTelemetry(payload string) (rl *rateLimits, cost *float64, tokens *tokensBody) {
