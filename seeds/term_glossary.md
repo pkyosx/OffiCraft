@@ -1,3 +1,5 @@
+If the user writes one of the Chinese screen names in this table, it means the English term in the same row.
+
 | English (this document) | Chinese on screen |
 | --- | --- |
 | Office | 辦公室 |

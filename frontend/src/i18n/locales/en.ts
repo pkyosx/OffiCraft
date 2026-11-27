@@ -2510,21 +2510,15 @@ export const en: Dict = {
     updateAvailable: "A newer version is available",
     upgrade: "Update to latest",
     catalogHash: "MCP catalog hash",
-    advancedSettings: "Advanced",
     developerMode: "Developer mode",
     developerModeSub:
-      "When on, the boot documents in Global context can be edited (User additions are not affected).",
+      "When on, the boot documents in Global context can be edited. User Language and User additions are always editable.",
     globalSection: "BOOT",
     systemName: "System interaction",
     systemSub: "How the system works, read by every member at boot",
     customName: "User additions",
     customSub: "Custom content read by every member at boot · editable",
     bootDocEditableSuffix: " · editable",
-    bootDocsLockedLead: "To edit the documents below, turn on developer mode in ",
-    bootDocsLockedLink: "system settings",
-    bootDocsLockedTail: " first.",
-    bootDocLockedLead: "To edit this, turn on developer mode in ",
-    bootDocLockedTail: " first.",
     dutyHeading: "Duty",
     dutyNote:
       "Other members read this to decide what to bring to this role; it appears on the roster every member sees at boot.",
@@ -2565,8 +2559,6 @@ export const en: Dict = {
     taskReadyForDoneName: "Your task is ready to be closed",
     taskReadyForDoneSub:
       "What a member is told each time its task becomes ready to close",
-    bootDocReadOnlyNote:
-      "This document is shown so you can see exactly what members are told. Nobody may edit it, and it has no version other than the default content.",
     bootDocSaveConfirmAcceleratedStop:
       "Save this accelerated-stop procedure? Every member asked to wrap up early reads this content, and reads it with only a short window left — it has to be finishable in that time.",
     bootDocSaveConfirmTaskEvent:

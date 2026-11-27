@@ -357,16 +357,12 @@ func TestBootSequenceSeedForKey(t *testing.T) {
 // The User Language defaults and glossary exactly as this build ships them, written out so
 // the assembled block is compared with bytes, not with what the code computes.
 const (
-	apiTestUserLanguageZh = "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\n" +
-		"Write to the user in Traditional Chinese (Taiwan) even when the user writes in another language.\n\n" +
-		"The user sees OffiCraft in Chinese. Call OffiCraft features by the Chinese names on their screen below; " +
-		"when the user uses one of these names, it means the English term in the same row."
-	apiTestUserLanguageEn = "Use English for everything you write to the user, including reports. Do not use other languages.\n\n" +
-		"The user sees OffiCraft in English. If the user writes one of the names in the Chinese column, " +
-		"it means the English term in the same row."
+	apiTestUserLanguageZh = "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。"
+	apiTestUserLanguageEn = "Use English for everything you write to the user, including reports."
 )
 
-const apiTestUserLanguageGlossary = "| English (this document) | Chinese on screen |\n" +
+const apiTestUserLanguageGlossary = "If the user writes one of the Chinese screen names in this table, it means the English term in the same row.\n\n" +
+	"| English (this document) | Chinese on screen |\n" +
 	"| --- | --- |\n" +
 	"| Office | 辦公室 |\n" +
 	"| Reply card／Ask | 請示卡／請示 |\n" +

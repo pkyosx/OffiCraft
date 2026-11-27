@@ -575,11 +575,11 @@ For installing machines and signing in to Claude and Codex, see [Install, upgrad
 
 Open it with the gear in the top bar. It opens over the current tab; click any tab to go back to that tab. The home page has seven entries, and the home page itself has no path at the top. After you go into an entry, use the path at the top to go back up a level:
 
-- **System update & backup** — Current version, "Check for updates", update settings ("Receive beta versions", "Automatic updates", "Update check interval"), "Advanced" ("Developer mode"), "Backup health", "Signing keys".
-- **Global context** — Documents sent to members: "User additions" at the top, and the rest in three groups, BOOT, STOP and TASK EVENTS. While "Developer mode" is off, every document except "User additions" is locked.
+- **System update & backup** — Current version, "Check for updates", update settings ("Receive beta versions", "Automatic updates", "Update check interval"), "Backup health", "Signing keys".
+- **Global context** — Documents sent to members: "User Language" and "User additions" at the top, and the rest in three groups, BOOT, STOP and TASK EVENTS. While "Developer mode" (in General) is off, every document except "User Language" and "User additions" is locked.
 - **Roles** — Each role's Duty and Insight.
 - **Task manuals** — The manual for each kind of task, split into built-in and custom.
-- **General** — Site-wide settings.
+- **General** — Site-wide settings, ending with "Developer mode".
 - **Theme** — Choose a theme, "Switch by time of day", "Background animation", "Show seasonal theme", plus adding, importing, exporting, editing and deleting themes.
 - **User guide** — The guide pages you are reading now. It opens to a list of guide pages; click one to open it. The path at the top of the page is "Settings › User guide › the title of this page", and "User guide" goes back to the list.
 

@@ -304,36 +304,3 @@ describe("SettingsPage · 系統更新與備份 · 讓助理告訴我新版本�
     expect((await api.getServerSettings()).updaterAnnounceFeatures).toBe(true);
   });
 });
-
-describe("SettingsPage · 系統更新與備份 · 進階 · 開發者模式", () => {
-  it("is the only row of a 進階 card right under 更新設定, carries its label and help text, and is off by default", async () => {
-    const utils = await openSoftware();
-    const toggle = utils.getByRole("switch", { name: s.developerMode });
-    expect(toggle).toBe(utils.getByTestId("settings-developer-mode"));
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
-    const row = toggle.closest(".param-row") as HTMLElement;
-    expect(row.querySelector(".param-row__name")?.textContent).toBe("開發者模式");
-    expect(row.querySelector(".param-row__sub")?.textContent).toBe(
-      "打開後可以修改全域情境裡的開機文件（使用者自訂不受影響）。"
-    );
-    const card = row.parentElement as HTMLElement;
-    expect(card.querySelectorAll(":scope > .param-row")).toHaveLength(1);
-    expect(card.previousElementSibling?.textContent).toBe("進階");
-    const updateCard = utils.getByTestId("settings-announce-features").closest(".param-card");
-    expect(card.previousElementSibling?.previousElementSibling).toBe(updateCard);
-  });
-
-  it("clicking writes the flipped value and the switch follows the server, on and back off", async () => {
-    const patch = vi.spyOn(api, "patchServerSettings");
-    const utils = await openSoftware();
-    const toggle = utils.getByTestId("settings-developer-mode");
-    fireEvent.click(toggle);
-    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
-    expect(patch).toHaveBeenLastCalledWith({ developerMode: true });
-    expect((await api.getServerSettings()).developerMode).toBe(true);
-    fireEvent.click(toggle);
-    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
-    expect(patch).toHaveBeenLastCalledWith({ developerMode: false });
-    expect((await api.getServerSettings()).developerMode).toBe(false);
-  });
-});

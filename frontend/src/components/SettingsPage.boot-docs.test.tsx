@@ -11,7 +11,7 @@
 // half, that no document is missing from the list at all.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, fireEvent, within } from "@testing-library/react";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
@@ -125,18 +125,18 @@ describe("SettingsPage · boot / lifecycle documents", () => {
 
     // The BODY is there — the whole reason it is a document rather than a
     // string literal is that the owner can read what an agent is told.
-    await utils.findByTestId("doc-card-note");
     // ⚠️ ONE BODY, and the selector says so: a boot-context document renders a
     // SECOND `.doc-md` for its read-only head (T-3201), so counting every one
     // on the page would count two and the assertion would have to be relaxed
     // to a number that no longer means "one document".
-    expect(
-      utils.container.querySelectorAll(".doc-card__body > .doc-md").length
-    ).toBe(1);
+    await waitFor(() =>
+      expect(
+        utils.container.querySelectorAll(".doc-card__body > .doc-md").length
+      ).toBe(1)
+    );
     expect(
       utils.container.querySelectorAll(".doc-card__readonly-head .doc-md").length
     ).toBe(1);
-    expect(utils.getByText(s.bootDocReadOnlyNote)).toBeTruthy();
 
     // …and nothing that could change it: no editor entry, and therefore no
     // version list and no 還原出廠版 (both live inside edit mode).
@@ -146,19 +146,6 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     // 「儲存＝整份取代」 is a fact about saving, so a document nobody may save
     // does not carry it.
     expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
-  });
-
-  it("a locked document's 系統設定 link opens 系統更新與備份", async () => {
-    await api.patchServerSettings({ developerMode: false });
-    const utils = await openRolesLog();
-    fireEvent.click(utils.getByTestId("boot-doc-entry-task_closeout"));
-    const note = await utils.findByTestId("doc-card-note");
-    expect(utils.queryByTestId("doc-card-edit")).toBeNull();
-
-    fireEvent.click(within(note).getByRole("button", { name: s.bootDocsLockedLink }));
-    expect(
-      (await utils.findByTestId("settings-developer-mode")).getAttribute("aria-checked")
-    ).toBe("false");
   });
 
   // 決定 2 itself, on the UI side. Without this, the mock could quietly start
@@ -176,7 +163,9 @@ describe("SettingsPage · boot / lifecycle documents", () => {
       await api.patchServerSettings({ developerMode });
       const utils = await openRolesLog();
       fireEvent.click(utils.getByTestId("boot-doc-entry-term_glossary"));
-      await utils.findByText(s.bootDocReadOnlyNote);
+      await utils.findByText(
+        "If the user writes one of the Chinese screen names in this table, it means the English term in the same row."
+      );
       expect(utils.getByRole("cell", { name: "辦公室" })).toBeTruthy();
       expect(utils.queryByTestId("doc-card-edit")).toBeNull();
       expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
@@ -189,7 +178,6 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     const utils = await openRolesLog();
     fireEvent.click(utils.getByTestId("boot-doc-entry-task_takeover_with_predecessor"));
     await utils.findByTestId("doc-card-edit");
-    expect(utils.queryByTestId("doc-card-note")).toBeNull();
     expect(utils.getByTestId("doc-card-replace-note")).toBeTruthy();
   });
 });

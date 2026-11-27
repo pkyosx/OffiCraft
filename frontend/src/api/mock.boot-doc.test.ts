@@ -475,6 +475,7 @@ describe("mockApi · 開機脈絡預覽", () => {
 
 describe("mockApi · User Language block", () => {
   const GLOSSARY =
+    "If the user writes one of the Chinese screen names in this table, it means the English term in the same row.\n\n" +
     "| English (this document) | Chinese on screen |\n" +
     "| --- | --- |\n" +
     "| Office | 辦公室 |\n" +
@@ -517,12 +518,8 @@ describe("mockApi · User Language block", () => {
     "| Webhook endpoints | 回呼端點 |\n" +
     "| Signing keys | 簽章金鑰 |\n" +
     "| User guide | 使用說明 |";
-  const ZH_DEFAULT =
-    "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\nWrite to the user in Traditional Chinese (Taiwan) even when the user writes in another language.\n\n" +
-    "The user sees OffiCraft in Chinese. Call OffiCraft features by the Chinese names on their screen below; when the user uses one of these names, it means the English term in the same row.";
-  const EN_DEFAULT =
-    "Use English for everything you write to the user, including reports. Do not use other languages.\n\n" +
-    "The user sees OffiCraft in English. If the user writes one of the names in the Chinese column, it means the English term in the same row.";
+  const ZH_DEFAULT = "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。";
+  const EN_DEFAULT = "Use English for everything you write to the user, including reports.";
   const ZH = `# User Language\n\n${ZH_DEFAULT}\n\n${GLOSSARY}`;
   const EN = `# User Language\n\n${EN_DEFAULT}\n\n${GLOSSARY}`;
 
@@ -627,8 +624,7 @@ describe("mockApi · User Language block", () => {
     });
     await mockApi.restoreDocumentHistory("user_language", "global", id);
     expect(await mockApi.getBootDoc("user_language", "global")).toMatchObject({
-      text: "Use English for everything you write to the user, including reports. Do not use other languages.\n\n" +
-        "The user sees OffiCraft in English. If the user writes one of the names in the Chinese column, it means the English term in the same row.",
+      text: "Use English for everything you write to the user, including reports.",
       isDefault: true,
     });
   });

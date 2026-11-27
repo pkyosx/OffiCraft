@@ -1208,7 +1208,7 @@ func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *t
 			t.Fatalf("read: want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars": 236, "cap_chars": 37500,
+			"size_chars": 69, "cap_chars": 37500,
 			"kind": "user_language", "key": "global", "owner_id": "owner",
 			"text": apiTestUserLanguageEn + "\n", "body": apiTestUserLanguageEn + "\n",
 			"read_only_head": "", "schema_version": 3, "is_default": true, "has_seed": true,

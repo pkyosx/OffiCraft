@@ -438,23 +438,20 @@ _TERM_ALIASES = json.loads(
 assert _TERM_ALIASES and all(set(a) == {"zh", "en"} for a in _TERM_ALIASES), (
     "spec/term-aliases.json is empty or malformed"
 )
-_TERM_ALIASES_TABLE = "| English (this document) | Chinese on screen |\n| --- | --- |" + "".join(
-    f"\n| {a['en']} | {a['zh']} |" for a in _TERM_ALIASES
+_TERM_ALIASES_TABLE = (
+    "If the user writes one of the Chinese screen names in this table, "
+    "it means the English term in the same row.\n\n"
+    "| English (this document) | Chinese on screen |\n| --- | --- |"
+    + "".join(f"\n| {a['en']} | {a['zh']} |" for a in _TERM_ALIASES)
 )
 _USER_LANGUAGE_ZH = (
     "# User Language\n\n"
-    "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。 不要用其他語言。\n\nWrite to the user in Traditional Chinese (Taiwan) even when the user writes in another language.\n\n"
-    "The user sees OffiCraft in Chinese. "
-    "Call OffiCraft features by the Chinese names on their screen below; when the user "
-    "uses one of these names, it means the English term in the same row.\n\n"
+    "除非是技術專有名詞可以用英文，其餘預設（包含報告）用繁體中文 (台灣)。\n\n"
     + _TERM_ALIASES_TABLE
 )
 _USER_LANGUAGE_EN = (
     "# User Language\n\n"
-    "Use English for everything you write to the user, including reports. "
-    "Do not use other languages.\n\n"
-    "The user sees OffiCraft in English. If the user writes one of the names "
-    "in the Chinese column, it means the English term in the same row.\n\n"
+    "Use English for everything you write to the user, including reports.\n\n"
     + _TERM_ALIASES_TABLE
 )
 

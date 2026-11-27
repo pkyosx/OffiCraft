@@ -63,7 +63,6 @@ export function BootDocRealSeedStory() {
             historyTitle={zh.settings.historyBootSystemTitle}
             confirmSaveBody={zh.settings.bootDocSaveConfirmSystem}
             crumbs={[{ label: zh.settings.title }]}
-            onOpenSystemSettings={() => {}}
           />
         </main>
       </div>
@@ -113,7 +112,6 @@ export function BootDocHeadSeedStory() {
             historyTitle={zh.settings.historyAcceleratedStopTitle}
             confirmSaveBody={zh.settings.bootDocSaveConfirmAcceleratedStop}
             crumbs={[{ label: zh.settings.title }]}
-            onOpenSystemSettings={() => {}}
           />
         </main>
       </div>

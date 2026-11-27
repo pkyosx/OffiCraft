@@ -299,4 +299,34 @@ describe("SettingsPage · 參數調整", () => {
     expect((await api.getServerSettings()).taskDueSoonLeadMinutes).toBe(1440);
     patch.mockRestore();
   });
+
+  it("ends the General card with 開發者模式, carrying its label and help text, off by default", async () => {
+    const utils = await openParams();
+    const toggle = utils.getByRole("switch", { name: s.developerMode });
+    expect(toggle).toBe(utils.getByTestId("settings-developer-mode"));
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    const row = toggle.closest(".param-row") as HTMLElement;
+    expect(row.querySelector(".param-row__name")?.textContent).toBe("開發者模式");
+    expect(row.querySelector(".param-row__sub")?.textContent).toBe(
+      "打開後可以修改全域情境裡的開機文件。使用者語言與使用者自訂隨時都能修改。"
+    );
+    const card = utils.getByLabelText(s.sessionTtl).closest(".param-card") as HTMLElement;
+    const rows = card.querySelectorAll(":scope > .param-row");
+    expect(rows[rows.length - 1]).toBe(row);
+  });
+
+  it("clicking 開發者模式 writes the flipped value and the switch follows the server, on and back off", async () => {
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openParams();
+    const toggle = utils.getByTestId("settings-developer-mode");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
+    expect(patch).toHaveBeenLastCalledWith({ developerMode: true });
+    expect((await api.getServerSettings()).developerMode).toBe(true);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
+    expect(patch).toHaveBeenLastCalledWith({ developerMode: false });
+    expect((await api.getServerSettings()).developerMode).toBe(false);
+    patch.mockRestore();
+  });
 });

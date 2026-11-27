@@ -2460,9 +2460,9 @@ func TestHandleReplaceBootDocApiBootDocsKindKeyPost(t *testing.T) {
 			"kind":       "user_language",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 236,
+			"size_chars": 69,
 			"cap_chars":  37500,
-			"sha256":     "c64c87301f2e21f188adcd92c194d39465d9f9acb793987e9b1aa6758dc504c6",
+			"sha256":     "e46d844215f3ab59c5ccd8b86002281930ad3bb70e569c834bf03e31b10c1e7c",
 		})
 	})
 
@@ -2597,9 +2597,9 @@ func TestHandleResetBootDocApiBootDocsKindKeyResetPost(t *testing.T) {
 			"kind":       "user_language",
 			"key":        "global",
 			"is_default": true,
-			"size_chars": 236,
+			"size_chars": 69,
 			"cap_chars":  37500,
-			"sha256":     "c64c87301f2e21f188adcd92c194d39465d9f9acb793987e9b1aa6758dc504c6",
+			"sha256":     "e46d844215f3ab59c5ccd8b86002281930ad3bb70e569c834bf03e31b10c1e7c",
 		})
 	})
 

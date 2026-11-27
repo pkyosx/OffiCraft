@@ -417,7 +417,7 @@ func TestHandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(t *testin
 		}
 		workerID := assignOneWorker(t, api)
 		zhContext := "# SYSTEM INTERACTION\n\n" + apiTestUserLanguageBlockZh + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
-		enContext := "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\nThe user sees OffiCraft in English. If the user writes one of the names in the Chinese column, it means the English term in the same row.\n\n" + apiTestUserLanguageGlossary + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
+		enContext := "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports.\n\n" + apiTestUserLanguageGlossary + "\n\n# User additions\n\nOWNER ADDITIONS\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"
 		for _, step := range []struct{ name, settings, want string }{
 			{name: "never set", want: zhContext},
 			{name: "en", settings: `{"display_language":"en"}`, want: enContext},
@@ -456,7 +456,7 @@ func TestHandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGet(t *testin
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"context": "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports. Do not use other languages.\n\nThe user sees OffiCraft in English. If the user writes one of the names in the Chinese column, it means the English term in the same row.\n\n" + apiTestUserLanguageGlossary + "\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"})
+		apiWantBody(t, data, map[string]any{"context": "# SYSTEM INTERACTION\n\n# User Language\n\nUse English for everything you write to the user, including reports.\n\n" + apiTestUserLanguageGlossary + "\n\n# Lore\n\n## L-1 everyone\n\nEVERYONE LORE BODY FOR THE PREVIEW\n\n# CLAUDE BOOT STEPS FOR THE PREVIEW\n"})
 	})
 
 	t.Run("a released worker still previews, because its rows are the audit trail", func(t *testing.T) {

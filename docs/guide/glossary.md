@@ -114,8 +114,8 @@ This page lists what each term in the console and the user guide means, and whic
 - **Seasonal theme**: a theme applied automatically during holidays; some also switch to different versions by time of day. It can be turned off with "Show seasonal theme" in the theme settings.
 - **Background animation**: whether the theme background plays an animation. The options are Auto, Play, and Still, saved only on this device; with "Auto", phones and tablets show a still image. See [Themes (look and wording)](theme.md).
 - **General**: the system parameters in Settings (thresholds, size caps, intervals, number of backups kept, and so on). See [Settings](settings.md).
-- **System update & backup**: the Settings page for checking for updates, upgrading, automatic updates, the update check interval, developer mode, backup health, and signing keys. See [Settings](settings.md).
-- **Developer mode**: the switch under System update & backup › Advanced, off by default. While it is off, every document in Global context except User additions is locked and nobody can change it. See [Settings](settings.md).
+- **System update & backup**: the Settings page for checking for updates, upgrading, automatic updates, the update check interval, backup health, and signing keys. See [Settings](settings.md).
+- **Developer mode**: the switch at the bottom of Settings › General, off by default. While it is off, every document in Global context except User Language and User additions is locked and nobody can change it. See [Settings](settings.md).
 - **Receive beta versions**: also includes pre-release versions when checking for updates.
 - **Backup health**: shows whether scheduled backups are working (Backups are healthy, Backups are failing, Cannot tell). See [Troubleshooting and FAQ](troubleshooting.md).
 

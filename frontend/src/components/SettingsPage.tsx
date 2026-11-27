@@ -656,7 +656,6 @@ export function SettingsPage({
           setView({ kind: "bootDoc", docKind, docKey })
         }
         developerMode={params.settings?.developerMode}
-        onOpenSystemSettings={() => setView({ kind: "software" })}
       />
     );
   }
@@ -847,7 +846,6 @@ export function SettingsPage({
           crumbGlobalContext,
           { label: t.settings[row.nameKey] },
         ]}
-        onOpenSystemSettings={() => setView({ kind: "software" })}
       />
     );
   }
@@ -1006,7 +1004,6 @@ export function SettingsPage({
               : t.settings.bootCodexName,
           },
         ]}
-        onOpenSystemSettings={() => setView({ kind: "software" })}
       />
     );
   }
@@ -2142,6 +2139,28 @@ function ServerParams({
             onCommit={(next) => { void onSave({ suggestedRepliesChat: next }); }}
           />
 
+          <div className="param-row">
+            <div className="param-row__body">
+              <span className="param-row__name">{t.settings.developerMode}</span>
+              <div className="param-row__sub">{t.settings.developerModeSub}</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.developerMode}
+              aria-label={t.settings.developerMode}
+              className={`set-toggle${settings.developerMode ? " set-toggle--on" : ""}`}
+              onClick={() => {
+                setRangeError(false);
+                onClearSaveError();
+                void onSave({ developerMode: !settings.developerMode });
+              }}
+              data-testid="settings-developer-mode"
+            >
+              <span className="set-toggle__knob" />
+            </button>
+          </div>
+
           {secretRangeError && (
             <div className="set-error param-error" data-testid="secret-card-range-error">
               {secretRangeError}
@@ -2713,37 +2732,6 @@ function SoftwareUpdate({
         </div>
       )}
 
-      {settings && (
-        <>
-          <h2 className="settings__title settings__title--doc">
-            {t.settings.advancedSettings}
-          </h2>
-          <div className="param-card">
-            <div className="param-row">
-              <div className="param-row__body">
-                <span className="param-row__name">{t.settings.developerMode}</span>
-                <div className="param-row__sub">{t.settings.developerModeSub}</div>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={settings.developerMode}
-                aria-label={t.settings.developerMode}
-                className={`set-toggle${settings.developerMode ? " set-toggle--on" : ""}`}
-                onClick={() => {
-                  onClearSaveError();
-                  setVerifyStatus("idle");
-                  void onSave({ developerMode: !settings.developerMode });
-                }}
-                data-testid="settings-developer-mode"
-              >
-                <span className="set-toggle__knob" />
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
       {/* ── 備份健康 (T-5e71, owner 2026-08-02) ── the backup verdict lives
           HERE, under 系統更新與備份, and nowhere else: it used to sit on the
           monitor page plus a topbar light, which the owner did not want. */}
@@ -2882,7 +2870,6 @@ function GlobalContextSection({
   onOpenBootIndex,
   onOpenBootDoc,
   developerMode,
-  onOpenSystemSettings,
 }: {
   /** A rejected /api/global-context read — reported honestly rather than
    * rendered as an empty 使用者自訂. */
@@ -2898,10 +2885,9 @@ function GlobalContextSection({
   onOpenBootIndex: () => void;
   /** Every other boot/lifecycle document, addressed rather than named. */
   onOpenBootDoc: (kind: BootDocKind, docKey: string) => void;
-  /** `undefined` while settings are loading or failed to load: neither the
-   * lock hint nor the "editable" suffix is shown then. */
+  /** `undefined` while settings are loading or failed to load: the "editable"
+   * suffix is not shown then. */
   developerMode: boolean | undefined;
-  onOpenSystemSettings: () => void;
 }) {
   const { t } = useI18n();
   return (
@@ -2942,20 +2928,6 @@ function GlobalContextSection({
           </button>
         </div>
       </div>
-
-      {developerMode === false && (
-        <div className="set-lock-note" data-testid="boot-docs-locked-note">
-          {t.settings.bootDocsLockedLead}
-          <button
-            type="button"
-            className="set-inline-link"
-            onClick={onOpenSystemSettings}
-          >
-            {t.settings.bootDocsLockedLink}
-          </button>
-          {t.settings.bootDocsLockedTail}
-        </div>
-      )}
 
       {/* The boot / lifecycle documents, printed from BOOT_DOC_ROWS — the one
        * table that says which of them the cockpit shows. Groups run in the

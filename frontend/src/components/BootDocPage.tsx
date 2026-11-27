@@ -82,7 +82,6 @@ export function BootDocPage({
   confirmSaveBody,
   crumbs,
   collapsible,
-  onOpenSystemSettings,
 }: {
   kind: BootDocKind;
   /** "global" for every kind but boot_sequence, whose key is the RUNTIME
@@ -105,8 +104,6 @@ export function BootDocPage({
    * page, in the present tense. See DocCard's `collapsible` for why the prop
    * outlived its only caller and what has to happen together if it is retired. */
   collapsible?: boolean;
-  /** Where the developer-mode hint's link goes. */
-  onOpenSystemSettings: () => void;
 }) {
   const { t, msg } = useI18n();
   const { doc, error, refetch, save, reset } = useBootDoc(kind, docKey);
@@ -156,25 +153,8 @@ export function BootDocPage({
       // real budget of zero.
       usage={doc ? { size: doc.sizeChars, cap: doc.capChars } : undefined}
       // 「儲存＝整份取代」 is a fact about SAVING, so a document nobody may save
-      // does not owe it; what it owes instead is why it has no editor.
+      // does not owe it.
       replaceNote={readOnly ? undefined : t.settings.docReplaceNote}
-      note={
-        locked ? (
-          <>
-            {t.settings.bootDocLockedLead}
-            <button
-              type="button"
-              className="set-inline-link"
-              onClick={onOpenSystemSettings}
-            >
-              {t.settings.bootDocsLockedLink}
-            </button>
-            {t.settings.bootDocLockedTail}
-          </>
-        ) : readOnly ? (
-          t.settings.bootDocReadOnlyNote
-        ) : undefined
-      }
       // A no-op save would flip the document out of 預設 for ever, and these
       // are the documents where "is this still the factory version" is the
       // question people ask about them.

@@ -21,7 +21,6 @@ Settings opens from the gear in the top bar. The settings home page has seven en
 From top to bottom:
 
 - **Current version** and **Update settings** (Receive beta versions, Automatic updates, Update check interval, Let the assistant tell me about new-version features) — For checking for updates, upgrading, and the purpose and default of each field, see "Advanced: upgrade settings" in [Install, upgrade, and uninstall](install.md).
-- **Advanced** — It has a single field, "Developer mode", off by default. While it is off, every document in Global context except User additions is locked and nobody can change it; once it is on, you can edit them, sync them back to their default content, or restore earlier versions. User additions are not affected.
 - **Backup health** — Whether scheduled backups keep producing restore points: "Backups are healthy", "Backups are failing", "Cannot tell". The card lists the latest scheduled backup, how long the failure has lasted, the freshness window, and the server diagnostic. "Cannot tell" does not mean there is no problem. For what each status means and how backup and restore work, see "Backup and restore" in [Troubleshooting and FAQ](troubleshooting.md).
 - **Signing keys** — The keys the server uses to issue login credentials and share links, at the bottom of this page. Login credentials for the console, members, and machines, and the links made by "Copy share link" (for files) and "Copy external link" (for comparisons), are all signed with a signing key. For more, see "Signing keys" in [Protect your studio](security.md).
   - The card lists how many keys there are now: the one marked "In use" issues new credentials; one marked "Old key (still valid)" no longer issues any, but credentials and links signed with it remain valid.
@@ -37,7 +36,7 @@ The two cards at the top, **User Language** and then **User additions**, can be 
 - **User Language** tells members which language to write to you in. Every member reads it when it starts, before User additions; its character limit is 37500. Until you edit it, it follows the display language: Chinese (or not set) gives the Chinese default, English gives the English default. Once you edit it, members read your text whatever the display language. If you sync it to default, or save text that matches either default, it follows the display language again.
 - **User additions** has no character limit; every member reads it when it starts.
 
-The other documents are locked while developer mode is off: below the card is the line "To edit the documents below, turn on developer mode in system settings first.", and "system settings" takes you to System update & backup. While locked, the document rows are not marked "editable"; you can open a document and read it in full, but there is no edit button, and in its place it says "To edit this, turn on developer mode in system settings first." Once developer mode is on, the line disappears and every document can be edited.
+The other documents are locked while developer mode is off (turn it on in Settings › General › Developer mode). While locked, the document rows are not marked "editable"; you can open a document and read it in full, but there is no edit button. Once developer mode is on, every document can be edited.
 
 The other documents come in three groups:
 
@@ -56,7 +55,7 @@ The other documents come in three groups:
 | TASK EVENTS | Your task is ready to be closed | Each time a task becomes ready to close | 37500 |
 
 - "Boot steps" is a single row in the list; open it to see one row per document, "Boot steps (Claude Code)" and "Boot steps (Codex CLI)", each opening its own page.
-- "Term glossary" lists the English and Chinese names of OffiCraft features side by side. Nobody can edit it, even with developer mode on; it changes only with a new release.
+- "Term glossary" lists the English and Chinese names of OffiCraft features side by side, after one line telling members that a Chinese screen name from the table means the English term in the same row. Nobody can edit it, even with developer mode on; it changes only with a new release.
 - The character limits are factory values, and these fields are not on the General page. For a document with a limit, the card's title bar shows "current characters / limit".
 - Some documents begin with a read-only section written by the program (for example the member's name or the deadline), marked "Read-only (written by the program, not editable)"; you can only change the paragraphs after the read-only section. Saving replaces the editable part with the contents of the editor.
 - A document with default content is marked "In sync with default" or "Modified" on its card.
@@ -181,6 +180,7 @@ Each field on the screen, from top to bottom:
 | Task-message suggestions | Sentences you can insert with one click when sending a message on a task, listed after the task manual's sentences | At most 20 sentences, at most 120 characters each | — |
 | Lore-message suggestions | Sentences you can insert with one click in a lore entry's message box | At most 20 sentences, at most 120 characters each | — |
 | Chat suggestions | Sentences shared by all member chats that you can insert with one click, listed after the member-specific sentences | At most 20 sentences, at most 120 characters each | — |
+| Developer mode | While off, every document in Global context except User Language and User additions is locked and nobody can change it; once on, you can edit them, sync them back to their default content, or restore earlier versions. User Language and User additions are always editable | On / Off | Off |
 
 **Handover thresholds**: when a member's memory reaches the threshold, it first wraps up and leaves a handover, then the server starts a new session to carry on. Lower thresholds mean more frequent handovers; higher ones let each round run longer. Claude members only look at the two percentage fields, and Codex members only look at the two memory-compaction fields; setting the wrong pair gives no warning at all. "Refocus" in member details makes the member hand over once immediately.
 

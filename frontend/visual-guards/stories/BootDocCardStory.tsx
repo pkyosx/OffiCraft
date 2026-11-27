@@ -71,7 +71,6 @@ export function BootDocCardStory() {
               historyTitle={zh.settings.historyBootClaudeTitle}
               confirmSaveBody={zh.settings.bootDocSaveConfirmBoot}
               crumbs={[{ label: zh.settings.title }]}
-              onOpenSystemSettings={() => {}}
             />
           )}
         </main>

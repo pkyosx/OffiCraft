@@ -37,17 +37,15 @@ beforeEach(() => {
 });
 
 describe("SettingsPage · global-context 4 blocks", () => {
-  it("lists 使用者語言 then 使用者自訂 on top, then the lock line, then the boot documents in boot-assembly order", async () => {
+  it("lists 使用者語言 then 使用者自訂 on top, then the boot documents in boot-assembly order", async () => {
     // 啟動步驟 is ONE row, not one per runtime (owner 2026-08-14, card
     // rc-e1abbc506b70 option 1: "我沒有想到被切割成這麼多份"). The runtime is
     // chosen inside the page. The two DOCUMENTS stay separate — that is
     // asserted on the page itself, in BootDocPage.test.tsx.
-    const { container, getByText, findByTestId } = await openRolesLog();
-    await findByTestId("boot-docs-locked-note");
+    const { container, getByText } = await openRolesLog();
     const text = container.textContent ?? "";
     const iUserLanguage = text.indexOf(s.userLanguageName);
     const iCustom = text.indexOf(s.customName);
-    const iLock = text.indexOf("以下文件要修改，請先在系統設定打開開發者模式。");
     const iBootGroup = text.indexOf(s.globalSection);
     const iSystem = text.indexOf(s.systemName);
     const iGlossary = text.indexOf(s.termGlossaryName);
@@ -57,8 +55,7 @@ describe("SettingsPage · global-context 4 blocks", () => {
     const iOffboard = text.indexOf(s.offboardName);
     expect(iUserLanguage).toBeGreaterThanOrEqual(0);
     expect(iCustom).toBeGreaterThan(iUserLanguage);
-    expect(iLock).toBeGreaterThan(iCustom);
-    expect(iBootGroup).toBeGreaterThan(iLock);
+    expect(iBootGroup).toBeGreaterThan(iCustom);
     expect(iSystem).toBeGreaterThan(iBootGroup);
     expect(iGlossary).toBeGreaterThan(iSystem);
     expect(iBoot).toBeGreaterThan(iGlossary);
@@ -69,23 +66,17 @@ describe("SettingsPage · global-context 4 blocks", () => {
     expect(getByText(s.globalSection)).toBeTruthy();
   });
 
-  it("while developer mode is off, only 使用者語言 and 使用者自訂 say they are editable, and the lock line's link opens 系統更新與備份", async () => {
+  it("while developer mode is off, only 使用者語言 and 使用者自訂 say they are editable", async () => {
     const utils = await openRolesLog();
-    await utils.findByTestId("boot-docs-locked-note");
     const sub = (testId: string) =>
       utils.getByTestId(testId).querySelector(".set-entry__sub")?.textContent;
     expect(sub("boot-doc-entry-custom")).toBe("每位成員開機時都會讀到的自訂內容 · 可編輯");
     expect(sub("boot-doc-entry-system_interaction")).toBe("每位成員開機時都會讀到的系統運作說明");
     expect(sub("boot-doc-entry-task_closeout")).toBe("任務被判定結束時給 agent 的收尾指示");
     expect(sub("boot-doc-entry-user_language")).toBe("成員跟你說話用的語言 · 沒改過時跟著顯示語言 · 可編輯");
-
-    fireEvent.click(utils.getByRole("button", { name: "系統設定" }));
-    expect(
-      (await utils.findByTestId("settings-developer-mode")).getAttribute("aria-checked")
-    ).toBe("false");
   });
 
-  it("with developer mode on, there is no lock line and every boot document but the glossary says it is editable", async () => {
+  it("with developer mode on, every boot document but the glossary says it is editable", async () => {
     await api.patchServerSettings({ developerMode: true });
     const utils = await openRolesLog();
     const sub = (testId: string) =>
@@ -98,7 +89,6 @@ describe("SettingsPage · global-context 4 blocks", () => {
     expect(sub("boot-doc-entry-task_closeout")).toBe("任務被判定結束時給 agent 的收尾指示 · 可編輯");
     expect(sub("boot-doc-entry-term_glossary")).toBe("功能的英文與中文名稱對照 · 隨版本更新，不能編輯");
     expect(sub("boot-doc-entry-boot_sequence")).toBe(s.bootSub + s.bootDocEditableSuffix);
-    expect(utils.queryByTestId("boot-docs-locked-note")).toBeNull();
   });
 
   it("使用者語言 opens its document directly and saves it while developer mode is off", async () => {

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Resolves src/i18n/termAliases.ts against the zh/en dictionaries and writes
-// the rows of the glossary members read after their User Language document:
+// the glossary members read after their User Language document (an opening
+// line, then one row per concept):
 //
 //   * seeds/term_glossary.md — the term_glossary boot document, read-only on
 //     every station, so a release is the only way its text changes.
@@ -76,6 +77,7 @@ const rows = concepts.map((names) => {
 });
 
 const glossary =
+  "If the user writes one of the Chinese screen names in this table, it means the English term in the same row.\n\n" +
   "| English (this document) | Chinese on screen |\n| --- | --- |" +
   rows.map((r) => `\n| ${r.en} | ${r.zh} |`).join("") +
   "\n";

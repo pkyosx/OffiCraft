@@ -2547,9 +2547,8 @@ export const zh = {
     updateAvailable: "有可用的新版本",
     upgrade: "升級到最新版",
     catalogHash: "MCP 目錄雜湊",
-    advancedSettings: "進階",
     developerMode: "開發者模式",
-    developerModeSub: "打開後可以修改全域情境裡的開機文件（使用者自訂不受影響）。",
+    developerModeSub: "打開後可以修改全域情境裡的開機文件。使用者語言與使用者自訂隨時都能修改。",
     // ── 角色誌 ──
     // 十份文件依 owner 的讀法分三組（定稿 2026-08-24）：上線 → 下線 → 任務事件。
     // 分組是版面上的分群，不是「能不能改」的真相來源（那是 server 的答案）。
@@ -2562,11 +2561,6 @@ export const zh = {
     customName: "使用者自訂",
     customSub: "每位成員開機時都會讀到的自訂內容 · 可編輯",
     bootDocEditableSuffix: " · 可編輯",
-    bootDocsLockedLead: "以下文件要修改，請先在",
-    bootDocsLockedLink: "系統設定",
-    bootDocsLockedTail: "打開開發者模式。",
-    bootDocLockedLead: "要修改，先在",
-    bootDocLockedTail: "打開開發者模式。",
     dutyHeading: "職責（Duty）",
     dutyNote:
       "其他成員看這段，判斷什麼事要找這個角色；會出現在每位成員開機看到的名冊上。",
@@ -2608,10 +2602,6 @@ export const zh = {
     taskUnblockedSub: "依賴的任務放行時給 agent 的通知",
     taskReadyForDoneName: "你手上的任務可以結案了",
     taskReadyForDoneSub: "任務每次進到可結案時給 agent 的通知",
-    // 唯讀文件的說明：說「這份是什麼」，不說「你沒有權限」——沒有任何人可以改，
-    // 講權限會讓人去找一個根本不存在的角色來授權。
-    bootDocReadOnlyNote:
-      "這份文件顯示在這裡，是為了讓你看得到 agent 到底被告知了什麼；它不給任何人編輯，也沒有預設內容以外的版本。",
     bootDocSaveConfirmAcceleratedStop:
       "要儲存這份加速停止程序嗎？之後每一個被要求提前收工的 agent 都會讀到這份內容，而且是在只剩下一小段時間的情況下讀——寫得完才算數。",
     bootDocSaveConfirmTaskEvent:
