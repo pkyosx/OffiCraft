@@ -2735,7 +2735,7 @@ export const zh = {
     // doc filenames
     // Honest load-failure notice — shown when the role/global-context fetch
     // REJECTED, so a failed load never reads as "no roles defined".
-    loadError: "載入角色定義失敗，請稍後重試",
+    loadError: "載入設定失敗，請稍後重試",
     // ── 角色定義：新增／刪除（M2-2）──
     addRole: "新增角色",
     addRoleName: "角色名",

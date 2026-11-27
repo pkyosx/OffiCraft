@@ -2664,7 +2664,7 @@ export const en: Dict = {
       title: "Title",
       body: "Body",
     },
-    loadError: "Failed to load role definitions. Please try again.",
+    loadError: "Failed to load settings. Please try again.",
     addRole: "Add role",
     addRoleName: "Role name",
     renameRole: "Rename role",
