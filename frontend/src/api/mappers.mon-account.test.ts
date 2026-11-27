@@ -176,3 +176,45 @@ describe("toMonitoring session account_superseded", () => {
     expect(superseded({})).toBe(false);
   });
 });
+
+describe("toMonitoring Claude login measurement", () => {
+  type WireMonMachineRow = NonNullable<WireMonitoring["machines"]>[number];
+  const wireMachine = (over: Partial<WireMonMachineRow> = {}): WireMonMachineRow => ({
+    machine: "mbp5",
+    display_name: "mbp5",
+    agents: 0,
+    accounts: [],
+    ...over,
+  });
+
+  it("carries an account's unmeasured reason, and reads an absent or unknown one as measured", () => {
+    const reasonOf = (over: Partial<WireMonAccountRow>) =>
+      toMonitoring({ sessions: [], machines: [], accounts: [wireAccount(over)] }).accounts[0].unmeasuredReason;
+    expect(reasonOf({ unmeasured_reason: "usage_failed" })).toBe("usage_failed");
+    expect(reasonOf({})).toBeNull();
+    expect(reasonOf({ unmeasured_reason: "guessed" })).toBeNull();
+  });
+
+  it("carries a machine's measured login, and an absent one as null", () => {
+    const loginOf = (over: Partial<WireMonMachineRow>) =>
+      toMonitoring({ sessions: [], machines: [wireMachine(over)], accounts: [] }).machines[0].claudeLogin;
+    expect(
+      loginOf({
+        claude_login: {
+          account: "",
+          display_name: "",
+          store: "keychain",
+          measured_at: 1_795_780_000,
+          unmeasured_reason: "profile_failed",
+        },
+      })
+    ).toEqual({
+      account: "",
+      displayName: "",
+      store: "keychain",
+      measuredAt: 1_795_780_000,
+      unmeasuredReason: "profile_failed",
+    });
+    expect(loginOf({})).toBeNull();
+  });
+});
