@@ -43,7 +43,7 @@ A saved custom theme is not applied automatically. It is applied only when you c
 
 Built-in themes can also be exported. An exported file becomes a custom theme after it is imported, and can then be edited.
 
-For what each section can change, the size limits for images, and how the outer canvas is laid out, see "Theme" in [Settings and parameters](settings.md).
+For what each section can change, the size limits for images, and how the outer canvas is laid out, see "Theme" in [Settings](settings.md).
 
 ## Exporting and importing
 
@@ -55,10 +55,10 @@ Before importing, the system checks the content. Invalid color values, arbitrary
 
 **Be careful when sharing a theme by link**: anyone who has the link can see the theme, including any private images in it. The link does not expire and cannot be revoked on its own.
 
-For what an exported file contains and what the messages shown during import mean, see "Theme" in [Settings and parameters](settings.md).
+For what an exported file contains and what the messages shown during import mean, see "Theme" in [Settings](settings.md).
 
 ## Related pages
 
-- [Settings and parameters](settings.md)
+- [Settings](settings.md)
 - [Interface reference](interface.md)
 - [Glossary](glossary.md)

@@ -144,7 +144,7 @@ Read these when you want to hand off repeated, timed, or externally triggered wo
 Read these when you want to look up a field, a setting, or a term, or want to know how things work underneath.
 
 - [Interface reference](interface.md) — A guide to every tab and field.
-- [Settings and parameters](settings.md) — The six Settings subpages and the range of every parameter.
+- [Settings](settings.md) — The six Settings subpages and the range of every parameter.
 - [Themes (look and wording)](theme.md) — Change the look, switch by time of day, background animations, custom themes and importing/exporting them, and seasonal themes.
 - [Architecture and how it works](architecture.md) — How the server, machines, and members divide the work.
 - [Glossary](glossary.md) — Terms used in OffiCraft.

@@ -35,7 +35,7 @@ This section is the SOP (standard operating procedure): the standard steps for d
 - **Gate**: a step that needs your decision or acceptance. When the member reaches that step, the member opens a reply card and waits for your reply before continuing. Gates suit decisions that have a cost and cannot be undone, for example whether to send something, whether to merge, or whether to spend money.
 - **Limits**: what must not be done, and in which situations the member must ask you first.
 
-When the SOP is saved, older versions are kept and can be restored. See "Version history" in [Settings and parameters](settings.md). When a member finds that the SOP itself should change, the member first opens a reply card that shows the original text and the changed text side by side, and **changes the SOP only after you agree**.
+When the SOP is saved, older versions are kept and can be restored. See "Version history" in [Settings](settings.md). When a member finds that the SOP itself should change, the member first opens a reply card that shows the original text and the changed text side by side, and **changes the SOP only after you agree**.
 
 ## Assigned executor
 
@@ -87,4 +87,4 @@ Limits:
 - [Assigning work and answering reply cards](daily.md)
 - [Making members remember what you taught them (Lore)](lore.md)
 - [Adding members and hiring outsource](members.md)
-- [Settings and parameters](settings.md)
+- [Settings](settings.md)
