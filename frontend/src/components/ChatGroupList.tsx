@@ -127,7 +127,7 @@ function SortableRow({
   );
 }
 
-function HeadingBody({ label, collapsed, unread }: { label: string; collapsed: boolean; unread: number }) {
+export function HeadingBody({ label, collapsed, unread }: { label: string; collapsed: boolean; unread: number }) {
   return (
     <>
       <span className="chat-groups__heading-label">{label}</span>

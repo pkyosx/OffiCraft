@@ -152,8 +152,11 @@ export const zh = {
     filterStateAll: "所有狀態",
     // 每一段的標題列：所有人、每位成員、每本任務手冊
     kindEveryone: "所有人",
-    kindMember: "成員",
+    kindStaff: "正職成員",
+    kindOutsource: "外包成員",
     kindManual: "任務手冊",
+    collapseAll: "全部收合",
+    expandAll: "全部展開",
     entryCountTailOne: " 筆",
     entryCountTailMany: " 筆",
     charsTail: " 字",
