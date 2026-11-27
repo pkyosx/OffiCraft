@@ -400,6 +400,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "machine.relocateSent",
   "machine.relocateTimeout",
   "machine.relocating",
+  "monitor.accountSupersededHint",
   "monitor.accountsEmpty",
   "monitor.accountsTitle",
   "monitor.costReset",

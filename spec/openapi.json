@@ -578,12 +578,24 @@
           },
           "runtimes": {
             "additionalProperties": true,
-            "description": "Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, ``claude`` also ``below_notify_minimum`` bool/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.",
+            "description": "Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, ``claude`` also ``below_notify_minimum`` bool/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials (``claude.account`` is an account key, not a credential). The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.",
             "properties": {
               "claude": {
                 "additionalProperties": true,
                 "description": "Claude readiness. ``installed`` and ``version`` are transcribed from the ``claude`` probe (runtimeprobe.go); ``logged_in`` comes from ``claude auth status``.",
                 "properties": {
+                  "account": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The Claude account a member launched on this machine now would be bound to: the login in the warden's ``$HOME`` .claude.json, keyed exactly like the ``account`` a member reports (``<accountUuid or userID>/<organizationUuid>``). Absent when no login is readable or ``logged_in`` is false. The station compares it with each running member's account for ``MonitoringSessionDTO.account_superseded``; it is not transcribed to ``RuntimeCapabilityDTO``.",
+                    "title": "Account"
+                  },
                   "below_notify_minimum": {
                     "anyOf": [
                       {
@@ -4574,6 +4586,11 @@
             "default": "",
             "title": "Account",
             "type": "string"
+          },
+          "account_superseded": {
+            "description": "True while this session is online and its machine's warden reports (within the telemetry freshness window) a Claude login other than ``account``: a running Claude session keeps the account it launched on until it is relaunched, so its usage and spend stay on ``account`` until then. Absent (false) otherwise, including when either side is unknown.",
+            "title": "Account Superseded",
+            "type": "boolean"
           },
           "banked_cost": {
             "anyOf": [

@@ -637,6 +637,9 @@ type monitoringSessionDTO struct {
 	Cost            *float64       `json:"cost"`
 	BankedCost      *float64       `json:"banked_cost"`
 	Tokens          map[string]any `json:"tokens"`
+	// The machine is now logged into another Claude account than the one this
+	// running session launched on; it moves over when relaunched.
+	AccountSuperseded bool `json:"account_superseded,omitempty"`
 }
 
 // costResetDTO carries the PRE-reset figures: spend has no per-charge ledger,

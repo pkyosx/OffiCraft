@@ -1608,6 +1608,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			{`{"runtimes":{"claude":{"logged_in":"yes"}}}`, "runtimes.claude.logged_in must be a boolean or null"},
 			{`{"runtimes":{"claude":{"version":1}}}`, "runtimes.claude.version must be a string or null"},
 			{`{"runtimes":{"claude":{"below_notify_minimum":"yes"}}}`, "runtimes.claude.below_notify_minimum must be a boolean or null"},
+			{`{"runtimes":{"claude":{"account":7}}}`, "runtimes.claude.account must be a string or null"},
 		} {
 			status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, c.body)
 			if status != 400 {
@@ -2763,6 +2764,98 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 					"pace":        "ok",
 				}),
 			},
+		})
+	})
+
+	t.Run("a member kept running across a machine re-login answers 200 with its usage and spend on its launch account and the switch pending, and after its relaunch on the new account", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		now := time.Now().Unix()
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		machineLogin := func(account string) {
+			t.Helper()
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+				`{"runtimes":{"claude":{"installed":true,"logged_in":true,"account":"`+account+`"}}}`); status != 200 {
+				t.Fatalf("warden telemetry: want 200, got %d (%v)", status, data)
+			}
+		}
+		report := func(id, account, cost string, usedPct int, resetsAt int64) {
+			t.Helper()
+			token := apiTestAgentToken(t, api, id, "m-server-self")
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", token,
+				`{"runtime":"claude","account":"`+account+`","account_label":"`+account+`@x.io","cost":`+cost+`,`+
+					`"rate_limits":{"five_hour":{"used_percentage":`+strconv.Itoa(usedPct)+
+					`,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`); status != 200 {
+				t.Fatalf("%s telemetry: want 200, got %d (%v)", id, status, data)
+			}
+		}
+		for _, id := range []string{"kip", "mira"} {
+			link, err := api.hub.Connect(id, "m-server-self")
+			if err != nil {
+				t.Fatalf("hub.Connect: %v", err)
+			}
+			t.Cleanup(func() { api.hub.Disconnect(link) })
+		}
+		accountRow := func(account string, cost float64, usedPct int, resetsAt int64) map[string]any {
+			return map[string]any{
+				"account":       account,
+				"account_label": account + "@x.io",
+				"display_name":  account + "@x.io",
+				"machine":       "m-server-self",
+				"cost":          cost,
+				"five_hour": map[string]any{
+					"used_pct":    usedPct,
+					"resets_at":   float64(resetsAt),
+					"elapsed_pct": apiAnyNumber,
+					"measured_at": apiAnyNumber,
+					"pace":        "ok",
+				},
+				"seven_day":     nil,
+				"limit_reached": nil,
+			}
+		}
+		monitoring := func() map[string]any {
+			t.Helper()
+			status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			return data
+		}
+
+		machineLogin("max-claude")
+		report("kip", "max-claude", "1", 30, now+3000)
+		machineLogin("ent-claude")
+		report("kip", "max-claude", "3", 40, now+3000)
+		report("mira", "ent-claude", "0.5", 5, now+9000)
+
+		data := monitoring()
+		sessions := apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
+		apiWantValue(t, "kip.account", sessions["kip"]["account"], any("max-claude@x.io"))
+		apiWantValue(t, "kip.account_superseded", sessions["kip"]["account_superseded"], any(true))
+		apiWantValue(t, "mira.account", sessions["mira"]["account"], any("ent-claude@x.io"))
+		apiWantValue(t, "mira.account_superseded", sessions["mira"]["account_superseded"], nil)
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{
+				accountRow("ent-claude", 0.5, 5, now+9000),
+				accountRow("max-claude", 3, 40, now+3000),
+			},
+		})
+
+		report("kip", "ent-claude", "0.25", 2, now+9000)
+
+		data = monitoring()
+		sessions = apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
+		apiWantValue(t, "relaunched kip.account", sessions["kip"]["account"], any("ent-claude@x.io"))
+		apiWantValue(t, "relaunched kip.account_superseded", sessions["kip"]["account_superseded"], nil)
+		leftBehind := accountRow("max-claude", 3, 40, now+3000)
+		leftBehind["machine"], leftBehind["display_name"] = "", "max-claude"
+		delete(leftBehind, "account_label")
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{accountRow("ent-claude", 0.75, 5, now+9000), leftBehind},
 		})
 	})
 

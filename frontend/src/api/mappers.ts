@@ -1267,6 +1267,7 @@ function toMonSession(w: WireMonSession): MonSessionView {
     effort: w.effort || "", // live self-reported effort; "" passes through → "—"
     machine: w.machine,
     account: w.account,
+    accountSuperseded: w.account_superseded ?? false,
     // The REPORTED runtime, honest-empty until something reports one — the wire
     // stopped serving the configured value here (T-7f28), so flooring it to
     // "claude" would just put the fabrication back one layer up.

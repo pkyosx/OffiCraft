@@ -572,6 +572,9 @@ export interface MonSessionView {
   effort: string;
   machine: string;
   account: string;
+  /** The machine now logs into another Claude account; this running session
+   * stays on `account` until it is refocused. */
+  accountSuperseded?: boolean;
   /** REPORTED runtime; "" until something reports one (T-7f28). */
   runtime: "claude" | "codex" | "";
   /** presence tri-state mapped 1:1 onto the member status. */

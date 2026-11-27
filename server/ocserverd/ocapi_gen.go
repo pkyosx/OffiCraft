@@ -939,7 +939,7 @@ type AgentTelemetryIngestDTO struct {
 	// Runtime Optional session runtime: ``claude`` or ``codex``. Omitted leaves previously stored telemetry untouched.
 	Runtime interface{} `json:"runtime,omitempty"`
 
-	// Runtimes Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, ``claude`` also ``below_notify_minimum`` bool/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
+	// Runtimes Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, ``claude`` also ``below_notify_minimum`` bool/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials (``claude.account`` is an account key, not a credential). The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
 	Runtimes   *map[string]interface{} `json:"runtimes,omitempty"`
 	SelfUpdate interface{}             `json:"self_update,omitempty"`
 	Tokens     interface{}             `json:"tokens,omitempty"`
@@ -2886,8 +2886,11 @@ type MonitoringMachineDTO struct {
 // from), honest-empty until a source reports one — mirrors the “account“ tag
 // the accounts[] fold groups by, so the per-member detail row can show it.
 type MonitoringSessionDTO struct {
-	Account    *string  `json:"account,omitempty"`
-	BankedCost *float64 `json:"banked_cost,omitempty"`
+	Account *string `json:"account,omitempty"`
+
+	// AccountSuperseded True while this session is online and its machine's warden reports (within the telemetry freshness window) a Claude login other than ``account``: a running Claude session keeps the account it launched on until it is relaunched, so its usage and spend stay on ``account`` until then. Absent (false) otherwise, including when either side is unknown.
+	AccountSuperseded *bool    `json:"account_superseded,omitempty"`
+	BankedCost        *float64 `json:"banked_cost,omitempty"`
 
 	// CompactionCount Codex App Server compactions in this live session; null for Claude or before the first Codex report.
 	CompactionCount *int     `json:"compaction_count,omitempty"`

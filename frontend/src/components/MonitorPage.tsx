@@ -2730,6 +2730,9 @@ function SessionRow({
         data-label={t.monitor.sessionCol.account}
       >
         {cells.account || dash}
+        {session?.accountSuperseded && (
+          <div className="mon-account-note">{t.monitor.accountSupersededHint}</div>
+        )}
       </td>
       <td className="mon-table__left" data-label={t.monitor.sessionCol.model}>
         <span className="mon-model">{cells.model || dash}</span>
@@ -2837,6 +2840,9 @@ function OutsourceSessionRow({
         data-label={t.monitor.sessionCol.account}
       >
         {cells.account || dash}
+        {session?.accountSuperseded && (
+          <div className="mon-account-note">{t.monitor.accountSupersededHint}</div>
+        )}
       </td>
       <td className="mon-table__left" data-label={t.monitor.sessionCol.model}>
         <span className="mon-model">{cells.model || dash}</span>

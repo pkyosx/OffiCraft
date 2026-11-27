@@ -2166,6 +2166,7 @@ export const en: Dict = {
       context: "Memory used",
       estCost: "est. $",
     },
+    accountSupersededHint: "Still on its old account — switches after Refocus",
     machine: {
       actionsMenu: (name: string) => `Machine actions (${name})`,
       copy: "Copy",

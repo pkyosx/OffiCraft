@@ -2226,6 +2226,7 @@ export const zh = {
       context: "記憶用量",
       estCost: "估計$",
     },
+    accountSupersededHint: "仍用舊帳號，重新聚焦後換新帳號",
     // machine lifecycle: onboard (新增機器 / 上線) + teardown (拆除)
     machine: {
       actionsMenu: (name: string) => `機器操作（${name}）`,

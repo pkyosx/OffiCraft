@@ -149,3 +149,30 @@ describe("toMonitoring account limit_reached", () => {
     ).toBeNull();
   });
 });
+
+describe("toMonitoring session account_superseded", () => {
+  type WireMonSession = NonNullable<WireMonitoring["sessions"]>[number];
+  const wireSession = (over: Partial<WireMonSession> = {}): WireMonSession => ({
+    id: "m-1",
+    name: "Ada",
+    role: "",
+    account: "max@example.test",
+    effort: "",
+    machine: "",
+    model: "",
+    presence: "online",
+    runtime: "claude",
+    ...over,
+  });
+  const superseded = (over: Partial<WireMonSession>) =>
+    toMonitoring({ sessions: [wireSession(over)], machines: [], accounts: [] })
+      .sessions[0].accountSuperseded;
+
+  it("carries a pending account switch through", () => {
+    expect(superseded({ account_superseded: true })).toBe(true);
+  });
+
+  it("reads an absent flag (nothing pending, or an older server) as no switch pending", () => {
+    expect(superseded({})).toBe(false);
+  });
+});

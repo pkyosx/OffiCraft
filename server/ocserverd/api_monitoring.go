@@ -669,6 +669,12 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 				return
 			}
 		}
+		if v, exists := capability["account"]; exists && v != nil {
+			if _, valid := v.(string); !valid {
+				writeError(w, http.StatusBadRequest, "runtimes."+name+".account must be a string or null")
+				return
+			}
+		}
 		if v, exists := capability["below_notify_minimum"]; exists && v != nil {
 			if _, valid := v.(bool); !valid {
 				writeError(w, http.StatusBadRequest, "runtimes."+name+".below_notify_minimum must be a boolean or null")
@@ -1016,6 +1022,19 @@ func runtimeCapabilitiesStale(entry map[string]any, reported bool, now float64) 
 	return &stale
 }
 
+// claudeLoginSupersedes: the session's Claude account differs from the one
+// its machine's warden last reported logged in, while that report is fresh.
+func claudeLoginSupersedes(machine, session map[string]any, now float64) bool {
+	if stale := runtimeCapabilitiesStale(machine, false, now); stale == nil || *stale {
+		return false
+	}
+	runtimes, _ := machine["runtimes"].(map[string]any)
+	claude, _ := runtimes[RuntimeClaude].(map[string]any)
+	login, _ := claude["account"].(string)
+	account := telemetryAccount(session, RuntimeClaude)
+	return login != "" && account != "" && login != account
+}
+
 func rateLimitStampOf(entry map[string]any) float64 {
 	ts, _ := entry["rate_limits_ts"].(float64)
 	return ts
@@ -1232,16 +1251,17 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 			// not look applied.
 			Runtime: m.ActualRuntime,
 			// Likewise reported, with no fallback to m.Model for either kind.
-			Model:           m.ActualModel,
-			Effort:          effort,
-			Machine:         resolveDisplay(machineNames, src.host),
-			Account:         resolveSessionAccount(rt.account),
-			Presence:        src.presence,
-			ContextPct:      rt.contextPct,
-			CompactionCount: rt.compactionCount,
-			Cost:            rt.cost,
-			BankedCost:      rt.bankedCost,
-			Tokens:          entryObj(entry, "tokens"),
+			Model:             m.ActualModel,
+			Effort:            effort,
+			Machine:           resolveDisplay(machineNames, src.host),
+			Account:           resolveSessionAccount(rt.account),
+			AccountSuperseded: src.presence == MemberPresenceOnline && claudeLoginSupersedes(telemetry[src.host], entry, now),
+			Presence:          src.presence,
+			ContextPct:        rt.contextPct,
+			CompactionCount:   rt.compactionCount,
+			Cost:              rt.cost,
+			BankedCost:        rt.bankedCost,
+			Tokens:            entryObj(entry, "tokens"),
 		})
 	}
 

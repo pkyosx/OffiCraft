@@ -401,6 +401,7 @@ var messageKeys = map[string]bool{
 	"machine.relocateSent":                             true,
 	"machine.relocateTimeout":                          true,
 	"machine.relocating":                               true,
+	"monitor.accountSupersededHint":                    true,
 	"monitor.accountsEmpty":                            true,
 	"monitor.accountsTitle":                            true,
 	"monitor.costReset":                                true,
