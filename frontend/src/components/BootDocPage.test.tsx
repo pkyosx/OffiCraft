@@ -157,6 +157,21 @@ describe("BootDocPage", () => {
     expect(openSystemSettings).toHaveBeenCalledTimes(1);
   });
 
+  it("an open document locks and unlocks as developer mode is switched elsewhere", async () => {
+    const utils = renderSystem();
+    await utils.findByTestId("doc-card-edit");
+
+    await api.patchServerSettings({ developerMode: false });
+    expect((await utils.findByTestId("doc-card-note")).textContent).toBe(
+      "要修改，先在系統設定打開開發者模式。"
+    );
+    expect(utils.queryByTestId("doc-card-edit")).toBeNull();
+
+    await api.patchServerSettings({ developerMode: true });
+    await utils.findByTestId("doc-card-edit");
+    expect(utils.queryByTestId("doc-card-note")).toBeNull();
+  });
+
   it("save calls the REPLACE endpoint and renders the new content back", async () => {
     const save = vi.spyOn(api, "saveBootDoc");
     const utils = renderClaude();

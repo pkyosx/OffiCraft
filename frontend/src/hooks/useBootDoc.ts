@@ -118,8 +118,9 @@ export function useBootDoc(kind: BootDocKind, key: string): UseBootDoc {
     const unsubscribe = api.subscribeEvents((topic) => {
       // The blocks ride the existing `global_context` topic — see TOPIC_OF in
       // hooks/useDocumentHistory.ts for why a topic named after the block would
-      // fan nothing at all.
-      if (topic.includes("global_context")) {
+      // fan nothing at all. `settings` carries developer mode, which decides
+      // developer_mode_required on the read.
+      if (topic.includes("global_context") || topic === "settings") {
         void read((e) => console.warn("useBootDoc: SSE refetch failed", e));
       }
     });
