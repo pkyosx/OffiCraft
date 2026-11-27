@@ -178,7 +178,7 @@ export interface paths {
         };
         /**
          * Read whether the owner's login has a second factor and passkeys.
-         * @description - Owner or admin agent: the two facts an agent needs before opening the cockpit to outside connections, without the credentials themselves.
+         * @description - Owner or admin: the two facts an agent needs before opening the cockpit to outside connections, without the credentials themselves.
          *     - A passkey does not stand in for the second factor: while `mfa_enrolled` is false, the password alone still signs in, whatever `passkey_count` says.
          */
         get: operations["handle_login_protection_api_auth_login_protection_get"];
@@ -654,7 +654,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read one runtime's Boot Sequence block — the boot checklist that ends that runtime's boot context. runtime_key is 'claude' or 'codex'; they are separate documents because the two runtimes' boot sequences are not interchangeable (only the codex one ends its boot turn by handing control back to the sidecar that holds its connection), so any other value is a 404 rather than a silent fallback to claude. Folded: the owner's edit when one exists, otherwise the shipped factory seed. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.
+         * Read one runtime's Boot steps block — the boot checklist that ends that runtime's boot context. runtime_key is 'claude' or 'codex'; they are separate documents because the two runtimes' Boot steps documents are not interchangeable (only the codex one ends its boot turn by handing control back to the sidecar that holds its connection), so any other value is a 404 rather than a silent fallback to claude. Folded: the owner's edit when one exists, otherwise the shipped factory seed. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.
          * @description - Reads one runtime's boot checklist, the block appended last to its boot context.
          *     - `runtime_key` is `claude` or `codex`, deliberately separate documents; any other value is 404, never a fallback.
          *     - `is_default=true` means nobody has edited it; `has_seed` means a factory version exists to reset to.
@@ -662,8 +662,8 @@ export interface paths {
         get: operations["handle_get_boot_sequence_api_boot_sequence__runtime_key__get"];
         put?: never;
         /**
-         * Replace the EDITABLE HALF of the Boot Sequence block of ONE runtime ({runtime_key, body}). runtime_key is 'claude' or 'codex' and the two are separate documents that are not interchangeable (only the codex one ends its boot turn by handing control back to the sidecar that holds its connection), so writing the wrong one leaves those agents with a boot sequence written for the other runtime — and nothing that never boots reports it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. Neither runtime's document carries a read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.boot_sequence cap (one cap, both runtimes, each measured on its own text); the refusal tells you what you wrote, the cap, and what is stored. The shipped seed is never overwritten, so reset_boot_sequence always gets the factory text back. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.
-         * @description - Owner or admin agent only; a broken boot sequence silently keeps agents offline.
+         * Replace the EDITABLE HALF of the Boot steps block of ONE runtime ({runtime_key, body}). runtime_key is 'claude' or 'codex' and the two are separate documents that are not interchangeable (only the codex one ends its boot turn by handing control back to the sidecar that holds its connection), so writing the wrong one leaves those agents with Boot steps written for the other runtime — and nothing that never boots reports it. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. Neither runtime's document carries a read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.boot_sequence cap (one cap, both runtimes, each measured on its own text); the refusal tells you what you wrote, the cap, and what is stored. The shipped seed is never overwritten, so reset_boot_sequence always gets the factory text back. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.
+         * @description - Owner or admin only; broken Boot steps silently keep agents offline.
          *     - Replaces the editable body only; the read-only head cannot be written.
          *     - `runtime_key` is `claude` or `codex`, separate documents; any other value is a 404.
          *     - `body` is required; emptying a body that had content needs `allow_shrink=true`.
@@ -686,7 +686,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Restore ONE runtime's Boot Sequence block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). runtime_key is 'claude' or 'codex'; anything else is a 404. No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it, which is what makes this the recovery route when a bad edit has stopped agents from booting. The overlay being discarded is retained in the document history. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.
+         * Restore ONE runtime's Boot steps block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). runtime_key is 'claude' or 'codex'; anything else is a 404. No length cap is applied on this path — the factory text is part of the product, so no setting can block the way back to it, which is what makes this the recovery route when a bad edit has stopped agents from booting. The overlay being discarded is retained in the document history. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.
          * @description - Restores one runtime's boot checklist to the shipped text; idempotent.
          *     - No length cap applies here, so a bad edit that stopped agents booting can always be undone.
          *     - Needs only the owner's token - no agent and no member identity.
@@ -711,7 +711,7 @@ export interface paths {
         put?: never;
         /**
          * Assemble an agent boot context + mint the member JWT (spawn seam).
-         * @description - Folds the role definition and global context into one readable `context`.
+         * @description - Folds the Duty and global context into one readable `context`.
          *     - The role resolves from an explicit `role`, else the member's own role, else `assistant`.
          *     - With `member_id` the response carries a freshly minted member token; a request without it gets `token` null.
          *     - 404 on an unknown `member_id`, or a resolved role that is neither seeded nor an owner overlay.
@@ -1161,7 +1161,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Size-only overview of the capped documents on the station: each role's role definition / insight, and each task manual's SOP, as size_chars plus the cap_chars in force for THAT segment (the three segments have three separate caps — each is reported against its own). THE LISTING IS KEYED BY ROLE, AND THAT IS ITS LIMIT: nothing validates a role_key against the roster on the INSIGHT write face, so an admin or the owner can write insight under a role_key no role carries; such a document spends the insight cap and, having no role to hang off, never appears here. list_roles is the roster this listing is derived from — a document under a name that is not on it is not on this page either. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_task_manual). It is the only way to see insight sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a role definition's size and cap are already on every list_roles row.
+         * Size-only overview of the capped documents on the station: each role's Duty / insight, and each task manual's SOP, as size_chars plus the cap_chars in force for THAT segment (the three segments have three separate caps — each is reported against its own). THE LISTING IS KEYED BY ROLE, AND THAT IS ITS LIMIT: nothing validates a role_key against the roster on the INSIGHT write face, so an admin or the owner can write insight under a role_key no role carries; such a document spends the insight cap and, having no role to hang off, never appears here. list_roles is the roster this listing is derived from — a document under a name that is not on it is not on this page either. Carries NO document text, so it costs a few hundred bytes. Use it to find which long-lived document is nearly full, then read only that one (get_role / get_insight / get_task_manual). It is the only way to see insight sizes in bulk — no listing reports those at any price; the manual sizes and caps are also on every list_task_manuals row, and a Duty's size and cap are already on every list_roles row.
          * @description - Size-only overview of every role's definition and insight, and every manual's SOP.
          *     - Each document is measured against its OWN cap; the three segments have three separate caps.
          *     - No document text, so it is cheap: find the nearly-full document here, then read only that one.
@@ -1362,16 +1362,16 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read the user-custom additive context block (empty = is_default).
-         * @description - Reads the owner's user-custom additive block only.
+         * Read the User additions block (empty = is_default).
+         * @description - Reads the owner's User additions block only.
          *     - Never written, or reset, answers `text=""` with `is_default=true`.
          *     - The system-interaction and boot-sequence blocks are NOT served here; each has its own endpoints, including a reset twin.
          */
         get: operations["handle_get_global_context_api_global_context_get"];
         put?: never;
         /**
-         * Whole-block replace of the user-custom additive block ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty block needs allow_shrink=true (or use reset_global_context). Answers with a bounded receipt (``is_default``, ``size_chars``, ``sha256``), not the block — call ``get_global_context`` when you need the rest.
-         * @description - Whole-block replace of the user-custom additive block.
+         * Whole-block replace of the User additions block ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty block needs allow_shrink=true (or use reset_global_context). Answers with a bounded receipt (``is_default``, ``size_chars``, ``sha256``), not the block — call ``get_global_context`` when you need the rest.
+         * @description - Whole-block replace of the User additions block.
          *     - ONLY that block is written; the shipped system-interaction and boot-sequence text cannot be reached from here.
          *     - Emits an update event; a client holding the stream learns of this without polling.
          */
@@ -1392,8 +1392,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset the user-custom block to empty (idempotent tombstone). Answers with a bounded receipt (``is_default``, ``size_chars``, ``sha256``), not the block — call ``get_global_context`` when you need the rest.
-         * @description - Clears the user-custom block back to empty; idempotent, and `is_default` flips back to true.
+         * Reset User additions to empty (idempotent tombstone). Answers with a bounded receipt (``is_default``, ``size_chars``, ``sha256``), not the block — call ``get_global_context`` when you need the rest.
+         * @description - Clears User additions back to empty; idempotent, and `is_default` flips back to true.
          *     - The assembled boot context then skips the block entirely.
          */
         post: operations["handle_reset_global_context_api_global_context_reset_post"];
@@ -1441,7 +1441,7 @@ export interface paths {
         /**
          * Whole-doc replace of a per-role insight doc ({text}). text is REQUIRED; unknown keys are rejected. Replacing existing content with an empty doc needs allow_shrink=true. Only the role's own agents (and admin) may WRITE it. Answers with a bounded receipt (``role_key``, ``is_default``, ``has_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the folded doc — call ``get_insight`` when you need the rest.
          * @description - Whole-doc replace of one role's insight, not an append.
-         *     - Below admin you may write only your own member's role, read from your token and never from the request; anything else is 403. Owner and admin agents write any role.
+         *     - Below admin you may write only your own member's role, read from your token and never from the request; anything else is 403. Owner and admins write any role.
          *     - Emits an `insight` event; a client holding the stream learns of this without polling.
          */
         post: operations["handle_replace_insight_api_insight__role_key__post"];
@@ -1763,7 +1763,7 @@ export interface paths {
          *     - `runtime: "codex"` runs a device-code login: the login reaches `awaiting_authorization` with `auth_url` and `user_code`, and ends `succeeded` once the owner approves it on that page — nothing is posted back to `/code`.
          *     - A warden build that predates the verb ignores it and the login stays `starting`; the UI gives up after 30s.
          *     - While a login for this machine and runtime is not yet terminal, a repeat returns that login instead of starting another.
-         *     - Admin agent only (403); an unknown, removed or non-machine id is a 404; an offline warden is a 409.
+         *     - Admin only (403); an unknown, removed or non-machine id is a 404; an offline warden is a 409.
          */
         post: operations["handle_start_runtime_login_api_machines__machine_id__runtime_login_post"];
         delete?: never;
@@ -1782,7 +1782,7 @@ export interface paths {
         /**
          * Read a runtime login's current state.
          * @description - Memory only: an unknown id, one from before a server restart, or one dropped about 10 minutes after reaching a terminal state is a 404.
-         *     - Admin agent only (403).
+         *     - Admin only (403).
          */
         get: operations["handle_get_runtime_login_api_machines__machine_id__runtime_login__login_id__get"];
         put?: never;
@@ -1806,7 +1806,7 @@ export interface paths {
          * Cancel a runtime login.
          * @description - Marks the login `cancelled` at once and pushes `login_cancel` so the warden kills the login process.
          *     - An already-terminal login is returned unchanged.
-         *     - 404 when unknown or dropped. Admin agent only (403).
+         *     - 404 when unknown or dropped. Admin only (403).
          */
         post: operations["handle_cancel_runtime_login_api_machines__machine_id__runtime_login__login_id__cancel_post"];
         delete?: never;
@@ -1829,7 +1829,7 @@ export interface paths {
          * @description - Relays the code to the waiting login process via the `login_code` warden command and moves the login to `verifying`.
          *     - The code is never stored, logged or echoed back; it exists only in the command frame.
          *     - Checked in this order: 404 when the login is unknown or dropped; 409 unless it is `awaiting_code` (so always for a `codex` login, which never asks for a code), and 409 when the machine's warden is offline (nothing relayed); then 422 for a code that contains whitespace or a control character inside it (the code is written to the login process as one line), or that is not two non-empty parts joined by exactly one `#` (a partial copy). On every refusal the login stays as it was, so the owner can paste again.
-         *     - Admin agent only (403).
+         *     - Admin only (403).
          */
         post: operations["handle_submit_runtime_login_code_api_machines__machine_id__runtime_login__login_id__code_post"];
         delete?: never;
@@ -1857,7 +1857,7 @@ export interface paths {
          *     - A warden build that predates the verb ignores it and the upgrade stays `starting`; the UI gives up after 30s.
          *     - While an upgrade for this machine and runtime is not yet terminal, a repeat returns that upgrade instead of starting another. A repeat that finds it still `starting` sends the command to the warden again under the same id, so an owner who has since updated an old warden can retry; it answers with that upgrade even when the warden is offline, and nothing is sent then. A repeat that finds it `running` sends nothing.
          *     - No cancel.
-         *     - Admin agent only (403); an unknown, removed or non-machine id is a 404; an offline warden is a 409; a runtime other than `claude` is a 422.
+         *     - Admin only (403); an unknown, removed or non-machine id is a 404; an offline warden is a 409; a runtime other than `claude` is a 422.
          */
         post: operations["handle_start_runtime_upgrade_api_machines__machine_id__runtime_upgrade_post"];
         delete?: never;
@@ -1876,7 +1876,7 @@ export interface paths {
         /**
          * Read a runtime upgrade's current state.
          * @description - Memory only: an unknown id, one from before a server restart, or one dropped about 10 minutes after reaching a terminal state is a 404.
-         *     - Admin agent only (403).
+         *     - Admin only (403).
          */
         get: operations["handle_get_runtime_upgrade_api_machines__machine_id__runtime_upgrade__upgrade_id__get"];
         put?: never;
@@ -1898,7 +1898,7 @@ export interface paths {
         put?: never;
         /**
          * Teardown on server: runs `ocwarden teardown` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409). The server-local machine is refused too (retiring it revokes credentials fleet-wide). To retire another machine use uninstall_machine then delete_machine; to repair the server host's own warden use install_warden_on_server_host, which runs `install --force` over the existing install.
-         * @description - Admin agent only, else 403.
+         * @description - Admin only, else 403.
          *     - Always refused 409 today: it cannot reach another host, and the server's own machine may not be torn down.
          *     - To retire another machine: POST /api/machines/{id}/uninstall, then DELETE /api/machines/{id}.
          *     - To repair this host's warden re-run bootstrap-here; nothing need be torn down first.
@@ -1926,7 +1926,7 @@ export interface paths {
          * @description - Removes the machine from the roster only; it does NOT uninstall the daemon on the host.
          *     - Soft delete, but the credential is revoked at once, permanent tokens included.
          *     - It returns no teardown command; run uninstall first if you want the daemon gone.
-         *     - Admin agent only. A non-machine member is a 409 — use dismiss for those.
+         *     - Admin only. A non-machine member is a 409 — use dismiss for those.
          *     - The server's own machine can never be deleted (409).
          */
         delete: operations["handle_delete_machine_api_machines__member_id__delete"];
@@ -1950,7 +1950,7 @@ export interface paths {
          *     - The machine record is kept and stays re-installable — this is not a delete.
          *     - An offline warden cannot be reached, so the machine counts as already uninstalled; `dispatched` says which path was taken.
          *     - A non-warden member is a 409.
-         *     - Admin agent only.
+         *     - Admin only.
          */
         post: operations["handle_uninstall_machine_api_machines__member_id__uninstall_post"];
         delete?: never;
@@ -1974,7 +1974,7 @@ export interface paths {
          *     - Fire-and-forget: nothing durable is written and a repeat is a cheap no-op.
          *     - `dispatched=false` means the machine was offline; it self-updates when it reconnects.
          *     - Convergence shows as the next heartbeat flipping `bin_status` to `current`.
-         *     - Admin agent only (403); an unknown, removed or non-machine member is a 404.
+         *     - Admin only (403); an unknown, removed or non-machine member is a 404.
          */
         post: operations["handle_upgrade_machine_api_machines__member_id__upgrade_post"];
         delete?: never;
@@ -2023,12 +2023,12 @@ export interface paths {
         get: operations["handle_list_members_api_members_get"];
         put?: never;
         /**
-         * Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. This door hires STAFF ONLY — any other kind is a 422 that names where that kind is really born (a warden through ``POST /api/machines``, an outsource worker by the outsource scheduler when a task is handed out); a STAFF hire requires a currently available seed or custom role_key: an unknown or removed role answers 422 before any roster write, while a role-less staff hire is also 422; create a role + member through POST /api/roles. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
+         * Hire a member (server mints the id). An omitted runtime is stored UNSET and resolved from the target host's reported runtime capabilities at first placement (a codex-only host grows a codex member) rather than written as claude; only claude/codex are accepted when you do name one; effort defaults to medium and is validated; a hire that names kind or role_key is admin-gated. This door hires STAFF ONLY — any other kind is a 422 that names where that kind is really born (a warden through ``POST /api/machines``, an outsource member by the outsource scheduler when a task is handed out); a STAFF hire requires a currently available seed or custom role_key: an unknown or removed role answers 422 before any roster write, while a role-less staff hire is also 422; create a role + member through POST /api/roles. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description - Hires a roster row only; it spawns no runtime and the member starts offline.
          *     - The server mints the `id`; it is never client-supplied.
          *     - `runtime` is claude/codex; omitted, it resolves at first placement from the host.
          *     - A blank `name` or an invalid runtime is a 422.
-         *     - This door hires STAFF and nothing else: any other `kind` is a 422 naming the birth path that kind really has. A warden is born by onboarding its machine (`POST /api/machines`); an outsource worker is minted by the outsource scheduler when a task is handed out.
+         *     - This door hires STAFF and nothing else: any other `kind` is a 422 naming the birth path that kind really has. A warden is born by onboarding its machine (`POST /api/machines`); an outsource member is minted by the outsource scheduler when a task is handed out.
          *     - A staff hire with no `role_key` is a 422: nothing writes the roster row, and `POST /api/roles` is the path that creates a 正職 (role + member in one call).
          *     - A STAFF hire requires a currently available seed or custom role_key: an unknown or removed role is a 422 before any roster write.
          *     - Sending `kind` or `role_key` needs admin capability (403), and that check runs FIRST: a non-admin naming a kind gets the 403, not the kind refusal.
@@ -2048,8 +2048,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read one member row — STAFF OR OUTSOURCE. Released outsource workers and dismissed staff remain readable (`roster_status` = `removed`) so durable chat, task and lore attribution keeps their names; removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.
-         * @description - Reads one roster member, including a released outsource worker or a dismissed staff member, for durable identity attribution.
+         * Read one member row — STAFF OR OUTSOURCE. Released outsource members and dismissed staff remain readable (`roster_status` = `removed`) so durable chat, task and lore attribution keeps their names; removed wardens answer 404. The write verbs on this same {member_id} take an active ow- id too -- update, activate, deactivate, force-stop, accelerated-stop and refocus each dispatch to the worker body; release remains task-bound and dismiss refuses an ow- id with 404.
+         * @description - Reads one roster member, including a released outsource member or a dismissed staff member, for durable identity attribution.
          *     - `machine` is the OBSERVED position, not the pinned one — same as the list endpoint.
          *     - 404 if the member is absent, or if a warden row is removed.
          */
@@ -2156,7 +2156,7 @@ export interface paths {
         /**
          * Remove a member's personal avatar (owner only).
          * @description - Removes the personal avatar and returns the member to the fallback chain: the active theme's role avatar, then the built-in glyph.
-         *     - Owner only: admin agents, ordinary agents and machine tokens cannot alter another actor's appearance.
+         *     - Owner only: admins, ordinary agents and machine tokens cannot alter another actor's appearance.
          *     - Idempotent when there is no personal avatar.
          *     - Emits a `member` event; a client holding the stream learns of this without polling.
          */
@@ -2174,8 +2174,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read a staff member's boot-context preview (owner/admin agent).
-         * @description Read a staff member's boot-context PREVIEW: the server assembles the boot text FOR THIS MEMBER with the same fold the staff start path uses (buildBootContext with this member, the text reconcile hands the warden), WITHOUT minting any token. Because it is assembled for the member, it carries the member's 傳承 block (the ``everyone`` entries first, then the member's own) and the boot sequence for the member's own runtime. Owner/admin-agent cockpit read, the same floor as /api/bootstrap and the outsource worker preview. 404 for an unknown member, a removed member, an outsource worker (its preview is /api/outsource-workers/{id}/boot-context) or a machine; 404 when the member's role definition is gone. It does NOT include the header the warden prepends for its runtime at spawn. HONEST caveat the UI must carry: this is today's assembly, not a verbatim start-time record — nothing is stored.
+         * Read a staff member's boot-context preview (owner/admin).
+         * @description Read a staff member's boot-context PREVIEW: the server assembles the boot text FOR THIS MEMBER with the same fold the staff start path uses (buildBootContext with this member, the text reconcile hands the warden), WITHOUT minting any token. Because it is assembled for the member, it carries the member's 傳承 block (the ``everyone`` entries first, then the member's own) and the Boot steps for the member's own runtime. Owner/admin cockpit read, the same floor as /api/bootstrap and the outsource member preview. 404 for an unknown member, a removed member, an outsource member (its preview is /api/outsource-workers/{id}/boot-context) or a machine; 404 when the member's Duty is gone. It does NOT include the header the warden prepends for its runtime at spawn. HONEST caveat the UI must carry: this is today's assembly, not a verbatim start-time record — nothing is stored.
          */
         get: operations["handle_get_member_boot_context_api_members__member_id__boot_context_get"];
         put?: never;
@@ -2367,7 +2367,7 @@ export interface paths {
         /**
          * The SAME bounded wake snapshot as resume_summary, for a TARGET member (member_id) instead of the caller — control-others, admin_agent+ only (owner-scope or role=assistant); an ordinary agent gets 403. Same identity/chat/light-task-rows/roster/machines/overview/note shape, assembled by the identical resumeSnapshotParts function (so the roster and machine blocks cannot drift from what that member would get on waking; note that machines.you_are_on resolves for the TARGET member, not for you); resume_summary itself is unchanged and still identity-locked to the caller. The owner's delete notices are left out of the chat block unless include_delete_notices=true.
          * @description - The same bounded wake snapshot as your own resume summary, but for another member.
-         *     - Owner or admin agent only; an ordinary agent gets a 403.
+         *     - Owner or admin only; an ordinary agent gets a 403.
          *     - 404 if `member_id` does not resolve to a live roster member.
          *     - The owner's delete notices are left out of the chat block before packing; `include_delete_notices=true` carries them.
          */
@@ -2397,7 +2397,7 @@ export interface paths {
         get: operations["handle_list_scheduled_messages_api_members__member_id__scheduled_messages_get"];
         put?: never;
         /**
-         * Create a scheduled message on one member — the mechanism for waking a member on a repeating wall-clock slot: at each due slot the server delivers `body` verbatim down the ORDINARY chat path, from the synthetic sender `sched:<schedule_id>`. admin_agent floor: the owner, or an admin assistant setting one up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. The recipient follows chat's rule, so an `ow-` outsource worker is a legal target as well as a staff member. `body`, `cadence` and `timezone` are always required; `hour`/`minute` are required by `daily`/`weekly`/`monthly` and ignored by `custom` FOR SCHEDULING — their range is still checked under every cadence, so `hour: 99` is a 422 even for `custom`, which instead requires `custom_days`/`custom_hours`/`custom_minutes` (`custom_months` may be omitted to mean all twelve; an explicit empty set is a 422). Those conditional rules are NOT expressible in this schema — a wrong combination comes back as a 422 rather than folding into a silent midnight. TWO fields are the exception and they fail SILENTLY: `day_of_week` (used by `weekly`) and `day_of_month` (used by `monthly`) are NOT required — omit either one and the create returns 200 having defaulted it to 0 (Sunday) and 1 (the first of the month). 'Every Friday at 09:00' sent without `day_of_week` is a Sunday alarm and nothing reports it, so send the field explicitly whenever the cadence reads it. `timezone` must NAME A PLACE: `Local` and the empty string are refused with 422 even though they resolve, because they hand "what time is it" to wherever the server happens to run. Missed slots are never backfilled — only the slot most recently elapsed is ever considered — and the cursor starts at creation time, so a `daily` 09:00 schedule created at 10:00 does not fire today. 404 if the member is absent or soft-removed. Answers with a bounded receipt (``id``, ``member_id``, ``label``, ``body_size_chars``, ``cadence``, ``custom_months``, ``day_of_month``, ``day_of_week``, ``status``, ``last_fired_slot``, ``last_fired_ts``, ``created_ts``), not the schedule — call ``list_scheduled_messages`` when you need the rest.
+         * Create a scheduled message on one member — the mechanism for waking a member on a repeating wall-clock slot: at each due slot the server delivers `body` verbatim down the ORDINARY chat path, from the synthetic sender `sched:<schedule_id>`. admin_agent floor: the owner, or an admin assistant setting one up on the owner's behalf; an ordinary agent gets 403 even for its own member_id. The recipient follows chat's rule, so an `ow-` outsource member is a legal target as well as a staff member. `body`, `cadence` and `timezone` are always required; `hour`/`minute` are required by `daily`/`weekly`/`monthly` and ignored by `custom` FOR SCHEDULING — their range is still checked under every cadence, so `hour: 99` is a 422 even for `custom`, which instead requires `custom_days`/`custom_hours`/`custom_minutes` (`custom_months` may be omitted to mean all twelve; an explicit empty set is a 422). Those conditional rules are NOT expressible in this schema — a wrong combination comes back as a 422 rather than folding into a silent midnight. TWO fields are the exception and they fail SILENTLY: `day_of_week` (used by `weekly`) and `day_of_month` (used by `monthly`) are NOT required — omit either one and the create returns 200 having defaulted it to 0 (Sunday) and 1 (the first of the month). 'Every Friday at 09:00' sent without `day_of_week` is a Sunday alarm and nothing reports it, so send the field explicitly whenever the cadence reads it. `timezone` must NAME A PLACE: `Local` and the empty string are refused with 422 even though they resolve, because they hand "what time is it" to wherever the server happens to run. Missed slots are never backfilled — only the slot most recently elapsed is ever considered — and the cursor starts at creation time, so a `daily` 09:00 schedule created at 10:00 does not fire today. 404 if the member is absent or soft-removed. Answers with a bounded receipt (``id``, ``member_id``, ``label``, ``body_size_chars``, ``cadence``, ``custom_months``, ``day_of_month``, ``day_of_week``, ``status``, ``last_fired_slot``, ``last_fired_ts``, ``created_ts``), not the schedule — call ``list_scheduled_messages`` when you need the rest.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
          *     - `cadence`: How often the message repeats. `weekly` reads `day_of_week`, `monthly` reads `day_of_month`, `daily` reads neither; those three all fire once a day at the single wall-clock reading `hour`/`minute` names. `custom` (T-49e7) reads none of those four: it reads the FOUR sets `custom_months`, `custom_days`, `custom_hours` and `custom_minutes` and fires at EVERY wall-clock reading where all four hold at once, so it is the only cadence that can fire more than once a day. `custom_months` (T-49e7 round 2) is the only one of the four that may be omitted, and an omitted `custom_months` means all twelve months. DAYLIGHT-SAVING BEHAVIOUR, which `custom` enlarges because it names many readings a day rather than one: a reading the zone SKIPPED (spring forward) is simply not fired for `custom` — it is NOT moved forward to the next existing reading the way a once-a-day cadence's single reading is, because moving it would land on a neighbouring selected reading, produce the same slot identifier and silently merge two deliveries into one; a reading the zone repeats (autumn back) fires ONCE. WHICH of the two instants that single delivery lands on is whatever Go's `time.Date` resolves the ambiguous reading to — deterministic for a given zone and reading, but implementation-defined and NOT guaranteed to be the earlier one (measured: `America/New_York` resolves to the earlier instant, `Europe/London` and `Africa/Cairo` to the later). The invariant this contract states is only that ONE wall-clock reading yields ONE slot, hence one delivery. The `daily`/`weekly`/`monthly` behaviour is unchanged in both directions. Every set's range is enforced server-side (a 422), not by this schema — `custom_minutes: [0,20,40]` with every hour and every day listed is "every 20 minutes", and `custom_minutes: [15]` with every hour and every day listed is "15 minutes past every hour".
@@ -2409,7 +2409,7 @@ export interface paths {
          * @description - Delivers `body` down the ordinary chat path: live when online, the durable mailbox otherwise.
          *     - It arrives from the synthetic sender `sched:<schedule_id>`.
          *     - The cursor starts at the slot most recently elapsed, so one created after today's slot waits.
-         *     - The recipient may be an assistant or an `ow-` outsource worker.
+         *     - The recipient may be an assistant or an `ow-` outsource member.
          *     - 422 on a blank body, a bad cadence, or a missing/out-of-range slot field.
          */
         post: operations["handle_create_scheduled_message_api_members__member_id__scheduled_messages_post"];
@@ -2515,11 +2515,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Last 5 raw /in requests of one webhook endpoint, newest first (debug; owner or admin agent only). /in answers 200 {"status":"ok"} whether or not anything was delivered, except that a Slack URL-verification handshake gets its challenge echoed, a payload over the size limit is a 413 that states the limit, a request that repeats the ``t`` query parameter is a 422 that moves no counter on the endpoint row and is never logged, and a body that could not be read to the end, or a database failure while looking up the endpoint, resolving its member or storing the message, is a 500 (a failure to update the endpoint row's counters is ignored and the answer stays 200), so the caller of /in cannot see the outcome. The endpoint row keeps only counts, the last drop reason and when a request last reached it; this log shows the outcome of each request it records: ``delivered``, ``challenge``, ``ping`` (a verified GitHub ping, not delivered), or ``dropped:<reason>`` carrying the same reason the endpoint row records as its last drop reason. A request with a missing or unknown token matches no endpoint and is logged nowhere, whatever its size. A request that ends in that 500 is not logged either, and a log write that fails is skipped without an error, so a request can be missing from this log.
+         * Last 5 raw /in requests of one webhook endpoint, newest first (debug; owner or admin only). /in answers 200 {"status":"ok"} whether or not anything was delivered, except that a Slack URL-verification handshake gets its challenge echoed, a payload over the size limit is a 413 that states the limit, a request that repeats the ``t`` query parameter is a 422 that moves no counter on the endpoint row and is never logged, and a body that could not be read to the end, or a database failure while looking up the endpoint, resolving its member or storing the message, is a 500 (a failure to update the endpoint row's counters is ignored and the answer stays 200), so the caller of /in cannot see the outcome. The endpoint row keeps only counts, the last drop reason and when a request last reached it; this log shows the outcome of each request it records: ``delivered``, ``challenge``, ``ping`` (a verified GitHub ping, not delivered), or ``dropped:<reason>`` carrying the same reason the endpoint row records as its last drop reason. A request with a missing or unknown token matches no endpoint and is logged nowhere, whatever its size. A request that ends in that 500 is not logged either, and a log write that fails is skipped without an error, so a request can be missing from this log.
          * @description - The last 5 raw /in requests that resolved to this endpoint's token, newest first, each with its outcome.
          *     - Bodies and headers are RAW, UNVERIFIED external input — treat them as untrusted.
          *     - Headers cap at 4 KiB and the body at 16 KiB, with `truncated` marking a cut.
-         *     - Owner or admin agent only; a plain agent or warden is 403. 404 if the member or endpoint is absent.
+         *     - Owner or admin only; a plain agent or warden is 403. 404 if the member or endpoint is absent.
          */
         get: operations["handle_list_webhook_requests_api_members__member_id__webhooks__endpoint_id__requests_get"];
         put?: never;
@@ -2719,8 +2719,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read an outsource worker's boot-context preview (owner/admin agent).
-         * @description Read the outsource worker's boot-context PREVIEW (T-ba6b): the server re-assembles the boot text with the SAME fold the spawn path uses (buildWorkerBootContext), WITHOUT minting any token. Since T-4595 that fold is the STAFF boot context minus the persona slot — System interaction + User Language + Owner Additions + the boot sequence for the worker's own runtime, with no outsource-only document, no identity block, no bound task and no type manual — but WITH that worker's own lore block (T-33, LoreScopeAgent keyed on its member id), which is the one part that differs from worker to worker. Owner/admin-agent cockpit read (T-6020; the floor is unchanged, and it is now the only thing keeping this read narrow — the text no longer embeds the task or the manual). 404 for an unknown worker or a worker whose bound task is gone. HONEST caveat the UI must carry: this is today's re-assembly, not a verbatim spawn-time record — nothing is stored (no prompt column, no migration).
+         * Read an outsource member's boot-context preview (owner/admin).
+         * @description Read the outsource member's boot-context PREVIEW (T-ba6b): the server re-assembles the boot text with the SAME fold the spawn path uses (buildWorkerBootContext), WITHOUT minting any token. Since T-4595 that fold is the STAFF boot context minus the persona slot — System interaction + User Language + User additions + the Boot steps for the worker's own runtime, with no outsource-only document, no identity block, no bound task and no type manual — but WITH that worker's own lore block (T-33, LoreScopeAgent keyed on its member id), which is the one part that differs from worker to worker. Owner/admin cockpit read (T-6020; the floor is unchanged, and it is now the only thing keeping this read narrow — the text no longer embeds the task or the manual). 404 for an unknown worker or a worker whose bound task is gone. HONEST caveat the UI must carry: this is today's re-assembly, not a verbatim spawn-time record — nothing is stored (no prompt column, no migration).
          */
         get: operations["handle_get_worker_boot_context_api_outsource_workers__id__boot_context_get"];
         put?: never;
@@ -2784,7 +2784,7 @@ export interface paths {
         };
         /**
          * Check GitHub Releases for a newer official OffiCraft version.
-         * @description - Owner or admin agent; synchronously reads GitHub's public release pages for the newest admissible release and compares it with the running version.
+         * @description - Owner or admin; synchronously reads GitHub's public release pages for the newest admissible release and compares it with the running version.
          *     - If GitHub cannot be reached the status degrades to `unknown` — never a 5xx.
          */
         get: operations["handle_check_release_api_release_check_get"];
@@ -2815,7 +2815,7 @@ export interface paths {
         get: operations["handle_list_reply_cards_api_reply_cards_get"];
         put?: never;
         /**
-         * Open a reply card: an ask the owner must answer (at least one option, except kind=secret, which asks for one value only its author can retrieve, must send options=[], and whose body says what is needed, where it goes and why; options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={"task_id": ..., "step_id": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound ask. To say WHICH task an ask is about without holding any of its steps — the only way open to an agent that is not that task's executor — send linked_task=null with about_task_id: the task keeps running and does NOT wait, and the receipt's hold_note says so in one sentence. Whenever a card names a task (bound or not) that is still open, the task's acting executor receives the card's reply_card events alongside the card's author, so the answer, a re-answer and an expiry reach the executor through the same reply-card notification the author gets. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no waiting_owner hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. With both ids present the bind is still refused, before anything is written, when the task does not exist (404), when you are not the task's acting executor (the predecessor while it holds the task under the reassign hold) and not the owner or an admin agent (403 — the refusal points you at about_task_id), when the task is not in_progress, waiting_owner or waiting_external, for example not_started or ready_for_done (409) — a task whose OTHER step waits on the outside world still takes a card on this step, when the step does not belong to that task (404), and when the step is already done or superseded (409). Optional attachments ride the question, up to a capped count that a refusal names (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (``id``, ``chat_message_id``, ``created_ts``, ``attachments``, ``hold_note``), not the card — call ``get_reply_card`` when you need the rest.
+         * Open a reply card: an ask the owner must answer (at least one option, except kind=secret, which asks for one value only its author can retrieve, must send options=[], and whose body says what is needed, where it goes and why; options ≤4 on a single card, ≤20 on a multi card, each carrying its own ai_pick flag; select_mode single|multi). linked_task is REQUIRED and has no default — every card must SAY whether it is about a task, because the server no longer infers one. Send linked_task={"task_id": ..., "step_id": ...} to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. Send linked_task=null when the ask is not about a task — it opens as a plain unbound ask. To say WHICH task an ask is about without holding any of its steps — the only way open to an agent that is not that task's executor — send linked_task=null with about_task_id: the task keeps running and does NOT wait, and the receipt's hold_note says so in one sentence. Whenever a card names a task (bound or not) that is still open, the task's acting executor receives the card's reply_card events alongside the card's author, so the answer, a re-answer and an expiry reach the executor through the same reply-card notification the author gets. BOTH ids are required in the object form: a task_id with NO step_id is a 400, because a card bound to a task but to no step places no waiting_owner hold, so the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting linked_task entirely is a 400 that names both legal shapes. With both ids present the bind is still refused, before anything is written, when the task does not exist (404), when you are not the task's acting executor (the predecessor while it holds the task under the reassign hold) and not the owner or an admin (403 — the refusal points you at about_task_id), when the task is not in_progress, waiting_owner or waiting_external, for example not_started or ready_for_done (409) — a task whose OTHER step waits on the outside world still takes a card on this step, when the step does not belong to that task (404), and when the step is already done or superseded (409). Optional attachments ride the question, up to a capped count that a refusal names (same shape as post_chat: {id} from `ocagent upload` / POST /api/chat/attachments, or inline data_b64). Answers with a bounded receipt (``id``, ``chat_message_id``, ``created_ts``, ``attachments``, ``hold_note``), not the card — call ``get_reply_card`` when you need the rest.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
          *     - `about_task_id`: OPTIONAL — the task this ask is about, WITHOUT holding any of its steps. Valid with linked_task=null; next to a linked_task object it must name the same task (400 otherwise). The task must exist (404) and be open (409). Nothing waits on the card: no step and no task status changes. While the task is open its executor receives the card's reply-card notifications too, and the card expires when the task closes.
@@ -2924,9 +2924,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mark a waiting card expired, or destroy a secret card's ciphertext (its author, the owner, or an admin agent; not an answer; terminal).
+         * Mark a waiting card expired, or destroy a secret card's ciphertext (its author, the owner, or an admin; not an answer; terminal).
          * @description - Marks a WAITING card, or a `secret` card whose value is provided but not retrieved, expired (the ciphertext is destroyed in the same write). On a `secret` card already retrieved it destroys the ciphertext now and the card stays retrieved; this is how a member ends the retention early. Otherwise: a terminal exit that is NOT an answer. No undo.
-         *     - Callers: author, owner, or admin agent. 404 unknown, 403 not yours, 409 settled.
+         *     - Callers: author, owner, or admin. 404 unknown, 403 not yours, 409 settled.
          *     - If bound to a step, expiring releases the wait like an answer: step and task go back to in_progress.
          *     - Emits a `reply_card` event; a client holding the stream learns of this without polling.
          */
@@ -2990,7 +2990,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname). The owner's delete notices are left out of the chat block unless include_delete_notices=true.
+         * Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and outsource member, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight by owner ruling. Outsource members additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; an outsource member's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname). The owner's delete notices are left out of the chat block unless include_delete_notices=true.
          * @description - Bounded wake snapshot of YOUR plane; identity comes from the token, never a parameter.
          *     - Chat is packed newest-first under a character BUDGET, not a fixed message count.
          *     - `body_omitted_chars` > 0 means that message IS here, shortened by that many chars — re-read with get_chat.
@@ -3038,8 +3038,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List role definitions (seed defaults + owner edits) WITHOUT the persona bodies: each row is the role identity plus its definition size and cap, never definition_md itself. Read the one role you want with get_role.
-         * @description - Every role definition: seed roles first (with any owner edit folded in), then owner-created custom roles.
+         * List Duty documents (seed defaults + owner edits) WITHOUT the persona bodies: each row is the role identity plus its definition size and cap, never definition_md itself. Read the one role you want with get_role.
+         * @description - Every role's Duty: seed roles first (with any owner edit folded in), then owner-created custom roles.
          *     - `definition_md` is ABSENT from every row, not served empty — read the role you picked with get_role.
          *     - Each row still carries `size_chars`/`cap_chars`, so "which definition is nearly full" is answerable here.
          */
@@ -3050,7 +3050,7 @@ export interface paths {
          * @description - Creates one custom role plus its one founding member; one pair per call, both ids server-minted.
          *     - The role's definition starts from a fixed template, not a blank page.
          *     - `runtime`, `model` and `effort` take effect on the next wake; effort outside low/medium/high/xhigh/max is 422.
-         *     - Admin agent only.
+         *     - Admin only.
          *     - Emits a `member` event; a client holding the stream learns of this without polling.
          */
         post: operations["handle_create_role_api_roles_post"];
@@ -3068,14 +3068,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read one role definition (unknown → 404).
-         * @description - One role definition, folded (the overlay over the shipped seed).
+         * Read one role's Duty (unknown → 404).
+         * @description - One role's Duty, folded (the overlay over the shipped seed).
          *     - 404 for an unknown role.
          */
         get: operations["handle_get_role_api_roles__role__get"];
         put?: never;
         /**
-         * Edit a role definition ({name?, definition_md?}; locked names skip). Answers with a bounded receipt (``key``, ``name``, ``is_default``, ``is_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the duty document — call ``get_role`` when you need the rest.
+         * Edit a role's Duty ({name?, definition_md?}; locked names skip). Answers with a bounded receipt (``key``, ``name``, ``is_default``, ``is_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the duty document — call ``get_role`` when you need the rest.
          * @description - Overlay write: the current effective document is folded, your fields are applied on top, and the WHOLE result is stored.
          *     - `name` applies to a CUSTOM role only — a seed role is name-locked and a supplied name is IGNORED, not rejected.
          *     - Renaming a custom role changes the name everywhere it is shown (roster cards, member rows).
@@ -3090,7 +3090,7 @@ export interface paths {
          *     - Reply cards those members opened that are still waiting are expired.
          *     - A seed role can never be deleted: 403. Unknown role 404.
          *     - 409 while any member of the role is online.
-         *     - Owner or admin agent only.
+         *     - Owner or admin only.
          */
         delete: operations["handle_delete_role_api_roles__role__delete"];
         options?: never;
@@ -3108,7 +3108,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset a role definition to seed (idempotent tombstone overlay). Only a shipped (seed) role can be reset: a role created on this station is refused with 409 (not applicable), an unknown role is 404. Answers with a bounded receipt (``key``, ``name``, ``is_default``, ``is_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the duty document — call ``get_role`` when you need the rest.
+         * Reset a role's Duty to seed (idempotent tombstone overlay). Only a shipped (seed) role can be reset: a role created on this station is refused with 409 (not applicable), an unknown role is 404. Answers with a bounded receipt (``key``, ``name``, ``is_default``, ``is_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the duty document — call ``get_role`` when you need the rest.
          * @description - Drops any owner edit and returns the role to its seed text; idempotent.
          *     - Only a SEED role can be reset: a role created on this station is refused with 409 (not applicable); an unknown role is 404.
          */
@@ -3189,8 +3189,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * restart_self(): ask for your own session to be stopped and started again. This call only records the request; it stops nothing itself. Your session is woken with the Stop document, and the server stops and respawns the session only after you work that procedure and call ``report_stopped``. If the owner or an admin agent escalates to Accelerated stop while you are working it, a deadline starts, you are sent the Accelerated stop document naming it, and the server collects the session at that deadline even if ``report_stopped`` has not been called. The owner or an admin agent can also end the session at once with Force stop (``force_stop_member``); that stop cancels the restart and leaves you down, with your desired state set to offline. Refused with 409 when you have no live event-stream connection or your desired state is not online, with 429 while the current session is younger than the minimum-liveness floor the refusal states, and with 409 when you are already further along the wind-down ladder (Stop → Accelerated stop → Force stop). Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.
-         * @description - Restarts your own session: the server pushes you the stop document, you run the close-out and call report_stopped, then it respawns you in place.
+         * restart_self(): ask to be refocused — your session ends and a new one starts from your handover. This call only records the request; it stops nothing itself. Your session is woken with the Stop document, and the server ends the session and starts a new one only after you work that procedure and call ``report_stopped``. If the owner or an admin escalates to Accelerated stop while you are working it, a deadline starts, you are sent the Accelerated stop document naming it, and the server collects the session at that deadline even if ``report_stopped`` has not been called. The owner or an admin can also end the session at once with Force stop (``force_stop_member``); that stop cancels the restart and leaves you down, with your desired state set to offline. Refused with 409 when you have no live event-stream connection or your desired state is not online, with 429 while the current session is younger than the minimum-liveness floor the refusal states, and with 409 when you are already further along the wind-down ladder (Stop → Accelerated stop → Force stop). Answers with a bounded receipt (``id``, ``desired_state``, ``refocus_op``, ``refocus_deadline``), not the member row — call ``get_member`` when you need the rest.
+         * @description - Refocuses you: the server pushes you the stop document, you run the close-out and call report_stopped, then it starts a new session for you in place.
          *     - 409 if you have no live event-stream connection or your desired state is not online, or if you are already further down the wind-down ladder - finish that close-out instead of retrying.
          *     - 429 within 10 minutes of your session connecting.
          *     - Emits a `member` event; a client holding the stream learns of this without polling.
@@ -3214,7 +3214,7 @@ export interface paths {
          * @description - Every secret, ordered by `created_ts`: id, name and note, so the caller can pick one and read the owner's note on how to use it. Never a value.
          *     - Every AI member may use every secret; there are no per-member grants.
          *     - For `ocagent secret list`.
-         *     - Agents and admin agents only (403 for the owner and for machines); off the MCP surface: AI members use secrets only through `ocagent secret`.
+         *     - Agents and admins only (403 for the owner and for machines); off the MCP surface: AI members use secrets only through `ocagent secret`.
          */
         get: operations["handle_list_self_secrets_api_self_secrets_get"];
         put?: never;
@@ -3243,7 +3243,7 @@ export interface paths {
          *     - All or nothing: when any id is unknown or refused, the call names those ids, returns no value and destroys nothing.
          *     - A successful call sets `last_accessed_ts` on every revealed secret in the same transaction that reads the values. A refused or failed call returns no value and changes no `last_accessed_ts`.
          *     - The value never reaches a log, an event or a chat message.
-         *     - Agents and admin agents only (403 for the owner and for machines); off the MCP surface: AI members use secrets only through `ocagent secret`.
+         *     - Agents and admins only (403 for the owner and for machines); off the MCP surface: AI members use secrets only through `ocagent secret`.
          */
         post: operations["handle_reveal_self_secrets_api_self_secrets_reveal_post"];
         delete?: never;
@@ -3332,10 +3332,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read the org-adjustable settings (owner/admin agent).
+         * Read the org-adjustable settings (owner/admin).
          * @description - The response schema IS the field list; this line names no setting on purpose, because such a list goes stale silently.
          *     - Read a value here before writing it back through update_settings.
-         *     - Owner or admin agent only.
+         *     - Owner or admin only.
          */
         get: operations["handle_get_settings_api_settings_get"];
         put?: never;
@@ -3344,14 +3344,14 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Edit org-adjustable settings (owner/admin agent). Only the fields you send change; read current values with get_settings first. An invalid value is a 422 that states the rule and writes nothing.
+         * Edit org-adjustable settings (owner/admin). Only the fields you send change; read current values with get_settings first. An invalid value is a 422 that states the rule and writes nothing.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these notes add what the summary and a 422 do not say.
          *     - `codex_notice_round`, `codex_compaction_threshold`: The codex twins of notice_pct / handover_pct, counted in context-compaction rounds instead of %: notice round = soft notice; threshold = final round, where the handover fires.
          *     - `backup_retain`: Backup versions (not days) kept per pool; routine and pre-migration backups are separate pools, so 5 keeps up to 10 files. Older files are deleted from disk.
          *     - `chat_budget_chars`: Chat-block budget of the wake snapshot (resume_summary, and the estimate peek_resume_summary_size reports).
          *     - `step_note_cap_chars`: Max length of one step note, checked on write: a stored note over a lowered cap stays readable, but any write that leaves it over the cap is refused.
-         *     - `doc_cap_chars_*`: Length cap per document type: `duty` (role definition), `insight`, `manual_sop` (task manual sop_md), `system_interaction` (System interaction), `boot_sequence` (Boot Sequence; one knob for both runtimes, each text measured on its own), `offboard` (Stop). A stored document over a lowered cap accepts only edits that shrink it.
+         *     - `doc_cap_chars_*`: Length cap per document type: `duty` (Duty), `insight`, `manual_sop` (task manual sop_md), `system_interaction` (System interaction), `boot_sequence` (Boot steps; one knob for both runtimes, each text measured on its own), `offboard` (Stop). A stored document over a lowered cap accepts only edits that shrink it.
          *     - `display_language`: Cockpit language, and the language every member writes to the owner in from its next boot; "" resets it to unset.
          *     - `display_theme`: Cockpit theme: "" (unset), a built-in id (office, office-light, modern-office-desk-day / -dusk / -night), or an existing custom theme id.
          *     - `display_theme_schedule`: Replaces the time-of-day theme schedule wholesale. Each entry `{start: "HH:MM", theme}` shows `theme` from `start` (viewer-local) until the next entry's start, wrapping past midnight; themes as for display_theme. It overrides display_theme on screen without changing it. [] turns it off; null or omitted leaves it unchanged. Deleting a custom theme drops its entries, and the whole schedule if fewer than 2 remain.
@@ -3369,7 +3369,7 @@ export interface paths {
          *     - `lore_cap_chars_role`: lore characters carried in each member's boot document; `everyone` entries count inside this budget, ahead of the member's own.
          *     - `lore_cap_chars_manual`: lore characters get_task_manual carries; separate from lore_cap_chars_role, never summed.
          *     - `lore_cap_chars_title`, `lore_cap_chars_body`: Max title / body length of one new lore entry; entries are immutable, so lowering never affects stored ones.
-         * @description - Owner or admin agent; only the fields you send change.
+         * @description - Owner or admin; only the fields you send change.
          *     - Changes are durable and take effect at the next use: `owner_token_ttl` from the next login, `agent_token_ttl` from the next spawn or reconcile, offboard points from the next context report.
          *     - The owner's other open browsers and devices re-read settings at once, so a `display_*` change shows there without a reload.
          *     - A TTL outside 12h/24h/7d/30d, `handover_pct` outside 40..90, or a notice point not strictly below its final one is a 422 and writes nothing.
@@ -3385,15 +3385,15 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read the System interaction block of the boot context — the shared studio handbook every agent reads at boot. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.
-         * @description - The studio handbook every agent and outsource worker reads first in its boot context.
+         * Read the System interaction block of the boot context — the System interaction document every member reads at boot. Folded: the owner's edit when one exists, otherwise the shipped factory seed, with is_default saying which of the two you are holding and has_seed saying a factory version exists to go back to. The reply carries size_chars/cap_chars (this document's own size limit, in characters) and is_default/has_seed, so a caller can size an edit before making it and can tell an edited block from the shipped one.
+         * @description - The System interaction document every member reads first in its boot context.
          *     - `is_default=true` means you are reading the factory text, false an edit; `has_seed` means a factory version exists to reset to.
          */
         get: operations["handle_get_system_interaction_api_system_interaction_get"];
         put?: never;
         /**
-         * Replace the EDITABLE HALF of the System interaction block of the boot context ({body}) — the handbook every agent reads at boot. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.system_interaction cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_system_interaction always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_system_interaction`` when you need the rest.
-         * @description - Owner or admin agent only; this text lands in every agent's boot context.
+         * Replace the EDITABLE HALF of the System interaction block of the boot context ({body}) — the System interaction document every member reads at boot. body is REQUIRED and unknown keys are rejected; emptying a body that had content needs allow_shrink=true. This document carries NO read-only head today (T-6f44, owner's decision 4 removed it), so the body IS the whole document; the head machinery still exists for the kinds that do carry one, and there is no way to write a head on any face. The stored result is judged against the doc.cap_chars.system_interaction cap unconditionally, and the refusal tells you what you wrote, the cap, and what is already stored. The shipped seed is never overwritten, so reset_system_interaction always gets the factory text back; the version this write replaces is retained in the document history (a save that changes nothing retains nothing). Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_system_interaction`` when you need the rest.
+         * @description - Owner or admin only; this text lands in every agent's boot context.
          *     - Replaces the editable body only; the read-only head cannot be written.
          *     - `body` is required; replacing a non-empty body with an empty one needs `allow_shrink=true`.
          *     - The stored result is always cap-checked; `allow_shrink` is not a bypass.
@@ -3441,7 +3441,7 @@ export interface paths {
          * Get the owner's suggested replies for every task type.
          * @description - The owner's 建議回覆 for every task type that has any; a type with none is not listed.
          *     - The reply-card composer of a card that names a task of that type (bound to one of its steps, or through `about_task_id`) lists these first, then the card author's chat 建議回覆, then the reply-card list (`suggested_replies.reply_card`), the same text shown once. A card that names no task, or names an ad-hoc task (`type_key` ""), is unaffected.
-         *     - The task card's message box of a task of that type lists these first, then the task-message list (`suggested_replies.task_message`). The chat room with an outsource worker bound to a task of that type lists these first, then that worker's chat 建議回覆, then the chat list (`suggested_replies.chat`). Staff chat rooms never list them; each box shows the same text once.
+         *     - The task card's message box of a task of that type lists these first, then the task-message list (`suggested_replies.task_message`). The chat room with an outsource member bound to a task of that type lists these first, then that worker's chat 建議回覆, then the chat list (`suggested_replies.chat`). Staff chat rooms never list them; each box shows the same text once.
          *     - Owner only; no agent reads these lists.
          */
         get: operations["handle_get_task_manual_suggested_replies_api_task_manual_suggested_replies_get"];
@@ -3496,7 +3496,7 @@ export interface paths {
         get: operations["handle_list_task_manuals_api_task_manuals_get"];
         put?: never;
         /**
-         * Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
+         * Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
          * @description - Creates one task type as a blank manual from `display_name`; the server mints the `tm-` type_key and returns it.
          *     - An explicit `type_key` is still accepted verbatim as the id (duplicate is 409; a blank display_name backfills to it).
          *     - Any agent may create a manual, but supplying `assignee` below admin_agent is a 403.
@@ -3525,7 +3525,7 @@ export interface paths {
         get: operations["handle_get_task_manual_api_task_manuals__type_key__get"];
         put?: never;
         /**
-         * Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped. The SOP is judged against sop_md_cap_chars. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
+         * Edit a task manual (partial; content fields agent-editable; assignee = owner/admin). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped. The SOP is judged against sop_md_cap_chars. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
          * @description - Partial edit: only supplied fields change, but an unrecognised field name is 422 rather than silently ignored.
          *     - Content fields are agent-writable; `assignee` below admin is 403.
          *     - `assignee` is {kind: staff, member_id} or {kind: outsource, model, effort, copies}; {} unsets it.
@@ -3535,7 +3535,7 @@ export interface paths {
         /**
          * Delete a task type (open tasks of the type → 409). A built-in manual cannot be deleted (403) — reset it with reset_task_manual instead.
          * @description - Refused with 409 while any NON-terminal task of this type exists; closed tasks never block.
-         *     - Owner or admin agent only; a plain agent is 403.
+         *     - Owner or admin only; a plain agent is 403.
          *     - A built-in (seed) manual cannot be deleted: 403; reset it instead.
          *     - Also deletes the type's owner suggested replies; when it had any, emits `task_manual_suggested_reply` to the owner.
          */
@@ -3555,10 +3555,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset a built-in task manual to its shipped version (idempotent): drops any edit, content AND assignee alike. Only a built-in (seed) manual can be reset: a manual created on this station is refused with 409 (not applicable), an unknown type_key is 404. Owner or admin agent only. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
+         * Reset a built-in task manual to its shipped version (idempotent): drops any edit, content AND assignee alike. Only a built-in (seed) manual can be reset: a manual created on this station is refused with 409 (not applicable), an unknown type_key is 404. Owner or admin only. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.
          * @description - Drops any edit (content AND assignee) and returns the manual to its shipped version; idempotent.
          *     - Only a built-in (seed) manual can be reset: a manual created on this station is refused with 409 (not applicable); an unknown type is 404.
-         *     - Owner or admin agent only; a plain agent is 403.
+         *     - Owner or admin only; a plain agent is 403.
          */
         post: operations["handle_reset_task_manual_api_task_manuals__type_key__reset_post"];
         delete?: never;
@@ -3610,13 +3610,13 @@ export interface paths {
         get: operations["handle_list_tasks_api_tasks_get"];
         put?: never;
         /**
-         * Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to drop the task as an unassigned outsource task (outsourcing); target.runtime is claude/codex (absent = claude). The existing outsource scheduler then spawns workers against the global concurrency cap (outsourceParallelCap) — below the cap it starts immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. No owner-approval card and no per-task approval; the owner may reassign a still-queued task at any time. Caller authorization (staff authorization matrix, T-23cf): an outsource worker may never create a task; an outsource create is open to any staff member (owner/admin included); a typed task the manual assigns to member X may be created only by X (owner/admin NOT exempt); an ad-hoc task with a member executor may name only the caller itself unless the caller is owner/admin (a regular staff member may self-execute or outsource, never assign another member). Answers with a bounded receipt (``task_id``, ``executor_kind``, ``executor_id``, ``deduped``, ``title``, ``status``, ``warnings``), not the task — call ``get_task`` when you need the rest. ``task_no`` is GONE from this answer (owner ruling rc-f1c0fd3cf124): it was the same string as ``task_id``, byte for byte, and the sibling task writes had already dropped it for that reason. The executor pair is what the SERVER chose — on a typed create it comes from the manual's assignee, so a caller that sent only ``type_key`` learns its placement here; an empty ``executor_id`` under ``outsource`` means the scheduler has not minted the worker yet.
+         * Create a task (dedupes on the manual's key; ad-hoc when type_key omitted). Pass target.kind=outsource to drop the task as an unassigned outsource task (outsourcing); target.runtime is claude/codex (absent = claude). The existing outsource scheduler then spawns workers against the global concurrency cap (outsourceParallelCap) — below the cap it starts immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. No reply card to the owner and no per-task approval; the owner may reassign a still-queued task at any time. Caller authorization (staff authorization matrix, T-23cf): an outsource member may never create a task; an outsource create is open to any staff member (owner/admin included); a typed task the manual assigns to member X may be created only by X (owner/admin NOT exempt); an ad-hoc task with a member executor may name only the caller itself unless the caller is owner/admin (a regular staff member may self-execute or outsource, never assign another member). Answers with a bounded receipt (``task_id``, ``executor_kind``, ``executor_id``, ``deduped``, ``title``, ``status``, ``warnings``), not the task — call ``get_task`` when you need the rest. ``task_no`` is GONE from this answer (owner ruling rc-f1c0fd3cf124): it was the same string as ``task_id``, byte for byte, and the sibling task writes had already dropped it for that reason. The executor pair is what the SERVER chose — on a typed create it comes from the manual's assignee, so a caller that sent only ``type_key`` learns its placement here; an empty ``executor_id`` under ``outsource`` means the scheduler has not minted the worker yet.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
-         *     - `target`: Dispatch target. The kind is a CLOSED SET of two values, 'staff' and 'outsource' (surrounding whitespace is trimmed, case is not folded). Since T-101 every other spelling - 'outsourced', 'Outsource', a typo, or the pre-rename 'member' - is a 400 naming the field, and 'member' specifically is answered with a message saying it was RENAMED to 'staff', rather than one that merely lists the set. kind-vocab-guard:legacy Only 'outsource' dispatches: 'staff', and an omitted target, both create the task down the ordinary staff path. ONE quiet case survives the rename: an EMPTY kind (blank or whitespace only) is not validated and not warned about - the whole target block is discarded and the task is created down the ordinary staff path, answering 200 with an ordinary staff create. So an outsource create assembled from a variable that turned out empty can come back as a staff-assigned task - but the RECEIPT says so: it carries executor_kind and executor_id, the placement the SERVER chose, so one call is enough to catch the downgrade on a FRESH create. On a dedupe hit those two describe the EXISTING ticket this call folded onto, so `staff` there can mean either a downgraded target or a ticket that was always a staff member's - read `deduped` first. Check the created task's executor_kind whenever the kind you sent was not a literal. The MACHINE is the other quiet one, and it bites even when the kind is spelled right. Leaving target.machine out is not an error and usually costs nothing: the field is filled from the type manual's outsource assignee, and then from the machine YOU are pinned to as the creator - though an owner-scope caller has no roster row to lend and contributes nothing here. When none of those three names a machine the field simply stays empty: runtime and effort have defaults, a placement deliberately does not, and nothing else invents one. The task is still created with 200 and reads as normal, and the worker minted for it later does not boot at all until somebody names a machine on it - until then it just sits there with a no_machine_selected receipt on the WORKER row, which is the only place this ever surfaces.
+         *     - `target`: Dispatch target. The kind is a CLOSED SET of two values, 'staff' and 'outsource' (surrounding whitespace is trimmed, case is not folded). Since T-101 every other spelling - 'outsourced', 'Outsource', a typo, or the pre-rename 'member' - is a 400 naming the field, and 'member' specifically is answered with a message saying it was RENAMED to 'staff', rather than one that merely lists the set. kind-vocab-guard:legacy Only 'outsource' dispatches: 'staff', and an omitted target, both create the task down the ordinary staff path. ONE quiet case survives the rename: an EMPTY kind (blank or whitespace only) is not validated and not warned about - the whole target block is discarded and the task is created down the ordinary staff path, answering 200 with an ordinary staff create. So an outsource create assembled from a variable that turned out empty can come back as a staff-assigned task - but the RECEIPT says so: it carries executor_kind and executor_id, the placement the SERVER chose, so one call is enough to catch the downgrade on a FRESH create. On a dedupe hit those two describe the EXISTING task this call folded onto, so `staff` there can mean either a downgraded target or a task that was always a staff member's - read `deduped` first. Check the created task's executor_kind whenever the kind you sent was not a literal. The MACHINE is the other quiet one, and it bites even when the kind is spelled right. Leaving target.machine out is not an error and usually costs nothing: the field is filled from the type manual's outsource assignee, and then from the machine YOU are pinned to as the creator - though an owner-scope caller has no roster row to lend and contributes nothing here. When none of those three names a machine the field simply stays empty: runtime and effort have defaults, a placement deliberately does not, and nothing else invents one. The task is still created with 200 and reads as normal, and the worker minted for it later does not boot at all until somebody names a machine on it - until then it just sits there with a no_machine_selected receipt on the WORKER row, which is the only place this ever surfaces.
          * @description - With type_key the dedupe key and executor come from the manual; otherwise executor_member_id is required.
          *     - A dedupe hit on an open task is a normal 200 naming the existing task, not an error.
-         *     - An outsource worker may never create a task; a typed task only by the member the manual assigns it to, not even owner or admin.
+         *     - An outsource member may never create a task; a typed task only by the member the manual assigns it to, not even owner or admin.
          *     - Ad-hoc: name only yourself unless owner or admin. 403 precedes dedupe.
          */
         post: operations["handle_create_task_api_tasks_post"];
@@ -3656,7 +3656,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read one task — and read it knowing it is a SUMMARY, not the whole of it: the response says so itself (``detail_level`` = ``summary``, ``notes_included`` = false). WHAT IS COMPLETE HERE: the task's own fields, its deps, its progress counts, its gate cards, and EVERY ONE of its steps. The step list has no cap, no paging and no truncation of any kind — the rows you get back are all the rows there are, so a step that is not here does not exist on this task. WHAT IS OMITTED, AND EXACTLY HOW MUCH OF IT: each step's working-note TEXT (T-66). In its place every step carries ``note_size_chars`` — the EXACT number of characters of note sitting on the server for that step, where 0 means that step genuinely has no note — and ``note_cap_chars``, the ceiling. A positive ``note_size_chars`` is a precise promise that that many characters are waiting for you, and ``get_task_step(task_id, step_id)`` is the one call that returns them, one step at a time. Read the sizes first, then fetch only the notes you actually need. THE PINNED DELIVERABLES ARE OMITTED THE SAME WAY, AND SINCE T-92 THERE IS NOT EVEN AN INDEX OF THEM: ``artifact_count`` is the only thing said about them here — an EXACT, un-truncated, un-capped count, 0 meaning the task genuinely has nothing pinned. No array, no ids, no names: ``list_task_artifacts(task_id)`` returns every artifact on the ticket, complete, in ONE call, and there is deliberately no per-artifact read. Ask for that list when you are going to USE an artifact; a count is what you need to know one exists. Unknown id → 404.
+         * Read one task — and read it knowing it is a SUMMARY, not the whole of it: the response says so itself (``detail_level`` = ``summary``, ``notes_included`` = false). WHAT IS COMPLETE HERE: the task's own fields, its deps, its progress counts, its gate cards, and EVERY ONE of its steps. The step list has no cap, no paging and no truncation of any kind — the rows you get back are all the rows there are, so a step that is not here does not exist on this task. WHAT IS OMITTED, AND EXACTLY HOW MUCH OF IT: each step's working-note TEXT (T-66). In its place every step carries ``note_size_chars`` — the EXACT number of characters of note sitting on the server for that step, where 0 means that step genuinely has no note — and ``note_cap_chars``, the ceiling. A positive ``note_size_chars`` is a precise promise that that many characters are waiting for you, and ``get_task_step(task_id, step_id)`` is the one call that returns them, one step at a time. Read the sizes first, then fetch only the notes you actually need. THE PINNED DELIVERABLES ARE OMITTED THE SAME WAY, AND SINCE T-92 THERE IS NOT EVEN AN INDEX OF THEM: ``artifact_count`` is the only thing said about them here — an EXACT, un-truncated, un-capped count, 0 meaning the task genuinely has nothing pinned. No array, no ids, no names: ``list_task_artifacts(task_id)`` returns every artifact on the task, complete, in ONE call, and there is deliberately no per-artifact read. Ask for that list when you are going to USE an artifact; a count is what you need to know one exists. Unknown id → 404.
          * @description - A summary: every step is here, uncapped and unpaged — a step not listed does not exist.
          *     - Step note text is omitted; each step carries `note_size_chars` (exact, 0 = none) and `note_cap_chars`.
          *     - get_task_step returns one note at a time: read the sizes, fetch only what you need.
@@ -3666,7 +3666,7 @@ export interface paths {
         get: operations["handle_get_task_api_tasks__task_id__get"];
         put?: never;
         /**
-         * Correct THIS task's own TEXT — its title, its description, or both in one write (T-646a). Replaces `update_task_title` and `update_task_description`, which documented the same rules twice and could not be applied together: changing both meant two calls, two transactions and two SSE deltas, with room for someone else's write to land in between. WHO: the task's acting executor (its executor, or the predecessor while it holds the task under the reassign hold — see reassign_task), or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it. If you handed the task over, you keep this right until the successor claims it or you leave; from then on it is the successor's text. ⚠️ ONE STRUCTURAL EXCEPTION (T-52, owner 2026-09-02): while the task has NO executor AT ALL and is not under the reassign hold (`executor_id` empty — where an outsource task sits between create_task and the moment the scheduler binds a worker to it), its CREATOR may correct the text here, because otherwise nobody who is awake could fix the brief the contractor reads on arrival and that window has no upper bound. It SHUTS the instant an executor is bound — from then on the creator is a flat 403 again, even though it opened the ticket. TEXT ONLY: the same window opens add_task_artifact, remove_task_artifact, replace_task_artifact, update_step_note, patch_step_note and the task_title / task_description restores, and nothing else — never freeze, terminate, reassign, claim, plan, step status, deps or any of the four closes. `replace_task_artifact` sits in the same window as add/remove by owner ruling (card rc-09367ed77bc2, 2026-09-03, option [0]), given with these facts in front of them: replace OVERWRITES in place what someone else pinned, and remove_task_artifact deletes that artifact's every retained version together with their blobs. PARTIAL: only the fields you NAME are touched, so omitting a field is a legal no-op for it that versions nothing and fans nothing. ⚠️ THE TWO FIELDS TREAT AN EXPLICIT BLANK DIFFERENTLY, and that is an owner ruling rather than an inconsistency (card rc-796541192519, 2026-08-11, option ①): a blank `title` ("" or whitespace-only) is REFUSED with 400 and does NOT clear the field, because create_task refuses a blank title too and an edit door looser than the create door would let a caller reach a task-list row with nothing in it; a blank `description` IS accepted and DOES clear the text, because plenty of cards legitimately have no prose. VALIDATION IS WHOLE-BODY AND HAPPENS FIRST: a request carrying a blank title alongside a perfectly good description writes NEITHER — a 400 leaves the task exactly as it was, never half-applied. Both values are trimmed of surrounding whitespace before they are stored AND before they are compared with what is there, so re-sending the same text with a stray trailing space is correctly seen as no change rather than spending one of the retained revisions saying nothing moved. ⚠️ THAT HOLDS ONLY WHILE THE STORED TEXT IS ALREADY TRIMMED. Whenever the stored description carries untrimmed whitespace, the next edit here normalises it and therefore DOES spend a revision — even when you re-send exactly what you read back. TWO things can put untrimmed text in that column, so this is not a one-time settling: create_task, which never trims the description (it does trim the title), and a RESTORE of a revision that holds untrimmed text, which is written back verbatim. Before this ticket both doors stored it raw and agreed; this tool trims and create still does not, which is a divergence awaiting a ruling rather than a promise about the system. The write is wholesale within each field: send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close: artifacts record what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters a field retains the previous value as a document version — kind `task_title` / `task_description`, key = the task id — so a correction is recoverable through list_document_history and the older wording is never simply gone. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.
+         * Correct THIS task's own TEXT — its title, its description, or both in one write (T-646a). Replaces `update_task_title` and `update_task_description`, which documented the same rules twice and could not be applied together: changing both meant two calls, two transactions and two SSE deltas, with room for someone else's write to land in between. WHO: the task's acting executor (its executor, or the predecessor while it holds the task under the reassign hold — see reassign_task), or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it. If you handed the task over, you keep this right until the successor claims it or you leave; from then on it is the successor's text. ⚠️ ONE STRUCTURAL EXCEPTION (T-52, owner 2026-09-02): while the task has NO executor AT ALL and is not under the reassign hold (`executor_id` empty — where an outsource task sits between create_task and the moment the scheduler binds a worker to it), its CREATOR may correct the text here, because otherwise nobody who is awake could fix the brief the outsource member reads on arrival and that window has no upper bound. It SHUTS the instant an executor is bound — from then on the creator is a flat 403 again, even though it opened the task. TEXT ONLY: the same window opens add_task_artifact, remove_task_artifact, replace_task_artifact, update_step_note, patch_step_note and the task_title / task_description restores, and nothing else — never freeze, terminate, reassign, claim, plan, step status, deps or any of the four closes. `replace_task_artifact` sits in the same window as add/remove by owner ruling (card rc-09367ed77bc2, 2026-09-03, option [0]), given with these facts in front of them: replace OVERWRITES in place what someone else pinned, and remove_task_artifact deletes that artifact's every retained version together with their blobs. PARTIAL: only the fields you NAME are touched, so omitting a field is a legal no-op for it that versions nothing and fans nothing. ⚠️ THE TWO FIELDS TREAT AN EXPLICIT BLANK DIFFERENTLY, and that is an owner ruling rather than an inconsistency (card rc-796541192519, 2026-08-11, option ①): a blank `title` ("" or whitespace-only) is REFUSED with 400 and does NOT clear the field, because create_task refuses a blank title too and an edit door looser than the create door would let a caller reach a task-list row with nothing in it; a blank `description` IS accepted and DOES clear the text, because plenty of cards legitimately have no prose. VALIDATION IS WHOLE-BODY AND HAPPENS FIRST: a request carrying a blank title alongside a perfectly good description writes NEITHER — a 400 leaves the task exactly as it was, never half-applied. Both values are trimmed of surrounding whitespace before they are stored AND before they are compared with what is there, so re-sending the same text with a stray trailing space is correctly seen as no change rather than spending one of the retained revisions saying nothing moved. ⚠️ THAT HOLDS ONLY WHILE THE STORED TEXT IS ALREADY TRIMMED. Whenever the stored description carries untrimmed whitespace, the next edit here normalises it and therefore DOES spend a revision — even when you re-send exactly what you read back. TWO things can put untrimmed text in that column, so this is not a one-time settling: create_task, which never trims the description (it does trim the title), and a RESTORE of a revision that holds untrimmed text, which is written back verbatim. This tool trims and create still does not, which is a divergence awaiting a ruling rather than a promise about the system. The write is wholesale within each field: send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close: artifacts record what the task PRODUCED and must stop moving, while a task worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters a field retains the previous value as a document version — kind `task_title` / `task_description`, key = the task id — so a correction is recoverable through list_document_history and the older wording is never simply gone. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.
          * @description - Corrects this task's title, description, or both; only fields you name are touched.
          *     - Caller: the acting executor (the predecessor while it holds the task under the reassign hold), or admin/owner; the creator only while there is no executor yet and the task is not under the reassign hold.
          *     - A blank `title` is a 400 that writes neither field; a blank `description` clears it.
@@ -3807,7 +3807,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read one task's pinned deliverables IN FULL — and since T-92 the ONLY call that returns an artifact row at all: ``get_task`` answers ``artifact_count`` and nothing else, no ids and no names. Answers ``{task_id, artifacts_detail_level, artifacts}`` where every artifact on the task is present, oldest→newest, complete: ``id``, ``kind`` (file|image|link), ``name`` (never empty — derived read-time from the blob's filename or the link target when the row has no stored name), ``description`` (the prose, possibly empty and possibly longer than the 256-rune write cap), ``url`` (where to go for the content — the blob serve path for a file/image, the external address for a link), ``mime`` (the blob's own content type — the authoritative answer to what the bytes are, which ``kind`` cannot give, since file covers .md and .pdf and .zip alike), ``filename`` (the BLOB'S OWN name, NOT the display name — ``name`` is that: it is what separates a .md from a .pdf from a .zip when ``mime`` says ``application/octet-stream``, and it is empty for a link and for a file whose blob is gone), ``created_ts``, ``created_by``, ``version_count`` and ``attachment_id`` (the row's own blob id — the address ``ocagent diff`` takes, so a member can compare a deliverable without re-uploading it; for a LINK it is the ``text/uri-list`` blob holding the target, which ``url`` does not expose at all). ⚠️ This call is where that id COMES FROM: ``get_task`` answers a count, so this is the only place a member can pick one up in the first place. (One other response carries it — the artifact-history read, for RETAINED PREVIOUS versions rather than the live row — but it is ``x-mcp: include=false``, so it is not on the tool surface at all.). ONE call answers the WHOLE ticket, and that is deliberate — there is no per-artifact read, because whoever opens a task's deliverables wants the set (a 32-artifact ticket would otherwise cost 32 calls), whereas a step note is read one at a time and ``get_task_step`` is per-step for exactly that reason. Blob metadata is resolved read-time and is honest-empty when the underlying blob is gone — never fabricated. A task with nothing pinned answers ``artifacts: []``, not a 404; an unknown task id is a 404. Same read floor as ``get_task``: any authenticated principal may read any task's artifacts, and no field here was behind a stricter door before.
+         * Read one task's pinned deliverables IN FULL — and since T-92 the ONLY call that returns an artifact row at all: ``get_task`` answers ``artifact_count`` and nothing else, no ids and no names. Answers ``{task_id, artifacts_detail_level, artifacts}`` where every artifact on the task is present, oldest→newest, complete: ``id``, ``kind`` (file|image|link), ``name`` (never empty — derived read-time from the blob's filename or the link target when the row has no stored name), ``description`` (the prose, possibly empty and possibly longer than the 256-rune write cap), ``url`` (where to go for the content — the blob serve path for a file/image, the external address for a link), ``mime`` (the blob's own content type — the authoritative answer to what the bytes are, which ``kind`` cannot give, since file covers .md and .pdf and .zip alike), ``filename`` (the BLOB'S OWN name, NOT the display name — ``name`` is that: it is what separates a .md from a .pdf from a .zip when ``mime`` says ``application/octet-stream``, and it is empty for a link and for a file whose blob is gone), ``created_ts``, ``created_by``, ``version_count`` and ``attachment_id`` (the row's own blob id — the address ``ocagent diff`` takes, so a member can compare a deliverable without re-uploading it; for a LINK it is the ``text/uri-list`` blob holding the target, which ``url`` does not expose at all). ⚠️ This call is where that id COMES FROM: ``get_task`` answers a count, so this is the only place a member can pick one up in the first place. (One other response carries it — the artifact-history read, for RETAINED PREVIOUS versions rather than the live row — but it is ``x-mcp: include=false``, so it is not on the tool surface at all.). ONE call answers the WHOLE task, and that is deliberate — there is no per-artifact read, because whoever opens a task's deliverables wants the set (a 32-artifact task would otherwise cost 32 calls), whereas a step note is read one at a time and ``get_task_step`` is per-step for exactly that reason. Blob metadata is resolved read-time and is honest-empty when the underlying blob is gone — never fabricated. A task with nothing pinned answers ``artifacts: []``, not a 404; an unknown task id is a 404. Same read floor as ``get_task``: any authenticated principal may read any task's artifacts, and no field here was behind a stricter door before.
          * @description - Ids come from here only: get_task answers a count, not artifact rows.
          *     - Returns every artifact at once, oldest first; there is no per-artifact read.
          *     - `name` is never empty; `filename`/`mime` describe the blob and are empty when it is gone.
@@ -3856,10 +3856,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Take over a reassigned task (the successor claims it): clears the reassigning lock and fires the predecessor worker. Only the successor (the task's executor) or the owner/an admin agent may claim; the predecessor is refused (403). The task status stays derived from its steps; only the lock is cleared. 409 if the task is not under the reassigning lock. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.
+         * Take over a reassigned task (the successor claims it): clears the reassigning lock and fires the predecessor worker. Only the successor (the task's executor) or the owner/an admin may claim; the predecessor is refused (403). The task status stays derived from its steps; only the lock is cleared. 409 if the task is not under the reassigning lock. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.
          * @description - The successor takes over a reassigned task: it clears the reassigning lock and fires the predecessor worker.
          *     - Task status is derived from the steps and is never set here.
-         *     - Only the task's executor (the successor), the owner or an admin agent may claim; the predecessor is refused.
+         *     - Only the task's executor (the successor), the owner or an admin may claim; the predecessor is refused.
          *     - 404 unknown task, 403 not the executor, 409 the task is not under a reassigning lock.
          */
         post: operations["handle_claim_task_api_tasks__task_id__claim_post"];
@@ -3901,7 +3901,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Correct THIS task's description — the ticket's own text (what the task IS: scope, origin, acceptance). T-e271: until this tool existed there was NO way to change a description after creation — create_task takes one only at birth, submit_plan writes steps, update_task_manual writes the TYPE's manual — so a decision to reword a card had nowhere to land. WHO: the task's acting executor (its executor, or the predecessor while it holds the task under the reassign hold — see reassign_task), or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it. If you handed the task over, you keep this right until the successor claims it or you leave; from then on it is the successor's text. ⚠️ ONE STRUCTURAL EXCEPTION (T-52, owner 2026-09-02): while the task has NO executor AT ALL and is not under the reassign hold (`executor_id` empty — where a 發包票 sits between create_task and the moment the scheduler binds a worker to it), its CREATOR may correct the text here, because otherwise nobody who is awake could fix the brief the contractor reads on arrival and that window has no upper bound. It SHUTS the instant an executor is bound — from then on the creator is a flat 403 again, even though it opened the ticket. TEXT ONLY: the same window opens add_task_artifact, remove_task_artifact, replace_task_artifact, update_step_note, patch_step_note and the task_title / task_description restores, and nothing else — never freeze, terminate, reassign, claim, plan, step status, deps or any of the four closes. `replace_task_artifact` sits in the same window as add/remove by owner ruling (card rc-09367ed77bc2, 2026-09-03, option [0]), given with these facts in front of him: replace OVERWRITES in place what someone else pinned, and remove_task_artifact deletes that artifact's every retained version together with their blobs. PARTIAL like update_task_manual: omitting `description` changes nothing (a safe no-op), while an explicit "" CLEARS it — absent and empty are different on purpose; unknown keys are refused rather than dropped. The write is wholesale within that field: the value replaces whatever was there, so send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close. The reason they differ: artifacts are the record of what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters the text retains the previous one as a document version (kind `task_description`, key = the task id) — list it with list_document_history, so a correction is recoverable and the older wording is never simply gone.
+         * Correct THIS task's description — the task's own text (what the task IS: scope, origin, acceptance). T-e271: until this tool existed there was NO way to change a description after creation — create_task takes one only at birth, submit_plan writes steps, update_task_manual writes the TYPE's manual — so a decision to reword a card had nowhere to land. WHO: the task's acting executor (its executor, or the predecessor while it holds the task under the reassign hold — see reassign_task), or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it. If you handed the task over, you keep this right until the successor claims it or you leave; from then on it is the successor's text. ⚠️ ONE STRUCTURAL EXCEPTION (T-52, owner 2026-09-02): while the task has NO executor AT ALL and is not under the reassign hold (`executor_id` empty — where a 發包票 sits between create_task and the moment the scheduler binds a worker to it), its CREATOR may correct the text here, because otherwise nobody who is awake could fix the brief the outsource member reads on arrival and that window has no upper bound. It SHUTS the instant an executor is bound — from then on the creator is a flat 403 again, even though it opened the task. TEXT ONLY: the same window opens add_task_artifact, remove_task_artifact, replace_task_artifact, update_step_note, patch_step_note and the task_title / task_description restores, and nothing else — never freeze, terminate, reassign, claim, plan, step status, deps or any of the four closes. `replace_task_artifact` sits in the same window as add/remove by owner ruling (card rc-09367ed77bc2, 2026-09-03, option [0]), given with these facts in front of him: replace OVERWRITES in place what someone else pinned, and remove_task_artifact deletes that artifact's every retained version together with their blobs. PARTIAL like update_task_manual: omitting `description` changes nothing (a safe no-op), while an explicit "" CLEARS it — absent and empty are different on purpose; unknown keys are refused rather than dropped. The write is wholesale within that field: the value replaces whatever was there, so send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close. The reason they differ: artifacts are the record of what the task PRODUCED and must stop moving, while a task worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters the text retains the previous one as a document version (kind `task_description`, key = the task id) — list it with list_document_history, so a correction is recoverable and the older wording is never simply gone.
          * @description - Corrects the description in place; the value is trimmed, so a whitespace-only body CLEARS it.
          *     - Acting executor (the predecessor while it holds the task under the reassign hold), admin or owner only (403); the creator only while there is no executor yet and the task is not under the reassign hold.
          *     - Omitting `description` is a legal no-op; unknown keys are refused.
@@ -3925,7 +3925,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Close this task as duplicated, pointing at the existing FINAL original it copies. ``duplicated`` is a terminal status alongside done and terminated, reachable only through this dedicated action — task status is otherwise derived from the steps and is never agent-reported. WHO: the task's acting executor (the predecessor while it holds the task under the reassign hold); the owner and the admin assistant may act on any task. ``duplicate_of`` is REQUIRED (422 when blank) and must name an EXISTING task (404) that is not this one (409 self-reference) and is not itself already ``duplicated`` (409 — point at the FINAL original, the server never chases a chain); a task already named as an original cannot itself be marked duplicated (409). ANY NON-TERMINAL STATUS IS ACCEPTED, ``ready_for_done`` INCLUDED — a task can turn out to be a copy of another one at any point, the close-out window included. Already terminal is a 409. No dependency is added. REPLACES ``mark_duplicate``, REMOVED in the same release: same behaviour, a name that says which status the task lands in. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest. THE BOUND OUTSOURCE WORKER IS DISMISSED HERE, and here is the only place it happens: the row releases AND the session is reclaimed at once, on all four closes alike. It used to wait for a separate close-out report, which is gone — the close-out now happens while the task is still open, so once a close lands there is nothing the worker is still allowed to do on it.
+         * Close this task as duplicated, pointing at the existing FINAL original it copies. ``duplicated`` is a terminal status alongside done and terminated, reachable only through this dedicated action — task status is otherwise derived from the steps and is never agent-reported. WHO: the task's acting executor (the predecessor while it holds the task under the reassign hold); the owner and the admin assistant may act on any task. ``duplicate_of`` is REQUIRED (422 when blank) and must name an EXISTING task (404) that is not this one (409 self-reference) and is not itself already ``duplicated`` (409 — point at the FINAL original, the server never chases a chain); a task already named as an original cannot itself be marked duplicated (409). ANY NON-TERMINAL STATUS IS ACCEPTED, ``ready_for_done`` INCLUDED — a task can turn out to be a copy of another one at any point, the close-out window included. Already terminal is a 409. No dependency is added. REPLACES ``mark_duplicate``, REMOVED in the same release: same behaviour, a name that says which status the task lands in. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest. THE BOUND OUTSOURCE MEMBER IS DISMISSED HERE, and here is the only place it happens: the row releases AND the session is reclaimed at once, on all four closes alike. It used to wait for a separate close-out report, which is gone — the close-out now happens while the task is still open, so once a close lands there is nothing the worker is still allowed to do on it.
          * @description - Closes the task as `duplicated`, pointing at the original it copies.
          *     - Terminal like done/terminated: `closed_ts` stamps, bound workers are dismissed (row released, session reclaimed).
          *     - `duplicate_of` is required (422) and must name an existing other task (404, 409 self).
@@ -3950,13 +3950,13 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Close this task as done OVER its own precondition — the exit for a task that is never going to be closed by the agent holding it. Two shapes reach it: one sitting in ``ready_for_done`` whose executor is gone, and one still mid-plan whose remaining steps will never be reported. WHO: the OWNER and the ADMIN ASSISTANT only. Every other principal is a 403, the task's own executor INCLUDED — an executor that can force its own task simply has ``mark_task_done`` without a precondition, and the precondition is the whole point. ``reason`` is OPTIONAL — omitted, blank or whitespace-only all close the task (owner ruling rc-a92a6252c3bd). A forced close is the one close nobody can reconstruct afterwards from the steps, because the steps do not agree that the work is finished, so a reason is worth giving: it is asked for, not demanded. The forcing principal and the reason are recorded on the task and come back on every read as ``forced_done_by`` / ``forced_done_reason``, so a done task always says whether it got there by itself. ANY NON-TERMINAL STATUS IS ACCEPTED. Already terminal is a 409 — this forces the precondition, not the terminal wall. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest. THE BOUND OUTSOURCE WORKER IS DISMISSED HERE, and here is the only place it happens: the row releases AND the session is reclaimed at once, on all four closes alike. It used to wait for a separate close-out report, which is gone — the close-out now happens while the task is still open, so once a close lands there is nothing the worker is still allowed to do on it.
+         * Close this task as done OVER its own precondition — the exit for a task that is never going to be closed by the agent holding it. Two shapes reach it: one sitting in ``ready_for_done`` whose executor is gone, and one still mid-plan whose remaining steps will never be reported. WHO: the OWNER and the ADMIN ASSISTANT only. Every other principal is a 403, the task's own executor INCLUDED — an executor that can force its own task simply has ``mark_task_done`` without a precondition, and the precondition is the whole point. ``reason`` is OPTIONAL — omitted, blank or whitespace-only all close the task (owner ruling rc-a92a6252c3bd). A forced close is the one close nobody can reconstruct afterwards from the steps, because the steps do not agree that the work is finished, so a reason is worth giving: it is asked for, not demanded. The forcing principal and the reason are recorded on the task and come back on every read as ``forced_done_by`` / ``forced_done_reason``, so a done task always says whether it got there by itself. ANY NON-TERMINAL STATUS IS ACCEPTED. Already terminal is a 409 — this forces the precondition, not the terminal wall. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest. THE BOUND OUTSOURCE MEMBER IS DISMISSED HERE, and here is the only place it happens: the row releases AND the session is reclaimed at once, on all four closes alike. It used to wait for a separate close-out report, which is gone — the close-out now happens while the task is still open, so once a close lands there is nothing the worker is still allowed to do on it.
          * @description - Closes any non-terminal task as done, ignoring the `ready_for_done` precondition.
          *     - Callers: the owner and the admin assistant only — the executor is a 403 here.
          *     - `reason` is OPTIONAL (owner ruling rc-a92a6252c3bd); when given it is recorded with the forcing principal.
          *     - Reads carry `forced_done_by` / `forced_done_reason` afterwards.
          *     - Already terminal is a 409.
-         *     - Stamps closed_ts and dismisses any bound outsource worker (row released, session reclaimed).
+         *     - Stamps closed_ts and dismisses any bound outsource member (row released, session reclaimed).
          */
         post: operations["handle_force_task_done_api_tasks__task_id__force_done_post"];
         delete?: never;
@@ -3975,9 +3975,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Message the task's executor (owner/admin agent; task context auto-attached). Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest. ``to`` is the executor the server delivered to: you did not name it (you named a task), and a later read cannot recompute it, because the executor can change between two calls.
+         * Message the task's executor (owner/admin; task context auto-attached). Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest. ``to`` is the executor the server delivered to: you did not name it (you named a task), and a later read cannot recompute it, because the executor can change between two calls.
          * @description - Posts one ordinary chat message to the task's executor, with {task_id, task_title, task_type} attached in `meta`.
-         *     - Owner or admin agent only.
+         *     - Owner or admin only.
          *     - 409 if the task has no executor.
          *     - 404 if the executor has left (a departed staff member or a released worker), the same refusal `POST /api/chat` gives for that recipient.
          */
@@ -4022,9 +4022,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Set, change or clear a task's due date (``due_ts`` in epoch seconds; ``null`` clears it) and, optionally, ``due_soon_lead_minutes``: how many minutes before it the task counts as due soon (1..43200 = 1 minute to 30 days; omit to keep the current lead, ``null`` to follow the workspace setting). Clearing the due date clears the lead too. Who may: the owner and admin agents on any task, and the task's acting executor (the predecessor while it holds the task under the reassign hold) on that task — the same rule as set_task_priority. Anyone else is a flat 403; a closed task is a 409. Answers with a bounded receipt (task_id, due_ts, due_soon_lead_minutes), not the whole task — use get_task when you need the rest.
+         * Set, change or clear a task's due date (``due_ts`` in epoch seconds; ``null`` clears it) and, optionally, ``due_soon_lead_minutes``: how many minutes before it the task counts as due soon (1..43200 = 1 minute to 30 days; omit to keep the current lead, ``null`` to follow the Due-soon lead time setting (Settings › General)). Clearing the due date clears the lead too. Who may: the owner and admins on any task, and the task's acting executor (the predecessor while it holds the task under the reassign hold) on that task — the same rule as set_task_priority. Anyone else is a flat 403; a closed task is a 409. Answers with a bounded receipt (task_id, due_ts, due_soon_lead_minutes), not the whole task — use get_task when you need the rest.
          * @description - Sets, changes or clears (`null`) the due date.
-         *     - Optionally sets how many minutes before it the task counts as due soon (`due_soon_lead_minutes`, 1..43200 = 1 minute to 30 days; omit to keep, `null` follows the workspace setting). Clearing the due date clears the lead.
+         *     - Optionally sets how many minutes before it the task counts as due soon (`due_soon_lead_minutes`, 1..43200 = 1 minute to 30 days; omit to keep, `null` follows the Due-soon lead time setting (Settings › General)). Clearing the due date clears the lead.
          *     - Owner and admin may set any task; the acting executor (the predecessor while it holds the task under the reassign hold) may set that task. Anyone else is 403.
          *     - Closed tasks are a 409.
          *     - Returns a bounded receipt, not the task.
@@ -4046,7 +4046,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Set a task's priority (owner/admin agent any value on any task; the task's acting executor (the predecessor while it holds the task under the reassign hold) any value on that task — frozen INCLUDED, and whoever may freeze may unfreeze, T-6020). The actor who sets frozen is recorded on the task as frozen_by and the field clears when the task leaves frozen. Anyone else is a flat 403. Answers with a bounded receipt (task_id, priority, frozen_by), not the whole task — use get_task when you need the rest.
+         * Set a task's priority (owner/admin any value on any task; the task's acting executor (the predecessor while it holds the task under the reassign hold) any value on that task — frozen INCLUDED, and whoever may freeze may unfreeze, T-6020). The actor who sets frozen is recorded on the task as frozen_by and the field clears when the task leaves frozen. Anyone else is a flat 403. Answers with a bounded receipt (task_id, priority, frozen_by), not the whole task — use get_task when you need the rest.
          * @description - Sets `high` | `mid` | `low` | `frozen`; freeze and unfreeze ride the same knob.
          *     - Owner and admin may set any task; the acting executor (the predecessor while it holds the task under the reassign hold) may set any value on that task, freeze and unfreeze included. Anyone else is 403.
          *     - Whoever set `frozen` is recorded as `frozen_by`, and the field clears when the task leaves frozen.
@@ -4070,8 +4070,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reassign a task to a staff member or a fresh outsource worker (executor-guarded: a plain agent may reassign only a task it is the acting executor of; owner/admin drive any task). REASSIGN HOLD: until the successor claims the task (claim_task), the predecessor keeps the executor's write rights and is the task's ACTING EXECUTOR, unless it leaves first — an outsource predecessor is reclaimed after `reassign_handover_timeout_secs` with no change to the task (artifact changes do not count), a staff predecessor leaves when dismissed; the successor can only read and claim. Caller authorization (staff authorization matrix, T-23cf): owner/admin may hand a task to any active member or outsource it to a fresh outsource worker; a regular staff member may only turn its own task into an outsource task (a staff target is 403); an outsource worker may not reassign at all. An outsource target uses target.runtime claude/codex (absent = claude), lands the task unassigned for the scheduler to spawn under the global parallel cap, and enters the reassigning handover state. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.
-         * @description - Target is an active member (`kind=staff`) or a new outsource worker (`outsource`).
+         * Reassign a task to a staff member or a fresh outsource member (executor-guarded: a plain agent may reassign only a task it is the acting executor of; owner/admin drive any task). REASSIGN HOLD: until the successor claims the task (claim_task), the predecessor keeps the executor's write rights and is the task's ACTING EXECUTOR, unless it leaves first — an outsource predecessor is reclaimed after `reassign_handover_timeout_secs` with no change to the task (artifact changes do not count), a staff predecessor leaves when dismissed; the successor can only read and claim. Caller authorization (staff authorization matrix, T-23cf): owner/admin may hand a task to any active member or outsource it to a fresh outsource member; a regular staff member may only turn its own task into an outsource task (a staff target is 403); an outsource member may not reassign at all. An outsource target uses target.runtime claude/codex (absent = claude), lands the task unassigned for the scheduler to spawn under the global parallel cap, and enters the reassigning handover state. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest.
+         * @description - Target is an active member (`kind=staff`) or a new outsource member (`outsource`).
          *     - Owner/admin reassign any task; ordinary staff may only outsource its OWN; a worker never (403).
          *     - Waiting cards that hold a step expire (a card that only names the task stays for the next executor), live steps reset to `pending`, and the task locks until the new executor claims it or the task closes.
          *     - Under the hold the predecessor keeps the executor's write rights until the successor claims or the predecessor leaves (an outsource predecessor is reclaimed after `reassign_handover_timeout_secs` with no change to the task (artifact changes do not count); a staff predecessor when dismissed); the successor can only read and claim.
@@ -4143,7 +4143,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read ONE step of one task IN FULL — the companion read to ``get_task``, which answers a SUMMARY. This response declares ``detail_level`` = ``full`` and carries that single step's ENTIRE working note (``note``) alongside its ``note_size_chars`` / ``note_cap_chars``, its status, DoD, ``waiting_reason``, gate flags, ``parallel_group``, bound ``reply_card_id`` and that card's live ``reply_card_status``. It carries NOTHING about the task itself and NOTHING about any other step, and that is the point: ``get_task`` tells you WHICH steps have a note (``note_size_chars`` > 0) and exactly how big it is, and this tool fetches one of them without dragging the whole ticket along. Same read floor as ``get_task`` — any authenticated principal may read any task's step; there is no executor gate on a READ. 404 for an unknown task, and 404 for a step id that exists but belongs to a DIFFERENT task: a step is only ever readable through its own task, so a wrong task_id never leaks somebody else's step.
+         * Read ONE step of one task IN FULL — the companion read to ``get_task``, which answers a SUMMARY. This response declares ``detail_level`` = ``full`` and carries that single step's ENTIRE working note (``note``) alongside its ``note_size_chars`` / ``note_cap_chars``, its status, DoD, ``waiting_reason``, gate flags, ``parallel_group``, bound ``reply_card_id`` and that card's live ``reply_card_status``. It carries NOTHING about the task itself and NOTHING about any other step, and that is the point: ``get_task`` tells you WHICH steps have a note (``note_size_chars`` > 0) and exactly how big it is, and this tool fetches one of them without dragging the whole task along. Same read floor as ``get_task`` — any authenticated principal may read any task's step; there is no executor gate on a READ. 404 for an unknown task, and 404 for a step id that exists but belongs to a DIFFERENT task: a step is only ever readable through its own task, so a wrong task_id never leaks somebody else's step.
          * @description - One step in full, including the entire working note that `get_task` only sizes.
          *     - Carries nothing about the task and nothing about any other step.
          *     - Any authenticated caller may read any task's step; there is no executor gate on a read.
@@ -4262,12 +4262,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Close this task as done — the action ``ready_for_done`` waits for. A task whose every step is reported done NO LONGER CLOSES ITSELF: it settles in ``ready_for_done`` and stays there, which is the one window in which the close-out can actually happen (pin the deliverables, finish the step notes, write the learnings back) — every one of those writes is refused once the task is terminal, and until this ticket the task went terminal in the same call that reported the last step. THIS call is what ends it. WHO: the task's OWN acting executor (the predecessor while it holds the task under the reassign hold), staff member and outsource worker alike — the close-out is the executor's work, so whoever does it must be able to say it is finished. The owner and the admin assistant do not share this door; theirs is ``force_task_done``, which records that it was forced. PRECONDITION: the task must be in ``ready_for_done``. Anything else is a 409 that NAMES the status the task is actually in, because the two ways to fail here need different answers — a task still in a work state has a step nobody has reported, and a terminal one is already closed. NOBODY IS CHASED AND THERE IS NO TIMER: a task nobody closes simply stays in ``ready_for_done``. That is the deliberate price of never closing a task underneath the agent that is still packing it up; ``force_task_done`` is the way out. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest. THE BOUND OUTSOURCE WORKER IS DISMISSED HERE, and here is the only place it happens: the row releases AND the session is reclaimed at once, on all four closes alike. It used to wait for a separate close-out report, which is gone — the close-out now happens while the task is still open, so once a close lands there is nothing the worker is still allowed to do on it.
+         * Close this task as done — the action ``ready_for_done`` waits for. A task whose every step is reported done NO LONGER CLOSES ITSELF: it settles in ``ready_for_done`` and stays there, which is the one window in which the close-out can actually happen (pin the deliverables, finish the step notes, write the learnings back) — every one of those writes is refused once the task is terminal. THIS call is what ends it. WHO: the task's OWN acting executor (the predecessor while it holds the task under the reassign hold), staff member and outsource member alike — the close-out is the executor's work, so whoever does it must be able to say it is finished. The owner and the admin assistant do not share this door; theirs is ``force_task_done``, which records that it was forced. PRECONDITION: the task must be in ``ready_for_done``. Anything else is a 409 that NAMES the status the task is actually in, because the two ways to fail here need different answers — a task still in a work state has a step nobody has reported, and a terminal one is already closed. NOBODY IS CHASED AND THERE IS NO TIMER: a task nobody closes simply stays in ``ready_for_done``. That is the deliberate price of never closing a task underneath the agent that is still packing it up; ``force_task_done`` is the way out. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest. THE BOUND OUTSOURCE MEMBER IS DISMISSED HERE, and here is the only place it happens: the row releases AND the session is reclaimed at once, on all four closes alike. It used to wait for a separate close-out report, which is gone — the close-out now happens while the task is still open, so once a close lands there is nothing the worker is still allowed to do on it.
          * @description - Closes a task sitting in `ready_for_done` as done — the close-out is over.
-         *     - Callers: the task's acting executor (the predecessor while it holds the task under the reassign hold), staff member or outsource worker; 403 otherwise.
+         *     - Callers: the task's acting executor (the predecessor while it holds the task under the reassign hold), staff member or outsource member; 403 otherwise.
          *     - The owner and the admin assistant use `force_task_done` instead.
          *     - `ready_for_done` only: any other status is a 409 that names the status the task is in.
-         *     - Stamps closed_ts and dismisses any bound outsource worker (row released, session reclaimed).
+         *     - Stamps closed_ts and dismisses any bound outsource member (row released, session reclaimed).
          */
         post: operations["handle_mark_task_done_api_tasks__task_id__mark_done_post"];
         delete?: never;
@@ -4286,12 +4286,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Close this task as terminated — the work is being abandoned, not finished. Terminating is the one status change that never goes through the task's own step reports, so it requires no step to be in any particular state. WHO: the owner, an admin agent, or the task's OWN acting executor (the predecessor while it holds the task under the reassign hold) when that is a staff member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE worker is refused HERE even on its own task — the owner's ruling named the executor and did not reach the contractor lifecycle, so this door stays shut until one does. ⚠️ THAT IS A FACT ABOUT THIS ROUTE, NOT A SYSTEM-WIDE GUARANTEE that a worker cannot close its own task: ``mark_task_duplicated`` sits at the same principalAgent floor, gates on callerMayDriveTask with no such subtraction, and reaches the same close (measured 2026-08-20 against this route's predecessor: 200 duplicated). Shutting that door too needs its own ruling. ANY NON-TERMINAL STATUS IS ACCEPTED, ``ready_for_done`` INCLUDED — giving up does not require the work to be complete first. Already done, terminated or duplicated is a 409. Stamps closed_ts and releases any bound outsource worker. REPLACES ``terminate_task``, REMOVED in the same release: the old name said what you were doing to the task, this one says the status the task lands in. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest. THE BOUND OUTSOURCE WORKER IS DISMISSED HERE, and here is the only place it happens: the row releases AND the session is reclaimed at once, on all four closes alike. It used to wait for a separate close-out report, which is gone — the close-out now happens while the task is still open, so once a close lands there is nothing the worker is still allowed to do on it.
+         * Close this task as terminated — the work is being abandoned, not finished. Terminating is the one status change that never goes through the task's own step reports, so it requires no step to be in any particular state. WHO: the owner, an admin, or the task's OWN acting executor (the predecessor while it holds the task under the reassign hold) when that is a staff member (T-b56e, owner 2026-08-20 card rc-b896e3f641e7). A member terminating SOMEONE ELSE's task is a flat 403. An OUTSOURCE member is refused HERE even on its own task — the owner's ruling named the executor and did not reach the outsource member lifecycle, so this door stays shut until one does. ⚠️ THAT IS A FACT ABOUT THIS ROUTE, NOT A SYSTEM-WIDE GUARANTEE that a worker cannot close its own task: ``mark_task_duplicated`` sits at the same principalAgent floor, gates on callerMayDriveTask with no such subtraction, and reaches the same close (measured 2026-08-20 against this route's predecessor: 200 duplicated). Shutting that door too needs its own ruling. ANY NON-TERMINAL STATUS IS ACCEPTED, ``ready_for_done`` INCLUDED — giving up does not require the work to be complete first. Already done, terminated or duplicated is a 409. Stamps closed_ts and releases any bound outsource member. REPLACES ``terminate_task``, REMOVED in the same release: the old name said what you were doing to the task, this one says the status the task lands in. Answers with a bounded receipt (``artifact_count``, ``closed_ts``, ``deps``, ``description_sha256``, ``description_size_chars``, ``duplicate_of``, ``executor_id``, ``executor_kind``, ``lock``, ``progress_done``, ``progress_total``, ``status``, ``task_id``, ``title``), not the task — call ``get_task`` when you need the rest. THE BOUND OUTSOURCE MEMBER IS DISMISSED HERE, and here is the only place it happens: the row releases AND the session is reclaimed at once, on all four closes alike. It used to wait for a separate close-out report, which is gone — the close-out now happens while the task is still open, so once a close lands there is nothing the worker is still allowed to do on it.
          * @description - Closes the task as terminated — the only status change that does not go through step reports.
-         *     - Callers: the owner, an admin agent, or the task's acting executor (the predecessor while it holds the task under the reassign hold) if that is a staff member; 403 otherwise.
-         *     - An OUTSOURCE worker is refused here even on its own task.
+         *     - Callers: the owner, an admin, or the task's acting executor (the predecessor while it holds the task under the reassign hold) if that is a staff member; 403 otherwise.
+         *     - An OUTSOURCE member is refused here even on its own task.
          *     - Non-terminal only, `ready_for_done` included: done, terminated or duplicated is a 409.
-         *     - Stamps closed_ts and dismisses any bound outsource worker (row released, session reclaimed).
+         *     - Stamps closed_ts and dismisses any bound outsource member (row released, session reclaimed).
          *     - Replaces `terminate_task`, removed in the same release.
          */
         post: operations["handle_mark_task_terminated_api_tasks__task_id__mark_terminated_post"];
@@ -4311,7 +4311,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Correct THIS task's title — the one line the task list shows. T-2ebe: until this tool existed a title could never be changed after creation, so a card whose scope was later overturned kept advertising its first wording forever — the description could correct itself, the title could not, and whoever scanned the list saw only the stale half. If you have just corrected a description because the scope moved, ask whether the title still says the same thing. WHO: the task's acting executor (its executor, or the predecessor while it holds the task under the reassign hold — see reassign_task), or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it. If you handed the task over, you keep this right until the successor claims it or you leave; from then on it is the successor's title. ⚠️ ONE STRUCTURAL EXCEPTION (T-52, owner 2026-09-02): while the task has NO executor AT ALL and is not under the reassign hold (`executor_id` empty — where a 發包票 sits between create_task and the moment the scheduler binds a worker to it), its CREATOR may correct the text here, because otherwise nobody who is awake could fix the brief the contractor reads on arrival and that window has no upper bound. It SHUTS the instant an executor is bound — from then on the creator is a flat 403 again, even though it opened the ticket. TEXT ONLY: the same window opens add_task_artifact, remove_task_artifact, replace_task_artifact, update_step_note, patch_step_note and the task_title / task_description restores, and nothing else — never freeze, terminate, reassign, claim, plan, step status, deps or any of the four closes. `replace_task_artifact` sits in the same window as add/remove by owner ruling (card rc-09367ed77bc2, 2026-09-03, option [0]), given with these facts in front of him: replace OVERWRITES in place what someone else pinned, and remove_task_artifact deletes that artifact's every retained version together with their blobs. PARTIAL like update_task_description: omitting `title` changes nothing (a safe no-op); unknown keys are refused rather than dropped. ⚠️ ONE DIFFERENCE FROM ITS DESCRIPTION TWIN: a blank title ("" or only whitespace) is REFUSED with 400, it does NOT clear the field — create_task refuses a blank title too, and a task with no title is a blank row on the list. Surrounding whitespace is trimmed. The write is wholesale within that field: send the full corrected title, not a fragment. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — a ticket is usually found to be worded wrongly after it closed, and freezing the text would preserve a known falsehood; its artifact set is the opposite and freezes at close. Every change that actually alters the text retains the previous one as a document version (kind `task_title`, key = the task id) — list it with list_document_history, so a correction is recoverable.
+         * Correct THIS task's title — the one line the task list shows. T-2ebe: until this tool existed a title could never be changed after creation, so a card whose scope was later overturned kept advertising its first wording forever — the description could correct itself, the title could not, and whoever scanned the list saw only the stale half. If you have just corrected a description because the scope moved, ask whether the title still says the same thing. WHO: the task's acting executor (its executor, or the predecessor while it holds the task under the reassign hold — see reassign_task), or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it. If you handed the task over, you keep this right until the successor claims it or you leave; from then on it is the successor's title. ⚠️ ONE STRUCTURAL EXCEPTION (T-52, owner 2026-09-02): while the task has NO executor AT ALL and is not under the reassign hold (`executor_id` empty — where a 發包票 sits between create_task and the moment the scheduler binds a worker to it), its CREATOR may correct the text here, because otherwise nobody who is awake could fix the brief the outsource member reads on arrival and that window has no upper bound. It SHUTS the instant an executor is bound — from then on the creator is a flat 403 again, even though it opened the task. TEXT ONLY: the same window opens add_task_artifact, remove_task_artifact, replace_task_artifact, update_step_note, patch_step_note and the task_title / task_description restores, and nothing else — never freeze, terminate, reassign, claim, plan, step status, deps or any of the four closes. `replace_task_artifact` sits in the same window as add/remove by owner ruling (card rc-09367ed77bc2, 2026-09-03, option [0]), given with these facts in front of him: replace OVERWRITES in place what someone else pinned, and remove_task_artifact deletes that artifact's every retained version together with their blobs. PARTIAL like update_task_description: omitting `title` changes nothing (a safe no-op); unknown keys are refused rather than dropped. ⚠️ ONE DIFFERENCE FROM ITS DESCRIPTION TWIN: a blank title ("" or only whitespace) is REFUSED with 400, it does NOT clear the field — create_task refuses a blank title too, and a task with no title is a blank row on the list. Surrounding whitespace is trimmed. The write is wholesale within that field: send the full corrected title, not a fragment. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — a task is usually found to be worded wrongly after it closed, and freezing the text would preserve a known falsehood; its artifact set is the opposite and freezes at close. Every change that actually alters the text retains the previous one as a document version (kind `task_title`, key = the task id) — list it with list_document_history, so a correction is recoverable.
          * @description - Corrects the title in place; it is the only task text the task list shows.
          *     - Acting executor (the predecessor while it holds the task under the reassign hold), admin or owner only (403); the creator only while there is no executor yet and the task is not under the reassign hold.
          *     - Omitting `title` is a legal no-op; unknown keys are refused.
@@ -4335,12 +4335,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Fetch a theme bundle from a link (owner/admin agent).
+         * Fetch a theme bundle from a link (owner/admin).
          * @description - Fetches the URL server-side and returns its raw text for the theme import box.
          *     - The body is validated as a theme bundle, so a link to anything else is a 422 saying what is wrong.
          *     - The link's origin is deliberately unconstrained: no host allowlist, no private-address refusal.
          *     - 8 s timeout and a size ceiling; failure, timeout or a non-200 upstream is a 502.
-         *     - Admin agent only.
+         *     - Admin only.
          */
         post: operations["handle_fetch_theme_api_theme_fetch_post"];
         delete?: never;
@@ -4357,7 +4357,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the saved custom themes — id and name only, in list order (owner/admin agent).
+         * List the saved custom themes — id and name only, in list order (owner/admin).
          * @description - One line per saved theme: id and name only.
          *     - The bundles are deliberately not returned — a theme embeds its images and runs to hundreds of KB each.
          *     - Anything about one theme — applying, editing, exporting it — is `GET /api/themes/{theme_id}`.
@@ -4381,7 +4381,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Import ONE custom theme from an already-uploaded file; it is filed under the id inside the file and replaces any existing theme with that id (owner/admin agent).
+         * Import ONE custom theme from an already-uploaded file; it is filed under the id inside the file and replaces any existing theme with that id (owner/admin).
          * @description - For a theme file too large to pass as tool arguments: upload it with `ocagent upload`, then give its attachment id here. The theme's contents stay out of the call and its receipt.
          *     - An existing theme with the file's `id` keeps its position in the list; `created` in the receipt says whether it was new.
          *     - The file must pass the same rules as `PUT /api/themes/{theme_id}`, and only an unknown `wording` code is dropped instead of refused. Any refusal writes nothing.
@@ -4409,7 +4409,7 @@ export interface paths {
          */
         get: operations["handle_get_theme_api_themes__theme_id__get"];
         /**
-         * Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).
+         * Create or replace ONE custom theme; the bundle's id must match the path (owner/admin).
          * @description - Creates or replaces ONE saved theme, so changing one colour no longer means re-sending every theme with its images.
          *     - The bundle's own `id` must equal the path id, else 422.
          *     - All-or-nothing: any violation is 422 and nothing is written; only an unknown `wording` code is dropped instead.
@@ -4444,7 +4444,7 @@ export interface paths {
          *     - Any failure answers an honest error and leaves the running binary untouched and serving.
          *     - 409 when no newer release is known from the update check.
          *     - On success it answers 200 {status:"restarting"} and re-execs; poll GET /api/version until git_sha advances.
-         *     - Owner or admin agent only.
+         *     - Owner or admin only.
          */
         post: operations["handle_upgrade_api_update_upgrade_post"];
         delete?: never;
@@ -4613,8 +4613,8 @@ export interface paths {
         get: operations["handle_list_lore_entries_api_lore_get"];
         put?: never;
         /**
-         * Write ONE lore entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (an ad-hoc task), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (Everyone): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin agent can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.
-         * @description Write ONE lore entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (an ad-hoc task), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (Everyone): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin agent can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.
+         * Write ONE lore entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (an ad-hoc task), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (Everyone): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.
+         * @description Write ONE lore entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (an ad-hoc task), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (Everyone): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.
          */
         post: operations["handle_write_lore_entry_api_lore_post"];
         delete?: never;
@@ -4653,11 +4653,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Move one lore entry to a different scope — that is, change who receives it. ADMIN-ONLY: the owner or an admin agent; anyone else, the entry's own author included, is a 403. You send only the target ``scope_kind``, never a ``scope_key`` — the server derives the key. ``agent`` keys the entry to its AUTHOR, so it rides that member's own boot document; it is a 400 when the author has no roster row. ``manual`` keys it to the entry's TASK TYPE, so it rides ``get_task_manual``: the type_key of the entry's ``source_task_id`` when it has one (an ad-hoc task with no type gives none); only when it has NO source task and the author is an outsource member, the type_key of the task that member was bound to. ``manual`` on an entry with no derivable type is a 400. ``everyone`` (Everyone) keys it to "" and puts it in the boot document of EVERY member — staff, outsource and mira alike; this call is the only way an entry reaches ``everyone``, because write_lore_entry never files there. Any other ``scope_kind`` is a 400; an unknown entry is a 404. The entry's ``scope_options`` (list_lore_entries) names exactly the kinds this call accepts for it. Asking for the scope the entry already has is a 200 that changes nothing. A legacy ``role`` entry can be moved to any offered kind, never back to ``role``. Nothing else about the entry moves: ``state``, ``effective_ts``, title and body stay as they are. The author is NOT notified and NO change history is kept; the move takes effect the next time a member boots. Answers with a bounded receipt (``id``, ``scope_kind``, ``scope_key``, ``state``, ``effective_ts``, ``updated_ts``), not the entry; call list_lore_entries for the rest of it.
+         * Move one lore entry to a different scope — that is, change who receives it. ADMIN-ONLY: the owner or an admin; anyone else, the entry's own author included, is a 403. You send only the target ``scope_kind``, never a ``scope_key`` — the server derives the key. ``agent`` keys the entry to its AUTHOR, so it rides that member's own boot document; it is a 400 when the author has no roster row. ``manual`` keys it to the entry's TASK TYPE, so it rides ``get_task_manual``: the type_key of the entry's ``source_task_id`` when it has one (an ad-hoc task with no type gives none); only when it has NO source task and the author is an outsource member, the type_key of the task that member was bound to. ``manual`` on an entry with no derivable type is a 400. ``everyone`` (Everyone) keys it to "" and puts it in the boot document of EVERY member — staff, outsource and mira alike; this call is the only way an entry reaches ``everyone``, because write_lore_entry never files there. Any other ``scope_kind`` is a 400; an unknown entry is a 404. The entry's ``scope_options`` (list_lore_entries) names exactly the kinds this call accepts for it. Asking for the scope the entry already has is a 200 that changes nothing. A legacy ``role`` entry can be moved to any offered kind, never back to ``role``. Nothing else about the entry moves: ``state``, ``effective_ts``, title and body stay as they are. The author is NOT notified and NO change history is kept; the move takes effect the next time a member boots. Answers with a bounded receipt (``id``, ``scope_kind``, ``scope_key``, ``state``, ``effective_ts``, ``updated_ts``), not the entry; call list_lore_entries for the rest of it.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
          *     - `scope_kind`: The TARGET scope, one of ``agent``, ``manual``, ``everyone``. Anything else — the retired ``role`` included — is a 400 that names it. ``manual`` is also a 400 when the entry has no derivable task type, and ``agent`` when its author has no roster row; either is then absent from the entry's ``scope_options``. There is no ``scope_key`` field: the server derives the key itself (the author's member id / the task type_key / "").
-         * @description Move one lore entry to a different scope — that is, change who receives it. ADMIN-ONLY: the owner or an admin agent; anyone else, the entry's own author included, is a 403. You send only the target ``scope_kind``, never a ``scope_key`` — the server derives the key. ``agent`` keys the entry to its AUTHOR, so it rides that member's own boot document; it is a 400 when the author has no roster row. ``manual`` keys it to the entry's TASK TYPE, so it rides ``get_task_manual``: the type_key of the entry's ``source_task_id`` when it has one (an ad-hoc task with no type gives none); only when it has NO source task and the author is an outsource member, the type_key of the task that member was bound to. ``manual`` on an entry with no derivable type is a 400. ``everyone`` (Everyone) keys it to "" and puts it in the boot document of EVERY member — staff, outsource and mira alike; this call is the only way an entry reaches ``everyone``, because write_lore_entry never files there. Any other ``scope_kind`` is a 400; an unknown entry is a 404. The entry's ``scope_options`` (list_lore_entries) names exactly the kinds this call accepts for it. Asking for the scope the entry already has is a 200 that changes nothing. A legacy ``role`` entry can be moved to any offered kind, never back to ``role``. Nothing else about the entry moves: ``state``, ``effective_ts``, title and body stay as they are. The author is NOT notified and NO change history is kept; the move takes effect the next time a member boots. Answers with a bounded receipt (``id``, ``scope_kind``, ``scope_key``, ``state``, ``effective_ts``, ``updated_ts``), not the entry; call list_lore_entries for the rest of it.
+         * @description Move one lore entry to a different scope — that is, change who receives it. ADMIN-ONLY: the owner or an admin; anyone else, the entry's own author included, is a 403. You send only the target ``scope_kind``, never a ``scope_key`` — the server derives the key. ``agent`` keys the entry to its AUTHOR, so it rides that member's own boot document; it is a 400 when the author has no roster row. ``manual`` keys it to the entry's TASK TYPE, so it rides ``get_task_manual``: the type_key of the entry's ``source_task_id`` when it has one (an ad-hoc task with no type gives none); only when it has NO source task and the author is an outsource member, the type_key of the task that member was bound to. ``manual`` on an entry with no derivable type is a 400. ``everyone`` (Everyone) keys it to "" and puts it in the boot document of EVERY member — staff, outsource and mira alike; this call is the only way an entry reaches ``everyone``, because write_lore_entry never files there. Any other ``scope_kind`` is a 400; an unknown entry is a 404. The entry's ``scope_options`` (list_lore_entries) names exactly the kinds this call accepts for it. Asking for the scope the entry already has is a 200 that changes nothing. A legacy ``role`` entry can be moved to any offered kind, never back to ``role``. Nothing else about the entry moves: ``state``, ``effective_ts``, title and body stay as they are. The author is NOT notified and NO change history is kept; the move takes effect the next time a member boots. Answers with a bounded receipt (``id``, ``scope_kind``, ``scope_key``, ``state``, ``effective_ts``, ``updated_ts``), not the entry; call list_lore_entries for the rest of it.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
          *     - `scope_kind`: The TARGET scope, one of ``agent``, ``manual``, ``everyone``. Anything else — the retired ``role`` included — is a 400 that names it. ``manual`` is also a 400 when the entry has no derivable task type, and ``agent`` when its author has no roster row; either is then absent from the entry's ``scope_options``. There is no ``scope_key`` field: the server derives the key itself (the author's member id / the task type_key / "").
@@ -5011,7 +5011,7 @@ export interface components {
             id: string;
             /**
              * Relocation Deferred
-             * @description WHICH of ``relocation_pending``'s two causes this is: true means a deliberately deferred move — the agent's session is still live on the old machine, so the move waits for that session to end — rather than a delivery failure. The field does not distinguish the ways that happens, because the consumer's question is the same in all of them: (a) THIS relocate opened a graceful wind-down, and the move lands when the agent answers report_stopped; (b) an EXISTING wind-down at a HIGHER rung of the 停止 → 加速停止 → 強制停止 ladder already owns the agent, so the pin was saved and the ladder refused to re-open a lower stage — the move lands at THAT wind-down's collect, on whatever deadline it already carries (T-170e); (c) an outsource worker whose wind-down is already collected: its old session has been sent a STOP, and the START on the pin goes out once the worker reads offline. A caller must hold back the "nothing was dispatched" alert for every case; the cockpit does exactly that.
+             * @description WHICH of ``relocation_pending``'s two causes this is: true means a deliberately deferred move — the agent's session is still live on the old machine, so the move waits for that session to end — rather than a delivery failure. The field does not distinguish the ways that happens, because the consumer's question is the same in all of them: (a) THIS relocate opened a graceful wind-down, and the move lands when the agent answers report_stopped; (b) an EXISTING wind-down at a HIGHER rung of the 停止 → 加速停止 → 強制停止 ladder already owns the agent, so the pin was saved and the ladder refused to re-open a lower stage — the move lands at THAT wind-down's collect, on whatever deadline it already carries (T-170e); (c) an outsource member whose wind-down is already collected: its old session has been sent a STOP, and the START on the pin goes out once the worker reads offline. A caller must hold back the "nothing was dispatched" alert for every case; the cockpit does exactly that.
              */
             relocation_deferred?: boolean;
             /**
@@ -5022,7 +5022,7 @@ export interface components {
         };
         /**
          * AgentRuntime
-         * @description AI CLI runtime selected per member or outsource worker. Existing rows and omitted inputs default to ``claude`` for backward compatibility.
+         * @description AI CLI runtime selected per member or outsource member. Existing rows and omitted inputs default to ``claude`` for backward compatibility.
          * @enum {string}
          */
         AgentRuntime: "claude" | "codex";
@@ -5552,7 +5552,7 @@ export interface components {
         };
         /**
          * BootDocumentReceiptDTO
-         * @description Bounded receipt returned after the eight BOOT-DOCUMENT writes - replace and reset for boot docs, boot sequence, offboard and system interaction (T-91). How much BootDocumentDTO echoed depends on the kind, and the earlier claim that it always carried the text TWICE was wrong. On the UNSPLIT kinds - system_interaction, boot_sequence, offboard - ``body`` equals ``text`` and the echo really was double: a measurement on the live station (inherited from this ticket's previous session, not re-taken here) put GET /api/system-interaction at 77,849 bytes with text and body both 17,166 characters, and GET /api/boot-sequence/claude at 10,648 with text=2,519=body. On the SPLIT kinds - the six registered with Split:true and served by /api/boot-docs/{kind}/{key} - ``body`` is the EDITABLE HALF and ``read_only_head`` is the other half, with ``text`` their join (bootDocBodyOf, api_bootdocs.go); there the echo was one copy plus its halves, not two copies. A replace writes text the caller is holding and a reset writes the seed, which is fetchable; neither needs it back. ``size_chars`` against ``cap_chars`` gives the room left and ``sha256`` makes the write verifiable at the write - the same anchor trio patch_insight already answers with. The scalars kept here are kept because the write DERIVES them: ``is_default`` flips on reset and clears on replace, and ``read_only`` is a per-document registry constant. ``read_only_head`` was on an earlier draft of this receipt and has been REMOVED: it IS document text, no cap bounded it, and it left this receipt not literally text-free. The caller never sends that half and cannot compute it, but it does not need it either - it is re-read with the document, and ``sha256`` already says whether the stored document changed. GET the same path for the text. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields were the opposite: they HAD live consumers when this receipt was drafted. The cockpit adopted these write responses straight into rendered state and conformance asserted on them, so dropping the content was not additive - those consumers had to move to a follow-up read FIRST, which is why the frontend change was written up as a hard prerequisite step of this package rather than a cleanup after it. THAT STEP HAS SHIPPED, in this same package: the cockpit writes then re-reads. This paragraph is history, not a condition still outstanding. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides.
+         * @description Bounded receipt returned after the eight BOOT-DOCUMENT writes - replace and reset for boot docs, Boot steps, offboard and system interaction (T-91). How much BootDocumentDTO echoed depends on the kind, and the earlier claim that it always carried the text TWICE was wrong. On the UNSPLIT kinds - system_interaction, boot_sequence, offboard - ``body`` equals ``text`` and the echo really was double: a measurement on the live station (inherited from this ticket's previous session, not re-taken here) put GET /api/system-interaction at 77,849 bytes with text and body both 17,166 characters, and GET /api/boot-sequence/claude at 10,648 with text=2,519=body. On the SPLIT kinds - the six registered with Split:true and served by /api/boot-docs/{kind}/{key} - ``body`` is the EDITABLE HALF and ``read_only_head`` is the other half, with ``text`` their join (bootDocBodyOf, api_bootdocs.go); there the echo was one copy plus its halves, not two copies. A replace writes text the caller is holding and a reset writes the seed, which is fetchable; neither needs it back. ``size_chars`` against ``cap_chars`` gives the room left and ``sha256`` makes the write verifiable at the write - the same anchor trio patch_insight already answers with. The scalars kept here are kept because the write DERIVES them: ``is_default`` flips on reset and clears on replace, and ``read_only`` is a per-document registry constant. ``read_only_head`` was on an earlier draft of this receipt and has been REMOVED: it IS document text, no cap bounded it, and it left this receipt not literally text-free. The caller never sends that half and cannot compute it, but it does not need it either - it is re-read with the document, and ``sha256`` already says whether the stored document changed. GET the same path for the text. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields were the opposite: they HAD live consumers when this receipt was drafted. The cockpit adopted these write responses straight into rendered state and conformance asserted on them, so dropping the content was not additive - those consumers had to move to a follow-up read FIRST, which is why the frontend change was written up as a hard prerequisite step of this package rather than a cleanup after it. THAT STEP HAS SHIPPED, in this same package: the cockpit writes then re-reads. This paragraph is history, not a condition still outstanding. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides.
          */
         BootDocumentReceiptDTO: {
             /**
@@ -5569,7 +5569,7 @@ export interface components {
             is_default: boolean;
             /**
              * Key
-             * @description The document within the family - ``claude`` for a boot sequence, a role key for a duty, empty for the single-document families. See ``kind`` for why the address rides back.
+             * @description The document within the family - ``claude`` for Boot steps, a role key for a duty, empty for the single-document families. See ``kind`` for why the address rides back.
              * @default
              */
             key: string;
@@ -5614,7 +5614,7 @@ export interface components {
         /**
          * BootstrapDTO
          * @description The agent boot package (§3.4 #29, §2.4). ``context`` is the assembled agent
-         *     persona — role definition + global context, folded and concatenated
+         *     persona — Duty + global context, folded and concatenated
          *     into one readable markdown block (the North Star's "rich enough to converse and
          *     play", §7 leg 4). ``token`` is the member JWT (``scope="agent"``) when a
          *     ``member_id`` was supplied; None for a role-only request.
@@ -5859,7 +5859,7 @@ export interface components {
             id: string;
             /**
              * Member Ids
-             * @description The group's members in display order. Only current members of the tab's kind are listed (active staff on the staff tab, active outsource workers on the outsource tab): a dismissed staff member or a released worker leaves its group in the same write that removes it. A member is in at most one group.
+             * @description The group's members in display order. Only current members of the tab's kind are listed (active staff on the staff tab, active outsource members on the outsource tab): a dismissed staff member or a released worker leaves its group in the same write that removes it. A member is in at most one group.
              */
             member_ids: string[];
             /**
@@ -5875,7 +5875,7 @@ export interface components {
             tab: "staff" | "outsource";
             /**
              * Task Type Keys
-             * @description Auto-join rules (outsource groups only; always empty on a staff group): task manual type keys, in the order the owner set. A new outsource worker whose task has one of these types joins the end of this group when it is assigned. A type belongs to at most one group. Only keys that still name a task manual are listed.
+             * @description Auto-join rules (outsource groups only; always empty on a staff group): task manual type keys, in the order the owner set. A new outsource member whose task has one of these types joins the end of this group when it is assigned. A type belongs to at most one group. Only keys that still name a task manual are listed.
              */
             task_type_keys: string[];
         };
@@ -5891,7 +5891,7 @@ export interface components {
             id: string | null;
             /**
              * Member Ids
-             * @description The group's members in display order. Each must be a current member of the tab's kind (active staff for a staff group, active outsource worker for an outsource group; never a machine) and appear once across the whole request.
+             * @description The group's members in display order. Each must be a current member of the tab's kind (active staff for a staff group, active outsource member for an outsource group; never a machine) and appear once across the whole request.
              */
             member_ids: string[];
             /**
@@ -6332,7 +6332,7 @@ export interface components {
             cleared_cost?: number | null;
             /**
              * Member Id
-             * @description The actor whose spend was reset — a staff member or an outsource worker, released ones included, resolved the same way the banking fold resolves it.
+             * @description The actor whose spend was reset — a staff member or an outsource member, released ones included, resolved the same way the banking fold resolves it.
              */
             member_id: string;
         };
@@ -6435,7 +6435,7 @@ export interface components {
          *     points — the unit every cap is expressed in); ``cap_chars`` is the cap in force
          *     for THAT document's OWN segment at the moment of the read.
          *
-         *     The three capped segments (role definition, insight, a task manual's sop_md)
+         *     The three capped segments (Duty, insight, a task manual's sop_md)
          *     each have their own ``doc.cap_chars.*`` setting and are NOT one shared number, so every occurrence
          *     of this object carries the ruler belonging to the document it describes.
          *     Reading one segment's cap off another's is the specific mistake this shape
@@ -6452,7 +6452,7 @@ export interface components {
         /**
          * DocSizesDTO
          * @description The station-wide capped-document size overview (``peek_doc_sizes`` MCP tool,
-         *     zero params; ``GET /api/doc-sizes``): for EVERY role its role definition and its
+         *     zero params; ``GET /api/doc-sizes``): for EVERY role its Duty and its
          *     insight, and for EVERY task manual its sop_md — each as its current size plus
          *     the cap in force for that segment, and nothing else.
          *
@@ -6466,7 +6466,7 @@ export interface components {
          *     manuals exist, never of what they hold — which is the point. The number no
          *     listing on this station reports at any price is a role's insight size; a
          *     manual's sop_md numbers are already on the ``list_task_manuals`` light view and
-         *     a role definition's size and cap already ride every ``list_roles`` row.
+         *     a Duty's size and cap already ride every ``list_roles`` row.
          *
          *     Read-only and cheap.
          */
@@ -6556,7 +6556,7 @@ export interface components {
         };
         /**
          * GlobalContextDTO
-         * @description The owner's user-custom ADDITIVE context block (§3.4 #20). ``is_default``
+         * @description The owner's User additions block, an ADDITIVE context block (§3.4 #20). ``is_default``
          *     True = never written / reset (empty ``text``; the assembled boot context skips
          *     the block).
          */
@@ -6590,7 +6590,7 @@ export interface components {
         };
         /**
          * GlobalContextReceiptDTO
-         * @description Bounded receipt returned after replace_global_context and reset_global_context (T-91). Measured on the live station the old shape answered 12,405 bytes, of which ``text`` was 5,716 characters - text the replace caller just sent, or the seed a reset restores. There is deliberately NO ``cap_chars`` here: unlike the boot documents and the role journals, the global-context block has no ``doc_cap_chars_*`` knob, so reporting a ceiling would invent one. GET /api/global-context for the text. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields were the opposite: they HAD live consumers when this receipt was drafted. The cockpit adopted these write responses straight into rendered state and conformance asserted on them, so dropping the content was not additive - those consumers had to move to a follow-up read FIRST, which is why the frontend change was written up as a hard prerequisite step of this package rather than a cleanup after it. THAT STEP HAS SHIPPED, in this same package: the cockpit writes then re-reads. This paragraph is history, not a condition still outstanding. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides. ``org_name`` additionally belongs to another route's data and was never this write's news.
+         * @description Bounded receipt returned after replace_global_context and reset_global_context (T-91). Measured on the live station the old shape answered 12,405 bytes, of which ``text`` was 5,716 characters - text the replace caller just sent, or the seed a reset restores. There is deliberately NO ``cap_chars`` here: unlike the boot documents and each role's Duty and Insight, the global-context block has no ``doc_cap_chars_*`` knob, so reporting a ceiling would invent one. GET /api/global-context for the text. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields were the opposite: they HAD live consumers when this receipt was drafted. The cockpit adopted these write responses straight into rendered state and conformance asserted on them, so dropping the content was not additive - those consumers had to move to a follow-up read FIRST, which is why the frontend change was written up as a hard prerequisite step of this package rather than a cleanup after it. THAT STEP HAS SHIPPED, in this same package: the cockpit writes then re-reads. This paragraph is history, not a condition still outstanding. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides. ``org_name`` additionally belongs to another route's data and was never this write's news.
          */
         GlobalContextReceiptDTO: {
             /**
@@ -6614,7 +6614,7 @@ export interface components {
         };
         /**
          * GlobalContextReplaceDTO
-         * @description Whole-block replace of the user-custom additive block (§3.4 #21):
+         * @description Whole-block replace of the User additions block (§3.4 #21):
          *     ``{text}``. ``text`` is REQUIRED — a whole-doc replace must never infer "empty" from a missing key (T-2d99). ``allow_shrink`` (default false) must be set explicitly to replace existing content with an empty doc — the r-76 wipe-guard posture.
          */
         GlobalContextReplaceDTO: {
@@ -6643,8 +6643,7 @@ export interface components {
         /**
          * InsightDTO
          * @description The per-role INSIGHT doc (T-3809): the judgement calls and trade-offs this role
-         *     keeps reaching for. Second block of the role journal, alongside Duty (the role
-         *     definition).
+         *     keeps reaching for. Second document of a role, alongside Duty.
          *
          *     ``role_key`` scopes the doc to a role. Since T-e1e3 a role MAY have a factory
          *     seed, and that seed is PER-ROLE (``seeds/insight_<role_key>.md``) rather than
@@ -7106,7 +7105,7 @@ export interface components {
             name?: string | null;
             /**
              * Roster Status
-             * @description ``active`` for a current member, ``removed`` for a released outsource worker or dismissed staff whose row remains, ``unknown`` when no roster row carries this id. A workspace whose member is not ``active`` is what a cleanup looks at first.
+             * @description ``active`` for a current member, ``removed`` for a released outsource member or dismissed staff whose row remains, ``unknown`` when no roster row carries this id. A workspace whose member is not ``active`` is what a cleanup looks at first.
              * @enum {string}
              */
             roster_status: "active" | "removed" | "unknown";
@@ -7315,7 +7314,7 @@ export interface components {
             id: string;
             /**
              * Last Op Reason
-             * @description WHICH cause, as a structured ``<code>: <detail>`` line, stamped on the row by the same handler before it answers. An arm that named no code falls back to the generic "Wake was recorded, but nothing has been dispatched yet". Empty when there is no refusal to report. On an agent that was already running, only an outsource worker's answer carries the ``session_alive`` note here; a staff member's answer leaves this field empty and the note is read from the row's ``last_op_reason``. Either way that note is a success, not a refusal, and the row's ``last_op_ok`` is true.
+             * @description WHICH cause, as a structured ``<code>: <detail>`` line, stamped on the row by the same handler before it answers. An arm that named no code falls back to the generic "Wake was recorded, but nothing has been dispatched yet". Empty when there is no refusal to report. On an agent that was already running, only an outsource member's answer carries the ``session_alive`` note here; a staff member's answer leaves this field empty and the note is read from the row's ``last_op_reason``. Either way that note is a success, not a refusal, and the row's ``last_op_ok`` is true.
              */
             last_op_reason?: string;
         };
@@ -7373,7 +7372,7 @@ export interface components {
         };
         /**
          * MemberBootContextDTO
-         * @description A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (``everyone`` entries first, then the member's own, under one ``lore_cap_chars_role`` budget), the User Language block (the language instruction set by ``display.language``: English when it is ``en``, Traditional Chinese otherwise), and the boot sequence for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
+         * @description A staff member's boot-context PREVIEW (GET /api/members/{member_id}/boot-context): the text buildBootContext assembles for THIS member right now, which is the context the start path would hand the warden at this moment. It carries the member's lore block (``everyone`` entries first, then the member's own, under one ``lore_cap_chars_role`` budget), the User Language block (the language instruction set by ``display.language``: English when it is ``en``, Traditional Chinese otherwise), and the Boot steps for the member's own runtime; it excludes the header the warden prepends for its runtime. Nothing is stored and no token is minted.
          */
         MemberBootContextDTO: {
             /** Context */
@@ -7396,7 +7395,7 @@ export interface components {
          *     collision). The member's TOKEN is NEVER on this DTO.
          *
          *     ``role_name`` is the role's display title, resolved by the handler from the
-         *     role roster (empty until role definitions land in build order B2).
+         *     role roster (empty until Duty documents land in build order B2).
          */
         MemberDTO: {
             /**
@@ -7418,7 +7417,7 @@ export interface components {
             actual_machine: string;
             /**
              * Actual Model
-             * @description The model the member's session is REPORTED to be running, from its own live telemetry (``AgentTelemetryIngestDTO.model``) — durably persisted, so it survives a server restart and outlives the session that reported it. Empty means nothing has ever reported a model for this member; it is separate from, and NEVER falls back to, the owner-configured `model` launch setting. Applies identically to ``kind=outsource`` rows, whose reports arrive under their own ``ow-`` token sub. WAS: written only by ``report_waking``, which no outsource worker called (its boot signal was the since-retired ``get_my_task``), so it was structurally always empty for them; T-4595 put every worker on the same report_waking boot verb, so the field now fills for them too.
+             * @description The model the member's session is REPORTED to be running, from its own live telemetry (``AgentTelemetryIngestDTO.model``) — durably persisted, so it survives a server restart and outlives the session that reported it. Empty means nothing has ever reported a model for this member; it is separate from, and NEVER falls back to, the owner-configured `model` launch setting. Applies identically to ``kind=outsource`` rows, whose reports arrive under their own ``ow-`` token sub. WAS: written only by ``report_waking``, which no outsource member called (its boot signal was the since-retired ``get_my_task``), so it was structurally always empty for them; T-4595 put every worker on the same report_waking boot verb, so the field now fills for them too.
              * @default
              */
             actual_model: string;
@@ -7472,7 +7471,7 @@ export interface components {
             forced_stop_at: number;
             /**
              * Forced Stop Live
-             * @description True while the CURRENT stop has already been forced: the owner (or an admin agent) pressed 強制停止 on this stop and no new stop has been opened since. It stays true from the force-stop press until the next activate, so it covers the window where the session has not disconnected yet and ``presence`` still reads ``stopping`` while ``refocus_op`` has already been cleared. A client drawing the stop ladder (停止 → 加速停止 → 強制停止) reads it to stay on the 強制停止 rung through that window instead of falling back to 加速停止, which the server would refuse with 409. Do NOT substitute ``forced_stop_at > 0``: ``forced_stop_at`` survives the next boot by design, so it would also be true on the NEXT ordinary stop. Derived at read time, never stored. Additive-optional.
+             * @description True while the CURRENT stop has already been forced: the owner (or an admin) pressed 強制停止 on this stop and no new stop has been opened since. It stays true from the force-stop press until the next activate, so it covers the window where the session has not disconnected yet and ``presence`` still reads ``stopping`` while ``refocus_op`` has already been cleared. A client drawing the stop ladder (停止 → 加速停止 → 強制停止) reads it to stay on the 強制停止 rung through that window instead of falling back to 加速停止, which the server would refuse with 409. Do NOT substitute ``forced_stop_at > 0``: ``forced_stop_at`` survives the next boot by design, so it would also be true on the NEXT ordinary stop. Derived at read time, never stored. Additive-optional.
              * @default false
              */
             forced_stop_live: boolean;
@@ -8355,7 +8354,7 @@ export interface components {
         };
         /**
          * ReleaseCheckDTO
-         * @description Response of `GET /api/release/check` (owner/admin agent — T-6020) — the explicit
+         * @description Response of `GET /api/release/check` (owner/admin — T-6020) — the explicit
          *     檢查更新 button behind the software-update card. The server reads GitHub's
          *     public release pages for repo pkyosx/OffiCraft (no API call, no token, not subject to the anonymous API quota): the stable channel takes the release GitHub marks Latest, the
          *     beta channel the semver-greatest entry of the releases feed. It does so
@@ -8553,7 +8552,7 @@ export interface components {
         };
         /**
          * ReplyCardDTO
-         * @description One reply card (等我回覆卡). ``from`` is the initiating member (the verified JWT sub at create time). ``status`` is the closed set ``waiting`` | ``answered`` | ``expired`` — the only transitions are waiting→answered via an answer (the owner's positive close) and waiting→expired via the expire action (the card's own author, the owner, or an admin agent — T-6020 opened it to the admin floor, T-1b88 widened it to the author) (標為過期 — NOT an answer: the ask went stale and the owner declined it; terminal, no reopen); a revised answer (PUT) keeps ``answered``. ``chat_message_id`` links the chat message the card rides in (the jump-to-origin anchor); ``answered_ts``/``answer`` are null unless answered; ``expired_ts`` is null unless expired. Each entry of ``options`` carries its own ``ai_pick`` flag (position means nothing) and ``select_mode`` (``single``|``multi``) says how many of them the owner may circle. ``attachments`` are the QUESTION-side attachments the initiator opened the card with (served refs incl. download url; always an array, ``[]`` when none).
+         * @description One reply card (等我回覆卡). ``from`` is the initiating member (the verified JWT sub at create time). ``status`` is the closed set ``waiting`` | ``answered`` | ``expired`` — the only transitions are waiting→answered via an answer (the owner's positive close) and waiting→expired via the expire action (the card's own author, the owner, or an admin — T-6020 opened it to the admin floor, T-1b88 widened it to the author) (標為過期 — NOT an answer: the ask went stale and the owner declined it; terminal, no reopen); a revised answer (PUT) keeps ``answered``. ``chat_message_id`` links the chat message the card rides in (the jump-to-origin anchor); ``answered_ts``/``answer`` are null unless answered; ``expired_ts`` is null unless expired. Each entry of ``options`` carries its own ``ai_pick`` flag (position means nothing) and ``select_mode`` (``single``|``multi``) says how many of them the owner may circle. ``attachments`` are the QUESTION-side attachments the initiator opened the card with (served refs incl. download url; always an array, ``[]`` when none).
          */
         ReplyCardDTO: {
             /** Answer */
@@ -8704,7 +8703,7 @@ export interface components {
             expired_ts: number | null;
             /**
              * Id
-             * @description Which card this transition landed on - the caller's own id, kept as the address because one shape serves three verbs. Note the typical caller here is NOT the owner: answer and reanswer are floored at an admin agent and expire at any agent with an author exception, so the agent that opened the card is the ordinary caller of expire.
+             * @description Which card this transition landed on - the caller's own id, kept as the address because one shape serves three verbs. Note the typical caller here is NOT the owner: answer and reanswer are floored at an admin and expire at any agent with an author exception, so the agent that opened the card is the ordinary caller of expire.
              */
             id: string;
             /**
@@ -8908,7 +8907,7 @@ export interface components {
         };
         /**
          * ResumeRosterMemberDTO
-         * @description One roster entry in the wake snapshot — who else is in the studio and how to reach them (owner ruling rc-4e98c0481852, 2026-08-03, verbatim: "All members and contractors and their online / offline status"). ``id`` is what you address a message to — names are editable and roles repeat, so NEVER address by name. ``kind`` separates permanent members from disposable contractors (a contractor's id is retired with its one task). ``duty`` is the role's own definition text, capped at 1000 characters with ``…`` marking a cut (owner 2026-08-03: 「1000字 多的截斷」), applied to the definition MINUS its own leading title line (a role doc opens with its own title, which would otherwise spend the budget restating ``role_name``; exactly ONE leading ATX heading line is removed — never an inner heading, never a chosen line, and a title-only doc is returned whole). It is NOT summarized and NOT reduced to a chosen line — a heuristic that picks WHICH line to show would silently change what a role appears responsible for whenever its author reorders their own doc, whereas a flat cap can only cut the tail and says so. The cap happens to be the SAME number the owner set for the cap on a duty document itself (「After separation of insight duty should not exceed 1000」), but the two are INDEPENDENT values: this one is a fixed wire constant, that one is an owner-adjustable setting, and raising the setting does not move this. Whether this cap binds at all depends on how long each role's duty happens to be at the moment — that is runtime state, not part of this frozen contract. Do NOT lower this number: the cost was put to the owner in rc-d88c445397a3 — an independent review argued for 150–200 until the separation lands — and he ruled to keep 1000. How often this cap actually fires is deliberately NOT recorded here: that is a runtime reading of one deployment, it goes stale, and nothing in a frozen wire spec can re-derive or correct it. Such measurements live — each carrying the date it was taken — in the server-side comments, where they can be re-checked and revised. NO insight rides here — it is readable by ANY authenticated identity, so its absence is a deliberate owner ruling (2026-08-02 「之後應該給 duty 就好，不要給 insight / learning」) and NOT a gap left by lack of access; do not helpfully fill it in later. ``machine`` is the live binding (which machine that member runs on); ``presence`` is the online/offline status the ruling asks for. Contractors carry no role, so their ``role_name`` and ``duty`` are ``''`` — instead they carry ``current_task``, the TITLE of the one task that contractor is bound to, HARD-TRUNCATED (owner ruling rc-a02d8bc7fe23, 2026-08-03: 正職給職責、外包給任務標題): a contractor id is minted per task, so its task title IS its duty. The truncation is not cosmetic — measured task titles average ~99 chars and reach 147, so five untruncated contractor titles alone outweigh the whole machine block. Members carry ``duty`` and leave ``current_task`` ``''``: duty is stable and answers "is this the right person to ask", whereas a member's task changes daily and would churn every agent's boot for less signal. ``task_status``/``waiting_reason``/``progress_done``/``progress_total`` are the bound task's progress for contractors only (owner ruling rc-6935feeb293a 選①, T-925f): status and waiting_reason ride the SAME task row already loaded to build ``current_task``, and progress comes from one roster-wide grouped step-count query. Members leave all four at their zero value — the same 正職給職責、外包給任務標題 ruling that keeps ``current_task`` bare for members applies here, since progress churns even faster than a task title. A contractor reading ``0/0`` is AMBIGUOUS — a bound task with no steps yet, or no bound task at all — and ``task_status`` is what tells them apart (non-empty vs ``''``).
+         * @description One roster entry in the wake snapshot — who else is in the studio and how to reach them (owner ruling rc-4e98c0481852, 2026-08-03, verbatim: "All members and outsource members and their online / offline status"). ``id`` is what you address a message to — names are editable and roles repeat, so NEVER address by name. ``kind`` separates permanent members from disposable outsource members (an outsource member's id is retired with its one task). ``duty`` is the role's own definition text, capped at 1000 characters with ``…`` marking a cut (owner 2026-08-03: 「1000字 多的截斷」), applied to the definition MINUS its own leading title line (a role doc opens with its own title, which would otherwise spend the budget restating ``role_name``; exactly ONE leading ATX heading line is removed — never an inner heading, never a chosen line, and a title-only doc is returned whole). It is NOT summarized and NOT reduced to a chosen line — a heuristic that picks WHICH line to show would silently change what a role appears responsible for whenever its author reorders their own doc, whereas a flat cap can only cut the tail and says so. The cap happens to be the SAME number the owner set for the cap on a duty document itself (「After separation of insight duty should not exceed 1000」), but the two are INDEPENDENT values: this one is a fixed wire constant, that one is an owner-adjustable setting, and raising the setting does not move this. Whether this cap binds at all depends on how long each role's duty happens to be at the moment — that is runtime state, not part of this frozen contract. Do NOT lower this number: the cost was put to the owner in rc-d88c445397a3 — an independent review argued for 150–200 until the separation lands — and he ruled to keep 1000. How often this cap actually fires is deliberately NOT recorded here: that is a runtime reading of one deployment, it goes stale, and nothing in a frozen wire spec can re-derive or correct it. Such measurements live — each carrying the date it was taken — in the server-side comments, where they can be re-checked and revised. NO insight rides here — it is readable by ANY authenticated identity, so its absence is a deliberate owner ruling (2026-08-02 「之後應該給 duty 就好，不要給 insight / learning」) and NOT a gap left by lack of access; do not helpfully fill it in later. ``machine`` is the live binding (which machine that member runs on); ``presence`` is the online/offline status the ruling asks for. Outsource members carry no role, so their ``role_name`` and ``duty`` are ``''`` — instead they carry ``current_task``, the TITLE of the one task that outsource member is bound to, HARD-TRUNCATED (owner ruling rc-a02d8bc7fe23, 2026-08-03: 正職給職責、外包給任務標題): an outsource member id is minted per task, so its task title IS its duty. The truncation is not cosmetic — measured task titles average ~99 chars and reach 147, so five untruncated outsource member titles alone outweigh the whole machine block. Members carry ``duty`` and leave ``current_task`` ``''``: duty is stable and answers "is this the right person to ask", whereas a member's task changes daily and would churn every agent's boot for less signal. ``task_status``/``waiting_reason``/``progress_done``/``progress_total`` are the bound task's progress for outsource members only (owner ruling rc-6935feeb293a 選①, T-925f): status and waiting_reason ride the SAME task row already loaded to build ``current_task``, and progress comes from one roster-wide grouped step-count query. Members leave all four at their zero value — the same 正職給職責、外包給任務標題 ruling that keeps ``current_task`` bare for members applies here, since progress churns even faster than a task title. An outsource member reading ``0/0`` is AMBIGUOUS — a bound task with no steps yet, or no bound task at all — and ``task_status`` is what tells them apart (non-empty vs ``''``).
          */
         ResumeRosterMemberDTO: {
             /** Current Task */
@@ -8971,7 +8970,7 @@ export interface components {
          *       - ``overview``: the size/概要 block (counts + character sizes; the caller's
          *         waiting / recently-answered reply-card counts included) — peek it FIRST to
          *         decide what to pull and whether to digest via a sub-agent.
-         *       - ``roster``: WHO ELSE is in the studio — every member AND every contractor,
+         *       - ``roster``: WHO ELSE is in the studio — every member AND every outsource member,
          *         each with its online/offline status, the machine it runs on, and its duty
          *         capped at 1000 chars — the cap applied AFTER the role doc's own leading
          *         title line is removed (owner ruling rc-4e98c0481852, 2026-08-03). The
@@ -9054,7 +9053,7 @@ export interface components {
             answered_card_steps?: components["schemas"]["ResumeAnsweredCardStepDTO"][];
             /**
              * Blocking
-             * @description The ids of the NON-TERMINAL tasks that name THIS task in their ``blocked_by`` — i.e. who is waiting on you (T-91). Never null ([] when nobody is). The count is the length and the ids are the identity: a task id IS its ``task_no`` (T-5291), so no join is needed to name them. It rides the wake snapshot because a blocker's executor is otherwise told NOTHING when a ticket is hung off theirs — the delta of a ``set_task_deps`` write fans to the BLOCKED task's audience only. Deliberately ids-only: the owner ruled this side is written on the ticket and never messaged, and the wake snapshot is size-capped.
+             * @description The ids of the NON-TERMINAL tasks that name THIS task in their ``blocked_by`` — i.e. who is waiting on you (T-91). Never null ([] when nobody is). The count is the length and the ids are the identity: a task id IS its ``task_no`` (T-5291), so no join is needed to name them. It rides the wake snapshot because a blocker's executor is otherwise told NOTHING when a task is hung off theirs — the delta of a ``set_task_deps`` write fans to the BLOCKED task's audience only. Deliberately ids-only: the owner ruled this side is written on the task and never messaged, and the wake snapshot is size-capped.
              */
             blocking?: string[];
             /**
@@ -9073,7 +9072,7 @@ export interface components {
             id: string;
             /**
              * Lock
-             * @description The task's orthogonal system hold — ``''`` or ``reassigning`` (T-9ca5). It rides the WAKE SNAPSHOT (T-91) so a handover is visible at 開機盤點 and not only in a chat notice that may have been posted while you were offline: ``reassigning`` means the ticket has moved to you and is waiting for your ``claim_task``, or has moved AWAY from you and is waiting for the successor's. Same value and same vocabulary as ``TaskDTO.lock`` / ``TaskListItemDTO.lock``.
+             * @description The task's orthogonal system hold — ``''`` or ``reassigning`` (T-9ca5). It rides the WAKE SNAPSHOT (T-91) so a handover is visible at 開機盤點 and not only in a chat notice that may have been posted while you were offline: ``reassigning`` means the task has moved to you and is waiting for your ``claim_task``, or has moved AWAY from you and is waiting for the successor's. Same value and same vocabulary as ``TaskDTO.lock`` / ``TaskListItemDTO.lock``.
              * @default
              */
             lock: string;
@@ -9085,13 +9084,13 @@ export interface components {
             progress_total: number;
             /**
              * Reassigned From
-             * @description The PREDECESSOR this task was last handed over from — the id of the executor it moved AWAY from on its most recent reassign (T-ba04), ``''`` when it was never reassigned. On the wake snapshot (T-91) it is the answer to 「跟誰交接」 for a ticket you find under the ``reassigning`` lock.
+             * @description The PREDECESSOR this task was last handed over from — the id of the executor it moved AWAY from on its most recent reassign (T-ba04), ``''`` when it was never reassigned. On the wake snapshot (T-91) it is the answer to 「跟誰交接」 for a task you find under the ``reassigning`` lock.
              * @default
              */
             reassigned_from: string;
             /**
              * Reassigned From Kind
-             * @description The kind of ``reassigned_from`` (``staff`` | ``outsource``), so the id is resolved the right way (roster row vs outsource worker). ``''`` whenever ``reassigned_from`` is ``''``.
+             * @description The kind of ``reassigned_from`` (``staff`` | ``outsource``), so the id is resolved the right way (roster row vs outsource member). ``''`` whenever ``reassigned_from`` is ``''``.
              * @default
              */
             reassigned_from_kind: string;
@@ -9186,13 +9185,13 @@ export interface components {
          *     ``size_chars`` / ``cap_chars`` (T-ae38) are the Duty doc's own budget, the same
          *     pair Insight has carried since T-3aeb. Duty had NEITHER field on
          *     the wire and NO cap at all until T-ae38, which is why an agent tidying its own
-         *     role definition could not tell how much room was left without asking someone
+         *     Duty could not tell how much room was left without asking someone
          *     else to measure it.
          */
         RoleDefDTO: {
             /**
              * Cap Chars
-             * @description The Duty (role definition) size cap now in force, in CHARACTERS (the doc.cap_chars.duty setting). Served on the READ face so an agent can size an edit BEFORE writing it — the alternative is discovering the limit by being refused, and the settings surface is admin-only.
+             * @description The Duty size cap now in force, in CHARACTERS (the doc.cap_chars.duty setting). Served on the READ face so an agent can size an edit BEFORE writing it — the alternative is discovering the limit by being refused, and the settings surface is admin-only.
              * @default 0
              */
             cap_chars: number;
@@ -9243,13 +9242,13 @@ export interface components {
          *     has no definition", which is a different and false claim.
          *
          *     ``size_chars`` / ``cap_chars`` are measured on the STORED document, so the row
-         *     still answers "which role definition is nearly full" without carrying any of
+         *     still answers "which Duty is nearly full" without carrying any of
          *     the text. Read the one you picked with get_role.
          */
         RoleDefListItemDTO: {
             /**
              * Cap Chars
-             * @description The Duty (role definition) size cap now in force, in CHARACTERS (the doc.cap_chars.duty setting). Served on the READ face so an agent can size an edit BEFORE writing it — the alternative is discovering the limit by being refused, and the settings surface is admin-only.
+             * @description The Duty size cap now in force, in CHARACTERS (the doc.cap_chars.duty setting). Served on the READ face so an agent can size an edit BEFORE writing it — the alternative is discovering the limit by being refused, and the settings surface is admin-only.
              * @default 0
              */
             cap_chars: number;
@@ -9282,7 +9281,7 @@ export interface components {
             schema_version: number;
             /**
              * Size Chars
-             * @description Size of the role definition in CHARACTERS (Unicode code points) — the same unit as cap_chars. Measured on the STORED document, which this row does not carry: a zero here would be a measurement, not an omission.
+             * @description Size of the Duty in CHARACTERS (Unicode code points) — the same unit as cap_chars. Measured on the STORED document, which this row does not carry: a zero here would be a measurement, not an omission.
              * @default 0
              */
             size_chars: number;
@@ -9336,7 +9335,7 @@ export interface components {
         };
         /**
          * RoleDefUpdateDTO
-         * @description Partial edit of a role definition (§3.4 #25): ``{name?, definition_md?}``.
+         * @description Partial edit of a role's Duty (§3.4 #25): ``{name?, definition_md?}``.
          *     A name-locked role ignores ``name`` (per contract); every field is optional.
          */
         RoleDefUpdateDTO: {
@@ -9631,7 +9630,7 @@ export interface components {
         };
         /**
          * ScheduledMessageCreateDTO
-         * @description Create one scheduled message on a member (T-f059 定期訊息; `custom` cadence added by T-49e7). `body`, `cadence` and `timezone` are REQUIRED unconditionally; the remaining fields are required or ignored ACCORDING TO `cadence`, and each states its own behaviour. `daily`/`weekly`/`monthly` fire once a day at the single wall-clock reading `hour`/`minute` names, so those two are required for them (omitting either is a 422, never a silent midnight) and `weekly` additionally reads `day_of_week`, `monthly` `day_of_month`. `custom` fires at every reading where `custom_months`, `custom_days`, `custom_hours` and `custom_minutes` all hold, so `custom_days`/`custom_hours`/`custom_minutes` are required for it and `hour`/`minute`/`day_of_week`/`day_of_month` are ignored. `custom_months` is the one set of the four that may be omitted — an omitted `custom_months` means all twelve months, which is what keeps a client written before that field working unchanged; an explicit empty array is still a 422. `hour` and `minute` left the unconditional required list in T-49e7 precisely so that a `custom` schedule does not have to send two values it never reads — a required-but-ignored field is the ambiguity this table was warned about — and the conditional 422 keeps the calendar cadences exactly as strict as before. `timezone` is required for every cadence and deliberately not defaulted: a defaulted zone would sooner or later be read as "wherever the server happens to run". The delivery cursor is initialised to the slot most recently elapsed at creation time, so a schedule created at 10:00 for `daily` 09:00 does not fire today. The recipient may be an assistant OR an `ow-` outsource worker — the same recipient rule ordinary chat uses.
+         * @description Create one scheduled message on a member (T-f059 定期訊息; `custom` cadence added by T-49e7). `body`, `cadence` and `timezone` are REQUIRED unconditionally; the remaining fields are required or ignored ACCORDING TO `cadence`, and each states its own behaviour. `daily`/`weekly`/`monthly` fire once a day at the single wall-clock reading `hour`/`minute` names, so those two are required for them (omitting either is a 422, never a silent midnight) and `weekly` additionally reads `day_of_week`, `monthly` `day_of_month`. `custom` fires at every reading where `custom_months`, `custom_days`, `custom_hours` and `custom_minutes` all hold, so `custom_days`/`custom_hours`/`custom_minutes` are required for it and `hour`/`minute`/`day_of_week`/`day_of_month` are ignored. `custom_months` is the one set of the four that may be omitted — an omitted `custom_months` means all twelve months, which is what keeps a client written before that field working unchanged; an explicit empty array is still a 422. `hour` and `minute` left the unconditional required list in T-49e7 precisely so that a `custom` schedule does not have to send two values it never reads — a required-but-ignored field is the ambiguity this table was warned about — and the conditional 422 keeps the calendar cadences exactly as strict as before. `timezone` is required for every cadence and deliberately not defaulted: a defaulted zone would sooner or later be read as "wherever the server happens to run". The delivery cursor is initialised to the slot most recently elapsed at creation time, so a schedule created at 10:00 for `daily` 09:00 does not fire today. The recipient may be an assistant OR an `ow-` outsource member — the same recipient rule ordinary chat uses.
          */
         ScheduledMessageCreateDTO: {
             /**
@@ -9776,7 +9775,7 @@ export interface components {
             last_fired_ts: number;
             /**
              * Member Id
-             * @description The recipient. May be an assistant OR an `ow-` outsource worker — the same recipient rule ordinary chat uses. A schedule bound to an outsource worker dies with that worker, which is a property of the outsource role rather than of this feature.
+             * @description The recipient. May be an assistant OR an `ow-` outsource member — the same recipient rule ordinary chat uses. A schedule bound to an outsource member dies with that worker, which is a property of the outsource role rather than of this feature.
              */
             member_id: string;
             /**
@@ -10112,7 +10111,7 @@ export interface components {
              * Stop Effect
              * @description 🔴 WHAT ``report_stopped`` ACTUALLY DID. Present ONLY on the ``/api/self/stopped`` face; absent on the other three, which are not stop reports and have no effect to name.
              *
-             *     Staff and outsource workers go through one decision (T-251) and, since T-253, one shutdown dispatch, so a report answers one of two values:
+             *     Staff and outsource members go through one decision (T-251) and, since T-253, one shutdown dispatch, so a report answers one of two values:
              *
              *     * ``collected`` - this was your FIRST stopped-report, and this call dispatched the kill for your session. ``desired_state`` alone decides what follows: ``online`` starts a new session once this one reads offline, ``offline`` stays down.
              *     * ``already_reported`` - THIS CALL DID NOTHING AT ALL. ``stopped_since`` was already anchored (anchor semantics - it is never re-stamped), so the whole handler body was skipped. What the FIRST report set in motion still stands; repeating the call cannot change it.
@@ -10166,7 +10165,7 @@ export interface components {
         };
         /**
          * SettingsDTO
-         * @description The org-adjustable settings surface (`GET /api/settings`; owner or admin agent). `owner_token_ttl` controls owner-login JWTs; `agent_token_ttl` controls member and outsource-worker JWTs. They are independent and apply to newly minted tokens. Existing deployments migrate their former shared `auth.token_ttl` value into both successor settings, preserving current behaviour.
+         * @description The org-adjustable settings surface (`GET /api/settings`; owner or admin). `owner_token_ttl` controls owner-login JWTs; `agent_token_ttl` controls member and outsource-worker JWTs. They are independent and apply to newly minted tokens. Existing deployments migrate their former shared `auth.token_ttl` value into both successor settings, preserving current behaviour.
          */
         SettingsDTO: {
             /**
@@ -10177,7 +10176,7 @@ export interface components {
             accelerated_grace_secs: number;
             /**
              * Reassign Handover Timeout Secs
-             * @description Reassign handover timeout, in seconds (60 through 86400): while a task sits under the reassign hold and its predecessor is an OUTSOURCE worker, the predecessor is reclaimed once this many seconds pass without a change to the task's updated time. That clock restarts when the task's plan, steps, step statuses or step notes, priority, dependencies, title or description change, or a reply card bound to one of its steps is opened or settled (only the owner or an admin agent can open one during the hold); pinning, replacing or removing artifacts does not restart it. Staff predecessors are never reclaimed by it. Reclaiming revokes the predecessor's hold rights. Distinct from any close-out or accelerated-stop grace.
+             * @description Reassign handover timeout, in seconds (60 through 86400): while a task sits under the reassign hold and its predecessor is an OUTSOURCE member, the predecessor is reclaimed once this many seconds pass without a change to the task's updated time. That clock restarts when the task's plan, steps, step statuses or step notes, priority, dependencies, title or description change, or a reply card bound to one of its steps is opened or settled (only the owner or an admin can open one during the hold); pinning, replacing or removing artifacts does not restart it. Staff predecessors are never reclaimed by it. Reclaiming revokes the predecessor's hold rights. Distinct from any close-out or accelerated-stop grace.
              * @default 1800
              */
             reassign_handover_timeout_secs: number;
@@ -10265,7 +10264,7 @@ export interface components {
             doc_cap_chars_boot_sequence: number;
             /**
              * Doc Cap Chars Duty
-             * @description The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points — Chinese prose counts one per character). The floor of the adjustable range is this segment's OWN shipped default (the `default` field above), which is smaller than the other three segments'; the ceiling is 250000. Duty had no cap at all before T-ae38.
+             * @description The size cap on a role's DUTY doc, in CHARACTERS (Unicode code points — Chinese prose counts one per character). The floor of the adjustable range is this segment's OWN shipped default (the `default` field above), which is smaller than the other three segments'; the ceiling is 250000. Duty had no cap at all before T-ae38.
              * @default 2500
              */
             doc_cap_chars_duty: number;
@@ -10283,13 +10282,13 @@ export interface components {
             doc_cap_chars_manual_sop: number;
             /**
              * Doc Cap Chars Offboard
-             * @description The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 250000. It is sized like the 啟動步驟 blocks rather than the 系統互動 handbook: both are short ordered checklists an agent has to be able to finish under a deadline.
+             * @description The size cap on the 〈停止〉 block, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 250000. It is sized like the Boot steps documents rather than the System interaction document: both are short ordered checklists an agent has to be able to finish under a deadline.
              * @default 37500
              */
             doc_cap_chars_offboard: number;
             /**
              * Doc Cap Chars System Interaction
-             * @description The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 250000. It is far larger than the role-journal caps because the block it governs is the studio handbook every agent reads at boot, and it is sized against the seed that ships with it.
+             * @description The size cap on the 系統互動 block of the boot context, in CHARACTERS (Unicode code points). The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 250000. It is far larger than the role-journal caps because the block it governs is the System interaction document every member reads at boot, and it is sized against the seed that ships with it.
              * @default 150000
              */
             doc_cap_chars_system_interaction: number;
@@ -10311,7 +10310,7 @@ export interface components {
             notice_pct: number;
             /**
              * Onboarding
-             * @description The first-run onboarding report (T-ba62), or null when onboarding never ran on this database. Governance-gated (owner/admin agent) by virtue of living on GET /api/settings — a failed step's detail can carry local paths, so it must never reach the PUBLIC /api/auth/status probe.
+             * @description The first-run onboarding report (T-ba62), or null when onboarding never ran on this database. Governance-gated (owner/admin) by virtue of living on GET /api/settings — a failed step's detail can carry local paths, so it must never reach the PUBLIC /api/auth/status probe.
              */
             onboarding?: components["schemas"]["OnboardingReportDTO"] | null;
             /**
@@ -10547,7 +10546,7 @@ export interface components {
             doc_cap_chars_boot_sequence?: number | null;
             /**
              * Doc Cap Chars Duty
-             * @description The size cap on a role's DUTY doc (the role definition), in CHARACTERS (Unicode code points). Must be at least this segment's own shipped default (see `SettingsDTO.doc_cap_chars_duty`, whose `default` is that floor) and at most 250000.
+             * @description The size cap on a role's DUTY doc, in CHARACTERS (Unicode code points). Must be at least this segment's own shipped default (see `SettingsDTO.doc_cap_chars_duty`, whose `default` is that floor) and at most 250000.
              */
             doc_cap_chars_duty?: number | null;
             /**
@@ -10876,7 +10875,7 @@ export interface components {
         };
         /**
          * TaskArtifactVersionDTO
-         * @description ONE retained PREVIOUS version of a pinned deliverable (T-60, fields tracked to T-92). Unlike a document revision this row carries the version WHOLE rather than a size summary: an artifact version is a pointer (a blob id — every kind is blob-backed since T-92) plus its name and its prose, and the prose is bounded, so there is nothing to hold back and the listing IS the content. ``id`` is the version's own row id, ascending with the age of the write; ``kind`` always equals the live artifact's kind, which cannot change across versions; ``created_ts``/``created_by`` are when THAT version was written and by whom. ``name``/``description`` are that version's own — T-92 split the single ``label`` this row used to carry into the two of them, here as well as on the live artifact, because the history table stores those two columns now. EVERY version's ``attachment_id`` still resolves, a link's included — the blob is kept alive for as long as the version is retained, and collected when the version falls off the end. ``url``/``mime``/``filename``/``is_image`` are resolved read-time from that blob exactly like the live artifact's, EXCEPT that on this row the blob facts are read only for a file/image: a link version's ``url`` is the blob's BYTES (the uri-list target it pointed at) and its ``mime``/``filename`` stay empty, unlike the live artifact's link, which does report ``text/uri-list``. ⚠️ THIS ROW IS DELIBERATELY WIDER THAN THE LIVE ``TaskArtifactDTO``, which T-92 narrowed: this is a cockpit-only read of a bounded handful of rows rather than a cost paid on every ticket read, and narrowing it was outside what the owner approved.
+         * @description ONE retained PREVIOUS version of a pinned deliverable (T-60, fields tracked to T-92). Unlike a document revision this row carries the version WHOLE rather than a size summary: an artifact version is a pointer (a blob id — every kind is blob-backed since T-92) plus its name and its prose, and the prose is bounded, so there is nothing to hold back and the listing IS the content. ``id`` is the version's own row id, ascending with the age of the write; ``kind`` always equals the live artifact's kind, which cannot change across versions; ``created_ts``/``created_by`` are when THAT version was written and by whom. ``name``/``description`` are that version's own — T-92 split the single ``label`` this row used to carry into the two of them, here as well as on the live artifact, because the history table stores those two columns now. EVERY version's ``attachment_id`` still resolves, a link's included — the blob is kept alive for as long as the version is retained, and collected when the version falls off the end. ``url``/``mime``/``filename``/``is_image`` are resolved read-time from that blob exactly like the live artifact's, EXCEPT that on this row the blob facts are read only for a file/image: a link version's ``url`` is the blob's BYTES (the uri-list target it pointed at) and its ``mime``/``filename`` stay empty, unlike the live artifact's link, which does report ``text/uri-list``. ⚠️ THIS ROW IS DELIBERATELY WIDER THAN THE LIVE ``TaskArtifactDTO``, which T-92 narrowed: this is a cockpit-only read of a bounded handful of rows rather than a cost paid on every task read, and narrowing it was outside what the owner approved.
          */
         TaskArtifactVersionDTO: {
             /**
@@ -11014,14 +11013,14 @@ export interface components {
         };
         /**
          * TaskCreateDTO
-         * @description Create one task (agent-side; MCP ``create_task``). With ``type_key`` the server derives the dedupe key from the manual's is_key fields over ``inputs`` and resolves the executor from the manual's assignee (staff → bound directly; outsource → unassigned, awaiting the scheduler); an unset manual assignee requires an explicit ``executor_member_id``. Without ``type_key`` (ad-hoc 自由代辦) ``executor_member_id`` is mandatory. A dedupe hit on a NON-terminal task answers 200 with a bounded receipt (T-91) identifying the EXISTING ticket it folded onto — ``task_id``, ``title``, ``status``, ``deduped: true`` — not the task in full; ``GET /api/tasks/{task_id}`` for the detail. ``task_no`` WAS in that list while the receipt carried it and came off at owner ruling rc-f1c0fd3cf124: T-5291 made it the identity function, so it repeated ``task_id`` byte for byte. Do not put it back. This field list is HAND-WRITTEN prose with no mechanical link to ``TaskCreateResultDTO``'s properties and no assertion holding the two together — read the schema before trusting it. Dedupe is the normal path, never an error. Caller authorization (正職授權矩陣, T-23cf): an outsource worker (kind=outsource) may NEVER create a task (403); a 發包 create (``target.kind=outsource`` or a manual outsource assignee) is open to any 正職, owner/admin included; a typed task the manual assigns to a member X may be created ONLY by X — owner/admin are NOT exempt (403 otherwise); an ad-hoc (or manual-assignee-less) task with a member executor may name only the caller itself, unless the caller is the owner or an admin agent — a 一般正職 pointing ``executor_member_id`` at another member is 403 (self, or a 發包, only). The authz gate precedes dedupe, so an unauthorized caller never receives the existing twin.
+         * @description Create one task (agent-side; MCP ``create_task``). With ``type_key`` the server derives the dedupe key from the manual's is_key fields over ``inputs`` and resolves the executor from the manual's assignee (staff → bound directly; outsource → unassigned, awaiting the scheduler); an unset manual assignee requires an explicit ``executor_member_id``. Without ``type_key`` (ad-hoc 自由代辦) ``executor_member_id`` is mandatory. A dedupe hit on a NON-terminal task answers 200 with a bounded receipt (T-91) identifying the EXISTING task it folded onto — ``task_id``, ``title``, ``status``, ``deduped: true`` — not the task in full; ``GET /api/tasks/{task_id}`` for the detail. ``task_no`` WAS in that list while the receipt carried it and came off at owner ruling rc-f1c0fd3cf124: T-5291 made it the identity function, so it repeated ``task_id`` byte for byte. Do not put it back. This field list is HAND-WRITTEN prose with no mechanical link to ``TaskCreateResultDTO``'s properties and no assertion holding the two together — read the schema before trusting it. Dedupe is the normal path, never an error. Caller authorization (正職授權矩陣, T-23cf): an outsource member (kind=outsource) may NEVER create a task (403); a 發包 create (``target.kind=outsource`` or a manual outsource assignee) is open to any 正職, owner/admin included; a typed task the manual assigns to a member X may be created ONLY by X — owner/admin are NOT exempt (403 otherwise); an ad-hoc (or manual-assignee-less) task with a member executor may name only the caller itself, unless the caller is the owner or an admin — a 一般正職 pointing ``executor_member_id`` at another member is 403 (self, or a 發包, only). The authz gate precedes dedupe, so an unauthorized caller never receives the existing twin.
          */
         TaskCreateDTO: {
             /** Description */
             description?: string | null;
             /**
              * Due Soon Lead Minutes
-             * @description How many minutes before ``due_ts`` the task starts counting as due soon, 1..43200 (1 minute to 30 days). Omit or ``null`` to follow the workspace setting ``task_due_soon_lead_minutes``. Sending a number without a ``due_ts`` is a 422.
+             * @description How many minutes before ``due_ts`` the task starts counting as due soon, 1..43200 (1 minute to 30 days). Omit or ``null`` to follow the Due-soon lead time setting (Settings › General, ``task_due_soon_lead_minutes``). Sending a number without a ``due_ts`` is a 422.
              * @default null
              */
             due_soon_lead_minutes: number | null;
@@ -11046,37 +11045,37 @@ export interface components {
         };
         /**
          * TaskCreateResultDTO
-         * @description The create_task answer (whole-task echo removed in T-91). A fresh create returns a task the caller just described, so echoing the ticket back is the least useful payload on the wire - the same reason taskPlanReceiptDTO stopped echoing the plan. What the caller CANNOT predict is kept: ``deduped`` says whether this was a create or a dedupe-key hit; ``executor_kind``/``executor_id`` are the placement the SERVER chose (on a typed create it comes from the manual's assignee, so a caller that sent only ``type_key`` cannot compute its own placement, and an empty ``executor_id`` under ``outsource`` is the ANSWER `the scheduler has not minted the worker yet`, not a missing value); and on a hit ``task_id``/``title``/``status`` identify the EXISTING ticket it folded onto, which is not the one the caller described. ``task_no`` is NOT on this receipt (owner ruling rc-f1c0fd3cf124): T-5291 made it the identity function, so it carried the same string as ``task_id`` byte for byte, and the sibling task writes had already dropped it for that reason. The read face (``TaskDTO.task_no``) is unaffected. ``warnings`` (typed tasks only) carries non-blocking advisories - input field names the manual does not define, or ambiguous keys that fold onto another; absent when there are none. GET /api/tasks/{task_id} for full detail.
+         * @description The create_task answer (whole-task echo removed in T-91). A fresh create returns a task the caller just described, so echoing the task back is the least useful payload on the wire - the same reason taskPlanReceiptDTO stopped echoing the plan. What the caller CANNOT predict is kept: ``deduped`` says whether this was a create or a dedupe-key hit; ``executor_kind``/``executor_id`` are the placement the SERVER chose (on a typed create it comes from the manual's assignee, so a caller that sent only ``type_key`` cannot compute its own placement, and an empty ``executor_id`` under ``outsource`` is the ANSWER `the scheduler has not minted the worker yet`, not a missing value); and on a hit ``task_id``/``title``/``status`` identify the EXISTING task it folded onto, which is not the one the caller described. ``task_no`` is NOT on this receipt (owner ruling rc-f1c0fd3cf124): T-5291 made it the identity function, so it carried the same string as ``task_id`` byte for byte, and the sibling task writes had already dropped it for that reason. The read face (``TaskDTO.task_no``) is unaffected. ``warnings`` (typed tasks only) carries non-blocking advisories - input field names the manual does not define, or ambiguous keys that fold onto another; absent when there are none. GET /api/tasks/{task_id} for full detail.
          */
         TaskCreateResultDTO: {
             /**
              * Deduped
-             * @description False when this call CREATED the task; true when a dedupe-key hit folded it onto an existing non-terminal task, in which case every other field describes THAT ticket and not what was sent.
+             * @description False when this call CREATED the task; true when a dedupe-key hit folded it onto an existing non-terminal task, in which case every other field describes THAT task and not what was sent.
              */
             deduped: boolean;
             /**
              * Executor Id
-             * @description The member id this ticket is assigned to, or the EMPTY STRING when there is nobody yet - the normal state of a fresh ``outsource`` create, where the scheduler mints the worker afterwards. Empty is therefore an ANSWER ("nobody yet"), not a missing value, so there is no omitempty; read it together with ``executor_kind``, which says whether an empty id means "awaiting dispatch" or nothing at all.
+             * @description The member id this task is assigned to, or the EMPTY STRING when there is nobody yet - the normal state of a fresh ``outsource`` create, where the scheduler mints the worker afterwards. Empty is therefore an ANSWER ("nobody yet"), not a missing value, so there is no omitempty; read it together with ``executor_kind``, which says whether an empty id means "awaiting dispatch" or nothing at all.
              */
             executor_id: string;
             /**
              * Executor Kind
-             * @description WHO THE TICKET IS ASSIGNED TO - the half of the answer the caller cannot compute. ``staff`` or ``outsource``. On a TYPED create the server takes this from the manual's assignee (api_tasks.go), so a caller that sent only ``type_key`` learns its placement HERE or by reading the ticket back. It is not an echo: a caller that did name an executor gets its own value returned, but the branch that decides the value is the server's either way. On a dedupe hit it describes the EXISTING ticket, like ``title`` and ``status`` - the case where it matters most, since the caller has never seen that ticket. Restored by owner ruling rc-f1c0fd3cf124 after he was shown that T-91 had removed it along with the whole-task echo.
+             * @description WHO THE TASK IS ASSIGNED TO - the half of the answer the caller cannot compute. ``staff`` or ``outsource``. On a TYPED create the server takes this from the manual's assignee (api_tasks.go), so a caller that sent only ``type_key`` learns its placement HERE or by reading the task back. It is not an echo: a caller that did name an executor gets its own value returned, but the branch that decides the value is the server's either way. On a dedupe hit it describes the EXISTING task, like ``title`` and ``status`` - the case where it matters most, since the caller has never seen that task. Restored by owner ruling rc-f1c0fd3cf124 after he was shown that T-91 had removed it along with the whole-task echo.
              */
             executor_kind: string;
             /**
              * Status
-             * @description The existing ticket's status, and PRESENT ONLY ON A DEDUPE HIT (``deduped`` true); ABSENT on a fresh create. A task this call actually creates is stamped ``not_started`` unconditionally, so on that path the field is a constant the caller already knows. On a hit it is the one thing that decides what the caller does next - it may have landed on a ticket that is already in_progress or waiting_owner - which is why the field survives at all. No ``default`` and not ``required``, so its absence on a fresh create is expressible rather than serialised as an empty string.
+             * @description The existing task's status, and PRESENT ONLY ON A DEDUPE HIT (``deduped`` true); ABSENT on a fresh create. A task this call actually creates is stamped ``not_started`` unconditionally, so on that path the field is a constant the caller already knows. On a hit it is the one thing that decides what the caller does next - it may have landed on a task that is already in_progress or waiting_owner - which is why the field survives at all. No ``default`` and not ``required``, so its absence on a fresh create is expressible rather than serialised as an empty string.
              */
             status?: string;
             /**
              * Task Id
-             * @description The ticket this call landed on - minted here on a fresh create, and the EXISTING ticket's id on a dedupe hit. The one field the caller can never compute, and the handle every other task call takes.
+             * @description The task this call landed on - minted here on a fresh create, and the EXISTING task's id on a dedupe hit. The one field the caller can never compute, and the handle every other task call takes.
              */
             task_id: string;
             /**
              * Title
-             * @description The existing ticket's title, and PRESENT ONLY ON A DEDUPE HIT (``deduped`` true); ABSENT on a fresh create. That split is the whole justification for the field: on a hit the caller landed on a ticket it did not open and has never seen the title of, so the title is news and it is the row the task list shows. On a fresh create it is the caller's own sentence coming straight back, which is what owner ruled out verbatim on 2026-09-05 (「自己發送出去的內容 … 不應該再回傳回來」). No ``default`` and not ``required``, so absence is expressible - a default would serialise an empty string on every fresh create and make "no title here" indistinguishable from "a ticket with a blank title".
+             * @description The existing task's title, and PRESENT ONLY ON A DEDUPE HIT (``deduped`` true); ABSENT on a fresh create. That split is the whole justification for the field: on a hit the caller landed on a task it did not open and has never seen the title of, so the title is news and it is the row the task list shows. On a fresh create it is the caller's own sentence coming straight back, which is what owner ruled out verbatim on 2026-09-05 (「自己發送出去的內容 … 不應該再回傳回來」). No ``default`` and not ``required``, so absence is expressible - a default would serialise an empty string on every fresh create and make "no title here" indistinguishable from "a task with a blank title".
              */
             title?: string;
             /**
@@ -11087,7 +11086,7 @@ export interface components {
         };
         /**
          * TaskCreateTargetDTO
-         * @description Optional dispatch target (agent 發包給外包). When present with ``kind='outsource'`` the task is created as an **unassigned outsource task** — no owner-approval card and no per-task approval. The existing outsource scheduler then picks up unassigned outsource tasks against the global concurrency cap (``outsourceParallelCap``, owner-configurable in the cockpit; default unchanged): below the cap it mints a fresh worker immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. The owner may reassign a still-queued task (to a staff member or another outsource) at any time. ``runtime`` is claude/codex (absent = claude); ``model`` is the worker's model (blank/absent = selected-runtime default); ``effort`` is low|medium|high|xhigh|max (absent = ``medium``); ``machine`` is the machine the worker boots on (a machine id that must resolve; absent inherits — see below). Any of ``runtime``/``model``/``effort``/``machine`` that is OMITTED is INHERITED: a TYPED task takes the type manual's outsource assignee, a FREE (ad-hoc) task takes the DISPATCHING member's own runtime/model/effort and the machine it is itself pinned to (發包 without a spec means "one like me"). ``runtime`` and ``model`` inherit together — an inherited model is kept only under the runtime it belongs to, else the runtime's default model applies. ``effort`` falls back to ``medium``. ``machine`` has NO final fallback: when nothing names one the task carries no placement and no worker is started until one is chosen. The resolved spec is persisted on the task row and re-read on handover/rebirth, never re-derived. Absent (or ``kind='staff'``) keeps the current create semantics (manual assignee / ``executor_member_id``). ``kind`` is a closed set: any value that is neither ``staff`` nor ``outsource`` is a 400 (T-101), and the pre-rename ``member`` is answered with a message saying it was renamed to ``staff``. kind-vocab-guard:legacy An EMPTY ``kind`` is the one exception - it is not validated, and the whole target block is discarded down the staff path.
+         * @description Optional dispatch target (agent 發包給外包). When present with ``kind='outsource'`` the task is created as an **unassigned outsource task** — no reply card to the owner and no per-task approval. The existing outsource scheduler then picks up unassigned outsource tasks against the global concurrency cap (``outsourceParallelCap``, owner-configurable in the cockpit; default unchanged): below the cap it mints a fresh worker immediately, at the cap it queues for capacity and is picked up automatically when a slot frees. The owner may reassign a still-queued task (to a staff member or another outsource) at any time. ``runtime`` is claude/codex (absent = claude); ``model`` is the worker's model (blank/absent = selected-runtime default); ``effort`` is low|medium|high|xhigh|max (absent = ``medium``); ``machine`` is the machine the worker boots on (a machine id that must resolve; absent inherits — see below). Any of ``runtime``/``model``/``effort``/``machine`` that is OMITTED is INHERITED: a TYPED task takes the type manual's outsource assignee, a FREE (ad-hoc) task takes the DISPATCHING member's own runtime/model/effort and the machine it is itself pinned to (發包 without a spec means "one like me"). ``runtime`` and ``model`` inherit together — an inherited model is kept only under the runtime it belongs to, else the runtime's default model applies. ``effort`` falls back to ``medium``. ``machine`` has NO final fallback: when nothing names one the task carries no placement and no worker is started until one is chosen. The resolved spec is persisted on the task row and re-read on handover/rebirth, never re-derived. Absent (or ``kind='staff'``) keeps the current create semantics (manual assignee / ``executor_member_id``). ``kind`` is a closed set: any value that is neither ``staff`` nor ``outsource`` is a 400 (T-101), and the pre-rename ``member`` is answered with a message saying it was renamed to ``staff``. kind-vocab-guard:legacy An EMPTY ``kind`` is the one exception - it is not validated, and the whole target block is discarded down the staff path.
          */
         TaskCreateTargetDTO: {
             /**
@@ -11116,18 +11115,18 @@ export interface components {
         };
         /**
          * TaskDTO
-         * @description One task (M3 任務卡): a workflow with a Definition of Done, executed by a roster member or an anonymous outsource worker. ``task_no`` IS the id itself, unchanged (T-5291) — there is no projection any more, so the number shown in the UI is byte-for-byte the ``task_id`` you look the task up with. ``status`` has two halves and they are reached differently. The five DERIVED states come from the steps and are recomputed on every step write — not_started/in_progress/waiting_owner/waiting_external plus ``ready_for_done``, which is where a task lands when every step is done and which is NOT terminal: the task is still open, its deliverables can still be pinned and its notes can still be written, and that window is the whole point of the state. The three TERMINAL states — done/terminated/duplicated — are never derived; each is reached only by its own action (``mark_task_done``, ``mark_task_terminated``, ``mark_task_duplicated``, plus ``force_task_done`` for a done that skips the precondition), so a task never closes itself and nothing closes it underneath the agent still packing it up. A task in ``ready_for_done`` that gains a step derives straight back to in_progress and returns when that step is done. ``forced_done_by``/``forced_done_reason`` are non-empty only on a task closed with ``force_task_done`` — who forced it and why. ``reassigning`` is NO LONGER a status — it is the orthogonal ``lock`` field (the owner/admin handover hold, cleared by the claim action; see ``POST /api/tasks/{task_id}/reassign``); ``priority`` includes ``frozen`` (pause-pushing — a priority, not a status). ``executor_kind='outsource'`` with an empty ``executor_id`` is the transient unassigned state. ``closed_ts`` is null while open. ``deps`` are the blocking task ids (display markers, never a status change); ``progress_done``/``progress_total`` count step leaves (``superseded`` replan history counts toward neither side). ``creator_id`` is the verified token sub of the task's creator (a member id, an outsource worker id, or the literal "owner"); "" on rows created before the column existed. ``duplicate_of`` is the id of the ORIGINAL task this one duplicates — non-empty ONLY while ``status='duplicated'`` (MCP ``mark_task_duplicated``); the graph is depth-1 by construction so the cockpit link always resolves in one hop.
+         * @description One task (M3 任務卡): a workflow with a Definition of Done, executed by a roster member or an anonymous outsource member. ``task_no`` IS the id itself, unchanged (T-5291) — there is no projection any more, so the number shown in the UI is byte-for-byte the ``task_id`` you look the task up with. ``status`` has two halves and they are reached differently. The five DERIVED states come from the steps and are recomputed on every step write — not_started/in_progress/waiting_owner/waiting_external plus ``ready_for_done``, which is where a task lands when every step is done and which is NOT terminal: the task is still open, its deliverables can still be pinned and its notes can still be written, and that window is the whole point of the state. The three TERMINAL states — done/terminated/duplicated — are never derived; each is reached only by its own action (``mark_task_done``, ``mark_task_terminated``, ``mark_task_duplicated``, plus ``force_task_done`` for a done that skips the precondition), so a task never closes itself and nothing closes it underneath the agent still packing it up. A task in ``ready_for_done`` that gains a step derives straight back to in_progress and returns when that step is done. ``forced_done_by``/``forced_done_reason`` are non-empty only on a task closed with ``force_task_done`` — who forced it and why. ``reassigning`` is NO LONGER a status — it is the orthogonal ``lock`` field (the owner/admin handover hold, cleared by the claim action; see ``POST /api/tasks/{task_id}/reassign``); ``priority`` includes ``frozen`` (pause-pushing — a priority, not a status). ``executor_kind='outsource'`` with an empty ``executor_id`` is the transient unassigned state. ``closed_ts`` is null while open. ``deps`` are the blocking task ids (display markers, never a status change); ``progress_done``/``progress_total`` count step leaves (``superseded`` replan history counts toward neither side). ``creator_id`` is the verified token sub of the task's creator (a member id, an outsource member id, or the literal "owner"); "" on rows created before the column existed. ``duplicate_of`` is the id of the ORIGINAL task this one duplicates — non-empty ONLY while ``status='duplicated'`` (MCP ``mark_task_duplicated``); the graph is depth-1 by construction so the cockpit link always resolves in one hop.
          */
         TaskDTO: {
             /**
              * Artifact Count
-             * @description HOW MANY deliverables are pinned on this task — and, since T-92, ALL that a task response says about them. There is no ``artifacts`` array here any more, and no ids in it either: rows, ids and names all come from ``list_task_artifacts(task_id)``, which answers the WHOLE ticket in one call. The count is EXACT, has no ceiling and is never truncated — 0 means the task genuinely has nothing pinned — the same promise ``note_size_chars`` makes for a step's note (T-66). WHY NOT EVEN THE IDS, when they are only a few characters each: a caller holding an id is a caller about to act on that artifact, which needs the row anyway — the id alone buys a follow-up call rather than saving one. Ask for the list when you want the list.
+             * @description HOW MANY deliverables are pinned on this task — and, since T-92, ALL that a task response says about them. There is no ``artifacts`` array here any more, and no ids in it either: rows, ids and names all come from ``list_task_artifacts(task_id)``, which answers the WHOLE task in one call. The count is EXACT, has no ceiling and is never truncated — 0 means the task genuinely has nothing pinned — the same promise ``note_size_chars`` makes for a step's note (T-66). WHY NOT EVEN THE IDS, when they are only a few characters each: a caller holding an id is a caller about to act on that artifact, which needs the row anyway — the id alone buys a follow-up call rather than saving one. Ask for the list when you want the list.
              * @default 0
              */
             artifact_count: number;
             /**
              * Blocking
-             * @description THE REVERSE OF ``deps``: the NON-TERMINAL tasks that name THIS task in their own ``blocked_by`` — who is waiting on you (T-91). Never null ([] when nobody is). Until this field existed the blocking side was invisible: ``set_task_deps`` fans the delta to the BLOCKED task's audience only, so the executor of the ticket everyone is queued behind was told nothing, by any channel. The owner ruled that this stays WRITTEN ON THE TICKET and is never messaged, which is why there is no notification to match it — read it here and on the wake snapshot (``ResumeTaskDTO.blocking``, ids only). Each entry carries the waiting task's ``id``/``task_no``/``title``/``status``, resolved the same way ``dep_tasks`` resolves the forward direction. TERMINAL waiters are omitted: a closed ticket is not waiting for anything.
+             * @description THE REVERSE OF ``deps``: the NON-TERMINAL tasks that name THIS task in their own ``blocked_by`` — who is waiting on you (T-91). Never null ([] when nobody is). Until this field existed the blocking side was invisible: ``set_task_deps`` fans the delta to the BLOCKED task's audience only, so the executor of the task everyone is queued behind was told nothing, by any channel. The owner ruled that this stays WRITTEN ON THE TASK and is never messaged, which is why there is no notification to match it — read it here and on the wake snapshot (``ResumeTaskDTO.blocking``, ids only). Each entry carries the waiting task's ``id``/``task_no``/``title``/``status``, resolved the same way ``dep_tasks`` resolves the forward direction. TERMINAL waiters are omitted: a closed task is not waiting for anything.
              */
             blocking?: components["schemas"]["TaskDepRefDTO"][];
             /** Closed Ts */
@@ -11159,7 +11158,7 @@ export interface components {
             description: string;
             /**
              * Due Soon Lead Minutes
-             * @description How many minutes before ``due_ts`` this task starts counting as due soon, 1..43200 (1 minute to 30 days). ``null`` means the task follows the workspace setting ``task_due_soon_lead_minutes`` (GET /api/settings). Always ``null`` when the task has no due date.
+             * @description How many minutes before ``due_ts`` this task starts counting as due soon, 1..43200 (1 minute to 30 days). ``null`` means the task follows the Due-soon lead time setting (Settings › General, ``task_due_soon_lead_minutes``) (GET /api/settings). Always ``null`` when the task has no due date.
              */
             due_soon_lead_minutes?: number | null;
             /**
@@ -11197,7 +11196,7 @@ export interface components {
             forced_done_reason: string;
             /**
              * Frozen By
-             * @description WHO put this task into the ``frozen`` priority (T-6020): the verified token sub of that write — ``"owner"`` for the owner's own click, else the member / outsource-worker id. ``""`` whenever the task is not frozen (and on rows written before the column existed, which are honestly unattributed); the write that moves the task off ``frozen`` clears it. Served because ``frozen`` is no longer a single-actor knob — owner, admin agent and the task's own executor may all freeze and unfreeze — so the owner must be able to tell their own 喊停 from an agent's by READING the task.
+             * @description WHO put this task into the ``frozen`` priority (T-6020): the verified token sub of that write — ``"owner"`` for the owner's own click, else the member / outsource-worker id. ``""`` whenever the task is not frozen (and on rows written before the column existed, which are honestly unattributed); the write that moves the task off ``frozen`` clears it. Served because ``frozen`` is no longer a single-actor knob — owner, admin and the task's own executor may all freeze and unfreeze — so the owner must be able to tell their own 喊停 from an agent's by READING the task.
              * @default
              */
             frozen_by: string;
@@ -11244,7 +11243,7 @@ export interface components {
             progress_total: number;
             /**
              * Reassigned From
-             * @description The PREDECESSOR the task was last handed over from (T-ba04 轉派交接): the id (a member id or an outsource worker id) of the executor the task moved AWAY from on its most recent reassign, so the successor and the cockpit can name who to hand over WITH. "" on a task never reassigned (or rows created before the column existed). additive-optional.
+             * @description The PREDECESSOR the task was last handed over from (T-ba04 轉派交接): the id (a member id or an outsource member id) of the executor the task moved AWAY from on its most recent reassign, so the successor and the cockpit can name who to hand over WITH. "" on a task never reassigned (or rows created before the column existed). additive-optional.
              * @default
              */
             reassigned_from: string;
@@ -11329,7 +11328,7 @@ export interface components {
         };
         /**
          * TaskListItemDTO
-         * @description One task in the LIGHT list projection (``GET /api/tasks`` / MCP ``list_tasks``): the fields the 任務清單 card needs to render collapsed. Drops the heavy per-task detail (``steps``, ``description``, ``inputs``) which the list never shows collapsed — fetch the full ``TaskDTO`` with ``GET /api/tasks/{task_id}`` (MCP ``get_task``) to read those. ``progress_done``/``progress_total`` are still counted (from step leaves) so the card's progress bar renders without the steps payload. ``current_step_id``/``current_step_name`` are the same kind of pre-resolved summary — the step the task is on right now, resolved server-side in ONE grouped query over the whole population (never a per-task step read), carrying only the step's id and name and never its ``dod``. ``creator_id`` is the verified token sub of the task's creator (a member id, an outsource worker id, or the literal "owner"); "" on rows created before the column existed.
+         * @description One task in the LIGHT list projection (``GET /api/tasks`` / MCP ``list_tasks``): the fields the 任務清單 card needs to render collapsed. Drops the heavy per-task detail (``steps``, ``description``, ``inputs``) which the list never shows collapsed — fetch the full ``TaskDTO`` with ``GET /api/tasks/{task_id}`` (MCP ``get_task``) to read those. ``progress_done``/``progress_total`` are still counted (from step leaves) so the card's progress bar renders without the steps payload. ``current_step_id``/``current_step_name`` are the same kind of pre-resolved summary — the step the task is on right now, resolved server-side in ONE grouped query over the whole population (never a per-task step read), carrying only the step's id and name and never its ``dod``. ``creator_id`` is the verified token sub of the task's creator (a member id, an outsource member id, or the literal "owner"); "" on rows created before the column existed.
          */
         TaskListItemDTO: {
             /**
@@ -11369,7 +11368,7 @@ export interface components {
             dedupe_key: string;
             /**
              * Due Soon Lead Minutes
-             * @description How many minutes before ``due_ts`` this task starts counting as due soon, 1..43200 (1 minute to 30 days). ``null`` means the task follows the workspace setting ``task_due_soon_lead_minutes`` (GET /api/settings). Always ``null`` when the task has no due date.
+             * @description How many minutes before ``due_ts`` this task starts counting as due soon, 1..43200 (1 minute to 30 days). ``null`` means the task follows the Due-soon lead time setting (Settings › General, ``task_due_soon_lead_minutes``) (GET /api/settings). Always ``null`` when the task has no due date.
              */
             due_soon_lead_minutes?: number | null;
             /**
@@ -11771,7 +11770,7 @@ export interface components {
         };
         /**
          * TaskMessageDTO
-         * @description The task-card message box (owner or admin agent → executor; floor admin_agent since T-6020): the server posts one ordinary chat message to the task's executor with the task context auto-attached in ``meta`` ({task_id, task_title, task_type}). An unassigned executor is a 409.
+         * @description The task-card message box (owner or admin → executor; floor admin_agent since T-6020): the server posts one ordinary chat message to the task's executor with the task context auto-attached in ``meta`` ({task_id, task_title, task_type}). An unassigned executor is a 409.
          */
         TaskMessageDTO: {
             /** Attachments */
@@ -11833,7 +11832,7 @@ export interface components {
         TaskDueReceiptDTO: {
             /**
              * Due Soon Lead Minutes
-             * @description How many minutes before ``due_ts`` this task starts counting as due soon, 1..43200 (1 minute to 30 days). ``null`` means the task follows the workspace setting ``task_due_soon_lead_minutes`` (GET /api/settings). Always ``null`` when the task has no due date.
+             * @description How many minutes before ``due_ts`` this task starts counting as due soon, 1..43200 (1 minute to 30 days). ``null`` means the task follows the Due-soon lead time setting (Settings › General, ``task_due_soon_lead_minutes``) (GET /api/settings). Always ``null`` when the task has no due date.
              */
             due_soon_lead_minutes: number | null;
             /**
@@ -11851,7 +11850,7 @@ export interface components {
         TaskDueUpdateDTO: {
             /**
              * Due Soon Lead Minutes
-             * @description How many minutes before ``due_ts`` the task starts counting as due soon, 1..43200 (1 minute to 30 days). Omit it to keep the task's current lead; ``null`` makes the task follow the workspace setting ``task_due_soon_lead_minutes``. Clearing ``due_ts`` clears the lead too, so a number sent with ``due_ts: null`` is a 422.
+             * @description How many minutes before ``due_ts`` the task starts counting as due soon, 1..43200 (1 minute to 30 days). Omit it to keep the task's current lead; ``null`` makes the task follow the Due-soon lead time setting (Settings › General, ``task_due_soon_lead_minutes``). Clearing ``due_ts`` clears the lead too, so a number sent with ``due_ts: null`` is a 422.
              */
             due_soon_lead_minutes?: number | null;
             /**
@@ -11874,7 +11873,7 @@ export interface components {
         };
         /**
          * TaskPriorityUpdateDTO
-         * @description Priority change: ``high`` | ``mid`` | ``low`` | ``frozen`` (freeze/unfreeze ride the same knob — SPEC §3.3). The owner and an admin agent may set any value on any task; the task's own executor may set any value on their task — frozen INCLUDED, and the clear of a frozen task is admitted for exactly the same set (T-6020: whoever may freeze may unfreeze). A caller who is none of the three is a flat 403.
+         * @description Priority change: ``high`` | ``mid`` | ``low`` | ``frozen`` (freeze/unfreeze ride the same knob — SPEC §3.3). The owner and an admin may set any value on any task; the task's own executor may set any value on their task — frozen INCLUDED, and the clear of a frozen task is admitted for exactly the same set (T-6020: whoever may freeze may unfreeze). A caller who is none of the three is a flat 403.
          */
         TaskPriorityUpdateDTO: {
             /** Priority */
@@ -11894,7 +11893,7 @@ export interface components {
         };
         /**
          * TaskReassignTargetDTO
-         * @description The reassignment target. ``kind='staff'`` requires ``member_id`` — an ACTIVE roster member below the warden layer (a warden or an inactive/unknown member is a 400). ``kind='outsource'`` lands the task unassigned for the scheduler to spawn a fresh worker under the global parallel cap (no owner-approval card; T-35e0): ``runtime`` is claude/codex (absent = claude); ``model`` is the worker's model (blank/absent = selected-runtime default); ``effort`` is low|medium|high|xhigh|max (absent = ``medium``); ``machine`` is the machine the worker boots on — a machine id that must resolve; absent inherits (see below). An offline machine is NOT substituted at spawn time: nothing is dispatched and the reason is recorded on the worker. Any of ``runtime``/``model``/``effort``/``machine`` that is OMITTED is INHERITED: a TYPED task takes the type manual's outsource assignee, a FREE (ad-hoc) task takes the DISPATCHING member's own runtime/model/effort and the machine it is itself pinned to (發包 without a spec means "one like me"). ``runtime`` and ``model`` inherit together — an inherited model is kept only under the runtime it belongs to, else the runtime's default model applies. ``effort`` falls back to ``medium``. ``machine`` has NO final fallback: when nothing names one the task carries no placement and no worker is started until one is chosen. The resolved spec is persisted on the task row and re-read on handover/rebirth, never re-derived.
+         * @description The reassignment target. ``kind='staff'`` requires ``member_id`` — an ACTIVE roster member below the warden layer (a warden or an inactive/unknown member is a 400). ``kind='outsource'`` lands the task unassigned for the scheduler to spawn a fresh worker under the global parallel cap (no reply card to the owner; T-35e0): ``runtime`` is claude/codex (absent = claude); ``model`` is the worker's model (blank/absent = selected-runtime default); ``effort`` is low|medium|high|xhigh|max (absent = ``medium``); ``machine`` is the machine the worker boots on — a machine id that must resolve; absent inherits (see below). An offline machine is NOT substituted at spawn time: nothing is dispatched and the reason is recorded on the worker. Any of ``runtime``/``model``/``effort``/``machine`` that is OMITTED is INHERITED: a TYPED task takes the type manual's outsource assignee, a FREE (ad-hoc) task takes the DISPATCHING member's own runtime/model/effort and the machine it is itself pinned to (發包 without a spec means "one like me"). ``runtime`` and ``model`` inherit together — an inherited model is kept only under the runtime it belongs to, else the runtime's default model applies. ``effort`` falls back to ``medium``. ``machine`` has NO final fallback: when nothing names one the task carries no placement and no worker is started until one is chosen. The resolved spec is persisted on the task row and re-read on handover/rebirth, never re-derived.
          */
         TaskReassignTargetDTO: {
             /**
@@ -11933,7 +11932,7 @@ export interface components {
         TaskRefDTO: {
             /**
              * Due Soon Lead Minutes
-             * @description The task's own due-soon lead in minutes (TaskDTO.due_soon_lead_minutes). ``null`` when the task follows the workspace setting ``task_due_soon_lead_minutes`` (GET /api/settings) or has no due date.
+             * @description The task's own due-soon lead in minutes (TaskDTO.due_soon_lead_minutes). ``null`` when the task follows the Due-soon lead time setting (Settings › General, ``task_due_soon_lead_minutes``) (GET /api/settings) or has no due date.
              * @default null
              */
             due_soon_lead_minutes: number | null;
@@ -12082,7 +12081,7 @@ export interface components {
         };
         /**
          * TaskStepDetailDTO
-         * @description ONE step of one task, IN FULL (T-66) — the counterpart to TaskStepDTO, which is the summary row ``get_task`` serves. Everything TaskStepDTO carries is here, plus the one thing it deliberately does not: ``note``, the step's whole working-note text. ``detail_level`` is ``full`` so a reader can tell the two responses apart without inspecting which fields happen to be present. It describes the STEP and nothing else — no task fields, no sibling steps — because the whole point of the split is that a caller who wants one note does not pay for the ticket.
+         * @description ONE step of one task, IN FULL (T-66) — the counterpart to TaskStepDTO, which is the summary row ``get_task`` serves. Everything TaskStepDTO carries is here, plus the one thing it deliberately does not: ``note``, the step's whole working-note text. ``detail_level`` is ``full`` so a reader can tell the two responses apart without inspecting which fields happen to be present. It describes the STEP and nothing else — no task fields, no sibling steps — because the whole point of the split is that a caller who wants one note does not pay for the task.
          */
         TaskStepDetailDTO: {
             /**
@@ -12369,7 +12368,7 @@ export interface components {
         };
         /**
          * TaskWriteReceiptDTO
-         * @description Bounded receipt returned after the task WRITE verbs that used to answer with the whole ticket - update_task (and its HTTP-only title / description twins), claim_task, reassign_task, mark_task_done, mark_task_terminated, mark_task_duplicated, force_task_done and set_task_deps. Same posture as TaskPriorityReceiptDTO and TaskArtifactReceiptDTO: the write answers with what the write DID and with the parts the caller cannot predict, not with the task. Measured on one real ticket the old shape was 12,666 characters, of which the step rows were 5,676 and the description another 5,668, leaving 822 for everything a caller actually reads back - so the step rows are reported here as progress_done / progress_total and the artifact set as artifact_count, the same index-not-rows split T-66 made on get_task. ``description_size_chars`` / ``description_sha256`` replace the description ECHO for a reason that is not size alone: the three doors that actually WRITE a description (update_task and the HTTP-only description / title twins) TRIM what they store while create_task does not, so the stored text can differ from the text that was sent, and a size + hash pair answers exactly that question. On the five verbs that never touch the description - claim, reassign, terminate, duplicate, deps - the pair is simply the current state - the same anchor pair patch_insight and patch_task_sop already carry. ``title`` rides back in full because it is ONE LINE and it is the row the task list shows. An earlier draft of this sentence added "and it is trimmed by this same write" as if that held for all six verbs; it does not. Only update_task and the HTTP-only title twin write a title at all (api_tasks_fields.go:173 is where the trim happens); on claim, reassign, terminate, duplicate and deps the title is a stored value nobody on this call touched - which is precisely why it is worth sending, since those five are driven by task id and their caller may never have seen the ticket. GET the task itself when full detail is needed; the artifacts route serves the artifact rows. NOTE the GET on this same path is UNCHANGED and still answers TaskDTO - only the write verbs moved. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields are the opposite: conformance asserts on them, so dropping the content is NOT additive and those assertions move with this shape. THE COCKPIT, HOWEVER, DOES NOT READ THIS ONE - and the sentence that used to stand here said it did. useTasks.ts:258-303 awaits each of these six writes, DISCARDS the value and refetches; the general claim was copied onto every receipt in this package without being checked against the task hooks, which is the same failure this ticket already produced thirteen times over. The frontend prerequisite is real for the document and roster families; it is not this receipt that needs it. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides. The two dropped here - type_key and dedupe_key - are not writable by any of these verbs and both are known from create_task onward, so neither could ever be this write's news.
+         * @description Bounded receipt returned after the task WRITE verbs that used to answer with the whole task - update_task (and its HTTP-only title / description twins), claim_task, reassign_task, mark_task_done, mark_task_terminated, mark_task_duplicated, force_task_done and set_task_deps. Same posture as TaskPriorityReceiptDTO and TaskArtifactReceiptDTO: the write answers with what the write DID and with the parts the caller cannot predict, not with the task. Measured on one real task the old shape was 12,666 characters, of which the step rows were 5,676 and the description another 5,668, leaving 822 for everything a caller actually reads back - so the step rows are reported here as progress_done / progress_total and the artifact set as artifact_count, the same index-not-rows split T-66 made on get_task. ``description_size_chars`` / ``description_sha256`` replace the description ECHO for a reason that is not size alone: the three doors that actually WRITE a description (update_task and the HTTP-only description / title twins) TRIM what they store while create_task does not, so the stored text can differ from the text that was sent, and a size + hash pair answers exactly that question. On the five verbs that never touch the description - claim, reassign, terminate, duplicate, deps - the pair is simply the current state - the same anchor pair patch_insight and patch_task_sop already carry. ``title`` rides back in full because it is ONE LINE and it is the row the task list shows. An earlier draft of this sentence added "and it is trimmed by this same write" as if that held for all six verbs; it does not. Only update_task and the HTTP-only title twin write a title at all (api_tasks_fields.go:173 is where the trim happens); on claim, reassign, terminate, duplicate and deps the title is a stored value nobody on this call touched - which is precisely why it is worth sending, since those five are driven by task id and their caller may never have seen the task. GET the task itself when full detail is needed; the artifacts route serves the artifact rows. NOTE the GET on this same path is UNCHANGED and still answers TaskDTO - only the write verbs moved. TWO KINDS OF FIELD WERE DROPPED HERE AND THEY ARE NOT THE SAME. The pure metadata (named in the sentence that follows this one) has NO consumer anywhere - searched across frontend, Go, conformance, e2e and the ocagent CLI, every zero-hit backed by a positive control on the same query shape. The CONTENT fields are the opposite: conformance asserts on them, so dropping the content is NOT additive and those assertions move with this shape. THE COCKPIT, HOWEVER, DOES NOT READ THIS ONE - and the sentence that used to stand here said it did. useTasks.ts:258-303 awaits each of these six writes, DISCARDS the value and refetches; the general claim was copied onto every receipt in this package without being checked against the task hooks, which is the same failure this ticket already produced thirteen times over. The frontend prerequisite is real for the document and roster families; it is not this receipt that needs it. Owner direction, 2026-09-05: a write answers with identity, the size numbers, and what the write itself decides. The two dropped here - type_key and dedupe_key - are not writable by any of these verbs and both are known from create_task onward, so neither could ever be this write's news.
          */
         TaskWriteReceiptDTO: {
             /**
@@ -12400,24 +12399,24 @@ export interface components {
             description_size_chars: number;
             /**
              * Duplicate Of
-             * @description The ticket this one was folded onto, empty when it stands alone. News on mark_task_duplicated only in the sense that it confirms the fold landed; on the other five it is a stored value that tells a caller it just acted on a ticket somebody had already marked duplicate - which changes what it does next.
+             * @description The task this one was folded onto, empty when it stands alone. News on mark_task_duplicated only in the sense that it confirms the fold landed; on the other five it is a stored value that tells a caller it just acted on a task somebody had already marked duplicate - which changes what it does next.
              * @default
              */
             duplicate_of: string;
             /**
              * Executor Id
-             * @description Who holds the ticket after this write. On claim_task it is the verified caller and on reassign_task it is what the caller named, but on the other four it is a stored value the caller may not know - and it is what decides whether the caller is still allowed to drive this task at all, since every task-driving write is gated on being the acting executor (the stamped predecessor instead while the task is under the reassign hold).
+             * @description Who holds the task after this write. On claim_task it is the verified caller and on reassign_task it is what the caller named, but on the other four it is a stored value the caller may not know - and it is what decides whether the caller is still allowed to drive this task at all, since every task-driving write is gated on being the acting executor (the stamped predecessor instead while the task is under the reassign hold).
              * @default
              */
             executor_id: string;
             /**
              * Executor Kind
-             * @description Whether that executor is staff or a contractor. Server-derived from the roster rather than sent, and it changes how a caller addresses them - a contractor is bound to one task and goes away with it.
+             * @description Whether that executor is staff or an outsource member. Server-derived from the roster rather than sent, and it changes how a caller addresses them - an outsource member is bound to one task and goes away with it.
              */
             executor_kind: string;
             /**
              * Lock
-             * @description The handover lock, ``reassigning`` while a transfer is waiting to be claimed and empty otherwise. Only reassign_task sets it; claim_task clears it, and so does every close (done, terminated, duplicated), since a closed task awaits no takeover. So on the other four verbs it is the answer to a question with no other cheap source: ``status`` is derived from the steps and does not move when a lock is placed, so a caller reading status alone cannot see that the ticket is mid-transfer.
+             * @description The handover lock, ``reassigning`` while a transfer is waiting to be claimed and empty otherwise. Only reassign_task sets it; claim_task clears it, and so does every close (done, terminated, duplicated), since a closed task awaits no takeover. So on the other four verbs it is the answer to a question with no other cheap source: ``status`` is derived from the steps and does not move when a lock is placed, so a caller reading status alone cannot see that the task is mid-transfer.
              * @default
              */
             lock: string;
@@ -12433,17 +12432,17 @@ export interface components {
             progress_total: number;
             /**
              * Status
-             * @description The task status after this write, and it is DERIVED FROM THE STEPS rather than set by the caller - which is exactly why it rides back. A caller that terminates, claims or reassigns cannot compute what the status became; it is the single field that says whether the write moved the ticket.
+             * @description The task status after this write, and it is DERIVED FROM THE STEPS rather than set by the caller - which is exactly why it rides back. A caller that terminates, claims or reassigns cannot compute what the status became; it is the single field that says whether the write moved the task.
              */
             status: string;
             /**
              * Task Id
-             * @description Which ticket this write landed on - the caller's own id, kept as the address (owner's ruling leaves ids in) and because six different tools answer with this shape. ``task_no`` was on an earlier draft and has been REMOVED: domain.go:1551 defines ``TaskNo(taskID) { return taskID }``, so it was the same string twice in one answer.
+             * @description Which task this write landed on - the caller's own id, kept as the address (owner's ruling leaves ids in) and because six different tools answer with this shape. ``task_no`` was on an earlier draft and has been REMOVED: domain.go:1551 defines ``TaskNo(taskID) { return taskID }``, so it was the same string twice in one answer.
              */
             task_id: string;
             /**
              * Title
-             * @description The ticket's title AFTER this write. It is NEWS on five of the six verbs and an echo on one, and the split is worth stating because owner asked exactly this question about create_task on rc-bf25374aa0e8. claim_task, reassign_task, mark_task_done, mark_task_terminated, mark_task_duplicated, force_task_done and set_task_deps are all called with a task id and no title, so the caller may never have seen the ticket it just acted on - the title is how a person recognises which one. update_task (and the title twin) is the exception: there the caller sent it, and the server TRIMS what it sent, so even there the value can differ from what was posted. ``waiting_reason`` was on an earlier draft and has been REMOVED: reassign_task and mark_task_duplicated stamp it empty unconditionally, the other four never touch it so it is a stale read, and no caller anywhere reads it off a write.
+             * @description The task's title AFTER this write. It is NEWS on five of the six verbs and an echo on one, and the split is worth stating because owner asked exactly this question about create_task on rc-bf25374aa0e8. claim_task, reassign_task, mark_task_done, mark_task_terminated, mark_task_duplicated, force_task_done and set_task_deps are all called with a task id and no title, so the caller may never have seen the task it just acted on - the title is how a person recognises which one. update_task (and the title twin) is the exception: there the caller sent it, and the server TRIMS what it sent, so even there the value can differ from what was posted. ``waiting_reason`` was on an earlier draft and has been REMOVED: reassign_task and mark_task_duplicated stamp it empty unconditionally, the other four never touch it so it is a stale read, and no caller anywhere reads it off a write.
              * @default
              */
             title: string;
@@ -12455,7 +12454,7 @@ export interface components {
         ThemeBundleDTO: {
             /**
              * Avatars
-             * @description Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `staff` (一般正職 staff; this key was called `member` until T-57 renamed it. The rename is a HARD CUT: a bundle exported before it carries `member` and is REFUSED with a 422 naming the rename, never silently defaulted to the built-in glyph) / `outsource` (外包 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload — XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) — a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
+             * @description Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `staff` (一般正職 staff; this key was called `member` until T-57 renamed it. The rename is a HARD CUT: a bundle exported before it carries `member` and is REFUSED with a 422 naming the rename, never silently defaulted to the built-in glyph) / `outsource` (外包 outsource member) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload — XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) — a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
              */
             avatars?: {
                 [key: string]: string;
@@ -12611,11 +12610,11 @@ export interface components {
         };
         /**
          * UpgradeResultDTO
-         * @description Response of `POST /api/update/upgrade` (owner/admin agent — T-6020). `status` names the
+         * @description Response of `POST /api/update/upgrade` (owner/admin — T-6020). `status` names the
          *     outcome ("restarting" — the new binary is already verified and swapped
          *     in place; the process re-execs right after this response) and
          *     `target_version` the GitHub release tag being installed. The endpoint
-         *     fires only on an explicit owner/admin-agent trigger; the `updater_auto_update`
+         *     fires only on an explicit owner/admin trigger; the `updater_auto_update`
          *     setting runs the same verified body unattended in the background.
          */
         UpgradeResultDTO: {
@@ -12793,7 +12792,7 @@ export interface components {
         };
         /**
          * WorkerBootContextDTO
-         * @description The outsource worker's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of GET /api/members/{member_id}/boot-context. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (System interaction + User Language + Owner Additions + the boot sequence for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry a lore block (T-33): the ``everyone`` (Everyone) entries first, then this worker's own (LoreScopeAgent keyed on the worker's member id), under one ``lore_cap_chars_role`` budget (T-236). The worker's own entries are the one part of this text that differs from worker to worker; the block changes when an entry in either scope is written, retired or bumped, or is moved into or out of them by ``set_lore_entry_scope``. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
+         * @description The outsource member's boot-context PREVIEW (GET /api/outsource-workers/{id}/boot-context, T-ba6b) — the worker twin of GET /api/members/{member_id}/boot-context. The server re-runs the SAME buildWorkerBootContext fold the spawn path uses. Since T-4595 that fold is the STAFF boot context minus the persona slot (System interaction + User Language + User additions + the Boot steps for the worker's own runtime); it carries no outsource-only document, no identity block, no bound task and no type manual, so it does not vary with them. It DOES carry a lore block (T-33): the ``everyone`` (Everyone) entries first, then this worker's own (LoreScopeAgent keyed on the worker's member id), under one ``lore_cap_chars_role`` budget (T-236). The worker's own entries are the one part of this text that differs from worker to worker; the block changes when an entry in either scope is written, retired or bumped, or is moved into or out of them by ``set_lore_entry_scope``. HONEST: this is what the boot context would look like NOW — the seeds may have changed since spawn, and nothing is stored. Never carries a worker token.
          */
         WorkerBootContextDTO: {
             /** Context */
