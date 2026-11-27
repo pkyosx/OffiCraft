@@ -354,6 +354,10 @@ type loginRelay struct {
 
 	mu       sync.Mutex
 	sessions map[string]*loginSession
+	// Logins past their process, still concluding: out of sessions so Code and
+	// Cancel no longer reach them, but still writing env renders and the codex
+	// staging home, so Abandon waits for them too.
+	concluding map[*loginSession]struct{}
 }
 
 // loginFlow is what one runtime's login CLI prints and how its end is read.
@@ -406,16 +410,17 @@ func (s *loginSession) mask(line string) string {
 
 func newLoginRelay(prober *loginProber, progress loginReporter, logf func(string, ...any)) *loginRelay {
 	r := &loginRelay{
-		prober:   prober,
-		progress: progress,
-		start:    startLoginProcess,
-		remove:   os.Remove,
-		cap:      loginProcessCap,
-		codexCap: codexLoginProcessCap,
-		codeWait: codexCodeWait,
-		urlWait:  claudeLoginURLWait,
-		logf:     logf,
-		sessions: map[string]*loginSession{},
+		prober:     prober,
+		progress:   progress,
+		start:      startLoginProcess,
+		remove:     os.Remove,
+		cap:        loginProcessCap,
+		codexCap:   codexLoginProcessCap,
+		codeWait:   codexCodeWait,
+		urlWait:    claudeLoginURLWait,
+		logf:       logf,
+		sessions:   map[string]*loginSession{},
+		concluding: map[*loginSession]struct{}{},
 	}
 	r.installAuth = installCodexAuth
 	r.resolveBin = func(runtime string) string {
@@ -525,8 +530,14 @@ func (r *loginRelay) watch(s *loginSession, rendered string) {
 	}
 	r.mu.Lock()
 	delete(r.sessions, s.id)
+	r.concluding[s] = struct{}{}
 	r.mu.Unlock()
 	defer close(s.done)
+	defer func() {
+		r.mu.Lock()
+		delete(r.concluding, s)
+		r.mu.Unlock()
+	}()
 	defer s.flow.finish()
 
 	s.mu.Lock()
@@ -704,6 +715,10 @@ func (r *loginRelay) Abandon() {
 	for _, s := range r.sessions {
 		running = append(running, s)
 	}
+	ending := append([]*loginSession(nil), running...)
+	for s := range r.concluding {
+		ending = append(ending, s)
+	}
 	r.mu.Unlock()
 	for _, s := range running {
 		s.mu.Lock()
@@ -713,15 +728,15 @@ func (r *loginRelay) Abandon() {
 		r.progress(loginReport{LoginID: s.id, State: "failed",
 			Reason: "the warden restarted to update itself; start the login again"})
 	}
-	for _, s := range running {
+	for _, s := range ending {
 		select {
 		case <-s.done:
 		case <-time.After(5 * time.Second):
 		}
 	}
-	// A login past its process (concluding) is no longer in sessions. An install
-	// that starts after this still leaves auth.json whole (one rename) and at
-	// worst a temp file the next startup sweep removes.
+	// A conclude past that wait may still be installing. One that starts its
+	// install after this still leaves auth.json whole (one rename) and at worst
+	// a temp file the next startup sweep removes.
 	r.installMu.Lock()
 	r.installMu.Unlock()
 }

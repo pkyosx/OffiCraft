@@ -28,11 +28,12 @@ const (
 // the plain-exit file it exits 3 saying nothing more. Otherwise it waits until the approve or deny file
 // appears. deny's content goes to stderr and the exit is 1; approve copies the
 // issued file (when there is one) to $CODEX_HOME/auth.json and exits 0 after
-// "Successfully logged in". `login status` exits 1 under the CODEX_HOME named
-// in the refuse-home file, else with the status-rc file's code, else 0 exactly
-// when $CODEX_HOME/auth.json exists.
+// "Successfully logged in". `login status` under the CODEX_HOME named in the
+// hold-home file first waits until the hold-release file appears; it then exits
+// 1 under the CODEX_HOME named in the refuse-home file, else with the status-rc
+// file's code, else 0 exactly when $CODEX_HOME/auth.json exists.
 type fakeCodex struct {
-	root, bin, pid, sawEnv, sawHome, sawConfig, toStderr, approve, deny, statusRC, refuseHome, selfTimeout, selfTerm, plainExit, noCode, issued string
+	root, bin, pid, sawEnv, sawHome, sawConfig, toStderr, approve, deny, statusRC, refuseHome, holdHome, holdRelease, selfTimeout, selfTerm, plainExit, noCode, issued string
 }
 
 func newFakeCodex(t *testing.T) *fakeCodex {
@@ -49,6 +50,8 @@ func newFakeCodex(t *testing.T) *fakeCodex {
 		deny:        filepath.Join(root, "deny"),
 		statusRC:    filepath.Join(root, "status-rc"),
 		refuseHome:  filepath.Join(root, "refuse-home"),
+		holdHome:    filepath.Join(root, "hold-home"),
+		holdRelease: filepath.Join(root, "hold-release"),
 		selfTimeout: filepath.Join(root, "self-timeout"),
 		selfTerm:    filepath.Join(root, "self-term"),
 		plainExit:   filepath.Join(root, "plain-exit"),
@@ -65,7 +68,9 @@ func newFakeCodex(t *testing.T) *fakeCodex {
 		`printf '\n\033[90mContinue only if you started this login in Codex. If a website or another person gave you this code, cancel.\033[0m\n'`
 	f.bin = stageBinary(t, filepath.Join(root, "bin", "codex"), "#!/bin/sh\n"+
 		`__home="${CODEX_HOME:-/nonexistent-codex-home}"`+"\n"+
-		`if [ "$1 $2" = "login status" ]; then [ -f '`+f.refuseHome+`' ] && [ "$(/bin/cat '`+f.refuseHome+`')" = "$__home" ] && exit 1; [ -f '`+f.statusRC+`' ] && exit "$(/bin/cat '`+f.statusRC+`')"; `+
+		`if [ "$1 $2" = "login status" ]; then `+
+		`if [ -f '`+f.holdHome+`' ] && [ "$(/bin/cat '`+f.holdHome+`')" = "$__home" ]; then while [ ! -f '`+f.holdRelease+`' ]; do /bin/sleep 0.05; done; fi; `+
+		`[ -f '`+f.refuseHome+`' ] && [ "$(/bin/cat '`+f.refuseHome+`')" = "$__home" ] && exit 1; [ -f '`+f.statusRC+`' ] && exit "$(/bin/cat '`+f.statusRC+`')"; `+
 		`[ -f "$__home/auth.json" ] || { echo 'Not logged in' >&2; exit 1; }; echo 'Logged in using ChatGPT' >&2; exit 0; fi`+"\n"+
 		`echo $$ > '`+f.pid+`'`+"\n"+
 		`printf '%s' "${FROM_FILE-unset}" > '`+f.sawEnv+`'`+"\n"+
@@ -314,9 +319,11 @@ func TestCodexLoginRelay(t *testing.T) {
 		}
 	})
 
-	t.Run("under a self-update during an install, Abandon returns only after the install is done", func(t *testing.T) {
+	t.Run("under a self-update during an install, Abandon returns only after the login is done and has cleaned up", func(t *testing.T) {
 		h, codexHome := newCodexHarness(t)
 		codexAuthFile(t, h.codex, filepath.Dir(h.codex.issued), "new@example.test")
+		h.codex.write(t, h.codex.holdHome, codexHome)
+		t.Cleanup(func() { _ = os.WriteFile(h.codex.holdRelease, nil, 0o600) })
 		entered, release := make(chan struct{}), make(chan struct{})
 		h.relay.installAuth = func(home string, auth []byte) error {
 			close(entered)
@@ -341,11 +348,32 @@ func TestCodexLoginRelay(t *testing.T) {
 		close(release)
 		select {
 		case <-abandoned:
+			t.Fatal("Abandon returned while the installed login was still being confirmed")
+		case <-time.After(300 * time.Millisecond):
+		}
+		h.codex.write(t, h.codex.holdRelease, "")
+		select {
+		case <-abandoned:
 		case <-time.After(10 * time.Second):
-			t.Fatal("Abandon never returned after the install finished")
+			t.Fatal("Abandon never returned after the login finished")
 		}
 		if !bytes.Equal(readFile(t, filepath.Join(codexHome, "auth.json")), readFile(t, h.codex.issued)) {
 			t.Error("the install did not complete")
+		}
+		select {
+		case got := <-h.reports:
+			want := loginReport{LoginID: "rl-cu", State: "succeeded", Account: &loginAccount{Email: "new@example.test", Plan: "plus"}}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("final report = %+v, want %+v", got, want)
+			}
+		default:
+			t.Error("Abandon returned before the login reported its end")
+		}
+		if homes := stagingHomes(t, h); len(homes) > 0 {
+			t.Errorf("Abandon returned with a codex staging home still on disk: %v", homes)
+		}
+		if renders, _ := filepath.Glob(filepath.Join(h.prober.agentHome, loginRenderPrefix+"*")); len(renders) > 0 {
+			t.Errorf("Abandon returned with an env render still on disk: %v", renders)
 		}
 	})
 
