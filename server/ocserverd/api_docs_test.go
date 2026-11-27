@@ -164,7 +164,7 @@ func apiGuideIndex() []map[string]any {
 		{"slug": "sop", "title": "Having AI follow an SOP for repeated work (Task manuals)"},
 		{"slug": "schedule", "title": "Doing something on a schedule (Scheduled messages)"},
 		{"slug": "webhook", "title": "Send outside events to members automatically (webhooks)"},
-		{"slug": "lore", "title": "讓成員記住你教過的事（傳承）"},
+		{"slug": "lore", "title": "Making members remember what you taught them (Lore)"},
 		{"slug": "secrets", "title": "Give members your account keys (secrets)"},
 		{"slug": "members", "title": "Adding members and hiring outsource"},
 		{"slug": "interface", "title": "介面說明"},
