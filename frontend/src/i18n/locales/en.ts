@@ -1763,7 +1763,7 @@ export const en: Dict = {
     insightEmpty:
       "This role has no Insight yet.",
     insightShared:
-      "Every member can read this Insight; only this role itself and an admin can change it.",
+      "Judgement principles this role keeps for its own work; only this role's members get them at boot. Other members can look them up, but only this role itself and an admin can change them.",
     insightSaveError: "Failed to save insight",
     // ── Webhook endpoints (M4) ──
     webhook: {
@@ -2541,6 +2541,9 @@ export const en: Dict = {
     customName: "User additions",
     customSub: "Custom content read by every member at boot · editable",
     roleDefsSection: "Role definitions",
+    dutyHeading: "Duty",
+    dutyNote:
+      "Other members read this to decide what to bring to this role; it appears on the roster every member sees at boot.",
     bootName: "Boot steps",
     bootSub: "What an AI follows while starting up · one per runtime · editable",
     bootRuntimeClaude: "Standard",
@@ -2670,7 +2673,7 @@ export const en: Dict = {
     historyVersionUnreadable:
       "This version's content cannot be read right now, so it cannot be shown or compared.",
     historyClose: "Close",
-    historyRoleDefTitle: "Role definition · version history",
+    historyRoleDefTitle: "Duty · version history",
     historyInsightTitle: "Insight · version history",
     historyGlobalTitle: "Global context · version history",
     historySopTitle: "SOP version history",
@@ -2681,13 +2684,13 @@ export const en: Dict = {
     historyField: {
       text: "Content",
       name: "Name",
-      definition_md: "Role definition",
+      definition_md: "Duty",
       purpose: "Purpose",
       fields: "Fields",
       sop_md: "SOP",
     },
     loadError: "Failed to load role definitions. Please try again.",
-    addRole: "Add role definition",
+    addRole: "Add role",
     addRoleName: "Role name",
     renameRole: "Rename role",
     addRoleSubmit: "Create",
@@ -2697,7 +2700,7 @@ export const en: Dict = {
     deleteRole: "Delete",
     deleteRoleConfirmLead: 'Delete role "',
     deleteRoleConfirmTail:
-      '"? Its staff members will be marked as departed and their chats kept as read-only history; the role definition and Insight will be deleted permanently.',
+      '"? Its staff members will be marked as departed and their chats kept as read-only history; its Duty and Insight will be deleted permanently.',
     deleteRoleConfirmAction: "Delete role",
     deleteRoleOnline: "A member is online — cannot delete",
     deleteRoleError: "Delete failed. Please try again.",
@@ -2753,7 +2756,7 @@ export const en: Dict = {
     // they no longer share one ruler.
     docCapDuty: "Duty size cap",
     docCapDutySub:
-      "Maximum characters in a role's role definition (100–250000). Lowering it truncates nothing already saved; it only affects later saves.",
+      "Maximum characters in a role's Duty (100–250000). Lowering it truncates nothing already saved; it only affects later saves.",
     docCapInsight: "Insight size cap",
     docCapInsightSub:
       "Maximum characters in a role's Insight (100–250000). Lowering it truncates nothing already saved; it only affects later saves.",

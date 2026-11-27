@@ -1328,6 +1328,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.doneEdit",
   "settings.dueSoonLead",
   "settings.dueSoonLeadSub",
+  "settings.dutyHeading",
+  "settings.dutyNote",
   "settings.edit",
   "settings.editorPlaceholder",
   "settings.globalContext",

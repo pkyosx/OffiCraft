@@ -125,8 +125,13 @@ export interface DocCardProps {
    * only the pages whose editor used to be per-section owe the sentence, and
    * adding it under a page that never offered anything else would be noise. */
   replaceNote?: string;
+  /** A heading inside the card head, before the badge — for a page that shows
+   * the document under a title that is not the document's own name (the role
+   * page's title is the role; the card is its Duty). */
+  heading?: { label: string; icon?: ReactNode };
   /** One line under the card head that is about THIS document rather than about
-   * saving — today, why a read-only document has no editor (T-3201). Separate
+   * saving — why a read-only document has no editor (T-3201), or what belongs
+   * in the document. Separate
    * from `replaceNote` because the two are never both true: a document nobody
    * may write cannot be warned that saving replaces it. */
   note?: ReactNode;
@@ -205,6 +210,7 @@ export function DocCard({
   isDefault: isDefaultOverride,
   usage,
   replaceNote,
+  heading,
   note,
   confirmSave,
   requireDirty = false,
@@ -449,8 +455,14 @@ export function DocCard({
         <div className="doc-card__head">
           {/* No filename chip here — docs are presented as CONTENT, not files
            * (the role page's internal role-….md name was implementation detail
-           * the owner should never see). The head keeps only the badge. */}
+           * the owner should never see). */}
           <span className="doc-card__file">
+            {heading && (
+              <span className="doc-card__heading">
+                {heading.icon}
+                <span className="doc-card__heading-label">{heading.label}</span>
+              </span>
+            )}
             {badge ? (
               <span className="set-badge">{badge}</span>
             ) : (

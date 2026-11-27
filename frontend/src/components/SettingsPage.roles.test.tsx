@@ -209,7 +209,7 @@ describe("SettingsPage · 角色誌 新增角色 auto-scroll (T-25b7 owner feedb
   });
 });
 
-describe("SettingsPage · 角色誌 新增角色定義 (inline row)", () => {
+describe("SettingsPage · 角色誌 新增角色 (inline row)", () => {
   it("grows an inline single-field row and creates one role + one server-named member", async () => {
     const utils = await openRolesLog();
     // The add affordance exists; the row is closed until clicked.

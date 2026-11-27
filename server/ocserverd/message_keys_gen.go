@@ -1329,6 +1329,8 @@ var messageKeys = map[string]bool{
 	"settings.doneEdit":                                true,
 	"settings.dueSoonLead":                             true,
 	"settings.dueSoonLeadSub":                          true,
+	"settings.dutyHeading":                             true,
+	"settings.dutyNote":                                true,
 	"settings.edit":                                    true,
 	"settings.editorPlaceholder":                       true,
 	"settings.globalContext":                           true,

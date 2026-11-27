@@ -209,6 +209,7 @@ import {
   CheckIcon,
   BellIcon,
   UnknownIcon,
+  BriefcaseIcon,
 } from "./icons";
 
 /** WHICH GROUP a boot document's list row sits in — the owner's own reading of
@@ -1039,6 +1040,11 @@ export function SettingsPage({
           ) : undefined
         }
         crumbs={[crumbRoot, crumbRoles, { label: roleTitle }]}
+        heading={{
+          label: t.settings.dutyHeading,
+          icon: <BriefcaseIcon size={15} />,
+        }}
+        note={t.settings.dutyNote}
         // The Duty doc has had a cap since T-ae38, and this is the only place
         // an owner or an agent sees how close it is to it. Omitted while the
         // role has not loaded — an invented 0/0 would read as a real budget.

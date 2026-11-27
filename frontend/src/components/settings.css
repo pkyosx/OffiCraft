@@ -411,13 +411,33 @@
   padding: 14px 18px;
   border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
-/* Head-left slot: badge only — the filename chip is gone (docs are presented
+/* Head-left slot: optional heading, badge, usage — the filename chip is gone (docs are presented
  * as content, not files; internal .md names are implementation detail). */
 .doc-card__file {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+/* Declarations match `.mp-lessons__title` / `.mp-lessons__icon`
+ * (member-detail.css) so the Duty and Insight headings on the role page read as
+ * one family; copied rather than borrowed for the same reason as
+ * `.doc-card__usage` below. */
+.doc-card__heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.doc-card__heading-label {
+  min-width: 0;
+}
+.doc-card__heading svg {
+  color: var(--color-text-muted);
+  flex: none;
 }
 /* T-ae38: the Duty doc's size budget, in the card head beside the factory-status badge.
  * Deliberately its OWN class in THIS sheet rather than reusing the role-journal
@@ -809,7 +829,8 @@
   .sw-card {
     flex-wrap: wrap;
   }
-  .doc-card__head {
+  .doc-card__head,
+  .doc-card__file {
     flex-wrap: wrap;
   }
 }

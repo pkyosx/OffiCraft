@@ -1800,7 +1800,7 @@ export const zh = {
     insightEmpty:
       "這個角色還沒有判準。",
     insightShared:
-      "所有成員都看得到這份判準；只有這個角色本人和管理員可以修改。",
+      "寫給這個角色自己的判斷原則，只放進這個角色成員的開機內容；其他成員也查得到，但只有這個角色本人和管理員可以修改。",
     insightSaveError: "儲存判準失敗",
     // ── 回呼端點 · WEBHOOK（M4）──
     webhook: {
@@ -2570,6 +2570,9 @@ export const zh = {
     customName: "使用者自訂",
     customSub: "每位成員開機時都會讀到的自訂內容 · 可編輯",
     roleDefsSection: "角色定義",
+    dutyHeading: "職責（Duty）",
+    dutyNote:
+      "其他成員看這段，判斷什麼事要找這個角色；會出現在每位成員開機看到的名冊上。",
     // 兩份**不同**的文件，分別開自己的頁：只有 Codex 那一份要求成員在開機
     // 那一輪結束時把控制權交回旁邊的程序，兩份不能互換，
     // 所以清單上不併成一列、詳情頁也不並排。
@@ -2722,7 +2725,7 @@ export const zh = {
     // 一頁上同時放著兩份可編輯長文時（角色誌＝角色定義＋判準），標題只寫
     // 「版本紀錄」看不出管的是哪一份——卡片得自己講清楚。owner 2026-07-31 實際
     // 在畫面上踩到這件事。
-    historyRoleDefTitle: "角色定義的版本紀錄",
+    historyRoleDefTitle: "職責的版本紀錄",
     historyInsightTitle: "判準(Insight)的版本紀錄",
     historyGlobalTitle: "全域情境的版本紀錄",
     // 任務定義頁：purpose／識別鍵已經不再留版本，卡片得說清楚它只代表 SOP。
@@ -2734,7 +2737,7 @@ export const zh = {
     historyField: {
       text: "內容",
       name: "名稱",
-      definition_md: "角色定義",
+      definition_md: "職責",
       purpose: "用途",
       fields: "欄位",
       sop_md: "SOP",
@@ -2744,7 +2747,7 @@ export const zh = {
     // REJECTED, so a failed load never reads as "no roles defined".
     loadError: "載入角色定義失敗，請稍後重試",
     // ── 角色定義：新增／刪除（M2-2）──
-    addRole: "新增角色定義",
+    addRole: "新增角色",
     addRoleName: "角色名",
     renameRole: "重新命名角色",
     addRoleSubmit: "建立",
@@ -2754,7 +2757,7 @@ export const zh = {
     deleteRole: "刪除",
     deleteRoleConfirmLead: "確定刪除角色「",
     deleteRoleConfirmTail:
-      "」？該角色的正職成員會標記為已離開，聊天紀錄保留為唯讀歷史；角色定義與 Insight 會永久刪除，無法復原。",
+      "」？該角色的正職成員會標記為已離開，聊天紀錄保留為唯讀歷史；職責與 Insight 會永久刪除，無法復原。",
     deleteRoleConfirmAction: "確認刪除",
     deleteRoleOnline: "有成員在線上，無法刪除",
     deleteRoleError: "刪除失敗，請稍後重試",
@@ -2804,9 +2807,9 @@ export const zh = {
     rounds: "次",
     // T-ae38 起(T-30f1 又拆過一次):上限不再是一個。這些文件被刪掉的成本差很多
     // ——角色定義是常設說明、判準是逐次累積的權衡——所以不再共用同一把尺。
-    docCapDuty: "角色定義字數上限",
+    docCapDuty: "職責字數上限",
     docCapDutySub:
-      "一個角色的角色定義最多幾個字（100–250000）。調低不會截斷已存的內容，只影響之後的儲存。",
+      "一個角色的職責最多幾個字（100–250000）。調低不會截斷已存的內容，只影響之後的儲存。",
     docCapInsight: "Insight 字數上限",
     docCapInsightSub:
       "一個角色的判準最多幾個字（100–250000）。調低不會截斷已存的內容，只影響之後的儲存。",
