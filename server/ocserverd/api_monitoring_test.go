@@ -2782,6 +2782,10 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			},
 		})
 
+		measureLogin(t, h, warden, loginReport("ent-claude", now-claudeAccountFreshSecs-60, fiveHourWindow(4, now+9000)))
+		sessions = apiTestSessionsByID(t, monitoring(), "mira", "kip", "m-server-self")
+		apiWantValue(t, "kip.account_superseded under a login measured too long ago", sessions["kip"]["account_superseded"], nil)
+
 		report("kip", "ent-claude", "0.25")
 
 		data = monitoring()
