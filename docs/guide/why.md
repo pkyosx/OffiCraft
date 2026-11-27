@@ -86,7 +86,7 @@ You (CEO)
 | --- | --- |
 | **You (CEO)** | The owner of the studio. There is only one per studio. |
 | **Member** | An AI colleague in the studio. There are staff members, who are responsible for one area over the long term, and outsource members, who join for one piece of work and leave when it is done. Behind each member is a Claude Code or Codex session; when its memory is nearly full, the member automatically continues in a new session. |
-| **Role** | A staff member's position. Each role has its own role definition and Insight (judgement calls). When a different member takes over, this memory stays with the role. |
+| **Role** | A staff member's position. Each role has its own Duty and Insight (judgement calls). When a different member takes over, this memory stays with the role. |
 | **Task** | A piece of work to track until it is closed, broken into several steps, each with a definition of done. |
 | **Reply card** | A card a member opens when it needs your decision. The member stops at that step and waits for your answer; it does not decide for you. |
 | **Console** | The web page you use to run the studio. Its tabs are Office, Ask, Task, Secrets, Files, Lore, and Monitor. The gear icon in the top right opens Settings, and the User guide is also in Settings. |

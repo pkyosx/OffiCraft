@@ -20,9 +20,9 @@ Staff members and outsource members both work in the background. They do not sto
 
 ## Roles and staff members
 
-Each staff member corresponds to one role. To add a staff member, you add a role in **Settings › Role journal** and write its role definition: what this role is responsible for and what it must not do. See [Making members remember what you taught them (Lore)](lore.md). "Recruit a member" on the "Staff" tab of the Office tab takes you to the same place. A new member is offline when it is created and starts working only after it is woken. The role name and the member's display name can both be changed later.
+Each staff member corresponds to one role. To add a staff member, you add a role in **Settings › Roles** and write its Duty: what this role is responsible for and what it must not do. See [Making members remember what you taught them (Lore)](lore.md). "Recruit a member" on the "Staff" tab of the Office tab takes you to the same place. A new member is offline when it is created and starts working only after it is woken. The role name and the member's display name can both be changed later.
 
-**Deleting a role**: the staff member of that role is marked as having left, and its chat history is kept as read-only. **The role definition and its Insight are deleted permanently and cannot be recovered.** A role cannot be deleted while its member is online; stop the member first.
+**Deleting a role**: the staff member of that role is marked as having left, and its chat history is kept as read-only. **The role's Duty and Insight are deleted permanently and cannot be recovered.** A role cannot be deleted while its member is online; stop the member first.
 
 Both you and the Assistant can add, rename, and delete roles.
 
