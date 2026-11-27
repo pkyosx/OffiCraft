@@ -15,6 +15,7 @@ import { render, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
+import { api } from "../api";
 import { __resetMock, __setBootDocReadOnly } from "../api/mock";
 
 const s = zh.settings;
@@ -30,8 +31,9 @@ async function openRolesLog() {
   return utils;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   __resetMock();
+  await api.patchServerSettings({ developerMode: true });
 });
 
 describe("SettingsPage · boot / lifecycle documents", () => {

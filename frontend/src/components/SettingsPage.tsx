@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { taskTypeLabel } from "../lib/taskTypeLabel";
 import type { Dict } from "../i18n/locales/zh";
@@ -383,10 +383,12 @@ export const BOOT_DOC_ROWS: Record<
 function BootDocEntry({
   kind,
   row,
+  editable,
   onOpen,
 }: {
   kind: BootDocKind;
   row: (typeof BOOT_DOC_ROWS)[BootDocKind];
+  editable: boolean;
   onOpen: () => void;
 }) {
   const { t } = useI18n();
@@ -403,7 +405,10 @@ function BootDocEntry({
       </span>
       <span className="set-entry__body">
         <span className="set-entry__name">{t.settings[row.nameKey]}</span>
-        <span className="set-entry__sub">{t.settings[row.subKey]}</span>
+        <span className="set-entry__sub">
+          {t.settings[row.subKey]}
+          {editable && t.settings.bootDocEditableSuffix}
+        </span>
       </span>
       <ChevronRightIcon size={18} className="set-entry__chev" />
     </button>
@@ -615,6 +620,8 @@ export function SettingsPage({
         onOpenBootDoc={(docKind, docKey) =>
           setView({ kind: "bootDoc", docKind, docKey })
         }
+        developerMode={params.settings?.developerMode}
+        onOpenSystemSettings={() => setView({ kind: "software" })}
       />
     );
   }
@@ -805,6 +812,7 @@ export function SettingsPage({
           crumbGlobalContext,
           { label: t.settings[row.nameKey] },
         ]}
+        onOpenSystemSettings={() => setView({ kind: "software" })}
       />
     );
   }
@@ -898,7 +906,10 @@ export function SettingsPage({
             </span>
             <span className="set-entry__body">
               <span className="set-entry__name">{t.settings.bootClaudeName}</span>
-              <span className="set-entry__sub">{t.settings.bootClaudeSub}</span>
+              <span className="set-entry__sub">
+                {t.settings.bootClaudeSub}
+                {params.settings?.developerMode && t.settings.bootDocEditableSuffix}
+              </span>
             </span>
             <ChevronRightIcon size={18} className="set-entry__chev" />
           </button>
@@ -913,7 +924,10 @@ export function SettingsPage({
             </span>
             <span className="set-entry__body">
               <span className="set-entry__name">{t.settings.bootCodexName}</span>
-              <span className="set-entry__sub">{t.settings.bootCodexSub}</span>
+              <span className="set-entry__sub">
+                {t.settings.bootCodexSub}
+                {params.settings?.developerMode && t.settings.bootDocEditableSuffix}
+              </span>
             </span>
             <ChevronRightIcon size={18} className="set-entry__chev" />
           </button>
@@ -957,6 +971,7 @@ export function SettingsPage({
               : t.settings.bootCodexName,
           },
         ]}
+        onOpenSystemSettings={() => setView({ kind: "software" })}
       />
     );
   }
@@ -2663,6 +2678,37 @@ function SoftwareUpdate({
         </div>
       )}
 
+      {settings && (
+        <>
+          <h2 className="settings__title settings__title--doc">
+            {t.settings.advancedSettings}
+          </h2>
+          <div className="param-card">
+            <div className="param-row">
+              <div className="param-row__body">
+                <span className="param-row__name">{t.settings.developerMode}</span>
+                <div className="param-row__sub">{t.settings.developerModeSub}</div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={settings.developerMode}
+                aria-label={t.settings.developerMode}
+                className={`set-toggle${settings.developerMode ? " set-toggle--on" : ""}`}
+                onClick={() => {
+                  onClearSaveError();
+                  setVerifyStatus("idle");
+                  void onSave({ developerMode: !settings.developerMode });
+                }}
+                data-testid="settings-developer-mode"
+              >
+                <span className="set-toggle__knob" />
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* ── 備份健康 (T-5e71, owner 2026-08-02) ── the backup verdict lives
           HERE, under 系統更新與備份, and nowhere else: it used to sit on the
           monitor page plus a topbar light, which the owner did not want. */}
@@ -2789,11 +2835,10 @@ function BackupHealthCard() {
  *
  * 🔴 使用者自訂 CAME ALONG, AND IT IS STILL NOT A BOOT DOCUMENT. It is the
  * additive block behind /api/global-context — its own route, no cap, its own
- * allow_shrink — and it is deliberately absent from BOOT_DOC_ROWS. It is
- * printed here because the boot context ASSEMBLES it between 系統互動 and
- * 啟動步驟, which is the same reason it sat there before the move. Folding it
+ * allow_shrink — and it is deliberately absent from BOOT_DOC_ROWS. Folding it
  * into the table as an eleventh row would give it a cap and a document kind it
- * does not have.
+ * does not have. It heads the page on its own because it is the one document
+ * here that developer mode does not lock.
  */
 function GlobalContextSection({
   error,
@@ -2801,6 +2846,8 @@ function GlobalContextSection({
   onOpenCustom,
   onOpenBootIndex,
   onOpenBootDoc,
+  developerMode,
+  onOpenSystemSettings,
 }: {
   /** A rejected /api/global-context read — reported honestly rather than
    * rendered as an empty 使用者自訂. */
@@ -2816,6 +2863,10 @@ function GlobalContextSection({
   onOpenBootIndex: () => void;
   /** Every other boot/lifecycle document, addressed rather than named. */
   onOpenBootDoc: (kind: BootDocKind, docKey: string) => void;
+  /** `undefined` while settings are loading or failed to load: neither the
+   * lock hint nor the "editable" suffix is shown then. */
+  developerMode: boolean | undefined;
+  onOpenSystemSettings: () => void;
 }) {
   const { t } = useI18n();
   return (
@@ -2827,11 +2878,43 @@ function GlobalContextSection({
 
       {error && <div className="set-error">{t.settings.loadError}</div>}
 
-      {/* The list itself: the boot / lifecycle documents, printed from
-       * BOOT_DOC_ROWS —
-       * the one table that says which of them the cockpit shows. Groups run in
-       * the owner's own reading order (定稿 2026-08-24): 上線 → 下線 → 任務.
-       * No filenames — these are content, not files. */}
+      <div>
+        <div className="set-entries">
+          <button
+            type="button"
+            className="set-entry"
+            data-testid="boot-doc-entry-custom"
+            onClick={onOpenCustom}
+          >
+            <span className="set-entry__icon set-entry__icon--violet">
+              <PencilIcon size={18} />
+            </span>
+            <span className="set-entry__body">
+              <span className="set-entry__name">{t.settings.customName}</span>
+              <span className="set-entry__sub">{t.settings.customSub}</span>
+            </span>
+            <ChevronRightIcon size={18} className="set-entry__chev" />
+          </button>
+        </div>
+      </div>
+
+      {developerMode === false && (
+        <div className="set-lock-note" data-testid="boot-docs-locked-note">
+          {t.settings.bootDocsLockedLead}
+          <button
+            type="button"
+            className="set-inline-link"
+            onClick={onOpenSystemSettings}
+          >
+            {t.settings.bootDocsLockedLink}
+          </button>
+          {t.settings.bootDocsLockedTail}
+        </div>
+      )}
+
+      {/* The boot / lifecycle documents, printed from BOOT_DOC_ROWS — the one
+       * table that says which of them the cockpit shows. Groups run in the
+       * owner's own reading order (定稿 2026-08-24): 上線 → 下線 → 任務. */}
       {BOOT_DOC_GROUP_ORDER.map((group) => (
         <div key={group}>
           <div className="set-group-label">
@@ -2839,47 +2922,20 @@ function GlobalContextSection({
           </div>
           <div className="set-entries">
             {bootDocRowsIn(group).map(([kind, row]) => (
-              <Fragment key={kind}>
-                <BootDocEntry
-                  kind={kind}
-                  row={row}
-                  onOpen={() =>
-                    row.index
-                      ? onOpenBootIndex()
-                      : onOpenBootDoc(kind, row.docKey)
-                  }
-                />
-                {/* 使用者自訂 sits between 系統互動 and 啟動步驟, where the boot
-                  * context assembles it. It is NOT a boot document — no cap, its
-                  * own allow_shrink, its own route — so it is deliberately absent
-                  * from BOOT_DOC_ROWS, and this is the one row the list prints
-                  * that the table does not own. */}
-                {kind === "system_interaction" && (
-                  <button
-                    type="button"
-                    className="set-entry"
-                    data-testid="boot-doc-entry-custom"
-                    onClick={onOpenCustom}
-                  >
-                    <span className="set-entry__icon set-entry__icon--violet">
-                      <PencilIcon size={18} />
-                    </span>
-                    <span className="set-entry__body">
-                      <span className="set-entry__name">
-                        {t.settings.customName}
-                      </span>
-                      <span className="set-entry__sub">
-                        {t.settings.customSub}
-                      </span>
-                    </span>
-                    <ChevronRightIcon size={18} className="set-entry__chev" />
-                  </button>
-                )}
-              </Fragment>
+              <BootDocEntry
+                key={kind}
+                kind={kind}
+                row={row}
+                editable={developerMode === true}
+                onOpen={() =>
+                  row.index ? onOpenBootIndex() : onOpenBootDoc(kind, row.docKey)
+                }
+              />
             ))}
           </div>
         </div>
-      ))}    </div>
+      ))}
+    </div>
   );
 }
 

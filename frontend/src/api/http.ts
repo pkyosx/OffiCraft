@@ -3022,6 +3022,7 @@ export const httpApi: Api = {
       backup_retain?: number;
       updater_receive_beta?: boolean;
       updater_auto_update?: boolean;
+      developer_mode?: boolean;
       updater_check_interval_secs?: number;
       updater_announce_features?: boolean;
       org_name?: string;
@@ -3115,6 +3116,9 @@ export const httpApi: Api = {
     }
     if (patch.updaterAutoUpdate !== undefined) {
       body.updater_auto_update = patch.updaterAutoUpdate;
+    }
+    if (patch.developerMode !== undefined) {
+      body.developer_mode = patch.developerMode;
     }
     if (patch.updaterCheckIntervalSecs !== undefined) {
       body.updater_check_interval_secs = patch.updaterCheckIntervalSecs;

@@ -51,7 +51,8 @@ export function BootDocCardStory() {
   useEffect(() => {
     let alive = true;
     void api
-      .saveBootDoc("boot_sequence", "claude", DOC)
+      .patchServerSettings({ developerMode: true })
+      .then(() => api.saveBootDoc("boot_sequence", "claude", DOC))
       .then(() => alive && setReady(true));
     return () => {
       alive = false;
@@ -70,6 +71,7 @@ export function BootDocCardStory() {
               historyTitle={zh.settings.historyBootClaudeTitle}
               confirmSaveBody={zh.settings.bootDocSaveConfirmBoot}
               crumbs={[{ label: zh.settings.title }]}
+              onOpenSystemSettings={() => {}}
             />
           )}
         </main>

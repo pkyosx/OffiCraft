@@ -126,6 +126,22 @@
   color: var(--color-text);
 }
 
+.set-lock-note {
+  margin: 2px 2px -4px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+.set-inline-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* grey small-caps group labels (角色誌 zones) */
 .set-group-label {
   padding: 6px 2px 2px;

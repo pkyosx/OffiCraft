@@ -907,6 +907,7 @@ function foldBootDoc(kind: BootDocKind, key: string): WireBootDoc {
     // block added later without a seed must be able to say so.
     has_seed: true,
     read_only: BOOT_DOC_READ_ONLY.has(`${kind}/${key}`),
+    developer_mode_required: !mockServerSettings.developer_mode,
   };
 }
 
@@ -946,6 +947,18 @@ function refuseReadOnlyBootDoc(
     `the ${BOOT_DOC_NAMES[`${kind}/${key}`] ?? kind} is a read-only document — ` +
       "it is shown so you can see what agents are told, but no caller may edit " +
       "it and there is no version of it other than the shipped one; nothing was written"
+  );
+}
+
+/** The 409 every boot-document write face answers while developer mode is off. */
+function refuseLockedBootDoc(kind: string, key: string, call: string): void {
+  if (mockServerSettings.developer_mode) return;
+  if (BOOT_DOC_SEEDS[`${kind}/${key}`] === undefined) return;
+  throw mockApiError(
+    `http 409 for ${call}`,
+    409,
+    `the ${BOOT_DOC_NAMES[`${kind}/${key}`] ?? kind} is locked while developer mode is off — ` +
+      "turn on developer mode in system settings first; nothing was written"
   );
 }
 
@@ -2782,6 +2795,8 @@ const DEFAULT_MOCK_SETTINGS = {
   updater_check_interval_secs: 300,
   // ON out of the box, like a never-set server.
   updater_announce_features: true,
+  // OFF out of the box, like a never-set server: the boot documents are locked.
+  developer_mode: false,
   // Studio name (T-d693) — "" out of the box, mirroring the server (the topbar
   // shows the localized default until the owner names the studio).
   org_name: "",
@@ -8100,6 +8115,9 @@ const mockApiImpl = {
     if (patch.updaterAutoUpdate !== undefined) {
       mockServerSettings.updater_auto_update = patch.updaterAutoUpdate;
     }
+    if (patch.developerMode !== undefined) {
+      mockServerSettings.developer_mode = patch.developerMode;
+    }
     if (patch.updaterCheckIntervalSecs !== undefined) {
       mockServerSettings.updater_check_interval_secs = patch.updaterCheckIntervalSecs;
     }
@@ -8331,6 +8349,7 @@ const mockApiImpl = {
     // authz would send an owner looking for a role to grant. The message is the
     // server's own bootDocReadOnlyRefusal, shortened to the same claim.
     refuseReadOnlyBootDoc(kind, key, "");
+    refuseLockedBootDoc(kind, key, `POST /api/boot-docs/${kind}/${key}`);
     // 🔴 THE HEAD IS PUT BACK HERE, exactly as replaceBootDoc does it. The mock
     // takes a BODY because the wire does; storing the body alone would make the
     // demo mode the one place a headless document can still be created — the
@@ -8381,6 +8400,7 @@ const mockApiImpl = {
     // its worst.
     foldBootDoc(kind, key);
     refuseReadOnlyBootDoc(kind, key, "/reset");
+    refuseLockedBootDoc(kind, key, `POST /api/boot-docs/${kind}/${key}/reset`);
     recordDocumentHistory(kind, key);
     bootDocOverlays.delete(`${kind}/${key}`);
     emitTopic(BOOT_DOC_TOPIC);
@@ -8875,6 +8895,11 @@ const mockApiImpl = {
   ): Promise<DocumentHistoryView> {
     refuseRetiredDocumentKind(
       kind,
+      `POST /api/document-history/${kind}/${key}/${id}/restore`
+    );
+    refuseLockedBootDoc(
+      kind,
+      key,
       `POST /api/document-history/${kind}/${key}/${id}/restore`
     );
     const slot = historySlot(kind, key);

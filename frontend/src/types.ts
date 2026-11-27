@@ -906,6 +906,9 @@ export interface BootDocView {
    * its own list of which documents are read-only, because that list would go
    * stale silently the day one changes. */
   readOnly: boolean;
+  /** True while developer mode is off: every write is refused (409) until it
+   * is turned on in system settings. Independent of `readOnly`. */
+  developerModeRequired: boolean;
 }
 
 /**

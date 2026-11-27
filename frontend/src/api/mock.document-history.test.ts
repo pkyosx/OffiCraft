@@ -32,8 +32,9 @@ function waitingCard(id: string, from: string): ReplyCard {
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   __resetMock();
+  await mockApi.patchServerSettings({ developerMode: true });
 });
 
 describe("mockApi · document history", () => {

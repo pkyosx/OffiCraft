@@ -38,10 +38,15 @@ export function BootNavStory() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let alive = true;
-    void Promise.all([
-      api.saveBootDoc("boot_sequence", "claude", doc("Claude Code")),
-      api.saveBootDoc("boot_sequence", "codex", doc("Codex CLI")),
-    ]).then(() => alive && setReady(true));
+    void api
+      .patchServerSettings({ developerMode: true })
+      .then(() =>
+        Promise.all([
+          api.saveBootDoc("boot_sequence", "claude", doc("Claude Code")),
+          api.saveBootDoc("boot_sequence", "codex", doc("Codex CLI")),
+        ])
+      )
+      .then(() => alive && setReady(true));
     return () => {
       alive = false;
     };

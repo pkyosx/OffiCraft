@@ -59,6 +59,7 @@ function renderClaude() {
         historyTitle={s.historyBootClaudeTitle}
         confirmSaveBody={s.bootDocSaveConfirmBoot}
         crumbs={[{ label: s.title }]}
+        onOpenSystemSettings={() => {}}
       />
     </I18nProvider>
   );
@@ -74,6 +75,7 @@ function renderCodex() {
         historyTitle={s.historyBootCodexTitle}
         confirmSaveBody={s.bootDocSaveConfirmBoot}
         crumbs={[{ label: s.title }]}
+        onOpenSystemSettings={() => {}}
       />
     </I18nProvider>
   );
@@ -94,12 +96,13 @@ function renderAcceleratedStop() {
         historyTitle={s.historyAcceleratedStopTitle}
         confirmSaveBody={s.bootDocSaveConfirmAcceleratedStop}
         crumbs={[{ label: s.title }]}
+        onOpenSystemSettings={() => {}}
       />
     </I18nProvider>
   );
 }
 
-function renderSystem() {
+function renderSystem(onOpenSystemSettings: () => void = () => {}) {
   return render(
     <I18nProvider>
       <BootDocPage
@@ -109,6 +112,7 @@ function renderSystem() {
         historyTitle={s.historyBootSystemTitle}
         confirmSaveBody={s.bootDocSaveConfirmSystem}
         crumbs={[{ label: s.title }]}
+        onOpenSystemSettings={onOpenSystemSettings}
       />
     </I18nProvider>
   );
@@ -128,8 +132,9 @@ async function typeWholeDoc(
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   __resetMock();
+  await api.patchServerSettings({ developerMode: true });
 });
 
 afterEach(() => {
@@ -137,6 +142,21 @@ afterEach(() => {
 });
 
 describe("BootDocPage", () => {
+  it("while developer mode is off a modified document shows no edit button, keeps its badge, and says where to turn developer mode on", async () => {
+    await api.saveBootDoc("system_interaction", "global", "S1");
+    await api.patchServerSettings({ developerMode: false });
+    const openSystemSettings = vi.fn();
+    const utils = renderSystem(openSystemSettings);
+
+    const note = await utils.findByTestId("doc-card-note");
+    expect(note.textContent).toBe("要修改，先在系統設定打開開發者模式。");
+    expect(utils.queryByTestId("doc-card-edit")).toBeNull();
+    expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
+    expect(utils.getByTestId("doc-card-status-badge").textContent).toBe("已修改");
+    fireEvent.click(within(note).getByRole("button", { name: "系統設定" }));
+    expect(openSystemSettings).toHaveBeenCalledTimes(1);
+  });
+
   it("save calls the REPLACE endpoint and renders the new content back", async () => {
     const save = vi.spyOn(api, "saveBootDoc");
     const utils = renderClaude();

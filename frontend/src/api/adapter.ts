@@ -1394,6 +1394,9 @@ export interface ServerSettingsView {
   /** Whether the server self-upgrades in the background when GitHub has a
    * newer admissible release (false = manual-only, the default). */
   updaterAutoUpdate: boolean;
+  /** Off (the default) locks every boot document except 使用者自訂: the server
+   * refuses their writes with 409 until it is turned on. */
+  developerMode: boolean;
   /** How often the server re-reads GitHub's release pages in the background
    * (60..3600 seconds; the settings page edits it in minutes). */
   updaterCheckIntervalSecs: number;
@@ -1546,6 +1549,7 @@ export interface ServerSettingsPatch {
   updaterReceiveBeta?: boolean;
   /** Arm unattended background self-upgrade (never set = false; a release build's first claim turns it on). */
   updaterAutoUpdate?: boolean;
+  developerMode?: boolean;
   /** Background update-check interval, 60..3600 seconds (server 422s outside). */
   updaterCheckIntervalSecs?: number;
   /** The assistant's new-release feature announcements on/off; releases reached while off are never announced later. */

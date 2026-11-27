@@ -2546,6 +2546,9 @@ export const zh = {
     updateAvailable: "有可用的新版本",
     upgrade: "升級到最新版",
     catalogHash: "MCP 目錄雜湊",
+    advancedSettings: "進階",
+    developerMode: "開發者模式",
+    developerModeSub: "打開後可以修改全域情境裡的開機文件（使用者自訂不受影響）。",
     // ── 角色誌 ──
     // 十份文件依 owner 的讀法分三組（定稿 2026-08-24）：上線 → 下線 → 任務事件。
     // 「只顯示不給改」那一組不見了——分組是版面上的分群，不是「能不能改」的
@@ -2555,9 +2558,15 @@ export const zh = {
     // UI 不露檔名。
     globalSection: "上線（BOOT）",
     systemName: "系統互動",
-    systemSub: "每位成員開機時都會讀到的系統運作說明 · 可編輯",
+    systemSub: "每位成員開機時都會讀到的系統運作說明",
     customName: "使用者自訂",
     customSub: "每位成員開機時都會讀到的自訂內容 · 可編輯",
+    bootDocEditableSuffix: " · 可編輯",
+    bootDocsLockedLead: "以下文件要修改，請先在",
+    bootDocsLockedLink: "系統設定",
+    bootDocsLockedTail: "打開開發者模式。",
+    bootDocLockedLead: "要修改，先在",
+    bootDocLockedTail: "打開開發者模式。",
     dutyHeading: "職責（Duty）",
     dutyNote:
       "其他成員看這段，判斷什麼事要找這個角色；會出現在每位成員開機看到的名冊上。",
@@ -2568,33 +2577,33 @@ export const zh = {
     // and its history list — the row no longer names a runtime because you
     // pick one after you are inside.
     bootName: "啟動步驟",
-    bootSub: "AI 開機時照著做的步驟 · 兩種執行環境各一份 · 可編輯",
+    bootSub: "AI 開機時照著做的步驟 · 兩種執行環境各一份",
     bootRuntimeClaude: "一般",
     bootRuntimeCodex: "Codex",
     bootClaudeName: "啟動步驟（Claude Code）",
-    bootClaudeSub: "Claude Code 執行環境的開機 SOP · 可編輯",
+    bootClaudeSub: "Claude Code 執行環境的開機 SOP",
     bootCodexName: "啟動步驟（Codex CLI）",
-    bootCodexSub: "Codex App Server 執行環境的開機 SOP · 可編輯",
+    bootCodexSub: "Codex App Server 執行環境的開機 SOP",
     // 〈停止〉（T-c9c0）——不進開機情境，是 server 要收掉這個 session 時
     // 夾帶給 agent 的收尾指示，所以在清單上自成一列，排在啟動步驟之後。
     offboardName: "停止",
-    offboardSub: "成員被停止時會收到的收尾指示 · 可編輯",
+    offboardSub: "成員被停止時會收到的收尾指示",
     // ── T-3201：其餘六份生命週期文件 ──
     // 分組標題。上線那組沿用既有的 globalSection；下線、任務是另外兩組。
     stopSection: "下線（STOP）",
     taskEventSection: "任務事件（TASK）",
     acceleratedStopName: "加速停止",
-    acceleratedStopSub: "被要求提前收工時給 agent 的指示 · 有截止時間 · 可編輯",
+    acceleratedStopSub: "被要求提前收工時給 agent 的指示 · 有截止時間",
     taskCloseoutName: "任務結案",
-    taskCloseoutSub: "任務被判定結束時給 agent 的收尾指示 · 可編輯",
+    taskCloseoutSub: "任務被判定結束時給 agent 的收尾指示",
     taskReassignPredecessorName: "任務轉派 · 給前任",
-    taskReassignPredecessorSub: "手上的任務被轉給別人時給 agent 的交接指示 · 可編輯",
+    taskReassignPredecessorSub: "手上的任務被轉給別人時給 agent 的交接指示",
     taskTakeoverWithPredecessorName: "任務轉派 · 給接手人",
-    taskTakeoverWithPredecessorSub: "接手任務時給 agent 的指示（有沒有前任都用這份）· 可編輯",
+    taskTakeoverWithPredecessorSub: "接手任務時給 agent 的指示（有沒有前任都用這份）",
     taskUnblockedName: "擋住你任務的任務已解開",
-    taskUnblockedSub: "依賴的任務放行時給 agent 的通知 · 可編輯",
+    taskUnblockedSub: "依賴的任務放行時給 agent 的通知",
     taskReadyForDoneName: "你手上的任務可以結案了",
-    taskReadyForDoneSub: "任務每次進到可結案時給 agent 的通知 · 可編輯",
+    taskReadyForDoneSub: "任務每次進到可結案時給 agent 的通知",
     // 唯讀文件的說明：說「這份是什麼」，不說「你沒有權限」——沒有任何人可以改，
     // 講權限會讓人去找一個根本不存在的角色來授權。
     bootDocReadOnlyNote:

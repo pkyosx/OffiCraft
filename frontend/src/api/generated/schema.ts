@@ -615,6 +615,7 @@ export interface paths {
          *     - A read-only block is 405 for anyone; a write over the cap is refused.
          *     - On blocks that declare variables, a `{name}` in the body is refused.
          *     - An unknown `kind`, or a `key` that kind lacks, is a 404 listing valid keys.
+         *     - While developer mode is off, every caller gets a 409.
          */
         post: operations["handle_replace_boot_doc_api_boot_docs__kind___key__post"];
         delete?: never;
@@ -635,9 +636,10 @@ export interface paths {
         /**
          * Restore one boot-context block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). No length cap applies on this path — the way back to factory text is never blocked by a setting, which is what makes it the recovery route after an edit that stopped agents from booting. The discarded overlay is retained in the document history. Owner or admin assistant only. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_doc`` when you need the rest.
          * @description - Restores one boot-context block to the FACTORY text of this build; idempotent. Owner or admin only.
-         *     - No length cap here, so no setting can block the way back — the recovery route after an edit that stopped agents booting.
+         *     - No length cap here, so no cap setting can block the way back — the recovery route after an edit that stopped agents booting.
          *     - The discarded overlay is kept in history, so the reset is itself recoverable.
          *     - No shipped default is 404; a read-only block is 405; an unknown kind or key is 404.
+         *     - While developer mode is off, every caller gets a 409.
          */
         post: operations["handle_reset_boot_doc_api_boot_docs__kind___key__reset_post"];
         delete?: never;
@@ -668,6 +670,7 @@ export interface paths {
          *     - `runtime_key` is `claude` or `codex`, separate documents; any other value is a 404.
          *     - `body` is required; emptying a body that had content needs `allow_shrink=true`.
          *     - A save identical to what is stored writes nothing and keeps no version.
+         *     - While developer mode is off, every caller gets a 409.
          */
         post: operations["handle_replace_boot_sequence_api_boot_sequence__runtime_key__post"];
         delete?: never;
@@ -692,6 +695,7 @@ export interface paths {
          *     - Needs only the owner's token - no agent and no member identity.
          *     - The discarded text is kept as a document-history revision; resetting an already-default block writes nothing.
          *     - 404 for an unknown runtime.
+         *     - While developer mode is off, every caller gets a 409.
          */
         post: operations["handle_reset_boot_sequence_api_boot_sequence__runtime_key__reset_post"];
         delete?: never;
@@ -2680,6 +2684,7 @@ export interface paths {
          *     - The shipped seed is never overwritten; reset always reaches the factory text.
          *     - The replaced version is kept in history; a save that changes nothing retains nothing.
          *     - Owner or admin assistant only.
+         *     - While developer mode is off, every caller gets a 409.
          */
         post: operations["handle_replace_offboard_api_offboard_post"];
         delete?: never;
@@ -2703,6 +2708,7 @@ export interface paths {
          *     - No length cap applies here, so a cap set or raised later can never block the way back.
          *     - The discarded text is kept as a document-history revision, so the reset is itself recoverable.
          *     - Resetting an already-default block writes nothing.
+         *     - While developer mode is off, every caller gets a 409.
          */
         post: operations["handle_reset_offboard_api_offboard_reset_post"];
         delete?: never;
@@ -3352,6 +3358,8 @@ export interface paths {
          *     - `chat_budget_chars`: Chat-block budget of the wake snapshot (resume_summary, and the estimate peek_resume_summary_size reports).
          *     - `step_note_cap_chars`: Max length of one step note, checked on write: a stored note over a lowered cap stays readable, but any write that leaves it over the cap is refused.
          *     - `doc_cap_chars_*`: Length cap per document type: `duty` (Duty), `insight`, `manual_sop` (task manual sop_md), `system_interaction` (System interaction), `boot_sequence` (Boot steps; one knob for both runtimes, each text measured on its own), `offboard` (Stop). A stored document over a lowered cap accepts only edits that shrink it.
+         *     - `developer_mode`: Off (the default) locks the boot-context documents: replacing, resetting or restoring them is a 409 for every caller; the owner's additions stay editable.
+         *     - `disk_usage_interval_secs`: How often each warden measures OffiCraft disk usage; wardens apply a change at their next heartbeat.
          *     - `display_language`: Cockpit language, and the language every member writes to the owner in from its next boot; "" resets it to unset.
          *     - `display_theme`: Cockpit theme: "" (unset), a built-in id (office, office-light, modern-office-desk-day / -dusk / -night), or an existing custom theme id.
          *     - `display_theme_schedule`: Replaces the time-of-day theme schedule wholesale. Each entry `{start: "HH:MM", theme}` shows `theme` from `start` (viewer-local) until the next entry's start, wrapping past midnight; themes as for display_theme. It overrides display_theme on screen without changing it. [] turns it off; null or omitted leaves it unchanged. Deleting a custom theme drops its entries, and the whole schedule if fewer than 2 remain.
@@ -3369,6 +3377,9 @@ export interface paths {
          *     - `lore_cap_chars_role`: lore characters carried in each member's boot document; `everyone` entries count inside this budget, merged with the member's own into one list (pinned first, then newest effective first).
          *     - `lore_cap_chars_manual`: lore characters get_task_manual carries; separate from lore_cap_chars_role, never summed.
          *     - `lore_cap_chars_title`, `lore_cap_chars_body`: Max title / body length of one lore entry when it is written or edited; lowering it leaves stored entries as they are, and an over-cap field can still be edited as long as it comes out shorter than what is stored.
+         *     - `onboarding_dismissed`: true hides the first-run onboarding banner on every device; false shows it again.
+         *     - `task_due_soon_lead_minutes`: Minutes before its due date a task without its own lead counts as due soon.
+         *     - `updater_check_interval_secs`: How often the server re-reads GitHub releases in the background; a manual check always reads fresh.
          * @description - Owner or admin; only the fields you send change.
          *     - Changes are durable and take effect at the next use: `owner_token_ttl` from the next login, `agent_token_ttl` from the next spawn or reconcile, offboard points from the next context report.
          *     - The owner's other open browsers and devices re-read settings at once, so a `display_*` change shows there without a reload.
@@ -3398,6 +3409,7 @@ export interface paths {
          *     - `body` is required; replacing a non-empty body with an empty one needs `allow_shrink=true`.
          *     - The stored result is always cap-checked; `allow_shrink` is not a bypass.
          *     - A save identical to what is stored writes nothing and keeps no version.
+         *     - While developer mode is off, every caller gets a 409.
          */
         post: operations["handle_replace_system_interaction_api_system_interaction_post"];
         delete?: never;
@@ -3422,6 +3434,7 @@ export interface paths {
          *     - Needs only the owner's token — it must work when a bad edit stopped agents booting.
          *     - The discarded overlay is retained as a document revision, so the reset is recoverable.
          *     - Resetting an already-default block writes and retains nothing.
+         *     - While developer mode is off, every caller gets a 409.
          */
         post: operations["handle_reset_system_interaction_api_system_interaction_reset_post"];
         delete?: never;
@@ -5530,6 +5543,12 @@ export interface components {
              * @default 0
              */
             cap_chars: number;
+            /**
+             * Developer Mode Required
+             * @description True when this block is locked because developer mode is off: every write face (replace, reset, restoring a retained version) refuses it with 409 for every caller, the owner included, until developer mode is turned on in system settings. Reading is unaffected. Independent of read_only, which no setting lifts.
+             * @default false
+             */
+            developer_mode_required: boolean;
             /**
              * Has Seed
              * @description True when a FACTORY version of this block ships in this binary, i.e. there is something for the reset route to restore. It says nothing about whether what you are holding IS that factory text — is_default answers that. True in every shipped build; served rather than assumed so a build whose seeds were not staged cannot be offered a 還原 button that 404s.
@@ -10268,6 +10287,12 @@ export interface components {
              */
             codex_notice_round: number;
             /**
+             * Developer Mode
+             * @description Developer mode. Off (the default) locks every boot-context block served by the boot-doc routes — edits, resets and restores of them are refused with 409 — while the owner's additions block (global context) stays editable.
+             * @default false
+             */
+            developer_mode: boolean;
+            /**
              * Display Language
              * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in: the boot context's User Language block asks for English when this is `en` and Traditional Chinese otherwise ("" included), and a change reaches each member at its next boot. "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
              * @default
@@ -10554,6 +10579,11 @@ export interface components {
              * @description The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.
              */
             codex_notice_round?: number | null;
+            /**
+             * Developer Mode
+             * @description Turn developer mode on/off.
+             */
+            developer_mode?: boolean | null;
             /**
              * Display Language
              * @description The owner's cockpit language (T-0b41-p2), and the language every member writes to the owner in from its next boot — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.

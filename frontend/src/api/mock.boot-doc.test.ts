@@ -47,8 +47,9 @@ function bodyOf(seed: string): string {
   return split ? body : seed.trim();
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   __resetMock();
+  await mockApi.patchServerSettings({ developerMode: true });
 });
 
 describe("mockApi · boot-context blocks", () => {
@@ -126,6 +127,40 @@ describe("mockApi · boot-context blocks", () => {
         isDefault: true,
       });
     }
+  });
+
+  it("while developer mode is off every boot-document write face answers 409 and changes nothing, and 使用者自訂 still saves", async () => {
+    await mockApi.saveBootDoc("task_closeout", "global", "v1");
+    await mockApi.saveBootDoc("task_closeout", "global", "v2");
+    const [version] = await mockApi.listDocumentHistory("task_closeout", "global");
+    await mockApi.patchServerSettings({ developerMode: false });
+    const before = await mockApi.getBootDoc("task_closeout", "global");
+    expect(before.developerModeRequired).toBe(true);
+
+    const locked = {
+      status: 409,
+      serverMessage:
+        "the task close-out procedure is locked while developer mode is off — " +
+        "turn on developer mode in system settings first; nothing was written",
+    };
+    await expect(
+      mockApi.saveBootDoc("task_closeout", "global", "v3")
+    ).rejects.toMatchObject(locked);
+    await expect(
+      mockApi.resetBootDoc("task_closeout", "global")
+    ).rejects.toMatchObject(locked);
+    await expect(
+      mockApi.restoreDocumentHistory("task_closeout", "global", version.id)
+    ).rejects.toMatchObject(locked);
+    expect(await mockApi.getBootDoc("task_closeout", "global")).toEqual(before);
+
+    await mockApi.saveGlobalContext("多用 emoji 回覆 owner");
+    expect((await mockApi.getGlobalContext()).text).toBe("多用 emoji 回覆 owner");
+
+    await mockApi.patchServerSettings({ developerMode: true });
+    expect(
+      (await mockApi.getBootDoc("task_closeout", "global")).developerModeRequired
+    ).toBe(false);
   });
 
   it("404s a kind nobody registered, the same way an unknown key is a 404", async () => {
