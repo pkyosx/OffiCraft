@@ -4123,7 +4123,7 @@
       "name": "replace_boot_sequence"
     },
     {
-      "description": "Restore ONE runtime's Boot steps block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). runtime_key is 'claude' or 'codex'; anything else is a 404. No length cap is applied on this path — the factory text is part of the product, so no cap setting can block the way back to it, which is what makes this the recovery route when a bad edit has stopped agents from booting. The overlay being discarded is retained in the document history. Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.",
+      "description": "Restore ONE runtime's Boot steps block to the FACTORY text shipped with this build (idempotent tombstone of the overlay). runtime_key is 'claude' or 'codex'; anything else is a 404. No length cap is applied on this path — the factory text is part of the product, so no cap setting can block the way back to it, which, once developer mode is on, makes this the recovery route when a bad edit has stopped agents from booting. The overlay being discarded is retained in the document history. Owner or admin assistant only. While developer mode (a system setting) is off, this block is locked and every caller gets a 409. Answers with a bounded receipt (``kind``, ``key``, ``is_default``, ``size_chars``, ``cap_chars``, ``sha256``), not the document — call ``get_boot_sequence`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "runtime_key": {

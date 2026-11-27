@@ -19,7 +19,7 @@
 // Neither half is the whole claim.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
@@ -84,6 +84,19 @@ describe("SettingsPage · 啟動步驟 index", () => {
     const { getByTestId } = await openBootIndex();
     expect(entrySub(getByTestId("boot-entry-claude"))).toBe(s.bootClaudeSub);
     expect(entrySub(getByTestId("boot-entry-codex"))).toBe(s.bootCodexSub);
+  });
+
+  it("a locked runtime page's 系統設定 link opens 系統更新與備份", async () => {
+    await api.patchServerSettings({ developerMode: false });
+    const utils = await openBootIndex();
+    fireEvent.click(utils.getByTestId("boot-entry-claude"));
+    const note = await utils.findByTestId("doc-card-note");
+    expect(utils.queryByTestId("doc-card-edit")).toBeNull();
+
+    fireEvent.click(within(note).getByRole("button", { name: s.bootDocsLockedLink }));
+    expect(
+      (await utils.findByTestId("settings-developer-mode")).getAttribute("aria-checked")
+    ).toBe("false");
   });
 
   it("opens ONE runtime's page, and the other is not on it", async () => {
