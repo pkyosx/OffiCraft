@@ -195,14 +195,14 @@ describe("DiskUsageBreakdown", () => {
     expect(screen.getByTestId("disk-usage-measured").textContent).toBe("量於 12m 前");
   });
 
-  it("puts what each known category holds behind its ⓘ, and none on members or the disk row", () => {
+  it("puts an ⓘ only on the categories whose contents are not obvious, and none on members or the disk row", () => {
     mountBreakdown({ ...FULL, members: SEVEN_MEMBERS.slice(0, 1), categories: [...CATEGORIES.slice(0, -1), cat("old_database_copies", 1, null, false), CATEGORIES[5]] });
     expect(descriptions()).toEqual([
-      ["資料庫", "成員、任務、聊天等所有資料"],
-      ["資料庫自動備份", "定期自動備份，保留最近幾份"],
-      ["成員 workspace", "各成員的工作目錄"],
+      ["資料庫", ""],
+      ["資料庫自動備份", ""],
+      ["成員 workspace", ""],
       ["Mira", ""],
-      ["日誌", "OffiCraft 程式的執行紀錄"],
+      ["日誌", ""],
       ["升級殘留", "升級時留下的舊版程式與舊資料庫副本，不會自動刪除"],
       ["舊資料庫副本", "資料庫旁留下的舊副本，不會自動刪除"],
       ["其他", "目前版本的程式、設定檔，以及手動放進來的檔案"],
@@ -215,10 +215,10 @@ describe("DiskUsageBreakdown", () => {
     try {
       mountBreakdown({ ...FULL, members: [] });
       expect(descriptions()).toEqual([
-        ["Database", "Members, tasks, chat and everything else"],
-        ["Automatic database backups", "Taken automatically; the latest few are kept"],
-        ["Member workspaces", "Each member's working directory"],
-        ["Logs", "What the OffiCraft programs have logged"],
+        ["Database", ""],
+        ["Automatic database backups", ""],
+        ["Member workspaces", ""],
+        ["Logs", ""],
         ["Upgrade leftovers", "Old programs and database copies left by upgrades; never deleted automatically"],
         ["Other", "The current programs, settings, and files put here by hand"],
         ["Disk free / total", ""],

@@ -1250,7 +1250,7 @@ for (const { width, language, squeezed } of LABEL_CASES) {
       expect.arrayContaining([language === "zh" ? "日誌" : "Logs", language === "zh" ? "硬碟剩餘／總容量" : "Disk free / total"])
     );
     expect(rows.filter((r) => r.sub).length, "control: the members are sub rows").toBeGreaterThanOrEqual(3);
-    expect(rows.filter((r) => r.info).length, "control: the categories carry descriptions").toBeGreaterThanOrEqual(6);
+    expect(rows.filter((r) => r.info).length, "control: the categories that need explaining carry an ⓘ").toBeGreaterThanOrEqual(2);
     if (squeezed || width <= 390) {
       expect(rows.some((r) => r.sub && r.lineXs.length > 1), "control: a sub row wraps").toBe(true);
     }

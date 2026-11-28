@@ -19,7 +19,8 @@ import { infoHintText } from "../test/infoHint";
 
 /** A row's explanation (behind its ⓘ) and its state tag (null when none). */
 function entryCopy(row: HTMLElement) {
-  return [infoHintText(row), row.querySelector('[data-testid="set-entry-tag"]')?.textContent ?? null];
+  const hint = row.querySelector('[data-testid="info-hint"]') ? infoHintText(row) : null;
+  return [hint, row.querySelector('[data-testid="set-entry-tag"]')?.textContent ?? null];
 }
 
 const s = zh.settings;
@@ -77,9 +78,12 @@ describe("SettingsPage · global-context 4 blocks", () => {
     const copy = (testId: string) => entryCopy(utils.getByTestId(testId));
     expect(copy("boot-doc-entry-custom")).toEqual(["每位成員開機時都會讀到的自訂內容", "可編輯"]);
     expect(copy("boot-doc-entry-system_interaction")).toEqual(["每位成員開機時都會讀到的系統運作說明", null]);
-    expect(copy("boot-doc-entry-task_closeout")).toEqual(["任務被判定結束時給 agent 的收尾指示", null]);
+    expect(copy("boot-doc-entry-task_closeout")).toEqual([null, null]);
     expect(copy("boot-doc-entry-user_language")).toEqual(["成員跟你說話用的語言 · 沒改過時跟著顯示語言", "可編輯"]);
-    expect(copy("boot-doc-entry-term_glossary")).toEqual(["功能的英文與中文名稱對照 · 隨版本更新", "不能編輯"]);
+    expect(copy("boot-doc-entry-term_glossary")).toEqual([null, "不能編輯"]);
+    expect(copy("boot-doc-entry-accelerated_stop")).toEqual([null, null]);
+    expect(copy("boot-doc-entry-task_takeover_with_predecessor")).toEqual([s.taskTakeoverWithPredecessorSub, null]);
+    expect(utils.getByTestId("boot-doc-entry-task_closeout").hasAttribute("aria-describedby")).toBe(false);
     expect(
       utils.getByRole("button", { name: `${s.userLanguageName} 可編輯`, description: "成員跟你說話用的語言 · 沒改過時跟著顯示語言" }),
     ).toBe(
@@ -97,9 +101,9 @@ describe("SettingsPage · global-context 4 blocks", () => {
         "可編輯",
       ])
     );
-    expect(copy("boot-doc-entry-task_closeout")).toEqual(["任務被判定結束時給 agent 的收尾指示", "可編輯"]);
-    expect(copy("boot-doc-entry-term_glossary")).toEqual(["功能的英文與中文名稱對照 · 隨版本更新", "不能編輯"]);
-    expect(copy("boot-doc-entry-boot_sequence")).toEqual([s.bootSub, s.bootDocEditableTag]);
+    expect(copy("boot-doc-entry-task_closeout")).toEqual([null, "可編輯"]);
+    expect(copy("boot-doc-entry-term_glossary")).toEqual([null, "不能編輯"]);
+    expect(copy("boot-doc-entry-boot_sequence")).toEqual([null, s.bootDocEditableTag]);
   });
 
   it("使用者語言 opens its document directly and saves it while developer mode is off", async () => {

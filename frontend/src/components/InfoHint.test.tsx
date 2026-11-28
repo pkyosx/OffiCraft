@@ -22,13 +22,13 @@ describe("InfoHint", () => {
     render(
       <I18nProvider>
         <button type="button" onClick={onRow}>
-          偏好設定
-          <InfoHint about="偏好設定" hint="外觀、語言、版面" />
+          通知信箱
+          <InfoHint about="通知信箱" hint="這個信箱會提供給瀏覽器的推播服務" />
         </button>
       </I18nProvider>,
     );
     fireEvent.click(screen.getByTestId("info-hint"));
-    expect(screen.getByRole("tooltip").textContent).toBe("外觀、語言、版面");
+    expect(screen.getByRole("tooltip").textContent).toBe("這個信箱會提供給瀏覽器的推播服務");
     expect(onRow).not.toHaveBeenCalled();
     fireEvent.click(document.body);
     expect(screen.queryByRole("tooltip")).toBeNull();

@@ -44,7 +44,8 @@ async function openBootIndex() {
 
 /** A row's explanation (behind its ⓘ) and its state tag (null when none). */
 function entryCopy(row: HTMLElement) {
-  return [infoHintText(row), row.querySelector('[data-testid="set-entry-tag"]')?.textContent ?? null];
+  const hint = row.querySelector('[data-testid="info-hint"]') ? infoHintText(row) : null;
+  return [hint, row.querySelector('[data-testid="set-entry-tag"]')?.textContent ?? null];
 }
 
 beforeEach(async () => {
@@ -65,15 +66,9 @@ describe("SettingsPage · 啟動步驟 index", () => {
     expect(getByText(s.bootCodexName)).toBeTruthy();
     expect(getByTestId("boot-entry-claude")).toBeTruthy();
     expect(getByTestId("boot-entry-codex")).toBeTruthy();
-    expect(entryCopy(getByTestId("boot-entry-claude"))).toEqual([
-      s.bootClaudeSub,
-      s.bootDocEditableTag,
-    ]);
-    expect(entryCopy(getByTestId("boot-entry-codex"))).toEqual([
-      s.bootCodexSub,
-      s.bootDocEditableTag,
-    ]);
-    expect(getByRole("button", { name: `${s.bootClaudeName} ${s.bootDocEditableTag}`, description: s.bootClaudeSub })).toBe(
+    expect(entryCopy(getByTestId("boot-entry-claude"))).toEqual([null, s.bootDocEditableTag]);
+    expect(entryCopy(getByTestId("boot-entry-codex"))).toEqual([null, s.bootDocEditableTag]);
+    expect(getByRole("button", { name: `${s.bootClaudeName} ${s.bootDocEditableTag}`, description: "" })).toBe(
       getByTestId("boot-entry-claude")
     );
 
@@ -89,8 +84,8 @@ describe("SettingsPage · 啟動步驟 index", () => {
   it("while developer mode is off, neither runtime row says it is editable", async () => {
     await api.patchServerSettings({ developerMode: false });
     const { getByTestId } = await openBootIndex();
-    expect(entryCopy(getByTestId("boot-entry-claude"))).toEqual([s.bootClaudeSub, null]);
-    expect(entryCopy(getByTestId("boot-entry-codex"))).toEqual([s.bootCodexSub, null]);
+    expect(entryCopy(getByTestId("boot-entry-claude"))).toEqual([null, null]);
+    expect(entryCopy(getByTestId("boot-entry-codex"))).toEqual([null, null]);
   });
 
   it("opens ONE runtime's page, and the other is not on it", async () => {

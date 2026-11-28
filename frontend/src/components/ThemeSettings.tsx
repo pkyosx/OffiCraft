@@ -1012,7 +1012,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
 
           {/* ── fonts (字型) — pick body / title font from a safe allowlist ── */}
           <div className="ts-section-label">
-            <TitleWithInfo title={t.settings.themeFontsSection} hint={t.settings.themeFontsHint} />
+            {t.settings.themeFontsSection}
           </div>
           {FONT_SLOTS.map(({ token, labelKey }) => (
             <div key={token} className="ts-font-row">

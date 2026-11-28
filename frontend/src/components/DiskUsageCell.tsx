@@ -11,7 +11,7 @@ import "./disk-usage.css";
 const TOP_MEMBERS = 5;
 
 type Dicts = Dict["monitor"]["diskUsage"];
-type KnownKey = keyof Dicts["desc"];
+type KnownKey = "database" | "backups" | "workspaces" | "logs" | "oldVersionBackups" | "oldDatabaseCopies" | "other";
 
 /** The category keys the page has words and a colour for, by the server's
  * key. Any other key a warden reports is shown as the key itself, in the
@@ -202,13 +202,15 @@ function breakdownRows(
 ): Row[] {
   const rows: Row[] = [];
   const value = (bytes: number | null) => (bytes === null ? dash : formatBytes(bytes));
+  const descs: Partial<Record<KnownKey, string>> = d.desc;
   for (const c of u.categories) {
     if (c.parentKey !== null) continue;
     const known = KNOWN[c.key];
+    const hint = known && descs[known];
     rows.push({
       key: c.key,
       label: labelOf(c.key, d),
-      desc: known ? { about: labelOf(c.key, d), hint: d.desc[known] } : undefined,
+      desc: hint ? { about: labelOf(c.key, d), hint } : undefined,
       value: value(c.bytes),
       segment: segmentOf(c.key),
       // A row with its own sub rows opens a section, so they do not read as

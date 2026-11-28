@@ -449,13 +449,12 @@ export function ProfileDropdown({
             type="button"
             className="profile-dd__row"
             aria-labelledby={`${rowsId}-prefs`}
-            aria-describedby={`${rowsId}-prefs-hint`}
             onClick={openPreferences}
           >
             <span className="profile-dd__row-icon">
               <GearIcon size={16} />
             </span>
-            <RowText id={`${rowsId}-prefs`} title={t.profile.preferences} hint={t.profile.preferencesSub} />
+            <RowText id={`${rowsId}-prefs`} title={t.profile.preferences} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
@@ -465,9 +464,9 @@ export function ProfileDropdown({
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
-          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-security`} aria-describedby={`${rowsId}-security-hint`} onClick={() => setView("security")}>
+          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-security`} onClick={() => setView("security")}>
             <span className="profile-dd__row-icon"><KeyIcon size={16} /></span>
-            <RowText id={`${rowsId}-security`} title={t.profile.accountSecurity} hint={t.profile.accountSecuritySub} />
+            <RowText id={`${rowsId}-security`} title={t.profile.accountSecurity} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
@@ -494,9 +493,9 @@ export function ProfileDropdown({
             <span>{t.profile.accountSecurity}</span>
           </button>
 
-          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-password`} aria-describedby={`${rowsId}-password-hint`} onClick={openPasswordView}>
+          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-password`} onClick={openPasswordView}>
             <span className="profile-dd__row-icon"><GearIcon size={16} /></span>
-            <RowText id={`${rowsId}-password`} title={t.profile.changePassword} hint={t.profile.changePasswordSub} />
+            <RowText id={`${rowsId}-password`} title={t.profile.changePassword} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
@@ -506,9 +505,9 @@ export function ProfileDropdown({
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
-          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-passkeys`} aria-describedby={`${rowsId}-passkeys-hint`} onClick={() => setView("passkeys")}>
+          <button type="button" className="profile-dd__row" aria-labelledby={`${rowsId}-passkeys`} onClick={() => setView("passkeys")}>
             <span className="profile-dd__row-icon"><GearIcon size={16} /></span>
-            <RowText id={`${rowsId}-passkeys`} title={t.profile.passkeys} hint={t.profile.passkeysSub} />
+            <RowText id={`${rowsId}-passkeys`} title={t.profile.passkeys} />
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
         </>
@@ -940,15 +939,15 @@ export function ProfileDropdown({
   );
 }
 
-/** A menu row's title with its explanation behind ⓘ; `sub` is a line that
- * must stay visible (a warning). The row button names itself from `${id}` and
- * is described by `${id}-hint` (and `${id}-sub`). */
-function RowText({ id, title, hint, sub }: { id: string; title: string; hint: string; sub?: string }) {
+/** A menu row's title with its explanation (if any) behind ⓘ; `sub` is a line
+ * that must stay visible (a warning). The row button names itself from `${id}`
+ * and, when there is a hint, is described by `${id}-hint` (and `${id}-sub`). */
+function RowText({ id, title, hint, sub }: { id: string; title: string; hint?: string; sub?: string }) {
   return (
     <span className="profile-dd__row-body">
       <span className="profile-dd__row-title">
         <span id={id}>{title}</span>
-        <InfoHint about={title} hint={hint} descriptionId={`${id}-hint`} />
+        {hint && <InfoHint about={title} hint={hint} descriptionId={`${id}-hint`} />}
       </span>
       {sub && (
         <span id={`${id}-sub`} className="profile-dd__row-sub">

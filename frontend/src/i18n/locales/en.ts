@@ -891,8 +891,6 @@ export const en: Dict = {
       // already says Outsource, and the full label wraps there in English.
       paused: "Assignment paused",
       capTitle: "Outsource cap",
-      capHint:
-        "Cap how many outsource members can be hired at once; unlimited removes the cap.",
       capMaxLabel: "Max hires",
       capUnlimited: "Unlimited",
       capDecrease: "Decrease",
@@ -1197,7 +1195,6 @@ export const en: Dict = {
     rename: "Rename",
     renamePlaceholder: "Enter name",
     preferences: "Preferences",
-    preferencesSub: "Appearance, language, layout",
     logout: "Log out",
     back: "Preferences",
     theme: "Theme",
@@ -1246,7 +1243,6 @@ export const en: Dict = {
     layoutWide: "Wide",
     seasonalTheme: "Show seasonal theme",
     changePassword: "Change password",
-    changePasswordSub: "The password you sign in to this console with",
     currentPasswordPlaceholder: "Current password",
     newPasswordPlaceholder: "New password (at least 8 characters)",
     confirmPasswordPlaceholder: "Repeat the new password",
@@ -1314,9 +1310,7 @@ export const en: Dict = {
     mfaErrorLoad: "Could not read the two-factor status",
     mfaRetry: "Try again",
     accountSecurity: "Account security",
-    accountSecuritySub: "Password, two-factor authentication, passkeys",
     passkeys: "Passkeys",
-    passkeysSub: "Sign in with your phone or computer's own unlock — for example Face ID, Touch ID, a fingerprint or the device passcode",
     passkeysLoading: "Loading…",
     passkeysEmpty: "No passkeys registered yet",
     passkeysErrorLoad: "Could not read the passkey list",
@@ -2070,10 +2064,6 @@ export const en: Dict = {
       othersTailMany: " members",
       other: "Other",
       desc: {
-        database: "Members, tasks, chat and everything else",
-        backups: "Taken automatically; the latest few are kept",
-        workspaces: "Each member's working directory",
-        logs: "What the OffiCraft programs have logged",
         oldVersionBackups: "Old programs and database copies left by upgrades; never deleted automatically",
         oldDatabaseCopies: "Old copies left beside the database; never deleted automatically",
         other: "The current programs, settings, and files put here by hand",
@@ -2456,8 +2446,6 @@ export const en: Dict = {
     themeWordingTag: "Wording",
     // ── fonts (T-16a1 P4): pick body / title font from a safe allowlist ──
     themeFontsSection: "Fonts",
-    themeFontsHint:
-      "Pick a built-in, safe font family; leave on default to keep the theme's original font.",
     themeFontBody: "Body font",
     themeFontTitle: "Title font",
     themeFontDefault: "Default (theme font)",
@@ -2520,17 +2508,13 @@ export const en: Dict = {
     updateSettings: "Update settings",
     // ── software-update toggles (receive_beta / auto_update) ──
     receiveBeta: "Receive beta versions",
-    receiveBetaSub: "Update checks also follow GitHub prereleases · off = official releases only",
     autoUpdate: "Automatic updates",
-    autoUpdateSub: "Upgrade in the background when a newer version appears",
     autoUpdateWarning: "The server restarts itself after the upgrade.",
     updateCheckInterval: "Update check interval",
     updateCheckIntervalSub:
       "How often the server asks GitHub in the background whether a newer version exists; Check for updates and upgrading always ask right away (1–60 minutes)",
     minutes: "minutes",
     announceFeatures: "Let the assistant tell me about new-version features",
-    announceFeaturesSub:
-      "After upgrading to an official release that has a feature announcement, your assistant tells you in chat what it adds",
     upgradeFailed: "Upgrade failed",
     upgradeRestarting:
       "Upgrading — the new version is installed and the server is restarting; this page will reload by itself.",
@@ -2556,39 +2540,22 @@ export const en: Dict = {
     userLanguageSub:
       "The language members write to you in · follows the display language until you edit it",
     termGlossaryName: "Term glossary",
-    termGlossarySub:
-      "English and Chinese feature names side by side · updated with each release",
     bootName: "Boot steps",
-    bootSub: "What an AI follows while starting up · one per runtime",
     bootRuntimeClaude: "Standard",
     bootRuntimeCodex: "Codex",
     bootClaudeName: "Boot steps (Claude Code)",
-    bootClaudeSub: "Boot SOP for the Claude Code runtime",
     bootCodexName: "Boot steps (Codex CLI)",
-    bootCodexSub: "Boot SOP for the Codex App Server runtime",
     offboardName: "Stop",
-    offboardSub:
-      "Wrap-up instructions a member receives when it is stopped",
     stopSection: "STOP",
     taskEventSection: "TASK EVENTS",
     acceleratedStopName: "Accelerated stop",
-    acceleratedStopSub:
-      "What a member is told when it is asked to wrap up early · carries a deadline",
     taskCloseoutName: "Task close-out",
-    taskCloseoutSub:
-      "What a member is told when one of its tasks is judged finished",
     taskReassignPredecessorName: "Task reassignment · to the predecessor",
-    taskReassignPredecessorSub:
-      "What a member is told when a task it held is handed to somebody else",
     taskTakeoverWithPredecessorName: "Task reassignment · to the successor",
     taskTakeoverWithPredecessorSub:
       "What a member is told when it takes over a task (the same document with or without a predecessor)",
     taskUnblockedName: "The task blocking yours is released",
-    taskUnblockedSub:
-      "What a member is told when the task blocking it is released",
     taskReadyForDoneName: "Your task is ready to be closed",
-    taskReadyForDoneSub:
-      "What a member is told each time its task becomes ready to close",
     bootDocSaveConfirmAcceleratedStop:
       "Save this accelerated-stop procedure? Every member asked to wrap up early reads this content, and reads it with only a short window left — it has to be finishable in that time.",
     bootDocSaveConfirmTaskEvent:
@@ -2722,7 +2689,6 @@ export const en: Dict = {
     paramsLoadError: "Failed to load settings. Please try again.",
     paramsSaveError: "Didn't save — try again",
     sessionTtl: "Session length",
-    sessionTtlSub: "How long before you have to sign in again",
     agentTokenTtl: "Member login lifetime",
     agentTokenTtlSub: "How long newly started staff and outsource members stay logged in before they must log in again",
     ttl12h: "12 hours",
@@ -2800,16 +2766,9 @@ export const en: Dict = {
     // another's box (owner ruling). An empty list is a legal value: that box
     // then shows no suggestion buttons at all.
     suggestedRepliesReplyCard: "Reply-card suggestions",
-    suggestedRepliesReplyCardSub:
-      "Sentences you can drop in with one tap when answering a reply card.",
     suggestedRepliesTaskMessage: "Task-message suggestions",
-    suggestedRepliesTaskMessageSub:
-      "Sentences you can drop in with one tap when messaging on a task.",
     suggestedRepliesLoreMessage: "Lore-message suggestions",
-    suggestedRepliesLoreMessageSub:
-      "Sentences you can drop in with one tap in a lore entry's message box.",
     suggestedRepliesChat: "Chat suggestions",
-    suggestedRepliesChatSub: "Sentences you can drop in with one tap when chatting with any member.",
     suggestedReplyPlaceholder: "e.g. Got it, go ahead",
     suggestedReplyAdd: "Add a sentence",
     suggestedReplyRemove: "Remove this sentence",
@@ -2897,7 +2856,6 @@ export const en: Dict = {
     manualQ2Hint:
       "Fields required before execution. Mark one as the 🔑 identity key and the intake window uses it to tell whether it's the same task (e.g. the same PR link = the same task; later messages merge in instead of opening a new one).",
     manualQ3: "How is it done?",
-    manualQ3Hint: "Playbook · the AI plans the workflow from it",
     manualEditSectionLead: "Edit “",
     manualEditSectionTail: "”",
     manualEmptyHint: "Not filled in yet",
@@ -2935,7 +2893,6 @@ export const en: Dict = {
     assigneeClear: "Clear setting",
     assigneeNoMembers: "No members available",
     manualPlanningSection: "Task planning",
-    manualDefEntrySub: "What it is, what info it needs, how to do it",
     manualSuggestedRepliesSection: "Suggested replies",
     manualSuggestedRepliesSub: "Sentences you can drop in with one tap when answering a reply card about this kind of task, messaging on one, or chatting with the outsource member on one.",
     manualSuggestedRepliesEmpty: "This task type has no sentences of its own yet.",

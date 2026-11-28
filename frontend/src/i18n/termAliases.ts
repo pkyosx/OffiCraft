@@ -13,7 +13,7 @@ export type TermName = string | { zh: string; en: string; foundIn: string };
 
 export const TERM_ALIASES: readonly (readonly TermName[])[] = [
   ["nav.office"],
-  [{ zh: "請示卡", en: "Reply card", foundIn: "settings.suggestedRepliesReplyCardSub" }, "nav.replies"],
+  [{ zh: "請示卡", en: "Reply card", foundIn: "replies.tabsLabel" }, "nav.replies"],
   ["nav.tasks"],
   ["tasks.typeLabel"],
   ["tasks.progressLabel"],

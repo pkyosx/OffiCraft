@@ -954,7 +954,6 @@ export const zh = {
       // 上限 popover（照 seth-member-2 mockup，owner 2026-07-13）；
       // -1 ＝ 無限（header 顯 ∞），0 ＝ 暫停指派
       capTitle: "外包上限設定",
-      capHint: "設定同時可雇用的外包數量上限；設為無限則不限制。",
       capMaxLabel: "最多雇用",
       capUnlimited: "無限",
       capDecrease: "減少",
@@ -1292,7 +1291,6 @@ export const zh = {
     rename: "改名",
     renamePlaceholder: "輸入名字",
     preferences: "偏好設定",
-    preferencesSub: "外觀、語言、版面",
     logout: "登出",
     back: "偏好設定",
     theme: "主題",
@@ -1341,7 +1339,6 @@ export const zh = {
     layoutWide: "寬版",
     seasonalTheme: "顯示應景主題",
     changePassword: "修改密碼",
-    changePasswordSub: "登入這個主控台用的密碼",
     currentPasswordPlaceholder: "目前密碼",
     newPasswordPlaceholder: "新密碼（至少 8 個字）",
     confirmPasswordPlaceholder: "再輸入一次新密碼",
@@ -1401,10 +1398,8 @@ export const zh = {
     mfaErrorLoad: "讀不到兩步驟驗證的狀態",
     mfaRetry: "重試",
     accountSecurity: "帳號安全",
-    accountSecuritySub: "修改密碼、兩步驟驗證、通行密鑰",
     // ── 通行密鑰(WebAuthn) ──
     passkeys: "通行密鑰",
-    passkeysSub: "用手機或電腦本身的解鎖方式登入，例如 Face ID、Touch ID、指紋或裝置密碼",
     passkeysLoading: "讀取中…",
     passkeysEmpty: "還沒有註冊任何通行密鑰",
     passkeysErrorLoad: "讀不到通行密鑰清單",
@@ -2126,12 +2121,8 @@ export const zh = {
       othersTailOne: " 位合計",
       othersTailMany: " 位合計",
       other: "其他",
-      // One grey line under each row's name: what the row holds.
+      // Behind the ⓘ after a category's name: what it holds, only where the name does not say it.
       desc: {
-        database: "成員、任務、聊天等所有資料",
-        backups: "定期自動備份，保留最近幾份",
-        workspaces: "各成員的工作目錄",
-        logs: "OffiCraft 程式的執行紀錄",
         oldVersionBackups: "升級時留下的舊版程式與舊資料庫副本，不會自動刪除",
         oldDatabaseCopies: "資料庫旁留下的舊副本，不會自動刪除",
         other: "目前版本的程式、設定檔，以及手動放進來的檔案",
@@ -2498,7 +2489,6 @@ export const zh = {
     themeWordingTag: "用詞",
     // ── 字型 (T-16a1 P4): 從安全字型白名單挑內文／標題字型 ──
     themeFontsSection: "字型",
-    themeFontsHint: "從內建的安全字型中挑選;維持預設則沿用主題原字型。",
     themeFontBody: "內文字型",
     themeFontTitle: "標題字型",
     themeFontDefault: "預設(主題字型)",
@@ -2559,17 +2549,13 @@ export const zh = {
     updateSettings: "更新設定",
     // ── 系統更新與備份 toggle(receive_beta / auto_update)──
     receiveBeta: "接收 Beta 版本",
-    receiveBetaSub: "更新檢查也納入 GitHub 預發佈(prerelease)· 關閉 = 只看正式 release",
     autoUpdate: "自動更新",
-    autoUpdateSub: "偵測到新版本時於背景自動升級",
     autoUpdateWarning: "升級完伺服器會自己重啟。",
     updateCheckInterval: "更新檢查間隔",
     updateCheckIntervalSub:
       "背景多久向 GitHub 確認一次有沒有新版本；按「檢查更新」與升級一律即時查詢，不受這個間隔影響（1–60 分鐘）",
     minutes: "分鐘",
     announceFeatures: "讓助理告訴我新版本的功能",
-    announceFeaturesSub:
-      "升級到有新功能公告的正式版後，助理會在聊天裡跟你說這版多了什麼",
     upgradeFailed: "升級失敗",
     upgradeRestarting:
       "升級中——新版本已安裝完成,伺服器重啟中;此頁面將自動重新載入。",
@@ -2600,7 +2586,6 @@ export const zh = {
     userLanguageName: "使用者語言",
     userLanguageSub: "成員跟你說話用的語言 · 沒改過時跟著顯示語言",
     termGlossaryName: "名詞對照表",
-    termGlossarySub: "功能的英文與中文名稱對照 · 隨版本更新",
     // 兩份**不同**的文件，分別開自己的頁：只有 Codex 那一份要求成員在開機
     // 那一輪結束時把控制權交回旁邊的程序，兩份不能互換，
     // 所以清單上不併成一列、詳情頁也不並排。
@@ -2608,33 +2593,24 @@ export const zh = {
     // and its history list — the row no longer names a runtime because you
     // pick one after you are inside.
     bootName: "啟動步驟",
-    bootSub: "AI 開機時照著做的步驟 · 兩種執行環境各一份",
     bootRuntimeClaude: "一般",
     bootRuntimeCodex: "Codex",
     bootClaudeName: "啟動步驟（Claude Code）",
-    bootClaudeSub: "Claude Code 執行環境的開機 SOP",
     bootCodexName: "啟動步驟（Codex CLI）",
-    bootCodexSub: "Codex App Server 執行環境的開機 SOP",
     // 〈停止〉（T-c9c0）——不進開機情境，是 server 要收掉這個 session 時
     // 夾帶給 agent 的收尾指示，所以在清單上自成一列，排在啟動步驟之後。
     offboardName: "停止",
-    offboardSub: "成員被停止時會收到的收尾指示",
     // ── T-3201：其餘六份生命週期文件 ──
     // 分組標題。上線那組沿用既有的 globalSection；下線、任務是另外兩組。
     stopSection: "下線（STOP）",
     taskEventSection: "任務事件（TASK）",
     acceleratedStopName: "加速停止",
-    acceleratedStopSub: "被要求提前收工時給 agent 的指示 · 有截止時間",
     taskCloseoutName: "任務結案",
-    taskCloseoutSub: "任務被判定結束時給 agent 的收尾指示",
     taskReassignPredecessorName: "任務轉派 · 給前任",
-    taskReassignPredecessorSub: "手上的任務被轉給別人時給 agent 的交接指示",
     taskTakeoverWithPredecessorName: "任務轉派 · 給接手人",
     taskTakeoverWithPredecessorSub: "接手任務時給 agent 的指示（有沒有前任都用這份）",
     taskUnblockedName: "擋住你任務的任務已解開",
-    taskUnblockedSub: "依賴的任務放行時給 agent 的通知",
     taskReadyForDoneName: "你手上的任務可以結案了",
-    taskReadyForDoneSub: "任務每次進到可結案時給 agent 的通知",
     bootDocSaveConfirmAcceleratedStop:
       "要儲存這份加速停止程序嗎？之後每一個被要求提前收工的 agent 都會讀到這份內容，而且是在只剩下一小段時間的情況下讀——寫得完才算數。",
     bootDocSaveConfirmTaskEvent:
@@ -2789,7 +2765,6 @@ export const zh = {
     paramsLoadError: "載入設定失敗，請稍後重試",
     paramsSaveError: "沒存成，請再試一次",
     sessionTtl: "登入有效期",
-    sessionTtlSub: "登入後多久需要重新輸入密碼",
     agentTokenTtl: "成員登入有效期",
     agentTokenTtlSub: "新啟動的成員與外包，多久需要重新取得登入憑證",
     ttl12h: "12 小時",
@@ -2856,28 +2831,12 @@ export const zh = {
     // T-122:建議回覆清單(T-33 加上第三份)。刻意是一格一個訊息框而不是共用
     // 一格——請示卡的回覆、任務訊息與傳承條目的訊息是三件不同的對話,同一句話
     // 放錯格子就不合用(owner 裁定)。
-    //
-    // 🔴 說明文各一句,句號結束,不要再長回去。owner 走了五輪把它砍到這樣,逐項
-    // 否決的東西都有理由,再加回來就是把他刪過的東西塞回去:
-    //   * 不解釋位置(「回覆框下面那排」)——標題已經寫了是哪一格;
-    //   * 不寫「留空就不顯示」;
-    //   * 不寫上限數字——打超過的時候紅字會當場說(suggestedRepliesTooLong);
-    //   * 不寫「兩格各自獨立」——分開擺、標題不同,看得出來;
-    //   * 不寫「點一下不會送出」——那是用的時候的事,不是設定頁的事。
-    // 第二句用「任務中傳送訊息」而不是「傳訊息給成員」:後者聽起來像一般聊天
-    // 視窗,而那一格是任務上的訊息框。開頭也刻意沒有「在」(不是「在任務中傳送
-    // 訊息時…」),那是 owner 明確要求拿掉的。
+    // 四格的標題已說明是哪一格，不加 ⓘ 說明；只有讀者從標題看不出來、又需要知道
+    // 的事才加（frontend/.claude/rules/css-layout-traps.md「說明收進 ⓘ」）。
     suggestedRepliesReplyCard: "請示卡建議回覆",
-    suggestedRepliesReplyCardSub: "回覆請示卡時可一鍵帶入的句子。",
     suggestedRepliesTaskMessage: "任務訊息建議回覆",
-    suggestedRepliesTaskMessageSub: "任務中傳送訊息時可一鍵帶入的句子。",
-    // T-33 的第三格。同一條規矩:一句,句號結束,不解釋位置、不寫留空、不寫上限
-    // 數字。「傳承條目」而不是「傳承」:那一格的收件人是寫下那一條的人,不是
-    // 一份文件。
     suggestedRepliesLoreMessage: "傳承訊息建議回覆",
-    suggestedRepliesLoreMessageSub: "在傳承條目的訊息框可一鍵帶入的句子。",
     suggestedRepliesChat: "聊天室建議回覆",
-    suggestedRepliesChatSub: "與任一成員對話時可一鍵帶入的句子。",
     suggestedReplyPlaceholder: "例:收到,照這樣做",
     suggestedReplyAdd: "新增一句",
     suggestedReplyRemove: "刪除這一句",
@@ -2908,7 +2867,7 @@ export const zh = {
     loreCapBody: "傳承內容字數上限",
     loreCapBodySub:
       "一筆傳承的內容最多幾個字。可以調低,已經存好的條目不受影響。",
-    loreCapEntryWarning: "超過的寫入會被拒絕,一個字都不會寫進去。",
+    loreCapEntryWarning: "超過的寫入會被拒絕，一個字都不會寫進去。",
     secretCardDurationUnit: "單位",
     secretCardUnretrievedTtl: "Secret 請示卡的等待取得時間",
     secretCardUnretrievedTtlSub:
@@ -2966,7 +2925,6 @@ export const zh = {
     manualQ2Hint:
       "執行前一定要有的欄位。把其中一個設成 🔑識別鍵，接案窗口就用它判斷是不是同一個任務（例如同一個 PR 連結 = 同一個任務，後續訊息會併入而非開新任務）。",
     manualQ3: "該怎麼做？",
-    manualQ3Hint: "執行手冊 · AI 參考它規劃 workflow",
     // 三塊各自編輯（owner 2026-07-31 選定 P1）：每一塊的標頭各有一顆 編輯，
     // 三顆長得一樣，所以無障礙名稱要把區塊名帶進去。
     manualEditSectionLead: "編輯「",
@@ -3013,7 +2971,6 @@ export const zh = {
     assigneeNoMembers: "沒有可指定的成員",
     // 任務規劃段（hub 的兩張子頁入口卡）
     manualPlanningSection: "任務規劃",
-    manualDefEntrySub: "這是什麼任務、需要哪些資訊、該怎麼做",
     manualSuggestedRepliesSection: "建議回覆",
     manualSuggestedRepliesSub: "回覆這類任務的請示卡、在這類任務上傳訊息，或跟負責這類任務的外包聊天時，可一鍵帶入的句子。",
     manualSuggestedRepliesEmpty: "這類任務還沒有專屬的句子。",

@@ -336,27 +336,27 @@ describe("ProfileDropdown · menu levels", () => {
   it("the first level holds preferences, notification email and account security", () => {
     const utils = renderMenu();
     expect(rowTexts(utils.container)).toEqual([
-      ["偏好設定", "外觀、語言、版面"],
+      ["偏好設定", ""],
       ["通知信箱填寫後才會送出通知。", "這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。"],
-      ["帳號安全", "修改密碼、兩步驟驗證、通行密鑰"],
+      ["帳號安全", ""],
       ["登出", ""],
     ]);
-    expect(utils.getByRole("button", { name: "偏好設定", description: "外觀、語言、版面" })).toBeTruthy();
+    expect(utils.getByRole("button", { name: "偏好設定", description: "" })).toBeTruthy();
     expect(
       utils.getByRole("button", {
         name: "通知信箱",
         description: "填寫後才會送出通知。 這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。",
       }),
     ).toBeTruthy();
-    expect(utils.getByRole("button", { name: "帳號安全", description: "修改密碼、兩步驟驗證、通行密鑰" })).toBeTruthy();
+    expect(utils.getByRole("button", { name: "帳號安全", description: "" })).toBeTruthy();
     expect(utils.queryByRole("img", { name: "關於 偏好設定" })).toBeNull();
   });
 
   it("tapping a row's ⓘ pins its explanation and does not open the row", () => {
     const utils = renderMenu();
-    const icon = within(utils.getByRole("button", { name: "偏好設定" })).getByTestId("info-hint");
+    const icon = within(utils.getByRole("button", { name: "通知信箱" })).getByTestId("info-hint");
     fireEvent.click(icon);
-    expect(utils.getByRole("tooltip").textContent).toBe("外觀、語言、版面");
+    expect(utils.getByRole("tooltip").textContent).toBe("這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。");
     expect(backText(utils.container)).toBeUndefined();
     expect(utils.getByText("帳號安全")).toBeTruthy();
   });
@@ -366,9 +366,9 @@ describe("ProfileDropdown · menu levels", () => {
     fireEvent.click(utils.getByText("帳號安全"));
     expect(backText(utils.container)).toBe("帳號安全");
     expect(rowTexts(utils.container)).toEqual([
-      ["修改密碼", "登入這個主控台用的密碼"],
+      ["修改密碼", ""],
       ["兩步驟驗證", ""],
-      ["通行密鑰", "用手機或電腦本身的解鎖方式登入，例如 Face ID、Touch ID、指紋或裝置密碼"],
+      ["通行密鑰", ""],
     ]);
   });
 

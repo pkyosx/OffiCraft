@@ -36,7 +36,7 @@ async function openParamsPage() {
     </I18nProvider>
   );
   fireEvent.click(utils.getByTestId("settings-params-entry"));
-  await utils.findByRole("img", { name: `關於 ${s.suggestedRepliesReplyCard}` });
+  await utils.findByText(s.suggestedRepliesReplyCard, { selector: ".param-row__name" });
   return utils;
 }
 

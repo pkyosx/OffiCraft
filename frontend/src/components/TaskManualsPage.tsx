@@ -59,7 +59,7 @@ import { Breadcrumbs, type Crumb } from "./Breadcrumbs";
 import { DocumentHistoryEntry } from "./DocumentHistoryEntry";
 import { DocUsage } from "./DocUsage";
 import "./stepper.css";
-import { InfoHint, TitleWithInfo } from "./InfoHint";
+import { TitleWithInfo } from "./InfoHint";
 import { ConfirmModal } from "./ConfirmModal";
 import { CODEX_MODEL_OPTIONS, MODEL_QUICK_PICKS, EFFORTS } from "./ModelEffortEditor";
 import {
@@ -405,7 +405,6 @@ export function TaskManualHub({
           className="set-entry manual-entry"
           data-testid="manual-entry-definition"
           aria-labelledby={`${defEntryId}-name`}
-          aria-describedby={`${defEntryId}-hint`}
           onClick={onOpenDefinition}
         >
           <span className="set-entry__icon set-entry__icon--blue">
@@ -414,11 +413,6 @@ export function TaskManualHub({
           <span className="set-entry__body">
             <span className="set-entry__name">
               <span id={`${defEntryId}-name`}>{t.settings.manualTabDefinition}</span>
-              <InfoHint
-                about={t.settings.manualTabDefinition}
-                hint={t.settings.manualDefEntrySub}
-                descriptionId={`${defEntryId}-hint`}
-              />
             </span>
           </span>
           <ChevronRightIcon size={18} className="set-entry__chev" />
@@ -963,7 +957,7 @@ function DefinitionCard({
         <div className="manual-sec__head">
           <span className="manual-sec__num">3</span>
           <span className="manual-sec__title">
-            <TitleWithInfo title={t.settings.manualQ3} hint={t.settings.manualQ3Hint} />
+            {t.settings.manualQ3}
           </span>
           {/* T-100. The SOP has been capped all along and this page showed the
             * number nowhere, so the owner met the cap as a refusal AFTER

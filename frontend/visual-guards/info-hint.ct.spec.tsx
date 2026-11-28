@@ -73,8 +73,9 @@ for (const width of [390, 1440]) {
     test("一般設定: a tap opens the bubble at the icon, the page does not overflow, a tap elsewhere closes it, no icon wraps alone, and no title runs into its control", async ({ mount, page }) => {
       await mount(<InfoHintStory mode="settings" />);
       await page.getByTestId("settings-params-entry").click();
-      const icon = page.getByRole("img", { name: `關於 ${s.sessionTtl}` });
+      const icon = page.getByRole("img", { name: `關於 ${s.agentTokenTtl}` });
       await expect(icon).toBeVisible();
+      await expect(page.getByRole("img", { name: `關於 ${s.sessionTtl}` })).toHaveCount(0);
       expect(await page.getByRole("tooltip").count()).toBe(0);
       expect(await orphanIcons(page)).toEqual([]);
       expect(await titlesIntoControl(page)).toEqual([]);
@@ -89,8 +90,8 @@ for (const width of [390, 1440]) {
 
       await icon.click();
       await expectAnchored(page, icon);
-      await expect(page.getByRole("tooltip")).toHaveText(s.sessionTtlSub);
-      await expect(page.locator("#param-ttl")).not.toBeFocused();
+      await expect(page.getByRole("tooltip")).toHaveText(s.agentTokenTtlSub);
+      await expect(page.locator("#param-agent-ttl")).not.toBeFocused();
 
       await tapOutside(page);
       await expect(page.getByRole("tooltip")).toHaveCount(0);
@@ -106,6 +107,7 @@ for (const width of [390, 1440]) {
       await expect(page.getByRole("tooltip")).toHaveText(s.systemSub);
       await expect(row).toBeVisible();
       await expect(page.getByRole("heading", { name: s.systemName })).toHaveCount(0);
+      await expect(page.getByTestId("boot-doc-entry-task_closeout").getByTestId("info-hint")).toHaveCount(0);
       expect(await orphanIcons(page)).toEqual([]);
 
       await tapOutside(page);
@@ -115,12 +117,13 @@ for (const width of [390, 1440]) {
 
     test("頭像選單: tapping a row's ⓘ shows its text inside the viewport and stays on the first level", async ({ mount, page }) => {
       await mount(<InfoHintStory mode="menu" />);
-      const row = page.getByRole("button", { name: zh.profile.accountSecurity });
-      await expect(row).toHaveAccessibleDescription(zh.profile.accountSecuritySub);
+      await expect(page.getByRole("button", { name: zh.profile.accountSecurity }).getByTestId("info-hint")).toHaveCount(0);
+      const row = page.getByRole("button", { name: zh.profile.pushContactEmail });
+      await expect(row).toHaveAccessibleDescription(`${zh.profile.pushContactEmailUnsetWarning} ${zh.profile.pushContactEmailPrivacy}`);
       const icon = row.getByTestId("info-hint");
       await icon.click();
       await expectAnchored(page, icon);
-      await expect(page.getByRole("tooltip")).toHaveText(zh.profile.accountSecuritySub);
+      await expect(page.getByRole("tooltip")).toHaveText(zh.profile.pushContactEmailPrivacy);
       await expect(page.locator(".profile-dd__back")).toHaveCount(0);
       await expect(page.getByText(zh.profile.pushContactEmailUnsetWarning)).toBeVisible();
     });

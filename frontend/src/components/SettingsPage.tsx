@@ -279,7 +279,7 @@ export const BOOT_DOC_ROWS: Record<
   BootDocRowIcon & {
     group: BootDocGroup;
     nameKey: SettingsTextKey;
-    subKey: SettingsTextKey;
+    subKey?: SettingsTextKey;
   } & (
       | {
           /** 啟動步驟 is TWO documents (claude / codex), so its row opens an
@@ -328,7 +328,6 @@ export const BOOT_DOC_ROWS: Record<
   term_glossary: {
     group: "launch",
     nameKey: "termGlossaryName",
-    subKey: "termGlossarySub",
     Icon: BookIcon,
     tone: "blue",
     docKey: "global",
@@ -337,7 +336,6 @@ export const BOOT_DOC_ROWS: Record<
   boot_sequence: {
     group: "launch",
     nameKey: "bootName",
-    subKey: "bootSub",
     Icon: BoltIcon,
     tone: "violet",
     index: true,
@@ -345,7 +343,6 @@ export const BOOT_DOC_ROWS: Record<
   offboard: {
     group: "stop",
     nameKey: "offboardName",
-    subKey: "offboardSub",
     Icon: LogOutIcon,
     tone: "blue",
     docKey: "global",
@@ -355,7 +352,6 @@ export const BOOT_DOC_ROWS: Record<
   accelerated_stop: {
     group: "stop",
     nameKey: "acceleratedStopName",
-    subKey: "acceleratedStopSub",
     Icon: ClockIcon,
     tone: "blue",
     docKey: "global",
@@ -365,7 +361,6 @@ export const BOOT_DOC_ROWS: Record<
   task_closeout: {
     group: "task",
     nameKey: "taskCloseoutName",
-    subKey: "taskCloseoutSub",
     Icon: CheckIcon,
     tone: "purple",
     docKey: "global",
@@ -375,7 +370,6 @@ export const BOOT_DOC_ROWS: Record<
   task_reassign_predecessor: {
     group: "task",
     nameKey: "taskReassignPredecessorName",
-    subKey: "taskReassignPredecessorSub",
     Icon: SwapIcon,
     tone: "purple",
     docKey: "global",
@@ -395,7 +389,6 @@ export const BOOT_DOC_ROWS: Record<
   task_unblocked: {
     group: "task",
     nameKey: "taskUnblockedName",
-    subKey: "taskUnblockedSub",
     Icon: BellIcon,
     tone: "neutral",
     docKey: "global",
@@ -405,7 +398,6 @@ export const BOOT_DOC_ROWS: Record<
   task_ready_for_done: {
     group: "task",
     nameKey: "taskReadyForDoneName",
-    subKey: "taskReadyForDoneSub",
     Icon: CheckIcon,
     tone: "neutral",
     docKey: "global",
@@ -438,27 +430,28 @@ function BootDocEntry({
     : "readOnly" in row && row.readOnly
       ? t.settings.bootDocReadOnlyTag
       : undefined;
+  const hint = row.subKey && t.settings[row.subKey];
   return (
     <button
       type="button"
       className="set-entry"
       data-testid={`boot-doc-entry-${kind}`}
       aria-labelledby={setEntryLabelledBy(id, tag)}
-      aria-describedby={`${id}-hint`}
+      aria-describedby={hint ? `${id}-hint` : undefined}
       onClick={onOpen}
     >
       <span className={`set-entry__icon set-entry__icon--${row.tone}`}>
         <Icon size={18} />
       </span>
-      <SetEntryText id={id} name={t.settings[row.nameKey]} hint={t.settings[row.subKey]} tag={tag} />
+      <SetEntryText id={id} name={t.settings[row.nameKey]} hint={hint} tag={tag} />
       <ChevronRightIcon size={18} className="set-entry__chev" />
     </button>
   );
 }
 
-/** A settings-list row's title with its explanation behind ⓘ and its state as
- * a visible tag. The row button names itself from the title and the tag
- * (`setEntryLabelledBy`) and is described by `${id}-hint`. */
+/** A settings-list row's title with its explanation (if any) behind ⓘ and its
+ * state as a visible tag. The row button names itself from the title and the tag
+ * (`setEntryLabelledBy`) and, when there is a hint, is described by `${id}-hint`. */
 function SetEntryText({
   id,
   name,
@@ -467,14 +460,14 @@ function SetEntryText({
 }: {
   id: string;
   name: string;
-  hint: string;
+  hint?: string;
   tag?: string;
 }) {
   return (
     <span className="set-entry__body">
       <span className="set-entry__name">
         <span id={`${id}-name`}>{name}</span>
-        <InfoHint about={name} hint={hint} descriptionId={`${id}-hint`} />
+        {hint && <InfoHint about={name} hint={hint} descriptionId={`${id}-hint`} />}
         {tag && (
           <span id={`${id}-tag`} className="set-badge" data-testid="set-entry-tag">
             {tag}
@@ -975,7 +968,6 @@ export function SettingsPage({
             className="set-entry"
             data-testid="boot-entry-claude"
             aria-labelledby={setEntryLabelledBy(`${bootRowsId}-claude`, bootRuntimeTag)}
-            aria-describedby={`${bootRowsId}-claude-hint`}
             onClick={() => setView({ kind: "bootRuntime", runtime: "claude" })}
           >
             <span className="set-entry__icon set-entry__icon--violet">
@@ -984,7 +976,6 @@ export function SettingsPage({
             <SetEntryText
               id={`${bootRowsId}-claude`}
               name={t.settings.bootClaudeName}
-              hint={t.settings.bootClaudeSub}
               tag={bootRuntimeTag}
             />
             <ChevronRightIcon size={18} className="set-entry__chev" />
@@ -994,7 +985,6 @@ export function SettingsPage({
             className="set-entry"
             data-testid="boot-entry-codex"
             aria-labelledby={setEntryLabelledBy(`${bootRowsId}-codex`, bootRuntimeTag)}
-            aria-describedby={`${bootRowsId}-codex-hint`}
             onClick={() => setView({ kind: "bootRuntime", runtime: "codex" })}
           >
             <span className="set-entry__icon set-entry__icon--blue">
@@ -1003,7 +993,6 @@ export function SettingsPage({
             <SetEntryText
               id={`${bootRowsId}-codex`}
               name={t.settings.bootCodexName}
-              hint={t.settings.bootCodexSub}
               tag={bootRuntimeTag}
             />
             <ChevronRightIcon size={18} className="set-entry__chev" />
@@ -1357,14 +1346,12 @@ const TTL_CHOICES = [43200, 86400, 604800, 2592000] as const;
  * sends ONE field, which is what keeps "edit one list" from rewriting another. */
 function SuggestedRepliesRow({
   label,
-  sub,
   idPrefix,
   value,
   onCommit,
   onTouch,
 }: {
   label: string;
-  sub: string;
   idPrefix: string;
   value: string[];
   /** Save this list wholesale. Called only when it differs from `value`. */
@@ -1376,7 +1363,7 @@ function SuggestedRepliesRow({
     <div className="param-row param-row--stacked">
       <div className="param-row__body">
         <div className="param-row__name">
-          <TitleWithInfo title={label} hint={sub} />
+          {label}
         </div>
       </div>
       <SuggestedRepliesEditor
@@ -1743,7 +1730,7 @@ function ServerParams({
           <div className="param-row">
             <div className="param-row__body">
               <label className="param-row__name" htmlFor="param-ttl">
-                <TitleWithInfo title={t.settings.sessionTtl} hint={t.settings.sessionTtlSub} />
+                {t.settings.sessionTtl}
               </label>
             </div>
             <select
@@ -2168,7 +2155,6 @@ function ServerParams({
               never carries another one. */}
           <SuggestedRepliesRow
             label={t.settings.suggestedRepliesReplyCard}
-            sub={t.settings.suggestedRepliesReplyCardSub}
             idPrefix="param-suggested-reply-card"
             value={settings.suggestedRepliesReplyCard}
             onTouch={() => { setRangeError(false); onClearSaveError(); }}
@@ -2177,7 +2163,6 @@ function ServerParams({
 
           <SuggestedRepliesRow
             label={t.settings.suggestedRepliesTaskMessage}
-            sub={t.settings.suggestedRepliesTaskMessageSub}
             idPrefix="param-suggested-task-message"
             value={settings.suggestedRepliesTaskMessage}
             onTouch={() => { setRangeError(false); onClearSaveError(); }}
@@ -2186,7 +2171,6 @@ function ServerParams({
 
           <SuggestedRepliesRow
             label={t.settings.suggestedRepliesLoreMessage}
-            sub={t.settings.suggestedRepliesLoreMessageSub}
             idPrefix="param-suggested-lore-message"
             value={settings.suggestedRepliesLoreMessage}
             onTouch={() => { setRangeError(false); onClearSaveError(); }}
@@ -2194,7 +2178,6 @@ function ServerParams({
           />
           <SuggestedRepliesRow
             label={t.settings.suggestedRepliesChat}
-            sub={t.settings.suggestedRepliesChatSub}
             idPrefix="param-suggested-chat"
             value={settings.suggestedRepliesChat}
             onTouch={() => { setRangeError(false); onClearSaveError(); }}
@@ -2698,7 +2681,7 @@ function SoftwareUpdate({
           <div className="param-row">
             <div className="param-row__body">
               <span className="param-row__name">
-                <TitleWithInfo title={t.settings.receiveBeta} hint={t.settings.receiveBetaSub} />
+                {t.settings.receiveBeta}
               </span>
             </div>
             <button
@@ -2718,7 +2701,7 @@ function SoftwareUpdate({
           <div className="param-row">
             <div className="param-row__body">
               <span className="param-row__name">
-                <TitleWithInfo title={t.settings.autoUpdate} hint={t.settings.autoUpdateSub} />
+                {t.settings.autoUpdate}
               </span>
               <div className="param-row__sub">{t.settings.autoUpdateWarning}</div>
             </div>
@@ -2761,7 +2744,7 @@ function SoftwareUpdate({
           <div className="param-row">
             <div className="param-row__body">
               <span className="param-row__name">
-                <TitleWithInfo title={t.settings.announceFeatures} hint={t.settings.announceFeaturesSub} />
+                {t.settings.announceFeatures}
               </span>
             </div>
             <button
