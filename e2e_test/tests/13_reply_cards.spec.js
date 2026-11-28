@@ -87,15 +87,9 @@ const {
   uniqueName,
 } = require('../lib/fixtures');
 
-/** Open the 篩選 dialog, tick 已回覆 in its 狀態 field, then close the popover
- * and the dialog (✕ on desktop, 完成 on a phone sheet). */
+/** Select the 近期已回覆 label above the list. */
 async function showAnswered(page) {
-  await page.getByTestId('replies-filter-toggle').click();
-  const trigger = page.getByTestId('filter-status');
-  await trigger.click();
-  await page.getByTestId('filter-status-opt-answered').locator('input').check();
-  await trigger.click();
-  await page.getByTestId('replies-filter-close').or(page.getByTestId('replies-filter-done')).click();
+  await page.getByTestId('replies-tab-answered').click();
 }
 
 // Build the wire `options` array. `aiPickAt` is the index that carries the
@@ -367,7 +361,7 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
         message: 'the tap alone must have answered it server-side',
       })
       .toBe(baseWaiting + 1);
-    // Answered cards are not in the default 狀態 and load lazily — tick it first.
+    // Answered cards live under 近期已回覆 and load lazily — select it first.
     await showAnswered(page);
     const answeredA = page
       .getByTestId('answered-card')
@@ -519,14 +513,14 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     await expect(
       page.getByTestId('waiting-card').filter({ hasText: summaryB }),
     ).toHaveCount(0);
-    // Fresh visit → 狀態 is back at its default; tick 已回覆 to see B.
+    if (baseWaiting === 0) {
+      await expect(page.getByTestId('replies-empty')).toBeVisible();
+    }
+    // Fresh visit → back on 等待回覆; select 近期已回覆 to see B.
     await showAnswered(page);
     await expect(
       page.getByTestId('answered-card').filter({ hasText: summaryB }),
     ).toBeVisible();
-    if (baseWaiting === 0) {
-      await expect(page.getByTestId('replies-empty')).toBeVisible();
-    }
   });
 
   test('多選卡 — 勾兩個 + 打一段字, 一顆送出鍵送成同一份答覆', async ({
@@ -752,7 +746,7 @@ test.describe('B13 · reply cards — SPEC full loop over real UI + API', () => 
     await openPageCard(waiting);
     await tapOption(waiting, 0);
     await expect(waiting).toHaveCount(0);
-    // Answered cards are not in the default 狀態 and load lazily — tick it first.
+    // Answered cards live under 近期已回覆 and load lazily — select it first.
     await showAnswered(page);
     await expect(
       page.getByTestId('answered-card').filter({ hasText: summary }),

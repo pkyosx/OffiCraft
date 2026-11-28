@@ -45,7 +45,7 @@ import { ReplyCardsProvider } from "./useReplyCards";
 import { __resetMock, __injectMockReplyCard } from "../api/mock";
 import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
-import { toggleFilter, openFiltersWhenReady } from "../test/tasksFilter";
+import { selectRepliesTab } from "../test/tasksFilter";
 
 /** 🔴 開卡時間必須逐張不同,而且同一個 id 每次都拿到同一個戳記。
  *
@@ -458,12 +458,12 @@ describe("reply-card writes reconcile without any event stream", () => {
     const { findAllByTestId, queryAllByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(1);
 
-    // Ticking 已回覆 once is what arms the per-delta handled refetch.
-    await openFiltersWhenReady();
-    toggleFilter("filter-status", "answered");
+    // Selecting 近期已回覆 once is what arms the per-delta handled refetch.
+    await selectRepliesTab("answered");
     await waitFor(() =>
       expect(queryAllByTestId("answered-card")).toHaveLength(1)
     );
+    await selectRepliesTab("waiting");
 
     const read = hangNextRead("answered");
     stream.deliver("reply_card");
@@ -472,6 +472,8 @@ describe("reply-card writes reconcile without any event stream", () => {
     const cards = await findAllByTestId("waiting-card");
     await openCards();
     fireEvent.click(cards[0].querySelectorAll(".reply-option")[0]);
+    await waitFor(() => expect(queryAllByTestId("waiting-card")).toHaveLength(0));
+    await selectRepliesTab("answered");
     await waitFor(() =>
       expect(queryAllByTestId("answered-card")).toHaveLength(2)
     );
@@ -536,8 +538,7 @@ describe("reply-card writes reconcile without any event stream", () => {
 
     const stream = captureEventStream();
     const { findAllByTestId } = renderPage();
-    await openFiltersWhenReady();
-    toggleFilter("filter-status", "answered");
+    await selectRepliesTab("answered");
     const cards = await findAllByTestId("answered-card");
     expect(cards).toHaveLength(1);
     await openCards();

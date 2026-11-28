@@ -46,7 +46,11 @@ import {
   mockApi,
 } from "../api/mock";
 import { WithSuggestedReplies } from "../test/suggestedReplies";
-import { toggleFilter, openFilters, openFiltersWhenReady } from "../test/tasksFilter";
+import {
+  toggleFilter,
+  openFiltersWhenReady,
+  selectRepliesTab,
+} from "../test/tasksFilter";
 import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
 import { ApiError } from "../api/errors";
@@ -74,11 +78,8 @@ vi.mock("../hooks/useWorkerCodenames", () => ({
   useWorkerCurrentTasks: () => new Map(),
 }));
 
-/** Add 已回覆 and 已過期 to the default 狀態 selection. */
 async function showHandled() {
-  await openFiltersWhenReady();
-  toggleFilter("filter-status", "answered");
-  toggleFilter("filter-status", "expired");
+  await selectRepliesTab("answered");
 }
 
 function mkCard(over: Partial<ReplyCard>): ReplyCard {
@@ -206,6 +207,13 @@ async function hold(el: Element, ms: number, pointerType = "touch") {
   press("pointerdown");
   await act(() => new Promise((r) => setTimeout(r, ms)));
   press("pointerup");
+}
+
+function insideInert(el: Element): boolean {
+  for (let at: Element | null = el; at; at = at.parentElement) {
+    if ((at as HTMLElement).inert) return true;
+  }
+  return false;
 }
 
 const menuLabels = () =>
@@ -464,9 +472,8 @@ describe("RepliesPage", () => {
 
     fireEvent.click(card.querySelectorAll(".reply-option")[1]);
 
-    // The answered pane is collapsed by default — expand it to see the card.
-    // (Expanding a pane is not answering anything: the ONLY click aimed at the
-    // card itself was the one above.)
+    // Switching to 近期已回覆 is not answering anything: the ONLY click aimed
+    // at the card itself was the one above.
     await showHandled();
     const answeredCard = await findByTestId("answered-card");
     await openCards();
@@ -719,8 +726,6 @@ describe("RepliesPage", () => {
     const workersSpy = vi.spyOn(api, "listOutsourceWorkers");
     const { findAllByTestId, findByTestId, getAllByPlaceholderText } = renderPage();
     await findAllByTestId("waiting-card");
-    await showHandled();
-    const answeredCard = await findByTestId("answered-card");
     await openCards();
 
     await waitFor(() => expect(workersSpy).toHaveBeenCalledTimes(1));
@@ -729,13 +734,16 @@ describe("RepliesPage", () => {
       fireEvent.change(input, { target: { value: "@492" } });
       expect(document.querySelector('[role="listbox"]')?.textContent).toContain("O-7");
     });
+    await showHandled();
+    const answeredCard = await findByTestId("answered-card");
+    await openCards();
     const final = answeredCard.querySelector('[data-testid="final-answer"]')!;
     fireEvent.click(final.querySelector("button.md-mention")!);
     expect(window.location.hash).toBe("#office/worker/ow-7/from/replies/rc-done");
     expect(workersSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("the default 狀態 lists 未回覆 then 已延後 cards, each tagged, and neither shows nor fetches handled ones until 已回覆 is ticked", async () => {
+  it("opens on 等待回覆 with each label's count, lists only that label's cards untagged, and fetches the handled lists only once 近期已回覆 is selected", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-wait", createdTs: now - 60 }));
     __injectMockReplyCard(mkCard({ id: "rc-later", createdTs: now - 30, snoozedUntilTs: now + 3600 }));
@@ -749,35 +757,98 @@ describe("RepliesPage", () => {
     );
     __injectMockReplyCard(mkCard({ id: "rc-gone", status: "expired", expiredTs: now - 30 }));
     const listSpy = vi.spyOn(api, "listReplyCards");
-    const { findAllByTestId, getByTestId } = renderPage();
-    await findAllByTestId("snoozed-card");
+    const { findAllByTestId, getByTestId, queryByTestId } = renderPage();
+    await findAllByTestId("waiting-card");
 
     const shown = () =>
       [...document.querySelectorAll<HTMLElement>("[data-reply-card-id][aria-expanded]")].map(
-        (el) => [el.dataset.replyCardId, el.querySelector('[data-testid="reply-status-tag"]')?.textContent]
+        (el) => [el.dataset.replyCardId, el.querySelector('[data-testid="reply-status-tag"]')?.textContent ?? null]
       );
-    expect(shown()).toEqual([
-      ["rc-wait", "未回覆"],
-      ["rc-later", "已延後"],
-    ]);
-    openFilters();
-    expect(getByTestId("filter-status").textContent).toBe("待處理");
+    const tab = (v: string) => getByTestId(`replies-tab-${v}`);
+    expect(tab("waiting").getAttribute("aria-selected")).toBe("true");
+    expect(tab("waiting").textContent).toBe("等待回覆1");
+    expect(tab("snoozed").textContent).toBe("稍後再看1");
+    expect(tab("answered").textContent, "no count before the list is loaded").toBe("近期已回覆");
+    expect(shown()).toEqual([["rc-wait", null]]);
+    expect(getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
+    expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
+    expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("expired");
+
+    await selectRepliesTab("snoozed");
+    expect(tab("snoozed").getAttribute("aria-selected")).toBe("true");
+    expect(tab("waiting").getAttribute("aria-selected")).toBe("false");
+    expect(shown()).toEqual([["rc-later", null]]);
+    expect(queryByTestId("replies-sort-active")).toBeNull();
     expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
 
-    toggleFilter("filter-status", "answered");
-    expect(
-      document.querySelector('[data-testid="filter-status-opt-answered"]')!.textContent
-    ).toBe("已回覆近 24 小時");
+    await selectRepliesTab("answered");
     await waitFor(() =>
       expect(shown()).toEqual([
-        ["rc-wait", "未回覆"],
-        ["rc-later", "已延後"],
+        ["rc-gone", "已過期"],
         ["rc-done", "已回覆"],
       ])
     );
-    toggleFilter("filter-status", "expired");
-    expect(shown().map(([id]) => id)).toEqual(["rc-wait", "rc-later", "rc-gone", "rc-done"]);
-    expect(shown()[2][1]).toBe("已過期");
+    expect(tab("answered").textContent).toBe("近期已回覆2");
+    expect(getByTestId("replies-answered-window").textContent).toBe("近 24 小時");
+    expect(queryByTestId("replies-sort-active")).toBeNull();
+  });
+
+  it("the labels are one tab stop; arrow keys, Home and End move the selection and the focus", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-wait" }));
+    const { findAllByTestId, getByTestId, getByRole } = renderPage();
+    await findAllByTestId("waiting-card");
+    const tablist = getByRole("tablist", { name: "請示卡" });
+    const tab = (v: string) => getByTestId(`replies-tab-${v}`);
+    expect([...tablist.querySelectorAll('[role="tab"]')].map((el) => el.getAttribute("tabindex"))).toEqual([
+      "0",
+      "-1",
+      "-1",
+    ]);
+    const panel = getByRole("tabpanel");
+    expect(panel.getAttribute("aria-labelledby")).toBe(tab("waiting").id);
+
+    tab("waiting").focus();
+    fireEvent.keyDown(tab("waiting"), { key: "ArrowRight" });
+    expect(tab("snoozed").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(tab("snoozed"));
+    expect(tab("snoozed").getAttribute("tabindex")).toBe("0");
+    expect(panel.getAttribute("aria-labelledby")).toBe(tab("snoozed").id);
+
+    fireEvent.keyDown(tab("snoozed"), { key: "End" });
+    expect(document.activeElement).toBe(tab("answered"));
+    fireEvent.keyDown(tab("answered"), { key: "ArrowRight" });
+    expect(document.activeElement, "wraps to the first").toBe(tab("waiting"));
+    fireEvent.keyDown(tab("waiting"), { key: "ArrowLeft" });
+    expect(tab("answered").getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(tab("answered"), { key: "Home" });
+    expect(tab("waiting").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(tab("waiting"));
+  });
+
+  it("each label has its own empty sentence; a filter that empties any of them says so instead, and 清除篩選 keeps the selected label", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-wait" }));
+    const { findAllByTestId, getByTestId, queryByTestId } = renderPage();
+    await findAllByTestId("waiting-card");
+
+    await selectRepliesTab("snoozed");
+    expect(getByTestId("replies-empty").textContent).toBe("沒有稍後再看的請示卡");
+    await selectRepliesTab("answered");
+    await waitFor(() =>
+      expect(getByTestId("replies-empty").textContent).toBe("最近 24 小時沒有已回覆的請示卡")
+    );
+
+    toggleFilter("filter-priority", "high");
+    expect(getByTestId("replies-filter-count").textContent).toBe("1");
+    for (const v of ["waiting", "snoozed", "answered"] as const) {
+      await selectRepliesTab(v);
+      expect(getByTestId("replies-empty").textContent).toBe("沒有符合篩選條件的請示");
+      expect(getByTestId(`replies-tab-count-${v}`).textContent).toBe("0");
+    }
+
+    fireEvent.click(getByTestId("replies-filter-clear"));
+    expect(queryByTestId("replies-filter-count")).toBeNull();
+    expect(getByTestId("replies-tab-answered").getAttribute("aria-selected")).toBe("true");
+    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("1");
   });
 
   it("查看當初選項 expands the original options with the standing pick marked", async () => {
@@ -1087,12 +1158,12 @@ describe("RepliesPage", () => {
       }),
     );
     const { findByTestId } = renderPage();
-    await showHandled();
-    await findByTestId("answered-card");
-    await findByTestId("snoozed-card");
-    await openCards();
-
-    for (const testId of ["waiting-card", "snoozed-card", "answered-card"]) {
+    for (const [view, testId] of [
+      ["waiting", "waiting-card"],
+      ["snoozed", "snoozed-card"],
+      ["answered", "answered-card"],
+    ] as const) {
+      await selectRepliesTab(view);
       const card = await findByTestId(testId);
       const ref = card.querySelector('[data-testid="reply-task-ref"]')!;
       const head = card.querySelector(".reply-card__head")!;
@@ -1155,6 +1226,7 @@ describe("RepliesPage", () => {
       expect(pill.querySelector('svg path[d="M5 22h14"]'), "an hourglass").not.toBeNull();
     }
 
+    await selectRepliesTab("snoozed");
     const snoozed = pillOf("rc-snz");
     expect(snoozed.getAttribute("data-testid")).toBe("snoozed-pill");
     expect(snoozed.textContent).toBe("11/06");
@@ -1209,7 +1281,7 @@ describe("RepliesPage", () => {
     );
   });
 
-  it("keeps an answer read from the server visible after 24h when its list cannot load", async () => {
+  it("an answer read from the server stays where it was opened until the label changes, and under 近期已回覆 after 24h even when that list cannot load", async () => {
     const staleTs = Date.now() / 1000 - 25 * 3600;
     const serverCard = mkCard({
       id: "rc-1",
@@ -1218,7 +1290,7 @@ describe("RepliesPage", () => {
     });
     __injectMockReplyCard(serverCard);
     const listSpy = failHandledListReads();
-    const { findAllByTestId, findByTestId, queryAllByTestId, container } = renderPage();
+    const { findAllByTestId, findByTestId, queryAllByTestId, getByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
     expect(card.getAttribute("aria-expanded")).toBe("false");
 
@@ -1260,12 +1332,13 @@ describe("RepliesPage", () => {
     expect(
       answered.querySelector(".reply-card__answered-at")?.textContent
     ).toMatch(/^已回覆 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
-    expect(container.querySelector(".replies__section-title")?.textContent).toBe(
-      "請示 · 1開卡時間（新到舊）"
-    );
-    toggleFilter("filter-status", "answered");
+    expect(getByTestId("replies-tab-waiting").getAttribute("aria-selected")).toBe("true");
+    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("0");
+    await selectRepliesTab("answered");
     expect(await findByTestId("handled-load-error")).toBeTruthy();
     expect(document.querySelector('[data-testid="answered-card"]')).toBe(answered);
+    await selectRepliesTab("waiting");
+    expect(document.querySelector('[data-testid="answered-card"]'), "gone once the label changed").toBeNull();
     expect(listSpy).toHaveBeenCalledWith("answered");
     expect(listSpy).toHaveBeenCalledWith("expired");
     expect(
@@ -1273,12 +1346,12 @@ describe("RepliesPage", () => {
     ).toHaveLength(2);
   });
 
-  it("keeps an expired card read from the server visible after 24h when its list cannot load", async () => {
+  it("an expiry read from the server stays where it was opened until the label changes, and under 近期已回覆 after 24h even when that list cannot load", async () => {
     const staleTs = Date.now() / 1000 - 25 * 3600;
     const serverCard = mkCard({ id: "rc-expired", body: "寄出後無法撤回", createdTs: staleTs });
     __injectMockReplyCard(serverCard);
     const listSpy = failHandledListReads();
-    const { findAllByTestId, findByTestId, queryAllByTestId, container } = renderPage();
+    const { findAllByTestId, findByTestId, queryAllByTestId, getByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
 
     serverCard.status = "expired";
@@ -1295,12 +1368,13 @@ describe("RepliesPage", () => {
     expect(
       expired.querySelector(".reply-card__answered-at")?.textContent
     ).toMatch(/^已過期 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
-    expect(container.querySelector(".replies__section-title")?.textContent).toBe(
-      "請示 · 1開卡時間（新到舊）"
-    );
-    toggleFilter("filter-status", "expired");
+    expect(getByTestId("replies-tab-waiting").getAttribute("aria-selected")).toBe("true");
+    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("0");
+    await selectRepliesTab("answered");
     expect(await findByTestId("handled-load-error")).toBeTruthy();
     expect(document.querySelector('[data-testid="expired-card"]')).toBe(expired);
+    await selectRepliesTab("waiting");
+    expect(document.querySelector('[data-testid="expired-card"]'), "gone once the label changed").toBeNull();
     expect(listSpy).toHaveBeenCalledWith("answered");
     expect(listSpy).toHaveBeenCalledWith("expired");
     expect(
@@ -1331,7 +1405,7 @@ describe("RepliesPage", () => {
     expect(queryByTestId("reply-task-ref")).toBeNull();
   });
 
-  it("顯示方式 › 排序依據 → each order re-sorts the 未回覆 cards only, which lead the list ahead of 已延後 by return time and handled cards by handled time; the active sort is named beside the title, the panel closes once a sort is picked, and the choice survives a remount", async () => {
+  it("顯示方式 › 排序依據 → each order re-sorts the 等待回覆 cards and is named beside the labels; 稍後再看 stays by return time and 近期已回覆 by handled time; the panel closes once a sort is picked, and the choice survives a remount", async () => {
     const now = Date.now() / 1000;
     const task = (id: string, priority: string, dueTs: number | null = null) => ({ id, typeKey: "", title: id, priority, dueTs });
     __injectMockReplyCard(mkCard({ id: "rc-notask", createdTs: now - 10 * 60, task: null }));
@@ -1367,21 +1441,7 @@ describe("RepliesPage", () => {
     const first = renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toHaveLength(5));
     expect(paneIds("waiting-card")).toEqual(["rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen"]);
-    await showHandled();
-    await waitFor(() => expect(paneIds("answered-card")).toHaveLength(3));
     expect(first.getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
-    expect(
-      [...document.querySelectorAll<HTMLElement>("[data-reply-card-id][aria-expanded]")].map(
-        (el) => el.dataset.replyCardId
-      )
-    ).toEqual([
-      "rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen",
-      "rc-snz-soon", "rc-snz-late",
-      "rc-handled", "rc-handled-mid", "rc-handled-early",
-    ]);
-    expect(document.querySelector(".replies__section-title")?.textContent).toBe(
-      "請示 · 10開卡時間（新到舊）"
-    );
 
     fireEvent.click(first.getByTestId("display-options"));
     const select = first.getByTestId("replies-sort") as HTMLSelectElement;
@@ -1405,14 +1465,19 @@ describe("RepliesPage", () => {
       chooseSort(value);
       expect(first.queryByTestId("display-options-panel")).toBeNull();
       expect(paneIds("waiting-card")).toEqual(order);
-      expect(paneIds("snoozed-card")).toEqual(["rc-snz-soon", "rc-snz-late"]);
-      expect(paneIds("answered-card")).toEqual(["rc-handled", "rc-handled-mid", "rc-handled-early"]);
       expect(localStorage.getItem("oc_replies_sort")).toBe(value);
     }
     expect(first.getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
 
     chooseSort("priority");
     expect(first.getByTestId("replies-sort-active").textContent).toBe("任務優先序（高到低）");
+    await selectRepliesTab("snoozed");
+    expect(paneIds("snoozed-card")).toEqual(["rc-snz-soon", "rc-snz-late"]);
+    expect(first.queryByTestId("replies-sort-active")).toBeNull();
+    await selectRepliesTab("answered");
+    await waitFor(() =>
+      expect(paneIds("answered-card")).toEqual(["rc-handled", "rc-handled-mid", "rc-handled-early"])
+    );
     first.unmount();
 
     const second = renderPage();
@@ -1511,7 +1576,7 @@ describe("RepliesPage", () => {
     expect([...chips.children].map((el) => el.getAttribute("data-testid"))).toEqual(["reply-task-no"]);
   });
 
-  it("稍後再看 → four presets each with its return time, then a custom row; a preset moves the card into 已延後 with its time and out of the nav badge", async () => {
+  it("稍後再看 → four presets each with its return time, then a custom row; a preset moves the card to 稍後再看 with its time and out of the nav badge", async () => {
     vi.spyOn(Date, "now").mockReturnValue(THU_10AM * 1000);
     __injectMockReplyCard(mkCard({ id: "rc-1", summary: "第一張", createdTs: THU_10AM - 600 }));
     __injectMockReplyCard(mkCard({ id: "rc-2", summary: "第二張", createdTs: THU_10AM - 1200 }));
@@ -1546,6 +1611,8 @@ describe("RepliesPage", () => {
     expect(snoozeSpy).toHaveBeenCalledWith("rc-2", THU_10AM + 3 * 3600);
     expect(queryByTestId("snooze-menu-rc-2")).toBeNull();
     expect(getByTestId("nav-badge").textContent).toBe("1");
+    expect(getByTestId("replies-tab-count-snoozed").textContent).toBe("1");
+    await selectRepliesTab("snoozed");
     expect(paneIds("snoozed-card")).toEqual(["rc-2"]);
     const snoozedCard = document.querySelector('[data-testid="snoozed-card"]')!;
     expect(snoozedCard.querySelector('[data-testid="snoozed-pill"]')!.getAttribute("title")).toBe("2026/11/5（四） 13:00 回來");
@@ -1588,26 +1655,30 @@ describe("RepliesPage", () => {
     expect(snoozeSpy).toHaveBeenCalledWith("rc-1", THU_10AM + 90 * 86400);
   });
 
-  it("取消延後 → the card is back as 未回覆 and in the badge at once", async () => {
+  it("取消延後 → the card is back in 等待回覆 and in the badge at once", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: now + 3600 }));
     const snoozeSpy = vi.spyOn(api, "snoozeReplyCard");
     const { getByTestId } = renderPage();
+    await selectRepliesTab("snoozed");
     await waitFor(() => expect(paneIds("snoozed-card")).toEqual(["rc-1"]));
     expect(getByTestId("nav-badge").textContent).toBe("0");
 
     fireEvent.click(getByTestId("unsnooze-card"));
-    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+    await waitFor(() => expect(paneIds("snoozed-card")).toEqual([]));
     expect(snoozeSpy).toHaveBeenCalledWith("rc-1", null);
-    expect(paneIds("snoozed-card")).toEqual([]);
     expect(getByTestId("nav-badge").textContent).toBe("1");
+    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("1");
+    await selectRepliesTab("waiting");
+    expect(paneIds("waiting-card")).toEqual(["rc-1"]);
   });
 
-  it("a snoozed card can still be opened and answered, or expired, from 已延後", async () => {
+  it("a snoozed card can still be opened and answered, or expired, from 稍後再看", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-a", summary: "延後要回答", snoozedUntilTs: now + 3600 }));
     __injectMockReplyCard(mkCard({ id: "rc-e", summary: "延後要過期", snoozedUntilTs: now + 7200 }));
     const { findByTestId } = renderPage();
+    await selectRepliesTab("snoozed");
     await waitFor(() => expect(paneIds("snoozed-card")).toEqual(["rc-a", "rc-e"]));
 
     const answering = document.querySelector<HTMLElement>('[data-reply-card-id="rc-a"]')!;
@@ -1656,7 +1727,7 @@ describe("RepliesPage", () => {
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThan(before));
   });
 
-  it("a failed 取消延後 → an error on that card, which stays in 已延後; a 409 instead says the card was already handled and re-reads the panes", async () => {
+  it("a failed 取消延後 → an error on that card, which stays in 稍後再看; a 409 instead says the card was already handled and re-reads the panes", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: now + 3600 }));
     vi.spyOn(api, "snoozeReplyCard")
@@ -1666,6 +1737,7 @@ describe("RepliesPage", () => {
       );
     const listSpy = vi.spyOn(api, "listReplyCards");
     const { findByTestId, getByTestId, queryByTestId } = renderPage();
+    await selectRepliesTab("snoozed");
     fireEvent.click(await findByTestId("unsnooze-card"));
     const err = await findByTestId("unsnooze-error");
     expect(err.textContent).toBe("取消延後失敗，請稍後重試");
@@ -1778,17 +1850,17 @@ describe("RepliesPage", () => {
     fireEvent.click(getByTestId("chat-msg-sheet-backdrop"));
     expect(menuLabels()).toEqual([]);
 
-    await showHandled();
-    await waitFor(() => expect(paneIds("answered-card")).toEqual(["rc-done"]));
-    await hold(document.querySelector('[data-reply-card-id="rc-done"] .reply-card__summary')!, 520);
-    expect(menuLabels()).toEqual(["跳到原訊息", "複製訊息", "選取文字"]);
+    await hold(document.querySelector('[data-reply-card-id="rc-secret"] .reply-card__summary')!, 520);
+    expect(menuLabels()).toEqual(["跳到原訊息", "稍後再看", "標為過期", "複製訊息", "選取文字"]);
     act(() => {
       fireEvent.pointerDown(getByTestId("chat-msg-sheet-backdrop"));
     });
     fireEvent.click(getByTestId("chat-msg-sheet-backdrop"));
 
-    await hold(document.querySelector('[data-reply-card-id="rc-secret"] .reply-card__summary')!, 520);
-    expect(menuLabels()).toEqual(["跳到原訊息", "稍後再看", "標為過期", "複製訊息", "選取文字"]);
+    await showHandled();
+    await waitFor(() => expect(paneIds("answered-card")).toEqual(["rc-done"]));
+    await hold(document.querySelector('[data-reply-card-id="rc-done"] .reply-card__summary')!, 520);
+    expect(menuLabels()).toEqual(["跳到原訊息", "複製訊息", "選取文字"]);
   });
 
   it("the sheet's 稍後再看 (取消延後 on a snoozed card), 標為過期 and 跳到原訊息 do what the head's buttons do: the same snooze menu, as a sheet; the same unsnooze; the same expire confirmation; the same chat route — and a keyboard's first activation in what the sheet opened is not swallowed", async () => {
@@ -1814,12 +1886,15 @@ describe("RepliesPage", () => {
     expect(snoozeSpy).toHaveBeenCalledWith("rc-1", THU_10AM + 3 * 3600);
     expect(queryByTestId("snooze-menu-rc-1")).toBeNull();
 
+    await selectRepliesTab("snoozed");
     expect(paneIds("snoozed-card")).toEqual(["rc-1", "rc-s"]);
     await hold(summaryOf("rc-s"), 520);
     expect(menuLabels()).toEqual(["跳到原訊息", "取消延後", "標為過期", "複製訊息", "選取文字"]);
     choose("取消延後");
-    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-2", "rc-s"]));
+    await waitFor(() => expect(paneIds("snoozed-card")).toEqual(["rc-1"]));
     expect(snoozeSpy).toHaveBeenLastCalledWith("rc-s", null);
+    await selectRepliesTab("waiting");
+    expect(paneIds("waiting-card")).toEqual(["rc-2", "rc-s"]);
 
     await hold(summaryOf("rc-2"), 520);
     choose("標為過期");
@@ -1913,8 +1988,11 @@ describe("RepliesPage", () => {
     await findByTestId("snooze-menu-rc-1");
     fireEvent.click(getByTestId("snooze-preset-3h"));
     await waitFor(() => expect(paneIds("waiting-card")).toEqual([]));
+    await selectRepliesTab("snoozed");
     fireEvent.click(getByTestId("unsnooze-card"));
-    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]));
+    await waitFor(() => expect(paneIds("snoozed-card")).toEqual([]));
+    await selectRepliesTab("waiting");
+    expect(paneIds("waiting-card")).toEqual(["rc-1"]);
     expect(queryByTestId("snooze-menu-rc-1")).toBeNull();
   });
 
@@ -1949,7 +2027,7 @@ describe("RepliesPage", () => {
     expect(card.getAttribute("aria-expanded")).toBeNull();
     expect(card.inert).toBeFalsy();
     expect(other.inert).toBe(true);
-    expect(getByTestId("replies-filter").inert).toBe(true);
+    expect(insideInert(getByTestId("replies-filter"))).toBe(true);
     expect(document.querySelector(".replies")!.classList.contains("replies--selecting")).toBe(true);
     await waitFor(() => expect(card.querySelector(".reply-card__body")).not.toBeNull());
     const tapped = card.querySelector(".reply-card__body")!;
@@ -1994,11 +2072,12 @@ describe("RepliesPage", () => {
   });
 
 
-  it("in the selection mode a card that comes back from 已延後 to 未回覆 stays in the mode; a card answered elsewhere, which leaves the list, ends the mode with the rest of the page back in reach", async () => {
+  it("in the selection mode a card whose snooze runs out stays under 稍後再看 and in the mode; a card answered elsewhere, which leaves the list, ends the mode with the rest of the page back in reach", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-1", body: "收件人寫在附件裡", snoozedUntilTs: Date.now() / 1000 + 1.5 }));
     __injectMockReplyCard(mkCard({ id: "rc-2", createdTs: Date.now() / 1000 - 3600 }));
     const { getByTestId, queryByTestId } = renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-2"]));
+    await selectRepliesTab("snoozed");
     await waitFor(() => expect(paneIds("snoozed-card")).toEqual(["rc-1"]));
     const cardEl = () => document.querySelector<HTMLElement>('[data-reply-card-id="rc-1"]');
     const bodyOf = () =>
@@ -2011,22 +2090,21 @@ describe("RepliesPage", () => {
     choose("選取文字");
     await bodyOf();
 
-    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1", "rc-2"]), { timeout: 3000 });
+    await waitFor(() => expect(paneIds("waiting-card")).toEqual(["rc-1"]), { timeout: 3000 });
+    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("2");
     expect(cardEl()!.classList.contains("reply-card--selecting")).toBe(true);
     const body = await bodyOf();
     fireEvent.pointerDown(body);
     fireEvent.click(body);
     expect(getByTestId("chat-select-bar"), "a tap inside the moved card ended the mode").toBeTruthy();
-    expect(document.querySelector<HTMLElement>('[data-reply-card-id="rc-2"]')!.inert).toBe(true);
-    expect(getByTestId("replies-filter").inert).toBe(true);
+    expect(insideInert(getByTestId("replies-filter"))).toBe(true);
 
     await act(async () => {
       await api.answerReplyCard("rc-1", { optionIdxs: [0], text: "", attachments: [] });
     });
     await waitFor(() => expect(queryByTestId("chat-select-bar")).toBeNull());
     expect(document.querySelector(".replies")!.classList.contains("replies--selecting")).toBe(false);
-    expect(document.querySelector<HTMLElement>('[data-reply-card-id="rc-2"]')!.inert).toBeFalsy();
-    expect(getByTestId("replies-filter").inert).toBeFalsy();
+    expect(insideInert(getByTestId("replies-filter"))).toBe(false);
   });
 });
 

@@ -22,7 +22,11 @@
 //       threshold — that border ratio is inherited from `.tasks__filter`);
 //   (5) emptying the 編號 box is an escape from an applied filter, and 清除篩選
 //       shows only while something is filtered;
-//   (6) the shell adds no spacing of its own below the row.
+//   (6) the shell adds no spacing of its own below the row;
+//   (7) on 請示頁 the three list labels hold one line inside the column at
+//       320, 390 and 1440 in both languages, with the note and the funnel on
+//       the same line beside them on a desktop and on one line below them on a
+//       phone.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Locator, Page } from "@playwright/test";
 import { BUILTIN_THEME_IDS, expectBuiltinApplied } from "./builtinThemes";
@@ -170,7 +174,7 @@ for (const pageName of ["tasks", "replies"] as const) {
       expect(m.box.left).toBeGreaterThanOrEqual(-0.5);
       expect(m.box.right).toBeLessThanOrEqual(width + 0.5);
       expect(m.box.bottom).toBeLessThanOrEqual((width > 720 ? 900 : 844) + 0.5);
-      expect(m.fields).toHaveLength(5);
+      expect(m.fields).toHaveLength(pageName === "tasks" ? 5 : 4);
       for (const f of m.fields) {
         expect(f.left, `${f.label} left edge`).toBeGreaterThanOrEqual(m.box.left);
         expect(f.right, `${f.label} right edge`).toBeLessThanOrEqual(m.box.right);
@@ -179,13 +183,15 @@ for (const pageName of ["tasks", "replies"] as const) {
         expect(f.labelLines, `${f.label} label lines`).toBe(1);
       }
       const rows = new Set(m.fields.slice(1).map((f) => Math.round(f.top))).size;
-      expect(rows, "four dropdowns in two columns").toBe(2);
+      expect(rows, "the dropdowns in two columns").toBe(2);
       expect(Math.round(m.fields[0].right - m.fields[0].left), "the ID field spans both columns").toBe(
         Math.round(m.fields[2].right - m.fields[1].left)
       );
 
-      await page.getByTestId("filter-status").click();
-      const pop = page.getByRole("group", { name: "狀態" });
+      const [dropdown, noun] =
+        pageName === "tasks" ? ["filter-status", "狀態"] : ["filter-priority", "任務優先序"];
+      await page.getByTestId(dropdown).click();
+      const pop = page.getByRole("group", { name: noun });
       await expect(pop).toBeVisible();
       const p = (await pop.boundingBox())!;
       expect(p.x).toBeGreaterThanOrEqual(0);
@@ -274,7 +280,7 @@ test("the folded 篩選 row is page content: the list starts below it", async ({
   const cmp = await mount(<RepliesPageStory theme="office" />);
 
   const panel = cmp.getByTestId("replies-filter");
-  const below = cmp.locator(".replies__section").first();
+  const below = cmp.getByRole("tabpanel");
   await expect(panel).toBeVisible();
   await expect(below).toBeVisible();
   expect(["fixed", "absolute", "sticky"]).not.toContain(
@@ -350,7 +356,7 @@ test("emptying the 編號 box is an escape from an applied filter", async ({
   await applyId(cmp, page, FULL_ID);
   await expect(empty).toHaveText("沒有符合篩選條件的請示");
   await expect(page.getByTestId("replies-filter-clear")).toBeVisible();
-  await expect(cmp.getByTestId("replies-filter-count")).toHaveText("2");
+  await expect(cmp.getByTestId("replies-filter-count")).toHaveText("1");
 
   const field = page.getByTestId("filter-reply-card-id");
   await field.fill("");
@@ -360,28 +366,112 @@ test("emptying the 編號 box is an escape from an applied filter", async ({
   await expect(cmp.getByTestId("replies-filter-count")).toHaveCount(0);
 });
 
-test("the 篩選 shell adds no spacing of its own: the gap below it is the page's", async ({
+test("the 篩選 shell adds no spacing of its own: the gap below the label row is the page's", async ({
   mount,
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   const cmp = await mount(<RepliesPageStory theme="office-light" />);
-  await cmp.locator(".replies__section-title").first().waitFor();
+  await cmp.getByRole("tabpanel").waitFor();
 
   const m = await cmp.evaluate((root: HTMLElement) => {
     const panel = root.querySelector(".filter-panel") as HTMLElement;
-    const host = panel.parentElement as HTMLElement;
-    const next = panel.nextElementSibling as HTMLElement;
+    const head = root.querySelector(".replies__head") as HTMLElement;
+    const list = root.querySelector('[role="tabpanel"]') as HTMLElement;
+    const cs = getComputedStyle(panel);
     return {
-      hostGap: parseFloat(getComputedStyle(host).rowGap || "0"),
-      actual: next.getBoundingClientRect().top - panel.getBoundingClientRect().bottom,
-      panelMarginBottom: getComputedStyle(panel).marginBottom,
-      nextMarginTop: getComputedStyle(next).marginTop,
+      hostGap: parseFloat(getComputedStyle(head.parentElement!).rowGap || "0"),
+      actual: list.getBoundingClientRect().top - head.getBoundingClientRect().bottom,
+      panelBottomInHead: head.getBoundingClientRect().bottom - panel.getBoundingClientRect().bottom,
+      panelMargins: [cs.marginTop, cs.marginBottom],
     };
   });
   expect(m.hostGap, "the host must own a real rhythm for this test to mean anything").toBeGreaterThan(0);
-  expect(
-    m.actual,
-    `gap under the 篩選 shell (panel margin-bottom ${m.panelMarginBottom}, next margin-top ${m.nextMarginTop})`
-  ).toBeCloseTo(m.hostGap, 0);
+  expect(m.panelMargins, "the shell's own vertical margins").toEqual(["0px", "0px"]);
+  expect(m.panelBottomInHead, "the shell ends at the bottom of the label row").toBeCloseTo(0, 0);
+  expect(m.actual, "gap under the label row").toBeCloseTo(m.hostGap, 0);
 });
+
+for (const width of [320, 390, 1440]) {
+  for (const language of ["zh", "en"] as const) {
+    test(`width ${width}, ${language}: the three list labels keep one line inside the column, each label whole or cut with 「…」, and the note and 篩選 buttons share a line ${width > 720 ? "with them" : "below them"}`, async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+      const cmp = await mount(<RepliesPageStory theme="office" />);
+      const tabs = cmp.getByRole("tab");
+      await expect(tabs).toHaveCount(3);
+      // The answered count only shows once that list is loaded; it is the
+      // widest the row gets.
+      await cmp.getByTestId("replies-tab-answered").click();
+      await expect(cmp.getByTestId("replies-tab-count-answered")).toBeVisible();
+      await cmp.getByTestId("replies-tab-waiting").click();
+
+      const m = await cmp.evaluate((root: HTMLElement) => {
+        const r = (el: Element) => {
+          const b = el.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        };
+        const list = root.querySelector('[role="tablist"]') as HTMLElement;
+        const column = root.querySelector(".replies") as HTMLElement;
+        const labels = Array.from(list.querySelectorAll<HTMLElement>(".replies__tab-label")).map((l) => {
+          const range = document.createRange();
+          range.selectNodeContents(l);
+          return {
+            text: l.textContent,
+            title: l.title,
+            lines: new Set(Array.from(range.getClientRects()).map((x) => Math.round(x.top))).size,
+            cut: l.scrollWidth > l.clientWidth + 0.5,
+            ellipsis: getComputedStyle(l).textOverflow,
+          };
+        });
+        return {
+          list: r(list),
+          listOverflow: list.scrollWidth - list.clientWidth,
+          column: r(column),
+          tabs: Array.from(list.querySelectorAll('[role="tab"]')).map(r),
+          labels,
+          sort: r(root.querySelector('[data-testid="replies-sort-active"]')!),
+          funnel: r(root.querySelector('[data-testid="replies-filter-toggle"]')!),
+          display: r(root.querySelector('[data-testid="display-options"]')!),
+          page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          columnOverflow: column.scrollWidth - column.clientWidth,
+        };
+      });
+      expect(m.page, "page horizontal overflow").toBeLessThanOrEqual(0);
+      expect(m.columnOverflow, "column horizontal overflow").toBeLessThanOrEqual(0);
+      expect(m.listOverflow, "the labels overflow their control").toBeLessThanOrEqual(0);
+      expect(m.list.left).toBeGreaterThanOrEqual(m.column.left - 0.5);
+      expect(m.list.right).toBeLessThanOrEqual(m.column.right + 0.5);
+      const tops = m.tabs.map((t) => Math.round(t.top));
+      expect(new Set(tops).size, `labels on one line: ${tops}`).toBe(1);
+      for (const t of m.tabs) {
+        expect(t.left).toBeGreaterThanOrEqual(m.list.left - 0.5);
+        expect(t.right).toBeLessThanOrEqual(m.list.right + 0.5);
+      }
+      for (const l of m.labels) {
+        expect(l.lines, `${l.title} on one line`).toBe(1);
+        expect(l.title, "the full label in its title").toBe(l.text);
+        if (l.cut) expect(l.ellipsis, `${l.title} cut with 「…」`).toBe("ellipsis");
+      }
+      if (language === "zh" || width > 390) {
+        expect(m.labels.filter((l) => l.cut), "every label whole").toEqual([]);
+      }
+
+      const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
+      const tools = [m.sort, m.funnel, m.display];
+      expect(Math.max(...tools.map(mid)) - Math.min(...tools.map(mid)), "the note and the buttons on one line").toBeLessThanOrEqual(2);
+      expect(m.sort.right, "the note clear of the funnel").toBeLessThanOrEqual(m.funnel.left);
+      for (const b of tools) expect(b.right).toBeLessThanOrEqual(m.column.right + 0.5);
+      if (width > 720) {
+        expect(Math.abs(mid(m.funnel) - mid(m.list)), "the buttons beside the labels").toBeLessThanOrEqual(2);
+        expect(m.sort.left, "the note after the labels").toBeGreaterThanOrEqual(m.list.right);
+      } else {
+        expect(m.funnel.top, "the buttons on the line below the labels").toBeGreaterThanOrEqual(m.list.bottom);
+      }
+    });
+  }
+}
+

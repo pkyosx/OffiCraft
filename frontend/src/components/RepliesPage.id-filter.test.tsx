@@ -9,8 +9,8 @@
 //     than the handled pane's 24h window come back as 「沒有符合篩選條件的請示」—
 //     the same sentence a card that does not exist produces.
 //   · found / 404 / server-never-reached stay THREE distinguishable screens.
-//   · an applied id shows its card whatever its status — the 狀態 axis is
-//     widened, and handled lists are not fetched for it.
+//   · an applied id shows its card whatever its status — landing selects the
+//     label that card belongs under, and handled lists are not fetched for it.
 //   · a card no pane carries is still findable.
 //   · typing is inert. An applied id is a server request, so a commit per
 //     keystroke is a fetch per keystroke.
@@ -25,7 +25,11 @@ import { __resetMock, __injectMockReplyCard } from "../api/mock";
 import { api } from "../api";
 import { ApiError } from "../api/errors";
 import type { ReplyCard } from "../api/adapter";
-import { toggleFilter, openFilters, openFiltersWhenReady } from "../test/tasksFilter";
+import {
+  openFilters,
+  openFiltersWhenReady,
+  selectRepliesTab,
+} from "../test/tasksFilter";
 
 function mkCard(over: Partial<ReplyCard>): ReplyCard {
   return {
@@ -117,13 +121,13 @@ describe("請示 ID 篩選 (T-118)", () => {
     const { findByTestId, getByTestId, getByRole } = renderPage("rc-bbb");
     expect(await findByTestId("waiting-card")).toBeTruthy();
     expect(getByTestId("replies-filter-toggle").getAttribute("aria-expanded")).toBe("false");
-    expect(getByTestId("replies-filter-count").textContent).toBe("2");
+    expect(getByTestId("replies-filter-count").textContent).toBe("1");
 
     fireEvent.click(getByTestId("replies-filter-toggle"));
     expect(getByRole("dialog", { name: "篩選請示卡" })).toBe(getByTestId("replies-filter-dialog"));
     expect(
       [...document.querySelectorAll(".filter-panel__label")].map((el) => el.textContent)
-    ).toEqual(["請示卡編號", "狀態", "開卡人", "任務優先序", "任務到期"]);
+    ).toEqual(["請示卡編號", "開卡人", "任務優先序", "任務到期"]);
     expect(((await findByTestId("filter-reply-card-id")) as HTMLInputElement).value).toBe("rc-bbb");
   });
 
@@ -310,7 +314,7 @@ describe("請示 ID 篩選 (T-118)", () => {
     );
   });
 
-  it("emptying the 編號 field and clicking away restores the default list AND drops the id from the URL", async () => {
+  it("emptying the 編號 field and clicking away restores the full 等待回覆 list AND drops the id from the URL", async () => {
     // 🔴 The URL half is the part that must not be lost: leave the id in the
     // hash and a refresh re-applies the filter, which reads as "clear is
     // broken". This one clears by BLUR; the spec below clears by Enter, because
@@ -327,7 +331,7 @@ describe("請示 ID 篩選 (T-118)", () => {
     );
     window.location.hash = "#replies/card/rc-bbb";
 
-    const { findAllByTestId, queryByTestId } = renderPage("rc-bbb");
+    const { findAllByTestId, queryByTestId, getByTestId } = renderPage("rc-bbb");
     expect(await findAllByTestId("waiting-card")).toHaveLength(1);
 
     typeId("");
@@ -337,8 +341,7 @@ describe("請示 ID 篩選 (T-118)", () => {
       expect(await findAllByTestId("waiting-card")).toHaveLength(2)
     );
     expect(window.location.hash).toBe("#replies");
-    await openFiltersWhenReady();
-    expect(document.querySelector('[data-testid="filter-status"]')!.textContent).toBe("待處理");
+    expect(getByTestId("replies-tab-waiting").getAttribute("aria-selected")).toBe("true");
     expect(queryByTestId("answered-card")).toBeNull();
     expect(queryByTestId("replies-filter-clear")).toBeNull();
   });
@@ -361,9 +364,7 @@ describe("請示 ID 篩選 (T-118)", () => {
     expect(window.location.hash).toBe("#replies");
   });
 
-  it("a link to a WAITING card does not fetch the handled pane", async () => {
-    // The link widens 狀態 to every status, but the card comes from the server:
-    // the handled lists would be two requests nobody asked for.
+  it("a link to a WAITING card stays on 等待回覆 and does not fetch the handled lists", async () => {
     const listSpy = vi.spyOn(api, "listReplyCards");
     __injectMockReplyCard(mkCard({ id: "rc-live", summary: "還在等的" }));
     __injectMockReplyCard(
@@ -376,7 +377,7 @@ describe("請示 ID 篩選 (T-118)", () => {
       })
     );
 
-    const { findByTestId } = renderPage("rc-live");
+    const { findByTestId, getByTestId } = renderPage("rc-live");
     expect((await findByTestId("waiting-card")).textContent).toContain(
       "還在等的"
     );
@@ -384,8 +385,7 @@ describe("請示 ID 篩選 (T-118)", () => {
     expect(
       listSpy.mock.calls.filter(([status]) => status === "answered")
     ).toHaveLength(0);
-    await openFiltersWhenReady();
-    expect(document.querySelector('[data-testid="filter-status"]')!.textContent).toBe("所有狀態");
+    expect(getByTestId("replies-tab-waiting").getAttribute("aria-selected")).toBe("true");
   });
 
   it("🔴 finds a card NO pane carries — answered three days ago", async () => {
@@ -409,9 +409,9 @@ describe("請示 ID 篩選 (T-118)", () => {
       })
     );
 
-    const { findByTestId, findByText, queryByText, queryByTestId } = renderPage();
-    // Control: it really is absent to begin with — the default 狀態 leaves
-    // handled cards out, and this one is past the 24h window anyway.
+    const { findByTestId, findByText, queryByText, queryByTestId, getByTestId } = renderPage();
+    // Control: it really is absent to begin with — 等待回覆 leaves handled
+    // cards out, and this one is past the 24h window anyway.
     expect(await findByTestId("waiting-card")).toBeTruthy();
     expect(queryByTestId("answered-card")).toBeNull();
     expect(queryByText("三天前回過的")).toBeNull();
@@ -420,9 +420,10 @@ describe("請示 ID 篩選 (T-118)", () => {
 
     expect(await findByText("三天前回過的")).toBeTruthy();
     expect(await findByTestId("answered-card")).toBeTruthy();
+    expect(getByTestId("replies-tab-answered").getAttribute("aria-selected")).toBe("true");
   });
 
-  it("a link to a handled card shows it although the default 狀態 leaves handled cards out", async () => {
+  it("a link to a handled card selects 近期已回覆 and shows it tagged; under another label it is the filtered-empty with its label counting 1", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(
       mkCard({
@@ -434,10 +435,21 @@ describe("請示 ID 篩選 (T-118)", () => {
       })
     );
 
-    const { findByTestId, findByText } = renderPage("rc-handled");
+    const listSpy = vi.spyOn(api, "listReplyCards");
+    const { findByTestId, findByText, getByTestId } = renderPage("rc-handled");
 
     expect(await findByText("已經回過的")).toBeTruthy();
-    expect((await findByTestId("answered-card")).dataset.replyCardId).toBe("rc-handled");
+    const card = await findByTestId("answered-card");
+    expect(card.dataset.replyCardId).toBe("rc-handled");
+    expect(card.querySelector('[data-testid="reply-status-tag"]')?.textContent).toBe("已回覆");
+    expect(getByTestId("replies-tab-answered").getAttribute("aria-selected")).toBe("true");
+    expect(getByTestId("replies-tab-count-answered").textContent).toBe("1");
+    expect(listSpy.mock.calls.map(([status]) => status)).not.toContain("answered");
+
+    await selectRepliesTab("waiting");
+    expect(getByTestId("replies-empty").textContent).toBe("沒有符合篩選條件的請示");
+    expect(getByTestId("replies-tab-count-waiting").textContent).toBe("0");
+    expect(getByTestId("replies-tab-count-answered").textContent).toBe("1");
   });
 });
 
@@ -599,9 +611,9 @@ describe("請示卡 開卡人 篩選 (T-118)", () => {
     // wrong flag still prints the right sentence and the guard proves nothing.
     // The opener axis has to be the ONLY thing engaged.
     //
-    // The shape: 銀月 has the only 未回覆 card; Kyle's card is already handled, so
-    // he is an option while 已回覆 is ticked, and once 狀態 is back at its
-    // default ticking him leaves nothing to show.
+    // The shape: 銀月 has the only waiting card; Kyle's card is already handled,
+    // so he is an option under 近期已回覆, and back on 等待回覆 ticking him
+    // leaves nothing to show.
     __injectMockReplyCard(mkCard({ id: "rc-a1", from: "mira", summary: "銀月的" }));
     __injectMockReplyCard(
       mkCard({
@@ -617,9 +629,9 @@ describe("請示卡 開卡人 篩選 (T-118)", () => {
     const { findByText, findByTestId } = renderPage();
     await findByText("銀月的");
 
-    // Tick 已回覆 first — the handled cards are fetched only then, and Kyle
+    // 近期已回覆 first — the handled cards are fetched only then, and Kyle
     // only enters the opener basis once they are here.
-    toggleFilter("filter-status", "answered");
+    await selectRepliesTab("answered");
     await findByText("Kyle 的");
 
     fireEvent.click(openerTrigger());
@@ -631,7 +643,7 @@ describe("請示卡 開卡人 篩選 (T-118)", () => {
     );
 
     tickOpener("kyle");
-    toggleFilter("filter-status", "answered");
+    await selectRepliesTab("waiting");
 
     const empty = await findByTestId("replies-empty");
     await waitFor(() =>
@@ -817,7 +829,7 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
     await waitFor(() => expect(shownIds()).toEqual(["rc-high-over"]));
   });
 
-  it("every axis narrows 已延後 and, once ticked, 已回覆 cards too", async () => {
+  it("every axis narrows each label's list and its count alike — 等待回覆, 稍後再看 and 近期已回覆", async () => {
     seed();
     const now = Date.now() / 1000;
     __injectMockReplyCard(
@@ -854,25 +866,31 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
         task: null,
       })
     );
-    const { findByTestId, findAllByTestId } = renderPage();
+    const { findAllByTestId, getByTestId } = renderPage();
     await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(5));
-    expect(shownIds()).toHaveLength(7);
-    tick("filter-status", "answered");
-    await waitFor(() => expect(shownIds()).toHaveLength(10));
+    const counts = () =>
+      ["waiting", "snoozed", "answered"].map(
+        (v) => getByTestId(`replies-tab-${v}`).querySelector(".replies__tab-count")?.textContent ?? null
+      );
+    expect(counts()).toEqual(["5", "2", null]);
 
     tick("filter-priority", "high");
-    await waitFor(() =>
-      expect(shownIds()).toEqual(["rc-high-over", "rc-snoozed-high", "rc-done-high", "rc-done-kyle-high"])
-    );
+    await waitFor(() => expect(shownIds()).toEqual(["rc-high-over"]));
+    expect(counts()).toEqual(["1", "1", null]);
+    await selectRepliesTab("snoozed");
+    expect(shownIds()).toEqual(["rc-snoozed-high"]);
+    await selectRepliesTab("answered");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-done-high", "rc-done-kyle-high"]));
+    expect(counts()).toEqual(["1", "1", "2"]);
+
     tick("filter-opener", "kyle");
     await waitFor(() => expect(shownIds()).toEqual(["rc-done-kyle-high"]));
-    expect((await findByTestId("answered-card")).querySelector('[data-testid="reply-status-tag"]')!.textContent).toBe(
-      "已回覆"
-    );
+    expect(counts()).toEqual(["0", "0", "1"]);
     tick("filter-opener", "kyle");
     tick("filter-priority", "high");
     tick("filter-due", "overdue");
-    await waitFor(() => expect(shownIds()).toEqual(["rc-high-over", "rc-done-high"]));
+    await waitFor(() => expect(shownIds()).toEqual(["rc-done-high"]));
+    expect(counts()).toEqual(["1", "0", "1"]);
   });
 
   it("清除篩選 lifts 任務優先序 and 任務到期 as well", async () => {
@@ -919,10 +937,8 @@ describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
     openFilters();
     return document.querySelector('[data-testid="filter-opener"]')!;
   };
-  const statusTrigger = () => {
-    openFilters();
-    return document.querySelector('[data-testid="filter-status"]')!;
-  };
+  const selectedTab = () =>
+    document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute("data-testid");
   function RoutedPage() {
     const [route] = useHashRoute();
     return <RepliesPage replyCardId={route.replyCardId} openerId={route.openerId} />;
@@ -937,25 +953,26 @@ describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
     );
   }
 
-  it("without the route the list holds every 未回覆 and 已延後 card and offers no 清除篩選", async () => {
+  it("without the route the page opens on 等待回覆 with every waiting card and offers no 清除篩選", async () => {
     seed();
     renderRouted();
     await waitFor(() =>
-      expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2", "rc-wait-kyle", "rc-later"])
+      expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2", "rc-wait-kyle"])
     );
+    expect(selectedTab()).toBe("replies-tab-waiting");
     expect(section("replies-filter-count")).toBeNull();
-    expect(statusTrigger().textContent).toBe("待處理");
     expect(section("replies-filter-clear")).toBeNull();
   });
 
-  it("the route lands on 狀態 未回覆 and that opener: only their unanswered cards, with 清除篩選", async () => {
+  it("the route lands on 等待回覆 with that opener: their waiting cards, as many as the label counts, with 清除篩選", async () => {
     seed();
     window.location.hash = "#replies/opener/mira";
     renderRouted();
     await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
-    expect(section("replies-filter-count")!.textContent).toBe("2");
+    expect(selectedTab()).toBe("replies-tab-waiting");
+    expect(section("replies-tab-count-waiting")!.textContent).toBe("2");
+    expect(section("replies-filter-count")!.textContent).toBe("1");
     expect(openerTrigger().textContent).toBe("Mira");
-    expect(statusTrigger().textContent).toBe("未回覆");
     expect(section("replies-filter-clear")).not.toBeNull();
   });
 
@@ -969,17 +986,17 @@ describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
     expect(idField().value).toBe("rc-wait-mira2");
   });
 
-  it("ticking 已延後 under the route adds that opener's snoozed card, the hash kept", async () => {
+  it("稍後再看 under the route shows that opener's snoozed card, the hash kept", async () => {
     seed();
     window.location.hash = "#replies/opener/mira";
     renderRouted();
     await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
-    toggleFilter("filter-status", "snoozed");
-    await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2", "rc-later"]));
+    await selectRepliesTab("snoozed");
+    expect(shownIds()).toEqual(["rc-later"]);
     expect(window.location.hash).toBe("#replies/opener/mira");
   });
 
-  it("清除篩選 returns to #replies with every axis cleared", async () => {
+  it("清除篩選 returns to #replies with every field cleared and the label kept", async () => {
     seed();
     window.location.hash = "#replies/opener/mira";
     const { findAllByTestId, getByTestId } = renderRouted();
@@ -989,8 +1006,7 @@ describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
     fireEvent.click(getByTestId("replies-filter-clear"));
     expect(window.location.hash).toBe("#replies");
     expect(await findAllByTestId("waiting-card")).toHaveLength(3);
-    expect(await findAllByTestId("snoozed-card")).toHaveLength(1);
-    expect(statusTrigger().textContent).toBe("待處理");
+    expect(selectedTab()).toBe("replies-tab-waiting");
     expect(openerTrigger().textContent).toBe("所有開卡人");
     expect(section("replies-filter-clear")).toBeNull();
   });
@@ -1000,23 +1016,24 @@ describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
     window.location.hash = "#replies/card/rc-done";
     renderRouted();
     await waitFor(() => expect(shownIds()).toEqual(["rc-done"]));
+    expect(selectedTab()).toBe("replies-tab-answered");
 
     window.location.hash = "#replies/opener/mira";
     await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
-    expect(statusTrigger().textContent).toBe("未回覆");
+    expect(selectedTab()).toBe("replies-tab-waiting");
     expect(idField().value).toBe("");
   });
 
   it.each([
     ["straight from the opener jump", "jump"],
-    ["after 已延後 was ticked under the opener jump", "snoozed"],
+    ["after 稍後再看 was selected under the opener jump", "snoozed"],
     ["after 任務優先序 高 was picked on plain #replies", "priority"],
-  ])("a #replies/card/<id> link %s shows that card, every other axis cleared", async (_name, start) => {
+  ])("a #replies/card/<id> link %s shows that card under its label, every other field cleared", async (_name, start) => {
     seed();
     window.location.hash = start === "priority" ? "#replies" : "#replies/opener/mira";
     renderRouted();
     if (start === "priority") {
-      await waitFor(() => expect(shownIds()).toHaveLength(4));
+      await waitFor(() => expect(shownIds()).toHaveLength(3));
       openFilters();
       fireEvent.click(document.querySelector('[data-testid="filter-priority"]')!);
       fireEvent.click(document.querySelector('[data-testid="filter-priority-opt-high"] input')!);
@@ -1025,29 +1042,29 @@ describe("請示卡 聊天 header 跳轉 (#replies/opener/<id>)", () => {
       await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2"]));
     }
     if (start === "snoozed") {
-      toggleFilter("filter-status", "snoozed");
-      await waitFor(() => expect(shownIds()).toEqual(["rc-wait-mira", "rc-wait-mira2", "rc-later"]));
+      await selectRepliesTab("snoozed");
+      expect(shownIds()).toEqual(["rc-later"]);
     }
 
     window.location.hash = "#replies/card/rc-wait-kyle";
     await waitFor(() => expect(shownIds()).toEqual(["rc-wait-kyle"]));
+    expect(selectedTab()).toBe("replies-tab-waiting");
     expect(openerTrigger().textContent).toBe("所有開卡人");
     expect(document.querySelector('[data-testid="filter-priority"]')!.textContent).toBe("所有任務優先序");
-    expect(statusTrigger().textContent).toBe("所有狀態");
   });
 
-  it("unticking the opener with no unanswered card at all says ✓ 目前沒有待處理的請示, 狀態 still 未回覆", async () => {
+  it("unticking the opener with no waiting card at all says ✓ 目前沒有待處理的請示", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-later", createdTs: now - 180, snoozedUntilTs: now + H }));
     window.location.hash = "#replies/opener/mira";
-    const { findByTestId, getByTestId } = renderRouted();
+    const { findByTestId, getByTestId, queryByTestId } = renderRouted();
     expect((await findByTestId("replies-empty")).textContent).toBe("沒有符合篩選條件的請示");
 
     fireEvent.click(openerTrigger());
     fireEvent.click(document.querySelector('[data-testid="filter-opener-opt-mira"] input')!);
     await waitFor(() => expect(getByTestId("replies-empty").textContent).toBe("✓ 目前沒有待處理的請示"));
-    expect(statusTrigger().textContent).toBe("未回覆");
-    expect(getByTestId("replies-filter-clear")).toBeTruthy();
+    expect(selectedTab()).toBe("replies-tab-waiting");
+    expect(queryByTestId("replies-filter-clear")).toBeNull();
   });
 
   it("for a member with no waiting card it says 沒有符合篩選條件的請示, not a blank pane", async () => {

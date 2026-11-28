@@ -170,3 +170,8 @@ export async function openFiltersWhenReady() {
   );
   openFilters();
 }
+
+/** Pick one of 請示頁's three list labels (等待回覆／稍後再看／近期已回覆). */
+export async function selectRepliesTab(view: "waiting" | "snoozed" | "answered") {
+  fireEvent.click(await screen.findByTestId(`replies-tab-${view}`));
+}

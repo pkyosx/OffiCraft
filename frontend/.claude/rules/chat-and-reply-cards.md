@@ -116,32 +116,35 @@ ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意
 
 ## 請示卡頁的排序、任務列與稍後再看
 
-- 請示頁是**一份清單**，由篩選列的「狀態」多選（未回覆／已延後／已回覆／已過期，`filter-status`，跟任務頁同一個 `MultiSelectFilter`）決定列哪些；預設＝未回覆＋已延後，「清除篩選」回到這個預設，預設不算 `anyFilter`。順序固定是未回覆 → 已延後 → 已回覆與已過期（依處理時間新到舊）串起來；每張卡標題前有狀態標籤（`reply-status-tag`，`.reply-tag--<status>`）。已回覆／已過期只列 server 的 24 小時窗（選項旁寫「近 24 小時」），**只在勾了其中一個時才撈**；套用編號時不撈，那張卡由 `getReplyCard` 回答。套用編號（欄位或 `#replies/card/<id>`）會把狀態放寬成全部，清空編號時還原成被放寬前的狀態（owner 期間改過就不動）。
-- 未回覆預設依開卡時間新到舊；「顯示方式」的排序依據（`lib/replyCardSort.ts`，localStorage `oc_replies_sort`）只排未回覆，已延後依回來時間、已處理依處理時間，都不受它影響。任務優先序的順序取 `lib/taskPriority.ts` 的 `priorityRank`（跟任務頁同一份），沒有任務的卡排在凍結後面。
-- 目前的排序依據永遠印在「請示 · N」旁（`replies-sort-active`），預設的開卡時間也照印；「顯示方式」面板選了就自己收起（`DisplayOptions` 共用，任務頁的分組依據同樣）。「請示 · N」的 N 是清單目前的張數，標題不是收合鈕。`.reply-card__waited` 在每種裝置與寬度上都是同一個固定 64px 寬的 `.reply-card__waited-pill`（沙漏＋`formatDurationShort` 的單一單位；已延後的卡是 `SnoozeActionIcon`＋`snoozeBackShort` 的 MM/DD），完整說法只放在 `title`／`aria-label`（`replyWaitedFull`／`replySnoozeBack`），畫面上沒有整句（owner：「應該要一致」）。它排在卡頭第一行最右端（有按鈕列時在按鈕列之後），寬度一樣，每張卡的膠囊右緣、電腦上的抬頭按鈕才對齊在同一個 x；已回覆／已過期卡的 `.reply-card__answered-at`（`已回覆／已過期 <時間>`，文字）也排在同一個位置。64px 要放得下「999d」與 MM/DD；改字型或字級要重量，守衛在 `visual-guards/reply-desk.ct.spec.tsx`。
+- 請示頁一次列一份清單，由清單上方的單選標籤（`ReplyListTabs`，`role="tablist"`，`replies-tab-<view>`）決定：等待回覆（`waiting`，預設）／稍後再看（`snoozed`）／近期已回覆（`answered`＝已回覆＋已過期）。選中的標籤不存、不進 hash，每次進頁面都是等待回覆；左右鍵、Home、End 換標籤並移焦點（roving tabindex）。每個標籤印篩選後的張數（`replies-tab-count-<view>`）；近期已回覆的張數在 `handledLoaded` 之前不印。篩選 dialog 的四個欄位作用在選中的標籤上，「清除篩選」不動標籤。
+- 狀態標籤（`reply-status-tag`）只在近期已回覆下畫，分已回覆／已過期；其他兩個標籤下每張卡的狀態就是標籤本身，不重複標。已回覆／已過期只列 server 的 24 小時窗（標籤列旁 `replies-answered-window` 寫「近 24 小時」），**只在選了近期已回覆時才撈**；套用編號時不撈，那張卡由 `getReplyCard` 回答。
+- 開著的卡自己換了清單時留在原處，直到切換標籤：別處回答或標為過期（`readCard` 讀到 status 變了 → `pinned`，帶當下的標籤），以及等待回覆／稍後再看之間被時間或別的視窗搬動（`heldOpen`：仍展開、上一輪畫在這份清單、不是這一頁自己按的延後／取消延後，`ownMoveIdsRef`）。`setView` 清掉兩者。
+- 等待回覆預設依開卡時間新到舊；「顯示方式」的排序依據（`lib/replyCardSort.ts`，localStorage `oc_replies_sort`）只排等待回覆，稍後再看依回來時間、近期已回覆依處理時間，都不受它影響。任務優先序的順序取 `lib/taskPriority.ts` 的 `priorityRank`（跟任務頁同一份），沒有任務的卡排在凍結後面。
+- 選了等待回覆時，目前的排序依據印在標籤旁（`replies-sort-active`），預設的開卡時間也照印；「顯示方式」面板選了就自己收起（`DisplayOptions` 共用，任務頁的分組依據同樣）。標籤列在電腦上跟註記、漏斗、顯示方式同一行；窄螢幕上標籤自己一行，註記與按鈕換到下一行（`.replies__head` 換行，標籤本身不換行；只有 320 寬的英文「Recently answered」會以「…」截斷，張數照留）。⚠️ 標籤不要加 `transition`：切換後的那一幀會讓 `reply-desk` 的名字欄截圖比對多出 1 階的像素差而紅。量在 `visual-guards/replies-filter-panel.ct.spec.tsx`（320／390／1440，中英）。
+- `.reply-card__waited` 在每種裝置與寬度上都是同一個固定 64px 寬的 `.reply-card__waited-pill`（沙漏＋`formatDurationShort` 的單一單位；已延後的卡是 `SnoozeActionIcon`＋`snoozeBackShort` 的 MM/DD），完整說法只放在 `title`／`aria-label`（`replyWaitedFull`／`replySnoozeBack`），畫面上沒有整句（owner：「應該要一致」）。它排在卡頭第一行最右端（有按鈕列時在按鈕列之後），寬度一樣，每張卡的膠囊右緣、電腦上的抬頭按鈕才對齊在同一個 x；已回覆／已過期卡的 `.reply-card__answered-at`（`已回覆／已過期 <時間>`，文字）也排在同一個位置。64px 要放得下「999d」與 MM/DD；改字型或字級要重量，守衛在 `visual-guards/reply-desk.ct.spec.tsx`。
 - 任務列的優先序／期限是 server 在回應當下讀任務本身的值（`TaskRefDTO`），卡片不存。⇒ `useReplyCards` 除了 `reply_card` 也要在 `task` delta 重抓，否則改任務的優先序或期限，請示頁要等下一張卡變動才跟上。期限顏色走 `TaskDueChip`（`useDueState`，在跨過邊界的那一刻重繪，不是輪詢）。任務列畫在卡片最上方、抬頭之上；外包的「目前任務」那一行永遠照畫，即使跟任務列是同一個任務。
-- 優先序／期限篩選跟開卡人軸同一套：選項與張數從 pane 資料算，每一軸的張數只套用**其他**軸；各軸（含狀態）彼此 AND、也跟 id AND，作用在每一種狀態的卡上；張數也只數目前狀態選得到的卡。
+- 優先序／期限篩選跟開卡人軸同一套：選項與張數從選中標籤的那份清單算，每一軸的張數只套用**其他**軸；各軸彼此 AND、也跟 id AND。
 - 🔴 稍後再看的卡仍是 waiting：`listReplyCards("waiting")` 照列、帶 `snoozedUntilTs`；provider 依自己的時鐘把它分到 `snoozed`，`waiting`（也就是徽章）不含它。到時間 server 什麼都不寫、不發事件，所以 provider 自己在最早的 `snoozedUntilTs` 設 timer 讓卡回來，並在 `count.waiting_next_change_ts` 重抓一次。
 - 聊天室收合列與任務卡內嵌卡的標籤：延後中的等待卡標「已延後」（`tasks.replySnoozedTag`，`.reply-tag--snoozed`），不標待回覆／等你回覆，跟聊天室標頭徽章不數它同一個判準。判斷只讀 provider 的 `snoozed`（`useReplyCardSnoozed`），所以時間到、取消延後、回答都由 provider 那份清單帶著翻，卡片自己不設 timer、不另讀；沒有 provider 時答 false（掛裸卡的測試很多，provider 會多出讀取）。`ResumeSummaryCard` 印的是喚醒快照當下的 status 原值，不跟。
 - 🔴 `snooze()` 跟 answer／expire 一樣要「握到快照同意為止」：寫入前就在飛的那支 waiting 讀取會帶著舊的 snooze 回來，直接採用會把剛延後的卡放回待回覆（取消延後則相反）。`heldSnoozeRef` 依 id 握住寫入存下的值，直到快照列出同一個值、卡不在 waiting 了、或握住的時間已過。409 跟回答一樣是「卡已經被處理」，要講清楚並 `refresh()`（延後與取消延後各用自己的句子）；其他失敗留在選單裡（取消延後則在卡上）顯示，不清掉畫面。
 
 ## 聊天室標頭的請示卡跳轉（`#replies/opener/<memberId>`）
 
-聊天室標頭最左邊那顆（正職、外包、已釋出的對象都有，由 OfficePage 的 `repliesSlots` 接）：徽章是 `useReplyCardWaitingCountFrom`——跟 nav 徽章同一份 waiting 陣列、只數 `from` 是這位的，不另打請求。按下去到 `#replies/opener/<id>`：RepliesPage 把開卡人種成那一位、清掉其他軸與編號（照任務頁 `#tasks/executor/<id>` 的種法），但 hash 留著，重新整理照樣是同一個畫面；狀態同時種成只有「未回覆」，所以畫面上的卡就是徽章數的那幾張。之後改狀態不動 hash；「清除篩選」導回 `#replies` 並回到預設。route 還在時重新整理會再種一次開卡人與狀態，即使 owner 已經改過（已接受）。`#replies/card/<id>` 進來時反過來清掉開卡人、優先序與期限、狀態放寬成全部，那張卡是誰開的、什麼狀態都看得到。狀態只要還含未回覆就不算 `narrowing`：清單空了而只剩它時印 ✓，有開卡人勾著時印「沒有符合篩選條件」。測試在 `RepliesPage.id-filter.test.tsx`、`ChatArea.header-actions.test.tsx`、`OfficePage.chat-header-replies.test.tsx`；窄寬的標頭由 `visual-guards/chat-suggested-replies.ct.spec.tsx` 量。
+聊天室標頭最左邊那顆（正職、外包、已釋出的對象都有，由 OfficePage 的 `repliesSlots` 接）：徽章是 `useReplyCardWaitingCountFrom`——跟 nav 徽章同一份 waiting 陣列、只數 `from` 是這位的，不另打請求。按下去到 `#replies/opener/<id>`：RepliesPage 選中等待回覆、把開卡人種成那一位、清掉其他欄位與編號（照任務頁 `#tasks/executor/<id>` 的種法），但 hash 留著，重新整理照樣是同一個畫面；畫面上的卡就是徽章數的那幾張，等待回覆的張數也一樣。之後換標籤不動 hash；「清除篩選」導回 `#replies`。route 還在時重新整理會再種一次開卡人與標籤，即使 owner 已經改過（已接受）。`#replies/card/<id>` 進來時反過來清掉開卡人、優先序與期限，查到那張卡後選中它所屬的標籤，那張卡是誰開的、什麼狀態都看得到。空清單：有欄位生效（`narrowing`）時任何標籤都印「沒有符合篩選條件」，否則印該標籤自己的空狀態（等待回覆是 ✓）。測試在 `RepliesPage.id-filter.test.tsx`、`ChatArea.header-actions.test.tsx`、`OfficePage.chat-header-replies.test.tsx`；窄寬的標頭由 `visual-guards/chat-suggested-replies.ct.spec.tsx` 量。
 
 ## 請示卡頁的 ID 篩選
 
-欄位收在篩選列的漏斗後面，點開是「篩選請示卡」dialog（手機是底部 sheet），形狀與規則跟任務頁同一個 `FilterPanel` collapse（見 `tasks-and-outsource.md`「任務頁的篩選與 ID 條件」與 `FilterPanel.tsx` 檔頭）。漏斗徽章數「有值的欄位數」，但**預設狀態（未回覆＋已延後）不算**，跟 `anyFilter` 同一個定義；`#replies/opener/<id>` 種下的開卡人與「未回覆」會讓徽章是 2。`testId="replies-filter"` 以免和任務頁的控制項撞名。第一輪是常駐列但**每敲一個字元就篩一次已載入的那批卡**，owner 兩次否決（「每次都要全部都撈回來才濾不合理」），所以編號欄位一直是 Enter／blur 才提交。
+欄位收在篩選列的漏斗後面，點開是「篩選請示卡」dialog（手機是底部 sheet），形狀與規則跟任務頁同一個 `FilterPanel` collapse（見 `tasks-and-outsource.md`「任務頁的篩選與 ID 條件」與 `FilterPanel.tsx` 檔頭）。漏斗徽章數「有值的欄位數」（編號、開卡人、任務優先序、任務到期），跟 `narrowing` 同一個定義；選中的標籤不算；`#replies/opener/<id>` 種下的開卡人讓徽章是 1。`testId="replies-filter"` 以免和任務頁的控制項撞名。第一輪是常駐列但**每敲一個字元就篩一次已載入的那批卡**，owner 兩次否決（「每次都要全部都撈回來才濾不合理」），所以編號欄位一直是 Enter／blur 才提交。
 
 **兩份狀態，不是一份**：`appliedId` 是清單真的被什麼篩，`draftId` 是欄位綁的值。**打字不篩、不發請求；Enter 或 blur 才由 `commitId()` 提交。** ⚠️ 這不是面板時代的殘留——套用 id 會打一支 `api.getReplyCard(id)`，**每按鍵提交＝每按鍵一支請求**，正是被否決兩次的那個形狀（一次獨立審查逐字寫過「一個字元一個請求」）。`commitId` 對相同值是 no-op，所以 Enter 之後再 blur 不會重打。`#replies/card/<id>` 仍然只是把 id 代進 **applied** 那一半（外加捲動 focus）。
 
-**清除有兩個出口**：清空欄位再 Enter，或按 dialog 底部的 `.filter-panel__clear`（只在 `anyFilter` 為真時才渲染）。只有那一顆鈕，沒有「N 筆 已篩選」那串字或 chip（owner `c-2423dba8b65b`「清除篩選還是要留著」）。
+**清除有兩個出口**：清空欄位再 Enter，或按 dialog 底部的 `.filter-panel__clear`（只在 `narrowing` 為真時才渲染）。只有那一顆鈕，沒有「N 筆 已篩選」那串字或 chip（owner `c-2423dba8b65b`「清除篩選還是要留著」）。
 
 ## 請示卡頁的「開卡人」軸（T-118 後半，owner `c-782404ee53d8`）
 
 多選下拉，空集合＝所有開卡人（無限制），跟任務頁三顆下拉同一個約定。
 
-🔴 **「一個都沒勾」和「全部都勾」不是同一件事，畫面上也不准長得一樣**（owner 2026-09-06 `rc-33dfe1ff14cb`：「有勾選的時候，就不要顯示所有人…我覺得完全沒勾跟有勾的情況本來就是不同的」）。空集合是一條持續生效的「不限制」，**後來才出現的人自動被涵蓋**；全集合只是**勾選當下那批名字的快照**。兩者曾經都顯示 `allLabel`，於是踩得到這個坑：收合時把開卡人全勾（畫面說「所有開卡人」）→ 勾已回覆 → 新載入的開卡人沒被勾、他的卡被擋掉，而你從沒取消勾選過他。⇒ 今天只有空集合印 `allLabel`；全勾印該有的名字或「開卡人 · N」，並且 pill 會呈現 active，與旁邊的「清除篩選」（讀 `anyFilter`，即 `size > 0`）講同一件事。**這一格由 `MultiSelectFilter` 一份實作管兩頁**，改它同時改到任務頁。**選項清單與每個人的張數，是從「開卡人軸還沒收窄之前」那批 pane 資料算出來的**——這一格不是隨手寫的，它是這個軸能不能用的關鍵：拿已收窄的列去數，勾了某個人之後其他人的張數全變 0、從清單裡消失，就換不回來了。
+🔴 **「一個都沒勾」和「全部都勾」不是同一件事，畫面上也不准長得一樣**（owner 2026-09-06 `rc-33dfe1ff14cb`：「有勾選的時候，就不要顯示所有人…我覺得完全沒勾跟有勾的情況本來就是不同的」）。空集合是一條持續生效的「不限制」，**後來才出現的人自動被涵蓋**；全集合只是**勾選當下那批名字的快照**。兩者曾經都顯示 `allLabel`，於是踩得到這個坑：收合時把開卡人全勾（畫面說「所有開卡人」）→ 切到近期已回覆 → 新載入的開卡人沒被勾、他的卡被擋掉，而你從沒取消勾選過他。⇒ 今天只有空集合印 `allLabel`；全勾印該有的名字或「開卡人 · N」，並且 pill 會呈現 active，與「清除篩選」（讀 `narrowing`，即 `size > 0`）講同一件事。**這一格由 `MultiSelectFilter` 一份實作管兩頁**，改它同時改到任務頁。**選項清單與每個人的張數，是從「開卡人軸還沒收窄之前」那批 pane 資料算出來的**——這一格不是隨手寫的，它是這個軸能不能用的關鍵：拿已收窄的列去數，勾了某個人之後其他人的張數全變 0、從清單裡消失，就換不回來了。
 
 **開卡人軸與 id 是 AND，不是取代**：id 指名一張卡、由 server 回答；那張卡的開卡人若不通過這個軸，正確答案是一般的「篩完是空的」，不是把卡顯示出來。
 
@@ -153,9 +156,9 @@ ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意
 2. **404** ⇒ `replies.lookupMissing`：說明白這是**跟伺服器要過**的結果，不是還沒載進來。
 3. **其他失敗（500／離線）** ⇒ `replies.lookupFailed`，**不准說「找不到」**——沒問到伺服器就沒有資格對存不存在下判斷。
 
-🔴 **「找到了但畫面上沒有」和假的空是同一種沉默**：找到的卡若屬於已處理，那一段在篩選中一律**強制展開**並直接畫出撈回來的那張（不等 `handledLoaded`）。篩選中那一段也**一律不隱藏，即使數字是 0**——zero-hide 會把整段連同把手一起刪掉，於是「沒有符合」與「這一段不存在」又長得一樣。
+🔴 **「找到了但畫面上沒有」和假的空是同一種沉默**：查到卡的那一刻（每個 id 一次，`autoViewForRef`）自動選中它所屬的標籤，直接畫出撈回來的那張（不等 `handledLoaded`）；它所屬標籤的張數是 1、其他是 0。之後 owner 自己切到別的標籤，那裡是「沒有符合篩選條件的請示」；卡在顯示中自己換了狀態（例如在別處被回答）則留在原標籤，不把頁面拖去別的標籤。
 
-空狀態的四句**不可合併**：沒有篩選是「✓ 目前沒有待處理的請示」，篩選中但那張卡屬於別的 pane 是「沒有符合篩選條件的請示」，另外兩句是上面的 404 與失敗。
+空狀態的句子**不可合併**：沒有篩選時是各標籤自己的那句（等待回覆是「✓ 目前沒有待處理的請示」），篩選中是「沒有符合篩選條件的請示」，另外兩句是上面的 404 與失敗。
 
 ⚠️ 第一輪那台「篩選中順便把已處理載進來、一次 visit 只載一次」的機關（`handledAutoloadTried`）**已經刪掉**：卡從 server 來，能不能找到不再取決於哪個 pane 剛好載過。不要因為註解寫得仔細就把它搬回來。
 

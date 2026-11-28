@@ -253,15 +253,9 @@ async function expectTaskRow(card: Locator, cardBox: Box) {
 const LONG_TASK_TITLE = "OffiCraft 入門介紹影片（繁中，4 章＋完整版）的旁白、字幕與封面，另含英文與日文版本的字幕翻譯、章節縮圖、配樂授權確認、各平台上架描述撰寫，以及上線後第一週的觀看數據整理與回報，並把觀眾留言中的常見問題整理成下一版的修改清單、附上每一章的平均觀看秒數與跳出點分析";
 const LONG_TASK_LINE = "T-9021034多語系入門影片的旁白錄製、字幕校對、封面設計、章節切分、配樂授權確認、各平台上架前的最終品質檢查與上線後數據回報流程";
 
-/** Open the 篩選 dialog, add 已回覆 and 已過期 to the 狀態 field, then close
- * its popover and the dialog. */
-async function tickHandled(page: Page, gesture: "click" | "tap") {
-  await page.getByTestId("replies-filter-toggle")[gesture]();
-  const trigger = page.getByTestId("filter-status");
-  await trigger[gesture]();
-  await page.getByTestId("filter-status-group-handled").locator("input")[gesture]();
-  await trigger[gesture]();
-  await page.getByTestId("replies-filter-close").or(page.getByTestId("replies-filter-done"))[gesture]();
+/** Pick one of the three list labels above the cards. */
+async function selectTab(page: Page, view: "waiting" | "snoozed" | "answered", gesture: "click" | "tap") {
+  await page.getByTestId(`replies-tab-${view}`)[gesture]();
 }
 
 async function noPageOverflow(page: Page) {
@@ -367,6 +361,7 @@ for (const { width, mode } of HEAD_SCENES) {
       }
       await noPageOverflow(page);
 
+      await selectTab(page, "snoozed", "click");
       const snoozed = cmp.getByTestId("snoozed-card");
       const until = snoozed.getByTestId("snoozed-pill");
       await expect(until).toHaveText(/^\d{2}\/\d{2}$/);
@@ -374,7 +369,7 @@ for (const { width, mode } of HEAD_SCENES) {
       await expect(until.locator('svg polyline[points="12 7 12 12 15 14"]'), "the 稍後再看 clock").toHaveCount(1);
       rights.push((await expectHeadLine(snoozed, "snoozed", mode)).stamp.right);
 
-      await tickHandled(page, "click");
+      await selectTab(page, "answered", "click");
       const answered = cardOf(page, "rc-desk-done");
       await expect(answered.locator(".reply-card__answered-at")).toHaveText(/^已回覆 /);
       rights.push((await expectHeadLine(answered, "answered", mode)).stamp.right);
@@ -471,6 +466,7 @@ for (const width of [1440, 1728]) {
       expect(Math.max(...jumpLefts) - Math.min(...jumpLefts), `跳到原訊息 lefts ${jumpLefts}`).toBeLessThanOrEqual(0.5);
       expect(Math.max(...expireLefts) - Math.min(...expireLefts), `標為過期 lefts ${expireLefts}`).toBeLessThanOrEqual(0.5);
 
+      await selectTab(page, "snoozed", "click");
       const snoozed = cmp.getByTestId("snoozed-card");
       await expect(snoozed).toHaveCount(1);
       const snoozedBox = await box(snoozed);
@@ -524,6 +520,7 @@ test.describe(() => {
     await expect(cmp.getByTestId("waiting-card")).toHaveCount(3);
     await expect(cmp.getByTestId("waiting-card").locator(".reply-card__waited")).toHaveText(["5m", "2h", "12d"]);
     for (const card of await cmp.getByTestId("waiting-card").all()) await expectHeadLine(card, "tablet", "touch");
+    await selectTab(page, "snoozed", "tap");
     await expect(cmp.getByTestId("snoozed-until")).toHaveText(/^\d{2}\/\d{2}$/);
     await expectHeadLine(cmp.getByTestId("snoozed-card"), "tablet snoozed", "touch");
     await noPageOverflow(page);
@@ -703,7 +700,7 @@ for (const [width, height] of [
       await expect(card).not.toHaveClass(/reply-card--pressed/);
       await expect(card).toHaveAttribute("aria-expanded", "false");
 
-      await tickHandled(page, "tap");
+      await selectTab(page, "answered", "tap");
       const answered = cardOf(page, "rc-desk-done");
       await expect(answered).toBeVisible();
       await expectHeadLine(answered, "answered", "touch");
@@ -712,6 +709,7 @@ for (const [width, height] of [
       await touch(page, { x: 4, y: 4 }, { holdMs: 50 });
       await expect(menu).toHaveCount(0);
 
+      await selectTab(page, "waiting", "tap");
       await touch(page, await centreOf(card.locator(".reply-card__summary")), { holdMs: 80 });
       await expect(card).toHaveAttribute("aria-expanded", "true");
       const answer = card.locator(".reply-composer textarea");
@@ -798,7 +796,7 @@ for (const [width, height] of [
         ".reply-composer",
       ])
         await expect(card.locator(hidden).first(), `${hidden} in the mode`).toBeHidden();
-      for (const other of [cardOf(page, "rc-desk-1"), page.getByTestId("replies-filter"), page.locator(".replies__section-title")]) {
+      for (const other of [cardOf(page, "rc-desk-1"), page.locator(".replies__head")]) {
         await expect(other).toHaveCSS("filter", /blur/);
         await expect(other).toHaveCSS("pointer-events", "none");
         await expect(other).toHaveJSProperty("inert", true);
@@ -918,7 +916,7 @@ for (const [width, height] of [
     }) => {
       await context.grantPermissions(["clipboard-read", "clipboard-write"]);
       await mountDesk(mount, page, width, height);
-      await tickHandled(page, "tap");
+      await selectTab(page, "answered", "tap");
       const card = cardOf(page, "rc-desk-done");
       await touch(page, await centreOf(card.locator(".reply-card__summary")), { holdMs: 700 });
       await page.getByTestId("chat-msg-menu-select").tap();
@@ -961,7 +959,7 @@ for (const [width, height] of [
       await expect(masked).toHaveValue("hunter2-secret");
     });
 
-    test(`width ${width}, touch: the sheet's 稍後再看 opens the head's 稍後再看 menu as a bottom sheet with every preset on screen, and a preset moves the card to 已延後; there the sheet offers 取消延後, which brings it back; 標為過期 opens the head's confirmation on screen; 跳到原訊息 goes to the chat`, async ({
+    test(`width ${width}, touch: the sheet's 稍後再看 opens the head's 稍後再看 menu as a bottom sheet with every preset on screen, and a preset moves the card to 稍後再看; there the sheet offers 取消延後, which brings it back; 標為過期 opens the head's confirmation on screen; 跳到原訊息 goes to the chat`, async ({
       mount,
       page,
     }) => {
@@ -988,11 +986,14 @@ for (const [width, height] of [
       await expect(sheet).toHaveCount(0);
       await expect(page.locator('[data-testid="waiting-card"][data-reply-card-id="rc-desk-q"]')).toHaveCount(0);
 
+      await selectTab(page, "snoozed", "tap");
       const snoozed = page.locator('[data-testid="snoozed-card"][data-reply-card-id="rc-desk-q"]');
       await expect(snoozed).toHaveCount(1);
       await press("rc-desk-q");
       await expect(menu.getByRole("menuitem")).toHaveText(["跳到原訊息", "取消延後", "標為過期", "複製訊息", "選取文字"]);
       await page.getByTestId("chat-msg-menu-unsnooze").tap();
+      await expect(snoozed).toHaveCount(0);
+      await selectTab(page, "waiting", "tap");
       await expect(page.locator('[data-testid="waiting-card"][data-reply-card-id="rc-desk-q"]')).toHaveCount(1);
 
       await press("rc-desk-1");
@@ -1077,12 +1078,12 @@ for (const [width, height] of [
 
 test.describe(() => {
   test.use({ hasTouch: true });
-  test("width 390, touch: a card in the mode that is snoozed from elsewhere moves down among the 已延後 cards below the screen and stays in the mode, brought up above the bar", async ({
+  test("width 390, touch: a card in the mode that is snoozed from elsewhere stays under 等待回覆 as a snoozed card at the end of the list and in the mode, brought up above the bar", async ({
     mount,
     page,
   }) => {
     await mountDesk(mount, page, 390, 844);
-    await expect(page.getByTestId("snoozed-card")).toHaveCount(1);
+    await expect(page.getByTestId("snoozed-card")).toHaveCount(0);
     const card = cardOf(page, "rc-desk-q");
     await touch(page, await centreOf(card.locator(".reply-card__summary")), { holdMs: 700 });
     await page.getByTestId("chat-msg-menu-select").tap();
@@ -1095,7 +1096,8 @@ test.describe(() => {
         Date.now() / 1000 + 10 * 86_400,
       ),
     );
-    await expect(page.getByTestId("snoozed-card")).toHaveCount(2);
+    await expect(page.getByTestId("snoozed-card")).toHaveCount(1);
+    await expect(page.getByTestId("replies-tab-waiting")).toHaveAttribute("aria-selected", "true");
     const moved = page.locator('[data-testid="snoozed-card"][data-reply-card-id="rc-desk-q"]');
     await expect(moved).toHaveClass(/reply-card--selecting/);
     await expect(bar).toBeVisible();

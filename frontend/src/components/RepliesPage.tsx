@@ -1,16 +1,16 @@
 // RepliesPage — the 等我回覆 page (SPEC §2, M2 reply cards B2): every member's
-// asks in ONE list, narrowed by the 篩選列's 狀態 field like every other axis.
+// asks, one list at a time, picked by the three labels above the list:
 //
-//   未回覆 — waiting cards, newest ask first unless the owner picks another
+//   等待回覆 — waiting cards, newest ask first unless the owner picks another
 //            排序依據 under 顯示方式 (remembered per browser); every card wears
 //            the SAME style — no longest-waiting highlight (owner ruled it out).
-//   已延後 — waiting cards the owner put aside with 稍後再看; each returns to
-//            未回覆 by itself at its time.
-//   已回覆／已過期 — cards handled within 24h, newest-handled first. Their lists
-//            are not fetched until one of those two statuses is selected.
+//   稍後再看 — waiting cards the owner put aside; each returns to 等待回覆 by
+//            itself at its time.
+//   近期已回覆 — cards answered or expired within 24h, newest-handled first.
+//            Not fetched until this label is selected.
 //
-// The list is concatenated in that order, and the default 狀態 is 未回覆 + 已延後.
-// Each card carries a status tag in front of its title.
+// The label is not remembered: every visit opens on 等待回覆. The 篩選 dialog's
+// fields narrow whichever label is selected.
 //
 // 🔴 EVERY CARD STARTS COLLAPSED, AND OPENING ONE IS WHAT READS IT (owner
 // ruling 2026-09-07, restated 2026-09-11:「要做折疊版的，預設全部折疊」). The panes
@@ -47,6 +47,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -110,11 +111,7 @@ import {
 } from "./replyCardActionIcons";
 import { FilterField, FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
-import {
-  MultiSelectFilter,
-  type MultiSelectGroup,
-  type MultiSelectOption,
-} from "./MultiSelectFilter";
+import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
 import { ConfirmModal } from "./ConfirmModal";
 import { DisplayOptions } from "./DisplayOptions";
 import { TaskDueChip, TaskNoBadge, TaskPriorityBadge } from "./TaskChips";
@@ -177,11 +174,10 @@ const NO_TASK = "notask";
 const PRIORITY_FILTER_KEYS = [...PRIORITIES, NO_TASK] as const;
 
 type StatusKey = "waiting" | "snoozed" | "answered" | "expired";
-const STATUS_FILTER_KEYS: readonly StatusKey[] = ["waiting", "snoozed", "answered", "expired"];
-const DEFAULT_STATUS: readonly StatusKey[] = ["waiting", "snoozed"];
-const HANDLED_STATUS: readonly StatusKey[] = ["answered", "expired"];
-const isDefaultStatus = (s: Set<string>) =>
-  s.size === DEFAULT_STATUS.length && DEFAULT_STATUS.every((k) => s.has(k));
+type ListView = "waiting" | "snoozed" | "answered";
+const LIST_VIEWS: readonly ListView[] = ["waiting", "snoozed", "answered"];
+const viewOfStatus = (status: StatusKey): ListView =>
+  status === "expired" ? "answered" : status;
 
 /** A handled card's pane stamp (answeredTs / expiredTs — whichever its
  * terminal state carries). */
@@ -274,8 +270,6 @@ export function RepliesPage({
     if (!replyCardId) return;
     setAppliedId(replyCardId);
     setDraftId(replyCardId);
-    statusBeforeIdRef.current = new Set(DEFAULT_STATUS);
-    setStatusFilter(new Set());
     setOpenerFilter(new Set());
     setPriorityFilter(new Set());
     setDueFilter(new Set());
@@ -373,8 +367,6 @@ export function RepliesPage({
   function clearFilters() {
     setAppliedId("");
     setDraftId("");
-    statusBeforeIdRef.current = null;
-    setStatusFilter(new Set(DEFAULT_STATUS));
     setOpenerFilter(new Set());
     setPriorityFilter(new Set());
     setDueFilter(new Set());
@@ -401,17 +393,20 @@ export function RepliesPage({
   const [openerFilter, setOpenerFilter] = useState<Set<string>>(
     () => new Set(openerId ? [openerId] : [])
   );
-  // 狀態 — empty set = every status, like the other axes. A #replies/card link
-  // opens with it empty so the named card shows whatever its status; the
-  // chat-header jump is about what that member is still waiting on.
-  const statusBeforeIdRef = useRef<Set<string> | null>(
-    replyCardId ? new Set(DEFAULT_STATUS) : null
-  );
-  const [statusFilter, setStatusFilter] = useState<Set<string>>(() =>
-    replyCardId
-      ? new Set()
-      : new Set<string>(openerId ? ["waiting"] : DEFAULT_STATUS)
-  );
+  const [view, setViewState] = useState<ListView>("waiting");
+  const tabsId = useId();
+  // Cards settled elsewhere while the owner had them open, keyed to the label
+  // they were read under: they stay where he is reading them until he switches.
+  const [pinned, setPinned] = useState<Map<string, ListView>>(() => new Map());
+  const shownInViewRef = useRef<Set<string>>(new Set());
+  const ownMoveIdsRef = useRef<Set<string>>(new Set());
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  function setView(next: ListView) {
+    setViewState(next);
+    setPinned((prev) => (prev.size === 0 ? prev : new Map()));
+    shownInViewRef.current = new Set();
+  }
   // What 清除篩選 is offered for — EITHER axis, not just the id. `filtering`
   // stays id-only on purpose: it also gates the by-id lookup's three outcomes
   // and skips the handled-list fetch, and an 開卡人 tick must not switch
@@ -427,36 +422,21 @@ export function RepliesPage({
   useEffect(() => {
     if (!openerId) return;
     setOpenerFilter(new Set([openerId]));
-    statusBeforeIdRef.current = null;
-    setStatusFilter(new Set(["waiting"]));
+    setView("waiting");
     setPriorityFilter(new Set());
     setDueFilter(new Set());
     setAppliedId("");
     setDraftId("");
   }, [openerId]);
-  const otherAxesNarrowing =
-    idQuery !== "" ||
-    openerFilter.size > 0 ||
-    priorityFilter.size > 0 ||
-    dueFilter.size > 0;
-  // A status set that still includes 未回覆 hides no card the owner owes an
-  // answer to, so an empty list under it may still say ✓ 目前沒有待處理.
-  const narrowing =
-    otherAxesNarrowing || (statusFilter.size > 0 && !statusFilter.has("waiting"));
-  // The default 狀態 is what this page showed before the axis existed, so it
-  // does not offer 清除篩選; 清除篩選 returns to it.
-  const anyFilter = otherAxesNarrowing || !isDefaultStatus(statusFilter);
   const activeFilterCount = [
     idQuery !== "",
-    !isDefaultStatus(statusFilter),
     openerFilter.size > 0,
     priorityFilter.size > 0,
     dueFilter.size > 0,
   ].filter(Boolean).length;
-  const passesStatus = (key: StatusKey) =>
-    statusFilter.size === 0 || statusFilter.has(key);
+  const narrowing = activeFilterCount > 0;
   // An applied id is answered by the server, so it never needs these lists.
-  const wantsHandled = !filtering && HANDLED_STATUS.some(passesStatus);
+  const wantsHandled = view === "answered" && !filtering;
 
   const [waitingSort, setWaitingSortState] = useState<WaitingSort>(() =>
     readStoredChoice(WAITING_SORT_KEY, WAITING_SORTS, "createdDesc")
@@ -485,17 +465,6 @@ export function RepliesPage({
     }
     setDraftId(next);
     setAppliedId(next);
-    // Same as a #replies/card link: the id may name a card of any status and
-    // age, and the default 狀態 would hide a handled one. Emptying the box puts
-    // back the 狀態 the id displaced, unless the owner has picked one since.
-    if (next !== "" && appliedId === "") {
-      statusBeforeIdRef.current = statusFilter;
-      setStatusFilter(new Set());
-    } else if (next === "") {
-      const before = statusBeforeIdRef.current;
-      statusBeforeIdRef.current = null;
-      if (before && statusFilter.size === 0) setStatusFilter(before);
-    }
     // The hash is a SECOND source for the applied id, so leaving a stale one
     // there would re-seed the old card on the next reload.
     if (replyCardId && next !== replyCardId) setRoute({ page: "replies" });
@@ -555,7 +524,7 @@ export function RepliesPage({
     landedOnRef.current = replyCardId;
     card.scrollIntoView({ block: "center" });
     if (!card.contains(document.activeElement)) card.focus({ preventScroll: true });
-  }, [replyCardId, waiting, handled, lookup.state]);
+  }, [replyCardId, waiting, handled, lookup.state, view]);
 
   const loadHandledForPage = useCallback(async () => {
     setHandledLoadError(false);
@@ -646,35 +615,84 @@ export function RepliesPage({
           ? "snoozed"
           : "waiting"
         : foundCard.status;
+  // An id names one card, so landing on it selects that card's label — once per
+  // lookup: a card that settles while the owner reads it must not drag the
+  // page to another label.
+  const foundView = foundStatus === null ? null : viewOfStatus(foundStatus);
+  const autoViewForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!filtering) {
+      autoViewForRef.current = null;
+      return;
+    }
+    if (foundView === null || autoViewForRef.current === idQuery) return;
+    autoViewForRef.current = idQuery;
+    if (foundView !== viewRef.current) setView(foundView);
+  }, [filtering, idQuery, foundView]);
+
+  const visibleHandled = displayedHandled.filter(isVisibleHandled);
+  const pinnedRows = (into: ListView) =>
+    displayedHandled.filter((c) => pinned.get(c.id) === into);
+  // An open card that moves between 等待回覆 and 稍後再看 by itself (its snooze
+  // ran out, or another window snoozed it) stays where the owner is reading it
+  // until he closes it or switches label. His own snooze here still moves it.
+  const heldOpen = (rows: ReplyCardRow[]) =>
+    rows.filter(
+      (c) =>
+        expandedIds.has(c.id) &&
+        shownInViewRef.current.has(c.id) &&
+        !ownMoveIdsRef.current.has(c.id) &&
+        passesAll(c)
+    );
   type ListItem = { row: ReplyCardRow; status: StatusKey };
-  const tag = (status: StatusKey) => (row: ReplyCardRow): ListItem => ({ row, status });
+  const asItem = (status: StatusKey) => (row: ReplyCardRow): ListItem => ({ row, status });
+  const rowItem = (row: ReplyCardRow): ListItem => ({ row, status: row.status as StatusKey });
   const listItems: ListItem[] = filtering
     ? // 🔴 NO 24h PRUNE on a card fetched by id. The window is what makes the
       // unfiltered list "recent"; applying it to an answer from the server would
       // drop the card the owner asked for for being old.
-      foundCard && foundStatus && passesStatus(foundStatus) && passesAll(foundCard)
+      // A card that settles while shown stays under the label it was read in.
+      foundCard &&
+      foundStatus &&
+      (foundView === view || shownInViewRef.current.has(foundCard.id)) &&
+      passesAll(foundCard)
       ? [{ row: foundCard, status: foundStatus }]
       : []
-    : [
-        ...(passesStatus("waiting")
-          ? sortWaitingRows(displayedWaiting.filter(passesAll), waitingSort).map(tag("waiting"))
-          : []),
-        ...(passesStatus("snoozed")
-          ? displayedSnoozed.filter(passesAll).map(tag("snoozed"))
-          : []),
-        ...displayedHandled
-          .filter(
-            (c) =>
-              passesAll(c) &&
-              isVisibleHandled(c) &&
-              // A card settled underneath the owner while he has it open stays
-              // where he is reading it instead of vanishing from the default view.
-              (passesStatus(c.status as StatusKey) ||
-                (settledRows.has(c.id) && expandedIds.has(c.id)))
-          )
-          .sort((a, b) => (handledTsOf(b) ?? 0) - (handledTsOf(a) ?? 0))
-          .map((c) => ({ row: c, status: c.status as StatusKey })),
-      ];
+    : view === "waiting"
+      ? [
+          ...sortWaitingRows(
+            [...displayedWaiting, ...pinnedRows("waiting")].filter(passesAll),
+            waitingSort
+          ).map((row) => (row.status === "waiting" ? asItem("waiting")(row) : rowItem(row))),
+          ...heldOpen(displayedSnoozed).map(asItem("snoozed")),
+        ]
+      : view === "snoozed"
+        ? [
+            ...displayedSnoozed.filter(passesAll).map(asItem("snoozed")),
+            ...heldOpen(displayedWaiting).map(asItem("waiting")),
+            ...pinnedRows("snoozed").filter(passesAll).map(rowItem),
+          ]
+        : visibleHandled
+            .filter(passesAll)
+            .sort((a, b) => (handledTsOf(b) ?? 0) - (handledTsOf(a) ?? 0))
+            .map(rowItem);
+
+  useEffect(() => {
+    shownInViewRef.current = new Set(listItems.map((item) => item.row.id));
+  });
+
+  const viewCounts: Record<ListView, number | null> = filtering
+    ? {
+        waiting: 0,
+        snoozed: 0,
+        answered: 0,
+        ...(foundCard && foundView && passesAll(foundCard) ? { [foundView]: 1 } : {}),
+      }
+    : {
+        waiting: displayedWaiting.filter(passesAll).length,
+        snoozed: displayedSnoozed.filter(passesAll).length,
+        answered: handledLoaded ? visibleHandled.filter(passesAll).length : null,
+      };
   // ── 開卡了哪一張 (owner 2026-09-07) ─────────────────────────────────────────
   // A row is a TITLE, not a card: since `?view=full` left the wire the panes
   // carry `ReplyCardRow`s, so the only thing this page can draw without asking
@@ -711,6 +729,7 @@ export function RepliesPage({
    * it also DROPS the read below, so re-opening reads the card again rather
    * than showing whatever it said minutes ago. */
   function toggleCard(id: string) {
+    ownMoveIdsRef.current.delete(id);
     if (expandedIds.has(id)) secretFocusPendingRef.current.delete(id);
     else secretFocusPendingRef.current.add(id);
     setExpandedIds((prev) => {
@@ -792,6 +811,8 @@ export function RepliesPage({
               expiredTs: card.expiredTs ?? null,
             })
           );
+          const into = viewRef.current;
+          if (into !== "answered") setPinned((prev) => new Map(prev).set(id, into));
           try {
             await refresh();
             if (handledLoaded) setHandledLoadError(false);
@@ -999,13 +1020,8 @@ export function RepliesPage({
   //
   // Each axis counts the rows the OTHER axes let through, so ticking one never
   // zeroes its own siblings.
-  const axisBasis = [
-    ...(passesStatus("waiting") ? displayedWaiting : []),
-    ...(passesStatus("snoozed") ? displayedSnoozed : []),
-    ...displayedHandled.filter(
-      (c) => isVisibleHandled(c) && passesStatus(c.status as StatusKey)
-    ),
-  ];
+  const axisBasis =
+    view === "waiting" ? displayedWaiting : view === "snoozed" ? displayedSnoozed : visibleHandled;
   const countBy = (keep: (c: ReplyCardRow) => boolean, keysOf: (c: ReplyCardRow) => string[]) => {
     const counts = new Map<string, number>();
     for (const c of axisBasis) {
@@ -1035,21 +1051,11 @@ export function RepliesPage({
   const dueOptions = fixedOptions(DUE_FILTER_KEYS, dueCounts, (k) =>
     dueFilterLabel(t.tasks, k as DueFilterKey)
   );
-  const statusLabels: Record<StatusKey, string> = {
-    waiting: t.replies.statusWaiting,
-    snoozed: t.replies.statusSnoozed,
-    answered: t.replies.statusAnswered,
-    expired: t.replies.statusExpired,
+  const viewLabels: Record<ListView, string> = {
+    waiting: t.replies.tabWaiting,
+    snoozed: t.replies.tabSnoozed,
+    answered: t.replies.tabAnswered,
   };
-  const statusOptions: MultiSelectOption[] = STATUS_FILTER_KEYS.map((k) => ({
-    value: k,
-    label: statusLabels[k],
-    hint: HANDLED_STATUS.includes(k) ? t.replies.statusRecentHint : undefined,
-  }));
-  const statusGroups: MultiSelectGroup[] = [
-    { value: "open", label: t.replies.statusGroupOpen, members: [...DEFAULT_STATUS] },
-    { value: "handled", label: t.replies.statusGroupHandled, members: [...HANDLED_STATUS] },
-  ];
   // 開卡人 下拉的選項在 `whoOf` 之後才建得起來（它要用 `askerNames`），見下方。
 
   const handledLoading = wantsHandled && !handledLoaded && !handledLoadError;
@@ -1342,6 +1348,7 @@ export function RepliesPage({
   }
 
   async function doSnooze(id: string, untilTs: number): Promise<SnoozeOutcome> {
+    ownMoveIdsRef.current.add(id);
     try {
       await snooze(id, untilTs);
       setActionError(null);
@@ -1356,6 +1363,7 @@ export function RepliesPage({
   }
 
   async function doUnsnooze(id: string) {
+    ownMoveIdsRef.current.add(id);
     setUnsnoozeErrors((prev) => {
       if (!prev.has(id)) return prev;
       const next = new Set(prev);
@@ -1590,12 +1598,16 @@ export function RepliesPage({
           * through Markdown; the light row carries it, so this costs no read. */}
         <ReplyCardLinkComments from={row.from} recipientFor={docCommentRecipientFor}>
           <div className="reply-card__title-line">
-            <span
-              className={`reply-tag reply-tag--${opts.status} reply-card__status`}
-              data-testid="reply-status-tag"
-            >
-              {statusLabels[opts.status]}
-            </span>
+            {/* Only 近期已回覆 mixes two statuses; under the other labels the
+              * label itself already says what every card is. */}
+            {view === "answered" && (opts.status === "answered" || opts.status === "expired") && (
+              <span
+                className={`reply-tag reply-tag--${opts.status} reply-card__status`}
+                data-testid="reply-status-tag"
+              >
+                {opts.status === "expired" ? t.replies.statusExpired : t.replies.statusAnswered}
+              </span>
+            )}
             <Markdown source={row.summary} className="reply-card__summary doc-md" />
           </div>
           {open &&
@@ -1777,137 +1789,151 @@ export function RepliesPage({
         </div>
       )}
 
-      <FilterPanel
-        testId="replies-filter"
-        clearLabel={t.replies.clearFilters}
-        onClear={anyFilter ? clearFilters : undefined}
-        collapse={{ title: t.replies.filterDialogTitle, activeCount: activeFilterCount }}
-        actions={
-          <DisplayOptions
-            label={t.replies.sortLabel}
-            value={waitingSort}
-            options={WAITING_SORTS.map((v) => ({ value: v, label: sortLabels[v] }))}
-            onChange={setWaitingSort}
-            selectTestId="replies-sort"
-          />
-        }
-      >
-        <FilterField label={t.replies.filterIdLabel} wide>
-          <IdFilterInput
-            value={draftId}
-            onChange={setDraftId}
-            onCommit={commitId}
-            label={t.replies.filterIdLabel}
-            testId="filter-reply-card-id"
-            // 15 = the length of every 請示卡 id there is: api_replycards.go
-            // mints "rc-" + newHexID(12). ⚠️ Say LENGTH here, not the other
-            // word: a literal prose guard
-            // (TestRetiredTaskNoSentencesDoNotLiveAnywhereInTheTree) scans for it.
-            widthCh={15}
-          />
-        </FilterField>
-        <FilterField label={t.replies.filterStatusNoun}>
-          <MultiSelectFilter
-            noun={t.replies.filterStatusNoun}
-            allLabel={t.replies.filterStatusAll}
-            options={statusOptions}
-            groups={statusGroups}
-            selected={statusFilter}
-            onChange={setStatusFilter}
-            testId="filter-status"
-          />
-        </FilterField>
-        <FilterField label={t.replies.filterOpenerNoun}>
-          <MultiSelectFilter
-            noun={t.replies.filterOpenerNoun}
-            allLabel={t.replies.filterOpenerAll}
-            options={openerOptions}
-            selected={openerFilter}
-            onChange={setOpenerFilter}
-            testId="filter-opener"
-          />
-        </FilterField>
-        <FilterField label={t.replies.filterPriorityNoun}>
-          <MultiSelectFilter
-            noun={t.replies.filterPriorityNoun}
-            allLabel={t.replies.filterPriorityAll}
-            options={priorityOptions}
-            selected={priorityFilter}
-            onChange={setPriorityFilter}
-            testId="filter-priority"
-          />
-        </FilterField>
-        <FilterField label={t.replies.filterDueNoun}>
-          <MultiSelectFilter
-            noun={t.replies.filterDueNoun}
-            allLabel={t.replies.filterDueAll}
-            options={dueOptions}
-            selected={dueFilter}
-            onChange={setDueFilter}
-            testId="filter-due"
-          />
-        </FilterField>
-      </FilterPanel>
-
       <section className="replies__section">
-        <div className="replies__section-title">
-          <span>
-            {t.replies.waitingTitle}
-            {!loading && !error && ` · ${listItems.length}`}
-          </span>
-          <span className="replies__section-hint" data-testid="replies-sort-active">
-            {sortLabels[waitingSort]}
-          </span>
-        </div>
-        {handledLoadError && wantsHandled && (
-          <div className="replies__error" data-testid="handled-load-error">
-            {t.replies.loadError}
-          </div>
-        )}
-        {!loading && !error && listItems.length === 0 ? (
-          /* THREE, and the split that survives is 「we have an answer」 vs
-           * 「we do not」. An empty page and an empty RESULT stay separate —
-           * saying 「目前沒有待處理的請示」 while six cards sit behind a filter
-           * reads as "you are all caught up". And a network/500 failure keeps
-           * its own line, because nothing was ever asked and 0 筆 would be a
-           * claim about an unanswered question.
-           *
-           * 🔴 A FOURTH used to sit here: a 404 got its own sentence
-           * (「找不到「X」…」). owner 2026-09-06 removed it — he saw it on the
-           * trial station and answered 「為什麼要顯示這種東西 拿掉!」, then
-           * 「UI不是本來就秀0筆了嗎」. A 404 now falls through to the ordinary
-           * 沒有符合篩選條件的請示, with the count and the 已篩選 條件 beside it.
-           * What made round 1 dishonest was never this sentence — it was that
-           * the page FILTERED THE ROWS IT HAPPENED TO HOLD, so an unloaded card
-           * and a non-existent one really were the same screen. The by-id
-           * lookup asks the server, so the two are now different facts; the
-           * sentence was belt-and-braces on top of a fix that already works.
-           * Do not restore it as a bug fix. */
-          lookup.state === "failed" ? (
-            <div
-              className="replies__error"
-              data-testid="replies-lookup-failed"
+        <div className="replies__head">
+          <ReplyListTabs
+            views={LIST_VIEWS}
+            selected={view}
+            labels={viewLabels}
+            counts={loading || error ? null : viewCounts}
+            ariaLabel={t.replies.tabsLabel}
+            idPrefix={tabsId}
+            onSelect={setView}
+          />
+          <div className="replies__head-tools">
+            {view === "waiting" ? (
+              <span className="replies__section-hint" data-testid="replies-sort-active">
+                {sortLabels[waitingSort]}
+              </span>
+            ) : view === "answered" ? (
+              <span className="replies__section-hint" data-testid="replies-answered-window">
+                {t.replies.tabAnsweredHint}
+              </span>
+            ) : null}
+            <FilterPanel
+              testId="replies-filter"
+              clearLabel={t.replies.clearFilters}
+              onClear={narrowing ? clearFilters : undefined}
+              collapse={{ title: t.replies.filterDialogTitle, activeCount: activeFilterCount }}
+              actions={
+                <DisplayOptions
+                  label={t.replies.sortLabel}
+                  value={waitingSort}
+                  options={WAITING_SORTS.map((v) => ({ value: v, label: sortLabels[v] }))}
+                  onChange={setWaitingSort}
+                  selectTestId="replies-sort"
+                />
+              }
             >
-              {t.replies.lookupFailed}
-            </div>
-          ) : lookup.state === "loading" || handledLoading ? (
-            <div className="replies__empty" data-testid="replies-lookup-loading">
-              {t.replies.lookupLoading}
-            </div>
-          ) : (
-            <div className="replies__empty" data-testid="replies-empty">
-              {narrowing ? t.replies.emptyFiltered : t.replies.empty}
-            </div>
-          )
-        ) : (
-          <div className="replies__list">
-            {listItems.map(({ row, status }) =>
-              status === "waiting" || status === "snoozed"
-                ? renderWaitingCard(row, status === "snoozed")
-                : renderHandledCard(row)
-            )}
+              <FilterField label={t.replies.filterIdLabel} wide>
+                <IdFilterInput
+                  value={draftId}
+                  onChange={setDraftId}
+                  onCommit={commitId}
+                  label={t.replies.filterIdLabel}
+                  testId="filter-reply-card-id"
+                  // 15 = the length of every 請示卡 id there is: api_replycards.go
+                  // mints "rc-" + newHexID(12). ⚠️ Say LENGTH here, not the other
+                  // word: a literal prose guard
+                  // (TestRetiredTaskNoSentencesDoNotLiveAnywhereInTheTree) scans for it.
+                  widthCh={15}
+                />
+              </FilterField>
+              <FilterField label={t.replies.filterOpenerNoun}>
+                <MultiSelectFilter
+                  noun={t.replies.filterOpenerNoun}
+                  allLabel={t.replies.filterOpenerAll}
+                  options={openerOptions}
+                  selected={openerFilter}
+                  onChange={setOpenerFilter}
+                  testId="filter-opener"
+                />
+              </FilterField>
+              <FilterField label={t.replies.filterPriorityNoun}>
+                <MultiSelectFilter
+                  noun={t.replies.filterPriorityNoun}
+                  allLabel={t.replies.filterPriorityAll}
+                  options={priorityOptions}
+                  selected={priorityFilter}
+                  onChange={setPriorityFilter}
+                  testId="filter-priority"
+                />
+              </FilterField>
+              <FilterField label={t.replies.filterDueNoun}>
+                <MultiSelectFilter
+                  noun={t.replies.filterDueNoun}
+                  allLabel={t.replies.filterDueAll}
+                  options={dueOptions}
+                  selected={dueFilter}
+                  onChange={setDueFilter}
+                  testId="filter-due"
+                />
+              </FilterField>
+            </FilterPanel>
           </div>
-        )}
+        </div>
+        <div
+          role="tabpanel"
+          id={`${tabsId}-panel`}
+          aria-labelledby={`${tabsId}-tab-${view}`}
+          className="replies__panel"
+        >
+          {handledLoadError && wantsHandled && (
+            <div className="replies__error" data-testid="handled-load-error">
+              {t.replies.loadError}
+            </div>
+          )}
+          {!loading && !error && listItems.length === 0 ? (
+            /* THREE, and the split that survives is 「we have an answer」 vs
+             * 「we do not」. An empty page and an empty RESULT stay separate —
+             * saying 「目前沒有待處理的請示」 while six cards sit behind a filter
+             * reads as "you are all caught up". And a network/500 failure keeps
+             * its own line, because nothing was ever asked and 0 筆 would be a
+             * claim about an unanswered question.
+             *
+             * 🔴 A FOURTH used to sit here: a 404 got its own sentence
+             * (「找不到「X」…」). owner 2026-09-06 removed it — he saw it on the
+             * trial station and answered 「為什麼要顯示這種東西 拿掉!」, then
+             * 「UI不是本來就秀0筆了嗎」. A 404 now falls through to the ordinary
+             * 沒有符合篩選條件的請示, with the count and the 已篩選 條件 beside it.
+             * What made round 1 dishonest was never this sentence — it was that
+             * the page FILTERED THE ROWS IT HAPPENED TO HOLD, so an unloaded card
+             * and a non-existent one really were the same screen. The by-id
+             * lookup asks the server, so the two are now different facts; the
+             * sentence was belt-and-braces on top of a fix that already works.
+             * Do not restore it as a bug fix. */
+            lookup.state === "failed" ? (
+              <div
+                className="replies__error"
+                data-testid="replies-lookup-failed"
+              >
+                {t.replies.lookupFailed}
+              </div>
+            ) : lookup.state === "loading" || handledLoading ? (
+              <div className="replies__empty" data-testid="replies-lookup-loading">
+                {t.replies.lookupLoading}
+              </div>
+            ) : (
+              <div className="replies__empty" data-testid="replies-empty">
+                {narrowing
+                  ? t.replies.emptyFiltered
+                  : view === "snoozed"
+                    ? t.replies.emptySnoozed
+                    : view === "answered"
+                      ? t.replies.emptyAnswered
+                      : t.replies.empty}
+              </div>
+            )
+          ) : (
+            <div className="replies__list">
+              {listItems.map(({ row, status }) =>
+                status === "waiting" || status === "snoozed"
+                  ? renderWaitingCard(row, status === "snoozed")
+                  : renderHandledCard(row)
+              )}
+            </div>
+          )}
+        </div>
       </section>
 
       {expireTarget && (
@@ -1965,4 +1991,83 @@ function OutsourceWorkersFeed({
   const { workers } = useOutsourceWorkers();
   useEffect(() => onWorkers(workers), [workers, onWorkers]);
   return null;
+}
+
+function ReplyListTabs({
+  views,
+  selected,
+  labels,
+  counts,
+  ariaLabel,
+  idPrefix,
+  onSelect,
+}: {
+  views: readonly ListView[];
+  selected: ListView;
+  labels: Record<ListView, string>;
+  /** Null while the lists load; a null entry is a list not fetched yet. */
+  counts: Record<ListView, number | null> | null;
+  ariaLabel: string;
+  idPrefix: string;
+  onSelect: (view: ListView) => void;
+}) {
+  const tabRefs = useRef(new Map<ListView, HTMLButtonElement>());
+  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const at = views.indexOf(selected);
+    const next =
+      e.key === "ArrowRight"
+        ? views[(at + 1) % views.length]
+        : e.key === "ArrowLeft"
+          ? views[(at - 1 + views.length) % views.length]
+          : e.key === "Home"
+            ? views[0]
+            : e.key === "End"
+              ? views[views.length - 1]
+              : null;
+    if (!next) return;
+    e.preventDefault();
+    onSelect(next);
+    tabRefs.current.get(next)?.focus();
+  }
+  return (
+    <div
+      className="replies__tabs"
+      role="tablist"
+      aria-label={ariaLabel}
+      data-testid="replies-tabs"
+      onKeyDown={onKeyDown}
+    >
+      {views.map((v) => {
+        const active = v === selected;
+        const count = counts?.[v] ?? null;
+        return (
+          <button
+            key={v}
+            ref={(el) => {
+              if (el) tabRefs.current.set(v, el);
+              else tabRefs.current.delete(v);
+            }}
+            type="button"
+            role="tab"
+            id={`${idPrefix}-tab-${v}`}
+            aria-selected={active}
+            aria-controls={`${idPrefix}-panel`}
+            tabIndex={active ? 0 : -1}
+            className={`replies__tab${active ? " replies__tab--active" : ""}`}
+            data-testid={`replies-tab-${v}`}
+            onClick={() => onSelect(v)}
+          >
+            <span className="replies__tab-label" title={labels[v]}>
+              {labels[v]}
+            </span>
+            {count !== null && (
+              <span className="replies__tab-count" data-testid={`replies-tab-count-${v}`}>
+                {count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
 }

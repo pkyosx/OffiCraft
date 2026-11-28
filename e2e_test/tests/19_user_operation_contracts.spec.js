@@ -15,15 +15,9 @@ const {
   uniqueName,
 } = require('../lib/fixtures');
 
-/** Open the 篩選 dialog, tick 已回覆 in its 狀態 field, then close the popover
- * and the dialog (✕ on desktop, 完成 on a phone sheet). */
+/** Select the 近期已回覆 label above the list. */
 async function showAnswered(page) {
-  await page.getByTestId('replies-filter-toggle').click();
-  const trigger = page.getByTestId('filter-status');
-  await trigger.click();
-  await page.getByTestId('filter-status-opt-answered').locator('input').check();
-  await trigger.click();
-  await page.getByTestId('replies-filter-close').or(page.getByTestId('replies-filter-done')).click();
+  await page.getByTestId('replies-tab-answered').click();
 }
 
 function options(texts, aiPickAt) {

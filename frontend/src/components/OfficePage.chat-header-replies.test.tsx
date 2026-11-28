@@ -12,7 +12,6 @@ import { __resetWorkerCodenameCache } from "../hooks/useWorkerCodenames";
 import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 import { __injectMockOutsourceWorker, __injectMockReplyCard, __resetMock } from "../api/mock";
 import type { OutsourceWorkerView, ReplyCard } from "../api/adapter";
-import { openFilters } from "../test/tasksFilter";
 
 const worker = {
   id: "ow-a",
@@ -112,17 +111,15 @@ describe("OfficePage chat header 請示卡 jump", () => {
   it.each([
     ["mira", 2],
     ["ow-a", 1],
-  ])("clicking it in the %s room opens #replies/opener/<that peer> on exactly the cards its badge counted, all 未回覆", async (id, count) => {
+  ])("clicking it in the %s room opens #replies/opener/<that peer> on 等待回覆 with exactly the cards its badge counted", async (id, count) => {
     openRoom(id);
     fireEvent.click(await button());
     expect(window.location.hash).toBe(`#replies/opener/${id}`);
     const cards = () => [...document.querySelectorAll(".replies [data-reply-card-id][aria-expanded]")];
     await waitFor(() => expect(cards()).toHaveLength(count));
-    expect(cards().map((c) => c.querySelector('[data-testid="reply-status-tag"]')?.textContent)).toEqual(
-      Array(count).fill("未回覆"),
-    );
-    expect(screen.getByTestId("replies-filter-count").textContent).toBe("2");
-    openFilters();
-    expect(screen.getByTestId("filter-status").textContent).toBe("未回覆");
+    expect(cards().every((c) => c.getAttribute("data-testid") === "waiting-card")).toBe(true);
+    expect(screen.getByTestId("replies-tab-waiting").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("replies-tab-count-waiting").textContent).toBe(String(count));
+    expect(screen.getByTestId("replies-filter-count").textContent).toBe("1");
   });
 });

@@ -74,7 +74,7 @@ export function FilterPanel({
   /** Pass it ONLY while something is narrowing the list, `undefined`
    * otherwise — its presence is the decision to show 清除篩選. The host owns
    * that judgement because only it knows what its axes mean (任務頁's default
-   * status set narrows; 請示頁's default status does not). */
+   * status set narrows). */
   onClear?: () => void;
   children: ReactNode;
   /** Controls that are not filters (顯示方式), held at the row's right end,

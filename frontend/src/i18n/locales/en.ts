@@ -647,20 +647,19 @@ export const en: Dict = {
   // has no copy of its own — the field labels live under `tasks.*` / `replies.*`
   // because each page words its own.
   replies: {
-    waitingTitle: "Ask",
-    // The status axis. Answered / expired list only the server's last 24h,
-    // which the hint beside those options says.
-    filterStatusNoun: "Status",
-    filterStatusAll: "All statuses",
-    statusWaiting: "Unanswered",
-    statusSnoozed: "Snoozed",
+    // The three list labels. tabSnoozed is the same word as the snooze action.
+    tabsLabel: "Reply cards",
+    tabWaiting: "Awaiting",
+    tabSnoozed: "Later",
+    tabAnswered: "Recently answered",
+    tabAnsweredHint: "last 24h",
+    // The tag on each card under Recently answered.
     statusAnswered: "Answered",
     statusExpired: "Expired",
-    statusRecentHint: "last 24h",
-    statusGroupOpen: "Open",
-    statusGroupHandled: "Handled",
     empty: "✓ No pending asks",
     emptyFiltered: "No asks match the current filter",
+    emptySnoozed: "No reply cards set aside for later",
+    emptyAnswered: "No reply cards answered in the last 24 hours",
     // The 開卡人 axis (T-118). Wording mirrors the 任務頁 executor dropdown:
     // "all <noun>" when NOTHING is ticked, that one name for a single tick,
     // "<noun> · N" for any other set. ⚠️ A FULL set no longer says "all <noun>"

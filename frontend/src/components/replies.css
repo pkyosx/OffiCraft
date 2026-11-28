@@ -29,18 +29,112 @@
   font-size: 13px;
 }
 
-.replies__section-title {
+.replies__section {
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
+  gap: 14px;
+}
+/* The three list labels, then the selected list's note (its sort, or the 24h
+ * window) and the filter / 顯示方式 buttons. The labels never wrap; when the
+ * row is too narrow the note and buttons move below them as one group. */
+.replies__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding-top: 6px;
+}
+.replies__head-tools {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
   gap: 10px;
-  padding: 0 2px 12px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-muted);
+}
+.replies__head-tools > .filter-panel {
+  margin-left: auto;
+  flex: none;
+}
+/* The funnel's badge room moves from the bar to the whole row (.replies__head
+ * padding-top), so the bar lines up with the labels beside it. */
+.replies__head-tools .filter-panel__bar {
+  padding-top: 0;
+}
+.replies__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 .replies__section-hint {
-  font-weight: 400;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
+  color: var(--color-text-muted);
+}
+.replies__tabs {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 3%, transparent);
+}
+.replies__tab {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 11px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.replies__tab:hover {
+  color: var(--color-text);
+}
+.replies__tab:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.replies__tab--active {
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  color: var(--color-text-strong);
+  font-weight: 600;
+}
+/* Only the longest English label at 320px runs out of room; it gives way with
+ * an ellipsis while the count stays. */
+.replies__tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.replies__tab-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+.replies__tab--active .replies__tab-count {
+  color: var(--color-text);
+}
+@media (max-width: 360px) {
+  .replies__tab {
+    gap: 4px;
+    padding: 0 8px;
+  }
 }
 
 /* The ✓ all-answered empty state (spec copy). */

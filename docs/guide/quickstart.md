@@ -86,7 +86,7 @@ To understand each field on the task card, see [Tracking task progress](tasks.md
 
 When the work reaches a point where something can only be decided by you (for example, in the trip example, what kind of sights you want and what your budget is, or whether to go ahead and which direction to take), Mira does not decide for you. Instead, Mira opens a **reply card** and stops to wait for you. The status of that step changes to "Awaiting my reply".
 
-The number on the "Ask" tab is the number of cards still waiting for your reply (cards you clicked "Later" on are not counted).
+The number on the "Ask" tab is the number of cards still waiting for your reply (cards you clicked "Later" on are not counted). The Ask page opens on the "Awaiting" label; cards you clicked "Later" on wait under the "Later" label, and cards you answered in the last 24 hours are under "Recently answered".
 
 When you open a reply card, you see:
 

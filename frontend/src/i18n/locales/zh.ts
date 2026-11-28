@@ -684,23 +684,23 @@ export const zh = {
   // 隨那條摘要列一起消失。取代它的那一列只有欄位、沒有任何自己的字，所以這裡
   // 不留空殼；欄位的標籤本來就分別住在 `tasks.*` 與 `replies.*`，兩頁各自措辭。
   replies: {
-    waitingTitle: "請示",
-    // 狀態軸。已回覆／已過期只列近 24 小時（server 的視窗），提示寫在選項旁。
-    filterStatusNoun: "狀態",
-    filterStatusAll: "所有狀態",
-    statusWaiting: "未回覆",
-    statusSnoozed: "已延後",
+    // 清單上方的三個標籤。tabSnoozed 跟延後動作同一個詞。
+    tabsLabel: "請示卡",
+    tabWaiting: "等待回覆",
+    tabSnoozed: "稍後再看",
+    tabAnswered: "近期已回覆",
+    tabAnsweredHint: "近 24 小時",
+    // 近期已回覆清單裡每張卡的狀態標籤。
     statusAnswered: "已回覆",
     statusExpired: "已過期",
-    statusRecentHint: "近 24 小時",
-    statusGroupOpen: "待處理",
-    statusGroupHandled: "已處理",
     // 全部處理完的空狀態
     empty: "✓ 目前沒有待處理的請示",
     // 篩掉之後什麼都不剩的空狀態。跟上面那句是兩件事:上面是「你回完了」,
     // 這句是「還有卡,只是沒有一張符合」——沿用任務頁 emptyNone/emptyFiltered
     // 的同一個分法。
     emptyFiltered: "沒有符合篩選條件的請示",
+    emptySnoozed: "沒有稍後再看的請示卡",
+    emptyAnswered: "最近 24 小時沒有已回覆的請示卡",
     // 開卡人軸（T-118，owner 2026-09-06 c-782404ee53d8）。用詞跟任務頁的負責人
     // 那顆對齊：**都沒勾**時說「所有<名詞>」，勾一個說那個名字，勾多個說
     // 「<名詞> · N」。⚠️ 全勾不再說「所有<名詞>」（owner 2026-09-06
