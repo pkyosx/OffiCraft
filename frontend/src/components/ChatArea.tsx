@@ -415,7 +415,7 @@ export function ChatArea({
   // later SSE refetches never re-scroll.
   //
   // 🔴 THE COCKPIT ROUTES HERE AGAIN (owner 2026-08-29: 「1 跟 2 變回去原本那
-  // 樣」). The 請示 page's 跳到原訊息 and the inline task card's 在聊天室回覆
+  // 樣」). The 請示 page's 跳到原訊息 and the inline task card's 跳到原訊息
   // both write #office/chat/<id>/msg/<msgId> once more; the chat bubble's
   // 看原訊息 takes the overlay (hooks/useQuotedMessageOverlay), and of that
   // overlay only its 跳到原訊息 routes here (`jumpToMessage`).
@@ -1501,7 +1501,7 @@ export function ChatArea({
   // the thread still opens, and nothing pretends the target was found).
   //
   // ⚠️ Its callers are the 請示 page's 跳到原訊息, the inline task card's
-  // 在聊天室回覆, the quoted-message overlay's 跳到原訊息 (`jumpToMessage`),
+  // 跳到原訊息, the quoted-message overlay's 跳到原訊息 (`jumpToMessage`),
   // and any URL somebody kept (bookmark, pasted link, restored tab) — see the
   // prop's note for the miss this can still land on.
   useEffect(() => {

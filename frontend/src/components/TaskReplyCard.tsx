@@ -35,6 +35,7 @@ import {
 import type { DocCommentRecipient } from "../lib/docComments";
 import { unlinkMentions } from "../lib/mentionLinks";
 import { ChevronRightIcon } from "./icons";
+import { JumpToMessageIcon } from "./replyCardActionIcons";
 import "./replies.css";
 
 export function TaskReplyCard({
@@ -211,7 +212,7 @@ export function TaskReplyCard({
   }
 
   // The ask ALWAYS rides a chat message (card.chatMessageId) — the header's
-  // 在聊天室回覆 link opens that member's chat located on the ask (same
+  // 跳到原訊息 button opens that member's chat located on the ask (same
   // hashRoute contract as RepliesPage's 跳到原訊息).
   function jumpToChat() {
     if (!card) return;
@@ -303,11 +304,12 @@ export function TaskReplyCard({
           {card && (
             <button
               type="button"
-              className="task-reply-card__jump"
+              className="reply-card__icon-btn task-reply-card__jump"
+              aria-label={t.replies.jumpToChat}
+              title={t.replies.jumpToChat}
               onClick={jumpToChat}
             >
-              {t.tasks.replyInChat}
-              <ChevronRightIcon size={12} />
+              <JumpToMessageIcon size={13} />
             </button>
           )}
           {(card?.status === "answered" || card?.status === "expired") && (

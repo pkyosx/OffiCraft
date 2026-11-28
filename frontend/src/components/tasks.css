@@ -1643,19 +1643,6 @@ button.task-card__waiting--dep:focus-visible {
 }
 .task-reply-card__jump {
   margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 4px 8px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  transition: color 0.15s;
-}
-.task-reply-card__jump:hover {
-  color: var(--color-text);
 }
 /* 卡內嵌在所屬 step 內 (owner 2026-07-14) */
 .task-step .task-reply-card {

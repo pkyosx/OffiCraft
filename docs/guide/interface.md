@@ -310,7 +310,7 @@ Reply cards appear in three places. Answering in any one of them has the same ef
 
 - The "Ask" tab. The number on the tab is the count of cards still waiting for your answer, not counting snoozed cards.
 - In a member's chat, between messages. In chat, reply cards are collapsed into a single row by default, labeled "Pending", "Snoozed", "Answered" or "Expired". "Snoozed" is a card you pressed "Later" on whose time has not come yet; when the time comes, or when you bring it back, it changes back to "Pending" by itself. Click the collapsed row to expand it; once expanded, click an empty area of the card to collapse it again.
-- The "Ask" section on a task card. The card carries no status tag there, whether it is waiting or snoozed. Pressing "Reply in chat" takes you to the same card in chat.
+- The "Ask" section on a task card. The card carries no status tag there, whether it is waiting or snoozed. The external-link arrow at the top-right of the card (hover to see "View in chat") takes you to the same card in chat.
 
 When a card relates to a task, it has a task bar at the top: on the Ask tab it shows the task number, priority, due date and task name; in chat it shows the task number and the task name. In both places clicking the task number ("View task") takes you to the task, the same tag as an outsource member's task. When the task name is too long it is cut off with "…" and stays on the same line; on a phone, the due date is on its own line below the task line. "View in chat" takes you to the message in chat where the card was opened.
 
@@ -412,7 +412,7 @@ The first line of the card holds the status icon, the task number, the priority 
   - **Shield** — An amber shield on the top-right corner of a step's box means the step needs your approval (a gate). It stays after the step is done.
   - **Time pill** — At the right end of the step name's first line: an hourglass plus the step's time in one unit, the same pill as on the Ask page. Hover over it to see the full "Elapsed 4h 59m". A step that has not started has an empty space there, so the pills line up down the list.
   - A step waiting on external has its reason under the name, after "Waiting". Clicking the title bar of either block collapses that block only, not the card; the collapsed workflow's title bar shows "1/4 done · In progress: <step name>".
-- **Ask** — Reply cards embedded in the task; you can "Reply in chat".
+- **Ask** — Reply cards embedded in the task; the external-link arrow ("View in chat") takes you to the card in chat.
 - **Reassign** — The swap icon next to "Assignee" (hover to see "Reassign…").
 - **Message box** — The message box on the card sends a message to the assignee. Its placeholder names the assignee; an outsource member is named by its code name alone, for example "Message O-7…". The suggested replies below the box list this task manual's sentences first, then the "Task-message suggestions". Clicking the name of the assignee, creator or previous assignee (hover to see "Message the assignee", "Message the creator" or "Message the predecessor") opens your chat with that member.
 

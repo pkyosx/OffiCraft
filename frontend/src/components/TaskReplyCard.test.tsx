@@ -75,18 +75,21 @@ afterEach(() => {
 });
 
 describe("TaskReplyCard", () => {
-  // owner 2026-08-29: 「1 跟 2 變回去原本那樣」. The header 在聊天室回覆 control
+  // owner 2026-08-29: 「1 跟 2 變回去原本那樣」. The header 跳到原訊息 control
   // NAVIGATES — it writes #office/chat/<id>/msg/<msgId> and lets ChatArea
   // locate + highlight the ask (same hashRoute contract as RepliesPage's
   // 跳到原訊息). The accepted cost that comes back with it: an ask outside the
   // loaded window is not found and the room opens on the newest message,
   // silently. Deliberate — not a bug to patch here.
-  it("the header 在聊天室回覆 routes to the member's chat with the ask message id", async () => {
+  it("the header's icon-only 跳到原訊息 routes to the member's chat with the ask message id", async () => {
     __injectMockReplyCard(mkCard({}));
-    const { findByTestId, getByText } = renderCard();
+    const { findByTestId, getByRole } = renderCard();
     await findByTestId("task-reply-card");
 
-    fireEvent.click(getByText("在聊天室回覆"));
+    const jump = getByRole("button", { name: "跳到原訊息" });
+    expect(jump.getAttribute("title")).toBe("跳到原訊息");
+    expect(jump.textContent).toBe("");
+    fireEvent.click(jump);
 
     expect(window.location.hash).toBe("#office/chat/mira/msg/msg-1");
   });
@@ -227,7 +230,7 @@ describe("TaskReplyCard", () => {
     expect(getSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("a waiting card's head reads only 請示 · 在聊天室回覆, snoozed or not", async () => {
+  it("a waiting card's head reads only 請示 · 跳到原訊息, snoozed or not", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: Date.now() / 1000 + 3600 }));
     __injectMockReplyCard(mkCard({ id: "rc-2" }));
     render(
@@ -240,10 +243,11 @@ describe("TaskReplyCard", () => {
     );
     const head = (id: string) =>
       document.querySelector(`[data-reply-card-id="${id}"] .task-reply-card__head`);
-    await waitFor(() => expect(head("rc-1")?.textContent).toContain("在聊天室回覆"));
-    await waitFor(() => expect(head("rc-2")?.textContent).toContain("在聊天室回覆"));
+    await waitFor(() => expect(head("rc-1")?.querySelector('[aria-label="跳到原訊息"]')).not.toBeNull());
+    await waitFor(() => expect(head("rc-2")?.querySelector('[aria-label="跳到原訊息"]')).not.toBeNull());
     for (const id of ["rc-1", "rc-2"]) {
-      expect(head(id)!.textContent).toBe("請示在聊天室回覆");
+      expect(head(id)!.textContent).toBe("請示");
+      expect(head(id)!.querySelectorAll("button")).toHaveLength(1);
     }
   });
 

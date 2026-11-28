@@ -591,7 +591,6 @@ export const en: Dict = {
     reassignConfirm: "Reassign",
     reassignError: "The reassign failed. Please try again.",
     replyHeader: "Ask",
-    replyInChat: "Reply in chat",
     needsApproval: "Needs your approval",
     replyAnsweredTag: "Answered",
     replyWaitingTag: "Pending",
