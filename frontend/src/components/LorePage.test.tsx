@@ -2421,7 +2421,7 @@ describe("LorePage — 目錄與段落頁", () => {
     );
   });
 
-  it("an id typed on the directory opens that entry's section page with the entry highlighted, as a full card even when it cannot be read", async () => {
+  it("an id typed on the directory opens that entry's section page with the entry highlighted, as a full card even when it cannot be read, and Back finds the directory unfiltered", async () => {
     stubTargets();
     const list = vi.spyOn(api, "listLoreEntries").mockImplementation(async (o) =>
       o?.scopeKeys === undefined
@@ -2449,6 +2449,12 @@ describe("LorePage — 目錄與段落頁", () => {
     window.location.hash = "#lore/agent/mira/entry/L-198";
     await waitFor(() => expect(rowById(container, "L-198").dataset.folded).toBeUndefined());
     await waitFor(() => expect(document.activeElement).toBe(rowById(container, "L-198")));
+
+    fireEvent.click(container.querySelector('[data-testid="lore-back"]')!);
+    await waitFor(() => expect(headerTexts(container)).toHaveLength(4));
+    expect(container.querySelector('[data-testid="lore-directory-filter-count"]')).toBeNull();
+    openFilters();
+    expect(document.querySelector<HTMLInputElement>('[data-testid="lore-directory-id"]')!.value).toBe("");
   });
 
   it("a highlighted entry beyond the first page is paged in", async () => {
