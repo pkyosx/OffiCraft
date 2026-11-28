@@ -143,9 +143,6 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     expect(utils.queryByTestId("doc-card-edit")).toBeNull();
     expect(utils.queryByTestId("doc-card-editor")).toBeNull();
     expect(utils.queryByText(s.historyTaskUnblockedTitle)).toBeNull();
-    // 「儲存＝整份取代」 is a fact about saving, so a document nobody may save
-    // does not carry it.
-    expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
   });
 
   // 決定 2 itself, on the UI side. Without this, the mock could quietly start
@@ -168,7 +165,6 @@ describe("SettingsPage · boot / lifecycle documents", () => {
       );
       expect(utils.getByRole("cell", { name: "辦公室" })).toBeTruthy();
       expect(utils.queryByTestId("doc-card-edit")).toBeNull();
-      expect(utils.queryByTestId("doc-card-replace-note")).toBeNull();
     });
   }
 
@@ -178,6 +174,5 @@ describe("SettingsPage · boot / lifecycle documents", () => {
     const utils = await openRolesLog();
     fireEvent.click(utils.getByTestId("boot-doc-entry-task_takeover_with_predecessor"));
     await utils.findByTestId("doc-card-edit");
-    expect(utils.getByTestId("doc-card-replace-note")).toBeTruthy();
   });
 });
